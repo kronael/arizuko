@@ -10,7 +10,7 @@ package main
 // turn can start mid-extraction. Either the instance is up and the hold is taken,
 // or the operator passes --stopped. Never neither, so an unreachable runed is fatal.
 //
-// The config documents ride applyDocs, the same two-phase path `arizuko apply` uses.
+// The config documents ride applyDocs, the same two-phase path used by sync.
 // Buffering is what makes the preflight and the rollback possible — a streamed
 // one-at-a-time apply would have committed routd before reading onbod.yaml.
 
@@ -67,23 +67,21 @@ type archiveSecretsDoc struct {
 }
 
 func cmdArchive(args []string) {
-	if len(args) < 1 {
-		fmt.Println("usage: arizuko archive <export|apply> ...")
-		os.Exit(1)
-	}
-	switch args[0] {
+	need(args, 2, "arizuko archive [-i instance] <export|apply> ...")
+	rest := append([]string{args[0]}, args[2:]...)
+	switch args[1] {
 	case "export":
-		cmdArchiveExport(args[1:])
+		cmdArchiveExport(rest)
 	case "apply":
-		cmdArchiveApply(args[1:])
+		cmdArchiveApply(rest)
 	default:
-		die("unknown archive subcommand: %s", args[0])
+		die("unknown archive subcommand: %s", args[1])
 	}
 }
 
 func cmdArchiveExport(args []string) {
 	if len(args) < 1 {
-		fmt.Println("usage: arizuko archive export <instance> [file] [--quiesced]")
+		fmt.Println("usage: arizuko archive [-i instance] export [file] [--quiesced]")
 		os.Exit(1)
 	}
 	instance := args[0]
@@ -138,7 +136,7 @@ func writeArchiveFile(file string, data []byte) error {
 
 func cmdArchiveApply(args []string) {
 	if len(args) < 2 {
-		fmt.Println("usage: arizuko archive apply <instance> <archive.tar> [--force] [--stopped]")
+		fmt.Println("usage: arizuko archive [-i instance] apply <archive.tar> [--force] [--stopped]")
 		os.Exit(1)
 	}
 	instance := args[0]
@@ -845,7 +843,7 @@ func setupMissingGroupDirs(dataDir string, knownFolders []string) error {
 		if !empty {
 			continue
 		}
-		if err := container.SetupGroup(cfg, folder, ""); err != nil {
+		if err := container.SetupGroup(cfg, folder); err != nil {
 			return fmt.Errorf("setup group %q: %w", folder, err)
 		}
 	}

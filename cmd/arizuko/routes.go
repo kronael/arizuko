@@ -64,7 +64,7 @@ func syncProxydRoutes(dataDir string, routes []compose.ProxydRoute) {
 // (proxyd's /auth/forward). Unset, every authenticated route renders as a 503
 // with the reason — see proxycfg.
 func cmdProxyConfig(args []string) {
-	need(args, 1, "arizuko proxy-config <instance> [--listen :8080] [--forward-auth host:port]")
+	need(args, 1, "arizuko proxy-config [-i instance] [--listen :8080] [--forward-auth host:port]")
 	mustInstanceDir(args[0])
 	opts := proxycfg.Options{Listen: ":8080"}
 	for i := 1; i+1 < len(args)+1 && i < len(args); i += 2 {

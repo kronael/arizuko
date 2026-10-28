@@ -28,7 +28,7 @@ func ReadManifest(path string) (Manifest, error) {
 	if err != nil {
 		return m, fmt.Errorf("read %s: %w", filepath.Base(path), err)
 	}
-	declaration, err := resreg.ParseManifest(b)
+	declaration, err := resreg.ParseDeclaration(b)
 	if err != nil {
 		return m, fmt.Errorf("%s: %w", filepath.Base(path), err)
 	}

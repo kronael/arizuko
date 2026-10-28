@@ -66,32 +66,18 @@ func buildMounts(
 		Container: "/opt/arizuko/ant",
 		RO:        true,
 	})
-	for _, skill := range inventory.Skills {
-		if _, err := os.Stat(filepath.Join(groupDir, ".claude", "skills", skill.Name, ".disabled")); err == nil {
+	for _, product := range inventory.Packages {
+		m = append(m, core.Mount{Host: product.Dir, Container: "/opt/arizuko/packages/" + product.Name, RO: true})
+	}
+	destinations := map[string]string{"skills": core.ContainerHome + "/.claude/skills/",
+		"hooks": core.ContainerHome + "/.claude/hooks/", "bin": "/usr/local/bin/"}
+	for _, asset := range inventory.Assets {
+		kind, name, _ := strings.Cut(asset.Path, "/")
+		if _, err := os.Stat(filepath.Join(groupDir, ".claude", "skills", name, ".disabled")); kind == "skills" && err == nil {
 			continue
 		}
-		m = append(m, core.Mount{Host: skill.Dir,
-			Container: core.ContainerHome + "/.claude/skills/" + skill.Name, RO: true})
-	}
-	for _, product := range inventory.Packages {
-		dir, name := product.Dir, product.Name
-		m = append(m, core.Mount{Host: dir, Container: "/opt/arizuko/packages/" + name, RO: true})
-		entries, err := os.ReadDir(filepath.Join(dir, "hooks"))
-		if err != nil && !os.IsNotExist(err) {
-			return nil, err
-		}
-		for _, entry := range entries {
-			m = append(m, core.Mount{Host: filepath.Join(dir, "hooks", entry.Name()),
-				Container: core.ContainerHome + "/.claude/hooks/" + entry.Name(), RO: true})
-		}
-		entries, err = os.ReadDir(filepath.Join(dir, "bin"))
-		if err != nil && !os.IsNotExist(err) {
-			return nil, err
-		}
-		for _, entry := range entries {
-			m = append(m, core.Mount{Host: filepath.Join(dir, "bin", entry.Name()),
-				Container: "/usr/local/bin/" + entry.Name(), RO: true})
-		}
+		m = append(m, core.Mount{Host: filepath.Join(cfg.ProjectRoot, "packages", asset.Package, asset.Path),
+			Container: destinations[kind] + name, RO: true})
 	}
 	var manual []byte
 	for _, product := range inventory.Packages {

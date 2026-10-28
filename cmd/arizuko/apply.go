@@ -1,23 +1,11 @@
 package main
 
-// Spec 5/8: `arizuko apply` + `arizuko export` orchestrator.
-//
-// The config manifest spans TWO owner DBs (routd.db, onbod.db), so every verb here
-// opens both stores and operates per SUBSYSTEM. These four verbs used to call the
-// frozen pre-split store.Open(messages.db) and never reached a production instance
-// (BUGS Y1).
-//
-// `apply <manifest_file>` reads ONE file, not a dir: the directory path is about
-// file ergonomics rather than engine correctness, so it stays on the spec until an
-// operator hits it. `export` dumps each subsystem as its own `---`-separated
-// document in a fixed order for determinism. The CLI dies on validation errors
-// before touching the DB; the CAS check and DELETE+INSERT happen in one tx per
-// subsystem via resreg.Apply.
+// Spec 5/8: manifest export, inspection and the shared apply engine.
+// Sync and archive restore apply validated documents per owner subsystem;
+// export emits one document per subsystem in a fixed order.
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -54,10 +42,6 @@ func openSubsystemStores(dataDir string) (map[string]*store.Store, error) {
 	}, nil
 }
 
-// cliActor is the audit actor every CLI-driven apply stamps. One renderer, so
-// `arizuko apply` and `arizuko packages install` — which now share the engine —
-// cannot name the same operator two different ways. Matches store.AsCLI's
-// `cli:<user>` form.
 func cliActor() string { return "cli:" + os.Getenv("USER") }
 
 func closeStores(stores map[string]*store.Store) {
@@ -76,12 +60,6 @@ type parsedDoc struct {
 	checksum  string
 	manifest  map[string]any
 
-	// pruneScopes names scope values this document's scoped resources must
-	// DELETE even though its rows no longer mention them. A scoped resource
-	// derives its delete set from the rows present, so REMOVING the last row
-	// in a folder makes that folder invisible and the live row survives —
-	// `packages remove` left an egress rule behind exactly that way. Only the
-	// package path sets it; nil everywhere else.
 	pruneScopes []string
 }
 
@@ -259,109 +237,9 @@ func rollback(ctx context.Context, stores map[string]*store.Store, done []commit
 	return errors.Join(errs...)
 }
 
-func cmdApply(args []string) {
-	if len(args) < 2 {
-		fmt.Println("usage: arizuko apply <instance> <manifest.yaml> [--force|-f] [--take-over] [--as-folder <folder>]")
-		os.Exit(1)
-	}
-	instance := args[0]
-	file := args[1]
-	force := false
-	takeOver := false
-	asFolder := ""
-	for i := 2; i < len(args); i++ {
-		switch args[i] {
-		case "--force", "-f":
-			force = true
-		case "--take-over":
-			takeOver = true
-		case "--as-folder":
-			if i+1 >= len(args) {
-				die("Failed: --as-folder needs a folder")
-			}
-			i++
-			asFolder = args[i]
-		}
-	}
-	dataDir := mustInstanceDir(instance)
-	stores, err := openSubsystemStores(dataDir)
-	if err != nil {
-		die("Failed: open store: %v", err)
-	}
-	defer closeStores(stores)
-	data, err := os.ReadFile(file)
-	if err != nil {
-		die("Failed: read %s: %v", file, err)
-	}
-	docs, perr := parseDocs(file, data)
-	if perr != nil {
-		die("Failed: %v", perr)
-	}
-	if asFolder != "" {
-		// A retargeted manifest describes a DIFFERENT folder than the one it
-		// was exported from, so its checksum can never match this DB. Say so
-		// rather than letting the operator hit an opaque CAS rejection.
-		if !force {
-			die("Failed: --as-folder rewrites the manifest, so its checksum cannot match this instance. " +
-				"Re-run with --force once you have read the plan.")
-		}
-		src, rerr := retargetDocs(docs, asFolder)
-		if rerr != nil {
-			die("Failed: %v", rerr)
-		}
-		fmt.Printf("retargeting %s -> %s\n", src, asFolder)
-	}
-	// The missing-group rule runs across ALL documents before the first tx
-	// opens — a half-wired instance is worse than a refused restore. --force
-	// does NOT override it: force means "the DB moved under my export", not
-	// "write rows pointing at a group that does not exist".
-	if bad := preflightFolders(stores, docs); len(bad) > 0 {
-		for _, e := range bad {
-			fmt.Fprintf(os.Stderr, "%v\n", e)
-		}
-		die("Failed: %s references folders that are not groups; add the groups rows or fix the names", file)
-	}
-	// Plan first (non-mutating) so the operator sees the delta the apply
-	// commits. No spec requires it; 5/8 lists `plan` as its own verb.
-	for _, d := range docs {
-		if deltas, dperr := resreg.Plan(resreg.On(stores[d.subsystem].Obj()), d.subsystem, d.manifest); dperr == nil {
-			fmt.Printf("--- %s ---\n", d.subsystem)
-			printPlan(deltas)
-		}
-	}
-	digest := sha256.Sum256(data)
-	// Apply writes its own single audit_log summary row in-tx (actor +
-	// manifest digest + per-resource counts + final checksum), spec
-	// 5/17-openapi-mcp §"Audit contract". No separate auditCLI — one row per
-	// apply.
-	report, aerr := applyDocs(context.Background(), stores, docs, applyRun{
-		force: force, takeOver: takeOver, actor: cliActor(),
-		digest: hex.EncodeToString(digest[:]),
-	})
-	for _, line := range report {
-		fmt.Printf("applied %s — %s\n", file, line)
-	}
-	if aerr != nil {
-		if errors.Is(aerr, resreg.ErrChecksumMismatch) {
-			fmt.Fprintf(os.Stderr, "%v\nRe-export and re-apply, or use --force.\n", aerr)
-			os.Exit(2)
-		}
-		if errors.Is(aerr, objstore.ErrScopeHeld) {
-			// The subsystem is part-applied by work this manifest does not
-			// cover, so nothing here may settle it. Naming both escapes is the
-			// whole point of L267: the alternative was editing `resreg_scopes`.
-			fmt.Fprintf(os.Stderr, "%v\nRun the interrupted manifest again to roll it "+
-				"forward, or re-run this one with --take-over to make it the scope's "+
-				"contents and accept that rows outside it stay part-written.\n", aerr)
-			os.Exit(2)
-		}
-		die("Failed: %v", aerr)
-	}
-}
-
 func cmdExport(args []string) {
 	if len(args) < 1 {
-		fmt.Println("usage: arizuko export <instance> [output.yaml]")
+		fmt.Println("usage: arizuko export [-i instance] [output.yml]")
 		os.Exit(1)
 	}
 	instance := args[0]
@@ -407,7 +285,7 @@ func cmdExport(args []string) {
 // delta per subsystem document, never opens a write tx.
 func cmdPlan(args []string) {
 	if len(args) < 2 {
-		fmt.Println("usage: arizuko plan <instance> <manifest.yaml>")
+		fmt.Println("usage: arizuko plan [-i instance] <manifest.yml>")
 		os.Exit(1)
 	}
 	instance := args[0]
@@ -502,7 +380,7 @@ func printPlan(deltas []resreg.ResourceDelta) {
 // the resource's OWN owner subsystem — resreg.Resource.DB says which.
 func cmdGet(args []string) {
 	if len(args) < 2 {
-		fmt.Println("usage: arizuko get <instance> <resource>")
+		fmt.Println("usage: arizuko get [-i instance] <resource>")
 		os.Exit(1)
 	}
 	instance := args[0]

@@ -1,8 +1,17 @@
 package routd
 
-import "testing"
+import (
+	"context"
+	"errors"
+	"reflect"
+	"strings"
+	"testing"
 
-// TestInstalledPackageCRUD exercises the installed-package record (spec 5/28-packages):
+	"github.com/kronael/arizuko/objstore"
+	"github.com/kronael/arizuko/store"
+)
+
+// TestInstalledPackageCRUD exercises the installed-package record (see compose/README.md):
 // absent → put → get roundtrip (incl. JSON manifest + hashes) → upsert/upgrade
 // → list → delete. This is the lock P1+ install/upgrade/remove build on.
 func TestInstalledPackageCRUD(t *testing.T) {
@@ -65,7 +74,7 @@ func TestInstalledPackageCRUD(t *testing.T) {
 }
 
 // TestInstalledPackageFolderIsPartOfKey is why the folder LEADS the coordinate
-// (BUGS F30): spec 5/28-packages's composition blends a product mix per GROUP, so two
+// (BUGS F30): the package composition blends a product mix per GROUP, so two
 // groups must be able to hold the SAME package name independently. A coordinate
 // of the name alone is one lock for two subjects — the second Put addresses the
 // first record. Falsified by dropping the folder from the key: the second Put
@@ -127,5 +136,147 @@ func TestInstalledPackageFolderIsPartOfKey(t *testing.T) {
 	}
 	if _, ok, _ := d.InstalledPackage("acme/eng", "ttsd"); !ok {
 		t.Error("deleting acme's row also removed acme/eng's")
+	}
+}
+
+// Nil documents store as objects, empty optional fields stay absent, and CRUD preserves folder coordinates.
+func TestInstalledPackageStoreDocuments(t *testing.T) {
+	database, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	for _, folder := range []string{"", "main"} {
+		if err := database.PutInstalledPackage(InstalledPackage{Folder: folder, Name: "tools"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	items, err := database.Obj().Query(context.Background(), objstore.Query{
+		Entity: store.InstalledPackages, Partition: store.OwnerRoutd,
+	})
+	if err != nil || len(items) != 2 {
+		t.Fatalf("raw records: %+v, %v", items, err)
+	}
+	for _, item := range items {
+		if !reflect.DeepEqual(item.Attrs, map[string]string{"manifest": "{}", "asset_hashes": "{}"}) {
+			t.Fatalf("nil document or absent field encoding changed: %+v", item)
+		}
+	}
+	receipt := InstalledPackage{
+		Folder: "main", Name: "tools", Source: "configured-source", Revision: "revision",
+		InstalledAt: "2026-10-26T00:00:00Z", Manifest: map[string][]string{"skill": {"triage"}, "empty": nil},
+		AssetHashes: map[string]string{"skill:triage": "hash"},
+	}
+	if err := database.PutInstalledPackage(receipt); err != nil {
+		t.Fatal(err)
+	}
+	got, found, err := database.InstalledPackage("main", "tools")
+	if err != nil || !found || !reflect.DeepEqual(got, receipt) {
+		t.Fatalf("receipt roundtrip: %+v, %v, %v", got, found, err)
+	}
+	if rows, err := database.InstalledPackages(); err != nil || len(rows) != 2 ||
+		rows[0].Folder != "" || !reflect.DeepEqual(rows[1], receipt) {
+		t.Fatalf("folder ordered listing: %+v, %v", rows, err)
+	}
+	if deleted, err := database.DeleteInstalledPackage("main", "tools"); err != nil || !deleted {
+		t.Fatalf("delete: %v, %v", deleted, err)
+	}
+	if deleted, err := database.DeleteInstalledPackage("main", "tools"); err != nil || deleted {
+		t.Fatalf("absent delete: %v, %v", deleted, err)
+	}
+	if _, found, err := database.InstalledPackage("main", "tools"); err != nil || found {
+		t.Fatalf("deleted receipt remains: %v, %v", found, err)
+	}
+	if _, found, err := database.InstalledPackage("", "tools"); err != nil || !found {
+		t.Fatalf("folder delete removed system receipt: %v, %v", found, err)
+	}
+}
+
+// Malformed stored documents fail through both readers; missing attributes retain the empty-document read behavior.
+func TestInstalledPackageStoreReadErrors(t *testing.T) {
+	for _, attribute := range []string{store.AttrPkgManifest, store.AttrPkgAssetHashes} {
+		t.Run(attribute, func(t *testing.T) {
+			database, err := OpenMem()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer database.Close()
+			key, err := store.InstalledPackageKey("main", "tools")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := database.store().WriteEntities(context.Background(), nil, objstore.Write{
+				Op: objstore.Put, Entity: store.InstalledPackages, Key: key,
+				Attrs: map[string]string{attribute: "{"},
+			}); err != nil {
+				t.Fatal(err)
+			}
+			_, _, getErr := database.InstalledPackage("main", "tools")
+			_, listErr := database.InstalledPackages()
+			label := "manifest"
+			if attribute == store.AttrPkgAssetHashes {
+				label = "asset hashes"
+			}
+			for _, err := range []error{getErr, listErr} {
+				if err == nil || err.Error() != "installed package main/tools "+label+": unexpected end of JSON input" {
+					t.Fatalf("malformed document error changed: %v", err)
+				}
+			}
+			if err := database.store().WriteEntities(context.Background(), nil, objstore.Write{
+				Op: objstore.Put, Entity: store.InstalledPackages, Key: key,
+			}); err != nil {
+				t.Fatal(err)
+			}
+			got, found, err := database.InstalledPackage("main", "tools")
+			if err != nil || !found || got.Manifest != nil || got.AssetHashes != nil {
+				t.Fatalf("absent attributes changed: %+v, %v, %v", got, found, err)
+			}
+		})
+	}
+}
+
+type installedPackageFailure struct {
+	objstore.Store
+	failure error
+}
+
+func (database installedPackageFailure) Query(context.Context, objstore.Query) ([]objstore.Item, error) {
+	return nil, database.failure
+}
+
+func (database installedPackageFailure) GuardedBatch(context.Context,
+	[]objstore.Check, []objstore.Write) (bool, error) {
+	return false, database.failure
+}
+
+// Invalid coordinates fail before storage, and every storage error reaches the caller unchanged.
+func TestInstalledPackageStoreFailures(t *testing.T) {
+	injected := errors.New("injected storage failure")
+	base, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer base.Close()
+	database := OpenOver(installedPackageFailure{Store: base.Obj(), failure: injected})
+	for _, err := range []error{
+		database.PutInstalledPackage(InstalledPackage{Name: "tools"}),
+		func() error { _, _, err := database.InstalledPackage("", "tools"); return err }(),
+		func() error { _, err := database.InstalledPackages(); return err }(),
+		func() error { _, err := database.DeleteInstalledPackage("", "tools"); return err }(),
+	} {
+		if !errors.Is(err, injected) {
+			t.Fatalf("storage error lost: %v", err)
+		}
+	}
+	for _, name := range []string{"", "bad" + store.KeySep + "name"} {
+		for _, err := range []error{
+			database.PutInstalledPackage(InstalledPackage{Name: name}),
+			func() error { _, _, err := database.InstalledPackage("", name); return err }(),
+			func() error { _, err := database.DeleteInstalledPackage("", name); return err }(),
+		} {
+			if err == nil || errors.Is(err, injected) || !strings.Contains(err.Error(), "installed package") {
+				t.Fatalf("invalid coordinate reached storage: %v", err)
+			}
+		}
 	}
 }

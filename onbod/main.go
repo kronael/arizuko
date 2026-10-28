@@ -834,7 +834,7 @@ func handleCreateWorld(w http.ResponseWriter, r *http.Request, db, obdb *store.S
 	// FS setup BEFORE the DB tx: a DB failure after FS leaves a stray group
 	// dir (re-creatable, harmless), whereas a committed group row with no FS
 	// is a broken world. Order so the durable record is last.
-	if err := container.SetupGroup(coreCfg, folder, ""); err != nil {
+	if err := container.SetupGroup(coreCfg, folder); err != nil {
 		slog.Error("create world: setup group", "folder", folder, "err", err)
 		renderPage(w, "Error", template.HTML("<p>Internal error.</p>"))
 		return

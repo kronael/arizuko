@@ -33,7 +33,7 @@ import (
 //     /chat/<token> endpoint via WEB_HOST (for tokens issued to non-operators).
 func cmdSend(args []string) {
 	if len(args) < 2 {
-		die("usage: arizuko send <instance> <folder> [<message>] [--wait|-w | --stream|-S] [--stdin] [--from|-f <sender>] [--token|-t <raw>] [--topic|-T <topic>]")
+		die("usage: arizuko send [-i instance] <folder> [<message>] [--wait|-w | --stream|-S] [--stdin] [--from|-f <sender>] [--token|-t <raw>] [--topic|-T <topic>]")
 	}
 	instance, folder := args[0], args[1]
 
@@ -71,7 +71,7 @@ func cmdSend(args []string) {
 			topic = rest[i]
 		default:
 			if msg != "" {
-				die("usage: arizuko send <instance> <folder> <message>")
+				die("usage: arizuko send [-i instance] <folder> <message>")
 			}
 			msg = a
 		}

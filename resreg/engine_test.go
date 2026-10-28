@@ -290,11 +290,10 @@ testrows:
     name: x
     value: "1"
 `)
-	declaration, err := ParseManifest(manifest)
+	rows, env, _, err := ParseManifest(manifest)
 	if err != nil {
 		t.Fatalf("ParseManifest: %v", err)
 	}
-	rows, env := declaration.Documents[0].Rows, declaration.Env
 	if _, ok := rows[PackageEnvKey]; ok {
 		t.Error("env must not be a resource key")
 	}
@@ -324,7 +323,7 @@ func TestParseManifest_EnvStrict(t *testing.T) {
 		"bad key":     "env:\n  gw-key: {generate: true}\n",
 		"not mapping": "env:\n  - GW_KEY\n",
 	} {
-		if _, err := ParseManifest([]byte(body)); err == nil {
+		if _, _, _, err := ParseManifest([]byte(body)); err == nil {
 			t.Errorf("%s: ParseManifest accepted %q", name, body)
 		}
 	}
@@ -333,29 +332,53 @@ func TestParseManifest_EnvStrict(t *testing.T) {
 	}
 }
 
-func TestPackageManifestRoundTrip(t *testing.T) {
+func TestParseYAML_PackageGuidance(t *testing.T) {
+	_, _, err := ParseYAML([]byte("env:\n  GW_KEY: {generate: true}\n"))
+	if err == nil || !strings.Contains(err.Error(), "declare it in arizuko.yml and run `arizuko package sync`") {
+		t.Errorf("ParseYAML(env) error = %v, want sync guidance", err)
+	}
+	if _, _, err := ParseYAML([]byte("name: example\n")); err == nil {
+		t.Error("ParseYAML accepted package metadata")
+	}
+}
+
+func TestParseDeclaration_RoundTrip(t *testing.T) {
 	freshEngine(t)
-	input := []byte("name: group\nbrand: Example\npackages:\n  - source: /src/tool\n    folders: [eng/**]\n" +
+	input := []byte("name: group\nbrand: Example\n" +
 		"env:\n  NEWS_TOKEN: {required: true, hint: Group secret}\n  OPTIONAL_TOKEN: {hint: Optional service}\n" +
 		"testrows:\n  - kind: eng\n    name: first\n    value: one\n---\ntestrows:\n  - kind: eng\n    name: second\n    value: two\n")
-	manifest, err := ParseManifest(input)
+	manifest, err := ParseDeclaration(input)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if manifest.Name != "group" || manifest.Packages[0].Folders[0] != "eng/**" || len(manifest.Documents) != 2 {
+	if manifest.Name != "group" || len(manifest.Documents) != 2 {
 		t.Fatalf("declaration lost: %+v", manifest)
 	}
-	encoded, err := EncodeManifest(manifest)
-	if err != nil {
-		t.Fatal(err)
+	if len(manifest.Env) != 2 || !manifest.Env["NEWS_TOKEN"].Required {
+		t.Errorf("env lost: %+v", manifest.Env)
 	}
-	decoded, err := ParseManifest(encoded)
-	if err != nil || !reflect.DeepEqual(manifest, decoded) {
-		t.Fatalf("round trip: %+v, %v", decoded, err)
+	for i, doc := range manifest.Documents {
+		if doc.Subsystem == "" || len(doc.Rows["testrows"].([]TestRow)) != 1 {
+			t.Errorf("document %d lost its rows or subsystem: %+v", i, doc)
+		}
 	}
-	for _, body := range []string{"packages: [{source: tool, folder: eng}]", "packages: [{}]", "skills: [tool]"} {
-		if _, err := ParseManifest([]byte(body)); err == nil {
+	for _, body := range []string{"packages: [{source: tool}]", "packages: [{}]", "skills: [tool]"} {
+		if _, err := ParseDeclaration([]byte(body)); err == nil {
 			t.Fatalf("accepted %q", body)
+		}
+	}
+}
+
+func TestParseDeclaration_DuplicateKeys(t *testing.T) {
+	freshEngine(t)
+	row := "  - kind: a\n    name: x\n    value: \"1\"\n"
+	for name, body := range map[string]string{
+		"resource twice in one document": "testrows:\n" + row + "testrows:\n" + row,
+		"name in two documents":          "name: one\n---\nname: two\n",
+		"env key in two documents":       "env:\n  GW_KEY: {generate: true}\n---\nenv:\n  GW_KEY: {required: true}\n",
+	} {
+		if _, err := ParseDeclaration([]byte(body)); err == nil || !strings.Contains(err.Error(), "twice") {
+			t.Errorf("%s: err = %v, want a declared-twice refusal", name, err)
 		}
 	}
 }

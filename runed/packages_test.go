@@ -99,3 +99,36 @@ func TestSelectedPackageHooksAndTools(t *testing.T) {
 		t.Fatalf("removed native system hook remains: %s %v", data, err)
 	}
 }
+
+func TestPackageAssetMountsOncePerGuestPath(t *testing.T) {
+	cfg, folders := renderWiring(t)
+	for _, name := range []string{"first", "second"} {
+		root := filepath.Join(cfg.ProjectRoot, "packages", name)
+		write(t, filepath.Join(root, "arizuko.yml"), "name: "+name+"\n")
+		write(t, filepath.Join(root, "skills", "base", "SKILL.md"), name)
+		write(t, filepath.Join(root, "hooks", "native.sh"), name)
+		write(t, filepath.Join(root, "bin", "package-tool"), name)
+	}
+	for _, order := range [][]string{{"first", "second"}, {"second", "first"}} {
+		turn, err := renderTurn(cfg, folders, runedv1.RunRequest{Folder: "main", Packages: append([]string{"core"}, order...)}, "test", time.Minute)
+		if err != nil {
+			t.Fatal(err)
+		}
+		winner := order[1]
+		for guest, host := range map[string]string{
+			core.ContainerHome + "/.claude/skills/base":     filepath.Join("skills", "base"),
+			core.ContainerHome + "/.claude/hooks/native.sh": filepath.Join("hooks", "native.sh"),
+			"/usr/local/bin/package-tool":                   filepath.Join("bin", "package-tool"),
+		} {
+			var hosts []string
+			for _, mount := range turn.Mounts {
+				if mount.Container == guest {
+					hosts = append(hosts, mount.Host)
+				}
+			}
+			if want := filepath.Join(cfg.ProjectRoot, "packages", winner, host); len(hosts) != 1 || hosts[0] != want {
+				t.Fatalf("order %v: %s mounted from %v, want only %s", order, guest, hosts, want)
+			}
+		}
+	}
+}

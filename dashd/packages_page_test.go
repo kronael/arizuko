@@ -29,8 +29,16 @@ func packagesGet(t *testing.T, db objstore.Store) string {
 // TestPackagesPageEmpty: no installed packages renders the empty marker.
 func TestPackagesPageEmpty(t *testing.T) {
 	db := packagesDB(t)
-	if body := packagesGet(t, db); !strings.Contains(body, "No packages installed") {
-		t.Errorf("empty packages page missing marker: %s", body)
+	body := packagesGet(t, db)
+	for _, want := range []string{"No packages installed", "arizuko package add"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("empty packages page missing %q: %s", want, body)
+		}
+	}
+	for _, old := range []string{"arizuko packages", "arizuko products", "arizuko sync", "arizuko.yml"} {
+		if strings.Contains(body, old) {
+			t.Errorf("empty packages page contains retired command %q", old)
+		}
 	}
 }
 
@@ -49,7 +57,7 @@ func TestPackagesPageRows(t *testing.T) {
 
 // TestPackagesPageShowsScope: the record is keyed (folder, name) and both kinds
 // of row live in one table — an instance-wide package and a product blended into
-// one group (spec 5/28-packages). Without the folder column an operator reads a group's
+// one group (see compose/README.md). Without the folder column an operator reads a group's
 // product as something that installed a sidecar instance-wide.
 func TestPackagesPageShowsScope(t *testing.T) {
 	db := packagesDB(t)

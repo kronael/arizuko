@@ -42,7 +42,7 @@ type mountEntry struct {
 func cmdImages(args []string) {
 	instance, prune, err := parseImagesFlags(args)
 	if err != nil {
-		fmt.Println("usage: arizuko images <instance> [--prune|-p]")
+		fmt.Println("usage: arizuko images [-i instance] [--prune|-p]")
 		os.Exit(1)
 	}
 	dataDir := mustInstanceDir(instance)

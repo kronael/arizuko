@@ -52,7 +52,7 @@ Every cold-tier resource is written once and served twice: REST for people and e
 
 `engine.go` drives reads and writes, YAML parse and emit, and OpenAPI schema generation from the reflection of `Resource.RowType`. The `db:` tag of a struct field names its attribute. The OpenAPI schema takes the property name from the `json:` tag, or from the `yaml:` tag when no `json:` tag exists. `resreg/resources/` declares one Go file per cold-tier resource: a `Row` struct and an `init()` block that calls `resreg.Register`. `resources/names.go` spells every registered name once, and that file is the list.
 
-A manifest is a YAML stream with one `---` document per owner subsystem. Each document maps a resource name to rows, and it has a reserved `checksum:` key. The parser refuses an unknown key, and every key in one document must belong to one subsystem (`SubsystemOf`). A package document may also carry `env:`. `arizuko apply` refuses that section and names `packages add` and `packages install`, because only `arizuko packages` provisions it.
+`arizuko.yml` is a strict YAML stream with one resource document per owner subsystem. The shared `Manifest` also carries package metadata (`name`, `brand`, `tagline`, `install`) and keyed `env` requirements. It carries no package selection: the `installed_packages` rows select packages. Unknown keys refuse; `SubsystemOf` prevents one resource document from mixing owners. `arizuko package sync` uses the same resource handlers and honors a supplied `checksum`. Only actual service packages provision shared instance environment values.
 
 `Checksum` and `ManifestDigest` are two hashes for two jobs. `Checksum` is the compare-and-swap token: a content hash of the live projection, computed again at read time. `ManifestDigest` is the sha256 of the bytes of the manifest file. It goes only into the audit row of the apply, to correlate the row with the file.
 
@@ -102,19 +102,19 @@ A `StampedField` is filled by the storage layer, because an entity has no engine
 
 `Apply` and `ExportSnapshot` use `objstore.Replace` and `objstore.ReadConsistent` (`objstore/README.md`). `Apply` checks the checksum of the live projection against the checksum in the manifest, unless `force` is set or the apply takes over a claim. It then deletes and puts the rows of each resource that the manifest mentions, in catalog order, and writes one audit row.
 
-**An apply has no pre-image rollback inside one subsystem.** A marker-gated sequence has no transaction. A replace that dies after it has written leaves the subsystem part-applied with its claim held. `arizuko apply` says so before it writes.
+**An apply has no pre-image rollback inside one subsystem.** A marker-gated sequence has no transaction. A replace that dies after it has written leaves the subsystem part-applied with its claim held. `arizuko package sync` reports a held claim before it writes.
 
-**Running the same apply again gives the claim back.** The claim records the intent of the apply, `applyClaim`. The intent derives from the document and the scopes that it prunes. So the same apply takes over its own claim and rolls forward. It converges because every delete set is read live from the manifest scopes under the claim. The apply deletes what is there and puts the document over it. The result matches a clean run, whether the dead apply stopped at the first row or the last. An apply of a different document is refused, because its delete set covers only the rows it names. `apply --take-over` is the operator stating that the interrupted work is not coming back.
+**Running the same apply again gives the claim back.** The claim records the intent of the apply, `applyClaim`. The intent derives from the document and the scopes that it prunes. So the same apply takes over its own claim and rolls forward. It converges because every delete set is read live from the manifest scopes under the claim. The apply deletes what is there and puts the document over it. The result matches a clean run, whether the dead apply stopped at the first row or the last. An apply of a different document is refused, because its delete set covers only the rows it names. A caller using `Claim.Take` asserts that the interrupted work is not coming back.
 
 A subsystem must be of one shape. `requireEntities` checks this before any write: a mixed subsystem would leave the operator unable to say which half an apply landed in.
 
 A daemon prepares its database with `resreg.EnsureSubsystem`, beside the `CreateEntity` calls it already makes. The call creates the entity behind each resource, the entity of the version marker, and the marker. It creates nothing for a subsystem that no entity-backed resource names, so the set follows the registrations and not a second list.
 
-`arizuko apply`, `plan`, `get` and `export` are the operator CLI over this engine. Their flags are in `cmd/arizuko/README.md`. The CAS is `resreg.Checksum`, a content hash of the canonical export projection, so no counter or table exists that a writer could forget to bump.
+`arizuko package`, `plan`, `get` and `export` are the operator CLI over this engine. Their flags are in `cmd/arizuko/README.md`. The CAS is `resreg.Checksum`, a content hash of the canonical export projection, so no counter or table exists that a writer could forget to bump.
 
 Two guards wrap every apply. They live in `cmd/arizuko/apply.go` and not in the engine, because both span documents, and the engine sees one document at a time.
 
-- **The missing-group rule.** `KnownFolders` and `ValidateFolderRefs` refuse a manifest before the first write. They refuse it when it names a folder that is no `groups` row in the document set and is not live. `--force` does not override this.
+- **The missing-group rule.** `KnownFolders` and `ValidateFolderRefs` refuse a manifest before the first write. They refuse it when it names a folder that is no `groups` row in the document set and is not live.
 - **Cross-subsystem pre-image rollback.** Two owners share no transaction. So when the second apply fails, the CLI restores the first from a pre-image that `ExportSnapshot` took, and replays it through `Apply` itself.
 
 Resources with `SkipApplyRebuild` are export and diff only. `Apply` never deletes and inserts them. They are `secrets`, `route_tokens`, `installed_packages`, `github_sources`, `gdrive_files`, `invites` and `onboarding`. They still enter the content hash, because it hashes whatever the export projection shows. Their values travel only in the archive (`resreg/archive.go`) and never in a config manifest.
@@ -123,7 +123,7 @@ Resources with `SkipApplyRebuild` are export and diff only. `Apply` never delete
 
 - proxyd serves its runtime route table in `proxyd/resource.go`. The resource is store-backed, and its audit row rides the batch.
 - webd serves an operator-side MCP forwarder for the route tools in `webd/routes_mcp.go`. The forwarder has `Resource.Store == nil`, and proxyd writes the audit row downstream.
-- routd mounts the resources of `routd/*_resource.go` and `routd/pending_actions_http.go`: `acl`, `acl_membership`, `audit`, `dead_letters`, `gdrive_files`, `github_sources`, `groups`, `installed_packages`, `network_rules`, `pending_actions`, `route_tokens`, `routes`, `scheduled_tasks`, `secrets` and `web_routes`. Each mounts on the agent MCP socket with the agent `Gate` injected. Where a REST twin exists, the same handler also runs on the operator REST face with a scope and folder `Gate`. The hot-tier tools `reply`, `send` and `inspect_*` stay hand-authored in `ipc/ipc.go` and have no REST twin.
+- routd mounts the resources of `routd/*_resource.go` and `routd/pending_actions_http.go`: `acl`, `acl_membership`, `audit`, `chats`, `dead_letters`, `gdrive_files`, `github_sources`, `groups`, `installed_packages`, `network_rules`, `pending_actions`, `route_tokens`, `routes`, `scheduled_tasks`, `secrets` and `web_routes`. Each mounts on the agent MCP socket with the agent `Gate` injected. Where a REST twin exists, the same handler also runs on the operator REST face with a scope and folder `Gate`. The hot-tier tools `reply`, `send` and `inspect_*` stay hand-authored in `ipc/ipc.go` and have no REST twin.
 - authd mounts `audit`, `signing_keys` and `sessions`. onbod mounts `invites`, `onboarding_gates`, `onboarding` and `audit`. runed mounts `audit`.
 
 ## OpenAPI emission

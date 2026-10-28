@@ -54,7 +54,7 @@ A kill is the one revoke that runed has, because runed mints nothing. `Manager.K
 ## Dependencies
 
 - `auth` verifies tokens offline against the authd JWKS.
-- `container` renders the mounts, stages the app source and holds the egress rules. The other packages are `core`, `groupfolder`, `obs`, `resreg` and `types`.
+- `container` reads package assets and holds the egress rules. The other packages are `core`, `groupfolder`, `obs`, `resreg` and `types`.
 - At run time runed depends on `authd` for the JWKS. It depends on `routd`, which hosts the per-turn agent MCP socket.
 
 ## Configuration
@@ -175,10 +175,10 @@ The renderer also writes the per-turn files that the mounts point at:
 - the gateway caps file
 - the context layers that `preparePayload` puts before the prompt: the episodes, the newest 14 diary entries, `work.md`, the `<user>` pointer, `PERSONA.md` and `SYSTEM.md`
 
-Before any home write, the renderer resolves active system and exact-folder
-packages under the package lock. Missing core, invalid references and writable
-managed payloads return a terminal error before `Runtime.Run`. Existing copied
-homes require the operator to remove conflicting managed copies.
+routd supplies selected package names from system and exact-folder DB rows.
+The renderer reads their installed directories; runed opens no package database.
+Core is required. Package selection is an input to the renderer, outside the
+`Runtime.Run` / `Kill` port. Startup and turns run no package build commands.
 
 ### Admission is claim or reject
 
@@ -302,28 +302,36 @@ A guest sees its files through two virtio-fs shares. ACPI microvm allows eight M
 
 Every host path is the path that runed itself sees. `virtiofsd` is a child of runed in the mount namespace of runed, so no source passes through `HOST_DATA_DIR`. runed does not read that variable, because it is a compose fact.
 
-| Guest path                                   | Host path                                                             | Mode                                             | When                                                |
-| -------------------------------------------- | --------------------------------------------------------------------- | ------------------------------------------------ | --------------------------------------------------- |
-| `/home/node`                                 | `<data>/groups/<folder>/`                                             | RW                                               | every turn                                          |
-| `~/.codex`                                   | `<data>/groups/<folder>/.codex/`                                      | RW                                               | every turn: codex reads its rollouts here to resume |
-| `~/.codex/auth.json`, `~/.codex/config.toml` | `HOST_CODEX_DIR/<file>`                                               | RO                                               | `HOST_CODEX_DIR` set                                |
-| `/opt/arizuko/ant`                           | selected immutable core artifact                                      | RO                                               | every turn                                          |
-| `~/.claude/skills/<name>`                    | selected immutable skill, or sealed empty mask when disabled          | RO                                               | every managed skill                                 |
-| `~/.claude/CLAUDE.md`                        | selected core manual                                                  | RO                                               | every turn                                          |
-| `/var/lib/share`                             | `<data>/groups/<world>/share/`; `groups/share/` for an elevated turn  | RW, RO with a `share_mount(readonly=true)` grant | every turn                                          |
-| `/run/ipc`                                   | none: a guest tmpfs                                                   | RW                                               | every turn                                          |
-| `/var/lib/www/arizuko`                       | `<data>/web/pub/arizuko/`                                             | RO                                               | no `web:publish` grant                              |
-| `/var/lib/www`                               | `<data>/web/pub/`                                                     | RO                                               | `web:publish`                                       |
-| `~/public_html`                              | `<data>/web/pub/<folder>/`, served at `/pub/<folder>/`                | RW                                               | `web:publish`                                       |
-| `~/private_html`                             | `<data>/web/priv/<folder>/`, served at `/priv/<folder>/` behind login | RW                                               | `web:publish`                                       |
-| `/var/lib/groups`                            | `<data>/groups/`                                                      | RW                                               | elevated `/root` turn                               |
-| `/mnt/<name>`                                | an operator extra in the group's `container_config`                   | RO                                               | the path lies under `MOUNT_ALLOWED_ROOTS`           |
-| `/app/src`                                   | `HOST_APP_DIR/ant/src`                                                | RW                                               | `ARIZUKO_DEV` set                                   |
+| Guest path                                        | Host path                                                             | Mode                                             | When                                                |
+| ------------------------------------------------- | --------------------------------------------------------------------- | ------------------------------------------------ | --------------------------------------------------- |
+| `/home/node`                                      | `<data>/groups/<folder>/`                                             | RW                                               | every turn                                          |
+| `~/.codex`                                        | `<data>/groups/<folder>/.codex/`                                      | RW                                               | every turn: codex reads its rollouts here to resume |
+| `~/.codex/auth.json`, `~/.codex/config.toml`      | `HOST_CODEX_DIR/<file>`                                               | RO                                               | `HOST_CODEX_DIR` set                                |
+| `/opt/arizuko/ant`                                | `<data>/packages/core/`                                               | RO                                               | every turn                                          |
+| `/opt/arizuko/packages/<name>`                    | `<data>/packages/<name>/`                                             | RO                                               | selected package                                    |
+| `~/.claude/skills/<name>`                         | effective selected skill                                              | RO                                               | no local `.disabled` marker                         |
+| `~/.claude/hooks/<name>`                          | selected `hooks/<name>`                                               | RO                                               | package supplies it                                 |
+| `/usr/local/bin/<name>`                           | selected `bin/<name>`                                                 | RO                                               | package supplies it; guest PATH already includes it |
+| `~/.claude/CLAUDE.md`                             | combined selected manuals in folder IPC scratch                       | RO                                               | every turn                                          |
+| `/etc/codex/config.toml`, `/etc/codex/hooks.json` | selected native hook configuration in folder IPC scratch              | RO                                               | every turn, including an empty hook map             |
+| `/var/lib/share`                                  | `<data>/groups/<world>/share/`; `groups/share/` for an elevated turn  | RW, RO with a `share_mount(readonly=true)` grant | every turn                                          |
+| `/run/ipc`                                        | none: a guest tmpfs                                                   | RW                                               | every turn                                          |
+| `/var/lib/www/arizuko`                            | `<data>/web/pub/arizuko/`                                             | RO                                               | no `web:publish` grant                              |
+| `/var/lib/www`                                    | `<data>/web/pub/`                                                     | RO                                               | `web:publish`                                       |
+| `~/public_html`                                   | `<data>/web/pub/<folder>/`, served at `/pub/<folder>/`                | RW                                               | `web:publish`                                       |
+| `~/private_html`                                  | `<data>/web/priv/<folder>/`, served at `/priv/<folder>/` behind login | RW                                               | `web:publish`                                       |
+| `/var/lib/groups`                                 | `<data>/groups/`                                                      | RW                                               | elevated `/root` turn                               |
+| `/mnt/<name>`                                     | an operator extra in the group's `container_config`                   | RO                                               | the path lies under `MOUNT_ALLOWED_ROOTS`           |
+| `/app/src`                                        | `HOST_APP_DIR/ant/src`                                                | RW                                               | `ARIZUKO_DEV` set                                   |
 
-Managed home targets contain only empty mount structure and regular `.disabled`
-markers. The renderer preserves marker bytes. Distinct custom skills, styles and
-the root group runbook stay writable. Resolved artifact paths survive package
-updates and removal. The renderer never copies managed payload into the home.
+Core, system packages and exact-folder packages form an ordered skill overlay.
+The later provider of a skill wins. A `.disabled` marker suppresses that skill's
+mount. Custom skills and the group runbook stay writable.
+
+The renderer combines package manuals once and preserves native imports.
+It adds selected Claude hooks to the native settings while retaining platform
+auth, MCP and sandbox settings. Codex loads selected hooks from its system
+configuration layer alongside the harness policy hooks in `$CODEX_HOME`.
 
 **The web view is narrow for a reason.** The tree `/var/lib/www` holds the published content of every group. A group may gate part of its own content with an `auth` or `deny` `web_routes` row. proxyd applies that row at the edge, and a bind mount cannot apply it, so the whole tree stays a grant for publishers. `pub/arizuko` is the platform doc site and not content of a group. Every folder ships a skill that reads it, so every folder sees that one subtree. The two slots are views into the canonical web tree: a write appears at the home path and at the URL path at once. Without a grant the guest has no writable web surface.
 

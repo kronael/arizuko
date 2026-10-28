@@ -31,7 +31,7 @@ func TestSetupGroup_CreatesPerGroupWebSlots(t *testing.T) {
 	os.MkdirAll(cfg.GroupsDir, 0o755)
 	os.MkdirAll(cfg.IpcDir, 0o755)
 
-	if err := SetupGroup(cfg, "newworld", ""); err != nil {
+	if err := SetupGroup(cfg, "newworld"); err != nil {
 		t.Fatalf("SetupGroup: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(cfg.WebDir, "pub", "newworld")); err != nil {
@@ -54,7 +54,7 @@ func TestSetupGroup_NestedWebSlots(t *testing.T) {
 	os.MkdirAll(cfg.GroupsDir, 0o755)
 	os.MkdirAll(cfg.IpcDir, 0o755)
 
-	if err := SetupGroup(cfg, "atlas/support", ""); err != nil {
+	if err := SetupGroup(cfg, "atlas/support"); err != nil {
 		t.Fatalf("SetupGroup: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(cfg.WebDir, "pub", "atlas", "support")); err != nil {
@@ -148,7 +148,7 @@ func TestSetupGroup_ChownsWebSlots(t *testing.T) {
 	os.MkdirAll(cfg.IpcDir, 0o755)
 
 	logged := captureWarnings(t)
-	if err := SetupGroup(cfg, "slotted", ""); err != nil {
+	if err := SetupGroup(cfg, "slotted"); err != nil {
 		t.Fatalf("SetupGroup: %v", err)
 	}
 
@@ -200,7 +200,7 @@ func TestSetupGroup_WebSlotMkdirIsFatal(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := SetupGroup(cfg, "blocked", ""); err == nil {
+	if err := SetupGroup(cfg, "blocked"); err == nil {
 		t.Fatal("SetupGroup ignored an uncreatable web slot (want an error)")
 	}
 }

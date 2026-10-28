@@ -19,7 +19,7 @@ import (
 // already records through dashd and MCP. AsCLI attributes the row to the
 // invoking operator — the CLI has no X-User-* header to learn a sub from.
 func cmdRoute(args []string) {
-	need(args, 2, "arizuko route <instance> <list|add|rm> ...")
+	need(args, 2, "arizuko route [-i instance] <list|add|rm> ...")
 	instance, action := args[0], args[1]
 
 	dataDir := mustInstanceDir(instance)
@@ -34,13 +34,13 @@ func cmdRoute(args []string) {
 	case "add":
 		seq, match, target, err := parseRouteAdd(args[2:])
 		if err != nil {
-			die("usage: arizuko route <instance> add <match> <target> [--seq N]: %v", err)
+			die("usage: arizuko route [-i instance] add <match> <target> [--seq N]: %v", err)
 		}
 		if err := runRouteAdd(s, seq, match, target, os.Stdout); err != nil {
 			die("Failed: %v", err)
 		}
 	case "rm":
-		need(args, 3, "arizuko route <instance> rm <id>")
+		need(args, 3, "arizuko route [-i instance] rm <id>")
 		id, err := strconv.ParseInt(args[2], 10, 64)
 		if err != nil {
 			die("Failed: invalid id %q", args[2])

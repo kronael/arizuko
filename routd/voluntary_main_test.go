@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kronael/arizuko/container"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/ipc"
@@ -127,6 +128,16 @@ func TestVoluntaryReplyQueuedInputKeepsAuthoritativeTurn(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
+	manifest, skills, err := container.InstallPackage(root, "../ant", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.PutInstalledPackage(InstalledPackage{
+		Name: manifest.Name, Source: "ant", Revision: "release",
+		Manifest: map[string][]string{"skill": skills},
+	}); err != nil {
+		t.Fatal(err)
+	}
 	runDB, err := runed.OpenMem()
 	if err != nil {
 		t.Fatal(err)

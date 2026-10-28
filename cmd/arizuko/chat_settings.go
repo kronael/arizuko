@@ -12,7 +12,7 @@ import (
 
 func cmdChatThreadReplies(args []string) {
 	if len(args) < 3 || len(args) > 4 {
-		die("usage: arizuko chat <instance> thread-replies <jid> [on|off|default]")
+		die("usage: arizuko chat [-i instance] thread-replies <jid> [on|off|default]")
 	}
 	mustInstanceDir(args[0])
 	db := mustOpenRoutd()

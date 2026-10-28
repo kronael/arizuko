@@ -5,12 +5,10 @@ import (
 	"net/http"
 )
 
-// handlePackages lists the instance's installed packages (spec 5/28-packages): the
+// handlePackages lists the instance's installed packages (see compose/README.md): the
 // installed_packages record, read from routd.db. Read-only, and so is the
 // resource behind it (`GET /v1/installed_packages`, routd/packages_resource.go)
-// — install / upgrade / remove is the `arizuko packages` CLI, because it also
-// writes host files and restarts sidecars. There is no control surface to add
-// here until there is one to call.
+// — `arizuko package` owns installation and writes the receipts.
 func (d *dash) handlePackages(w http.ResponseWriter, r *http.Request) {
 	if !d.requireOperator(w, r) {
 		return
@@ -41,9 +39,7 @@ func (d *dash) handlePackages(w http.ResponseWriter, r *http.Request) {
 	}
 	_, _ = fmt.Fprint(w, `</tbody></table>`)
 	if len(pkgs) == 0 {
-		_, _ = fmt.Fprint(w, `<p class="dim">No packages installed. Install one with `+
-			`<code>arizuko packages &lt;instance&gt; install &lt;source&gt;</code>, `+
-			`or blend a group's products with <code>arizuko products &lt;instance&gt; apply &lt;folder&gt;</code>.</p>`)
+		_, _ = fmt.Fprint(w, `<p class="dim">No packages installed. Select one with <code>arizuko package add [-g &lt;folder&gt;] &lt;source&gt;</code>.</p>`)
 	}
 	pageClose(w, r)
 }

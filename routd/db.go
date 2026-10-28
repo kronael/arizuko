@@ -72,10 +72,19 @@ func Open() (*DB, error) {
 	}
 	// The ROW is routd's, so routd writes it, into a store that holds no group
 	// at all; `arizuko create` only writes the product choice into the env.
-	if err := store.SeedDefaultGroup(ctx, h, os.Getenv("ARIZUKO_DEFAULT_PRODUCT")); err != nil {
+	product := os.Getenv("ARIZUKO_DEFAULT_PRODUCT")
+	seeded, err := store.SeedDefaultGroup(ctx, h, product)
+	if err != nil {
 		return nil, err
 	}
-	return OpenOver(h), nil
+	d := OpenOver(h)
+	if seeded && product != "" {
+		if err := d.PutInstalledPackage(InstalledPackage{Folder: store.DefaultFolder, Name: product,
+			Source: "ant/examples/" + product, InstalledAt: core.TS(time.Now())}); err != nil {
+			return nil, err
+		}
+	}
+	return d, nil
 }
 
 // OpenMem hands ONE test its own private namespace on the endpoint this process

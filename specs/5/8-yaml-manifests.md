@@ -6,61 +6,25 @@ depends: specs/5/16-mcp-rest-unification.md, specs/5/17-openapi-mcp.md, specs/5/
 
 # specs/5/8 — YAML manifests + the full-instance archive
 
-> **DECISION.** The SQLite DB is authoritative. YAML manifests are a
-> transport dump/import — `pg_dump` / `pg_restore` for the cold tier — not
-> a continuously-synced source of truth. No DB→YAML sync, no startup-apply,
-> no SIGHUP-reload. A dump never claims to be live, so "drift" is a
-> non-concept. This supersedes the git-as-truth model (a continuously-synced
-> cold-tier `agents.toml`, deleted with the corpus minimization in
-> `819d43cd`); committing an `export` dump to git is fine.
-
-> **DECISION (2026-08-04, operator).** Import must transfer _everything_:
-> cold-tier config, `groups/<folder>/` trees, message history, and encrypted
-> secret blobs — a full instance backup/restore, not only config. That is
-> why the CAS is a content hash and not a counter, why atomicity is
-> per-subsystem and not cross-DB all-or-nothing, and why the archive is a
-> superset artifact wrapped around the manifest.
+The config manifest transports cold-tier rows; the archive also carries instance data.
 
 ## Status
 
-Shipped: the resreg engine, the YAML config manifest, and the full-instance
-archive, end to end.
+`arizuko package add`, `rm` and `sync` install packages and apply the resource
+rows that each package declares. The `installed_packages` rows select the
+packages; no `arizuko.yml` selects one. `export`, `get`, and `plan`
+inspect config; `archive export` and `archive apply` back up and restore it
+with instance data (`cmd/arizuko/apply.go`, `cmd/arizuko/archive.go`).
+The standalone `apply` command and its `--as-folder` option are retired.
+`Resource.Retarget` remains an engine primitive, with no CLI caller.
 
-- Config verbs reach a production instance through `openSubsystemStores`
-  (`cmd/arizuko/apply.go:50`), which opens the owner DBs and errors rather
-  than falling back to the frozen pre-split `messages.db`.
-- Content-hash CAS: `resreg.Checksum` (`resreg/engine.go:576`), recomputed
-  in-tx by `resreg.Apply` (`resreg/engine.go:609`).
-- Row-level exclusion: `Resource.RowFilter` (`resreg/resreg.go:233`),
-  honored by scan, delete and checksum alike.
-- Archive primitives `resreg/archive.go` (`654ff3ed`), CLI
-  `cmd/arizuko/archive.go` (`8aac77a8`), run-slot hold `runed/hold.go` +
-  `POST /v1/holds` (`43cf6d7a`).
-- `Resource.Retarget` (`resreg/engine.go:383`).
-
-The last five gaps closed 2026-08-06, each in its own section below:
-
-1. **The missing-group rule** — `resreg.KnownFolders` + `ValidateFolderRefs`
-   (`resreg/engine.go`), run across every document by `preflightFolders`
-   (`cmd/arizuko/apply.go`) before the first transaction, on both `apply` and
-   `archive apply`.
-2. **Cross-subsystem pre-image rollback** — `applyDocs`/`rollback`
-   (`cmd/arizuko/apply.go`), with `ApplyOpts.PruneScopes`.
-3. **Path-retarget wiring** — `arizuko apply --as-folder`
-   (`cmd/arizuko/retarget.go`), the first non-test caller of `Retarget`.
-4. **Pending onboarding admissions** — `ArchiveOnboardingRow` +
-   `ExportOnboarding`/`ImportOnboarding` (`resreg/archive.go`), on the shared
-   credential gate (`restoreGated`, `cmd/arizuko/archive.go`). Closes BUGS Z3.
-5. **`dashd`'s kill-confirm label** — `killConfirm`
-   (`dashd/runed_page.go`) reads `spawns.kind`.
-
-Two bugs this pass found and did NOT fix at the time: `F49` (an empty
-`StampedField` is re-stamped on re-insert, so the FIRST no-op `export | apply`
-moves the checksum — see "Round-trip honesty"; closed 2026-08-09) and `F38`.
-`F42` WAS fixed, because it blocked item 4 outright: `onboarding`'s row had no
-`COALESCE` reads while its NULL columns are the normal state, so one pending
-admission broke `Export`/`Checksum` — and therefore every config verb — for
-the whole `onbod` subsystem.
+The decisions and implementation history below describe the original manifest
+and archive design. References to standalone `apply`, SQLite transactions,
+SQLite foreign keys, and database files in that history describe that design,
+not the current CLI or storage backend. The current engine uses the store
+backend (`resreg/engine.go`, `resreg/entity.go`). The archive still uses the
+config renderer, content-hash CAS, scoped rebuilds, preflight checks, and
+cross-subsystem pre-image rollback (`cmd/arizuko/apply.go`).
 
 ## Why
 
@@ -87,18 +51,32 @@ originated here; move the prose to `5/P`, don't duplicate it.
 
 ## Surface
 
-Four config verbs, all in `cmd/arizuko/apply.go`:
+Current config commands:
 
-- `arizuko export <instance> [file]` — dump cold-tier config to YAML.
-- `arizuko apply <instance> <file> [--force]` — validate, rebuild.
-- `arizuko get <instance> <resource>` — a scoped `export` of live state.
-- `arizuko plan <instance> <file>` — non-mutating diff vs live state.
+- `arizuko package add [-i instance] [-g folder] [-f] <source>` — install a
+  package, record its selection in `installed_packages` and create the
+  resource rows and services it declares. Without `-g` the package is
+  instance-wide.
+- `arizuko package rm [-i instance] [-g folder] <name>` — withdraw the
+  selection, the rows and the services of one package.
+- `arizuko package sync [-i instance]` — install every selected package again,
+  write the `group/` payload and print one line per override.
+- `arizuko export [-i instance] [file]` — dump cold-tier config to YAML.
+- `arizuko get [-i instance] <resource>` — export a resource from live state.
+- `arizuko plan [-i instance] <file>` — compare a manifest with live state.
+
+`arizuko.yml` in a package source is that package's definition: name, brand,
+tagline, env needs, `install:` and the package's own resource rows, in the
+document schema below. It does not select packages. A package cannot declare
+`acl` rows. Selection order is the order of `installed_packages` creation, and
+the owning definition of the order and override rules is `EXTENDING.md`
+§ Installing packages.
 
 Two archive verbs, in `cmd/arizuko/archive.go`:
 
-- `arizuko archive export <instance> [file] [--quiesced]` — config + secret
+- `arizuko archive [-i instance] export [file] [--quiesced]` — config + secret
   values + message history + group filesystem trees, as one tar file.
-- `arizuko archive apply <instance> <archive> [--force] [--stopped]` — full
+- `arizuko archive [-i instance] apply <archive> [--force] [--stopped]` — full
   restore. `--stopped` asserts the instance is down; without it the
   filesystem step claims each folder's run slot in a live `runed` and
   refuses to proceed if it cannot.
@@ -112,7 +90,7 @@ Instance-global resources rebuild wholesale. This is why `--prune` /
 "remove". The archive's non-config subsystems (messages, secrets, group
 trees) do not rebuild this way at all.
 
-Manifest files compose additively: `apply manifest/` reads every `*.yaml`,
+The original design proposed additive files: `apply manifest/` would read every `*.yaml`,
 merges rows by PK, applies the union. **File names are informational** —
 content, not name, decides what a file holds. Duplicate PKs across files
 with differing payloads are a parse-time error; identical payloads
@@ -193,23 +171,12 @@ exception since `F49` closed.
 **DECISION (2026-08-04, operator, superseding this spec's prior
 mixed-success / exit-3 / rerun-skip design).**
 
-Within one subsystem there is nothing to compensate: one subsystem = one
-owner DB = one SQLite `BEGIN IMMEDIATE … COMMIT` (`resreg/engine.go:609`) —
-CAS recheck, scoped DELETE+INSERT, commit or rollback, native semantics, no
-extra machinery.
-
-Across subsystems (`routd`, `onbod` — the only two owner DBs with `resreg`
-resources today, per `5/16`'s owner-DB map): before writing, `apply` exports
-the **current** state of every subsystem it will touch into a rollback set —
-the same `Export`/`EmitYAML` call the CAS hash already makes, reusing the
-renderer as the pre-image producer instead of inventing a second backup
-format. If a later subsystem's transaction fails after an earlier one
-committed, the committed subsystem is restored by re-applying its pre-image
-through the SAME `apply` codepath, fed the snapshot instead of the
-operator's manifest. Shipped as `applyDocs`/`rollback`
-(`cmd/arizuko/apply.go`), which `arizuko apply` and `archive apply` both call;
-pre-images come from `resreg.ExportSnapshot` (one read transaction each) and
-are captured for every subsystem BEFORE the first write transaction opens.
+`resreg.Apply` checks the content hash and rebuilds the named scopes under
+the subsystem version marker (`resreg/engine.go`, `resreg/entity.go`).
+`applyDocs` captures each subsystem's pre-image before writes. If a later
+subsystem fails, `rollback` reapplies committed pre-images with the checksum
+left by the forward apply (`cmd/arizuko/apply.go`). Package sync and archive
+restore share this path.
 
 The rollback's own CAS token is the checksum the **forward apply** left
 behind, not `--force`: if anything else moved that subsystem's config in
@@ -287,16 +254,15 @@ folder elsewhere. `web_routes.redirect_to` points into the folder's own
 `/pub|priv/<folder>/` web root; `Retarget` rewrites only `folder`, so a
 caller must rewrite `redirect_to` itself.
 
-The caller is `arizuko apply --as-folder <folder>`
+The retired caller was `arizuko apply --as-folder <folder>`
 (`cmd/arizuko/retarget.go`) — a recipe over the two existing verbs, exactly as
-this section requires, never a copy-folder mechanism of its own. Two further
-consumers, named so the next agent doesn't re-derive them: `5/28`'s seed-once
-package group, and cross-instance folder migration. Prototype spawn was the
-third until `4a9a49c7` deleted it precisely because
+this section requires, never a copy-folder mechanism of its own. One further
+consumer, named so the next agent doesn't re-derive it: cross-instance folder
+migration. Prototype spawn was a second until `4a9a49c7` deleted it precisely because
 copy-register-route behind one verb duplicated export→apply — see `5/5`
 §"Tier 3 — Session".
 
-Three rules the recipe carries, each inherited from `Retarget`'s own
+Three rules the retired recipe carried, each inherited from `Retarget`'s own
 refuses-rather-than-guesses discipline:
 
 - **One source folder or refuse.** A manifest whose scoped rows name several
@@ -311,32 +277,19 @@ refuses-rather-than-guesses discipline:
   different folder than the one it was exported from, so its checksum can
   never match the target.
 
-**Named gap: there is no file half.** `Retarget` rewrites DB rows only, so
-"export folder X, apply as folder Y" moves the rows and leaves the folder's
-files behind. That is the one thing blocking a real consolidation:
-`5/5` R5 (2026-08-07) chose product-only vocabulary and filed its unification
-idea here — a **product** is "persona + skills + seed files copied into a new
-folder", which is this section's recipe plus files, so a product could become
-an exported manifest applied with `--as-folder` once a file half exists. Until
-then products stay a `groups` column plus CLI-applied TOML templates
-(`cmd/arizuko/products.go`) and the two shapes stay separate. Whoever builds
-the file half owns the merge; do not reopen it at `5/5`.
+**File boundary:** `Retarget` rewrites rows, not group files. No current
+CLI command retargets a manifest or copies a group through this primitive.
 
 ## Consistency levels — an archive is a smear, and must say so
 
 A full-instance archive taken from a running system is not a snapshot; it is
 a smear across time, from four concrete sources:
 
-1. **No cross-DB transaction.** `routd.db`, `onbod.db`, `auth.db`,
-   `runed.db` are separate SQLite files — export reads them in sequence, so
-   a write landing between two reads appears in one document and not
-   another. `5/31`'s minimality pass sidestepped exactly this seam for
-   pairing by putting the token in `route_tokens` so token and edge share
-   one transaction (`routd/migrations/0026-route-token-kind.sql`); an
-   archive spanning DBs has no single transaction to put everything in.
-2. **DB vs. filesystem.** The `groups` row lives in `routd.db`;
+1. **No cross-subsystem snapshot.** Export reads subsystems in sequence.
+   A write between reads can appear in one document and not another.
+2. **DB vs. filesystem.** The `groups` row belongs to routd;
    `groups/<folder>/` is written by `container.SetupGroup`
-   (`container/runner.go:964`). An agent writing `MEMORY.md` mid-export can
+   (`container/runner.go:34`). An agent writing `MEMORY.md` mid-export can
    yield a config row pointing at a half-written tree.
 3. **Live turns.** Messages, tool-call audit rows and memory are written
    over seconds by an in-flight turn; export mid-turn captures half a turn.
@@ -344,23 +297,15 @@ a smear across time, from four concrete sources:
    correctness constraint, not a consistency one, but it compounds:
    ciphertext travels, the key that makes it meaningful does not.
 
-Verified empirically against this codebase, not assumed: a single explicit
-read transaction (`BeginTx(ctx, &sql.TxOptions{ReadOnly: true})`) gives a
-consistent MVCC snapshot under WAL while a concurrent connection commits new
-rows — confirmed with `modernc.org/sqlite` (`store/store.go:14`) by
-inserting into two tables from a second connection mid-read-tx and
-confirming the read transaction's later `SELECT`s neither saw the new rows
-nor changed the count already read. That is the same primitive `VACUUM INTO`
-uses internally, so the row-level export path needs only the cheaper form.
-`resreg.ExportSnapshot` (`resreg/archive.go:67`) wraps `Export`'s whole loop
-in one such transaction; plain `resreg.Export` (`resreg/engine.go:736`)
-still runs each `ScanAll` as its own implicit autocommit read.
+`resreg.ExportSnapshot` uses `objstore.ReadConsistent` for a subsystem
+(`resreg/archive.go`). It detects writers that use `objstore.Bump`; it does
+not provide a cross-subsystem or filesystem snapshot.
 
 Three levels, and the archive must **declare which one produced it** rather
 than imply an image it doesn't have:
 
 - **`live`** (default). Per-subsystem consistent — each document has its own
-  read transaction — the archive as a whole not. No downtime. For cold-tier
+  consistent read — the archive as a whole not. No downtime. For cold-tier
   config this is nearly indistinguishable from a true snapshot because
   config changes are human-paced; for messages and filesystem trees the
   smear is real but bounded to the export's wall-clock duration.
@@ -592,7 +537,7 @@ never "decrypt and return".
 
 `groups/<folder>/` holds `PERSONA.md`, `skills/`, `.claude/` (session
 state), `MEMORY.md`, `.diary/`, `media/`, prototype content — everything
-`container.SetupGroup` (`container/runner.go:964`) writes when provisioning
+`container.SetupGroup` (`container/runner.go:34`) writes when provisioning
 a group, plus everything the agent writes at runtime.
 
 **Carried: the whole tree, verbatim, as `groups.tar`. Regenerated:
@@ -798,9 +743,7 @@ diverge:
   the current agent has written since the archive was taken. **Rule: `archive
 apply` refuses a folder's filesystem step (skips it, reports it; that
   folder's config and messages steps proceed regardless) when the target tree
-  is non-empty, unless `--force`** — the same flag `apply --force` already
-  means "override a built-in safety refusal", not a second flag for a second
-  concept. A genuinely fresh instance (the DR case) needs no flag, because
+  is non-empty, unless `--force`**. A genuinely fresh instance (the DR case) needs no flag, because
   there is nothing to clobber; a populated target (re-running an old archive,
   merging instances) requires the operator to say so explicitly. The
   per-folder run-slot claim applies regardless of `--force` — not corrupting
@@ -882,7 +825,7 @@ Enforced by `SkipApplyRebuild` on `secrets`
 `archive apply` does not reopen this: its secrets/tokens UPSERT lane is a
 _different_ codepath from config `apply`'s DELETE+INSERT, added specifically
 because it never rebuilds — it only ever adds or matches an existing row by
-PK. Ordinary `arizuko apply` on a hand-edited manifest still never touches
+PK. Config reconciliation of a hand-edited manifest still never touches
 these columns.
 
 Deferred: v2 encrypted token export (operator-supplied key, `token:
@@ -979,8 +922,8 @@ table-shaped cold-tier rows (operator intent). Markdown carries prose
 rows, never referenced from YAML, never content-hashed in the DB. The
 archive's message history is neither — an unbounded immutable event log —
 which is exactly why it gets its own JSONL lane instead of being forced into
-one side of this rule. `arizuko.toml` carries root metadata and ordered
-`[[product]]` selections. Each group owns its file; source manifests are not payloads.
+one side of this rule. `arizuko.yml` in a package source carries the package definition and its
+own resource rows, and selects no package. Source manifests are not payloads.
 
 ## Status is not in the manifest
 
@@ -1055,7 +998,7 @@ third-party ORMs.
 
 ## Offline group rename
 
-`arizuko group <instance> rename` moves a complete subtree through one
+`arizuko group -i <instance> rename` moves a complete subtree through one
 original-coordinate map. More specific mappings take precedence. External chat
 identities, including legacy `local:` feeds, opaque IDs, ciphertext, cursors and
 historical content keep their bytes. Unqualified route rooms keep platform

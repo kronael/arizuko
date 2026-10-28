@@ -22,7 +22,7 @@ routd injects the agent's authorization gate into the socket: `db.AuthorizeTurn(
 
 `progress.go` is the only code that calls `Typing` or creates or edits a `verb="status"` row. The hidden method `submit_status` receives the declared task summary and the progress updates. `placement.go` gives every delivery of the turn one destination.
 
-- A compatible channel gets an immutable `🤖` summary opener. One editable `⏳` progress message follows inside its thread.
+- A compatible group chat with thread replies enabled gets an immutable `🤖` summary opener. One editable `⏳` progress message follows inside its thread.
 - An existing thread wins.
 - A channel without new-thread support gets one editable progress card.
 - A channel without `edit` gets no progress message. gitd advertises no `edit`, so GitHub shows the `👀` mark and no progress comment.
@@ -87,7 +87,7 @@ runed  preparePayload, runed/render.go:177 ────► the guest's stdin pro
          │ vsock, guest-init, stdin
          ▼
 ant    buildSystemPrompt, ant/src/index.ts:49 ─► the system prompt
-       SYSTEM.md, ant/CLAUDE.md for codex and pi, PERSONA.md
+       SYSTEM.md, the package manual for codex and pi, PERSONA.md
 ```
 
 <!-- /twin -->
@@ -168,7 +168,7 @@ routd is the `routd` owner. Each table below is an objstore entity. routd create
 - Counters: `counters` holds one server-minted number, `routes.id`.
 - People: `user_profiles` holds the username that names the folder of a person, and the per-day spend cap of that person. authd owns identity. The model gateway owns spend.
 - Network: `network_rules`.
-- Packages: `installed_packages`, keyed by folder and name, where `''` means instance-wide. The CLI writes optional receipts; startup and group creation complete the required core receipt. Both faces only read it, and both require the scope `**` for the read (`installedPackagesScope` in `packages_resource.go`). The folder column does not narrow the read, because one record names identities in several folders. A token bound to its own subtree gets 403.
+- Packages: `installed_packages`, keyed by folder and name, where `''` means instance-wide. `arizuko package add`, `rm` and `sync` write the rows: one selection and receipt for each package, including the required core receipt. Both faces only read it, and both require the scope `**` for the read (`installedPackagesScope` in `packages_resource.go`). The folder column does not narrow the read, because one record names identities in several folders. A token bound to its own subtree gets 403.
 - Audit: `audit_log`, created through `audit.EnsureEntities`.
 
 routd reads no table of another owner. Data of other daemons arrives over HTTP: identity from authd and `session_log` from runed.
@@ -178,7 +178,7 @@ routd reads no table of another owner. Data of other daemons arrives over HTTP: 
 `/openapi.json` comes from the mux that routd mounts (`resreg.OpenAPIHandler` in `cmd/routd/main.go`), so the document lists what routd serves and nothing else. `resreg/README.md` explains the emission.
 
 - `secrets` has write-only endpoints, create and key-delete, and no read. So `enc_value` cannot leak through a `GET`.
-- `installed_packages` serves only its two `GET` endpoints. Install, upgrade and remove write host files and restart sidecars, so they stay in the `arizuko packages` CLI.
+- `installed_packages` serves only its two `GET` endpoints. `arizuko package add`, `rm` and `sync` write the rows.
 - `scheduled_tasks` is the one resource whose REST path is not `/v1/<name>`. It serves `/v1/tasks`, because timed calls that prefix across the container boundary.
 - An agent-only action is declared `MCPOnly` on the single `Endpoints` slice of its resource. Mounting and emission read the same list, so the document cannot advertise an endpoint that routd does not serve. The `MCPOnly` actions are `schedule`, `pause` and `resume` of `scheduled_tasks`, `issue_pair` of `route_tokens`, `list` of `acl` with the tool `list_acl`, and `register` of `groups` with the tool `register_group`. Group creation stays in `SetupGroup` of dashd.
 - `network_rules` has no REST face, because all three of its actions are `MCPOnly`.
@@ -240,6 +240,7 @@ Dead letters and cost:
 
 Other resources and public paths:
 
+- `GET` and `PUT /v1/chats/{jid}` read and update the chat thread preference. MCP exposes `get_chat` and `set_chat`.
 - The resources `audit`, `github_sources`, `gdrive_files` and `groups` serve `/v1/<name>` through resreg. `groups` is read-only over REST. `GET /v1/installed_packages` and `GET /v1/installed_packages/{name}` read the package record.
 - `GET /dash/routd/` shows the operator overview. `POST /dash/routd/retry` and `POST /dash/routd/replay` are its forms. The proxyd operator identity gates them and not the `/v1` bearer.
 - `GET /openapi.json` serves the OpenAPI 3.1 document. It is public and mounted before auth.
@@ -274,7 +275,7 @@ Behaviour:
 - `SESSION_IDLE_EXPIRY` is the session reset threshold. The default is 2d.
 - `ARIZUKO_DEFAULT_MODEL` is the fallback model of a group that has none. The default is empty, and the run request then names no model.
 - `ARIZUKO_DEFAULT_EFFORT` is the fallback effort. The default is empty.
-- `ARIZUKO_DEFAULT_PRODUCT` selects the product that seeds the default group in an empty store.
+- `ARIZUKO_DEFAULT_PRODUCT` records the product on the default group row when routd boots on an empty store. The same boot writes one `installed_packages` row for `main` with the source `ant/examples/<product>`.
 - `COST_CAPS_ENABLED` turns on the budget gate before spawn. The default is `true`.
 - `MAX_CONCURRENT_CONTAINERS` limits concurrent runs in the queue. The default is 5.
 - `MAX_TURN_RETRY` is the retry ceiling for a turn that dies without a reply, for example after SIGKILL, OOM or a timeout. The default is 3, `0` means 3, and `-1` disables retries.
@@ -339,8 +340,8 @@ The audit source of truth is the `audit_log` entity in the tables of routd. Ever
 - `prompt.go` and `prompt_db.go` build the message string of the turn, as "Prompt assembly" describes.
 - `proactive.go` runs the proactive interjection, and `steer.go` dispatches slash commands.
 - `routes_http.go`, `tokens_http.go`, `web_routes_http.go`, `tasks_http.go` and `reads_http.go` serve REST.
-- `*_resource.go` define one resreg resource each: `acl`, `audit`, `dead_letters`, `gdrive_files`, `github_sources`, `groups`, `membership`, `network_rules`, `packages`, `route_tokens`, `routes`, `scheduled_tasks`, `secrets` and `web_routes`. One handler serves each. Agent MCP and operator REST use the same handler with a different injected Gate.
-- `packages_store.go` delegates `installed_packages` CRUD to `store/packages.go`, which owns the receipt encoding.
+- `*_resource.go` define one resreg resource each: `acl`, `audit`, `chats`, `dead_letters`, `gdrive_files`, `github_sources`, `groups`, `membership`, `network_rules`, `packages`, `route_tokens`, `routes`, `scheduled_tasks`, `secrets` and `web_routes`. One handler serves each. Agent MCP and operator REST use the same handler with a different injected Gate.
+- `packages_store.go` implements `installed_packages` CRUD. It is the record that `arizuko package add|rm|sync` reads and writes.
 - `db.go` holds the writes of the owner, such as `PutMessage`, turn claims and routing, and the boot that dials the endpoint.
 - `search.go` and `msgsearch/` implement ranked message search: the index, its boot walk and the four writes that feed it.
 - `reads.go` holds the reads of the owner for messages. The reads of chats, sessions and reply state go through `store`.

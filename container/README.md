@@ -5,8 +5,9 @@ Group setup, package assets, and the egress proxy engine.
 ## Purpose
 
 Owns the files a turn reads and the rules its egress proxy runs under.
-`SetupGroup` creates a group folder and seeds its skills. Package inventory and
-target checks support immutable mounts; `SeedCodexMountTargets` prepares credential
+`SetupGroup` creates a group folder. `package sync` writes the `group/` files of
+the winning package into it. Package inventory supplies selected assets to
+runed; `SeedCodexMountTargets` prepares credential
 targets before each spawn. `EgressRules` and `WaitHealthy` are what a substrate calls
 to start and confirm one spawn's proxy.
 
@@ -17,16 +18,19 @@ proxy process.
 
 ## Public API
 
-- `SetupGroup(cfg, database, folder, seedDir) error` — initialize required core
-  and create a group dir, optionally copying `seedDir` as its starting files.
-  The store is borrowed; only pre-store instance creation passes nil.
-- `ComposeGroup(cfg, database, folder, mix, prior) ([]Blended, error)` — the same group
-  dir, seeded from an ordered product MIX instead of one tree
-- `BlendProducts(groupDir, mix, prior) ([]Blended, error)` — the blend itself,
-  per payload kind; `Product` names a mix entry, `Blended` reports what one
-  product owns, what changed, and what was left alone as locally edited
+- `SetupGroup(cfg, folder) error` — create a group dir and its web slots; it
+  copies no package file.
+- `ComposeGroup(cfg, folder, mix, managed) ([]Blended, []string, error)` — the
+  same group dir, written from the ordered package selection; the strings are
+  the override lines
+- `BlendProducts(groupDir, mix, managed) ([]Blended, []string, error)` — the
+  group payload write; `Product` names a package, `Blended` reports the files
+  one package owns in the group folder, `managed` lists the files that the
+  previous write copied
+- `UnmanagedPaths(groupDir, mix, managed) ([]string, error)` — the existing
+  group files that the mix would write and no earlier write copied; `-f`
+  replaces them
 - `SanitizeFolder(folder) string` — safe guest, tap and share names
-- `MigrationVersion(path) int` — reads `MIGRATION_VERSION` file
 - `ReadRecentEpisodes(groupDir) string` — XML snippet for prompt
 - `WriteTasksSnapshot`, `WriteGroupsSnapshot` — per-group snapshots
 - `CopySession(groupDir, srcUUID, dstUUID) (bool, error)` — fork a session:
@@ -38,16 +42,16 @@ proxy process.
   is a WARN and answers false, and routd then clears the child's observed
   cursor (`ROUTING.md` § Topic Routing)
 - `SeedCodexMountTargets(codexDir)` — pre-create the files codex overmounts
-- `EnsureCorePackage(cfg, database) error` — select the configured release's
-  required system core under the caller's package lock. A borrowed store completes
-  its receipt; nil selects filesystem state before the store exists. Matching
-  optional receipts retain their fields. Group files retain their bytes.
-- `ReadPackageInventory(dataDir, folder)` reads active system and exact-folder
-  selections under the caller's lock. `CheckPackageMountTargets` rejects writable
-  managed payloads; `PreparePackageMountTargets` creates empty targets after full
-  preflight. `SetPackageSkillDisabled` preserves existing marker bytes.
+- `InstallPackage(dataDir, source, build) (ProductManifest, []string, error)`
+  replaces the package payload and returns the manifest and skill names. When
+  `build` is true, it runs the optional install command as the invoking user,
+  with `PREFIX` set to the final package directory. `package add` and
+  `package sync` write the selection row.
+- `ReadPackageInventory(dataDir, selected)` reads the packages named by the
+  `installed_packages` rows. Core comes first; the other packages follow in the
+  order the operator added them. A later package replaces an earlier package on
+  the same skill, hook, tool or `group/` path. Core must be present.
 - `WriteGatewayCaps(groupDir, cfg)` — the per-turn `.gateway-caps` file
-- `MaterializeAppSrc(cfg) string` — stage the release's `ant/` on the data dir
 - `RunUID() (int, bool)` — the uid the agent runs as inside the guest, and
   whether the substrate has to be told it
 - `EgressRules(allowlist, gatewayURL) (names []string, allowAll bool)` — the
@@ -55,6 +59,20 @@ proxy process.
   substrate that starts a proxy reads it
 - `WaitHealthy(url, deadline) error` — poll a proxy's `/health` until it
   answers, so a substrate never starts the agent before its proxy can
+
+## The group payload rule
+
+The `group/` directory of a package holds the files that the package puts in
+the group folder. Each `package sync` writes every `group/` file of the winning
+package into the group folder, and the write replaces any agent edit. The
+container stores the list of files that it copied, not their hashes. A file
+that a package stops shipping is removed. A file that no package ships stays
+the file of the group.
+
+runed adds a deny rule `Edit(~/<path>)` to the Claude Code settings of the turn
+for each package file. The rule tells the agent not to edit the file. It is
+advisory and is not a security boundary. A file that existed before any package
+installed it is refused unless the operator passes `-f`.
 
 ## The turn envelope lives in runed
 
@@ -69,10 +87,9 @@ substrate. `runed/README.md` §"The turn envelope" holds both tables.
 ## Files
 
 - `runner.go` — group setup: `SetupGroup`/`ComposeGroup` over one `setupGroup` skeleton, home initialization and copy helpers
-- `blend.go` — the composition of a product mix: the blend table as code. `classify` is its left column; seed-once vs managed is per payload KIND, and a collision refuses before any byte is written
-- `package_lifecycle.go` — package activation and receipt persistence through a borrowed store
-- `core_package.go` — required core initialization and canonical package collision checks;
-  `ant/arizuko.toml`, `CLAUDE.md` and `skills/` define core's fixed payload
+- `blend.go` — the group payload write: package `group/` files and the list of copied files
+- `packages.go` — the common installer and selected asset inventory; bundled
+  `ant/arizuko.yml` declares core through the same source format
 - `runtime.go` — codex mount-target seeding
 - `episodes.go` — recent-episode XML for prompt context
 - `egress.go` — the allowlist-to-rules translation and the proxy health wait every substrate calls; starts nothing itself

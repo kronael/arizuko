@@ -541,7 +541,7 @@ const healthBlock = "    healthcheck:\n" +
 	"      interval: 30s\n      timeout: 5s\n      retries: 3\n      start_period: 15s\n"
 
 // ProxydRoute mirrors proxyd's Route shape. Adapters declare theirs in the
-// `proxyd_routes` block of their `services/<name>.yaml` manifest.
+// `proxyd_routes` block of their package `arizuko.yml`.
 type ProxydRoute struct {
 	Path            string   `json:"path"`
 	Backend         string   `json:"backend"`
@@ -620,13 +620,9 @@ func gatedByOn(env map[string]string, key string) bool {
 	return envOr(env, key, "") != ""
 }
 
-// collectProxydRoutes returns the routes that survive gated_by filtering, so a
-// surface whose daemon is off is not routed at a dead backend (spec 5/7).
-// Routes live in the `services/<name>.yaml` manifest, not the fragment,
-// because proxyd — not docker — is their consumer. This is the generate-time
-// READER of the manifest `arizuko apply` also installs: routes are needed
-// before any daemon or DB exists — a second reader, never a second format
-// (BUGS L44).
+// collectProxydRoutes filters the routes generate will write by gated_by.
+// The package manifest declares these routes separately from the Compose
+// fragment. Generate and sync read the same declaration (BUGS L44).
 func collectProxydRoutes(servicesDir, catalogDir string, services []string, env map[string]string) ([]ProxydRoute, error) {
 	var out []ProxydRoute
 	for _, r := range coreProxydRoutes {
@@ -640,9 +636,7 @@ func collectProxydRoutes(servicesDir, catalogDir string, services []string, env 
 			return nil, err
 		}
 		for _, r := range routes {
-			// Checked HERE as well as at install: `packages upgrade` rewrites the
-			// fragment without re-applying its rows, so a revision that added
-			// `/dash/` would reach proxyd_routes through this path alone (BUGS L46).
+			// Check reserved paths at both sync and generate (BUGS L46).
 			if claimed := ReservedRouteClaim(bundledName(catalogDir, name), r.Path); claimed != "" {
 				return nil, fmt.Errorf("%s/arizuko.yml declares route %q, which claims the core surface %q; "+
 					"a package may not serve core arizuko's own paths (BUGS L46)", name, r.Path, claimed)

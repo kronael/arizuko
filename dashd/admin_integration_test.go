@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/routd"
 	"github.com/kronael/arizuko/store"
 	"github.com/kronael/arizuko/tests/testutils"
 )
@@ -245,7 +246,7 @@ func TestDash_NestedFolderRouting(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(coreDir, "arizuko.yml"), []byte("name: core\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.PutInstalledPackage(store.InstalledPackage{Name: "core", Manifest: map[string][]string{"skill": {}}}); err != nil {
+	if err := routd.OpenOver(s.Obj()).PutInstalledPackage(routd.InstalledPackage{Name: "core", Manifest: map[string][]string{"skill": {}}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.AddACLRow(core.ACLRow{

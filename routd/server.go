@@ -230,8 +230,7 @@ func (s *Server) Handler() http.Handler {
 	s.mountGitHubSources(mux)
 	s.mountGDriveFiles(mux)
 	s.mountGroups(mux)
-	// Read-only by design: install/upgrade/remove writes host files and
-	// restarts sidecars, so it stays the `arizuko packages` CLI (spec 5/28-packages).
+	// Package receipts are read-only here; sync owns installation.
 	s.mountInstalledPackages(mux)
 	s.mountAudit(mux)
 	s.mountDeadLetters(mux)

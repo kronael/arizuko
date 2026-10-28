@@ -21,14 +21,14 @@ import (
 // comments there. The binding holds no secret, so the store opens without a
 // keyring. Share the file with googd's service account before adding it.
 func cmdGdrive(args []string) {
-	need(args, 2, "arizuko gdrive <instance> <add|list|rm> ...")
+	need(args, 2, "arizuko gdrive [-i instance] <add|list|rm> ...")
 	instance, sub := args[0], args[1]
 	s := mustOpenACL(mustInstanceDir(instance)).AsCLI(os.Getenv("USER"))
 	defer func() { _ = s.Close() }()
 
 	switch sub {
 	case "add":
-		need(args, 4, "arizuko gdrive <instance> add <file_id> <folder>")
+		need(args, 4, "arizuko gdrive [-i instance] add <file_id> <folder>")
 		if err := runGDriveAdd(s, args[2], args[3], os.Stdout); err != nil {
 			die("Failed: %v", err)
 		}
@@ -41,7 +41,7 @@ func cmdGdrive(args []string) {
 			die("Failed: %v", err)
 		}
 	case "rm":
-		need(args, 3, "arizuko gdrive <instance> rm <file_id>")
+		need(args, 3, "arizuko gdrive [-i instance] rm <file_id>")
 		if err := runGDriveRm(s, args[2], os.Stdout); err != nil {
 			die("Failed: %v", err)
 		}

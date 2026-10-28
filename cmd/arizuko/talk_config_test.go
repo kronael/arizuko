@@ -155,10 +155,10 @@ func TestResolveTalkEntryErrorNamesTheFileAndTheCommands(t *testing.T) {
 		"/cfg/talk.toml", // which file
 		`url   = "`,      // what to put in it
 		`token = "`,
-		"chmod 600",                             // and with which mode
-		"arizuko token <instance> issue bearer", // where the token comes from
-		"arizuko group <instance> grant",        // and what actually decides reach
-		"ARIZUKO_CHAT_TOKEN",                    // the other way in
+		"chmod 600", // and with which mode
+		"arizuko token [-i instance] issue bearer", // where the token comes from
+		"arizuko group [-i instance] grant",        // and what actually decides reach
+		"ARIZUKO_CHAT_TOKEN",                       // the other way in
 	} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error missing %q; full text:\n%s", want, err)

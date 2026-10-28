@@ -8,7 +8,7 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
-// InstalledPackagesRow mirrors installed_packages (spec 5/28-packages). manifest +
+// InstalledPackagesRow mirrors installed_packages (see compose/README.md). manifest +
 // asset_hashes are Go maps, so each DECLARES its encoding (resreg/codec.go).
 // The PK is composite (folder, name): composition blends a product mix per
 // GROUP, so the lock names which group (BUGS F30). Folder "" is instance-wide.
@@ -54,9 +54,7 @@ var InstalledPackagesMCPArgs = map[resreg.Action][]resreg.MCPArg{
 		// The PK is (folder, name); omitting folder asks for the instance-wide
 		// row the CLI writes.
 		{Name: "folder", Type: "string",
-			Description: "Owning folder, as list_packages reports it. Omit for an " +
-				"instance-wide package (the default, and every package the " +
-				"`arizuko packages` CLI installs)."},
+			Description: "Owning folder, as list_packages reports it. Omit for an instance-wide package."},
 	},
 }
 
@@ -68,13 +66,11 @@ var InstalledPackagesMCPDoc = map[resreg.Action]string{
 		"(compose fragments, proxyd routes, acl grants, skills) and its per-asset " +
 		"content hashes. An empty `folder` means the package is installed " +
 		"instance-wide. Reads across every folder, so it needs a grant covering the " +
-		"whole tree. Read-only — installing, upgrading, and removing a package is the " +
-		"`arizuko packages` CLI, because it also writes files and restarts " +
-		"sidecars. Spec 5/28.",
+		"whole tree. Read-only; arizuko package installs the selected packages.",
 	resreg.ActionGet: "Read one installed package's record — same fields as " +
 		"list_packages, for a single package. Keyed by `name` plus the owning " +
 		"`folder`; omit `folder` for an instance-wide package. Absent package " +
-		"returns 404. Read-only. Spec 5/28.",
+		"returns 404. Read-only.",
 }
 
 func init() {

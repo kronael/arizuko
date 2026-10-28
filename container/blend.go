@@ -1,17 +1,15 @@
 package container
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
+	"bytes"
 	"encoding/json"
 	"fmt"
-	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
-
-	"github.com/kronael/arizuko/chanlib"
 )
 
 type Product struct {
@@ -20,26 +18,21 @@ type Product struct {
 }
 
 type Blended struct {
-	Name        string
-	Manifest    map[string][]string
-	AssetHashes map[string]string
-	Changed     bool
-	Dirty       []string
-	Warnings    []string
+	Name     string
+	Manifest map[string][]string
 }
 
 const settingsRel = ".claude/settings.json"
+
+// ManifestGroupFiles is the receipt kind that lists the group/ files a
+// package wrote into a group folder.
+const ManifestGroupFiles = "group_seed"
 
 type payload int
 
 const (
 	payVerbatim payload = iota
-	paySkill
-	payPersona
-	payClaude
-	payUnion
 	paySettings
-	payDockerfile
 	payMigrations
 	payTasks
 )
@@ -47,86 +40,39 @@ const (
 func classify(rel string) payload {
 	parts := strings.Split(rel, "/")
 	switch {
-	case parts[0] == "skills" && len(parts) > 1:
-		return paySkill
-	case rel == "PERSONA.md" || rel == "SOUL.md":
-		return payPersona
-	case rel == "CLAUDE.md":
-		return payClaude
-	case parts[0] == "facts" && len(parts) > 1:
-		return payUnion
 	case parts[0] == "migrations" && len(parts) > 1:
 		return payMigrations
 	case rel == "tasks.toml":
 		return payTasks
 	case rel == settingsRel:
 		return paySettings
-	case rel == "Dockerfile.ant":
-		return payDockerfile
 	}
 	return payVerbatim
 }
 
 var refusedPayloads = map[payload]string{
 	payMigrations: "nothing runs a product's migrations/ — " +
-		"put the instructions in the product's CLAUDE.md or a skill, which the agent reads (spec 5/28)",
+		"put the instructions in the product's CLAUDE.md or a skill, which the agent reads (container/README.md)",
 	payTasks: "nothing reads a product's tasks.toml — " +
 		"a scheduled task is a scheduled_tasks row, so create it with schedule_task, the dashboard " +
-		"or POST /v1/tasks, or have the product's CLAUDE.md tell the agent to (spec 5/28)",
+		"or POST /v1/tasks, or have the product's CLAUDE.md tell the agent to (container/README.md)",
 }
 
 func refusePayload(product, rel string, kind payload) error {
 	return fmt.Errorf("%s: %s ships it, and %s", rel, product, refusedPayloads[kind])
 }
 
-func CheckProductAssets(product, dir string) error {
-	if _, err := ReadProductManifest(dir); err != nil {
-		return err
-	}
-	rels, err := productFiles(dir)
-	if err != nil {
-		return err
-	}
-	for _, rel := range rels {
-		if kind := classify(rel); refusedPayloads[kind] != "" {
-			return refusePayload(product, rel, kind)
-		}
-	}
-	return nil
-}
-
-func SeedProduct(groupDir, dir string) error {
-	if _, err := ReadProductManifest(dir); err != nil {
-		return err
-	}
-	rels, err := productFiles(dir)
-	if err != nil {
-		return err
-	}
-	for _, rel := range rels {
-		dst := filepath.Join(groupDir, filepath.FromSlash(rel))
-		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-			return err
-		}
-		if err := chanlib.CopyFile(filepath.Join(dir, filepath.FromSlash(rel)), dst); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 func productFiles(dir string) ([]string, error) {
+	dir = filepath.Join(dir, "group")
+	if _, err := os.Stat(dir); os.IsNotExist(err) {
+		return nil, nil
+	}
 	var rels []string
 	err := filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		if d.IsDir() && (p == filepath.Join(dir, ".git") ||
-			p == filepath.Join(dir, "skills") || p == filepath.Join(dir, "hooks") ||
-			p == filepath.Join(dir, "bin") || p == filepath.Join(dir, ".codex")) {
-			return fs.SkipDir
-		}
-		if p == filepath.Join(dir, ManifestFile) || p == filepath.Join(dir, "CLAUDE.md") {
+		if p == filepath.Join(dir, ManifestFile) {
 			return nil
 		}
 		if d.IsDir() || d.Type()&os.ModeSymlink != 0 {
@@ -143,27 +89,14 @@ func productFiles(dir string) ([]string, error) {
 	return rels, err
 }
 
-func hashBytes(b []byte) string {
-	h := sha256.Sum256(b)
-	return hex.EncodeToString(h[:])
-}
-
 type plan struct {
-	persona    int
-	personaRel string
-	union      map[string]int
-	settings   []int
-	dockerfile int
-	verbatim   map[string]int
-	files      map[int][]string
-	warnings   []string
+	settings  []int
+	verbatim  map[string]int
+	overrides []string
 }
 
 func buildPlan(mix []Product) (*plan, error) {
-	p := &plan{
-		persona: -1, union: map[string]int{},
-		dockerfile: -1, verbatim: map[string]int{}, files: map[int][]string{},
-	}
+	p := &plan{verbatim: map[string]int{}}
 	for i, prod := range mix {
 		if _, err := ReadProductManifest(prod.Dir); err != nil {
 			return nil, err
@@ -172,132 +105,73 @@ func buildPlan(mix []Product) (*plan, error) {
 		if err != nil {
 			return nil, fmt.Errorf("read product %s: %w", prod.Name, err)
 		}
-		p.files[i] = rels
 		for _, rel := range rels {
 			kind := classify(rel)
 			switch kind {
-			case payPersona:
-				if p.persona == -1 {
-					p.persona, p.personaRel = i, rel
-					continue
-				}
-				if p.personaRel == rel {
-					p.warnings = append(p.warnings, fmt.Sprintf(
-						"%s also ships %s — %s wins, later providers are ignored",
-						prod.Name, rel, mix[p.persona].Name))
-					continue
-				}
-
-				p.warnings = append(p.warnings, fmt.Sprintf(
-					"%s ships %s and %s ships %s — SOUL.md is the legacy PERSONA.md name, "+
-						"so only %s is ever read; the other is a dead file",
-					mix[p.persona].Name, p.personaRel, prod.Name, rel, p.personaRel))
-			case payUnion:
-				if owner, dup := p.union[rel]; dup {
-					return nil, fmt.Errorf("%s: both %s and %s ship it — union payloads refuse a filename collision",
-						rel, mix[owner].Name, prod.Name)
-				}
-				p.union[rel] = i
 			case paySettings:
 				p.settings = append(p.settings, i)
 			case payMigrations, payTasks:
 				return nil, refusePayload(prod.Name, rel, kind)
-			case payDockerfile:
-				if p.dockerfile != -1 {
-					return nil, fmt.Errorf("both %s and %s ship a Dockerfile.ant — at most one image extension per mix",
-						mix[p.dockerfile].Name, prod.Name)
-				}
-				p.dockerfile = i
 			default:
-				if _, taken := p.verbatim[rel]; !taken {
-					p.verbatim[rel] = i
+				if owner, taken := p.verbatim[rel]; taken {
+					p.overrides = append(p.overrides, fmt.Sprintf("%s overrides %s on group/%s", prod.Name, mix[owner].Name, rel))
 				}
+				p.verbatim[rel] = i
 			}
 		}
 	}
 	return p, nil
 }
 
-func BlendProducts(groupDir string, mix []Product, prior map[string]map[string]string) ([]Blended, error) {
+// UnmanagedPaths lists the existing group files the mix would write that the
+// previous blend did not: managed lists what that blend wrote.
+func UnmanagedPaths(groupDir string, mix []Product, managed []string) ([]string, error) {
 	p, err := buildPlan(mix)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]Blended, len(mix))
-	for i := range mix {
-		out[i] = Blended{Name: mix[i].Name, Manifest: map[string][]string{}, AssetHashes: map[string]string{}}
-	}
-	if len(p.warnings) > 0 {
-		out[0].Warnings = append(out[0].Warnings, p.warnings...)
-	}
-
-	if err := blendSeedOnce(groupDir, mix, p, out); err != nil {
-		return nil, err
-	}
-	if err := blendSettings(groupDir, mix, p, out); err != nil {
-		return nil, err
-	}
-
-	shipped := map[string]string{}
-	for i := range out {
-		for k, h := range out[i].AssetHashes {
-			shipped[k] = h
+	var paths []string
+	for _, rel := range slices.Sorted(maps.Keys(p.verbatim)) {
+		if _, err := os.Lstat(filepath.Join(groupDir, filepath.FromSlash(rel))); err == nil && !slices.Contains(managed, rel) {
+			paths = append(paths, rel)
 		}
 	}
-	for i := range mix {
-		dropped, warns, err := dropStale(groupDir, prior[mix[i].Name], shipped)
-		if err != nil {
-			return nil, err
-		}
-		out[i].Changed = out[i].Changed || dropped
-		out[i].Warnings = append(out[i].Warnings, warns...)
-	}
-	return out, nil
+	return paths, nil
 }
 
-func blendSeedOnce(groupDir string, mix []Product, p *plan, out []Blended) error {
-	type item struct {
-		owner int
-		src   string
-		dst   string
-		kind  string
+// BlendProducts writes a group's package payload: every group/ file of the
+// mix, rewritten to the last provider's bytes on every call, and removes a
+// managed file no package ships any more. Each Blended lists the files its
+// package won under ManifestGroupFiles; the strings name each path a later
+// package took from an earlier one.
+func BlendProducts(groupDir string, mix []Product, managed []string) ([]Blended, []string, error) {
+	p, err := buildPlan(mix)
+	if err != nil {
+		return nil, nil, err
 	}
-	var items []item
-	if p.persona != -1 {
-		items = append(items, item{p.persona, p.personaRel, p.personaRel, "group_seed"})
+	out := make([]Blended, len(mix))
+	for i := range mix {
+		out[i] = Blended{Name: mix[i].Name, Manifest: map[string][]string{}}
 	}
-	if p.dockerfile != -1 {
-		items = append(items, item{p.dockerfile, "Dockerfile.ant", "Dockerfile.ant", "image_extension"})
-	}
-	for _, m := range []map[string]int{p.union, p.verbatim} {
-		rels := make([]string, 0, len(m))
-		for rel := range m {
-			rels = append(rels, rel)
-		}
-		sort.Strings(rels)
-		for _, rel := range rels {
-			items = append(items, item{m[rel], rel, rel, "group_seed"})
-		}
-	}
-
-	for _, it := range items {
-		b, err := os.ReadFile(filepath.Join(mix[it.owner].Dir, filepath.FromSlash(it.src)))
+	for _, rel := range slices.Sorted(maps.Keys(p.verbatim)) {
+		i := p.verbatim[rel]
+		b, err := os.ReadFile(filepath.Join(mix[i].Dir, "group", filepath.FromSlash(rel)))
 		if err != nil {
-			return err
+			return nil, nil, err
 		}
-		wrote, err := seedOnce(groupDir, it.dst, b)
-		if err != nil {
-			return err
+		if _, err := writeIfDifferent(groupDir, rel, b); err != nil {
+			return nil, nil, err
 		}
-		o := &out[it.owner]
-		o.Changed = o.Changed || wrote
-		o.AssetHashes["file:"+it.dst] = hashBytes(b)
-		o.Manifest[it.kind] = append(o.Manifest[it.kind], it.dst)
+		out[i].Manifest[ManifestGroupFiles] = append(out[i].Manifest[ManifestGroupFiles], rel)
 	}
-	for i := range out {
-		sort.Strings(out[i].Manifest["group_seed"])
+	for _, rel := range managed {
+		if _, shipped := p.verbatim[rel]; !shipped {
+			if err := os.Remove(filepath.Join(groupDir, filepath.FromSlash(rel))); err != nil && !os.IsNotExist(err) {
+				return nil, nil, err
+			}
+		}
 	}
-	return nil
+	return out, p.overrides, blendSettings(groupDir, mix, p, out)
 }
 
 func blendSettings(groupDir string, mix []Product, p *plan, out []Blended) error {
@@ -307,7 +181,7 @@ func blendSettings(groupDir string, mix []Product, p *plan, out []Blended) error
 	merged := map[string]any{}
 	owner := map[string]string{}
 	for _, i := range p.settings {
-		b, err := os.ReadFile(filepath.Join(mix[i].Dir, filepath.FromSlash(settingsRel)))
+		b, err := os.ReadFile(filepath.Join(mix[i].Dir, "group", filepath.FromSlash(settingsRel)))
 		if err != nil {
 			return err
 		}
@@ -354,34 +228,13 @@ func blendSettings(groupDir string, mix []Product, p *plan, out []Blended) error
 	if err != nil {
 		return err
 	}
-	wrote, err := writeIfDifferent(groupDir, settingsRel, append(b, '\n'))
-	if err != nil {
-		return err
-	}
-	if wrote {
-		for _, i := range p.settings {
-			out[i].Changed = true
-		}
-	}
-	return nil
-}
-
-func seedOnce(groupDir, rel string, b []byte) (bool, error) {
-	path := filepath.Join(groupDir, filepath.FromSlash(rel))
-	if _, err := os.Stat(path); err == nil {
-		return false, nil
-	} else if !os.IsNotExist(err) {
-		return false, err
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return false, err
-	}
-	return true, os.WriteFile(path, b, 0o644)
+	_, err = writeIfDifferent(groupDir, settingsRel, append(b, '\n'))
+	return err
 }
 
 func writeIfDifferent(groupDir, rel string, b []byte) (bool, error) {
 	path := filepath.Join(groupDir, filepath.FromSlash(rel))
-	if cur, err := os.ReadFile(path); err == nil && hashBytes(cur) == hashBytes(b) {
+	if cur, err := os.ReadFile(path); err == nil && bytes.Equal(cur, b) {
 		return false, nil
 	} else if err != nil && !os.IsNotExist(err) {
 		return false, err
@@ -390,39 +243,4 @@ func writeIfDifferent(groupDir, rel string, b []byte) (bool, error) {
 		return false, err
 	}
 	return true, os.WriteFile(path, b, 0o644)
-}
-
-func dropStale(groupDir string, recorded, shipped map[string]string) (bool, []string, error) {
-	var stale []string
-	for k := range recorded {
-		rel, isFile := strings.CutPrefix(k, "file:")
-		if !isFile || rel == ManifestFile || rel == "CLAUDE.md" {
-			continue
-		}
-		if _, still := shipped[k]; !still {
-			stale = append(stale, rel)
-		}
-	}
-	sort.Strings(stale)
-	var warns []string
-	dropped := false
-	for _, rel := range stale {
-		path := filepath.Join(groupDir, filepath.FromSlash(rel))
-		b, err := os.ReadFile(path)
-		if os.IsNotExist(err) {
-			continue
-		}
-		if err != nil {
-			return false, nil, err
-		}
-		if hashBytes(b) != recorded["file:"+rel] {
-			warns = append(warns, fmt.Sprintf("%s is no longer shipped but was edited locally — left in place", rel))
-			continue
-		}
-		if err := os.Remove(path); err != nil {
-			return false, nil, err
-		}
-		dropped = true
-	}
-	return dropped, warns, nil
 }

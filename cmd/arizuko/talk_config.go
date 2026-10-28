@@ -198,8 +198,8 @@ Then:  chmod 600 %s
 
 On the instance host, grant the subject and mint its bearer:
 
-    arizuko group <instance> grant cli '<folder>/**'
-    arizuko token <instance> issue bearer <folder> \
+    arizuko group [-i instance] grant cli '<folder>/**'
+    arizuko token [-i instance] issue bearer <folder> \
         --sub user:cli --scope messages:read,messages:write --ttl 720h
 
 The bearer's scope claim is not read on this path: proxyd re-reads the

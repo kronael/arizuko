@@ -68,7 +68,7 @@ func cmdGroupRename(instance, dataDir string, args []string) {
 		die("Failed: %v", err)
 	}
 	if fs.NArg() != 2 || *inventoryPath == "" || *endpoint == "" || (*resume && *rollback) {
-		die("usage: arizuko group <instance> rename <src> <dst> --inventory <file> --endpoint <url> [--map old=new] --dry-run | --stopped --yes --journal <dir> [--resume|--rollback]")
+		die("usage: arizuko group [-i instance] rename <src> <dst> --inventory <file> --endpoint <url> [--map old=new] --dry-run | --stopped --yes --journal <dir> [--resume|--rollback]")
 	}
 	if !*dryRun && (!*stopped || !*yes || *journal == "") {
 		die("Failed: execution requires --stopped --yes --journal; keep all writers stopped until verification")

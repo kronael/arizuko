@@ -22,43 +22,21 @@ import (
 	"github.com/kronael/arizuko/container"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
+	"github.com/kronael/arizuko/routd"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 	"github.com/kronael/arizuko/store"
 )
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Println("usage: arizuko <run|create|group|gate|invite|chat|talk|status|pair|generate|packages|token|apply|plan|get|export> ...")
-		fmt.Println("  group    <instance> list | add | rm [-f] <folder> | grant | ungrant | grants")
-		fmt.Println("  gate     <instance> list | add | rm | enable | disable")
-		fmt.Println("  invite   <instance> create <target_glob> [--max-uses|-n N] [--expires|-e DURATION]")
-		fmt.Println("  invite   <instance> list [--issued-by|-b SUB]")
-		fmt.Println("  invite   <instance> revoke <token>")
-		fmt.Println("  network  <instance> allow <folder> <target> | deny <folder> <target> | list [<folder>]")
-		fmt.Println("  images   <instance> [--prune|-p]  — list rootfs/kernel trees and mark the in-use ones; --prune removes the rest")
-		fmt.Println("  route    <instance> list | add <match> <target> [--seq|-s N] | rm <id>")
-		fmt.Println("  packages <instance> list | add <name> | remove <name>")
-		fmt.Println("  packages <instance> install <git-url-or-dir> [--folder <scope>]... | upgrade <name> | sync")
-		fmt.Println("    install, upgrade, remove, sync, list: [--group <exact-folder>] (default: system)")
-		fmt.Println("  products <instance> list | apply <folder>  — the bundled catalog, or blend the group's ~/arizuko.yml mix")
-		fmt.Println("  generate <instance>  — writes docker-compose.yml; also relinks any installed fragment that's still an identical catalog copy")
-		fmt.Println("  token    <instance> issue chat <folder> [<suffix>]")
-		fmt.Println("  token    <instance> issue webhook <folder> <label> [<suffix>]")
-		fmt.Println("  token    <instance> issue bearer <folder> --scope|-s s1,s2 [--ttl|-t 1h] [--sub SUB]")
-		fmt.Println("  token    <instance> list <folder>")
-		fmt.Println("  token    <instance> revoke <jid>")
-		fmt.Println("  chat     <instance> [--folder <folder>] | thread-replies <jid> [on|off|default]")
-		fmt.Println("  send     <instance> <folder> \"<msg>\" [--wait|-w | --stream|-S] [--token|-t <raw>] [--topic|-T <t>]")
+		fmt.Println("usage: arizuko <command> [-i|--instance name] [arguments]")
+		fmt.Println("  package  sync | add <source> | rm <name>  [-g <folder>] [-f]")
+		fmt.Println("  create [-i instance] [-p product] | run | generate | status")
+		fmt.Println("  group | gate | invite | network | images | route | token")
+		fmt.Println("  chat | send | pair | secret | user-secret | budget")
 		fmt.Println("  talk     [@name] [-g <folder>] [-t <thread>] [-p [prompt]]  — REPL against a live instance; no DB, config in ~/.config/arizuko/talk.toml")
-		fmt.Println("  secret   <instance> set <folder> KEY --value|-v V | list <folder> | delete <folder> KEY")
-		fmt.Println("  user-secret <instance> set <user_sub> KEY --value|-v V | list <user_sub> | delete <user_sub> KEY")
-		fmt.Println("  budget   <instance> set <folder|user> <name|sub> --daily|-d N | show <folder|user> <name|sub>")
-		fmt.Println("  apply    <instance> <manifest.yaml> [--force|-f]")
-		fmt.Println("  plan     <instance> <manifest.yaml>  — non-mutating diff vs live config")
-		fmt.Println("  get      <instance> <resource>       — emit one resource as a YAML fragment")
-		fmt.Println("  export   <instance> [output.yaml]")
-		fmt.Println("  archive  export <instance> [file] [--quiesced]  — full backup: config+secrets+messages+group trees")
-		fmt.Println("  archive  apply  <instance> <archive.tar> [--force]")
+		fmt.Println("  plan <manifest.yml> | get <resource> | export [output.yml]")
+		fmt.Println("  archive export [file] [--quiesced] | apply <archive.tar> [--force]")
 		fmt.Println("  probe    <base-url> [--token|-t T] [--foreign-folder|-f F]  — check a live component against the 6/16 contract")
 		os.Exit(1)
 	}
@@ -75,30 +53,35 @@ func main() {
 		"invite":       cmdInvite,
 		"chat":         cmdChat,
 		"send":         cmdSend,
-		"talk":         cmdTalk, // spec 6/26 gap 1
 		"status":       cmdStatus,
 		"pair":         cmdPair,
 		"network":      cmdNetwork,
 		"route":        cmdRoute,
 		"images":       cmdImages,
-		"packages":     cmdPackages, // spec 5/27-compose-native-packaging
-		"products":     cmdProducts, // spec 5/28-packages composition
+		"package":      cmdPackage,
 		"secret":       cmdSecret,
 		"user-secret":  cmdUserSecret,
 		"budget":       cmdBudget,
 		"token":        cmdToken,
-		"apply":        cmdApply,   // spec 5/8
 		"plan":         cmdPlan,    // spec 5/8
 		"get":          cmdGet,     // spec 5/8
 		"export":       cmdExport,  // spec 5/8
 		"archive":      cmdArchive, // spec 5/8
-		"probe":        cmdProbe,   // spec 6/16 component contract
+	}
+	remote := map[string]func([]string){"talk": cmdTalk, "probe": cmdProbe}
+	if fn, ok := remote[os.Args[1]]; ok {
+		fn(os.Args[2:])
+		return
 	}
 	fn, ok := cmds[os.Args[1]]
 	if !ok {
 		die("unknown command: %s", os.Args[1])
 	}
-	fn(os.Args[2:])
+	args, err := instanceArgs(os.Args[2:])
+	if err != nil {
+		die("Failed: %v", err)
+	}
+	fn(args)
 }
 
 func die(format string, args ...any) {
@@ -129,7 +112,7 @@ func auditCLI(s *store.Store, cmd string, args []string) {
 }
 
 func cmdRun(args []string) {
-	need(args, 1, "arizuko run <instance>")
+	need(args, 1, "arizuko run [-i instance]")
 	outPath := generateCompose(mustInstanceDir(args[0]))
 	cmd := exec.Command("docker", "compose", "-f", outPath, "up", "--remove-orphans")
 	cmd.Stdout = os.Stdout
@@ -140,7 +123,7 @@ func cmdRun(args []string) {
 }
 
 func cmdGenerate(args []string) {
-	need(args, 1, "arizuko generate <instance>")
+	need(args, 1, "arizuko generate [-i instance]")
 	dataDir := mustInstanceDir(args[0])
 	generateCompose(dataDir)
 }
@@ -200,6 +183,10 @@ func mustInstanceDir(name string) string {
 // DYNAMODB_URL: a subcommand that resolved the directory without the
 // environment opened the file on an instance whose daemons read the server.
 func instanceDir(name string) (string, error) {
+	if dir := os.Getenv("DATA_DIR"); name == "" && dir != "" {
+		core.LoadInstanceEnv(dir)
+		return dir, nil
+	}
 	clean, err := core.SanitizeInstance(name)
 	if err != nil {
 		return "", err
@@ -234,7 +221,7 @@ func parseCreateFlags(args []string) (name, product string, err error) {
 func cmdCreate(args []string) {
 	rawName, product, err := parseCreateFlags(args)
 	if err != nil {
-		fmt.Println("usage: arizuko create <name> [--product|-p <name>]")
+		fmt.Println("usage: arizuko create [-i instance] [--product|-p <name>]")
 		os.Exit(1)
 	}
 	name, err := core.SanitizeInstance(rawName)
@@ -268,8 +255,6 @@ func cmdCreate(args []string) {
 			die("Failed: parse %s: %v", container.ManifestFile, err)
 		}
 		manifest = &m
-		declareProduct(filepath.Join(cfg.GroupsDir, store.DefaultFolder), productDir,
-			filepath.ToSlash(filepath.Join("ant", "examples", product)))
 	}
 
 	// services/ holds installed compose fragments. surrogate/ holds the
@@ -334,7 +319,7 @@ func cmdCreate(args []string) {
 		die("Failed: make the store dir at %s: %v", storeDir, err)
 	}
 	chownStore(storeDir)
-	if err := container.SetupGroup(cfg, store.DefaultFolder, productDir); err != nil {
+	if err := container.SetupGroup(cfg, store.DefaultFolder); err != nil {
 		die("Failed: setup group dir: %v", err)
 	}
 	fmt.Printf("created instance %s at %s\n", name, dataDir)
@@ -351,7 +336,7 @@ func cmdCreate(args []string) {
 			}
 			fmt.Println()
 		}
-		fmt.Printf("\nnext: populate %s/groups/main/facts/ then: arizuko run %s\n", dataDir, name)
+		fmt.Printf("\nnext: populate %s/groups/main/facts/ then: arizuko run -i %s\n", dataDir, name)
 	}
 }
 
@@ -379,7 +364,7 @@ func chownStore(storeDir string) {
 }
 
 func cmdGroup(args []string) {
-	need(args, 2, "arizuko group <instance> <list|add|rm|grant|ungrant|grants> ...")
+	need(args, 2, "arizuko group [-i instance] <list|add|rm|grant|ungrant|grants> ...")
 	instance, action := args[0], args[1]
 
 	dataDir := mustInstanceDir(instance)
@@ -408,8 +393,9 @@ func cmdGroup(args []string) {
 		// the same product template (PERSONA.md + CLAUDE.md + facts/).
 		fs := flag.NewFlagSet("group add", flag.ContinueOnError)
 		productFlag := fs.String("product", "", "product template applied to this group (same set as `arizuko create --product`)")
+		fs.StringVar(productFlag, "p", "", "product template")
 		if err := flexParse(fs, args[2:]); err != nil || fs.NArg() != 2 {
-			die("usage: arizuko group <instance> add <jid> <folder> [--product <name>]")
+			die("usage: arizuko group [-i instance] add <jid> <folder> [--product <name>]")
 		}
 		jid, folder := fs.Arg(0), fs.Arg(1)
 		if !groupfolder.IsValidFolder(folder) {
@@ -426,10 +412,12 @@ func cmdGroup(args []string) {
 			if _, err := os.Stat(filepath.Join(productDir, container.ManifestFile)); err != nil {
 				die("Failed: unknown product %q (looked for %s/%s)", *productFlag, productDir, container.ManifestFile)
 			}
-			declareProduct(filepath.Join(cfg.GroupsDir, folder), productDir,
-				filepath.ToSlash(filepath.Join("ant", "examples", *productFlag)))
+			if err := routd.OpenOver(s.Obj()).PutInstalledPackage(routd.InstalledPackage{Folder: folder, Name: *productFlag,
+				Source: "ant/examples/" + *productFlag, InstalledAt: core.TS(time.Now())}); err != nil {
+				die("Failed: select product: %v", err)
+			}
 		}
-		if err := container.SetupGroup(cfg, folder, productDir); err != nil {
+		if err := container.SetupGroup(cfg, folder); err != nil {
 			die("Failed: setup group dir: %v", err)
 		}
 		if err := s.SeedDefaultTasks(folder, folder); err != nil {
@@ -546,7 +534,7 @@ func mustOpenOwner(owner, dataDir string) (*store.Store, error) {
 
 // grantUsage is the one usage string both verbs print, because they take the
 // same row and a divergence would document a flag only one of them has.
-const grantUsage = "arizuko group <instance> <grant|ungrant> <sub> <pattern> [action] " +
+const grantUsage = "arizuko group [-i instance] <grant|ungrant> <sub> <pattern> [action] " +
 	"[--effect allow|deny] [--params <matcher>]"
 
 // parseGrantArgs reads the operator's words into the acl row the verb addresses.
@@ -693,7 +681,7 @@ func runGrants(s *store.Store, sub string, w io.Writer) error {
 }
 
 func cmdGate(args []string) {
-	need(args, 2, "arizuko gate <instance> <list|add|rm|enable|disable> ...")
+	need(args, 2, "arizuko gate [-i instance] <list|add|rm|enable|disable> ...")
 	instance, action := args[0], args[1]
 
 	dataDir := mustInstanceDir(instance)
@@ -722,7 +710,7 @@ func cmdGate(args []string) {
 		_ = tw.Flush()
 
 	case "add":
-		need(args, 4, "arizuko gate <instance> add <spec> <N>/day")
+		need(args, 4, "arizuko gate [-i instance] add <spec> <N>/day")
 		spec := args[2]
 		limitStr := strings.TrimSuffix(args[3], "/day")
 		limit, err := strconv.Atoi(limitStr)
@@ -735,21 +723,21 @@ func cmdGate(args []string) {
 		fmt.Printf("gate added: %s %d/day\n", spec, limit)
 
 	case "rm":
-		need(args, 3, "arizuko gate <instance> rm <spec>")
+		need(args, 3, "arizuko gate [-i instance] rm <spec>")
 		if err := s.DeleteGate(args[2]); err != nil {
 			die("Failed: rm gate: %v", err)
 		}
 		fmt.Printf("gate removed: %s\n", args[2])
 
 	case "enable":
-		need(args, 3, "arizuko gate <instance> enable <spec>")
+		need(args, 3, "arizuko gate [-i instance] enable <spec>")
 		if err := s.EnableGate(args[2], true); err != nil {
 			die("Failed: enable gate: %v", err)
 		}
 		fmt.Printf("gate enabled: %s\n", args[2])
 
 	case "disable":
-		need(args, 3, "arizuko gate <instance> disable <spec>")
+		need(args, 3, "arizuko gate [-i instance] disable <spec>")
 		if err := s.EnableGate(args[2], false); err != nil {
 			die("Failed: disable gate: %v", err)
 		}
@@ -788,7 +776,7 @@ func parseInviteCreate(args []string) (glob string, maxUses int, expiresAt *time
 }
 
 func cmdInvite(args []string) {
-	need(args, 2, "arizuko invite <instance> <create|list|revoke> ...")
+	need(args, 2, "arizuko invite [-i instance] <create|list|revoke> ...")
 	instance, action := args[0], args[1]
 
 	dataDir := mustInstanceDir(instance)
@@ -799,7 +787,7 @@ func cmdInvite(args []string) {
 	case "create":
 		glob, maxUses, expiresAt, err := parseInviteCreate(args[2:])
 		if err != nil {
-			die("usage: arizuko invite <instance> create <target_glob> [--max-uses|-n N] [--expires|-e DURATION]: %v", err)
+			die("usage: arizuko invite [-i instance] create <target_glob> [--max-uses|-n N] [--expires|-e DURATION]: %v", err)
 		}
 		inv, rawToken, err := s.CreateInvite(glob, "cli", maxUses, expiresAt)
 		if err != nil {
@@ -818,7 +806,7 @@ func cmdInvite(args []string) {
 		issuedBy := fs.String("issued-by", "", "filter by issuer sub")
 		fs.StringVar(issuedBy, "b", "", "filter by issuer sub")
 		if err := flexParse(fs, args[2:]); err != nil || fs.NArg() != 0 {
-			die("usage: arizuko invite <instance> list [--issued-by|-b SUB]")
+			die("usage: arizuko invite [-i instance] list [--issued-by|-b SUB]")
 		}
 		invs, err := s.ListInvites(*issuedBy)
 		if err != nil {
@@ -843,7 +831,7 @@ func cmdInvite(args []string) {
 		_ = tw.Flush()
 
 	case "revoke":
-		need(args, 3, "arizuko invite <instance> revoke <ref>")
+		need(args, 3, "arizuko invite [-i instance] revoke <ref>")
 		if err := s.RevokeInviteByRef(args[2]); err != nil {
 			die("Failed: %v", err)
 		}
@@ -858,7 +846,7 @@ func cmdInvite(args []string) {
 // cmdChat launches `claude` (Claude Code CLI) wired to the instance's root
 // IPC socket via socat. Local-operator only — socket access is the auth.
 func cmdChat(args []string) {
-	need(args, 1, "arizuko chat <instance> [--folder <folder>]")
+	need(args, 1, "arizuko chat [-i instance] [--folder <folder>]")
 	if len(args) > 1 && args[1] == "thread-replies" {
 		cmdChatThreadReplies(args)
 		return
@@ -866,7 +854,7 @@ func cmdChat(args []string) {
 	fs := flag.NewFlagSet("chat", flag.ContinueOnError)
 	folder := fs.String("folder", "main", "group folder for the IPC socket")
 	if err := flexParse(fs, args); err != nil || fs.NArg() != 1 || !groupfolder.IsValidFolder(*folder) {
-		die("usage: arizuko chat <instance> [--folder <folder>]")
+		die("usage: arizuko chat [-i instance] [--folder <folder>]")
 	}
 	dataDir := mustInstanceDir(fs.Arg(0))
 
@@ -913,7 +901,7 @@ func cmdChat(args []string) {
 }
 
 func cmdPair(args []string) {
-	need(args, 2, "arizuko pair <instance> <service> [args...]")
+	need(args, 2, "arizuko pair [-i instance] <service> [args...]")
 	name, service := args[0], args[1]
 	composePath := requireCompose(mustInstanceDir(name), name)
 
@@ -929,13 +917,13 @@ func cmdPair(args []string) {
 func requireCompose(dataDir, name string) string {
 	p := filepath.Join(dataDir, "docker-compose.yml")
 	if _, err := os.Stat(p); err != nil {
-		die("no compose file at %s — run 'arizuko generate %s' first", p, name)
+		die("no compose file at %s — run 'arizuko generate -i %s' first", p, name)
 	}
 	return p
 }
 
 func cmdStatus(args []string) {
-	need(args, 1, "arizuko status <instance>")
+	need(args, 1, "arizuko status [-i instance]")
 	name := args[0]
 	dataDir := mustInstanceDir(name)
 	composePath := requireCompose(dataDir, name)

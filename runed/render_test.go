@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -12,6 +13,7 @@ import (
 	"github.com/kronael/arizuko/core"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 	"github.com/kronael/arizuko/store"
+	"github.com/kronael/arizuko/types"
 )
 
 // goldenCfg is one instance as runed sees it on a host: the release staged at
@@ -128,8 +130,8 @@ func TestRenderTurnGolden(t *testing.T) {
 	wantMounts := []string{
 		root + "/groups/atlas/support -> /home/node",
 		selectedCore(t, cfg) + " -> /opt/arizuko/ant ro",
-		selectedCore(t, cfg) + "/skills/base -> /home/node/.claude/skills/base ro",
 		selectedCore(t, cfg) + " -> /opt/arizuko/packages/core ro",
+		selectedCore(t, cfg) + "/skills/base -> /home/node/.claude/skills/base ro",
 		root + "/ipc/atlas/support/codex-config.toml -> /etc/codex/config.toml ro",
 		root + "/ipc/atlas/support/codex-hooks.json -> /etc/codex/hooks.json ro",
 		root + "/ipc/atlas/support/package-CLAUDE.md -> /home/node/.claude/CLAUDE.md ro",
@@ -226,6 +228,43 @@ func TestRenderTurnGolden(t *testing.T) {
 // gateway instance: every group's files mounted, the world shared instance-wide
 // and writable, the docs subtree only (no web grant), the model credential
 // withheld in favour of this turn's virtual key, and no ceiling.
+// The turn's own settings.json carries the deny rules for the folder's managed
+// files, and only for that folder's.
+func TestRenderTurnDeniesManagedFiles(t *testing.T) {
+	noHostSecrets(t)
+	root := t.TempDir()
+	cfg := goldenCfg(t, root)
+	folders := resolverFor(cfg)
+	for folder, managed := range map[string][]string{
+		"atlas": {"PERSONA.md", "facts/sla.md"},
+		"other": nil,
+	} {
+		if _, err := renderTurn(cfg, folders, runedv1.RunRequest{Packages: []string{"core"}, Folder: types.Folder(folder),
+			ManagedFiles: managed, MessageBatch: "hi"}, "h-"+folder, time.Minute); err != nil {
+			t.Fatal(err)
+		}
+		data, err := os.ReadFile(filepath.Join(cfg.GroupsDir, folder, ".claude", "settings.json"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var settings struct {
+			Permissions struct {
+				Deny []string `json:"deny"`
+			} `json:"permissions"`
+		}
+		if err := json.Unmarshal(data, &settings); err != nil {
+			t.Fatal(err)
+		}
+		var want []string
+		for _, rel := range managed {
+			want = append(want, "Edit(~/"+rel+")")
+		}
+		if !slices.Equal(settings.Permissions.Deny, want) {
+			t.Errorf("%s: deny = %v, want %v", folder, settings.Permissions.Deny, want)
+		}
+	}
+}
+
 func TestRenderTurnGoldenElevated(t *testing.T) {
 	noHostSecrets(t)
 	root := t.TempDir()
@@ -244,8 +283,8 @@ func TestRenderTurnGoldenElevated(t *testing.T) {
 	wantMounts := []string{
 		root + "/groups/main -> /home/node",
 		selectedCore(t, cfg) + " -> /opt/arizuko/ant ro",
-		selectedCore(t, cfg) + "/skills/base -> /home/node/.claude/skills/base ro",
 		selectedCore(t, cfg) + " -> /opt/arizuko/packages/core ro",
+		selectedCore(t, cfg) + "/skills/base -> /home/node/.claude/skills/base ro",
 		root + "/ipc/main/codex-config.toml -> /etc/codex/config.toml ro",
 		root + "/ipc/main/codex-hooks.json -> /etc/codex/hooks.json ro",
 		root + "/ipc/main/package-CLAUDE.md -> /home/node/.claude/CLAUDE.md ro",

@@ -1,8 +1,8 @@
 package routd
 
-// packages_resource.go registers the installed-package record (spec 5/28-packages) as
+// packages_resource.go registers the installed-package record (see compose/README.md) as
 // a resreg.Resource. READ-ONLY by design: install/upgrade/remove is a
-// side-effecting lifecycle on the HOST (cmd/arizuko/packages.go), and a write
+// side-effecting lifecycle on the host (cmd/arizuko/sync.go), and a write
 // face here would be a second path that drifts from the CLI. The record is
 // keyed (folder, name), but that key is the LOCK's, not a per-tenant slice —
 // it carries cross-folder data — so both faces bind the whole tree

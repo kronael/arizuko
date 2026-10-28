@@ -13,7 +13,10 @@ import "github.com/kronael/arizuko/types"
 // rendered prompt STRING (sysMsgs+autocalls+persona+<observed>+feed), not
 // an array — routd renders, runed runs.
 type RunRequest struct {
-	Packages      []string      `json:"packages"`
+	Packages []string `json:"packages"`
+	// ManagedFiles are the group-home paths package sync rewrites; the
+	// renderer denies the agent's file tools on them (advisory, not a boundary).
+	ManagedFiles  []string      `json:"managed_files,omitempty"`
 	Folder        types.Folder  `json:"folder"`
 	Topic         string        `json:"topic"`
 	ChatJID       string        `json:"chat_jid"`

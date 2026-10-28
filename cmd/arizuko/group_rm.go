@@ -17,7 +17,7 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
-const groupRmUsage = "arizuko group <instance> rm [-f|--force] <folder>"
+const groupRmUsage = "arizuko group [-i instance] rm [-f|--force] <folder>"
 
 func parseGroupRm(args []string) (folder string, force bool, err error) {
 	fs := flag.NewFlagSet("group rm", flag.ContinueOnError)

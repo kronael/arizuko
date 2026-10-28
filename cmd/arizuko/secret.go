@@ -52,7 +52,7 @@ func cmdUserSecret(args []string) {
 }
 
 func cmdScopedSecret(args []string, command, scopeName string, scope store.SecretScope) {
-	need(args, 2, fmt.Sprintf("arizuko %s <instance> <set|list|delete|seal-legacy> ...", command))
+	need(args, 2, fmt.Sprintf("arizuko %s [-i instance] <set|list|delete|seal-legacy> ...", command))
 	instance, action := args[0], args[1]
 
 	dataDir := mustInstanceDir(instance)
@@ -66,25 +66,25 @@ func cmdScopedSecret(args []string, command, scopeName string, scope store.Secre
 	case "set":
 		scopeID, key, value, err := parseSecretSet(command+" set", args[2:])
 		if err != nil {
-			die("usage: arizuko %s <instance> set <%s> KEY --value|-v V: %v", command, scopeName, err)
+			die("usage: arizuko %s [-i instance] set <%s> KEY --value|-v V: %v", command, scopeName, err)
 		}
 		if err := runSecretSet(s, scope, scopeID, key, value, os.Stdout); err != nil {
 			die("Failed: %v", err)
 		}
 	case "list":
-		need(args, 3, fmt.Sprintf("arizuko %s <instance> list <%s>", command, scopeName))
+		need(args, 3, fmt.Sprintf("arizuko %s [-i instance] list <%s>", command, scopeName))
 		if err := runSecretList(s, scope, args[2], os.Stdout); err != nil {
 			die("Failed: %v", err)
 		}
 	case "delete":
-		need(args, 4, fmt.Sprintf("arizuko %s <instance> delete <%s> KEY", command, scopeName))
+		need(args, 4, fmt.Sprintf("arizuko %s [-i instance] delete <%s> KEY", command, scopeName))
 		if err := runSecretDelete(s, scope, args[2], args[3], os.Stdout); err != nil {
 			die("Failed: %v", err)
 		}
 	case "seal-legacy":
 		dryRun, err := parseSealLegacy(command+" seal-legacy", args[2:])
 		if err != nil {
-			die("usage: arizuko %s <instance> seal-legacy [--dry-run]: %v", command, err)
+			die("usage: arizuko %s [-i instance] seal-legacy [--dry-run]: %v", command, err)
 		}
 		if err := runSealLegacy(s, dryRun, os.Stdout); err != nil {
 			die("Failed: %v", err)

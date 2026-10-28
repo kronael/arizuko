@@ -2,14 +2,12 @@ package container
 
 import (
 	"fmt"
-	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"time"
 
-	"github.com/kronael/arizuko/store"
+	"github.com/kronael/arizuko/chanlib"
 )
 
 const CorePackageName = "core"
@@ -40,24 +38,23 @@ func ReadPackageSkills(dir string) ([]string, error) {
 	return names, nil
 }
 
-func InstallPackage(dataDir, source string, build bool,
-	database *store.Store, record store.InstalledPackage) (ProductManifest, error) {
+func InstallPackage(dataDir, source string, build bool) (ProductManifest, []string, error) {
 	manifest, err := ReadProductManifest(source)
 	if err != nil {
-		return manifest, err
+		return manifest, nil, err
 	}
 	if !packageNameRE.MatchString(manifest.Name) {
-		return manifest, fmt.Errorf("invalid package name %q", manifest.Name)
+		return manifest, nil, fmt.Errorf("invalid package name %q", manifest.Name)
 	}
 	if _, err := ReadPackageSkills(source); err != nil {
-		return manifest, err
+		return manifest, nil, err
 	}
 	dir := filepath.Join(dataDir, "packages", manifest.Name)
 	if err := os.RemoveAll(dir); err != nil {
-		return manifest, err
+		return manifest, nil, err
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return manifest, err
+		return manifest, nil, err
 	}
 	for _, name := range []string{ManifestFile, "CLAUDE.md", "skills", "hooks", "bin", ".claude", ".codex"} {
 		path := filepath.Join(source, name)
@@ -66,15 +63,15 @@ func InstallPackage(dataDir, source string, build bool,
 			continue
 		}
 		if err != nil {
-			return manifest, err
+			return manifest, nil, err
 		}
 		if info.IsDir() {
 			err = os.CopyFS(filepath.Join(dir, name), os.DirFS(path))
 		} else {
-			err = copyPackageFile(path, filepath.Join(dir, name), info.Mode())
+			err = chanlib.CopyFile(path, filepath.Join(dir, name))
 		}
 		if err != nil {
-			return manifest, err
+			return manifest, nil, err
 		}
 	}
 	if build && manifest.Install != "" {
@@ -83,48 +80,40 @@ func InstallPackage(dataDir, source string, build bool,
 		command.Env = append(os.Environ(), "PREFIX="+dir)
 		command.Stdout, command.Stderr = os.Stdout, os.Stderr
 		if err := command.Run(); err != nil {
-			return manifest, fmt.Errorf("install %s: %w", manifest.Name, err)
+			return manifest, nil, fmt.Errorf("install %s: %w", manifest.Name, err)
 		}
 	}
 	names, err := ReadPackageSkills(dir)
 	if err != nil {
-		return manifest, err
+		return manifest, nil, err
 	}
 	if names == nil {
 		names = []string{}
 	}
-	if record.Manifest == nil {
-		record.Manifest = map[string][]string{}
-	}
-	record.Name = manifest.Name
-	record.Manifest["skill"] = names
-	record.InstalledAt = time.Now().UTC().Format(time.RFC3339)
-	return manifest, database.PutInstalledPackage(record)
+	return manifest, names, nil
 }
 
-func copyPackageFile(source, dest string, mode fs.FileMode) error {
-	data, err := os.ReadFile(source)
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(dest, data, mode.Perm())
+// PackageAsset is one path an installed package mounts into a turn:
+// skills/<name>, hooks/<name> or bin/<name>.
+type PackageAsset struct {
+	Path    string
+	Package string
 }
 
-type PackageSkill struct {
-	Name string
-	Dir  string
-}
-
+// PackageInventory is what a turn mounts from the selected packages, in
+// selection order. A later package's asset replaces an earlier one's at the
+// same path, and Overrides names each replacement.
 type PackageInventory struct {
-	Core     string
-	Packages []Product
-	Skills   []PackageSkill
+	Core      string
+	Packages  []Product
+	Assets    []PackageAsset
+	Overrides []string
 }
 
 func ReadPackageInventory(dataDir string, selected []string) (PackageInventory, error) {
 	var inventory PackageInventory
 	seen := map[string]bool{}
-	skills := map[string]int{}
+	index := map[string]int{}
 	for _, name := range selected {
 		if !packageNameRE.MatchString(name) {
 			return inventory, fmt.Errorf("invalid package %q", name)
@@ -145,18 +134,32 @@ func ReadPackageInventory(dataDir string, selected []string) (PackageInventory, 
 		if name == CorePackageName {
 			inventory.Core = dir
 		}
-		names, err := ReadPackageSkills(dir)
+		skills, err := ReadPackageSkills(dir)
 		if err != nil {
 			return inventory, err
 		}
-		for _, skill := range names {
-			asset := PackageSkill{skill, filepath.Join(dir, "skills", skill)}
-			if index, exists := skills[skill]; exists {
-				inventory.Skills[index] = asset
+		var paths []string
+		for _, skill := range skills {
+			paths = append(paths, "skills/"+skill)
+		}
+		for _, kind := range []string{"hooks", "bin"} {
+			entries, err := os.ReadDir(filepath.Join(dir, kind))
+			if err != nil && !os.IsNotExist(err) {
+				return inventory, err
+			}
+			for _, entry := range entries {
+				paths = append(paths, kind+"/"+entry.Name())
+			}
+		}
+		for _, path := range paths {
+			if i, ok := index[path]; ok {
+				inventory.Overrides = append(inventory.Overrides,
+					fmt.Sprintf("%s overrides %s on %s", name, inventory.Assets[i].Package, path))
+				inventory.Assets[i].Package = name
 				continue
 			}
-			skills[skill] = len(inventory.Skills)
-			inventory.Skills = append(inventory.Skills, asset)
+			index[path] = len(inventory.Assets)
+			inventory.Assets = append(inventory.Assets, PackageAsset{path, name})
 		}
 	}
 	if inventory.Core == "" {

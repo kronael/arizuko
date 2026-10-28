@@ -147,7 +147,7 @@ Primary methods (by domain):
 - Secrets: `SetSecret`, `GetSecret`, `ListSecrets`, `SecretKeysIn`,
   `DeleteSecret`, `FolderSecretsResolved` (walk parents → root),
   `CountPlaintextSecrets` + `EncryptPlaintextSecrets`
-  (seal legacy rows in place; driven by `arizuko secret <inst> seal-legacy`,
+  (seal legacy rows in place; driven by `arizuko secret -i <inst> seal-legacy`,
   never on boot — the boot-time `PurgeUnencryptedSecrets` they replaced wiped
   every secret on each startup).
   AES-256-GCM encrypted at rest under the `v2:` prefix; key derived via SHA-256

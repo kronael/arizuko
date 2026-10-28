@@ -33,6 +33,7 @@ import (
 
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/chanlib"
+	"github.com/kronael/arizuko/container"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/routd"
@@ -43,6 +44,20 @@ import (
 	"github.com/kronael/arizuko/store"
 	"github.com/kronael/arizuko/tests/testutils"
 )
+
+func installCoreFixture(t *testing.T, db *routd.DB, dataDir string) {
+	t.Helper()
+	manifest, skills, err := container.InstallPackage(dataDir, "../ant", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.PutInstalledPackage(routd.InstalledPackage{
+		Name: manifest.Name, Source: "ant", Revision: "release",
+		Manifest: map[string][]string{"skill": skills},
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
 
 // In the split, an adapter authenticates inbound on routd's /v1/messages with a
 // service:<adapter> JWT exchanged from its AUTHD_SERVICE_KEY (spec 5/1) — NOT a
@@ -290,6 +305,7 @@ func bootFederationWith(t *testing.T, o fedOpts) *federation {
 		t.Fatalf("routd.OpenMem: %v", err)
 	}
 	t.Cleanup(func() { rodb.Close() })
+	installCoreFixture(t, rodb, rcfg.ProjectRoot)
 	// routd refuses to start without SECRETS_KEY and the store refuses every
 	// unsealed write (BUGS S2), so the federation carries a keyring like a real
 	// instance does.

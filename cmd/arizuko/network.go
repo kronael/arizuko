@@ -9,7 +9,7 @@ import (
 )
 
 func cmdNetwork(args []string) {
-	need(args, 2, "arizuko network <instance> <allow|deny|list> ...")
+	need(args, 2, "arizuko network [-i instance] <allow|deny|list> ...")
 	instance, action := args[0], args[1]
 
 	dataDir := mustInstanceDir(instance)
@@ -21,7 +21,7 @@ func cmdNetwork(args []string) {
 
 	switch action {
 	case "allow":
-		need(args, 4, "arizuko network <instance> allow <folder> <target>")
+		need(args, 4, "arizuko network [-i instance] allow <folder> <target>")
 		folder, target := args[2], args[3]
 		if err := s.AddNetworkRule(folder, target, "cli"); err != nil {
 			die("Failed: add rule: %v", err)
@@ -30,7 +30,7 @@ func cmdNetwork(args []string) {
 		fmt.Printf("rule added: folder=%q target=%q\n", folder, target)
 
 	case "deny":
-		need(args, 4, "arizuko network <instance> deny <folder> <target>")
+		need(args, 4, "arizuko network [-i instance] deny <folder> <target>")
 		folder, target := args[2], args[3]
 		if err := s.RemoveNetworkRule(folder, target); err != nil {
 			die("Failed: rm rule: %v", err)
@@ -65,7 +65,7 @@ func cmdNetwork(args []string) {
 		_ = tw.Flush()
 
 	case "resolve":
-		need(args, 3, "arizuko network <instance> resolve <folder>")
+		need(args, 3, "arizuko network [-i instance] resolve <folder>")
 		list, err := s.ResolveAllowlist(args[2])
 		if err != nil {
 			die("Failed: resolve: %v", err)

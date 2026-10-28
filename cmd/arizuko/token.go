@@ -24,7 +24,7 @@ import (
 //	arizuko token <instance> revoke <jid>
 func cmdToken(args []string) {
 	if len(args) < 3 {
-		die("usage: arizuko token <instance> <issue|list|revoke> ...")
+		die("usage: arizuko token [-i instance] <issue|list|revoke> ...")
 	}
 	instance, sub := args[0], args[1]
 
@@ -48,9 +48,9 @@ func cmdToken(args []string) {
 }
 
 func tokenIssue(st *store.Store, dataDir string, args []string) {
-	usage := "usage: arizuko token <instance> issue chat <folder> [<suffix>] [--context|-c TEXT]\n" +
-		"       arizuko token <instance> issue webhook <folder> <label> [<suffix>] [--context|-c TEXT]\n" +
-		"       arizuko token <instance> issue bearer <folder> --scope|-s s1,s2 [--ttl|-t 1h] [--sub SUB]"
+	usage := "usage: arizuko token [-i instance] issue chat <folder> [<suffix>] [--context|-c TEXT]\n" +
+		"       arizuko token [-i instance] issue webhook <folder> <label> [<suffix>] [--context|-c TEXT]\n" +
+		"       arizuko token [-i instance] issue bearer <folder> --scope|-s s1,s2 [--ttl|-t 1h] [--sub SUB]"
 	if len(args) < 2 {
 		die("%s", usage)
 	}
@@ -82,7 +82,7 @@ func tokenIssue(st *store.Store, dataDir string, args []string) {
 		}
 	case "webhook", "hook":
 		if len(args) < 3 {
-			die("usage: arizuko token <instance> issue webhook <folder> <label>")
+			die("usage: arizuko token [-i instance] issue webhook <folder> <label>")
 		}
 		label, suffix := args[2], ""
 		if len(args) >= 4 {
@@ -126,7 +126,7 @@ func tokenIssueBearer(st *store.Store, dataDir string, args []string) {
 	fs.DurationVar(ttl, "t", time.Hour, "token lifetime")
 	fs.StringVar(&sub, "sub", "user:cli", "subject claim for the minted token")
 	if err := flexParse(fs, args); err != nil || fs.NArg() != 1 {
-		die("usage: arizuko token <instance> issue bearer <folder> --scope|-s s1,s2 [--ttl|-t 1h] [--sub SUB]")
+		die("usage: arizuko token [-i instance] issue bearer <folder> --scope|-s s1,s2 [--ttl|-t 1h] [--sub SUB]")
 	}
 	folder := fs.Arg(0)
 	if scope == "" {
@@ -192,7 +192,7 @@ func mintBearer(storeDir, folder, sub string, scopes []string, ttl time.Duration
 
 func tokenList(st *store.Store, args []string) {
 	if len(args) < 1 {
-		die("usage: arizuko token <instance> list <folder>")
+		die("usage: arizuko token [-i instance] list <folder>")
 	}
 	folder := args[0]
 	tokens := st.ListRouteTokens(folder)
@@ -211,7 +211,7 @@ func tokenList(st *store.Store, args []string) {
 
 func tokenRevoke(st *store.Store, args []string) {
 	if len(args) < 1 {
-		die("usage: arizuko token <instance> revoke <jid> [<owner_folder>]")
+		die("usage: arizuko token [-i instance] revoke <jid> [<owner_folder>]")
 	}
 	jid := args[0]
 	// owner_folder bounds revocation and may diverge from the JID's folder

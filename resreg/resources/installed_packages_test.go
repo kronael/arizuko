@@ -1,15 +1,17 @@
 package resources
 
-// The catalog half of the spec 5/28-packages registration: the resource is registered, it
+// The catalog half of the package registration: the resource is registered, it
 // reaches /openapi.json, and the doc advertises exactly the read-only surface the
 // handler serves — no phantom write verb an operator would get a 404 from.
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/resreg/resregtest"
+	mcpserver "github.com/mark3labs/mcp-go/server"
 )
 
 // routdOpenAPI renders the document for this one resource, mounted through the
@@ -27,6 +29,26 @@ func routdOpenAPI(t *testing.T) map[string]any {
 		t.Fatalf("doc not JSON: %v", err)
 	}
 	return doc
+}
+
+func TestInstalledPackagesMCPFolderDescription(t *testing.T) {
+	srv := mcpserver.NewMCPServer("test", "1")
+	resreg.MCPTools(srv, *resreg.Lookup("installed_packages"), nil, nil)
+	for _, tool := range srv.ListTools() {
+		if tool.Tool.Name != "get_package" {
+			continue
+		}
+		data, err := json.Marshal(tool.Tool.InputSchema.Properties["folder"])
+		if err != nil {
+			t.Fatal(err)
+		}
+		desc := string(data)
+		if !strings.Contains(desc, "instance-wide") || !strings.Contains(desc, "folder") || strings.Contains(desc, "arizuko packages") {
+			t.Fatalf("incorrect folder argument: %s", desc)
+		}
+		return
+	}
+	t.Fatal("get_package is not exposed")
 }
 
 func TestInstalledPackagesRegistered(t *testing.T) {

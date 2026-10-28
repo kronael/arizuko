@@ -279,7 +279,7 @@ func (s *talkSession) resolveFolder(ctx context.Context) error {
 	switch len(folders) {
 	case 0:
 		return fmt.Errorf("this token's subject can reach no folder — grant it one:\n" +
-			"    arizuko group <instance> grant <sub> '<folder>/**'")
+			"    arizuko group [-i instance] grant <sub> '<folder>/**'")
 	case 1:
 		s.folder = folders[0]
 		return nil

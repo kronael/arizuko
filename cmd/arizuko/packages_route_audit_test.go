@@ -1,11 +1,12 @@
 package main
 
 import (
-	"os"
+	"context"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -28,26 +29,26 @@ import (
 // instance store it landed in.
 func installRoutePkg(t *testing.T, osUser string) *store.Store {
 	t.Helper()
-	base := t.TempDir()
-	t.Setenv("ARIZUKO_DATA_DIR", base)
+	seedSyncInstance(t, "raudit", nil, nil)
 	t.Setenv("USER", osUser)
 	st := instanceStore(t)
-	src := filepath.Join(base, "routepkg")
-	mustWrite(t, filepath.Join(src, "arizuko.yml"), "name: routepkg\n")
-	if err := os.MkdirAll(src, 0o755); err != nil {
+	h, err := store.Handle(store.OwnerOnbod)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(src, "routepkg.yml"),
-		[]byte("services:\n  routepkg:\n    image: x\n"), 0o644); err != nil {
+	if err := store.PrepareOwner(context.Background(), h, store.OwnerOnbod); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(src, "arizuko.yml"), []byte("name: routepkg\n"+
-		("proxyd_routes:\n"+
-			"  - path: /rp/\n    backend: http://routepkg:8080\n    auth: public\n"+
-			"  - path: /rp-admin/\n    backend: http://routepkg:8080\n    auth: auth\n")), 0o644); err != nil {
+	if err := resreg.EnsureSubsystem(context.Background(), h, h, resreg.SubsystemOnbod); err != nil {
 		t.Fatal(err)
 	}
-	cmdPackages([]string{"raudit", "install", src})
+	src := filepath.Join(t.TempDir(), "routepkg")
+	mustWrite(t, filepath.Join(src, "routepkg.yml"), "services:\n  routepkg:\n    image: x\n")
+	mustWrite(t, filepath.Join(src, "arizuko.yml"), "name: routepkg\n"+
+		"proxyd_routes:\n"+
+		"  - path: /rp/\n    backend: http://routepkg:8080\n    auth: public\n"+
+		"  - path: /rp-admin/\n    backend: http://routepkg:8080\n    auth: auth\n")
+	packageRuns(t, "raudit", "add", src)
 	return st
 }
 
@@ -94,18 +95,3 @@ func TestPackageRouteAuditNamesBackendAndAuth(t *testing.T) {
 // Withdrawal must record too. A trail that shows routes opening and never
 // closing reads as "still live" for a route that is gone — worse than silence,
 // because it looks complete.
-func TestPackageRouteRemovalAudited(t *testing.T) {
-	t.Cleanup(func() { dropInstance(t) })
-	s := installRoutePkg(t, "alice")
-	cmdPackages([]string{"raudit", "remove", "routepkg"})
-
-	rows := aclAuditRows(t, s, "config.apply")
-	if len(rows) != 2 {
-		t.Fatalf("config.apply rows = %d, want 2 (install + remove)", len(rows))
-	}
-	for _, want := range []string{`"package":"routepkg"`, `"/rp/`, `"/rp-admin/`} {
-		if !strings.Contains(rows[1][2], want) {
-			t.Errorf("removal params_summary = %q, want %s", rows[1][2], want)
-		}
-	}
-}

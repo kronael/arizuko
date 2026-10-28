@@ -103,6 +103,7 @@ func bootMediaFed(t *testing.T, enabled bool, whisperURL string, maxBytes int64)
 		t.Fatalf("routd.OpenMem: %v", err)
 	}
 	t.Cleanup(func() { rodb.Close() })
+	installCoreFixture(t, rodb, rcfg.ProjectRoot)
 	f.routdDB = rodb
 
 	svcTok := f.authd.mintService(t, "service:routd", "runs:run", "runs:kill")

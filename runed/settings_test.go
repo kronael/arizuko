@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/kronael/arizuko/core"
@@ -208,5 +209,54 @@ func TestSeedSettingsCarriesTheQueryTimeout(t *testing.T) {
 	plain, _ := settingsFor(t, &core.Config{Name: "Bot"}, runedv1.RunRequest{Folder: "atlas"}, 0)
 	if _, ok := settingsEnv(t, plain)["ARIZUKO_QUERY_TIMEOUT_MS"]; ok {
 		t.Error("no ceiling must leave the key absent, not zero")
+	}
+}
+
+func denyRules(t *testing.T, s map[string]any) []any {
+	t.Helper()
+	perms, ok := s["permissions"].(map[string]any)
+	if !ok {
+		t.Fatalf("permissions missing: %v", s["permissions"])
+	}
+	deny, _ := perms["deny"].([]any)
+	return deny
+}
+
+// Each file package sync rewrites gets one Edit deny rule; no managed file, no
+// rule. A deny rule already in the file stays and is not repeated.
+func TestSeedSettingsDeniesManagedFiles(t *testing.T) {
+	cfg := &core.Config{Name: "Bot", HostAppDir: t.TempDir()}
+	s, _ := settingsFor(t, cfg, runedv1.RunRequest{Folder: "g"}, 0)
+	if deny := denyRules(t, s); len(deny) != 0 {
+		t.Errorf("deny = %v with no managed file", deny)
+	}
+
+	s, _ = settingsFor(t, cfg, runedv1.RunRequest{Folder: "g", ManagedFiles: []string{"PERSONA.md", "facts/sla.md"}}, 0)
+	want := []any{"Edit(~/PERSONA.md)", "Edit(~/facts/sla.md)"}
+	if deny := denyRules(t, s); !reflect.DeepEqual(deny, want) {
+		t.Errorf("deny = %v, want %v", deny, want)
+	}
+
+	d := t.TempDir()
+	existing, _ := json.Marshal(map[string]any{"permissions": map[string]any{
+		"deny": []string{"Bash(rm:*)", "Edit(~/PERSONA.md)"},
+	}})
+	if err := os.WriteFile(filepath.Join(d, "settings.json"), existing, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := seedSettings(d, cfg, runedv1.RunRequest{Folder: "g", ManagedFiles: []string{"PERSONA.md", "facts/sla.md"}}, 0); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(d, "settings.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var merged map[string]any
+	if err := json.Unmarshal(data, &merged); err != nil {
+		t.Fatal(err)
+	}
+	want = []any{"Bash(rm:*)", "Edit(~/PERSONA.md)", "Edit(~/facts/sla.md)"}
+	if deny := denyRules(t, merged); !reflect.DeepEqual(deny, want) {
+		t.Errorf("merged deny = %v, want %v", deny, want)
 	}
 }

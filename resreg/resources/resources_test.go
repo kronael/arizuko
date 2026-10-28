@@ -105,12 +105,14 @@ func TestExport_FreshDB(t *testing.T) {
 	if !ok {
 		t.Fatalf("Export missing acl key")
 	}
-	if len(acl) != 37 {
-		t.Errorf("acl = %d rows, want 37 (the seeded floor)", len(acl))
+	if len(acl) != 39 {
+		t.Errorf("acl = %d rows, want 39 (the seeded floor)", len(acl))
 	}
 	for _, want := range []ACLRow{
 		{Principal: store.RoleMember, Action: "mcp:disengage", Scope: "**", Effect: store.EffectAllow},
 		{Principal: store.RoleMember, Action: "hold:mcp:disengage", Scope: "**", Effect: store.EffectDeny},
+		{Principal: "service:dashd", Action: "chats:get", Scope: "**", Effect: store.EffectAllow},
+		{Principal: "service:dashd", Action: "chats:update", Scope: "**", Effect: store.EffectAllow},
 	} {
 		found := slices.ContainsFunc(acl, func(row ACLRow) bool {
 			return row.Principal == want.Principal &&
@@ -118,7 +120,7 @@ func TestExport_FreshDB(t *testing.T) {
 				row.Effect == want.Effect
 		})
 		if !found {
-			t.Errorf("Export dropped member floor row: %+v", want)
+			t.Errorf("Export dropped floor row: %+v", want)
 		}
 	}
 	root := false

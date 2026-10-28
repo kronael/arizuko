@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/kronael/arizuko/store"
+	"github.com/kronael/arizuko/routd"
 )
 
 func TestStockSkills(t *testing.T) {
@@ -26,7 +26,7 @@ func TestStockSkills(t *testing.T) {
 		t.Fatal(err)
 	}
 	d := &dash{groupsDir: filepath.Join(appDir, "groups"), routd: routdDB(t)}
-	if err := d.routdStore().PutInstalledPackage(store.InstalledPackage{Name: "core", Manifest: map[string][]string{"skill": {"diary", "resolve", "voice"}}}); err != nil {
+	if err := routd.OpenOver(d.routd).PutInstalledPackage(routd.InstalledPackage{Name: "core", Manifest: map[string][]string{"skill": {"diary", "resolve", "voice"}}}); err != nil {
 		t.Fatal(err)
 	}
 	got, err := d.stockSkills("main")

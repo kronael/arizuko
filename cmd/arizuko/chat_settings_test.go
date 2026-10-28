@@ -3,12 +3,51 @@ package main
 import (
 	"bytes"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/kronael/arizuko/audit"
 )
+
+func TestChatThreadRepliesDispatch(t *testing.T) {
+	base := t.TempDir()
+	t.Setenv("ARIZUKO_DATA_DIR", base)
+	if err := os.MkdirAll(filepath.Join(base, "arizuko_demo"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	s := instanceStore(t)
+	const jid = "discord:g/chat"
+	if err := s.SetChatIsGroup(jid, true); err != nil {
+		t.Fatal(err)
+	}
+	args, err := instanceArgs([]string{"-i", "demo", "thread-replies", jid, "off"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmdChat(args)
+	if got, err := s.ChatThreadReplies(jid); err != nil || got {
+		t.Fatalf("thread replies = %v, err = %v; want false", got, err)
+	}
+}
+
+func TestChatThreadRepliesUsage(t *testing.T) {
+	if os.Getenv("ARIZUKO_PKG_ARGS") == "chat-usage" {
+		args, err := instanceArgs([]string{"-i", "demo", "thread-replies"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		cmdChat(args)
+		return
+	}
+	cmd := exec.Command(os.Args[0], "-test.run=^TestChatThreadRepliesUsage$")
+	cmd.Env = append(os.Environ(), "ARIZUKO_PKG_ARGS=chat-usage")
+	out, err := cmd.CombinedOutput()
+	if err == nil || !strings.Contains(string(out), "usage: arizuko chat [-i instance] thread-replies <jid> [on|off|default]") {
+		t.Fatalf("usage error = %v, output = %s", err, out)
+	}
+}
 
 func TestChatThreadRepliesCLI(t *testing.T) {
 	s := routdStore(t)

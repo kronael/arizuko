@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 
 	"github.com/kronael/arizuko/core"
@@ -79,7 +80,13 @@ func seedSettings(
 	// socket. Write both authoritatively every spawn, so a stray agent-added
 	// permissions block cannot accumulate and a future SDK default cannot silently
 	// re-enable the sandbox.
-	settings["permissions"] = map[string]any{"defaultMode": "bypassPermissions"}
+	// One Edit rule covers Write and MultiEdit. The deny rules advise the agent;
+	// they are not a security boundary.
+	permissions := map[string]any{"defaultMode": "bypassPermissions"}
+	if deny := denyManaged(settings, req.ManagedFiles); len(deny) > 0 {
+		permissions["deny"] = deny
+	}
+	settings["permissions"] = permissions
 	settings["sandbox"] = map[string]any{"enabled": false}
 
 	// routd's `sessions` table pins one transcript per chat and resumes it, and Claude
@@ -116,6 +123,21 @@ func seedSettings(
 	}
 	slog.Debug("settings seeded", "path", fp)
 	return nil
+}
+
+func denyManaged(settings map[string]any, managed []string) []string {
+	permissions, _ := settings["permissions"].(map[string]any)
+	existing, _ := permissions["deny"].([]any)
+	var deny []string
+	for _, rule := range existing {
+		if text, ok := rule.(string); ok {
+			deny = append(deny, text)
+		}
+	}
+	for _, rel := range managed {
+		deny = append(deny, "Edit(~/"+rel+")")
+	}
+	return slices.Compact(slices.Sorted(slices.Values(deny)))
 }
 
 func readPackageHooks(dataDir string, names []string, rel string) (map[string][]json.RawMessage, error) {

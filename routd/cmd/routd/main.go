@@ -28,7 +28,6 @@ import (
 	_ "github.com/kronael/arizuko/resreg/resources" // side-effect: register cold-tier resources
 	"github.com/kronael/arizuko/routd"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
-	"github.com/kronael/arizuko/store"
 )
 
 func main() {
@@ -59,9 +58,7 @@ func main() {
 		slog.Error("load core configuration", "err", err)
 		os.Exit(1)
 	}
-	_, err = container.InstallPackage(dataDir, filepath.Join(cfg.EffectiveAppSrcDir(), "ant"), false,
-		store.NewOver(db.Obj()), store.InstalledPackage{Source: "ant", Revision: "release"})
-	if err != nil {
+	if _, _, err := container.InstallPackage(dataDir, filepath.Join(cfg.EffectiveAppSrcDir(), "ant"), false); err != nil {
 		slog.Error("initialize required core package", "err", err)
 		os.Exit(1)
 	}

@@ -3,6 +3,7 @@ package container
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/kronael/arizuko/resreg/resources"
@@ -58,5 +59,45 @@ func TestServicePackageInventoryUsesManifest(t *testing.T) {
 		if _, err := ReadPackageInventory(root, []string{"core", "gateway"}); err == nil {
 			t.Fatalf("inventory accepted %q", body)
 		}
+	}
+}
+
+func TestPackageInventoryLastPackageWins(t *testing.T) {
+	root := t.TempDir()
+	for name, files := range map[string][]string{
+		"core": {"skills/base/SKILL.md", "hooks/h.sh", "bin/tool"},
+		"a":    {"skills/base/SKILL.md", "bin/tool"},
+		"b":    {"skills/base/SKILL.md", "hooks/h.sh"},
+	} {
+		dir := filepath.Join(root, "packages", name)
+		files = append(files, ManifestFile)
+		for _, file := range files {
+			path := filepath.Join(dir, file)
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte("name: "+name+"\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	inventory, err := ReadPackageInventory(root, []string{"core", "a", "b"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantAssets := []PackageAsset{{"skills/base", "b"}, {"hooks/h.sh", "b"}, {"bin/tool", "a"}}
+	wantOverrides := []string{
+		"a overrides core on skills/base", "a overrides core on bin/tool",
+		"b overrides a on skills/base", "b overrides core on hooks/h.sh",
+	}
+	if !reflect.DeepEqual(inventory.Assets, wantAssets) || !reflect.DeepEqual(inventory.Overrides, wantOverrides) {
+		t.Fatalf("selected order core, a, b:\n%+v\n%v", inventory.Assets, inventory.Overrides)
+	}
+	inventory, err = ReadPackageInventory(root, []string{"core", "b", "a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []PackageAsset{{"skills/base", "a"}, {"hooks/h.sh", "b"}, {"bin/tool", "a"}}; !reflect.DeepEqual(inventory.Assets, want) {
+		t.Fatalf("selected order core, b, a: %+v", inventory.Assets)
 	}
 }

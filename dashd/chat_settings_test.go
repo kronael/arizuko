@@ -57,7 +57,7 @@ func TestChatSettingsDashboardAuthorizationAndRoundTrip(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(coreDir, "arizuko.yml"), []byte("name: core\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.PutInstalledPackage(store.InstalledPackage{Name: "core", Manifest: map[string][]string{"skill": {}}}); err != nil {
+	if err := routd.OpenOver(db).PutInstalledPackage(routd.InstalledPackage{Name: "core", Manifest: map[string][]string{"skill": {}}}); err != nil {
 		t.Fatal(err)
 	}
 	d := &dash{routd: db, routdURL: server.URL, groupsDir: filepath.Join(appDir, "groups"), svc: func(context.Context) (string, error) { return "test", nil }}

@@ -31,35 +31,19 @@ func SanitizeFolder(folder string) string {
 	return strings.Trim(s, "-")
 }
 
-func SetupGroup(cfg *core.Config, folder, seedDir string) error {
-	return setupGroup(cfg, folder, func(groupDir string) error {
-		if seedDir == "" {
-			return nil
-		}
-		// Fatal, unlike the copy warning below: a product shipping an asset no
-		// consumer reads is an authoring error, and seeding it reports success
-		// for a payload that then does nothing (spec 5/28-packages).
-		if err := CheckProductAssets(seedDir, seedDir); err != nil {
-			return err
-		}
-		if err := SeedProduct(groupDir, seedDir); err != nil {
-			slog.Warn("setup group: copy seed dir", "folder", folder, "err", err)
-		}
-		return nil
-	})
+func SetupGroup(cfg *core.Config, folder string) error {
+	return setupGroup(cfg, folder, func(string) error { return nil })
 }
 
-func ComposeGroup(
-	cfg *core.Config, folder string,
-	mix []Product, prior map[string]map[string]string,
-) ([]Blended, error) {
+func ComposeGroup(cfg *core.Config, folder string, mix []Product, managed []string) ([]Blended, []string, error) {
 	var out []Blended
+	var overrides []string
 	err := setupGroup(cfg, folder, func(groupDir string) error {
 		var berr error
-		out, berr = BlendProducts(groupDir, mix, prior)
+		out, overrides, berr = BlendProducts(groupDir, mix, managed)
 		return berr
 	})
-	return out, err
+	return out, overrides, err
 }
 
 func setupGroup(cfg *core.Config, folder string,

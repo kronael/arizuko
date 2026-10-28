@@ -14,38 +14,23 @@ where a change lands.
 
 ## Each extension point has an owner and a mechanism
 
-| Point         | Location                             | Extensible by  | Mechanism                                              |
-| ------------- | ------------------------------------ | -------------- | ------------------------------------------------------ |
-| Channels      | external containers                  | Developer      | HTTP protocol (latest: `slakd/`)                       |
-| Proxyd routes | `template/services/<name>.yaml`      | Daemon author  | `proxyd_routes` block of the manifest, no Go edits     |
-| Chat links    | `webd/route_token.go`, `webd/mcp.go` | External agent | `/chat/<token>/` widget and MCP at `/chat/<token>/mcp` |
-| Chat SDK      | `webd/assets/arizuko-client.js`      | Page author    | Embedded JS served at `/assets/`                       |
-| Actions       | MCP tools                            | Agent/Plugin   | Registry + MCP                                         |
-| Autocalls     | `routd/prompt.go`                    | Router dev     | Registry slice                                         |
-| Routing rules | `router/`                            | Agent          | MCP tools; `target=<folder>[#mode]` fragment           |
-| Mounts        | `container/`                         | Agent          | Container config                                       |
-| Skills        | `ant/skills/`                        | Agent          | File-based                                             |
-| Tasks         | `timed/`                             | Agent          | IPC actions                                            |
-| Diary         | `diary/`                             | Agent          | File-based                                             |
-| Network rules | `store/network.go`                   | Operator       | CLI + DB rows                                          |
-| Web routes    | `store/web_routes.go`                | Agent          | MCP tools (`set_web_route` / `del_web_route`)          |
-| Public pages  | `template/web/pub/`                  | Operator       | Plain HTML, copied into `<data-dir>/web/pub/`          |
-| Output styles | `ant/output-styles/`                 | Channel author | `<channel>-<surface>.md`; picked per-session           |
-| Agent harness | the ant protocol (MCP socket)        | Developer      | Replace ant with a process that speaks it              |
-
-## Adding an output-style file
-
-An output style sets the tone, the length and the formatting hints for one
-channel and one surface. `runed` applies it on every spawn.
-`pickOutputStyle` in `runed/settings.go` builds the name
-`<channel>-<surface>` from the inbound JID and the topic. For a channel without
-a split by surface, it uses `<channel>.md`.
-[`ant/output-styles/README.md`](ant/output-styles/README.md) lists the
-conventions and the files, and gives the recipe for a new file.
-
-No registration step exists. `container.SeedOutputStyles` finds the files by
-listing the directory at spawn. Put the file in the directory, rebuild the
-agent image with `make agent`, and redeploy.
+| Point         | Location                               | Extensible by  | Mechanism                                              |
+| ------------- | -------------------------------------- | -------------- | ------------------------------------------------------ |
+| Channels      | external containers                    | Developer      | HTTP protocol (latest: `slakd/`)                       |
+| Proxyd routes | `template/services/<name>/arizuko.yml` | Daemon author  | `proxyd_routes` block of the manifest, no Go edits     |
+| Chat links    | `webd/route_token.go`, `webd/mcp.go`   | External agent | `/chat/<token>/` widget and MCP at `/chat/<token>/mcp` |
+| Chat SDK      | `webd/assets/arizuko-client.js`        | Page author    | Embedded JS served at `/assets/`                       |
+| Actions       | MCP tools                              | Agent/Plugin   | Registry + MCP                                         |
+| Autocalls     | `routd/prompt.go`                      | Router dev     | Registry slice                                         |
+| Routing rules | `router/`                              | Agent          | MCP tools; `target=<folder>[#mode]` fragment           |
+| Mounts        | `container/`                           | Agent          | Container config                                       |
+| Skills        | `ant/skills/`                          | Agent          | File-based                                             |
+| Tasks         | `timed/`                               | Agent          | IPC actions                                            |
+| Diary         | `diary/`                               | Agent          | File-based                                             |
+| Network rules | `store/network.go`                     | Operator       | CLI + DB rows                                          |
+| Web routes    | `store/web_routes.go`                  | Agent          | MCP tools (`set_web_route` / `del_web_route`)          |
+| Public pages  | `template/web/pub/`                    | Operator       | Plain HTML, copied into `<data-dir>/web/pub/`          |
+| Agent harness | the ant protocol (MCP socket)          | Developer      | Replace ant with a process that speaks it              |
 
 ## Adding a host mount at `/mnt/<name>`
 
@@ -61,16 +46,14 @@ at `/mnt/<name>`. A mount named `data/binance_perp` appears at
    rejects and logs a host path that is not under an allowed root.
 2. **The mounts of a group.** `container_config.Mounts` on the row of the group
    is a JSON array of `{"Host":"/path","Container":"name","RO":true}`. Read the
-   row, edit it and apply it back:
-   ```bash
-   arizuko get krons groups > groups.yaml    # edit container_config
-   arizuko apply krons groups.yaml
-   ```
-   ```yaml
+   row with `arizuko get -i krons groups`:
+   ```yml
    groups:
      - folder: atlas/content
        container_config: '{"Mounts":[{"Host":"/srv/data/binance_perp","Container":"data/binance_perp","RO":true}]}'
    ```
+   No `arizuko` command writes `container_config`: `group add` and
+   `package` never touch it, and `archive apply` restores a whole backup.
 
 After either change, restart `runed`. The next spawn uses the change, and a
 running session waits until then. The mount table in
@@ -117,8 +100,7 @@ example shows the shape of an entry. No `world` autocall exists:
 }},
 ```
 
-Then update the autocalls section of `ant/skills/self/SKILL.md` and ship a
-migration under `ant/skills/self/migrations/`.
+Then update the autocalls section of `ant/skills/self/SKILL.md`.
 
 ## Designing MCP tools for LLMs
 
@@ -199,177 +181,146 @@ apply only to requests under `/pub/`. They have no effect on channel routing.
 
 ## Installing packages
 
-`arizuko packages <instance> add | install | upgrade | sync | remove` manages
-packages. `list` shows the available and enabled packages.
-[`compose/README.md`](compose/README.md#packages) draws the path from a catalog
-or a source to a running container. This section is the how-to. `add <name>`
-takes the package from the bundled catalog. `install <source>` takes it from a
-git URL or a local directory. Both run the same install.
+A package is a directory with an `arizuko.yml` that defines it. The operator
+selects packages with `arizuko package` commands. Each selection is a row in
+the `installed_packages` resource.
 
-A package is a process plus a declaration of how it hooks in. It has two kinds
-of file, and the owner of each format defines the file:
-
-- **The compose fragment** is `<name>.yml` in the format of Docker. It is
-  included as it is and placed in `services/`. `add` makes a link to the
-  catalog, and `install` makes a copy. `arizuko generate` brings the service
-  up.
-- **The manifest** is `<name>.yaml` in the config format of arizuko. The same
-  engine as `arizuko apply` applies it. It uses one transaction for each owner
-  database, with a rollback to the old rows, so a package installs whole or
-  not at all. A package can use every resource that `apply` writes:
-  `proxyd_routes`, `acl`, `scheduled_tasks`, `network_rules`, `web_routes`,
-  `routes` and `groups`. The rows go live at once. `proxyd` reads
-  `proxyd_routes` on each request, so a route takes effect without a restart.
-  The compose fragment waits for `generate`.
-
-  The `env` section of the manifest names what the process needs from the
-  `.env` of the instance. Each key has one rule:
-  - `generate: true` mints the value once at install. After that, the line
-    belongs to the operator.
-  - `default: <value>` is derived on every `generate` and never written. A
-    value in `.env` wins.
-  - `required: true` makes install and `generate` refuse until the operator
-    sets the value. This rule prevents a fragment that installs and then fails
-    to start.
-
-  Docker interpolates `${KEY}` from `.env`, so an image from a third party
-  reads a minted key without an env file of its own.
-
-- **Skills** live in `skills/<name>/SKILL.md`. Install places the package in
-  `<datadir>/packages/<name>/`. Selected skills mount read-only at
-  `~/.claude/skills/<name>/`. A later selected package overrides an earlier
-  skill with the same name.
-- **Tools** live in `bin/`. Each selected executable mounts read-only at
-  `/usr/local/bin/<name>`, which is already on the guest's `PATH`.
-- **Hooks** use `.claude/settings.json` or `.codex/hooks.json`. Put shared
-  hook scripts in `hooks/`; they mount read-only at `~/.claude/hooks/`.
-  Codex reads selected hooks through its native `/etc/codex/` config layer.
-
-A source package declares its name and optional build command in `arizuko.toml`.
-The explicit install or upgrade runs `install` on the host as the invoking
-operator, from the source directory. `PREFIX` names the installed package
-directory. The command must place executables in `$PREFIX/bin/`.
-For example, `kronael/tools` builds its tool with
-`make -C spec-lint install PREFIX="$PREFIX/bin"`.
-The executable runs inside the group. Agent startup runs no installer.
-
-```yaml
-# helpbot.yaml — a package manifest
-env:
-  HELPBOT_KEY: { generate: true }
-proxyd_routes:
-  - path: /helpbot/
-    backend: http://helpbot:8080
-    auth: user
-acl:
-  - principal: folder:main
-    action: mcp:send
-    scope: main
-    effect: allow
-network_rules:
-  - folder: main
-    target: helpbot.example.com
+```sh
+arizuko package add [-g folder] <source>
+arizuko package rm [-g folder] <name>
+arizuko package sync
 ```
 
-`installed_packages` records the key of every row that the package owns. A
-`remove` withdraws exactly those rows and leaves the own rows of the operator at
-other keys alone. An install refuses the resources that `apply` never rebuilds,
-which are `secrets`, `route_tokens`, `invites`, `onboarding` and
-`installed_packages`. A silent no-op would hide the failure.
+`add` installs a package and records the selection. `rm` withdraws the
+selection. `sync` installs every selected package again from its source.
+Without `-g`, the package applies to the whole instance. With `-g folder`, it
+applies to that group only. Use `-i/--instance NAME` to select another
+instance. The default comes from the configured environment. Use `-f/--force`
+only to replace an existing destination that no package owns.
 
-```bash
-arizuko packages krons install github.com/org/pkg   # or a local dir
-arizuko packages krons upgrade pkg                   # refuses locally edited (dirty) assets
-arizuko packages krons remove  pkg                   # withdraws routes, then drops fragments
+Installing `github.com/kronael/tools` requires `uv` on the host and can download
+Python and dependencies. The installed checker runs offline in the guest.
+
+### Package definition
+
+`arizuko.yml` in a package source defines that package and nothing else. It
+holds the package `name`, brand, tagline, environment needs, the `install`
+command and the resource rows that the package owns, for example
+`network_rules`, `scheduled_tasks` and routes. It never selects a package.
+Only the `installed_packages` rows select packages.
+
+`catalog:<name>` selects a bundled service package. Other sources are local
+directories or Git sources. Relative paths resolve under `HOST_APP_DIR`.
+Each source declares `name` in its own `arizuko.yml`; the source directory name
+does not define package identity.
+The bundled `ant/` declares `core`, an ordinary package installed for every group.
+Startup refreshes core from the release without running a build.
+
+Resource rows in `arizuko.yml` are typed Arizuko rows.
+Each YAML document targets one owning daemon; use `---` between owners.
+The existing resource engine checks types, authorization, checksums and audit.
+A supplied checksum guards against concurrent changes; an omitted checksum
+uses the current state. A package cannot declare `acl` rows.
+
+[Compose package flow](compose/README.md#packages) shows installation through service deployment.
+
+`package add` creates the rows and services that the package declares.
+`package rm` withdraws them. `package sync` writes compose configuration.
+The existing deployment procedure starts or restarts services.
+
+### Order and overrides
+
+Core is always first. Packages follow in the order the operator added them.
+To move a package later, run `package rm` and then `package add`.
+
+A later package overrides an earlier package on the same skill, hook, tool
+(`bin/`) or `group/` path. `package sync` prints one line for each override:
+
+```text
+instance: kronael-tools overrides core on skills/diary
 ```
 
-Each install records an installed-package record in `installed_packages` of
-`routd`. The record holds the source, the resolved revision, the identities the
-package owns and a content hash of each asset. Its key is `(folder, name)`,
-and `''` means instance-wide. The record drives three things. `upgrade` uses
-it for dirty detection and never overwrites an asset that someone edited
-locally. `remove` deletes exactly the identities it owns. It also makes an
-install reproducible.
+### Package assets
 
-The record of a catalog package has the source `catalog`. `upgrade` and `sync`
-fetch nothing for it, because its fragment is a link that follows the catalog.
-`add` applied its rows once, and no verb applies them again. If the catalog
-manifest changed since `add`, both verbs report the drift and name the fix:
-`packages remove`, then `packages add`, see BUGS `L315`.
+A package can supply these assets:
 
-## Blending several products into one group
+- `group/` supplies files for the group folder at the same relative paths. Package-root documentation stays with the source.
+- `skills/<name>/SKILL.md` mounts read-only at `~/.claude/skills/<name>/`.
+- `bin/<name>` mounts read-only at `/usr/local/bin/<name>`, already on the guest `PATH`.
+- `hooks/` supplies scripts at the read-only package path and `~/.claude/hooks/`.
+- `.claude/settings.json` and `.codex/hooks.json` supply native hook configuration.
+- Root `CLAUDE.md` supplies a manual; the renderer combines selected manuals once at `~/.claude/CLAUDE.md`.
 
-A group can use more than one product. Write `groups/<folder>/arizuko.toml`
-with one block for each product, in the order of the blend. The agent sees the
-file as `~/arizuko.toml`. Optional root metadata describes the group; its
-configured folder remains its runtime identity. Then apply it:
+Each turn mounts the skills, hooks and `bin/` tools read-only from the
+installed package.
+Codex reads selected hooks through `/etc/codex/hooks.json`, enabled by
+`/etc/codex/config.toml`. Its existing harness policy hooks stay in `$CODEX_HOME`.
+Hook commands and manual imports can use `/opt/arizuko/packages/<name>/`.
+[runed's mount table](runed/README.md#mounts) lists the complete guest projection.
 
-```toml
-name = "support-team"
+A local `.disabled` marker suppresses a packaged skill mount.
 
-[[product]]
-source = "ant/examples/support"     # relative path, joined to HOST_APP_DIR
+### Install command
 
-[[product]]
-source = "github.com/org/our-brand" # git: shallow clone, pinned to HEAD
-```
+The optional `install` string in `arizuko.yml` runs through `sh` from the source
+directory on each `package add` and `package sync`. It runs on the host as the
+operator who runs the command; the installer adds no privilege.
+`PREFIX` names the final package directory, `<data>/packages/<name>/`.
+The build never relocates it. The guest sees the same directory at
+`/opt/arizuko/packages/<name>/`.
+The command must create `$PREFIX/bin/` for executables. Each `bin/*` file
+appears at `/usr/local/bin/` in the guest. A Cargo build can use
+`cargo install --path . --root "$PREFIX"`. Agent turns run no host installer.
 
-```bash
-arizuko products krons apply main
-```
+The common installer replaces `arizuko.yml`, `CLAUDE.md`, `skills/`, `hooks/`,
+`bin/`, `.claude/` and `.codex/` in the current package directory.
+Keep writable custom skills and runbooks in the group home.
 
-The group owns this file. Both seeders exclude a source's root `arizuko.toml`
-from payload and installed ownership. They refuse a selected source with its
-own nonempty product selections; list those sources in the group file instead.
-A metadata-only manifest is a no-op without installed records. Missing or empty
-selections with installed records refuse before writes.
+### Services, resources and environment
 
-`create/group add --product` writes a single-source group declaration and seeds
-payloads, without installed records. Matching existing declarations keep their
-bytes; conflicting declarations refuse before payload changes. Run the first
-`products apply` explicitly. `packages sync` discovers groups through installed
-records only. If the group has `products.toml`, move or merge its entries into
-`arizuko.toml`, then remove `products.toml`. Apply refuses either legacy-only
-or mixed declarations.
+A service package supplies `<name>.yml`, a Docker compose fragment, beside its
+`arizuko.yml`. Docker owns compose syntax; Arizuko owns the manifest syntax.
+`package add` installs the fragment in `services/` and applies the package rows.
+The existing `installed_packages` resource records source, resolved revision,
+scope, owned row keys and service hashes. Updates replace owned rows;
+removal withdraws those rows and leaves unrelated operator rows alone.
+Edited service fragments refuse replacement. Unselected payload directories stay on disk.
+The [package dashboard](dashd/README.md) exposes installed status.
 
-A blend works for each kind of payload and never merges content, because two
-products share no merge base. Each kind follows one rule:
+Only a package with a service fragment provisions shared instance `.env` values:
+`generate: true` mints once, `default` supplies a compose default, and
+`required: true` refuses an unset value. Environment requirements in a
+skills-only package are metadata; provide scoped credentials through
+[group secrets](SECURITY.md), not shared `.env`.
+The existing resource engine refuses payloads it cannot reconstruct, including
+secrets, route tokens, invites, onboarding and installed-package records.
 
-- `skills/` is a union by name, and the last product wins a whole skill.
-- `PERSONA.md` and `SOUL.md`: the first provider wins.
-- `CLAUDE.md` becomes one marked region for each product
-  , see `<!-- arizuko:package:<name> BEGIN/END -->`. Text of the operator between
-  the regions is never touched.
-- `facts/` is a union, and a file name collision is refused.
-- `tasks.toml` and `migrations/` refuse the apply outright. Nothing reads the
-  tasks of a product, and nothing runs the migrations of a product. A seed
-  would report success for instructions that never execute.
-- The keys of `.claude/settings.json` form a union, and a key collision is
-  refused. The key `mcpServers` is the exception: it refuses the apply, because
-  no MCP server loads from that key. Ship third-party tools as an arizuko
-  connector.
-- A mix may hold at most one `Dockerfile.ant`.
-- Everything else is copied whole, and the first provider wins.
+## Package files in the group folder
 
-Check these rules against the code and not against this list.
-`tests/lab/product-lab.sh` builds a throwaway instance and applies
-`ant/examples/helpdesk`. That is the reference product, with one payload of
-every kind that has a consumer. The script asserts each rule above. It also
-installs a package that ships a compose fragment, a proxyd route and a grant.
-It needs no Docker, no root and no model credits. A rule that stops holding
-fails the script.
+The `group/` directory of a package holds the files that the package puts in
+the group folder, for example `PERSONA.md`. A file that the operator or the
+agent must edit is not a `group/` file, because `package sync` rewrites it.
+Ship such a file outside `group/`, for example in `facts/` beside `group/`, and
+tell the operator to copy it once.
 
-Identity and knowledge seed once and then belong to the group. Applying again
-never rewrites them. Skills stay managed by the upstream product. Applying
-again takes a new revision, but it reports and skips a file that someone edited
-since the last apply, and never overwrites it. `arizuko packages <inst> sync`
-applies every mix of every group again, together with the packages of the
-instance. The full table, the refusal of a marked region and the hand-off rule
-are in
-[the packages reference](template/web/pub/arizuko/reference/packages.html).
+Each `package sync` writes every `group/` file of the winning package into the
+group folder. The write replaces any edit that the agent made to that file.
+A file that a package stops shipping is removed. A file that no package ships
+stays the file of the group.
 
-`arizuko create --product` and `group add --product` take exactly one product
-and copy it as it is. That is a single template and not a mix.
+The settings of the turn carry a deny rule `Edit(~/<path>)` for each package
+file. The rule tells the agent not to edit the file. It is advisory and is not
+a security boundary.
+
+If a file already exists before any package installed it, the install refuses
+that file unless the operator passes `-f`.
+
+`mcpServers`, `tasks.toml` and package migrations refuse installation because
+no package reader executes them. Configure connectors and scheduled tasks
+through their owning resources.
+[The CUZK package](ant/examples/cuzk/README.md) provides a complete group example.
+
+`runed/packages_test.go` covers native assets and read-only mounts.
 
 ## Adding a channel adapter
 
@@ -382,9 +333,9 @@ with the Slack Events API, an HMAC signing secret and dislike through
 
 1. Create `<name>d/` with a `main.go` that wires `chanlib.Run`, a `bot.go` for
    the platform I/O, and a parser and formatter for the JID.
-2. Add `template/services/<name>d.yml`. It is a partial compose file that
-   defines one service. If you need inbound webhooks through proxyd, add
-   `template/services/<name>d.yaml` with a `proxyd_routes` block. See the
+2. Add `template/services/<name>d/<name>d.yml`. It is a partial compose file
+   that defines one service. Declare package metadata and any `proxyd_routes`
+   in `template/services/<name>d/arizuko.yml`. See the
    section on proxyd routes below. You need no edit of `compose.go`.
 3. Implement only the verbs that the platform supports natively. Return
    `chanlib.Unsupported(tool, platform, hint)` for the others, and advertise
@@ -404,7 +355,7 @@ Every adapter keeps this delivery contract, whatever its platform:
   ambiguous and keeps the claim ([`chanlib/README.md`](chanlib/README.md)
   § Four error classes decide retry and the claim).
 - **The dashboard route is the registration.** Declare `/dash/<name>/` in
-  `template/services/<name>.yaml`, gated by the own credential of the adapter.
+  `template/services/<name>/arizuko.yml`, gated by the adapter's credential.
   The route and the tile on the hub then exist exactly when the adapter runs.
 
 `chanlib.InboundMsg` carries no forward attribution. A message that a user
@@ -528,7 +479,7 @@ cannot establish that direction. In this repository a Go test covers it, see `re
 ## Adding a proxyd route
 
 The route table of `proxyd` comes from two sources. The first is the
-`proxyd_routes` block of the `services/<name>.yaml` of each package, which
+`proxyd_routes` block of the `packages/<name>/arizuko.yml` of each package, which
 `generate` reads at compose-generate time. The second is a static slice of core
 routes in `compose/compose.go`, see `coreProxydRoutes`. The slice holds the
 surfaces of webd, onbod, davd and dashd, and the `/dash/<daemon>/` page of
@@ -557,17 +508,12 @@ The dashboard of a daemon is one more route, `/dash/<name>/` to its own
 when that row exists, and nothing discovers a dashboard by itself.
 Longest-prefix matching puts every `/dash/<name>/` ahead of the `/dash/`
 catch-all that reaches `dashd`. A packaged daemon declares its dashboard route
-in its own manifest, for example `template/services/slakd.yaml`. A daemon with
+in its own manifest, for example `template/services/slakd/arizuko.yml`. A daemon with
 no route has a tile that does not link.
 
-That file is the same manifest that `arizuko packages install` applies. It is
-one declaration with two readers, because `generate` needs the routes before
-any daemon or database exists. It is never a second format. Both readers parse
-it with `resreg.ParseManifest`, so each rejects a typo in the same way.
-`arizuko apply` parses the same document with `resreg.ParseYAML`. That parser
-refuses the `env` section and names `packages add`, because an apply would
-report success for keys that it never provisioned. An example is
-`template/services/slakd.yaml`.
+`package sync` and compose generation read the same `arizuko.yml` through the strict
+`resreg` decoder. `package sync` applies resource rows; compose reads routes and service
+environment requirements before daemons start. These are two readers of one declaration.
 
 ## Adding an MCP connector
 
@@ -638,9 +584,9 @@ daemon. `GH_TOKEN` in the `secrets` rows of a folder is the value that the
 broker renders into the request of the connector. Identify a credential by the
 door that uses it and not by the first place where its name appears.
 
-The operator writes the token of a folder with `arizuko secret <inst> set
+The operator writes the token of a folder with `arizuko secret -i <inst> set
 <folder> KEY --value V`. The operator writes the token of a user with `arizuko
-user-secret <inst> set <sub> KEY --value V`, or gives the user the page
+user-secret -i <inst> set <sub> KEY --value V`, or gives the user the page
 `/dash/me/secrets`.
 
 ## Adding a REST connector
@@ -828,28 +774,11 @@ Each adapter exposes `GET /health` and returns `{ok, name, status, caps}`.
 
 ## Skills
 
-Skills have three scopes with no inheritance:
-
-- `ant/skills/` is global, baked into the image and read-only.
-- `groups/<folder>/.claude/skills/` belongs to one group and persists.
-- `.claude/skills/` belongs to one session. The first spawn seeds it from the
-  global skills.
-
-**The operator boundary.** Skills define the surface of capabilities. In a
-deployment with several tenants, users cannot add or change skills. Only the
-operator can. A user who changes skills expands the own surface of capabilities
-of that user, and that bypasses the grants model. In a deployment with one user,
-the user is the operator. The operator seeds the skills of a group in
-`groups/<folder>/.claude/skills/` with `arizuko apply` or `arizuko packages
-install`. Agents can read and use them, and they cannot create new skill
-directories.
-
-The canonical definitions are at `/opt/arizuko/ant/skills/`, a read-only mount,
-for the diff of `/migrate`. The integer `MIGRATION_VERSION` and the `/migrate`
-skill drive upgrades. `/migrate` runs a real 3-way merge against
-`.claude/.merge-base/<path>`, a snapshot that the seed lays down. Local edits
-therefore survive upstream changes. A `.disabled` marker inside a skill
-directory opts that skill out of seeding and migration entirely.
+Packaged skills follow the selection and paths in [Installing
+packages](#installing-packages). A group can also keep writable custom skills
+under `groups/<folder>/.claude/skills/`. A `.disabled` marker inside a skill
+directory suppresses the packaged mount for that name. Skills provide
+instructions; tool authority still comes from grants.
 
 A skill has this layout:
 
@@ -857,10 +786,10 @@ A skill has this layout:
 <name>/
   SKILL.md              # required: prompt injection
   CLAUDE.md             # optional
-  migrations/           # optional numbered upgrade scripts
+  references/           # optional supporting files
 ```
 
-A skill directory name must match `^[a-z0-9-]+$`. `seedSkills` in `container/runner.go` checks the name and skips the directory otherwise. `SKILL.md` carries
+A skill directory name must match `^[a-z0-9-]+$`. `SKILL.md` carries
 YAML frontmatter with `name` and `description`. The model reads the description
 to decide whether the skill applies. The description therefore names the
 triggers in prose and not in a separate field.
@@ -920,8 +849,8 @@ To add one:
    `description`, because `/dispatch` matches on it. It also needs a "when to
    invoke" section, invocations that can be copied and pasted, and a fallback
    for missing authentication that fails soft and does not crash the turn.
-4. Bump `ant/skills/self/MIGRATION_VERSION`, so that the auto-migrate broadcast
-   fires on the next spawn.
+4. Rebuild the agent image for bundled tools, or install a source package for
+   selected group tools.
 
 `ant/skills/oracle/SKILL.md` is the reference for the shape of the skill body.
 

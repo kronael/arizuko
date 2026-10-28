@@ -1,7 +1,9 @@
 package store
 
 // installed_packages.go declares `installed_packages`: one item per install
-// record, addressed by (folder, name). The group delete reads the folder out of the coordinate
+// record, addressed by (folder, name). This package declares the shape and
+// routd writes it (`routd/packages_store.go`): a second reader, never a second
+// format. The group delete reads the folder out of the coordinate
 // (folder_scope.go).
 //
 // The partition is OwnerRoutd because resreg's entity path writes these items
@@ -21,7 +23,8 @@ import (
 	"github.com/kronael/arizuko/objstore"
 )
 
-// The attributes an install record carries. `folder` and `name` are the coordinate.
+// The attributes an install record carries. `folder` and `name` are the
+// coordinate. Exported because the writer is in another package.
 const (
 	AttrPkgSource      = "source"
 	AttrPkgRevision    = "revision"

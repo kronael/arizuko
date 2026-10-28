@@ -20,6 +20,7 @@ import (
 	"github.com/kronael/arizuko/dashd/dashstore"
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/resreg/resources"
+	"github.com/kronael/arizuko/routd"
 )
 
 var skillNameRe = regexp.MustCompile(`^[a-z0-9-]+$`)
@@ -113,7 +114,7 @@ func (d *dash) handleGroupCreate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "config load failed", http.StatusInternalServerError)
 		return
 	}
-	if err := container.SetupGroup(cfg, folder, ""); err != nil {
+	if err := container.SetupGroup(cfg, folder); err != nil {
 		slog.Error("group create: setup", "folder", folder, "err", err)
 		http.Error(w, "setup failed", http.StatusInternalServerError)
 		return
@@ -156,14 +157,16 @@ func (d *dash) handleGroupCreate(w http.ResponseWriter, r *http.Request) {
 // stockSkills returns the sorted list of skill names from ant/skills/ in appDir.
 // Returns nil when appDir is empty or the directory can't be read.
 func (d *dash) stockSkills(folder string) ([]string, error) {
-	selected, err := d.routdStore().SelectedPackageNames(folder)
+	selected, _, err := routd.OpenOver(d.routdStore().Obj()).SelectedPackages(folder)
 	if err != nil {
 		return nil, err
 	}
 	inventory, err := container.ReadPackageInventory(filepath.Dir(d.groupsDir), selected)
 	var names []string
-	for _, skill := range inventory.Skills {
-		names = append(names, skill.Name)
+	for _, asset := range inventory.Assets {
+		if name, ok := strings.CutPrefix(asset.Path, "skills/"); ok {
+			names = append(names, name)
+		}
 	}
 	return names, err
 }
