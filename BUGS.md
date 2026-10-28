@@ -15,18 +15,11 @@
 
 ## What needs you
 
-- `L638` — `package sync` accepts an edited catalog fragment; the containment test fails on origin/main.
-- `L627` — install mandatory core in integration test fixtures.
-- `L626` — make ACL endpoint test assert the intended row.
-- `L625` — update the exported seeded-grant expectation.
 - `L620` — reconcile run-stop service authorization with the stated contract.
-- `L601` — allow the bundled store package through the unified sync path.
-- `L600` — restore fresh-instance store bootstrap for the unified package flow.
 - `L596` — choose whether scheduled tasks execute in their owner folder or require a chat trigger route.
 - `L597` — choose whether human conversation takes priority over CI in bounded observed context.
 
 
-- `L593` — restore required service environment validation before installation writes.
 
 - `L592` — correct the trading report publish grant and private report placement.
 
@@ -318,7 +311,6 @@ reads those words now.
 
 **Found while migrating the Telegram DMs (2026-10-25).**
 
-- `L572` — an agent sent to `user/137865889`, a JID with no platform, and
   routd stored the rows as a chat: refuse a JID without a platform?
 
 **Found while folding the lowercase `bugs.md` into this file (2026-10-20).**
@@ -414,41 +406,6 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
   hits, 56 under `-test`; nine survived verification and were filed separately. Kept so
   the next sweep does not re-report the same ~135.
 
-## L638 — `package sync` accepts an edited catalog fragment (2026-10-28, open)
-
-Measured: `cmd/arizuko/sync_test.go::TestPackageServiceContainment` fails at
-`sync_test.go:353` on origin/main 042aef8a (`dirty catalog fragment accepted`).
-`1bb31d8e` (L635) made `dirtyAssets` in `cmd/arizuko/packages.go` skip every
-symlinked service fragment. The test writes "edited fragment" to the installed
-`services/extenddb.yml` after `package add -f` and expects `sync` to refuse
-with "locally edited". The v0.71.0 release therefore shipped with this test red.
-**Fix:** decide from the code whether `add -f` leaves a link or a copy, and
-whether an edit through a link is an edit of the catalog; make the check and
-the test agree without losing the L635 behaviour.
-
-## L627 — integration fixtures omit the mandatory core package (2026-10-27, open)
-
-The combined short suite failed the voluntary-turn test and multiple integration
-features because `runed` refused to render a turn without its mandatory core
-package. A focused voluntary-turn rerun reproduced that exact refusal. Install
-or construct the real required core package in the test fixtures, preserve the
-production refusal and the original behavioral assertions, and rerun the
-previously failing tests.
-
-## L626 — ACL endpoint test counts unrelated seeded grants (2026-10-27, open)
-
-`TestACLRESTOperatorRootOnly` expects zero `**` ACL rows after its operator
-membership write, but the accepted chat controls seed two `service:dashd` rows
-at that scope. The test must assert that no ACL row was written for the target
-principal rather than counting unrelated floor grants. Do not alter authorization.
-
-## L625 — exported ACL floor test expects the old grant count (2026-10-27, open)
-
-The combined short suite's `TestExport_FreshDB` sees 39 ACL rows but expects
-37. The accepted chat controls add `chats:get` and `chats:update` grants for
-`service:dashd` to the seeded floor. Update the export witness to verify those
-specific grants as well as the correct floor count; do not change the grants.
-
 ## L620 — service run-stop authorization contradicts its stated contract (2026-10-27, open)
 
 A service-token exchange succeeded, but `POST /v1/runs/stop` returned 403
@@ -457,25 +414,18 @@ that service as able to stop a run. Classify the actual token grants, endpoint
 policy and caller path before proposing a change; no authorization-policy
 change is approved by this entry.
 
-## L601 — unified sync rejects the bundled store package (2026-10-27, open)
-
-With a fresh ExtendDB store and the owner daemons running, U2 `sync` rejects the
-bundled `catalog:extenddb` fragment because its PostgreSQL companion uses
-`store/extenddb_db`, outside the external-package namespace. The isolated
-bootstrap witness reaches this failure before writing a package receipt. The
-catalog and external-source containment rules must retain their distinct bounds.
-
-## L600 — unified sync cannot bootstrap a fresh store (2026-10-27, open)
-
-The U2 draft removes `packages add`, while `sync` opens the store before it
-installs the selected `catalog:extenddb` service. In an isolated fresh instance,
-`create -i bootstrap` leaves `services/` empty. After declaring the store package,
-`sync -i bootstrap` fails with `DYNAMODB_URL names no endpoint`, and `run -i
-bootstrap` fails before starting Docker for the same reason. The existing manual
-store initialization requires the service fragment and credentials first. A
-fresh-install path must supply those prerequisites without a second manifest or
-an automatic migration engine. The existing store-backed sync tests start with an
-available test store and do not cover this sequence.
+**Classified 2026-10-28 (HEAD `042aef8a`).** The caller is `service:routd`: its
+`/stop` command (`routd/steer.go` `cmdStop`) calls `runed` `POST /v1/runs/stop`
+with the token routd exchanges at authd. `authd/http.go` `serviceGrants` gives
+`service:routd` `runs:run`, `identity:read`, `invites:write`, `gates:write`; only
+`service:dashd` holds `runs:kill`. runed demands `runs:kill` on this route
+(`runed/server.go`, `runed/README.md`), so the 403 is the code working as
+written, and the `ack` then says "No active turn for this chat." for a stop that
+never ran. `tests/split_federation_test.go` and `tests/media_transfer_test.go`
+hand-mint a `service:routd` token with `runs:kill`, so they never meet authd's
+table. This is not a doc or test mismatch. Either authd grants `runs:kill` to
+`service:routd` (an authorization change) or `/stop` stops working by design.
+Left open for the owner's decision; no code changed.
 
 ## L596 — scheduled prompts are routed to observation and never execute (2026-10-27, needs sign-off)
 
@@ -502,17 +452,6 @@ of source. **Default if nothing is decided:** existing window limits apply.
 Whether an unmentioned correction starts a turn is a separate routing decision;
 this proposal does not widen the runed port or implement steering.
 
-## L593 — sync validates required service environment after installing assets and rows (2026-10-26, open)
-
-Measured in the U2 draft by
-`cmd/arizuko/sync_env_guard_test.go::TestSyncRequiredServiceEnvRefusesBeforeWrites`:
-an unset required service key returns an error, but the package prefix exists
-and its network rule is already applied. `cmd/arizuko/sync.go` calls
-`provisionPkgEnv` only in service finalization after `InstallPackage` and
-`applyDocs`. **Fix:** use the existing service-only environment provisioning
-before that package's install/build and resource apply. Keep group-only
-requirements as metadata. No new validator or rollback mechanism.
-
 ## L592 — trading report URLs point outside the served private slot (2026-10-26, open)
 
 Sloth's `sloth/trading` turn logs resolve `web_publish:false`. The group has
@@ -524,21 +463,6 @@ configured; this is missing operator setup. No test — config. **Fix:** use the
 existing exact-folder web-publish grant and copy generated HTML reports to the
 private served slot. Prior owner authorization covers Jynx setup repair;
 no new permission system or source publication is involved.
-
-## L572 — routd stores an agent send to a JID with no platform as a chat (2026-10-25, open)
-
-MEASURED on sloth: `routd.messages` partition `user/137865889` holds two rows,
-2026-10-23 18:19 and 2026-10-24 20:00, sender and `routed_to` `atlas/martin`,
-verb `message`, content "migrated v221 → v222." and "migrated v222 → v223.".
-The intended target is the DM `telegram:user/137865889`. No adapter owns
-`user/`, so the report reached nobody, and `routd.chats` gained a chat
-`user/137865889` that a `room=user/137865889` route matches.
-
-- **Severity:** low — two lost migration reports; the chat row misleads
-  route checks (the rekey preflight had to skip it).
-- **Fix:** not decided. Find the door that accepted the JID first: the send
-  path should refuse a JID whose platform no adapter owns.
-- **Status:** open — premise of the door not measured.
 
 ## L483 — the DynamoDB driver sends no `ConsistentRead` on `Query`, and `6/37` and `6/42` say it does (2026-10-20, open)
 
