@@ -15,9 +15,46 @@
 
 ## What needs you
 
-- `L586`, `L587` — package inventory corrections in the active package change.
-- `L588`, `L589` — remove build references and helpers left by package cleanup.
-- `L590` — keep Codex mount stubs owned by the selected runtime UID.
+- `L634` — no command writes instance resource rows such as `container_config`.
+- `L633` — a group package with settings breaks the next package sync.
+- `L632` — compose derives ARIZUKO_INSTANCE from the data dir name.
+- `L631` — CLI commands parse flags, help and arguments differently.
+- `L630` — an agent can choose a package whose install runs on the host.
+- `L629` — package list order decides which package owns a shared path.
+- `L628` — do not adopt and later delete a preexisting group seed.
+- `L627` — install mandatory core in integration test fixtures.
+- `L626` — make ACL endpoint test assert the intended row.
+- `L625` — update the exported seeded-grant expectation.
+- `L624` — correct chat threading CLI usage for instance flags.
+- `L623` — do not seed Git worktree metadata into group homes.
+- `L621` — clear new spec-linter diagnostics in changed package specs.
+- `L620` — reconcile run-stop service authorization with the stated contract.
+- `L619` — document the toolkit package install prerequisite.
+- `L618` — document the GitHub reply target requirement.
+- `L617` — align operator startup guidance with the systemd deploy path.
+- `L616` — reconcile manifest spec and catalog index with unified sync.
+- `L615` — remove retired package commands from package surfaces.
+- `L614` — reconcile package route gating with documented behavior.
+- `L613` — correct the Codex hook mount description.
+- `L612` — document both package route manifest locations.
+- `L611` — correct the agent image build description.
+- `L610` — reconcile the install guide with fresh bootstrap ordering.
+- `L609` — retain the CLI built by the bootstrap guide.
+- `L608` — correct the web security description of sender authorization.
+- `L607` — correct the landing page product setup sequence.
+- `L606` — let the bootstrap guide verify root-owned kernel artifacts.
+- `L605` — correct the retired package-command error message.
+- `L601` — allow the bundled store package through the unified sync path.
+- `L600` — restore fresh-instance store bootstrap for the unified package flow.
+- `L596` — choose whether scheduled tasks execute in their owner folder or require a chat trigger route.
+- `L597` — choose whether human conversation takes priority over CI in bounded observed context.
+
+
+- `L593` — restore required service environment validation before installation writes.
+
+- `L592` — correct the trading report publish grant and private report placement.
+
+
 
 Every open entry waits on a person, not on work. Grouped by what it waits FOR,
 so the queue can be unblocked without reading 5,000 lines.
@@ -401,48 +438,326 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
   hits, 56 under `-test`; nine survived verification and were filed separately. Kept so
   the next sweep does not re-report the same ~135.
 
-## L586 — package skill discovery rejects regular documentation files (2026-10-26, open)
+## L634 — instance resource rows have no write path (2026-10-28, open)
 
-`ReadPackageSkills` rejects every entry that is not a directory. The toolkit
-source has regular `skills/README.md` and `skills/CLAUDE.md` entries, so its
-normal install fails before the explicit build command runs. The synthetic
-`TestMinimalPackageInstallUpdateRemove` fixture covers regular documentation.
-The active package change owns the fix: skip non-directory entries.
+Measured in the controller: `arizuko apply` is retired, and `package sync` no
+longer applies instance `arizuko.yml` rows (owner's DB-selection decision). The
+`groups` resource serves only register/list/get (`routd/groups_resource.go`), so
+no CLI, REST or MCP path writes `groups.container_config` (host mounts,
+`EXTENDING.md` § Adding a host mount); `acl_membership` REST shows only DELETE.
+Only `archive apply` writes rows in bulk. Live krons and sloth have no instance
+`arizuko.yml`, so nothing live depends on it today. Owner decision: restore a
+manifest apply over the existing `applyDocs` (`arizuko apply -i <inst> <file>`),
+or add per-resource writes. Not fixed in this release unless the owner says so.
 
-## L587 — duplicate skill refusal prevents normal package overlays (2026-10-26, open)
+## L633 — receipt kind `setting` breaks the second package sync (2026-10-28, open)
 
-`ReadPackageInventory` rejects a second provider for a skill. The bundled core
-and toolkit both supply `solve`, `go` and `sh`. Core plus toolkit cannot render
-a turn. The active package change owns the authorized order: core, system,
-then exact-group packages. The last provider supplies a shared skill name.
-The synthetic `TestSelectedPackageHooksAndTools` fixture covers that overlay.
+Read from code by the step 7 worker, not reproduced: `container/blend.go`
+`blendSettings` records the merged settings keys under the receipt kind
+`setting`. `cmd/arizuko/sync.go` `composeSyncDocs` treats every receipt kind
+that is not `files`, `skill` or `group_seed` as a resource name, so the next
+`package sync` of a group package that ships settings fails with "unknown
+resource setting". Fix with a test that syncs such a package twice.
 
-## L588 — agent image copies the removed output-style directory (2026-10-26, open)
+## L632 — compose derives the instance name from a path (2026-10-28, open)
 
-`ant/Dockerfile:191` still copies `output-styles/`, but the active package cut
-removes every tracked file and the source directory is absent. A fresh image
-build cannot resolve that COPY input. Measured with `git ls-files
-ant/output-styles` and the absent directory in the isolated U1 tree.
-**Fix:** remove that COPY instruction; no test — ops, the image build verifies it.
+Read from code, not reproduced: `compose/compose.go` (~812-826) builds
+`ARIZUKO_INSTANCE` from `filepath.Base(dataDir)`. CLAUDE.md forbids deriving
+identity from a runtime path (the krons outage of 2026-04-29). The instance name
+must come from configuration, never from the directory name.
 
-## L589 — package cleanup leaves two unused helpers (2026-10-26, open)
+## L631 — CLI commands handle flags, help and arguments per command (2026-10-28, open)
 
-Scoped golangci reports unused `cpDirFresh` at `container/runner.go:262` and
-`fhsConfig` at `container/runner_layered_test.go:20`. A source search finds only
-their declarations and comments. The lint gate refuses the package cut.
-**Fix:** delete the unused helpers and resulting unused imports; no test —
-design, scoped lint and existing container tests verify the deletion.
+Measured on the controller binary by a read-only sweep (`ship/cli-uniform-s1-s6.patch`):
+`arizuko pair x -i sloth` uses the default instance and passes `-i sloth` into the
+container; `send main -h` sends `-h` as the message; `probe -h` probes the URL
+`-h`; `export -h` opens the store and would write a file named `-h`;
+`archive apply x.tar --focre` ignores the typo; `need` checks only a minimum, so
+extra arguments are dropped; usage goes to stdout on some paths and stderr on
+others; hints print `arizuko run <name>`, which now fails; `-f`, `-t`, `-p`, `-s`
+mean different things in different commands; three `.env` parsers exist. Owner
+rule: one shared mechanism per concern, no per-command special cases.
 
-## L590 — Codex mount seeding replaces a selected-runtime-owned stub (2026-10-26, open)
+## L630 — an agent-writable group file selects host-run installs (2026-10-27, open)
 
-`RunUID` selects this host's non-root UID 1001, but `ownedByContainerUID` in
-`container/runner.go:133` compares only UID 1000. `SeedCodexMountTargets` removes
-and recreates an empty target already owned by the selected runtime UID.
-Measured: the parent U1 library gate fails
-`container/seed_codex_test.go::TestSeedCodexMountTargetsIdempotent` on its second
-call. The existing inode comparison can miss a replacement when the filesystem
-reuses the inode. **Fix:** use the same runtime UID for ownership and creation;
-keep real credential bytes unchanged and make the idempotence check reliable.
+Read from the controller code, not reproduced. runed mounts the group folder
+read-write as the guest home (`runed/mounts.go` `core.ContainerHome`).
+`arizuko sync` reads `groups/<folder>/arizuko.yml` from that folder
+(`cmd/arizuko/sync.go` `readProductMix`) and builds each selected source, which
+runs the package's `install` through `sh -c` on the host with the operator's
+environment (`container/packages.go` `InstallPackage`). So an agent can write a
+git URL into its own group file, and the next operator `sync` runs that
+package's install script on the host. Proposed fix (redesign, needs owner
+sign-off): move group selection out of the agent-writable file into the
+`installed_packages` DB rows, with `sync` as the only writer
+(`ship/db-selection-variant.patch`). Check whether v0.70.15 `products.toml`
+has the same path before release.
+
+## L629 — sync resolves shared package paths silently (2026-10-27, open)
+
+An actual sync selected two group packages that both supplied the same skill;
+it accepted both and silently selected one in runtime inventory. Owner decision
+(2026-10-27 21:25, supersedes the same-day "reject collisions" rule): "the order
+has to matter and the overrides have to be possible since i need tools to be
+usable without arizuko". Contract: the order of the package selection in
+`arizuko.yml` is the precedence; core is always first; a later package
+overrides an earlier package on the same installed skill or path; `sync`
+prints one line for each override; no position field. `--force` only replaces
+an existing unmanaged destination; it does not decide package precedence.
+Core and tools share 38 skill names; with this contract tools wins them and the
+core copies stay as the core-only fallback. Regression tests must exercise an
+actual sync: both orders, the override report, and force against unmanaged files.
+
+## L628 — group seed tracking can delete a preexisting file (2026-10-27, open)
+
+A focused reproduction created a group file before selecting a package, with
+bytes identical to the package seed. The first blend left the file in place but
+recorded it as package-owned. After the source stopped shipping that file, the
+next blend deleted the preexisting group file. This violates the no-adoption
+and ordinary-file preservation requirements. Preserve preexisting group files
+and test the full two-sync sequence; do not infer ownership from equal bytes.
+
+## L627 — integration fixtures omit the mandatory core package (2026-10-27, open)
+
+The combined short suite failed the voluntary-turn test and multiple integration
+features because `runed` refused to render a turn without its mandatory core
+package. A focused voluntary-turn rerun reproduced that exact refusal. Install
+or construct the real required core package in the test fixtures, preserve the
+production refusal and the original behavioral assertions, and rerun the
+previously failing tests.
+
+## L626 — ACL endpoint test counts unrelated seeded grants (2026-10-27, open)
+
+`TestACLRESTOperatorRootOnly` expects zero `**` ACL rows after its operator
+membership write, but the accepted chat controls seed two `service:dashd` rows
+at that scope. The test must assert that no ACL row was written for the target
+principal rather than counting unrelated floor grants. Do not alter authorization.
+
+## L625 — exported ACL floor test expects the old grant count (2026-10-27, open)
+
+The combined short suite's `TestExport_FreshDB` sees 39 ACL rows but expects
+37. The accepted chat controls add `chats:get` and `chats:update` grants for
+`service:dashd` to the seeded floor. Update the export witness to verify those
+specific grants as well as the correct floor count; do not change the grants.
+
+## L624 — chat thread-replies usage shows retired positional instance (2026-10-27, open)
+
+The integrated chat-local `thread-replies` command uses `-i`/`--instance`
+after the command, but its error usage still shows `<instance>` as a positional
+argument. Correct the usage and prove the merged dispatcher reaches the
+chat-local setting through the supported instance flag.
+
+## L623 — Git worktree metadata is copied as a group seed (2026-10-27, open)
+
+`container.productFiles` skips `.git` only when it is a directory. A linked Git
+worktree has `.git` as a file, so the group blend treats repository metadata as
+a normal seed and copies its host-side gitdir reference into the group home.
+Exclude the root `.git` entry regardless of type while retaining ordinary seed
+files; test both directory and file forms.
+
+## L621 — updated spec linter finds two changed-spec diagnostics (2026-10-27, open)
+
+The updated `speclint` finds a stale resolve-skill pointer in `specs/6/34` and
+rejects the extra frontmatter metadata on the new `specs/7/47`. These were not
+new diagnostics under the previous linter. Preserve the related-spec information
+in ordinary prose and point only to material that exists; rerun the updated
+linter against both the release base and changed specs.
+
+## L620 — service run-stop authorization contradicts its stated contract (2026-10-27, open)
+
+A service-token exchange succeeded, but `POST /v1/runs/stop` returned 403
+`missing scope runs:kill`. Existing documentation and server tests describe
+that service as able to stop a run. Classify the actual token grants, endpoint
+policy and caller path before proposing a change; no authorization-policy
+change is approved by this entry.
+
+## L619 — package examples omit the toolkit installer prerequisite (2026-10-27, open)
+
+The package guides show selecting `github.com/kronael/tools`, but the current
+upstream checker requires a Python 3.13+ runtime and dependencies. Its package
+install now uses host `uv` and may fetch those dependencies; the installed tool
+runs offline in the guest. State the prerequisite where that source is shown.
+
+## L618 — resident guide promises automatic GitHub reply targets (2026-10-27, open)
+
+`ant/skills/self/mcp.md` says `reply` auto-injects the target, but
+`ipc/ipc.go` rejects a GitHub reply without `replyToId`. Three observed native
+calls omitted the target and recovered after the error; a focused IPC check
+confirms the required-target behavior. State the GitHub exception in the table
+without weakening the target requirement or adding a fallback.
+
+## L617 — install guidance treats `arizuko run` as a later deploy path (2026-10-27, open)
+
+The install guide says to run `arizuko run` again after bootstrap and provides
+a systemd unit that invokes the host CLI; the install, operate and upgrade
+web how-tos repeat that unit model or claim restart runs the host CLI. Project deployment guidance requires `sudo systemctl restart
+arizuko_<instance>` and reserves `arizuko run` for initial setup. The current
+fleet unit invokes Compose and a release image. Reconcile the published
+startup and restart guidance with the supported release-image unit before
+shipping; do not modify live units as part of this documentation fix.
+
+## L616 — manifest spec and catalog index describe retired interfaces (2026-10-27, open)
+
+The shipped manifest spec `specs/5/8-yaml-manifests.md` still presents
+`arizuko apply`, `--as-folder`, and old database assumptions as current,
+while U2 removes those CLI paths and uses `arizuko sync` with the current store.
+`specs/5/5-worlds-agents-sessions.md` repeats the removed retarget recipe,
+and `specs/17/index.md` points readers to removed `products list`. Reconcile
+current behavior and preserve archive and engine invariants; do not remove
+historical context or invent replacement retarget behavior.
+
+## L615 — package surfaces still suggest retired CLI commands (2026-10-27, open)
+
+The dashboard empty-package message names the removed `arizuko packages` and
+`arizuko products` commands; the installed-package MCP folder argument also
+names `arizuko packages`. U2 replaces those commands with manifest declarations
+and `arizuko sync`. Correct the visible guidance and test the empty dashboard
+and MCP descriptions without changing authorization or resource behavior.
+
+## L614 — package route gating is not an invariant (2026-10-27, open)
+
+The proxyd, proxycfg and slakd READMEs say every live `gated_by` route has
+passed its gate or is live only while its variable is set. U2 sync applies declared package routes without filtering the
+field, and `store.SyncProxydRoutes` does not delete a previously written route
+when generate filters it out. Thus that documentation is not a guaranteed live
+state. Determine the intended existing package-route ownership and gating
+semantics before changing the sync or delete behavior; correct the public claims
+to measured behavior. The proxyd web component page also describes only catalog
+manifest paths; include installed package paths. This entry does not authorize
+a routing redesign.
+
+## L613 — runed README makes Codex hook mounts conditional (2026-10-27, open)
+
+The runed README says Codex system hook configuration mounts only when packages
+supply hooks. U2 `runed/mounts.go` always writes and mounts both config and
+hooks files, including an empty hook map. Document the actual behavior.
+
+## L612 — proxyd README omits the catalog manifest path (2026-10-27, open)
+
+The proxyd README says `generate` reads every service manifest from installed
+`packages/<name>/arizuko.yml`. `compose/manifest.go` instead selects the bundled
+catalog manifest when the service fragment is a symlink. Describe both paths.
+
+## L611 — agent build documentation describes an old image (2026-10-27, open)
+
+The agent README says the image is based on `node:22-bookworm-slim`, copies
+skills to `/opt/arizuko/ant/skills/`, and starts `node dist/index.js`. The
+current Dockerfile uses `node:22-slim`, copies the checkout to `/app`, removes
+`dist` after the build check, and starts `/app/entrypoint.sh`. Describe the
+actual image and installed package mounts without duplicating the inventory.
+
+## L610 — install guide has conflicting fresh-install sequences (2026-10-27, open)
+
+`INSTALL.md` says to follow it top to bottom, but its earlier create example
+uses the retired positional form and creates the instance before directing the
+reader to the fresh-store bootstrap. The bootstrap itself insists the instance
+directory does not yet exist and creates it. A reader following both reaches a
+collision. Reconcile the guide around one executable order, preserving host
+checks and useful operational reference material.
+
+## L609 — bootstrap guide leaves no persistent CLI (2026-10-27, open)
+
+Both fresh-instance guides build the CLI only into a temporary proof directory,
+while subsequent examples expect a persistent `./arizuko` binary in the
+checkout. Build and document a persistent CLI for subsequent operations.
+
+## L608 — security page omits sender authority (2026-10-27, open)
+
+The web security page describes the MCP turn socket folder as the only authority.
+`routd/agent_gate.go` and `routd/sibling_db.go` pass both the attested sender
+and routed folder into authorization. Describe both axes and their containment.
+
+## L607 — landing setup skips product sync (2026-10-27, open)
+
+The landing-page create/run sequence claims it configures the selected product,
+but unified `products.go` records the selection and `arizuko sync` installs
+its skills, hooks and tools. Make the sequence agree with the actual guide and
+installation behavior.
+
+## L606 — fresh bootstrap cannot verify its kernel (2026-10-27, open)
+
+Both fresh-instance guides run `sudo make kernel` and then test files in its
+output as the unprivileged operator. The Makefile stages the kernel with
+root-owned `mktemp -d` and moves that mode-0700 directory into place unchanged.
+A disposable reproduction of that exact staging pattern produced root:root 700;
+`test -s` as UID 1001 failed while `sudo test -s` passed. The guide exits under
+`set -e` before installing the store. Correct the guide's verification while
+preserving the artifact's access policy, and check both guide copies.
+
+## L605 — manifest errors suggest removed package commands (2026-10-27, open)
+
+U2 `resreg.ParseYAML` rejects package metadata with an error that tells the
+operator to run `arizuko packages add` or `packages install`. U2 removes both
+commands in favor of `arizuko sync`. Preserve the strict rejection and point to
+the existing manifest and sync workflow.
+
+## L601 — unified sync rejects the bundled store package (2026-10-27, open)
+
+With a fresh ExtendDB store and the owner daemons running, U2 `sync` rejects the
+bundled `catalog:extenddb` fragment because its PostgreSQL companion uses
+`store/extenddb_db`, outside the external-package namespace. The isolated
+bootstrap witness reaches this failure before writing a package receipt. The
+catalog and external-source containment rules must retain their distinct bounds.
+
+## L600 — unified sync cannot bootstrap a fresh store (2026-10-27, open)
+
+The U2 draft removes `packages add`, while `sync` opens the store before it
+installs the selected `catalog:extenddb` service. In an isolated fresh instance,
+`create -i bootstrap` leaves `services/` empty. After declaring the store package,
+`sync -i bootstrap` fails with `DYNAMODB_URL names no endpoint`, and `run -i
+bootstrap` fails before starting Docker for the same reason. The existing manual
+store initialization requires the service fragment and credentials first. A
+fresh-install path must supply those prerequisites without a second manifest or
+an automatic migration engine. The existing store-backed sync tests start with an
+available test store and do not cover this sequence.
+
+## L596 — scheduled prompts are routed to observation and never execute (2026-10-27, needs sign-off)
+
+The last24h audit finds twelve scheduled prompts with the expected `routed_to`
+and `is_observed=1`, but no turn. `timed/split.go::fireSplit` sends an ordinary
+message; `routd/loop.go::resolveFolder` applies observe-only chat routing.
+Enqueue success does not mean execution; the run-log issue is separately L472.
+No test — design; stored rows and turn absence establish the missed executions.
+**Options:** (a) execute a scheduled task in its declared owner folder, using
+the chat as its delivery destination; (b) require an explicit triggering route
+for scheduled messages. **Default if nothing is decided:** current chat routing
+applies; observation does not execute the job. No automatic route repair.
+
+## L597 — newer CI activity displaces a human correction from observed context (2026-10-27, needs sign-off)
+
+A later human correction is stored as observed but absent from the next native
+prompt. Its ten observed rows are newer CI events and an unrelated bot reply.
+`routd/prompt.go::buildAgentPrompt` calls the folder-wide
+`store/message_folders.go::ObservedSince`, which applies the newest-first limit.
+No test — design; the captured message and actual native input establish the
+omission. **Options:** (a) retain relevant human conversation before machine
+events within the existing context budget; (b) retain the newest rows regardless
+of source. **Default if nothing is decided:** existing window limits apply.
+Whether an unmentioned correction starts a turn is a separate routing decision;
+this proposal does not widen the runed port or implement steering.
+
+## L593 — sync validates required service environment after installing assets and rows (2026-10-26, open)
+
+Measured in the U2 draft by
+`cmd/arizuko/sync_env_guard_test.go::TestSyncRequiredServiceEnvRefusesBeforeWrites`:
+an unset required service key returns an error, but the package prefix exists
+and its network rule is already applied. `cmd/arizuko/sync.go` calls
+`provisionPkgEnv` only in service finalization after `InstallPackage` and
+`applyDocs`. **Fix:** use the existing service-only environment provisioning
+before that package's install/build and resource apply. Keep group-only
+requirements as metadata. No new validator or rollback mechanism.
+
+## L592 — trading report URLs point outside the served private slot (2026-10-26, open)
+
+Sloth's `sloth/trading` turn logs resolve `web_publish:false`. The group has
+only mcp and news shell-env grants; `web:publish` is absent. Its generated PURR
+report exists under the group's local `private_html/reports/` but not under
+`web/priv/sloth/trading/reports/`. The anonymous URL probe returns an auth
+redirect, which does not verify that a file exists. The platform mount gate works as
+configured; this is missing operator setup. No test — config. **Fix:** use the
+existing exact-folder web-publish grant and copy generated HTML reports to the
+private served slot. Prior owner authorization covers Jynx setup repair;
+no new permission system or source publication is involved.
 
 ## L572 — routd stores an agent send to a JID with no platform as a chat (2026-10-25, open)
 
