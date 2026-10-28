@@ -304,11 +304,20 @@ func TestWebhookResponsibilitySkipsUnneededLookups(t *testing.T) {
 		t.Run(scenario.name, func(t *testing.T) {
 			e.srv.bot.login.Store(scenario.login)
 			raw := body(scenario.fields)
-			if scenario.name == "self" {
-				raw = []byte(strings.Replace(string(raw), `"sender":{"login":"rhias","type":"User"}`, `"sender":{"login":"arizuko-bot","type":"User"}`, 1))
-			}
-			if scenario.name == "other bot" {
-				raw = []byte(strings.Replace(string(raw), `"sender":{"login":"rhias","type":"User"}`, `"sender":{"login":"other-bot","type":"Bot"}`, 1))
+			if scenario.name == "self" || scenario.name == "other bot" {
+				var payload map[string]json.RawMessage
+				if err := json.Unmarshal(raw, &payload); err != nil {
+					t.Fatal(err)
+				}
+				payload["sender"] = json.RawMessage(`{"login":"arizuko-bot","type":"User"}`)
+				if scenario.name == "other bot" {
+					payload["sender"] = json.RawMessage(`{"login":"other-bot","type":"Bot"}`)
+				}
+				var err error
+				raw, err = json.Marshal(payload)
+				if err != nil {
+					t.Fatal(err)
+				}
 			}
 			got := e.deliver(t, "/github/repo/kronael/arizuko", scenario.secret, "issue_comment", "skip", raw)
 			if got.Code != scenario.code || calls != 0 {
