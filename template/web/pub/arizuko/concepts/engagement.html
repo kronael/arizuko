@@ -88,7 +88,7 @@
     <h2>A reply in a Slack channel opens a thread</h2>
     <p>The reply of the bot to a mention in a channel opens a Slack thread on the message of the user. The engagement window then attaches to that thread. Later replies in the thread engage the bot automatically and stay in the thread, so the main channel stays clear.</p>
     <p>The root of the thread controls automatic mention promotion. In a thread that the bot started, any message can address the bot until it disengages. A thread that a person started gives no such permission when the bot joins it. Explicit mentions and direct replies to bot messages still address the bot.</p>
-    <p>Broadcasts, such as scheduled tasks, migrate announcements and system events, do not follow this rule. They have no parent message to thread under, so they appear at the top level.</p>
+    <p>Broadcasts, such as scheduled tasks, release announcements and system events, have no parent message to thread under. They appear at the top level.</p>
 
     <h2>A correction can run in a side topic</h2>
     <p>Sometimes the user corrects the last reply of the bot, for example &ldquo;no, that is wrong&rdquo; or &ldquo;rephrase&rdquo;, instead of continuing. The agent can then <a href="../concepts/topics.html">fork</a> the topic to <code>&lt;current&gt;#fix</code> and run the correction there. The main thread stays clean, and the correction happens in a child thread on the incorrect reply. When the correction is complete, the agent posts one corrected answer to the parent and calls <code>disengage()</code> on the fix topic.</p>
@@ -153,7 +153,7 @@ curl -X POST -H "Authorization: Bearer $TOKEN" \
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/concepts/engagement.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-21">2026-10-21</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-24">2026-10-24</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

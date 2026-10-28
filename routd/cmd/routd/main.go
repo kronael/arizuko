@@ -62,6 +62,10 @@ func main() {
 		slog.Error("initialize required core package", "err", err)
 		os.Exit(1)
 	}
+	if err := db.QueueReleaseAnnouncements(filepath.Join(cfg.EffectiveAppSrcDir(), "CHANGELOG.md")); err != nil {
+		slog.Error("queue release announcements", "err", err)
+		os.Exit(1)
+	}
 	// The ranked message index is this process's: it is memory, built from the
 	// store, and only the process that answers `find_messages` needs it.
 	db.StartSearch()

@@ -191,7 +191,7 @@ always fires a turn.
 | none        | trigger: store under `target` and fire a turn                                                            |
 | `#observe`  | store under `target` and fire no turn; the agent sees it in the `<observed>` block and in the history    |
 | `#engaged`  | fire a turn while the chat and topic are engaged, else store under `target` as observed; never addressed |
-| `#announce` | trigger, and mark this channel as the release-note target of the group for `migrate`                     |
+| `#announce` | trigger, and mark this channel as a release-note destination                                             |
 | `#<topic>`  | trigger, and pin the topic `<topic>` on every matched message                                            |
 
 `observe`, `engaged` and `announce` are reserved words, so no topic can have any

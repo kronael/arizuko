@@ -312,8 +312,11 @@ agent` fail without it).
 
 ## Shipping changes
 
-The release image supplies the required core package. The `CHANGELOG.md`
-entry follows "## Announcing".
+The release image supplies the required core package. Startup installs its
+assets through the common installer; the next turn reads the selected skills
+and manual. The `CHANGELOG.md` entry follows "## Announcing".
+`routd` queues release notices only for configured `#announce` destinations.
+The existing outbound queue delivers them without an agent turn.
 
 ## Tagging a new version
 
@@ -341,3 +344,6 @@ for the record. Shape:
 >
 > Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
 ```
+
+`routd` sends the released version, the first `> •` changelog bullet and the
+changelog URL. Keep that notice short; the full blockquote stays in the changelog.

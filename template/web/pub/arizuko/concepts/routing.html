@@ -123,7 +123,7 @@
         <tr><td><code>folder</code></td><td>Stores the message under <code>folder</code> and starts a turn on the main topic. This is the default.</td></tr>
         <tr><td><code>folder#observe</code></td><td>Stores the message under <code>folder</code> and starts no turn. A later turn sees the message in the history, with the full ACL of the folder. If the chat and topic pair is engaged, <code>routd</code> ignores this mode for a <code>message</code> or <code>mention</code> from a person and starts a turn. Other verbs stay observed. See <a href="../concepts/engagement.html">engagement</a>.</td></tr>
         <tr><td><code>folder#engaged</code></td><td>Starts a turn while the chat and topic pair is engaged, for any verb, and stores the message under <code>folder</code> as observed otherwise. It never addresses the agent. Use it to let CI results continue an open conversation.</td></tr>
-        <tr><td><code>folder#announce</code></td><td>Starts a turn as usual, because the tail does not change inbound handling. It also marks the channel as the release-note target of the group. On a version change, the migrate skill posts the changelog line only to <code>#announce</code> channels, one per server: a Slack workspace, a Discord guild or a Telegram chat. With no <code>#announce</code> route, the group announces nowhere. Remove the tail to stop the posts.</td></tr>
+        <tr><td><code>folder#announce</code></td><td>Starts a turn as usual and marks a concrete channel as a release-note destination. On startup, <code>routd</code> queues the release notice for each configured destination. With no <code>#announce</code> route, it queues no notice. Remove the tail to stop the posts.</td></tr>
       </tbody>
     </table>
     <p>Combine a tail with <code>verb=mention</code> and <code>seq</code> to answer only mentions. One row starts a turn on mentions, and a catch-all row observes everything else. An example for Discord, where <code>1100223344</code> is the ID of one guild:</p>
@@ -142,7 +142,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/concepts/routing.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-24">2026-10-24</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-25">2026-10-25</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>
