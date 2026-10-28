@@ -54,9 +54,9 @@ at `/mnt/<name>`. A mount named `data/binance_perp` appears at
    ```
    Write the changed row with `arizuko apply -i krons rows.yml`, where
    `rows.yml` holds only the rows to change. A row in the file replaces the
-   whole stored row, so start from the output of `get`. `arizuko plan -i krons
-rows.yml` shows the change first. `group add` and `package` never touch
-   `container_config`.
+   whole stored row, so start from the output of `get`. Run
+   `arizuko plan -i krons rows.yml` to see the change first. `group add` and
+   `package` never touch `container_config`.
 
 After either change, restart `runed`. The next spawn uses the change, and a
 running session waits until then. The mount table in
