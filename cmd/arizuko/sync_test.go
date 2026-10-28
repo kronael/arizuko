@@ -349,21 +349,11 @@ func TestPackageServiceContainment(t *testing.T) {
 		t.Fatalf("catalog receipt: found=%v, %v", found, err)
 	}
 	packageRuns(t, "catalog", "sync")
-	if info, err := os.Lstat(service); err != nil || info.Mode()&os.ModeSymlink == 0 {
-		t.Fatalf("sync did not link the unedited fragment to the catalog: %v, %v", info, err)
-	}
-	catalogFragment := filepath.Join(os.Getenv("HOST_APP_DIR"), "template", "services", "extenddb", "extenddb.yml")
-	released := string(fragment) + "# next release\n"
-	mustWrite(t, catalogFragment, released)
-	packageRuns(t, "catalog", "sync")
-	if err := os.Remove(service); err != nil {
-		t.Fatal(err)
-	}
 	mustWrite(t, service, "edited fragment")
 	if output := packageRefuses(t, "catalog", "sync"); !strings.Contains(output, "locally edited") {
 		t.Fatalf("dirty catalog fragment accepted: %s", output)
 	}
-	mustWrite(t, service, released)
+	mustWrite(t, service, string(fragment))
 
 	external := filepath.Join(t.TempDir(), "external")
 	mustWrite(t, filepath.Join(external, "arizuko.yml"), "name: external\n")

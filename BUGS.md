@@ -15,6 +15,7 @@
 
 ## What needs you
 
+- `L638` — `package sync` accepts an edited catalog fragment; the containment test fails on origin/main.
 - `L627` — install mandatory core in integration test fixtures.
 - `L626` — make ACL endpoint test assert the intended row.
 - `L625` — update the exported seeded-grant expectation.
@@ -412,6 +413,18 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
 - **`L15` — the 2026-08-11 dead-code sweep's rejected hits.** `deadcode ./...` gave 149
   hits, 56 under `-test`; nine survived verification and were filed separately. Kept so
   the next sweep does not re-report the same ~135.
+
+## L638 — `package sync` accepts an edited catalog fragment (2026-10-28, open)
+
+Measured: `cmd/arizuko/sync_test.go::TestPackageServiceContainment` fails at
+`sync_test.go:353` on origin/main 042aef8a (`dirty catalog fragment accepted`).
+`1bb31d8e` (L635) made `dirtyAssets` in `cmd/arizuko/packages.go` skip every
+symlinked service fragment. The test writes "edited fragment" to the installed
+`services/extenddb.yml` after `package add -f` and expects `sync` to refuse
+with "locally edited". The v0.71.0 release therefore shipped with this test red.
+**Fix:** decide from the code whether `add -f` leaves a link or a copy, and
+whether an edit through a link is an edit of the catalog; make the check and
+the test agree without losing the L635 behaviour.
 
 ## L627 — integration fixtures omit the mandatory core package (2026-10-27, open)
 
