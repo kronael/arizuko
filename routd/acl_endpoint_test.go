@@ -183,8 +183,12 @@ func TestACLRESTOperatorRootOnly(t *testing.T) {
 	if !operatorMembershipExists(t, db, "google:op") {
 		t.Fatal("root ** POST did not write an operator membership edge")
 	}
-	if aclRowCount(t, db, "**") != 0 {
-		t.Fatal("root ** POST wrote an acl row instead of a membership edge")
+	rows, err := db.ListACL("google:op")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 0 {
+		t.Fatalf("root ** POST wrote acl rows for google:op: %+v", rows)
 	}
 	if rec := doJSON(t, h, "DELETE", "/v1/acl", "", aclReq{
 		Principal: "google:op", Scope: "**"}); rec.Code != 200 {
