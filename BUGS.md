@@ -21,21 +21,7 @@
 - `L627` — install mandatory core in integration test fixtures.
 - `L626` — make ACL endpoint test assert the intended row.
 - `L625` — update the exported seeded-grant expectation.
-- `L621` — clear new spec-linter diagnostics in changed package specs.
 - `L620` — reconcile run-stop service authorization with the stated contract.
-- `L619` — document the toolkit package install prerequisite.
-- `L618` — document the GitHub reply target requirement.
-- `L617` — align operator startup guidance with the systemd deploy path.
-- `L616` — reconcile manifest spec and catalog index with unified sync.
-- `L614` — reconcile package route gating with documented behavior.
-- `L613` — correct the Codex hook mount description.
-- `L612` — document both package route manifest locations.
-- `L611` — correct the agent image build description.
-- `L610` — reconcile the install guide with fresh bootstrap ordering.
-- `L609` — retain the CLI built by the bootstrap guide.
-- `L608` — correct the web security description of sender authorization.
-- `L607` — correct the landing page product setup sequence.
-- `L606` — let the bootstrap guide verify root-owned kernel artifacts.
 - `L601` — allow the bundled store package through the unified sync path.
 - `L600` — restore fresh-instance store bootstrap for the unified package flow.
 - `L596` — choose whether scheduled tasks execute in their owner folder or require a chat trigger route.
@@ -499,14 +485,6 @@ The combined short suite's `TestExport_FreshDB` sees 39 ACL rows but expects
 `service:dashd` to the seeded floor. Update the export witness to verify those
 specific grants as well as the correct floor count; do not change the grants.
 
-## L621 — updated spec linter finds two changed-spec diagnostics (2026-10-27, open)
-
-The updated `speclint` finds a stale resolve-skill pointer in `specs/6/34` and
-rejects the extra frontmatter metadata on the new `specs/7/47`. These were not
-new diagnostics under the previous linter. Preserve the related-spec information
-in ordinary prose and point only to material that exists; rerun the updated
-linter against both the release base and changed specs.
-
 ## L620 — service run-stop authorization contradicts its stated contract (2026-10-27, open)
 
 A service-token exchange succeeded, but `POST /v1/runs/stop` returned 403
@@ -514,111 +492,6 @@ A service-token exchange succeeded, but `POST /v1/runs/stop` returned 403
 that service as able to stop a run. Classify the actual token grants, endpoint
 policy and caller path before proposing a change; no authorization-policy
 change is approved by this entry.
-
-## L619 — package examples omit the toolkit installer prerequisite (2026-10-27, open)
-
-The package guides show selecting `github.com/kronael/tools`, but the current
-upstream checker requires a Python 3.13+ runtime and dependencies. Its package
-install now uses host `uv` and may fetch those dependencies; the installed tool
-runs offline in the guest. State the prerequisite where that source is shown.
-
-## L618 — resident guide promises automatic GitHub reply targets (2026-10-27, open)
-
-`ant/skills/self/mcp.md` says `reply` auto-injects the target, but
-`ipc/ipc.go` rejects a GitHub reply without `replyToId`. Three observed native
-calls omitted the target and recovered after the error; a focused IPC check
-confirms the required-target behavior. State the GitHub exception in the table
-without weakening the target requirement or adding a fallback.
-
-## L617 — install guidance treats `arizuko run` as a later deploy path (2026-10-27, open)
-
-The install guide says to run `arizuko run` again after bootstrap and provides
-a systemd unit that invokes the host CLI; the install, operate and upgrade
-web how-tos repeat that unit model or claim restart runs the host CLI. Project deployment guidance requires `sudo systemctl restart
-arizuko_<instance>` and reserves `arizuko run` for initial setup. The current
-fleet unit invokes Compose and a release image. Reconcile the published
-startup and restart guidance with the supported release-image unit before
-shipping; do not modify live units as part of this documentation fix.
-
-## L616 — manifest spec and catalog index describe retired interfaces (2026-10-27, open)
-
-The shipped manifest spec `specs/5/8-yaml-manifests.md` still presents
-`arizuko apply`, `--as-folder`, and old database assumptions as current,
-while U2 removes those CLI paths and uses `arizuko sync` with the current store.
-`specs/5/5-worlds-agents-sessions.md` repeats the removed retarget recipe,
-and `specs/17/index.md` points readers to removed `products list`. Reconcile
-current behavior and preserve archive and engine invariants; do not remove
-historical context or invent replacement retarget behavior.
-
-## L614 — package route gating is not an invariant (2026-10-27, open)
-
-The proxyd, proxycfg and slakd READMEs say every live `gated_by` route has
-passed its gate or is live only while its variable is set. U2 sync applies declared package routes without filtering the
-field, and `store.SyncProxydRoutes` does not delete a previously written route
-when generate filters it out. Thus that documentation is not a guaranteed live
-state. Determine the intended existing package-route ownership and gating
-semantics before changing the sync or delete behavior; correct the public claims
-to measured behavior. The proxyd web component page also describes only catalog
-manifest paths; include installed package paths. This entry does not authorize
-a routing redesign.
-
-## L613 — runed README makes Codex hook mounts conditional (2026-10-27, open)
-
-The runed README says Codex system hook configuration mounts only when packages
-supply hooks. U2 `runed/mounts.go` always writes and mounts both config and
-hooks files, including an empty hook map. Document the actual behavior.
-
-## L612 — proxyd README omits the catalog manifest path (2026-10-27, open)
-
-The proxyd README says `generate` reads every service manifest from installed
-`packages/<name>/arizuko.yml`. `compose/manifest.go` instead selects the bundled
-catalog manifest when the service fragment is a symlink. Describe both paths.
-
-## L611 — agent build documentation describes an old image (2026-10-27, open)
-
-The agent README says the image is based on `node:22-bookworm-slim`, copies
-skills to `/opt/arizuko/ant/skills/`, and starts `node dist/index.js`. The
-current Dockerfile uses `node:22-slim`, copies the checkout to `/app`, removes
-`dist` after the build check, and starts `/app/entrypoint.sh`. Describe the
-actual image and installed package mounts without duplicating the inventory.
-
-## L610 — install guide has conflicting fresh-install sequences (2026-10-27, open)
-
-`INSTALL.md` says to follow it top to bottom, but its earlier create example
-uses the retired positional form and creates the instance before directing the
-reader to the fresh-store bootstrap. The bootstrap itself insists the instance
-directory does not yet exist and creates it. A reader following both reaches a
-collision. Reconcile the guide around one executable order, preserving host
-checks and useful operational reference material.
-
-## L609 — bootstrap guide leaves no persistent CLI (2026-10-27, open)
-
-Both fresh-instance guides build the CLI only into a temporary proof directory,
-while subsequent examples expect a persistent `./arizuko` binary in the
-checkout. Build and document a persistent CLI for subsequent operations.
-
-## L608 — security page omits sender authority (2026-10-27, open)
-
-The web security page describes the MCP turn socket folder as the only authority.
-`routd/agent_gate.go` and `routd/sibling_db.go` pass both the attested sender
-and routed folder into authorization. Describe both axes and their containment.
-
-## L607 — landing setup skips product sync (2026-10-27, open)
-
-The landing-page create/run sequence claims it configures the selected product,
-but unified `products.go` records the selection and `arizuko sync` installs
-its skills, hooks and tools. Make the sequence agree with the actual guide and
-installation behavior.
-
-## L606 — fresh bootstrap cannot verify its kernel (2026-10-27, open)
-
-Both fresh-instance guides run `sudo make kernel` and then test files in its
-output as the unprivileged operator. The Makefile stages the kernel with
-root-owned `mktemp -d` and moves that mode-0700 directory into place unchanged.
-A disposable reproduction of that exact staging pattern produced root:root 700;
-`test -s` as UID 1001 failed while `sudo test -s` passed. The guide exits under
-`set -e` before installing the store. Correct the guide's verification while
-preserving the artifact's access policy, and check both guide copies.
 
 ## L601 — unified sync rejects the bundled store package (2026-10-27, open)
 
