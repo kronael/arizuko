@@ -14,6 +14,7 @@ import (
 //
 // Detection rules:
 //   - "--" terminates flag detection; everything after is positional.
+//   - -h and --help before "--" return flag.ErrHelp, whatever flags fs defines.
 //   - A token is a flag if it starts with "-", is longer than 1 char, and is
 //     not a bare "-".
 //   - A value-flag with no inline "=value" consumes the NEXT token as its
@@ -31,6 +32,9 @@ func flexParse(fs *flag.FlagSet, args []string) error {
 			continue
 		}
 		name, hasInline := flagName(tok)
+		if name == "h" || name == "help" {
+			return flag.ErrHelp
+		}
 		f := fs.Lookup(name)
 		if f == nil {
 			return fmt.Errorf("flag provided but not defined: -%s", name)
@@ -71,4 +75,17 @@ func flagName(tok string) (name string, hasInline bool) {
 func isBoolFlag(f *flag.Flag) bool {
 	bf, ok := f.Value.(interface{ IsBoolFlag() bool })
 	return ok && bf.IsBoolFlag()
+}
+
+// wantsHelp reports whether args ask for -h or --help before any "--".
+func wantsHelp(args []string) bool {
+	for _, tok := range args {
+		if tok == "--" {
+			return false
+		}
+		if tok == "-h" || tok == "--help" {
+			return true
+		}
+	}
+	return false
 }

@@ -7,6 +7,7 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"os"
 
@@ -27,18 +28,9 @@ func subsystemOrder() []string {
 // has never booted to make its tables (no silent divergent schema), matching
 // this CLI's existing "die loud" posture.
 func openSubsystemStores(dataDir string) (map[string]*store.Store, error) {
-	routd, err := mustOpenOwner(store.OwnerRoutd, dataDir)
-	if err != nil {
-		return nil, fmt.Errorf("open routd's store: %w", err)
-	}
-	onbod, err := mustOpenOwner(store.OwnerOnbod, dataDir)
-	if err != nil {
-		routd.Close() //nolint:errcheck // the open already failed
-		return nil, fmt.Errorf("open onbod's store: %w", err)
-	}
 	return map[string]*store.Store{
-		resreg.SubsystemRoutd: routd,
-		resreg.SubsystemOnbod: onbod,
+		resreg.SubsystemRoutd: mustOpen(store.OwnerRoutd),
+		resreg.SubsystemOnbod: mustOpen(store.OwnerOnbod),
 	}, nil
 }
 
@@ -238,11 +230,11 @@ func rollback(ctx context.Context, stores map[string]*store.Store, done []commit
 }
 
 func cmdExport(args []string) {
-	if len(args) < 1 {
-		fmt.Println("usage: arizuko export [-i instance] [output.yml]")
-		os.Exit(1)
+	fs := flag.NewFlagSet("export", flag.ContinueOnError)
+	if err := flexParse(fs, args); err != nil || fs.NArg() > 2 {
+		usage(err, "arizuko export [-i instance] [output.yml]")
 	}
-	instance := args[0]
+	instance, file := fs.Arg(0), fs.Arg(1)
 	dataDir := mustInstanceDir(instance)
 	stores, err := openSubsystemStores(dataDir)
 	if err != nil {
@@ -270,11 +262,11 @@ func cmdExport(args []string) {
 		}
 		out = append(out, doc...)
 	}
-	if len(args) >= 2 {
-		if err := os.WriteFile(args[1], out, 0o644); err != nil {
-			die("Failed: write %s: %v", args[1], err)
+	if file != "" {
+		if err := os.WriteFile(file, out, 0o644); err != nil {
+			die("Failed: write %s: %v", file, err)
 		}
-		fmt.Fprintf(os.Stderr, "wrote %s (%d bytes)\n", args[1], len(out))
+		fmt.Fprintf(os.Stderr, "wrote %s (%d bytes)\n", file, len(out))
 		return
 	}
 	_, _ = os.Stdout.Write(out)
@@ -284,10 +276,7 @@ func cmdExport(args []string) {
 // Parses + validates, prints the per-resource add/update/unchanged/remove
 // delta per subsystem document, never opens a write tx.
 func cmdPlan(args []string) {
-	if len(args) < 2 {
-		fmt.Println("usage: arizuko plan [-i instance] <manifest.yml>")
-		os.Exit(1)
-	}
+	args = need(args, 2, 2, "arizuko plan [-i instance] <manifest.yml>")
 	instance := args[0]
 	file := args[1]
 	dataDir := mustInstanceDir(instance)
@@ -379,10 +368,7 @@ func printPlan(deltas []resreg.ResourceDelta) {
 // SELECT omits the enc_value blob, which isn't in SecretsRow). Opens only
 // the resource's OWN owner subsystem — resreg.Resource.DB says which.
 func cmdGet(args []string) {
-	if len(args) < 2 {
-		fmt.Println("usage: arizuko get [-i instance] <resource>")
-		os.Exit(1)
-	}
+	args = need(args, 2, 2, "arizuko get [-i instance] <resource>")
 	instance := args[0]
 	resource := args[1]
 	r := resreg.Lookup(resource)

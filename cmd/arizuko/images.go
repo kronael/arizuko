@@ -42,8 +42,7 @@ type mountEntry struct {
 func cmdImages(args []string) {
 	instance, prune, err := parseImagesFlags(args)
 	if err != nil {
-		fmt.Println("usage: arizuko images [-i instance] [--prune|-p]")
-		os.Exit(1)
+		usage(err, "arizuko images [-i instance] [--prune]")
 	}
 	dataDir := mustInstanceDir(instance)
 	if err := runImages(os.Stdout, dataDir, "/proc", prune); err != nil {
@@ -54,7 +53,6 @@ func cmdImages(args []string) {
 func parseImagesFlags(args []string) (instance string, prune bool, err error) {
 	fset := flag.NewFlagSet("images", flag.ContinueOnError)
 	fset.BoolVar(&prune, "prune", false, "remove every tree that is not in use")
-	fset.BoolVar(&prune, "p", false, "remove every tree that is not in use")
 	if err = flexParse(fset, args); err != nil {
 		return "", false, err
 	}

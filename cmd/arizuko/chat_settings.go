@@ -11,14 +11,11 @@ import (
 )
 
 func cmdChatThreadReplies(args []string) {
-	if len(args) < 3 || len(args) > 4 {
-		die("usage: arizuko chat [-i instance] thread-replies <jid> [on|off|default]")
-	}
+	args = need(args, 3, 4, "arizuko chat [-i instance] thread-replies <jid> [on|off|default]")
 	mustInstanceDir(args[0])
-	db := mustOpenRoutd()
-	defer func() { _ = db.Close() }()
 	user := os.Getenv("USER")
-	s := store.NewOver(db.Obj()).AsCLI(user)
+	s := mustOpen(store.OwnerRoutd).AsCLI(user)
+	defer func() { _ = s.Close() }()
 	if err := runChatThreadReplies(s, user, args[2:], os.Stdout); err != nil {
 		die("Failed: %v", err)
 	}

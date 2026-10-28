@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"net/http"
@@ -11,6 +12,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/joho/godotenv"
 
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
@@ -32,50 +35,23 @@ import (
 //   - chat-token: --token|-t or ARIZUKO_CHAT_TOKEN set → POST to the public
 //     /chat/<token> endpoint via WEB_HOST (for tokens issued to non-operators).
 func cmdSend(args []string) {
-	if len(args) < 2 {
-		die("usage: arizuko send [-i instance] <folder> [<message>] [--wait|-w | --stream|-S] [--stdin] [--from|-f <sender>] [--token|-t <raw>] [--topic|-T <topic>]")
+	fs := flag.NewFlagSet("send", flag.ContinueOnError)
+	var wait, stream, stdin bool
+	var sender, chatToken, topic string
+	fs.BoolVar(&wait, "wait", false, "block until the round is done")
+	fs.BoolVar(&wait, "w", false, "block until the round is done")
+	fs.BoolVar(&stream, "stream", false, "stream the round")
+	fs.BoolVar(&stream, "S", false, "stream the round")
+	fs.BoolVar(&stdin, "stdin", false, "read the message from stdin")
+	fs.StringVar(&sender, "from", "operator", "sender")
+	fs.StringVar(&chatToken, "token", os.Getenv("ARIZUKO_CHAT_TOKEN"), "raw chat token")
+	fs.StringVar(&chatToken, "t", os.Getenv("ARIZUKO_CHAT_TOKEN"), "raw chat token")
+	fs.StringVar(&topic, "topic", "", "topic")
+	fs.StringVar(&topic, "T", "", "topic")
+	if err := flexParse(fs, args); err != nil || fs.NArg() < 2 || fs.NArg() > 3 {
+		usage(err, "arizuko send [-i instance] <folder> [<message>] [--wait|-w | --stream|-S] [--stdin] [--from <sender>] [--token|-t <raw>] [--topic|-T <topic>]")
 	}
-	instance, folder := args[0], args[1]
-
-	var msg, topic, chatToken string
-	sender := "operator"
-	wait, stream, stdin := false, false, false
-	chatToken = os.Getenv("ARIZUKO_CHAT_TOKEN")
-	rest := args[2:]
-	for i := 0; i < len(rest); i++ {
-		a := rest[i]
-		switch a {
-		case "--wait", "-w":
-			wait = true
-		case "--stream", "-S":
-			stream = true
-		case "--stdin":
-			stdin = true
-		case "--from", "-f":
-			i++
-			if i >= len(rest) {
-				die("usage: --from|-f <sender>")
-			}
-			sender = rest[i]
-		case "--token", "-t":
-			i++
-			if i >= len(rest) {
-				die("usage: --token|-t <raw_token>")
-			}
-			chatToken = rest[i]
-		case "--topic", "-T":
-			i++
-			if i >= len(rest) {
-				die("usage: --topic|-T <topic>")
-			}
-			topic = rest[i]
-		default:
-			if msg != "" {
-				die("usage: arizuko send [-i instance] <folder> <message>")
-			}
-			msg = a
-		}
-	}
+	instance, folder, msg := fs.Arg(0), fs.Arg(1), fs.Arg(2)
 	if stdin {
 		buf, err := io.ReadAll(os.Stdin)
 		if err != nil {
@@ -88,7 +64,7 @@ func cmdSend(args []string) {
 	}
 
 	dataDir := mustInstanceDir(instance)
-	st := mustOpenACL(dataDir)
+	st := mustOpen(store.OwnerRoutd)
 	defer func() { _ = st.Close() }()
 
 	if _, ok := st.GroupByFolder(folder); !ok {
@@ -356,30 +332,6 @@ func pollRound(client *http.Client, turnURL string) int {
 	}
 }
 
-// loadInstanceEnv parses .env in the instance dir into a key→value map.
-// Only KEY=value lines are honored; quotes stripped, comments ignored.
 func loadInstanceEnv(dataDir string) (map[string]string, error) {
-	path := filepath.Join(dataDir, ".env")
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = f.Close() }()
-	out := map[string]string{}
-	scan := bufio.NewScanner(f)
-	for scan.Scan() {
-		line := strings.TrimSpace(scan.Text())
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		k, v, ok := strings.Cut(line, "=")
-		if !ok {
-			continue
-		}
-		k = strings.TrimSpace(k)
-		v = strings.TrimSpace(v)
-		v = strings.Trim(v, "\"'")
-		out[k] = v
-	}
-	return out, scan.Err()
+	return godotenv.Read(filepath.Join(dataDir, ".env"))
 }

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -64,25 +65,17 @@ func syncProxydRoutes(dataDir string, routes []compose.ProxydRoute) {
 // (proxyd's /auth/forward). Unset, every authenticated route renders as a 503
 // with the reason — see proxycfg.
 func cmdProxyConfig(args []string) {
-	need(args, 1, "arizuko proxy-config [-i instance] [--listen :8080] [--forward-auth host:port]")
-	mustInstanceDir(args[0])
-	opts := proxycfg.Options{Listen: ":8080"}
-	for i := 1; i+1 < len(args)+1 && i < len(args); i += 2 {
-		if i+1 >= len(args) {
-			die("Failed: %s needs a value", args[i])
-		}
-		switch args[i] {
-		case "--listen":
-			opts.Listen = args[i+1]
-		case "--forward-auth":
-			opts.ForwardAuth = args[i+1]
-		default:
-			die("Failed: unknown flag %s", args[i])
-		}
+	fs := flag.NewFlagSet("proxy-config", flag.ContinueOnError)
+	var opts proxycfg.Options
+	fs.StringVar(&opts.Listen, "listen", ":8080", "listen address")
+	fs.StringVar(&opts.ForwardAuth, "forward-auth", "", "transit-proof endpoint host:port")
+	if err := flexParse(fs, args); err != nil || fs.NArg() != 1 {
+		usage(err, "arizuko proxy-config [-i instance] [--listen :8080] [--forward-auth host:port]")
 	}
-	rdb := mustOpenRoutd()
-	defer func() { _ = rdb.Close() }()
-	rows, err := store.NewOver(rdb.Obj()).AllProxydRoutes()
+	mustInstanceDir(fs.Arg(0))
+	st := mustOpen(store.OwnerRoutd)
+	defer func() { _ = st.Close() }()
+	rows, err := st.AllProxydRoutes()
 	if err != nil {
 		die("Failed: read proxyd_routes: %v", err)
 	}

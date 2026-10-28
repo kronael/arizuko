@@ -3,10 +3,10 @@ package main
 // arizuko talk — a terminal conversation with the agent, spec 6/26 gap 1.
 //
 //	arizuko talk                    REPL against the one chat
-//	arizuko talk -p "what broke?"   one turn: send, print the reply, exit
-//	arizuko talk -p                 same, prompt read from stdin
-//	arizuko talk @work -p "…"       a named chat instead of the default
-//	arizuko talk -t bugfix          a different thread, same chat
+//	arizuko talk --prompt "what broke?" one turn: send, print the reply, exit
+//	arizuko talk --prompt                same, prompt read from stdin
+//	arizuko talk @work --prompt "…" a named chat instead of the default
+//	arizuko talk --thread bugfix    a different thread, same chat
 //
 // `talk` is an HTTP CLIENT and nothing else. It imports no `store`, opens no
 // sqlite file and takes no instance argument, which is what lets it point at a
@@ -40,6 +40,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"net/http"
@@ -57,19 +58,19 @@ import (
 
 // defaultTalkThread is a FIXED literal, not a remembered value: there is no
 // last-used cache to go stale and no "which thread am I in?" — the answer is
-// always the one -t names, or this.
+// always the one --thread names, or this.
 const defaultTalkThread = "talk"
 
-const talkUsage = `usage: arizuko talk [@name] [-g|--group <folder>] [-t|--thread <name>]
-                   [-p|--prompt [text]] [--url <url>] [--token <bearer>]
+const talkUsage = `arizuko talk [@name] [-g|--group <folder>] [--thread <name>]
+                   [--prompt [text]] [--url <url>] [-t|--token <bearer>]
 
   @name          a chat named by a [name] section in ~/.config/arizuko/talk.toml
   -g, --group    which folder to talk to (default: the config's group, or the
                  only folder you can reach)
-  -t, --thread   conversation thread (default: ` + defaultTalkThread + `)
-  -p, --prompt   one turn instead of a REPL; with no text, reads stdin
+  --thread       conversation thread (default: ` + defaultTalkThread + `)
+  --prompt       one turn instead of a REPL; with no text, reads stdin
   --url          override the configured base URL
-  --token        override the configured bearer (note: NOT -t, which is --thread)`
+  -t, --token    override the configured bearer`
 
 type talkFlags struct {
 	Section string
@@ -82,9 +83,9 @@ type talkFlags struct {
 	Prompt  string
 }
 
-// parseTalkArgs hand-rolls the parse because -p takes an OPTIONAL value, which
-// the flag package cannot express. Two sigils, no collision: @ picks the chat,
-// -t picks the thread.
+// parseTalkArgs hand-rolls the parse because --prompt takes an OPTIONAL value,
+// which the flag package cannot express. Two sigils, no collision: @ picks the
+// chat, --thread picks the thread.
 func parseTalkArgs(args []string) (talkFlags, error) {
 	f := talkFlags{Thread: defaultTalkThread}
 	need := func(i int, what string) (string, error) {
@@ -98,11 +99,11 @@ func parseTalkArgs(args []string) (talkFlags, error) {
 		var err error
 		switch {
 		case a == "-h" || a == "--help":
-			return f, errors.New(talkUsage)
-		case a == "-p" || a == "--prompt":
+			return f, flag.ErrHelp
+		case a == "--prompt":
 			f.OneShot = true
 			// Consume the next arg as the prompt unless it is another flag.
-			// "-p" with nothing after it reads stdin instead.
+			// "--prompt" with nothing after it reads stdin instead.
 			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
 				i++
 				f.Prompt = args[i]
@@ -110,13 +111,13 @@ func parseTalkArgs(args []string) (talkFlags, error) {
 		case a == "-g" || a == "--group":
 			i++
 			f.Group, err = need(i, a)
-		case a == "-t" || a == "--thread":
+		case a == "--thread":
 			i++
 			f.Thread, err = need(i, a)
 		case a == "--url":
 			i++
 			f.URL, err = need(i, a)
-		case a == "--token":
+		case a == "-t" || a == "--token":
 			i++
 			f.Token, err = need(i, a)
 		case strings.HasPrefix(a, "@"):
@@ -128,7 +129,7 @@ func parseTalkArgs(args []string) (talkFlags, error) {
 				return f, errors.New("@ needs a name")
 			}
 		default:
-			return f, fmt.Errorf("unexpected argument %q\n\n%s", a, talkUsage)
+			return f, fmt.Errorf("unexpected argument %q", a)
 		}
 		if err != nil {
 			return f, err
@@ -328,7 +329,7 @@ func (s *talkSession) turn(ctx context.Context, prompt string) int {
 // promptSource yields prompts one at a time; ok=false ends the loop.
 type promptSource func() (string, bool)
 
-// onePrompt is the -p source: the loop runs exactly one iteration.
+// onePrompt is the --prompt source: the loop runs exactly one iteration.
 func onePrompt(text string) promptSource {
 	done := false
 	return func() (string, bool) {
@@ -397,7 +398,7 @@ func talkLoop(ctx context.Context, s *talkSession, next promptSource) int {
 func cmdTalk(args []string) {
 	f, err := parseTalkArgs(args)
 	if err != nil {
-		die("%v", err)
+		usage(err, talkUsage)
 	}
 	cfgPath := talkConfigPath()
 	top, named, found, err := loadTalkConfig(cfgPath)

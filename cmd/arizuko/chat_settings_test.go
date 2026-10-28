@@ -110,7 +110,7 @@ func TestChatInteractiveDispatch(t *testing.T) {
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("CHAT_TEST_CAPTURE", capture)
-	cmdChat([]string{"demo", "--folder", "team"})
+	cmdChat([]string{"demo", "--group", "team"})
 	got, err := os.ReadFile(capture)
 	if err != nil || string(got) != "--mcp-config" {
 		t.Fatalf("interactive dispatch = %q, %v", got, err)

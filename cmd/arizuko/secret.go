@@ -23,10 +23,7 @@ import (
 // The keyring is REQUIRED. Without it a write cannot seal and a read returns
 // ciphertext, so the command refuses instead of degrading (BUGS S2).
 func openStoreWithKey(dataDir string) (*store.Store, error) {
-	s, err := mustOpenOwner(store.OwnerRoutd, dataDir)
-	if err != nil {
-		return nil, err
-	}
+	s := mustOpen(store.OwnerRoutd)
 	cfg, err := core.LoadConfigFrom(dataDir)
 	if err != nil {
 		return nil, err
@@ -52,8 +49,7 @@ func cmdUserSecret(args []string) {
 }
 
 func cmdScopedSecret(args []string, command, scopeName string, scope store.SecretScope) {
-	need(args, 2, fmt.Sprintf("arizuko %s [-i instance] <set|list|delete|seal-legacy> ...", command))
-	instance, action := args[0], args[1]
+	instance, action := args[0], verb(args, fmt.Sprintf("arizuko %s [-i instance] <set|list|delete|seal-legacy> ...", command))
 
 	dataDir := mustInstanceDir(instance)
 	s, err := openStoreWithKey(dataDir)
@@ -66,25 +62,25 @@ func cmdScopedSecret(args []string, command, scopeName string, scope store.Secre
 	case "set":
 		scopeID, key, value, err := parseSecretSet(command+" set", args[2:])
 		if err != nil {
-			die("usage: arizuko %s [-i instance] set <%s> KEY --value|-v V: %v", command, scopeName, err)
+			usage(err, fmt.Sprintf("arizuko %s [-i instance] set <%s> KEY --value|-v V", command, scopeName))
 		}
 		if err := runSecretSet(s, scope, scopeID, key, value, os.Stdout); err != nil {
 			die("Failed: %v", err)
 		}
 	case "list":
-		need(args, 3, fmt.Sprintf("arizuko %s [-i instance] list <%s>", command, scopeName))
+		args = need(args, 3, 3, fmt.Sprintf("arizuko %s [-i instance] list <%s>", command, scopeName))
 		if err := runSecretList(s, scope, args[2], os.Stdout); err != nil {
 			die("Failed: %v", err)
 		}
 	case "delete":
-		need(args, 4, fmt.Sprintf("arizuko %s [-i instance] delete <%s> KEY", command, scopeName))
+		args = need(args, 4, 4, fmt.Sprintf("arizuko %s [-i instance] delete <%s> KEY", command, scopeName))
 		if err := runSecretDelete(s, scope, args[2], args[3], os.Stdout); err != nil {
 			die("Failed: %v", err)
 		}
 	case "seal-legacy":
 		dryRun, err := parseSealLegacy(command+" seal-legacy", args[2:])
 		if err != nil {
-			die("usage: arizuko %s [-i instance] seal-legacy [--dry-run]: %v", command, err)
+			usage(err, fmt.Sprintf("arizuko %s [-i instance] seal-legacy [--dry-run]", command))
 		}
 		if err := runSealLegacy(s, dryRun, os.Stdout); err != nil {
 			die("Failed: %v", err)

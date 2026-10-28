@@ -19,6 +19,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"io/fs"
@@ -67,35 +68,26 @@ type archiveSecretsDoc struct {
 }
 
 func cmdArchive(args []string) {
-	need(args, 2, "arizuko archive [-i instance] <export|apply> ...")
+	action := verb(args, "arizuko archive [-i instance] <export|apply> ...")
 	rest := append([]string{args[0]}, args[2:]...)
-	switch args[1] {
+	switch action {
 	case "export":
 		cmdArchiveExport(rest)
 	case "apply":
 		cmdArchiveApply(rest)
 	default:
-		die("unknown archive subcommand: %s", args[1])
+		die("unknown archive subcommand: %s", action)
 	}
 }
 
 func cmdArchiveExport(args []string) {
-	if len(args) < 1 {
-		fmt.Println("usage: arizuko archive [-i instance] export [file] [--quiesced]")
-		os.Exit(1)
+	fs := flag.NewFlagSet("archive export", flag.ContinueOnError)
+	var quiesced bool
+	fs.BoolVar(&quiesced, "quiesced", false, "assert no daemon writes during the export")
+	if err := flexParse(fs, args); err != nil || fs.NArg() > 2 {
+		usage(err, "arizuko archive [-i instance] export [file] [--quiesced]")
 	}
-	instance := args[0]
-	file := ""
-	quiesced := false
-	for _, a := range args[1:] {
-		if a == "--quiesced" {
-			quiesced = true
-			continue
-		}
-		if file == "" {
-			file = a
-		}
-	}
+	instance, file := fs.Arg(0), fs.Arg(1)
 	dataDir := mustInstanceDir(instance)
 	stores, err := openSubsystemStores(dataDir)
 	if err != nil {
@@ -135,22 +127,16 @@ func writeArchiveFile(file string, data []byte) error {
 }
 
 func cmdArchiveApply(args []string) {
-	if len(args) < 2 {
-		fmt.Println("usage: arizuko archive [-i instance] apply <archive.tar> [--force] [--stopped]")
-		os.Exit(1)
+	fs := flag.NewFlagSet("archive apply", flag.ContinueOnError)
+	var force bool
+	fs.BoolVar(&force, "force", false, "apply over a part-applied archive")
+	fs.BoolVar(&force, "f", false, "apply over a part-applied archive")
+	var stopped bool
+	fs.BoolVar(&stopped, "stopped", false, "skip the run-slot hold")
+	if err := flexParse(fs, args); err != nil || fs.NArg() != 2 {
+		usage(err, "arizuko archive [-i instance] apply <archive.tar> [--force|-f] [--stopped]")
 	}
-	instance := args[0]
-	file := args[1]
-	force := false
-	stopped := false
-	for _, a := range args[2:] {
-		switch a {
-		case "--force", "-f":
-			force = true
-		case "--stopped":
-			stopped = true
-		}
-	}
+	instance, file := fs.Arg(0), fs.Arg(1)
 	dataDir := mustInstanceDir(instance)
 	stores, err := openSubsystemStores(dataDir)
 	if err != nil {

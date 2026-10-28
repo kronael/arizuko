@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"net/http"
@@ -35,31 +36,16 @@ type probeResult struct {
 }
 
 func cmdProbe(args []string) {
-	if len(args) < 1 {
-		die("usage: arizuko probe <base-url> [--token|-t <bearer>] [--foreign-folder|-f <folder>]\n" +
+	fs := flag.NewFlagSet("probe", flag.ContinueOnError)
+	var token, foreign string
+	fs.StringVar(&token, "token", "", "bearer")
+	fs.StringVar(&token, "t", "", "bearer")
+	fs.StringVar(&foreign, "foreign-folder", "", "a folder the bearer must not reach")
+	if err := flexParse(fs, args); err != nil || fs.NArg() != 1 {
+		usage(err, "arizuko probe <base-url> [--token|-t <bearer>] [--foreign-folder <folder>]\n"+
 			"  checks a live component against the spec 6/16 component contract")
 	}
-	base := strings.TrimSuffix(args[0], "/")
-	var token, foreign string
-	rest := args[1:]
-	for i := 0; i < len(rest); i++ {
-		switch rest[i] {
-		case "--token", "-t":
-			if i+1 >= len(rest) {
-				die("--token needs a value")
-			}
-			token = rest[i+1]
-			i++
-		case "--foreign-folder", "-f":
-			if i+1 >= len(rest) {
-				die("--foreign-folder needs a value")
-			}
-			foreign = rest[i+1]
-			i++
-		default:
-			die("unknown flag: %s", rest[i])
-		}
-	}
+	base := strings.TrimSuffix(fs.Arg(0), "/")
 
 	client := &http.Client{Timeout: 10 * time.Second}
 	results := runProbe(client, base, token, foreign)

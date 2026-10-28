@@ -109,8 +109,7 @@ func cmdPackage(args []string) {
 	err := flexParse(fs, args[1:])
 	op, target := fs.Arg(0), fs.Arg(1)
 	if want, ok := map[string]int{"sync": 1, "add": 2, "rm": 2}[op]; err != nil || !ok || fs.NArg() != want || (op == "sync" && *scope != "") {
-		fmt.Fprintln(os.Stderr, "usage: "+packageUsage)
-		os.Exit(1)
+		usage(err, packageUsage)
 	}
 	if op == "rm" && *scope == routd.InstanceWide && target == container.CorePackageName {
 		die("Failed: %s is required and cannot be withdrawn", target)

@@ -17,7 +17,7 @@ import (
 
 // --- argument grammar ---------------------------------------------------
 //
-// Two sigils, no collision: @ picks the chat, -t picks the thread. Getting
+// Two sigils, no collision: @ picks the chat, --thread picks the thread. Getting
 // that wrong sends the turn to the right agent in the wrong conversation,
 // which reads as amnesia rather than as a bug.
 
@@ -29,32 +29,32 @@ func TestParseTalkArgs(t *testing.T) {
 	}{
 		{"no arguments is the one chat on the default thread",
 			nil, talkFlags{Thread: "talk"}},
-		{"-p with an inline prompt is one turn",
-			[]string{"-p", "what broke?"},
+		{"--prompt with an inline prompt is one turn",
+			[]string{"--prompt", "what broke?"},
 			talkFlags{Thread: "talk", OneShot: true, Prompt: "what broke?"}},
-		{"-p with nothing after it reads stdin",
-			[]string{"-p"},
+		{"--prompt with nothing after it reads stdin",
+			[]string{"--prompt"},
 			talkFlags{Thread: "talk", OneShot: true}},
-		{"-p before another flag still reads stdin",
-			[]string{"-p", "-t", "bugfix"},
+		{"--prompt before another flag still reads stdin",
+			[]string{"--prompt", "--thread", "bugfix"},
 			talkFlags{Thread: "bugfix", OneShot: true}},
 		{"@name picks the chat",
-			[]string{"@work", "-p", "hi"},
+			[]string{"@work", "--prompt", "hi"},
 			talkFlags{Section: "work", Thread: "talk", OneShot: true, Prompt: "hi"}},
-		{"-t picks the thread, not the token",
-			[]string{"-t", "bugfix"},
-			talkFlags{Thread: "bugfix"}},
-		{"--thread is the long form",
+		{"--thread picks the thread",
 			[]string{"--thread", "bugfix"},
 			talkFlags{Thread: "bugfix"}},
+		{"-t is the token, as in every command",
+			[]string{"-t", "abc"},
+			talkFlags{Thread: "talk", Token: "abc"}},
 		{"-g names the folder",
 			[]string{"-g", "corp/eng"},
 			talkFlags{Thread: "talk", Group: "corp/eng"}},
 		{"--url and --token override the config",
 			[]string{"--url", "https://h", "--token", "abc"},
 			talkFlags{Thread: "talk", URL: "https://h", Token: "abc"}},
-		{"a prompt after -p may look like a chat name",
-			[]string{"-p", "@ everyone"},
+		{"a prompt after --prompt may look like a chat name",
+			[]string{"--prompt", "@ everyone"},
 			talkFlags{Thread: "talk", OneShot: true, Prompt: "@ everyone"}},
 	}
 	for _, c := range cases {
@@ -79,21 +79,22 @@ func TestParseTalkArgsDefaultsTheThreadToTheLiteralTalk(t *testing.T) {
 	if got.Thread != "talk" {
 		t.Errorf("default thread = %q, want the literal \"talk\"", got.Thread)
 	}
-	withT, _ := parseTalkArgs([]string{"-t", "bugfix"})
+	withT, _ := parseTalkArgs([]string{"--thread", "bugfix"})
 	if withT.Thread != "bugfix" {
-		t.Errorf("-t bugfix gave thread %q", withT.Thread)
+		t.Errorf("--thread bugfix gave thread %q", withT.Thread)
 	}
 }
 
 func TestParseTalkArgsRejectsBadInput(t *testing.T) {
 	for _, args := range [][]string{
-		{"-t"},          // flag with no value
-		{"-g"},          //
-		{"--token"},     //
-		{"@"},           // bare sigil
-		{"@a", "@b"},    // two chats named
-		{"solo/inbox"},  // a bare positional: -g was meant
-		{"-t", "", "x"}, // an empty thread name
+		{"--thread"},          // flag with no value
+		{"-g"},                //
+		{"--token"},           //
+		{"@"},                 // bare sigil
+		{"@a", "@b"},          // two chats named
+		{"solo/inbox"},        // a bare positional: -g was meant
+		{"--thread", "", "x"}, // an empty thread name
+		{"-p", "hi"},          // prompt is long-only
 	} {
 		if _, err := parseTalkArgs(args); err == nil {
 			t.Errorf("parseTalkArgs(%v) was accepted; want an error", args)

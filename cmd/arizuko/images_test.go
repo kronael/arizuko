@@ -255,9 +255,12 @@ func TestParseImagesFlags(t *testing.T) {
 	if err != nil || inst != "krons" || !prune {
 		t.Errorf("got %q %v %v", inst, prune, err)
 	}
-	inst, prune, err = parseImagesFlags([]string{"-p", "krons"})
+	inst, prune, err = parseImagesFlags([]string{"--prune", "krons"})
 	if err != nil || inst != "krons" || !prune {
 		t.Errorf("got %q %v %v", inst, prune, err)
+	}
+	if _, _, err = parseImagesFlags([]string{"-p", "krons"}); err == nil {
+		t.Error("-p accepted: prune is long-only")
 	}
 	inst, prune, err = parseImagesFlags([]string{"krons"})
 	if err != nil || inst != "krons" || prune {

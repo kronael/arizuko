@@ -8,6 +8,7 @@ import (
 	"text/tabwriter"
 
 	"github.com/kronael/arizuko/routd"
+	"github.com/kronael/arizuko/store"
 )
 
 // cmdBudget manages per-folder and per-user cost caps. Spec 11/19-cost-caps, 6/39.
@@ -23,26 +24,25 @@ import (
 // the master key this CLI deliberately does not hold — the metered surfaces are
 // the dashboard and routd's GET /v1/cost/summary.
 func cmdBudget(args []string) {
-	need(args, 2, "arizuko budget [-i instance] <set|show> ...")
-	instance, action := args[0], args[1]
+	instance, action := args[0], verb(args, "arizuko budget [-i instance] <set|show> ...")
 
 	// mustInstanceDir also puts that instance's environment into this process,
 	// which is what names the store the CLI then writes to.
 	mustInstanceDir(instance)
-	s := mustOpenRoutd()
+	s := routd.OpenOver(mustOpen(store.OwnerRoutd).Obj())
 	defer func() { _ = s.Close() }()
 
 	switch action {
 	case "set":
 		scope, target, daily, err := parseBudgetSet(args[2:])
 		if err != nil {
-			die("usage: arizuko budget [-i instance] set <folder|user> <name|sub> --daily|-d N: %v", err)
+			usage(err, "arizuko budget [-i instance] set <folder|user> <name|sub> --daily|-d N")
 		}
 		if err := runBudgetSet(s, scope, target, daily, os.Stdout); err != nil {
 			die("Failed: %v", err)
 		}
 	case "show":
-		need(args, 4, "arizuko budget [-i instance] show <folder|user> <name|sub>")
+		args = need(args, 4, 4, "arizuko budget [-i instance] show <folder|user> <name|sub>")
 		if err := runBudgetShow(s, args[2], args[3], os.Stdout); err != nil {
 			die("Failed: %v", err)
 		}

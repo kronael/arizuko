@@ -23,16 +23,13 @@ import (
 //	arizuko token <instance> list <folder>
 //	arizuko token <instance> revoke <jid>
 func cmdToken(args []string) {
-	if len(args) < 3 {
-		die("usage: arizuko token [-i instance] <issue|list|revoke> ...")
-	}
-	instance, sub := args[0], args[1]
+	instance, sub := args[0], verb(args, "arizuko token [-i instance] <issue|list|revoke> ...")
 
 	dataDir := mustInstanceDir(instance)
 	// route_tokens + groups live in routd.db post-split — messages.db is the
 	// frozen monolith routd never reads (same fix class as `arizuko network`,
 	// 2dfa5670).
-	st := mustOpenACL(dataDir)
+	st := mustOpen(store.OwnerRoutd)
 	defer func() { _ = st.Close() }()
 
 	switch sub {
@@ -48,11 +45,11 @@ func cmdToken(args []string) {
 }
 
 func tokenIssue(st *store.Store, dataDir string, args []string) {
-	usage := "usage: arizuko token [-i instance] issue chat <folder> [<suffix>] [--context|-c TEXT]\n" +
+	issueUsage := "arizuko token [-i instance] issue chat <folder> [<suffix>] [--context|-c TEXT]\n" +
 		"       arizuko token [-i instance] issue webhook <folder> <label> [<suffix>] [--context|-c TEXT]\n" +
-		"       arizuko token [-i instance] issue bearer <folder> --scope|-s s1,s2 [--ttl|-t 1h] [--sub SUB]"
+		"       arizuko token [-i instance] issue bearer <folder> --scope|-s s1,s2 [--ttl 1h] [--sub SUB]"
 	if len(args) < 2 {
-		die("%s", usage)
+		usage(nil, issueUsage)
 	}
 	if args[0] == "bearer" {
 		tokenIssueBearer(st, dataDir, args[1:])
@@ -62,8 +59,8 @@ func tokenIssue(st *store.Store, dataDir string, args []string) {
 	var context string
 	fs.StringVar(&context, "context", "", "per-link processing instructions stored on the token (spec 5/W)")
 	fs.StringVar(&context, "c", "", "per-link processing instructions (short)")
-	if err := flexParse(fs, args); err != nil || fs.NArg() < 2 {
-		die("%s", usage)
+	if err := flexParse(fs, args); err != nil || fs.NArg() < 2 || fs.NArg() > 4 {
+		usage(err, issueUsage)
 	}
 	args = fs.Args()
 	kind, folder := args[0], args[1]
@@ -71,6 +68,9 @@ func tokenIssue(st *store.Store, dataDir string, args []string) {
 	var jid string
 	switch kind {
 	case "chat":
+		if len(args) > 3 {
+			usage(nil, issueUsage)
+		}
 		suffix := ""
 		if len(args) >= 3 {
 			suffix = args[2]
@@ -82,7 +82,7 @@ func tokenIssue(st *store.Store, dataDir string, args []string) {
 		}
 	case "webhook", "hook":
 		if len(args) < 3 {
-			die("usage: arizuko token [-i instance] issue webhook <folder> <label>")
+			usage(nil, issueUsage)
 		}
 		label, suffix := args[2], ""
 		if len(args) >= 4 {
@@ -123,10 +123,9 @@ func tokenIssueBearer(st *store.Store, dataDir string, args []string) {
 	fs.StringVar(&scope, "scope", "", "comma-separated scopes (required, e.g. messages:write,messages:read)")
 	fs.StringVar(&scope, "s", "", "comma-separated scopes (required)")
 	ttl := fs.Duration("ttl", time.Hour, "token lifetime")
-	fs.DurationVar(ttl, "t", time.Hour, "token lifetime")
 	fs.StringVar(&sub, "sub", "user:cli", "subject claim for the minted token")
 	if err := flexParse(fs, args); err != nil || fs.NArg() != 1 {
-		die("usage: arizuko token [-i instance] issue bearer <folder> --scope|-s s1,s2 [--ttl|-t 1h] [--sub SUB]")
+		usage(err, "arizuko token [-i instance] issue bearer <folder> --scope|-s s1,s2 [--ttl 1h] [--sub SUB]")
 	}
 	folder := fs.Arg(0)
 	if scope == "" {
@@ -134,9 +133,7 @@ func tokenIssueBearer(st *store.Store, dataDir string, args []string) {
 	}
 	// Folder must exist in routd.db — groups live there post-split; a token
 	// for a nonexistent folder would verify but own nothing.
-	gs := mustOpenACL(dataDir)
-	defer func() { _ = gs.Close() }()
-	if _, ok := gs.GroupByFolder(folder); !ok {
+	if _, ok := st.GroupByFolder(folder); !ok {
 		die("Failed: group %q not found", folder)
 	}
 	tok, exp, err := mintBearer(filepath.Join(dataDir, "store"), folder, sub, strings.Split(scope, ","), *ttl)
@@ -191,9 +188,7 @@ func mintBearer(storeDir, folder, sub string, scopes []string, ttl time.Duration
 }
 
 func tokenList(st *store.Store, args []string) {
-	if len(args) < 1 {
-		die("usage: arizuko token [-i instance] list <folder>")
-	}
+	args = need(args, 1, 1, "arizuko token [-i instance] list <folder>")
 	folder := args[0]
 	tokens := st.ListRouteTokens(folder)
 	if len(tokens) == 0 {
@@ -210,9 +205,7 @@ func tokenList(st *store.Store, args []string) {
 }
 
 func tokenRevoke(st *store.Store, args []string) {
-	if len(args) < 1 {
-		die("usage: arizuko token [-i instance] revoke <jid> [<owner_folder>]")
-	}
+	args = need(args, 1, 2, "arizuko token [-i instance] revoke <jid> [<owner_folder>]")
 	jid := args[0]
 	// owner_folder bounds revocation and may diverge from the JID's folder
 	// (a higher-tier folder can mint on behalf of a descendant — see

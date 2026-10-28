@@ -68,7 +68,7 @@ func ownerArg(call *ast.CallExpr, adapter bool) (string, bool) {
 }
 
 // doorName answers the door a call names, whether it is qualified
-// (store.OpenOwner) or the package's own wrapper (mustOpenOwner), and whether
+// (store.OpenOwner) or the package's own wrapper (mustOpen), and whether
 // it is the adapter door, whose argument is a literal.
 func doorName(call *ast.CallExpr) (name string, adapter bool) {
 	switch fn := call.Fun.(type) {
@@ -253,7 +253,7 @@ func collapse(s string) string {
 var storeDoors = map[string]bool{
 	"OpenOwner": true, "OwnerDriver": true, "Handle": true,
 	"PrepareOwner": true, "TestOwner": true,
-	"mustOpenOwner": true, "openSiblingOwner": true,
+	"mustOpen": true, "openSiblingOwner": true,
 }
 
 // adapterStoreDoor opens an adapter's OWN tables, and its prefix is the service

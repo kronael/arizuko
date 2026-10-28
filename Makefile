@@ -329,7 +329,7 @@ rootfs:
 	      [ -s "$(ROOTFS_DIR)/usr/local/bin/node" ] && [ -s "$(ROOTFS_DIR)/.image-env.json" ] && \
 	      [ "$$(cat "$(ROOTFS_DIR)/.image-env.json")" = "$$image_env" ]; then \
 	      echo "rootfs: $(ROOTFS_DIR) is current for $(ROOTFS_KEY)"; \
-	      echo "rootfs: free old trees with: arizuko images <instance> --prune"; exit 0; fi; \
+	      echo "rootfs: free old trees with: arizuko images -i <instance> --prune"; exit 0; fi; \
 	    echo "rootfs: $(ROOTFS_DIR) is incomplete; keep it for inspection" >&2; exit 1; fi; \
 	  $(DOCKER_SUDO) mkdir -p "$(dir $(ROOTFS_DIR))"; \
 	  stage=$$($(DOCKER_SUDO) mktemp -d "$(dir $(ROOTFS_DIR)).rootfs-partial.XXXXXX"); \
@@ -348,7 +348,7 @@ rootfs:
 	    echo "rootfs: $(ROOTFS_DIR) appeared during export; $$stage kept" >&2; exit 1; fi; \
 	  $(DOCKER_SUDO) mv -T "$$stage" "$(ROOTFS_DIR)"; \
 	  echo "rootfs: $(ROOTFS_DIR)"; \
-	  echo "rootfs: free old trees with: arizuko images <instance> --prune"
+	  echo "rootfs: free old trees with: arizuko images -i <instance> --prune"
 
 # Old rootfs trees are ~7 GB each and fill the volume (BUGS L359). Freeing them
 # is runtime state of an instance, so the operator CLI owns it: `arizuko images`.

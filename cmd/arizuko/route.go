@@ -19,28 +19,28 @@ import (
 // already records through dashd and MCP. AsCLI attributes the row to the
 // invoking operator — the CLI has no X-User-* header to learn a sub from.
 func cmdRoute(args []string) {
-	need(args, 2, "arizuko route [-i instance] <list|add|rm> ...")
-	instance, action := args[0], args[1]
+	instance, action := args[0], verb(args, "arizuko route [-i instance] <list|add|rm> ...")
 
-	dataDir := mustInstanceDir(instance)
-	s := mustOpenACL(dataDir).AsCLI(os.Getenv("USER"))
+	mustInstanceDir(instance)
+	s := mustOpen(store.OwnerRoutd).AsCLI(os.Getenv("USER"))
 	defer func() { _ = s.Close() }()
 
 	switch action {
 	case "list":
+		need(args, 2, 2, "arizuko route [-i instance] list")
 		if err := runRouteList(s, os.Stdout); err != nil {
 			die("Failed: %v", err)
 		}
 	case "add":
 		seq, match, target, err := parseRouteAdd(args[2:])
 		if err != nil {
-			die("usage: arizuko route [-i instance] add <match> <target> [--seq N]: %v", err)
+			usage(err, "arizuko route [-i instance] add <match> <target> [--seq N]")
 		}
 		if err := runRouteAdd(s, seq, match, target, os.Stdout); err != nil {
 			die("Failed: %v", err)
 		}
 	case "rm":
-		need(args, 3, "arizuko route [-i instance] rm <id>")
+		args = need(args, 3, 3, "arizuko route [-i instance] rm <id>")
 		id, err := strconv.ParseInt(args[2], 10, 64)
 		if err != nil {
 			die("Failed: invalid id %q", args[2])

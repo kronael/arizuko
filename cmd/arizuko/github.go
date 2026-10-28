@@ -21,8 +21,7 @@ import (
 // rows that deliver the source's events to <folder>. The URL + secret print
 // once; paste both into GitHub (content type: application/json).
 func cmdGithub(args []string) {
-	need(args, 2, "arizuko github [-i instance] <add|list|rm> ...")
-	instance, sub := args[0], args[1]
+	instance, sub := args[0], verb(args, "arizuko github [-i instance] <add|list|rm> ...")
 	dataDir := mustInstanceDir(instance)
 	s, err := openStoreWithKey(dataDir)
 	if err != nil {
@@ -32,7 +31,7 @@ func cmdGithub(args []string) {
 
 	switch sub {
 	case "add":
-		need(args, 5, "arizuko github [-i instance] add <repo|org|app> <name> <folder>")
+		args = need(args, 5, 5, "arizuko github [-i instance] add <repo|org|app> <name> <folder>")
 		kind, name, folder := args[2], args[3], args[4]
 		if !groupfolder.IsValidFolder(folder) {
 			die("Failed: invalid folder %q", folder)
@@ -61,8 +60,9 @@ func cmdGithub(args []string) {
 		fmt.Printf("paste url + secret into GitHub (content type: application/json); events route to %s\n", folder)
 
 	case "list":
+		args = need(args, 2, 3, "arizuko github [-i instance] list [folder]")
 		folder := ""
-		if len(args) > 2 {
+		if len(args) == 3 {
 			folder = args[2]
 		}
 		rows, err := s.ListGitHubSources(folder)
@@ -77,7 +77,7 @@ func cmdGithub(args []string) {
 		_ = w.Flush()
 
 	case "rm":
-		need(args, 4, "arizuko github [-i instance] rm <kind>/<name> <folder>")
+		args = need(args, 4, 4, "arizuko github [-i instance] rm <kind>/<name> <folder>")
 		key, folder := args[2], args[3]
 		hit, err := s.RemoveGitHubSource(key, folder)
 		if err != nil {

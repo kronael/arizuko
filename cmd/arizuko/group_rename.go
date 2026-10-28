@@ -19,6 +19,8 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/joho/godotenv"
+
 	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/objstore"
@@ -64,11 +66,9 @@ func cmdGroupRename(instance, dataDir string, args []string) {
 	yes := fs.Bool("yes", false, "execute the operation without a prompt")
 	resume := fs.Bool("resume", false, "finish the operation recorded in --journal")
 	rollback := fs.Bool("rollback", false, "reverse the operation recorded in --journal while stopped")
-	if err := flexParse(fs, args); err != nil {
-		die("Failed: %v", err)
-	}
-	if fs.NArg() != 2 || *inventoryPath == "" || *endpoint == "" || (*resume && *rollback) {
-		die("usage: arizuko group [-i instance] rename <src> <dst> --inventory <file> --endpoint <url> [--map old=new] --dry-run | --stopped --yes --journal <dir> [--resume|--rollback]")
+	err := flexParse(fs, args)
+	if err != nil || fs.NArg() != 2 || *inventoryPath == "" || *endpoint == "" || (*resume && *rollback) {
+		usage(err, "arizuko group [-i instance] rename <src> <dst> --inventory <file> --endpoint <url> [--map old=new] --dry-run | --stopped --yes --journal <dir> [--resume|--rollback]")
 	}
 	if !*dryRun && (!*stopped || !*yes || *journal == "") {
 		die("Failed: execution requires --stopped --yes --journal; keep all writers stopped until verification")
@@ -163,16 +163,9 @@ func renameOpenOwners(instance, dataDir, endpoint string, inventory renameInvent
 				return nil, fmt.Errorf("unclassified table %s.%s", owner, entity)
 			}
 		}
-		raw, err := os.ReadFile(filepath.Join(dataDir, "env", owner+".env"))
+		env, err := godotenv.Read(filepath.Join(dataDir, "env", owner+".env"))
 		if err != nil {
 			return nil, err
-		}
-		env := map[string]string{}
-		for _, line := range strings.Split(string(raw), "\n") {
-			key, value, ok := strings.Cut(line, "=")
-			if ok {
-				env[strings.TrimSpace(key)] = strings.Trim(strings.TrimSpace(value), "\"'")
-			}
 		}
 		ca, err := base64.StdEncoding.DecodeString(env[dynstore.EnvCA])
 		if err != nil {
