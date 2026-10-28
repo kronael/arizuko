@@ -309,7 +309,9 @@ func pkgSubsystemServed(sub string) bool {
 // dirtyAssets returns the record's file assets whose current on-disk content no
 // longer matches the install hash — the locally edited ones an upgrade must
 // refuse to overwrite (see compose/README.md). A missing file is not
-// dirty (upgrade recreates it). Result is sorted for a stable message.
+// dirty (upgrade recreates it). A symlinked fragment follows the catalog, so a
+// changed catalog is a release, not a local edit; only a real file is an edit.
+// Result is sorted for a stable message.
 func dirtyAssets(svcDir string, rec routd.InstalledPackage) []string {
 	var dirty []string
 	for k, recorded := range rec.AssetHashes {
