@@ -349,6 +349,9 @@ func TestPackageServiceContainment(t *testing.T) {
 		t.Fatalf("catalog receipt: found=%v, %v", found, err)
 	}
 	packageRuns(t, "catalog", "sync")
+	if err := os.Remove(service); err != nil {
+		t.Fatal(err)
+	}
 	mustWrite(t, service, "edited fragment")
 	if output := packageRefuses(t, "catalog", "sync"); !strings.Contains(output, "locally edited") {
 		t.Fatalf("dirty catalog fragment accepted: %s", output)
