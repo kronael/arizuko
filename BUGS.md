@@ -16,14 +16,8 @@
 ## What needs you
 
 - `L636` — `package` run under sudo leaves root-owned package dirs that routd cannot write.
-- `L635` — package sync calls a catalog-linked fragment locally edited after any catalog change.
 - `L634` — no command writes instance resource rows such as `container_config`.
-- `L633` — a group package with settings breaks the next package sync.
 - `L632` — compose derives ARIZUKO_INSTANCE from the data dir name.
-- `L631` — CLI commands parse flags, help and arguments differently.
-- `L630` — an agent can choose a package whose install runs on the host.
-- `L629` — package list order decides which package owns a shared path.
-- `L628` — do not adopt and later delete a preexisting group seed.
 - `L627` — install mandatory core in integration test fixtures.
 - `L626` — make ACL endpoint test assert the intended row.
 - `L625` — update the exported seeded-grant expectation.
@@ -450,15 +444,6 @@ as uid 1000. `arizuko package` needs sudo to read the root-owned instance
 `packages/core` at each start. Mitigation used: `sudo chown -R 1000:1000
 <data_dir>/packages` after each run. A fix must make one owner write the tree.
 
-## L635 — catalog-linked fragments count as locally edited (2026-10-28, open)
-
-Measured on the sloth v0.71.0 cutover: `arizuko package sync -i sloth` failed
-with `locally edited service assets: gitd.yml`. `services/gitd.yml` is a symlink
-into the catalog; `dirtyAssets` (`cmd/arizuko/packages.go`) reads through the
-link and compares with the hash recorded at install, so any catalog change in a
-release makes every catalog package look edited and blocks every sync. A
-symlinked fragment is catalog-managed and cannot carry a local edit.
-
 ## L634 — instance resource rows have no write path (2026-10-28, open)
 
 Measured in the controller: `arizuko apply` is retired, and `package sync` no
@@ -471,72 +456,12 @@ Only `archive apply` writes rows in bulk. Live krons and sloth have no instance
 manifest apply over the existing `applyDocs` (`arizuko apply -i <inst> <file>`),
 or add per-resource writes. Not fixed in this release unless the owner says so.
 
-## L633 — receipt kind `setting` breaks the second package sync (2026-10-28, open)
-
-Read from code by the step 7 worker, not reproduced: `container/blend.go`
-`blendSettings` records the merged settings keys under the receipt kind
-`setting`. `cmd/arizuko/sync.go` `composeSyncDocs` treats every receipt kind
-that is not `files`, `skill` or `group_seed` as a resource name, so the next
-`package sync` of a group package that ships settings fails with "unknown
-resource setting". Fix with a test that syncs such a package twice.
-
 ## L632 — compose derives the instance name from a path (2026-10-28, open)
 
 Read from code, not reproduced: `compose/compose.go` (~812-826) builds
 `ARIZUKO_INSTANCE` from `filepath.Base(dataDir)`. CLAUDE.md forbids deriving
 identity from a runtime path (the krons outage of 2026-04-29). The instance name
 must come from configuration, never from the directory name.
-
-## L631 — CLI commands handle flags, help and arguments per command (2026-10-28, open)
-
-Measured on the controller binary by a read-only sweep (`ship/cli-uniform-s1-s6.patch`):
-`arizuko pair x -i sloth` uses the default instance and passes `-i sloth` into the
-container; `send main -h` sends `-h` as the message; `probe -h` probes the URL
-`-h`; `export -h` opens the store and would write a file named `-h`;
-`archive apply x.tar --focre` ignores the typo; `need` checks only a minimum, so
-extra arguments are dropped; usage goes to stdout on some paths and stderr on
-others; hints print `arizuko run <name>`, which now fails; `-f`, `-t`, `-p`, `-s`
-mean different things in different commands; three `.env` parsers exist. Owner
-rule: one shared mechanism per concern, no per-command special cases.
-
-## L630 — an agent-writable group file selects host-run installs (2026-10-27, open)
-
-Read from the controller code, not reproduced. runed mounts the group folder
-read-write as the guest home (`runed/mounts.go` `core.ContainerHome`).
-`arizuko sync` reads `groups/<folder>/arizuko.yml` from that folder
-(`cmd/arizuko/sync.go` `readProductMix`) and builds each selected source, which
-runs the package's `install` through `sh -c` on the host with the operator's
-environment (`container/packages.go` `InstallPackage`). So an agent can write a
-git URL into its own group file, and the next operator `sync` runs that
-package's install script on the host. Proposed fix (redesign, needs owner
-sign-off): move group selection out of the agent-writable file into the
-`installed_packages` DB rows, with `sync` as the only writer
-(`ship/db-selection-variant.patch`). Check whether v0.70.15 `products.toml`
-has the same path before release.
-
-## L629 — sync resolves shared package paths silently (2026-10-27, open)
-
-An actual sync selected two group packages that both supplied the same skill;
-it accepted both and silently selected one in runtime inventory. Owner decision
-(2026-10-27 21:25, supersedes the same-day "reject collisions" rule): "the order
-has to matter and the overrides have to be possible since i need tools to be
-usable without arizuko". Contract: the order of the package selection in
-`arizuko.yml` is the precedence; core is always first; a later package
-overrides an earlier package on the same installed skill or path; `sync`
-prints one line for each override; no position field. `--force` only replaces
-an existing unmanaged destination; it does not decide package precedence.
-Core and tools share 38 skill names; with this contract tools wins them and the
-core copies stay as the core-only fallback. Regression tests must exercise an
-actual sync: both orders, the override report, and force against unmanaged files.
-
-## L628 — group seed tracking can delete a preexisting file (2026-10-27, open)
-
-A focused reproduction created a group file before selecting a package, with
-bytes identical to the package seed. The first blend left the file in place but
-recorded it as package-owned. After the source stopped shipping that file, the
-next blend deleted the preexisting group file. This violates the no-adoption
-and ordinary-file preservation requirements. Preserve preexisting group files
-and test the full two-sync sequence; do not infer ownership from equal bytes.
 
 ## L627 — integration fixtures omit the mandatory core package (2026-10-27, open)
 
