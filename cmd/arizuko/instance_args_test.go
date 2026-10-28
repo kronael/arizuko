@@ -21,7 +21,7 @@ func TestInstanceArgs(t *testing.T) {
 		{[]string{"list"}, "", []string{"default", "list"}, filepath.Join(base, "arizuko_default"), false},
 		{[]string{"list"}, "/elsewhere", []string{"", "list"}, "/elsewhere", false},
 		{[]string{"-i", "sloth", "list"}, "/elsewhere", []string{"sloth", "list"}, filepath.Join(base, "arizuko_sloth"), true},
-		{[]string{"--instance=sloth", "export"}, "", []string{"sloth", "export"}, filepath.Join(base, "arizuko_sloth"), true},
+		{[]string{"--instance=sloth", "dump"}, "", []string{"sloth", "dump"}, filepath.Join(base, "arizuko_sloth"), true},
 		{[]string{"pair", "x", "-i", "sloth"}, "", []string{"sloth", "pair", "x"}, filepath.Join(base, "arizuko_sloth"), true},
 		{[]string{"set", "main", "KEY", "--value=-i"}, "", []string{"default", "set", "main", "KEY", "--value=-i"}, filepath.Join(base, "arizuko_default"), false},
 		{[]string{"pair", "x", "--", "-i", "y"}, "", []string{"default", "pair", "x", "--", "-i", "y"}, filepath.Join(base, "arizuko_default"), false},

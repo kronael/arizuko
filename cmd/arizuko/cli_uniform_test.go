@@ -36,9 +36,9 @@ func TestCLIUniform(t *testing.T) {
 		{"pair refuses a container flag before --", []string{"pair", "x", "--tty"}, 1, "", "usage: arizuko pair"},
 		{"send -h prints usage", []string{"send", "main", "-h"}, 0, "usage: arizuko send", ""},
 		{"probe -h prints usage", []string{"probe", "-h"}, 0, "usage: arizuko probe", ""},
-		{"export -h prints usage", []string{"export", "-h"}, 0, "usage: arizuko export", ""},
+		{"dump -h prints usage", []string{"dump", "-h"}, 0, "usage: arizuko dump", ""},
 		{"arizuko -h prints usage", []string{"-h"}, 0, "usage: arizuko <command>", ""},
-		{"unknown flag is refused", []string{"archive", "apply", "x.tar", "--focre"}, 1, "", "usage: arizuko archive"},
+		{"unknown flag is refused", []string{"apply", "x.tar", "--focre"}, 1, "", "usage: arizuko apply"},
 		{"extra argument is refused", []string{"status", "extra"}, 1, "", "usage: arizuko status"},
 	} {
 		t.Run(test.name, func(t *testing.T) {

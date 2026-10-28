@@ -34,8 +34,7 @@ const mainUsage = `arizuko <command> [-i|--instance name] [arguments]
   group | gate | invite | network | images | route | token
   chat | send | pair | secret | user-secret | budget
   talk     [@name] [-g <folder>] [-t <token>] [--thread <name>] [--prompt [text]]  — REPL against a live instance; no DB, config in ~/.config/arizuko/talk.toml
-  plan <manifest.yml> | get <resource> | export [output.yml]
-  archive export [file] [--quiesced] | apply <archive.tar> [--force]
+  dump [file] [--quiesced] | apply <dump.tar|rows.yml> [--force] | plan <rows.yml> | get <resource>
   probe    <base-url> [--token|-t T] [--foreign-folder F]  — check a live component against the 6/16 contract
   -h, --help  print the usage of arizuko or of one command on stdout`
 
@@ -69,10 +68,10 @@ func main() {
 		"user-secret":  cmdUserSecret,
 		"budget":       cmdBudget,
 		"token":        cmdToken,
-		"plan":         cmdPlan,    // spec 5/8
-		"get":          cmdGet,     // spec 5/8
-		"export":       cmdExport,  // spec 5/8
-		"archive":      cmdArchive, // spec 5/8
+		"plan":         cmdPlan,  // spec 5/8
+		"get":          cmdGet,   // spec 5/8
+		"dump":         cmdDump,  // spec 5/8
+		"apply":        cmdApply, // spec 5/8
 	}
 	remote := map[string]func([]string){"talk": cmdTalk, "probe": cmdProbe}
 	if fn, ok := remote[os.Args[1]]; ok {

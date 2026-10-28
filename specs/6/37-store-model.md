@@ -115,7 +115,7 @@ of FTS and 3.8 MB of indexes; `turn_context` 0.6 MB; `turn_results`
 the whole control plane — `groups`, `acl`, `acl_membership`, `routes`,
 `scheduled_tasks`, `network_rules`, `web_routes`, `proxyd_routes`,
 `route_tokens`, `secrets`, `installed_packages` — is under 0.4 % of the
-file, and `arizuko export krons` renders it, both subsystems, as 77,023
+file, and the config documents of `arizuko dump krons` render it, both subsystems, as 77,023
 bytes of YAML (2,351 lines). Write rates: `audit_log` ≈ 1,560 rows/day
 (159,309 rows over 102 days), `messages` ≈ 140/day, `cost_log` ≈ 30/day.
 
@@ -127,7 +127,7 @@ routd.db carries 10 orphan `task_run_logs` rows
 (`pragma_foreign_key_check`): the invariants are in the transactions,
 not in the DDL. 47 `Begin`/`BeginTx` sites in 24
 non-test files; `store.runAudited` has 24 callers. Backup is `arizuko
-archive export [--quiesced]` (`cmd/arizuko/archive.go:87`), a logical
+dump [--quiesced]` (`cmd/arizuko/archive.go`), a logical
 export of config, secrets, messages and group trees, not a file copy.
 
 ## What pins arizuko to one host — not the engine
@@ -755,7 +755,7 @@ modelling.
    is the ONE row reader for every registered resource and it builds
    `SELECT <columns> FROM <table>` from `RowType` reflection. An entity has
    three columns, so the moment a registered table becomes one, every
-   `apply`, `export`, `plan`, `get`, `packages` and `archive` verb breaks at
+   `apply`, `dump`, `plan`, `get` and `package` verb breaks at
    runtime. `audit_log` escaped by declaring `DB: ""` and leaving the config
    lane entirely, which is right for evidence and wrong for `acl` and `routes`.
    Seven of `store`'s ten single-table files are registered; that is why only
@@ -938,7 +938,7 @@ script introduces.
 
 **The lane runs today, and what it carries is measured.** On 2026-09-07 all
 three live instances were snapshotted with `sqlite3 .backup`, migrated to routd
-0046, and exported with `arizuko archive export <instance> --quiesced`. Every
+0046, and exported with `arizuko dump <instance> --quiesced`. Every
 export succeeded. `routd.yaml` carries thirteen resources — `acl`,
 `acl_membership`, `github_sources`, `groups`, `installed_packages`,
 `network_rules`, `pending_actions`, `proxyd_routes`, `route_tokens`, `routes`,

@@ -184,7 +184,7 @@ Two of the six carry an invariant a column could not:
   is regenerate and restart. Adapters exchange as the DAEMON principal
   (`service:teled`), never as `CHANNEL_NAME`.
 - **The operator reads** `signing_keys` and `sessions` have no MCP face and
-  are not round-tripped by `export` / `apply`, because a key is
+  are not round-tripped by `dump` / `apply`, because a key is
   instance-global and a session is keyed by sub: no folder could contain
   either.
 - **Hardening.** Cookies carry `Secure` when `AUTH_BASE_URL` is HTTPS. The

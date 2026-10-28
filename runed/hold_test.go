@@ -354,7 +354,7 @@ func TestHoldEndpointFolderBound(t *testing.T) {
 
 // TestHoldEndpointRoundTrip: claim over HTTP, observe the folder is closed to
 // agent turns, then release over the EXISTING DELETE /v1/runs/{run_id} route
-// — the wire shape arizuko archive apply uses.
+// — the wire shape arizuko apply uses.
 func TestHoldEndpointRoundTrip(t *testing.T) {
 	_, srv := holdServer(t, fakeVerifier{scope: []string{"runs:run", "runs:kill"}})
 	h := srv.Handler()

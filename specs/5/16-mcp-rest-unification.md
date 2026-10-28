@@ -218,7 +218,7 @@ owns the mechanism), one owner:
   `messages.db` as a shared 8th DB.
 
 The orthogonal sibling concern is [`5/8`](8-yaml-manifests.md) — the same tables
-as declarative YAML you `export`/`apply`. 5/16 is the runtime surface, 5/8 the
+as declarative YAML you `get`/`apply`. 5/16 is the runtime surface, 5/8 the
 manifest transport; the row-level plumbing under both is not a concept worth
 naming.
 
@@ -308,7 +308,7 @@ point (BUGS.md's "Resource identity" sweep already has the correct shape:
 the mounted handler adds `Store` + `Handler` + `Gate`). What single-sources
 is the SHAPE, consumed by:
 
-- the standalone `arizuko apply`/`export`/`plan` CLI, which runs **without
+- the standalone `arizuko apply`/`dump`/`plan` CLI, which runs **without
   routd** — an FS-mounted operator tool opening the owner DBs directly (the
   split write-discipline already puts an FS-mounted CLI on the owner DBs); and
 - the owning daemon's mounted handler (routd for most, onbod for
@@ -465,7 +465,7 @@ table") — proxyd _serves_ it over REST/MCP and writes it directly
 carries this today as `DB` (`resreg/resreg.go:274`), keyed by
 `SubsystemRoutd`/`SubsystemOnbod` (`resreg/resreg.go:66-72`) — the logical
 owner, not a filesystem path and not the serving daemon; `BySubsystem`
-(`resreg/engine.go:1141`) is what `export`/`plan`/`apply` walk. An empty `DB`
+(`resreg/engine.go:1141`) is what `dump`/`plan`/`apply` walk. An empty `DB`
 means "no single owner", which is why `audit`, `sessions` and `signing_keys`
 set it and are therefore never round-tripped through a manifest.
 
@@ -779,7 +779,7 @@ Each ships and reverts on its own; none blocks another except where noted.
 5. **Add a typed owner to `resreg.Resource`** — **DONE** as `DB`
    (`resreg/resreg.go:274`), keyed by `SubsystemRoutd`/`SubsystemOnbod`; empty
    means "no single owner" and drops the resource from `BySubsystem`, i.e. out of
-   `export`/`plan`/`apply`.
+   `dump`/`plan`/`apply`.
 6. **Audit the 10 not-yet-traced channel adapters' file/DB access** — **DONE**.
    Every one was already correct: a private `store/<name>/` state dir, a
    platform-session dir, or no volume at all. The table above carries the

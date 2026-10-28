@@ -26,7 +26,7 @@ rollout. It is shipped, not pending.
 [`5/8-yaml-manifests.md`](../5/8-yaml-manifests.md) decided the opposite:
 the SQLite DB is authoritative and YAML manifests are a transport
 dump/import — `pg_dump`/`pg_restore` for the cold tier — with no DB→YAML
-sync, no startup-apply, no SIGHUP reload. Committing an `export` dump to git
+sync, no startup-apply, no SIGHUP reload. Committing a `dump` to git
 is fine; a continuously-synced git working tree is not the model.
 
 ## Deleted 2026-08-02

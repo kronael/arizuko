@@ -52,8 +52,11 @@ at `/mnt/<name>`. A mount named `data/binance_perp` appears at
      - folder: atlas/content
        container_config: '{"Mounts":[{"Host":"/srv/data/binance_perp","Container":"data/binance_perp","RO":true}]}'
    ```
-   No `arizuko` command writes `container_config`: `group add` and
-   `package` never touch it, and `archive apply` restores a whole backup.
+   Write the changed row with `arizuko apply -i krons rows.yml`, where
+   `rows.yml` holds only the rows to change. A row in the file replaces the
+   whole stored row, so start from the output of `get`. `arizuko plan -i krons
+rows.yml` shows the change first. `group add` and `package` never touch
+   `container_config`.
 
 After either change, restart `runed`. The next spawn uses the change, and a
 running session waits until then. The mount table in

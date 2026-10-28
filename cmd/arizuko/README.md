@@ -8,7 +8,7 @@ The CLI runs on the host of the instance. Every command except `talk` and `probe
 
 - `run`, `pair` and `status` call `docker compose`.
 - `chat` needs `claude` and `socat` on the path, and the IPC socket of the instance.
-- `archive apply` claims the run slot of each folder at runed, unless you pass `--stopped`.
+- `apply` of a dump tar claims the run slot of each folder at runed, unless you pass `--stopped`.
 
 ## Commands
 
@@ -29,7 +29,7 @@ Groups and access:
 
 - `arizuko group [-i NAME] list | add <jid> <folder> [-p|--product <name>] | rm <folder> | grant | ungrant | grants | rename`. `add` also writes the first route for the JID. With `-p`, `add` writes one `installed_packages` selection row for the folder with the source `ant/examples/<name>`. The files arrive on the next `arizuko package sync`. A Discord guild channel gets a `verb=mention` rule and a catch-all `#observe` rule, so that messages without a mention only add context.
 - `arizuko chat [-i NAME] thread-replies <jid> [on|off|default]` reads or changes the chat's thread reply setting. Reset enables threads for group chats and disables them for direct messages.
-- `arizuko group [-i NAME] rm [-f|--force] <folder>` removes the group and every group under it, then stops the live run of each removed folder at runed (`POST /v1/runs/stop`). After every stop succeeds, it deletes their `groups/`, `web/pub/` and `web/priv/` directories and prints each deleted path. It refuses invalid paths and symlinks that escape these roots before it removes any row or file. It reads `RUNED_URL` (default `http://runed:8080`) and `RUNED_TOKEN` from the instance `.env`, as `archive apply` does, and probes `GET /health` before it removes anything. When runed is unreachable, the command removes nothing and exits non-zero. `-f` removes the rows and directories without stopping any run, and without contacting runed: use it only when no run is live.
+- `arizuko group [-i NAME] rm [-f|--force] <folder>` removes the group and every group under it, then stops the live run of each removed folder at runed (`POST /v1/runs/stop`). After every stop succeeds, it deletes their `groups/`, `web/pub/` and `web/priv/` directories and prints each deleted path. It refuses invalid paths and symlinks that escape these roots before it removes any row or file. It reads `RUNED_URL` (default `http://runed:8080`) and `RUNED_TOKEN` from the instance `.env`, as `apply` of a dump does, and probes `GET /health` before it removes anything. When runed is unreachable, the command removes nothing and exits non-zero. `-f` removes the rows and directories without stopping any run, and without contacting runed: use it only when no run is live.
 - `arizuko group [-i NAME] grant|ungrant <sub> <pattern> [action] [--effect allow|deny] [--params <matcher>]` writes one acl row, named by its whole coordinate. `store.aclKey` joins principal, action, scope, params, predicate and effect, so a revoke that names fewer fields addresses a different item and deletes nothing. `--effect deny` on a `hold:mcp:<tool>` action is the skip-approval rule that `/always` writes. `--params` carries the argument matcher that the row was narrowed to, and `grants` prints that column. `<sub> ** admin` with no params stays the shortcut for the operator role, in both directions.
 - `arizuko gate [-i NAME] list | add | rm | enable | disable` manages the onboarding gates.
 - `arizuko invite [-i NAME] create <target_glob> [--max-uses|-n N] [--expires|-e DURATION]`, `invite [-i NAME] list [--issued-by|-b SUB]` and `invite [-i NAME] revoke <ref>` manage invites.
@@ -56,11 +56,11 @@ Routing and packages:
 
 Config and backup:
 
-- `arizuko plan [-i NAME] <manifest.yml>` shows the diff of a manifest against the live config without a write. It also reports the missing-group refusal that `package sync` would raise.
-- `arizuko get [-i NAME] <resource>` emits the live rows of one resource as a YAML fragment, which round-trips to a no-op.
-- `arizuko export [-i NAME] [output.yml]` dumps the cold-tier config to YAML in canonical order.
-- `arizuko archive [-i NAME] export [file] [--quiesced]` makes a full-instance backup in one tar: the config dump, secret values, message history, pending onboarding admissions and every `groups/<folder>/` tree.
-- `arizuko archive [-i NAME] apply <archive.tar> [--force|-f] [--stopped]` restores a full backup. It claims the run slot of each folder at runed before it touches the tree of that folder, so an unreachable runed is fatal. `--stopped` asserts instead that the instance is down. The credential-bearing documents `route_tokens`, `invites` and `onboarding` restore only with `--force`, onto a target that is proven empty.
+- `arizuko dump [-i NAME] [file] [--quiesced]` makes a full dump of the instance in one tar: the config documents, secret values, message history, pending onboarding admissions and every `groups/<folder>/` tree.
+- `arizuko apply [-i NAME] <dump.tar> [--force|-f] [--stopped]` restores a full dump. It claims the run slot of each folder at runed before it touches the tree of that folder, so an unreachable runed is fatal. `--stopped` asserts instead that the instance is down. The credential-bearing documents `route_tokens`, `invites` and `onboarding` restore only with `--force`, onto a target that is proven empty.
+- `arizuko apply [-i NAME] <rows.yml>` writes only the rows in the file, in the document format of `routd.yaml` and `onbod.yaml` in a dump. A row in the file replaces the whole stored row with the same key. A row the file does not name stays, and a resource the file does not mention stays. The command never deletes a row. The checksum in the file is not used. `--force` and `--stopped` apply to a dump only. Use `get` to read the full row first.
+- `arizuko plan [-i NAME] <rows.yml>` shows what `apply` of the same file would add or change, without a write. It also reports the missing-group refusal.
+- `arizuko get [-i NAME] <resource>` emits the live rows of one resource as a YAML fragment, which `apply` takes as a rows file and which round-trips to a no-op.
 
 Talking to an agent:
 
@@ -74,10 +74,10 @@ Talking to an agent:
 - `chat` is an interactive Claude Code on the root MCP socket. It is an operator tool to drive the platform and not a conversation with the persona.
 - `talk` is a thin token client with no store. It uses two HTTP surfaces and an authd bearer, and it is the only one of the three that works from a machine that is not the host.
 
-### Manifests and the archive
+### Rows files and the dump
 
-- **The store holds live rows.** `arizuko package add`, `rm` and `sync` change the package selection in `installed_packages`. `get` and `export` inspect live rows; `plan` previews a manifest without writing. Package membership and owned keys remain visible through the `installed_packages` resource.
-- **The archive is one tar.** It holds `archive.yaml` (`format_version` and the `consistency` stamp, `live` or `quiesced`), `routd.yaml`, `onbod.yaml`, `routd.secrets.yaml`, `routd.messages.jl` and `groups.tar`. `routd.secrets.yaml` holds the values of secrets, route tokens, invites and pending onboarding, apart from the other documents so that a plain `export` reader never sees one. The stores of authd and runed are not in the archive. `archive apply` refuses a `format_version` newer than the binary.
+- **The store holds live rows.** `arizuko package add`, `rm` and `sync` change the package selection in `installed_packages`. `get` reads live rows; `apply` of a rows file changes the rows it names; `plan` previews that apply without writing. Package membership and owned keys remain visible through the `installed_packages` resource.
+- **The dump is one tar.** It holds `archive.yaml` (`format_version` and the `consistency` stamp, `live` or `quiesced`), `routd.yaml`, `onbod.yaml`, `routd.secrets.yaml`, `routd.messages.jl` and `groups.tar`. `routd.secrets.yaml` holds the values of secrets, route tokens, invites and pending onboarding, apart from the other documents so that a rows file never carries one. The stores of authd and runed are not in the dump. `apply` of a dump refuses a `format_version` newer than the binary.
 - **Messages travel whole.** `routd.messages.jl` is the full history, and the import is an idempotent append. The import derives the `agent_cursor` of each chat from its newest message, because without it the restored poller would treat all history as unseen. Secret values travel sealed, and `SECRETS_KEY` never travels. The command checks every secret row against the keyring of the target before any write.
 
 ## Dependencies
@@ -91,8 +91,8 @@ Talking to an agent:
 - `routes.go` renders `proxy-config`, the Caddyfile.
 - `probe.go` runs `probe`, the contract check for a deployed component.
 - `flags.go` holds the shared flag parser.
-- `apply.go` holds `plan`, `get`, `export`, the missing-group preflight and the cross-subsystem rollback shared by sync and archive restore.
-- `archive.go` holds `archive export` and `archive apply`.
+- `apply.go` holds `apply`, `plan`, `get`, the missing-group preflight and the cross-subsystem rollback shared by sync, a rows file and a dump restore.
+- `archive.go` holds `dump` and the restore of a dump tar.
 - `budget.go` and `network.go` hold the spend caps and the egress rules.
 - `sync.go` holds `package add`, `package rm` and `package sync`: one reconcile of every selection in `installed_packages`.
 - `packages.go` holds package source, asset, environment and scope helpers used by `package`.

@@ -475,7 +475,7 @@ func TestApply_RoundTrip(t *testing.T) {
 // TestExportApply_FullRoundTrip is the import/export contract end to end:
 // export a configured DB, apply that manifest to a fresh DB, re-export, and
 // the config data must be identical. This is the "agent is data" backup/restore
-// guarantee — `arizuko export` → git → `arizuko apply` reproduces the config
+// guarantee — `arizuko dump` → git → `arizuko apply` reproduces the config
 // exactly.
 func TestExportApply_FullRoundTrip(t *testing.T) {
 	be1, _ := freshEngine(t)

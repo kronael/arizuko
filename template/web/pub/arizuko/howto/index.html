@@ -227,12 +227,13 @@ printf 'Private bootstrap files remain in %s; protect or remove them after savin
     </dl>
     <p><a href="operate.html">Operate</a> lists each incident with its log line, its cause and its fix.</p>
 
-    <h2>A manifest backs up the configuration and an archive backs up everything</h2>
-    <p>The configuration of an instance is data. Export the configuration to a YAML manifest and keep it in git.</p>
-    <pre><code>arizuko export -i demo &gt; demo.yml   # groups, routes, grants, ACL, web routes, schedules
-git add demo.yml &amp;&amp; git commit -m "demo config"
-arizuko plan -i demo demo.yml       # dry run: what would change</code></pre>
-    <p>The export leaves out secret values, route tokens, invites, message history and the files of the agents. <code>arizuko archive -i demo export</code> writes one tar that holds all of them. The files of an agent are plain files under <code>groups/&lt;folder&gt;/</code>: the persona, the memory, the skills and the diary.</p>
+    <h2>A rows file changes the configuration and a dump backs up everything</h2>
+    <p>The configuration of an instance is data. Read a resource as YAML, edit the rows, and write them back. Keep the file in git.</p>
+    <pre><code>arizuko get -i demo groups &gt; rows.yml   # the rows of one resource
+git add rows.yml &amp;&amp; git commit -m "demo groups"
+arizuko plan -i demo rows.yml           # dry run: what would change
+arizuko apply -i demo rows.yml          # write only the rows in the file</code></pre>
+    <p>The command <code>apply</code> never deletes a row that the file does not name. A rows file leaves out secret values, route tokens, invites, message history and the files of the agents. <code>arizuko dump -i demo</code> writes one tar that holds all of them. The files of an agent are plain files under <code>groups/&lt;folder&gt;/</code>: the persona, the memory, the skills and the diary.</p>
 
     <h2 id="terms">Eight terms recur in these guides</h2>
     <dl>
@@ -297,7 +298,7 @@ arizuko plan -i demo demo.yml       # dry run: what would change</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/howto/index.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-21">2026-10-21</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-28">2026-10-28</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

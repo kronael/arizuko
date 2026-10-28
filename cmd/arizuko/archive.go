@@ -1,9 +1,9 @@
 package main
 
-// Spec 5/8 "The full-instance archive": `arizuko archive export`/`archive apply` —
-// a single tar CONTAINING the config manifest, not a bigger manifest.
-// routd.yaml/onbod.yaml are byte-identical to what `arizuko export` produces
-// standalone; everything else here is new.
+// Spec 5/8 "The full-instance archive": `arizuko dump` and `arizuko apply` of a
+// dump tar — a single tar CONTAINING the config manifest, not a bigger
+// manifest. routd.yaml/onbod.yaml are the documents `arizuko apply` takes as a
+// rows file; everything else here is new.
 //
 // The filesystem restore claims each folder's runed run slot before overwriting its
 // tree: apply POSTs /v1/holds to a LIVE runed and releases in a defer, so no agent
@@ -52,8 +52,8 @@ const (
 )
 
 // archiveSecretsDoc is routd.secrets.yaml's shape: secret + route-token/invite
-// VALUES (spec 5/8), kept separate from routd.yaml/onbod.yaml so a plain `arizuko
-// export` reader is never handed one. It composes types from both store and resreg
+// VALUES (spec 5/8), kept separate from routd.yaml/onbod.yaml so a plain rows-file
+// reader is never handed one. It composes types from both store and resreg
 // because it is a cross-subsystem, archive-only document neither package owns.
 type archiveSecretsDoc struct {
 	Secrets     []store.ArchiveSecretRow     `yaml:"secrets,omitempty"`
@@ -67,25 +67,12 @@ type archiveSecretsDoc struct {
 	Onboarding []store.ArchiveOnboardingRow `yaml:"onboarding,omitempty"`
 }
 
-func cmdArchive(args []string) {
-	action := verb(args, "arizuko archive [-i instance] <export|apply> ...")
-	rest := append([]string{args[0]}, args[2:]...)
-	switch action {
-	case "export":
-		cmdArchiveExport(rest)
-	case "apply":
-		cmdArchiveApply(rest)
-	default:
-		die("unknown archive subcommand: %s", action)
-	}
-}
-
-func cmdArchiveExport(args []string) {
-	fs := flag.NewFlagSet("archive export", flag.ContinueOnError)
+func cmdDump(args []string) {
+	fs := flag.NewFlagSet("dump", flag.ContinueOnError)
 	var quiesced bool
-	fs.BoolVar(&quiesced, "quiesced", false, "assert no daemon writes during the export")
+	fs.BoolVar(&quiesced, "quiesced", false, "assert no daemon writes during the dump")
 	if err := flexParse(fs, args); err != nil || fs.NArg() > 2 {
-		usage(err, "arizuko archive [-i instance] export [file] [--quiesced]")
+		usage(err, "arizuko dump [-i instance] [file] [--quiesced]")
 	}
 	instance, file := fs.Arg(0), fs.Arg(1)
 	dataDir := mustInstanceDir(instance)
@@ -98,7 +85,7 @@ func cmdArchiveExport(args []string) {
 	var buf bytes.Buffer
 	report, err := buildArchive(context.Background(), stores, dataDir, quiesced, &buf)
 	if err != nil {
-		die("Failed: archive export: %v", err)
+		die("Failed: dump: %v", err)
 	}
 	if file != "" {
 		if err := writeArchiveFile(file, buf.Bytes()); err != nil {
@@ -126,25 +113,9 @@ func writeArchiveFile(file string, data []byte) error {
 	return err
 }
 
-func cmdArchiveApply(args []string) {
-	fs := flag.NewFlagSet("archive apply", flag.ContinueOnError)
-	var force bool
-	fs.BoolVar(&force, "force", false, "apply over a part-applied archive")
-	fs.BoolVar(&force, "f", false, "apply over a part-applied archive")
-	var stopped bool
-	fs.BoolVar(&stopped, "stopped", false, "skip the run-slot hold")
-	if err := flexParse(fs, args); err != nil || fs.NArg() != 2 {
-		usage(err, "arizuko archive [-i instance] apply <archive.tar> [--force|-f] [--stopped]")
-	}
-	instance, file := fs.Arg(0), fs.Arg(1)
-	dataDir := mustInstanceDir(instance)
-	stores, err := openSubsystemStores(dataDir)
-	if err != nil {
-		die("Failed: open store: %v", err)
-	}
-	defer closeStores(stores)
-
-	ctx := context.Background()
+// restoreDump restores a dump tar read from disk. It exits on failure.
+func restoreDump(ctx context.Context, stores map[string]*store.Store, dataDir string, data []byte, force, stopped bool) {
+	var err error
 	// Resolve the run-slot claim BEFORE opening the archive: a restore that
 	// cannot guard the filesystem step must not half-apply the config
 	// subsystems first (spec 5/8).
@@ -162,14 +133,10 @@ func cmdArchiveApply(args []string) {
 		}
 	}
 
-	data, err := os.ReadFile(file)
-	if err != nil {
-		die("Failed: read %s: %v", file, err)
-	}
 	report, err := applyArchive(ctx, stores, dataDir, bytes.NewReader(data), force, hold)
 	if err != nil {
 		fmt.Fprint(os.Stderr, report)
-		die("Failed: archive apply: %v", err)
+		die("Failed: apply: %v", err)
 	}
 	_, _ = fmt.Fprint(os.Stdout, report)
 }
@@ -194,7 +161,7 @@ func runedHolder(ctx context.Context, dataDir string) (holdFn, error) {
 	base := client.BaseURL
 
 	return func(folder string) (func(), error) {
-		out, herr := client.Hold(ctx, folder, "arizuko archive apply: filesystem restore")
+		out, herr := client.Hold(ctx, folder, "arizuko apply: filesystem restore")
 		if herr != nil {
 			return nil, fmt.Errorf("runed at %s: %w", base, herr)
 		}
@@ -219,7 +186,7 @@ func runedHolder(ctx context.Context, dataDir string) (holdFn, error) {
 // buildArchive writes one tar stream to w — the same subsystem set + fixed
 // order documented on the entry-name consts above — and returns a
 // human-readable summary. Reused directly by tests (avoids exercising the
-// os.Exit paths in cmdArchiveExport).
+// os.Exit paths in cmdDump).
 func buildArchive(ctx context.Context, stores map[string]*store.Store, dataDir string, quiesced bool, w io.Writer) (string, error) {
 	var report strings.Builder
 	tw := tar.NewWriter(w)
@@ -513,13 +480,7 @@ func applyArchive(ctx context.Context, stores map[string]*store.Store, dataDir s
 			if perr != nil {
 				return report.String(), fmt.Errorf("%s: %w", hdr.Name, perr)
 			}
-			for _, d := range parsed {
-				if rows, ok := d.manifest[resreg.GroupsResource].([]resources.GroupsRow); ok {
-					for _, g := range rows {
-						knownFolders = append(knownFolders, g.Folder)
-					}
-				}
-			}
+			knownFolders = append(knownFolders, groupFolders(parsed)...)
 			configDocs = append(configDocs, parsed...)
 
 		case archiveSecretsEntry:

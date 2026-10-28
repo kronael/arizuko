@@ -5,7 +5,7 @@ package store
 //
 // The partition is store.OwnerOnbod: `invites` is a registered resreg resource
 // whose owner subsystem IS this string, so a different spelling would hide
-// every invite from `arizuko export` without any read failing. The sort key is
+// every invite from `arizuko dump` without any read failing. The sort key is
 // `ref`, the hash-at-rest handle a redemption resolves a raw bearer to (I1).
 // Its width is deliberately NOT declared: nothing compares refs by order, and
 // OrderedSort would be a length check wearing an ordering mechanism's clothes.

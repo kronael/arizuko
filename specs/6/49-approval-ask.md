@@ -233,7 +233,7 @@ One entity in the routd partition, `acl_floor`, one item per batch id with
 `putIfAbsent`, and writes the item. The bootstrap rule of Decision 5 runs only
 when the entity is empty and `acl` is not.
 
-The record is not a manifest resource: `arizuko export` carries the `acl` rows
+The record is not a manifest resource: `arizuko dump` carries the `acl` rows
 themselves, and an `apply` that removes a floor row is an operator decision
 the record must not undo.
 

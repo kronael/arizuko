@@ -175,7 +175,7 @@ func hasFolder(t *testing.T, h objstore.Store, folder string) bool {
 }
 
 // secretRows is every stored secret, with its blob AS IT IS AT REST — the
-// projection `arizuko export` reads, and the only one that carries the sealed
+// projection `arizuko dump` reads, and the only one that carries the sealed
 // text, because every other reader decrypts.
 func secretRows(t *testing.T, h objstore.Store) []store.ArchiveSecretRow {
 	t.Helper()

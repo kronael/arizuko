@@ -786,10 +786,10 @@ sudo systemctl restart arizuko_demo               # the service generates and st
   [`.claude/skills/eval/gates.md`](.claude/skills/eval/gates.md). The owner may
   run `anteval` by hand against a throwaway instance to check agent behavior.
 
-## A tar or an archive restores an instance
+## A tar or a dump restores an instance
 
-A tar of the stopped data directory is the whole instance. `arizuko archive`
-makes a logical copy. `archive apply` restores that copy into the same instance
+A tar of the stopped data directory is the whole instance. `arizuko dump`
+makes a logical copy. `arizuko apply` restores that copy into the same instance
 or into another instance.
 
 ### A tar of the stopped instance holds every row
@@ -827,31 +827,31 @@ sudo tar -C /srv/data -xzf arizuko_<name>-<date>.tar.gz
 sudo systemctl start arizuko_<name>
 ```
 
-### An archive copies one instance into another
+### A dump copies one instance into another
 
-`arizuko archive -i <name> export [file] [--quiesced]` writes one tar. Without
+`arizuko dump -i <name> [file] [--quiesced]` writes one tar. Without
 `file`, it writes the tar to standard output. The tar holds these entries:
 
 | Entry                | Holds                                                                             |
 | -------------------- | --------------------------------------------------------------------------------- |
 | `archive.yaml`       | `format_version` and `consistency`                                                |
-| `routd.yaml`         | the config rows of routd, the document that `arizuko export` writes               |
+| `routd.yaml`         | the config rows of routd, the document that `arizuko apply` reads as a rows file  |
 | `onbod.yaml`         | the config rows of onbod                                                          |
 | `routd.secrets.yaml` | secret values, sealed; route token hashes; invites; pending onboarding admissions |
 | `routd.messages.jl`  | the whole message history                                                         |
 | `groups.tar`         | every `groups/<folder>/` tree                                                     |
 
-The archive does not hold the stores of `authd` and `runed`, `.env`,
-`SECRETS_KEY` or the guest artifacts. Export reads the live store, so the store
+The dump does not hold the stores of `authd` and `runed`, `.env`,
+`SECRETS_KEY` or the guest artifacts. `dump` reads the live store, so the store
 server must run. Without `--quiesced`, `consistency` is `live`, and each
 subsystem is a snapshot from its own moment. The flag `--quiesced` only writes
 `quiesced` into `archive.yaml`. It stops nothing and checks nothing, so use it
-only when every writer is down. Export writes the file with mode 0600.
+only when every writer is down. `dump` writes the file with mode 0600.
 
-`arizuko archive -i <name> apply <archive.tar> [--force|-f] [--stopped]` restores
-the archive:
+`arizuko apply -i <name> <dump.tar> [--force|-f] [--stopped]` restores
+the dump:
 
-- It refuses an archive with a `format_version` newer than the binary. It also
+- It refuses a dump with a `format_version` newer than the binary. It also
   refuses a row that names a folder that is not a group.
 - It applies the config documents through the same claim-gated path as
   `arizuko package sync`. If a later subsystem fails, it rolls back. `--force` skips
@@ -878,11 +878,11 @@ sudo systemctl stop arizuko_<name>
 cd /srv/data/arizuko_<name>
 sudo docker compose up -d extenddb_db extenddb
 cd -
-./arizuko archive -i <name> apply <archive.tar> --stopped
+./arizuko apply -i <name> <dump.tar> --stopped
 sudo systemctl start arizuko_<name>
 ```
 
-The archive carries the config rows. It does not carry the runtime settings of
+The dump carries the config rows. It does not carry the runtime settings of
 a daemon, such as its port, see BUGS `L249`.
 
 ## Find out why an agent does not reply

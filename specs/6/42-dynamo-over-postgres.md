@@ -603,7 +603,7 @@ and `postgres:17-alpine` from a compose file under `tests/`, with the delay at
 and fail with one message naming `make store` when it is unset. CI runs the
 same two images as services.
 
-**Backups.** `arizuko archive export` is a logical export through resreg and
+**Backups.** `arizuko dump` is a logical export through resreg and
 does not change. The file-level backup (`sqlite3 .backup` in `6/37`'s
 rehearsals) becomes `pg_dump` of the instance's database, in `INSTALL.md`.
 

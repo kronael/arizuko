@@ -10,7 +10,7 @@ import (
 // every other db:-tagged field one attribute. This row drives the
 // /openapi.json schema only; onbod's handler reads via store.ListInvites.
 // `ref` is hex(sha256(token)): the raw bearer is never persisted, so there is
-// no token field to leak. `yaml:"-"` keeps ref out of `arizuko export` (it is
+// no token field to leak. `yaml:"-"` keeps ref out of `arizuko dump` (it is
 // runtime-minted, not manifest state); `json:"ref"` is what every read
 // surface hands out and the DELETE path takes.
 type InvitesRow struct {

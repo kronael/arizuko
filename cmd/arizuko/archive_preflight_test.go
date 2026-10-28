@@ -1,6 +1,6 @@
 package main
 
-// `archive apply`'s config phase (spec 5/8 §"Consistency levels", the
+// `apply`'s config phase (spec 5/8 §"Consistency levels", the
 // pre-flight bullet: "before any subsystem's transaction opens, apply checks
 // referential integrity across the archive's documents ... and refuses the
 // whole restore rather than importing a half-wired instance").
@@ -48,7 +48,7 @@ func TestArchiveApply_RefusesFolderThatIsNotAGroup(t *testing.T) {
 	// the missing-group rule.
 	_, err := applyArchive(ctx, dstStores, dstDataDir, bytes.NewReader(buf.Bytes()), true, nil)
 	if err == nil {
-		t.Fatal("archive apply must refuse an archive referencing a folder that is not a group")
+		t.Fatal("apply must refuse an archive referencing a folder that is not a group")
 	}
 	if !strings.Contains(err.Error(), "corp/ghost") {
 		t.Errorf("error %q must name the offending folder", err.Error())

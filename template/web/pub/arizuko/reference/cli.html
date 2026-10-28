@@ -49,7 +49,7 @@
       <h2>Index</h2>
       <ul>
         <li><a href="#lifecycle">Instance lifecycle</a> &mdash; <code>create</code>, <code>generate</code>, <code>run</code>, <code>status</code>, <code>pair</code></li>
-        <li><a href="#manifest">Config manifests</a> &mdash; <code>export</code>, <code>plan</code>, <code>get</code></li>
+        <li><a href="#manifest">Config manifests</a> &mdash; <code>apply</code>, <code>plan</code>, <code>get</code>, <code>dump</code></li>
         <li><a href="#packages">Packages</a> &mdash; <code>package add</code>, <code>package rm</code>, <code>package sync</code></li>
         <li><a href="#chat">Operator chat &amp; messaging</a> &mdash; <code>chat</code>, <code>send</code>, <code>token</code></li>
         <li><a href="#group">Groups &amp; grants</a> &mdash; <code>group list|add|rename|rm|grant|ungrant|grants</code></li>
@@ -59,7 +59,7 @@
         <li><a href="#network">Network allowlist</a> &mdash; <code>network allow|deny|list|resolve</code></li>
         <li><a href="#route">Routes</a> &mdash; <code>route list|add|rm</code></li>
         <li><a href="#secret">Secrets (folder &amp; user)</a> &mdash; <code>secret</code>, <code>user-secret</code></li>
-        <li><a href="#other">Other subcommands</a> &mdash; <code>proxy-config</code>, <code>github</code>, <code>gdrive</code>, <code>talk</code>, <code>probe</code>, <code>archive</code></li>
+        <li><a href="#other">Other subcommands</a> &mdash; <code>proxy-config</code>, <code>github</code>, <code>gdrive</code>, <code>talk</code>, <code>probe</code></li>
       </ul>
     </div>
 
@@ -103,31 +103,32 @@ arizuko create -i launch --product strategy</code></pre>
     <h2 id="manifest" class="group-h2">Config manifests</h2>
     <p>These commands read and compare cold-tier resources as YAML. They never select packages: the <a href="#packages">package commands</a> do that, and the <a href="packages.html">packages reference</a> explains the package definition.</p>
 
-    <h3 id="export"><span class="sig">arizuko export [-i NAME] [output.yml]</span></h3>
-    <p>Export cold-tier resources as YAML. Without a filename, the command writes to stdout. Each document includes a checksum of its source rows.</p>
-    <pre><code>arizuko export -i demo &gt; demo.yml</code></pre>
-
-    <h3 id="plan"><span class="sig">arizuko plan [-i NAME] &lt;manifest.yml&gt;</span></h3>
-    <p>Show resource changes without writing to the store.</p>
-    <pre><code>arizuko plan -i demo demo.yml</code></pre>
-
     <h3 id="get"><span class="sig">arizuko get [-i NAME] &lt;resource&gt;</span></h3>
-    <p>Export one resource from the live store as YAML. Secret values do not leave the store.</p>
-    <pre><code>arizuko get -i demo routes</code></pre>
+    <p>Write the rows of one resource from the live store as YAML. Secret values do not leave the store. The output is a rows file that <code>apply</code> takes.</p>
+    <pre><code>arizuko get -i demo groups &gt; rows.yml</code></pre>
 
-    <h2 id="archive" class="group-h2">Full-instance backup</h2>
-    <p>A config manifest carries what an instance is set up to do. An archive carries the instance: the same config, plus the encrypted secret values, the whole message history, the people still waiting to be let in, and every group's files &mdash; one tar you can move to another machine. authd&rsquo;s and runed&rsquo;s stores stay out: signing keys, login sessions and run records belong to the machine.</p>
+    <h3 id="plan"><span class="sig">arizuko plan [-i NAME] &lt;rows.yml&gt;</span></h3>
+    <p>Show what <code>apply</code> of the same file would add or change, without writing to the store.</p>
+    <pre><code>arizuko plan -i demo rows.yml</code></pre>
+
+    <h3 id="apply-rows"><span class="sig">arizuko apply [-i NAME] &lt;rows.yml&gt;</span></h3>
+    <p>Write the rows in the file and nothing else. The file has the format of <code>routd.yaml</code> and <code>onbod.yaml</code> in a dump, so you can unpack a dump, edit one of them and apply it. A row in the file replaces the whole stored row with the same key; start from the output of <code>get</code>. A row that the file does not name stays, and a resource that the file does not mention stays. The command never deletes a row. It does not use the checksum in the file. The flags <code>--force</code> and <code>--stopped</code> are for a dump only.</p>
+    <p><strong>State touched:</strong> the rows named in the file.</p>
+    <pre><code>arizuko apply -i demo rows.yml</code></pre>
+
+    <h2 id="dump" class="group-h2">Full-instance backup</h2>
+    <p>A rows file carries what an instance is set up to do. A dump carries the instance: the same config, plus the encrypted secret values, the whole message history, the people still waiting to be let in, and every group's files &mdash; one tar you can move to another machine. authd&rsquo;s and runed&rsquo;s stores stay out: signing keys, login sessions and run records belong to the machine.</p>
     <p>One thing deliberately stays behind: <code>SECRETS_KEY</code>. The encrypted secrets travel, the key that opens them does not &mdash; you carry that yourself, out of band. Restoring onto a machine whose key cannot decrypt them fails loudly instead of importing rubbish.</p>
 
-    <h3 id="archive-export"><span class="sig">arizuko archive [-i NAME] export [out.tar] [--quiesced]</span></h3>
-    <p>Write the archive. Taken from a running instance it is a smear, not a snapshot: each part is read consistently, but a message can land between two reads, so the whole is a few seconds wide rather than one instant. That is usually fine, and the archive records which it is so a restore is never guessing. Stop the instance first and pass <code>--quiesced</code> when you need a true point-in-time image &mdash; the flag only stamps the label; it does not stop anything for you.</p>
+    <h3 id="dump-write"><span class="sig">arizuko dump [-i NAME] [out.tar] [--quiesced]</span></h3>
+    <p>Write the dump. Taken from a running instance it is a smear, not a snapshot: each part is read consistently, but a message can land between two reads, so the whole is a few seconds wide rather than one instant. That is usually fine, and the dump records which it is so a restore is never guessing. Stop the instance first and pass <code>--quiesced</code> when you need a true point-in-time image &mdash; the flag only stamps the label; it does not stop anything for you.</p>
     <p><strong>State touched:</strong> read-only.</p>
-    <pre><code>arizuko archive -i demo export demo-backup.tar
-arizuko archive -i demo export demo-backup.tar --quiesced</code></pre>
+    <pre><code>arizuko dump -i demo demo-backup.tar
+arizuko dump -i demo demo-backup.tar --quiesced</code></pre>
     <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/archive.go"><code>cmd/arizuko/archive.go</code></a></p>
 
-    <h3 id="archive-apply"><span class="sig">arizuko archive [-i NAME] apply &lt;archive.tar&gt; [-f|--force] [--stopped]</span></h3>
-    <p>Restore. Config goes in first, so every group exists before its files arrive; then message history is appended (re-running the same archive changes nothing already there); then each group's files are unpacked.</p>
+    <h3 id="apply-dump"><span class="sig">arizuko apply [-i NAME] &lt;dump.tar&gt; [-f|--force] [--stopped]</span></h3>
+    <p>Restore a dump. Config goes in first, so every group exists before its files arrive; then message history is appended (re-running the same dump changes nothing already there); then each group's files are unpacked.</p>
     <p>Unpacking a group's files while an agent is writing them would corrupt both, so the restore takes that folder's run slot first &mdash; the same slot an agent turn takes, so the two can never overlap. This means the instance must be up and <code>runed</code> reachable, or you pass <code>--stopped</code> to say it is down. An unreachable <code>runed</code> is a hard stop, never a warning: proceeding is the exact accident the slot exists to prevent.</p>
     <p>Three parts hold credentials &mdash; chat links, invites, and pending setup links. They stay out by default, and even with <code>--force</code> go in only when the target has none of their own. Otherwise a restore would quietly re-activate a link someone had revoked, which is still sitting in a chat somewhere. A group whose files already exist is skipped for the same reason unless you pass <code>--force</code>; whatever was skipped is listed in the report.</p>
     <table>
@@ -136,8 +137,8 @@ arizuko archive -i demo export demo-backup.tar --quiesced</code></pre>
       <tr><td><code>--stopped</code></td><td>bool</td><td><code>false</code></td><td>You assert the instance is down, so no run slot is claimed. Use this when restoring onto a machine where nothing is running.</td></tr>
     </table>
     <p><strong>State touched:</strong> writes config, message history, secret values, onboarding admissions, and <code>groups/&lt;folder&gt;/</code> trees.</p>
-    <pre><code>arizuko archive -i demo apply demo-backup.tar --stopped
-arizuko archive -i demo apply demo-backup.tar --force</code></pre>
+    <pre><code>arizuko apply -i demo demo-backup.tar --stopped
+arizuko apply -i demo demo-backup.tar --force</code></pre>
     <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/archive.go"><code>cmd/arizuko/archive.go</code></a></p>
 
     <h2 id="packages" class="group-h2">Packages</h2>
@@ -489,7 +490,7 @@ arizuko secret -i demo set main CF_API_TOKEN --value cf_xxxxxxxx</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/reference/cli.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-25">2026-10-25</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-28">2026-10-28</time>
       </div>
     </main>
 

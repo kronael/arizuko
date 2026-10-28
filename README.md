@@ -191,7 +191,7 @@ REST interface for people and an MCP interface for agents, behind one
 authorization gate. [ARCHITECTURE.md](ARCHITECTURE.md#cold-tier-vs-hot-tier)
 lists the exceptions. The store holds messages, routes, grants and tasks. The
 folder on disk holds the files of each agent. Both survive a restart.
-`arizuko export` writes store configuration to YAML. The
+`arizuko dump` writes the store configuration and `arizuko apply` writes rows back. The
 `installed_packages` rows select packages, and `arizuko package sync` installs them.
 
 ## How to read this

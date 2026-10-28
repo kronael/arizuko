@@ -885,7 +885,7 @@ func TestApply_NeverRebuildsInvites(t *testing.T) {
 	}
 }
 
-// TestExport_OmitsInviteToken: `arizuko export` dumps every registered resource
+// TestExport_OmitsInviteToken: `arizuko dump` dumps every registered resource
 // in a subsystem, so the manifest must not carry the invite bearer — holding
 // the token IS the grant, and a dump lands in git/backups/paste (spec 5/8
 // §"Secret safety", the same exclusion route_tokens/secrets get by omitting

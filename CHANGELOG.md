@@ -13,6 +13,8 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+- `arizuko dump` writes a full dump and `arizuko apply <dump.tar>` restores it. `arizuko apply <rows.yml>` writes only the rows in the file, such as `groups.container_config`, and deletes nothing. `arizuko archive` and `arizuko export` are removed.
+
 ## [v0.71.0] — 2026-10-28
 
 > arizuko v0.71.0 — packages are selected in the database

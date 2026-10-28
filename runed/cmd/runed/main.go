@@ -134,7 +134,7 @@ func main() {
 		Cfg:           cfg,
 		Folders:       folders,
 	})
-	// POST /v1/holds: let an external process (arizuko archive apply, and any
+	// POST /v1/holds: let an external process (arizuko apply, and any
 	// future folder-exclusive job) claim a folder's run slot (spec 5/8).
 	mgr.RegisterExecutor(runed.KindHold, runed.NewHoldRuntime())
 

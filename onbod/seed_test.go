@@ -69,7 +69,7 @@ func seedRoute(t *testing.T, db *store.Store, seq int, match, target string) {
 }
 
 // routeRows is the whole route table with the two attribution attributes on it,
-// which is the projection `arizuko export` reads and the only one that carries
+// which is the projection `arizuko dump` reads and the only one that carries
 // them.
 func routeRows(t *testing.T, db *store.Store) []resources.RoutesRow {
 	t.Helper()

@@ -180,7 +180,7 @@ func invitesCarryNoExpiry(t *testing.T, s *store.Store) error {
 }
 
 // The onboarding lane had no test of its own in resreg — cmd/arizuko covered
-// it only through the whole `archive apply` orchestration. The empty-string
+// it only through the whole `apply` orchestration. The empty-string
 // columns are the half worth pinning: an admission that never reached a state
 // carries NULL, and a round trip that turned those into "" would make a
 // pending admission look prompted.

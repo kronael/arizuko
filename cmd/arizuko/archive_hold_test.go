@@ -247,7 +247,7 @@ func TestRunedHolder_EndToEnd(t *testing.T) {
 
 // TestRunedHolder_UnreachableRunedFails: an unreachable runed must surface as
 // an error the caller turns into a hard stop, never a silent unguarded
-// restore. cmdArchiveApply dies on this; here we assert the holdFn produces it.
+// restore. restoreDump dies on this; here we assert the holdFn produces it.
 func TestRunedHolder_UnreachableRunedFails(t *testing.T) {
 	// A listener we close immediately: a routable address that refuses.
 	dead := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))

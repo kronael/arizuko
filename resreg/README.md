@@ -110,7 +110,7 @@ A subsystem must be of one shape. `requireEntities` checks this before any write
 
 A daemon prepares its database with `resreg.EnsureSubsystem`, beside the `CreateEntity` calls it already makes. The call creates the entity behind each resource, the entity of the version marker, and the marker. It creates nothing for a subsystem that no entity-backed resource names, so the set follows the registrations and not a second list.
 
-`arizuko package`, `plan`, `get` and `export` are the operator CLI over this engine. Their flags are in `cmd/arizuko/README.md`. The CAS is `resreg.Checksum`, a content hash of the canonical export projection, so no counter or table exists that a writer could forget to bump.
+`arizuko package`, `apply`, `plan`, `get` and `dump` are the operator CLI over this engine. Their flags are in `cmd/arizuko/README.md`. The CAS is `resreg.Checksum`, a content hash of the canonical export projection, so no counter or table exists that a writer could forget to bump.
 
 Two guards wrap every apply. They live in `cmd/arizuko/apply.go` and not in the engine, because both span documents, and the engine sees one document at a time.
 

@@ -1,7 +1,7 @@
 package store
 
 // messages_archive.go is `messages`' second reader: the whole history, which no
-// manifest carries, exported and imported by `arizuko archive` (spec 5/8
+// manifest carries, dumped and restored by `arizuko dump` and `arizuko apply` (spec 5/8
 // "Message history"). The cursor derivation is in chats.go because it is the
 // second half of ONE operation: an import that did not park the poller makes
 // the agent answer every restored message.

@@ -12,7 +12,7 @@ import (
 // IS THE IDENTITY, the coordinate AND the PK: hex(sha256(token)), the raw
 // bearer never persisted (spec 5/W), and the one unique field, since one jid
 // names many live ingress credentials (BUGS L260). `yaml:"-"` keeps the
-// digest out of `arizuko export` and `json:"-"` out of every read surface.
+// digest out of `arizuko dump` and `json:"-"` out of every read surface.
 type RouteTokensRow struct {
 	TokenHash    string `db:"token_hash"    yaml:"-"            json:"-"`
 	JID          string `db:"jid"           yaml:"jid"          json:"jid"`

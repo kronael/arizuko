@@ -28,7 +28,7 @@ func countNetworkRules(t *testing.T, stores map[string]*store.Store, folder stri
 }
 
 // twoDocManifest is a routd document plus an onbod document, the shape
-// `arizuko export` emits — so the preflight is exercised on a document SET,
+// `arizuko dump` emits — so the preflight is exercised on a document SET,
 // which is the only way its cross-document half can be wrong.
 const twoDocManifest = `groups:
     - folder: corp/eng
@@ -99,8 +99,8 @@ func TestPreflightFolders_AcceptsFolderDeclaredInAnotherDocument(t *testing.T) {
 // TestPreflightFolders_ExportRoundTripPasses is the regression this rule is
 // most likely to break: store.SeedRoutdFloor writes two folder=” instance-global
 // network_rules into every routd.db born empty, so a plain export of a FRESH instance
-// carries them. If the rule did not exempt the empty folder, `arizuko export
-// | arizuko apply` would refuse on a stock instance.
+// carries them. If the rule did not exempt the empty folder, `arizuko dump`
+// then `arizuko apply` would refuse on a stock instance.
 func TestPreflightFolders_ExportRoundTripPasses(t *testing.T) {
 	dataDir, stores := openInstance(t)
 

@@ -1,6 +1,6 @@
 package main
 
-// E2E tests for `arizuko archive export`/`archive apply` (spec 5/8 "The
+// E2E tests for `arizuko dump`/`apply` (spec 5/8 "The
 // full-instance archive"). Reuses openInstance (apply_test.go) for real
 // routd.db/onbod.db bootstraps — the REAL schema, unlike resreg/
 // archive_test.go's store.Migrate frozen-messages.db fixture, which
@@ -68,8 +68,8 @@ func readGroupFile(t *testing.T, dataDir, folder, rel string) string {
 // TestArchive_RoundTrip_ConfigSecretsMessagesGroups is the real round-trip
 // the task asks for: archive a seeded source instance, apply it to a fresh
 // empty target, assert equivalence across every document — driven through
-// buildArchive/applyArchive (the same functions cmdArchiveExport/
-// cmdArchiveApply call; those wrappers os.Exit on error, so the bodies drive
+// buildArchive/applyArchive (the same functions cmdDump/
+// restoreDump call; those wrappers os.Exit on error, so the bodies drive
 // the actual CLI entry points on top of this).
 func TestArchive_RoundTrip_ConfigSecretsMessagesGroups(t *testing.T) {
 	ctx := context.Background()

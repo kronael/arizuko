@@ -1,7 +1,7 @@
 package resources
 
 // The scope half of a registration: a resource whose rows are ITEMS is read by
-// `archive export` through objstore.ReadConsistent, which sees only the writers
+// `dump` through objstore.ReadConsistent, which sees only the writers
 // that moved the scope's version marker. store declares which entities move one
 // and its writers carry it (store/scopes.go); this is where the two sets are
 // compared, because this is where the registrations are known.
@@ -22,7 +22,7 @@ func TestEveryEntityResourceCarriesAScope(t *testing.T) {
 		entities++
 		got, ok := store.EntityScope(r.Table)
 		if !ok {
-			t.Errorf("%s is entity-backed and %q moves no version marker; `archive export` "+
+			t.Errorf("%s is entity-backed and %q moves no version marker; `dump` "+
 				"reads it through objstore.ReadConsistent, so a write that lands under an "+
 				"export is invisible and the export calls itself consistent (BUGS L264). "+
 				"Declare it in store/scopes.go", r.Name, r.Table)

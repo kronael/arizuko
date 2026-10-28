@@ -56,7 +56,7 @@ is the vocabulary `CLAUDE.md` leans on for "every cold-tier entity is a resreg
 resource". That is its one remaining action. MCP+REST unification belongs to
 phase 5 (`5/17` the mechanism, `5/16` the rollout), and both ship. Git as
 truth is DECLINED: `5/8` makes the store authoritative and YAML a
-transport dump, so committing an `export` to git is fine and a
+transport dump, so committing a `dump` to git is fine and a
 continuously-synced working tree is not the model (`specs/9/index.md`).
 
 Together: phases 5 + 8 give **enterprise-ready** (capabilities +

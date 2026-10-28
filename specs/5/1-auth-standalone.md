@@ -270,7 +270,7 @@ reads plus one operator mutation, not per-turn agent work — so root `CLAUDE.md
 are registered rather than hand-rolled. But they are the cold tier's _evidence_
 half, not its _config_ half, and the distinction is enforced: `Resource.DB` is
 empty on both (as on `audit`), so `BySubsystem` never returns them and
-`arizuko export` / `plan` / `apply` never touch them. A manifest that could
+`arizuko dump` / `get` / `plan` / `apply` never touch them. A manifest that could
 rebuild `signing_keys` would rebuild the trust root from a text file; one that
 could rebuild `refresh_tokens` would be a session-forgery tool. Credential-tier
 placement is unchanged — the signing key stays authd's alone, and neither

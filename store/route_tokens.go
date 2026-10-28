@@ -406,7 +406,7 @@ func (s *Store) ExportRouteTokens(ctx context.Context) ([]ArchiveRouteTokenRow, 
 // token's content never legitimately changes once minted. Every imported row's
 // kind is forced to 'route'; this function never writes a pairing token. It
 // performs NO gating (spec 5/8 "Secret and token values" (2)): that is
-// `archive apply` orchestration in cmd/arizuko. The rows already there are read
+// `apply` orchestration in cmd/arizuko. The rows already there are read
 // FIRST and left out of the batch: a batch is all-or-nothing, so one
 // create-if-absent whose item exists would refuse every other write.
 func (s *Store) ImportRouteTokens(ctx context.Context, rows []ArchiveRouteTokenRow) (int, error) {

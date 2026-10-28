@@ -1,6 +1,6 @@
 package main
 
-// E2E test for `arizuko apply` + `arizuko export`. Exercises:
+// E2E test for `arizuko apply` + `arizuko dump`. Exercises:
 //   - parse: YAML decode for every resource kind we support
 //   - CAS reject: stale checksum causes ErrChecksumMismatch
 //   - CAS pass: matching checksum applies cleanly
@@ -10,7 +10,7 @@ package main
 // openInstance below prepares BOTH owners the manifest spans in a namespace of
 // this test's own. The bodies then drive resreg.Apply/Export/Plan/GetResource
 // against the resulting *store.Store handles — the "orchestrator, not the thin
-// CLI shim" philosophy — because the CLI wrappers (cmdApply/cmdExport/...) call
+// CLI shim" philosophy — because the CLI wrappers (cmdApply/cmdDump/...) call
 // os.Exit on error, which is unsafe to exercise from inside a test process.
 
 import (
@@ -28,7 +28,7 @@ import (
 
 // openInstance prepares the two owners the config manifest spans — routd's and
 // onbod's — in a namespace of this test's own, and hands them back keyed the
-// way openSubsystemStores hands them to cmdApply/cmdExport/cmdPlan/cmdGet.
+// way openSubsystemStores hands them to cmdApply/cmdDump/cmdPlan/cmdGet.
 func openInstance(t *testing.T) (string, map[string]*store.Store) {
 	t.Helper()
 	h := dyntest.Store(t)

@@ -1,11 +1,12 @@
 package main
 
-// Spec 5/8: manifest export, inspection and the shared apply engine.
-// Sync and archive restore apply validated documents per owner subsystem;
-// export emits one document per subsystem in a fixed order.
+// Spec 5/8: manifest inspection and the shared apply engine. Sync, a rows
+// file and a dump restore apply validated documents per owner subsystem.
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
@@ -13,12 +14,12 @@ import (
 
 	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/resreg"
-	_ "github.com/kronael/arizuko/resreg/resources" // side-effect: register cold-tier resources
+	"github.com/kronael/arizuko/resreg/resources"
 	"github.com/kronael/arizuko/store"
 )
 
-// subsystemOrder is the fixed, deterministic order export concatenates
-// subsystem documents in and apply/plan report them in.
+// subsystemOrder is the fixed, deterministic order a dump writes subsystem
+// documents in and apply/plan report them in.
 func subsystemOrder() []string {
 	return []string{resreg.SubsystemRoutd, resreg.SubsystemOnbod}
 }
@@ -57,7 +58,7 @@ type parsedDoc struct {
 
 // parseDocs splits and parses every document of a manifest file. Empty
 // documents (a trailing `---`) carry nothing and are dropped. Returns an
-// error rather than dying — `archive apply` composes the same helper and must
+// error rather than dying — `apply` of a dump composes the same helper and must
 // unwind its own tar reader, not os.Exit out of it.
 func parseDocs(file string, data []byte) ([]parsedDoc, error) {
 	docs, err := resreg.SplitDocuments(data)
@@ -85,7 +86,7 @@ func parseDocs(file string, data []byte) ([]parsedDoc, error) {
 // preflightFolders is the missing-group rule's CLI half: every folder-scoped
 // row across EVERY document must name a group that the document set declares
 // or the target DB already has. Returns the offending references; the caller
-// decides whether that is a refusal (apply, archive apply) or a report (plan).
+// decides whether that is a refusal (apply) or a report (plan).
 //
 // `groups` lives in exactly one owner DB and the resource declaration says
 // which — identity is configured, never derived (root CLAUDE.md), so this
@@ -229,10 +230,94 @@ func rollback(ctx context.Context, stores map[string]*store.Store, done []commit
 	return errors.Join(errs...)
 }
 
-func cmdExport(args []string) {
-	fs := flag.NewFlagSet("export", flag.ContinueOnError)
-	if err := flexParse(fs, args); err != nil || fs.NArg() > 2 {
-		usage(err, "arizuko export [-i instance] [output.yml]")
+// groupFolders lists the folder of every groups row the documents carry.
+func groupFolders(docs []parsedDoc) []string {
+	var out []string
+	for _, d := range docs {
+		if rows, ok := d.manifest[resreg.GroupsResource].([]resources.GroupsRow); ok {
+			for _, g := range rows {
+				out = append(out, g.Folder)
+			}
+		}
+	}
+	return out
+}
+
+// mergeLive turns a rows file into documents the apply engine can take. The
+// engine rebuilds every resource a document mentions, so each mentioned
+// resource goes in as the live rows with the file's rows laid over them (the
+// file's row wins on its primary key). A row the file does not name stays, and
+// a resource the file does not mention is not in the document, so apply
+// deletes nothing the file leaves out. The checksum is the live one read here:
+// a rows file is not a state to compare against, so the checksum a dump put in
+// it is not used.
+func mergeLive(ctx context.Context, stores map[string]*store.Store, docs []parsedDoc) ([]parsedDoc, error) {
+	seen := map[string]bool{}
+	out := make([]parsedDoc, 0, len(docs))
+	for _, d := range docs {
+		st, ok := stores[d.subsystem]
+		if !ok {
+			return nil, fmt.Errorf("no store for subsystem %q", d.subsystem)
+		}
+		if seen[d.subsystem] {
+			return nil, fmt.Errorf("two %s documents: a rows file holds one per subsystem", d.subsystem)
+		}
+		seen[d.subsystem] = true
+		live, checksum, _, err := resreg.ExportSnapshot(ctx, resreg.On(st.Obj()), d.subsystem)
+		if err != nil {
+			return nil, fmt.Errorf("read %s: %w", d.subsystem, err)
+		}
+		merged := map[string]any{}
+		for name, rows := range d.manifest {
+			if merged[name], err = resreg.Lookup(name).MergeRows(live[name], rows); err != nil {
+				return nil, err
+			}
+		}
+		out = append(out, parsedDoc{subsystem: d.subsystem, checksum: checksum, manifest: merged})
+	}
+	return out, nil
+}
+
+// applyRows writes the rows of one rows file (spec 5/8 §"Rows file"). The
+// returned report holds one line per subsystem.
+func applyRows(ctx context.Context, stores map[string]*store.Store, dataDir, file string, data []byte) ([]string, error) {
+	docs, err := parseDocs(file, data)
+	if err != nil {
+		return nil, err
+	}
+	if bad := preflightFolders(stores, docs); len(bad) > 0 {
+		return nil, errors.Join(bad...)
+	}
+	merged, err := mergeLive(ctx, stores, docs)
+	if err != nil {
+		return nil, err
+	}
+	sum := sha256.Sum256(data)
+	lines, err := applyDocs(ctx, stores, merged, applyRun{actor: cliActor(), digest: "sha256:" + hex.EncodeToString(sum[:])})
+	if err != nil {
+		return lines, err
+	}
+	return lines, setupMissingGroupDirs(dataDir, groupFolders(docs))
+}
+
+// isTar reports whether data is a tar stream: the "ustar" magic at byte 257,
+// which Go's tar writer sets in every format it writes.
+func isTar(data []byte) bool {
+	return len(data) >= 262 && string(data[257:262]) == "ustar"
+}
+
+const applyUsage = "arizuko apply [-i instance] <dump.tar|rows.yml> [--force|-f] [--stopped]"
+
+// cmdApply restores a dump tar, or writes the rows of a rows file. The file
+// itself says which: a tar is a dump, anything else is parsed as rows.
+func cmdApply(args []string) {
+	fs := flag.NewFlagSet("apply", flag.ContinueOnError)
+	var force, stopped bool
+	fs.BoolVar(&force, "force", false, "restore over a part-applied dump")
+	fs.BoolVar(&force, "f", false, "restore over a part-applied dump")
+	fs.BoolVar(&stopped, "stopped", false, "skip the run-slot hold")
+	if err := flexParse(fs, args); err != nil || fs.NArg() != 2 {
+		usage(err, applyUsage)
 	}
 	instance, file := fs.Arg(0), fs.Arg(1)
 	dataDir := mustInstanceDir(instance)
@@ -241,42 +326,32 @@ func cmdExport(args []string) {
 		die("Failed: open store: %v", err)
 	}
 	defer closeStores(stores)
-	var out []byte
-	for _, subsystem := range subsystemOrder() {
-		st := stores[subsystem]
-		manifest, merr := resreg.Export(resreg.On(st.Obj()), subsystem)
-		if merr != nil {
-			die("Failed: export %s: %v", subsystem, merr)
-		}
-		sum, cerr := resreg.Checksum(resreg.On(st.Obj()), subsystem)
-		if cerr != nil {
-			die("Failed: checksum %s: %v", subsystem, cerr)
-		}
-		manifest["checksum"] = sum
-		doc, eerr := resreg.EmitYAML(manifest)
-		if eerr != nil {
-			die("Failed: emit yaml %s: %v", subsystem, eerr)
-		}
-		if len(out) > 0 {
-			out = append(out, []byte("---\n")...)
-		}
-		out = append(out, doc...)
+	data, err := os.ReadFile(file)
+	if err != nil {
+		die("Failed: read %s: %v", file, err)
 	}
-	if file != "" {
-		if err := os.WriteFile(file, out, 0o644); err != nil {
-			die("Failed: write %s: %v", file, err)
-		}
-		fmt.Fprintf(os.Stderr, "wrote %s (%d bytes)\n", file, len(out))
+	ctx := context.Background()
+	if isTar(data) {
+		restoreDump(ctx, stores, dataDir, data, force, stopped)
 		return
 	}
-	_, _ = os.Stdout.Write(out)
+	if force || stopped {
+		die("Failed: --force and --stopped apply to a dump tar; %s is a rows file", file)
+	}
+	lines, err := applyRows(ctx, stores, dataDir, file, data)
+	for _, l := range lines {
+		fmt.Println(l)
+	}
+	if err != nil {
+		die("Failed: apply: %v", err)
+	}
 }
 
-// cmdPlan: non-mutating diff of a manifest vs live DB (spec 5/8 §"Surface").
-// Parses + validates, prints the per-resource add/update/unchanged/remove
-// delta per subsystem document, never opens a write tx.
+// cmdPlan: non-mutating dry run of `apply` on a rows file (spec 5/8
+// §"Surface"). Parses + validates, prints the per-resource add/update delta per
+// subsystem document, never opens a write tx.
 func cmdPlan(args []string) {
-	args = need(args, 2, 2, "arizuko plan [-i instance] <manifest.yml>")
+	args = need(args, 2, 2, "arizuko plan [-i instance] <rows.yml>")
 	instance := args[0]
 	file := args[1]
 	dataDir := mustInstanceDir(instance)
@@ -299,24 +374,17 @@ func cmdPlan(args []string) {
 	for _, e := range preflightFolders(stores, docs) {
 		fmt.Printf("%v — apply would refuse\n", e)
 	}
-	for _, d := range docs {
-		manifest, checksum, subsystem := d.manifest, d.checksum, d.subsystem
-		st := stores[subsystem]
-		dbSum, cerr := resreg.Checksum(resreg.On(st.Obj()), subsystem)
-		if cerr != nil {
-			die("Failed: checksum %s: %v", subsystem, cerr)
-		}
-		deltas, derr := resreg.Plan(resreg.On(st.Obj()), subsystem, manifest)
+	merged, merr := mergeLive(context.Background(), stores, docs)
+	if merr != nil {
+		die("Failed: %v", merr)
+	}
+	for _, d := range merged {
+		deltas, derr := resreg.Plan(resreg.On(stores[d.subsystem].Obj()), d.subsystem, d.manifest)
 		if derr != nil {
-			die("Failed: plan %s: %v", subsystem, derr)
+			die("Failed: plan %s: %v", d.subsystem, derr)
 		}
-		fmt.Printf("--- %s ---\n", subsystem)
+		fmt.Printf("--- %s ---\n", d.subsystem)
 		printPlan(deltas)
-		if checksum != dbSum {
-			fmt.Printf("checksum: manifest=%s db=%s — apply would reject without --force\n", checksum, dbSum)
-		} else {
-			fmt.Printf("checksum: %s (match)\n", dbSum)
-		}
 	}
 }
 

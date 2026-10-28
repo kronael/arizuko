@@ -39,7 +39,7 @@ auth, public by the same rule as any `/pub` page.
   with no `catalog:` block is **unlisted** (private by default — an
   instance does not leak its full folder tree). Opt-in, never inferred.
 - Generation rides the existing manifest/export path (`5/8`
-  `arizuko export` / resreg) or a small vited render at request time
+  `arizuko get` / resreg) or a small vited render at request time
   over the listed groups — whichever the implementer picks; the catalog
   is a projection of existing rows + frontmatter, no new authoritative
   store.

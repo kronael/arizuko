@@ -143,7 +143,7 @@ declaration the platform's existing surfaces reach it:
 
 - REST CRUD (`/v1/autocalls`, scoped paths under a group),
 - MCP tools (`autocalls.create`, `.list`, `.delete`, …),
-- YAML manifest round-trip (`arizuko export`/`apply`),
+- YAML manifest round-trip (`arizuko get`/`apply`),
 - `/openapi.json` schema (5/8 §"OpenAPI emission"),
 - one audit row per mutation, ACL-gated by `autocalls:<action>`.
 

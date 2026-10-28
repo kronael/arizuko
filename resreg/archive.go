@@ -20,7 +20,7 @@ import (
 
 // ArchiveFormatVersion is archive.yaml's own format version, bumped only when
 // the document's shape changes (spec 5/8 "Cross-instance portability").
-// `archive apply` refuses an archive whose stamped format_version exceeds it.
+// `apply` refuses an archive whose stamped format_version exceeds it.
 const ArchiveFormatVersion = 1
 
 // Consistency levels an archive.yaml declares (spec 5/8 "Consistency

@@ -6,7 +6,7 @@ package store
 //
 // The partition is store.OwnerOnbod because both tables are registered resreg
 // resources and resreg.SubsystemOnbod IS store.OwnerOnbod; a second spelling
-// would empty `arizuko export` without any read failing. Every read examines
+// would empty `arizuko dump` without any read failing. Every read examines
 // the whole collection (45 admission rows fleet-wide, 2026-09-07; no drainage
 // but DenyOnboarding), because eight of the ten reads select by an attribute.
 //
@@ -821,7 +821,7 @@ func (s *Store) ExportOnboarding(ctx context.Context) ([]ArchiveOnboardingRow, e
 // this restore must not walk backwards. The present set is READ first,
 // because a batch is all-or-nothing and one lost create-if-absent would refuse
 // every other row; the write itself stays conditional, so a jid that appears
-// in between is a loud refusal. NO gating: that is `archive apply`
+// in between is a loud refusal. NO gating: that is `apply`
 // orchestration in cmd/arizuko.
 func (s *Store) ImportOnboarding(ctx context.Context, rows []ArchiveOnboardingRow) (int, error) {
 	if len(rows) == 0 {

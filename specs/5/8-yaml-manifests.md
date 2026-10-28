@@ -12,11 +12,11 @@ The config manifest transports cold-tier rows; the archive also carries instance
 
 `arizuko package add`, `rm` and `sync` install packages and apply the resource
 rows that each package declares. The `installed_packages` rows select the
-packages; no `arizuko.yml` selects one. `export`, `get`, and `plan`
-inspect config; `archive export` and `archive apply` back up and restore it
-with instance data (`cmd/arizuko/apply.go`, `cmd/arizuko/archive.go`).
-The standalone `apply` command and its `--as-folder` option are retired.
-`Resource.Retarget` remains an engine primitive, with no CLI caller.
+packages; no `arizuko.yml` selects one. `get` and `plan` inspect config.
+`dump` and `apply` of a dump tar back up and restore it with instance data.
+`apply` of a rows file writes the rows the file names
+(`cmd/arizuko/apply.go`, `cmd/arizuko/archive.go`). The `--as-folder` option is
+retired. `Resource.Retarget` remains an engine primitive, with no CLI caller.
 
 The decisions and implementation history below describe the original manifest
 and archive design. References to standalone `apply`, SQLite transactions,
@@ -38,9 +38,9 @@ remember, what credentials they hold. That is the archive.
 ## Two artifacts, one mechanism
 
 The archive is a **superset that contains the config manifest**, not a
-bigger manifest: `archive export` calls the same `resreg.Export`/`EmitYAML`
-renderer `arizuko export` calls and writes the output as one of the
-archive's documents. One renderer, two sinks.
+bigger manifest: `dump` calls the `resreg.Export`/`EmitYAML` renderer and
+writes the output as the archive's `routd.yaml` and `onbod.yaml`, the
+documents that `apply` reads back as a rows file. One renderer, two readers.
 
 One piece does not belong here: the `runed` admission change that lets a
 filesystem restore claim a folder's run slot is general execution-plane
@@ -61,9 +61,11 @@ Current config commands:
   selection, the rows and the services of one package.
 - `arizuko package sync [-i instance]` — install every selected package again,
   write the `group/` payload and print one line per override.
-- `arizuko export [-i instance] [file]` — dump cold-tier config to YAML.
 - `arizuko get [-i instance] <resource>` — export a resource from live state.
-- `arizuko plan [-i instance] <file>` — compare a manifest with live state.
+- `arizuko apply [-i instance] <rows.yml>` — write the rows in the file
+  (§"Rows file").
+- `arizuko plan [-i instance] <rows.yml>` — what `apply` of the same file
+  would add or change; it writes nothing.
 
 `arizuko.yml` in a package source is that package's definition: name, brand,
 tagline, env needs, `install:` and the package's own resource rows, in the
@@ -72,14 +74,18 @@ document schema below. It does not select packages. A package cannot declare
 the owning definition of the order and override rules is `EXTENDING.md`
 § Installing packages.
 
-Two archive verbs, in `cmd/arizuko/archive.go`:
+Two dump verbs, in `cmd/arizuko/archive.go`:
 
-- `arizuko archive [-i instance] export [file] [--quiesced]` — config + secret
+- `arizuko dump [-i instance] [file] [--quiesced]` — config + secret
   values + message history + group filesystem trees, as one tar file.
-- `arizuko archive [-i instance] apply <archive> [--force] [--stopped]` — full
+- `arizuko apply [-i instance] <dump.tar> [--force] [--stopped]` — full
   restore. `--stopped` asserts the instance is down; without it the
   filesystem step claims each folder's run slot in a live `runed` and
   refuses to proceed if it cannot.
+
+`apply` takes one file. A file with the tar magic (`ustar` at byte 257) is a
+dump; any other file is parsed as a rows file. `--force` and `--stopped` belong
+to a dump, and `apply` refuses them with a rows file.
 
 **Rebuild scope is the load-bearing decision for config.** Per resource,
 DELETE+INSERT is scoped to the folders the manifest mentions (`DELETE …
@@ -110,6 +116,34 @@ is one file each; to a single path they concatenate as `---`-separated
 documents; `apply` accepts either because they are the same documents. No
 `--single` flag, no second format.
 
+## Rows file
+
+A rows file is a partial dump: the YAML documents `routd.yaml` and
+`onbod.yaml` carry (§"Shape"), holding only the resources and rows an operator
+wants to write. `get <resource>` emits one. The flow `dump`, untar, edit
+`routd.yaml`, `apply` works because the file is the same document.
+
+**`apply` of a rows file never deletes a row.** The engine rebuilds every
+resource a document mentions, and a scope-less resource such as `routes`
+rebuilds wholesale, so handing it the file as it stands would delete every row
+the file leaves out. `mergeLive` (`cmd/arizuko/apply.go`) therefore lays the
+file's rows over the live rows of each mentioned resource with
+`Resource.MergeRows`, and the engine rebuilds that union. The file's row wins
+on its primary key and replaces the whole stored row. A row the file does not
+name stays, and a resource the file does not mention is not in the document,
+so the engine does not touch it. Removing a row is not possible through a rows
+file; `package rm`, `group rm` and the resource's own verbs remove rows.
+
+The document goes through `applyDocs`, the path `package sync` and a dump
+restore use, with the same preflight (§"The missing-group rule") and the same
+cross-subsystem rollback. The checksum for the content-hash CAS is the live
+checksum `mergeLive` reads in the same run; the `checksum` key in the file is
+not compared, because the file is not a state to compare against. After the
+commit, `apply` provisions the directory of every `groups` row in the file
+that lacks one (§"Apply is a restore, so filesystem prep follows the commit").
+`plan` runs `mergeLive` and `resreg.Plan`, so it shows exactly what `apply`
+would write.
+
 ## Three transports, one row schema
 
 REST, MCP, and YAML are three transports over the **same row schema**,
@@ -136,9 +170,9 @@ canonical row projection, not a per-DB counter.** This deleted the
 `config_meta` table design, `resreg.ConfigVersion`, and the "every writer
 advances the version" rule this spec previously specified.
 
-`export` stamps `checksum: sha256:<hex>`; `apply` recomputes it from the
-**live DB, in the same transaction that will write**, and refuses on
-mismatch unless `--force`. The hashed bytes are the SAME
+`dump` stamps `checksum: sha256:<hex>` in each config document; `apply` of a
+dump recomputes it from the **live DB, in the same transaction that will
+write**, and refuses on mismatch unless `--force`. The hashed bytes are the SAME
 `Export`/`EmitYAML` output the manifest is made of, minus the checksum field.
 
 Why a hash, not a counter:
@@ -310,7 +344,7 @@ than imply an image it doesn't have:
   config changes are human-paced; for messages and filesystem trees the
   smear is real but bounded to the export's wall-clock duration.
 - **`quiesced`** (`--quiesced`). The operator has already stopped the
-  instance before running `archive export`; the flag only stamps
+  instance before running `dump`; the flag only stamps
   `consistency: quiesced` in the metadata — the tool does not stop or start
   services itself. Trivially consistent, costs downtime, the only level that
   is honestly point-in-time. What a real DR restore wants.
@@ -319,7 +353,7 @@ than imply an image it doesn't have:
   integrity across the archive's documents (the missing-group rule, below)
   and refuses the whole restore rather than importing a half-wired instance.
   Orthogonal to the smear question — it catches gross errors, not staleness.
-  This is why `archive apply` BUFFERS its config documents instead of applying
+  This is why `apply` of a dump BUFFERS its config documents instead of applying
   each as it streams past: a one-at-a-time pass would have committed `routd`
   before it had even read `onbod.yaml`, so neither this check nor the
   cross-subsystem rollback could exist. Config is bounded declarative config,
@@ -328,7 +362,7 @@ than imply an image it doesn't have:
 
 `archive.yaml` (the archive's top-level index) records
 `consistency: live|quiesced` and, per subsystem, the read transaction's
-start timestamp. `archive apply` reads this and is free to refuse a `live`
+start timestamp. `apply` of a dump reads this and is free to refuse a `live`
 archive for a use case that demands a true point-in-time image — that policy
 is an operator call, not specified here; the archive just tells the truth
 about what it is.
@@ -353,13 +387,13 @@ archive.yaml             # format_version, consistency level, per-subsystem snap
 routd.yaml               # config manifest document (this spec's existing mechanism)
 onbod.yaml               # config manifest document
 routd.secrets.yaml       # secret + route-token/invite VALUES — separate from routd.yaml
-                         # so a plain `export` reader is never handed one
+                         # so a rows file never carries one
 routd.messages.jl        # message history, JSONL (repo convention: .jl, not .jsonl)
 groups.tar               # groups/<folder>/ trees, one entry per folder
 ```
 
-`routd.yaml`/`onbod.yaml` are byte-identical to what `arizuko export` would
-produce standalone — literally the same function call, written to a
+`routd.yaml`/`onbod.yaml` are the documents a rows file holds, written by the
+same renderer `get` uses — literally the same function call, written to a
 different path. `groups.tar` stays a tar-inside-the-tar rather than
 flattened entries because it carries filesystem trees with their own
 structure and permissions — a different shape from its sibling YAML/JSONL
@@ -449,7 +483,7 @@ rules is nondeterministic, not a reconstruction.
 `onboarding_gates` is and it rides this mechanism for free" — was wrong**
 (BUGS.md Z3, verified against the code): `onboarding.token` was a live
 PLAINTEXT bearer and the table has no folder scope, so a naive registration
-would have exported the bearer into `arizuko export` YAML AND nulled every
+would have exported the bearer into dump YAML AND nulled every
 live setup link on any wholesale rebuild. It now IS registered, after a
 hash-at-rest migration, with the bearer column omitted from `RowType`
 outright and `SkipApplyRebuild: true`
@@ -483,7 +517,7 @@ The stored form is already a plain string — `"v2:" + base64(nonce ||
 ciphertext)` (`store/secrets.go:21,35`) — trivially a YAML scalar, no new
 encoding needed. `routd.secrets.yaml` carries the `SecretsRow` shape plus
 the `Value` field the config manifest deliberately omits ("Secret safety"
-below, unchanged for plain `export`).
+below, unchanged for a rows file).
 
 Import is **UPSERT by `(scope_kind, scope_id, key)`, copying the column
 verbatim, never DELETE+INSERT** — `secrets` keeps `SkipApplyRebuild`
@@ -491,7 +525,7 @@ verbatim, never DELETE+INSERT** — `secrets` keeps `SkipApplyRebuild`
 would wipe live blobs. `route_tokens`/`invites` hash-at-rest values UPSERT
 the same way, for the same reason "Tokens in manifests" (below) forbids
 rebuilding credential material from an operator-edited manifest. Ordinary
-config `apply` is unaffected; only `archive apply` touches these columns.
+config `apply` is unaffected; only `apply` of a dump touches these columns.
 
 **`route_tokens` archives `kind='route'` only — pairing tokens are excluded
 entirely** (`RowFilter`, `resreg/resources/route_tokens.go:135`). Two
@@ -511,7 +545,7 @@ is gone from the live table, not flagged. The bearer itself never leaks
 still sits in someone's chat scrollback makes that link valid again: an
 access-control regression, so "UPSERT never deletes, hence safe" answered the
 wrong question. **Fix: `route_tokens`/`invites` restore is OFF by default.**
-`archive apply` skips these two documents' UPSERT step and reports what it
+`apply` of a dump skips these two documents' UPSERT step and reports what it
 skipped, unless `--force` — the same override the filesystem step uses, not a
 third flag for a third concept — AND even with `--force` refuses unless the
 target's `route_tokens`/`invites` tables are already empty (a proven-empty
@@ -645,9 +679,9 @@ token-and-edge in one transaction (`route_tokens.kind`), config rollback via
 the export renderer, and now the hold onto the run slot — **don't add
 coordination beside an existing serialization point, move onto it.**
 
-#### The CLI side: `archive apply` takes the hold
+#### The CLI side: `apply` of a dump takes the hold
 
-`arizuko archive apply` claims each to-be-written folder's run slot between
+`arizuko apply` of a dump claims each to-be-written folder's run slot between
 `extractGroups`' two passes — after the extract-or-skip decision, before the
 first byte lands — and releases every one when the filesystem step returns.
 Only folders actually written are held; pausing a folder whose tree is left
@@ -770,7 +804,7 @@ out-of-band.
 **Refuse an older target binary; don't try to translate for it.**
 `archive.yaml` stamps `format_version: N` — a small integer bumped only when
 an archive document's shape changes, independent of `arizuko`'s release tags.
-`archive apply` refuses outright when it exceeds the target binary's
+`apply` of a dump refuses outright when it exceeds the target binary's
 compiled-in `resreg.ArchiveFormatVersion` (`resreg/archive.go:25`): failing
 loud beats silently ignoring fields an older binary doesn't know about.
 
@@ -783,7 +817,7 @@ group row lacking a complete on-disk dir. A failed `SetupGroup` surfaces as
 an apply error, never swallowed: a row without its dir makes routing `docker
 run` against a missing path and exit 125. `arizuko repair` re-runs the prep
 alone, idempotently. Direct `mkdir` of a group is forbidden (CLAUDE.md). For
-`archive apply` this rule is unchanged and stays the fallback; a folder with
+a dump restore this rule is unchanged and stays the fallback; a folder with
 a `groups.tar` entry skips the scaffold and extracts the tar instead.
 
 Removing a group from the manifest deletes its row but **not** its directory;
@@ -822,7 +856,7 @@ Enforced by `SkipApplyRebuild` on `secrets`
 (`resreg/resources/invites.go:60`) and `onboarding`
 (`resreg/resources/onboarding.go:95`).
 
-`archive apply` does not reopen this: its secrets/tokens UPSERT lane is a
+`apply` of a dump does not reopen this: its secrets/tokens UPSERT lane is a
 _different_ codepath from config `apply`'s DELETE+INSERT, added specifically
 because it never rebuilds — it only ever adds or matches an existing row by
 PK. Config reconciliation of a hand-edited manifest still never touches
@@ -867,7 +901,7 @@ snapshot isolation during the tx.
 
 ## Round-trip honesty
 
-`get`/`export` must emit a fragment that re-applies to a no-op — exact shape
+`get` must emit a fragment that re-applies to a no-op — exact shape
 `apply` accepts, no extra or omitted fields, no reordering.
 
 **Canonical key order is mandatory** (Go map iteration is
@@ -902,8 +936,8 @@ would wipe the imperatively-set blob. Setting one outside the archive path is
 a separate operator command, `arizuko secret set`. Trust boundary unchanged
 from [`9/2` "Entity notes worth keeping"](../9/2-data-model.md#entity-notes-worth-keeping).
 
-This guarantee is specifically about `arizuko export`/`apply`/`get`/`plan` —
-the config manifest. `archive export`/`apply` is a **different,
+This guarantee is specifically about `arizuko apply` of a rows file, `get` and
+`plan` — the config manifest. `dump` and `apply` of a dump are a **different,
 narrower-audience artifact** (`routd.secrets.yaml`) that exists precisely to
 carry the value, under the as-is/UPSERT rule decided for it. An operator who
 only ever runs the config verbs never produces or consumes a file containing

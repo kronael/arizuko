@@ -16,7 +16,6 @@
 ## What needs you
 
 - `L637` — a package install dies on an ignored leftover under `ant/skills/` of the source checkout.
-- `L634` — no command writes instance resource rows such as `container_config`.
 - `L632` — compose derives ARIZUKO_INSTANCE from the data dir name.
 - `L627` — install mandatory core in integration test fixtures.
 - `L626` — make ACL endpoint test assert the intended row.
@@ -432,18 +431,6 @@ decision: keep the rule and document `APP_SRC_DIR=<clean tree>`, or loosen it.
 The second deploy note, "pass your PATH under sudo so the install finds uv", is
 sudo's `secure_path` reset before the manifest `install:` command runs; no code
 path sets it.
-
-## L634 — instance resource rows have no write path (2026-10-28, open)
-
-Measured in the controller: `arizuko apply` is retired, and `package sync` no
-longer applies instance `arizuko.yml` rows (owner's DB-selection decision). The
-`groups` resource serves only register/list/get (`routd/groups_resource.go`), so
-no CLI, REST or MCP path writes `groups.container_config` (host mounts,
-`EXTENDING.md` § Adding a host mount); `acl_membership` REST shows only DELETE.
-Only `archive apply` writes rows in bulk. Live krons and sloth have no instance
-`arizuko.yml`, so nothing live depends on it today. Owner decision: restore a
-manifest apply over the existing `applyDocs` (`arizuko apply -i <inst> <file>`),
-or add per-resource writes. Not fixed in this release unless the owner says so.
 
 ## L632 — compose derives the instance name from a path (2026-10-28, open)
 
@@ -4681,11 +4668,11 @@ new tool lands on the wrong side, which is what keeps the choice honest.
   per world instead of on `role:member`, and the guard test becomes the thing
   that stops them drifting.
 
-## L249 — the archive export carries the config plane, not the runtime plane, so export/import cannot yet carry a daemon's port (2026-09-07, open — proposal, needs sign-off)
+## L249 — the dump carries the config plane, not the runtime plane, so export/import cannot yet carry a daemon's port (2026-09-07, open — proposal, needs sign-off)
 
 MEASURED 2026-09-07. Snapshots of all three live instances were taken with
 `sqlite3 .backup`, migrated to routd 0046, then exported with
-`arizuko archive export <inst> --quiesced`. All three exports succeed.
+`arizuko dump <inst> --quiesced`. All three exports succeed.
 
 `routd.yaml` carries 13 resources — `acl`, `acl_membership`, `github_sources`,
 `groups`, `installed_packages`, `network_rules`, `pending_actions`,
@@ -4726,7 +4713,7 @@ design, and `cost_log_archive` is deliberately left behind by `6/39`.
 **NARROWED 2026-09-22: the import half of the runtime plane is already
 written.** The 2026-09-07 measurement was taken with `sqlite3 .backup` against
 routd 0046 — the SQLite era — so it was re-checked at HEAD. The finding holds:
-`archive export` walks resreg subsystems (`cmd/arizuko/archive.go`
+`dump` walks resreg subsystems (`cmd/arizuko/archive.go`
 `ExportSnapshot`) and carries no runtime table.
 
 **And the import half is NOT already written**, which `L348` measured on
@@ -4739,7 +4726,7 @@ for every runtime entity, which is the part that would otherwise be rewritten.
 - **Severity:** high (blocks `6/37` step 4 — the per-daemon export/import port)
 - **Scope:** `resreg/resources/`, `cmd/arizuko/archive.go`, `specs/6/37`
 - **Affected:** every daemon port after `dashd`; a cutover would reset cursors
-- **Source:** measured `arizuko archive export` vs `routd.db` table census
+- **Source:** measured `arizuko dump` vs `routd.db` table census
 - **Status:** open — proposal, needs sign-off
 - **Fix:** resreg resources for the four runtime tables, so one lane carries them
 
