@@ -83,6 +83,11 @@ func InstallPackage(dataDir, source string, build bool) (ProductManifest, []stri
 			return manifest, nil, fmt.Errorf("install %s: %w", manifest.Name, err)
 		}
 	}
+	if os.Geteuid() == 0 {
+		if err := chownR(filepath.Dir(dir), containerUID, containerUID); err != nil {
+			return manifest, nil, fmt.Errorf("hand packages to uid %d: %w", containerUID, err)
+		}
+	}
 	names, err := ReadPackageSkills(dir)
 	if err != nil {
 		return manifest, nil, err

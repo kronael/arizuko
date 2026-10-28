@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"syscall"
 	"testing"
 )
 
@@ -37,5 +38,34 @@ func TestInstallPackageBuildsOnceAndReturnsSkills(t *testing.T) {
 	output, err := exec.Command(filepath.Join(dataDir, "packages", "example", "bin", "tool")).Output()
 	if err != nil || string(output) != "built\n" {
 		t.Fatalf("tool output %q: %v", output, err)
+	}
+}
+
+// A root run (sudo arizuko package) must leave the tree to the uid routd runs
+// as, or routd cannot write packages/core at its next start. Runs only as root.
+func TestInstallPackageHandsTreeToDaemonUID(t *testing.T) {
+	if os.Geteuid() != 0 {
+		t.Skip("needs root to create files owned by another uid")
+	}
+	source := t.TempDir()
+	dataDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(source, ManifestFile), []byte("name: example\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := InstallPackage(dataDir, source, false); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{
+		filepath.Join(dataDir, "packages"),
+		filepath.Join(dataDir, "packages", "example"),
+		filepath.Join(dataDir, "packages", "example", ManifestFile),
+	} {
+		info, err := os.Lstat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if uid := int(info.Sys().(*syscall.Stat_t).Uid); uid != containerUID {
+			t.Errorf("%s owned by uid %d, want %d", path, uid, containerUID)
+		}
 	}
 }

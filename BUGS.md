@@ -15,7 +15,6 @@
 
 ## What needs you
 
-- `L636` — `package` run under sudo leaves root-owned package dirs that routd cannot write.
 - `L634` — no command writes instance resource rows such as `container_config`.
 - `L632` — compose derives ARIZUKO_INSTANCE from the data dir name.
 - `L627` — install mandatory core in integration test fixtures.
@@ -433,16 +432,6 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
 - **`L15` — the 2026-08-11 dead-code sweep's rejected hits.** `deadcode ./...` gave 149
   hits, 56 under `-test`; nine survived verification and were filed separately. Kept so
   the next sweep does not re-report the same ~135.
-
-## L636 — sudo package runs leave root-owned package dirs (2026-10-28, open)
-
-Measured on the krons v0.71.0 deploy: routd restart-looped with
-`initialize required core package ... mkdir /srv/app/home/packages/core:
-permission denied`, because `<data_dir>/packages` belonged to root and routd runs
-as uid 1000. `arizuko package` needs sudo to read the root-owned instance
-`.env`, so every run writes `packages/<name>` as root again, and routd writes
-`packages/core` at each start. Mitigation used: `sudo chown -R 1000:1000
-<data_dir>/packages` after each run. A fix must make one owner write the tree.
 
 ## L634 — instance resource rows have no write path (2026-10-28, open)
 
