@@ -15,20 +15,18 @@
 
 ## What needs you
 
+- `L637` — a package install dies on an ignored leftover under `ant/skills/` of the source checkout.
 - `L634` — no command writes instance resource rows such as `container_config`.
 - `L632` — compose derives ARIZUKO_INSTANCE from the data dir name.
 - `L627` — install mandatory core in integration test fixtures.
 - `L626` — make ACL endpoint test assert the intended row.
 - `L625` — update the exported seeded-grant expectation.
-- `L624` — correct chat threading CLI usage for instance flags.
-- `L623` — do not seed Git worktree metadata into group homes.
 - `L621` — clear new spec-linter diagnostics in changed package specs.
 - `L620` — reconcile run-stop service authorization with the stated contract.
 - `L619` — document the toolkit package install prerequisite.
 - `L618` — document the GitHub reply target requirement.
 - `L617` — align operator startup guidance with the systemd deploy path.
 - `L616` — reconcile manifest spec and catalog index with unified sync.
-- `L615` — remove retired package commands from package surfaces.
 - `L614` — reconcile package route gating with documented behavior.
 - `L613` — correct the Codex hook mount description.
 - `L612` — document both package route manifest locations.
@@ -38,7 +36,6 @@
 - `L608` — correct the web security description of sender authorization.
 - `L607` — correct the landing page product setup sequence.
 - `L606` — let the bootstrap guide verify root-owned kernel artifacts.
-- `L605` — correct the retired package-command error message.
 - `L601` — allow the bundled store package through the unified sync path.
 - `L600` — restore fresh-instance store bootstrap for the unified package flow.
 - `L596` — choose whether scheduled tasks execute in their owner folder or require a chat trigger route.
@@ -433,6 +430,23 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
   hits, 56 under `-test`; nine survived verification and were filed separately. Kept so
   the next sweep does not re-report the same ~135.
 
+## L637 — a package install dies on an ignored leftover in the source checkout (2026-10-28, open)
+
+Measured on the krons v0.71.0 deploy: `arizuko package` with `APP_SRC_DIR` set
+to the main checkout failed, and a clean tree worked. The core package is read
+from `<APP_SRC_DIR>/ant`; `container.ReadPackageSkills` rejects any
+`ant/skills/<dir>` without a `SKILL.md`. That checkout holds gitignored
+`ant/skills/create-excalidraw/` and `ant/skills/create-video-render/`, neither
+with one. Reproduced on a copy of `ant/` with an empty `skills/leftover/`:
+`InstallPackage` returns `stat .../skills/leftover/SKILL.md: no such file or
+directory`. The error names the path, and the strict rejection is intended
+(`invalid packaged skill`). Skipping such a directory would be a silent
+fallback; reading only tracked files would be a second mechanism. Owner
+decision: keep the rule and document `APP_SRC_DIR=<clean tree>`, or loosen it.
+The second deploy note, "pass your PATH under sudo so the install finds uv", is
+sudo's `secure_path` reset before the manifest `install:` command runs; no code
+path sets it.
+
 ## L634 — instance resource rows have no write path (2026-10-28, open)
 
 Measured in the controller: `arizuko apply` is retired, and `package sync` no
@@ -451,6 +465,16 @@ Read from code, not reproduced: `compose/compose.go` (~812-826) builds
 `ARIZUKO_INSTANCE` from `filepath.Base(dataDir)`. CLAUDE.md forbids deriving
 identity from a runtime path (the krons outage of 2026-04-29). The instance name
 must come from configuration, never from the directory name.
+
+Measured 2026-10-28 at v0.71.0: the only producer of the directory is
+`instanceDir` (`cmd/arizuko/main.go`), which builds `arizuko_<name>` from `-i`,
+so on every supported path the basename already equals the configured name and
+`ARIZUKO_INSTANCE` is right. The same `filepath.Base` also yields `app` and
+`flavor`, which name every container and network; moving only the instance id
+leaves two sources for one identity. A fix passes the `-i` name into
+`compose.Generate` and derives `app_flavor` from it as well (signature change,
+every `Generate` caller and the `DATA_DIR` env path that has no name), so it
+waits on the owner.
 
 ## L627 — integration fixtures omit the mandatory core package (2026-10-27, open)
 
@@ -474,21 +498,6 @@ The combined short suite's `TestExport_FreshDB` sees 39 ACL rows but expects
 37. The accepted chat controls add `chats:get` and `chats:update` grants for
 `service:dashd` to the seeded floor. Update the export witness to verify those
 specific grants as well as the correct floor count; do not change the grants.
-
-## L624 — chat thread-replies usage shows retired positional instance (2026-10-27, open)
-
-The integrated chat-local `thread-replies` command uses `-i`/`--instance`
-after the command, but its error usage still shows `<instance>` as a positional
-argument. Correct the usage and prove the merged dispatcher reaches the
-chat-local setting through the supported instance flag.
-
-## L623 — Git worktree metadata is copied as a group seed (2026-10-27, open)
-
-`container.productFiles` skips `.git` only when it is a directory. A linked Git
-worktree has `.git` as a file, so the group blend treats repository metadata as
-a normal seed and copies its host-side gitdir reference into the group home.
-Exclude the root `.git` entry regardless of type while retaining ordinary seed
-files; test both directory and file forms.
 
 ## L621 — updated spec linter finds two changed-spec diagnostics (2026-10-27, open)
 
@@ -540,14 +549,6 @@ while U2 removes those CLI paths and uses `arizuko sync` with the current store.
 and `specs/17/index.md` points readers to removed `products list`. Reconcile
 current behavior and preserve archive and engine invariants; do not remove
 historical context or invent replacement retarget behavior.
-
-## L615 — package surfaces still suggest retired CLI commands (2026-10-27, open)
-
-The dashboard empty-package message names the removed `arizuko packages` and
-`arizuko products` commands; the installed-package MCP folder argument also
-names `arizuko packages`. U2 replaces those commands with manifest declarations
-and `arizuko sync`. Correct the visible guidance and test the empty dashboard
-and MCP descriptions without changing authorization or resource behavior.
 
 ## L614 — package route gating is not an invariant (2026-10-27, open)
 
@@ -618,13 +619,6 @@ A disposable reproduction of that exact staging pattern produced root:root 700;
 `test -s` as UID 1001 failed while `sudo test -s` passed. The guide exits under
 `set -e` before installing the store. Correct the guide's verification while
 preserving the artifact's access policy, and check both guide copies.
-
-## L605 — manifest errors suggest removed package commands (2026-10-27, open)
-
-U2 `resreg.ParseYAML` rejects package metadata with an error that tells the
-operator to run `arizuko packages add` or `packages install`. U2 removes both
-commands in favor of `arizuko sync`. Preserve the strict rejection and point to
-the existing manifest and sync workflow.
 
 ## L601 — unified sync rejects the bundled store package (2026-10-27, open)
 
