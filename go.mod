@@ -20,7 +20,6 @@ require (
 	github.com/joho/godotenv v1.5.1
 	github.com/mark3labs/mcp-go v0.45.0
 	github.com/matterbridge/telegram-bot-api/v6 v6.5.0
-	github.com/pelletier/go-toml/v2 v2.4.3
 	github.com/prometheus/client_golang v1.23.2
 	github.com/robfig/cron/v3 v3.0.1
 	go.opentelemetry.io/contrib/bridges/otelslog v0.20.0
