@@ -1294,6 +1294,9 @@ func buildMCPServer(routd RoutdFns, db StoreFns, folder string, isRoot bool, cal
 			if err := gateJID("send", jid); err != nil {
 				return toolErr(err.Error())
 			}
+			if core.JidPlatform(jid) == "" {
+				return toolErr(fmt.Sprintf("send: jid %q has no platform prefix", jid))
+			}
 			text := req.GetString("text", "")
 			if err := refuseText(text, false); err != nil {
 				return toolErr(err.Error())
