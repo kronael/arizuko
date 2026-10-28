@@ -13,6 +13,22 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.71.0] — 2026-10-28
+
+> arizuko v0.71.0 — packages are selected in the database
+>
+> `arizuko package add|rm|sync` replaces `arizuko sync`, and an agent can no longer select a package for its own group.
+>
+> • Packages — `arizuko package add [-g folder] <source>` selects a package, `package rm` withdraws it, and `package sync` installs the selection; the selection lives in the database, not in an agent-writable file.
+> • Order — core comes first, then packages in the order you add them; a later package overrides an earlier one on the same skill, hook, tool or `group/` file, and `package sync` prints each override.
+> • Group files — `package sync` writes every `group/` file of the winning package again, and the turn settings carry an `Edit(~/<path>)` deny rule for each one.
+> • Safety — `package add` and `package sync` check for unmanaged files before they write anything; `-f/--force` replaces only those files.
+> • Package rows — a group package can declare resource rows such as `scheduled_tasks` and `network_rules`; `package rm` withdraws them.
+> • CLI — every command reads `-i/--instance`, `-h/--help` and its flags the same way; `-h` prints the usage and exits 0.
+> • Release notices — routd queues a release notice only for configured `#announce` routes.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
 ## [v0.70.15] — 2026-10-26
 
 > arizuko v0.70.15 — headed Chromium in every guest
