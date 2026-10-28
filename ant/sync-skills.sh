@@ -34,12 +34,10 @@
 #   container; js-perf.md and ts's `## Performance` section do. Adopt by hand.
 #
 # After a sync that changes anything, deliver it (the step that gets forgotten):
-#   1. bump ant/skills/self/MIGRATION_VERSION
-#   2. add ant/skills/self/migrations/<N>-vX.Y.Z-<topic>.md (its first lines are
-#      the chat broadcast) and update migration.md "Latest migration version"
-#   3. sudo make -C ant image
-#   4. restart each instance so routd re-reads the version, then VERIFY a
-#      group's stored version advanced and the skills landed in ~/.claude/skills
+#   1. add a CHANGELOG.md entry (its first bullet is the release notice)
+#   2. sudo make -C ant image
+#   3. restart each instance so routd installs the core package from the new
+#      release, then VERIFY the skills landed in a turn's ~/.claude/skills
 set -euo pipefail
 
 TOOLS="${TOOLS:-$HOME/app/tools}"

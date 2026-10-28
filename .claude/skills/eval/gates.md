@@ -52,9 +52,7 @@ cd anteval && ./anteval run https://<host> --api http://localhost:49201 \
   --sink-addr $GW:9099 --sink http://$GW:9099 --smoke
 ```
 
-**Wait for the migration storm before you run it.** A release bumps
-`MIGRATION_VERSION`, and routd then queues one `auto-migrate-<folder>` turn
-for every folder behind it — 55 of them on krons for v0.69.0. Those turns
+**Wait for a quiet queue before you run it.** Turns that are already queued
 compete for the same run slots, so the eval measures the queue, not the
 release. Measured on 2026-09-19: the same build scored **5/9 during the storm
 and 8/9 after it drained**, and every one of the three failures was the agent

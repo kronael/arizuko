@@ -367,7 +367,7 @@ const ProactiveSelfSender = "timed-proactive"
 // The senders arizuko writes on its own behalf. A person's sender is always
 // platform-qualified; these are the platform addressing itself.
 const (
-	// SystemSender writes the auto-migrate prompt (routd/loop.go).
+	// SystemSender writes the turns that the platform starts on its own.
 	SystemSender = "system"
 	// EscalateSender and DelegateSender write the agent-to-agent hand-offs.
 	EscalateSender = "escalate"

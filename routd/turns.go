@@ -82,8 +82,8 @@ func (s *Server) deliverRow(tc TurnContext, jid string, row *core.Message,
 		return core.MessageStatusSent
 	}
 	// A bare-folder jid has no channel (a system/auto turn or a mis-targeted
-	// delegation): a doomed Send tripped the per-folder breaker en masse on
-	// every MIGRATION_VERSION bump. The row lands `failed`, NOT `sent`: `failed`
+	// delegation): a doomed Send trips the per-folder breaker for every such
+	// turn. The row lands `failed`, NOT `sent`: `failed`
 	// IS the dead-letter state with delivery_attempts=0, so the content stays
 	// visible in dead_letters instead of recording a delivery that never
 	// happened (BUGS L76).

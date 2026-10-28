@@ -1203,8 +1203,8 @@ func routdService(app, flavor, dataDir string, env map[string]string) string {
 		ports:      []string{fmt.Sprintf("127.0.0.1:%s:%d", apiPort, core.DefaultAPIPort)},
 		dependsOn:  "authd, runed",
 	}
-	// routd reads ant/skills/self/MIGRATION_VERSION to enqueue /migrate; pointed
-	// at the wrong tree the auto-migrate trigger silently never fires.
+	// routd installs the core package from APP_SRC_DIR/ant and reads the release
+	// notices from APP_SRC_DIR/CHANGELOG.md at startup.
 	vol, src := appSrc(env)
 	def.environment = map[string]string{"APP_SRC_DIR": src}
 	if vol != "" {
