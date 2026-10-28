@@ -263,8 +263,7 @@ Three bounds keep that cost paid:
 
 Reply bodies are plain text: `content` "is used for setting the content" and
 `htmlContent` is output only, so markdown lands as its source characters. The
-output style for the `gdrive` surface is plain prose
-(`specs/5/Y-output-styles-per-surface.md`).
+core channel instructions require plain prose (`ant/skills/self/messages.md`).
 
 ## Decision 4 — binding: `gdrive_files` on routd
 
@@ -287,7 +286,7 @@ no secret, so unlike gitd the adapter needs no `SECRETS_KEY`.
 | Uniqueness    | one binding per file per instance; a second `register` answers 409                                                                                                                                                                 |
 | Who may bind  | REST: `target_folder` equal to or under the caller's folder (`groupfolder.Contains`, as `routd/github_sources_resource.go:69`); MCP: `db.AuthorizeTurn` on `mcp:register_gdrive_file`, so an agent binds only into its own subtree |
 | Identity      | the file id; the title is display, read by `files.get?fields=name,mimeType` (5 units) for `ChatName` and the dashboard                                                                                                             |
-| CLI           | `arizuko gdrive <inst> add <file_id> <folder>` / `list` / `rm <file_id>`, the shape of `cmd/arizuko/github.go`                                                                                                                     |
+| CLI           | `arizuko gdrive -i <inst> add <file_id> <folder>` / `list` / `rm <file_id>`, the shape of `cmd/arizuko/github.go`                                                                                                                  |
 
 ### Seeded routes (proposed)
 
@@ -406,7 +405,7 @@ anchored comments render reliably.
 `compose/compose.go` lists which host `.env` keys each daemon's generated env
 file receives; the `googd` entry names `AUTHD_URL`, `AUTHD_SERVICE_KEY`,
 `GDRIVE_SA_KEY_JSON`, `GDRIVE_IMPERSONATE` and `GOOGD_CONNECTOR_TOKEN`. The
-compose fragment has the shape of `template/services/gitd.yml` without
+compose fragment has the shape of `template/services/gitd/gitd.yml` without
 `SECRETS_KEY`: googd unseals no row, so the key that opens every secret on the
 instance has no reader here.
 

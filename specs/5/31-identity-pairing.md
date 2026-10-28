@@ -138,8 +138,8 @@ once (`4e831f10`).
 ## Unpair
 
 Unpairing is deleting one `acl_membership` row. The resource already existed but
-declared no `Endpoints` and no `MCPNames`, so an edge was removable only through
-`arizuko apply`. It gains exactly one action — delete, scoped to
+declared no `Endpoints` and no `MCPNames`; at the time, an edge was removable
+through `arizuko apply` (since retired). It gains exactly one action — delete, scoped to
 `added_by='pairing'` so it cannot reach role membership.
 
 Either endpoint of the edge may call it, and each face proves it IS that
@@ -148,8 +148,7 @@ authorized against the folder the chat JID routes to and names a sender with an
 inbound message in that chat — the same rule the mint applies; the REST caller's
 JWT sub must BE the parent. Both directions are
 de-escalation, and there is no inverse verb, because adding an edge requires
-consent at the browser step. Operators already reach the row through manifests
-and need no third path.
+consent at the browser step. An operator-facing view of pairing edges remains an open design choice in `TODO.md`.
 
 Unredeemed tokens are not separately revocable — they expire in ten minutes, and
 minting again is the same operation. Listing outstanding pairings is not an

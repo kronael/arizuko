@@ -48,7 +48,7 @@ paths encoding combinations the env vars already described.
 ## Known gap
 
 **C2 — package removal left orphan proxyd routes.** Resolved by
-[`5/28`](28-packages.md): the installed-package record names the
+[EXTENDING.md](../../EXTENDING.md#installing-packages): the installed-package record names the
 `proxyd_routes` rows a package owns, and `packages remove` deletes them
 through proxyd's handler rather than guessing at ownership.
 

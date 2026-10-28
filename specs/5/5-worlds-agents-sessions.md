@@ -124,7 +124,7 @@ operator/CLI-only (R1).
 
 ## Tier 2 — Agent (the main group)
 
-A folder with one persona (`5/21`), its skills, memory, and route bindings.
+A folder with one persona (`EXTENDING.md`), its skills, memory, and route bindings.
 Creating an agent seeds a group (`container.SetupGroup`, called from
 `onbod/main.go:868` and four other sites). Agents are **peers within a
 world**, not nested; grants are `acl` rows (`5/32`).
@@ -174,18 +174,9 @@ message to an unrouted folder no longer creates anything —
 `routd/steer.go`'s `delegateViaMessage` errors naming the folder and the tool
 that creates it. Groups are never created by routing.
 
-"Make me a copy of this group at that path" needs no mechanism of its own:
-`5/8` already ships the two primitives. Export is **instance-wide**
-(`arizuko export <instance>`, `cmd/arizuko/apply.go:313`, one manifest per
-subsystem); the target-path half is `arizuko apply --as-folder <folder>`
-(`cmd/arizuko/retarget.go`, over `resreg.Resource.Retarget`). Both are
-**operator CLI only — no MCP tool exists for either**, so an agent cannot run
-this recipe itself, and `Retarget` rewrites DB rows only
-(`cmd/arizuko/retarget.go:76`), never files. Spawning a prototype, seeding a
-`5/28` package group, and cross-instance folder migration are each a **recipe**
-over those two verbs — product guidance, not a spec, not a new tool. Anything
-that copies-and-registers behind one verb would be a second mechanism beside
-`5/8`'s, which is why the old one went.
+The manifest engine has a row retarget primitive (`resreg.Resource.Retarget`).
+It does not copy group files. The standalone `apply --as-folder` CLI was
+retired; there is no current CLI retarget recipe.
 
 ## Guests & delegated OAuth
 
@@ -364,12 +355,9 @@ is the one with shipped code behind it.
 
 Rejected:
 
-- **B — unify onto the `5/8` manifest (a product becomes an exported manifest
-  applied with `--as-folder`):** a real idea, blocked on a real gap — products
-  carry **files**, and `Retarget` rewrites DB rows only
-  (`cmd/arizuko/retarget.go:76`). Unifying needs a **file half of `5/8` that
-  does not exist**. Filed there, at `5/8` §"Path retargeting", rather than
-  left blocking this spec.
+- **B — unify onto the `5/8` manifest:** rejected because products carry
+  files and `Retarget` rewrites rows only. The proposed recipe relied on the
+  retired `apply --as-folder` CLI.
 - **C — leave open:** two words for one shape, indefinitely.
 
 ### Open 1 — can a user address a single run?
@@ -447,7 +435,7 @@ Rejected:
   evaluator beside `auth.Authorize`, which is the exact thing `5/32`+`5/33`
   spent a cutover collapsing into one.
 - **C — leave the predicate writable and inert:** ships a grant that reads as
-  applied and never fires; the `mcpServers` no-op (`5/28` `J15`) in another
+  applied and never fires; the `mcpServers` no-op (`EXTENDING.md`, BUGS J15) in another
   payload.
 
 **What lifts the refusal.** `5/31` pairing must identify the guest to the turn,
@@ -465,8 +453,8 @@ collaboration is disallowed by design: worlds are isolation boundaries.
 
 `5/18` onboarding · `5/31` pairing · the JID format (`template/web/pub/arizuko/reference/jid.html`) · `5/15` surrogate OAuth ·
 `5/17` one handler, two faces · `5/32`+`5/33` grants · `5/P` runed
-sessions/spawns · `5/21` products (`draft`) · `5/8` export/apply ·
-`5/28` packages · `5/14` credentials · `6/39` the gateway owns spend ·
+sessions/spawns · `EXTENDING.md` products/packages · `5/8` manifest and archive ·
+`5/14` credentials · `6/39` the gateway owns spend ·
 `5/9` capability
 eval · `5/V` web vhosts.
 

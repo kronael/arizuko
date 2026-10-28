@@ -10,7 +10,6 @@ depends:
     ../5/Q-unified-routing,
     ../5/31-identity-pairing,
     ../5/35-hermes-integration,
-    ../5/28-packages,
     ../5/F-topic-lineage,
   ]
 ---
@@ -247,14 +246,14 @@ The client accepts explicitly configured broker-held PAT or App installation cre
 Credential choice does not change source verification, group ownership or lifecycle rules.
 Signed webhook ingress itself remains independent of that API credential.
 
-Both product references use the existing product source and `arizuko.toml` format from
-[`28-packages.md`](../5/28-packages.md). A prototype is an explicitly selected product
+Both product references use the existing product source and `arizuko.yml` format from
+[EXTENDING.md](../../EXTENDING.md#installing-packages). A prototype is an explicitly selected product
 directory in that format. The binding pins its revision or local content snapshot.
 Changing that pin affects new children; an existing child keeps its recorded product
-until an explicit product apply.
-`container.SetupGroup` and `container.SeedProduct` own single-product materialization;
+until an explicit `arizuko package add`.
+`container.ComposeGroup` materializes the `group/` files of the selected packages;
 `installed_packages` records the source, revision and managed assets. An ordered mix
-remains declared through the group's `arizuko.toml` and applied through `container.ComposeGroup`;
+is the group's `installed_packages` rows, applied by `arizuko package sync` through `container.ComposeGroup`;
 the binding itself names one seed product. There is no second prototype schema,
 parent-directory search, or live copy of a parent's workspace.
 Persona, skills and settings are materialized in the child itself. Secrets, sessions,

@@ -47,10 +47,8 @@ spec each primitive links to — this file must not restate it.
    at the session boundary — Turn + State + the session lifecycle, built
    on the `new_session` system message routd already injects
    (`routd/dispatch.go:163`). Naming it a primitive would imply a
-   workflow engine that does not exist. <!-- UNVERIFIED: the former
-   the session-workflows spec is gone (its modality half landed in
-   `5/Y-output-styles-per-surface`); the shipped
-   surface is concepts/workflows.html and no spec owns the discipline. -->
+   workflow engine that does not exist. The operator guide is
+   `template/web/pub/arizuko/concepts/workflows.html`.
 
 6. **The core runs standalone; the seam is REST/MCP** (user-locked
    2026-08-09). The smallest real deployment is `routd` + `dashd` +

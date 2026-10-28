@@ -1,7 +1,7 @@
 ---
 status: reference
 depends: [34-resident-prompt, ../5/9-agent-capability-eval, ../5/G-engagement]
-relates-to: [5/Y-output-styles-per-surface, 5/24-live-tasklist-status]
+relates-to: [5/24-live-tasklist-status]
 ---
 
 # specs/6/44 — one delivery door, and the nudge that teaches it
@@ -144,16 +144,20 @@ suffixed-id loss above and hang every SSE subscriber waiting on the first
 
 ## The nudge: a wire object that already exists
 
+The following comparison records the earlier Docker-based design. The current
+QEMU substrate sends the deadline warning through `runed/qemu.go:588` and the
+guest writes input with `kernel/guest-init/main.go:777`.
+
 A nudge is **one tagged line of text prepended to a prompt**. The shape is in
 the tree, in four producers and three transports:
 
-| Producer                      | Shape                               | When          |
-| ----------------------------- | ----------------------------------- | ------------- |
-| `container/runner.go:538`     | `[solve] …` → `Input.Annotations`   | before a turn |
-| `container/runner.go:520`     | `[pending migration] …` → same      | before a turn |
-| `container/runner.go:369-383` | `⚠️ SYSTEM: …` → the IPC input dir  | mid-turn      |
-| `runed/docker.go:246`         | `writeIPCInput` → the IPC input dir | mid-turn      |
-| `ant/src/index.ts:145`        | `NUDGE_TEXT` → `STEER_SPOOL`        | mid-turn      |
+| Producer                         | Shape                              | When          |
+| -------------------------------- | ---------------------------------- | ------------- |
+| Solve annotation                 | `[solve] …` → `Input.Annotations`  | before a turn |
+| Migration annotation, historical | `[pending migration] …` → same     | before a turn |
+| Deadline warning writer          | `⚠️ SYSTEM: …` → the IPC input dir | mid-turn      |
+| Docker input writer, historical  | input → the IPC input dir          | mid-turn      |
+| `ant/src/index.ts:145`           | `NUDGE_TEXT` → `STEER_SPOOL`       | mid-turn      |
 
 Container side there are two consumers: the `steering` policy row
 (`ant/src/policy.ts:82`) injects the spool into a live turn on `PostToolUse`,
@@ -163,8 +167,8 @@ the fleet runs, so the mechanism is proven at full scale.
 
 This spec adds **no transport and no field**. It fixes what is already there:
 
-- **One host-side writer.** `container/runner.go:369-383` hand-rolls the same
-  temp-plus-rename `runed/docker.go:246` already provides, with its text inline.
+- **One host-side writer.** The deadline warning writer hand-rolls the same
+  temp-plus-rename the earlier Docker input writer provided, with its text inline.
   The soft-deadline warning moves onto `writeIPCInput`; two writers for one
   format is the drift the project forbids.
 - **The tag is the nudge's identity.** `drainSteering` drops a stale progress
@@ -248,8 +252,8 @@ are needed before the reader has a question, and no state detects their absence.
 Sections that stay, and why the nudge does not take them:
 
 - **Response Style** (21 lines / 2,322 B, the largest section) stays. No state
-  detects a register breach, and length already belongs to the output style by
-  `5/Y`. Firing on delivered text would nudge after the user has read it.
+  detects a register breach, and length belongs to `ant/skills/self/messages.md`.
+  Firing on delivered text would nudge after the user has read it.
 - **Task discipline**'s `AskUserQuestion` rule stays. `6/34` already assigned it
   a different mechanism — a `PreToolUse` deny — and that one stops the call
   instead of catching its aftermath. Two mechanisms for one concern is drift;
@@ -321,7 +325,7 @@ the experiment.
   L329 sentence beats a vocabulary list). Kept only as exact-literal argument
   checks at the delivery door.
 - **Nudging on style or length.** Rejected: it fires after the user has read the
-  reply, and `5/Y` already owns per-surface length through the output style.
+  reply, and `ant/skills/self/messages.md` owns per-surface length.
 - **Widening `silentRefusalRe` as the fix.** It is the cheap patch for `L329`
   and it is a symptom patch: the leak is that deliberation reaches a chat at all,
   not that one phrasing slipped a list. It becomes the fix of record only under
@@ -339,7 +343,7 @@ the experiment.
   and where the nudge rides back.
 - `store/messages.go:930` `TurnHasBotReply`, `routd/progress.go`
   `updateProgress` — the predicate and the reason a status is not an answer.
-- `container/runner.go:369` and `runed/docker.go:246` — two writers, one format.
+- `runed/qemu.go:588` and `kernel/guest-init/main.go:777` — current deadline delivery.
 - `ant/src/index.ts:145` `NUDGE_TEXT`, `:232` the exact-text filter, `:238`
   `checkIpcMessage`; `ant/src/policy.ts:82` the `steering` row;
   `ant/src/spool.ts:19` `STEER_SPOOL`.

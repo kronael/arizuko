@@ -20,7 +20,7 @@ configured by env or `dashd`.
 | was                       | when       | why                                                                                                                                                                                                      |
 | ------------------------- | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `4-rate-limits.md`        | 2026-08-02 | proposed `usage_log` + `usage_limits`, neither of which exists. The spend gate shipped instead as `routd/budget.go` over the model gateway's meter — see `6/39`. It also cited the dead gateway.         |
-| `14-plugins.md`           | 2026-08-02 | an MCP-tool plugin layer with its own manifest, CLI and catalog. The package manager shipped that surface — `5/28`, `arizuko packages`, `cmd/arizuko/packages.go`.                                       |
+| `14-plugins.md`           | 2026-08-02 | an MCP-tool plugin layer with its own manifest, CLI and catalog. The package manager shipped that surface — `EXTENDING.md`, `arizuko packages`, `cmd/arizuko/packages.go`.                               |
 | `18-daemon-dashboards.md` | 2026-08-02 | superseded by [`../6/28-cockpit-index.md`](../6/28-cockpit-index.md), which carries its routing/auth/theme/hub model over almost verbatim and fixes the read path.                                       |
 | `19-cost-caps.md`         | 2026-09-23 | per-folder cost ceilings. The caps and the pre-spawn gate ship and stand; [`../6/39-gateway-owns-spend.md`](../6/39-gateway-owns-spend.md) holds the enforcement and records the unbuilt mid-turn nudge. |
 

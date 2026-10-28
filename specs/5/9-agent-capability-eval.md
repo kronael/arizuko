@@ -149,14 +149,14 @@ on both `POST /mcp` and `POST /chat/{token}/mcp`.
 
 ## Live-run preconditions (learned the hard way)
 
-- **Token**: `arizuko token <inst> issue bearer <folder> --scope
+- **Token**: `arizuko token -i <inst> issue bearer <folder> --scope
 messages:write,messages:read` (add `cost:read` for budgets). Pass
   `--ttl 6h`: the default is one hour, and a full suite outlives it, so
   every remaining case 401s and the run reads as a total capability
   failure.
 - **API base**: `--api http://localhost:<routd-port>`. The public host
   serves no `/v1`, so pointing at it 404s every injected message.
-- **Eval folder**: `arizuko group <inst> add web:<folder> <folder>` —
+- **Eval folder**: `arizuko group -i <inst> add web:<folder> <folder>` —
   never a manual `mkdir`; `--chat web:<folder>` then routes 1:1. Creating
   it seeds five `/compact-memories` tasks that fire at once (BUGS `L312`),
   and each of those turns persists a root session, so the first run after

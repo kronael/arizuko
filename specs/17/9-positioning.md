@@ -35,7 +35,7 @@ no routes to aim it — it drifts and gives generic answers to specific jobs.
 Constraining an agent to the skills its one job needs (gating the rest via
 ACL) removes exactly the failure modes general agents have.
 
-The product catalog ([5/21-products](../5/21-products.md)) is what makes
+The product catalog (`ant/examples/`) is what makes
 this concrete: IaC without modules is a blank file; arizuko ships modules.
 The pitch is not "build your agent from primitives" — that is the engine —
 it is "take a focused agent that already does the job, and make it yours."

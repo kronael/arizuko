@@ -95,8 +95,7 @@ that every backtick spec ID names a file.
 holds it — the table said `active` on six phases at once, which expressed no
 order at all. `queued` is committed and waiting its turn; `drafting` is still
 being designed; `planned` is a placeholder with no specs written. Phase 5
-closed 2026-08-15 (its last two carve-outs, `5/5` Open 2 and `5/28`'s
-migrations, shipped as decisions); phase 6 took `active` the same day.
+closed 2026-08-15; phase 6 took `active` the same day.
 
 **Composition boundaries.** Phase 6 defines independently usable components.
 Phase 7 composes the core modules into one process for a single world.
@@ -104,10 +103,10 @@ A component boundary does not require a deployment boundary.
 
 ## Single-world specs
 
-| Spec                                                               | Status  | Summary                                                                                                                                                  |
-| ------------------------------------------------------------------ | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [7/23-agent-habitat.md](7/23-agent-habitat.md)                     | draft   | Shared message, routing, permission, and turn model                                                                                                      |
-| [7/25-publish-plan.md](7/25-publish-plan.md)                       | partial | Packages, package import adapters, and skill discovery; defect L200                                                                                      |
-| [7/26-single-world-deployment.md](7/26-single-world-deployment.md) | draft   | One core process with Dynamo-compatible storage                                                                                                          |
-| [7/27-minimum-arizuko.md](7/27-minimum-arizuko.md)                 | draft   | Writable files, messaging, and skills                                                                                                                    |
-| [7/47-source-pins.md](7/47-source-pins.md)                         | partial | Mandatory core, immutable skills, one active filesystem graph and checked receipts; native layers, provisioning and record retirement remain unfinished. |
+| Spec                                                               | Status  | Summary                                                                                             |
+| ------------------------------------------------------------------ | ------- | --------------------------------------------------------------------------------------------------- |
+| [7/23-agent-habitat.md](7/23-agent-habitat.md)                     | draft   | Shared message, routing, permission, and turn model                                                 |
+| [7/25-publish-plan.md](7/25-publish-plan.md)                       | partial | Packages, package import adapters, and skill discovery; defect L200                                 |
+| [7/26-single-world-deployment.md](7/26-single-world-deployment.md) | draft   | One core process with Dynamo-compatible storage                                                     |
+| [7/27-minimum-arizuko.md](7/27-minimum-arizuko.md)                 | draft   | Writable files, messaging, and skills                                                               |
+| [7/47-source-pins.md](7/47-source-pins.md)                         | partial | Native guest layers, system provisioning and installed-package record retirement remain unfinished. |

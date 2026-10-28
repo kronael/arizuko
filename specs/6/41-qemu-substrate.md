@@ -813,11 +813,11 @@ commitment to an estimate, not to a design.
    (§"The peer credential"), and the two host-budget guards
    (§"The host budget"): the memory-times-cap refusal at runed start and the
    overlay `size=`, plus the rootfs export in `make images` and its retention
-   in `arizuko images <instance> [--prune]`.
+   in `arizuko images -i <instance> [--prune]`.
    **Retention is an operator command, not a build target**: a tree is
    ~7 GB in an instance's data dir, a turn may have it mounted through
    virtio-fs at that moment, and a delete of a wrong path removes a
-   release. `make images` removes nothing. `arizuko images <instance>` lists
+   release. `make images` removes nothing. `arizuko images -i <instance>` lists
    every `rootfs-*` and `kernel-*` tree with its size. `--prune` removes every
    tree that `RUNED_ROOTFS_DIR` and `RUNED_KERNEL_DIR` in the instance `.env`
    do not name. It refuses when either key is unset or names a tree that is not

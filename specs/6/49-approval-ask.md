@@ -126,7 +126,7 @@ Each verdict is acknowledged in one line:
     ✅ ok (647ec18e). Always: every like call with reaction=👀 in rhias/nemo runs without asking. Undo: revoke the hold:mcp:like skip row on the grants page.
 
 The `remove_acl` call with its five quoted fields leaves the acknowledgement.
-The grants page (`dashd/grants_admin.go:86`) and `arizuko group <inst> grants`
+The grants page (`dashd/grants_admin.go:86`) and `arizuko group -i <inst> grants`
 show the row with its coordinate and a revoke control.
 
 ## Decision 4 — one declaration, one renderer, every sink reads strings

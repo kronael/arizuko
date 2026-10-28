@@ -4,18 +4,21 @@ status: defected
 # guard 1 names five sections that must stay in `ant/CLAUDE.md` until a case exists;
 # all five are gone and none of anteval's 23 cases covers them
 defects: [L188]
-depends: [../5/Y-output-styles-per-surface, ../8/A-hierarchical-skills]
+depends: [../8/A-hierarchical-skills]
 ---
 
 # specs/6/34 — the resident budget: what an always-loaded file may carry
 
 ## Problem
 
+The measurements below describe the earlier seeded-manual design. Current turns
+mount the selected package manuals and skills; the migration skill was removed.
+
 Two files load without being asked for, on every turn, for a reader who
 never chose them:
 
 - `ant/CLAUDE.md` — 388 lines, 33,921 bytes, 38 sections. Seeded into
-  every group as `~/.claude/CLAUDE.md` (`container/runner.go:1246`), which
+  every group as `~/.claude/CLAUDE.md`, which
   Claude Code reads on every turn because `settingSources` is
   `['project', 'user']` (`ant/src/claude.ts:473`) and the turn's cwd is
   the home (`ant/src/index.ts:243`).
@@ -46,11 +49,11 @@ group, before the conversation itself:
 | Resident text                                                 | Bytes                                   | Source                                                                                                         |
 | ------------------------------------------------------------- | --------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
 | `~/.claude/CLAUDE.md` (this spec's subject)                   | 31,048–34,278 across 10 groups          | `ant/CLAUDE.md` seeded once, then 3-way merged on `/migrate`; three distinct live sizes = operator edits exist |
-| `~/CLAUDE.md` (product regions, `5/28`)                       | 0 on five groups; 31,134–43,734 on four | `container/blend.go:441` concatenates each product's `CLAUDE.md`                                               |
+| `~/CLAUDE.md` (product regions, `EXTENDING.md`)               | 0 on five groups; 31,134–43,734 on four | each product's `CLAUDE.md` was concatenated                                                                    |
 | skill listing (name + description + when_to_use, ≤1,536 each) | ≈30,800 for the 93 stock skills         | Claude Code preloads every `~/.claude/skills/*/SKILL.md` frontmatter; live groups hold 84–116 skill dirs       |
 | MCP tool catalog                                              | 60 tools, ≥5,277 of description text    | `alwaysLoad: true` on the arizuko server (`8/A`); the live JSON schemas add parameter text                     |
 | output style                                                  | 952–1,492                               | `ant/src/index.ts:47` `buildSystemPrompt` = `SYSTEM.md` + the selected style                                   |
-| `/resolve` body                                               | ≈2,700                                  | the `[resolve]` nudge (`container/runner.go:531`) invokes it on every prompt, so it is resident in practice    |
+| `/resolve` body                                               | ≈2,700                                  | the `[resolve]` nudge invokes it on every prompt, so it is resident in practice                                |
 | envelope                                                      | variable                                | `routd/prompt.go:35`: system messages, `<autocalls>`, `<persona>` summary, `<observed>`, `<topic>`, messages   |
 
 Fixed text before the first user word is therefore ≈71–115 KB, and the
@@ -85,7 +88,7 @@ they drift. The root file has the same shape: `specs/CLAUDE.md` opens
 with "the settled rules from root `CLAUDE.md` — repeated here as a
 checklist", `template/web/CLAUDE.md` owns "Deploy to live krons" while
 the root carries 41 lines on the same subject, and
-`ant/skills/self/migrations/CLAUDE.md` owns the `MIGRATION_VERSION` steps
+the migration instructions owned the `MIGRATION_VERSION` steps
 the root's "Shipping changes" restates.
 
 ## The rule
@@ -123,7 +126,7 @@ at least one holds:
 
 Everything else is one of: a skill body (its frontmatter is the pointer),
 a tool description (`tools/list` is the reader), an output style (one loads
-per session, so per-surface rules belong there — `5/Y`), or the document
+per session, so per-surface rules belong there — `ant/skills/self/messages.md`), or the document
 that owns the subject. A table of topics → skills is not a map and does not
 go in the resident file: the skill listing already is that table, and a
 hand copy goes stale.
@@ -148,7 +151,7 @@ remainder, if any.
 | How messages arrive                 | 24 / 1306 | keep               | 1    | the envelope is the contract; nothing else names `<messages>` and `<reply-to>`                                                                                                                                                                                                                  |
 | When to respond                     | 18 / 1638 | keep               | 2    | silence on a mention, final-block-only delivery (`L149`), `<link-context>`: all silent. Already shaped right — it points at `chat-link.md` for the full rules                                                                                                                                   |
 | Greetings                           | 4 / 70    | move               | —    | `hello`'s frontmatter already routes on "hi/hello with no specific task"; the resident line is a second copy                                                                                                                                                                                    |
-| Resolve                             | 4 / 634   | keep, trim         | 3    | the nudge is the mechanism (`runner.go:531`); one resident line names it. "Read the channel before answering `no context`" is `resolve/SKILL.md` §2 already                                                                                                                                     |
+| Resolve                             | 4 / 634   | keep, trim         | 3    | the nudge is the mechanism; one resident line names it. `ant/skills/solve/SKILL.md` requires reading the channel before claiming no context                                                                                                                                                     |
 | Task discipline                     | 5 / 408   | keep               | 2    | `AskUserQuestion` ends the turn silent. Leaves when a PreToolUse deny rule for it ships                                                                                                                                                                                                         |
 | Skills and tools                    | 6 / 642   | keep               | 3    | this is the map: `/self`, and connector tools deferred behind Tool Search — the deferral is invisible without the line                                                                                                                                                                          |
 | Model economy                       | 4 / 461   | move               | —    | `sonnet` and `haiku` frontmatter route on scouting and mechanical lookups; economy is not a silent failure                                                                                                                                                                                      |
@@ -164,19 +167,19 @@ remainder, if any.
 | Publishing a web page               | 39 / 3114 | move, 1-line stub  | —    | the largest section; failures are 404/401/EACCES, and `priv-401`, `priv-deny`, `priv-grant`, `web-route`, `spawn-publish-reach` test the behaviour. Owner: `web/SKILL.md` (the slots) + `self/web-routing.md`. Resident: verify the URL before you announce it                                  |
 | Storage — persistent vs transient   | 16 / 903  | keep               | 3    | this table is the map (path → purpose → skill); `self/storage.md` keeps the prose. Gains one row: `/tmp` is lost at turn end                                                                                                                                                                    |
 | Additional mounts (`/mnt/`)         | 14 / 889  | move               | —    | operator SQL the agent cannot run; `self/workspace.md` owns the mount table                                                                                                                                                                                                                     |
-| CLAUDE.md ownership                 | 10 / 936  | move               | —    | matters only during `/migrate`; `self/migration.md` owns seeding and the 3-way merge                                                                                                                                                                                                            |
+| CLAUDE.md ownership                 | 10 / 936  | move               | —    | matters only during `/migrate`; the migration instructions owned seeding and the 3-way merge                                                                                                                                                                                                    |
 | Web routing and auth                | 20 / 1506 | move               | —    | `self/web-routing.md` holds the same table                                                                                                                                                                                                                                                      |
 | Gateway commands                    | 11 / 368  | move               | —    | `self/commands.md`; "when asked for help, mention these" is `hello`'s third part                                                                                                                                                                                                                |
 | `@<unknown>` prefix                 | 4 / 418   | move               | —    | `self/chat-routing.md`; the message reaches the agent as visible text                                                                                                                                                                                                                           |
 | Runtimes                            | 8 / 460   | move               | —    | `self/runtimes.md` holds the same list; bare `pip` fails loudly                                                                                                                                                                                                                                 |
 | Inbound media attachments           | 13 / 713  | keep, trim         | 1    | resident: the `<attachment>` shape and "no tag = the file did not arrive" (`read-attachment-honesty` tests it). The transcript and PDF notes move to `self/messages.md`                                                                                                                         |
 | Social actions                      | 11 / 1515 | move               | —    | `reply`'s description already says "THE DEFAULT way to respond" in 674 characters the agent reads every turn; the `platform_id` and `ErrUnsupported` rules belong in the verbs' descriptions, else `channels`                                                                                   |
-| Slack threading / Discord threading | 8 / 821   | move               | —    | per-surface: `slack-thread.md`, `slack-channel.md`, `discord*.md` output styles (`5/Y`)                                                                                                                                                                                                         |
+| Slack threading / Discord threading | 8 / 821   | move               | —    | per-surface: `slack-thread.md`, `slack-channel.md`, `discord*.md` output styles (`ant/skills/self/messages.md`)                                                                                                                                                                                 |
 | Reactions                           | 8 / 1079  | keep 1 line, move  | 2    | resident: a reaction is the floor when a reply is expected (silence is silent). Register mirroring and DM anti-patterns → the `*-dm.md` styles                                                                                                                                                  |
 | Telegram groups                     | 4 / 516   | move               | —    | `telegram-group.md` output style                                                                                                                                                                                                                                                                |
 | Delivering files to users           | 4 / 458   | keep 1 line        | 2    | inlining a file is not an error; the caption rule belongs in `send_file`'s description                                                                                                                                                                                                          |
 | Local paths vs public URLs          | 18 / 1409 | keep 2 lines, move | 2    | resident: the user cannot open container paths — translate first (`link-is-public-url` tests it). The translation table → `self/web-routing.md`                                                                                                                                                 |
-| Response size + medium              | 9 / 994   | keep, trim         | 2    | exactly what `5/Y` specifies: a pointer at the style plus the surface-agnostic long-answer pattern. The example paragraph is the trim                                                                                                                                                           |
+| Response size + medium              | 9 / 994   | keep, trim         | 2    | exactly what `ant/skills/self/messages.md` specifies: a pointer at the style plus the surface-agnostic long-answer pattern. The example paragraph is the trim                                                                                                                                   |
 
 Summing the "keep" column with its trims: ≈15 KB stays resident, ≈19 KB
 leaves, and ≈12 KB of what leaves already exists at its destination. The
@@ -188,8 +191,7 @@ of the 15 and does not shrink under this rule.
 The reader is a maintainer session. Its on-demand surfaces are the global
 skills, the two project skills (`.claude/skills/eval`, `create-eval`), and
 directory-scoped `CLAUDE.md` files that Claude Code loads when a file in
-that directory is read — `specs/CLAUDE.md`, `template/web/CLAUDE.md`,
-`ant/skills/self/migrations/CLAUDE.md` are the repo's own precedent for
+that directory is read — `specs/CLAUDE.md` and `template/web/CLAUDE.md` are the repo's own precedent for
 on-demand rules. The root file has no conformance harness, so this table
 moves **explanations, never rule lines**: every invariant keeps its one
 sentence resident and sends its cost narrative to the spec or bug that
@@ -210,7 +212,7 @@ recorded it. L / B are the sizes this audit measured.
 | Updating the web docs                 | 41 / 1869 | move                   | —    | `template/web/CLAUDE.md` owns "Deploy to live krons" and loads when the tree is touched; the "visuals are load-bearing" paragraph moves with it. Resident: one row                                                                                                                               |
 | Layout                                | 7 / 293   | merge                  | —    | a row                                                                                                                                                                                                                                                                                            |
 | Refine scope                          | 20 / 937  | keep                   | 4    | `~/.claude/skills/refine` reads the live project `CLAUDE.md` for its lenses (step 3), so this section is that skill's project half                                                                                                                                                               |
-| Conventions                           | 39 / 2311 | split                  | 2    | resident rows: `.jl`, XML-in-prompts/JSON-in-IPC, `submit_turn`, `:8080` everywhere, dynamic-vs-static in one sentence. The `L45` narrative → `5/28`; "adding a channel adapter" → `EXTENDING.md`                                                                                                |
+| Conventions                           | 39 / 2311 | split                  | 2    | resident rows: `.jl`, XML-in-prompts/JSON-in-IPC, `submit_turn`, `:8080` everywhere, dynamic-vs-static in one sentence. The `L45` narrative → `EXTENDING.md`; "adding a channel adapter" → `EXTENDING.md`                                                                                        |
 | Trust boundaries                      | 8 / 358   | move                   | —    | `SECURITY.md` §"Identity header trust" owns it                                                                                                                                                                                                                                                   |
 | Split write-discipline                | 6 / 198   | keep                   | 2    | a direct write to another daemon's DB works until it does not                                                                                                                                                                                                                                    |
 | Subagent worktrees                    | 16 / 792  | keep 2 lines           | —    | the parallel-edit ban is in `~/.claude/CLAUDE.md` word for word; resident: the >5-files worktree threshold                                                                                                                                                                                       |
@@ -222,7 +224,7 @@ recorded it. L / B are the sizes this audit measured.
 | Service Architecture                  | 7 / 246   | merge                  | —    | a row                                                                                                                                                                                                                                                                                            |
 | Operational check (five gates)        | 61 / 3048 | move, 2-line rule      | —    | `.claude/skills/eval/SKILL.md` exists for exactly this and gate 4 already invokes it. Resident: a deploy is not done until `anteval --smoke` passes, and the reason (`L149` shipped green through gates 1–4)                                                                                     |
 | OTLP export                           | 10 / 520  | move                   | —    | `obs/README.md`                                                                                                                                                                                                                                                                                  |
-| Shipping changes                      | 14 / 761  | move, 1-line rule      | 2    | `ant/skills/self/migrations/CLAUDE.md` owns the steps. Resident: every release bumps `MIGRATION_VERSION`, docs-only included — forgetting it is silent                                                                                                                                           |
+| Shipping changes                      | 14 / 761  | move, 1-line rule      | 2    | The migration instructions owned the steps. Resident: every release bumps `MIGRATION_VERSION`, docs-only included — forgetting it is silent                                                                                                                                                      |
 | Tagging a new version                 | 16 / 947  | keep                   | 4    | `~/.claude/skills/release` step 0 reads the project `CLAUDE.md` for the steps that override its defaults                                                                                                                                                                                         |
 | Announcing                            | 20 / 533  | keep                   | 4    | `~/.claude/skills/release` reads `## Announcing` for the tagline and footer; `CHANGELOG.md`'s head points here and states no rule of its own                                                                                                                                                     |
 | Deploy policy                         | 6 / 210   | keep                   | 2    | deploying to a second instance unasked raises no error                                                                                                                                                                                                                                           |
@@ -327,14 +329,11 @@ to prepend it per turn, which prices every resident byte three times.
 
 - `ant/CLAUDE.md` — the resident file for agents.
 - `CLAUDE.md` — the resident file for maintainers.
-- `container/runner.go:1246` — seeds the agent file (seed-once + merge-base).
-- `container/runner.go:531` — `SYSTEM.md`, `in.Persona`, the `[resolve]` nudge.
+- `runed/render.go:211` — persona and `SYSTEM.md`; `:215` — the `[solve]` nudge.
 - `ant/src/index.ts:47` — `buildSystemPrompt`; `ant/src/claude.ts:463,473` — preset and `settingSources`.
 - `routd/prompt.go:35` — the envelope renderer.
-- `container/blend.go:441` — product `CLAUDE.md` regions (`5/28`).
 - `ant/skills/self/SKILL.md` — the dispatch table that is the map.
 - `anteval/cases/anteval.toml` — the 22 conformance cases; guard 1's ledger.
-- `specs/CLAUDE.md`, `template/web/CLAUDE.md`,
-  `ant/skills/self/migrations/CLAUDE.md` — directory-scoped files, the
+- `specs/CLAUDE.md`, `template/web/CLAUDE.md` — directory-scoped files, the
   repo's on-demand precedent for the root file.
 - `BUGS.md` `L130`, `L149`, `L150`, `L155` — the failures this spec cites.

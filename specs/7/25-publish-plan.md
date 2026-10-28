@@ -1,8 +1,7 @@
 ---
 status: partial
 defects: [L200]
-depends:
-  [../5/28-packages, ../5/27-compose-native-packaging, ../5/8-yaml-manifests]
+depends: [../5/27-compose-native-packaging, ../5/8-yaml-manifests]
 relates-to: [23-agent-habitat, 26-single-world-deployment]
 ---
 
@@ -18,7 +17,7 @@ An outside author can install a package without adding its name to a core
 switch or editing a core map. Installation exposes the declared capabilities
 through the same management surfaces as built-in capabilities.
 
-The existing contract lives in [5/28-packages](../5/28-packages.md).
+The current lifecycle lives in [EXTENDING.md](../../EXTENDING.md#installing-packages).
 This spec extends that contract; it does not define another manifest format.
 Defects L199 and L200 remain obligations of the package contract.
 
@@ -53,9 +52,8 @@ has no requirement to load arbitrary code into its own process.
 ## Skill discovery
 
 Installed packages expose skills through the package contract. Distinct
-group-local skills remain writable. A packaged skill name must not collide with
-core, another package or a group-local skill. No packaged-name override is
-allowed; [the core contract](47-source-pins.md) defines the shared check.
+group-local skills remain writable. Core, system and exact-folder packages form
+an ordered overlay; the later provider of a skill wins.
 
 Discovery reads this installed set. Each harness receives its supported view
 from the shared skill renderer. Import adapters do not maintain separate

@@ -115,8 +115,15 @@ from final delivery and last-answer tracking.
 outbound retries. An existing topic wins without creating a nested thread.
 Otherwise `thread_root`, a group chat and enabled `thread_replies` permit the
 opener to anchor the task thread. Existing topics require `thread_id`.
+The chat owns `thread_replies`; an unset preference uses the chat's group or
+direct-message default. The preference controls new threads, not replies in an
+existing thread. Separate chats routed to one group have separate preferences.
 Without compatible placement, the summary uses the single editable progress
 card and final placement stays unchanged. A channel without `edit` posts no progress.
+
+`reply` follows the task thread. An explicit text `send` posts in the named
+chat's main channel. Progress stays in the task thread. Retries keep the recorded
+thread placement and use the turn's return address for delegated replies.
 
 A pending opener keeps its durable row and idempotency key. An unresolved or
 unreadable opener refuses an unplaced child without queueing a guessed

@@ -1,7 +1,6 @@
 ---
 status: shipped
 depends: [F-topic-lineage, L-mention-promotion]
-relates-to: [5/Y-output-styles-per-surface]
 ---
 
 # specs/5/G — engagement: stay in the conversation after a mention
@@ -272,5 +271,5 @@ costs at most one un-extended window; the next `verb=mention` re-engages.
 
 ## Per-surface output length
 
-Lives in [`Y-output-styles-per-surface.md`](Y-output-styles-per-surface.md),
+Lives in [the core channel instructions](../../ant/skills/self/messages.md),
 not here — when the agent fires and how it shapes output are independent.

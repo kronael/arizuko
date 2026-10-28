@@ -5,7 +5,7 @@ status: active
 # specs/17 — products
 
 Products built on arizuko: what a product _is_ lives in
-[5/21-products](../5/21-products.md) (arizuko.toml format, `--product`
+[EXTENDING.md](../../EXTENDING.md#installing-packages) (arizuko.yml format, `--product`
 install flow, authoring guide, shipped catalog). This phase holds the
 product-adjacent designs that are not yet platform core.
 
@@ -23,17 +23,13 @@ control API; the API ships before the products that depend on it.
 | [9-positioning.md](9-positioning.md)             | research    | Competitive landscape vs LangGraph/CrewAI/Dify/n8n/managed cloud.                                                                |
 | [→ 6/27-git-channel](../6/27-git-channel.md)     | moved       | `gitd` is a channel adapter — platform, not a product; moved 2026-08-25 to the active platform phase, beside its sibling `6/26`. |
 | [→ 5/19-hitl-firewall](../5/19-hitl-firewall.md) | moved       | Pulled into platform core; one `pending_actions` resreg resource + injected `CheckHold`, no dispatcher.                          |
-| [→ 5/28-packages](../5/28-packages.md)           | moved       | Pulled into platform core, then dissolved 2026-08-04: composition folded into `5/28`, state transport pointed at `5/8`.          |
-| [→ 5/21-products](../5/21-products.md)           | moved       | Producer-side product spec (arizuko.toml format, catalog, authoring).                                                            |
 
 ## Product catalog
 
-The shipped catalog is `ant/examples/` itself — `arizuko products <inst>
-list` enumerates it ([5/21-products](../5/21-products.md)). It is **not**
-restated here. Per-product truth lives in three places, none of which is a
+The shipped catalog lives in `ant/examples/`. [EXTENDING.md](../../EXTENDING.md#installing-packages) describes package selection. The catalog is **not** restated here. Per-product truth lives in three places, none of which is a
 spec file:
 
-- `ant/examples/<name>/arizuko.toml` — skills, `[[env]]`, operator setup.
+- `ant/examples/<name>/arizuko.yml` — skills, `env`, operator setup.
 - `ant/examples/<name>/{PERSONA,SOUL,BRANDING}.md` — voice and register.
 - `template/web/pub/arizuko/products/<name>/` — the public pitch.
 
@@ -73,7 +69,7 @@ gate `support` and `socials`.
   product ideas" above. Neither ships a template; both were one
   paragraph of intent under a template-shaped heading.
 - `P-product-templates.md` — **deleted**. A pointer stub to
-  `5/21-products`; inbound links repointed there.
+  `EXTENDING.md`; authoring instructions live there.
 - `5-authoring-product.md` — **deleted**. It was an earlier name for what
   shipped as the `creator` product (`ant/examples/creator/`); the index
   already said "see product-creator.md". Its one non-duplicate idea —

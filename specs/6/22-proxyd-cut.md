@@ -82,7 +82,7 @@ rows only — never from a seed-once env var, the fault `L45` records.
 With routes as rows, the proxy config becomes one more reader of one
 declaration (root `CLAUDE.md`, "one declaration, many readers").
 
-**Shipped 2026-09-04: `proxycfg` + `arizuko proxy-config <instance>`.** It
+**Shipped 2026-09-04: `proxycfg` + `arizuko proxy-config -i <instance>`.** It
 renders a Caddyfile rather than Caddy's admin JSON — `forward_auth` is a
 first-class directive there, so the one thing the render cannot do stays legible
 instead of hiding in a `handle_response` block. Measured against krons' live

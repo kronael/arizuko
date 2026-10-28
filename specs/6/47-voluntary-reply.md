@@ -217,7 +217,7 @@ error:
 
 Each is string containment on an argument: exact, zero false positives, loud to
 the agent because a refused call returns its reason. Length is not checked
-here — the output style owns it per surface (`../5/Y-output-styles-per-surface.md`),
+here — the core skill owns it per surface (`ant/skills/self/messages.md`),
 and `teled/bot.go:439` already chunks at the platform limit. A check on prose
 style is a regex over unbounded text, declined (`44-delivery-contract.md`
 §"The detector: state, not text").
@@ -276,8 +276,7 @@ submitted and never replied, a malfunction — so `obs/README.md:91` stays true.
 
 ## Migration
 
-Every live agent today replies by printing; the day this ships, printing
-reaches nobody. The single trigger is `ant/skills/self/MIGRATION_VERSION`
+The original proposal used a migration version bump
 (`217` at `23faf1dc`) → `218`, with a proposed
 `ant/skills/self/migrations/218-v0.71.0-voluntary-reply.md`:
 
@@ -297,9 +296,9 @@ in your transcript. The user hears you only through `reply`, `send`,
 Re-read `~/.claude/CLAUDE.md` § Unattended.
 ```
 
-The bump queues one auto-migrate turn per folder; those turns announce through
-`send` (`ant/skills/migrate`) and are not addressed, so a migrate turn that
-says nothing is silent by design, not nudged.
+The proposed bump would have queued an auto-migrate turn per folder. The
+migration skill was removed; that proposed trigger is not part of the current
+package flow.
 
 ## Tier
 
@@ -373,8 +372,7 @@ existing turn context (`addressed`, `nudged`), owned by routd like
   `codexHooksConfig`, `ant/src/pi-extension.ts:14` `PI_HONOURS` — its three renderers.
 - `ant/src/backend.ts:119` `selectHarness`, `ant/src/pi.ts:216` — the pi refusal.
 - `ant/CLAUDE.md:75`, `:95-97`, `:125-136` — the manual lines §"Narration" replaces.
-- `ant/skills/self/MIGRATION_VERSION`, `ant/skills/self/migrations/CLAUDE.md` —
-  the migration mechanism; `ant/skills/progress/SKILL.md`,
+- `ant/skills/progress/SKILL.md`,
   `ant/skills/self/mcp.md` §"Messaging" — the skills that teach the door.
 - `obs/metrics.go:153` — the counter that leaves; its replacement is named in
   §"What leaves".

@@ -58,9 +58,9 @@ L139). Any MCP client — Claude
 Code on the laptop included — attaches to the bot with a URL and a token, from
 anywhere, with no operator shell and no DB access.
 
-Two host-local paths stay beside it: `arizuko send <inst> <folder> "<msg>"
+Two host-local paths stay beside it: `arizuko send -i <inst> <folder> "<msg>"
 --stream` (operator-direct, writes the inbound straight to the DB) and
-`arizuko chat <inst>` (an interactive Claude Code on the ROOT MCP socket — an
+`arizuko chat -i <inst>` (an interactive Claude Code on the ROOT MCP socket — an
 operator tool, not a conversation with the persona).
 
 **`arizuko talk`**: a REPL that is a thin client of the MCP surface and
@@ -74,14 +74,14 @@ Command-line first. The common case takes no arguments:
 
 ```
 arizuko talk                    # REPL
-arizuko talk -p "what broke?"   # one turn: send, print, exit
-arizuko talk -p                 # same, prompt from stdin
-arizuko talk @work -p "…"       # a named entry instead of the default
-arizuko talk -g eng/sre         # a folder other than the resolved default
-arizuko talk -t bugfix          # a different thread, same folder
+arizuko talk --prompt "what broke?"   # one turn: send, print, exit
+arizuko talk --prompt                 # same, prompt from stdin
+arizuko talk @work --prompt "…"       # a named entry instead of the default
+arizuko talk -g eng/sre               # a folder other than the resolved default
+arizuko talk --thread bugfix          # a different thread, same folder
 ```
 
-**`-p` is one iteration of the REPL loop, not a second code path.** Same send,
+**`--prompt` is one iteration of the REPL loop, not a second code path.** Same send,
 same read, same printer — otherwise the one-shot and interactive forms drift,
 which is what "never a fourth path into the queue" forbids.
 
@@ -99,7 +99,7 @@ wider collapse this implies.
 authd's JWKs and stamps `X-User-*`; `webd.identified` then requires that stamp
 plus `auth.ProxydTransit`. So `talk` points at the PUBLIC proxyd URL, never at
 webd directly, and the token is minted by an existing command —
-`arizuko token <inst> issue bearer <folder> --scope`.
+`arizuko token -i <inst> issue bearer <folder> --scope`.
 
 **Config — minimal; the common case has no section header.**
 
@@ -448,17 +448,17 @@ Shipped 2026-08-29/30 — `always` (`auth/checkhold_test.go`,
 Shipped 2026-08-30 — `arizuko talk` (`cmd/arizuko/talk.go`,
 `talk_config.go`, tests in `talk_test.go` + `talk_config_test.go`):
 
-- `arizuko group <inst> grant <sub> '<folder>/**'` +
-  `arizuko token <inst> issue bearer <folder> --sub user:<sub>` →
+- `arizuko group -i <inst> grant <sub> '<folder>/**'` +
+  `arizuko token -i <inst> issue bearer <folder> --sub user:<sub>` →
   `arizuko talk` holds a conversation with the persona from a second machine.
   The binary imports no `store`, opens no sqlite file and takes no instance
   argument: it POSTs `/mcp` and reads `/me/chats/<folder>/<thread>/sse`, both
   through the PUBLIC proxyd URL. The grant is a folder subtree, not operator
   scope — `**` is never required.
-- `-p` is ONE ITERATION of the same loop the REPL runs: one `promptSource`
+- `--prompt` is ONE ITERATION of the same loop the REPL runs: one `promptSource`
   feeds one `turn`, and a test asserts the one-shot form sends exactly one
   message through that same path.
-- The thread default is the fixed literal `talk`; `-t` names another and the
+- The thread default is the fixed literal `talk`; `--thread` names another and the
   name reaches BOTH the send and the stream (a thread that reached only one
   would split the conversation in half).
 - Config `~/.config/arizuko/talk.toml` is refused unless its mode is `0600`;

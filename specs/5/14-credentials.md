@@ -75,11 +75,11 @@ adapters present a `service:<daemon>` ES256 JWT instead, `5/1`.)
 
 ## Storage summary
 
-| type        | table       | scope                                      | user write         | operator write                           |
-| ----------- | ----------- | ------------------------------------------ | ------------------ | ---------------------------------------- |
-| env-profile | `secrets`   | `user` only (folder rejected at the store) | `/dash/me/env`     | `.env` (platform fallback)               |
-| capability  | `secrets`   | `user`, or `folder` for a shared team key  | `/dash/me/secrets` | `arizuko secret <inst> set <folder> KEY` |
-| infra       | host `.env` | n/a                                        | never              | `.env` or a systemd override             |
+| type        | table       | scope                                      | user write         | operator write                              |
+| ----------- | ----------- | ------------------------------------------ | ------------------ | ------------------------------------------- |
+| env-profile | `secrets`   | `user` only (folder rejected at the store) | `/dash/me/env`     | `.env` (platform fallback)                  |
+| capability  | `secrets`   | `user`, or `folder` for a shared team key  | `/dash/me/secrets` | `arizuko secret -i <inst> set <folder> KEY` |
+| infra       | host `.env` | n/a                                        | never              | `.env` or a systemd override                |
 
 ## Who is the caller
 
