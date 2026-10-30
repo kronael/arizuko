@@ -1,6 +1,8 @@
 package container
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -46,10 +48,28 @@ func readSkills(dir string, tracked map[string]bool) ([]string, error) {
 	return names, nil
 }
 
-func trackedSkillDirs(dir string) map[string]bool {
-	out, err := exec.Command("git", "-C", dir, "ls-files", "-z", "--", "skills").Output()
-	if err != nil {
-		return nil
+// trackedSkillDirs returns the skill directories git tracks under dir, or nil
+// when every directory counts: dir is not in a git work tree, or git is not
+// installed and no checkout encloses dir (the runtime image has no git). Any
+// other git failure is an error.
+func trackedSkillDirs(dir string) (map[string]bool, error) {
+	cmd := exec.Command("git", "-C", dir, "ls-files", "-z", "--", "skills")
+	cmd.Env = append(os.Environ(), "LC_ALL=C")
+	out, err := cmd.Output()
+	var exitErr *exec.ExitError
+	switch {
+	case err == nil:
+	case errors.Is(err, exec.ErrNotFound):
+		if isInCheckout(dir) {
+			return nil, fmt.Errorf("list tracked skills in checkout %s: %w", dir, err)
+		}
+		return nil, nil
+	case errors.As(err, &exitErr) && strings.Contains(string(exitErr.Stderr), "not a git repository"):
+		return nil, nil
+	case exitErr != nil:
+		return nil, fmt.Errorf("list tracked skills in %s: %w: %s", dir, err, bytes.TrimSpace(exitErr.Stderr))
+	default:
+		return nil, fmt.Errorf("list tracked skills in %s: %w", dir, err)
 	}
 	tracked := map[string]bool{}
 	for _, path := range strings.Split(string(out), "\x00") {
@@ -58,9 +78,26 @@ func trackedSkillDirs(dir string) map[string]bool {
 		}
 	}
 	if len(tracked) == 0 {
-		return nil
+		return nil, nil
 	}
-	return tracked
+	return tracked, nil
+}
+
+func isInCheckout(dir string) bool {
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return true
+	}
+	for {
+		if _, err := os.Lstat(filepath.Join(abs, ".git")); err == nil {
+			return true
+		}
+		parent := filepath.Dir(abs)
+		if parent == abs {
+			return false
+		}
+		abs = parent
+	}
 }
 
 func InstallPackage(dataDir, source string, build bool) (ProductManifest, []string, error) {
@@ -71,7 +108,11 @@ func InstallPackage(dataDir, source string, build bool) (ProductManifest, []stri
 	if !packageNameRE.MatchString(manifest.Name) {
 		return manifest, nil, fmt.Errorf("invalid package name %q", manifest.Name)
 	}
-	sourceSkills, err := readSkills(source, trackedSkillDirs(source))
+	tracked, err := trackedSkillDirs(source)
+	if err != nil {
+		return manifest, nil, err
+	}
+	sourceSkills, err := readSkills(source, tracked)
 	if err != nil {
 		return manifest, nil, err
 	}

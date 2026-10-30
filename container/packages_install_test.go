@@ -143,3 +143,41 @@ func TestInstallPackageRefusesSkillWithoutSkillFileOutsideGit(t *testing.T) {
 		t.Fatal("a skill directory without SKILL.md was installed from a tree git does not track")
 	}
 }
+
+func TestInstallPackageFailsWhenGitIsMissingInACheckout(t *testing.T) {
+	source, dataDir := t.TempDir(), t.TempDir()
+	writeSkillTree(t, source, map[string]string{
+		ManifestFile:             "name: example\n",
+		".git/HEAD":              "ref: refs/heads/main\n",
+		"skills/sample/SKILL.md": "skill",
+	})
+	t.Setenv("PATH", t.TempDir())
+	if _, _, err := InstallPackage(dataDir, source, false); err == nil {
+		t.Fatal("a checkout was read with git missing and every directory counted")
+	}
+}
+
+func TestInstallPackageWithoutGitReadsEveryDirectoryOutsideACheckout(t *testing.T) {
+	source, dataDir := t.TempDir(), t.TempDir()
+	writeSkillTree(t, source, map[string]string{
+		ManifestFile:             "name: example\n",
+		"skills/sample/SKILL.md": "skill",
+	})
+	t.Setenv("PATH", t.TempDir())
+	_, skills, err := InstallPackage(dataDir, source, false)
+	if err != nil || !reflect.DeepEqual(skills, []string{"sample"}) {
+		t.Fatalf("skills %v: %v", skills, err)
+	}
+}
+
+func TestInstallPackageFailsOnAGitError(t *testing.T) {
+	source, dataDir := t.TempDir(), t.TempDir()
+	writeSkillTree(t, source, map[string]string{
+		ManifestFile:             "name: example\n",
+		".git":                   "not a gitfile\n",
+		"skills/sample/SKILL.md": "skill",
+	})
+	if _, _, err := InstallPackage(dataDir, source, false); err == nil {
+		t.Fatal("a git failure was read as no tracked skills")
+	}
+}
