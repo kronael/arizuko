@@ -11,6 +11,7 @@ package buildgate
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -124,5 +125,65 @@ func TestEveryGoTestStatesATimeout(t *testing.T) {
 			t.Errorf("%s:%d runs go test with no -timeout and nothing exports one, so it inherits "+
 				"go's silent %s default:\n\t%s", path, line, goDefaultTimeout, strings.TrimSpace(recipe))
 		}
+	}
+}
+
+func gitIn(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	if out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %s (%v)", args, out, err)
+	}
+}
+
+func writeFile(t *testing.T, path, body string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// The image build copies ant/skills from the context and cannot follow
+// .gitignore, so `make images` refuses a tree with ignored or untracked skill
+// paths before docker runs.
+func TestCheckSkillsRefusesPathsGitDoesNotTrack(t *testing.T) {
+	makefile, err := filepath.Abs(filepath.Join(repoRoot, "Makefile"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tree := t.TempDir()
+	gitIn(t, tree, "init", "-q")
+	writeFile(t, filepath.Join(tree, ".gitignore"), "ant/skills/ignored/\n")
+	writeFile(t, filepath.Join(tree, "ant/skills/sample/SKILL.md"), "skill")
+	gitIn(t, tree, "add", ".gitignore", "ant/skills/sample")
+	run := func() (string, error) {
+		out, err := exec.Command("make", "-s", "-C", tree, "-f", makefile, "check-skills").CombinedOutput()
+		return string(out), err
+	}
+	if out, err := run(); err != nil {
+		t.Fatalf("a clean tree was refused: %s (%v)", out, err)
+	}
+	writeFile(t, filepath.Join(tree, "ant/skills/ignored/notes.txt"), "leftover")
+	writeFile(t, filepath.Join(tree, "ant/skills/untracked/notes.txt"), "leftover")
+	out, err := run()
+	if err == nil {
+		t.Fatalf("a tree with leftover skill dirs passed: %s", out)
+	}
+	for _, path := range []string{"ant/skills/ignored/", "ant/skills/untracked/"} {
+		if !strings.Contains(out, path) {
+			t.Errorf("refusal does not name %s: %s", path, out)
+		}
+	}
+}
+
+func TestImagesRunsCheckSkillsFirst(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join(repoRoot, "Makefile"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !regexp.MustCompile(`(?m)^images:.*\bcheck-skills\b`).Match(b) {
+		t.Fatal("the images target does not depend on check-skills")
 	}
 }

@@ -278,7 +278,17 @@ clean:
 	  $(MAKE) -C $$d clean || rc=1; \
 	done; exit $$rc
 
-images:
+# The Dockerfile copies ant/skills from the build context, and .dockerignore
+# cannot follow .gitignore. An ignored or untracked skill directory has no
+# SKILL.md, lands in /opt/arizuko, and routd's start-time core install exits on
+# it, so every instance restart-loops. The runtime image has no git to filter.
+check-skills:
+	@leftovers=$$(git status --porcelain --ignored -- ant/skills | grep -E "^(!!|\?\?)"); \
+	if [ -n "$$leftovers" ]; then \
+	  echo "check-skills: untracked or ignored paths under ant/skills would ship in the image:" >&2; \
+	  echo "$$leftovers" >&2; exit 1; fi
+
+images: check-skills
 	$(DOCKER) image prune -f
 	# Bound the BUILD cache, which `image prune` does not touch. A full rebuild
 	# leaves 15-22GB of BuildKit cache that nothing ever collects, so the third
@@ -428,4 +438,4 @@ vite-image:
 agent:
 	make -C ant image DOCKER="$(DOCKER)"
 
-.PHONY: build lint test clean images agent vite-image rootfs bench-boot
+.PHONY: build lint test clean check-skills images agent vite-image rootfs bench-boot
