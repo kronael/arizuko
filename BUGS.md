@@ -19,7 +19,6 @@
 - `L643` — status-line redesign proposal; needs sign-off.
 - `L639` — refuse a platformless JID in `send_file`, `send_voice` and `post` after the return swap; fix queued.
 - `L620` — reconcile run-stop service authorization with the stated contract.
-- `L596` — choose whether scheduled tasks execute in their owner folder or require a chat trigger route.
 - `L597` — choose whether human conversation takes priority over CI in bounded observed context.
 
 
@@ -510,17 +509,17 @@ table. This is not a doc or test mismatch. Either authd grants `runs:kill` to
 `service:routd` (an authorization change) or `/stop` stops working by design.
 Left open for the owner's decision; no code changed.
 
-## L596 — scheduled prompts are routed to observation and never execute (2026-10-27, needs sign-off)
+## ✅ FIXED 2026-11-02 599f7f0ed L596 — scheduled prompts are routed to observation and never execute (2026-10-27)
 
 The last24h audit finds twelve scheduled prompts with the expected `routed_to`
 and `is_observed=1`, but no turn. `timed/split.go::fireSplit` sends an ordinary
 message; `routd/loop.go::resolveFolder` applies observe-only chat routing.
 Enqueue success does not mean execution; the run-log issue is separately L472.
 No test — design; stored rows and turn absence establish the missed executions.
-**Options:** (a) execute a scheduled task in its declared owner folder, using
-the chat as its delivery destination; (b) require an explicit triggering route
-for scheduled messages. **Default if nothing is decided:** current chat routing
-applies; observation does not execute the job. No automatic route repair.
+**Fixed with option (a):** `timed` addresses the task's owner folder and
+carries the task chat as `forwarded_from`; the turn runs in the owner and
+delivers to the chat (`ROUTING.md` § A scheduled task runs in its owner folder).
+`routd/scheduled_owner_test.go`; `timed/split_test.go`.
 
 ## L597 — newer CI activity displaces a human correction from observed context (2026-10-27, needs sign-off)
 
