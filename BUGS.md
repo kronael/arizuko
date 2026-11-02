@@ -15,6 +15,7 @@
 
 ## What needs you
 
+- `L639` — refuse a platformless JID in `send_file`, `send_voice` and `post` after the return swap; fix queued.
 - `L620` — reconcile run-stop service authorization with the stated contract.
 - `L596` — choose whether scheduled tasks execute in their owner folder or require a chat trigger route.
 - `L597` — choose whether human conversation takes priority over CI in bounded observed context.
