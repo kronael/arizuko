@@ -15,6 +15,10 @@
 
 ## What needs you
 
+- `L644` — krons token hit its monthly spend limit; choose a token with budget.
+- `L643` — status-line redesign proposal; needs sign-off.
+- `L642` — Discord status delete misses the thread; fix queued.
+- `L641` — failed-turn notice send is not logged; fix queued.
 - `L639` — refuse a platformless JID in `send_file`, `send_voice` and `post` after the return swap; fix queued.
 - `L620` — reconcile run-stop service authorization with the stated contract.
 - `L596` — choose whether scheduled tasks execute in their owner folder or require a chat trigger route.
@@ -406,6 +410,71 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
 - **`L15` — the 2026-08-11 dead-code sweep's rejected hits.** `deadcode ./...` gave 149
   hits, 56 under `-test`; nine survived verification and were filed separately. Kept so
   the next sweep does not re-report the same ~135.
+
+## L644 — krons answers nothing since 2026-11-01: its OAuth token hit the monthly spend limit (2026-11-02, open — operator)
+
+MEASURED 2026-11-02. `journalctl -u arizuko_krons` since 00:00: 28 runs, 28
+`Guest exited with code 78`; the eval read "You've hit your org's monthly
+spend limit" in the group logs. Last successful krons run 2026-11-01T07:38
+(`runed.spawns`). krons runs on the `# konik` `CLAUDE_CODE_OAUTH_TOKEN`
+(sha256 a815dcfa668f). A rhias group message (11-01 22:07) got no answer.
+
+- **Severity:** high (krons serves no turn)
+- **Scope:** `/srv/data/arizuko_krons/.env`
+- **Status:** open — operator: choose a token with budget
+- **Fix:** set a token with budget, restart `arizuko_krons`
+
+## L643 — status lines are nudged process notes, mostly sent where nobody sees them (2026-11-02, open — proposal, needs sign-off)
+
+MEASURED 2026-11-02 by a read-only eval of krons + sloth, 10-26..11-02
+(`routd.messages` verb `status`/`status_summary`, 509 transcripts):
+
+- 46 of 58 first statuses came only after the 90 s nudge, median 125 s into a
+  turn of median 153 s; `ant/CLAUDE.md` asks for a first status at start.
+- 175 of 281 statuses and 335 of 525 nudges went to sinks that cannot show
+  them (GitHub, cron, migrate turns).
+- Content is process: model, tool, file and host names; ~45% of the last
+  status's words reappear in the answer.
+- The agent-written opener (`declareSummary`, `status_summary`) is permanent:
+  21 on krons telegram + sloth discord, and 26 of 65 discord answers landed in a
+  thread the opener started, a median 41 s before the answer.
+- Web has no delete, so 11 web statuses stay above the answer as "✓ …".
+
+The owner (2026-11-02): "the status lines are not ideally designed".
+
+- **Severity:** medium (noise in every chat, notifications, moved answers)
+- **Scope:** `ant/src/spool.ts`, `ant/src/index.ts`, `ant/CLAUDE.md`, `routd/progress.go`, `webd`, `specs/6/46-turn-progress.md`
+- **Status:** open — proposal, needs sign-off
+- **Proposal, smallest first:** (1) nudge text "say what the user gets next,
+  not which tool, model or file", first nudge at 180 s; (2) nudge only when the
+  sink edits and the turn is addressed (spawn env key + contract test);
+  (3) L642; (4) drop the agent-written opener, routd decides threading at turn
+  start; (5) a removal frame or delete in webd.
+
+## L642 — a status message inside a Discord thread is never deleted: DeleteRequest carries no thread (2026-11-02, open)
+
+MEASURED 2026-11-02. All 5 discord status deletes on sloth failed `404 Unknown
+Message (10008)` and stayed as "✓ …" lines. `chanlib.DeleteRequest`
+(`chanlib/handler.go:86`) has only `ChatJID` and `TargetID`, while
+`EditRequest` carries `ThreadID`; the status row is posted inside the opener's
+thread, so `discd` deletes in the parent channel.
+
+- **Severity:** low (a stale line per long Discord turn)
+- **Scope:** `chanlib/handler.go`, `discd`, `routd/progress.go` `endStatusRow`
+- **Status:** open
+- **Fix:** `DeleteRequest` carries `ThreadID` like `EditRequest`; discd deletes in the thread
+
+## L641 — the failed-turn notice is sent blind: no row, no log on a failed send (2026-11-02, open)
+
+MEASURED 2026-11-02 in code: `routd/dispatch.go:554` (and `:344`, `:361`,
+`:582`) discard the result of `l.deliver.Send(...)`. A failed notice leaves no
+outbound row and no log line, so nobody can tell whether the person in the
+rhias group (L644) saw a failure notice.
+
+- **Severity:** low (observability)
+- **Scope:** `routd/dispatch.go`
+- **Status:** open
+- **Fix:** log a failed notice send at WARN with the jid and turn id
 
 ## L639 — the platform-prefix refusal sits before the delegation return swap (2026-11-02, open)
 
