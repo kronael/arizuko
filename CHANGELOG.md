@@ -13,7 +13,15 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
-- The `/solve` nudge comes from a `UserPromptSubmit` hook in the core package, on the first prompt of a session and after 30 idle minutes. `runed` no longer writes a `[solve]` line into every prompt (BUGS `L645`).
+## [v0.71.4] — 2026-11-02
+
+> arizuko v0.71.4 — agents triage new tasks with /solve
+>
+> A hook in the core package tells the agent to run `/solve` when a session starts or resumes after a pause, so a new question gets triage and recall first.
+>
+> • Solve — a `UserPromptSubmit` hook nudges `/solve` on a session's first prompt and after 30 idle minutes; runed no longer writes a `[solve]` line into every prompt.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
 
 ## [v0.71.3] — 2026-11-02
 
