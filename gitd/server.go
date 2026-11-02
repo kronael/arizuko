@@ -77,7 +77,7 @@ func (s *server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	msg, drop, err := mapEvent(kind, name, event, delivery, body, s.now(), s.bot.Login())
 	if err != nil {
 		slog.Warn("github webhook: rejected", "source", key, "event", event, "err", err)
-		chanlib.WriteErr(w, 400, err.Error())
+		chanlib.WriteErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	if drop != "" {
@@ -88,7 +88,7 @@ func (s *server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	messages, err := eventMessages(event, body, msg)
 	if err != nil {
 		slog.Warn("github webhook: rejected", "source", key, "event", event, "err", err)
-		chanlib.WriteErr(w, 400, err.Error())
+		chanlib.WriteErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	lost, retained := false, false
