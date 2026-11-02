@@ -13,6 +13,16 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.71.2] — 2026-11-02
+
+> arizuko v0.71.2 — the GitHub agent answers only when asked
+>
+> A GitHub agent starts a turn only on an explicit ask, so CI results and pushes no longer each cost a turn.
+>
+> • GitHub — a turn starts on an @mention, a review request or assignment to the bot, a reply to a bot comment, or a human comment on a bot-authored PR or issue; CI runs, pushes and review-state changes stay context.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
 ## [v0.71.1] — 2026-11-02
 
 > arizuko v0.71.1 — dump and apply, and safer package installs
