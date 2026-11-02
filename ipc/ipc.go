@@ -1163,9 +1163,6 @@ func buildMCPServer(routd RoutdFns, db StoreFns, folder string, isRoot bool, cal
 	// hand-copied at eight sites and none emitted the denial granted() emits
 	// (BUGS F70). nil = the call may proceed.
 	gateJID := func(tool, jid string) error {
-		if core.JidPlatform(jid) == "" {
-			return fmt.Errorf("%s: jid %q has no platform prefix", tool, jid)
-		}
 		if !authorizeCall(tool, map[string]string{"jid": jid}) {
 			emitAuthzDenied(tool, callerSub)
 			return fmt.Errorf("%s: not permitted", tool)
@@ -1296,6 +1293,9 @@ func buildMCPServer(routd RoutdFns, db StoreFns, folder string, isRoot bool, cal
 			jid := req.GetString("chatJid", "")
 			if err := gateJID("send", jid); err != nil {
 				return toolErr(err.Error())
+			}
+			if core.JidPlatform(jid) == "" {
+				return toolErr(fmt.Sprintf("send: jid %q has no platform prefix", jid))
 			}
 			text := req.GetString("text", "")
 			if err := refuseText(text, false); err != nil {
