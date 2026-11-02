@@ -13,6 +13,17 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.71.5] — 2026-11-02
+
+> arizuko v0.71.5 — turns start again after v0.71.4
+>
+> v0.71.4 stopped every turn from starting; this release fixes the mount and writes the solve hook in Python.
+>
+> • Turns — runed makes a mount point under the group home in the home itself, so the core hook binds and every turn starts.
+> • Solve — the `/solve` nudge hook is a Python script.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
 ## [v0.71.4] — 2026-11-02
 
 > arizuko v0.71.4 — agents triage new tasks with /solve
