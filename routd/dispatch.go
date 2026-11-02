@@ -341,7 +341,7 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, addressed bool, tr
 	if !l.db.GroupExists(folder) {
 		slog.Error("dispatch refused: unregistered group", "folder", folder, "jid", chatJID, "turn_id", turnID)
 		if l.deliver != nil {
-			_, _ = l.deliver.Send(chatJID, ghostGroupNotice, "", topic, "", "ghost-"+turnID)
+			l.sendNotice(turnID, chatJID, ghostGroupNotice, topic, "ghost-"+turnID)
 		}
 		return true, false, false, "", nil
 	}
@@ -358,7 +358,7 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, addressed bool, tr
 	// A spent cap delivers a refusal and consumes the batch.
 	if msg != "" {
 		if l.deliver != nil {
-			_, _ = l.deliver.Send(chatJID, msg, "", topic, "", "budget-"+turnID)
+			l.sendNotice(turnID, chatJID, msg, topic, "budget-"+turnID)
 		}
 		return true, false, false, "", nil
 	}
@@ -551,7 +551,7 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, addressed bool, tr
 				if jid == chatJID {
 					thread = topic
 				}
-				_, _ = l.deliver.Send(jid, notice, "", thread, "", "fail-"+turnID+"-"+jid)
+				l.sendNotice(turnID, jid, notice, thread, "fail-"+turnID+"-"+jid)
 			}
 		}
 		finishTurn(l.db, l.deliver, turnID, endFailed)
@@ -579,7 +579,7 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, addressed bool, tr
 		obs.RecordSilentTurn(folder)
 		end = endFailed
 		if l.deliver != nil {
-			_, _ = l.deliver.Send(chatJID, silentTurnNotice, "", topic, "", "silent-"+turnID)
+			l.sendNotice(turnID, chatJID, silentTurnNotice, topic, "silent-"+turnID)
 		}
 	}
 	obs.SetCircuitBreakerState(folder, 0) // 0=closed: a clean run clears the breaker
@@ -588,6 +588,14 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, addressed bool, tr
 	_ = l.db.ClearChatErrored(chatJID)
 	finishTurn(l.db, l.deliver, turnID, end)
 	return out.Outcome != runedv1.OutcomeSilent, false, false, observedMark, nil
+}
+
+// sendNotice tells a chat the turn could not answer. A failed send leaves no
+// outbound row, so the log line is the only trace that the notice was owed.
+func (l *Loop) sendNotice(turnID, jid, text, thread, idempotencyKey string) {
+	if _, err := l.deliver.Send(jid, text, "", thread, "", idempotencyKey); err != nil {
+		slog.Warn("turn notice not sent", "jid", jid, "turn_id", turnID, "err", err)
+	}
 }
 
 // forkParent answers the topic a new topic forks lineage from: the topic of
