@@ -178,8 +178,8 @@ func TestMapEvent_ObserveVersusTrigger(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := resolve(routes, assignedOpened); got.Folder != "eng" || got.Mode != "" {
-		t.Errorf("PR opened assigned to the bot resolved to %+v, want eng trigger", got)
+	if got := resolve(routes, assignedOpened); got.Folder != "eng" || got.Mode != "observe" {
+		t.Errorf("PR opened assigned to the bot resolved to %+v, want eng#observe", got)
 	}
 	named, _, err := mapEvent(store.GitHubSourceRepo, "kronael/arizuko", "issue_comment", "d",
 		body(`"action":"created","issue":{"number":9,"title":"t","pull_request":{}},"comment":{"id":1,"body":"@arizuko-bot look"}`), fixedNow, botLogin)
@@ -398,17 +398,17 @@ func TestMapEvent_VerbIsWhatTheEventIs(t *testing.T) {
 		{"review with text on a PR assigned to the bot", "pull_request_review",
 			`"action":"submitted",` + assigned("", "arizuko-bot") + `,"review":{"id":3,"state":"commented","body":"fix"}`, "message"},
 		{"review without text on a PR assigned to the bot", "pull_request_review",
-			`"action":"submitted",` + assigned("", "arizuko-bot") + `,"review":{"id":3,"state":"approved","body":""}`, "mention"},
+			`"action":"submitted",` + assigned("", "arizuko-bot") + `,"review":{"id":3,"state":"approved","body":""}`, "pull_request_review"},
 		{"PR opened already assigned to the bot", "pull_request",
-			`"action":"opened",` + assigned("hello", "arizuko-bot"), "mention"},
+			`"action":"opened",` + assigned("hello", "arizuko-bot"), "message"},
 		{"PR opened assigned to someone else", "pull_request",
 			`"action":"opened",` + assigned("hello", "alice"), "message"},
 		{"PR synchronized while assigned to the bot", "pull_request",
-			`"action":"synchronize",` + assigned("", "arizuko-bot"), "mention"},
+			`"action":"synchronize",` + assigned("", "arizuko-bot"), "pull_request"},
 		{"PR labeled while assigned to the bot", "pull_request",
-			`"action":"labeled",` + assigned("", "arizuko-bot"), "mention"},
+			`"action":"labeled",` + assigned("", "arizuko-bot"), "pull_request"},
 		{"PR closed unmerged while assigned to the bot", "pull_request",
-			`"action":"closed",` + assigned("", "arizuko-bot"), "mention"},
+			`"action":"closed",` + assigned("", "arizuko-bot"), "pull_request"},
 		{"approval without text", "pull_request_review",
 			`"action":"submitted",` + pr("") + `,"review":{"id":3,"state":"approved","body":""}`, "pull_request_review"},
 	}

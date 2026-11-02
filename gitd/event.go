@@ -78,14 +78,13 @@ type payload struct {
 		} `json:"pull_request"`
 	} `json:"issue"`
 	PullRequest *struct {
-		Number    int       `json:"number"`
-		Title     string    `json:"title"`
-		Body      string    `json:"body"`
-		HTMLURL   string    `json:"html_url"`
-		Merged    bool      `json:"merged"`
-		UpdatedAt string    `json:"updated_at"`
-		User      *account  `json:"user"`
-		Assignees []account `json:"assignees"`
+		Number    int      `json:"number"`
+		Title     string   `json:"title"`
+		Body      string   `json:"body"`
+		HTMLURL   string   `json:"html_url"`
+		Merged    bool     `json:"merged"`
+		UpdatedAt string   `json:"updated_at"`
+		User      *account `json:"user"`
 		Head      struct {
 			Ref string `json:"ref"`
 			SHA string `json:"sha"`
@@ -189,15 +188,6 @@ func speech(login, text string) string {
 		return "mention"
 	}
 	return "message"
-}
-
-func hasAssignee(login string, assignees []account) bool {
-	for i := range assignees {
-		if assignees[i].hasLogin(login) {
-			return true
-		}
-	}
-	return false
 }
 
 func (a *account) hasLogin(login string) bool {
@@ -482,9 +472,7 @@ func mapEvent(kind, name, event, delivery string, body []byte, now time.Time, bo
 		jid.Kind, jid.Number = "pr", p.PullRequest.Number
 	}
 	if jid.Kind == "pr" {
-		if stateAction && p.PullRequest != nil && hasAssignee(botLogin, p.PullRequest.Assignees) {
-			msg.Verb = "mention"
-		} else if stateAction && (self || p.Sender.Type == "Bot") {
+		if stateAction && (self || p.Sender.Type == "Bot") {
 			msg.Verb = event
 		}
 	} else if msg.Verb == "mention" {

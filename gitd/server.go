@@ -85,10 +85,10 @@ func (s *server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		chanlib.WriteJSON(w, map[string]any{"ok": true, "dropped": drop})
 		return
 	}
-	messages, err := s.eventMessages(r.Context(), event, body, msg)
+	messages, err := eventMessages(event, body, msg)
 	if err != nil {
-		slog.Warn("github PR responsibility lookup failed", "source", key, "event", event, "err", err)
-		chanlib.WriteErr(w, http.StatusServiceUnavailable, "PR responsibility lookup failed")
+		slog.Warn("github webhook: rejected", "source", key, "event", event, "err", err)
+		chanlib.WriteErr(w, 400, err.Error())
 		return
 	}
 	lost, retained := false, false
