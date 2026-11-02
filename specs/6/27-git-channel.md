@@ -125,13 +125,13 @@ Two repositories' PR 12 routed to one group therefore share a conversation.
 
 `mapEvent` renders explicit PR asks as `mention`: a bot @-mention, a review
 request or assignment to its login. routd promotes an inline reply to a stored bot comment.
-gitd sets `ReplyTo` only on a `created` review comment. Responsibility can promote
-an edit, deletion or dismissal notification independently of its reply target.
+gitd sets `ReplyTo` only on a `created` review comment.
 Human comments, inline review comments and submitted reviews with a body on a
 PR or issue authored by the bot also render `mention`.
-PR activity renders `mention` when the bot is an assignee, a requested reviewer,
-or the author of a submitted review. Team review requests do not match an individual
-login. Other issue activity and unrelated PR activity remain observations.
+A turn starts on an explicit ask only. Being assignee, requested reviewer or a past
+reviewer of a PR is not an ask: later pushes, label changes, closures, review states
+and CI results on that PR stay observations. Team review requests do not match an
+individual login. Other issue activity and PR activity remain observations.
 `store.GitHubSourceRoutes` seeds PR mention triggers and observe fallbacks.
 Engagement follows the rule of `ROUTING.md` §"A target fragment sets the mode": a person's
 `message` or `mention` keeps a conversation engaged, and only those two verbs ride
@@ -142,22 +142,21 @@ An operator extends engagement to such rows with one route above the fallback, f
 example `chat_jid=github:o/r/pr/* verb=check_run` to `sloth/morha#engaged`: that row
 dispatches while the chat and topic are engaged and is observed otherwise. gitd carries
 no flag for this; the route table decides.
-Bot comments drop; typed PR state and CI events from automation remain eligible.
+Bot comments drop; typed PR state and CI events from automation remain eligible
+and keep their event verb.
 
 Completed `check_run`, `check_suite` and `workflow_run` deliveries use their
-`pull_requests` associations. After signature and source checks, gitd reads each
-associated PR's current assignees, requested reviewers and submitted reviews through
-its authenticated GitHub client. Responsible PRs receive a trigger, with an ID containing the delivery
-and PR number. Repository-only, queued and in-progress events observe without an
-API lookup. At most ten distinct PRs fan out per delivery under a ten-second
-lookup deadline; excess associations and failed lookups return a visible 503 before
-dispatch. This reader creates no watch table or repository binding.
+`pull_requests` associations. gitd adds one observation row per associated PR, with
+an ID containing the delivery and PR number. Repository-only, queued and
+in-progress events add none. gitd calls no GitHub API to classify an event. At most
+ten distinct PRs fan out per delivery; excess associations return a visible 400
+before dispatch. This reader creates no watch table or repository binding.
 
 Comment creation retains its replyable object ID. Edit, delete and review-dismissal
 notifications use delivery IDs and current action timestamps, so redelivery deduplicates
 without suppressing a later action. Notifications retain history; they do not rewrite
 or remove the original comment row. Without a resolved bot login, gitd cannot
-classify mentions or PR responsibility.
+classify mentions.
 Narrow repo routes precede org
 routes and the App default. Operators change that split through the existing route table.
 Route globs use `path.Match`; `*` does not cross `/`.
@@ -287,7 +286,7 @@ delivery. Extend `store.GitHubSourceRoutes`' renderer for exact repository and P
 ahead of source defaults. Generated rows have recorded ownership. Conflicting manual
 routes produce a visible binding error; provisioning never overwrites an operator row.
 The managed defaults dispatch a configured bot mention, a direct reply to a
-recorded bot comment, or PR activity promoted by responsibility. Other comments
+recorded bot comment, or human conversation on a bot-authored PR or issue. Other comments
 remain context. The existing zero-TTL setting and one-shot disengagement apply
 independently of workspace lifetime. An inline reply qualifies directly when its
 recorded root is a bot comment.
@@ -594,10 +593,10 @@ The workspace proposal additionally requires these observable results:
   removed access to a public repository. Out-of-order edits and deletes converge without
   resurrecting comments; hydration preserves exactly one authorized trigger. Sibling
   groups without a matching grant cannot inspect or mutate the binding, checkout or
-  history through REST/MCP. Explicit mentions, direct bot replies, PR responsibility
-  and human conversation on bot-authored PRs or issues form the trigger boundary.
-  A human comment on an engaged chat starts a turn. An unpromoted CI or review-state
-  row starts none unless a route carries `#engaged`.
+  history through REST/MCP. Explicit mentions, review requests and assignments to the
+  bot, direct bot replies and human conversation on bot-authored PRs or issues form
+  the trigger boundary. A human comment on an engaged chat starts a turn. A CI or
+  review-state row starts none unless a route carries `#engaged`.
 
 These require fault-injection and concurrency tests at the owner boundaries, plus a
 credentialed disposable-repository exercise of real thread replies and lifecycle events.
