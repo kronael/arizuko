@@ -728,7 +728,7 @@ func dirEmptyOrMissing(dir string) (bool, error) {
 // extractTarEntry writes one groups.tar entry under groupDir, refusing any
 // path that would escape it (zip-slip defense) and any non-regular,
 // non-directory entry type (symlinks/hardlinks/devices never travel —
-// export never wrote one, so a hostile or corrupted archive is the only
+// dump never wrote one, so a hostile or corrupted archive is the only
 // way one appears).
 func extractTarEntry(groupDir, folder string, hdr *tar.Header, r io.Reader) error {
 	rel := strings.TrimPrefix(strings.TrimSuffix(hdr.Name, "/"), folder)

@@ -100,7 +100,7 @@ func TestPrintPlan_SkipApplyRebuildCountsLiveRows(t *testing.T) {
 		Resource:         "route_tokens",
 		SkipApplyRebuild: true,
 		Live:             43,
-		// What a plan against a full export yields: 43 rows, one identity.
+		// What a plan against a full dump yields: 43 rows, one identity.
 		Add: []string{"|"},
 	}})
 	if !strings.Contains(out, "route_tokens: 43 set") {

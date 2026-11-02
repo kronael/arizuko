@@ -4569,7 +4569,7 @@ new tool lands on the wrong side, which is what keeps the choice honest.
   per world instead of on `role:member`, and the guard test becomes the thing
   that stops them drifting.
 
-## L249 — the dump carries the config plane, not the runtime plane, so export/import cannot yet carry a daemon's port (2026-09-07, open — proposal, needs sign-off)
+## L249 — the dump carries the config plane, not the runtime plane, so dump/apply cannot yet carry a daemon's port (2026-09-07, open — proposal, needs sign-off)
 
 MEASURED 2026-09-07. Snapshots of all three live instances were taken with
 `sqlite3 .backup`, migrated to routd 0046, then exported with
@@ -4595,12 +4595,12 @@ Ten routd tables hold rows and travel in no dump (krons counts):
 | `chats`             | 136     | runtime |
 | `system_messages`   | 2       | runtime |
 
-`chats` is the one that decides the port: it holds `agent_cursor`. An import
+`chats` is the one that decides the port: it holds `agent_cursor`. An apply
 that does not carry it re-feeds every consumed message, which is the failure
 `0044`'s migration order already had to avoid. `sessions.observed_cursor` is
 the same shape, and `chat_reply_state` decides whether a reply is still owed.
 
-So the export/import lane `6/37` step 4 relies on covers the operator's
+So the dump/apply lane `6/37` step 4 relies on covers the operator's
 declared configuration and the message history, and stops exactly where the
 runtime state begins. Either the four runtime tables gain resreg resources
 (`chats`, `chat_reply_state`, `sessions`, `system_messages` — `6/37` already
@@ -4611,17 +4611,17 @@ mechanism, which is a second format for the same facts.
 The history plane is a separate decision: `audit_log` has its own archive
 design, and `cost_log_archive` is deliberately left behind by `6/39`.
 
-**NARROWED 2026-09-22: the import half of the runtime plane is already
+**NARROWED 2026-09-22: the apply half of the runtime plane is already
 written.** The 2026-09-07 measurement was taken with `sqlite3 .backup` against
 routd 0046 — the SQLite era — so it was re-checked at HEAD. The finding holds:
 `dump` walks resreg subsystems (`cmd/arizuko/archive.go`
 `ExportSnapshot`) and carries no runtime table.
 
-**And the import half is NOT already written**, which `L348` measured on
+**And the apply half is NOT already written**, which `L348` measured on
 2026-09-22 before deleting it: `RoutdSnapshot`/`RoutdRow` modelled legacy SQL
 rows, not the archive's resreg snapshot shape, so it could never have been this
-entry's import side. Both halves are still to write. What remains of that
-region — `store/coordinate.go` — gives an import side its coordinate builders
+entry's apply side. Both halves are still to write. What remains of that
+region — `store/coordinate.go` — gives an apply side its coordinate builders
 for every runtime entity, which is the part that would otherwise be rewritten.
 
 - **Severity:** high (blocks `6/37` step 4 — the per-daemon export/import port)

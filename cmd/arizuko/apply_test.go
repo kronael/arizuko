@@ -5,7 +5,7 @@ package main
 //   - CAS reject: stale checksum causes ErrChecksumMismatch
 //   - CAS pass: matching checksum applies cleanly
 //   - full rebuild: pre-existing rows wiped, manifest rows inserted
-//   - round-trip: apply → export → apply produces a no-op (idempotent)
+//   - round-trip: apply → dump → apply produces a no-op (idempotent)
 //
 // openInstance below prepares BOTH owners the manifest spans in a namespace of
 // this test's own. The bodies then drive resreg.Apply/Export/Plan/GetResource

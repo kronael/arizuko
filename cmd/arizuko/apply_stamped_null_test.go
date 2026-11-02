@@ -12,7 +12,7 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
-// BUGS F49 / spec 5/8 §"Round-trip honesty": `export` must emit something that
+// BUGS F49 / spec 5/8 §"Round-trip honesty": `dump` must emit something that
 // re-applies to a no-op, and the content-hash CAS depends on it. It does not
 // hold for a row whose server-owned instant is ABSENT unless the writer knows
 // not to invent one.
@@ -21,7 +21,7 @@ import (
 // has changed carries none. `groups.added_at` is when it was made, and every
 // group has one. Both are in StampedFields — server-OWNED — and only the second
 // is server-INVENTED, which is what AbsentStamps declares. Without that, the
-// first `export | apply` writes a fresh now() into the first and the operator
+// first `dump | apply` writes a fresh now() into the first and the operator
 // gets a checksum shift they did not cause.
 
 // updatedAtOf answers whether the group item carries an updated_at attribute at
@@ -67,7 +67,7 @@ func TestExportApplyIsNoOpForNullStampedColumn(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// The operator's honest workflow: export, review, apply unmodified.
+	// The operator's honest workflow: dump, review, apply unmodified.
 	exp, err := resreg.Export(resreg.On(st.Obj()), resreg.SubsystemRoutd)
 	if err != nil {
 		t.Fatal(err)
