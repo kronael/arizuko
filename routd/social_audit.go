@@ -18,6 +18,14 @@ func (s *Server) socialTool(t turnMCP, action, jid, targetID string, params map[
 	return err
 }
 
+// threadOf is the thread a stored message lives in: the Topic of its row, which
+// is what the adapter needs to address a message inside a thread. A message
+// with no stored row has no thread.
+func (s *Server) threadOf(jid, target string) string {
+	m, _ := s.db.MessageByID(jid, target)
+	return m.Topic
+}
+
 // turnPrincipal renders the agent principal for a turn's folder — the same
 // `folder:<path>` subject ServeTurnMCP hands ipc, so an audit row joins to the
 // acl rows that authorized it.

@@ -3,6 +3,9 @@ package routd
 import (
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/kronael/arizuko/core"
 )
 
 // Message actions (spec 5/Z-message-actions) mutate an already-delivered platform message and
@@ -177,5 +180,30 @@ func assertNoContent(t *testing.T, db *DB, text string) {
 		if strings.Contains(whole, text) {
 			t.Errorf("audit row copies the edited message content: %q", whole)
 		}
+	}
+}
+
+// An agent editing or deleting its own message inside a Discord thread must
+// address the thread: the adapter 404s on a message id without it. The thread
+// is the Topic of the stored row.
+func TestSocialEditAndDeleteAddressTheMessageThread(t *testing.T) {
+	db, dl, srv := socialSrv(t)
+	const jid = "slack:T/C/U"
+	if err := db.PutMessage(core.Message{ID: "m1", ChatJID: jid, Sender: "bot", BotMsg: true,
+		Topic: "thread-7", PlatformID: "p9", Content: "hi", Timestamp: time.Now().UTC()}); err != nil {
+		t.Fatal(err)
+	}
+	fns := srv.buildRoutdFns(socialTurn())
+	if err := fns.Edit(jid, "p9", "fixed"); err != nil {
+		t.Fatal(err)
+	}
+	if err := fns.Delete(jid, "p9"); err != nil {
+		t.Fatal(err)
+	}
+	if len(dl.edits) != 1 || dl.edits[0].threadID != "thread-7" {
+		t.Errorf("edit thread = %+v, want thread-7", dl.edits)
+	}
+	if len(dl.deletes) != 1 || dl.deletes[0].threadID != "thread-7" {
+		t.Errorf("delete thread = %+v, want thread-7", dl.deletes)
 	}
 }

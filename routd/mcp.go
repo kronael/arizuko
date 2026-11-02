@@ -69,11 +69,11 @@ func (s *Server) buildRoutdFns(t turnMCP) ipc.RoutdFns {
 		},
 		Delete: func(jid, target string) error {
 			return s.socialTool(t, "message.delete", jid, target, nil,
-				func() error { return s.deliver.Delete(jid, target, "") })
+				func() error { return s.deliver.Delete(jid, target, s.threadOf(jid, target)) })
 		},
 		Edit: func(jid, target, content string) error {
 			return s.socialTool(t, "message.edit", jid, target, nil,
-				func() error { return s.deliver.Edit(jid, target, content, "") })
+				func() error { return s.deliver.Edit(jid, target, content, s.threadOf(jid, target)) })
 		},
 		Pin: func(jid, target string) error {
 			return s.socialTool(t, "message.pin", jid, target, nil,
