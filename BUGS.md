@@ -17,8 +17,6 @@
 
 - `L644` — krons token hit its monthly spend limit; choose a token with budget.
 - `L643` — status-line redesign proposal; needs sign-off.
-- `L642` — Discord status delete misses the thread; fix queued.
-- `L641` — failed-turn notice send is not logged; fix queued.
 - `L639` — refuse a platformless JID in `send_file`, `send_voice` and `post` after the return swap; fix queued.
 - `L620` — reconcile run-stop service authorization with the stated contract.
 - `L596` — choose whether scheduled tasks execute in their owner folder or require a chat trigger route.
@@ -451,7 +449,7 @@ The owner (2026-11-02): "the status lines are not ideally designed".
   (3) L642; (4) drop the agent-written opener, routd decides threading at turn
   start; (5) a removal frame or delete in webd.
 
-## L642 — a status message inside a Discord thread is never deleted: DeleteRequest carries no thread (2026-11-02, open)
+## L642 — ✅ FIXED `7e5114a2` — a status message inside a Discord thread is never deleted: DeleteRequest carries no thread (2026-11-02)
 
 MEASURED 2026-11-02. All 5 discord status deletes on sloth failed `404 Unknown
 Message (10008)` and stayed as "✓ …" lines. `chanlib.DeleteRequest`
@@ -461,10 +459,10 @@ thread, so `discd` deletes in the parent channel.
 
 - **Severity:** low (a stale line per long Discord turn)
 - **Scope:** `chanlib/handler.go`, `discd`, `routd/progress.go` `endStatusRow`
-- **Status:** open
+- **Status:** ✅ FIXED `7e5114a2`
 - **Fix:** `DeleteRequest` carries `ThreadID` like `EditRequest`; discd deletes in the thread
 
-## L641 — the failed-turn notice is sent blind: no row, no log on a failed send (2026-11-02, open)
+## L641 — ✅ FIXED `470d3425` — the failed-turn notice is sent blind: no row, no log on a failed send (2026-11-02)
 
 MEASURED 2026-11-02 in code: `routd/dispatch.go:554` (and `:344`, `:361`,
 `:582`) discard the result of `l.deliver.Send(...)`. A failed notice leaves no
@@ -473,7 +471,7 @@ rhias group (L644) saw a failure notice.
 
 - **Severity:** low (observability)
 - **Scope:** `routd/dispatch.go`
-- **Status:** open
+- **Status:** ✅ FIXED `470d3425`
 - **Fix:** log a failed notice send at WARN with the jid and turn id
 
 ## L639 — the platform-prefix refusal sits before the delegation return swap (2026-11-02, open)
