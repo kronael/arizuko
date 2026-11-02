@@ -145,9 +145,9 @@ func writeFile(t *testing.T, path, body string) {
 	}
 }
 
-// The image build copies ant/skills from the context and cannot follow
-// .gitignore, so `make images` refuses a tree with ignored or untracked skill
-// paths before docker runs.
+// The image build copies ant/ from the context and cannot follow .gitignore,
+// so `make images` refuses a tree with ignored or untracked paths under
+// ant/skills, ant/hooks or ant/.claude before docker runs.
 func TestCheckSkillsRefusesPathsGitDoesNotTrack(t *testing.T) {
 	makefile, err := filepath.Abs(filepath.Join(repoRoot, "Makefile"))
 	if err != nil {
@@ -155,9 +155,11 @@ func TestCheckSkillsRefusesPathsGitDoesNotTrack(t *testing.T) {
 	}
 	tree := t.TempDir()
 	gitIn(t, tree, "init", "-q")
-	writeFile(t, filepath.Join(tree, ".gitignore"), "ant/skills/ignored/\n")
+	writeFile(t, filepath.Join(tree, ".gitignore"), "ant/skills/ignored/\nant/hooks/ignored.py\n")
 	writeFile(t, filepath.Join(tree, "ant/skills/sample/SKILL.md"), "skill")
-	gitIn(t, tree, "add", ".gitignore", "ant/skills/sample")
+	writeFile(t, filepath.Join(tree, "ant/hooks/tracked.py"), "hook")
+	writeFile(t, filepath.Join(tree, "ant/.claude/settings.json"), "{}")
+	gitIn(t, tree, "add", ".gitignore", "ant/skills/sample", "ant/hooks/tracked.py", "ant/.claude/settings.json")
 	run := func() (string, error) {
 		out, err := exec.Command("make", "-s", "-C", tree, "-f", makefile, "check-skills").CombinedOutput()
 		return string(out), err
@@ -167,11 +169,14 @@ func TestCheckSkillsRefusesPathsGitDoesNotTrack(t *testing.T) {
 	}
 	writeFile(t, filepath.Join(tree, "ant/skills/ignored/notes.txt"), "leftover")
 	writeFile(t, filepath.Join(tree, "ant/skills/untracked/notes.txt"), "leftover")
+	writeFile(t, filepath.Join(tree, "ant/hooks/ignored.py"), "leftover")
+	writeFile(t, filepath.Join(tree, "ant/hooks/untracked.py"), "leftover")
+	writeFile(t, filepath.Join(tree, "ant/.claude/untracked.json"), "leftover")
 	out, err := run()
 	if err == nil {
 		t.Fatalf("a tree with leftover skill dirs passed: %s", out)
 	}
-	for _, path := range []string{"ant/skills/ignored/", "ant/skills/untracked/"} {
+	for _, path := range []string{"ant/skills/ignored/", "ant/skills/untracked/", "ant/hooks/ignored.py", "ant/hooks/untracked.py", "ant/.claude/untracked.json"} {
 		if !strings.Contains(out, path) {
 			t.Errorf("refusal does not name %s: %s", path, out)
 		}
