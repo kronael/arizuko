@@ -57,6 +57,9 @@ func TestTasksDueEndpoint(t *testing.T) {
 	if len(resp.Tasks) != 1 || resp.Tasks[0].ID != "due-1" {
 		t.Fatalf("due tasks = %+v, want [due-1]", resp.Tasks)
 	}
+	if resp.Tasks[0].Owner != "main" {
+		t.Errorf("due task owner = %q want main", resp.Tasks[0].Owner)
+	}
 	if resp.Tasks[0].Prompt != "ping" {
 		t.Errorf("due task prompt = %q want ping", resp.Tasks[0].Prompt)
 	}

@@ -42,6 +42,16 @@ sub-group gets its own JID `web:<parent>/<sub>`. `store.AddRoute` rejects a
 predicate that begins with `web:` when you insert the rule, so the mistake
 fails at once.
 
+### A scheduled task runs in its owner folder
+
+`timed` posts a task's prompt to the owner folder, not to the task's chat. The
+row addresses the folder directly, so the route table does not apply, and its
+`forwarded_from` is the task's `chat_jid`. The turn runs in the owner, and
+`reply` and `send` deliver to that chat, the same return address a delegation
+carries. A chat whose only rule is `#observe` therefore still runs its tasks.
+A task cannot name another folder: the owner is the scheduled-task row's own
+field, set when the task is created.
+
 ### A route token feeds a chat from a public URL
 
 `/chat/<token>/` and `/hook/<token>` are public URLs that feed a chat.

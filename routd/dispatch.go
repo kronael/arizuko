@@ -466,15 +466,16 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, addressed bool, tr
 
 	slog.Info("dispatch run", "folder", folder, "topic", topic, "turn_id", turnID,
 		"chat_jid", chatJID, "trigger", last.Sender)
-	// Type on the chat that RECEIVES the reply: the origin for a forwarded turn.
-	typingJID := chatJID
+	// The chat that RECEIVES the reply: the origin for a forwarded turn. It
+	// types there and the run takes its output style from it.
+	replyJID := chatJID
 	if last.ForwardedFrom != "" {
-		typingJID = last.ForwardedFrom
+		replyJID = last.ForwardedFrom
 	}
-	l.beginProgress(typingJID)
-	out, derr := l.dispatchRun(ctx, folder, topic, chatJID, turnID, last.Sender, rendered, elevated, gwKey.Key)
+	l.beginProgress(replyJID)
+	out, derr := l.dispatchRun(ctx, folder, topic, replyJID, turnID, last.Sender, rendered, elevated, gwKey.Key)
 	if derr != nil {
-		l.pauseProgress(typingJID, out.RunID)
+		l.pauseProgress(replyJID, out.RunID)
 		slog.Warn("dispatch run transport failure", "folder", folder, "turn_id", turnID, "err", derr)
 		if runedUnreachable(derr) {
 			// Nothing ran: the queue's breaker leaves the folder's streak alone
@@ -484,7 +485,7 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, addressed bool, tr
 		return false, false, false, "", derr
 	}
 	if out.Busy {
-		l.pauseProgress(typingJID, out.RunID)
+		l.pauseProgress(replyJID, out.RunID)
 		// runed keeps no internal queue: leave turn_context running and the
 		// cursor un-advanced, not counted toward the breaker.
 		slog.Debug("dispatch run busy — runed at capacity, retry next poll", "folder", folder, "turn_id", turnID)
@@ -508,7 +509,7 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, addressed bool, tr
 		// A turn that died without a reply retries up to maxTurnRetry. A Terminal
 		// failure never retries: it cannot repair a misconfiguration (spec 5/12).
 		tc, _ := l.db.GetTurnContext(turnID)
-		hasBotReply := l.db.TurnHasBotReply(tc.ChatJID, turnID)
+		hasBotReply := l.db.TurnHasBotReply(returnTarget(tc, tc.ChatJID), turnID)
 		if !out.Terminal && !hasBotReply && tc.RetryCount < l.maxTurnRetry {
 			newCount, err := l.db.IncrementRetryCount(turnID)
 			if err == nil {
@@ -516,7 +517,7 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, addressed bool, tr
 					"folder", folder, "turn_id", turnID, "retry", newCount, "max", l.maxTurnRetry)
 				// The re-feed IS the retry: busy=true holds the cursor on this batch.
 				// Advancing first woke a poll with nothing left to retry (BUGS L75a).
-				l.pauseProgress(typingJID, out.RunID)
+				l.pauseProgress(replyJID, out.RunID)
 				return false, false, true, "", nil
 			}
 		}

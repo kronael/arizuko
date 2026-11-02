@@ -109,7 +109,10 @@ of truth for "which group owns this chat":
 
 1. **Direct address.** `web:<folder>` and bare-folder JIDs (no `:`)
    matching a registered group resolve directly; the route table does
-   not apply (`directFolder`).
+   not apply (`directFolder`). A scheduled task's fire is such a row: it
+   addresses the task's owner folder and carries the task chat as
+   `forwarded_from`, the return address the reply delivers to. The chat's
+   own rules never see the prompt, so an `#observe`-only chat still runs it.
 2. **Route table.** `router.ResolveRouteTarget` scans by ascending
    `seq`, first match wins; `core.ParseRouteTarget` splits the target
    fragment into `{Folder, Topic, Mode}`. `match` keys: `platform`,

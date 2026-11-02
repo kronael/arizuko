@@ -39,7 +39,7 @@ func turnNudge(tc TurnContext, statusRow bool) string {
 }
 
 func (s *Server) turnDelivered(tc TurnContext) (bool, error) {
-	if s.db.TurnHasBotReply(tc.ChatJID, tc.TurnID) {
+	if s.db.TurnHasBotReply(returnTarget(tc, tc.ChatJID), tc.TurnID) {
 		return true, nil
 	}
 	return audit.HasSuccessfulTurnAction(context.Background(), s.db.Obj(), tc.TurnID, tc.Folder, tc.StartedAt,

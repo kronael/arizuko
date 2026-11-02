@@ -76,7 +76,7 @@ func (s *stubRouter) handler() http.Handler {
 // enqueue → runlog → reschedule against the routd stub, with no local DB.
 func TestFireSplitDrivesRoutd(t *testing.T) {
 	stub := &stubRouter{due: []dueTask{
-		{ID: "t1", ChatJID: "web:main", Prompt: "hello", Cron: "0 9 * * *", ContextMode: "group"},
+		{ID: "t1", Owner: "main", ChatJID: "web:main", Prompt: "hello", Cron: "0 9 * * *", ContextMode: "group"},
 	}}
 	srv := httptest.NewServer(stub.handler())
 	defer srv.Close()
@@ -88,7 +88,7 @@ func TestFireSplitDrivesRoutd(t *testing.T) {
 		t.Fatalf("enqueued = %d want 1", len(stub.enqueued))
 	}
 	m := stub.enqueued[0]
-	if m.ChatJID != "web:main" || m.Content != "hello" || m.Sender != "timed" {
+	if m.ChatJID != "main" || m.ForwardedFrom != "web:main" || m.Content != "hello" || m.Sender != "timed" {
 		t.Errorf("enqueued message wrong: %+v", m)
 	}
 	if len(stub.runlogs) != 1 || stub.runlogs[0]["status"] != "success" {
@@ -124,6 +124,29 @@ func TestFireSplitOneShotCompletes(t *testing.T) {
 	rc := stub.reschedules[0]
 	if rc.Status != "completed" || rc.NextRun != "" {
 		t.Errorf("one-shot reschedule = %+v want completed/empty next_run", rc)
+	}
+}
+
+// TestFireSplitAddressesTheOwnerFolder: the fire addresses the task's owner
+// folder and carries the task chat as the return address, so a chat whose only
+// route observes still runs the prompt (BUGS L596).
+func TestFireSplitAddressesTheOwnerFolder(t *testing.T) {
+	stub := &stubRouter{due: []dueTask{
+		{ID: "n1", Owner: "rhias/nemo", ChatJID: "telegram:group/5229089286", Prompt: "p"},
+	}}
+	srv := httptest.NewServer(stub.handler())
+	defer srv.Close()
+
+	r := &router{base: srv.URL, http: srv.Client(), tz: "UTC"}
+	r.fireSplit(context.Background())
+
+	if len(stub.enqueued) != 1 {
+		t.Fatalf("enqueued = %d want 1", len(stub.enqueued))
+	}
+	m := stub.enqueued[0]
+	if m.ChatJID != "rhias/nemo" || m.ForwardedFrom != "telegram:group/5229089286" {
+		t.Errorf("fire = chat %q forwarded_from %q, want the owner folder and the task chat",
+			m.ChatJID, m.ForwardedFrom)
 	}
 }
 

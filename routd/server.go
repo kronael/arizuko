@@ -671,6 +671,7 @@ func (s *Server) handlePaneSet(w http.ResponseWriter, r *http.Request) {
 // to enqueue a message + reschedule.
 type dueTask struct {
 	ID          string `json:"id"`
+	Owner       string `json:"owner"`
 	ChatJID     string `json:"chat_jid"`
 	Prompt      string `json:"prompt"`
 	Cron        string `json:"cron"`
@@ -699,7 +700,7 @@ func (s *Server) handleTasksDue(w http.ResponseWriter, r *http.Request) {
 		if t.NextRun != nil {
 			next = t.NextRun.UTC().Format(time.RFC3339)
 		}
-		out[i] = dueTask{ID: t.ID, ChatJID: t.ChatJID, Prompt: t.Prompt,
+		out[i] = dueTask{ID: t.ID, Owner: t.Owner, ChatJID: t.ChatJID, Prompt: t.Prompt,
 			Cron: t.Cron, ContextMode: t.ContextMode, NextRun: next}
 	}
 	writeJSON(w, 200, map[string]any{"tasks": out})

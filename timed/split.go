@@ -157,6 +157,7 @@ func (r *router) loopHealth() loopState {
 // dueTask mirrors routd's GET /v1/tasks/due row.
 type dueTask struct {
 	ID          string `json:"id"`
+	Owner       string `json:"owner"`
 	ChatJID     string `json:"chat_jid"`
 	Prompt      string `json:"prompt"`
 	Cron        string `json:"cron"`
@@ -202,8 +203,8 @@ func (r *router) fireSplit(ctx context.Context) {
 			sender = "timed-isolated:" + t.ID
 		}
 		if err := r.enqueue(ctx, apiv1.Message{
-			ID: fireID(t), ChatJID: t.ChatJID, Sender: sender, Content: t.Prompt,
-			Timestamp: start.Unix(),
+			ID: fireID(t), ChatJID: t.Owner, ForwardedFrom: t.ChatJID,
+			Sender: sender, Content: t.Prompt, Timestamp: start.Unix(),
 		}); err != nil {
 			slog.Error("enqueue message (split)", "task", t.ID, "jid", t.ChatJID, "err", err)
 			r.runlog(ctx, t.ID, "error", err.Error(), time.Since(start).Milliseconds())

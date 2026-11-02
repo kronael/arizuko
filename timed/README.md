@@ -11,6 +11,9 @@ of `routd`. Drives routd over HTTP; opens NO local DB.
 
 - Poll routd's `/v1/tasks/due` every 60s; routd atomically claims + returns due tasks.
 - Enqueue the task prompt as a message (`POST /v1/messages`) with sender `timed` or `timed-isolated:<id>`.
+  The message addresses the task's owner folder (`chat_jid` = owner) and carries
+  the task's chat as `forwarded_from`, where the reply is delivered
+  (ROUTING.md § A scheduled task runs in its owner folder).
 - Compute `next_run` client-side through `core.NextRun`, the one reader of a
   task's cron value. A task's `next_run` comes from its `cron` value, never
   from the caller of `schedule_task`. The one caller-set `next_run` is the
