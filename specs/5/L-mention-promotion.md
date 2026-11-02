@@ -32,9 +32,11 @@ messages can engage. An untrusted sender cannot gain mention status.
 ## The thread root decides implicit mentions
 
 Ambient thread messages promote only when the recorded root belongs to the
-bot. `MessageByID(chat_jid, topic)` resolves the root by stored ID or platform
-ID within that chat. A missing or human root does not promote, even when the
-thread contains bot replies. Bot participation adds no addressing permission.
+bot or is itself a `mention`: a thread that starts from a message that
+addressed the bot keeps the bot's attention. `MessageByID(chat_jid, topic)`
+resolves the root by stored ID or platform ID within that chat. A missing root,
+or any other human root, does not promote, even when the thread contains bot
+replies. Bot participation adds no addressing permission.
 
 Slack sends `Topic = ReplyTo = thread_ts` for ambient thread messages.
 That equal root pointer is implicit participation, not a deliberate reply.
@@ -42,13 +44,13 @@ Discord sends the parent-channel JID and thread-channel Topic; `ReplyTo`
 comes only from an explicit message reference. A Discord root reply remains
 a deliberate reply even when its reference equals Topic.
 
-An explicit disengage blocks implicit bot-root follow-ups. The stop check
+An explicit disengage blocks implicit follow-ups. The stop check
 reads the thread's reply state and its root fallback. A fresh engagement
 retires the stop. Explicit mentions and direct bot replies remain valid.
 
 Topic inheritance runs before promotion. An empty topic names the main
 timeline and adds no implicit mention. Adapter code does not decide root
-ownership; the stored root's `BotMsg` does.
+ownership; the stored root's `BotMsg` and `Verb` do.
 
 ## What this is NOT
 

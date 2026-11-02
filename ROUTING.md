@@ -274,8 +274,10 @@ The steps run in this order:
    participation in a thread and not a deliberate reply, so it goes to step 3.
    A reply to the thread root on Discord stays a deliberate reply.
 3. **Thread participation.** A message in a thread becomes `mention` only when
-   the stored thread root is a bot message and nobody disengaged the thread.
-   A root from a human, or a missing root, never promotes.
+   the stored thread root is a bot message or a `mention`, and nobody
+   disengaged the thread. A thread that starts from a message that addressed
+   the bot therefore keeps its attention. Any other human root, or a missing
+   root, never promotes; a tag inside such a thread addresses only its message.
 
 An `untrusted` message never becomes `mention`. `emaid` marks mail as
 `untrusted` when it fails DMARC and the allowlist. Route on the verb directly.

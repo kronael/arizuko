@@ -499,7 +499,7 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		root, exists := s.db.MessageByID(m.ChatJID, m.Topic)
-		threadMention = !stopped && exists && root.BotMsg
+		threadMention = !stopped && exists && (root.BotMsg || root.Verb == "mention")
 	}
 	if verb != "untrusted" && (directReply || threadMention) {
 		verb = "mention"

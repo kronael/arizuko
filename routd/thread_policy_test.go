@@ -8,9 +8,9 @@ import (
 	"github.com/kronael/arizuko/core"
 )
 
-func TestThreadMentionRequiresBotRoot(t *testing.T) {
+func TestThreadMentionRequiresBotOrMentionRoot(t *testing.T) {
 	for _, platform := range []string{"slack", "discord"} {
-		for _, root := range []string{"bot", "human", "missing"} {
+		for _, root := range []string{"bot", "mention", "human", "missing"} {
 			t.Run(platform+"/"+root, func(t *testing.T) {
 				db, err := OpenMem()
 				if err != nil {
@@ -19,8 +19,12 @@ func TestThreadMentionRequiresBotRoot(t *testing.T) {
 				t.Cleanup(func() { db.Close() })
 				jid := platform + ":T/C"
 				srv := NewServer(db, nil, nil, nil, time.Hour, "")
+				rootVerb := "message"
+				if root == "mention" {
+					rootVerb = "mention"
+				}
 				if root != "missing" {
-					if err := db.PutMessage(core.Message{ID: "root-local", PlatformID: "thread", ChatJID: jid, BotMsg: root == "bot", Timestamp: time.Now()}); err != nil {
+					if err := db.PutMessage(core.Message{ID: "root-local", PlatformID: "thread", ChatJID: jid, BotMsg: root == "bot", Verb: rootVerb, Timestamp: time.Now()}); err != nil {
 						t.Fatal(err)
 					}
 				}
@@ -32,7 +36,7 @@ func TestThreadMentionRequiresBotRoot(t *testing.T) {
 					ambientReply = "thread"
 				}
 				ambientWant := "message"
-				if root == "bot" {
+				if root == "bot" || root == "mention" {
 					ambientWant = "mention"
 				}
 				for _, test := range []struct{ id, verb, replyTo, want string }{

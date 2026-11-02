@@ -109,8 +109,9 @@ would otherwise not route at all.
 
 ## Mention promotion follows root ownership
 
-An ambient message can gain mention status only in a bot-rooted thread.
-Joining a human-rooted thread adds no automatic mention permission.
+An ambient message can gain mention status only in a thread whose root is a
+bot message or a mention. Joining any other human-rooted thread adds no
+automatic mention permission.
 Explicit mentions, direct bot replies, and reactions still address the bot.
 The policy lives in [`L-mention-promotion.md`](L-mention-promotion.md).
 
