@@ -277,13 +277,23 @@ func worldOf(folder string, elevated bool) string {
 
 // mkSlot is the spawn-time backstop for a web slot container.SetupGroup should
 // already have created (a group registered before cfg.WebDir was set, say).
-// runed runs as uid 1000, so a slot it creates here is already agent-writable —
-// but if the MkdirAll fails, the substrate materializes the bind source as root
-// and the agent sees a mounted-but-unwritable directory. Report; never discard.
+// runed runs as root, so a slot it creates here is root-owned and the agent
+// could not write it: the new slot is given to the run uid. If the MkdirAll
+// or the chown fails, the agent sees a mounted-but-unwritable directory.
+// Report; never discard.
 func mkSlot(dir string) {
+	if _, err := os.Stat(dir); err == nil {
+		return
+	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		slog.Error("web slot missing and not creatable — the substrate will materialize it as root",
 			"slot", dir, "err", err)
+		return
+	}
+	uid, _ := container.RunUID()
+	if err := os.Chown(dir, uid, uid); err != nil {
+		slog.Error("web slot created but not given to the agent uid — the agent cannot write it",
+			"slot", dir, "uid", uid, "err", err)
 	}
 }
 

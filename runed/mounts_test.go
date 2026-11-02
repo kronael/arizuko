@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/kronael/arizuko/container"
@@ -492,5 +493,20 @@ func TestBuildMountsCodexLayerOrderAndConditionality(t *testing.T) {
 		if dir > i {
 			t.Errorf("the group .codex dir (%d) must precede the %s overmount (%d)", dir, n, i)
 		}
+	}
+}
+
+// runed runs as root, so a slot it creates is root-owned unless mkSlot hands it
+// to the run uid. A root-owned slot mounts but the agent cannot write it.
+func TestMkSlotGivesTheNewSlotToTheRunUID(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "pub", "main")
+	mkSlot(dir)
+	fi, err := os.Stat(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	uid, _ := container.RunUID()
+	if got := int(fi.Sys().(*syscall.Stat_t).Uid); got != uid {
+		t.Fatalf("slot owner = %d, want the run uid %d", got, uid)
 	}
 }
