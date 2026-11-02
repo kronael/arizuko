@@ -15,6 +15,7 @@
 
 ## What needs you
 
+- `L645` — solve nudge moves from runed to a core package hook; fix in progress.
 - `L644` — krons token hit its monthly spend limit; choose a token with budget.
 - `L643` — status-line redesign proposal; needs sign-off.
 - `L639` — refuse a platformless JID in `send_file`, `send_voice` and `post` after the return swap; fix queued.
@@ -408,6 +409,26 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
 - **`L15` — the 2026-08-11 dead-code sweep's rejected hits.** `deadcode ./...` gave 149
   hits, 56 under `-test`; nine survived verification and were filed separately. Kept so
   the next sweep does not re-report the same ~135.
+
+## L645 — agents skip /solve: a runed prompt line is ignored where a hook nudge works (2026-11-02, open — owner chose the shape)
+
+MEASURED 2026-11-02 over sloth transcripts of the last 30 days: `solve` loaded
+in 0 of 17 `atlas/support` (Slack) sessions, 3 of 129 `sloth/discord`, 26 of
+113 `sloth/morha`, 0 of 105 `sloth/trading`. runed prepends `[solve] Invoke
+/solve now ...` to every prompt (`runed/render.go:215`). Seven group root
+`CLAUDE.md` files were byte copies of an old `ant/CLAUDE.md` that sent agents
+to `/resolve`, and 40 leftover `.claude/skills/resolve` dirs stayed visible
+(moved to `<data_dir>/retired-builtins/` 2026-11-02).
+
+The owner (2026-11-02): use the nudges as the tools repo does (`prompt_nudge.py`
+UserPromptSubmit: run /solve on the first prompt of a session and after an idle
+gap), "make it simpler; if the agent can do it, don't do it through runed".
+
+- **Severity:** medium (no triage, no recall on most turns)
+- **Scope:** `ant/` (core package hook + `.claude/settings.json`), `runed/render.go`, `ant/CLAUDE.md` § Solve
+- **Status:** open
+- **Fix:** the core package ships a UserPromptSubmit hook that nudges /solve on
+  a session's first prompt and after an idle gap; runed stops writing `[solve]`.
 
 ## L644 — krons answers nothing since 2026-11-01: its OAuth token hit the monthly spend limit (2026-11-02, open — operator)
 
