@@ -15,6 +15,7 @@
 
 ## What needs you
 
+- `L640` — gitd: only explicit asks start a sloth turn on GitHub; fix in progress.
 - `L639` — refuse a platformless JID in `send_file`, `send_voice` and `post` after the return swap; fix queued.
 - `L620` — reconcile run-stop service authorization with the stated contract.
 - `L596` — choose whether scheduled tasks execute in their owner folder or require a chat trigger route.
@@ -406,6 +407,34 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
 - **`L15` — the 2026-08-11 dead-code sweep's rejected hits.** `deadcode ./...` gave 149
   hits, 56 under `-test`; nine survived verification and were filed separately. Kept so
   the next sweep does not re-report the same ~135.
+
+## L640 — PR responsibility turns every CI result and push into a sloth turn (2026-11-02, open — owner asked for the change)
+
+MEASURED 2026-11-02 on sloth. `routd.messages` for `github:vumilan/morha/pr/359`:
+`check_suite`, `check_run` and `workflow_run` rows at 13:02 and two
+`pull_request synchronize` rows at 12:41 all carry `verb=mention`, sender
+`github:kronael`. Each started a turn whose whole reply was "ack (CI event, no
+action)" or "ack (stack resync, no action)" — five turns today on one PR. The
+journal shows 159 GitHub dispatches into `sloth/morha` in 7 days.
+
+The cause is the designed rule in `specs/6/27-git-channel.md` §126-160:
+`gitd/ci.go` `eventMessages` promotes a CI completion and any non-mention PR
+event to `mention` when `hasPRResponsibility` is true, and that holds when the
+bot is an assignee, a requested reviewer, or the author of ANY earlier
+submitted review — so one review makes every later push and CI run a turn.
+
+The owner (2026-11-02): "sloth on github only attends to requests for review
+etc. and not all github prs".
+
+- **Severity:** medium (paid turns and PR noise on every push and CI run)
+- **Scope:** `gitd/ci.go`, `gitd/event.go`, `specs/6/27-git-channel.md`, `gitd/README.md`
+- **Source:** sloth store + journal, 2026-11-02
+- **Status:** open
+- **Fix:** a turn starts only on an explicit ask: an @mention, a review
+  request or assignment to the bot login, a reply to a bot comment, a human
+  comment on a bot-authored PR or issue. CI and PR state events (`synchronize`,
+  check and workflow runs, review state) stay observations; drop the
+  responsibility lookup.
 
 ## L639 — the platform-prefix refusal sits before the delegation return swap (2026-11-02, open)
 
