@@ -69,7 +69,8 @@ func buildMounts(
 	for _, product := range inventory.Packages {
 		m = append(m, core.Mount{Host: product.Dir, Container: "/opt/arizuko/packages/" + product.Name, RO: true})
 	}
-	destinations := map[string]string{"skills": core.ContainerHome + "/.claude/skills/", "bin": "/usr/local/bin/"}
+	destinations := map[string]string{"skills": core.ContainerHome + "/.claude/skills/",
+		"hooks": core.ContainerHome + "/.claude/hooks/", "bin": "/usr/local/bin/"}
 	for _, asset := range inventory.Assets {
 		kind, name, _ := strings.Cut(asset.Path, "/")
 		if _, err := os.Stat(filepath.Join(groupDir, ".claude", "skills", name, ".disabled")); kind == "skills" && err == nil {

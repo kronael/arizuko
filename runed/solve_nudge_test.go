@@ -17,9 +17,8 @@ import (
 const solveHook = "solve_nudge.py"
 
 // The core package is the one thing every turn selects, so the hook it ships
-// runs from the package mount at /opt/arizuko/ant, named by the merged
-// settings.json; nothing is mounted under ~/.claude/hooks. Installs the real
-// ant/ the way routd does at start.
+// must reach the guest: mounted under ~/.claude/hooks and named by the merged
+// settings.json. Installs the real ant/ the way routd does at start.
 func TestCorePackageShipsTheSolveNudgeHook(t *testing.T) {
 	cfg, folders := renderWiring(t)
 	if _, _, err := container.InstallPackage(cfg.ProjectRoot, "../ant", false); err != nil {
@@ -29,22 +28,17 @@ func TestCorePackageShipsTheSolveNudgeHook(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	guest := "/opt/arizuko/ant/hooks/" + solveHook
-	mount := findMount(turn.Mounts, "/opt/arizuko/ant")
+	guest := core.ContainerHome + "/.claude/hooks/" + solveHook
+	mount := findMount(turn.Mounts, guest)
 	if mount == nil || !mount.RO {
-		t.Fatal("core package not mounted read-only at /opt/arizuko/ant")
+		t.Fatalf("core hook not mounted read-only at %s", guest)
 	}
 	want, err := os.ReadFile("../ant/hooks/" + solveHook)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, err := os.ReadFile(filepath.Join(mount.Host, "hooks", solveHook)); err != nil || string(got) != string(want) {
-		t.Fatalf("mounted package differs from ant/hooks/%s: %v", solveHook, err)
-	}
-	for _, m := range turn.Mounts {
-		if strings.HasPrefix(m.Container, core.ContainerHome+"/.claude/hooks") {
-			t.Fatalf("hook mounted under the home: %s", m.Container)
-		}
+	if got, err := os.ReadFile(mount.Host); err != nil || string(got) != string(want) {
+		t.Fatalf("mounted hook differs from ant/hooks/%s: %v", solveHook, err)
 	}
 	data, err := os.ReadFile(filepath.Join(cfg.GroupsDir, "main", ".claude/settings.json"))
 	if err != nil {

@@ -65,9 +65,9 @@ func TestServicePackageInventoryUsesManifest(t *testing.T) {
 func TestPackageInventoryLastPackageWins(t *testing.T) {
 	root := t.TempDir()
 	for name, files := range map[string][]string{
-		"core": {"skills/base/SKILL.md", "bin/tool", "bin/other"},
+		"core": {"skills/base/SKILL.md", "hooks/h.sh", "bin/tool"},
 		"a":    {"skills/base/SKILL.md", "bin/tool"},
-		"b":    {"skills/base/SKILL.md", "bin/other", "hooks/h.sh"},
+		"b":    {"skills/base/SKILL.md", "hooks/h.sh"},
 	} {
 		dir := filepath.Join(root, "packages", name)
 		files = append(files, ManifestFile)
@@ -85,10 +85,10 @@ func TestPackageInventoryLastPackageWins(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantAssets := []PackageAsset{{"skills/base", "b"}, {"bin/other", "b"}, {"bin/tool", "a"}}
+	wantAssets := []PackageAsset{{"skills/base", "b"}, {"hooks/h.sh", "b"}, {"bin/tool", "a"}}
 	wantOverrides := []string{
 		"a overrides core on skills/base", "a overrides core on bin/tool",
-		"b overrides a on skills/base", "b overrides core on bin/other",
+		"b overrides a on skills/base", "b overrides core on hooks/h.sh",
 	}
 	if !reflect.DeepEqual(inventory.Assets, wantAssets) || !reflect.DeepEqual(inventory.Overrides, wantOverrides) {
 		t.Fatalf("selected order core, a, b:\n%+v\n%v", inventory.Assets, inventory.Overrides)
@@ -97,7 +97,7 @@ func TestPackageInventoryLastPackageWins(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := []PackageAsset{{"skills/base", "a"}, {"bin/other", "b"}, {"bin/tool", "a"}}; !reflect.DeepEqual(inventory.Assets, want) {
+	if want := []PackageAsset{{"skills/base", "a"}, {"hooks/h.sh", "b"}, {"bin/tool", "a"}}; !reflect.DeepEqual(inventory.Assets, want) {
 		t.Fatalf("selected order core, b, a: %+v", inventory.Assets)
 	}
 }

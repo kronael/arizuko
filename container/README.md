@@ -50,7 +50,7 @@ proxy process.
 - `ReadPackageInventory(dataDir, selected)` reads the packages named by the
   `installed_packages` rows. Core comes first; the other packages follow in the
   order the operator added them. A later package replaces an earlier package on
-  the same skill, tool or `group/` path. Core must be present.
+  the same skill, hook, tool or `group/` path. Core must be present.
 - `WriteGatewayCaps(groupDir, cfg)` — the per-turn `.gateway-caps` file
 - `RunUID() (int, bool)` — the uid the agent runs as inside the guest, and
   whether the substrate has to be told it

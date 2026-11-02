@@ -43,14 +43,12 @@ func TestSelectedPackageHooksAndTools(t *testing.T) {
 	}
 	for _, guest := range []string{
 		core.ContainerHome + "/.claude/skills/extra", "/opt/arizuko/packages/addon",
+		core.ContainerHome + "/.claude/hooks/native.sh",
 		"/usr/local/bin/package-tool", "/etc/codex/config.toml", "/etc/codex/hooks.json",
 	} {
 		if mount := findMount(turn.Mounts, guest); mount == nil || !mount.RO {
 			t.Fatalf("read-only asset missing: %s", guest)
 		}
-	}
-	if findMount(turn.Mounts, core.ContainerHome+"/.claude/hooks/native.sh") != nil {
-		t.Fatal("a package hook is mounted under the home; it runs from the package mount")
 	}
 	if turn.Env["ARIZUKO_PACKAGE_BIN"] != "" || turn.Env["PATH"] != "" {
 		t.Fatal("package rendering overrides the image PATH")
@@ -108,6 +106,7 @@ func TestPackageAssetMountsOncePerGuestPath(t *testing.T) {
 		root := filepath.Join(cfg.ProjectRoot, "packages", name)
 		write(t, filepath.Join(root, "arizuko.yml"), "name: "+name+"\n")
 		write(t, filepath.Join(root, "skills", "base", "SKILL.md"), name)
+		write(t, filepath.Join(root, "hooks", "native.sh"), name)
 		write(t, filepath.Join(root, "bin", "package-tool"), name)
 	}
 	for _, order := range [][]string{{"first", "second"}, {"second", "first"}} {
@@ -117,8 +116,9 @@ func TestPackageAssetMountsOncePerGuestPath(t *testing.T) {
 		}
 		winner := order[1]
 		for guest, host := range map[string]string{
-			core.ContainerHome + "/.claude/skills/base": filepath.Join("skills", "base"),
-			"/usr/local/bin/package-tool":               filepath.Join("bin", "package-tool"),
+			core.ContainerHome + "/.claude/skills/base":     filepath.Join("skills", "base"),
+			core.ContainerHome + "/.claude/hooks/native.sh": filepath.Join("hooks", "native.sh"),
+			"/usr/local/bin/package-tool":                   filepath.Join("bin", "package-tool"),
 		} {
 			var hosts []string
 			for _, mount := range turn.Mounts {

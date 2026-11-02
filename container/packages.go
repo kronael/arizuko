@@ -171,7 +171,7 @@ func InstallPackage(dataDir, source string, build bool) (ProductManifest, []stri
 }
 
 // PackageAsset is one path an installed package mounts into a turn:
-// skills/<name> or bin/<name>.
+// skills/<name>, hooks/<name> or bin/<name>.
 type PackageAsset struct {
 	Path    string
 	Package string
@@ -219,12 +219,14 @@ func ReadPackageInventory(dataDir string, selected []string) (PackageInventory, 
 		for _, skill := range skills {
 			paths = append(paths, "skills/"+skill)
 		}
-		entries, err := os.ReadDir(filepath.Join(dir, "bin"))
-		if err != nil && !os.IsNotExist(err) {
-			return inventory, err
-		}
-		for _, entry := range entries {
-			paths = append(paths, "bin/"+entry.Name())
+		for _, kind := range []string{"hooks", "bin"} {
+			entries, err := os.ReadDir(filepath.Join(dir, kind))
+			if err != nil && !os.IsNotExist(err) {
+				return inventory, err
+			}
+			for _, entry := range entries {
+				paths = append(paths, kind+"/"+entry.Name())
+			}
 		}
 		for _, path := range paths {
 			if i, ok := index[path]; ok {

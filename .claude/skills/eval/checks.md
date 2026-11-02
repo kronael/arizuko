@@ -647,7 +647,7 @@ be judged by whether it drives the class to zero.
 | Errored messages on a chat | Container timed out with no output, or stack crashed mid-run | Clear with `DELETE FROM messages WHERE part = '...' AND json_extract(attrs,'$.errored') = '1'` then restart |
 | Migration version mismatch | New migration not applied to instance | Run migration manually or `arizuko run` to regenerate compose + restart |
 | routd "connecting channels: count=0" | Adapters not yet registered | Wait 10s; if still 0, restart adapters |
-| Agent ignores skills, responds generically | Solve not firing: CLAUDE.md not seeded, or the core package lacks `hooks/solve_nudge.py` | Re-seed group via `SetupGroup`; verify the installed core package carries the hook (check 20) |
+| Agent ignores skills, responds generically | Solve not firing: CLAUDE.md not seeded, or the core package lacks `hooks/solve-nudge.sh` | Re-seed group via `SetupGroup`; verify the installed core package carries the hook (check 20) |
 | Skill exists but never matched by dispatch | Broken `description:` in SKILL.md frontmatter — awk can't parse it | Fix the YAML frontmatter: `description: >` followed by indented text on next line |
 | Every agent says `Not logged in · Please run /login` | Generated `env/runed.env` omitted the operator model credential | Regenerate compose and recreate `runed`; verify check 9a before retrying turns |
 
