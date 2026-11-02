@@ -449,31 +449,6 @@ The owner (2026-11-02): "the status lines are not ideally designed".
   (3) L642; (4) drop the agent-written opener, routd decides threading at turn
   start; (5) a removal frame or delete in webd.
 
-## L642 — ✅ FIXED `7e5114a2` — a status message inside a Discord thread is never deleted: DeleteRequest carries no thread (2026-11-02)
-
-MEASURED 2026-11-02. All 5 discord status deletes on sloth failed `404 Unknown
-Message (10008)` and stayed as "✓ …" lines. `chanlib.DeleteRequest`
-(`chanlib/handler.go:86`) has only `ChatJID` and `TargetID`, while
-`EditRequest` carries `ThreadID`; the status row is posted inside the opener's
-thread, so `discd` deletes in the parent channel.
-
-- **Severity:** low (a stale line per long Discord turn)
-- **Scope:** `chanlib/handler.go`, `discd`, `routd/progress.go` `endStatusRow`
-- **Status:** ✅ FIXED `7e5114a2`
-- **Fix:** `DeleteRequest` carries `ThreadID` like `EditRequest`; discd deletes in the thread
-
-## L641 — ✅ FIXED `470d3425` — the failed-turn notice is sent blind: no row, no log on a failed send (2026-11-02)
-
-MEASURED 2026-11-02 in code: `routd/dispatch.go:554` (and `:344`, `:361`,
-`:582`) discard the result of `l.deliver.Send(...)`. A failed notice leaves no
-outbound row and no log line, so nobody can tell whether the person in the
-rhias group (L644) saw a failure notice.
-
-- **Severity:** low (observability)
-- **Scope:** `routd/dispatch.go`
-- **Status:** ✅ FIXED `470d3425`
-- **Fix:** log a failed notice send at WARN with the jid and turn id
-
 ## L639 — the platform-prefix refusal sits before the delegation return swap (2026-11-02, open)
 
 MEASURED 2026-11-02. Moving L572's check from `send` into ipc `gateJID`
