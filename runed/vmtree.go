@@ -138,8 +138,8 @@ func (t *turnTree) stageTargets(plan treeManifest) error {
 	if err := os.MkdirAll(t.dir, 0o755); err != nil {
 		return fmt.Errorf("staging tree: %w", err)
 	}
-	for _, e := range plan.Mounts {
-		target := t.target(e.Path)
+	for i, e := range plan.Mounts {
+		target := t.stagePath(plan.Mounts, i)
 		fi, err := os.Stat(e.Host)
 		if err != nil {
 			// A source the renderer named and the host does not have: the
@@ -167,6 +167,20 @@ func (t *turnTree) stageTargets(plan treeManifest) error {
 		return err
 	}
 	return os.WriteFile(filepath.Join(t.dir, treeManifestName), append(b, '\n'), 0o644)
+}
+
+// stagePath is where mount point i must exist when bindAll reaches it. Under an
+// earlier bind, that bind hides the tree, so the point is made in the earlier
+// bind's source. The plan is sorted by path, so the nearest earlier prefix is
+// the deepest one.
+func (t *turnTree) stagePath(mounts []treeEntry, i int) string {
+	p := mounts[i].Path
+	for j := i - 1; j >= 0; j-- {
+		if rel, ok := strings.CutPrefix(p, mounts[j].Path+"/"); ok {
+			return filepath.Join(mounts[j].Host, rel)
+		}
+	}
+	return t.target(p)
 }
 
 // target is the tree path for a guest path.

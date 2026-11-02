@@ -95,9 +95,12 @@ func TestStageTargetsMatchTheSourceKind(t *testing.T) {
 	if err != nil || !fi.IsDir() {
 		t.Errorf("a directory source needs a directory target: %v", err)
 	}
-	fi, err = os.Stat(filepath.Join(tree.dir, "home/node/.codex/auth.json"))
+	// /home/node is bound over the tree first, so a point under it must exist in
+	// the home's source, where the nested bind resolves (a missing one failed
+	// every turn of v0.71.4 with ENOENT).
+	fi, err = os.Stat(filepath.Join(hostDir, ".codex/auth.json"))
 	if err != nil || !fi.Mode().IsRegular() {
-		t.Errorf("a file source needs a file target: %v", err)
+		t.Errorf("a file source under a bound home needs a file target in the home's source: %v", err)
 	}
 	// The manifest is inside the share, so the guest reads the same declaration
 	// the host wrote instead of a second copy on the control channel.
