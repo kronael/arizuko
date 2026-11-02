@@ -254,12 +254,12 @@ A package can supply these assets:
 - `group/` supplies files for the group folder at the same relative paths. Package-root documentation stays with the source.
 - `skills/<name>/SKILL.md` mounts read-only at `~/.claude/skills/<name>/`.
 - `bin/<name>` mounts read-only at `/usr/local/bin/<name>`, already on the guest `PATH`.
-- `hooks/` supplies scripts at the read-only package path and `~/.claude/hooks/`.
+- `hooks/` supplies scripts at the read-only package path `/opt/arizuko/packages/<name>/hooks/`; `.claude/settings.json` names them there.
 - `.claude/settings.json` and `.codex/hooks.json` supply native hook configuration.
 - Root `CLAUDE.md` supplies a manual; the renderer combines selected manuals once at `~/.claude/CLAUDE.md`.
 
-Each turn mounts the skills, hooks and `bin/` tools read-only from the
-installed package.
+Each turn mounts the package directory, its skills and its `bin/` tools
+read-only from the installed package.
 Codex reads selected hooks through `/etc/codex/hooks.json`, enabled by
 `/etc/codex/config.toml`. Its existing harness policy hooks stay in `$CODEX_HOME`.
 Hook commands and manual imports can use `/opt/arizuko/packages/<name>/`.
