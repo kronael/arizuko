@@ -15,7 +15,6 @@
 
 ## What needs you
 
-- `L645` — solve nudge moves from runed to a core package hook; fix in progress.
 - `L644` — krons token hit its monthly spend limit; choose a token with budget.
 - `L643` — status-line redesign proposal; needs sign-off.
 - `L639` — refuse a platformless JID in `send_file`, `send_voice` and `post` after the return swap; fix queued.
@@ -410,7 +409,7 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
   hits, 56 under `-test`; nine survived verification and were filed separately. Kept so
   the next sweep does not re-report the same ~135.
 
-## L645 — agents skip /solve: a runed prompt line is ignored where a hook nudge works (2026-11-02, open — owner chose the shape)
+## ✅ FIXED 2026-11-02 d4f903f6 L645 — agents skip /solve: a runed prompt line is ignored where a hook nudge works (2026-11-02)
 
 MEASURED 2026-11-02 over sloth transcripts of the last 30 days: `solve` loaded
 in 0 of 17 `atlas/support` (Slack) sessions, 3 of 129 `sloth/discord`, 26 of
@@ -426,7 +425,7 @@ gap), "make it simpler; if the agent can do it, don't do it through runed".
 
 - **Severity:** medium (no triage, no recall on most turns)
 - **Scope:** `ant/` (core package hook + `.claude/settings.json`), `runed/render.go`, `ant/CLAUDE.md` § Solve
-- **Status:** open
+- **Status:** fixed d4f903f6
 - **Fix:** the core package ships a UserPromptSubmit hook that nudges /solve on
   a session's first prompt and after an idle gap; runed stops writing `[solve]`.
 
