@@ -45,7 +45,7 @@ canonical; arizuko's reading matches.
 
 `user-invocable: true` on almost every skill. Set `false` ONLY for
 internal-only skills invoked by other skills (e.g. `dispatch` runs
-inside `resolve`; `resolve` runs on every prompt via gateway nudge).
+inside `resolve`; `resolve` runs on a session's first prompt via the core `UserPromptSubmit` hook).
 If a human might ever type `/<skillname>`, it's `true`.
 
 ## Body rules

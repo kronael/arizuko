@@ -82,7 +82,7 @@ routd  buildAgentPrompt, routd/prompt.go:26 ───► RunRequest.MessageBatch
 runed  preparePayload, runed/render.go:177 ────► the guest's stdin prompt
        Topic session:  <episodes>
        <knowledge layer="diary">  <knowledge layer="work">  <user>
-       [solve], then routd's string unchanged
+       then routd's string unchanged
          │
          │ vsock, guest-init, stdin
          ▼
@@ -111,7 +111,6 @@ Three processes build what the agent reads, and each builds the part only it hol
 | `<knowledge layer="diary">`                           | `diary/diary.go` `Read`, called from `preparePayload`             | when `~/diary/` holds `.md` files; the newest 14 by name                                                                                                                                                                                    |
 | `<knowledge layer="work">`                            | `runed/render.go` `preparePayload`                                | when `~/work.md` is not empty; the whole file                                                                                                                                                                                               |
 | `<user>`                                              | `router/router.go` `UserContextXml`, called from `preparePayload` | when the trigger has a sender other than `system`                                                                                                                                                                                           |
-| `[solve]`                                             | `runed/render.go` `preparePayload`                                | every turn                                                                                                                                                                                                                                  |
 
 `<user id name memory="~/users/<id>.md"/>` is a pointer and holds no content. It names the sender and the file, and the agent decides whether to read the file. The file lives in the group folder, so what the agent knows about a person is per folder. The `acl_membership` rows bind the identities of one person across channels, which is a separate concern.
 

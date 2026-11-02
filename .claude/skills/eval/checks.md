@@ -438,15 +438,16 @@ for g in $(sq routd.groups "select sk_s from e"); do
 done
 echo "done"
 
-# Also verify runner injects [solve] nudge into prompts (code check)
-grep -q '\[solve\]' /home/onvos/app/arizuko/container/runner.go && \
-  echo "runner.go: [solve] nudge present" || \
-  echo "runner.go: [solve] nudge MISSING"
+# Also verify the installed core package ships the /solve nudge hook
+pkg=/srv/data/arizuko_${INSTANCE}/packages/core
+[ -f "$pkg/hooks/solve-nudge.sh" ] && grep -q UserPromptSubmit "$pkg/.claude/settings.json" && \
+  echo "core: solve-nudge hook present" || \
+  echo "core: solve-nudge hook MISSING"
 ```
 
-**Pass**: all groups have solve in CLAUDE.md + runner.go injects nudge.
+**Pass**: all groups have solve in CLAUDE.md + the core package ships the nudge hook.
 **Fail**: CLAUDE.md missing solve → `ant/CLAUDE.md` not seeded (seedGroupDir broken).
-Runner missing nudge → solve never fires → no skill matching → agent runs blind.
+Hook missing → solve nudge never fires → no skill matching → agent runs blind.
 
 ---
 
@@ -646,7 +647,7 @@ be judged by whether it drives the class to zero.
 | Errored messages on a chat | Container timed out with no output, or stack crashed mid-run | Clear with `DELETE FROM messages WHERE part = '...' AND json_extract(attrs,'$.errored') = '1'` then restart |
 | Migration version mismatch | New migration not applied to instance | Run migration manually or `arizuko run` to regenerate compose + restart |
 | routd "connecting channels: count=0" | Adapters not yet registered | Wait 10s; if still 0, restart adapters |
-| Agent ignores skills, responds generically | Solve not firing: CLAUDE.md not seeded, or nudge missing from runner | Re-seed group via `SetupGroup`; verify `runner.go` has `[solve]` annotation |
+| Agent ignores skills, responds generically | Solve not firing: CLAUDE.md not seeded, or the core package lacks `hooks/solve-nudge.sh` | Re-seed group via `SetupGroup`; verify the installed core package carries the hook (check 20) |
 | Skill exists but never matched by dispatch | Broken `description:` in SKILL.md frontmatter — awk can't parse it | Fix the YAML frontmatter: `description: >` followed by indented text on next line |
 | Every agent says `Not logged in · Please run /login` | Generated `env/runed.env` omitted the operator model credential | Regenerate compose and recreate `runed`; verify check 9a before retrying turns |
 

@@ -211,10 +211,6 @@ func preparePayload(cfg *core.Config, req runedv1.RunRequest, groupDir string) p
 	p.Persona = readOptional(personaPath)
 	p.SystemMd = readOptional(filepath.Join(groupDir, "SYSTEM.md"))
 
-	ann = append(ann,
-		"[solve] Invoke /solve now — classify, recall, "+
-			"match skills, then respond.")
-
 	if len(ann) > 0 {
 		p.Prompt = strings.Join(ann, "\n") + "\n\n" + p.Prompt
 	}

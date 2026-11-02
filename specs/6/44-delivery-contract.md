@@ -153,7 +153,6 @@ the tree, in four producers and three transports:
 
 | Producer                         | Shape                              | When          |
 | -------------------------------- | ---------------------------------- | ------------- |
-| Solve annotation                 | `[solve] …` → `Input.Annotations`  | before a turn |
 | Migration annotation, historical | `[pending migration] …` → same     | before a turn |
 | Deadline warning writer          | `⚠️ SYSTEM: …` → the IPC input dir | mid-turn      |
 | Docker input writer, historical  | input → the IPC input dir          | mid-turn      |
@@ -162,8 +161,7 @@ the tree, in four producers and three transports:
 Container side there are two consumers: the `steering` policy row
 (`ant/src/policy.ts:82`) injects the spool into a live turn on `PostToolUse`,
 and `checkIpcMessage` (`ant/src/index.ts:238`) drains both queues between turns
-and starts another round on the same session. `[solve]` rides on every prompt
-the fleet runs, so the mechanism is proven at full scale.
+and starts another round on the same session.
 
 This spec adds **no transport and no field**. It fixes what is already there:
 

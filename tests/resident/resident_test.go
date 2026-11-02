@@ -90,7 +90,7 @@ func TestAgentFileCarriesTheCarveOut(t *testing.T) {
 		"verb=mention",
 		"AskUserQuestion",
 		"role:member",
-		"[solve]",
+		"/solve",
 		"<status>",
 		"403 on EVERY path",
 		"NEVER fabricate",

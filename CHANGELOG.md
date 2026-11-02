@@ -13,6 +13,8 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+- The `/solve` nudge comes from a `UserPromptSubmit` hook in the core package, on the first prompt of a session and after 30 idle minutes. `runed` no longer writes a `[solve]` line into every prompt (BUGS `L645`).
+
 ## [v0.71.3] — 2026-11-02
 
 > arizuko v0.71.3 — threads keep attention after a mention

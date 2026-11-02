@@ -64,7 +64,7 @@ func TestContractRun(t *testing.T) {
 	// the handle the claim pinned, and a mount table.
 	frame := turnFrame(t, sawTurn)
 	prompt, _ := frame["prompt"].(string)
-	if !strings.HasSuffix(prompt, "\n\nrendered prompt") || frame["chatJid"] != "slack:T/C/U" {
+	if prompt != "rendered prompt" || frame["chatJid"] != "slack:T/C/U" {
 		t.Fatalf("stdin frame not rendered from RunRequest: %+v", frame)
 	}
 	if sawTurn.Env["ARIZUKO_MODEL"] != "claude-opus-4-8" {

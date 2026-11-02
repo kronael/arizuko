@@ -46,11 +46,13 @@ COPY --from=build /slakd /usr/local/bin/slakd
 COPY --from=build /gitd /usr/local/bin/gitd
 COPY --from=build /emaid /usr/local/bin/emaid
 # /opt/arizuko is the DEFAULT source runed and routd read `ant/` from: skills,
-# CLAUDE.md ship in the image, so a
+# CLAUDE.md, hooks ship in the image, so a
 # release is a build and not whatever sits in a checkout on the host.
 COPY --from=build /src/ant/skills /opt/arizuko/ant/skills
 COPY --from=build /src/ant/CLAUDE.md /opt/arizuko/ant/CLAUDE.md
 COPY --from=build /src/ant/arizuko.yml /opt/arizuko/ant/arizuko.yml
+COPY --from=build /src/ant/hooks /opt/arizuko/ant/hooks
+COPY --from=build /src/ant/.claude /opt/arizuko/ant/.claude
 COPY --from=build /src/template/services /opt/arizuko/template/services
 COPY --from=build /src/CHANGELOG.md /opt/arizuko/CHANGELOG.md
 WORKDIR /srv/app/home

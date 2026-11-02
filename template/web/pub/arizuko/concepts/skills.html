@@ -77,7 +77,7 @@ Skill instructions here...</code></pre>
     <p>Core is an ordinary package installed for every group. Other packages add skills through their <code>skills/</code> directories. The renderer mounts selected skills read-only: core first, then packages in the order the operator added them. The later same-name skill wins.</p>
     <p>A group can keep writable custom skills under <code>~/.claude/skills/</code>. A local <code>.disabled</code> marker suppresses a packaged skill mount. Group selections inherit no parent directory.</p>
     <h2>The prompt tells the agent to find its skills</h2>
-    <p><code>runed</code> adds a <code>[solve]</code> line to the notes at the start of every prompt. The line tells the agent to run <code>/solve</code> first. <code>/solve</code> classifies the message, recalls the context and then runs <code>/dispatch</code>. <code>/dispatch</code> compares the <code>description</code> of every skill with the request and loads the matches.</p>
+    <p>The core package installs a <code>UserPromptSubmit</code> hook. The hook adds a note that tells the agent to run <code>/solve</code> first. It adds the note to the first prompt of a session and to the first prompt after 30 idle minutes. <code>/solve</code> classifies the message, recalls the context and then runs <code>/dispatch</code>. <code>/dispatch</code> compares the <code>description</code> of every skill with the request and loads the matches.</p>
 
     <h2>Package updates start no migration turn</h2>
     <p>Startup installs released core assets; an explicit <code>arizuko package sync</code> updates other selected sources. The next turn reads those assets. <a href="../reference/packages.html">Packages</a> documents sources, native hooks, host builds and guest paths.</p>
@@ -90,7 +90,7 @@ Skill instructions here...</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/concepts/skills.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-21">2026-10-21</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-28">2026-10-28</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

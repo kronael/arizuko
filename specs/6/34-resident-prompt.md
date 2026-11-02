@@ -329,7 +329,7 @@ to prepend it per turn, which prices every resident byte three times.
 
 - `ant/CLAUDE.md` — the resident file for agents.
 - `CLAUDE.md` — the resident file for maintainers.
-- `runed/render.go:211` — persona and `SYSTEM.md`; `:215` — the `[solve]` nudge.
+- `runed/render.go:211` — persona and `SYSTEM.md`.
 - `ant/src/index.ts:47` — `buildSystemPrompt`; `ant/src/claude.ts:463,473` — preset and `settingSources`.
 - `routd/prompt.go:35` — the envelope renderer.
 - `ant/skills/self/SKILL.md` — the dispatch table that is the map.

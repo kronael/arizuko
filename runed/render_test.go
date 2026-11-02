@@ -173,7 +173,7 @@ func TestRenderTurnGolden(t *testing.T) {
 		}
 	}
 
-	wantStdin := `{"prompt":"Topic session: t-42\n\u003cknowledge layer=\"work\"\u003e\nthe work in flight\n\u003c/knowledge\u003e\n\u003cuser id=\"u1\" /\u003e\n[solve] Invoke /solve now — classify, recall, match skills, then respond.\n\nhello world","sessionId":"11111111-2222-3333-4444-555555555555","chatJid":"slack:T1/channel/C9","groupFolder":"atlas/support","topic":"t-42","assistantName":"krons","secrets":{"ANTHROPIC_API_KEY":"sk-user"},"channelName":"slack","messageId":"turn-7","sender":"u1","persona":"You are Ada.","systemMd":"House rules."}`
+	wantStdin := `{"prompt":"Topic session: t-42\n\u003cknowledge layer=\"work\"\u003e\nthe work in flight\n\u003c/knowledge\u003e\n\u003cuser id=\"u1\" /\u003e\n\nhello world","sessionId":"11111111-2222-3333-4444-555555555555","chatJid":"slack:T1/channel/C9","groupFolder":"atlas/support","topic":"t-42","assistantName":"krons","secrets":{"ANTHROPIC_API_KEY":"sk-user"},"channelName":"slack","messageId":"turn-7","sender":"u1","persona":"You are Ada.","systemMd":"House rules."}`
 	if string(turn.Stdin) != wantStdin {
 		t.Errorf("stdin frame\n got: %s\nwant: %s", turn.Stdin, wantStdin)
 	}
@@ -317,7 +317,7 @@ func TestRenderTurnGoldenElevated(t *testing.T) {
 		}
 	}
 
-	wantStdin := `{"prompt":"[solve] Invoke /solve now — classify, recall, match skills, then respond.\n\ndo the thing","chatJid":"telegram:user/42","groupFolder":"main","assistantName":"krons","secrets":{"GH_TOKEN":"ghp"},"channelName":"telegram","messageId":"turn-9"}`
+	wantStdin := `{"prompt":"do the thing","chatJid":"telegram:user/42","groupFolder":"main","assistantName":"krons","secrets":{"GH_TOKEN":"ghp"},"channelName":"telegram","messageId":"turn-9"}`
 	if string(turn.Stdin) != wantStdin {
 		t.Errorf("stdin frame\n got: %s\nwant: %s", turn.Stdin, wantStdin)
 	}
@@ -374,7 +374,6 @@ func TestPreparePayloadPrependsTheContextLayers(t *testing.T) {
 		"Topic session: inc-1",
 		`<knowledge layer="work">`,
 		"fixing bug",
-		"[solve] Invoke /solve now",
 	} {
 		if !strings.Contains(p.Prompt, want) {
 			t.Errorf("prompt is missing %q:\n%s", want, p.Prompt)
@@ -388,7 +387,7 @@ func TestPreparePayloadPrependsTheContextLayers(t *testing.T) {
 	}
 }
 
-// A group with no extra layers gets the solve nudge and nothing else — an empty
+// A group with no extra layers gets the batch and nothing else — an empty
 // annotation must not appear as a blank layer.
 func TestPreparePayloadWithoutLayers(t *testing.T) {
 	root := t.TempDir()
@@ -396,7 +395,7 @@ func TestPreparePayloadWithoutLayers(t *testing.T) {
 	groupDir := filepath.Join(cfg.GroupsDir, "atlas")
 
 	p := preparePayload(cfg, runedv1.RunRequest{Packages: []string{"core"}, Folder: "atlas", MessageBatch: "hi"}, groupDir)
-	want := "[solve] Invoke /solve now — classify, recall, match skills, then respond.\n\nhi"
+	want := "hi"
 	if p.Prompt != want {
 		t.Errorf("prompt=%q want %q", p.Prompt, want)
 	}

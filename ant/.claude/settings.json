@@ -1,0 +1,11 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          { "type": "command", "command": "sh /home/node/.claude/hooks/solve-nudge.sh" }
+        ]
+      }
+    ]
+  }
+}
