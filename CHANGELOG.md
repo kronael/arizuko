@@ -13,7 +13,19 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
-- `arizuko dump` writes a full dump and `arizuko apply <dump.tar>` restores it. `arizuko apply <rows.yml>` writes only the rows in the file, such as `groups.container_config`, and deletes nothing. `arizuko archive` and `arizuko export` are removed.
+## [v0.71.1] — 2026-11-02
+
+> arizuko v0.71.1 — dump and apply, and safer package installs
+>
+> `arizuko dump` and `arizuko apply` replace `archive` and `export`, and an instance no longer restarts in a loop over a bad package tree.
+>
+> • State transfer — `arizuko dump` writes a full dump and `arizuko apply <dump.tar>` restores it; `arizuko apply <rows.yml>` writes only the rows in the file and deletes nothing.
+> • Packages — a `sudo arizuko package` run gives the `packages/` tree to uid 1000, and the core install reads only the skill directories that git tracks.
+> • Images — `make images` refuses to build when the tree holds untracked or ignored skill paths.
+> • Instance name — `generate` and `run` take the instance name from `-i` and refuse to run without it.
+> • Sending — `send` refuses a chat JID that has no platform prefix.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
 
 ## [v0.71.0] — 2026-10-28
 
