@@ -36,6 +36,16 @@ func TestSendRefusesJIDWithoutPlatform(t *testing.T) {
 		t.Fatalf("refused send still delivered %d, wrote %d rows: %+v", sent, len(rows), rows)
 	}
 
+	for _, tool := range []string{"reply", "send_file", "send_voice", "post"} {
+		_, errText := callTool(t, sock, tool, map[string]any{"chatJid": "user/137865889", "text": "hi", "path": "f.txt"})
+		if !strings.Contains(errText, "no platform") {
+			t.Fatalf("%s to a platformless jid: error %q, want a no-platform refusal", tool, errText)
+		}
+	}
+	if sent != 0 || len(rows) != 0 {
+		t.Fatalf("refused tools still delivered %d, wrote %d rows", sent, len(rows))
+	}
+
 	if _, errText := callTool(t, sock, "send", map[string]any{"chatJid": "telegram:user/137865889", "text": "hi"}); errText != "" {
 		t.Fatalf("send to a platform jid: %s", errText)
 	}
