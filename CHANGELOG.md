@@ -13,6 +13,17 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.71.8] — 2026-11-02
+
+> arizuko v0.71.8 — scheduled tasks run, and the solve hook stops blocking prompts
+>
+> A scheduled task now runs in its owner folder and answers in its chat, and the `/solve` hook no longer blocks prompts.
+>
+> • Scheduled tasks — a task runs in its owner folder and delivers to its chat, even when that chat only observes.
+> • Solve — the hook command names its absolute guest path; v0.71.7's `~` path stayed literal and blocked every prompt.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
 ## [v0.71.7] — 2026-11-02
 
 > arizuko v0.71.7 — package hooks at their native path
