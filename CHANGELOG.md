@@ -13,6 +13,19 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.71.6] — 2026-11-02
+
+> arizuko v0.71.6 — package hooks run from the package
+>
+> A package hook runs from the read-only package mount, so nothing is bound into a group home for it.
+>
+> • Hooks — a package hook command names its file under `/opt/arizuko/packages/<name>/` (core: `/opt/arizuko/ant/`); runed mounts no hooks into the home.
+> • Threads — an agent can edit and delete its own message inside a Discord thread.
+> • Web — a web slot runed creates belongs to the agent uid, so the agent can write it.
+> • Images — the image build refuses untracked or ignored files under `ant/hooks` and `ant/.claude`.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
 ## [v0.71.5] — 2026-11-02
 
 > arizuko v0.71.5 — turns start again after v0.71.4
