@@ -406,6 +406,26 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
   hits, 56 under `-test`; nine survived verification and were filed separately. Kept so
   the next sweep does not re-report the same ~135.
 
+## L639 — the platform-prefix refusal sits before the delegation return swap (2026-11-02, open)
+
+MEASURED 2026-11-02. Moving L572's check from `send` into ipc `gateJID`
+failed `TestDelegatedReplyReturnsToOrigin`: `reply: jid "root/eng" has no
+platform prefix`. A delegated turn's chat JID is the bare child folder, and
+routd `placeTurnDelivery` (`routd/placement.go`) swaps it for `return_to`
+when the target is the turn's own chat. `reply` (`mcpDeliver` threaded), `mcpAppendDoc` and
+`mcpSendVoice` (`routd/mcp.go`) place through it; `send` (`mcp.go:51`,
+threaded=false) and `Post` do not, so L572's ipc check on `send` is correct.
+The gate change was reverted. At HEAD `send_file`, `send_voice` and `post`
+still accept `user/137865889`, the L572 shape.
+
+- **Severity:** low (needs an agent to pass a wrong JID)
+- **Scope:** `routd/mcp.go`, `routd/placement.go`, the ipc failure path
+- **Source:** `make test` 2026-11-02 on `.fix-bugs-code`
+- **Status:** open
+- **Fix:** refuse a platformless JID after `placeTurnDelivery` for
+  `send_file` and `send_voice`, and before delivery for `post`, without
+  writing a pending row (the L572 test shape).
+
 ## L620 — service run-stop authorization contradicts its stated contract (2026-10-27, open)
 
 A service-token exchange succeeded, but `POST /v1/runs/stop` returned 403
