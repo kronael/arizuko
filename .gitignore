@@ -50,6 +50,7 @@ egress/egress
 ttsd/ttsd
 *.py
 !stamp-docs.py
+!ant/hooks/*.py
 specs/res/mox/
 
 # Compiled binaries left by `make -C <dir> build`

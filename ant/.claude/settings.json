@@ -3,7 +3,7 @@
     "UserPromptSubmit": [
       {
         "hooks": [
-          { "type": "command", "command": "sh /home/node/.claude/hooks/solve-nudge.sh" }
+          { "type": "command", "command": "python3 /home/node/.claude/hooks/solve_nudge.py" }
         ]
       }
     ]

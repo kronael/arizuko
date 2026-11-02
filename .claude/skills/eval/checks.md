@@ -440,9 +440,9 @@ echo "done"
 
 # Also verify the installed core package ships the /solve nudge hook
 pkg=/srv/data/arizuko_${INSTANCE}/packages/core
-[ -f "$pkg/hooks/solve-nudge.sh" ] && grep -q UserPromptSubmit "$pkg/.claude/settings.json" && \
-  echo "core: solve-nudge hook present" || \
-  echo "core: solve-nudge hook MISSING"
+[ -f "$pkg/hooks/solve_nudge.py" ] && grep -q UserPromptSubmit "$pkg/.claude/settings.json" && \
+  echo "core: solve_nudge hook present" || \
+  echo "core: solve_nudge hook MISSING"
 ```
 
 **Pass**: all groups have solve in CLAUDE.md + the core package ships the nudge hook.

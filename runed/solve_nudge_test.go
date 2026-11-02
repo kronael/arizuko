@@ -14,7 +14,7 @@ import (
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 )
 
-const solveHook = "solve-nudge.sh"
+const solveHook = "solve_nudge.py"
 
 // The core package is the one thing every turn selects, so the hook it ships
 // must reach the guest: mounted under ~/.claude/hooks and named by the merged
@@ -68,7 +68,7 @@ func runSolveHook(t *testing.T, prompt, transcript string) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command("sh", "../ant/hooks/"+solveHook)
+	cmd := exec.Command("python3", "../ant/hooks/"+solveHook)
 	cmd.Stdin = strings.NewReader(string(input))
 	out, err := cmd.Output()
 	if err != nil {
@@ -104,9 +104,6 @@ func transcriptAged(t *testing.T, age time.Duration) string {
 }
 
 func TestSolveNudgeScript(t *testing.T) {
-	if _, err := exec.LookPath("jq"); err != nil {
-		t.Skip("jq is in the ant image; this host has none")
-	}
 	if got := runSolveHook(t, "fix the bug", filepath.Join(t.TempDir(), "absent.jsonl")); !strings.Contains(got, "first prompt this session") || !strings.Contains(got, "/solve") {
 		t.Errorf("first prompt: %q", got)
 	}
