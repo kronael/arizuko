@@ -55,8 +55,8 @@ func TestCorePackageShipsTheSolveNudgeHook(t *testing.T) {
 		t.Fatal(err)
 	}
 	entries := settings.Hooks["UserPromptSubmit"]
-	if len(entries) != 1 || len(entries[0].Hooks) != 1 || !strings.HasSuffix(entries[0].Hooks[0].Command, " "+guest) {
-		t.Fatalf("settings.json UserPromptSubmit does not run %s: %s", guest, data)
+	if len(entries) != 1 || len(entries[0].Hooks) != 1 || entries[0].Hooks[0].Command != "python3 ~/.claude/hooks/"+solveHook {
+		t.Fatalf("settings.json UserPromptSubmit does not run ~/.claude/hooks/%s: %s", solveHook, data)
 	}
 }
 
