@@ -148,12 +148,12 @@ func (d *chanDeliverer) HasCapability(jid, capability string) bool {
 	return entry != nil && entry.HasCap(capability)
 }
 
-func (d *chanDeliverer) Delete(jid, platformID string) error {
+func (d *chanDeliverer) Delete(jid, platformID, threadID string) error {
 	ch := d.resolve("", jid)
 	if ch == nil {
 		return fmt.Errorf("no channel for jid %s", jid)
 	}
-	return ch.Delete(context.Background(), jid, platformID)
+	return ch.Delete(context.Background(), jid, platformID, threadID)
 }
 
 func (d *chanDeliverer) Pin(jid, platformID string) error {

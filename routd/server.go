@@ -40,7 +40,7 @@ type Deliverer interface {
 	React(jid, platformID, reaction string) error
 	Edit(jid, platformID, content, threadID string) error
 	HasCapability(jid, capability string) bool
-	Delete(jid, platformID string) error
+	Delete(jid, platformID, threadID string) error
 	Pin(jid, platformID string) error
 	Unpin(jid, platformID string, all bool) error
 	// Typing is best-effort; web / no-presence channels are no-ops.

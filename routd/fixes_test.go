@@ -140,7 +140,7 @@ func (d *recDeliverer) HasCapability(_, capability string) bool {
 	}
 	return d.canThread && (capability == "thread_root" || capability == "thread_id")
 }
-func (d *recDeliverer) Delete(_, _ string) error        { return nil }
+func (d *recDeliverer) Delete(_, _, _ string) error     { return nil }
 func (d *recDeliverer) Pin(_, _ string) error           { return nil }
 func (d *recDeliverer) Unpin(_, _ string, _ bool) error { return nil }
 func (d *recDeliverer) Typing(jid string, on bool) error {

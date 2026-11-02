@@ -104,8 +104,15 @@ func TestEveryVerbPostsItsDocumentedPathAndBody(t *testing.T) {
 		},
 		{
 			verb: "delete", cap: "delete", wantPath: "/delete",
-			call:     func(h *HTTPChannel) error { return h.Delete(ctx, "x:1", "m1") },
+			call:     func(h *HTTPChannel) error { return h.Delete(ctx, "x:1", "m1", "") },
 			wantBody: map[string]any{"chat_jid": "x:1", "target_id": "m1"},
+		},
+		{
+			verb: "thread delete", cap: "delete", wantPath: "/delete",
+			call: func(h *HTTPChannel) error { return h.Delete(ctx, "x:1", "m1", "th-7") },
+			wantBody: map[string]any{
+				"chat_jid": "x:1", "target_id": "m1", "thread_id": "th-7",
+			},
 		},
 		{
 			verb: "edit", cap: "edit", wantPath: "/edit",

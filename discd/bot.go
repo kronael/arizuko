@@ -607,7 +607,11 @@ func (b *bot) Like(req chanlib.LikeRequest) error {
 }
 
 func (b *bot) Delete(req chanlib.DeleteRequest) error {
-	if err := b.session.ChannelMessageDelete(chanID(req.ChatJID), req.TargetID); err != nil {
+	channel := chanID(req.ChatJID)
+	if req.ThreadID != "" {
+		channel = req.ThreadID
+	}
+	if err := b.session.ChannelMessageDelete(channel, req.TargetID); err != nil {
 		return fmt.Errorf("discord delete: %w", err)
 	}
 	return nil

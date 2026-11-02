@@ -219,6 +219,21 @@ func TestBotHandler_Delete(t *testing.T) {
 	assertPath(t, rec, "DELETE", "/channels/ch-1/messages/msg-99")
 }
 
+func TestBotHandler_DeleteInThread(t *testing.T) {
+	rec := &recorded{}
+	srv := newRecordingDiscordServer(t, rec)
+	defer srv.Close()
+	defer mockAllDiscordEndpoints(srv.URL)()
+
+	b := &bot{session: newTestSession(t)}
+	if err := b.Delete(chanlib.DeleteRequest{
+		ChatJID: "discord:ch-1", TargetID: "msg-99", ThreadID: "th-7",
+	}); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	assertPath(t, rec, "DELETE", "/channels/th-7/messages/msg-99")
+}
+
 func assertPath(t *testing.T, rec *recorded, method, path string) {
 	t.Helper()
 	for _, r := range rec.snapshot() {

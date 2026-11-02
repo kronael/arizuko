@@ -606,7 +606,7 @@ func TestFinishTurn_IsTheOnlyDoneWriter(t *testing.T) {
 	}
 }
 
-type deleteEvent struct{ jid, platformID string }
+type deleteEvent struct{ jid, platformID, threadID string }
 
 // deletingDeliverer is a channel that advertises edit and delete.
 type deletingDeliverer struct {
@@ -623,8 +623,8 @@ func (d *deletingDeliverer) HasCapability(jid, capability string) bool {
 	return d.recDeliverer.HasCapability(jid, capability)
 }
 
-func (d *deletingDeliverer) Delete(jid, platformID string) error {
-	d.deletes = append(d.deletes, deleteEvent{jid, platformID})
+func (d *deletingDeliverer) Delete(jid, platformID, threadID string) error {
+	d.deletes = append(d.deletes, deleteEvent{jid, platformID, threadID})
 	return d.deleteErr
 }
 
@@ -647,7 +647,7 @@ func TestProgress_EndDeletesWhereChannelCanDelete(t *testing.T) {
 	platformID := statusRows(t, db, progressJID)[0].PlatformID
 
 	finishTurn(db, dl, "t1", endDone)
-	if len(dl.deletes) != 1 || dl.deletes[0] != (deleteEvent{progressJID, platformID}) {
+	if len(dl.deletes) != 1 || dl.deletes[0] != (deleteEvent{progressJID, platformID, ""}) {
 		t.Fatalf("deletes=%+v, want one on %s %s", dl.deletes, progressJID, platformID)
 	}
 	if len(dl.edits) != 0 {
@@ -663,6 +663,25 @@ func TestProgress_EndDeletesWhereChannelCanDelete(t *testing.T) {
 	finishTurn(db, dl, "t1", endFailed)
 	if len(dl.deletes) != 1 || len(dl.edits) != 0 {
 		t.Fatalf("a second End acted: deletes=%+v edits=%+v", dl.deletes, dl.edits)
+	}
+}
+
+func TestProgress_EndDeleteCarriesTheStatusThread(t *testing.T) {
+	dl := &deletingDeliverer{recDeliverer: &recDeliverer{}}
+	db, srv := newProgressTurn(t, dl.recDeliverer, "")
+	srv.deliver = dl
+	if _, err := db.PutTurnContext("threaded", "demo", "th-7", progressJID, "u1", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := srv.mcpSubmitStatus("threaded", "working"); err != nil {
+		t.Fatal(err)
+	}
+	platformID := statusRows(t, db, progressJID)[0].PlatformID
+
+	finishTurn(db, dl, "threaded", endDone)
+	want := deleteEvent{progressJID, platformID, "th-7"}
+	if len(dl.deletes) != 1 || dl.deletes[0] != want {
+		t.Fatalf("deletes=%+v, want one %+v", dl.deletes, want)
 	}
 }
 

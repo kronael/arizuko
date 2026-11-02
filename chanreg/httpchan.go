@@ -422,11 +422,15 @@ func (h *HTTPChannel) Like(ctx context.Context, jid, targetID, reaction string) 
 	return err
 }
 
-func (h *HTTPChannel) Delete(ctx context.Context, jid, targetID string) error {
+func (h *HTTPChannel) Delete(ctx context.Context, jid, targetID, threadID string) error {
 	if !h.entry.HasCap("delete") {
 		return chanlib.Unsupported("delete", h.entry.Name, "adapter does not advertise capability")
 	}
-	_, err := h.postVerb(ctx, "delete", "/delete", makeBody(map[string]string{"chat_jid": jid, "target_id": targetID}))
+	body := map[string]string{"chat_jid": jid, "target_id": targetID}
+	if threadID != "" {
+		body["thread_id"] = threadID
+	}
+	_, err := h.postVerb(ctx, "delete", "/delete", makeBody(body))
 	return err
 }
 

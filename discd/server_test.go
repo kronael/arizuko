@@ -116,6 +116,21 @@ func TestServerDelete(t *testing.T) {
 	}
 }
 
+func TestServerDeleteCarriesThread(t *testing.T) {
+	h, sb := stubHandler("secret")
+	body, _ := json.Marshal(map[string]any{"chat_jid": "discord:123", "target_id": "m1", "thread_id": "th-7"})
+	req := httptest.NewRequest("POST", "/delete", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer secret")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != 200 {
+		t.Fatalf("status = %d", w.Code)
+	}
+	if sb.delReq.ThreadID != "th-7" {
+		t.Errorf("del req = %+v", sb.delReq)
+	}
+}
+
 func TestServerSend(t *testing.T) {
 	h, sb := stubHandler("secret")
 	body, _ := json.Marshal(map[string]string{"chat_jid": "discord:123", "content": "hello"})

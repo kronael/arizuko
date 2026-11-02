@@ -86,6 +86,7 @@ type LikeRequest struct {
 type DeleteRequest struct {
 	ChatJID  string `json:"chat_jid"`
 	TargetID string `json:"target_id"`
+	ThreadID string `json:"thread_id,omitempty"`
 }
 
 type ForwardRequest struct {

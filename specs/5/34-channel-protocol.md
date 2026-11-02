@@ -41,7 +41,7 @@ Text JSON and file/voice multipart sends carry optional `thread_id` and
 `thread_root`. An explicit existing thread wins over a root. The adapter must
 materialize the declared thread before sending the actual content. A thread
 failure returns an error; the adapter must not send the child at the parent.
-`/edit` accepts optional `thread_id` for platforms whose edit URL needs the
+`/edit` and `/delete` accept optional `thread_id` for platforms whose edit or delete URL needs the
 thread channel. Slack edits still use the parent channel and message timestamp.
 The shared placement policy is in `../6/46-turn-progress.md`.
 

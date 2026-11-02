@@ -26,7 +26,7 @@ func TestHTTPChannelVerbNoCapUnsupported(t *testing.T) {
 	checks := map[string]error{
 		"like":    ch.Like(ctx, "x:1", "m1", "👍"),
 		"post":    postErr,
-		"delete":  ch.Delete(ctx, "x:1", "m1"),
+		"delete":  ch.Delete(ctx, "x:1", "m1", ""),
 		"dislike": ch.Dislike(ctx, "x:1", "m1"),
 		"edit":    ch.Edit(ctx, "x:1", "m1", "txt", ""),
 		"pin":     ch.Pin(ctx, "x:1", "m1"),
@@ -62,7 +62,7 @@ func TestHTTPChannelVerbNon200IsError(t *testing.T) {
 		Capabilities: map[string]bool{"delete": true}}
 	ch := NewHTTPChannel(e, staticBearer("secret"))
 
-	err := ch.Delete(context.Background(), "x:1", "missing")
+	err := ch.Delete(context.Background(), "x:1", "missing", "")
 	if err == nil {
 		t.Fatal("delete of missing target must error")
 	}
@@ -83,7 +83,7 @@ func TestHTTPChannelVerb501IsUnsupported(t *testing.T) {
 		Capabilities: map[string]bool{"delete": true}}
 	ch := NewHTTPChannel(e, staticBearer("secret"))
 
-	if err := ch.Delete(context.Background(), "x:1", "m1"); !errors.Is(err, chanlib.ErrUnsupported) {
+	if err := ch.Delete(context.Background(), "x:1", "m1", ""); !errors.Is(err, chanlib.ErrUnsupported) {
 		t.Errorf("501 must map to Unsupported, got %v", err)
 	}
 }

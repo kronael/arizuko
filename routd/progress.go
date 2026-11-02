@@ -156,7 +156,7 @@ func endStatusRow(db *DB, dl Deliverer, turnID, jid string, row core.Message, te
 	if row.PlatformID == "" || !dl.HasCapability(jid, "delete") {
 		return rewriteStatusRow(db, dl, turnID, jid, row, terminal)
 	}
-	if err := dl.Delete(jid, row.PlatformID); err != nil {
+	if err := dl.Delete(jid, row.PlatformID, row.Topic); err != nil {
 		slog.Warn("progress delete refused; ending it with the terminal edit",
 			"turn_id", turnID, "jid", jid, "err", err)
 		return rewriteStatusRow(db, dl, turnID, jid, row, terminal)
