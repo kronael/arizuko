@@ -13,6 +13,16 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.71.7] — 2026-11-02
+
+> arizuko v0.71.7 — package hooks at their native path
+>
+> A package hook is mounted at `~/.claude/hooks/<name>` again, the path Claude Code reads, so one package works the same inside and outside arizuko.
+>
+> • Hooks — the core `/solve` hook runs as `python3 ~/.claude/hooks/solve_nudge.py`; runed mounts each package hook there.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
 ## [v0.71.6] — 2026-11-02
 
 > arizuko v0.71.6 — package hooks run from the package
