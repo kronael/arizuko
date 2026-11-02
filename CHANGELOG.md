@@ -13,6 +13,18 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.71.3] — 2026-11-02
+
+> arizuko v0.71.3 — threads keep attention after a mention
+>
+> A thread that starts from a message that mentioned the agent keeps the agent's attention, so people do not tag it again on each message.
+>
+> • Threads — a message in a thread whose first message mentioned the agent reaches the agent; other human-started threads still need a tag per message.
+> • Discord — the progress message inside a thread is now removed at the end of the turn.
+> • Notices — a failed-turn notice that cannot be sent is now logged.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
 ## [v0.71.2] — 2026-11-02
 
 > arizuko v0.71.2 — the GitHub agent answers only when asked
