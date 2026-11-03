@@ -13,6 +13,19 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.72.6] — 2026-11-03
+
+> arizuko v0.72.6 — package tasks fire, rename works on real instances
+>
+> A scheduled task that a package installs now runs on its cron, and `group rename` no longer refuses an instance with `node_modules` trees.
+>
+> • Tasks — a task row written without `next_run` gets it from its cron, so package tasks fire.
+> • Rename — `arizuko group rename` skips `node_modules`, as it skips `.git`.
+> • Telegram — `teled-atlas` ships as a catalog fragment for a second bot account.
+> • Skills — the core `trader` skill is gone; `data` covers trading bots.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
 ## [v0.72.5] — 2026-11-03
 
 > arizuko v0.72.5 — per-group effort, and typing that stays on
