@@ -49,7 +49,7 @@ No code, no deploy, no registry. Write once, share across agents.
 
 Problem: the agent has no idea what it did yesterday. Every session
 starts blank. In arizuko, the agent writes diary entries and facts
-to its workspace. 14 days of context injected at startup. Memory
+to its workspace and searches them when a task needs them. Memory
 is files on disk. No vector database. It just remembers.
 
 ---

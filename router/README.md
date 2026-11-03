@@ -9,14 +9,12 @@ route data shapes:
 
 1. **Prompt assembly** — render a batch of `core.Message` values as the
    `<messages>` XML the agent sees, strip `<think>`/`<status>`/
-   `<internal>` blocks from agent output, materialise per-user context
-   from `users/<id>.md` frontmatter.
+   `<internal>` blocks from agent output, name the sender by its `users/<id>.md` id.
 2. **Route evaluation** — match a single inbound `core.Message` against
    the ordered route table loaded by routd and return the resolved
    target folder.
 
-No I/O (except `UserContextXml` reading `users/<id>.md` under the
-group dir), no goroutines, no state. The route table itself is owned
+No I/O, no goroutines, no state. The route table itself is owned
 by routd via `routd/routes_http.go`; this package just walks rules someone
 else loaded.
 
@@ -37,9 +35,8 @@ else loaded.
   operator surface without showing them to users.
 - `StripThinkBlocks(s string) string` — depth-aware stripper for
   nested `<think>`.
-- `UserContextXml(sender, groupDir string) string` — `<user
-id=… name=… memory="~/users/<id>"/>` element, derived from the
-  sender's `users/<id>.md` `name:` frontmatter. Path-traversal-guarded.
+- `UserTag(sender string) string` — `<user id="…" />`, the id of the
+  sender's `users/<id>.md`. Empty for no sender and for `system`.
 
 ### Route evaluation
 

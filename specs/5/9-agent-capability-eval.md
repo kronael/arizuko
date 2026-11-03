@@ -77,8 +77,8 @@ lands.
 Ten dimensions: self-modification · subagents + privileges · web
 publishing · online chat apps · reach via REST + MCP · composites ·
 routing · egress · the backend contract floor · continuity
-(added 2026-08-20: the group-knowledge
-layer must carry a fact to a transcript-less isolated turn — the
+(added 2026-08-20: the group diary,
+read on demand, must carry a fact to a transcript-less isolated turn — the
 portability claim; what stays live-unmeasured and why is in
 `anteval/README.md` §"Continuity coverage"), plus a
 **fabricate-vs-surface** family added 2026-07-12

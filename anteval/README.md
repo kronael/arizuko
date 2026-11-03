@@ -161,7 +161,7 @@ deploy gap, not a capability failure.
 ## Continuity coverage — what is and is not measured live
 
 The `continuity` dimension (`knowledge-outlives-transcript`) proves the
-platform's group-knowledge layer carries a fact to a turn that has NO
+group diary, read on demand, carries a fact to a turn that has NO
 conversation transcript (a `contextMode='isolated'` scheduled follow-up —
 isolated means no `--resume` by definition). Run it by hand like any case:
 

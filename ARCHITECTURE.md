@@ -30,7 +30,7 @@ routd/     router plane: sole message appender, routing, prompt, MCP host
   └── ipc                 the per-turn agent MCP socket, in-process
 runed/     execution plane: one KVM guest and one egress proxy per turn
   │
-  ├── container, diary    group setup and skills; the knowledge layers
+  ├── container, diary    group setup and skills; the diary summary reader
   ├── groupfolder, mountsec  path checks for the guest's mounts
   ├── substrate           the declared ceiling and what a host delivers
   └── runstore            spawns, session_log, circuit_breaker

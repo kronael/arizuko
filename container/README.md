@@ -31,7 +31,6 @@ proxy process.
   group files that the mix would write and no earlier write copied; `-f`
   replaces them
 - `SanitizeFolder(folder) string` — safe guest, tap and share names
-- `ReadRecentEpisodes(groupDir) string` — XML snippet for prompt
 - `WriteTasksSnapshot`, `WriteGroupsSnapshot` — per-group snapshots
 - `CopySession(groupDir, srcUUID, dstUUID) (bool, error)` — fork a session:
   copy `<groupDir>/.claude/projects/-home-node/<src>.jsonl` to `<dst>.jsonl`
@@ -91,7 +90,6 @@ substrate. `runed/README.md` §"The turn envelope" holds both tables.
 - `packages.go` — the common installer and selected asset inventory; bundled
   `ant/arizuko.yml` declares core through the same source format
 - `runtime.go` — codex mount-target seeding
-- `episodes.go` — recent-episode XML for prompt context
 - `egress.go` — the allowlist-to-rules translation and the proxy health wait every substrate calls; starts nothing itself
 
 ## Related docs
