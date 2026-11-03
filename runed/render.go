@@ -11,7 +11,6 @@ import (
 
 	"github.com/kronael/arizuko/container"
 	"github.com/kronael/arizuko/core"
-	"github.com/kronael/arizuko/diary"
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/router"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
@@ -169,8 +168,8 @@ func queryTimeoutMs(ttl time.Duration) int64 {
 	return q.Milliseconds()
 }
 
-// preparePayload builds the stdin frame: the context layers this turn reads off
-// the group dir, prefixed onto the rendered prompt.
+// preparePayload builds the stdin frame: the platform facts of this turn
+// (topic, sender id) prefixed onto the rendered prompt.
 func preparePayload(cfg *core.Config, req runedv1.RunRequest, groupDir string) payload {
 	p := payload{
 		Prompt:    req.MessageBatch,
@@ -186,18 +185,8 @@ func preparePayload(cfg *core.Config, req runedv1.RunRequest, groupDir string) p
 	if p.Topic != "" {
 		ann = append(ann, "Topic session: "+p.Topic)
 	}
-	if ep := container.ReadRecentEpisodes(groupDir); ep != "" {
-		ann = append(ann, ep)
-	}
-	if d := diary.Read(groupDir, 14); d != "" {
-		ann = append(ann, d)
-	}
-	if wk := readOptional(filepath.Join(groupDir, "work.md")); wk != "" {
-		ann = append(ann,
-			"<knowledge layer=\"work\">\n"+wk+"\n</knowledge>")
-	}
-	if uc := router.UserContextXml(p.Sender, groupDir); uc != "" {
-		ann = append(ann, uc)
+	if ut := router.UserTag(p.Sender); ut != "" {
+		ann = append(ann, ut)
 	}
 
 	// Auto-migrate the old SOUL.md name to PERSONA.md on read.

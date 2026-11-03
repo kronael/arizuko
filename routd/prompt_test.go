@@ -370,6 +370,9 @@ func TestBuildAgentPrompt_DoesNotConsumeTheObservedWindow(t *testing.T) {
 	if !strings.Contains(first, "ambient chatter") {
 		t.Fatalf("observed message absent from the first render:\n%s", first)
 	}
+	if strings.Contains(first, "<rule>") {
+		t.Errorf("the observed-messages rule belongs to the manual, not the prompt:\n%s", first)
+	}
 	if mark == "" {
 		t.Fatal("render reported no watermark despite showing an observed message")
 	}

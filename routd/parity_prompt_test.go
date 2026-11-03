@@ -134,8 +134,8 @@ summary: |
 	if !strings.Contains(got, "Codebase-native marinade guide") {
 		t.Errorf("missing summary content: %q", got)
 	}
-	if !strings.Contains(got, "(For full register: /persona)") {
-		t.Errorf("missing pointer trailer: %q", got)
+	if strings.Contains(got, "For full register") {
+		t.Errorf("the persona hint belongs to the manual, not the prompt: %q", got)
 	}
 	if !strings.HasSuffix(got, "</persona>\n") {
 		t.Errorf("missing closing tag: %q", got)

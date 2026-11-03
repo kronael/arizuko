@@ -2,10 +2,7 @@ package router
 
 import (
 	"fmt"
-	"os"
 	"path"
-	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -187,36 +184,14 @@ func senderToUserFileID(sender string) string {
 	return short + "-" + id
 }
 
-var nameRe = regexp.MustCompile(`(?m)^name:\s*(.+)$`)
-
-func UserContextXml(sender, groupDir string) string {
+// UserTag names the sender by the id of its ~/users/<id>.md file. The
+// prompt-context hook reads that file; the tag is the only part the platform
+// owns.
+func UserTag(sender string) string {
 	if sender == "" || sender == "system" {
 		return ""
 	}
-	id := senderToUserFileID(sender)
-	var b strings.Builder
-	b.WriteString(`<user id="`)
-	b.WriteString(escapeXml(id))
-	b.WriteByte('"')
-
-	usersDir := filepath.Join(groupDir, "users")
-	userFile := filepath.Join(usersDir, id+".md")
-	resolved, err := filepath.Abs(userFile)
-	if err == nil && strings.HasPrefix(resolved, filepath.Clean(usersDir)+string(os.PathSeparator)) {
-		if data, err := os.ReadFile(userFile); err == nil {
-			content := string(data)
-			if m := nameRe.FindStringSubmatch(content); len(m) > 1 {
-				b.WriteString(` name="`)
-				b.WriteString(escapeXml(strings.TrimSpace(m[1])))
-				b.WriteByte('"')
-			}
-			b.WriteString(` memory="~/users/`)
-			b.WriteString(id)
-			b.WriteByte('"')
-		}
-	}
-	b.WriteString(" />")
-	return b.String()
+	return `<user id="` + escapeXml(senderToUserFileID(sender)) + `" />`
 }
 
 func IsAuthorizedRoutingTarget(source, target string) bool {

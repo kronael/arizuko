@@ -173,7 +173,7 @@ func TestRenderTurnGolden(t *testing.T) {
 		}
 	}
 
-	wantStdin := `{"prompt":"Topic session: t-42\n\u003cknowledge layer=\"work\"\u003e\nthe work in flight\n\u003c/knowledge\u003e\n\u003cuser id=\"u1\" /\u003e\n\nhello world","sessionId":"11111111-2222-3333-4444-555555555555","chatJid":"slack:T1/channel/C9","groupFolder":"atlas/support","topic":"t-42","assistantName":"krons","secrets":{"ANTHROPIC_API_KEY":"sk-user"},"channelName":"slack","messageId":"turn-7","sender":"u1","persona":"You are Ada.","systemMd":"House rules."}`
+	wantStdin := `{"prompt":"Topic session: t-42\n\u003cuser id=\"u1\" /\u003e\n\nhello world","sessionId":"11111111-2222-3333-4444-555555555555","chatJid":"slack:T1/channel/C9","groupFolder":"atlas/support","topic":"t-42","assistantName":"krons","secrets":{"ANTHROPIC_API_KEY":"sk-user"},"channelName":"slack","messageId":"turn-7","sender":"u1","persona":"You are Ada.","systemMd":"House rules."}`
 	if string(turn.Stdin) != wantStdin {
 		t.Errorf("stdin frame\n got: %s\nwant: %s", turn.Stdin, wantStdin)
 	}
@@ -359,31 +359,24 @@ func TestPayloadCarriesOnlyTheAgentsKeys(t *testing.T) {
 	}
 }
 
-// TestPreparePayloadPrependsTheContextLayers: the annotations the group dir
-// carries land in front of the rendered batch, in the order the agent reads
-// them, and the user's own prompt stays last.
-func TestPreparePayloadPrependsTheContextLayers(t *testing.T) {
+// TestPreparePayloadLeavesHomeFilesToTheHook: the platform prefixes its own
+// facts (topic, sender id) and nothing it reads off the group dir. Episodes,
+// diary, work.md and the user file reach the agent through the core package's
+// prompt_context hook.
+func TestPreparePayloadLeavesHomeFilesToTheHook(t *testing.T) {
 	root := t.TempDir()
 	cfg := goldenCfg(t, root)
 	groupDir := filepath.Join(cfg.GroupsDir, "atlas")
 	write(t, filepath.Join(groupDir, "work.md"), "## Current task\nfixing bug")
+	write(t, filepath.Join(groupDir, "episodes", "2026-W44.md"), "---\ntype: week\nsummary: shipped\n---\n")
+	write(t, filepath.Join(groupDir, "diary", "20261102.md"), "---\nsummary: did x\n---\n")
+	write(t, filepath.Join(groupDir, "users", "tg-9.md"), "name: Ada\n")
 
-	p := preparePayload(cfg, runedv1.RunRequest{Packages: []string{"core"}, Folder: "atlas", Topic: "inc-1", MessageBatch: "hello world"}, groupDir)
+	p := preparePayload(cfg, runedv1.RunRequest{Packages: []string{"core"}, Folder: "atlas", Topic: "inc-1", TriggerSender: "telegram:9", MessageBatch: "hello world"}, groupDir)
 
-	for _, want := range []string{
-		"Topic session: inc-1",
-		`<knowledge layer="work">`,
-		"fixing bug",
-	} {
-		if !strings.Contains(p.Prompt, want) {
-			t.Errorf("prompt is missing %q:\n%s", want, p.Prompt)
-		}
-	}
-	if !strings.HasSuffix(p.Prompt, "\n\nhello world") {
-		t.Errorf("the rendered batch must stay last:\n%s", p.Prompt)
-	}
-	if strings.Index(p.Prompt, "Topic session") > strings.Index(p.Prompt, `layer="work"`) {
-		t.Errorf("layer order changed:\n%s", p.Prompt)
+	want := "Topic session: inc-1\n<user id=\"tg-9\" />\n\nhello world"
+	if p.Prompt != want {
+		t.Errorf("prompt\n got: %q\nwant: %q", p.Prompt, want)
 	}
 }
 
