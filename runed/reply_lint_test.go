@@ -76,6 +76,32 @@ func replyInput(t *testing.T, tool string, args map[string]any) string {
 	return string(input)
 }
 
+// TestReplyLintLetsTheThirdTryThrough: a long reply is sometimes right, so after
+// two denials in one turn the next try passes; a new user prompt starts again.
+func TestReplyLintLetsTheThirdTryThrough(t *testing.T) {
+	long := strings.Repeat("word ", 120)
+	prompt := `{"type":"user","message":{"content":"explain"}}` + "\n"
+	denied := `{"type":"user","message":{"content":[{"type":"tool_result","content":"Reply too long: 599 chars"}]}}` + "\n"
+	try := func(transcript string) string {
+		path := filepath.Join(t.TempDir(), "s.jsonl")
+		if err := os.WriteFile(path, []byte(transcript), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		input, _ := json.Marshal(map[string]any{"tool_name": "mcp__arizuko__reply", "transcript_path": path,
+			"tool_input": map[string]any{"text": long}})
+		return runReplyHook(t, string(input))
+	}
+	if got := try(prompt + denied); !strings.Contains(got, "Denial 2 of 2") {
+		t.Errorf("one earlier denial: want the second denial, got %q", got)
+	}
+	if got := try(prompt + denied + denied); got != "" {
+		t.Errorf("two earlier denials: the third try must pass, got %q", got)
+	}
+	if got := try(prompt + denied + denied + prompt); !strings.Contains(got, "Denial 1 of 2") {
+		t.Errorf("a new prompt starts the count again: %q", got)
+	}
+}
+
 func TestReplyLintScript(t *testing.T) {
 	reasonOf := func(out string) string {
 		t.Helper()
