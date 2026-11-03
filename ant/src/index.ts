@@ -40,7 +40,7 @@ const IPC_INPUT_CLOSE_SENTINEL = path.join(IPC_INPUT_DIR, '_close');
 const IPC_POLL_MS = 500;
 const MAX_STDIN_BYTES = 1024 * 1024;
 
-const PROGRESS_INTERVAL_MS = 90_000;
+export const PROGRESS_INTERVAL_MS = 180_000;
 
 // runed hands the guest ARIZUKO_QUERY_TIMEOUT_MS under its own run ceiling. The
 // guest's clock starts with this process, so one deadline covers every harness
@@ -311,8 +311,9 @@ async function runAttempt(
   setTimeout(pollIpcDuringQuery, IPC_POLL_MS);
 
   // The nudge asks the agent for a <status> report. Wall-clock, so a long
-  // tool-heavy stretch still nudges even when no frame arrives.
-  const nudgeTimer = setInterval(nudgeProgress, PROGRESS_INTERVAL_MS);
+  // tool-heavy stretch still nudges even when no frame arrives. routd sets
+  // ARIZUKO_PROGRESS only where a progress line can show.
+  const nudgeTimer = env.ARIZUKO_PROGRESS === '1' ? setInterval(nudgeProgress, PROGRESS_INTERVAL_MS) : undefined;
   const untilNote = deadline - DEADLINE_NOTE_LEAD_MS - Date.now();
   const noteTimer = untilNote > 0 ? setTimeout(noteDeadline, untilNote) : undefined;
 

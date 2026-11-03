@@ -107,7 +107,7 @@ func TestRenderTurnGolden(t *testing.T) {
 			"Timeout": int64(10 * time.Minute),
 			"Mounts":  []any{map[string]any{"Host": filepath.Join(root, "extra"), "Container": "extra", "RO": false}},
 		},
-		ShareReadOnly: true, Egress: true, WebPublish: true, GHWrite: true,
+		ShareReadOnly: true, Egress: true, WebPublish: true, GHWrite: true, Progress: true,
 		EgressAllowlist: []string{"github.com"},
 		Secrets:         map[string]string{"ANTHROPIC_API_KEY": "sk-user"}}, "arizuko-krons-atlas-support-1700000000000", 20*time.Minute)
 	if err != nil {
@@ -163,6 +163,7 @@ func TestRenderTurnGolden(t *testing.T) {
 		"ARIZUKO_BACKEND":          "claude",
 		"ARIZUKO_IS_ROOT":          "",
 		"ARIZUKO_GH_WRITE":         "1",
+		"ARIZUKO_PROGRESS":         "1",
 	}
 	if len(turn.Env) != len(wantEnv) {
 		t.Errorf("env has %d keys, want %d: %v", len(turn.Env), len(wantEnv), turn.Env)
@@ -307,6 +308,7 @@ func TestRenderTurnGoldenElevated(t *testing.T) {
 		"MODEL_GATEWAY_KEY": "sk-virtual-turn",
 		"ARIZUKO_IS_ROOT":   "1",
 		"ARIZUKO_GH_WRITE":  "",
+		"ARIZUKO_PROGRESS":  "",
 	}
 	if len(turn.Env) != len(wantEnv) {
 		t.Errorf("env has %d keys, want %d: %v", len(turn.Env), len(wantEnv), turn.Env)
@@ -439,7 +441,7 @@ func TestTurnEnvEmissions(t *testing.T) {
 		Timezone: "UTC", AgentBackend: "codex", ModelGatewayURL: "http://gw:4000",
 	}
 	got := turnEnv(full, runedv1.RunRequest{Packages: []string{"core"}, Model: "opus", Effort: "xhigh", ModelGatewayKey: "sk-virtual",
-		Elevated: true, GHWrite: true}, 900000)
+		Elevated: true, GHWrite: true, Progress: true}, 900000)
 	want := map[string]string{
 		"TZ":                       "UTC",
 		"ARIZUKO_MODEL":            "opus",
@@ -450,6 +452,7 @@ func TestTurnEnvEmissions(t *testing.T) {
 		"MODEL_GATEWAY_KEY":        "sk-virtual",
 		"ARIZUKO_IS_ROOT":          "1",
 		"ARIZUKO_GH_WRITE":         "1",
+		"ARIZUKO_PROGRESS":         "1",
 	}
 	if len(got) != len(want) {
 		t.Errorf("env has %d keys, want %d: %v", len(got), len(want), got)
@@ -466,6 +469,7 @@ func TestTurnEnvEmissions(t *testing.T) {
 		// Always emitted, "1" or "", so each gate reads present-and-false.
 		"ARIZUKO_IS_ROOT":  "",
 		"ARIZUKO_GH_WRITE": "",
+		"ARIZUKO_PROGRESS": "",
 	}
 	if len(bare) != len(wantBare) {
 		t.Errorf("bare env has %d keys, want %d: %v", len(bare), len(wantBare), bare)

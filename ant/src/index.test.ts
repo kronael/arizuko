@@ -2,7 +2,7 @@
 // harness only has to put its assistant text on the frame.
 
 import { describe, test, expect } from 'bun:test';
-import { DEADLINE_TEXT, buildSystemPrompt, checkIpcMessage, runTurn, statusBlocks } from './index.js';
+import { DEADLINE_TEXT, PROGRESS_INTERVAL_MS, buildSystemPrompt, checkIpcMessage, runTurn, statusBlocks } from './index.js';
 import type { Frame, Harness } from './backend.js';
 import type { SubmitStatusPayload } from './mcp.js';
 import { NUDGE_TEXT, STEER_SPOOL, appendLines, drainLines } from './spool.js';
@@ -384,4 +384,39 @@ test('runTurn resumes a delivery nudge on the same turn and transcript', async (
   expect(delivered).toEqual(['bound-turn', 'bound-turn']);
   expect(result.sessionId).toBe('session');
   expect(result.token).toBe('opaque#latest');
+});
+
+// intervalsArmed runs one short turn and answers the delays of the intervals it
+// armed, so a test reads the nudge timing without waiting for it.
+async function intervalsArmed(env: Record<string, string>): Promise<number[]> {
+  const delays: number[] = [];
+  const real = globalThis.setInterval;
+  globalThis.setInterval = ((fn: () => void, ms?: number) => {
+    delays.push(ms ?? 0);
+    return real(fn, ms);
+  }) as typeof setInterval;
+  try {
+    await runTurn(lasting(10), 'p', undefined, INPUT, env, 't1', spy().deliver, statusSpy().send);
+  } finally {
+    globalThis.setInterval = real;
+  }
+  return delays;
+}
+
+/**
+ * A run on a turn where a progress line can show (ARIZUKO_PROGRESS=1) arms the
+ * progress nudge, first at 180 s. A run elsewhere (GitHub, cron, migrate, a sink
+ * that cannot edit and delete) arms none.
+ */
+test('runTurn: the progress nudge runs at 180 s only when routd says a line can show', async () => {
+  expect(PROGRESS_INTERVAL_MS).toBe(180_000);
+  expect(await intervalsArmed({ ARIZUKO_PROGRESS: '1' })).toEqual([180_000]);
+  expect(await intervalsArmed({ ARIZUKO_PROGRESS: '' })).toEqual([]);
+  expect(await intervalsArmed({})).toEqual([]);
+});
+
+/** The nudge asks what the user gets next, and names the process notes it forbids. */
+test('NUDGE_TEXT asks what the user gets next, not which tool, model or file', () => {
+  expect(NUDGE_TEXT).toContain('what the user gets next');
+  expect(NUDGE_TEXT).toContain('not which tool, model or file');
 });

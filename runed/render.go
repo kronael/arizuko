@@ -120,6 +120,7 @@ func turnEnv(cfg *core.Config, req runedv1.RunRequest, queryTimeout int64) map[s
 	// than absent-and-ambiguous.
 	env["ARIZUKO_IS_ROOT"] = flag(req.Elevated)
 	env["ARIZUKO_GH_WRITE"] = flag(req.GHWrite)
+	env["ARIZUKO_PROGRESS"] = flag(req.Progress)
 	return env
 }
 

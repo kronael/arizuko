@@ -473,7 +473,10 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, addressed bool, tr
 		replyJID = last.ForwardedFrom
 	}
 	l.beginProgress(replyJID)
-	out, derr := l.dispatchRun(ctx, folder, topic, replyJID, turnID, last.Sender, rendered, elevated, gwKey.Key)
+	// The agent nudges for a progress line only where a person is owed an answer
+	// and the reply chat can show and remove one.
+	progress := addressed && canShowProgress(l.deliver, replyJID)
+	out, derr := l.dispatchRun(ctx, folder, topic, replyJID, turnID, last.Sender, rendered, elevated, progress, gwKey.Key)
 	if derr != nil {
 		l.pauseProgress(replyJID, out.RunID)
 		slog.Warn("dispatch run transport failure", "folder", folder, "turn_id", turnID, "err", derr)
@@ -765,7 +768,7 @@ func runedUnreachable(err error) bool {
 // dispatchRun renders the run request and calls runed POST /v1/runs. The
 // conversation frames arrive out-of-band via the callbacks; this returns the
 // turn-boundary outcome.
-func (l *Loop) dispatchRun(ctx context.Context, folder, topic, chatJID, turnID, trigger, batch string, elevated bool, gatewayKey string) (runedv1.RunOutcome, error) {
+func (l *Loop) dispatchRun(ctx context.Context, folder, topic, chatJID, turnID, trigger, batch string, elevated, progress bool, gatewayKey string) (runedv1.RunOutcome, error) {
 	var cancel context.CancelFunc
 	if l.runTimeout > 0 {
 		ctx, cancel = context.WithTimeout(ctx, l.runTimeout)
@@ -847,6 +850,7 @@ func (l *Loop) dispatchRun(ctx context.Context, folder, topic, chatJID, turnID, 
 		ContainerConfig: containerCfg,
 		Isolated:        isolated,
 		Elevated:        elevated,
+		Progress:        progress,
 		ShareReadOnly:   shareRO,
 		Egress:          egress,
 		WebPublish:      webPublish,

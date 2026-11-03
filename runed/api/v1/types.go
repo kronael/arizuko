@@ -43,6 +43,10 @@ type RunRequest struct {
 	// turns it into tier 0: the /var/lib/groups mount and ARIZUKO_IS_ROOT=1. A
 	// normal spawn is never root; folder shape does not grant it.
 	Elevated bool `json:"elevated,omitempty"`
+	// Progress is routd's decision that a progress line can show for this turn: a
+	// person is owed an answer and the reply chat edits and deletes. The
+	// renderer turns it into ARIZUKO_PROGRESS=1, and ant nudges only then.
+	Progress bool `json:"progress,omitempty"`
 	// ShareReadOnly/Egress/WebPublish are the guest-capability DECISIONS routd
 	// resolved from the folder's acl grants (5/33-paths-roles: mounts/egress/web are grants, not
 	// tier). runed's renderer downgrades the share to RO, appends "*" to the egress
