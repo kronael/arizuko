@@ -125,10 +125,11 @@ func TestSend_ChannelAndDMStayInline(t *testing.T) {
 
 func TestThreadName(t *testing.T) {
 	cases := []struct{ in, want string }{
-		{"short answer\nrest", "short answer"},
-		{"  padded  ", "padded"},
-		{"", "thread"},
-		{strings.Repeat("é", 150), strings.Repeat("é", 100)},
+		{"short answer\nrest", "🤖 short answer"},
+		{"  padded  ", "🤖 padded"},
+		{"🤖 ack — done", "🤖 ack — done"},
+		{"", "🤖"},
+		{strings.Repeat("é", 150), "🤖 " + strings.Repeat("é", 98)},
 	}
 	for _, c := range cases {
 		if got := threadName(c.in); got != c.want {
