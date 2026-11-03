@@ -13,6 +13,18 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.72.4] — 2026-11-03
+
+> arizuko v0.72.4 — one progress line, gone when the turn ends
+>
+> A long turn shows one progress line where its answer goes, and the line is removed when the turn ends; no extra thread opens.
+>
+> • Progress — one temporary line, placed like the reply and deleted at turn end on every platform that can edit and delete (web included); no agent-written opener; the nudge comes at 180 s and only where the line shows.
+> • Replies — a reply over the ceiling is denied at most twice per turn; the third try goes through.
+> • Turns — the run ceiling defaults to 30 minutes.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
 - Progress line: a long turn shows one temporary `⏳` line where the answer will go, and arizuko deletes it when the turn ends. The agent-written `🤖` opener and its thread are gone, and a channel that cannot both edit and delete shows no line. webd gained `delete` (an SSE `delete` frame, `onDelete` in the SDK). The status nudge comes at 180 s, only on an addressed turn whose sink shows a line, and asks what the user gets next (`ARIZUKO_PROGRESS`, `specs/6/46-turn-progress.md`).
 
 ## [v0.72.3] — 2026-11-03
