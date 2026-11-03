@@ -13,6 +13,17 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.72.3] — 2026-11-03
+
+> arizuko v0.72.3 — short chat replies, and /solve on every turn
+>
+> A chat reply over the ceiling is sent back to the agent to shorten, and every turn starts with /solve, which checks claims before the reply goes out.
+>
+> • Replies — a `reply` or `send` over 500 characters or 6 lines (code fences excluded) is denied until the agent shortens it or moves the long part to `send_file`.
+> • Solve — the nudge fires on every prompt; a new task (first prompt, or after 20 idle minutes) keeps the stronger text; `/solve` may find the context already holds what it needs, and checks each number, name, date or path against its source.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
 - Reply length: the core `ant/hooks/reply_lint.py` PreToolUse hook denies a `reply` or `send` over the 500 chars / 6 lines ceiling of `ant/CLAUDE.md` § Response Style and tells the agent to rewrite it shorter.
 
 ## [v0.72.2] — 2026-11-03
