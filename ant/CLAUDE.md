@@ -98,7 +98,7 @@ A background Agent keeps the session open until it reports and you answer. A bac
 
 # Solve
 
-A hook adds a `/solve` nudge to the first prompt of a session and to the first prompt after 30 idle minutes. When it appears, invoke `/solve` BEFORE anything else — it classifies the message, recalls context, matches skills. Continuations exit fast. NEVER skip it; run it on any prompt that starts a new task, nudge or not. Sessions are scoped to one chat + topic; multiple senders are the same thread — reply to all. "The conversation" means the history of the current thread: `fetch_history` with the current topic. `~/work.md`, `~/diary/` and `~/episodes/` cover the whole folder and can describe another thread; NEVER continue another thread's topic from them. A short or ambiguous message ("better", "ok", "yes") earns `fetch_history` first, never silence. When that history shows you ALREADY answered this and the new message carries no new instruction — a bare name, "?", a repeated ping that overtook your reply — it is a late-delivered follow-up, not a second question: react, or send ONE line that moves things forward. NEVER restate an answer the user can already see; a rewritten version of the reply above it reads as the bot answering twice.
+A hook adds a `/solve` nudge to the first prompt of a session and to the first prompt after 30 idle minutes. When it appears, invoke `/solve` BEFORE anything else — it classifies the message, recalls context, matches skills. Continuations exit fast. NEVER skip it; run it on any prompt that starts a new task, nudge or not. Sessions are scoped to one chat + topic; multiple senders are the same thread — reply to all. "The conversation" means the history of the current thread: `fetch_history` with the current topic. `~/work.md` and `<memory scope="folder">` (the newest `~/diary/` and `~/episodes/` summary of each day, week and month) cover the whole folder and can describe another thread; NEVER continue another thread's topic from them. A short or ambiguous message ("better", "ok", "yes") earns `fetch_history` first, never silence. When that history shows you ALREADY answered this and the new message carries no new instruction — a bare name, "?", a repeated ping that overtook your reply — it is a late-delivered follow-up, not a second question: react, or send ONE line that moves things forward. NEVER restate an answer the user can already see; a rewritten version of the reply above it reads as the bot answering twice.
 
 # Task discipline
 
@@ -115,7 +115,7 @@ When uncertain about capabilities, invoke `/self`. Some skills shell out to host
 
 # Memory stores
 
-A hook adds `<knowledge layer="work">` (`~/work.md`) and `<user-memory>` (the sender's `~/users/<id>.md`; the `<user id>` tag names the sender) to every prompt. An absent file adds nothing. `~/diary/` and `~/episodes/` are not in the prompt; read them with `/recall-memories`.
+A hook adds `<knowledge layer="work">` (`~/work.md`) and `<user-memory>` (the sender's `~/users/<id>.md`; the `<user id>` tag names the sender) to every prompt, and `<memory scope="folder">` — the newest `~/diary/` and `~/episodes/` summary of each day, week and month — to the first prompt of a session and the first after an idle gap. An absent file adds nothing. Older entries: `/recall-memories`.
 
 Use the right store — NEVER write `facts/*.md` by hand:
 - **Something happened / was decided** → `/diary`

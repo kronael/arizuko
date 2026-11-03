@@ -1,216 +1,111 @@
 ---
 name: compact-memories
 description: >
-  Compress episodes (session transcripts) or diary entries into progressive
-  day/week/month summaries. USE on scheduled cron prompt, or "compact",
-  "summarise yesterday", "roll up the week". NOT mid-conversation
-  (self-trigger forbidden), NOT to recompact existing output unless user
-  asks (lossy + expensive).
+  Distill one period of the folder's memory into one file: episodes
+  (session transcripts, the folder seen from outside) or diary (the agent's
+  own entries, the folder seen from inside), by day, week or month. USE on
+  the scheduled cron prompt, or "compact", "roll up the week", "summarise
+  last month". NOT mid-conversation (self-trigger forbidden), NOT to
+  recompact an existing file unless the user names the period.
 user-invocable: true
-arg: <store> <level> [period]
+arg: <lens> <level> [period]
 ---
 
 # Compact Memories
 
-Progressive compression: each level built from the level below.
+One technique, three lenses. A level is distilled from the level below it;
+the lens is the point of view, never the method.
 
-## Shape vs. per-turn context reducers
+| lens     | day source                             | week, month source | sink                     |
+| -------- | -------------------------------------- | ------------------ | ------------------------ |
+| diary    | the agent, `/diary`, as it works       | the level below    | `~/diary/<period>.md`    |
+| episodes | `~/.claude/projects/*/*.jsonl`         | the level below    | `~/episodes/<period>.md` |
+| digest   | the chat rows of the folder's channels | the level below    | a post in the chat       |
 
-This is arizuko's long-horizon **context reducer** — the same problem
-other agent systems (e.g. muaddib's `src/rooms/command/context-reducer.ts`)
-solve with a cheap-model condenser that runs *automatically per-turn*
-on the running history. arizuko inverts the cadence: compaction is
-**cron-driven, day/week/month**, writes to `episodes/` and `diary/`
-files, and is reloaded via the diary block + `/recall-memories`. The
-in-session window stays raw and is bounded instead by impulse-gate
-batching plus Claude Code's own compaction.
+The core package ships the diary and episodes lenses. A group's own `digest`
+skill, where one exists, is the third lens for people reading a channel; it
+follows this page and adds only its gather and post steps.
 
-## Stores
-
-### Episodes (session transcripts → summaries)
-
-| Level | Sources                                | Output                  |
-| ----- | -------------------------------------- | ----------------------- |
-| day   | `~/.claude/projects/*/*.jsonl`         | `~/episodes/YYYYMMDD.md` |
-| week  | `~/episodes/YYYYMMDD.md` (7 days)      | `~/episodes/YYYY-WNN.md` |
-| month | `~/episodes/YYYY-W*.md` (month weeks)  | `~/episodes/YYYY-MM.md`  |
-
-### Diary (work log → summaries)
-
-| Level | Sources                                | Output                       |
-| ----- | -------------------------------------- | ---------------------------- |
-| week  | `~/diary/YYYYMMDD.md` (7 days)         | `~/diary/week/YYYY-WNN.md`   |
-| month | `~/diary/week/YYYY-W*.md` (month wks)  | `~/diary/month/YYYY-MM.md`   |
-
-Diary has no "day" level — operator-written daily entries already exist.
-
-## Target period — DETERMINISTIC
-
-The target period is the most recently **fully-elapsed** unit before
-invocation time (UTC). Never the current incomplete unit.
-
-| Level | Target period = | Example (invoked 2026-05-25 03:00:00 UTC) |
-| ----- | --------------- | ---------------------------------------- |
-| day   | yesterday UTC               | 2026-05-24 (`20260524`) |
-| week  | last completed ISO week     | 2026-W21 (May 18 – May 24) |
-| month | last completed cal. month   | 2026-04 |
-
-**Optional override arg**. Third positional arg overrides the
-auto-computed period. Format must match the level:
-
-```
-/compact-memories episodes day 20260520
-/compact-memories episodes week 2026-W18
-/compact-memories episodes month 2026-03
-/compact-memories diary week 2026-W18
-/compact-memories diary month 2026-04
-```
-
-Use the override for backfills. Auto cron invocations omit the arg.
+A period is the file name: `YYYYMMDD` day, `YYYY-WNN` ISO week, `YYYY-MM`
+month. One flat directory per lens, no subdirectory per level.
 
 ## Protocol
 
-### 1. Compute target period
+### 1. Period
 
-Use `date -u` and shell math; do NOT estimate. For ISO week, use
-`date -u -d "<date>" +%G-W%V`.
+The target is the most recent fully elapsed unit before now (UTC), never the
+current one: `date -u` and shell math (`date -u -d "<date>" +%G-W%V` for the
+ISO week). A third argument overrides it, in the level's format
+(`/compact-memories episodes week 2026-W18`); use it for a backfill, and it
+also overwrites an existing file.
 
-### 2. Gather sources
+### 2. Sources
 
-**Episodes day**:
-1. Glob `~/.claude/projects/*/*.jsonl`.
-2. Keep files with mtime on or after the target date OR whose contents
-   include lines from the target date (sessions spanning multiple days).
-3. Parse JSONL, slice to the target date only.
+- `episodes day`: `~/.claude/projects/*/*.jsonl` with mtime on or after the
+  target date, or lines from it (a session spans days); slice to the date.
+- `diary day`: no compaction, `/diary` writes it.
+- `week`: the lens's `YYYYMMDD.md` of the ISO week, Monday to Sunday.
+- `month`: the lens's `YYYY-W*.md` whose Monday falls in the month.
 
-**Episodes week**: glob `~/episodes/YYYYMMDD.md` for the 7 days of the
-target ISO week (Monday–Sunday UTC).
+### 3. Outcome
 
-**Episodes month**: glob `~/episodes/YYYY-W*.md` for ISO weeks whose
-Monday falls within the target calendar month.
-
-**Diary week**: glob `~/diary/YYYYMMDD.md` for the 7 days of the
-target week.
-
-**Diary month**: glob `~/diary/week/YYYY-W*.md` for the target month's
-weeks.
-
-### 3. Decide outcome
-
-Three possible outcomes — log each to `~/episodes/.compact-log.jl`
-(or `~/diary/.compact-log.jl` for diary store):
-
-- **WRITE** — sources found, no existing output for this period (or
-  override arg given). Proceed to compress + write.
-- **SKIP_NO_SOURCES** — zero source files matched. Log and exit.
-  Never write empty files.
-- **SKIP_EXISTS** — output file already exists AND no override arg.
-  Log and exit. Do NOT recompact (lossy + expensive). User must
-  pass the period arg to force overwrite.
-
-Log line shape (JSONL, one line per invocation):
+One JSONL line per run in `<lens dir>/.compact-log.jl`:
 
 ```json
 {"ts":"2026-05-25T03:00:42Z","level":"week","store":"episodes","target_period":"2026-W21","sources_found":7,"outcome":"WRITE","output":"~/episodes/2026-W21.md"}
-{"ts":"2026-05-25T03:00:44Z","level":"week","store":"diary","target_period":"2026-W21","sources_found":0,"outcome":"SKIP_NO_SOURCES","output":null}
-{"ts":"2026-05-25T03:00:45Z","level":"month","store":"diary","target_period":"2026-04","sources_found":4,"outcome":"WRITE","output":"~/diary/month/2026-04.md"}
 ```
 
-This is the audit trail. `task_run_logs.status='success'` only
-confirms the prompt was dispatched; the compact-log shows what
-actually happened.
+- `WRITE` — sources found and no file for the period, or a period argument.
+- `SKIP_NO_SOURCES` — no source. Never write an empty file.
+- `SKIP_EXISTS` — the file exists and no period argument was given.
+- `SKIP_VALIDATION_FAIL` — a frontmatter check below failed; name the rule.
 
-### 4. Compress (only on WRITE)
+`task_run_logs.status='success'` says the prompt was dispatched; this log
+says what happened.
 
-Preserve what the user corrected, not what the agent concluded. User
-corrections are authoritative; conclusions get redrawn every recall.
+### 4. Distill
 
-Keep: user corrections (verbatim), preferences, accepted deliverables
-(shipped/merged/confirmed), flagged blockers.
+Rank by what a person said or decided. Keep a correction verbatim, a
+deliverable a person accepted, a blocker. Drop the agent's own conclusions,
+routine runs (migrations, crons, `/solve`), dead-end debugging and
+unconfirmed inferences. The file is shorter than its sources. The last bullet
+of `summary:` is the one thing to work on next.
 
-Drop: agent conclusions, routine ops (migrations, cron, /resolve calls),
-dead-end debugging, unconfirmed inferences.
-
-Each level is shorter than the sum of its sources.
-
-### 5. Write (only on WRITE)
-
-For diary-month: **first** `mkdir -p ~/diary/month/`. Directory may
-not exist yet on first invocation per group.
-
-Output file naming — STRICT:
-
-| Level             | Path                          | Period format |
-| ----------------- | ----------------------------- | ------------- |
-| episodes day      | `~/episodes/YYYYMMDD.md`      | `YYYYMMDD`    |
-| episodes week     | `~/episodes/YYYY-WNN.md`      | `YYYY-WNN`    |
-| episodes month    | `~/episodes/YYYY-MM.md`       | `YYYY-MM`     |
-| diary week        | `~/diary/week/YYYY-WNN.md`    | `YYYY-WNN`    |
-| diary month       | `~/diary/month/YYYY-MM.md`    | `YYYY-MM`     |
-
-Frontmatter — REQUIRED keys, strict format:
+### 5. Write
 
 ```yaml
 ---
 summary: >
   - Shipped discord adapter (user confirmed)
   - Corrected: "sam is not stake-o-matic" (Apr 14)
-period: '2026-W21'        # MUST match the level's period format above
-type: week                # day | week | month
-store: episodes           # episodes | diary
-sources:                  # bare filenames only, no path prefix
+  - Next: confirm EU eligibility on the three new leads
+period: '2026-W21'
+type: week
+store: episodes
+sources:
   - 20260518.md
   - 20260519.md
-  - 20260520.md
 aggregated_at: '2026-05-25T03:00:42Z'
 ---
 ```
 
-Validation rules (self-check before writing):
-- `period` matches the level's required format
-- `sources:` entries are bare filenames — no `episodes/` or `~/` prefix
-- `sources:` has no duplicates
-- `summary:` is non-empty
-- No bullets/prose leak into the frontmatter — body content stays
-  below the closing `---`
+Checks before writing: `period` in the level's format; `sources` bare file
+names without duplicates; `summary` not empty; nothing but the frontmatter
+above the closing `---`.
 
-If a check fails: do NOT write. Log outcome as
-`SKIP_VALIDATION_FAIL` with the failing rule.
+## Cron
 
-## Usage
+Five tasks per group, seeded at creation (`store.SeedDefaultTasks`), each
+`context_mode: isolated` with `owner` and `chat_jid` the folder itself. Check
+the existing tasks before adding one.
 
-```
-/compact-memories episodes day                  # cron — yesterday
-/compact-memories episodes week                 # cron — last completed ISO week
-/compact-memories episodes month                # cron — last completed cal. month
-/compact-memories diary week                    # cron — last completed ISO week
-/compact-memories diary month                   # cron — last completed cal. month
+| Prompt                             | Cron        |
+| ---------------------------------- | ----------- |
+| `/compact-memories episodes day`   | `0 2 * * *` |
+| `/compact-memories episodes week`  | `0 3 * * 1` |
+| `/compact-memories episodes month` | `0 4 1 * *` |
+| `/compact-memories diary week`     | `0 3 * * 1` |
+| `/compact-memories diary month`    | `0 4 1 * *` |
 
-/compact-memories episodes day 20260520         # backfill specific day
-/compact-memories episodes week 2026-W18        # backfill specific week
-/compact-memories episodes month 2026-03        # backfill specific month
-```
-
-Override arg forces overwrite if output exists (still validates).
-
-## Cron setup
-
-On-demand. Check existing tasks first — don't duplicate.
-Set `targetJid` to the registered owner folder from `<autocalls>.folder`.
-Use `contextMode: "isolated"`. The task's `owner` and `chat_jid` must equal
-that folder. Do not use the triggering message's external `chat_id` for
-silent reducers; its route can observe the scheduled message without running it.
-
-| Prompt                             | Cron        | When               |
-| ---------------------------------- | ----------- | ------------------ |
-| `/compact-memories episodes day`   | `0 2 * * *` | daily 02:00        |
-| `/compact-memories episodes week`  | `0 3 * * 1` | Monday 03:00       |
-| `/compact-memories episodes month` | `0 4 1 * *` | 1st of month 04:00 |
-| `/compact-memories diary week`     | `0 3 * * 1` | Monday 03:00       |
-| `/compact-memories diary month`    | `0 4 1 * *` | 1st of month 04:00 |
-
-## Silent by convention
-
-Cron compactions are SILENT — no chat output, no `<status>` blocks.
-The artifact is the diff (file written or not). The compact-log JSONL
-is the audit trail. Do NOT chat-emit "wrote X" or "no sources for Y."
+A cron run is silent: no chat output, no `<status>` block. The file and the
+log line are the result.

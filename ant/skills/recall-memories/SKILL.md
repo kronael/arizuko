@@ -12,6 +12,9 @@ arg: <question>
 
 # Recall Memories
 
+The newest `~/diary/` and `~/episodes/` file of each level is already in the
+prompt of a new task as `<memory scope="folder">`; recall reads the rest.
+
 ## Protocol
 
 Spawn an Explore subagent with the question. The subagent:

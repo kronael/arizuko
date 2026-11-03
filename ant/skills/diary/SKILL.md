@@ -2,9 +2,9 @@
 name: diary
 description: >
   Append decisions, bugs fixed, milestones to today's `~/diary/YYYYMMDD.md`.
-  USE for "write to diary", "log this", end-of-significant-work, Stop-hook
-  nudge. NOT for routine ops, NOT for stable user facts (use users) or
-  researched knowledge (use find).
+  USE for "write to diary", "log this", end-of-significant-work, the
+  PreCompact nudge. NOT for routine ops, NOT for stable user facts (use
+  users) or researched knowledge (use find).
 user-invocable: true
 arg: <entry text>
 ---
@@ -12,6 +12,8 @@ arg: <entry text>
 # Diary
 
 Path: `~/diary/YYYYMMDD.md`. Append to today's entry; create if missing.
+`~/diary/YYYY-WNN.md` and `YYYY-MM.md` beside it are the week and month
+levels; `/compact-memories diary week|month` writes them, never a hand.
 
 ## Format
 
@@ -38,5 +40,5 @@ Update on every diary write.
 - Only decisions, bugs, discoveries, open items. Skip routine ops.
 - May compress earlier entries from the same day
 - Preferences and recurring patterns → MEMORY.md, report verbatim to user
-- Write at end of significant work (commit, bug fix, key decision) — the Stop
-  hook nudges; don't wait to be asked
+- Write at the end of significant work (commit, bug fix, key decision). The
+  PreCompact hook nudges once, before a compaction; nothing else does
