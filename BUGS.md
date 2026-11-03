@@ -185,9 +185,9 @@ revoked — see its entry.)
   not why: the harness's callback sink is a docker-network address a guest cannot
   reach. Three fixes are costed in the entry and choosing between them is yours —
   a name the proxy can dial, one tap rule, or the callback over MCP.
-- `L363` — sloth advertises five atlas Telegram routes and can serve one. The
-  bot the others talk to is served by nothing, and its only token is in the
-  staged marinade tree. Three options in the entry; one is a deploy.
+- `L363` — `@mnde_atlas_bot` is served on sloth since 2026-11-03 (`teled-atlas`).
+  Left: two atlas routes name chats neither bot sees, and a group chat's
+  first reply can leave through the wrong bot. Both in the entry.
 - `L307` — seven Slack chats carry traffic and match no route, live on sloth.
   Which route rows to write is yours.
 - `L63` — krons whapd wants a phone re-pair; the recipe is in the entry.
@@ -3181,7 +3181,7 @@ because the allowlist matches NAMES and the matcher skips IP entries
      platform; a case's result could arrive as a tool call rather than an HTTP POST.
      Largest change, and the only one that needs no network reachability at all.
 
-## L363 — sloth advertises five atlas Telegram routes and can serve one; the bot the other four talk to is served by nothing (2026-09-25, open — operator deploy + decision)
+## L363 — sloth advertised five atlas Telegram routes and could serve one; the atlas bot is now served, two routes stay dead (2026-09-25, open — operator decision)
 
 `L335` found this shape for Slack. It is also true for Telegram, and it survived
 that entry's fix because only the Slack half was repaired.
@@ -3226,22 +3226,44 @@ that skips the sender reports a healthy chat.
 - **Source:** the marinade consolidation, 2026-09-18 (`L335`); found 2026-09-25
   while answering whether atlas is hooked into krons — it is not, and was never
   meant to be
-- **Status:** DECIDED 2026-09-25 — option 3. The owner's words: "atlas as a bot on
-  telegram is now dead for now", and atlas stays a coding assistant **on sloth**.
-  So the bot is not restored and the four unreachable routes are dead by
-  intention, not by accident.
+- **Status:** option 1 shipped 2026-11-03 on the owner's word ("connect the mnde
+  atlas bot on telegram"), superseding the 2026-09-25 decision for option 3. The
+  `teled-atlas` fragment (`CHANNEL_NAME=atlas`, token `TELEGRAM_BOT_TOKEN_ATLAS`,
+  own `store/teled-atlas` mount) was installed with `arizuko package add
+  catalog:teled-atlas`; the container is healthy, logs `telegram connected
+  id=8122465866 username=mnde_atlas_bot` and routd registers `atlas` with
+  prefixes `telegram:8122465866/` and `telegram:group/`. `getChat` with that
+  token succeeds for group 5012430759 and for user 137865889. Rows 5, 71 and 72
+  (`atlas/martin`, `atlas/content`) now have a poller.
 
-  Two things follow, and neither is an edit I may make. The four rows still sit in
-  sloth's live route table and still advertise ingress that cannot arrive, so the
-  table lies until an operator removes them — one `arizuko route delete` per row,
-  live data, the owner's. And **"for now" is why the token still matters**: the
-  only copy of `@mnde_atlas_bot`'s token is in
-  `/srv/data/tmp_removed_marinade_20260925`, so deleting that tree ends the option
-  to revive it. Copy the token out first if "for now" might end.
+  Three things remain, none of them in this entry's original three options:
+  1. **Two routes are still dead.** Row 37 (`room=group/1003805633088`,
+     `atlas/support#observe`) and row 6 (`room=*/user/1444744465`, `atlas`) name
+     chats neither bot can see. Deleting them is live data and the owner's.
+  2. **The first group reply can leave through the wrong bot.** Three adapters
+     share `telegram:group/` (`telegram`, `jynx`, `atlas`). `chanDeliverer.resolveEntry`
+     picks the one named by `messages.source` of the latest non-bot inbound
+     (`store.LatestSource`), else `chanreg.ForJID`. Measured on the live store:
+     `LatestSource("telegram:group/5012430759")` is `"telegram"` — the main bot,
+     stamped before the consolidation — and every newer row is a cron row with an
+     empty `source`, which the query skips. So a send into that chat before the
+     atlas bot has received one message from it goes through `@sloth_fiu_bot`,
+     which cannot see the chat. The first inbound the atlas bot polls stamps
+     `source=atlas` and ends it. A reply to an inbound turn is not affected, and
+     Telegram DMs are not either: the JID carries the bot id
+     (`telegram:8122465866/user/<id>`).
+  3. **The installed fragment is a copy, not a link.** The release image
+     (v0.72.5) has no `teled-atlas` in its catalog, so `generate` could not read
+     the link's manifest and the unit failed at `ExecStartPre` for about two
+     minutes (20:34-20:36). `services/teled-atlas.yml` is a byte-identical file
+     and `packages/teled-atlas/arizuko.yml` carries the manifest; the next
+     release relinks it. Any package added to the catalog must ship in an image
+     before `package add` runs against a live instance, or the unit cannot start
+     (`L202`).
 
-  A new Telegram account for sloth is the owner's too — BotFather is not
-  something this repo can reach.
-- **Fix — one of three, and it is a decision:**
+  The token's only other copy is
+  `/srv/data/arizuko_backups/marinade-credentials-20260925/.env`.
+- **Original options (kept for the record of the decision):**
   1. **Serve the atlas bot on sloth**, the shape that fixed `L335`: a second
      Telegram adapter beside `teled`, exactly as krons already runs
      `teled-rhias` alongside `teled`. Its token is `TELEGRAM_BOT_TOKEN` (id
