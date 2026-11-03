@@ -18,6 +18,5 @@ services:
       LISTEN_URL: 'http://teled-jynx:8080'
       CHANNEL_NAME: 'jynx'
       DATA_DIR: '/srv/app/home/store/teled'
-      RUNED_RUN_TIMEOUT: '${RUNED_RUN_TIMEOUT:-20m}'
     depends_on: [routd]
     restart: on-failure

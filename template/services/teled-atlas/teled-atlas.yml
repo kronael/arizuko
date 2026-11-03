@@ -1,0 +1,22 @@
+# teled-atlas — a further Telegram account, a multi-account variant of teled
+# (specs/5/R-multi-account.md). Its token is TELEGRAM_BOT_TOKEN_ATLAS in the
+# instance's .env; generate writes it as TELEGRAM_BOT_TOKEN into
+# env/teled-atlas.env, and every other key is the base adapter's. DATA_DIR is its
+# own state mount: it holds this account's getUpdates offset, and losing it makes
+# Telegram re-deliver its ~24h backlog, which the agent answers all over again.
+services:
+  teled-atlas:
+    container_name: ${APP}_teled_atlas_${FLAVOR}
+    image: arizuko:latest
+    entrypoint: ['teled']
+    volumes:
+      - '${DATA_DIR}/store/teled-atlas:/srv/app/home/store/teled'
+    env_file: ['../env/teled-atlas.env']
+    environment:
+      ROUTER_URL: 'http://routd:8080'
+      LISTEN_ADDR: ':8080'
+      LISTEN_URL: 'http://teled-atlas:8080'
+      CHANNEL_NAME: 'atlas'
+      DATA_DIR: '/srv/app/home/store/teled'
+    depends_on: [routd]
+    restart: on-failure
