@@ -13,6 +13,20 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.72.0] — 2026-11-03
+
+> arizuko v0.72.0 — each thread keeps to its own conversation
+>
+> The prompt no longer carries folder-wide memory, so an agent stops continuing another thread's topic, and threads keep the agent's attention after an answer.
+>
+> • Threads — the agent reads the folder diary and episodes only on request, and "the conversation" means the current thread's history.
+> • Attention — the agent disengages only when asked to stop, so a thread keeps its attention after each answer.
+> • Prompt — a core `prompt_context` hook adds `~/work.md` and the sender's file; runed and routd write no rules or home files into the prompt.
+> • Model — an agent names the model it runs when asked.
+> • Discord — a thread the agent starts carries 🤖 in its title.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
 ## [v0.71.9] — 2026-11-03
 
 > arizuko v0.71.9 — a reply to a mention reaches the agent
