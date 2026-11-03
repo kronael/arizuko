@@ -121,7 +121,7 @@ func main() {
 	// service:routd ES256 token at boot and refreshes it; authd's issuer-pin would
 	// 401 the static ROUTD_SERVICE_TOKEN. When AUTHD_URL or AUTHD_SERVICE_KEY is
 	// unset, fall back to the static env for local dev.
-	runTimeout := core.DurOr("RUNED_RUN_TIMEOUT", 20*time.Minute)
+	runTimeout := core.RunTimeout()
 	// routd must OUT-WAIT runed's kill-deadline. runed kills the container at
 	// RUNED_RUN_TIMEOUT, so routd's dispatch deadline gets a grace margin on top. If
 	// they were equal, routd's deadline could fire first → transport error →

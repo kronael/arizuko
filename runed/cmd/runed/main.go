@@ -88,7 +88,7 @@ func main() {
 	}
 	listenAddr := core.EnvOr("LISTEN_ADDR", ":8080")
 	authdURL := os.Getenv("AUTHD_URL")
-	runTTL := core.DurOr("RUNED_RUN_TIMEOUT", 20*time.Minute)
+	runTTL := core.RunTimeout()
 
 	// runed.Open is the door: it dials the instance's store server and makes
 	// runed's entities there.

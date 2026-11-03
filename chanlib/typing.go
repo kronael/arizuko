@@ -3,15 +3,17 @@ package chanlib
 import (
 	"sync"
 	"time"
+
+	"github.com/kronael/arizuko/core"
 )
 
 // DefaultTypingMaxTTL is the backstop that stops typing when routd's
 // Typing(off) at turn end never arrives. It is 90% of the run wall, read from
 // the adapter's own RUNED_RUN_TIMEOUT, and MUST land strictly below it: a
 // backstop equal to the wall fires no earlier than the container's own
-// SIGKILL, so a stalled turn showed "typing" for twenty minutes and then went
+// SIGKILL, so a stalled turn showed "typing" for the whole wall and then went
 // silent (BUGS T1). An indicator that stops early is honest about not knowing.
-var DefaultTypingMaxTTL = typingMaxTTL(EnvDur("RUNED_RUN_TIMEOUT", 20*time.Minute))
+var DefaultTypingMaxTTL = typingMaxTTL(core.RunTimeout())
 
 // minTypingMaxTTL floors the derivation so an absurd RUNED_RUN_TIMEOUT cannot
 // kill the indicator before the first refresh.

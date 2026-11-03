@@ -18,7 +18,6 @@ import (
 
 const (
 	circuitBreakerThreshold = 3
-	defaultRunTTL           = 20 * time.Minute
 	defaultMaxConcurrent    = 5
 )
 
@@ -66,7 +65,7 @@ type ManagerConfig struct {
 // NewManager builds the run Manager.
 func NewManager(db *DB, runtime Runtime, cfg ManagerConfig) *Manager {
 	if cfg.RunTTL == 0 {
-		cfg.RunTTL = defaultRunTTL
+		cfg.RunTTL = core.RunTimeout()
 	}
 	if cfg.MaxConcurrent <= 0 {
 		cfg.MaxConcurrent = defaultMaxConcurrent
