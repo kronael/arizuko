@@ -68,6 +68,9 @@ var commonKeys = []string{
 	// The daemon's service-token exchange principal, set per daemon by
 	// wireServiceKey; an adapter exchanges as this, not its CHANNEL_NAME.
 	"AUTHD_SERVICE_NAME",
+	// The turn ceiling: runed's kill, routd's dispatch deadline and every
+	// adapter's typing backstop (chanlib) read it through core.RunTimeout.
+	"RUNED_RUN_TIMEOUT",
 	// OTLP export (spec 5/O-observability). Unset -> stock JSON handler, zero overhead.
 	"ARIZUKO_INSTANCE",
 	// METRICS_ENABLED gates the `/metrics` endpoint EIGHT daemons mount
@@ -110,11 +113,6 @@ var daemonKeys = map[string][]string{
 	// routd: conversation state. NO egress proxy, NO docker socket.
 	"routd": {
 		"AUTHD_URL", "AUTHD_SERVICE_KEY", "ONBOD_URL",
-		// routd sizes its dispatch deadline as runTimeout+2m to out-wait runed's
-		// kill. Without it here routd kept the 20m default while runed honoured
-		// 30m, so routd's deadline fired first and the next poll ran the SAME
-		// turn twice.
-		"RUNED_RUN_TIMEOUT",
 		"MAX_CONCURRENT_CONTAINERS",
 		// routd detects the route miss that fires chat-initiated onboarding;
 		// without these a new group is stored, never onboarded.
@@ -150,9 +148,6 @@ var daemonKeys = map[string][]string{
 	"runed": {
 		"AUTHD_URL", "AUTHD_SERVICE_KEY",
 		"CONTAINER_TIMEOUT",
-		// Bounds the run: the guest hard-kill AND (minus 30s) the agent
-		// query timeout. Default 20m.
-		"RUNED_RUN_TIMEOUT",
 		// The turn substrate and everything the QEMU one reads (spec 6/41
 		// §"The seam"). A var runed reads and compose does not emit is SILENTLY
 		// dead — the class that cost three outages (BUGS reference
