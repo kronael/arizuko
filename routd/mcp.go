@@ -275,7 +275,7 @@ func (s *Server) mcpDeliver(turnID, jid, text, replyTo, msgID string, threaded b
 	}
 	topic, threadRoot := "", ""
 	if tc, ok := s.db.GetTurnContext(turnID); threaded && ok {
-		place, err := placeTurnDelivery(s.db, s.deliver, tc, jid, "", true)
+		place, err := placeTurnDelivery(s.db, tc, jid, "", true)
 		if err != nil {
 			return "", "", err
 		}
@@ -301,7 +301,7 @@ func (s *Server) mcpAppendDoc(turnID, jid, path, name, caption, replyTo, threadI
 	place := deliveryPlace{jid: jid, threadID: threadID}
 	if tc, ok := s.db.GetTurnContext(turnID); ok {
 		var err error
-		place, err = placeTurnDelivery(s.db, s.deliver, tc, jid, threadID, false)
+		place, err = placeTurnDelivery(s.db, tc, jid, threadID, false)
 		if err != nil {
 			return "", "", err
 		}
@@ -320,7 +320,7 @@ func (s *Server) mcpSendVoice(turnID, jid, text, voice, folder, threadID string)
 	place := deliveryPlace{jid: jid, threadID: threadID}
 	if tc, ok := s.db.GetTurnContext(turnID); ok {
 		var err error
-		place, err = placeTurnDelivery(s.db, s.deliver, tc, jid, threadID, false)
+		place, err = placeTurnDelivery(s.db, tc, jid, threadID, false)
 		if err != nil {
 			return "", "", err
 		}
@@ -347,13 +347,6 @@ func (s *Server) mcpCheckTurn(turnID string) (ipc.TurnCheck, error) {
 func (s *Server) checkTurn(tc TurnContext) (ipc.TurnCheck, error) {
 	jid := returnTarget(tc, tc.ChatJID)
 	_, statusRow := s.db.LastStatusRow(jid, tc.TurnID)
-	_, summary, err := readTaskSummary(s.db, jid, tc.TurnID)
-	if err != nil {
-		return ipc.TurnCheck{}, err
-	}
-	if summary {
-		statusRow = true
-	}
 	delivered, err := s.turnDelivered(tc)
 	if err != nil {
 		return ipc.TurnCheck{}, err
@@ -401,28 +394,10 @@ func (s *Server) submitStatus(status ipc.TurnStatus) error {
 		return nil
 	}
 	jid := returnTarget(tc, tc.ChatJID)
-	if s.deliver == nil || s.mutedGroup(tc.Folder) || !s.deliver.HasCapability(jid, "edit") {
-		slog.Debug("progress update dropped: no editable message here",
+	if s.mutedGroup(tc.Folder) || !canShowProgress(s.deliver, jid) {
+		slog.Debug("progress update dropped: no line can live here",
 			"turn_id", tc.TurnID, "jid", jid)
 		return nil
-	}
-	if status.Kind == ipc.StatusSummary {
-		return s.declareSummary(tc, jid, status.Text)
-	}
-	if status.Kind == ipc.StatusProgress {
-		enabled, err := summaryThreadEnabled(s.db, s.deliver, tc, jid)
-		if err != nil {
-			return err
-		}
-		if enabled {
-			_, ok, err := readTaskSummary(s.db, jid, tc.TurnID)
-			if err != nil {
-				return err
-			}
-			if !ok {
-				return fmt.Errorf("declare the overall task summary before progress")
-			}
-		}
 	}
 	return s.updateProgress(tc, jid, status.Text)
 }

@@ -393,21 +393,20 @@ the map except `typing`.
   adapter sent. The id that its `/send` returned names the message. Any other
   id is `chanlib.ErrInvalidRequest`, and an adapter never edits the message of
   another party. The optional `thread_id` gives edit context where the
-  platform needs it. Progress edits change one `⏳` message. At the end of the
-  turn the message becomes `✓` or `✗`, unless the channel also advertises
-  `delete`: then `routd` deletes the message and edits it only when the delete
-  is refused.
+  platform needs it. Progress edits change one `⏳` message.
+- `delete` commits `POST /delete` to remove a message that this adapter sent.
+  At the end of the turn `routd` deletes the progress message. A channel that
+  advertises `edit` without `delete` shows no progress message.
 - `thread_id` places text, files and voice in an existing thread.
 - `thread_root` creates or reuses a thread rooted at a message before it sends
   text, files or voice. A refused thread destination returns an error. The
   adapter never sends the child at the parent instead.
-- With `edit` and compatible thread placement, `routd` posts an immutable `🤖`
-  summary opener and keeps progress and answers in its thread. An existing
-  thread wins. Without new-thread support, `routd` keeps one editable progress
-  card.
-- With neither `typing` nor `edit`, `routd` sends the channel no presence and
-  no progress message. That is the right choice for a platform where a second
-  post is a public statement.
+- With `edit` and `delete`, `routd` posts one progress message where the reply
+  will go, in the existing thread when the turn has one, and deletes it at the
+  end of the turn.
+- Without both `edit` and `delete`, `routd` sends the channel no progress
+  message. With neither `typing` nor `edit`, it sends no presence either. That
+  is the right choice for a platform where a second post is a public statement.
 
 ### Offering pickable answers with the buttons capability
 

@@ -27,7 +27,7 @@ func TestDelegatedReplyRetryPreservesDestination(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			dl := &recDeliverer{}
-			db, _, sock := summaryBroker(t, dl)
+			db, _, sock := progressBroker(t, dl)
 			if _, err := db.PutTurnContext("t1", "demo", test.topic, progressJID, "u1", origin); err != nil {
 				t.Fatal(err)
 			}
@@ -73,15 +73,13 @@ func TestThreadReplyRetryPreservesPlacement(t *testing.T) {
 	const jid = "discord:g1/ch-1"
 	for _, test := range []struct {
 		name, tool, topic, destination, root string
-		summary, prefixed                    bool
+		prefixed                             bool
 	}{
 		{name: "prefixed-trigger", tool: "reply", root: "human-root", prefixed: true},
 		{name: "without-summary", tool: "reply", root: "human-root"},
-		{name: "with-summary", tool: "reply", summary: true},
 		{name: "existing-thread", tool: "reply", topic: "human-root"},
 		{name: "top-level-send", tool: "send"},
 		{name: "send-from-existing-thread", tool: "send", topic: "human-root"},
-		{name: "send-from-summary", tool: "send", summary: true},
 		{name: "different-destination", tool: "reply", destination: "discord:g1/ch-2"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -111,14 +109,6 @@ func TestThreadReplyRetryPreservesPlacement(t *testing.T) {
 				t.Fatal(err)
 			}
 			root := test.root
-			if test.summary {
-				declareTask(t, srv)
-				opener, ok := db.MessageByID(jid, summaryID("t1"))
-				if !ok || opener.PlatformID == "" {
-					t.Fatal("task summary did not arrive")
-				}
-				root = opener.PlatformID
-			}
 			bound := turnMCP{
 				folder: "demo", chatJID: jid, turnID: "t1", trigger: "u1",
 				topic: test.topic,

@@ -28,11 +28,10 @@ export interface SubmitTurnPayload {
   timed_out?: boolean;
 }
 
-// SubmitStatusPayload declares a summary or updates the turn's progress.
+// SubmitStatusPayload updates the turn's progress line.
 export interface SubmitStatusPayload {
   turn_id: string;
   text: string;
-  kind?: 'summary' | 'progress';
 }
 
 let nextId = 1;

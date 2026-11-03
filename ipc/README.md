@@ -100,8 +100,8 @@ tool calls. The guest's stdout is discarded.
 - **Why a method and not stdout.** A method call makes silence explicit. A
   marker on stdout cannot tell "no output" from "the agent crashed".
 
-`submit_status` carries the task summary and the mid-turn progress text to the
-turn's progress rows and does not end the turn.
+`submit_status` carries the mid-turn progress text to the turn's progress row
+and does not end the turn.
 
 ## Who may call what
 

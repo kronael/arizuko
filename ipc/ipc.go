@@ -62,8 +62,8 @@ type RoutdFns struct {
 	RevokeInvite         func(ref string) error
 	SubmitTurn           func(folder string, t TurnResult) (TurnAck, error)
 	CheckTurn            func(folder, turnID string) (TurnCheck, error)
-	// SubmitStatus declares the task summary or updates progress without ending
-	// the turn. Nil = method unconfigured.
+	// SubmitStatus updates the turn's progress line without ending the turn.
+	// Nil = method unconfigured.
 	SubmitStatus func(folder string, status TurnStatus) error
 	// Per-group ambient controls (spec 5/F-topic-lineage).
 	SetGroupOpen          func(folder string, open bool) error
@@ -645,17 +645,9 @@ func handleSubmitTurn(raw []byte, id any, routd RoutdFns, folder string, write f
 	})
 }
 
-type StatusKind string
-
-const (
-	StatusSummary  StatusKind = "summary"
-	StatusProgress StatusKind = "progress"
-)
-
 type TurnStatus struct {
-	TurnID string     `json:"turn_id"`
-	Text   string     `json:"text"`
-	Kind   StatusKind `json:"kind,omitempty"`
+	TurnID string `json:"turn_id"`
+	Text   string `json:"text"`
 }
 
 // handleSubmitStatus is hidden from tools/list, like submit_turn.
@@ -675,11 +667,6 @@ func handleSubmitStatus(raw []byte, id any, routd RoutdFns, folder string, write
 			"jsonrpc": "2.0", "id": id,
 			"error": map[string]any{"code": -32602, "message": "turn_id required"},
 		})
-		return
-	}
-	if req.Params.Kind != "" && req.Params.Kind != StatusSummary && req.Params.Kind != StatusProgress {
-		write(map[string]any{"jsonrpc": "2.0", "id": id,
-			"error": map[string]any{"code": -32602, "message": "kind must be summary or progress"}})
 		return
 	}
 	if routd.SubmitStatus == nil {
@@ -1313,7 +1300,7 @@ func buildMCPServer(routd RoutdFns, db StoreFns, folder string, isRoot bool, cal
 			return toolJSON(map[string]any{"ok": true, "id": platformID})
 		})
 
-	registerRaw("reply", "Deliver the answer in the current conversation. Existing threads take precedence. Where supported, replies follow the declared task summary's thread. Omit `replyToId` to use the current conversation, or supply an earlier message to quote. A quote outside the destination thread may be omitted. On a GitHub chat `replyToId` is required. An explicit different chat keeps its own destination. Returns the posted message's `id`. Use `<status>` and `TodoWrite` for live progress.",
+	registerRaw("reply", "Deliver the answer in the current conversation. Existing threads take precedence. Omit `replyToId` to use the current conversation, or supply an earlier message to quote. A quote outside the destination thread may be omitted. On a GitHub chat `replyToId` is required. An explicit different chat keeps its own destination. Returns the posted message's `id`. Use `<status>` and `TodoWrite` for live progress.",
 		[]mcp.ToolOption{
 			mcp.WithString("chatJid", mcp.Required()),
 			mcp.WithString("text", mcp.Required()),

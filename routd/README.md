@@ -20,21 +20,18 @@ routd injects the agent's authorization gate into the socket: `db.AuthorizeTurn(
 
 ### Progress has one writer
 
-`progress.go` is the only code that calls `Typing` or creates or edits a `verb="status"` row. The hidden method `submit_status` receives the declared task summary and the progress updates. `placement.go` gives every delivery of the turn one destination.
+`progress.go` is the only code that calls `Typing` or creates or edits a `verb="status"` row. The hidden method `submit_status` receives the progress text. `placement.go` gives every delivery of the turn one destination.
 
-- A compatible group chat with thread replies enabled gets an immutable `🤖` summary opener. One editable `⏳` progress message follows inside its thread.
-- An existing thread wins.
-- A channel without new-thread support gets one editable progress card.
-- A channel without `edit` gets no progress message. gitd advertises no `edit`, so GitHub shows the `👀` mark and no progress comment.
-- Persisted message rows keep the edits and the opener identity across a restart.
+- A channel that advertises `edit` and `delete` gets one `⏳` progress line where the reply will go. An existing thread wins; without one, the reply's own rule applies.
+- A channel that lacks either gets no progress line. gitd advertises no `edit`, so GitHub shows the `👀` mark and no progress comment.
+- The agent writes no opener, and no progress message starts a thread.
+- Persisted message rows keep the edits across a restart.
 - `placement.go` sends progress, text, files, voice, terminal notices and retries to the same destination.
-- An unresolved opener refuses an unplaced child. routd does not queue it.
-- A failed summary read or thread error goes back to the caller. No child falls back to the parent.
 - A real edit failure goes back to the caller. routd never posts it again as a new message.
 
-Both progress verbs confer a reply obligation. Final delivery and last-answer tracking skip them, because a progress row must never count as the agent's reply.
+A progress row confers a reply obligation. Final delivery and last-answer tracking skip it, because a progress row must never count as the agent's reply.
 
-`Typing(on)` fires at dispatch. `Typing(off)` fires when the turn ends in `finishTurn`, the one writer of `done`. On a channel that advertises `delete`, `finishTurn` deletes the progress message, rewrites the row to its terminal form and does nothing at a second end. A refused delete falls back to the edit. On a channel with `edit` and no `delete`, `finishTurn` changes only the leading `⏳` of the progress message to `✓` or `✗`. The task summary row stays. A run that returns without ending its turn clears `Typing` and leaves the message at `⏳`.
+`Typing(on)` fires at dispatch. `Typing(off)` fires when the turn ends in `finishTurn`, the one writer of `done`. `finishTurn` deletes the progress line, marks the row `✓` or `✗` without a platform edit and does nothing at a second end. A line whose first send never landed is dead-lettered so the outbound sweep never posts it. A refused delete is logged and leaves the row as it was. A run that returns without ending its turn clears `Typing` and leaves the line at `⏳`.
 
 ## The turn in routd
 

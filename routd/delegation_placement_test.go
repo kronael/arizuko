@@ -3,58 +3,9 @@ package routd
 import (
 	"testing"
 	"time"
-
-	"github.com/kronael/arizuko/ipc"
 )
 
-type existingThreadDeliverer struct{ *recDeliverer }
-
-func (existingThreadDeliverer) HasCapability(_, capability string) bool {
-	return capability == "edit" || capability == "thread_id"
-}
-
-func TestTaskSummaryUsesAnExistingThreadWithoutCreatingOne(t *testing.T) {
-	dl := &recDeliverer{}
-	db, srv := newProgressTurn(t, dl, "")
-	srv.deliver = existingThreadDeliverer{dl}
-	if _, err := db.PutTurnContext("forum", "demo", "42", progressJID, "u1", ""); err != nil {
-		t.Fatal(err)
-	}
-	for _, kind := range []ipc.StatusKind{ipc.StatusSummary, ipc.StatusProgress} {
-		if err := srv.submitStatus(ipc.TurnStatus{TurnID: "forum", Text: "the task", Kind: kind}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if _, _, err := srv.mcpDeliver("forum", progressJID, "the answer", "", "answer-id", true); err != nil {
-		t.Fatal(err)
-	}
-	if len(dl.sends) != 3 {
-		t.Fatalf("sends=%+v", dl.sends)
-	}
-	for _, send := range dl.sends {
-		if send.threadID != "42" || send.threadRoot != "" {
-			t.Fatalf("existing thread changed or nested: %+v", send)
-		}
-	}
-}
-
-func TestTaskSummaryWithoutNewThreadSupportKeepsOneProgressCard(t *testing.T) {
-	dl := &recDeliverer{}
-	db, srv := newProgressTurn(t, dl, "")
-	srv.deliver = existingThreadDeliverer{dl}
-	declareTask(t, srv)
-	if err := srv.submitStatus(ipc.TurnStatus{TurnID: "t1", Text: "☐ verify", Kind: ipc.StatusProgress}); err != nil {
-		t.Fatal(err)
-	}
-	if len(dl.sends) != 1 || len(dl.edits) != 1 {
-		t.Fatalf("unsupported new thread got extra messages: sends=%+v edits=%+v", dl.sends, dl.edits)
-	}
-	if _, exists := db.MessageByID(progressJID, summaryID("t1")); exists {
-		t.Fatal("unsupported new thread created a separate opener")
-	}
-}
-
-func TestTaskSummaryDelegationPreservesExplicitForeignTarget(t *testing.T) {
+func TestDelegationPreservesExplicitForeignTarget(t *testing.T) {
 	dl := &recDeliverer{}
 	db, srv := newProgressTurn(t, dl, "")
 	if _, err := db.PutTurnContext("delegated", "demo", "42", progressJID, "u1", "slack:T/C/origin"); err != nil {

@@ -61,12 +61,10 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">concepts</a> &rsaquo; live progress</p>
 <h1>live progress</h1>
 
-    <p class="lede">A task with several steps starts with a short task summary. On a compatible channel, that summary opens a thread for the live checklist and the answer.</p>
+    <p class="lede">While a long task runs, the chat shows one temporary progress line. It appears where the answer will go, and arizuko deletes it when the task ends.</p>
 
-    <h2>A task summary opens a thread for the checklist</h2>
-    <p>The summary has a robot mark and does not change:</p>
-    <pre><code>&#129302; Review the log files</code></pre>
-    <p>The checklist follows inside the thread of the summary. The answer, the files and the voice replies use the same thread. If the request already belongs to a thread, everything stays in that thread. The checklist is one message that changes in place:</p>
+    <h2>One line, where the answer will go</h2>
+    <p>The line is posted in the place the answer will use. If the request already belongs to a thread, the line stays in that thread. The line never starts a thread of its own. The checklist is one message that changes in place:</p>
     <pre><code>&#9203; &#9745; Read the three log files
 &#9744; Cross-check the timestamps
 &#9744; Write the summary</code></pre>
@@ -83,26 +81,24 @@
       <dt>&#9744;</dt>
       <dd>Not started.</dd>
     </dl>
-    <p>When the turn ends, a channel that can delete messages removes the checklist: Telegram, Discord, WhatsApp and Slack do so. If the channel refuses the delete, the &#9203; changes to &#10003;, or to &#10007; when the turn fails. A channel that can edit but not delete, such as the web chat, always takes the mark. The task summary keeps its robot mark.</p>
+    <p>When the turn ends, arizuko deletes the line: Telegram, Discord, WhatsApp, Slack and the web chat all do so. Nothing of the progress stays above the answer. A channel that cannot both edit and delete shows no progress line.</p>
 
     <h2>A hook posts the plan, not the model</h2>
-    <p>The agent declares its overall task in the first <code>&lt;status&gt;</code> block, before it plans with the <code>TodoWrite</code> tool. A hook of the harness renders each change of the list into the same editable checklist. The first task of the list never replaces the declared summary. Later status blocks update the progress of work that has no task list.</p>
+    <p>The agent plans with the <code>TodoWrite</code> tool. A hook of the harness renders each change of the list into the same editable checklist. A <code>&lt;status&gt;</code> block updates the line for work that has no task list. After a long run with no report, the agent gets one reminder to say what the user gets next, and only where a line can show.</p>
 
     <h2>Later updates edit the first message</h2>
-    <p>The first progress update sends the checklist, and every later update edits it. The stored message rows keep the identity of the checklist, the summary and the thread, so a restart of <code>routd</code> in the middle of a long turn does not lose them.</p>
-    <p>A queued summary is sent again with its original identity. Until the summary arrives, an answer without a place returns an error and stays out of the retry queue. If the summary read fails or the channel refuses the thread, <code>routd</code> never sends the answer to the parent channel.</p>
+    <p>The first progress update sends the checklist, and every later update edits it. The stored message rows keep the identity of the checklist, so a restart of <code>routd</code> in the middle of a long turn does not lose it.</p>
 
     <h2>The chat shows that the agent is busy until the turn ends</h2>
     <p>The channel also shows that the agent is busy. Telegram, Discord and WhatsApp use their own typing indicator. Slack and GitHub have no such indicator, so they put an eyes reaction, &#128064;, on the message that started the turn. The indicator stays on until the turn ends, not until the first reply. So an agent that answers and then continues to work still looks busy. If the adapter restarts during the turn, the reaction stays: the adapter records it and removes it when the turn ends.</p>
 
-    <h2>Channels that cannot edit show only the answer</h2>
+    <h2>Channels that cannot edit and delete show only the answer</h2>
     <p>GitHub cannot edit the comments of the agent here, so a pull request gets no progress comment. The eyes reaction on the comment that started the turn is the whole display.</p>
-    <p>An editable channel without compatible thread support keeps one progress message and the normal place for the answer. That channel has no separate summary opener.</p>
     <p>Email cannot edit a sent message. On these channels, arizuko drops the status updates, and you get only the answer. A stream of separate &ldquo;still working&rdquo; posts is what the checklist exists to avoid, so these channels get no fallback. Google Drive comments behave the same way, because the Drive adapter does not edit its replies.</p>
     <p>An edit failure appears as an error. <code>routd</code> never posts a replacement message to hide it.</p>
 
-    <h2>The summary and the checklist never count as the answer</h2>
-    <p>The summary and the checklist promise an answer, and neither one is that answer. The agent delivers the answer with an explicit tool, such as <code>reply</code>. The terminal text of the agent stays in its transcript. If an addressed turn, or a turn that declared work, ends without a delivery, the agent gets one prompt. If the agent stays silent, a failure notice arrives in the same thread.</p>
+    <h2>The checklist never counts as the answer</h2>
+    <p>The checklist promises an answer, and it is not that answer. The agent delivers the answer with an explicit tool, such as <code>reply</code>. The terminal text of the agent stays in its transcript. If an addressed turn, or a turn that reported work, ends without a delivery, the agent gets one prompt. If the agent stays silent, a failure notice arrives in the same thread.</p>
 
     <h2>Short plans and turns without a plan send no checklist</h2>
     <ul>
@@ -120,7 +116,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/concepts/progress.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-21">2026-10-21</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-24">2026-10-24</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

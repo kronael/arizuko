@@ -28,9 +28,11 @@ type recDeliverer struct {
 	edits   []sentEdit
 	deletes []sentEdit
 	editErr error
-	// noEdit makes the channel not advertise `edit`: a progress update is
-	// dropped, never sent as a fresh message.
+	// noEdit and noDelete make the channel not advertise `edit` or `delete`:
+	// a progress update is dropped, never sent as a fresh message.
 	noEdit    bool
+	noDelete  bool
+	deleteErr error
 	canThread bool
 	docs      []sentMsg
 	voices    []sentVoice
@@ -136,8 +138,11 @@ func (d *recDeliverer) Edit(jid, platformID, content, threadID string) error {
 	return d.editErr
 }
 func (d *recDeliverer) HasCapability(_, capability string) bool {
-	if capability == "edit" {
+	switch capability {
+	case "edit":
 		return !d.noEdit
+	case "delete":
+		return !d.noDelete
 	}
 	return d.canThread && (capability == "thread_root" || capability == "thread_id")
 }
@@ -145,7 +150,7 @@ func (d *recDeliverer) Delete(jid, platformID, threadID string) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.deletes = append(d.deletes, sentEdit{jid: jid, platformID: platformID, threadID: threadID})
-	return nil
+	return d.deleteErr
 }
 func (d *recDeliverer) Pin(_, _ string) error           { return nil }
 func (d *recDeliverer) Unpin(_, _ string, _ bool) error { return nil }

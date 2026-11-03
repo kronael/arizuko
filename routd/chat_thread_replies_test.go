@@ -17,8 +17,6 @@ func TestChatThreadRepliesAreIndependentWithinFolder(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	dl := &recDeliverer{canThread: true}
-	srv := NewServer(db, nil, dl, nil, 0, "")
 	if err := db.PutGroup(core.Group{Folder: "demo"}); err != nil {
 		t.Fatal(err)
 	}
@@ -43,19 +41,12 @@ func TestChatThreadRepliesAreIndependentWithinFolder(t *testing.T) {
 		}
 		threadTurn(t, db, tc.turn, "demo", tc.jid, "trigger")
 		turn, _ := db.GetTurnContext(tc.turn)
-		place, err := placeTurnDelivery(db, dl, turn, tc.jid, "", true)
+		place, err := placeTurnDelivery(db, turn, tc.jid, "", true)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if (place.threadRoot != "") != tc.on {
 			t.Fatalf("%s placement = %+v", tc.jid, place)
-		}
-		if err := srv.declareSummary(turn, tc.jid, "task"); err != nil {
-			t.Fatal(err)
-		}
-		_, found := db.MessageByID(tc.jid, summaryID(tc.turn))
-		if found != tc.on {
-			t.Fatalf("%s summary opener = %v", tc.jid, found)
 		}
 	}
 }
@@ -70,25 +61,22 @@ func (s chatQueryFailure) Query(ctx context.Context, q objstore.Query) ([]objsto
 }
 
 func TestChatThreadRepliesReadFailureAndExistingTopic(t *testing.T) {
-	db, srv := newSummaryTurn(t, &recDeliverer{canThread: true})
+	db, srv := newProgressTurn(t, &recDeliverer{canThread: true}, "")
 	tc, _ := db.GetTurnContext("t1")
 	if err := db.store().WriteEntities(context.Background(), nil, objstore.Write{Op: objstore.Merge, Entity: store.Chats, Key: objstore.Key{Partition: store.OwnerRoutd, Sort: progressJID}, Attrs: map[string]string{"thread_replies": "invalid"}}); err != nil {
 		t.Fatal(err)
 	}
 	for _, broken := range []objstore.Store{db.obj, chatQueryFailure{db.obj}} {
 		db.obj = broken
-		if _, err := placeTurnDelivery(db, srv.deliver, tc, progressJID, "", true); err == nil {
+		if _, err := placeTurnDelivery(db, tc, progressJID, "", true); err == nil {
 			t.Fatal("unreadable preference accepted")
 		}
-		if err := srv.declareSummary(tc, progressJID, "task"); err == nil {
-			t.Fatal("summary accepted unreadable preference")
-		}
-		if err := srv.submitStatus(ipc.TurnStatus{TurnID: "t1", Kind: ipc.StatusProgress, Text: "progress"}); err == nil {
+		if err := srv.submitStatus(ipc.TurnStatus{TurnID: "t1", Text: "progress"}); err == nil {
 			t.Fatal("progress accepted unreadable preference")
 		}
 		existing := tc
 		existing.Topic = "existing"
-		place, err := placeTurnDelivery(db, srv.deliver, existing, progressJID, "", true)
+		place, err := placeTurnDelivery(db, existing, progressJID, "", true)
 		if err != nil || place.threadID != "existing" {
 			t.Fatalf("existing topic = %+v, %v", place, err)
 		}

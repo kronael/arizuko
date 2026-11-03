@@ -149,12 +149,12 @@ func TestProgress_ThreadContextReachesUpdatesAndCompletion(t *testing.T) {
 		}
 	}
 	finishTurn(db, dl, "threaded", endDone)
-	if len(dl.edits) != 2 {
-		t.Fatalf("edits=%+v", dl.edits)
+	if len(dl.edits) != 1 || len(dl.deletes) != 1 {
+		t.Fatalf("edits=%+v deletes=%+v", dl.edits, dl.deletes)
 	}
-	for _, edit := range dl.edits {
+	for _, edit := range append(dl.edits, dl.deletes...) {
 		if edit.threadID != "th-7" {
-			t.Fatalf("edit lost its persisted thread: %+v", edit)
+			t.Fatalf("edit or delete lost its persisted thread: %+v", edit)
 		}
 	}
 }
@@ -196,8 +196,8 @@ func TestProgress_ResultStatusAlreadyStreamedPostsOnce(t *testing.T) {
 			marks++
 		}
 	}
-	if marks != 1 || len(dl.edits) != 1 || dl.edits[0].content != "✓ verified; writing review" {
-		t.Fatalf("progress posts=%d edits=%+v, want 1 post and only the terminal edit: %+v", marks, dl.edits, dl.sends)
+	if marks != 1 || len(dl.edits) != 0 || len(dl.deletes) != 1 {
+		t.Fatalf("progress posts=%d edits=%+v deletes=%+v, want 1 post and its delete: %+v", marks, dl.edits, dl.deletes, dl.sends)
 	}
 	if len(dl.sends) != 2 || dl.sends[1].text != "the review" {
 		t.Fatalf("the reply was lost: %+v", dl.sends)
@@ -326,7 +326,7 @@ func progressWithRow(t *testing.T, dl *recDeliverer) (*DB, *Server) {
 	return db, srv
 }
 
-func TestProgress_EndEditsTerminalDone(t *testing.T) {
+func TestProgress_EndDeletesTheLine(t *testing.T) {
 	dl := &recDeliverer{}
 	db, srv := progressWithRow(t, dl)
 
@@ -335,11 +335,12 @@ func TestProgress_EndEditsTerminalDone(t *testing.T) {
 	if err != nil || !ack.OK || ack.Nudge != "" {
 		t.Fatalf("delivered completion: ack=%+v err=%v", ack, err)
 	}
-	if len(dl.edits) != 1 || dl.edits[0].content != "✓ working" {
-		t.Fatalf("edits=%+v, want one edit reading %q", dl.edits, "✓ working")
+	platformID := statusRows(t, db, progressJID)[0].PlatformID
+	if len(dl.deletes) != 1 || dl.deletes[0] != (sentEdit{jid: progressJID, platformID: platformID}) || len(dl.edits) != 0 {
+		t.Fatalf("deletes=%+v edits=%+v, want one delete of %s and no edit", dl.deletes, dl.edits, platformID)
 	}
 	if rows := statusRows(t, db, progressJID); rows[0].Content != "✓ working" {
-		t.Fatalf("row after the edit = %q, want %q", rows[0].Content, "✓ working")
+		t.Fatalf("row after the delete = %q, want %q", rows[0].Content, "✓ working")
 	}
 	if tc, _ := db.GetTurnContext("t1"); tc.State != store.TurnDone {
 		t.Fatalf("turn state = %q, want done", tc.State)
@@ -349,26 +350,26 @@ func TestProgress_EndEditsTerminalDone(t *testing.T) {
 	}
 }
 
-func TestProgress_EndEditsTerminalFailed(t *testing.T) {
+func TestProgress_EndDeletesTheLineOfAFailedTurn(t *testing.T) {
 	dl := &recDeliverer{}
 	db, _ := progressWithRow(t, dl)
 
 	finishTurn(db, dl, "t1", endFailed)
-	if len(dl.edits) != 1 || dl.edits[0].content != "✗ working" {
-		t.Fatalf("edits=%+v, want one edit reading %q", dl.edits, "✗ working")
+	if len(dl.deletes) != 1 || len(dl.edits) != 0 {
+		t.Fatalf("deletes=%+v edits=%+v, want one delete and no edit", dl.deletes, dl.edits)
 	}
 	if rows := statusRows(t, db, progressJID); rows[0].Content != "✗ working" {
-		t.Fatalf("row after the edit = %q", rows[0].Content)
+		t.Fatalf("row after the delete = %q", rows[0].Content)
 	}
 }
 
-func TestProgress_EndWithoutRowEditsNothing(t *testing.T) {
+func TestProgress_EndWithoutRowDeletesNothing(t *testing.T) {
 	dl := &recDeliverer{}
 	db, _ := newProgressTurn(t, dl, "")
 
 	finishTurn(db, dl, "t1", endDone)
-	if len(dl.edits) != 0 || len(dl.sends) != 0 {
-		t.Fatalf("a turn that reported nothing posted: sends=%+v edits=%+v", dl.sends, dl.edits)
+	if len(dl.deletes) != 0 || len(dl.sends) != 0 {
+		t.Fatalf("a turn that reported nothing posted: sends=%+v deletes=%+v", dl.sends, dl.deletes)
 	}
 	if len(dl.typings) != 1 || dl.typings[0].on {
 		t.Fatalf("typings=%+v, want one off", dl.typings)
@@ -399,19 +400,19 @@ func TestProgress_EndFansOutToOwnedChats(t *testing.T) {
 	if !off[progressJID] || !off[other] {
 		t.Fatalf("presence cleared on %v, want both %s and %s", off, progressJID, other)
 	}
-	if len(dl.edits) != 1 || dl.edits[0].jid != progressJID {
-		t.Fatalf("edits=%+v, want one edit, on the chat that has a row", dl.edits)
+	if len(dl.deletes) != 1 || dl.deletes[0].jid != progressJID {
+		t.Fatalf("deletes=%+v, want one delete, on the chat that has a row", dl.deletes)
 	}
 }
 
-func TestProgress_SecondEndEditsOnce(t *testing.T) {
+func TestProgress_SecondEndDeletesOnce(t *testing.T) {
 	dl := &recDeliverer{}
 	db, _ := progressWithRow(t, dl)
 
 	finishTurn(db, dl, "t1", endDone)
 	finishTurn(db, dl, "t1", endFailed)
-	if len(dl.edits) != 1 || dl.edits[0].content != "✓ working" {
-		t.Fatalf("edits=%+v, want the one ✓ edit and nothing after it", dl.edits)
+	if len(dl.deletes) != 1 || len(dl.edits) != 0 {
+		t.Fatalf("deletes=%+v edits=%+v, want the one delete and nothing after it", dl.deletes, dl.edits)
 	}
 }
 
@@ -420,15 +421,15 @@ func TestProgress_SteeredEndOnlyMarksTheTurnDone(t *testing.T) {
 	db, _ := progressWithRow(t, dl)
 
 	finishTurn(db, dl, "t1", endSteered)
-	if len(dl.edits) != 0 || len(dl.typings) != 0 {
-		t.Fatalf("a steered turn ended the live run's progress: edits=%+v typings=%+v", dl.edits, dl.typings)
+	if len(dl.deletes) != 0 || len(dl.typings) != 0 {
+		t.Fatalf("a steered turn ended the live run's progress: deletes=%+v typings=%+v", dl.deletes, dl.typings)
 	}
 	if tc, _ := db.GetTurnContext("t1"); tc.State != store.TurnDone {
 		t.Fatalf("turn state = %q, want done", tc.State)
 	}
 }
 
-func TestProgress_FailedTerminalEditStillFinishesTheTurn(t *testing.T) {
+func TestProgress_FailedDeleteStillFinishesTheTurn(t *testing.T) {
 	var logs bytes.Buffer
 	prev := slog.Default()
 	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
@@ -436,17 +437,17 @@ func TestProgress_FailedTerminalEditStillFinishesTheTurn(t *testing.T) {
 
 	dl := &recDeliverer{}
 	db, _ := progressWithRow(t, dl)
-	dl.editErr = errSend
+	dl.deleteErr = errSend
 
 	finishTurn(db, dl, "t1", endDone)
 	if tc, _ := db.GetTurnContext("t1"); tc.State != store.TurnDone {
-		t.Fatalf("a failed edit left the turn %q, want done", tc.State)
+		t.Fatalf("a failed delete left the turn %q, want done", tc.State)
 	}
 	if rows := statusRows(t, db, progressJID); rows[0].Content != "⏳ working" {
 		t.Fatalf("row = %q, want it to keep what the user still sees", rows[0].Content)
 	}
 	if !strings.Contains(logs.String(), "level=ERROR") || !strings.Contains(logs.String(), "turn_id=t1") {
-		t.Fatalf("the failed edit was not logged at Error with the turn: %s", logs.String())
+		t.Fatalf("the failed delete was not logged at Error with the turn: %s", logs.String())
 	}
 }
 
@@ -458,7 +459,7 @@ func TestProgress_UpdateAfterEndIsDropped(t *testing.T) {
 	if err := srv.mcpSubmitStatus("t1", "late"); err != nil {
 		t.Fatal(err)
 	}
-	if len(dl.edits) != 1 || len(dl.sends) != 1 {
+	if len(dl.deletes) != 1 || len(dl.sends) != 1 || len(dl.edits) != 0 {
 		t.Fatalf("a status after the end reached the platform: sends=%+v edits=%+v", dl.sends, dl.edits)
 	}
 	if rows := statusRows(t, db, progressJID); rows[0].Content != "✓ working" {
@@ -488,7 +489,7 @@ func (r *reportingRunner) Run(_ context.Context, req runedv1.RunRequest) (runedv
 	return runedv1.RunOutcome{RunID: "run-r", Outcome: runedv1.OutcomeOK}, nil
 }
 
-func TestProgress_DispatchEndsTheMessageByOutcome(t *testing.T) {
+func TestProgress_DispatchEndsTheLineByOutcome(t *testing.T) {
 	for _, tc := range []struct {
 		mode, mark string
 		notice     string
@@ -512,8 +513,8 @@ func TestProgress_DispatchEndsTheMessageByOutcome(t *testing.T) {
 			if len(rows) != 1 || rows[0].Content != tc.mark {
 				t.Fatalf("status rows = %+v, want one reading %q", rows, tc.mark)
 			}
-			if len(dl.edits) != 1 || dl.edits[0].content != tc.mark {
-				t.Fatalf("edits=%+v, want one edit reading %q", dl.edits, tc.mark)
+			if len(dl.deletes) != 1 || len(dl.edits) != 0 {
+				t.Fatalf("deletes=%+v edits=%+v, want one delete and no edit", dl.deletes, dl.edits)
 			}
 			sent := dl.sentMsgs()
 			if tc.notice == "" {
@@ -574,11 +575,11 @@ func TestProgress_RecoveredTurnEditsItsRowWhenItCompletes(t *testing.T) {
 	if err != nil || !ack.OK || ack.Nudge != "" {
 		t.Fatalf("delivered completion after restart: ack=%+v err=%v", ack, err)
 	}
-	if len(after.edits) != 1 || after.edits[0].content != "✓ working" {
-		t.Fatalf("edits after the restart = %+v, want one ✓ edit of the persisted message", after.edits)
+	if len(after.deletes) != 1 || len(after.edits) != 0 {
+		t.Fatalf("after the restart deletes=%+v edits=%+v, want one delete of the persisted message", after.deletes, after.edits)
 	}
-	if want := before.sends[0]; after.edits[0].jid != want.jid {
-		t.Fatalf("edit went to %s, want %s", after.edits[0].jid, want.jid)
+	if want := before.sends[0]; after.deletes[0].jid != want.jid {
+		t.Fatalf("delete went to %s, want %s", after.deletes[0].jid, want.jid)
 	}
 }
 
@@ -606,70 +607,9 @@ func TestFinishTurn_IsTheOnlyDoneWriter(t *testing.T) {
 	}
 }
 
-type deleteEvent struct{ jid, platformID, threadID string }
-
-// deletingDeliverer is a channel that advertises edit and delete.
-type deletingDeliverer struct {
-	*recDeliverer
-	deletes   []deleteEvent
-	deleteErr error
-	noDelete  bool
-}
-
-func (d *deletingDeliverer) HasCapability(jid, capability string) bool {
-	if capability == "delete" {
-		return !d.noDelete
-	}
-	return d.recDeliverer.HasCapability(jid, capability)
-}
-
-func (d *deletingDeliverer) Delete(jid, platformID, threadID string) error {
-	d.deletes = append(d.deletes, deleteEvent{jid, platformID, threadID})
-	return d.deleteErr
-}
-
-func newDeletingProgress(t *testing.T, noDelete bool) (*DB, *deletingDeliverer) {
-	t.Helper()
-	dl := &deletingDeliverer{recDeliverer: &recDeliverer{}, noDelete: noDelete}
-	db, srv := newProgressTurn(t, dl.recDeliverer, "")
-	srv.deliver = dl
-	if err := srv.mcpSubmitStatus("t1", "working"); err != nil {
-		t.Fatal(err)
-	}
-	if rows := statusRows(t, db, progressJID); len(rows) != 1 || rows[0].PlatformID == "" {
-		t.Fatalf("setup: want one delivered status row, got %+v", rows)
-	}
-	return db, dl
-}
-
-func TestProgress_EndDeletesWhereChannelCanDelete(t *testing.T) {
-	db, dl := newDeletingProgress(t, false)
-	platformID := statusRows(t, db, progressJID)[0].PlatformID
-
-	finishTurn(db, dl, "t1", endDone)
-	if len(dl.deletes) != 1 || dl.deletes[0] != (deleteEvent{progressJID, platformID, ""}) {
-		t.Fatalf("deletes=%+v, want one on %s %s", dl.deletes, progressJID, platformID)
-	}
-	if len(dl.edits) != 0 {
-		t.Fatalf("a delete channel also edited: %+v", dl.edits)
-	}
-	if rows := statusRows(t, db, progressJID); rows[0].Content != "✓ working" {
-		t.Fatalf("row after the delete = %q, want %q", rows[0].Content, "✓ working")
-	}
-	if tc, _ := db.GetTurnContext("t1"); tc.State != store.TurnDone {
-		t.Fatalf("turn state = %q, want done", tc.State)
-	}
-
-	finishTurn(db, dl, "t1", endFailed)
-	if len(dl.deletes) != 1 || len(dl.edits) != 0 {
-		t.Fatalf("a second End acted: deletes=%+v edits=%+v", dl.deletes, dl.edits)
-	}
-}
-
 func TestProgress_EndDeleteCarriesTheStatusThread(t *testing.T) {
-	dl := &deletingDeliverer{recDeliverer: &recDeliverer{}}
-	db, srv := newProgressTurn(t, dl.recDeliverer, "")
-	srv.deliver = dl
+	dl := &recDeliverer{}
+	db, srv := newProgressTurn(t, dl, "")
 	if _, err := db.PutTurnContext("threaded", "demo", "th-7", progressJID, "u1", ""); err != nil {
 		t.Fatal(err)
 	}
@@ -679,53 +619,73 @@ func TestProgress_EndDeleteCarriesTheStatusThread(t *testing.T) {
 	platformID := statusRows(t, db, progressJID)[0].PlatformID
 
 	finishTurn(db, dl, "threaded", endDone)
-	want := deleteEvent{progressJID, platformID, "th-7"}
+	want := sentEdit{jid: progressJID, platformID: platformID, threadID: "th-7"}
 	if len(dl.deletes) != 1 || dl.deletes[0] != want {
 		t.Fatalf("deletes=%+v, want one %+v", dl.deletes, want)
 	}
 }
 
-func TestProgress_RefusedDeleteFallsBackToTerminalEdit(t *testing.T) {
-	db, dl := newDeletingProgress(t, false)
+// A line is posted only where it can be edited while the turn runs and removed
+// when it ends; a sink missing either receives nothing.
+func TestProgress_NeedsEditAndDelete(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		noEdit, noDe bool
+		posts        bool
+	}{
+		{"both", false, false, true},
+		{"no-delete", false, true, false},
+		{"no-edit", true, false, false},
+		{"neither", true, true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dl := &recDeliverer{noEdit: tc.noEdit, noDelete: tc.noDe}
+			db, srv := newProgressTurn(t, dl, "")
+			if err := srv.mcpSubmitStatus("t1", "working"); err != nil {
+				t.Fatal(err)
+			}
+			finishTurn(db, dl, "t1", endDone)
+			if posted := len(dl.sends) == 1; posted != tc.posts {
+				t.Fatalf("sends=%+v, want posted=%v", dl.sends, tc.posts)
+			}
+			if tc.posts && len(dl.deletes) != 1 {
+				t.Fatalf("a posted line was not removed: deletes=%+v", dl.deletes)
+			}
+			if !tc.posts && (len(dl.edits) != 0 || len(dl.deletes) != 0 || len(statusRows(t, db, progressJID)) != 0) {
+				t.Fatalf("a sink that cannot show a line saw one: edits=%+v deletes=%+v", dl.edits, dl.deletes)
+			}
+		})
+	}
+}
+
+// A refused delete is logged and leaves the row as the user still sees it.
+func TestProgress_RefusedDeleteIsNotRetriedAsAnEdit(t *testing.T) {
+	dl := &recDeliverer{}
+	db, _ := progressWithRow(t, dl)
 	dl.deleteErr = chanlib.ErrUnsupported
 
 	finishTurn(db, dl, "t1", endFailed)
-	if len(dl.deletes) != 1 {
-		t.Fatalf("deletes=%+v, want one attempt", dl.deletes)
+	if len(dl.deletes) != 1 || len(dl.edits) != 0 {
+		t.Fatalf("deletes=%+v edits=%+v, want one attempt and no edit", dl.deletes, dl.edits)
 	}
-	if len(dl.edits) != 1 || dl.edits[0].content != "✗ working" {
-		t.Fatalf("edits=%+v, want one edit reading %q", dl.edits, "✗ working")
-	}
-	if rows := statusRows(t, db, progressJID); rows[0].Content != "✗ working" {
-		t.Fatalf("row = %q, want %q", rows[0].Content, "✗ working")
+	if rows := statusRows(t, db, progressJID); rows[0].Content != "⏳ working" {
+		t.Fatalf("row = %q, want it to keep what the user still sees", rows[0].Content)
 	}
 }
 
-func TestProgress_EndOnEditOnlyChannelNeverDeletes(t *testing.T) {
-	db, dl := newDeletingProgress(t, true)
-
-	finishTurn(db, dl, "t1", endDone)
-	if len(dl.deletes) != 0 {
-		t.Fatalf("an edit-only channel was asked to delete: %+v", dl.deletes)
-	}
-	if len(dl.edits) != 1 || dl.edits[0].content != "✓ working" {
-		t.Fatalf("edits=%+v, want one edit reading %q", dl.edits, "✓ working")
-	}
-}
-
-func TestProgress_EndDeleteLeavesSummaryRowAlone(t *testing.T) {
-	db, dl := newDeletingProgress(t, false)
-	row := core.Message{
-		ID: summaryID("t1"), ChatJID: progressJID, Verb: store.VerbStatusSummary,
-		Content: "🤖 summary", PlatformID: "pid-summary", BotMsg: true, FromMe: true,
-		Timestamp: time.Now().UTC(), TurnID: "t1",
-	}
-	if err := db.PutOutbound(row, "sent"); err != nil {
+// A line whose first send never landed has nothing to delete, and the outbound
+// sweep must not post it after the turn.
+func TestProgress_EndCancelsAnOwedFirstSend(t *testing.T) {
+	dl := &recDeliverer{failSend: true}
+	db, srv := newProgressTurn(t, dl, "")
+	if err := srv.mcpSubmitStatus("t1", "working"); err != nil {
 		t.Fatal(err)
 	}
 
 	finishTurn(db, dl, "t1", endDone)
-	if len(dl.deletes) != 1 || dl.deletes[0].platformID == "pid-summary" {
-		t.Fatalf("deletes=%+v, want only the progress message", dl.deletes)
+	dl.failSend = false
+	NewLoop(db, &recRunner{}, LoopConfig{Deliver: dl}).maybeRetryOutbound(time.Now().Add(time.Hour))
+	if len(dl.deletes) != 0 || len(dl.sends) != 1 {
+		t.Fatalf("sends=%+v deletes=%+v, want the one failed send and nothing after the end", dl.sends, dl.deletes)
 	}
 }

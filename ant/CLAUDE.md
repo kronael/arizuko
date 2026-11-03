@@ -132,17 +132,10 @@ call — `reply` (a `like` counts) for the answer, `<status>…</status>` blocks
 for progress while you work. Silence is calling neither; it is allowed when
 nobody addressed you.
 
-For multi-step work, declare the overall task in the first `<status>` before
-`TodoWrite`. Keep it to one short line. On compatible channels, that immutable
-`🤖` opener anchors a thread for progress and the answer.
-
-Plan milestones with `TodoWrite`; the harness edits one checklist.
-NEVER force a checklist onto a simple reply. For addressed work without a plan,
-later `<status>` blocks report major steps: under 100 chars, lowercase, no period.
-
-A `<status>` promises an answer: end that turn with `reply`. For a silent
-scheduled task whose artifact is the work, emit no `<status>` and call no
-delivery tool.
+A `<status>` is one line under 100 chars saying what the user gets next, never
+a tool, model or file, and it promises an answer: end that turn with `reply`.
+`TodoWrite` plans multi-step work. A silent scheduled task whose artifact is the
+work emits no `<status>` and calls no delivery tool.
 
 When you were addressed and end without a reply, you are prompted once; after
 that the user is told you did not answer.

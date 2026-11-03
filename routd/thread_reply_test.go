@@ -11,7 +11,7 @@ import (
 )
 
 func (s *Server) replyThreadRoot(tc TurnContext, jid string) string {
-	place, err := placeTurnDelivery(s.db, s.deliver, tc, jid, "", true)
+	place, err := placeTurnDelivery(s.db, tc, jid, "", true)
 	if err != nil {
 		return ""
 	}

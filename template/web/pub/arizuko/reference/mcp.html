@@ -134,7 +134,7 @@
     <p class="returns"><strong>Returns:</strong> JSON <code>{"ok": true, "id": "&lt;platformId&gt;"}</code>; on adapter "unsupported", returns error text with platform hint.</p>
 
     <h3 id="reply"><code>reply</code></h3>
-    <p>Use <code>reply</code> for answers to the user. Omit <code>replyToId</code> to use the current conversation, or supply an earlier message to quote. On a GitHub chat <code>replyToId</code> is required: the call fails and sends nothing without it. A declared task summary keeps replies inside its thread where supported. Existing threads take precedence.</p>
+    <p>Use <code>reply</code> for answers to the user. Omit <code>replyToId</code> to use the current conversation, or supply an earlier message to quote. On a GitHub chat <code>replyToId</code> is required: the call fails and sends nothing without it. Existing threads take precedence.</p>
     <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1312"><code>ipc/ipc.go:1312</code></a> &middot; Grant action: <code>reply(jid=...)</code> &middot; In <code>role:member</code>, granted to every folder at create.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
@@ -147,7 +147,7 @@
     <p class="returns"><strong>Returns:</strong> JSON <code>{"ok": true, "id": "&lt;platformId&gt;"}</code>; <code>routd</code> records the outbound row in <code>messages</code> with that id. Pass the id to <code>edit</code> to change the message in place.</p>
 
     <h3 id="send"><code>send</code></h3>
-    <p>Use <code>send</code> for a notification or an explicit different chat. Within a declared task, <code>send</code> shares the task&rsquo;s thread placement. An explicit foreign chat keeps its own destination. Use <code>reply</code> for answers and <code>send_file</code> for files.</p>
+    <p>Use <code>send</code> for a notification or an explicit different chat. <code>send</code> posts in the main channel of the chat. An explicit foreign chat keeps its own destination. Use <code>reply</code> for answers and <code>send_file</code> for files.</p>
     <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1286"><code>ipc/ipc.go:1286</code></a> &middot; Grant action: <code>send(jid=...)</code> &middot; In <code>role:member</code>, granted to every folder at create.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
@@ -945,7 +945,7 @@ headers   = { Authorization = "Bearer {secret:CF_API_TOKEN}" }
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/reference/mcp.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-21">2026-10-21</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-24">2026-10-24</time>
       </div>
     </main>
 

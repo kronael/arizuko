@@ -55,7 +55,8 @@ function spy(): { deliveries: Delivered[]; deliver: (turnID: string, out: Delive
 
 const INPUT = { prompt: 'p', groupFolder: 'g', chatJid: 'j' };
 
-test('runTurn declares the first model status as summary and later statuses as progress', async () => {
+/** Every model status is a plain progress text: ant sends no opener kind. */
+test('runTurn sends each model status as turn_id and text only', async () => {
   const sent: SubmitStatusPayload[] = [];
   await runTurn(scripted([
     { kind: 'status', text: '<status>verify the release</status>' },
@@ -63,8 +64,8 @@ test('runTurn declares the first model status as summary and later statuses as p
     { kind: 'result', ok: true },
   ]), 'p', undefined, INPUT, {}, 'turn-1', async () => {}, async p => { sent.push(p); });
   expect(sent).toEqual([
-    { turn_id: 'turn-1', text: 'verify the release', kind: 'summary' },
-    { turn_id: 'turn-1', text: 'running the tests', kind: 'progress' },
+    { turn_id: 'turn-1', text: 'verify the release' },
+    { turn_id: 'turn-1', text: 'running the tests' },
   ]);
 });
 

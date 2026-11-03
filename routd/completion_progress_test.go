@@ -44,7 +44,7 @@ func TestCompletionProgressRetryPreservesOutcome(t *testing.T) {
 						return runedv1.RunOutcome{}, err
 					}
 				}
-				dl.editErr = errors.New("transient terminal edit failed")
+				dl.deleteErr = errors.New("transient delete failed")
 				ack, err := srv.recordTurnResult(req.TurnID, apiv1.TurnResult{
 					TurnID: req.TurnID, Status: "success", TimedOut: mode == "timeout",
 				})
@@ -52,10 +52,10 @@ func TestCompletionProgressRetryPreservesOutcome(t *testing.T) {
 					t.Fatalf("completion ack=%+v err=%v", ack, err)
 				}
 				rows := statusRows(t, db, req.ChatJID)
-				if len(rows) != 1 || rows[0].Content != "⏳ working" || len(dl.edits) != 1 {
-					t.Fatalf("first edit did not fail: rows=%+v edits=%+v", rows, dl.edits)
+				if len(rows) != 1 || rows[0].Content != "⏳ working" || len(dl.deletes) != 1 {
+					t.Fatalf("first delete did not fail: rows=%+v deletes=%+v", rows, dl.deletes)
 				}
-				dl.editErr = nil
+				dl.deleteErr = nil
 				return runedv1.RunOutcome{RunID: "completion-run", Outcome: runedv1.OutcomeOK}, nil
 			})
 			if err := db.PutMessage(core.Message{
@@ -79,8 +79,8 @@ func TestCompletionProgressRetryPreservesOutcome(t *testing.T) {
 				t.Fatalf("persisted completion=%+v failure=%q err=%v", result, db.TurnFailure("demo", "t1"), err)
 			}
 			rows := statusRows(t, db, progressJID)
-			if len(rows) != 1 || rows[0].Content != wantMark || len(dl.edits) != 2 || dl.edits[1].content != wantMark {
-				t.Fatalf("run return lost terminal outcome: want=%q rows=%+v edits=%+v", wantMark, rows, dl.edits)
+			if len(rows) != 1 || rows[0].Content != wantMark || len(dl.deletes) != 2 {
+				t.Fatalf("run return lost terminal outcome: want=%q rows=%+v deletes=%+v", wantMark, rows, dl.deletes)
 			}
 		})
 	}
@@ -128,7 +128,7 @@ func TestCompletionReadFailureDoesNotFinishTurn(t *testing.T) {
 	turn, _ := db.GetTurnContext("t1")
 	rows := statusRows(t, db, progressJID)
 	if turn.State != store.TurnRunning || db.GetAgentCursor(progressJID) != "" ||
-		len(dl.edits) != 0 || len(rows) != 1 || rows[0].Content != "⏳ working" {
-		t.Fatalf("failed lookup completed the turn: turn=%+v rows=%+v edits=%+v", turn, rows, dl.edits)
+		len(dl.deletes) != 0 || len(rows) != 1 || rows[0].Content != "⏳ working" {
+		t.Fatalf("failed lookup completed the turn: turn=%+v rows=%+v deletes=%+v", turn, rows, dl.deletes)
 	}
 }

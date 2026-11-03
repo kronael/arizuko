@@ -38,6 +38,12 @@ func (e turnEnd) mark() string {
 	return doneMark
 }
 
+// canShowProgress is the one rule for where a progress line lives: a channel
+// that edits it while the turn runs and deletes it when the turn ends.
+func canShowProgress(dl Deliverer, jid string) bool {
+	return dl != nil && dl.HasCapability(jid, "edit") && dl.HasCapability(jid, "delete")
+}
+
 // beginProgress declares that a turn is running on the chat that receives its
 // reply. Presence only: the progress message is created by the first update,
 // so a turn that reports nothing posts nothing (specs/6/46-turn-progress.md).
@@ -50,55 +56,11 @@ func (l *Loop) beginProgress(jid string) {
 	_ = l.deliver.Typing(jid, true)
 }
 
-func summaryID(turnID string) string { return "summary-" + turnID }
-
-func readTaskSummary(db *DB, jid, turnID string) (core.Message, bool, error) {
-	rows, err := db.MessagesSince(jid, "")
-	if err != nil {
-		return core.Message{}, false, err
-	}
-	for _, row := range rows {
-		if row.ID == summaryID(turnID) {
-			return row, true, nil
-		}
-	}
-	return core.Message{}, false, nil
-}
-
-func (s *Server) declareSummary(tc TurnContext, jid, text string) error {
-	text = strings.TrimSpace(text)
-	if text == "" || strings.ContainsAny(text, "\r\n") {
-		return errors.New("task summary must be one nonempty line")
-	}
-	if tc.State == store.TurnDone {
-		return nil
-	}
-	enabled, err := summaryThreadEnabled(s.db, s.deliver, tc, jid)
-	if err != nil {
-		return err
-	}
-	if !enabled {
-		return s.updateProgress(tc, jid, text)
-	}
-	_, ok, err := readTaskSummary(s.db, jid, tc.TurnID)
-	if err != nil {
-		return err
-	}
-	if ok {
-		return nil
-	}
-	row := s.outboundRow(tc, jid, "🤖 "+text, "")
-	row.ID = summaryID(tc.TurnID)
-	row.Verb = store.VerbStatusSummary
-	status := s.deliverRow(tc, jid, &row, "", tc.Topic)
-	return s.db.PutOutbound(row, status)
-}
-
 // updateProgress is the only code that creates or edits a turn's verb=status
 // row. The first update sends the message, a later one edits it and rewrites
 // the row, and an update whose text the row already holds does nothing.
 //
-// A channel that does not advertise edit receives nothing. A hard edit failure
+// A channel that cannot both edit and delete receives nothing. A hard edit failure
 // returns to the caller unchanged and is never re-posted as a fresh message.
 // The caller holds lockTurn(tc.TurnID).
 func (s *Server) updateProgress(tc TurnContext, jid, text string) error {
@@ -116,7 +78,7 @@ func (s *Server) updateProgress(tc TurnContext, jid, text string) error {
 	if !ok {
 		row = s.outboundRow(tc, jid, content, "")
 		row.Verb = verbStatus
-		place, err := placeTurnDelivery(s.db, s.deliver, tc, jid, "", true)
+		place, err := placeTurnDelivery(s.db, tc, jid, "", true)
 		if err != nil {
 			return err
 		}
@@ -148,18 +110,19 @@ func rewriteStatusRow(db *DB, dl Deliverer, turnID, jid string, row core.Message
 	return db.SetMessageContent(row, content)
 }
 
-// endStatusRow removes the progress message where the channel advertises
-// delete and rewrites the row to its terminal form without a platform edit. A
-// refused delete, a channel without delete and a row with no platform id all
-// take the terminal edit.
-func endStatusRow(db *DB, dl Deliverer, turnID, jid string, row core.Message, terminal string) error {
-	if row.PlatformID == "" || !dl.HasCapability(jid, "delete") {
-		return rewriteStatusRow(db, dl, turnID, jid, row, terminal)
+// endStatusRow removes the progress line and rewrites the row to its terminal
+// form without a platform edit. A line whose first send never landed has
+// nothing to delete; it is dead-lettered so the outbound sweep never posts it.
+// A refused delete returns and leaves the row as the user still sees it.
+func endStatusRow(db *DB, dl Deliverer, jid string, row core.Message, terminal string) error {
+	var err error
+	if row.PlatformID == "" {
+		err = db.DeadLetter(row, 0)
+	} else {
+		err = dl.Delete(jid, row.PlatformID, row.Topic)
 	}
-	if err := dl.Delete(jid, row.PlatformID, row.Topic); err != nil {
-		slog.Warn("progress delete refused; ending it with the terminal edit",
-			"turn_id", turnID, "jid", jid, "err", err)
-		return rewriteStatusRow(db, dl, turnID, jid, row, terminal)
+	if err != nil {
+		return err
 	}
 	return db.SetMessageContent(row, terminal)
 }
@@ -169,7 +132,7 @@ func endStatusRow(db *DB, dl Deliverer, turnID, jid string, row core.Message, te
 // replays the turn, and the replay repeats the edit, which is idempotent.
 //
 // Ending the progress never fails the turn. The reply is the product and it is
-// already delivered or owed; a message left reading ⏳ is logged at Error and
+// already delivered or owed; a line that was not deleted is logged at Error and
 // the row keeps what the user sees.
 func finishTurn(db *DB, dl Deliverer, turnID string, end turnEnd) {
 	unlock := lockTurn(turnID)
@@ -187,11 +150,10 @@ func finishTurnLocked(db *DB, dl Deliverer, turnID string, end turnEnd) {
 	}
 }
 
-// endProgress clears presence on every chat the turn's run owns and turns the
-// turn's progress message, where one exists, from ⏳ into its terminal form:
-// deleted on a channel that advertises delete, else edited. A message already
-// terminal is left alone, so a second end of one turn (the result recorded,
-// then the run returning) acts once.
+// endProgress clears presence on every chat the turn's run owns and deletes the
+// turn's progress line, where one exists. A line already ended is left alone, so
+// a second end of one turn (the result recorded, then the run returning) acts
+// once.
 func endProgress(db *DB, dl Deliverer, turnID string, end turnEnd) {
 	tc, ok := db.GetTurnContext(turnID)
 	if !ok {
@@ -209,8 +171,8 @@ func endProgress(db *DB, dl Deliverer, turnID string, end turnEnd) {
 		if !pending {
 			continue
 		}
-		if err := endStatusRow(db, dl, turnID, jid, row, end.mark()+body); err != nil {
-			slog.Error("turn ended but its progress message still reads in-progress",
+		if err := endStatusRow(db, dl, jid, row, end.mark()+body); err != nil {
+			slog.Error("turn ended but its progress line was not deleted",
 				"folder", tc.Folder, "turn_id", turnID, "jid", jid, "err", err)
 		}
 	}

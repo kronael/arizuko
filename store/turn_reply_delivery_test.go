@@ -38,7 +38,7 @@ func TestLastBotMessageExcludesProgressOnlyRows(t *testing.T) {
 	defer s.Close()
 	const jid = "telegram:555"
 	now := time.Now()
-	for i, verb := range []string{verbStatus, VerbStatusSummary} {
+	for i, verb := range []string{verbStatus} {
 		row := core.Message{ID: verb, ChatJID: jid, BotMsg: true,
 			Verb: verb, Content: "work announcement", Timestamp: now.Add(time.Duration(i) * time.Second)}
 		if err := s.PutOutbound(t.Context(), row, core.MessageStatusSent); err != nil {

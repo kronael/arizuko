@@ -387,7 +387,7 @@ func (l *Loop) maybeRetryOutbound(now time.Time) {
 			if m.Verb == "reply" && m.ChatJID == tc.ChatJID {
 				place.jid = returnTarget(tc, m.ChatJID)
 			}
-			if m.Topic != "" && m.Verb != store.VerbStatusSummary && tc.Topic == "" &&
+			if m.Topic != "" && tc.Topic == "" &&
 				(m.ChatJID == tc.ChatJID || m.ChatJID == returnTarget(tc, tc.ChatJID)) {
 				place.threadID, place.threadRoot = "", m.Topic
 			}
