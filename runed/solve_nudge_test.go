@@ -122,8 +122,11 @@ func TestSolveNudgeScript(t *testing.T) {
 	if got := runSolveHook(t, "fix the bug", queueOnly); !strings.Contains(got, "first prompt this session") {
 		t.Errorf("a transcript with no user or assistant entry is a first prompt: %q", got)
 	}
-	if got := runSolveHook(t, "fix the bug", transcriptAged(t, 5*time.Minute)); got != "" {
-		t.Errorf("recent session must stay quiet: %q", got)
+	if got := runSolveHook(t, "fix the bug", transcriptAged(t, 5*time.Minute)); !strings.Contains(got, "Run /solve before you answer") || strings.Contains(got, "idle gap") {
+		t.Errorf("a live session still gets the every-turn nudge: %q", got)
+	}
+	if got := runSolveHook(t, "fix the bug", transcriptAged(t, 25*time.Minute)); !strings.Contains(got, "idle gap") {
+		t.Errorf("25 idle minutes is past the 20-minute gap: %q", got)
 	}
 	if got := runSolveHook(t, "fix the bug", transcriptAged(t, 2*time.Hour)); !strings.Contains(got, "idle gap") {
 		t.Errorf("idle session: %q", got)

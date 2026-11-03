@@ -53,7 +53,7 @@ session .jsonl ─►│ compact-memories │───────────�
                                                                 ▼
                                    ┌──────────────────────────────────────┐
          first prompt of a session │ hooks/prompt_context.py              │
-         or after 30 idle min ────►│ <memory scope="folder"> (new)        │
+         or after 20 idle min ────►│ <memory scope="folder"> (new)        │
                                    │ <knowledge layer="work">  <user-memory>
                                    └──────────────────────────────────────┘
 ```

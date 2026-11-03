@@ -44,7 +44,7 @@ layer="work">`, with no truncation and no age check. A stale file is the
 - **Diary and episodes, the levels.** One flat directory per lens; the
   period is the file name (`YYYYMMDD`, `YYYY-WNN`, `YYYY-MM`) and the YAML
   `summary:` is what a turn reads. On the first prompt of a session and the
-  first after 30 idle minutes — the condition of the `/solve` nudge,
+  first after 20 idle minutes — the condition of the `/solve` nudge,
   `solve_nudge.new_task` — the hook adds the newest file of each lens and
   level as `<memory scope="folder">`, at most six entries. The block covers
   the whole folder, not one thread, so the manual says never to continue

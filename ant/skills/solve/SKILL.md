@@ -9,7 +9,7 @@ description: >
 user-invocable: false
 ---
 
-# Resolve
+# Solve
 
 Triage every incoming message. Internal only — never emit the section
 headings below or words like "Classification:", "Continuation —", "New
@@ -24,6 +24,9 @@ usually still apply for follow-ups on the same entity.
 
 **New task** — distinct request, or first message in session. If unsure,
 treat as new task.
+
+**Already known** — the context holds everything the answer needs: go
+straight to step 4.
 
 ## 2. Recall (new task only)
 
@@ -67,4 +70,6 @@ unless the entity has clearly changed.
 ## 4. Act
 
 Respond to the user. Apply matched skill workflows. Do not mention this
-skill.
+skill. Before you send, check each claim with a number, name, date or path
+against its source — the thread, a file, a tool result. Drop or mark a claim
+you cannot source.

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""UserPromptSubmit hook: nudge /solve on a session's first prompt and after an idle gap.
+"""UserPromptSubmit hook: nudge /solve on every prompt; a new task gets the stronger text.
 
 "First" is a transcript with no user or assistant entry; "idle" is the newest
 such entry older than IDLE_SECONDS. The current prompt is not in the transcript
@@ -12,7 +12,7 @@ import sys
 import time
 from datetime import datetime
 
-IDLE_SECONDS = 1800
+IDLE_SECONDS = 1200
 FIRST = (
     'New task (first prompt this session): run /solve before acting — it '
     'classifies the message, recalls context and matches skills. Skip only if '
@@ -22,6 +22,7 @@ IDLE = (
     'New task? This prompt follows an idle gap: run /solve before acting '
     'unless it continues the work already in context.'
 )
+EVERY = 'Run /solve before you answer: it decides whether the context already holds what you need.'
 
 
 def last_entry(path):
@@ -54,7 +55,7 @@ def nudge(data, now):
         return FIRST
     if new_task(data, now):
         return IDLE
-    return None
+    return EVERY
 
 
 def main():
