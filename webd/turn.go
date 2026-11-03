@@ -150,6 +150,11 @@ func (s *server) handleTurnSSE(w http.ResponseWriter, r *http.Request) {
 
 	sseHeaders(w)
 	flusher, _ := w.(http.Flusher)
+	// A turn with nothing to replay would otherwise hold the headers back until
+	// its first live frame.
+	if flusher != nil {
+		flusher.Flush()
+	}
 
 	after := r.Header.Get("Last-Event-Id")
 	msgs, err := s.stRoutd.TurnFrames(chatJID, turnID, after, 200)

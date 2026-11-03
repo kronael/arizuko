@@ -63,3 +63,25 @@ func TestTurnFrames_DoesNotCrossChats(t *testing.T) {
 		t.Errorf("paged foreign turn returned %d frames, want 0", len(page))
 	}
 }
+
+// A progress line is live scaffolding: a turn's replay never returns it, so a
+// browser that reloads after the turn ended does not get the line back.
+func TestTurnFrames_OmitsTheProgressLine(t *testing.T) {
+	s := openMem(t)
+	const jid = "web:tenant-a"
+	now := time.Now()
+	for i, row := range []core.Message{
+		{ID: "line", Verb: verbStatus, Content: "✓ working"},
+		{ID: "answer", Content: "the answer"},
+	} {
+		row.ChatJID, row.TurnID, row.BotMsg = jid, "turn-a", true
+		row.Timestamp = now.Add(time.Duration(i) * time.Second)
+		if err := s.PutMessage(row); err != nil {
+			t.Fatal(err)
+		}
+	}
+	frames, err := s.TurnFrames(jid, "turn-a", "", 200)
+	if err != nil || len(frames) != 1 || frames[0].ID != "answer" {
+		t.Fatalf("replay = %+v, err %v; want only the answer", frames, err)
+	}
+}

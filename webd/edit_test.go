@@ -208,13 +208,76 @@ func TestMessageFrames_KindFromVerb(t *testing.T) {
 	}
 }
 
-// webd renders no presence, so it advertises send_text and edit only. A
-// capability with a no-op behind it is the drift CapImplReport exists to catch.
+// webd renders no presence, so it advertises send_text, edit and delete only.
+// A capability with a no-op behind it is the drift CapImplReport exists to catch.
 func TestRegistrationCaps(t *testing.T) {
-	if len(webCaps) != 2 || !webCaps["send_text"] || !webCaps["edit"] {
-		t.Errorf("webCaps = %v, want exactly send_text and edit", webCaps)
+	if len(webCaps) != 3 || !webCaps["send_text"] || !webCaps["edit"] || !webCaps["delete"] {
+		t.Errorf("webCaps = %v, want exactly send_text, edit and delete", webCaps)
 	}
 	if webCaps["typing"] {
 		t.Error("webCaps advertises typing; webd renders no presence")
+	}
+}
+
+func postDelete(s *server, body string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest("POST", "/delete", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	s.handler().ServeHTTP(w, req)
+	return w
+}
+
+// A delete reaches the browser as a `delete` frame naming the frame it shows,
+// on the hub key and topic of the original frame, so the progress line goes
+// when the turn ends.
+func TestDelete_PublishesDeleteFrameWithTargetID(t *testing.T) {
+	s, _, st := newTestServer(t)
+	seedGroup(t, st, "main", "Main")
+	putBotRow(t, st, "web:main", "out-1", "bot-1", "status", "tt", "turn1")
+
+	ch, unsub := s.hub.subscribe("web:main", "tt")
+	defer unsub()
+
+	w := postDelete(s, `{"chat_jid":"web:main","target_id":"bot-1"}`)
+	if w.Code != 200 {
+		t.Fatalf("status = %d: %s", w.Code, w.Body.String())
+	}
+	ev, p := recvFrame(t, ch)
+	if ev != "delete" || p["id"] != "bot-1" || p["turn_id"] != "turn1" {
+		t.Errorf("frame = %q %v, want a delete frame for bot-1 of turn1", ev, p)
+	}
+}
+
+// Fail loud, as /edit does: a target webd cannot find, a row of another chat
+// and a user message publish nothing.
+func TestDelete_Refusals(t *testing.T) {
+	s, _, st := newTestServer(t)
+	seedGroup(t, st, "main", "Main")
+	putBotRow(t, st, "web:other", "out-o", "bot-o", "status", "tt", "turnO")
+	if err := st.PutMessage(core.Message{
+		ID: "u-1", ChatJID: "web:main", Content: "hi", Timestamp: time.Now(), Topic: "tt", TurnID: "u-1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	ch, unsub := s.hub.subscribe("web:main", "tt")
+	defer unsub()
+
+	for name, c := range map[string]struct {
+		body string
+		want int
+	}{
+		"unknown target":         {`{"chat_jid":"web:main","target_id":"nope"}`, 404},
+		"target in another chat": {`{"chat_jid":"web:main","target_id":"bot-o"}`, 404},
+		"user message":           {`{"chat_jid":"web:main","target_id":"u-1"}`, 403},
+		"no target":              {`{"chat_jid":"web:main"}`, 400},
+		"not json":               {`nope`, 400},
+	} {
+		if w := postDelete(s, c.body); w.Code != c.want {
+			t.Errorf("%s: status = %d, want %d (%s)", name, w.Code, c.want, w.Body.String())
+		}
+	}
+	select {
+	case msg := <-ch:
+		t.Errorf("a refused delete published %s", msg)
+	default:
 	}
 }

@@ -106,7 +106,7 @@ AUTHD_SERVICE_KEY=$(grep ^AUTHD_SERVICE_KEY .env | cut -d= -f2) \
 WEB_HOST=localhost:9001 \
 /path/to/webd</code></pre>
 
-    <p>At startup, webd calls <code>POST $ROUTER_URL/v1/channels/register</code> with the name <code>web</code>, the capabilities <code>send_text</code> and <code>edit</code>, and its own callback URL. If the registration fails, the process exits. <code>GET /health</code> returns 200 after the registration.</p>
+    <p>At startup, webd calls <code>POST $ROUTER_URL/v1/channels/register</code> with the name <code>web</code>, the capabilities <code>send_text</code>, <code>edit</code> and <code>delete</code>, and its own callback URL. If the registration fails, the process exits. <code>GET /health</code> returns 200 after the registration.</p>
     <p>An <code>/edit</code> from routd publishes a frame with the same id and the new text. So the browser replaces the status message and does not add a second one. webd shows no typing indicator and does not advertise <code>typing</code>.</p>
 
     <h2>Six environment variables configure webd</h2>

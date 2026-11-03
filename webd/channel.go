@@ -9,9 +9,9 @@ import (
 	"github.com/kronael/arizuko/core"
 )
 
-// webCaps is what webd registers: it posts messages and replaces a frame it
-// posted. `typing` is absent until webd renders presence (specs/6/46).
-var webCaps = map[string]bool{"send_text": true, "edit": true}
+// webCaps is what webd registers: it posts messages, replaces a frame it posted
+// and removes one. `typing` is absent until webd renders presence (specs/6/46).
+var webCaps = map[string]bool{"send_text": true, "edit": true, "delete": true}
 
 // handleSend is routd's callback to push assistant messages to SSE subscribers.
 // routd is the sole message appender — we only publish to hub, no local PutMessage.
@@ -112,6 +112,33 @@ func (s *server) handleEdit(w http.ResponseWriter, r *http.Request) {
 		"kind":       frameKind(m),
 	})
 	s.hub.publish(req.ChatJID, m.Topic, "message", string(payload))
+	chanlib.WriteJSON(w, map[string]any{"ok": true})
+}
+
+// handleDelete is routd's delete verb: it publishes a `delete` frame carrying
+// the id of the frame to remove, on the hub key and topic the original frame
+// used. Routd keeps the row; webd keeps nothing.
+func (s *server) handleDelete(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ChatJID  string `json:"chat_jid"`
+		TargetID string `json:"target_id"`
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxJSONBody)
+	if json.NewDecoder(r.Body).Decode(&req) != nil || req.ChatJID == "" || req.TargetID == "" {
+		chanlib.WriteErr(w, 400, "chat_jid and target_id required")
+		return
+	}
+	m, ok := s.stRoutd.MessageByID(req.ChatJID, req.TargetID)
+	if !ok {
+		chanlib.WriteErr(w, 404, "message not found")
+		return
+	}
+	if !m.BotMsg {
+		chanlib.WriteErr(w, 403, "only assistant messages can be deleted")
+		return
+	}
+	payload, _ := json.Marshal(map[string]any{"id": req.TargetID, "turn_id": m.TurnID})
+	s.hub.publish(req.ChatJID, m.Topic, "delete", string(payload))
 	chanlib.WriteJSON(w, map[string]any{"ok": true})
 }
 

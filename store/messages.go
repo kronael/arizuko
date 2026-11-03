@@ -791,6 +791,7 @@ func (s *Store) TurnFrames(chatJID, turnID, afterID string, limit int) ([]core.M
 		Where: []objstore.Cmp{
 			{Attr: attrMsgTurnID, Op: objstore.Eq, Value: turnID},
 			{Attr: attrMsgBot, Op: objstore.Present},
+			{Attr: attrMsgVerb, Op: objstore.Ne, Value: verbStatus},
 		},
 		Limit: limit,
 	})

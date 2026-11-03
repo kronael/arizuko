@@ -21,7 +21,7 @@ a sub in the URL (`webd/me.go`).
 
 ## Responsibilities
 
-- Register as channel `web` with caps `send_text` + `edit` (`webCaps` in
+- Register as channel `web` with caps `send_text`, `edit` + `delete` (`webCaps` in
   `channel.go`). `typing` is not advertised: webd renders no presence;
   `POST /typing` still answers `ok`.
 - Edit a frame by replacing it. `POST /edit` publishes a `message` frame
@@ -31,6 +31,11 @@ a sub in the URL (`webd/me.go`).
   the row's verb is `status`, else `message` (`frameKind`, `turn.go`); the
   text never decides. An unknown target is 404, a row of another chat 404,
   a user message 403.
+- Delete a frame by removing it. `POST /delete` publishes a `delete` frame
+  `{id, turn_id}` on the hub key and topic of the original frame; the SDK
+  hands it to `onDelete`. Routd ends a turn's progress line this way. A turn
+  replay (`TurnFrames`) never returns a `status` row, so a reload does not
+  bring the line back. Same 404 and 403 as `/edit`.
 - Run the SSE hub that fans agent output to subscribers, keyed on
   the chat JID verbatim + topic (`hub.go`).
 - Serve guest chat pages: public widget, token-scoped chat at
@@ -112,7 +117,7 @@ Shipped today (see `server.go`):
   boot). The stamped header IS the identity, authenticated by the bearer.
   When `AUTHD_URL` unset (nil KeySet, local dev), the stamped header is
   trusted directly (no verifier, no proxyd). webd never signs tokens.
-- `/send`, `/edit`, `/typing`, `/v1/round_done` are gated by `chanlib.Auth`:
+- `/send`, `/edit`, `/delete`, `/typing`, `/v1/round_done` are gated by `chanlib.Auth`:
   ES256 `service:routd` token when `AUTHD_URL` is set, open in local dev.
 - `/pair/<token>` is the exception among token surfaces: proxyd gates it
   `user`, so an anonymous visitor is bounced through OAuth and returns to
@@ -216,7 +221,7 @@ delivered messages.
 
 - `main.go`, `server.go` — wiring + routes + auth middleware
 - `hub.go` — SSE fan-out keyed on chat JID + topic
-- `channel.go` — routd→webd callbacks (`/send`, `/edit`, `/typing`, `/v1/round_done`)
+- `channel.go` — routd→webd callbacks (`/send`, `/edit`, `/delete`, `/typing`, `/v1/round_done`)
 - `route_token.go` — route-token lookup + `/chat/<token>` + `/hook/<token>` handlers
 - `turn.go` — round-handle endpoints (`/chat/<token>/<id>{,/status,/sse}`)
 - `me.go` — authed per-user chat console (`/me/*`)

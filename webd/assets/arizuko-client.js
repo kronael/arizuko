@@ -9,6 +9,7 @@
  *     const close = slink.stream(turn.turn_id, {
  *       onMessage: m => console.log("msg", m),
  *       onStatus:  s => console.log("status", s),
+ *       onDelete:  d => document.getElementById(d.id)?.remove(),
  *       onDone:    e => console.log("done", e),
  *     });
  *   </script>
@@ -50,6 +51,7 @@
  * @typedef {Object} StreamHandlers
  * @property {(f:Frame)=>void=} onMessage
  * @property {(f:Frame)=>void=} onStatus
+ * @property {(d:{id:string,turn_id:string})=>void=} onDelete
  * @property {(e:{turn_id:string,status:string,error?:string})=>void=} onDone
  * @property {(err:Error|Event)=>void=} onError
  */
@@ -192,6 +194,14 @@
         if (!handlers.onStatus) return;
         try {
           handlers.onStatus(JSON.parse(e.data));
+        } catch (err) {
+          handlers.onError && handlers.onError(err);
+        }
+      });
+      es.addEventListener('delete', (e) => {
+        if (!handlers.onDelete) return;
+        try {
+          handlers.onDelete(JSON.parse(e.data));
         } catch (err) {
           handlers.onError && handlers.onError(err);
         }
