@@ -3,7 +3,8 @@
     "UserPromptSubmit": [
       {
         "hooks": [
-          { "type": "command", "command": "python3 /home/node/.claude/hooks/solve_nudge.py" }
+          { "type": "command", "command": "python3 /home/node/.claude/hooks/solve_nudge.py" },
+          { "type": "command", "command": "python3 /home/node/.claude/hooks/prompt_context.py" }
         ]
       }
     ]

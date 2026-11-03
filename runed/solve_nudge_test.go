@@ -16,10 +16,11 @@ import (
 
 const solveHook = "solve_nudge.py"
 
-// The core package is the one thing every turn selects, so the hook it ships
-// must reach the guest: mounted under ~/.claude/hooks and named by the merged
-// settings.json. Installs the real ant/ the way routd does at start.
-func TestCorePackageShipsTheSolveNudgeHook(t *testing.T) {
+// The core package is the one thing every turn selects, so the hooks it ships
+// must reach the guest: each mounted under ~/.claude/hooks and named by the
+// merged settings.json by its absolute guest path. Installs the real ant/ the
+// way routd does at start.
+func TestCorePackageShipsItsHooks(t *testing.T) {
 	cfg, folders := renderWiring(t)
 	if _, _, err := container.InstallPackage(cfg.ProjectRoot, "../ant", false); err != nil {
 		t.Fatal(err)
@@ -28,17 +29,21 @@ func TestCorePackageShipsTheSolveNudgeHook(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	guest := core.ContainerHome + "/.claude/hooks/" + solveHook
-	mount := findMount(turn.Mounts, guest)
-	if mount == nil || !mount.RO {
-		t.Fatalf("core hook not mounted read-only at %s", guest)
-	}
-	want, err := os.ReadFile("../ant/hooks/" + solveHook)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got, err := os.ReadFile(mount.Host); err != nil || string(got) != string(want) {
-		t.Fatalf("mounted hook differs from ant/hooks/%s: %v", solveHook, err)
+	var commands []string
+	for _, name := range []string{solveHook, contextHook} {
+		guest := core.ContainerHome + "/.claude/hooks/" + name
+		mount := findMount(turn.Mounts, guest)
+		if mount == nil || !mount.RO {
+			t.Fatalf("core hook not mounted read-only at %s", guest)
+		}
+		want, err := os.ReadFile("../ant/hooks/" + name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got, err := os.ReadFile(mount.Host); err != nil || string(got) != string(want) {
+			t.Fatalf("mounted hook differs from ant/hooks/%s: %v", name, err)
+		}
+		commands = append(commands, "python3 "+guest)
 	}
 	data, err := os.ReadFile(filepath.Join(cfg.GroupsDir, "main", ".claude/settings.json"))
 	if err != nil {
@@ -54,9 +59,14 @@ func TestCorePackageShipsTheSolveNudgeHook(t *testing.T) {
 	if err := json.Unmarshal(data, &settings); err != nil {
 		t.Fatal(err)
 	}
-	entries := settings.Hooks["UserPromptSubmit"]
-	if len(entries) != 1 || len(entries[0].Hooks) != 1 || entries[0].Hooks[0].Command != "python3 "+guest {
-		t.Fatalf("settings.json UserPromptSubmit does not run %s (a hook command gets no shell, so ~ stays literal): %s", guest, data)
+	var got []string
+	for _, entry := range settings.Hooks["UserPromptSubmit"] {
+		for _, hook := range entry.Hooks {
+			got = append(got, hook.Command)
+		}
+	}
+	if strings.Join(got, "\n") != strings.Join(commands, "\n") {
+		t.Fatalf("settings.json UserPromptSubmit runs %q, want %q (a hook command gets no shell, so ~ stays literal): %s", got, commands, data)
 	}
 }
 

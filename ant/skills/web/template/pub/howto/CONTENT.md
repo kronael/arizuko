@@ -154,7 +154,7 @@ myworld/project-a/notes/   nested further
 
 The agent maintains four knowledge layers, each a folder of markdown files under its workspace:
 
-- **Diary** (`diary/YYYYMMDD.md`) — daily work log, written at session end. The last 14 days are injected at session start.
+- **Diary** (`diary/YYYYMMDD.md`) — daily work log, written at session end and searched with `/recall-memories`.
 - **Facts** (`facts/<topic>.md`) — researched knowledge with `verified_at` timestamps, written only via the `/find` skill. Stale entries (>14 days) get refreshed before being used.
 - **Users** (`users/<id>.md`) — per-user preferences, role, history. The agent adapts without you repeating yourself.
 - **Episodes** — compressed session summaries, daily rolling up into weekly, then monthly. Month-old work is recalled without re-reading every message.
@@ -178,7 +178,7 @@ agent  Found 3 matches across diary and facts. Migration moved
 
 Before the agent reads your message, the gateway prepends an `<autocalls>` block with facts resolved at that exact moment: current UTC time, instance name, group folder, session id. The agent treats these as ground truth — no "let me check the date" round-trips.
 
-On top of that, the last 14 days of diary and any user-specific notes are always in context. So "continue what we discussed yesterday" just works.
+On top of that, `work.md` and the notes of the sender are always in context. For "continue what we discussed yesterday" the agent reads the thread history and searches the diary.
 
 ```
 <autocalls>

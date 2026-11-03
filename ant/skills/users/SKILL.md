@@ -42,9 +42,10 @@ Prefers concise answers with code refs.
 
 ## Usage
 
-The gateway injects `<user id="tg-123456" name="Alice" memory="~/users/tg-123456.md" />`
-when a context file exists. Read it for role, preferences, history.
-No `memory` attribute → no file yet.
+The gateway injects `<user id="tg-123456" />`. A hook adds the file as
+`<user-memory id="tg-123456" path="~/users/tg-123456.md">…</user-memory>`
+when it exists. Read it for role, preferences, history. No `<user-memory>`
+block → no file yet.
 
 ```
 /users tg-123456        # read user file
