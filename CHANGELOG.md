@@ -13,6 +13,8 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+- Reply length: the core `ant/hooks/reply_lint.py` PreToolUse hook denies a `reply` or `send` over the 500 chars / 6 lines ceiling of `ant/CLAUDE.md` § Response Style and tells the agent to rewrite it shorter.
+
 ## [v0.72.2] — 2026-11-03
 
 > arizuko v0.72.2 — agents remember days, weeks and months
