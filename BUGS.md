@@ -421,6 +421,16 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
   hits, 56 under `-test`; nine survived verification and were filed separately. Kept so
   the next sweep does not re-report the same ~135.
 
+## L650 — the kernel killed an `extenddb` at 10 GB RSS; the host reset 8 times on 2026-11-03 (2026-11-03, open)
+
+MEASURED: boot -1 (21:00-21:26) kernel log: `Out of memory: Killed process
+10034 (extenddb) ... anon-rss:10059196kB` at 21:17:18, while sloth was
+starting after a reset. The host has 15 GiB. After the 21:27 boot, sloth's
+`extenddb` holds 2.9 GB three minutes after start and stays flat; krons's holds
+150 MB. Which instance's `extenddb` the killed process was, and what grew it,
+is not measured. The other resets (20:01, 20:23, 21:00, 21:27, earlier ones)
+left no OOM line, so memory as their cause is unmeasured.
+
 ## ✅ FIXED 2026-11-03 52df9d517 L649 — `group rename` refused any instance with a `node_modules` tree under `web/`
 
 MEASURED on krons, `arizuko group -i krons rename mayai rhias/trip --dry-run`:
