@@ -421,6 +421,20 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
   hits, 56 under `-test`; nine survived verification and were filed separately. Kept so
   the next sweep does not re-report the same ~135.
 
+## L649 — `group rename` refuses any instance with a `node_modules` tree under `web/` (2026-11-03, open)
+
+MEASURED on krons, `arizuko group -i krons rename mayai rhias/trip --dry-run`:
+`Failed: rename preflight: operational file
+/srv/data/arizuko_krons/web/node_modules/typescript/lib/_tsc.js exceeds scan
+limit; classify it before rename`. The file walk in
+`cmd/arizuko/group_rename_files.go` reads every `.js`/`.json`/`.ts` file under
+the data dir and refuses one over 4 MiB. krons has four `node_modules` trees
+(`web/node_modules`, `web/tmp/arizuko/node_modules`,
+`web/pub/{krons,rhias}/virtue/bff/ts/node_modules`), each with a `typescript`
+over the limit. A `node_modules` file is a third-party dependency and never an
+operational reference to a folder, so the walk must skip the directory as it
+skips `.git`. The rename ran only after the four trees were moved aside by hand.
+
 ## L647 — the weekly compaction wrote nothing on alternate Mondays (2026-11-03, open)
 
 MEASURED 2026-11-03 in `<group>/episodes/.compact-log.jl` on krons: every

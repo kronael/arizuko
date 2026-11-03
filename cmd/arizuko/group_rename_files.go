@@ -181,7 +181,7 @@ func renamePlanFiles(root string, mapping renameMap) ([]renameFile, error) {
 				return filepath.SkipDir
 			}
 			for _, name := range components {
-				if name == ".git" || name == "store" || name == "keys" || name == "backups" {
+				if name == ".git" || name == "store" || name == "keys" || name == "backups" || name == "node_modules" {
 					return filepath.SkipDir
 				}
 			}

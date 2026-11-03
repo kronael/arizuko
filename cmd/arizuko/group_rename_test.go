@@ -457,6 +457,20 @@ func TestGroupRenameFilesystemCollisionWriteNothing(t *testing.T) {
 	}
 }
 
+func TestGroupRenameSkipsNodeModules(t *testing.T) {
+	root := t.TempDir()
+	big := filepath.Join(root, "web/node_modules/typescript/lib/_tsc.js")
+	if err := os.MkdirAll(filepath.Dir(big), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(big, make([]byte, 4<<20+1), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := renamePlanFiles(root, renameTestMap(t)); err != nil {
+		t.Fatalf("node_modules file refused the plan: %v", err)
+	}
+}
+
 func TestGroupRenameDirectoryMetadata(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "groups/main")
