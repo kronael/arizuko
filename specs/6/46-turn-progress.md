@@ -13,15 +13,15 @@ depends:
 # specs/6/46 — turn progress: one declaration, two renderings, a declared degradation per sink
 
 routd declares that a turn is running, what it is doing, and that it ended.
-Every channel declares its presence, edit and thread capabilities. A compatible
-channel keeps an immutable `🤖` task opener with one editable progress message
-and answers in its thread. Other editable channels keep one progress message;
-channels without `edit` render no progress message. When the turn ends, a channel
-that can delete removes its progress message.
+Every channel declares its presence, edit and delete capabilities. A turn that
+reports shows ONE temporary progress line, posted where the turn's answer will
+go and edited in place. When the turn ends the line is deleted. A channel that
+cannot both edit and delete shows no progress line. Nothing of progress stays
+behind and no progress message starts a thread.
 
-`status: partial`: the renderer, the terminal mark, the `edit` sink webd,
+`status: partial`: the renderer, the `edit` and `delete` sink webd,
 the shared `👀` mark, gitd without `edit` and the deletion of the progress
-message at `End` are built (§"Build state"). Not built: the `Typing` port
+line at `End` are built (§"Build state"). Not built: the `Typing` port
 change (D3, declined), Drive `edit` (blocked on the Drive API, §"Unverified") and
 the measurement on krons (§"Acceptance").
 
@@ -31,17 +31,19 @@ The voluntary-reply contract (`47-voluntary-reply.md`) removes the historical
 final-result status reader below. Only ant extracts `<status>` blocks;
 `submit_status` remains routd's progress input.
 
-| Step | What                                                                        | State                                                                       | Pointer                                               |
-| ---- | --------------------------------------------------------------------------- | --------------------------------------------------------------------------- | ----------------------------------------------------- |
-| 1    | routd renders `Begin` and `Update`; no `edit`, no message; equal text no-op | built, `d6572106`                                                           | `routd/progress.go` `beginProgress`, `updateProgress` |
-| 2    | `finishTurn` is the one writer of `done`; `End` marks `✓`/`✗`               | built, `dd670329`                                                           | `routd/progress.go` `finishTurn`, `endProgress`       |
-| 3    | gitd advertises no `edit`; GitHub renders the `👀` mark and no comment      | built, `0c175988`                                                           | `gitd/main.go` `capsFor`                              |
-| 4    | webd `edit` as a replace frame; `typing` out of its map                     | built, `eddce204`; open: `L439`, `L440` in `BUGS.md`                        | `webd/channel.go`                                     |
-| 5    | the `👀` mark once in chanlib; slakd and gitd on it                         | built, `68fc2895`                                                           | `chanlib/mark.go`                                     |
-| 6    | `Typing(req TypingRequest)` carrying the trigger id (D3)                    | not built; declined                                                         | —                                                     |
-| 7    | googd `edit` on its own reply                                               | not built; the probe has not run, the Drive API is off in the key's project | §"Unverified"                                         |
-| 8    | `End` deletes the progress message on a channel that advertises `delete`    | built, `c0e361ac`                                                           | `routd/progress.go` `endProgress`                     |
-| —    | the acceptance list measured on krons                                       | not measured                                                                | §"Acceptance"                                         |
+| Step | What                                                                                         | State                                                                       | Pointer                                               |
+| ---- | -------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- | ----------------------------------------------------- |
+| 1    | routd renders `Begin` and `Update`; no `edit`, no message; equal text no-op                  | built, `d6572106`                                                           | `routd/progress.go` `beginProgress`, `updateProgress` |
+| 2    | `finishTurn` is the one writer of `done`; `End` ends the progress line                       | built, `dd670329`                                                           | `routd/progress.go` `finishTurn`, `endProgress`       |
+| 3    | gitd advertises no `edit`; GitHub renders the `👀` mark and no comment                       | built, `0c175988`                                                           | `gitd/main.go` `capsFor`                              |
+| 4    | webd `edit` as a replace frame; `typing` out of its map                                      | built, `eddce204`; open: `L439`, `L440` in `BUGS.md`                        | `webd/channel.go`                                     |
+| 5    | the `👀` mark once in chanlib; slakd and gitd on it                                          | built, `68fc2895`                                                           | `chanlib/mark.go`                                     |
+| 6    | `Typing(req TypingRequest)` carrying the trigger id (D3)                                     | not built; declined                                                         | —                                                     |
+| 7    | googd `edit` on its own reply                                                                | not built; the probe has not run, the Drive API is off in the key's project | §"Unverified"                                         |
+| 8    | `End` deletes the progress message on a channel that advertises `delete`                     | built, `c0e361ac`                                                           | `routd/progress.go` `endProgress`                     |
+| 9    | one temporary line: no agent-written opener; a line needs `edit` and `delete`; webd `delete` | built (this change)                                                         | `routd/progress.go`, `webd/channel.go`                |
+| 10   | the nudge: first at 180 s, only where a line shows, says what comes next                     | built (this change)                                                         | §"The nudge", `ant/src/index.ts`                      |
+| —    | the acceptance list measured on krons                                                        | not measured                                                                | §"Acceptance"                                         |
 
 ## Problem
 
@@ -94,42 +96,29 @@ routd owns the turn, so routd declares its progress. One renderer,
 `routd/progress.go`, is the only code that calls `Typing`, or sends or edits
 progress-only rows:
 
-| Event              | Called from                                                                                                     | Carries                      |
-| ------------------ | --------------------------------------------------------------------------------------------------------------- | ---------------------------- |
-| `Begin(turn)`      | the dispatch, once, before the run                                                                              | chat JID, trigger message id |
-| `Summary(turn, t)` | the first streamed model `<status>` through `submit_status`                                                     | one-line task summary        |
-| `Update(turn, t)`  | `submit_status` from `TodoWrite` and later streamed `<status>` blocks                                           | progress text                |
-| `End(turn, o)`     | `finishTurn`, the one function every state→`done` site calls (result recorded, terminal failure, silent, clean) | outcome ∈ {`done`, `failed`} |
+| Event             | Called from                                                                                                     | Carries                      |
+| ----------------- | --------------------------------------------------------------------------------------------------------------- | ---------------------------- |
+| `Begin(turn)`     | the dispatch, once, before the run                                                                              | chat JID, trigger message id |
+| `Update(turn, t)` | `submit_status` from `TodoWrite` and streamed `<status>` blocks                                                 | progress text                |
+| `End(turn, o)`    | `finishTurn`, the one function every state→`done` site calls (result recorded, terminal failure, silent, clean) | outcome ∈ {`done`, `failed`} |
 
-In code these are `Loop.beginProgress`, `Server.declareSummary`,
-`Server.updateProgress` and `endProgress`, called by `finishTurn`.
-
-**The task summary** is a durable `verb=status_summary` row with deterministic
-id `summary-<turnID>`. The hidden `submit_status` method accepts optional
-`kind: "summary"` or `kind: "progress"`; omission keeps legacy progress input.
-The declared summary is never inferred from a task list. It stays `🤖` when
-progress ends. Both progress verbs confer an answer obligation and are excluded
-from final delivery and last-answer tracking.
+In code these are `Loop.beginProgress`, `Server.updateProgress` and
+`endProgress`, called by `finishTurn`.
 
 `routd/placement.go` places progress, text, files, voice, terminal notices and
-outbound retries. An existing topic wins without creating a nested thread.
-Otherwise `thread_root`, a group chat and enabled `thread_replies` permit the
-opener to anchor the task thread. Existing topics require `thread_id`.
-The chat owns `thread_replies`; an unset preference uses the chat's group or
-direct-message default. The preference controls new threads, not replies in an
-existing thread. Separate chats routed to one group have separate preferences.
-Without compatible placement, the summary uses the single editable progress
-card and final placement stays unchanged. A channel without `edit` posts no progress.
+outbound retries. The progress line goes where the reply will go: an existing
+topic wins and the line joins it, never a nested thread. Without a topic, the
+reply's own rule applies, so a chat with `thread_replies` roots the line and the
+reply in one thread on the trigger message. The progress line never creates a
+thread of its own and never lands in the channel's main flow when the turn has
+a topic. The chat owns `thread_replies`; an unset preference uses the chat's
+group or direct-message default.
 
-`reply` follows the task thread. An explicit text `send` posts in the named
-chat's main channel. Progress stays in the task thread. Retries keep the recorded
-thread placement and use the turn's return address for delegated replies.
+`reply` follows the same placement. An explicit text `send` posts in the named
+chat's main channel. Retries keep the recorded thread placement and use the
+turn's return address for delegated replies.
 
-A pending opener keeps its durable row and idempotency key. An unresolved or
-unreadable opener refuses an unplaced child without queueing a guessed
-destination. The agent can retry after recovery. A platform thread failure
-returns through normal delivery classification; no child escapes to the parent.
-All summary readers use the same error-aware reader.
+The agent does not write an opener. `submit_status` carries text only.
 
 **Presence** is `Typing(on)` at `Begin` and `Typing(off)` at `End`, on the
 chat that receives the reply and, at `End`, on every chat the run owns
@@ -144,23 +133,19 @@ with it is the sink's declaration (§"The sink's declaration").
 
 - It is created by the FIRST `Update`, never by `Begin`: a turn that reports
   nothing posts nothing.
-- It is created only on a channel that advertises `edit`. On any other channel
-  the update is dropped and logged at debug with the turn id. There is no
-  fallback to a fresh send: a stream of `⏳` posts is the defect this spec
-  exists for, not a degradation.
+- It is created only on a channel that advertises `edit` and `delete`: the
+  line is edited while the turn runs and removed when it ends, so a channel that
+  lacks either shows none. On any other channel the update is dropped and logged
+  at debug with the turn id. There is no fallback to a fresh send, and no
+  terminal edit (`✓`, `✗`) that would leave a line behind.
 - Each later `Update` edits it. Equal text is a no-op.
 - The row's content is rewritten on every edit, so the row is the message as
   the user sees it.
-- `End` on a channel that advertises `delete` deletes the message
-  (`Deliverer.Delete`) and rewrites the row to its terminal form without a
-  platform edit, so a second `End` does nothing. A refused delete falls back
-  to the terminal edit. A row with no platform id takes the edit path.
-- `End` on a channel with `edit` and no `delete` edits the message once more
-  into its terminal form: the leading `⏳ ` becomes `✓ ` on `done` and `✗ ` on
-  `failed`; the body is untouched. No message says in progress after its turn
-  ended. The failure notice stays its own message, because a notice must
-  notify and an edit does not. The task summary (`verb=status_summary`) is
-  never deleted or marked: it anchors the thread.
+- `End` deletes the message (`Deliverer.Delete`) and marks the row `✓`/`✗`
+  without a platform edit, so a second `End` does nothing. A refused delete is
+  logged at Error and the row keeps what the user sees. A row with no platform
+  id has nothing to delete. The failure notice stays its own message, because a
+  notice must notify.
 - A real edit failure (not `ErrUnsupported`) surfaces to the caller, as
   `specs/5/24-live-tasklist-status.md §"Design"` already requires; nothing is
   re-posted.
@@ -169,7 +154,7 @@ The live message id is the newest `verb=status` row's `platform_id`
 (`store/messages.go` `LastStatusRow`), so the message survives a routd
 restart: `recoverPending` re-enqueues the running turn, the turn reaches
 `finishTurn`, and `End` finds the row. A `(turn, chat)` never has two checklist
-rows. The separate summary never receives a terminal mark.
+rows.
 
 `End` fires when the turn ends, not when the reply lands: an agent that
 replies through the `reply` tool and then writes its diary is still working,
@@ -183,38 +168,50 @@ probes a platform error to find out.
 | Capability    | Meaning under this spec                                                                          |
 | ------------- | ------------------------------------------------------------------------------------------------ |
 | `typing`      | the sink renders presence: a native indicator, or an acknowledgement mark on the trigger message |
-| `edit`        | a progress message may live here; the sink edits its own posts                                   |
-| `delete`      | `End` removes the progress message instead of editing it                                         |
+| `edit`        | the progress line is edited in place; the sink edits its own posts                               |
+| `delete`      | `End` removes the progress line                                                                  |
 | `thread_id`   | the sink places sends in an existing thread                                                      |
 | `thread_root` | the sink creates or reuses a thread from a message before sending content                        |
-| neither       | the sink renders nothing for progress; routd sends it nothing for progress                       |
+| not both      | the sink renders nothing for progress; routd sends it nothing for progress                       |
 
 **The acknowledgement mark** is a reaction that carries no social meaning —
 `👀` on Slack and GitHub. A like, an upvote or a heart is a public statement
 and is never used as a mark: bskyd, linkd and reditd advertise `like` and
 render no presence. A sink with a native indicator does not add a mark.
 
-| Sink   | Native presence | Mark | `edit`                                             | Begin renders   | Update renders                              | End renders                   |
-| ------ | --------------- | ---- | -------------------------------------------------- | --------------- | ------------------------------------------- | ----------------------------- |
-| teled  | yes             | —    | yes, and `delete`                                  | typing          | one `⏳` message, edited                    | typing off, message deleted   |
-| discd  | yes             | —    | yes, and `delete`                                  | typing          | same                                        | same                          |
-| whapd  | yes             | —    | yes, and `delete`                                  | typing          | same                                        | same                          |
-| slakd  | no              | `👀` | yes, and `delete`                                  | `👀` on trigger | same                                        | `👀` removed, message deleted |
-| gitd   | no              | `👀` | no                                                 | `👀` on trigger | dropped                                     | `👀` removed                  |
-| googd  | no              | none | no; yes if `replies.update` edits content (step 7) | nothing         | dropped; one `⏳` reply, edited with `edit` | nothing; edit with `edit`     |
-| reditd | no              | none | yes                                                | nothing         | one `⏳` comment, edited                    | edit                          |
-| webd   | no              | none | yes (replace frame)                                | nothing         | one status frame, replaced                  | replaced                      |
-| bskyd  | no              | none | no                                                 | nothing         | dropped                                     | nothing                       |
-| linkd  | no              | none | no                                                 | nothing         | dropped                                     | nothing                       |
-| twitd  | no              | none | no                                                 | nothing         | dropped                                     | nothing                       |
-| emaid  | no              | none | no                                                 | nothing         | dropped                                     | nothing                       |
+| Sink   | Native presence | Mark | `edit`                                           | Begin renders   | Update renders             | End renders                |
+| ------ | --------------- | ---- | ------------------------------------------------ | --------------- | -------------------------- | -------------------------- |
+| teled  | yes             | —    | yes, and `delete`                                | typing          | one `⏳` line, edited      | typing off, line deleted   |
+| discd  | yes             | —    | yes, and `delete`                                | typing          | same                       | same                       |
+| whapd  | yes             | —    | yes, and `delete`                                | typing          | same                       | same                       |
+| slakd  | no              | `👀` | yes, and `delete`                                | `👀` on trigger | same                       | `👀` removed, line deleted |
+| gitd   | no              | `👀` | no                                               | `👀` on trigger | dropped                    | `👀` removed               |
+| googd  | no              | none | no; step 7 needs `edit` and `delete`             | nothing         | dropped                    | nothing                    |
+| reditd | no              | none | yes, no `delete`                                 | nothing         | dropped                    | nothing                    |
+| webd   | no              | none | yes (replace frame), and `delete` (remove frame) | nothing         | one status frame, replaced | frame removed              |
+| bskyd  | no              | none | no                                               | nothing         | dropped                    | nothing                    |
+| linkd  | no              | none | no                                               | nothing         | dropped                    | nothing                    |
+| twitd  | no              | none | no                                               | nothing         | dropped                    | nothing                    |
+| emaid  | no              | none | no                                               | nothing         | dropped                    | nothing                    |
 
 `typing` is not in webd's map: webd renders no presence, and a declared
 capability with a no-op behind it is the drift `CapImplReport` exists to catch,
 `typing` being the one verb it does not probe. googd advertises `send_text` alone
 today, so routd drops its updates and Drive shows nothing between the question
-and the answer; the Drive cells that read "with `edit`" apply once step 7 gives it
-that capability.
+and the answer; step 7 gives it a line only with both `edit` and `delete`.
+
+## The nudge
+
+ant asks a running agent for a `<status>` line when the turn has run long and
+no line has been reported. The text asks what the user gets next, not which tool,
+model or file. The first nudge comes 180 s into a run and repeats every 180 s.
+
+A nudge is useful only where a line shows. routd resolves that once at dispatch
+and hands ant the fact as `ARIZUKO_PROGRESS` (`runed.RunRequest.Progress`): `1`
+when the turn is addressed (a person is owed an answer; cron, scheduled and
+migrate turns are not) and the reply chat advertises `edit` and `delete`;
+empty otherwise. Without `1`, ant starts no nudge timer.
+`runed/env_contract_test.go` ties the key's producer to ant's read.
 
 ## The mark, implemented once
 
@@ -259,11 +256,11 @@ batch's `last.ID`; that guess is what D3 would remove.
 Three shapes, costed. `N` is the number of distinct statuses a turn reports;
 measured 1–2 per GitHub turn on 2026-10-16.
 
-| Shape                                                        | Posts per turn beyond the reply | Residue after the turn        | Code                                                          |
-| ------------------------------------------------------------ | ------------------------------- | ----------------------------- | ------------------------------------------------------------- |
-| A — before the renderer: every status a fresh post           | `N`, plus duplicates            | `N` comments, each still `⏳` | none                                                          |
-| B — one message, edited, terminal edit at end                | 1 when the turn reports, else 0 | one `✓ <last status>` comment | renderer (~200 lines, deletes the five sites); `edit` on webd |
-| C — artefact channels render the mark only; statuses dropped | 0                               | none                          | B's renderer; gitd and googd do not advertise `edit`          |
+| Shape                                                        | Posts per turn beyond the reply | Residue after the turn        | Code                                                                       |
+| ------------------------------------------------------------ | ------------------------------- | ----------------------------- | -------------------------------------------------------------------------- |
+| A — before the renderer: every status a fresh post           | `N`, plus duplicates            | `N` comments, each still `⏳` | none                                                                       |
+| B — one message, edited, deleted at end                      | 1 when the turn reports, else 0 | none                          | renderer (~200 lines, deletes the five sites); `edit` and `delete` on webd |
+| C — artefact channels render the mark only; statuses dropped | 0                               | none                          | B's renderer; gitd and googd do not advertise `edit`                       |
 
 Decided: **B** on a channel with `edit` and **C** on gitd and googd, which
 leave `edit` out of their capability maps. B is strictly quieter than A on
@@ -277,15 +274,17 @@ What this does not build: a per-folder switch (`progress_messages`, the shape
 of `thread_replies`). The capability map decides per channel; a folder that
 wants a different answer per channel is a case that has not occurred.
 
-### D2 — terminal form: delete where the channel can, else edit
+### D2 — terminal form: the line is deleted, never marked
 
-Decided 2026-10-24 (BUGS `L546`): a progress message is scaffolding, so `End`
-deletes it on a channel that advertises `delete` (teled, discd, whapd, slakd).
-Five of twelve sinks lack `delete`, so deletion cannot be the uniform rule:
-a channel with `edit` and no `delete` (webd) keeps the terminal edit
-(`⏳` → `✓`/`✗`), and a refused delete falls back to it, so no message reads
-`⏳` after its turn. The cost of deletion is that the line recording what the
-agent reported is gone from the chat; the row in the store keeps it.
+Decided 2026-10-24 (BUGS `L546`), made uniform 2026-11-03 (BUGS `L643`): a
+progress message is scaffolding, so `End` deletes it, and a channel that cannot
+both edit and delete shows no line. A `⏳` → `✓` edit leaves the scaffolding in
+the chat above the answer; a channel that can only edit shows nothing instead.
+webd gained `delete` (an SSE `delete` frame the widget SDK turns into
+`onDelete`), so every channel that edits also deletes. The cost of deletion is
+that the line recording what the agent reported is gone from the chat; the row
+in the store keeps it. webd does not replay a status row, so a reload after the
+turn does not bring the line back.
 
 ### D3 — `Typing` carries the trigger message id
 
@@ -353,22 +352,24 @@ edit items by `webd/edit_test.go`, and the gitd capability map by `gitd/caps_tes
 on krons; that run is what holds this spec at `partial`. The googd clause waits
 on step 7.
 
-- One turn on a channel with `edit` that reports three statuses, two of them
-  equal, leaves exactly one `verb=status` row, one platform message, two
-  edits, and a terminal `✓` edit; the row's content equals the last text.
-- The same turn on a channel without `edit` leaves no status row and no
-  platform message, and a debug log line per dropped update.
+- One turn on a channel with `edit` and `delete` that reports three statuses,
+  two of them equal, leaves exactly one `verb=status` row, one platform message,
+  two edits and a delete; the row's content equals the last text.
+- The same turn on a channel without `edit` or without `delete` leaves no status
+  row and no platform message, and a debug log line per dropped update.
 - Duplicate progress text posts once
   (`TestProgress_EqualTextIsNoOp`).
-- `routd/summary_delivery_test.go` covers opener placement, pending opener
-  refusal and replay identity. `routd/summary_degradation_test.go` covers
-  existing topics, unsupported new threads and explicit foreign destinations.
-- `routd/summary_read_failure_test.go` proves summary faults block sends,
-  declarations, progress and completion checks until reads recover.
-- A failed turn's message ends `✗` on a channel with `edit` and no `delete`; the
-  failure notice is a separate message.
-- On a channel with `edit` and `delete`, `End` deletes the message and a second
-  `End` deletes nothing; a refused delete ends with the terminal edit.
+- No `submit_status` call posts an opener, and a progress line in a topic joins
+  that topic (`routd/progress_test.go`).
+- A failed turn's line is deleted like any other; the failure notice is a
+  separate message.
+- `End` deletes the message and a second `End` deletes nothing; a refused delete
+  is logged and leaves the row as the user sees it.
+- webd `POST /delete` publishes a `delete` frame with the target id on the same
+  hub key as the original frame (`webd/edit_test.go`); replay of a turn never
+  returns a status row.
+- The nudge starts at 180 s only when `ARIZUKO_PROGRESS` is `1`, and its text
+  asks what the user gets next (`ant/src/index.test.ts`).
 - A GitHub turn that reports a status posts no progress comment; the `👀` stands
   while the turn runs and is removed at `End`.
 - gitd and slakd set and remove the `👀` through the shared helper; a
