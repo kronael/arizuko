@@ -314,12 +314,24 @@ func (h *HTTPChannel) uploadMultipart(ctx context.Context, endpoint, jid, path, 
 	return h.client.Do(req)
 }
 
+// typingTries and typingRetryWait bound the retry of a refused typing call.
+var (
+	typingTries     = 4
+	typingRetryWait = time.Second
+)
+
 func (h *HTTPChannel) Typing(jid string, on bool) error {
 	if !h.entry.HasCap("typing") {
 		return nil
 	}
 	b, _ := json.Marshal(map[string]any{"chat_jid": jid, "on": on})
+	// An adapter that is still starting refuses the connection; typing is sent
+	// once per turn, so a refused call would leave the whole turn without it.
 	resp, err := h.post(context.Background(), "/typing", b)
+	for try := 1; err != nil && try < typingTries; try++ {
+		time.Sleep(typingRetryWait)
+		resp, err = h.post(context.Background(), "/typing", b)
+	}
 	if err != nil {
 		slog.Warn("typing request failed", "channel", h.entry.Name, "jid", jid, "err", err)
 		return nil

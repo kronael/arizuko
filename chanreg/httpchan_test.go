@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/kronael/arizuko/chanlib"
 )
@@ -283,5 +285,38 @@ func TestHTTPChannelPost501Plain(t *testing.T) {
 	_, err := ch.Post(context.Background(), "x:1", "hi", nil)
 	if !errors.Is(err, ErrUnsupported) {
 		t.Errorf("want ErrUnsupported, got %v", err)
+	}
+}
+
+// An adapter that is still starting refuses the typing call; the call is
+// retried, so a turn dispatched during a restart still shows typing.
+func TestTypingRetriesARefusedConnection(t *testing.T) {
+	defer func(tries int, wait time.Duration) { typingTries, typingRetryWait = tries, wait }(typingTries, typingRetryWait)
+	typingTries, typingRetryWait = 4, 50*time.Millisecond
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := l.Addr().String()
+	l.Close()
+	got := make(chan bool, 1)
+	go func() {
+		time.Sleep(60 * time.Millisecond)
+		ln, err := net.Listen("tcp", addr)
+		if err != nil {
+			return
+		}
+		_ = http.Serve(ln, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			got <- true
+			w.WriteHeader(http.StatusOK)
+		}))
+	}()
+	ch := NewHTTPChannel(&Entry{Name: "tg", URL: "http://" + addr, JIDPrefixes: []string{"tg:"},
+		Capabilities: map[string]bool{"typing": true}}, staticBearer("secret"))
+	_ = ch.Typing("tg:123", true)
+	select {
+	case <-got:
+	case <-time.After(time.Second):
+		t.Fatal("typing never reached the adapter that started late")
 	}
 }
