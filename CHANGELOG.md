@@ -13,6 +13,17 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.72.1] — 2026-11-03
+
+> arizuko v0.72.1 — a reaction in a Discord thread reaches the agent
+>
+> A reaction on the agent's message inside a Discord thread now starts a turn, and a thread the agent starts has a short title.
+>
+> • Discord — a reaction inside a thread lands on the parent chat with the thread as its topic, like a message.
+> • Discord — a thread the agent starts is titled with 🤖 and the first four words of the reply.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
 ## [v0.72.0] — 2026-11-03
 
 > arizuko v0.72.0 — each thread keeps to its own conversation
