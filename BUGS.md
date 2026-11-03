@@ -404,6 +404,19 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
   (`:138-141`) calls `noteBusy` for every busy return, retry included, so the
   spec is right. Measured 2026-10-20: after the first failed attempt
   `TestTurnRetry_SchedulesRetryOnError` finds `busyWait` holding `delay=4s`.
+- **A scheduled prompt or a DM to a busy folder waits, and is not dropped.** Reported
+  2026-11-03 as "the isolated `timed-isolated:<id>` path runs no turn after the L596 fix"
+  and "a stranded onboarding row blocks a routed DM". Both rows (task
+  `1781292708793-54100f69`, the 20:00:06 DM to route 76) got their turn at 20:18:42 and
+  20:19:40, after `sloth/trading`'s 13-minute operator probe turn released the folder
+  (turns serialise per folder; sloth holds `MAX_CONCURRENT_CONTAINERS=2`, so a third
+  folder also waits for a slot). Onboarding is read only in `routeMiss`
+  (`routd/loop.go`), after `resolveFolder` found no route. The Rundown's earlier silence
+  (2026-10-28 to 11-02) is L596: those rows carry no `forwarded_from`.
+- **`"egress":false` in `dispatch capabilities resolved` is the wildcard grant, not the
+  allowlist.** `routd/dispatch.go` sets it from the `egress` ACL grant, and `runed`
+  adds `*` to the allowlist only then (`runed/render.go` `egressAllowlist`). A folder's
+  `network_rules` rows reach the proxy either way.
 - **`L15` — the 2026-08-11 dead-code sweep's rejected hits.** `deadcode ./...` gave 149
   hits, 56 under `-test`; nine survived verification and were filed separately. Kept so
   the next sweep does not re-report the same ~135.
@@ -429,6 +442,23 @@ read `runed.spawns` for the folder at 03:00-03:10 the same day. The premise
 W43 ran both.
 
 - **Status:** open (needs the measurement, then a person).
+
+## ✅ FIXED 2026-11-03 f08e6a91d L648 — a package-declared task with a cron and no `next_run` never fires (2026-11-03)
+
+MEASURED 2026-11-03 on sloth: `routd.scheduled_tasks` item `macrohype-monitor`
+(package `terminal-agent`, folder `sloth/trading`, cron `0 */3 * * *`, written
+2026-10-28 by `arizuko package sync`) carried no `next_run`. `store.DueTasks`
+skips an item whose `next_run` is absent, so the task sat `active` for six days
+and never fired. Every other active cron row on sloth and krons had one.
+The resreg entity path (`resreg/entity.go` `itemFor`, the one writer package
+sync and `rows apply` share) stores the row as the manifest states it, and the
+manifest states no `next_run`.
+
+**Fix:** the `scheduled_tasks` `BeforeInsert` hook seeds `next_run` from `cron`
+through `core.NextRun`. Live row repaired through `store.RescheduleTask`:
+`macrohype-monitor` now holds `2026-11-03T21:00:00Z`; krons had none to repair.
+Measured: `resreg/resources/scheduled_tasks_test.go::TestApplySeedsNextRunFromCron`
+fails without the hook (`next_run = <nil>`).
 
 ## ✅ FIXED 2026-11-03 52380350f L646 — the memory levels are written and nothing reads them (2026-11-03)
 
