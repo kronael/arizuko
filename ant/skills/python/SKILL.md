@@ -4,7 +4,7 @@ description: >
   Python code patterns — async/await, FastAPI, pytest, asyncpg,
   dataclasses, uv packaging. USE for "write Python", "fix this .py
   file", .py files, pyproject.toml, pytest, FastAPI, asyncpg. NOT for
-  data pipelines (use data) or trading bots (use trader).
+  data pipelines or trading bots (use data).
 user-invocable: true
 ---
 

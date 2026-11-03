@@ -17,7 +17,7 @@
 #   TUNED — arizuko rewrote the frontmatter, the body, or both. NEVER sync:
 #     agent-browser bugs cli commit create data diary dispatch distill go
 #     improve learn ops oracle readme recall-memories refine release
-#     resolve service ship specs sql trader tweet visual wisdom
+#     resolve service ship specs sql tweet visual wisdom
 #   The common shape is a `description:` rewritten into arizuko's multi-line
 #   "/x — launch @x agent … USE for … NOT for …" form, plus arizuko-only body
 #   sections (distill's context-reducer comparison, specs' ship discipline).
