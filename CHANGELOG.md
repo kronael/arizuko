@@ -13,6 +13,16 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.71.9] — 2026-11-03
+
+> arizuko v0.71.9 — a reply to a mention reaches the agent
+>
+> A reply to a message that mentioned the agent now reaches the agent, so nobody has to tag it again.
+>
+> • Replies — a message addresses the agent when the agent wrote it or it mentions the agent; a reply to such a message, or any message in a thread started by one, reaches the agent. A reaction reaches it only on the agent's own message.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
 ## [v0.71.8] — 2026-11-02
 
 > arizuko v0.71.8 — scheduled tasks run, and the solve hook stops blocking prompts
