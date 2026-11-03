@@ -473,11 +473,15 @@ func (b *bot) threadDestination(jid, threadID, threadRoot, title string) (string
 	return thread, nil
 }
 
-// threadName derives a new thread's title from the reply's first line, marked
-// as the bot's with 🤖 and clamped to Discord's 100-char limit.
+// threadName titles a new thread with the first four words of the reply's first
+// line, marked as the bot's with 🤖 and clamped to Discord's 100-char limit.
 func threadName(content string) string {
-	name, _, _ := strings.Cut(strings.TrimSpace(content), "\n")
-	name = strings.TrimSpace("🤖 " + strings.TrimSpace(strings.TrimPrefix(name, "🤖")))
+	line, _, _ := strings.Cut(strings.TrimSpace(content), "\n")
+	words := strings.Fields(strings.TrimPrefix(strings.TrimSpace(line), "🤖"))
+	if len(words) > 4 {
+		words = words[:4]
+	}
+	name := strings.TrimSpace("🤖 " + strings.Join(words, " "))
 	if r := []rune(name); len(r) > 100 {
 		return string(r[:100])
 	}

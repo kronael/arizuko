@@ -128,6 +128,7 @@ func TestThreadName(t *testing.T) {
 		{"short answer\nrest", "🤖 short answer"},
 		{"  padded  ", "🤖 padded"},
 		{"🤖 ack — done", "🤖 ack — done"},
+		{"Lending risk is the fee only, not capital", "🤖 Lending risk is the"},
 		{"", "🤖"},
 		{strings.Repeat("é", 150), "🤖 " + strings.Repeat("é", 98)},
 	}
