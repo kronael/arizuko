@@ -235,7 +235,7 @@ reads those words now.
   entry: the TS adapter's stale `/health` code, the RFC 3339 one-shot dashd
   refuses, onbod's route writes on any allow row, extra mounts with no blocklist.
 - `L488` — the standalone mcpfw image has no container build gate.
-- `L487`, `L489`, `L491`, `L498`, `L500`, `L501`, `L502` — doc and
+- `L487`, `L489`, `L491`, `L498`, `L501`, `L502` — doc and
   comment drift against the code, each naming the sentence to change.
 
 **Found by the product-docs pass (2026-10-21).**
