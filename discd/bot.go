@@ -245,21 +245,16 @@ func (b *bot) onReactionAdd(_ *discordgo.Session, m *discordgo.MessageReactionAd
 	if emoji == "" {
 		return
 	}
-	jid := chatJID(m.GuildID, m.ChannelID)
-	// Reply-to-bot promotion to verb=mention happens in gateway/api
-	// (spec 5/L) — uniform across all adapters. Ship the raw emoji
-	// classification; gateway upgrades when ReplyTo points at a bot row.
+	jid, topic, _ := b.chatAndTopic(m.GuildID, m.ChannelID)
 	verb := chanlib.ClassifyEmoji(emoji)
 	senderName := ""
 	if m.Member != nil && m.Member.User != nil {
 		senderName = m.Member.User.Username
 	}
-	// Discord's MessageReaction event carries no thread/parent ID — the ChannelID
-	// is already the thread channel when the message lives in a thread, so Topic
-	// cannot be derived here. api.go Fix 1 (MessageByID lookup) handles inheritance.
 	if err := b.rc.SendMessage(chanlib.InboundMsg{
 		ID:         m.MessageID + ":r:" + emoji,
 		ChatJID:    jid,
+		Topic:      topic,
 		Sender:     "discord:user/" + m.UserID,
 		SenderName: senderName,
 		Content:    emoji,

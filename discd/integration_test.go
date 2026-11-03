@@ -690,6 +690,32 @@ func TestOnReactionAdd_LikeAndDislike(t *testing.T) {
 	}
 }
 
+// A reaction inside a thread lands on the parent channel's chat with the thread
+// as its topic, as a message does: the reacted message is stored there.
+func TestOnReactionAddInThreadUsesTheParentChat(t *testing.T) {
+	mr := testutils.NewRouterStub()
+	defer mr.Close()
+	rc := chanlib.NewRouterClient(mr.Srv.URL)
+	rc.SetToken("tok")
+	sess := newTestSession(t)
+	if err := sess.State.ChannelAdd(&discordgo.Channel{ID: "ch-parent", GuildID: "g1", Type: discordgo.ChannelTypeGuildText}); err != nil {
+		t.Fatal(err)
+	}
+	if err := sess.State.ChannelAdd(&discordgo.Channel{ID: "thread-9", GuildID: "g1", Type: discordgo.ChannelTypeGuildPublicThread, ParentID: "ch-parent"}); err != nil {
+		t.Fatal(err)
+	}
+	b := &bot{session: sess, cfg: config{}, rc: rc}
+	b.onReactionAdd(sess, &discordgo.MessageReactionAdd{MessageReaction: &discordgo.MessageReaction{
+		UserID: "u1", MessageID: "m1", ChannelID: "thread-9", GuildID: "g1",
+		Emoji: discordgo.Emoji{Name: "👍"},
+	}})
+	mr.Mu.Lock()
+	defer mr.Mu.Unlock()
+	if len(mr.Msgs) != 1 || mr.Msgs[0].ChatJID != chatJID("g1", "ch-parent") || mr.Msgs[0].Topic != "thread-9" {
+		t.Fatalf("thread reaction placed at %+v, want the parent chat with topic thread-9", mr.Msgs)
+	}
+}
+
 func TestLoadConfig_Defaults(t *testing.T) {
 	t.Setenv("DISCORD_BOT_TOKEN", "tok")
 	t.Setenv("ROUTER_URL", "http://router:7000")
