@@ -58,8 +58,8 @@ func TestSend_ThreadRootCreatesThread(t *testing.T) {
 				Name string `json:"name"`
 			}
 			json.Unmarshal([]byte(r.Body), &ts)
-			if ts.Name != "answer" {
-				t.Errorf("thread name = %q, want first line of reply", ts.Name)
+			if ts.Name != "🤖 answer" {
+				t.Errorf("thread name = %q, want 🤖 and the first line of the reply", ts.Name)
 			}
 		}
 		if r.Path == "/channels/root-1/messages" && strings.Contains(r.Body, "message_reference") {
