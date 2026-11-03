@@ -17,7 +17,6 @@
 
 - `L647` — weekly memory rollups missing on alternate Mondays (W40, W42 in every active krons group); cause unmeasured, spawn rows gone.
 - `L644` — krons token hit its monthly spend limit; choose a token with budget.
-- `L643` — status-line redesign proposal; needs sign-off.
 - `L639` — refuse a platformless JID in `send_file`, `send_voice` and `post` after the return swap; fix queued.
 - `L620` — reconcile run-stop service authorization with the stated contract.
 - `L597` — choose whether human conversation takes priority over CI in bounded observed context.
@@ -481,33 +480,6 @@ spend limit" in the group logs. Last successful krons run 2026-11-01T07:38
 - **Scope:** `/srv/data/arizuko_krons/.env`
 - **Status:** open — operator: choose a token with budget
 - **Fix:** set a token with budget, restart `arizuko_krons`
-
-## L643 — status lines are nudged process notes, mostly sent where nobody sees them (2026-11-02, open — proposal, needs sign-off)
-
-MEASURED 2026-11-02 by a read-only eval of krons + sloth, 10-26..11-02
-(`routd.messages` verb `status`/`status_summary`, 509 transcripts):
-
-- 46 of 58 first statuses came only after the 90 s nudge, median 125 s into a
-  turn of median 153 s; `ant/CLAUDE.md` asks for a first status at start.
-- 175 of 281 statuses and 335 of 525 nudges went to sinks that cannot show
-  them (GitHub, cron, migrate turns).
-- Content is process: model, tool, file and host names; ~45% of the last
-  status's words reappear in the answer.
-- The agent-written opener (`declareSummary`, `status_summary`) is permanent:
-  21 on krons telegram + sloth discord, and 26 of 65 discord answers landed in a
-  thread the opener started, a median 41 s before the answer.
-- Web has no delete, so 11 web statuses stay above the answer as "✓ …".
-
-The owner (2026-11-02): "the status lines are not ideally designed".
-
-- **Severity:** medium (noise in every chat, notifications, moved answers)
-- **Scope:** `ant/src/spool.ts`, `ant/src/index.ts`, `ant/CLAUDE.md`, `routd/progress.go`, `webd`, `specs/6/46-turn-progress.md`
-- **Status:** open — proposal, needs sign-off
-- **Proposal, smallest first:** (1) nudge text "say what the user gets next,
-  not which tool, model or file", first nudge at 180 s; (2) nudge only when the
-  sink edits and the turn is addressed (spawn env key + contract test);
-  (3) L642; (4) drop the agent-written opener, routd decides threading at turn
-  start; (5) a removal frame or delete in webd.
 
 ## L639 — the platform-prefix refusal sits before the delegation return swap (2026-11-02, open)
 
