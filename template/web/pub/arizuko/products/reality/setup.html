@@ -113,10 +113,10 @@ facts/threads/relationship-alice.md</code></pre>
       <p>WhatsApp messages go into <code>assistant/</code> as context and start no turn. When something from WhatsApp matters, the agent replies on Telegram with a source line. <a href="../../howto/asymmetric-channels.html">Asymmetric channels</a> has the full recipe.</p>
 
       <h2>A scheduled task runs the monthly sweep</h2>
-      <p>The <code>compact-memories</code> skill rolls diary entries into <code>episodes/YYYYMMDD.md</code> and folds threads over a longer time. Ask the agent to schedule it every month:</p>
+      <p>The <code>compact-memories</code> skill distills the session transcripts into <code>episodes/YYYYMMDD.md</code> and rolls the days into weeks and months on its own schedule. Ask the agent for a monthly sweep that reads them:</p>
       <pre><code>@assistant schedule a task: every first of the month at 06:00 local,
-       run /compact-memories with horizon=month and surface what
-       changed, what was resolved, what's still open.</code></pre>
+       read episodes/ for last month and surface what changed,
+       what was resolved, what's still open.</code></pre>
       <p>The agent writes the task with the <code>schedule_task</code> MCP tool, and <code>timed</code> sends the prompt on schedule.</p>
 
       <h2>The agent must answer in its persona</h2>
@@ -145,7 +145,7 @@ facts/threads/relationship-alice.md</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/reality/setup.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-25">2026-10-25</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-28">2026-10-28</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

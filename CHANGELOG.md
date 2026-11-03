@@ -13,6 +13,9 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+- **Memory levels reach the turn again.** The core hook adds `<memory scope="folder">` — the newest `~/diary/` and `~/episodes/` summary of each day, week and month, at most six entries — to the first prompt of a session and the first after an idle gap; a live session gets nothing more. Diary rollups now land flat beside the day files (`~/diary/YYYY-WNN.md`, `YYYY-MM.md`), the same shape as episodes; `compact-memories` carries one technique for both lenses. Spec `specs/4/28-memory-levels.md`. Measured before: 0 of 141 krons sessions in 7 days called `/recall-memories`, so nothing read the levels the crons wrote.
+- `diary` skill: the PreCompact hook is the only nudge; the Stop-hook claim is gone (`L500`).
+
 ## [v0.72.1] — 2026-11-03
 
 > arizuko v0.72.1 — a reaction in a Discord thread reaches the agent

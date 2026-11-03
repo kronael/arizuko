@@ -10,9 +10,12 @@ The diary summary reader, and the memory layers it is one of.
 layer        file in the group home           reaches the turn
 ──────────── ──────────────────────────────── ─────────────────────────────
 now          ~/work.md                        pushed whole, every turn
-today        ~/diary/YYYYMMDD.md              pulled: /recall-memories
-day, week,   ~/episodes/YYYYMMDD.md,          pulled: /recall-memories
-month        YYYY-WNN.md, YYYY-MM.md
+diary        ~/diary/YYYYMMDD.md,             newest of each level pushed
+day, week,   YYYY-WNN.md, YYYY-MM.md          on a new task, <memory
+month                                         scope="folder">; the rest:
+episodes     ~/episodes/YYYYMMDD.md,          /recall-memories
+day, week,   YYYY-WNN.md, YYYY-MM.md
+month
 people       ~/users/<id>.md                  pushed whole for the sender,
                                               <user-memory>
 facts        ~/facts/*.md                     pulled: /recall-memories,
@@ -20,28 +23,33 @@ facts        ~/facts/*.md                     pulled: /recall-memories,
 index        ~/.claude/projects/-home-node/   read by Claude Code itself
              memory/MEMORY.md
 
-session transcripts ──► /compact-memories episodes day ──► ~/episodes/
-~/episodes/ day files ──► week ──► month ─────────────────► ~/episodes/
-~/diary/ daily files ──► /compact-memories diary week ───► ~/diary/week/
-~/diary/week/ ──► diary month ────────────────────────────► ~/diary/month/
-    all five run as timed tasks with context_mode isolated;
-    ~/diary/week/ and ~/diary/month/ are only pulled
+/diary ──────────────────────────────────────────────► ~/diary/YYYYMMDD.md
+session transcripts ─► /compact-memories episodes day ─► ~/episodes/YYYYMMDD.md
+day files ─► /compact-memories <lens> week ─► YYYY-WNN.md ─► month ─► YYYY-MM.md
+    one flat directory per lens; the five tasks run isolated
 ```
 
 <!-- /twin -->
 
-A layer is pushed when it belongs to every turn of the folder or the sender,
-and pulled when it spans threads or is too large. The core
-package's `prompt_context.py` hook (`ant/hooks/prompt_context.py`) reads the
-pushed layers off the home on every UserPromptSubmit; the table of every
-block is `routd/README.md` § Prompt assembly.
+A layer is pushed whole when it belongs to every turn of the folder or the
+sender. A layer that spans threads is pushed as its newest summary per level,
+once per task, and pulled for the rest. The core package's `prompt_context.py`
+hook (`ant/hooks/prompt_context.py`) reads the pushed layers off the home on
+UserPromptSubmit; the table of every block is `routd/README.md` § Prompt
+assembly.
 
 - **Work, now.** `~/work.md` is injected whole as `<knowledge
 layer="work">`, with no truncation and no age check. A stale file is the
   agent's to clear; nothing nudges it.
-- **Diary and episodes, pulled.** `~/diary/` and `~/episodes/` cover the
-  whole folder, not one thread, so `/recall-memories` reads them on demand
-  and the hook does not.
+- **Diary and episodes, the levels.** One flat directory per lens; the
+  period is the file name (`YYYYMMDD`, `YYYY-WNN`, `YYYY-MM`) and the YAML
+  `summary:` is what a turn reads. On the first prompt of a session and the
+  first after 30 idle minutes — the condition of the `/solve` nudge,
+  `solve_nudge.new_task` — the hook adds the newest file of each lens and
+  level as `<memory scope="folder">`, at most six entries. The block covers
+  the whole folder, not one thread, so the manual says never to continue
+  another thread's topic from it. A later prompt of the same session adds
+  nothing: the block is already in the transcript.
 - **People.** The platform puts `<user id="…"/>` in the prompt. The hook
   reads `~/users/<id>.md` for that id and emits the whole file as
   `<user-memory>`.
@@ -70,11 +78,14 @@ archives the transcript to `~/conversations/` and tells the agent to invoke
 ## Compaction
 
 Five tasks per group compact the memory, seeded at group creation
-(`store.SeedDefaultTasks`, `store/tasks.go:452`): `/compact-memories
+(`store.SeedDefaultTasks`, `store/tasks.go:402`): `/compact-memories
 episodes day`, `episodes week`, `episodes month`, `diary week` and `diary
-month`. Each runs on `timed` with `context_mode: isolated`, because a
-compaction turn that shared the group's session would summarise its own
-summarising.
+month`. One skill carries the technique for both lenses
+(`ant/skills/compact-memories/SKILL.md`): the last fully elapsed period, the
+level below as the source, one outcome line in `<lens>/.compact-log.jl`,
+corrections kept verbatim and the agent's own conclusions dropped. Each task
+runs on `timed` with `context_mode: isolated`, because a compaction turn that
+shared the group's session would summarise its own summarising.
 
 ## Public API
 

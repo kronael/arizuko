@@ -77,13 +77,16 @@
     <p>If you copy the folder, you copy the ant. If you delete the folder, the ant is gone. No separate database row holds the persona.</p>
 
     <h2>Memory is layers of files in the folder</h2>
-    <p>Memory is also files in the folder, in layers. The work file and the sender's file go into every prompt. The diary and the episodes cover the whole folder, not one thread, so the agent searches them when it needs them. The facts stay on disk until the agent searches for them:</p>
+    <p>Memory is also files in the folder, in layers. The work file and the sender's file go into every prompt. The diary and the episodes have levels: a file per day, per week and per month, named by its period, in one flat folder per lens. When a task starts, the newest file of each level goes into the prompt, marked as folder-wide, because the diary and the episodes cover the whole folder and not one thread. The facts stay on disk until the agent searches for them:</p>
 <pre id="twin-memory"><code>layer        file in the group home           reaches the turn
 ──────────── ──────────────────────────────── ─────────────────────────────
 now          ~/work.md                        pushed whole, every turn
-today        ~/diary/YYYYMMDD.md              pulled: /recall-memories
-day, week,   ~/episodes/YYYYMMDD.md,          pulled: /recall-memories
-month        YYYY-WNN.md, YYYY-MM.md
+diary        ~/diary/YYYYMMDD.md,             newest of each level pushed
+day, week,   YYYY-WNN.md, YYYY-MM.md          on a new task, &lt;memory
+month                                         scope="folder"&gt;; the rest:
+episodes     ~/episodes/YYYYMMDD.md,          /recall-memories
+day, week,   YYYY-WNN.md, YYYY-MM.md
+month
 people       ~/users/&lt;id&gt;.md                  pushed whole for the sender,
                                               &lt;user-memory&gt;
 facts        ~/facts/*.md                     pulled: /recall-memories,
@@ -91,13 +94,11 @@ facts        ~/facts/*.md                     pulled: /recall-memories,
 index        ~/.claude/projects/-home-node/   read by Claude Code itself
              memory/MEMORY.md
 
-session transcripts ──► /compact-memories episodes day ──► ~/episodes/
-~/episodes/ day files ──► week ──► month ─────────────────► ~/episodes/
-~/diary/ daily files ──► /compact-memories diary week ───► ~/diary/week/
-~/diary/week/ ──► diary month ────────────────────────────► ~/diary/month/
-    all five run as timed tasks with context_mode isolated;
-    ~/diary/week/ and ~/diary/month/ are only pulled</code></pre>
-    <p>The week and month diary rollups live in subfolders that the prompt never reads. The 14 daily entries already cover that span, and a prompt with both would spend the context twice. Five scheduled tasks write the rollups. Every group gets these tasks at creation, and each task runs isolated, so a compaction turn does not summarise its own work.</p>
+/diary ──────────────────────────────────────────────► ~/diary/YYYYMMDD.md
+session transcripts ─► /compact-memories episodes day ─► ~/episodes/YYYYMMDD.md
+day files ─► /compact-memories &lt;lens&gt; week ─► YYYY-WNN.md ─► month ─► YYYY-MM.md
+    one flat directory per lens; the five tasks run isolated</code></pre>
+    <p>The diary is the folder seen from inside: what the agent did and decided. The episodes are the folder seen from outside: the exchanges, read off the session transcripts. One skill, <code>compact-memories</code>, writes every level above the first with one method: keep what a person said or corrected, drop what the agent concluded, end with the one thing to do next. Five scheduled tasks run it. Every group gets these tasks at creation, and each task runs isolated, so a compaction turn does not summarise its own work.</p>
 
     <h2>Three processes build what the ant reads</h2>
     <p>Three processes build what the agent sees, and each process builds the part that only it holds:</p>
@@ -117,7 +118,8 @@ ant    buildSystemPrompt, ant/src/index.ts:49 ─► the system prompt
        SYSTEM.md, the package manual for codex and pi, PERSONA.md
 
 ant    hooks/prompt_context.py, UserPromptSubmit ► additionalContext
-       &lt;knowledge layer="work"&gt;  &lt;user-memory&gt;</code></pre>
+       &lt;knowledge layer="work"&gt;  &lt;user-memory&gt;
+       &lt;memory scope="folder"&gt; on a new task</code></pre>
     <p>The <code>&lt;user id&gt;</code> tag names the sender and holds no content. The hook reads the file of the sender in <code>users/</code> and adds it as <code>&lt;user-memory&gt;</code>. Bot rows never start a turn. When a tool returns history on purpose, each bot row carries <code>bot="true"</code>. So the agent does not read its own past words as the words of another person.</p>
     <p>The selected packages' manuals are combined at <code>~/.claude/CLAUDE.md</code>, including the required core manual. The agent reads the file on each turn, so a section stays in it only for one of four reasons:</p>
     <ul>
@@ -164,7 +166,7 @@ ant    hooks/prompt_context.py, UserPromptSubmit ► additionalContext
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/concepts/ant.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-11-02">2026-11-02</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-03">2026-11-03</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

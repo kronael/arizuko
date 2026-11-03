@@ -90,6 +90,7 @@ ant    buildSystemPrompt, ant/src/index.ts:49 ─► the system prompt
 
 ant    hooks/prompt_context.py, UserPromptSubmit ► additionalContext
        <knowledge layer="work">  <user-memory>
+       <memory scope="folder"> on a new task
 ```
 
 <!-- /twin -->
@@ -111,6 +112,7 @@ Three processes build what the agent reads, and each builds the part only it hol
 | `<user id>`                                           | `router/router.go` `UserTag`, called from `preparePayload` | when the trigger has a sender other than `system`                                                                                                                                                                                           |
 | `<knowledge layer="work">`                            | `ant/hooks/prompt_context.py`                              | when `~/work.md` is not empty; the whole file                                                                                                                                                                                               |
 | `<user-memory>`                                       | `ant/hooks/prompt_context.py`                              | when `~/users/<id>.md` exists for the `<user id>` of the prompt; the whole file                                                                                                                                                             |
+| `<memory scope="folder">`                             | `ant/hooks/prompt_context.py`                              | on the first prompt of a session and the first after an idle gap: the newest `~/diary/` and `~/episodes/` summary of each day, week and month                                                                                               |
 
 `<user id>` names the sender and holds no content. The hook reads `~/users/<id>.md` and adds it as `<user-memory>`. The file lives in the group folder, so what the agent knows about a person is per folder. The `acl_membership` rows bind the identities of one person across channels, which is a separate concern.
 
