@@ -4,6 +4,7 @@
 "First" is a transcript with no user or assistant entry; "idle" is the newest
 such entry older than IDLE_SECONDS. The current prompt is not in the transcript
 yet when the hook runs. The hook keeps no state and never blocks the prompt.
+prompt_context.py imports new_task, so both hooks fire on the same prompt.
 """
 
 import json
@@ -41,13 +42,17 @@ def last_entry(path):
     return datetime.fromisoformat(last.replace('Z', '+00:00')).timestamp()
 
 
+def new_task(data, now):
+    last = last_entry(data.get('transcript_path') or '')
+    return last is None or now - last >= IDLE_SECONDS
+
+
 def nudge(data, now):
     if '/solve' in (data.get('prompt') or ''):
         return None
-    last = last_entry(data.get('transcript_path') or '')
-    if last is None:
+    if last_entry(data.get('transcript_path') or '') is None:
         return FIRST
-    if now - last >= IDLE_SECONDS:
+    if new_task(data, now):
         return IDLE
     return None
 
