@@ -15,6 +15,7 @@
 
 ## What needs you
 
+- `L647` — weekly memory rollups missing on alternate Mondays (W40, W42 in every active krons group); cause unmeasured, spawn rows gone.
 - `L644` — krons token hit its monthly spend limit; choose a token with budget.
 - `L643` — status-line redesign proposal; needs sign-off.
 - `L639` — refuse a platformless JID in `send_file`, `send_voice` and `post` after the return swap; fix queued.
@@ -407,6 +408,46 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
 - **`L15` — the 2026-08-11 dead-code sweep's rejected hits.** `deadcode ./...` gave 149
   hits, 56 under `-test`; nine survived verification and were filed separately. Kept so
   the next sweep does not re-report the same ~135.
+
+## L647 — the weekly compaction wrote nothing on alternate Mondays (2026-11-03, open)
+
+MEASURED 2026-11-03 in `<group>/episodes/.compact-log.jl` on krons: every
+active group (krons, adshaus, fiu, rhias, krons/content, rhias/niki) holds
+`week` lines for W38, W39, W41, W43 and none for W40 (2026-10-05), W42
+(2026-10-19) or W44 (2026-11-02); `diary/.compact-log.jl` shows the same
+Mondays missing. `routd.task_run_logs` has a `success` row for both 03:00
+tasks on each of those Mondays, so timed dispatched them. W44 is explained:
+every krons turn from 2026-11-01T22 to 2026-11-02T09 ended `exit 78` on the
+org spend limit (`runed.spawns`, 29 rows), and `~/episodes/20261101.md` is
+missing for the same reason. W40 and W42 are not: `runed.spawns` keeps rows
+from 2026-10-27 only, and no routd audit row names the turn. Both 03:00 tasks
+of a folder share `cron`, `owner` and `chat_jid`, and both skipped together
+each time.
+
+**Fix:** none until the cause is measured on the next Monday a run is missing:
+read `runed.spawns` for the folder at 03:00-03:10 the same day. The premise
+"two isolated tasks in one folder at one minute collide" is a guess; W41 and
+W43 ran both.
+
+- **Status:** open (needs the measurement, then a person).
+
+## ✅ FIXED 2026-11-03 52380350f L646 — the memory levels are written and nothing reads them (2026-11-03)
+
+MEASURED 2026-11-03 over the live groups: krons/krons holds 193 episode files
+(`20261102.md`, `2026-W43.md`, `2026-10.md`), `diary/week/2026-W43.md` and
+`diary/month/2026-10.md`, all written by the five seeded crons. v0.72.0
+(`98b3b2678`) removed the per-turn push of `<episodes>` and `<knowledge
+layer="diary">` because 23 folder-wide summaries in every thread's prompt made
+an agent continue another thread's topic and had grown to 22 KB per turn
+(`L86`). The replacement, `/recall-memories`, was called by 0 of 141 krons
+sessions and 1 of 274 sloth sessions in the 7 days before. Diary day entries
+are rare (krons/krons: 20260725, 0802, 0831, 1022), so `diary week` logs
+`SKIP_NO_SOURCES` most weeks; the only nudge is PreCompact (`L500`).
+
+- **Status:** FIXED 2026-11-03 `52380350f` — `prompt_context.py` pushes the
+  newest file of each lens and level as `<memory scope="folder">` on the first
+  prompt of a session and the first after an idle gap, at most six entries
+  (`specs/4/28-memory-levels.md`).
 
 ## ✅ FIXED 2026-11-02 d4f903f6 L645 — agents skip /solve: a runed prompt line is ignored where a hook nudge works (2026-11-02)
 
@@ -877,7 +918,7 @@ persona and style are present. No test yet — this pass records only.
 - **Status:** open — needs a decision. **Options:** as above. **Default if
   nothing is decided:** replacement, as the code does.
 
-## L500 — the `diary` skill tells the agent a Stop hook nudges it, and ant registers no Stop hook (2026-10-20, open)
+## ✅ FIXED 2026-11-03 97282bdce L500 — the `diary` skill tells the agent a Stop hook nudges it, and ant registers no Stop hook (2026-10-20)
 
 FOUND 2026-10-20 by the docs fold. `ant/skills/diary/SKILL.md:5` ("Stop-hook
 nudge") and `:41` ("the Stop hook nudges; don't wait to be asked") promise a
@@ -890,7 +931,9 @@ agent reads the skill, waits for a nudge that never comes, and writes no diary.
 `ant/skills/` reaches agents only with a `MIGRATION_VERSION` bump. No test —
 docs.
 
-- **Status:** open (record only).
+- **Status:** FIXED 2026-11-03 `97282bdce` — the skill names the PreCompact hook
+  as its only nudge; arizuko installs crons, the owner's tools nudge
+  (`specs/4/28-memory-levels.md`).
 
 ## L501 — eight code comments describe things that no longer exist (2026-10-20, open)
 
