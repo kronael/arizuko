@@ -1,14 +1,18 @@
 package resources
 
 import (
+	"fmt"
 	"reflect"
+	"time"
 
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/resreg"
 )
 
 // ScheduledTasksRow mirrors scheduled_tasks; BeforeInsert defaults status and
-// context_mode.
+// context_mode, and seeds next_run from cron: a row without next_run never
+// leaves the due set (store.DueTasks), and package sync and rows apply write
+// rows with none.
 type ScheduledTasksRow struct {
 	ID          string `db:"id"           yaml:"id"           json:"id"`
 	Owner       string `db:"owner"        yaml:"owner"        json:"owner"`
@@ -103,6 +107,13 @@ func init() {
 				}
 				if r.ContextMode == "" {
 					r.ContextMode = "group"
+				}
+				if r.NextRun == "" && r.Cron != "" {
+					next, err := core.NextRun(r.Cron, core.Timezone())
+					if err != nil {
+						return fmt.Errorf("task %s cron %q: %w", r.ID, r.Cron, err)
+					}
+					r.NextRun = next.UTC().Format(time.RFC3339)
 				}
 				return nil
 			},

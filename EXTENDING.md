@@ -209,7 +209,9 @@ Python and dependencies. The installed checker runs offline in the guest.
 `arizuko.yml` in a package source defines that package and nothing else. It
 holds the package `name`, brand, tagline, environment needs, the `install`
 command and the resource rows that the package owns, for example
-`network_rules`, `scheduled_tasks` and routes. It never selects a package.
+`network_rules`, `scheduled_tasks` and routes. A `scheduled_tasks` row that
+has a `cron` and no `next_run` gets its first `next_run` from the cron when it
+is written. The file never selects a package.
 Only the `installed_packages` rows select packages.
 
 `catalog:<name>` selects a bundled service package. Other sources are local
