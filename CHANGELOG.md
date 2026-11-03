@@ -13,6 +13,17 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.72.5] — 2026-11-03
+
+> arizuko v0.72.5 — per-group effort, and typing that stays on
+>
+> A group can set its turn effort beside its model, and the typing indicator now lasts the whole turn.
+>
+> • Effort — a group's config may carry `effort` (low, medium, high, xhigh, max); it wins over `ARIZUKO_DEFAULT_EFFORT`.
+> • Typing — every adapter receives the turn ceiling, so typing lasts as long as the turn; a typing call refused during a restart is retried.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
 ## [v0.72.4] — 2026-11-03
 
 > arizuko v0.72.4 — one progress line, gone when the turn ends
