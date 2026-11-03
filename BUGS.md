@@ -421,7 +421,7 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
   hits, 56 under `-test`; nine survived verification and were filed separately. Kept so
   the next sweep does not re-report the same ~135.
 
-## L649 — `group rename` refuses any instance with a `node_modules` tree under `web/` (2026-11-03, open)
+## ✅ FIXED 2026-11-03 52df9d517 L649 — `group rename` refused any instance with a `node_modules` tree under `web/`
 
 MEASURED on krons, `arizuko group -i krons rename mayai rhias/trip --dry-run`:
 `Failed: rename preflight: operational file
