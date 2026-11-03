@@ -278,7 +278,9 @@ The steps run in this order:
 1. **Topic inheritance.** A reply with no topic takes the topic of its parent.
    The thread check in step 3 must see the inherited topic. An empty topic is
    the main timeline and promotes nothing by itself.
-2. **Direct reply.** A reply or a reaction to a bot message becomes `mention`.
+2. **Direct reply.** A message addresses the bot when the bot wrote it or it is
+   a `mention`. A reply to such a message becomes `mention`; a reaction becomes
+   `mention` only on a bot message.
    One exception exists. On Slack, an ambient thread message arrives as
    `verb=message` with `reply_to` equal to the thread timestamp. That message is
    participation in a thread and not a deliberate reply, so it goes to step 3.

@@ -26,8 +26,9 @@ stay dumb: they ship the raw verb and routd upgrades it at ingest,
 **before `PutMessage` and before routing**, so every downstream path
 (routing, observed window, prompt) sees one truth.
 
-Explicit mentions, replies directed at a bot message, and reactions to bot
-messages can engage. An untrusted sender cannot gain mention status.
+A message addresses the bot when the bot wrote it or it is a `mention`.
+Explicit mentions, replies to a message that addresses the bot, and reactions
+to bot messages can engage. An untrusted sender cannot gain mention status.
 
 ## The thread root decides implicit mentions
 

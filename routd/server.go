@@ -488,7 +488,12 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	m.ReplyToText = truncate(m.ReplyToText, replyExcerptChars)
-	directReply := hasParent && parent.BotMsg &&
+	// A message addresses the bot when the bot wrote it or it mentions the bot.
+	// A reply to such a message, or any message in a thread rooted on one, is a
+	// mention; a reaction is one only on the bot's own message.
+	addressesBot := func(p core.Message) bool { return p.BotMsg || p.Verb == "mention" }
+	directReply := hasParent &&
+		(parent.BotMsg || verb == "message" && addressesBot(parent)) &&
 		(verb != "message" || m.ReplyTo != m.Topic ||
 			core.JidPlatform(m.ChatJID) != "slack")
 	threadMention := false
@@ -499,7 +504,7 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		root, exists := s.db.MessageByID(m.ChatJID, m.Topic)
-		threadMention = !stopped && exists && (root.BotMsg || root.Verb == "mention")
+		threadMention = !stopped && exists && addressesBot(root)
 	}
 	if verb != "untrusted" && (directReply || threadMention) {
 		verb = "mention"
