@@ -16,6 +16,7 @@ import (
 type turnRec struct {
 	turnID, folder, topic, batch, trigger, model string
 	elevated                                     bool
+	effort                                       string
 }
 
 // recRunner records every POST /v1/runs and returns a clean ok outcome. Used
@@ -32,7 +33,7 @@ type recRunner struct {
 func (r *recRunner) Run(_ context.Context, req runedv1.RunRequest) (runedv1.RunOutcome, error) {
 	r.runs = append(r.runs, turnRec{
 		turnID: req.TurnID, folder: string(req.Folder), topic: req.Topic,
-		batch: req.MessageBatch, trigger: req.TriggerSender, model: req.Model,
+		batch: req.MessageBatch, trigger: req.TriggerSender, model: req.Model, effort: req.Effort,
 		elevated: req.Elevated,
 	})
 	if r.during != nil {
@@ -59,6 +60,7 @@ func recLoop(t *testing.T) (*DB, *Loop, *recRunner) {
 func TestDefaultModelFallback(t *testing.T) {
 	db, loop, rr := recLoop(t)
 	loop.defaultModel = "claude-opus-4-8"
+	loop.defaultEffort = "xhigh"
 	_ = db.PutGroup(core.Group{Folder: "nomodel"})
 	_ = db.PutGroup(core.Group{Folder: "pinned", Model: "claude-sonnet-4-5"})
 	now := time.Now().UTC()
@@ -82,6 +84,11 @@ func TestDefaultModelFallback(t *testing.T) {
 	}
 	if got["pinned"] != "claude-sonnet-4-5" {
 		t.Fatalf("per-group model: spec.Model=%q want claude-sonnet-4-5 (override)", got["pinned"])
+	}
+	for _, r := range rr.runs {
+		if r.effort != "xhigh" {
+			t.Fatalf("a group with no effort runs at the instance default: effort=%q want xhigh", r.effort)
+		}
 	}
 }
 

@@ -46,7 +46,7 @@ func TestFolderCap_ClearedCapLeavesTheSettingsAlone(t *testing.T) {
 	if got, err := db.FolderCap("acme"); err != nil || got != 0 {
 		t.Fatalf("FolderCap after the clear = (%d, %v), want uncapped", got, err)
 	}
-	if m, _ := db.GroupConfig("acme"); m != "claude-opus" {
+	if m, _, _ := db.GroupConfig("acme"); m != "claude-opus" {
 		t.Errorf("model = %q after two cap writes, want claude-opus: the cap and the "+
 			"settings are two attributes of one item and neither write owns the other", m)
 	}

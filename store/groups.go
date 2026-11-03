@@ -47,6 +47,7 @@ const (
 // `arizuko group set` and the dashboard write.
 const (
 	cfgModel          = "model"
+	cfgEffort         = "effort"
 	cfgOpen           = "open"
 	cfgObserveWinMsgs = "observe_window_messages"
 	cfgObserveWinChar = "observe_window_chars"
@@ -565,21 +566,29 @@ func costCapOf(it objstore.Item) int {
 // wire. A map rather than core.GroupConfig, because runed round-trips it
 // verbatim and a struct would silently drop a key it does not declare. An
 // unknown group answers ("", nil): the instance defaults.
-func (s *Store) GroupConfig(folder string) (model string, cfg map[string]any) {
+// GroupConfig answers the group's model and effort ("" when unset; an effort
+// outside the harness's levels counts as unset) and its container config.
+func (s *Store) GroupConfig(folder string) (model, effort string, cfg map[string]any) {
 	it, ok, err := s.groupItem(context.Background(), folder)
 	if err != nil || !ok {
-		return "", nil
+		return "", "", nil
 	}
-	if m, isStr := settingsOf(it)[cfgModel].(string); isStr {
+	settings := settingsOf(it)
+	if m, isStr := settings[cfgModel].(string); isStr {
 		model = m
+	}
+	if e, isStr := settings[cfgEffort].(string); isStr && slices.Contains(efforts, e) {
+		effort = e
 	}
 	if raw := it.Attrs[attrGrpContainerConfig]; raw != "" && raw != "{}" {
 		if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
-			return model, nil
+			return model, effort, nil
 		}
 	}
-	return model, cfg
+	return model, effort, cfg
 }
+
+var efforts = []string{"low", "medium", "high", "xhigh", "max"}
 
 // FolderCap returns the folder's per-day spend cap in cents. Zero means
 // uncapped, also for an unknown group: inventing a cap would stop turns nobody
