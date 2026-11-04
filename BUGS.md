@@ -442,7 +442,7 @@ Owner ruling 2026-11-04: a path two packages ship is the last package's (the
 current install order); an add-on product (company-brain, cuzk) ships no
 persona so it never replaces a group's.
 
-## ✅ FIXED 2026-11-04 c4d605568 L654 — the `arizuko` skill reads docs no instance but krons has (2026-11-04)
+## ✅ FIXED 2026-11-04 fc5044ea2 L654 — the `arizuko` skill reads docs no instance but krons has (2026-11-04)
 
 MEASURED on sloth: the core `arizuko` skill reads `/var/lib/www/arizuko/` and
 builds `https://$WEB_HOST/pub/arizuko/`; sloth's `web/pub/` has no `arizuko`
@@ -454,7 +454,7 @@ Fixed: the image carries `template/web/pub/arizuko`; `arizuko generate` copies
 it into `<data_dir>/web/pub/arizuko` on every start (`compose.InstallWebDocs`),
 the runed comment says so, and the skill names the public docs and the source.
 
-## ✅ FIXED 2026-11-04 43e8e0526 L653 — removing a service fragment leaves the instance unable to start (2026-11-04)
+## ✅ FIXED 2026-11-04 d12f0ae39 L653 — removing a service fragment leaves the instance unable to start (2026-11-04)
 
 MEASURED on sloth 19:40-19:49: after `services/teled-jynx.yml` was removed,
 every start failed `open .../services/teled-jynx.yml: no such file`. The unit's
