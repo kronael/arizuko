@@ -15,7 +15,6 @@
 
 ## What needs you
 
-- `L656` — an agent's `register_group` on its own folder overwrites the operator's `container_config`.
 - `L655` — products as full packages (`catalog:<name>`) and persona layering (`PERSONA.local.md`); proposal, needs sign-off.
 - `L650` — an `extenddb` reached 10 GB and was OOM-killed; the host reset 8 times on 11-03; cause unmeasured.
 - `L647` — weekly memory rollups missing on alternate Mondays (W40, W42 in every active krons group); cause unmeasured, spawn rows gone.
@@ -423,7 +422,7 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
   hits, 56 under `-test`; nine survived verification and were filed separately. Kept so
   the next sweep does not re-report the same ~135.
 
-## L656 — an agent's `register_group` on an existing folder overwrites its `container_config` (2026-11-04, open)
+## ✅ FIXED 2026-11-04 bdcbc0ccf L656 — an agent's `register_group` on an existing folder overwrites its `container_config` (2026-11-04)
 
 READ at `98e73ea0a`, not run: `register_group` builds
 `core.Group{Folder, AddedAt}` (`routd/groups_resource.go:79`) and
@@ -440,8 +439,8 @@ size the operator set below the instance default.
 - **Severity:** medium — an agent rewrites an operator-only document.
 - **Fix:** `register_group` refuses a folder that exists, or the upsert leaves
   `container_config` alone when the caller set none.
-- **Test:** none yet — every store test needs a DynamoDB endpoint; not run.
-- **Status:** open.
+- **Test:** `TestRegisterGroupKeepsContainerConfig` (`routd/mcp_test.go`); fails with the guard removed.
+- **Status:** fixed — `registerGroup` writes the row only when the folder is new; re-registering adds the route and leaves the row alone.
 
 ## L655 — products are packages only by convention; persona has no layering (2026-11-04, open — proposal)
 
