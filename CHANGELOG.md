@@ -13,6 +13,16 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.73.1] — 2026-11-04
+
+> arizuko v0.73.1 — Company Brain and Trip Computer
+>
+> The two products carry their product names.
+>
+> • Products — `company-brain` and `trip-computer` replace `brain` and `trip`.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
 - Products: `brain` is now `company-brain` and `trip` is now `trip-computer` (`ant/examples/`, product pages, `arizuko create -p trip-computer`).
 
 ## [v0.73.0] — 2026-11-04
