@@ -123,16 +123,26 @@ Current `GitHubJID.Topic` returns `pr/<n>` or `issue/<n>`, with an empty topic a
 repository/account level. `store/sessions.go` keys conversations by folder and topic.
 Two repositories' PR 12 routed to one group therefore share a conversation.
 
-`mapEvent` renders explicit PR asks as `mention`: a bot @-mention, a review
-request or assignment to its login. routd promotes an inline reply to a stored bot comment.
+`mapEvent` renders an explicit ask as `mention`, whatever the event kind: a bot
+@-mention in text a person wrote (a created or edited comment, an opened or edited
+PR or issue body, a submitted review, a discussion or discussion comment, a commit
+comment, a project status update, a commit message in a push, the title, summary or
+text of a completed check or workflow run), a PR or issue assignment to its login,
+or a PR review request to it. routd promotes an inline reply to a stored bot comment.
 gitd sets `ReplyTo` only on a `created` review comment.
 Human comments, inline review comments and submitted reviews with a body on a
 PR or issue authored by the bot also render `mention`.
 A turn starts on an explicit ask only. Being assignee, requested reviewer or a past
 reviewer of a PR is not an ask: later pushes, label changes, closures, review states
-and CI results on that PR stay observations. Team review requests do not match an
-individual login. Other issue activity and PR activity remain observations.
-`store.GitHubSourceRoutes` seeds PR mention triggers and observe fallbacks.
+and CI results that name no one stay observations. Team review requests do not match an
+individual login. The bot's own text never asks. A completed check that names the bot
+and carries PR associations asks on each PR chat, not on the repository row beside them.
+Events with no issue or PR (discussion, commit comment, push, status update, a check
+with no PR) ask on the repository chat `github:<owner>/<repo>`, which has no comment
+thread, so the agent answers through the GitHub connector.
+`store.GitHubSourceRoutes` seeds, for each chat level of the source (`pr/*`,
+`issue/*`, the repository and, for an org or App source, the owner), a mention trigger
+and an observe fallback.
 Engagement follows the rule of `ROUTING.md` §"A target fragment sets the mode": a person's
 `message` or `mention` keeps a conversation engaged, and only those two verbs ride
 engagement, on GitHub as on every channel. A human comment on an engaged PR or issue

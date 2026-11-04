@@ -49,24 +49,38 @@ login and PR comment are one identity.
 
 ## Observe vs trigger
 
-`add` seeds mention routes and `<folder>#observe` fallbacks. The bot's login
-comes from `GITHUB_TOKEN`. A turn starts only on an explicit ask: an @mention
-of the bot, a review request or assignment to the bot login, a reply to a bot
-comment, or a human comment or review on a PR or issue the bot authored.
+`add` seeds a mention trigger and a `<folder>#observe` fallback for every chat
+level of the source: `pr/*`, `issue/*`, the repo and, for an org or App source,
+the owner. The bot's login comes from `GITHUB_TOKEN`. A turn starts only on an
+explicit ask: an @mention of the bot written by a person anywhere (PR, issue,
+discussion, commit comment, project status update, commit message, CI output),
+a review request or assignment to the bot login, a reply to a bot comment, or a
+human comment or review on a PR or issue the bot authored.
 Assignment, review requests and past reviews do not turn later PR activity into
 turns.
 
-| Event                                                                              | Default result |
-| ---------------------------------------------------------------------------------- | -------------- |
-| PR body, comment or review explicitly mentions `@<login>`                          | Turn           |
-| Inline PR comment directly replies to a stored bot comment                         | Turn           |
-| Human comment, inline comment or review with a body on a bot-authored PR or issue  | `mention`      |
-| PR assignment or individual review request targets the bot                         | Turn           |
-| Push, label, close, review state or edit on a PR the bot is assigned to or reviews | Observe        |
-| Completed check, suite or workflow, on any PR                                      | Observe        |
-| Other plain comment or discussion                                                  | Observe        |
-| Assignment or review request targets someone else                                  | Observe        |
-| Other issue-only, repository-only, queued or in-progress event                     | Observe        |
+| Event                                                                                            | Default result |
+| ------------------------------------------------------------------------------------------------ | -------------- |
+| PR or issue body, comment, review, discussion, commit comment or commit message names `@<login>` | Turn           |
+| Completed check, suite or workflow whose title, summary, text or commit message names `@<login>` | Turn           |
+| Inline PR comment directly replies to a stored bot comment                                       | Turn           |
+| Human comment, inline comment or review with a body on a bot-authored PR or issue                | `mention`      |
+| PR or issue assignment, or individual PR review request, targets the bot                         | Turn           |
+| Push, label, close, review state or edit on a PR the bot is assigned to or reviews               | Observe        |
+| Completed check, suite or workflow that does not name the bot                                    | Observe        |
+| Other plain comment or discussion                                                                | Observe        |
+| Assignment or review request targets someone else                                                | Observe        |
+| Other issue-only, repository-only, queued or in-progress event                                   | Observe        |
+
+A mention is the only text rule. gitd reads the text the delivery itself wrote
+(a created or edited comment, an opened or edited body, a submitted review, a
+completed check) and ignores the object it carries, so a label event does not
+re-read the PR body. The bot's own text never asks. A completed check that names
+the bot and is associated with PRs asks on each PR chat and not on the repository
+row. A discussion, a commit comment, a push, a project status update or a check
+with no PR asks on the repository chat (`github:<owner>/<repo>`), which has no
+comment thread: gitd's `send_text` refuses it, so the agent answers through the
+GitHub connector.
 
 Human conversation on a PR or issue that the bot authored maps to `mention`.
 The bot's own comments drop, and its retained metadata never becomes a mention.
@@ -80,12 +94,20 @@ conversation, add one route above the fallback, for example
 ([`ROUTING.md`](../ROUTING.md)). gitd carries no flag for this.
 Repo rows sit at seq 10/100, org at 20/200, app at
 30/300, so a narrower registration wins. Operators can edit the route rows.
-For an existing source, remove any `verb=message` trigger rows and issue
-mention trigger rows. Keep its PR mention route and observation fallbacks.
+A source registered before issue and repository mention rows existed has only
+the `pr/*` one. For a `repo/o/r` source on folder `eng` the operator adds the
+others, same seq as the existing mention row (`10`; `20` for an org, `30` for an
+App, with the owner row last):
 
-Subscribe to `issue_comment`, `pull_request`, `pull_request_review`,
-`pull_request_review_comment` and `pull_request_review_thread` for PR conversations
-and state. For CI, add `check_run`, `check_suite` and `workflow_run` events.
+```
+arizuko route -i demo add 'chat_jid=github:o/r/issue/* verb=mention' eng --seq 10
+arizuko route -i demo add 'chat_jid=github:o/r verb=mention' eng --seq 10
+```
+
+Subscribe to `issue_comment`, `issues`, `pull_request`, `pull_request_review`,
+`pull_request_review_comment` and `pull_request_review_thread` for PR and issue
+conversations and state; add `discussion`, `discussion_comment`, `commit_comment`
+and `push` where a mention there must start a turn. For CI, add `check_run`, `check_suite` and `workflow_run` events.
 A completed CI delivery adds one observation row per associated PR, next to the
 repository row. gitd makes no GitHub API call to classify any event. A CI
 delivery allows at most ten distinct PRs; more are refused with 400. Associated PR
