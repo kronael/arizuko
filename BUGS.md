@@ -15,6 +15,7 @@
 
 ## What needs you
 
+- `L656` — an agent's `register_group` on its own folder overwrites the operator's `container_config`.
 - `L655` — products as full packages (`catalog:<name>`) and persona layering (`PERSONA.local.md`); proposal, needs sign-off.
 - `L650` — an `extenddb` reached 10 GB and was OOM-killed; the host reset 8 times on 11-03; cause unmeasured.
 - `L647` — weekly memory rollups missing on alternate Mondays (W40, W42 in every active krons group); cause unmeasured, spawn rows gone.
@@ -420,6 +421,26 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
 - **`L15` — the 2026-08-11 dead-code sweep's rejected hits.** `deadcode ./...` gave 149
   hits, 56 under `-test`; nine survived verification and were filed separately. Kept so
   the next sweep does not re-report the same ~135.
+
+## L656 — an agent's `register_group` on an existing folder overwrites its `container_config` (2026-11-04, open)
+
+READ at `98e73ea0a`, not run: `register_group` builds
+`core.Group{Folder, AddedAt}` (`routd/groups_resource.go:79`) and
+`registerGroup` upserts it whether or not the folder exists
+(`routd/mcp.go:221-226`). The upsert always writes `container_config` from
+`g.Config` (`store/groups.go:153-166`), so the stored document becomes
+`{"Mounts":null}`. The authz check is `mcp:register_group` on the target
+(`routd/groups_resource.go:147`); onbod grants every world `mcp:*` on
+`<world>/**` (`onbod/main.go:927`), and `<world>/**` matches `<world>` itself
+(`auth/acl.go:77-91`). So a world's agent can wipe its own operator-set
+`Mounts` today, and under `specs/9/20-group-machine-size.md` it could reset a
+size the operator set below the instance default.
+
+- **Severity:** medium — an agent rewrites an operator-only document.
+- **Fix:** `register_group` refuses a folder that exists, or the upsert leaves
+  `container_config` alone when the caller set none.
+- **Test:** none yet — every store test needs a DynamoDB endpoint; not run.
+- **Status:** open.
 
 ## L655 — products are packages only by convention; persona has no layering (2026-11-04, open — proposal)
 
