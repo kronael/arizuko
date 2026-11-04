@@ -15,6 +15,8 @@
 
 ## What needs you
 
+- `L654` — the `arizuko` skill's docs exist only on krons; fix queued (install docs in every instance).
+- `L653` — removing a service fragment by hand breaks the next start; fix queued.
 - `L650` — an `extenddb` reached 10 GB and was OOM-killed; the host reset 8 times on 11-03; cause unmeasured.
 - `L647` — weekly memory rollups missing on alternate Mondays (W40, W42 in every active krons group); cause unmeasured, spawn rows gone.
 - `L644` — krons token hit its monthly spend limit; choose a token with budget.
@@ -419,6 +421,29 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
 - **`L15` — the 2026-08-11 dead-code sweep's rejected hits.** `deadcode ./...` gave 149
   hits, 56 under `-test`; nine survived verification and were filed separately. Kept so
   the next sweep does not re-report the same ~135.
+
+## L654 — the `arizuko` skill reads docs no instance but krons has (2026-11-04, open)
+
+MEASURED on sloth: the core `arizuko` skill reads `/var/lib/www/arizuko/` and
+builds `https://$WEB_HOST/pub/arizuko/`; sloth's `web/pub/` has no `arizuko`
+(an agent's `ls` came back empty 2026-11-03), so sloth answers arizuko
+questions without its docs. No code installs `template/web/pub/arizuko/`:
+`runed/mounts.go:204-205` says `arizuko create` copies them, which is false;
+krons has them only through the manual `cp` in `template/web/CLAUDE.md`.
+Fix: the release installs the docs into every instance's `web/pub/arizuko`
+(one installer, e.g. `generate`), and the runed comment states it.
+
+## L653 — removing a service fragment leaves the instance unable to start (2026-11-04, open)
+
+MEASURED on sloth 19:40-19:49: after `services/teled-jynx.yml` was removed,
+every start failed `open .../services/teled-jynx.yml: no such file`. The unit's
+first step is `docker compose -f docker-compose.yml down`, which reads the
+generated file that still `include`s the fragment; `arizuko generate` (which
+would drop it) runs later and itself needs the store, which cannot start
+from the broken compose file. Recovered by deleting the include line by hand.
+Fix: removing a fragment goes through one command that regenerates the
+compose file (`package rm` for catalog fragments), or the unit tolerates a
+missing include in its `down` step.
 
 ## ✅ FIXED 2026-11-04 657f08ae4 L652 — engagement answers a group message that a person addressed to another person (2026-11-04)
 
