@@ -14,11 +14,11 @@ func TestParseCreateFlags(t *testing.T) {
 		wantProduct string
 	}{
 		{name: "no product", args: []string{"inst"}, wantName: "inst"},
-		{name: "long flag before positional", args: []string{"--product", "trip", "inst"}, wantName: "inst", wantProduct: "trip"},
-		{name: "short flag after positional", args: []string{"inst", "-p", "trip"}, wantName: "inst", wantProduct: "trip"},
-		{name: "long flag after positional", args: []string{"inst", "--product", "trip"}, wantName: "inst", wantProduct: "trip"},
-		{name: "no positional errors", args: []string{"-p", "trip"}, wantErr: true},
-		{name: "two positionals errors", args: []string{"inst", "other", "-p", "trip"}, wantErr: true},
+		{name: "long flag before positional", args: []string{"--product", "trip-computer", "inst"}, wantName: "inst", wantProduct: "trip-computer"},
+		{name: "short flag after positional", args: []string{"inst", "-p", "trip-computer"}, wantName: "inst", wantProduct: "trip-computer"},
+		{name: "long flag after positional", args: []string{"inst", "--product", "trip-computer"}, wantName: "inst", wantProduct: "trip-computer"},
+		{name: "no positional errors", args: []string{"-p", "trip-computer"}, wantErr: true},
+		{name: "two positionals errors", args: []string{"inst", "other", "-p", "trip-computer"}, wantErr: true},
 		{name: "unknown flag errors", args: []string{"inst", "--nope", "1"}, wantErr: true},
 	}
 	for _, tc := range cases {

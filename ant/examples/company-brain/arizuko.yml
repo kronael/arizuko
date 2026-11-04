@@ -1,5 +1,5 @@
-name: brain
-brand: brain
+name: company-brain
+brand: company-brain
 tagline: Company brain — a daily and weekly digest of what the team built and decided.
 env:
   DISCORD_BOT_TOKEN:

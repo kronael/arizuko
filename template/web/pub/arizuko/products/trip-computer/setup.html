@@ -22,8 +22,8 @@
           <ul class="nav-children">
             <li><a href="../">Start here</a></li>
             <li><a href="../helpdesk/">Helpdesk (reference)</a></li>
-            <li><a href="../trip/">Trip planner (May)</a></li>
-            <li><a href="../brain/">Company brain</a></li>
+            <li><a href="../trip-computer/">Trip computer</a></li>
+            <li><a href="../company-brain/">Company Brain</a></li>
             <li><a href="../slack-team/">Slack team agent</a></li>
             <li><a href="../github/">Repo worker (Atlas)</a></li>
             <li><a href="../reality/">Reality agent</a></li>
@@ -58,9 +58,9 @@
       </ul>
 
       <h2>create records the trip product for the main group</h2>
-      <pre><code>arizuko create -i travel --product trip
+      <pre><code>arizuko create -i travel --product trip-computer
 $EDITOR /srv/data/arizuko_travel/.env</code></pre>
-      <p><code>--product trip</code> records the product as <code>ARIZUKO_DEFAULT_PRODUCT</code> in <code>.env</code> and copies no file. At its first boot <code>routd</code> selects the product for the <code>main</code> group. The next <code>arizuko package sync</code> installs the <code>group/</code> files of <code>ant/examples/trip/</code>, including the <code>PERSONA.md</code> of May. <code>arizuko create</code> also writes <code>.env</code> with a new <code>AUTH_SECRET</code> and <code>SECRETS_KEY</code>. Add the other values:</p>
+      <p><code>--product trip-computer</code> records the product as <code>ARIZUKO_DEFAULT_PRODUCT</code> in <code>.env</code> and copies no file. At its first boot <code>routd</code> selects the product for the <code>main</code> group. The next <code>arizuko package sync</code> installs the <code>group/</code> files of <code>ant/examples/trip-computer/</code>, including the <code>PERSONA.md</code> of May. <code>arizuko create</code> also writes <code>.env</code> with a new <code>AUTH_SECRET</code> and <code>SECRETS_KEY</code>. Add the other values:</p>
       <pre><code>ASSISTANT_NAME=may
 WEB_HOST=travel.example.com
 ANTHROPIC_API_KEY=sk-ant-REPLACE_ME
@@ -73,7 +73,7 @@ sudo systemctl restart arizuko_travel</code></pre>
 
       <h2>The preferences file is the baseline of every plan</h2>
       <p>May reads <code>facts/preferences.md</code> at the start of every planning session. Without it, she has no baseline and asks the same questions each time. Copy the example first, then replace the file with your own profile before the first message. <code>package sync</code> never rewrites it:</p>
-      <pre><code>cp -r ant/examples/trip/facts /srv/data/arizuko_travel/groups/main/
+      <pre><code>cp -r ant/examples/trip-computer/facts /srv/data/arizuko_travel/groups/main/
 cat &gt; /srv/data/arizuko_travel/groups/main/facts/preferences.md &lt;&lt;'EOF'
 # Travel Preferences
 
@@ -125,11 +125,11 @@ EOF</code></pre>
 
 
       <nav class="docs-pager" aria-label="Pager">
-        <a rel="prev" href="index.html">&larr; Trip planner (May)</a>
+        <a rel="prev" href="index.html">&larr; Trip computer</a>
         <a rel="next" href="../slack-team/">Slack team agent &rarr;</a>
       </nav>
       <div class="docs-footer">
-        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/trip/setup.html">Edit this page</a>
+        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/trip-computer/setup.html">Edit this page</a>
         &middot; updated <time class="docs-updated" datetime="2026-10-28">2026-10-28</time>
       </div>
     </main>

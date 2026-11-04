@@ -1,11 +1,11 @@
-# brain product eval — run by arizuko's own harness:
+# company-brain product eval — run by arizuko's own harness:
 #
 #   anteval run <target> --cases <data-dir>/groups/<folder>/eval \
 #     --token "$AGENTEVAL_TOKEN" --chat <chat-jid> --folder <folder>
 
 [[case]]
-id = "brain-replies"
-dimension = "product-brain"
+id = "company-brain-replies"
+dimension = "product-company-brain"
 smoke = true
 prompt = "Ref {nonce}. Are you there? Reply with the ref and nothing else."
 max_wall_ms = 120000

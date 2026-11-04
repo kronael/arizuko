@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Company brain &mdash; setup &middot; arizuko</title>
+  <title>Company Brain &mdash; setup &middot; arizuko</title>
   <link rel="stylesheet" href="../../assets/hub.css">
 </head>
 <body>
@@ -22,8 +22,8 @@
           <ul class="nav-children">
             <li><a href="../">Start here</a></li>
             <li><a href="../helpdesk/">Helpdesk (reference)</a></li>
-            <li><a href="../trip/">Trip planner (May)</a></li>
-            <li><a href="../brain/">Company brain</a></li>
+            <li><a href="../trip-computer/">Trip computer</a></li>
+            <li><a href="../company-brain/">Company Brain</a></li>
             <li><a href="../slack-team/">Slack team agent</a></li>
             <li><a href="../github/">Repo worker (Atlas)</a></li>
             <li><a href="../reality/">Reality agent</a></li>
@@ -43,11 +43,11 @@
     </nav>
 
     <main class="docs-content">
-      <p class="docs-crumb"><a href="../../">arizuko</a> &rsaquo; <a href="../">products</a> &rsaquo; Company brain &mdash; setup</p>
-      <h1>Company brain &mdash; setup</h1>
+      <p class="docs-crumb"><a href="../../">arizuko</a> &rsaquo; <a href="../">products</a> &rsaquo; Company Brain &mdash; setup</p>
+      <h1>Company Brain &mdash; setup</h1>
       <p class="lede">Install the package, then fill the one config file the digest scripts read.</p>
       <h2>Select the package</h2>
-      <pre><code>arizuko package add -g FOLDER ant/examples/brain</code></pre>
+      <pre><code>arizuko package add -g FOLDER ant/examples/company-brain</code></pre>
       <h2>Fill the config</h2>
       <p>The digest skill ships <code>digest.example.toml</code>; copy it to <code>~/digest.toml</code> in the group once, then edit it. Replace the repository, the clone path, the post chat, the agent&rsquo;s accounts, the people and the channels. The scripts stop when the file is missing.</p>
       <h2>Credentials</h2>
@@ -55,8 +55,8 @@
       <h2>Schedule it</h2>
       <p>Add a daily task that runs <code>/digest</code> and a Monday task that runs <code>/digest --week</code> with the weekly state file. Use <code>--preview</code> with a test chat before the first post to the team channel.</p>
       <div class="docs-footer">
-        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/brain/setup.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-11-04">2026-11-04</time>
+        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/company-brain/setup.html">Edit this page</a>
+        &middot; updated <time class="docs-updated" datetime="2026-10-21">2026-10-21</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

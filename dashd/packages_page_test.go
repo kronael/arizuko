@@ -63,7 +63,7 @@ func TestPackagesPageShowsScope(t *testing.T) {
 	db := packagesDB(t)
 	seedInstalledPackage(t, db, "", "slakd", "github.com/org/slakd", "abc123",
 		"2026-07-29T00:00:00Z")
-	seedInstalledPackage(t, db, "atlas/support", "trip", "ant/examples/trip", "local",
+	seedInstalledPackage(t, db, "atlas/support", "trip-computer", "ant/examples/trip-computer", "local",
 		"2026-08-07T00:00:00Z")
 	body := packagesGet(t, db)
 	if !strings.Contains(body, "<code>atlas/support</code>") {

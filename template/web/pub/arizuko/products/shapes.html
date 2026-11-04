@@ -22,8 +22,8 @@
           <ul class="nav-children">
             <li><a href="./">Start here</a></li>
             <li><a href="helpdesk/">Helpdesk (reference)</a></li>
-            <li><a href="trip/">Trip planner (May)</a></li>
-            <li><a href="brain/">Company brain</a></li>
+            <li><a href="trip-computer/">Trip computer</a></li>
+            <li><a href="company-brain/">Company Brain</a></li>
             <li><a href="slack-team/">Slack team agent</a></li>
             <li><a href="github/">Repo worker (Atlas)</a></li>
             <li><a href="reality/">Reality agent</a></li>
@@ -172,12 +172,12 @@ arizuko group -i acme add discord:123456789/987654321 main
 0    chat_jid=discord:*/*                 main#observe</code></pre>
       <p>To check the shape, send <code>@acme hello</code> in a channel that the bot can see; the agent replies. When the bot answers in DMs and not in channels, the channel routes are <code>#observe</code> only: add a <code>verb=mention</code> route to <code>main</code>. When <code>discd</code> is unhealthy, the token changed or the bot left the guild: copy the new token into <code>DISCORD_BOT_TOKEN</code> and restart the instance. A new channel is one more group: <code>arizuko group -i acme add 'discord:123456789/987654321' dev-chat</code>.</p>
 
-      <h2 id="company-brain">The company brain runs one agent for each team</h2>
+      <h2 id="team-brain">The team brain runs one agent for each team</h2>
       <p>A network of per-team agents, each with its own inbox and memory,
         reading intake from Slack, email, and webhooks &mdash; writing
         briefs, escalating issues, coordinating across folders on schedule.</p>
 
-      <h3>The company brain acts on knowledge and does not search it</h3>
+      <h3>The team brain acts on knowledge and does not search it</h3>
       <p>Agents read intake, write daily briefs, escalate issues to the right team and coordinate across the folder tree. The agents search <code>facts/</code> with <code>grep</code> and have no vector index.</p>
       <dl>
         <dt>Folder tree as org chart</dt>
@@ -212,7 +212,7 @@ arizuko group -i acme add discord:123456789/987654321 main
   &darr; Creates task: "Raise HEAP_MAX cap — billing-worker"
   &darr; Logs to diary: alert handled, task created</code></pre>
 
-      <h3 id="company-brain-limits">Three limits apply</h3>
+      <h3 id="team-brain-limits">Three limits apply</h3>
       <dl>
         <dt>No connector sync</dt>
         <dd>You fill <code>facts/</code> by hand, over WebDAV, or through agents that a webhook starts. No OAuth crawler for Confluence, Notion or Google Drive exists.</dd>
@@ -289,7 +289,7 @@ arizuko token -i &lt;instance&gt; issue chat &lt;folder&gt;    # the public chat
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/shapes.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-28">2026-10-28</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-04">2026-11-04</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

@@ -1,6 +1,6 @@
-name: trip
+name: trip-computer
 brand: may
-tagline: Trip planner — research, synthesise, structured plan.
+tagline: Trip computer — research, synthesise, structured plan.
 env:
   TELEGRAM_BOT_TOKEN:
     hint: Primary personal channel (Telegram or WhatsApp — set at least one)

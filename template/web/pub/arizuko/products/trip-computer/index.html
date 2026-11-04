@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Trip planner (May) &middot; arizuko</title>
+  <title>Trip computer &middot; arizuko</title>
   <link rel="stylesheet" href="../../assets/hub.css">
 </head>
 <body>
@@ -22,8 +22,8 @@
           <ul class="nav-children">
             <li><a href="../">Start here</a></li>
             <li><a href="../helpdesk/">Helpdesk (reference)</a></li>
-            <li><a href="../trip/">Trip planner (May)</a></li>
-            <li><a href="../brain/">Company brain</a></li>
+            <li><a href="../trip-computer/">Trip computer</a></li>
+            <li><a href="../company-brain/">Company Brain</a></li>
             <li><a href="../slack-team/">Slack team agent</a></li>
             <li><a href="../github/">Repo worker (Atlas)</a></li>
             <li><a href="../reality/">Reality agent</a></li>
@@ -43,8 +43,8 @@
     </nav>
 
     <main class="docs-content">
-      <p class="docs-crumb"><a href="../../">arizuko</a> &rsaquo; <a href="../">products</a> &rsaquo; Trip planner (May)</p>
-      <h1>Trip planner (May)</h1>
+      <p class="docs-crumb"><a href="../../">arizuko</a> &rsaquo; <a href="../">products</a> &rsaquo; Trip computer</p>
+      <h1>Trip computer</h1>
 
 
 
@@ -54,7 +54,7 @@
         Preferences persist across every future trip.
       </p>
 
-      <p>May is an agent for one user, with your travel profile and your past trips. The template is in <code>ant/examples/trip/</code>.</p>
+      <p>May is an agent for one user, with your travel profile and your past trips. The template is in <code>ant/examples/trip-computer/</code>.</p>
 
       <h2>The persona tells May to ask before she researches</h2>
       <p>The persona tells May to cite sources in the text, for example "per the Japan visa gov page" or "per Lonely Planet &sect;Kyoto". It tells her to ask about the dates, the budget and the travel style before the research, and to start the plan only when these are clear. It tells her not to invent visa rules, prices or opening hours, but to check them or say that she is not sure. The output is a day-by-day schedule, a logistics block, a budget estimate and a packing list.</p>
@@ -129,7 +129,7 @@
       </dl>
 
       <h2>A package selection installs Telegram</h2>
-      <pre><code>arizuko create -i travel --product trip
+      <pre><code>arizuko create -i travel --product trip-computer
 $EDITOR /srv/data/arizuko_travel/.env    # TELEGRAM_BOT_TOKEN, CODEX_API_KEY, a model key
 $EDITOR /srv/data/arizuko_travel/groups/main/facts/preferences.md</code></pre>
       <p>Start the instance as a systemd service using <a href="../../howto/">getting started</a>. Select the adapter package and restart the service:</p>
@@ -153,7 +153,7 @@ arizuko route -i travel add 'platform=telegram' main</code></pre>
         <a rel="next" href="setup.html">Trip planner setup &rarr;</a>
       </nav>
       <div class="docs-footer">
-        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/trip/index.html">Edit this page</a>
+        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/trip-computer/index.html">Edit this page</a>
         &middot; updated <time class="docs-updated" datetime="2026-10-28">2026-10-28</time>
       </div>
     </main>
