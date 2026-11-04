@@ -435,6 +435,15 @@ has its own spender.
   `GITHUB_TOKEN`. They live encrypted in routd-owned `secrets` rows at folder
   scope or user scope. They enter the environment of the guest only through a
   `shell:env:<KEY>` grant.
+- **The host Codex login** is the operator's own `HOST_CODEX_DIR/auth.json`
+  and `config.toml`, a credential of the host user and not of any folder. A
+  folder receives it only when it holds the `codex` grant
+  (`arizuko group grant folder:<f> <f> codex`; an operator turn holds it).
+  runed copies the two files per turn into the ipc dir, owned by the agent's
+  uid at mode 0400, mounts the copies read-only and deletes them when the turn
+  ends. The operator's files keep their owner and mode. A granted folder can
+  spend the subscription: codex needs `chatgpt.com` and `auth.openai.com`
+  through the egress allowlist (`arizuko network allow`).
 - **Infrastructure anchors** are `SECRETS_KEY`, `AUTHD_SERVICE_KEY` and bot
   tokens. They live in the host `.env` only and are never a `secrets` row.
 

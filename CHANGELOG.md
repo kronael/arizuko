@@ -29,6 +29,7 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 > Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
 
 - **GitHub mentions start a turn everywhere.** An `@<bot>` written by a person on an issue, discussion, commit comment, push, project status update or CI output now starts a turn, as on a PR. `store.GitHubSourceRoutes` seeds a mention trigger for every chat level. A source registered earlier needs the `issue/*` and repository mention rows added with `arizuko route add` (`gitd/README.md`). (L651)
+- A folder holding the `codex` grant gets the host Codex login (`HOST_CODEX_DIR`) as a per-turn copy the agent's uid can read; a folder without it gets none. Codex needs `chatgpt.com` and `auth.openai.com` in the egress allowlist.
 
 ## [v0.72.6] — 2026-11-03
 

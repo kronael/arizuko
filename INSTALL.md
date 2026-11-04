@@ -573,6 +573,12 @@ The model keys that arizuko accepts are `ANTHROPIC_API_KEY`,
 Code. `ARIZUKO_BACKEND=codex` or `pi` selects another harness, and the CLI of
 that harness must be in the agent image.
 
+To lend the host user's Codex login (ChatGPT sign-in) to chosen folders, set
+`HOST_CODEX_DIR` to that `.codex` directory in `.env`, then grant each folder
+`codex`: `arizuko group grant folder:<f> <f> codex`. A folder without the grant
+gets no login. Codex also needs `chatgpt.com` and `auth.openai.com` in the
+egress allowlist: `arizuko network allow <f> chatgpt.com`.
+
 Keep capability tokens in encrypted group secrets. For shell access, follow
 the paired secret and grant recipe in [Secret injection](SECURITY.md#secret-injection).
 

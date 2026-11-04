@@ -36,7 +36,7 @@ persistence (default is fine for one-shots).
 
 Two paths, codex picks up whichever is present:
 
-- **Path A — host mount**: operator sets `HOST_CODEX_DIR=/path/to/.codex`; runed mounts it at `/home/node/.codex`. ChatGPT-OAuth, no env vars needed. Probe: `codex login status`
+- **Path A — host login**: works when the folder holds the `codex` grant and the operator set `HOST_CODEX_DIR`; runed mounts a copy of the login into `/home/node/.codex`. ChatGPT-OAuth, no env vars needed. Without the grant there is no login. Needs egress to `chatgpt.com` and `auth.openai.com`; a folder without a wildcard needs an operator to run `arizuko network allow <folder> chatgpt.com` (and `auth.openai.com`). Probe: `codex login status`
 - **Path B — env-profile key**: `CODEX_API_KEY`/`OPENAI_API_KEY` either in the platform host `.env` (global — reaches every container via `readSecrets`) or as a user's own key via `/dash/me/env` (BYOC). Model keys scope the same way as Anthropic's: platform-or-user, NEVER folder — the store rejects folder scope (`specs/5/14-credentials.md`). Restart the group container after inserting.
 
 ## Missing-auth fallback

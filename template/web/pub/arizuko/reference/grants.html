@@ -55,7 +55,7 @@
     <table>
       <tr><th>column</th><th>meaning</th></tr>
       <tr><td><code>principal</code></td><td>Who is asking. Globbed segment-wise on <code>/</code> and <code>:</code>.</td></tr>
-      <tr><td><code>action</code></td><td><code>*</code>, <code>admin</code>, <code>interact</code>, <code>egress</code>, <code>web:publish</code>, <code>gh:write</code>, <code>mcp:*</code>, <code>mcp:&lt;tool&gt;</code>, <code>shell:env:&lt;KEY&gt;</code>, <code>ext:&lt;provider&gt;:&lt;area&gt;:&lt;verb&gt;</code>, <code>hold:mcp:&lt;tool&gt;</code> or <code>&lt;resource&gt;.&lt;verb&gt;</code>.</td></tr>
+      <tr><td><code>action</code></td><td><code>*</code>, <code>admin</code>, <code>interact</code>, <code>egress</code>, <code>web:publish</code>, <code>gh:write</code>, <code>codex</code>, <code>mcp:*</code>, <code>mcp:&lt;tool&gt;</code>, <code>shell:env:&lt;KEY&gt;</code>, <code>ext:&lt;provider&gt;:&lt;area&gt;:&lt;verb&gt;</code>, <code>hold:mcp:&lt;tool&gt;</code> or <code>&lt;resource&gt;.&lt;verb&gt;</code>.</td></tr>
       <tr><td><code>scope</code></td><td>Folder path or glob. <code>**</code> crosses <code>/</code>, <code>*</code> does not.</td></tr>
       <tr><td><code>params</code></td><td>Optional predicates over the call's arguments (<code>jid=telegram:*</code>).</td></tr>
       <tr><td><code>predicate</code></td><td>Optional condition on the caller's JWT claims (<code>discord:guild=G123</code>). Empty = none.</td></tr>
@@ -202,7 +202,7 @@ arizuko group -i krons grant google:114alice '**'</code></pre>
 
     <p>So a management call passes the real target as the scope, and the row's glob decides. Widening reach is editing one glob, not moving a folder.</p>
 
-    <p>Turn capabilities work the same way. At dispatch, routd resolves four booleans from <code>acl</code> and sends them typed on the run request (<a href="https://github.com/kronael/arizuko/blob/main/routd/dispatch.go"><code>routd/dispatch.go</code></a>): <code>share_mount(readonly=true)</code> makes the shared mount read-only, <code>egress</code> appends <code>*</code> to the folder's allowlist so the turn's proxy runs in allow-all, <code>web:publish</code> opens the web surface, and <code>gh:write</code> lets the agent make the GitHub writes that the <code>gh</code> gate of the agent refuses by default, such as a merge or a release. A plain folder holds none of them and runs with a writable share, an allowlist of exactly what its own rows name, and no web surface until an operator delegates. The proxy itself is never optional &mdash; every turn gets one, and the guest's tap drops anything that tries to go around it.</p>
+    <p>Turn capabilities work the same way. At dispatch, routd resolves five booleans from <code>acl</code> and sends them typed on the run request (<a href="https://github.com/kronael/arizuko/blob/main/routd/dispatch.go"><code>routd/dispatch.go</code></a>): <code>share_mount(readonly=true)</code> makes the shared mount read-only, <code>egress</code> appends <code>*</code> to the folder's allowlist so the turn's proxy runs in allow-all, <code>web:publish</code> opens the web surface, and <code>gh:write</code> lets the agent make the GitHub writes that the <code>gh</code> gate of the agent refuses by default, such as a merge or a release, and <code>codex</code> lends the operator's Codex login (<code>HOST_CODEX_DIR</code>) to the turn. A plain folder holds none of them and runs with a writable share, an allowlist of exactly what its own rows name, and no web surface until an operator delegates. The proxy itself is never optional &mdash; every turn gets one, and the guest's tap drops anything that tries to go around it.</p>
 
     <p>One grant carries a value rather than a boolean. A capability credential normally reaches a <em>tool</em> and nothing else, through the broker, per call. A CLI the agent drives itself — <code>gh</code>, <code>buildkite</code> — is a <code>Bash</code> call, so there is no tool name to resolve a secret for; it can only authenticate from the shell environment. A <code>shell:env:&lt;KEY&gt;</code> row names one secret that may cross, and with no row nothing crosses. The action is matched exactly, so an operator's <code>(*, **)</code> row does <em>not</em> confer it: widening the shell is always an explicit act. <code>shell:env:*</code> is the explicit all-keys row. The five model keys never cross this way, even under <code>shell:env:*</code> &mdash; they already reach the guest by their own door, and the store keeps them off folder scope.</p>
 
@@ -257,7 +257,7 @@ grant_option: 0</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/reference/grants.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-21">2026-10-21</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-28">2026-10-28</time>
       </div>
     </main>
 

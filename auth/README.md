@@ -50,7 +50,7 @@ where the caller comes from.
   refused, loudly. A path carries zero authorization: it is a routing
   target, a JID prefix, a home and a vhost, and its depth means nothing.
 - **Containment is the scope glob.** Guest capabilities (`share_mount`,
-  `egress`, `web:publish`, `gh:write`) resolve from `acl` at dispatch into
+  `egress`, `web:publish`, `gh:write`, `codex`) resolve from `acl` at dispatch into
   typed booleans on the run request. A capability derived from folder depth
   reaches every folder at that depth, whatever the operator granted, so no
   code derives one. `ARIZUKO_TIER` is not emitted: the agent's identity is

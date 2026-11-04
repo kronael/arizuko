@@ -1,8 +1,6 @@
 package runed
 
 import (
-	"bytes"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -33,17 +31,6 @@ func fhsConfig(t *testing.T) (*core.Config, *groupfolder.Resolver) {
 	os.MkdirAll(cfg.IpcDir, 0o755)
 	os.MkdirAll(filepath.Join(cfg.WebDir, "pub"), 0o755)
 	return cfg, &groupfolder.Resolver{GroupsDir: cfg.GroupsDir, IpcDir: cfg.IpcDir}
-}
-
-// captureWarnings redirects the default slog to a buffer for the test's
-// duration and returns the accumulated text.
-func captureWarnings(t *testing.T) func() string {
-	t.Helper()
-	var buf bytes.Buffer
-	prev := slog.Default()
-	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
-	t.Cleanup(func() { slog.SetDefault(prev) })
-	return buf.String
 }
 
 // findMount returns the mount whose guest path matches, or nil.
