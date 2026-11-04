@@ -440,6 +440,9 @@ adds to it locally ("persona local"). Proposal, one decision each:
 by name like service fragments; (b) the agent reads `PERSONA.md` (last
 package wins) and then `PERSONA.local.md`, which no package writes, so local
 additions survive every sync. Needs sign-off: (b) changes what the turn reads.
+Owner ruling 2026-11-04: a path two packages ship is the last package's (the
+current install order); an add-on product (company-brain, cuzk) ships no
+persona so it never replaces a group's.
 
 ## L654 — the `arizuko` skill reads docs no instance but krons has (2026-11-04, open)
 
