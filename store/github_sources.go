@@ -121,8 +121,9 @@ func ParseGitHubSourceKey(key string) (kind, name string, err error) {
 	return kind, name, nil
 }
 
-// GitHubSourceRoutes renders PR mention routes and observation fallbacks.
-// Narrower sources win. Each JID level needs a row because `*` cannot cross `/`.
+// GitHubSourceRoutes renders a mention trigger and an observation fallback for
+// every chat level of the source. Narrower sources win. Each JID level needs a
+// row because `*` cannot cross `/`.
 func GitHubSourceRoutes(key, folder string) ([]core.Route, error) {
 	kind, name, err := ParseGitHubSourceKey(key)
 	if err != nil {
@@ -139,14 +140,16 @@ func GitHubSourceRoutes(key, folder string) ([]core.Route, error) {
 		repo, owner, seq = "github:*/*", "github:*", 30
 	}
 	observe := folder + "#observe"
-	rows := []core.Route{
-		{Seq: seq, Match: "chat_jid=" + repo + "/pr/* verb=mention", Target: folder},
-		{Seq: seq * 10, Match: "chat_jid=" + repo + "/pr/*", Target: observe},
-		{Seq: seq * 10, Match: "chat_jid=" + repo + "/issue/*", Target: observe},
-		{Seq: seq * 10, Match: "chat_jid=" + repo, Target: observe},
-	}
+	chats := []string{repo + "/pr/*", repo + "/issue/*", repo}
 	if owner != "" {
-		rows = append(rows, core.Route{Seq: seq * 10, Match: "chat_jid=" + owner, Target: observe})
+		chats = append(chats, owner)
+	}
+	rows := make([]core.Route, 0, 2*len(chats))
+	for _, chat := range chats {
+		rows = append(rows, core.Route{Seq: seq, Match: "chat_jid=" + chat + " verb=mention", Target: folder})
+	}
+	for _, chat := range chats {
+		rows = append(rows, core.Route{Seq: seq * 10, Match: "chat_jid=" + chat, Target: observe})
 	}
 	return rows, nil
 }

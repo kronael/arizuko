@@ -33,9 +33,19 @@ func TestExplicitAskPolicyRoutesOnlyEligibleRequests(t *testing.T) {
 		{"assigned PR bystander", "issue_comment", `"action":"created",` + assignedIssuePR + `,"comment":{"id":42,"body":"hello"}`, false},
 		{"assigned inline bystander", "pull_request_review_comment", `"action":"created",` + assigned("", botLogin) + `,"comment":{"id":42,"body":"hello"}`, false},
 		{"assigned review discussion", "pull_request_review", `"action":"submitted",` + assigned("", botLogin) + `,"review":{"id":7,"state":"commented","body":"hello"}`, false},
-		{"issue mention", "issue_comment", `"action":"created","issue":{"number":5},"comment":{"id":42,"body":"@arizuko-bot look"}`, false},
-		{"issue assignment", "issues", `"action":"assigned","assignee":{"login":"arizuko-bot"},` + issueAssigned(botLogin), false},
-		{"issue opened", "issues", `"action":"opened","issue":{"number":5,"body":"@arizuko-bot look"}`, false},
+		{"issue mention", "issue_comment", `"action":"created","issue":{"number":5},"comment":{"id":42,"body":"@arizuko-bot look"}`, true},
+		{"issue bystander", "issue_comment", `"action":"created","issue":{"number":5},"comment":{"id":42,"body":"hello"}`, false},
+		{"issue assignment to the bot", "issues", `"action":"assigned","assignee":{"login":"arizuko-bot"},` + issueAssigned(botLogin), true},
+		{"issue assignment to someone else", "issues", `"action":"assigned","assignee":{"login":"alice"},` + issueAssigned("alice"), false},
+		{"issue opened", "issues", `"action":"opened","issue":{"number":5,"body":"@arizuko-bot look"}`, true},
+		{"issue opened without the bot", "issues", `"action":"opened","issue":{"number":5,"body":"look"}`, false},
+		{"discussion mention", "discussion", `"action":"created","discussion":{"title":"t","body":"@arizuko-bot look"}`, true},
+		{"discussion comment mention", "discussion_comment", `"action":"created","discussion":{"title":"t"},"comment":{"id":42,"body":"@arizuko-bot look"}`, true},
+		{"commit comment mention", "commit_comment", `"action":"created","comment":{"id":42,"body":"@arizuko-bot look"}`, true},
+		{"commit comment", "commit_comment", `"action":"created","comment":{"id":42,"body":"look"}`, false},
+		{"push naming the bot", "push", `"ref":"refs/heads/x","commits":[{"id":"abc","message":"cc @arizuko-bot"}]`, true},
+		{"CI output naming the bot", "check_run", `"action":"completed","check_run":{"name":"ci","status":"completed","conclusion":"failure","output":{"text":"@arizuko-bot look"}}`, true},
+		{"CI output", "check_run", `"action":"completed","check_run":{"name":"ci","status":"completed","conclusion":"failure","output":{"text":"3 failed"}}`, false},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			msg, dropped, err := mapEvent(store.GitHubSourceRepo, "kronael/arizuko", scenario.event, "delivery", body(scenario.fields), fixedNow, botLogin)

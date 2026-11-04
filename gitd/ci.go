@@ -17,9 +17,28 @@ type ciRun struct {
 	Status       string `json:"status"`
 	Conclusion   string `json:"conclusion"`
 	HTMLURL      string `json:"html_url"`
+	DisplayTitle string `json:"display_title"`
+	Output       struct {
+		Title   string `json:"title"`
+		Summary string `json:"summary"`
+		Text    string `json:"text"`
+	} `json:"output"`
+	HeadCommit struct {
+		Message string `json:"message"`
+	} `json:"head_commit"`
 	PullRequests []struct {
 		Number int `json:"number"`
 	} `json:"pull_requests"`
+}
+
+func (r *ciRun) authored() string {
+	var parts []string
+	for _, part := range []string{r.DisplayTitle, r.HeadCommit.Message, r.Output.Title, r.Output.Summary, r.Output.Text} {
+		if strings.TrimSpace(part) != "" {
+			parts = append(parts, part)
+		}
+	}
+	return strings.Join(parts, "\n")
 }
 
 func (p *payload) ciRun(event string) (*ciRun, bool) {
@@ -35,8 +54,11 @@ func (p *payload) ciRun(event string) (*ciRun, bool) {
 }
 
 func (p *payload) ciParts(event string, run *ciRun) (location, string) {
-	return location{kind: event, url: run.HTMLURL},
-		fmt.Sprintf("%s %s: %s (%s)", event, p.Action, run.Name, run.Conclusion)
+	head := fmt.Sprintf("%s %s: %s (%s)", event, p.Action, run.Name, run.Conclusion)
+	if p.Action == "completed" {
+		head = withBody(head, run.authored())
+	}
+	return location{kind: event, url: run.HTMLURL}, head
 }
 
 func eventMessages(event string, body []byte, base chanlib.InboundMsg) ([]chanlib.InboundMsg, error) {
@@ -68,6 +90,9 @@ func eventMessages(event string, body []byte, base chanlib.InboundMsg) ([]chanli
 				return nil, errors.New("CI delivery exceeds ten PR associations")
 			}
 		}
+	}
+	if len(numbers) > 0 {
+		messages[0].Verb = event
 	}
 	j := p.repoJID()
 	for _, number := range numbers {

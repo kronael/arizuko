@@ -93,8 +93,16 @@ type payload struct {
 			Ref string `json:"ref"`
 		} `json:"base"`
 	} `json:"pull_request"`
-	Comment *comment `json:"comment"`
-	Review  *struct {
+	Comment    *comment `json:"comment"`
+	Discussion *struct {
+		Title   string `json:"title"`
+		Body    string `json:"body"`
+		HTMLURL string `json:"html_url"`
+	} `json:"discussion"`
+	StatusUpdate *struct {
+		Body string `json:"body"`
+	} `json:"projects_v2_status_update"`
+	Review *struct {
 		ID          int64  `json:"id"`
 		Body        string `json:"body"`
 		State       string `json:"state"`
@@ -183,11 +191,48 @@ func mentions(login, text string) bool {
 	return regexp.MustCompile(`(?i)(?:^|[^A-Za-z0-9])@` + regexp.QuoteMeta(login) + `(?:[^A-Za-z0-9-]|$)`).MatchString(text)
 }
 
-func speech(login, text string) string {
-	if mentions(login, text) {
-		return "mention"
+// authoredText is the text a person wrote with this delivery: what the action
+// created or changed, never the object it merely carries (a label event holds
+// the PR body too). A mention in it asks for a turn, whatever the event kind.
+func (p *payload) authoredText(event string) string {
+	written := p.Action == "created" || p.Action == "edited"
+	var parts []string
+	switch event {
+	case "push":
+		for _, c := range p.Commits {
+			parts = append(parts, c.Message)
+		}
+	case "issues":
+		if p.Issue != nil && (p.Action == "opened" || p.Action == "reopened" || p.Action == "edited") {
+			parts = append(parts, p.Issue.Title, p.Issue.Body)
+		}
+	case "pull_request":
+		if p.PullRequest != nil && (p.Action == "opened" || p.Action == "reopened" ||
+			p.Action == "ready_for_review" || p.Action == "edited") {
+			parts = append(parts, p.PullRequest.Title, p.PullRequest.Body)
+		}
+	case "pull_request_review":
+		if p.Review != nil && (p.Action == "submitted" || p.Action == "edited") {
+			parts = append(parts, p.Review.Body)
+		}
+	case "discussion":
+		if p.Discussion != nil && written {
+			parts = append(parts, p.Discussion.Title, p.Discussion.Body)
+		}
+	case "projects_v2_status_update":
+		if p.StatusUpdate != nil && written {
+			parts = append(parts, p.StatusUpdate.Body)
+		}
+	case "check_run", "check_suite", "workflow_run":
+		if run, _ := p.ciRun(event); run != nil && p.Action == "completed" {
+			parts = append(parts, run.authored())
+		}
+	default:
+		if p.Comment != nil && written {
+			parts = append(parts, p.Comment.Body)
+		}
 	}
-	return "message"
+	return strings.Join(parts, "\n")
 }
 
 func (a *account) hasLogin(login string) bool {
@@ -352,8 +397,10 @@ func mapEvent(kind, name, event, delivery string, body []byte, now time.Time, bo
 		jid.Kind, jid.Number = "issue", p.Issue.Number
 		loc.url = p.Issue.HTMLURL
 		head := fmt.Sprintf("%s issue #%d: %s", p.Action, p.Issue.Number, p.Issue.Title)
-		if p.Action == "opened" || p.Action == "reopened" {
-			msg.Verb = speech(botLogin, p.Issue.Body)
+		if p.Action == "opened" || p.Action == "reopened" || p.Action == "edited" {
+			if p.Action != "edited" {
+				msg.Verb = "message"
+			}
 			msg.Content = withBody(head, p.Issue.Body)
 		} else {
 			if p.Action == "assigned" && p.Assignee.hasLogin(botLogin) {
@@ -372,7 +419,7 @@ func mapEvent(kind, name, event, delivery string, body []byte, now time.Time, bo
 		head := fmt.Sprintf("%s PR #%d: %s (%s → %s)", p.Action, pr.Number, pr.Title, pr.Head.Ref, pr.Base.Ref)
 		switch {
 		case p.Action == "opened" || p.Action == "reopened" || p.Action == "ready_for_review" || p.Action == "edited":
-			msg.Verb = speech(botLogin, pr.Body)
+			msg.Verb = "message"
 			msg.Content = withBody(head, pr.Body)
 		case p.Action == "closed" && pr.Merged:
 			msg.Content = fmt.Sprintf("%s merged PR #%d: %s", login, pr.Number, pr.Title)
@@ -398,15 +445,12 @@ func mapEvent(kind, name, event, delivery string, body []byte, now time.Time, bo
 		if p.Action == "created" {
 			msg.ID = issueIDPrefix + strconv.FormatInt(p.Comment.ID, 10)
 			msg.Timestamp = parseTime(p.Comment.CreatedAt, now).Unix()
-			msg.Verb = speech(botLogin, p.Comment.Body)
+			msg.Verb = "message"
 			msg.Content = p.Comment.Body
 		} else {
 			msg.Content = fmt.Sprintf("%s %s a comment", login, p.Action)
 			if p.Action == "edited" {
 				msg.Timestamp = parseTime(p.Comment.UpdatedAt, now).Unix()
-				if mentions(botLogin, p.Comment.Body) {
-					msg.Verb = "mention"
-				}
 				msg.Content = withBody(msg.Content, p.Comment.Body)
 			}
 		}
@@ -425,15 +469,12 @@ func mapEvent(kind, name, event, delivery string, body []byte, now time.Time, bo
 			}
 			msg.ID = reviewIDPrefix + strconv.FormatInt(p.Comment.ID, 10)
 			msg.Timestamp = parseTime(p.Comment.CreatedAt, now).Unix()
-			msg.Verb = speech(botLogin, p.Comment.Body)
+			msg.Verb = "message"
 			msg.Content = p.Comment.Body
 		} else {
 			msg.Content = fmt.Sprintf("%s %s a review comment on %s", login, p.Action, p.Comment.Path)
 			if p.Action == "edited" {
 				msg.Timestamp = parseTime(p.Comment.UpdatedAt, now).Unix()
-				if mentions(botLogin, p.Comment.Body) {
-					msg.Verb = "mention"
-				}
 				msg.Content = withBody(msg.Content, p.Comment.Body)
 			}
 		}
@@ -452,7 +493,7 @@ func mapEvent(kind, name, event, delivery string, body []byte, now time.Time, bo
 		}
 		head := fmt.Sprintf("%s review (%s) on PR #%d", login, p.Review.State, p.PullRequest.Number)
 		if (p.Action == "submitted" || p.Action == "edited") && strings.TrimSpace(p.Review.Body) != "" {
-			msg.Verb = speech(botLogin, p.Review.Body)
+			msg.Verb = "message"
 			if p.Action == "submitted" {
 				conversationAuthor = p.PullRequest.User
 			}
@@ -463,7 +504,13 @@ func mapEvent(kind, name, event, delivery string, body []byte, now time.Time, bo
 		if p.Action != "" {
 			head += " " + p.Action
 		}
-		msg.Content = head
+		msg.Content = withBody(head, p.authoredText(event))
+		switch {
+		case p.Comment != nil:
+			loc.url = p.Comment.HTMLURL
+		case p.Discussion != nil:
+			loc.url = p.Discussion.HTMLURL
+		}
 	}
 	if isCI {
 		loc, msg.Content = p.ciParts(event, run)
@@ -471,12 +518,11 @@ func mapEvent(kind, name, event, delivery string, body []byte, now time.Time, bo
 	if p.PullRequest != nil && jid.Kind == "" {
 		jid.Kind, jid.Number = "pr", p.PullRequest.Number
 	}
-	if jid.Kind == "pr" {
-		if stateAction && (self || p.Sender.Type == "Bot") {
-			msg.Verb = event
-		}
-	} else if msg.Verb == "mention" {
-		msg.Verb = "message"
+	if mentions(botLogin, p.authoredText(event)) {
+		msg.Verb = "mention"
+	}
+	if jid.Kind == "pr" && stateAction && (self || p.Sender.Type == "Bot") {
+		msg.Verb = event
 	}
 	if !self && p.Sender.Type == "User" && conversationAuthor.hasLogin(botLogin) {
 		msg.Verb = "mention"

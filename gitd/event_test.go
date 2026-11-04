@@ -101,7 +101,7 @@ func TestMapEvent_TwoReposOneSecret(t *testing.T) {
 	if got := resolve(routes, a); got.Folder != "eng" || got.Mode != "" {
 		t.Errorf("arizuko comment resolved to %+v", got)
 	}
-	if got := resolve(routes, b); got.Folder != "eng" || got.Mode != "observe" {
+	if got := resolve(routes, b); got.Folder != "eng" || got.Mode != "" {
 		t.Errorf("crackbox comment resolved to %+v", got)
 	}
 	narrower, err := store.GitHubSourceRoutes("repo/kronael/crackbox", "ops")
@@ -109,8 +109,8 @@ func TestMapEvent_TwoReposOneSecret(t *testing.T) {
 		t.Fatal(err)
 	}
 	routes = append(routes, narrower...)
-	if got := resolve(routes, b); got.Folder != "ops" || got.Mode != "observe" {
-		t.Errorf("crackbox comment with a repo registration resolved to %+v, want ops#observe", got)
+	if got := resolve(routes, b); got.Folder != "ops" || got.Mode != "" {
+		t.Errorf("crackbox comment with a repo registration resolved to %+v, want ops", got)
 	}
 	if got := resolve(routes, a); got.Folder != "eng" {
 		t.Errorf("arizuko comment after crackbox registration resolved to %+v, want eng", got)
@@ -330,7 +330,7 @@ func TestMapEvent_VerbIsWhatTheEventIs(t *testing.T) {
 		{"PR assigned to someone else", "pull_request",
 			`"action":"assigned","assignee":{"login":"alice"},` + pr(""), "pull_request"},
 		{"issue assigned to the bot", "issues",
-			`"action":"assigned","assignee":{"login":"arizuko-bot"},"issue":{"number":9,"title":"t"}`, "message"},
+			`"action":"assigned","assignee":{"login":"arizuko-bot"},"issue":{"number":9,"title":"t"}`, "mention"},
 		{"issue assigned to someone else", "issues",
 			`"action":"assigned","assignee":{"login":"alice"},"issue":{"number":9,"title":"t"}`, "issues"},
 		{"PR unassigned from the bot", "pull_request",
@@ -342,7 +342,35 @@ func TestMapEvent_VerbIsWhatTheEventIs(t *testing.T) {
 		{"PR opened naming the bot", "pull_request", `"action":"opened",` + pr("cc @arizuko-bot please look"), "mention"},
 		{"PR opened naming a longer login", "pull_request", `"action":"opened",` + pr("cc @arizuko-bot2 please look"), "message"},
 		{"issue opened naming the bot", "issues",
-			`"action":"opened","issue":{"number":9,"title":"t","body":"@arizuko-bot ?"}`, "message"},
+			`"action":"opened","issue":{"number":9,"title":"t","body":"@arizuko-bot ?"}`, "mention"},
+		{"issue edited naming the bot", "issues",
+			`"action":"edited","issue":{"number":9,"title":"t","body":"@arizuko-bot ?"}`, "mention"},
+		{"issue comment naming the bot", "issue_comment",
+			`"action":"created","issue":{"number":9,"title":"t"},"comment":{"id":1,"body":"@arizuko-bot ?"}`, "mention"},
+		{"issue comment deleted naming the bot", "issue_comment",
+			`"action":"deleted","issue":{"number":9,"title":"t"},"comment":{"id":1,"body":"@arizuko-bot ?"}`, "issue_comment"},
+		{"discussion naming the bot", "discussion",
+			`"action":"created","discussion":{"title":"t","body":"@arizuko-bot ?"}`, "mention"},
+		{"discussion without the bot", "discussion",
+			`"action":"created","discussion":{"title":"t","body":"hello"}`, "discussion"},
+		{"discussion comment naming the bot", "discussion_comment",
+			`"action":"created","discussion":{"title":"t"},"comment":{"id":1,"body":"@arizuko-bot ?"}`, "mention"},
+		{"commit comment naming the bot", "commit_comment",
+			`"action":"created","comment":{"id":1,"body":"@arizuko-bot ?"}`, "mention"},
+		{"project status update naming the bot", "projects_v2_status_update",
+			`"action":"created","projects_v2_status_update":{"body":"@arizuko-bot ?"}`, "mention"},
+		{"push whose commit names the bot", "push",
+			`"ref":"refs/heads/x","commits":[{"id":"abc","message":"fix, cc @arizuko-bot"}]`, "mention"},
+		{"push without the bot", "push",
+			`"ref":"refs/heads/x","commits":[{"id":"abc","message":"fix"}]`, "push"},
+		{"check run output naming the bot", "check_run",
+			`"action":"completed","check_run":{"name":"ci","status":"completed","conclusion":"failure","output":{"summary":"@arizuko-bot look"}}`, "mention"},
+		{"workflow run naming the bot", "workflow_run",
+			`"action":"completed","workflow_run":{"name":"ci","status":"completed","conclusion":"failure","display_title":"@arizuko-bot look"}`, "mention"},
+		{"check run without the bot", "check_run",
+			`"action":"completed","check_run":{"name":"ci","status":"completed","conclusion":"failure","output":{"summary":"3 failed"}}`, "check_run"},
+		{"check run requested naming the bot", "check_run",
+			`"action":"created","check_run":{"name":"ci","status":"queued","output":{"summary":"@arizuko-bot look"}}`, "check_run"},
 		{"issue labeled naming the bot", "issues",
 			`"action":"labeled","issue":{"number":9,"title":"t","body":"@arizuko-bot ?"}`, "issues"},
 		{"comment", "issue_comment",
