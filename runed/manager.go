@@ -368,6 +368,9 @@ func (m *Manager) execute(
 				Error: "model gateway configured but this run carries no virtual key; routd mints one per turn (spec 6/23)",
 			}
 		}
+		if ipcDir, err := m.folders.IpcPath(string(req.Folder)); err == nil {
+			defer removeCodexStage(ipcDir)
+		}
 		var err error
 		turn, err = renderTurn(m.cfg, m.folders, req, handle, ttl)
 		if err != nil {

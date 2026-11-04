@@ -280,7 +280,7 @@ func TestBuildMountsOwnsTheGroupCodexDirBeforeDockerSeesIt(t *testing.T) {
 	cfg, folders := fhsConfig(t)
 	cfg.HostCodexDir = t.TempDir()
 
-	req := runedv1.RunRequest{Packages: []string{"core"}, Folder: "atlas/support"}
+	req := runedv1.RunRequest{Packages: []string{"core"}, Folder: "atlas/support", Codex: true}
 	groupDir := filepath.Join(cfg.GroupsDir, string(req.Folder))
 	os.MkdirAll(groupDir, 0o755)
 
@@ -361,69 +361,15 @@ func TestBuildMounts_DocsSubtreeWithoutWebPublish(t *testing.T) {
 	}
 }
 
-// The RO overmount hands the guest the HOST file's owner and mode, so an
-// operator's own ~/.codex at 0600 is unopenable by the agent's uid and codex
-// answers "not logged in" — a permission fault wearing an expired-login face.
-// The named set is the certain one: a group-readable file may be reachable
-// through a supplementary group, so it is not accused.
-func TestUnreadableCodexCredsNamesOnlyTheCertainCase(t *testing.T) {
-	me := os.Getuid()
-	other := me + 1
-
-	for _, tc := range []struct {
-		name string
-		mode os.FileMode
-		uid  int
-		want bool
-	}{
-		{"operator 0600, another uid", 0o600, other, true},
-		{"operator 0600, the owner", 0o600, me, false},
-		{"0644 world-readable", 0o644, other, false},
-		{"0640 group-readable, unknowable", 0o640, other, false},
-		{"0000 unopenable by its owner too", 0o000, me, true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			dir := t.TempDir()
-			for _, n := range container.CodexROMounts {
-				if err := os.WriteFile(filepath.Join(dir, n), []byte("{}"), tc.mode); err != nil {
-					t.Fatal(err)
-				}
-				if err := os.Chmod(filepath.Join(dir, n), tc.mode); err != nil {
-					t.Fatal(err)
-				}
-			}
-			got := unreadableCodexCreds(dir, tc.uid)
-			if (len(got) > 0) != tc.want {
-				t.Fatalf("named %v, want unreadable=%v", got, tc.want)
-			}
-			if tc.want && len(got) != len(container.CodexROMounts) {
-				t.Fatalf("named %d of %d credentials", len(got), len(container.CodexROMounts))
-			}
-		})
-	}
-}
-
-// An absent HOST_CODEX_DIR file is the mount's own failure to report; naming it
-// here would put a permission verdict on a file that has no permissions.
-func TestUnreadableCodexCredsIgnoresAbsent(t *testing.T) {
-	if got := unreadableCodexCreds(t.TempDir(), os.Getuid()+1); len(got) != 0 {
-		t.Fatalf("named %v for a directory holding no credentials", got)
-	}
-}
-
-// buildMounts mounts the credential either way — codex is optional and a turn
-// that refused over it would break every turn that never runs codex — so the
-// log is the whole surfacing. An unread emission is dead wiring, hence this.
-func TestBuildMountsSaysWhenCodexCredsAreUnreachable(t *testing.T) {
+// The group's .codex dir carries the rollouts `codex exec resume` reads, so it
+// mounts for every folder. The credential overmounts are the `codex` grant's:
+// they exist only when the request carries it, and the writable group dir must
+// come FIRST (bind mounts apply in list order).
+func TestBuildMountsCodexCredsFollowTheGrant(t *testing.T) {
 	cfg, folders := fhsConfig(t)
 	cfg.HostCodexDir = t.TempDir()
 	for _, n := range container.CodexROMounts {
-		p := filepath.Join(cfg.HostCodexDir, n)
-		if err := os.WriteFile(p, []byte("{}"), 0o600); err != nil {
-			t.Fatal(err)
-		}
-		// 0000: no uid but root can open it, and container.RunUID() is never root.
-		if err := os.Chmod(p, 0o000); err != nil {
+		if err := os.WriteFile(filepath.Join(cfg.HostCodexDir, n), []byte("{}"), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -433,52 +379,22 @@ func TestBuildMountsSaysWhenCodexCredsAreUnreachable(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	logged := captureWarnings(t)
-	mounts := mustBuildMounts(t, cfg, folders, req, core.GroupConfig{}, groupDir)
-
-	out := logged()
-	for _, n := range container.CodexROMounts {
-		if !strings.Contains(out, filepath.Join(cfg.HostCodexDir, n)) {
-			t.Errorf("%s unreadable and unnamed; log was: %s", n, out)
-		}
-	}
-	if !strings.Contains(out, "not logged in") {
-		t.Errorf("the log does not name the symptom the operator sees: %s", out)
-	}
-	if findMount(mounts, "/home/node/.codex/"+container.CodexROMounts[0]) == nil {
-		t.Error("the credential was dropped from the mount list; the log is the surfacing, not a skip")
-	}
-}
-
-// The group's .codex dir carries the rollouts `codex exec resume` reads, so it
-// mounts whether or not shared host credentials exist — a deployment that
-// authenticates with OPENAI_API_KEY still resumes. Only the credential
-// overmounts are conditional, and the writable group dir must come FIRST:
-// bind mounts apply in list order, so a file overmount ahead of its parent
-// would be shadowed.
-func TestBuildMountsCodexLayerOrderAndConditionality(t *testing.T) {
-	cfg, folders := fhsConfig(t)
-	req := runedv1.RunRequest{Packages: []string{"core"}, Folder: "atlas/support"}
-	groupDir := filepath.Join(cfg.GroupsDir, string(req.Folder))
-	if err := os.MkdirAll(groupDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	// No host credentials: the group dir mounts, the overmounts do not.
+	// HostCodexDir set, no grant: the group dir mounts, the overmounts do not.
 	mounts := mustBuildMounts(t, cfg, folders, req, core.GroupConfig{}, groupDir)
 	if m := findMount(mounts, "/home/node/.codex"); m == nil || m.RO {
 		t.Fatalf("group .codex mount missing or read-only (%+v) — rollouts would die with the guest", m)
 	}
 	for _, n := range container.CodexROMounts {
 		if findMount(mounts, "/home/node/.codex/"+n) != nil {
-			t.Errorf("credential overmount %s must stay gated on HostCodexDir", n)
+			t.Errorf("credential %s mounted without the codex grant", n)
 		}
 	}
 
-	// With host credentials: both overmount RO, after the group dir.
-	cfg.HostCodexDir = "/host/codex"
+	// Granted: both overmount RO, after the group dir, as a copy the run uid owns.
+	req.Codex = true
 	mounts = mustBuildMounts(t, cfg, folders, req, core.GroupConfig{}, groupDir)
 	dir := indexOfMount(mounts, "/home/node/.codex")
+	uid, _ := container.RunUID()
 	for _, n := range container.CodexROMounts {
 		i := indexOfMount(mounts, "/home/node/.codex/"+n)
 		if i < 0 {
@@ -487,11 +403,33 @@ func TestBuildMountsCodexLayerOrderAndConditionality(t *testing.T) {
 		if !mounts[i].RO {
 			t.Errorf("overmount %s is writable; a shared credential is read-only", n)
 		}
-		if mounts[i].Host != "/host/codex/"+n {
-			t.Errorf("overmount %s binds %q, want /host/codex/%s", n, mounts[i].Host, n)
+		if mounts[i].Host == filepath.Join(cfg.HostCodexDir, n) {
+			t.Errorf("overmount %s binds the operator's own file", n)
+		}
+		fi, err := os.Stat(mounts[i].Host)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := int(fi.Sys().(*syscall.Stat_t).Uid); got != uid {
+			t.Errorf("staged %s owner = %d, want run uid %d", n, got, uid)
+		}
+		if fi.Mode().Perm()&0o400 == 0 {
+			t.Errorf("staged %s mode %v is not readable by its owner", n, fi.Mode().Perm())
 		}
 		if dir > i {
 			t.Errorf("the group .codex dir (%d) must precede the %s overmount (%d)", dir, n, i)
+		}
+	}
+
+	// The turn's end removes the copies; the operator's files stay.
+	ipcDir, _ := folders.IpcPath(string(req.Folder))
+	removeCodexStage(ipcDir)
+	for _, n := range container.CodexROMounts {
+		if _, err := os.Stat(filepath.Join(ipcDir, codexStagePrefix+n)); !os.IsNotExist(err) {
+			t.Errorf("staged %s survives the turn (err=%v)", n, err)
+		}
+		if _, err := os.Stat(filepath.Join(cfg.HostCodexDir, n)); err != nil {
+			t.Errorf("operator file %s gone: %v", n, err)
 		}
 	}
 }

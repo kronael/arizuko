@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 
 	"github.com/kronael/arizuko/container"
 	"github.com/kronael/arizuko/core"
@@ -171,21 +170,10 @@ func buildMounts(
 	groupCodex := filepath.Join(groupDir, ".codex")
 	mkMountSource(groupCodex)
 	m = append(m, core.Mount{Host: groupCodex, Container: core.ContainerHome + "/.codex"})
-	if cfg.HostCodexDir != "" {
+	// The host login is lent only to a folder holding the `codex` grant.
+	if cfg.HostCodexDir != "" && req.Codex {
 		container.SeedCodexMountTargets(groupCodex)
-		runUID, _ := container.RunUID()
-		for _, p := range unreadableCodexCreds(cfg.HostCodexDir, runUID) {
-			slog.Error("codex credential not readable by the agent's uid — codex in "+
-				"the guest will report 'not logged in'; grant that uid read on it",
-				"path", p, "uid", runUID)
-		}
-		for _, name := range container.CodexROMounts {
-			m = append(m, core.Mount{
-				Host:      filepath.Join(cfg.HostCodexDir, name),
-				Container: core.ContainerHome + "/.codex/" + name,
-				RO:        true,
-			})
-		}
+		m = append(m, stageCodexCreds(cfg.HostCodexDir, ipcDir)...)
 	}
 
 	if len(gc.Mounts) > 0 {
@@ -298,37 +286,52 @@ func mkSlot(dir string) {
 	}
 }
 
-// unreadableCodexCreds names the shared codex credentials that the agent's uid
-// certainly cannot open. The RO overmount carries the HOST file's owner and
-// mode into the guest, and `HOST_CODEX_DIR` is normally an operator's own
-// ~/.codex at mode 0600, so the agent's uid gets EACCES on a file the substrate
-// mounted successfully. codex then says "not logged in", which reads as an
-// expired login and is a permission fault on the host.
-//
-// Only the certain case is named. A file the uid owns with the user-read bit,
-// or one carrying the world-read bit, is reachable. A group-readable file may
-// be reachable through a supplementary group this process cannot enumerate, so
-// it is left alone: a wrong accusation here would train the operator to ignore
-// the line that matters.
-func unreadableCodexCreds(hostCodexDir string, uid int) []string {
-	var out []string
+// codexStagePrefix names the per-turn copies of the host codex credentials in
+// the folder's ipc dir. removeCodexStage deletes them when the turn ends.
+const codexStagePrefix = "codex-cred-"
+
+// stageCodexCreds copies each host codex credential file into ipcDir, owned by
+// the agent's uid at mode 0400, and returns the RO mounts over ~/.codex. The
+// host files are an operator's own 0600 files; the guest uid cannot open them,
+// and widening them would touch the operator's home. A file that is absent is
+// skipped (codex reads what exists); one that cannot be staged is named in the
+// log and left out, because a mount the uid cannot read reads as "not logged in".
+func stageCodexCreds(hostCodexDir, ipcDir string) []core.Mount {
+	uid, _ := container.RunUID()
+	var out []core.Mount
 	for _, name := range container.CodexROMounts {
-		p := filepath.Join(hostCodexDir, name)
-		fi, err := os.Stat(p)
+		data, err := os.ReadFile(filepath.Join(hostCodexDir, name))
+		if os.IsNotExist(err) {
+			continue
+		}
+		dst := filepath.Join(ipcDir, codexStagePrefix+name)
+		if err == nil {
+			_ = os.Remove(dst)
+			err = os.WriteFile(dst, data, 0o400)
+		}
+		if err == nil {
+			err = os.Chown(dst, uid, uid)
+		}
 		if err != nil {
-			continue // absent is the mount's own failure to report, not this one
-		}
-		st, ok := fi.Sys().(*syscall.Stat_t)
-		if !ok {
+			_ = os.Remove(dst)
+			slog.Error("codex credential not staged for the agent; codex in the guest will report 'not logged in'",
+				"file", name, "uid", uid, "err", err)
 			continue
 		}
-		mode := fi.Mode().Perm()
-		if mode&0o044 != 0 || (int(st.Uid) == uid && mode&0o400 != 0) {
-			continue
-		}
-		out = append(out, p)
+		out = append(out, core.Mount{
+			Host:      dst,
+			Container: core.ContainerHome + "/.codex/" + name,
+			RO:        true,
+		})
 	}
 	return out
+}
+
+// removeCodexStage deletes the staged credential copies of one folder's turn.
+func removeCodexStage(ipcDir string) {
+	for _, name := range container.CodexROMounts {
+		_ = os.Remove(filepath.Join(ipcDir, codexStagePrefix+name))
+	}
 }
 
 // mkMountSource creates a mount's host side. A failure is named and not fatal

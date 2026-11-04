@@ -115,7 +115,7 @@ func EffectAllowed(effect string) bool {
 
 func ACLActionChoices() []string {
 	return []string{
-		"admin", "*", "interact", "egress", "web:publish", "gh:write",
+		"admin", "*", "interact", "egress", "web:publish", "gh:write", "codex",
 		"mcp:*", ShellEnvPrefix + "*", HoldPrefix + "*",
 	}
 }

@@ -60,7 +60,10 @@ type RunRequest struct {
 	// GHWrite lets the agent make the GitHub writes ant's gh gate refuses by
 	// default — approving, merging, opening a pull request, cutting a release.
 	// The gate is defence in depth either way: the token's own scope is the lock.
-	GHWrite         bool     `json:"gh_write,omitempty"`
+	GHWrite bool `json:"gh_write,omitempty"`
+	// Codex lends the host's Codex login (HOST_CODEX_DIR) to this turn; it
+	// holds when the folder holds the `codex` grant.
+	Codex           bool     `json:"codex,omitempty"`
 	EgressAllowlist []string `json:"egress_allowlist,omitempty"`
 	// Secrets is the trigger user's own MODEL credentials (store.EnvProfileKeys),
 	// resolved + DECRYPTED by routd (it holds SECRETS_KEY; runed has no store).

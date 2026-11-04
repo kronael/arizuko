@@ -107,3 +107,24 @@ func TestDispatchLogsGrantedWebPublish(t *testing.T) {
 		t.Errorf("capability log did not follow the grant.\nlog: %s", out)
 	}
 }
+
+// The `codex` grant is the only thing that lends the host's Codex login to a
+// turn: dispatch must carry it as RunRequest.Codex, and only when held.
+func TestDispatchResolvesCodexGrant(t *testing.T) {
+	for _, granted := range []bool{false, true} {
+		db, err := OpenMem()
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = db.PutGroup(core.Group{Folder: "demo"})
+		if granted {
+			if err := grantACL(db, core.ACLRow{Principal: "folder:demo", Scope: "demo", Action: "codex", GrantedBy: "test"}); err != nil {
+				t.Fatalf("grant: %v", err)
+			}
+		}
+		if got := dispatchOnce(t, db).Codex; got != granted {
+			t.Errorf("granted=%v: RunRequest.Codex=%v", granted, got)
+		}
+		db.Close()
+	}
+}
