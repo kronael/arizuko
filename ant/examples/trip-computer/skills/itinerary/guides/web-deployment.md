@@ -51,7 +51,7 @@ border-left: 4px solid var(--accent);
 ```
 
 **Styling:**
-- ALWAYS use `/assets/hub-lavender.css`
+- ALWAYS use `/pub/<folder>/<site>/assets/hub-lavender.css` + `/pub/<folder>/<site>/assets/hub.js` (rules: the site's `CLAUDE.md` § Web style)
 - NEVER inline styles except minimal layout (nav flex, spacing)
 - Clean titles (NO unnecessary suffixes)
 
@@ -62,7 +62,7 @@ border-left: 4px solid var(--accent);
 <html lang="en">
 <head>
   <title>Page Title</title>
-  <link rel="stylesheet" href="/assets/hub-lavender.css">
+  <link rel="stylesheet" href="/pub/<folder>/<site>/assets/hub-lavender.css">
 </head>
 <body>
   <a href="index.html" class="back-btn">&larr; overview</a>
@@ -81,7 +81,7 @@ border-left: 4px solid var(--accent);
     <!-- Content -->
   </div>
 
-  <script src="/assets/hub.js"></script>
+  <script src="/pub/<folder>/<site>/assets/hub.js"></script>
 </body>
 </html>
 ```
