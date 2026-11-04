@@ -13,6 +13,16 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.73.2] — 2026-11-04
+
+> arizuko v0.73.2 — Company Brain leaves the persona alone
+>
+> Installing Company Brain on an existing group no longer replaces that group's persona.
+>
+> • Company Brain — ships skills and their config example only; the group keeps its own `PERSONA.md`.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
 ## [v0.73.1] — 2026-11-04
 
 > arizuko v0.73.1 — Company Brain and Trip Computer
