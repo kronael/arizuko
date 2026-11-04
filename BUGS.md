@@ -296,8 +296,9 @@ reads those words now.
 
 **Found by the per-group machine spec (2026-10-23).**
 
-- `L537` — PROPOSED: each group sizes its own guest with `cap:<name>=<value>`
-  rows (spec `6/51`); six questions in the spec, the port change first.
+- `L537` — DECIDED: each group sizes its own guest with `mem`, `smp` and
+  `timeout` keys in `container_config` (`specs/9/20-group-machine-size.md`);
+  waits for a measured group that needs more than 2 GB or 2 vCPUs.
 - `L538` — routd reads the guest capabilities through the action lattice, so
   every onboarded world's agent gets a read-only share: exact match, and
   delete `share_mount(readonly)`?
@@ -1503,32 +1504,25 @@ Costs:
 
 - **Status:** open — needs sign-off (API contract and routing order).
 
-## L537 — PROPOSED: each group sizes its own guest with `cap:` grant rows (spec `6/51`) (2026-10-23, open — needs sign-off)
+## L537 — each group sizes its own guest with `container_config` keys (`specs/9/20-group-machine-size.md`) (2026-10-23, open — waits on a measurement)
 
 The owner (2026-10-23): each group is its own machine, with an instance
 default and limits the operator sets. Today every guest on an instance has one
 size from env (`RUNED_GUEST_MEM` 2G and `RUNED_GUEST_SMP` 2,
-`runed/qemuhost.go:129-130`). The one per-group knob, `container_config.Timeout`,
-has no effect on krons or sloth: neither sets `RUNED_RUN_TIMEOUT`,
-`CONTAINER_TIMEOUT` or `IDLE_TIMEOUT` (read 2026-10-23), so `turnTTL`
-(`runed/manager.go:381-401`) floors every ceiling at 60m30s and then returns
-the 20m run ceiling. The host check counts one instance (`L513`).
+`runed/qemuhost.go:129-130`), and the host check counts one instance (`L513`).
 
-`specs/6/51-group-machine-caps.md` proposes `acl` rows `cap:<name>=<value>`
-named after the QEMU or `guest-init` setting they change (`m`, `smp`,
-`timeout`, `upper`, `shm`), resolved by routd in the one read that also
-resolves `egress`, `web:publish` and `gh:write`; a new `runed.Turn.Machine`
-field (the port change); and a per-turn `MemAvailable` check in place of
-`memoryFits`, which closes `L513`. It deletes the three dead deadline inputs.
+Decided 2026-11-04: the size is three keys in the group's `container_config`
+(`mem`, `smp`, `timeout`), which only the operator writes, with the overlay
+upper and `/dev/shm` derived from `mem` and a per-turn `MemAvailable` check in
+place of `memoryFits`. Not a grant: the `cap:` acl-row draft is dropped.
 
 - **Severity:** medium — one guest size for every group, and a host check that
   two instances pass together while the host swaps.
-- **Options:** (a) the spec's `acl` rows; (b) fields on `container_config` —
-  the spec's §"Why not the other shapes" says why not.
-- **Default if nothing is decided:** spec step 1 only, done — deleted
-  `CONTAINER_TIMEOUT`, `IDLE_TIMEOUT` and `GroupConfig.Timeout`, which changes
-  no turn on either instance.
-- **Status:** open — needs sign-off on the six questions in the spec.
+- **Trigger:** a measured group that needs more than 2 GB or 2 vCPUs. Spec
+  step 1 is done (`0cd176327`): the deadline is `RUNED_RUN_TIMEOUT` alone. The
+  build waits on `L656` and on the spec's open question 1 (`runed.Turn` gains
+  `Mem` and `CPUs`).
+- **Status:** open — waits on the trigger.
 
 ## L538 — routd reads the guest capabilities through the action lattice, so `admin` or `mcp:*` makes a folder's share read-only (2026-10-23, open — needs sign-off)
 
@@ -1557,9 +1551,10 @@ sloth was not read.
   share; latent on krons.
 - **Fix:** read the four by exact match, `namespacedAllows`
   (`auth/authorize.go:619`), as `ShellEnvKeys` and `CheckHold` do, and delete
-  `share_mount(readonly)`, which no row on krons uses — spec `6/51` step 2.
-- **Test:** none yet. Every store test needs docker, which this host's user
-  cannot reach without sudo; spec `6/51` step 2 names the test.
+  `share_mount(readonly)`, which no row on krons uses.
+- **Test:** none yet. A folder holding `admin`, one holding `mcp:*` and one
+  holding `*` each resolve `egress`, `web:publish` and `gh:write` false with a
+  writable share; an explicit row resolves true; a deny wins.
 - **Status:** open — needs sign-off (an auth change).
 
 ## L540 — dashd's grant form and `POST /v1/acl` write rows without `auth.Delegate` (2026-10-23, open — needs sign-off)
@@ -1582,8 +1577,7 @@ it holds WITH GRANT OPTION. Exposure: no onboarded world on krons (listing of
 - **Options:** (a) both doors run `auth.Delegate` for a writer that is not
   root, as `add_acl` does; (b) `5/33` states that a folder `admin` may grant
   any row inside its subtree, and both doors stay.
-- **Default if nothing is decided:** both doors stay as they are; spec `6/51`
-  step 6 (caps take effect) waits for the answer.
+- **Default if nothing is decided:** both doors stay as they are.
 - **Status:** open — needs sign-off (an auth change).
 
 ## L570 — a message that arrives during a turn never reaches that turn (2026-10-24, open — needs sign-off)

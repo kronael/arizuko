@@ -10,10 +10,11 @@ Phase 9 opened in 2026-05 as a three-action platform program: MCP+REST
 unification, data-model sharpening, and git-as-truth. Two of the three have
 since resolved elsewhere, and what remains is the data model itself.
 
-| Spec                                                       | Status | Hook                                                                                                                                          |
-| ---------------------------------------------------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| [2-data-model.md](2-data-model.md)                         | draft  | the cold / warm / hot tier model — the vocabulary `CLAUDE.md` and `specs/CLAUDE.md` lean on for "every cold-tier entity is a resreg resource" |
-| [7-configurable-autocalls.md](7-configurable-autocalls.md) | draft  | operator-extensible `<autocalls>`: a DB-backed resreg resource layered over the four builtins, with two bounded kinds (`template`, `query`)   |
+| Spec                                                       | Status | Hook                                                                                                                                                                                                                                          |
+| ---------------------------------------------------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [2-data-model.md](2-data-model.md)                         | draft  | the cold / warm / hot tier model — the vocabulary `CLAUDE.md` and `specs/CLAUDE.md` lean on for "every cold-tier entity is a resreg resource"                                                                                                 |
+| [7-configurable-autocalls.md](7-configurable-autocalls.md) | draft  | operator-extensible `<autocalls>`: a DB-backed resreg resource layered over the four builtins, with two bounded kinds (`template`, `query`)                                                                                                   |
+| [20-group-machine-size.md](20-group-machine-size.md)       | draft  | each group sizes its own guest with `mem`, `smp` and `timeout` keys in its `container_config`, tmpfs derived from `mem`, the host check per turn against `MemAvailable` (`L513`); build when a measured group needs more than 2 GB or 2 vCPUs |
 
 ## Where the other two actions went
 

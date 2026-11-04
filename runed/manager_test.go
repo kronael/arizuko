@@ -227,7 +227,7 @@ func TestRunTTLBecomesTheCtxDeadline(t *testing.T) {
 
 // TestTurnTTLIsTheRunTimeout pins the one deadline: RUNED_RUN_TIMEOUT. A
 // container_config Timeout, left in a group's row by an older release, does not
-// move it (spec 6/51).
+// move it (specs/9/20-group-machine-size.md).
 func TestTurnTTLIsTheRunTimeout(t *testing.T) {
 	m := &Manager{runTTL: 20 * time.Minute, cfg: &core.Config{}}
 	for _, cc := range []map[string]any{nil, {"Timeout": int64(5 * time.Minute)}, {"Timeout": int64(3 * time.Hour)}} {

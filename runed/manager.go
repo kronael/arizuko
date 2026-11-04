@@ -386,7 +386,7 @@ func (m *Manager) execute(
 }
 
 // turnTTL is the one deadline: the run ceiling, RUNED_RUN_TIMEOUT. A group's
-// container_config carries no timeout (spec 6/51).
+// container_config carries no timeout (specs/9/20-group-machine-size.md).
 func (m *Manager) turnTTL(runedv1.RunRequest) time.Duration { return m.runTTL }
 
 // endRun clears the steer callback and updates the breaker counter. Returns
