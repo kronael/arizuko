@@ -13,6 +13,18 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.74.0] — 2026-11-04
+
+> arizuko v0.74.0 — packages from anywhere, docs everywhere
+>
+> A package installs by name, path, Git URL or `.tgz` archive, every instance carries the operator docs, and a removed service no longer stops an instance from starting.
+>
+> • Packages — `catalog:<name>` installs products too; a local or remote `.tgz` installs with its sha256 as the revision.
+> • Docs — every instance serves the operator docs at `/pub/arizuko/`, and the `arizuko` skill falls back to the public docs and the source on GitHub.
+> • Start — a service fragment deleted by hand no longer breaks the next start; `arizuko package rm` is the way to remove one.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
 - `arizuko package add`: one source resolver. `catalog:<name>` also installs a product from `ant/examples` (a name in both places is an error); a `.tgz` archive, local or http(s), installs with its sha256 as the revision.
 
 ## [v0.73.2] — 2026-11-04
