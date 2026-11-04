@@ -13,6 +13,17 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.72.8] — 2026-11-04
+
+> arizuko v0.72.8 — tasks that cannot strand, Codex by grant
+>
+> The scheduler alone sets a task's next run, an agent can move it, and a folder gets the host Codex login only through a grant.
+>
+> • Tasks — routd fills a missing `next_run` from the cron and re-arms after each run; `reschedule_task` lets an agent or operator move it.
+> • Codex — `arizuko group grant folder:<f> <f> codex` lends the host Codex login to that folder as a copy its uid can read.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
 - Tasks — the scheduler alone fills `next_run`: `DueTasks` gives an active cron task without one the cron's first instant, and routd computes the run after each fire. A cron that will not parse sets the task to `error`.
 - Tasks — an active row with a cron and no `next_run` (the old BUGS L74 state, dead since it was written) is now filled and starts firing; an active row with neither a cron nor a `next_run` is set to `error`. `schedule_task` requires `cron`.
 - Tasks — `reschedule_task` moves a task's next run (agent face of `PATCH /v1/tasks/{taskId}`); a job that calls it in its own turn keeps its time.
