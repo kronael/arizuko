@@ -15,7 +15,6 @@
 
 ## What needs you
 
-- `L652` — engagement answers a group reply addressed to another person; fix queued (routd predicate + core skill line).
 - `L650` — an `extenddb` reached 10 GB and was OOM-killed; the host reset 8 times on 11-03; cause unmeasured.
 - `L647` — weekly memory rollups missing on alternate Mondays (W40, W42 in every active krons group); cause unmeasured, spawn rows gone.
 - `L644` — krons token hit its monthly spend limit; choose a token with budget.
@@ -423,7 +422,7 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
   hits, 56 under `-test`; nine survived verification and were filed separately. Kept so
   the next sweep does not re-report the same ~135.
 
-## L652 — engagement answers a group message that a person addressed to another person (2026-11-04, open)
+## ✅ FIXED 2026-11-04 657f08ae4 L652 — engagement answers a group message that a person addressed to another person (2026-11-04)
 
 MEASURED on sloth, Discord `#main` thread `1567216206165970985`: kronael's
 message at 2026-11-04T16:42:03Z is `verb=message` with
