@@ -13,6 +13,17 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.72.7] — 2026-11-04
+
+> arizuko v0.72.7 — every GitHub mention reaches the agent
+>
+> A person's `@<bot>` anywhere on GitHub now starts a turn, not only on a pull request.
+>
+> • GitHub — a mention in an issue, discussion, commit comment, push, project update or CI output starts a turn; CI and pushes without one stay observations.
+> • Routes — a new GitHub source gets a mention trigger for every chat level; an existing source needs two route rows (see `gitd/README.md`).
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
 - **GitHub mentions start a turn everywhere.** An `@<bot>` written by a person on an issue, discussion, commit comment, push, project status update or CI output now starts a turn, as on a PR. `store.GitHubSourceRoutes` seeds a mention trigger for every chat level. A source registered earlier needs the `issue/*` and repository mention rows added with `arizuko route add` (`gitd/README.md`). (L651)
 
 ## [v0.72.6] — 2026-11-03
