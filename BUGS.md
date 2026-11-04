@@ -17,7 +17,6 @@
 
 - `L655` — products as full packages (`catalog:<name>`) and persona layering (`PERSONA.local.md`); proposal, needs sign-off.
 - `L654` — the `arizuko` skill's docs exist only on krons; fix queued (install docs in every instance).
-- `L653` — removing a service fragment by hand breaks the next start; fix queued.
 - `L650` — an `extenddb` reached 10 GB and was OOM-killed; the host reset 8 times on 11-03; cause unmeasured.
 - `L647` — weekly memory rollups missing on alternate Mondays (W40, W42 in every active krons group); cause unmeasured, spawn rows gone.
 - `L644` — krons token hit its monthly spend limit; choose a token with budget.
@@ -455,7 +454,7 @@ krons has them only through the manual `cp` in `template/web/CLAUDE.md`.
 Fix: the release installs the docs into every instance's `web/pub/arizuko`
 (one installer, e.g. `generate`), and the runed comment states it.
 
-## L653 — removing a service fragment leaves the instance unable to start (2026-11-04, open)
+## ✅ FIXED 2026-11-04 43e8e0526 L653 — removing a service fragment leaves the instance unable to start (2026-11-04)
 
 MEASURED on sloth 19:40-19:49: after `services/teled-jynx.yml` was removed,
 every start failed `open .../services/teled-jynx.yml: no such file`. The unit's
@@ -463,9 +462,9 @@ first step is `docker compose -f docker-compose.yml down`, which reads the
 generated file that still `include`s the fragment; `arizuko generate` (which
 would drop it) runs later and itself needs the store, which cannot start
 from the broken compose file. Recovered by deleting the include line by hand.
-Fix: removing a fragment goes through one command that regenerates the
-compose file (`package rm` for catalog fragments), or the unit tolerates a
-missing include in its `down` step.
+Fixed: the generated `include:` marks every fragment `required: false`, so a
+deleted fragment stops nothing (compose 2.33 measured on the host); `package rm`
+already deletes the file and regenerates, and the CLI README says to use it.
 
 ## ✅ FIXED 2026-11-04 657f08ae4 L652 — engagement answers a group message that a person addressed to another person (2026-11-04)
 
