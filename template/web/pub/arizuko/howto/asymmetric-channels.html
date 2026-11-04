@@ -83,7 +83,7 @@
 10   platform=telegram room=group/5229089286         rhias/nemo
 20   platform=whatsapp room=120363012345678901@g.us  rhias/nemo#observe</code></pre>
     <p>The team talks on Telegram. The messages of the WhatsApp group go into the <code>rhias/nemo</code> folder as <code>&lt;observed&gt;</code> entries, and the agent never replies on WhatsApp. When a WhatsApp message is important, the agent posts to Telegram with a one-line source note.</p>
-    <p>The <a href="../products/cz-reality/">cz-reality product</a> uses this setup as a case study. This page gives the general recipe.</p>
+    <p>The <a href="../products/reality/">reality product</a> uses this setup as a case study. This page gives the general recipe.</p>
 
     <h2>A rule in CLAUDE.md adds a second layer</h2>
     <p>The route mode is the enforcement: <code>routd</code> never starts a turn for an observed message. If you also want a rule that the agent itself reads, add it to the <code>CLAUDE.md</code> of the folder:</p>
@@ -107,7 +107,7 @@ Observed WhatsApp posts give context; the response goes on Telegram.</code></pre
       <dt><a href="../concepts/routing.html#modes">routing modes</a></dt><dd>All target fragments.</dd>
       <dt><a href="../reference/schema.html">schema reference</a></dt><dd>The fields of a route, also the <code>observe_window_*</code> overrides.</dd>
       <dt><a href="../reference/env.html#OBSERVE_WINDOW_MESSAGES">OBSERVE_WINDOW_MESSAGES</a> and <a href="../reference/env.html#OBSERVE_WINDOW_CHARS">OBSERVE_WINDOW_CHARS</a></dt><dd>The defaults for the instance.</dd>
-      <dt><a href="../products/cz-reality/">cz-reality product</a></dt><dd>The Nemo deployment.</dd>
+      <dt><a href="../products/reality/">reality product</a></dt><dd>The Nemo deployment.</dd>
     </dl>
 
 
@@ -117,7 +117,7 @@ Observed WhatsApp posts give context; the response goes on Telegram.</code></pre
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/howto/asymmetric-channels.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-21">2026-10-21</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-04">2026-11-04</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

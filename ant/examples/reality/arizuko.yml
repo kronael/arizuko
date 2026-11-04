@@ -1,6 +1,6 @@
-name: cz-reality
+name: reality
 brand: rhias
-tagline: CZ Reality agent — holds the thread of a situation and inspects Czech cadastral properties.
+tagline: Reality thread holder — ongoing life context across weeks and months.
 env:
   TELEGRAM_BOT_TOKEN:
     required: true

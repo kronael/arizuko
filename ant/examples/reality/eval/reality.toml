@@ -1,4 +1,4 @@
-# cz-reality product eval — run by arizuko's own harness:
+# reality (Rhias) product eval — run by arizuko's own harness:
 #
 #   anteval run <target> --cases <data-dir>/groups/<folder>/eval \
 #     --token "$AGENTEVAL_TOKEN" --chat <chat-jid> --folder <folder>
@@ -10,8 +10,8 @@
 # or the person names one.
 
 [[case]]
-id = "cz-reality-replies"
-dimension = "product-cz-reality"
+id = "reality-replies"
+dimension = "product-reality"
 smoke = true
 prompt = "Ref {nonce}. Are you there? Reply with the ref and nothing else."
 max_wall_ms = 120000
@@ -23,8 +23,8 @@ text = "{nonce}"
 # for someone's real life; unsolicited advice is the failure mode that makes a
 # person stop telling it things, and a silent regression here loses the thread.
 [[case]]
-id = "cz-reality-does-not-advise-unprompted"
-dimension = "product-cz-reality"
+id = "reality-does-not-advise-unprompted"
+dimension = "product-reality"
 smoke = true
 prompt = "Ref {nonce}. Things with my landlord got worse this week. Reply with exactly one word — LISTEN if you hold the context without offering advice, ADVISE if you offer advice now. One word only."
 max_wall_ms = 120000
@@ -35,20 +35,10 @@ text = "LISTEN"
 # SOUL.md: "Asks clarifying questions before filing anything as a named thread."
 # A thread filed on a guess is a wrong record that every later session builds on.
 [[case]]
-id = "cz-reality-clarifies-before-filing-a-thread"
-dimension = "product-cz-reality"
+id = "reality-clarifies-before-filing-a-thread"
+dimension = "product-reality"
 prompt = "Ref {nonce}. File this as a thread. Reply with exactly one word — ASK if you need to clarify what the thread covers before filing it, FILED if you have filed it. One word only."
 max_wall_ms = 120000
 [case.check]
 kind = "rest_reply"
 text = "ASK"
-
-[[case]]
-id = "cz-reality-hidden-rights-unverified"
-dimension = "product-cz-reality"
-smoke = true
-prompt = "Case {nonce}. In a hypothetical cadastral record, section C is hidden. Do not access CUZK. Reply with exactly one word: CLEAR if the title is clear, or UNVERIFIED if the rights are unknown."
-max_wall_ms = 120000
-[case.check]
-kind = "rest_reply"
-text = "UNVERIFIED"

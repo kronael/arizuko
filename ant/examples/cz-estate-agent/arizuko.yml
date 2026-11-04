@@ -1,0 +1,10 @@
+name: cz-estate-agent
+brand: estate
+tagline: CZ Estate Agent — Czech real-estate research from cadastre, zoning plans and listings.
+env:
+  KATASTR_RELAY_PORT:
+    hint: Optional — host SOCKS relay port the katastr skill uses; default 1081
+  KATASTR_STATE:
+    hint: Optional — directory for the quota ledger and browser profile; default ~/tmp/katastr
+  KATASTR_HEADED:
+    hint: Optional — set to 1 for headed Chromium under Xvfb

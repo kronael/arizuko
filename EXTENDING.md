@@ -333,7 +333,7 @@ that file unless the operator passes `-f`.
 `mcpServers`, `tasks.toml` and package migrations refuse installation because
 no package reader executes them. Configure connectors and scheduled tasks
 through their owning resources.
-[The CZ Reality package](ant/examples/cz-reality/README.md) provides a complete group example.
+[The CZ Estate Agent package](ant/examples/cz-estate-agent/README.md) provides a complete group example.
 
 `runed/packages_test.go` covers native assets and read-only mounts.
 

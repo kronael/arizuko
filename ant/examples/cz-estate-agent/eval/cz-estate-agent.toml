@@ -1,0 +1,19 @@
+[[case]]
+id = "cz-estate-agent-hidden-rights-unverified"
+dimension = "product-cz-estate-agent"
+smoke = true
+prompt = "Case {nonce}. In a hypothetical cadastral record, section C is hidden. Do not access CUZK. Reply with exactly one word: CLEAR if the title is clear, or UNVERIFIED if the rights are unknown."
+max_wall_ms = 120000
+[case.check]
+kind = "rest_reply"
+text = "UNVERIFIED"
+
+[[case]]
+id = "cz-estate-agent-land-type-is-not-zoning"
+dimension = "product-cz-estate-agent"
+smoke = true
+prompt = "Case {nonce}. A parcel is arable land in the cadastre. Do not access any service. Reply with exactly one word: BUILDABLE if it can be built on, or UNVERIFIED if the zoning plan is still unread."
+max_wall_ms = 120000
+[case.check]
+kind = "rest_reply"
+text = "UNVERIFIED"

@@ -1,7 +1,7 @@
-# CZ Reality package
+# CZ Estate Agent package
 
-CZ Reality agent: the Rhias thread-holder persona plus Czech cadastral lookup.
-The [katastr skill](skills/katastr/SKILL.md) inspects one property in a controlled browser; the [parcel-open-data skill](skills/parcel-open-data/SKILL.md) reads open CUZK services (parcel, land type, neighbours) with no browser.
+Czech real-estate research agent: cadastre, zoning plan and listing checks.
+Skills: [katastr](skills/katastr/SKILL.md) (one property in a controlled browser), [parcel-open-data](skills/parcel-open-data/SKILL.md) (open CUZK services and zoning plans), [property-valuation](skills/property-valuation/SKILL.md) and [obec-profile](skills/obec-profile/SKILL.md). The persona is `group/PERSONA.md`.
 The [package guide](../../../EXTENDING.md) explains package selection and installation.
 
 ## Install
@@ -9,7 +9,7 @@ The [package guide](../../../EXTENDING.md) explains package selection and instal
 Select the package for a group. The command installs it:
 
 ```sh
-arizuko package add -g FOLDER ant/examples/cz-reality
+arizuko package add -g FOLDER catalog:cz-estate-agent
 ```
 
 Use `-i/--instance NAME` to select another configured instance. `arizuko package sync` installs every selected package again.
@@ -38,6 +38,7 @@ systemctl enable --now cuzk-socks@1081.socket
 
 The socket binds only `172.17.0.1`; host firewall policy must restrict its source network.
 The group's egress grant must permit `host.docker.internal`.
+The open-data skills also need `ags.cuzk.gov.cz`, `services.cuzk.cz`, `katastrnemovitosti.cz` and `volby.gov.cz`.
 The relay carries arbitrary SOCKS targets and does not authenticate groups.
 Set `KATASTR_RELAY_PORT` when the relay uses another port.
 Set `KATASTR_HEADED=1` for headed Chromium; Xvfb disables TCP access.
@@ -58,6 +59,6 @@ python3 ~/.claude/skills/katastr/katastr.py snapshot
 For manual browser input, set `AGENT_BROWSER_SOCKET_DIR=/tmp/katastr` and use `agent-browser --session katastr`.
 The [skill](skills/katastr/SKILL.md) defines pacing, evidence requirements and the stop rule for challenges.
 
-Run `python3 -B -m unittest discover -s ant/examples/cz-reality/tests` from the repository root.
+Run `python3 -B -m unittest discover -s ant/examples/cz-estate-agent/tests` from the repository root.
 The fixtures start no Chromium and send no CUZK requests.
 Verify guest browser access separately; an HTTP response does not prove ownership details are visible.

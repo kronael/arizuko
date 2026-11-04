@@ -13,6 +13,8 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+- `cz-estate-agent` product replaces `cuzk`: the `katastr` skill plus `parcel-open-data` (open CUZK services, zoning plans), `property-valuation` and `obec-profile`, and an estate persona. Re-point installs with `catalog:cz-estate-agent`.
+
 ## [v0.74.0] — 2026-11-04
 
 > arizuko v0.74.0 — packages from anywhere, docs everywhere
@@ -26,7 +28,6 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 > Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
 
 - `arizuko package add`: one source resolver. `catalog:<name>` also installs a product from `ant/examples` (a name in both places is an error); a `.tgz` archive, local or http(s), installs with its sha256 as the revision.
-- `cz-reality` product: the `reality` and `cuzk` products merge into one package (Rhias persona, `katastr` and the new `parcel-open-data` skill). Re-point installs with `catalog:cz-reality`.
 
 ## [v0.73.2] — 2026-11-04
 

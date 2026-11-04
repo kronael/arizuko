@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>CZ Reality agent (Rhias) &middot; arizuko</title>
+  <title>Reality agent (Rhias) &middot; arizuko</title>
   <link rel="stylesheet" href="../../assets/hub.css">
 </head>
 <body>
@@ -26,13 +26,14 @@
             <li><a href="../company-brain/">Company Brain</a></li>
             <li><a href="../slack-team/">Slack team agent</a></li>
             <li><a href="../github/">Repo worker (Atlas)</a></li>
-            <li><a href="../cz-reality/">CZ Reality agent</a></li>
+            <li><a href="../reality/">Reality agent</a></li>
             <li><a href="../support/">Support desk (Atlas)</a></li>
             <li><a href="../personal/">Personal assistant (Fiu)</a></li>
             <li><a href="../pm/">PM agent (Sloth)</a></li>
             <li><a href="../creator/">Content pipeline (Inari)</a></li>
             <li><a href="../socials/">Social presence (Phosphene)</a></li>
             <li><a href="../strategy/">Domain researcher (Prometheus)</a></li>
+            <li><a href="../cz-estate-agent/">CZ Estate Agent</a></li>
             <li><a href="../shapes.html">Shapes</a></li>
           </ul>
         </li>
@@ -42,8 +43,8 @@
     </nav>
 
     <main class="docs-content">
-      <p class="docs-crumb"><a href="../../">arizuko</a> &rsaquo; <a href="../">products</a> &rsaquo; CZ Reality agent</p>
-      <h1>CZ Reality agent (Rhias)</h1>
+      <p class="docs-crumb"><a href="../../">arizuko</a> &rsaquo; <a href="../">products</a> &rsaquo; Reality agent</p>
+      <h1>Reality agent (Rhias)</h1>
 
 
 
@@ -52,7 +53,7 @@
         judge it, but because someone has to remember.
       </p>
 
-      <p>Rhias is a long-running agent with your own notes, diary and message history. It keeps threads about the real situations in your life: a relationship, a decision, a project. The template is in <code>ant/examples/cz-reality/</code>.</p>
+      <p>Rhias is a long-running agent with your own notes, diary and message history. It keeps threads about the real situations in your life: a relationship, a decision, a project. The template is in <code>ant/examples/reality/</code>.</p>
 
       <h2>Five parts hold your context</h2>
       <dl>
@@ -91,16 +92,11 @@
 </code></pre>
       <p>The persona tells the agent to scan the diary for recent context when a session opens, and to update the thread file, here <code>facts/threads/q3-architecture.md</code>, after the session.</p>
 
-      <h2>The cadastre lookup uses a controlled browser</h2>
-      <p>The <code>katastr</code> skill inspects one Czech cadastral property. It checks the territory and parcel number on the detail page, records visible details, source URL and observation time, and reports hidden ownership or rights as unverified. The guest browser reaches CUZK through a host SOCKS relay. The skill keeps a quota ledger and stops for a CAPTCHA, login or service refusal. It does not perform bulk downloads.</p>
-      <p>The <code>parcel-open-data</code> skill finds a parcel, its neighbours and its land type from open CUZK services. These services need no browser and give no owner names.</p>
-
-      <h2>The product lists eight skills</h2>
+      <h2>The product lists six skills</h2>
       <ul>
         <li><code>diary</code>, <code>recall-memories</code>, <code>compact-memories</code> and <code>users</code> hold and find the memory.</li>
         <li><code>web</code> checks real-world context against external sources.</li>
         <li><code>oracle</code> writes longer summaries across many threads.</li>
-        <li><code>katastr</code> and <code>parcel-open-data</code> look up Czech cadastral properties.</li>
       </ul>
 
       <h2>Telegram is the main channel</h2>
@@ -140,7 +136,7 @@
 $EDITOR /srv/data/arizuko_demo/.env     # TELEGRAM_BOT_TOKEN, a model key</code></pre>
       <p>Start the instance as a systemd service using <a href="../../howto/">getting started</a>. Select the adapter package, add the group, sync and restart the service:</p>
       <pre><code>arizuko package add -i demo catalog:teled
-arizuko group -i demo add 'telegram:&lt;bot-id&gt;/user/&lt;your-tg-id&gt;' assistant -p cz-reality
+arizuko group -i demo add 'telegram:&lt;bot-id&gt;/user/&lt;your-tg-id&gt;' assistant -p reality
 arizuko package sync -i demo
 sudo systemctl restart arizuko_demo</code></pre>
       <p>Then add files for your current situations in <code>groups/assistant/facts/threads/</code>. The <a href="setup.html">operator setup guide</a> has every step: the threads, the monthly sweep, the WhatsApp and Telegram routes, and the <code>assistant/content</code> group for longer writing.</p>
@@ -160,7 +156,7 @@ sudo systemctl restart arizuko_demo</code></pre>
         <a rel="next" href="setup.html">Reality agent setup &rarr;</a>
       </nav>
       <div class="docs-footer">
-        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/cz-reality/index.html">Edit this page</a>
+        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/reality/index.html">Edit this page</a>
         &middot; updated <time class="docs-updated" datetime="2026-11-04">2026-11-04</time>
       </div>
     </main>

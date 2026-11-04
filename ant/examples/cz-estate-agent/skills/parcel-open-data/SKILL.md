@@ -1,6 +1,6 @@
 ---
 name: parcel-open-data
-description: Find a Czech parcel, its neighbours and land type from open CUZK services without a captcha. NOT for owner names or liens (use katastr) and NOT for zoning.
+description: Find a Czech parcel, its neighbours and land type from open CUZK services without a captcha. NOT for owner names or liens (use katastr).
 when_to_use: 'parcela, sousední parcely, druh pozemku, RUIAN, WFS, územní plán, zastavitelnost, k.ú.'
 ---
 
@@ -30,6 +30,15 @@ NEVER state that land is buildable from its land type. Land type is not zoning: 
 The service returns coordinates as lon, lat despite the CRS urn. A box of about 150 m around the point is enough.
 Parcels whose polygons share a boundary with the target are its direct neighbours.
 `cp:areaValue` is the area in m2, `cp:label` the parcel number.
+
+## Zoning plan
+
+1. Find the zoning-plan page of the municipality website (`uzemni-plan`). Download the main drawing, the text part with its justification and the farmland-loss drawing.
+2. Convert the PDFs with `pdftotext -layout` and search for the parcel number. The justification and the farmland table name the zone per parcel.
+3. A buildable zone often covers only part of a parcel. Record how many m2 are buildable and how many are not.
+4. Read the date the change took effect. A consolidated text on the site usually means the change is in force.
+
+Common zones: SV mixed rural residential, BV rural housing, ZZ garden and orchard green, NL forest, DS transport.
 
 ## Free map
 

@@ -110,13 +110,14 @@
         { "href": "company-brain/", "label": "Company Brain" },
         { "href": "slack-team/", "label": "Slack team agent" },
         { "href": "github/", "label": "Repo worker (Atlas)" },
-        { "href": "cz-reality/", "label": "CZ Reality agent" },
+        { "href": "reality/", "label": "Reality agent" },
         { "href": "support/", "label": "Support desk (Atlas)" },
         { "href": "personal/", "label": "Personal assistant (Fiu)" },
         { "href": "pm/", "label": "PM agent (Sloth)" },
         { "href": "creator/", "label": "Content pipeline (Inari)" },
         { "href": "socials/", "label": "Social presence (Phosphene)" },
         { "href": "strategy/", "label": "Domain researcher (Prometheus)" },
+        { "href": "cz-estate-agent/", "label": "CZ Estate Agent" },
         { "href": "shapes.html", "label": "Shapes" }
       ]
     },
