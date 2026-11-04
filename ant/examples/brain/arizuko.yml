@@ -8,4 +8,4 @@ env:
   GH_TOKEN:
     hint: GitHub token for `gh` (read PRs and releases of the repo in digest.toml); without it the digest falls back to the clone and the message store
   DIGEST_CONFIG:
-    hint: Path of the group config; default ~/digest.toml (copy group/digest.toml and fill it)
+    hint: Path of the group config; default ~/digest.toml (copy the digest skill's digest.example.toml there once and fill it)

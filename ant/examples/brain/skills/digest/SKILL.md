@@ -21,7 +21,8 @@ from an existing run dir; its files are the state.
 
 ## Who + where
 
-Everything the scripts need is in the group config `~/digest.toml`
+Everything the scripts need is in the group config `~/digest.toml` (copy
+`digest.example.toml` from this skill there once and fill it)
 (`$DIGEST_CONFIG`), read by `scripts/config.py`: `repo`, `clone`, `post_jid`
 (the ONE chat the digest posts to), `bot_user`, `agent_name`, `agent_github`,
 `agent_folder`, `account_regex`, `[humans]` (sender id → name),
@@ -108,7 +109,7 @@ whole lines, never a claim to a tag.
 <@111111111111111111> set the rule: no LLMs ever on production servers   the person's priority
 · merged 52 of 56 PRs, 28 of them in news-collector        the rest, by importance
 <@222222222222222222> reframed the product: shared-ban risk limits it, not cost
-<@333333333333333333> two breaches; account-6 idled 5 weeks while the dashboard showed it online
+<@333333333333333333> a nightly job stalled 3 days while the dashboard showed it green
 ```
 - Team TLDR = the lines before the first tag: title (window + 3-word theme =
   the biggest change), numbers, then ✓ finished and + started (0–2 each,
