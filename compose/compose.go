@@ -1286,7 +1286,6 @@ func runedService(app, flavor, dataDir string, env map[string]string) string {
 // timedService emits the scheduler. NO data-dir mount: timed federates its
 // fire loop over routd HTTP and reads no file.
 func timedService(app, flavor string, env map[string]string) string {
-	// timed reads TIMEZONE while the rest of the world uses TZ.
 	return writeSvc(svcDef{
 		name:       "timed",
 		app:        app,
@@ -1294,7 +1293,6 @@ func timedService(app, flavor string, env map[string]string) string {
 		entrypoint: "timed",
 		profile:    "timed",
 		environment: map[string]string{
-			"TIMEZONE":   envOr(env, "TZ", "UTC"),
 			"ROUTER_URL": routdURL,
 		},
 	})

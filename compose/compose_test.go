@@ -557,7 +557,7 @@ func TestTimedWiring(t *testing.T) {
 	dir := seed(t, "AUTH_SECRET=s\nTZ=Europe/Prague\n")
 	out := gen(t, dir)
 	timed := serviceBlock(out, "timed")
-	if !strings.Contains(timed, `ROUTER_URL: "http://routd:8080"`) || !strings.Contains(timed, `TIMEZONE: "Europe/Prague"`) {
+	if !strings.Contains(timed, `ROUTER_URL: "http://routd:8080"`) {
 		t.Errorf("timed wiring wrong; got:\n%s", timed)
 	}
 	// timed opens no DB and reads no file — a data-dir mount would hand the

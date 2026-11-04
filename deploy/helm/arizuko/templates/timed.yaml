@@ -2,7 +2,7 @@
 {{/*
 timed — the scheduler. No volume and no store key: it federates its fire loop
 over routd's HTTP face with a service:timed token. One replica, Recreate: two
-would fire every schedule twice. timed reads TIMEZONE where the rest read TZ.
+would fire every schedule twice.
 */}}
 apiVersion: apps/v1
 kind: Deployment
@@ -47,8 +47,6 @@ spec:
           env:
             - name: AUTHD_SERVICE_NAME
               value: timed
-            - name: TIMEZONE
-              value: {{ .Values.config.tz | quote }}
           livenessProbe:
             httpGet:
               path: /health
