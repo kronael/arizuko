@@ -33,8 +33,6 @@ data:
   {{- with .Values.store.ca }}
   STORE_CA: {{ . | quote }}
   {{- end }}
-  CONTAINER_TIMEOUT: {{ .Values.config.containerTimeout | quote }}
-  IDLE_TIMEOUT: {{ .Values.config.idleTimeout | quote }}
   MAX_CONCURRENT_CONTAINERS: {{ .Values.config.maxConcurrentContainers | quote }}
   ONBOARDING_ENABLED: {{ .Values.config.onboardingEnabled | quote }}
   WEBDAV_ENABLED: {{ .Values.config.webdavEnabled | quote }}

@@ -141,7 +141,7 @@ func TestSiblingFolders_RootHasNone(t *testing.T) {
 
 // A leftover MaxChildren key in container_config (written before the prototype
 // spawn was removed) must decode harmlessly: core.GroupConfig no longer has the
-// field, and the unknown key must neither error nor disturb Mounts/Timeout. This
+// field, and the unknown key must neither error nor disturb Mounts. This
 // is why the removal shipped without a data migration.
 func TestGroupByFolder_IgnoresLeftoverMaxChildren(t *testing.T) {
 	s, err := OpenMem()
@@ -169,8 +169,8 @@ func TestGroupByFolder_IgnoresLeftoverMaxChildren(t *testing.T) {
 	if !ok {
 		t.Fatal("group not found")
 	}
-	if g.Config.Timeout != 90*time.Second {
-		t.Errorf("Timeout = %v, want 90s — a leftover MaxChildren key must not disturb decoding", g.Config.Timeout)
+	if g.Config.Mounts != nil {
+		t.Errorf("Mounts = %v, want nil — leftover keys must not disturb decoding", g.Config.Mounts)
 	}
 }
 

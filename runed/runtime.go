@@ -15,10 +15,6 @@ import (
 const (
 	// maxOutputSize caps the stderr a substrate keeps for the turn log.
 	maxOutputSize = 10 * 1024 * 1024 // 10MB
-	// containerGracePeriod is how far above the idle timeout the run ceiling
-	// must sit: a deadline below it would kill a guest the idle timer had not
-	// even given up on (Manager.turnTTL).
-	containerGracePeriod = 30 * time.Second
 	// containerSoftDeadlineOffset is how long before the deadline the agent is
 	// warned to wrap up.
 	containerSoftDeadlineOffset = 2 * time.Minute

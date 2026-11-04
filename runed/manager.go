@@ -385,27 +385,9 @@ func (m *Manager) execute(
 	return exec.Run(ctx, turn)
 }
 
-// turnTTL is the one deadline: the run ceiling (RUNED_RUN_TIMEOUT), lowered by
-// the guest ceiling the group's container_config Timeout sets — an input to this
-// deadline, never a substrate timer of its own (spec 6/41 §"The seam"). The
-// guest ceiling is floored at the idle timeout plus a grace period, so it can
-// never cut in before the idle timer has given up.
-func (m *Manager) turnTTL(req runedv1.RunRequest) time.Duration {
-	if m.cfg == nil {
-		return m.runTTL
-	}
-	guest := m.cfg.Timeout
-	if gc := groupConfig(req.ContainerConfig); gc.Timeout > 0 {
-		guest = gc.Timeout
-	}
-	if grace := m.cfg.IdleTimeout + containerGracePeriod; guest < grace {
-		guest = grace
-	}
-	if m.runTTL <= 0 || guest < m.runTTL {
-		return guest
-	}
-	return m.runTTL
-}
+// turnTTL is the one deadline: the run ceiling, RUNED_RUN_TIMEOUT. A group's
+// container_config carries no timeout (spec 6/51).
+func (m *Manager) turnTTL(runedv1.RunRequest) time.Duration { return m.runTTL }
 
 // endRun clears the steer callback and updates the breaker counter. Returns
 // true when this exit trips the breaker. Breaker accounting is scoped to

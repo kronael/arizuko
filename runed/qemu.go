@@ -559,8 +559,7 @@ func (q *qemuRuntime) allocate(t Turn) (*vmRecord, error) {
 
 // await waits for the turn to end, whichever way it ends.
 //
-// The one deadline is ctx's: Manager.spawn arms it from RunTTL with the group's
-// container_config Timeout folded in, so this substrate holds no ceiling of its
+// The one deadline is ctx's: Manager.spawn arms it from RunTTL, so this substrate holds no ceiling of its
 // own. On ctx death the guest is asked to stop and then killed — the deferred
 // reap SIGKILLs the QEMU pid and confirms it gone, because a guest power-off does
 // not prove QEMU exited.

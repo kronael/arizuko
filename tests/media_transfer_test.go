@@ -88,7 +88,6 @@ func bootMediaFed(t *testing.T, enabled bool, whisperURL string, maxBytes int64)
 		GroupsDir:   f.groupsDir,
 		IpcDir:      filepath.Join(root, "ipc"),
 		WebDir:      filepath.Join(root, "web"),
-		Timeout:     time.Hour, IdleTimeout: time.Hour,
 	}
 	mgr := runed.NewManager(rudb, rt, runed.ManagerConfig{
 		Instance: "mediatest",

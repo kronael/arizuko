@@ -60,8 +60,6 @@ type Config struct {
 	// backend exists only if its CLI is baked into the agent image — so it lives in the
 	// instance .env, never the DB.
 	AgentBackend        string
-	Timeout             time.Duration
-	IdleTimeout         time.Duration
 	MaxContainers       int
 	Timezone            string
 	AuthSecret          string
@@ -222,8 +220,6 @@ func LoadConfig() (*Config, error) {
 		AgentBackend:        EnvOr("ARIZUKO_BACKEND", ""),
 		ModelGatewayURL:     EnvOr("MODEL_GATEWAY_URL", ""),
 		ModelGatewayKey:     EnvOr("MODEL_GATEWAY_KEY", ""),
-		Timeout:             envDur("CONTAINER_TIMEOUT", 60*time.Minute),
-		IdleTimeout:         envDur("IDLE_TIMEOUT", 60*time.Minute),
 		MaxContainers:       EnvInt("MAX_CONCURRENT_CONTAINERS", 5),
 		Timezone:            Timezone(),
 		AuthSecret:          EnvOr("AUTH_SECRET", ""),
@@ -305,8 +301,7 @@ func (c *Config) EffectiveAppSrcDir() string {
 // cycle once chanlib started exchanging service tokens via auth (spec 5/1).
 // An unset OR unparseable value lands on the fallback, never on the zero
 // value: a poll interval of 0 is a busy loop. DurOr reads a Go duration
-// ("20m"); envDur parses integer milliseconds (the legacy
-// CONTAINER_TIMEOUT/IDLE_TIMEOUT encoding).
+// ("20m").
 func EnvOr(k, fallback string) string {
 	if v := os.Getenv(k); v != "" {
 		return v
@@ -331,15 +326,6 @@ func DurOr(k string, fallback time.Duration) time.Duration {
 	if v := os.Getenv(k); v != "" {
 		if d, err := time.ParseDuration(v); err == nil {
 			return d
-		}
-	}
-	return fallback
-}
-
-func envDur(k string, fallback time.Duration) time.Duration {
-	if v := os.Getenv(k); v != "" {
-		if ms, err := strconv.Atoi(v); err == nil {
-			return time.Duration(ms) * time.Millisecond
 		}
 	}
 	return fallback

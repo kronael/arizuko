@@ -286,7 +286,6 @@ func bootFederationWith(t *testing.T, o fedOpts) *federation {
 			GroupsDir:   filepath.Join(root, "groups"),
 			IpcDir:      f.ipcDir,
 			WebDir:      filepath.Join(root, "web"),
-			Timeout:     time.Hour, IdleTimeout: time.Hour,
 		}
 	}
 	mgr := runed.NewManager(rudb, rt, runed.ManagerConfig{

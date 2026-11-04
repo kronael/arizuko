@@ -104,8 +104,7 @@ type Group struct {
 }
 
 type GroupConfig struct {
-	Mounts  []Mount
-	Timeout time.Duration
+	Mounts []Mount
 }
 
 type Mount struct {

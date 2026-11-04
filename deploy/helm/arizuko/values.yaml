@@ -75,8 +75,6 @@ config:
   webHost: '' # WEB_HOST (required) — the public hostname
   tz: UTC
   logLevel: info
-  containerTimeout: '600000' # CONTAINER_TIMEOUT (ms)
-  idleTimeout: '300000' # IDLE_TIMEOUT (ms)
   maxConcurrentContainers: '3' # MAX_CONCURRENT_CONTAINERS — live guests at once
   otelEndpoint: '' # OTEL_EXPORTER_OTLP_ENDPOINT; empty = stderr-only logging
   onboardingEnabled: false # ONBOARDING_ENABLED

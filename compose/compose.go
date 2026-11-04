@@ -147,7 +147,6 @@ var daemonKeys = map[string][]string{
 	// runed: execution plane, the ONLY daemon wired to /dev/kvm.
 	"runed": {
 		"AUTHD_URL", "AUTHD_SERVICE_KEY",
-		"CONTAINER_TIMEOUT",
 		// The turn substrate and everything the QEMU one reads (spec 6/41
 		// §"The seam"). A var runed reads and compose does not emit is SILENTLY
 		// dead — the class that cost three outages (BUGS reference
@@ -163,7 +162,7 @@ var daemonKeys = map[string][]string{
 		// (runed/cmd/runed/main.go). It lives in the daemon's main, which is why the
 		// guard that should have caught its absence could not see it (BUGS `L388`).
 		"RUNED_SHUTDOWN_GRACE",
-		"IDLE_TIMEOUT", "MAX_CONCURRENT_CONTAINERS",
+		"MAX_CONCURRENT_CONTAINERS",
 		// Gates per-group host mounts; absent from runed's env they are
 		// default-denied.
 		"MOUNT_ALLOWED_ROOTS",

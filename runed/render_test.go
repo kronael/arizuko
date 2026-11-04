@@ -33,8 +33,6 @@ func goldenCfg(t *testing.T, root string) *core.Config {
 	cfg := &core.Config{
 		Name:              "krons",
 		AgentBackend:      "claude",
-		Timeout:           60 * time.Minute,
-		IdleTimeout:       60 * time.Minute,
 		Timezone:          "Europe/Prague",
 		WebHost:           "krons.fiu.wtf",
 		ProjectRoot:       root,
@@ -104,8 +102,7 @@ func TestRenderTurnGolden(t *testing.T) {
 		MessageBatch: "hello world", TriggerSender: "u1", CallerSub: "user:caller",
 		TurnID: "turn-7", Model: "opus", Effort: "xhigh",
 		ContainerConfig: map[string]any{
-			"Timeout": int64(10 * time.Minute),
-			"Mounts":  []any{map[string]any{"Host": filepath.Join(root, "extra"), "Container": "extra", "RO": false}},
+			"Mounts": []any{map[string]any{"Host": filepath.Join(root, "extra"), "Container": "extra", "RO": false}},
 		},
 		ShareReadOnly: true, Egress: true, WebPublish: true, GHWrite: true, Codex: true, Progress: true,
 		EgressAllowlist: []string{"github.com"},
@@ -510,13 +507,10 @@ func TestGroupConfigIgnoresUnknownKeys(t *testing.T) {
 		"Timeout":     int64(90 * time.Second),
 		"Mounts":      []any{map[string]any{"Host": "/srv/x", "Container": "x", "RO": true}},
 	})
-	if gc.Timeout != 90*time.Second {
-		t.Errorf("Timeout=%s want 90s", gc.Timeout)
-	}
 	if len(gc.Mounts) != 1 || gc.Mounts[0].Host != "/srv/x" || !gc.Mounts[0].RO {
 		t.Errorf("Mounts=%+v want one RO /srv/x", gc.Mounts)
 	}
-	if got := groupConfig(nil); got.Timeout != 0 || got.Mounts != nil {
+	if got := groupConfig(nil); got.Mounts != nil {
 		t.Errorf("groupConfig(nil)=%+v want the zero value", got)
 	}
 }

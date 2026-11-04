@@ -225,36 +225,16 @@ func TestRunTTLBecomesTheCtxDeadline(t *testing.T) {
 	}
 }
 
-// TestTurnTTLFoldsTheGuestCeiling pins the one deadline's arithmetic: the run
-// ceiling, lowered by the group's container_config Timeout over the instance
-// default, and floored at the idle timeout plus its grace so the deadline can
-// never cut in before the idle timer has given up (spec 6/41 §"The seam" —
-// container_config Timeout is an input to the deadline, never a second timer).
-func TestTurnTTLFoldsTheGuestCeiling(t *testing.T) {
-	cases := []struct {
-		name         string
-		runTTL       time.Duration
-		cfgTimeout   time.Duration
-		idle         time.Duration
-		groupTimeout time.Duration
-		want         time.Duration
-	}{
-		{"instance ceiling above the run ceiling", 20 * time.Minute, 60 * time.Minute, 60 * time.Minute, 0, 20 * time.Minute},
-		{"instance ceiling below the run ceiling", 20 * time.Minute, 10 * time.Minute, time.Minute, 0, 10 * time.Minute},
-		{"the group's own ceiling wins", 20 * time.Minute, 10 * time.Minute, time.Minute, 5 * time.Minute, 5 * time.Minute},
-		{"floored at idle + grace", 20 * time.Minute, 10 * time.Minute, 10 * time.Minute, 5 * time.Minute, 10*time.Minute + 30*time.Second},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			m := &Manager{runTTL: c.runTTL, cfg: &core.Config{Timeout: c.cfgTimeout, IdleTimeout: c.idle}}
-			req := runedv1.RunRequest{Packages: []string{"core"}, Folder: "demo"}
-			if c.groupTimeout > 0 {
-				req.ContainerConfig = map[string]any{"Timeout": int64(c.groupTimeout)}
-			}
-			if got := m.turnTTL(req); got != c.want {
-				t.Fatalf("turnTTL=%s want %s", got, c.want)
-			}
-		})
+// TestTurnTTLIsTheRunTimeout pins the one deadline: RUNED_RUN_TIMEOUT. A
+// container_config Timeout, left in a group's row by an older release, does not
+// move it (spec 6/51).
+func TestTurnTTLIsTheRunTimeout(t *testing.T) {
+	m := &Manager{runTTL: 20 * time.Minute, cfg: &core.Config{}}
+	for _, cc := range []map[string]any{nil, {"Timeout": int64(5 * time.Minute)}, {"Timeout": int64(3 * time.Hour)}} {
+		req := runedv1.RunRequest{Packages: []string{"core"}, Folder: "demo", ContainerConfig: cc}
+		if got := m.turnTTL(req); got != 20*time.Minute {
+			t.Fatalf("turnTTL(%v)=%s want 20m", cc, got)
+		}
 	}
 }
 

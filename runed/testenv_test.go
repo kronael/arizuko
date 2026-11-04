@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
@@ -27,8 +26,6 @@ func renderWiring(t *testing.T) (*core.Config, *groupfolder.Resolver) {
 		GroupsDir:   filepath.Join(root, "groups"),
 		IpcDir:      filepath.Join(root, "ipc"),
 		WebDir:      filepath.Join(root, "web"),
-		IdleTimeout: 30 * time.Second,
-		Timeout:     60 * time.Second,
 	}
 	initializeRenderCore(t, cfg)
 	return cfg, resolverFor(cfg)
