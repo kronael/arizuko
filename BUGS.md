@@ -15,6 +15,7 @@
 
 ## What needs you
 
+- `L655` — products as full packages (`catalog:<name>`) and persona layering (`PERSONA.local.md`); proposal, needs sign-off.
 - `L654` — the `arizuko` skill's docs exist only on krons; fix queued (install docs in every instance).
 - `L653` — removing a service fragment by hand breaks the next start; fix queued.
 - `L650` — an `extenddb` reached 10 GB and was OOM-killed; the host reset 8 times on 11-03; cause unmeasured.
@@ -421,6 +422,24 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
 - **`L15` — the 2026-08-11 dead-code sweep's rejected hits.** `deadcode ./...` gave 149
   hits, 56 under `-test`; nine survived verification and were filed separately. Kept so
   the next sweep does not re-report the same ~135.
+
+## L655 — products are packages only by convention; persona has no layering (2026-11-04, open — proposal)
+
+MEASURED 2026-11-04: a product under `ant/examples/<name>` installs only by a
+path under `HOST_APP_DIR` (`arizuko package add <path>`); `catalog:<name>`
+resolves service fragments only (`cmd/arizuko/products.go`). Installing
+`company-brain` on the existing `sloth/discord` replaced that group's
+`PERSONA.md` with the product's (a later package's `group/` file wins), and
+the old persona had no copy; it was restored from the default by hand and
+the product now ships no persona (`80c9724ba`).
+
+Owner direction (2026-11-04): products should be full packages in the new
+system; the persona is the one of the last installed package, and a group
+adds to it locally ("persona local"). Proposal, one decision each:
+(a) `catalog:<name>` resolves `ant/examples/<name>` too, so products install
+by name like service fragments; (b) the agent reads `PERSONA.md` (last
+package wins) and then `PERSONA.local.md`, which no package writes, so local
+additions survive every sync. Needs sign-off: (b) changes what the turn reads.
 
 ## L654 — the `arizuko` skill reads docs no instance but krons has (2026-11-04, open)
 
