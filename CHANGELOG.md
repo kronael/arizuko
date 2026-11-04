@@ -13,6 +13,18 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.72.9] — 2026-11-04
+
+> arizuko v0.72.9 — quieter in groups, one turn deadline
+>
+> The agent no longer answers a group reply meant for another person, and a turn's deadline comes from one setting.
+>
+> • Groups — a reply to another person's message does not continue an engaged conversation; a reply to the agent or a mention still does.
+> • Turns — `RUNED_RUN_TIMEOUT` (default 30m) is the only turn deadline; `CONTAINER_TIMEOUT`, `IDLE_TIMEOUT` and a group's `Timeout` are gone.
+> • Store — every read of the base table is strongly consistent, as specs 6/37 and 6/42 state.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
 ## [v0.72.8] — 2026-11-04
 
 > arizuko v0.72.8 — tasks that cannot strand, Codex by grant
