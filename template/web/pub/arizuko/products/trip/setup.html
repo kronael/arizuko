@@ -23,6 +23,7 @@
             <li><a href="../">Start here</a></li>
             <li><a href="../helpdesk/">Helpdesk (reference)</a></li>
             <li><a href="../trip/">Trip planner (May)</a></li>
+            <li><a href="../brain/">Company brain</a></li>
             <li><a href="../slack-team/">Slack team agent</a></li>
             <li><a href="../github/">Repo worker (Atlas)</a></li>
             <li><a href="../reality/">Reality agent</a></li>
@@ -53,7 +54,7 @@
         <li>The build part of the <a href="../../howto/index.html#install">install</a>: the binary, the images and the guest kernel, with <code>DATA_DIR</code> set to the data directory of this instance. A turn is one KVM guest, so the host needs <code>/dev/kvm</code>.</li>
         <li>Anthropic API access, <code>ANTHROPIC_API_KEY</code>.</li>
         <li>A Telegram bot token, <code>TELEGRAM_BOT_TOKEN</code>. The planner is a personal Telegram bot.</li>
-        <li>Codex authentication for oracle: a host login, <code>CODEX_API_KEY</code>, or <code>OPENAI_API_KEY</code>. The trip manifest declares <code>CODEX_API_KEY</code> as a requirement.</li>
+        <li>Codex authentication for oracle: a host login, <code>CODEX_API_KEY</code>, or <code>OPENAI_API_KEY</code>. The host login reaches a folder that holds the <code>codex</code> grant; the trip manifest lists <code>CODEX_API_KEY</code> as an optional fallback.</li>
       </ul>
 
       <h2>create records the trip product for the main group</h2>
@@ -63,8 +64,7 @@ $EDITOR /srv/data/arizuko_travel/.env</code></pre>
       <pre><code>ASSISTANT_NAME=may
 WEB_HOST=travel.example.com
 ANTHROPIC_API_KEY=sk-ant-REPLACE_ME
-TELEGRAM_BOT_TOKEN=REPLACE_ME
-CODEX_API_KEY=REPLACE_ME</code></pre>
+TELEGRAM_BOT_TOKEN=REPLACE_ME</code></pre>
 
       <h2>A package selection installs Telegram</h2>
       <p>Start the instance as a systemd service, as <a href="../../howto/">getting started</a> shows. Select the adapter package, then restart the service to start the adapter.</p>
@@ -130,7 +130,7 @@ EOF</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/trip/setup.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-25">2026-10-25</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-28">2026-10-28</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

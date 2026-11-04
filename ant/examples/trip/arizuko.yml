@@ -5,5 +5,4 @@ env:
   TELEGRAM_BOT_TOKEN:
     hint: Primary personal channel (Telegram or WhatsApp — set at least one)
   CODEX_API_KEY:
-    required: true
-    hint: Oracle — required for multi-step destination research and synthesis
+    hint: Oracle fallback. The host Codex login reaches the group through the `codex` grant (arizuko group grant folder:FOLDER FOLDER codex); set this key only when the host has no login
