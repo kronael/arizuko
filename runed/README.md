@@ -194,7 +194,7 @@ Core is required. Package selection is an input to the renderer, outside the
 - `StartSpawn` takes the claim with a condition on `state='queued'`. A `DELETE` that lands between the claim and the launch wins, and the run answers `busy`. A `killed` row makes the folder read free, so a launch without this guard would put two guests on one mount.
 - A new inbound message clears a breaker streak at the threshold of 3, so a retry after three failures does spawn. The run that reaches the threshold reports `breaker_open`.
 - routd owns session lineage. It mints the id and sends it on the request. runed mints an id only for a request that carries none, which is an isolated task. `spawns.session_id` is an echo.
-- Readiness is spawn success. There is no `/readyz` probe, because a probe on the spawn path adds a failure mode. `Manager.spawn` arms the one deadline from `RUNED_RUN_TIMEOUT`, lowered by the `container_config` timeout of the group. The substrate keeps no timer. The wrap-up warning, two minutes before the end, comes from that deadline.
+- Readiness is spawn success. There is no `/readyz` probe, because a probe on the spawn path adds a failure mode. `Manager.spawn` arms the one deadline from `RUNED_RUN_TIMEOUT`. The substrate keeps no timer. The wrap-up warning, two minutes before the end, comes from that deadline.
 
 ### The guest's turn, step by step
 

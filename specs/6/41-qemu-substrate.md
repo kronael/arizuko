@@ -138,7 +138,7 @@ is its own address. `RegisterSteer`'s closure is what each substrate makes of
 it (§"Steer and stop").
 
 The deadline is `ctx`. `Manager.spawn` arms it from `RunTTL`, and the group's
-`container_config` `Timeout` is an input to that one deadline, never a
+`RUNED_RUN_TIMEOUT` is that one deadline, never a
 substrate's timer. A substrate with a timer of its own reads `ctx.Deadline()`.
 
 **The renderer.** The envelope half of `container.Run` — `prepareInput`,
@@ -166,7 +166,7 @@ routd's format, not the port's.
 - `RunTTL` → `ctx`; the renderer writes `ARIZUKO_QUERY_TIMEOUT_MS` into
   `Env` from the deadline.
 - `ContainerName` → `Handle`. `ContainerConfig.Mounts` → `Mounts`, through
-  `mountsec`; `ContainerConfig.Timeout` → the deadline.
+  `mountsec`.
 - `MessageBatch`, `SessionID`, `ChatJID`, `Topic`, `TurnID`, `TriggerSender`,
   `Secrets`, `Channel` → `Stdin`.
 - `Model`, `Effort`, `GHWrite`, `ModelGatewayKey`, `Elevated` → `Env`.

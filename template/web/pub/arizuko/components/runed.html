@@ -140,7 +140,7 @@
     <p>The section Mounts of <a href="https://github.com/kronael/arizuko/blob/main/runed/README.md">[runed/README.md]</a> has the full table with the host paths.</p>
 
     <h2>One deadline bounds the guest and the agent</h2>
-    <p><code>RUNED_RUN_TIMEOUT</code> is the run ceiling, 20 minutes by default. It sets two limits at once. One is the hard stop of the guest. The other is the query timeout of the agent, <code>ARIZUKO_QUERY_TIMEOUT_MS</code>, which is <code>RUNED_RUN_TIMEOUT &minus; 30s</code>. The 30-second gap lets the agent stop and deliver a summary before runed stops the guest. On a graceful shutdown, runed detaches the running guests. A guest outlives the daemon, so a restart does not stop a turn in the middle. The next runed reaps the guest from the record on disk.</p>
+    <p><code>RUNED_RUN_TIMEOUT</code> is the run ceiling, 30 minutes by default. It sets two limits at once. One is the hard stop of the guest. The other is the query timeout of the agent, <code>ARIZUKO_QUERY_TIMEOUT_MS</code>, which is <code>RUNED_RUN_TIMEOUT &minus; 30s</code>. The 30-second gap lets the agent stop and deliver a summary before runed stops the guest. On a graceful shutdown, runed detaches the running guests. A guest outlives the daemon, so a restart does not stop a turn in the middle. The next runed reaps the guest from the record on disk.</p>
 
     <h2>runed runs alone only with its host preconditions</h2>
     <p>runed runs as a daemon, but it needs the preconditions of the KVM substrate and an authd whose keys it can fetch. It also expects routd to host the MCP socket that the guest calls. Run it only with those.</p>

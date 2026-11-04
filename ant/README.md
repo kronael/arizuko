@@ -141,9 +141,8 @@ every harness unchanged.
 
 ## The turn deadline
 
-A turn has one deadline. `RUNED_RUN_TIMEOUT` (default 20m) is the run
-ceiling. The group's `container_config` timeout lowers it, and the idle
-timeout plus a grace period floors it (`runed/manager.go:408` `turnTTL`).
+A turn has one deadline. `RUNED_RUN_TIMEOUT` (default 30m) is the run
+ceiling (`runed/manager.go` `turnTTL`).
 runed hands the guest a query timeout 30 seconds under that ceiling,
 floored at 60 seconds, as `ARIZUKO_QUERY_TIMEOUT_MS`
 (`runed/render.go` `queryTimeoutMs`), so the harness aborts and reports

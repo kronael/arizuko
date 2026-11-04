@@ -72,7 +72,6 @@ capability comes from its `acl` rows. Audit operator (`**`) grants.
 **Behavior**:
 
 - `ONBOARDING_ENABLED`: kanipi accepted `'1'`; arizuko requires `'true'`.
-- `CONTAINER_TIMEOUT`: milliseconds in both (Go `strconv.Atoi`).
 
 ## Channel Adapter Protocol
 

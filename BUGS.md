@@ -1458,7 +1458,7 @@ field (the port change); and a per-turn `MemAvailable` check in place of
   two instances pass together while the host swaps.
 - **Options:** (a) the spec's `acl` rows; (b) fields on `container_config` —
   the spec's §"Why not the other shapes" says why not.
-- **Default if nothing is decided:** spec step 1 only — delete
+- **Default if nothing is decided:** spec step 1 only, done — deleted
   `CONTAINER_TIMEOUT`, `IDLE_TIMEOUT` and `GroupConfig.Timeout`, which changes
   no turn on either instance.
 - **Status:** open — needs sign-off on the six questions in the spec.
