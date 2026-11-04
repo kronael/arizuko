@@ -29,7 +29,7 @@ func envLines(body string) map[string]string {
 func TestVariantResolvesToItsOwnEnvFile(t *testing.T) {
 	for name, want := range map[string]string{
 		"teled":       "env/teled.env",
-		"teled-jynx":  "env/teled-jynx.env",
+		"teled-atlas": "env/teled-atlas.env",
 		"discd-work":  "env/discd-work.env",
 		"discd-a-b":   "env/discd-a-b.env",
 		"routd":       "env/routd.env",
@@ -42,27 +42,27 @@ func TestVariantResolvesToItsOwnEnvFile(t *testing.T) {
 }
 
 func TestVariantEnvFileCarriesItsOwnCredential(t *testing.T) {
-	dir := seed(t, "TELEGRAM_BOT_TOKEN=base-token\nTELEGRAM_BOT_TOKEN_JYNX=jynx-token\nTZ=Europe/Prague\n")
-	installAdapters(t, dir, "teled", "teled-jynx")
+	dir := seed(t, "TELEGRAM_BOT_TOKEN=base-token\nTELEGRAM_BOT_TOKEN_ATLAS=atlas-token\nTZ=Europe/Prague\n")
+	installAdapters(t, dir, "teled", "teled-atlas")
 	gen(t, dir)
 
-	variant := envLines(read(t, dir, "env/teled-jynx.env"))
+	variant := envLines(read(t, dir, "env/teled-atlas.env"))
 	base := envLines(read(t, dir, "env/teled.env"))
-	if variant["TELEGRAM_BOT_TOKEN"] != "jynx-token" {
-		t.Errorf("variant token = %q, want jynx-token", variant["TELEGRAM_BOT_TOKEN"])
+	if variant["TELEGRAM_BOT_TOKEN"] != "atlas-token" {
+		t.Errorf("variant token = %q, want atlas-token", variant["TELEGRAM_BOT_TOKEN"])
 	}
 	if base["TELEGRAM_BOT_TOKEN"] != "base-token" {
 		t.Errorf("base token = %q, want base-token", base["TELEGRAM_BOT_TOKEN"])
 	}
 	for file, body := range map[string]string{
-		"env/teled.env":      read(t, dir, "env/teled.env"),
-		"env/teled-jynx.env": read(t, dir, "env/teled-jynx.env"),
+		"env/teled.env":       read(t, dir, "env/teled.env"),
+		"env/teled-atlas.env": read(t, dir, "env/teled-atlas.env"),
 	} {
-		if strings.Contains(body, "_JYNX") {
+		if strings.Contains(body, "_ATLAS") {
 			t.Errorf("%s carries the override variable itself", file)
 		}
 	}
-	if strings.Contains(read(t, dir, "env/teled.env"), "jynx-token") {
+	if strings.Contains(read(t, dir, "env/teled.env"), "atlas-token") {
 		t.Error("the base file must not carry the variant's credential")
 	}
 	for _, k := range []string{"AUTHD_SERVICE_KEY", "AUTHD_SERVICE_NAME", "TZ"} {
@@ -77,9 +77,9 @@ func TestVariantEnvFileCarriesItsOwnCredential(t *testing.T) {
 
 func TestVariantWithoutOverrideKeepsBaseValue(t *testing.T) {
 	dir := seed(t, "TELEGRAM_BOT_TOKEN=base-token\n")
-	installAdapters(t, dir, "teled", "teled-jynx")
+	installAdapters(t, dir, "teled", "teled-atlas")
 	gen(t, dir)
-	if got := envLines(read(t, dir, "env/teled-jynx.env"))["TELEGRAM_BOT_TOKEN"]; got != "base-token" {
+	if got := envLines(read(t, dir, "env/teled-atlas.env"))["TELEGRAM_BOT_TOKEN"]; got != "base-token" {
 		t.Errorf("variant token = %q, want the base value base-token", got)
 	}
 }
@@ -94,10 +94,10 @@ func TestVariantOverrideIsGenericAcrossAdapters(t *testing.T) {
 }
 
 func TestVariantOverrideReachesOnlyDaemonKeys(t *testing.T) {
-	dir := seed(t, "SECRETS_KEY_JYNX=stolen\nAUTHD_SERVICE_KEY_JYNX=forged\nTELEGRAM_BOT_TOKEN=b\n")
-	installAdapters(t, dir, "teled", "teled-jynx")
+	dir := seed(t, "SECRETS_KEY_ATLAS=stolen\nAUTHD_SERVICE_KEY_ATLAS=forged\nTELEGRAM_BOT_TOKEN=b\n")
+	installAdapters(t, dir, "teled", "teled-atlas")
 	gen(t, dir)
-	body := read(t, dir, "env/teled-jynx.env")
+	body := read(t, dir, "env/teled-atlas.env")
 	for _, bad := range []string{"stolen", "forged", "SECRETS_KEY"} {
 		if strings.Contains(body, bad) {
 			t.Errorf("variant env carries %q", bad)
@@ -121,16 +121,16 @@ func TestSingleAccountEnvUnchanged(t *testing.T) {
 // The bundled variant fragment names an env_file; generate must write exactly
 // that file, or `docker compose up` fails on it.
 func TestBundledVariantFragmentEnvFileIsWritten(t *testing.T) {
-	dir := seed(t, "TELEGRAM_BOT_TOKEN=base-token\nTELEGRAM_BOT_TOKEN_JYNX=jynx-token\n")
+	dir := seed(t, "TELEGRAM_BOT_TOKEN=base-token\nTELEGRAM_BOT_TOKEN_ATLAS=atlas-token\n")
 	installAdapters(t, dir, "teled")
-	body, err := os.ReadFile(filepath.Join(templateServices, "teled-jynx", "teled-jynx.yml"))
+	body, err := os.ReadFile(filepath.Join(templateServices, "teled-atlas", "teled-atlas.yml"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	write(t, dir, "services/teled-jynx.yml", string(body))
+	write(t, dir, "services/teled-atlas.yml", string(body))
 	gen(t, dir)
 
-	svc := readFragment(t, "teled-jynx").Services["teled-jynx"]
+	svc := readFragment(t, "teled-atlas").Services["teled-atlas"]
 	if len(svc.EnvFile) != 1 {
 		t.Fatalf("env_file = %v, want one", svc.EnvFile)
 	}
@@ -138,7 +138,7 @@ func TestBundledVariantFragmentEnvFileIsWritten(t *testing.T) {
 	if _, err := os.Stat(file); err != nil {
 		t.Fatalf("the fragment's env_file was not generated: %v", err)
 	}
-	if got := envLines(read(t, dir, "env/teled-jynx.env"))["TELEGRAM_BOT_TOKEN"]; got != "jynx-token" {
-		t.Errorf("token = %q, want jynx-token", got)
+	if got := envLines(read(t, dir, "env/teled-atlas.env"))["TELEGRAM_BOT_TOKEN"]; got != "atlas-token" {
+		t.Errorf("token = %q, want atlas-token", got)
 	}
 }

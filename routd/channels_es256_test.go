@@ -224,7 +224,7 @@ func TestIngressJIDOwnershipBySourceES256(t *testing.T) {
 		prefix    string
 		principal string
 	}{
-		{"jynx", "telegram:222/", "service:teled"},
+		{"atlas", "telegram:222/", "service:teled"},
 		{"telegram", "telegram:111/", "service:teled"},
 		{"foreign", "telegram:222/", "service:other"},
 	} {
@@ -241,7 +241,7 @@ func TestIngressJIDOwnershipBySourceES256(t *testing.T) {
 		jid    string
 		want   int
 	}{
-		{"source owns jid", "jynx", "telegram:222/user/5", http.StatusOK},
+		{"source owns jid", "atlas", "telegram:222/user/5", http.StatusOK},
 		{"source rejects jid", "telegram", "telegram:222/user/5", http.StatusBadRequest},
 		{"foreign source falls back", "foreign", "telegram:111/user/5", http.StatusOK},
 		{"foreign source cannot confer ownership", "foreign", "telegram:222/user/5", http.StatusBadRequest},

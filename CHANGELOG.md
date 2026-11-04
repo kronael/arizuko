@@ -13,6 +13,8 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+- Removed the `teled-jynx` catalog fragment (`template/services/teled-jynx/`); `teled-atlas` is the remaining multi-account example.
+
 ## [v0.72.9] — 2026-11-04
 
 > arizuko v0.72.9 — quieter in groups, one turn deadline

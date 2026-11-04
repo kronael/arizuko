@@ -184,7 +184,7 @@ routd ──► adapter ──► platform reply</code></pre>
       <dt>Cause</dt>
       <dd>A second account is its own fragment, <code>&lt;adapter&gt;-&lt;label&gt;.yml</code>, with its own <code>CHANNEL_NAME</code>. The fragment uses the keys of the base adapter. Only a <code>&lt;KEY&gt;_&lt;LABEL&gt;</code> line in <code>.env</code> replaces a key. Without that line, the second service reads the base account.</dd>
       <dt>Fix</dt>
-      <dd>Set the override, for example <code>TELEGRAM_BOT_TOKEN_JYNX</code> for <code>teled-jynx.yml</code>. Run <code>arizuko generate</code>, then restart. Do not add a second token to the base fragment.</dd>
+      <dd>Set the override, for example <code>TELEGRAM_BOT_TOKEN_ATLAS</code> for <code>teled-atlas.yml</code>. Run <code>arizuko generate</code>, then restart. Do not add a second token to the base fragment.</dd>
       <dt>Source</dt>
       <dd><code>compose/compose.go</code>, <a href="https://github.com/kronael/arizuko/blob/main/compose/README.md#several-accounts-on-one-platform">[compose README]</a></dd>
     </dl>

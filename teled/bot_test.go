@@ -26,7 +26,7 @@ func TestL553PrivateChatPerBot(t *testing.T) {
 	for _, account := range []struct {
 		id   int64
 		name string
-	}{{111, "telegram"}, {222, "jynx"}} {
+	}{{111, "telegram"}, {222, "atlas"}} {
 		b := &bot{
 			api: &tgbotapi.BotAPI{Self: tgbotapi.User{ID: account.id}},
 			cfg: config{Name: account.name},

@@ -256,7 +256,7 @@ func variantOf(name string) (base, label string, ok bool) {
 
 // variantKey names the `.env` variable that overrides key for the variant with
 // this label: the label upper-cased, every non-alphanumeric byte an underscore,
-// appended to key (`TELEGRAM_BOT_TOKEN` + `jynx` -> `TELEGRAM_BOT_TOKEN_JYNX`).
+// appended to key (`TELEGRAM_BOT_TOKEN` + `atlas` -> `TELEGRAM_BOT_TOKEN_ATLAS`).
 func variantKey(key, label string) string {
 	suffix := strings.Map(func(r rune) rune {
 		switch {

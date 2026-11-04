@@ -18,7 +18,7 @@ The `env_file` is `env/<adapter>-<label>.env`, which `arizuko generate`
 writes for every installed `<adapter>-<label>.yml`: the base adapter's keys,
 except that a key the operator sets in `.env` as `<KEY>_<LABEL>` replaces
 `<KEY>`. Label upper-cased, each non-alphanumeric byte an underscore, so the
-`teled-jynx` token is `TELEGRAM_BOT_TOKEN_JYNX`. Only the adapter's own keys
+`teled-atlas` token is `TELEGRAM_BOT_TOKEN_ATLAS`. Only the adapter's own keys
 (`daemonKeys`) can be overridden; the service identity is not. A variant with
 no override reads the base value, so it polls the same account as the base.
 Each account also needs its own state mount for its offset or cursor. `LISTEN_ADDR` stays `:8080` — docker network

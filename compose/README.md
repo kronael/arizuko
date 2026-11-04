@@ -228,7 +228,7 @@ filesystem layout.
 
 Two accounts on one platform are two services of one adapter binary, and
 need no new code. The second account is its own fragment,
-`<adapter>-<label>.yml`, for example `template/services/teled-jynx.yml`. It
+`<adapter>-<label>.yml`, for example `template/services/teled-atlas.yml`. It
 sets its own `container_name`, `env_file`, `LISTEN_URL`, `CHANNEL_NAME` and
 state mount (`variantOf`, `compose.go:263`). Only a name whose base is a
 channel adapter is a variant.
@@ -236,7 +236,7 @@ channel adapter is a variant.
 The variant reads `env/<adapter>-<label>.env`. `writeEnvFile` fills it with
 the base adapter's keys, and a non-empty `<KEY>_<LABEL>` line in `.env`
 replaces `<KEY>`, so each account holds its own credential
-(`TELEGRAM_BOT_TOKEN_JYNX` replaces `TELEGRAM_BOT_TOKEN`). An unset or empty
+(`TELEGRAM_BOT_TOKEN_ATLAS` replaces `TELEGRAM_BOT_TOKEN`). An unset or empty
 override keeps the base value. The label is
 upper-cased and every other non-alphanumeric byte becomes `_`
 (`variantKey`). Only the adapter's own `daemonKeys` take an override; the
