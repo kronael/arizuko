@@ -62,11 +62,11 @@ func TestSeedDefaultTasks(t *testing.T) {
 	}
 }
 
-// A seeded task's first run is the first instant its OWN cron names, so a new
-// group is not already due the moment it is created. Seeding `now` made timed's
-// next sweep fire all five compaction tasks at once, on the group's root topic,
-// and the root session each of those turns persisted then aborted the next
-// capability eval (BUGS L312).
+// A seeded task carries no next_run; the first poll fills it with the first
+// instant its OWN cron names, so a new group is not already due the moment it
+// is created. Seeding `now` made timed's next sweep fire all five compaction
+// tasks at once, on the group's root topic, and the root session each of those
+// turns persisted then aborted the next capability eval (BUGS L312).
 //
 // The expectation is read off the expression by hand rather than from
 // core.NextRun, which is the code under test.
@@ -94,7 +94,22 @@ func TestSeedDefaultTasks_FirstRunFollowsItsCron(t *testing.T) {
 	if err := s.SeedDefaultTasks("alice", "alice"); err != nil {
 		t.Fatal(err)
 	}
+	for i := range defaultTasks {
+		id := "alice-mem-" + strconv.Itoa(i)
+		if task, _ := s.GetTask(id); task.NextRun != nil {
+			t.Fatalf("%s: seeded with next_run %v, want it left to the scheduler", id, task.NextRun)
+		}
+	}
 
+	// The behaviour that cost the five turns: the fire loop's own reader must
+	// claim nothing from a group that was just created, and fills each run.
+	due, err := s.DueTasks(time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(due) != 0 {
+		t.Fatalf("a freshly seeded group is already due: %d tasks claimed", len(due))
+	}
 	for i, dt := range defaultTasks {
 		id := "alice-mem-" + strconv.Itoa(i)
 		task, ok := s.GetTask(id)
@@ -102,7 +117,7 @@ func TestSeedDefaultTasks_FirstRunFollowsItsCron(t *testing.T) {
 			t.Fatalf("%s missing after seeding", id)
 		}
 		if task.NextRun == nil {
-			t.Fatalf("%s: no next_run", id)
+			t.Fatalf("%s: the poll left no next_run", id)
 		}
 		run := task.NextRun.In(loc)
 		if !run.After(seededAt) {
@@ -117,15 +132,147 @@ func TestSeedDefaultTasks_FirstRunFollowsItsCron(t *testing.T) {
 			t.Errorf("%s: next_run %s does not match cron %q", id, run, dt.cron)
 		}
 	}
+}
 
-	// The behaviour that cost the five turns: the fire loop's own reader must
-	// claim nothing from a group that was just created.
-	due, err := s.DueTasks(time.Now())
+// The scheduler alone fills next_run: an active task with a cron and none gets
+// the cron's first instant, is not fired by the poll that filled it, and keeps
+// that instant on the next poll.
+func TestDueTasks_FillsAMissingNextRun(t *testing.T) {
+	s, err := OpenMem()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(due) != 0 {
-		t.Fatalf("a freshly seeded group is already due: %d tasks claimed", len(due))
+	defer s.Close()
+	if err := s.CreateTask(core.Task{
+		ID: "fill", Owner: "main", ChatJID: "tg:1", Prompt: "p",
+		Cron: "0 9 * * *", Status: core.TaskActive, Created: time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	due, err := s.DueTasks(time.Now().Add(72 * time.Hour))
+	if err != nil || len(due) != 0 {
+		t.Fatalf("first poll = %d tasks, err %v; it fills next_run and fires nothing", len(due), err)
+	}
+	got, _ := s.GetTask("fill")
+	if got.NextRun == nil || !got.NextRun.After(time.Now()) ||
+		got.NextRun.Hour() != 9 || got.NextRun.Minute() != 0 {
+		t.Fatalf("next_run = %v, want the next 09:00", got.NextRun)
+	}
+	if got.Status != core.TaskActive {
+		t.Fatalf("status = %q, want active (filled, not fired)", got.Status)
+	}
+	filled := *got.NextRun
+
+	due, err = s.DueTasks(time.Now().Add(72 * time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(due) != 1 || !due[0].NextRun.Equal(filled) {
+		t.Fatalf("second poll = %+v, want the task due at the filled %v", due, filled)
+	}
+}
+
+// A task whose next_run an operator or the job itself set keeps it: the fill
+// never overwrites one.
+func TestDueTasks_FillKeepsAnExplicitNextRun(t *testing.T) {
+	s, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	explicit := time.Now().Add(240 * time.Hour).Truncate(time.Second)
+	if err := s.CreateTask(core.Task{
+		ID: "kept", Owner: "main", ChatJID: "tg:1", Prompt: "p",
+		Cron: "0 9 * * *", NextRun: &explicit, Status: core.TaskActive, Created: time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.DueTasks(time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.GetTask("kept"); got.NextRun == nil || !got.NextRun.Equal(explicit) {
+		t.Fatalf("next_run = %v, want the explicit %v", got.NextRun, explicit)
+	}
+}
+
+// A recurring task whose cron will not parse stops with status 'error' rather
+// than staying active with no next_run, the state nothing recovers from
+// (BUGS L74). A one-shot with no cron and no next_run is left alone.
+func TestDueTasks_BadCronIsAnError(t *testing.T) {
+	s, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	for id, cron := range map[string]string{"bad": "not a cron", "bare": ""} {
+		if err := s.CreateTask(core.Task{
+			ID: id, Owner: "main", ChatJID: "tg:1", Prompt: "p",
+			Cron: cron, Status: core.TaskActive, Created: time.Now(),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	due, err := s.DueTasks(time.Now().Add(72 * time.Hour))
+	if err != nil || len(due) != 0 {
+		t.Fatalf("DueTasks = %d tasks, err %v; want none", len(due), err)
+	}
+	if got, _ := s.GetTask("bad"); got.Status != core.TaskError || got.NextRun != nil {
+		t.Fatalf("bad cron: status %q next_run %v, want error with no next_run", got.Status, got.NextRun)
+	}
+	if got, _ := s.GetTask("bare"); got.Status != core.TaskActive || got.NextRun != nil {
+		t.Fatalf("no cron: status %q next_run %v, want untouched", got.Status, got.NextRun)
+	}
+}
+
+// RescheduleTask with no next_run reads the task's own cron: the next instant
+// for a recurring task, 'completed' for a one-shot, 'error' for a cron that will
+// not parse. An explicit next_run is stored as given, and a task deleted since
+// the claim stays deleted.
+func TestRescheduleTask_ReadsTheCron(t *testing.T) {
+	s, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	now := time.Now()
+	for id, cron := range map[string]string{"rec": "0 9 * * *", "once": "", "bad": "not a cron"} {
+		if err := s.CreateTask(core.Task{
+			ID: id, Owner: "main", ChatJID: "tg:1", Prompt: "p", Cron: cron,
+			NextRun: &now, Status: TaskStatusFiring, Created: now,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.RescheduleTask(id, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rec, _ := s.GetTask("rec")
+	if rec.Status != core.TaskActive || rec.NextRun == nil || !rec.NextRun.After(now) ||
+		rec.NextRun.Hour() != 9 || rec.NextRun.Minute() != 0 {
+		t.Errorf("recurring: status %q next_run %v, want active at the next 09:00", rec.Status, rec.NextRun)
+	}
+	once, _ := s.GetTask("once")
+	if once.Status != core.TaskCompleted || once.NextRun != nil {
+		t.Errorf("one-shot: status %q next_run %v, want completed with none", once.Status, once.NextRun)
+	}
+	bad, _ := s.GetTask("bad")
+	if bad.Status != core.TaskError || bad.NextRun != nil {
+		t.Errorf("bad cron: status %q next_run %v, want error with none", bad.Status, bad.NextRun)
+	}
+
+	explicit := now.Add(time.Hour).Truncate(time.Second)
+	if err := s.RescheduleTask("rec", explicit.Format(time.RFC3339)); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.GetTask("rec"); got.NextRun == nil || !got.NextRun.Equal(explicit) {
+		t.Errorf("explicit: next_run %v, want %v", got.NextRun, explicit)
+	}
+	if err := s.RescheduleTask("gone", ""); err != nil {
+		t.Errorf("a deleted task: %v, want nothing written and no error", err)
+	}
+	if _, ok := s.GetTask("gone"); ok {
+		t.Error("RescheduleTask created the deleted task")
 	}
 }
 

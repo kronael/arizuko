@@ -744,17 +744,15 @@ func (s *Server) handleTaskRunLog(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, apiv1.OK{OK: true})
 }
 
-// rescheduleBody is the POST /v1/tasks/{id}/reschedule payload: the next_run
-// timed computed + the target status. An empty next_run clears it (one-shot
-// completion).
+// rescheduleBody is the POST /v1/tasks/{id}/reschedule payload. An empty
+// next_run asks routd to read the task's own cron forward; a non-empty one
+// retries the same fire and is stored as given.
 type rescheduleBody struct {
 	NextRun string `json:"next_run"`
-	Status  string `json:"status"`
 }
 
-// handleTaskReschedule sets a fired task's next_run + status. timed computes
-// next_run and passes status so routd stays a boring writer: recurring →
-// active, one-shot → completed.
+// handleTaskReschedule re-arms a fired task. routd computes the next run from
+// the task's cron: recurring → active, one-shot → completed, bad cron → error.
 func (s *Server) handleTaskReschedule(w http.ResponseWriter, r *http.Request) {
 	if !s.authed(w, r, "tasks:write") {
 		return
@@ -769,11 +767,7 @@ func (s *Server) handleTaskReschedule(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "bad_request", err.Error())
 		return
 	}
-	if body.Status == "" {
-		writeErr(w, 400, "missing_field", "status required")
-		return
-	}
-	if err := s.db.RescheduleTask(id, body.NextRun, body.Status); err != nil {
+	if err := s.db.RescheduleTask(id, body.NextRun); err != nil {
 		writeErr(w, 500, "db_error", err.Error())
 		return
 	}

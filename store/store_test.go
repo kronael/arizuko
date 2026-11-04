@@ -223,7 +223,7 @@ func TestTaskCRUD(t *testing.T) {
 	}
 
 	past := now.Add(-time.Hour)
-	if err := s.RescheduleTask("t1", past.Format(time.RFC3339), "active"); err != nil {
+	if err := s.RescheduleTask("t1", past.Format(time.RFC3339)); err != nil {
 		t.Fatal("RescheduleTask:", err)
 	}
 	got, ok = s.GetTask("t1")

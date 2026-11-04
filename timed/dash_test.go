@@ -24,7 +24,7 @@ func stubRoutd(t *testing.T, tasksJSON string) *router {
 		_, _ = w.Write([]byte(tasksJSON))
 	}))
 	t.Cleanup(srv.Close)
-	return &router{base: srv.URL, http: &http.Client{Timeout: 2 * time.Second}, tz: "UTC"}
+	return &router{base: srv.URL, http: &http.Client{Timeout: 2 * time.Second}}
 }
 
 func TestDashOperatorOK(t *testing.T) {

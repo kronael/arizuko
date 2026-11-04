@@ -54,7 +54,7 @@ func TestLostResponseRetryReusesTheFireID(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	r := &router{base: srv.URL, http: srv.Client(), tz: "UTC"}
+	r := &router{base: srv.URL, http: srv.Client()}
 	r.fireSplit(context.Background()) // response lost
 	fail = false
 	r.fireSplit(context.Background()) // the retry
@@ -75,8 +75,9 @@ func TestLostResponseRetryReusesTheFireID(t *testing.T) {
 		t.Errorf("error-path reschedule next_run = %q, want the claimed %q",
 			reschedules[0].NextRun, next)
 	}
-	if reschedules[1].Status != "completed" {
-		t.Errorf("after the successful retry status = %q, want completed", reschedules[1].Status)
+	if reschedules[1].NextRun != "" {
+		t.Errorf("after the successful retry next_run = %q, want empty (routd completes it)",
+			reschedules[1].NextRun)
 	}
 }
 
@@ -123,8 +124,9 @@ func TestFireIDWithoutNextRunStaysUnique(t *testing.T) {
 }
 
 // A cron task keeps taking its next natural slot on the error path: the missed
-// fire is not the same fire as the next one.
-func TestCronErrorPathTakesTheNextSlot(t *testing.T) {
+// fire is not the same fire as the next one, so timed sends no next_run and
+// routd reads the cron forward.
+func TestCronErrorPathLeavesTheNextSlotToRoutd(t *testing.T) {
 	claimed := time.Now().Add(-time.Minute).UTC().Format(time.RFC3339)
 	var reschedules []rescheduleCall
 	mux := http.NewServeMux()
@@ -153,15 +155,10 @@ func TestCronErrorPathTakesTheNextSlot(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	r := &router{base: srv.URL, http: srv.Client(), tz: "UTC"}
+	r := &router{base: srv.URL, http: srv.Client()}
 	r.fireSplit(context.Background())
 
-	if len(reschedules) != 1 {
-		t.Fatalf("reschedules = %d, want 1", len(reschedules))
-	}
-	at, err := time.Parse(time.RFC3339, reschedules[0].NextRun)
-	if err != nil || !at.After(time.Now()) {
-		t.Fatalf("cron error path next_run = %q, want the next future slot",
-			reschedules[0].NextRun)
+	if len(reschedules) != 1 || reschedules[0].NextRun != "" {
+		t.Fatalf("cron error path reschedules = %+v, want one with no next_run", reschedules)
 	}
 }

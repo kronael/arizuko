@@ -286,9 +286,9 @@ func (d *DB) RecoverFiringTasks() (int64, error) { return d.store().RecoverFirin
 // RecordTaskRun appends one task_run_logs row (timed's write half).
 func (d *DB) RecordTaskRun(l store.TaskRunLog) error { return d.store().RecordTaskRun(l) }
 
-// RescheduleTask sets a fired task's next_run + status (timed's reschedule half).
-func (d *DB) RescheduleTask(id, nextRun, status string) error {
-	return d.store().RescheduleTask(id, nextRun, status)
+// RescheduleTask re-arms a fired task (timed's reschedule half).
+func (d *DB) RescheduleTask(id, nextRun string) error {
+	return d.store().RescheduleTask(id, nextRun)
 }
 
 // TaskRunLogs reads a task's run history, translated to ipc.TaskRunLog.

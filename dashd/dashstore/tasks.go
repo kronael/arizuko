@@ -18,11 +18,9 @@ import (
 // ErrTaskState reports that the task is not in the state the transition starts
 // from, which is how the state machine is enforced: the starting state is a
 // condition on the write, so a wrong-state task moves nothing.
-// ErrInvalidCron reports a cron expression the scheduler cannot read.
 var (
 	ErrTaskMissing = errors.New("task not found")
 	ErrTaskState   = errors.New("invalid state transition")
-	ErrInvalidCron = errors.New("invalid cron expression")
 )
 
 // PauseTask moves an active task to paused.
@@ -47,13 +45,12 @@ func (s *Store) CancelTask(ctx context.Context, id string, ev audit.Event) error
 	})
 }
 
-// ResumeTask moves a paused task back to active and sets its next fire time.
-// nextRun turns the task's own cron expression into that timestamp and reports
-// false for an expression the scheduler cannot read; the move is CONDITIONED on
-// that expression still being the task's, so a task cannot resume against a
-// cron line that changed underneath it. ErrTaskMissing means no such task,
-// ErrInvalidCron that the stored expression does not parse.
-func (s *Store) ResumeTask(ctx context.Context, id string, nextRun func(cron string) (string, bool), ev audit.Event) error {
+// ResumeTask moves a paused task back to active and clears its next fire time:
+// the scheduler fills the next instant of the task's cron on its next poll. The
+// move is CONDITIONED on the cron still being the one read, so a task cannot
+// resume against a cron line that changed underneath it. ErrTaskMissing means
+// no such task.
+func (s *Store) ResumeTask(ctx context.Context, id string, ev audit.Event) error {
 	return s.taskTransition(ctx, ev, func(ws *store.WriteSet) error {
 		t, ok, err := s.st().TaskByID(id)
 		if err != nil {
@@ -62,14 +59,11 @@ func (s *Store) ResumeTask(ctx context.Context, id string, nextRun func(cron str
 		if !ok {
 			return ErrTaskMissing
 		}
-		next, ok := nextRun(t.Cron)
-		if !ok {
-			return ErrInvalidCron
-		}
 		if t.Status != core.TaskPaused {
 			return ErrTaskState
 		}
-		return s.st().MoveTaskInto(ws, t, core.TaskActive, &next, ErrTaskState)
+		cleared := ""
+		return s.st().MoveTaskInto(ws, t, core.TaskActive, &cleared, ErrTaskState)
 	})
 }
 
@@ -120,14 +114,10 @@ type NewTask struct {
 	ChatJID string
 	Prompt  string
 	Cron    string
-	NextRun string
 }
 
-// CreateTask writes the task and its audit row in one batch. NextRun is
-// computed before the write so the task fires without waiting for timed to
-// backfill it, and it arrives as RFC3339 text in the operator's own timezone —
-// which is the layout `next_run` carries, so the parse here round-trips the
-// caller's own bytes rather than restating them.
+// CreateTask writes the task and its audit row in one batch. The task carries
+// no next_run: the scheduler fills it from the cron.
 func (s *Store) CreateTask(ctx context.Context, t NewTask, ev audit.Event) error {
 	task := core.Task{
 		ID:      t.ID,
@@ -137,13 +127,6 @@ func (s *Store) CreateTask(ctx context.Context, t NewTask, ev audit.Event) error
 		Cron:    t.Cron,
 		Status:  core.TaskActive,
 		Created: time.Now(),
-	}
-	if t.NextRun != "" {
-		next, err := time.Parse(time.RFC3339, t.NextRun)
-		if err != nil {
-			return fmt.Errorf("task %s next_run %q: %w", t.ID, t.NextRun, err)
-		}
-		task.NextRun = &next
 	}
 
 	ws := &store.WriteSet{}

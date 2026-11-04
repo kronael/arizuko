@@ -44,7 +44,7 @@ func newTimedMux(dash *dashServer) *http.ServeMux {
 // service:timed token (mirroring runed's boot-exchange), then ticks the
 // federated fire loop. It opens NO messages.db. AUTHD_URL/AUTHD_SERVICE_KEY are
 // required; without them routd's bearer gate denies every call.
-func runSplit(routerURL, tz string) {
+func runSplit(routerURL string) {
 	authdURL := os.Getenv("AUTHD_URL")
 	serviceKey := os.Getenv("AUTHD_SERVICE_KEY")
 	var token *auth.TokenSource
@@ -65,9 +65,8 @@ func runSplit(routerURL, tz string) {
 		base:  routerURL,
 		token: token,
 		http:  &http.Client{Timeout: 15 * time.Second},
-		tz:    tz,
 	}
-	slog.Info("scheduler started (split)", "router", routerURL, "tz", tz)
+	slog.Info("scheduler started (split)", "router", routerURL)
 
 	// ks gates /dash/timed/ to operators (proxyd-stamped X-User-Groups `**`).
 	// AUTHD_URL set → fetch authd's JWKS as the enforce switch; unset (local dev)
@@ -113,7 +112,7 @@ func runSplit(routerURL, tz string) {
 // split.go is timed's federated fire loop: in the split topology timed opens NO
 // messages.db. It claims due tasks, enqueues their prompts, logs the run and
 // reschedules — all over routd's HTTP surface, presenting an auto-refreshing
-// service:timed token. computeNextRun stays client-side; routd is a boring writer.
+// service:timed token. routd computes every next run.
 
 // router is the split-mode client: the routd base URL + a live service token.
 // loop holds the in-memory fire-loop health the /dash/timed/ overview renders;
@@ -123,7 +122,6 @@ type router struct {
 	base  string
 	token *auth.TokenSource
 	http  *http.Client
-	tz    string
 
 	mu   sync.Mutex
 	loop loopState
@@ -209,50 +207,33 @@ func (r *router) fireSplit(ctx context.Context) {
 			slog.Error("enqueue message (split)", "task", t.ID, "jid", t.ChatJID, "err", err)
 			r.runlog(ctx, t.ID, "error", err.Error(), time.Since(start).Milliseconds())
 			// Restore to active so the task stays discoverable. A cron task takes its next
-			// natural slot. A one-shot goes back to the next_run it was just claimed at —
-			// NOT a fresh now+1m — because that value IS the fire's identity, so the next
-			// tick re-claims the SAME fire and routd dedups instead of running it twice.
-			// The fire loop ticks every 60s, so this is still a one-minute retry.
-			retryRun := computeNextRun(t.Cron, r.tz, t.ID)
-			if retryRun == "" {
+			// natural slot (routd reads the cron). A one-shot goes back to the next_run it was
+			// just claimed at — NOT a fresh now+1m — because that value IS the fire's identity,
+			// so the next tick re-claims the SAME fire and routd dedups instead of running it
+			// twice. The fire loop ticks every 60s, so this is still a one-minute retry.
+			retryRun := ""
+			if t.Cron == "" {
 				retryRun = t.NextRun
+				if retryRun == "" {
+					retryRun = time.Now().UTC().Add(time.Minute).Format(time.RFC3339)
+				}
 			}
-			if retryRun == "" {
-				retryRun = time.Now().UTC().Add(time.Minute).Format(time.RFC3339)
-			}
-			if rerr := r.reschedule(ctx, t.ID, retryRun, "active"); rerr != nil {
+			if rerr := r.reschedule(ctx, t.ID, retryRun); rerr != nil {
 				// The restore IS what keeps the task discoverable: a claimed row left
 				// unrestored reports itself as scheduled and is never claimed again
 				// (BUGS L74).
 				slog.Error("task not restored to active; it stays claimed and no tick re-fires it",
-					"task", t.ID, "jid", t.ChatJID, "next_run", retryRun, "err", rerr)
+					"task", t.ID, "jid", t.ChatJID, "err", rerr)
 			}
 			continue
 		}
 
-		nextRun := computeNextRun(t.Cron, r.tz, t.ID)
-		status := "active"
-		switch {
-		case nextRun == "" && t.Cron == "":
-			status = "completed"
-		case nextRun == "":
-			// A recurring task whose cron will not parse. Leaving it ('', 'active') is the
-			// one state nothing recovers from: the due claim compares datetime(next_run),
-			// which is NULL for '', so the row is never claimed again while still reporting
-			// itself as scheduled. sloth and marinade carry 14 such rows, dead since June
-			// and invisible (BUGS L74). A bad cron is a misconfiguration, not a transient
-			// fault, so it stops loudly.
-			status = "error"
-			slog.Error("task cron will not parse; marking it error rather than leaving it active with no next run",
-				"task", t.ID, "cron", t.Cron, "jid", t.ChatJID)
-		}
-		if err := r.reschedule(ctx, t.ID, nextRun, status); err != nil {
+		if err := r.reschedule(ctx, t.ID, ""); err != nil {
 			slog.Error("reschedule task (split)", "task", t.ID, "err", err)
 		}
 		r.runlog(ctx, t.ID, "success", "", time.Since(start).Milliseconds())
 		slog.Info("fired task (split)",
-			"id", t.ID, "jid", t.ChatJID, "cron", t.Cron,
-			"context_mode", t.ContextMode, "next_run", nextRun)
+			"id", t.ID, "jid", t.ChatJID, "cron", t.Cron, "context_mode", t.ContextMode)
 	}
 }
 
@@ -279,8 +260,10 @@ func (r *router) runlog(ctx context.Context, taskID, status, errText string, dur
 	}
 }
 
-func (r *router) reschedule(ctx context.Context, taskID, nextRun, status string) error {
-	body := map[string]string{"next_run": nextRun, "status": status}
+// reschedule asks routd to re-arm a fired task. An empty nextRun leaves the next
+// instant to routd, which reads it off the task's cron.
+func (r *router) reschedule(ctx context.Context, taskID, nextRun string) error {
+	body := map[string]string{"next_run": nextRun}
 	// PathEscape the id: sub-folder task ids carry a slash (main/trading-mem-0),
 	// and a raw slash breaks the {id} path-segment wildcard → 404 → the reschedule
 	// silently fails → the task is stranded in 'firing' and stops firing

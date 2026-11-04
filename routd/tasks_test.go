@@ -97,8 +97,8 @@ func TestTaskRunLogEndpoint(t *testing.T) {
 }
 
 // TestTaskRescheduleRecurring: POST /v1/tasks/{id}/reschedule (tasks:write)
-// with a non-empty next_run + status=active sets next_run and flips the task
-// back to active — the recurring-task case (cron/interval re-arm).
+// with a non-empty next_run stores it and flips the task back to active — the
+// retry of the same fire.
 func TestTaskRescheduleRecurring(t *testing.T) {
 	db, h := authSrv(t, fakeVerifier{sub: "service:timed", scope: []string{"tasks:write"}})
 	// Seed a 'firing' task (the state after GET /v1/tasks/due claimed it).
@@ -113,7 +113,7 @@ func TestTaskRescheduleRecurring(t *testing.T) {
 
 	next := now.Add(24 * time.Hour).Format(time.RFC3339)
 	rec := doJSON(t, h, "POST", "/v1/tasks/rs-1/reschedule", "",
-		rescheduleBody{NextRun: next, Status: "active"})
+		rescheduleBody{NextRun: next})
 	if rec.Code != 200 {
 		t.Fatalf("reschedule = %d want 200 body=%s", rec.Code, rec.Body.String())
 	}
@@ -126,7 +126,7 @@ func TestTaskRescheduleRecurring(t *testing.T) {
 	}
 }
 
-// TestTaskRescheduleOneShot: an empty next_run + status=completed clears
+// TestTaskRescheduleOneShot: an empty next_run on a task with no cron clears
 // next_run (NULL) and marks the one-shot task completed.
 func TestTaskRescheduleOneShot(t *testing.T) {
 	db, h := authSrv(t, fakeVerifier{sub: "service:timed", scope: []string{"tasks:write"}})
@@ -140,7 +140,7 @@ func TestTaskRescheduleOneShot(t *testing.T) {
 	}
 
 	rec := doJSON(t, h, "POST", "/v1/tasks/rs-once/reschedule", "",
-		rescheduleBody{NextRun: "", Status: "completed"})
+		rescheduleBody{})
 	if rec.Code != 200 {
 		t.Fatalf("reschedule = %d want 200 body=%s", rec.Code, rec.Body.String())
 	}
@@ -157,19 +157,38 @@ func TestTaskRescheduleOneShot(t *testing.T) {
 func TestTaskRescheduleRequiresWriteScope(t *testing.T) {
 	_, h := authSrv(t, fakeVerifier{sub: "user:u", scope: []string{"tasks:read"}})
 	rec := doJSON(t, h, "POST", "/v1/tasks/x/reschedule", "",
-		rescheduleBody{NextRun: "", Status: "completed"})
+		rescheduleBody{})
 	if rec.Code != 403 {
 		t.Fatalf("reschedule without tasks:write = %d want 403", rec.Code)
 	}
 }
 
-// TestTaskRescheduleMissingStatus: a body without status is 400.
-func TestTaskRescheduleMissingStatus(t *testing.T) {
-	_, h := authSrv(t, fakeVerifier{sub: "service:timed", scope: []string{"tasks:write"}})
-	rec := doJSON(t, h, "POST", "/v1/tasks/x/reschedule", "",
-		rescheduleBody{NextRun: "2026-01-01T00:00:00Z"})
-	if rec.Code != 400 {
-		t.Fatalf("reschedule without status = %d want 400", rec.Code)
+// TestTaskRescheduleReadsTheCron: an empty next_run on a recurring task is the
+// next instant its cron names, computed by routd; a cron that will not parse
+// moves the task to error and leaves no next_run.
+func TestTaskRescheduleReadsTheCron(t *testing.T) {
+	db, h := authSrv(t, fakeVerifier{sub: "service:timed", scope: []string{"tasks:write"}})
+	s := store.NewOver(db.Obj())
+	now := time.Now()
+	for id, cron := range map[string]string{"rs-cron": "0 9 * * *", "rs-bad": "not a cron"} {
+		if err := s.CreateTask(core.Task{
+			ID: id, Owner: "main", ChatJID: "web:main", Prompt: "tick",
+			Cron: cron, NextRun: &now, Status: "firing", Created: now,
+		}); err != nil {
+			t.Fatalf("seed task: %v", err)
+		}
+		if rec := doJSON(t, h, "POST", "/v1/tasks/"+id+"/reschedule", "", rescheduleBody{}); rec.Code != 200 {
+			t.Fatalf("reschedule %s = %d want 200 body=%s", id, rec.Code, rec.Body.String())
+		}
+	}
+	got, _ := db.GetTask("rs-cron")
+	if got.Status != "active" || got.NextRun == nil || !got.NextRun.After(now) ||
+		got.NextRun.Hour() != 9 || got.NextRun.Minute() != 0 {
+		t.Errorf("recurring: status %q next_run %v, want active at the next 09:00", got.Status, got.NextRun)
+	}
+	got, _ = db.GetTask("rs-bad")
+	if got.Status != "error" || got.NextRun != nil {
+		t.Errorf("bad cron: status %q next_run %v, want error with no next_run", got.Status, got.NextRun)
 	}
 }
 

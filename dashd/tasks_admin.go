@@ -16,20 +16,6 @@ import (
 	"github.com/kronael/arizuko/dashd/dashstore"
 )
 
-// taskNextRun renders the next_run dashd stores for a cron an operator typed.
-// ok is false only when a non-empty value will not parse — the caller rejects
-// that with 400, so a bad expression never reaches a row.
-func taskNextRun(cronVal string) (next string, ok bool) {
-	t, err := core.NextRun(cronVal, core.Timezone())
-	if errors.Is(err, core.ErrNoSchedule) {
-		return "", true
-	}
-	if err != nil {
-		return "", false
-	}
-	return t.Format(time.RFC3339), true
-}
-
 // handleTaskDetail renders GET /dash/tasks/{id} — full task fields + last 20 run logs.
 func (d *dash) handleTaskDetail(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -166,8 +152,8 @@ func (d *dash) handleTaskAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// pause: active→paused; resume: paused→active (recompute next_run from
-	// cron); cancel: active|paused→cancelled. A task not in the state a
+	// pause: active→paused; resume: paused→active (next_run cleared, so the
+	// scheduler fills the next instant of the cron); cancel: active|paused→cancelled. A task not in the state a
 	// transition starts from moves nowhere and answers 409. The status the
 	// audit row records and the move that writes it come off the same case, so
 	// a fourth action cannot be half-added.
@@ -180,7 +166,7 @@ func (d *dash) handleTaskAction(w http.ResponseWriter, r *http.Request) {
 		move = func(ev audit.Event) error { return st.PauseTask(r.Context(), id, ev) }
 	case "resume":
 		newStatus = "active"
-		move = func(ev audit.Event) error { return st.ResumeTask(r.Context(), id, taskNextRun, ev) }
+		move = func(ev audit.Event) error { return st.ResumeTask(r.Context(), id, ev) }
 	case "cancel":
 		newStatus = "cancelled"
 		move = func(ev audit.Event) error { return st.CancelTask(r.Context(), id, ev) }
@@ -202,9 +188,6 @@ func (d *dash) handleTaskAction(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case errors.Is(err, dashstore.ErrTaskMissing):
 		http.Error(w, "not found", http.StatusNotFound)
-		return
-	case errors.Is(err, dashstore.ErrInvalidCron):
-		http.Error(w, "invalid cron expression", http.StatusBadRequest)
 		return
 	case errors.Is(err, dashstore.ErrTaskState):
 		http.Error(w, "invalid state transition", http.StatusConflict)
@@ -239,10 +222,8 @@ func (d *dash) handleTaskCreate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "owner, chat_jid, prompt, cron required", http.StatusBadRequest)
 		return
 	}
-	// Validate cron with timed's parser and compute next_run so the task fires
-	// without waiting for timed to backfill it. Empty cron = one-shot (next "").
-	nextRun, ok := taskNextRun(cronVal)
-	if !ok {
+	// Refuse a cron that could never run; the scheduler fills next_run.
+	if _, err := core.NextRun(cronVal, core.Timezone()); err != nil {
 		http.Error(w, "invalid cron expression", http.StatusBadRequest)
 		return
 	}
@@ -261,7 +242,6 @@ func (d *dash) handleTaskCreate(w http.ResponseWriter, r *http.Request) {
 		ChatJID: chatJID,
 		Prompt:  prompt,
 		Cron:    cronVal,
-		NextRun: nextRun,
 	}, audit.Event{
 		Category: audit.CategoryMutation,
 		Action:   "task.create",

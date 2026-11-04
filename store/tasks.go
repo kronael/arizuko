@@ -20,7 +20,9 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
 	"strconv"
 	"time"
@@ -190,26 +192,52 @@ func (s *Store) SetTaskStatus(id, status string) error {
 	return err
 }
 
-// RescheduleTask sets a fired task's next_run + status WITHOUT an audit_log
-// row: the write half of timed's fire loop, behind POST
-// /v1/tasks/{id}/reschedule. An empty nextRun TAKES THE ATTRIBUTE AWAY
-// (one-shot completion); a non-empty value is stored verbatim.
-func (s *Store) RescheduleTask(id, nextRun, status string) error {
+// RescheduleTask re-arms a fired task WITHOUT an audit_log row: the write half
+// of timed's fire loop, behind POST /v1/tasks/{id}/reschedule. A non-empty
+// nextRun is stored verbatim (a retry of the same fire). An empty one is the
+// task's own cron read forward: the next instant for a recurring task, no
+// further run and status 'completed' for a one-shot, status 'error' for a cron
+// that will not parse. A task deleted since the claim is left deleted.
+func (s *Store) RescheduleTask(id, nextRun string) error {
+	t, ok, err := s.TaskByID(id)
+	if err != nil || !ok {
+		return err
+	}
 	key, err := taskKey(id)
 	if err != nil {
 		return err
 	}
 	w := objstore.Write{
 		Op: objstore.Update, Entity: ScheduledTasks, Key: key,
-		Attrs: map[string]string{attrTaskStatus: status},
+		Attrs: map[string]string{attrTaskStatus: core.TaskActive},
 	}
-	if nextRun == "" {
-		w.Remove = []string{attrTaskNextRun}
-	} else {
+	if nextRun != "" {
 		w.Attrs[attrTaskNextRun] = nextRun
+		return s.WriteEntities(context.Background(), nil, w)
 	}
-	err = s.WriteEntities(context.Background(), nil, w)
-	return err
+	next, err := core.NextRun(t.Cron, core.Timezone())
+	switch {
+	case errors.Is(err, core.ErrNoSchedule):
+		w.Attrs[attrTaskStatus] = core.TaskCompleted
+		w.Remove = []string{attrTaskNextRun}
+	case err != nil:
+		w.Attrs[attrTaskStatus] = core.TaskError
+		w.Remove = []string{attrTaskNextRun}
+		logBadCron(t)
+	default:
+		w.Attrs[attrTaskNextRun] = next.Format(time.RFC3339)
+	}
+	return s.WriteEntities(context.Background(), nil, w)
+}
+
+// logBadCron is the loud half of a recurring task whose cron will not parse.
+// Leaving it ('active', no next_run) is the one state nothing recovers from:
+// the row reports itself as scheduled and is never claimed (BUGS L74; sloth and
+// marinade carried 14 such rows, dead since June and invisible). A bad cron is a
+// misconfiguration, not a transient fault, so it stops with status 'error'.
+func logBadCron(t core.Task) {
+	slog.Error("task cron will not parse; marking it error rather than leaving it active with no next run",
+		"task", t.ID, "cron", t.Cron, "jid", t.ChatJID)
 }
 
 // attrIs compares one attribute against the value a caller READ off the item.
@@ -302,6 +330,12 @@ func (s *Store) DueTasks(now time.Time) ([]core.Task, error) {
 	}
 	var out []core.Task
 	for _, it := range items {
+		if it.Attrs[attrTaskNextRun] == "" {
+			if err := s.fillNextRun(ctx, it); err != nil {
+				return nil, err
+			}
+			continue
+		}
 		run, ok := taskNextRun(it)
 		if !ok || run.After(now) {
 			continue
@@ -324,6 +358,39 @@ func (s *Store) DueTasks(now time.Time) ([]core.Task, error) {
 		out = append(out, t)
 	}
 	return out, nil
+}
+
+// fillNextRun gives an active task that carries a cron and no next_run the
+// first instant that cron names, without firing it this poll: the scheduler is
+// the only writer of a recurring task's first run, so every creator leaves
+// next_run empty. A cron that will not parse moves the task to 'error'. Both
+// writes are conditional on the task still being active and still without a
+// next_run, so a concurrent poller's fill or an explicit next_run wins.
+func (s *Store) fillNextRun(ctx context.Context, it objstore.Item) error {
+	t := taskFrom(it)
+	if t.Cron == "" {
+		return nil
+	}
+	w := objstore.Write{
+		Op: objstore.Update, Entity: ScheduledTasks, Key: it.Key,
+		Cond: objstore.Cond{Where: []objstore.Cmp{
+			{Attr: attrTaskStatus, Op: objstore.Eq, Value: core.TaskActive},
+			attrIs(attrTaskNextRun, ""),
+		}},
+	}
+	next, err := core.NextRun(t.Cron, core.Timezone())
+	if err != nil {
+		w.Attrs = map[string]string{attrTaskStatus: core.TaskError}
+		logBadCron(t)
+	} else {
+		w.Attrs = map[string]string{attrTaskNextRun: next.Format(time.RFC3339)}
+	}
+	// A refusal is a concurrent poller's fill, an explicit next_run or a status
+	// change winning the race: the task is no longer this poll's to fill.
+	if _, err := s.TryWriteEntities(ctx, nil, w); err != nil {
+		return fmt.Errorf("fill next_run of task %q: %w", t.ID, err)
+	}
+	return nil
 }
 
 func (s *Store) GetTask(id string) (core.Task, bool) {
@@ -407,23 +474,14 @@ var defaultTasks = [...]struct{ prompt, cron string }{
 func (s *Store) SeedDefaultTasks(folder, chatJID string) error {
 	ctx := context.Background()
 	now := time.Now()
-	tz := core.Timezone()
 	for i, t := range defaultTasks {
 		id := folder + "-mem-" + strconv.Itoa(i)
-		// The first run is the first instant the task's OWN cron names: seeding
-		// it at `now` left five tasks due, and a brand-new group paid five LLM
-		// turns before anyone sent it a message (BUGS L312).
-		next, err := core.NextRun(t.cron, tz)
-		if err != nil {
-			return fmt.Errorf("seed task %s: cron %q: %w", id, t.cron, err)
-		}
 		task := core.Task{
 			ID:          id,
 			Owner:       folder,
 			ChatJID:     chatJID,
 			Prompt:      t.prompt,
 			Cron:        t.cron,
-			NextRun:     &next,
 			Status:      core.TaskActive,
 			Created:     now,
 			ContextMode: "isolated",

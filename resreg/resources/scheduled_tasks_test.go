@@ -8,10 +8,10 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
-// A cron row applied without next_run (package sync, rows apply) must enter the
-// due set: DueTasks skips an item with no next_run, so such a row never fired
-// (sloth's macrohype-monitor, 2026-10-28). A stated next_run stays.
-func TestApplySeedsNextRunFromCron(t *testing.T) {
+// A cron row applied without next_run (package sync, rows apply) stays without
+// one until the scheduler's poll fills it, so it enters the due set instead of
+// never firing (sloth's macrohype-monitor, 2026-10-28). A stated next_run stays.
+func TestApplyLeavesNextRunToTheScheduler(t *testing.T) {
 	db := openMem(t)
 	rows := []ScheduledTasksRow{
 		{ID: "bare", Owner: "main", ChatJID: "main", Prompt: "p", Cron: "* * * * *"},
@@ -24,9 +24,15 @@ func TestApplySeedsNextRunFromCron(t *testing.T) {
 		t.Fatalf("Apply: %v", err)
 	}
 	st := store.NewOver(db)
+	if bare, _ := st.GetTask("bare"); bare.NextRun != nil {
+		t.Fatalf("Apply wrote next_run %v for a bare cron row", bare.NextRun)
+	}
+	if _, err := st.DueTasks(time.Now()); err != nil {
+		t.Fatalf("DueTasks: %v", err)
+	}
 	bare, _ := st.GetTask("bare")
 	if bare.NextRun == nil || time.Until(*bare.NextRun) > time.Minute {
-		t.Errorf("bare cron row next_run = %v, want within a minute", bare.NextRun)
+		t.Errorf("bare cron row next_run = %v, want filled within a minute", bare.NextRun)
 	}
 	stated, _ := st.GetTask("stated")
 	if stated.NextRun == nil || stated.NextRun.Year() != 2030 {

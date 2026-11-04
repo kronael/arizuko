@@ -1,18 +1,15 @@
 package resources
 
 import (
-	"fmt"
 	"reflect"
-	"time"
 
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/resreg"
 )
 
 // ScheduledTasksRow mirrors scheduled_tasks; BeforeInsert defaults status and
-// context_mode, and seeds next_run from cron: a row without next_run never
-// leaves the due set (store.DueTasks), and package sync and rows apply write
-// rows with none.
+// context_mode. next_run is the scheduler's: a row with a cron and no next_run
+// is filled by store.DueTasks.
 type ScheduledTasksRow struct {
 	ID          string `db:"id"           yaml:"id"           json:"id"`
 	Owner       string `db:"owner"        yaml:"owner"        json:"owner"`
@@ -38,7 +35,8 @@ var ScheduledTasksResponses = map[resreg.Action]reflect.Type{
 // never override it (BUGS F21). The REST path is /v1/tasks, NOT /v1/<name>:
 // timed calls it across the container boundary and its fire loop shares the
 // prefix. schedule/pause/resume are MCPOnly (the operator drives them through
-// PATCH {status}); get/patch are REST-only with no MCPDoc entry, hence no tool.
+// PATCH {status}); get is REST-only with no MCPDoc entry, hence no tool. patch
+// is both: the REST PATCH, and the agent's reschedule_task for its {next_run}.
 var ScheduledTasksEndpoints = []resreg.Endpoint{
 	{Action: resreg.Action("schedule"), MCPOnly: true},
 	{Action: resreg.Action("pause"), MCPOnly: true},
@@ -50,12 +48,13 @@ var ScheduledTasksEndpoints = []resreg.Endpoint{
 }
 
 // ScheduledTasksMCPNames maps each action to the flat tool name the live agent
-// calls (spec 5/16); the REST-only `patch` verb has no entry.
+// calls (spec 5/16).
 var ScheduledTasksMCPNames = map[resreg.Action]string{
 	resreg.Action("schedule"): "schedule_task",
 	resreg.Action("pause"):    "pause_task",
 	resreg.Action("resume"):   "resume_task",
 	resreg.Action("cancel"):   "cancel_task",
+	resreg.Action("patch"):    "reschedule_task",
 	resreg.ActionList:         "list_tasks",
 }
 
@@ -65,6 +64,7 @@ var ScheduledTasksMCPDoc = map[resreg.Action]string{
 	resreg.Action("schedule"): "Create a scheduled prompt that fires against a target chat. Use when the user asks for reminders, recurring checks, or deferred work. `cron` accepts a 5-field cron expression, an integer millisecond interval, or an RFC3339 timestamp for a one-shot. Not for immediate execution (`send`/inject_message).",
 	resreg.Action("pause"):    "Mark a scheduled task paused so it stops firing but is preserved. Use when suspending a task temporarily. Not for permanent removal (cancel_task).",
 	resreg.Action("resume"):   "Re-activate a paused task so it resumes firing on its schedule. Use to undo pause_task. No effect on already-active or cancelled tasks.",
+	resreg.Action("patch"):    "Set the next run of a scheduled task to an RFC3339 time. Use to move a task earlier or later; a job may call it in its own turn to say when it runs next. A cron task resumes its cron after that run. Not for changing the cron (cancel_task, then schedule_task).",
 	resreg.Action("cancel"):   "Permanently delete a scheduled task. Use when the task is no longer wanted. Not for temporary suspension (pause_task) — this cannot be undone.",
 	resreg.ActionList:         "Return scheduled tasks visible to this group. Use for a plain task dump; prefer inspect_tasks when you also want task_run_logs or per-task history.",
 }
@@ -77,6 +77,10 @@ var ScheduledTasksMCPArgs = map[resreg.Action][]resreg.MCPArg{
 		{Name: "prompt", Type: "string", Required: true},
 		{Name: "cron", Type: "string"},
 		{Name: "contextMode", Type: "string"},
+	},
+	resreg.Action("patch"): {
+		{Name: "taskId", Type: "string", Required: true},
+		{Name: "next_run", Type: "string", Required: true},
 	},
 	resreg.Action("pause"):  {{Name: "taskId", Type: "string", Required: true}},
 	resreg.Action("resume"): {{Name: "taskId", Type: "string", Required: true}},
@@ -107,13 +111,6 @@ func init() {
 				}
 				if r.ContextMode == "" {
 					r.ContextMode = "group"
-				}
-				if r.NextRun == "" && r.Cron != "" {
-					next, err := core.NextRun(r.Cron, core.Timezone())
-					if err != nil {
-						return fmt.Errorf("task %s cron %q: %w", r.ID, r.Cron, err)
-					}
-					r.NextRun = next.UTC().Format(time.RFC3339)
 				}
 				return nil
 			},

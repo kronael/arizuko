@@ -24,8 +24,8 @@ import (
 	"github.com/kronael/arizuko/ipc"
 )
 
-// taskToolNames is the five task tools — the set every task test delegates.
-var taskToolNames = []string{"schedule_task", "pause_task", "resume_task", "cancel_task", "list_tasks"}
+// taskToolNames is the six task tools — the set every task test delegates.
+var taskToolNames = []string{"schedule_task", "pause_task", "resume_task", "cancel_task", "list_tasks", "reschedule_task"}
 
 // serveTasksMCP stands up the agent socket for folder + the scheduled_tasks resreg
 // seam, and returns the socket path. Authz reads the folder's acl rows.
@@ -90,7 +90,7 @@ func TestScheduledTasksMCP_ScheduleParsesCron(t *testing.T) {
 	grantMCPTools(t, db, "hq", taskToolNames...)
 	sock := serveTasksMCP(t, db, "hq", "folder:hq")
 
-	// 5-field cron: stored verbatim, next_run computed.
+	// 5-field cron: stored verbatim, next_run left to the scheduler.
 	res, e := callToolOverSock(t, sock, "schedule_task", map[string]any{
 		"targetJid": jid, "prompt": "standup", "cron": "0 9 * * *",
 	})
@@ -98,11 +98,11 @@ func TestScheduledTasksMCP_ScheduleParsesCron(t *testing.T) {
 		t.Fatalf("schedule_task (cron) errored: %s", e)
 	}
 	tk, _ := db.GetTask(res["taskId"].(string))
-	if tk.Cron != "0 9 * * *" || tk.NextRun == nil {
-		t.Fatalf("cron form: cron=%q next_run=%v, want cron kept + next_run set", tk.Cron, tk.NextRun)
+	if tk.Cron != "0 9 * * *" || tk.NextRun != nil {
+		t.Fatalf("cron form: cron=%q next_run=%v, want cron kept + next_run empty", tk.Cron, tk.NextRun)
 	}
 
-	// Millisecond interval: stored verbatim, next_run ~now+interval.
+	// Millisecond interval: stored verbatim, next_run left to the scheduler.
 	res, e = callToolOverSock(t, sock, "schedule_task", map[string]any{
 		"targetJid": jid, "prompt": "ping", "cron": "60000",
 	})
@@ -110,8 +110,8 @@ func TestScheduledTasksMCP_ScheduleParsesCron(t *testing.T) {
 		t.Fatalf("schedule_task (interval) errored: %s", e)
 	}
 	tk, _ = db.GetTask(res["taskId"].(string))
-	if tk.Cron != "60000" || tk.NextRun == nil {
-		t.Fatalf("interval form: cron=%q next_run=%v, want interval kept + next_run set", tk.Cron, tk.NextRun)
+	if tk.Cron != "60000" || tk.NextRun != nil {
+		t.Fatalf("interval form: cron=%q next_run=%v, want interval kept + next_run empty", tk.Cron, tk.NextRun)
 	}
 
 	// RFC3339 one-shot: EMPTY stored cron, next_run = the timestamp.
@@ -232,6 +232,68 @@ func TestScheduledTasksMCP_PauseResumeCancelOwn(t *testing.T) {
 	}
 }
 
+// TestScheduledTasksMCP_RescheduleOverrideSurvivesTheFire: timed re-arms a task
+// when it enqueues the prompt, so a job that calls reschedule_task during its
+// own turn writes AFTER that re-arm and its next_run stands. The next poll
+// leaves it alone; a refused call (cross-folder, bad time) writes nothing.
+func TestScheduledTasksMCP_RescheduleOverrideSurvivesTheFire(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	_ = db.PutGroup(core.Group{Folder: "world"})
+	_ = db.PutGroup(core.Group{Folder: "world/a"})
+	_ = db.PutGroup(core.Group{Folder: "world/b"})
+	seedTask(t, db, "task-a", "world/a", "slack:a", "mine")
+	seedTask(t, db, "task-b", "world/b", "slack:b", "theirs")
+	grantMCPTools(t, db, "world/a", taskToolNames...)
+	sock := serveTasksMCP(t, db, "world/a", "folder:world/a")
+
+	// The scheduler fills each seeded task's first run; two days on, both are due.
+	if filled, err := db.store().DueTasks(time.Now()); err != nil || len(filled) != 0 {
+		t.Fatalf("first poll claimed %d tasks, err %v; it only fills next_run", len(filled), err)
+	}
+	later := time.Now().Add(48 * time.Hour)
+
+	// The fire: timed claims the due task, enqueues, and asks routd to re-arm.
+	if due, err := db.store().DueTasks(later); err != nil || len(due) != 2 {
+		t.Fatalf("DueTasks = %d tasks, err %v; want both seeded tasks", len(due), err)
+	}
+	if err := db.RescheduleTask("task-a", ""); err != nil {
+		t.Fatalf("RescheduleTask: %v", err)
+	}
+
+	// The job's own turn: it moves its next run.
+	moved := time.Now().Add(72 * time.Hour).UTC().Truncate(time.Second)
+	if _, e := callToolOverSock(t, sock, "reschedule_task", map[string]any{
+		"taskId": "task-a", "next_run": moved.Format(time.RFC3339),
+	}); e != "" {
+		t.Fatalf("reschedule_task errored: %s", e)
+	}
+	got, _ := db.GetTask("task-a")
+	if got.NextRun == nil || !got.NextRun.Equal(moved) {
+		t.Fatalf("next_run = %v, want the job's %v", got.NextRun, moved)
+	}
+	if again, err := db.store().DueTasks(later); err != nil || len(again) != 0 {
+		t.Fatalf("next poll claimed %d tasks, err %v; the override must stand", len(again), err)
+	}
+	if got, _ := db.GetTask("task-a"); got.NextRun == nil || !got.NextRun.Equal(moved) {
+		t.Fatalf("next_run after the poll = %v, want %v", got.NextRun, moved)
+	}
+
+	if _, e := callToolOverSock(t, sock, "reschedule_task", map[string]any{
+		"taskId": "task-b", "next_run": moved.Format(time.RFC3339),
+	}); e == "" {
+		t.Fatal("reschedule_task moved a sibling folder's task")
+	}
+	if _, e := callToolOverSock(t, sock, "reschedule_task", map[string]any{
+		"taskId": "task-a", "next_run": "tomorrow",
+	}); !strings.Contains(e, "RFC3339") {
+		t.Fatalf("bad time: got %q, want an RFC3339 refusal", e)
+	}
+}
+
 // TestScheduledTasksMCP_CrossFolderTaskDenied: THE per-task containment guard. A
 // folder GRANTED cancel_task scoped to itself may cancel its OWN task but MUST NOT
 // cancel a sibling folder's task — contain resolves the task's owner from
@@ -301,7 +363,7 @@ func TestScheduledTasksMCP_RootElevationCancelsCrossFolder(t *testing.T) {
 }
 
 // TestScheduledTasksMCP_Visibility: the Visible predicate (auth.EffectiveActions)
-// keeps tools/list gating — a delegated folder sees the five tools; an ungranted
+// keeps tools/list gating — a delegated folder sees the six tools; an ungranted
 // folder sees none (no task tool is in the role:member floor).
 func TestScheduledTasksMCP_Visibility(t *testing.T) {
 	db, err := OpenMem()

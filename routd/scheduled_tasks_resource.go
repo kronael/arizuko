@@ -31,8 +31,8 @@ const (
 	tasksActionPause    = resreg.Action("pause")
 	tasksActionResume   = resreg.Action("resume")
 	tasksActionCancel   = resreg.Action("cancel")
-	// tasksActionPatch is the REST-only PATCH verb: {status} pause/resume +
-	// {next_run} run-now. No MCPDoc entry, so it is never an agent tool.
+	// tasksActionPatch is the PATCH verb: {status} pause/resume + {next_run}
+	// override. Its MCP face is reschedule_task, which carries {next_run} only.
 	tasksActionPatch = resreg.Action("patch")
 )
 
@@ -164,8 +164,10 @@ func (s *Server) scheduledTasksHandler(ctx context.Context, x resreg.Execution, 
 		return task, nil
 
 	case tasksActionPatch:
-		// PATCH (REST only): {status} pause/resume + {next_run} run-now, one or
-		// both; the same contain seam as pause/resume/cancel.
+		// PATCH and reschedule_task: {status} pause/resume + {next_run} override,
+		// one or both; the same contain seam as pause/resume/cancel. timed
+		// re-arms a task when it enqueues the prompt, so a next_run written
+		// from the job's own turn lands after it and stands.
 		taskID := argString(x.Args, "taskId")
 		task, ok := s.db.GetTask(taskID)
 		if !ok {
@@ -178,6 +180,9 @@ func (s *Server) scheduledTasksHandler(ctx context.Context, x resreg.Execution, 
 		nextRun := argString(x.Args, "next_run")
 		if status == "" && nextRun == "" {
 			return nil, resreg.Errorf(http.StatusBadRequest, "status or next_run required")
+		}
+		if _, err := time.Parse(time.RFC3339, nextRun); nextRun != "" && err != nil {
+			return nil, resreg.Errorf(http.StatusBadRequest, "next_run must be RFC3339: %v", err)
 		}
 		if err := s.db.store().PatchTaskInto(x.Writes, taskID, status, nextRun,
 			resreg.Errorf(http.StatusNotFound, "task not found")); err != nil {
@@ -216,9 +221,10 @@ func (s *Server) scheduledTasksPostBuild(folder, callerSub string, authorize aut
 }
 
 // parseTaskSchedule reads the `cron` arg into (next_run, stored-cron): an
-// RFC3339 timestamp is a one-shot (empty stored cron → timed marks it completed
-// after one firing); anything else is core.NextRun's value space, stored
-// verbatim. An empty arg leaves next_run nil.
+// RFC3339 timestamp is a one-shot (empty stored cron, explicit next_run; the
+// task is completed after one firing); anything else is core.NextRun's value
+// space, stored verbatim with next_run empty for the scheduler to fill. The
+// parse here only refuses a cron that could never run.
 func parseTaskSchedule(cronExpr string) (*time.Time, string, error) {
 	if cronExpr == "" {
 		return nil, "", nil
@@ -226,9 +232,8 @@ func parseTaskSchedule(cronExpr string) (*time.Time, string, error) {
 	if t, err := time.Parse(time.RFC3339, cronExpr); err == nil {
 		return &t, "", nil
 	}
-	t, err := core.NextRun(cronExpr, core.Timezone())
-	if err != nil {
+	if _, err := core.NextRun(cronExpr, core.Timezone()); err != nil {
 		return nil, "", fmt.Errorf("invalid cron %q: %v", cronExpr, err)
 	}
-	return &t, cronExpr, nil
+	return nil, cronExpr, nil
 }

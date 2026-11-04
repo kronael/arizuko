@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
-	"time"
 
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
 )
@@ -29,7 +28,6 @@ type stubRouter struct {
 type rescheduleCall struct {
 	ID      string
 	NextRun string `json:"next_run"`
-	Status  string `json:"status"`
 }
 
 func (s *stubRouter) handler() http.Handler {
@@ -81,7 +79,7 @@ func TestFireSplitDrivesRoutd(t *testing.T) {
 	srv := httptest.NewServer(stub.handler())
 	defer srv.Close()
 
-	r := &router{base: srv.URL, http: srv.Client(), tz: "UTC"}
+	r := &router{base: srv.URL, http: srv.Client()}
 	r.fireSplit(context.Background())
 
 	if len(stub.enqueued) != 1 {
@@ -98,16 +96,13 @@ func TestFireSplitDrivesRoutd(t *testing.T) {
 		t.Fatalf("reschedules = %d want 1", len(stub.reschedules))
 	}
 	rc := stub.reschedules[0]
-	if rc.ID != "t1" || rc.Status != "active" {
-		t.Errorf("reschedule = %+v want t1/active", rc)
-	}
-	if nr, err := time.Parse(time.RFC3339, rc.NextRun); err != nil || !nr.After(time.Now()) {
-		t.Errorf("reschedule next_run = %q want future RFC3339", rc.NextRun)
+	if rc.ID != "t1" || rc.NextRun != "" {
+		t.Errorf("reschedule = %+v want t1 with no next_run (routd reads the cron)", rc)
 	}
 }
 
-// TestFireSplitOneShotCompletes: a one-shot task (no cron) reschedules to
-// completed with an empty next_run.
+// TestFireSplitOneShotCompletes: a one-shot task (no cron) sends the same bare
+// reschedule; routd turns it into 'completed'.
 func TestFireSplitOneShotCompletes(t *testing.T) {
 	stub := &stubRouter{due: []dueTask{
 		{ID: "once", ChatJID: "web:main", Prompt: "do it", Cron: "", ContextMode: "group"},
@@ -115,15 +110,15 @@ func TestFireSplitOneShotCompletes(t *testing.T) {
 	srv := httptest.NewServer(stub.handler())
 	defer srv.Close()
 
-	r := &router{base: srv.URL, http: srv.Client(), tz: "UTC"}
+	r := &router{base: srv.URL, http: srv.Client()}
 	r.fireSplit(context.Background())
 
 	if len(stub.reschedules) != 1 {
 		t.Fatalf("reschedules = %d want 1", len(stub.reschedules))
 	}
 	rc := stub.reschedules[0]
-	if rc.Status != "completed" || rc.NextRun != "" {
-		t.Errorf("one-shot reschedule = %+v want completed/empty next_run", rc)
+	if rc.NextRun != "" {
+		t.Errorf("one-shot reschedule = %+v want an empty next_run", rc)
 	}
 }
 
@@ -137,7 +132,7 @@ func TestFireSplitAddressesTheOwnerFolder(t *testing.T) {
 	srv := httptest.NewServer(stub.handler())
 	defer srv.Close()
 
-	r := &router{base: srv.URL, http: srv.Client(), tz: "UTC"}
+	r := &router{base: srv.URL, http: srv.Client()}
 	r.fireSplit(context.Background())
 
 	if len(stub.enqueued) != 1 {
@@ -159,7 +154,7 @@ func TestFireSplitIsolatedSender(t *testing.T) {
 	srv := httptest.NewServer(stub.handler())
 	defer srv.Close()
 
-	r := &router{base: srv.URL, http: srv.Client(), tz: "UTC"}
+	r := &router{base: srv.URL, http: srv.Client()}
 	r.fireSplit(context.Background())
 
 	if len(stub.enqueued) != 1 || stub.enqueued[0].Sender != "timed-isolated:iso" {
@@ -181,7 +176,7 @@ func TestFireSplitOpensNoDB(t *testing.T) {
 	srv := httptest.NewServer(stub.handler())
 	defer srv.Close()
 
-	r := &router{base: srv.URL, http: srv.Client(), tz: "UTC"}
+	r := &router{base: srv.URL, http: srv.Client()}
 	r.fireSplit(context.Background())
 
 	// The tick drove routd (proof it ran), and nothing on disk was opened.
@@ -243,14 +238,14 @@ func TestFireSplitEnqueueErrorRestoresActive(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	r := &router{base: srv.URL, http: srv.Client(), tz: "UTC"}
+	r := &router{base: srv.URL, http: srv.Client()}
 	r.fireSplit(context.Background())
 
 	if len(runlogs) != 1 || runlogs[0]["status"] != "error" {
 		t.Errorf("runlogs = %+v want one error", runlogs)
 	}
-	if len(reschedules) != 1 || reschedules[0].Status != "active" {
-		t.Errorf("reschedules = %+v want one active (restored)", reschedules)
+	if len(reschedules) != 1 || reschedules[0].NextRun != "" {
+		t.Errorf("reschedules = %+v want one bare reschedule (restored)", reschedules)
 	}
 }
 
@@ -264,8 +259,8 @@ func TestRescheduleEscapesSlashedID(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer srv.Close()
-	r := &router{base: srv.URL, http: srv.Client(), tz: "UTC"}
-	if err := r.reschedule(context.Background(), "main/trading-mem-0", "", "active"); err != nil {
+	r := &router{base: srv.URL, http: srv.Client()}
+	if err := r.reschedule(context.Background(), "main/trading-mem-0", ""); err != nil {
 		t.Fatalf("reschedule: %v", err)
 	}
 	if want := "/v1/tasks/main%2Ftrading-mem-0/reschedule"; gotPath != want {

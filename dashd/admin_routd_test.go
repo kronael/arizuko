@@ -253,9 +253,48 @@ func TestTaskCreate_TargetsRoutdDB(t *testing.T) {
 		t.Fatalf("POST tasks = %d body=%q", w.Code, w.Body.String())
 	}
 	if n := countTasks(t, routd, func(task core.Task) bool {
-		return task.Owner == "team" && task.Prompt == "do the thing"
+		return task.Owner == "team" && task.Prompt == "do the thing" && task.NextRun == nil
 	}); n != 1 {
-		t.Errorf("routd.db scheduled_tasks rows = %d, want 1", n)
+		t.Errorf("routd.db scheduled_tasks rows = %d, want 1 with no next_run (the scheduler fills it)", n)
+	}
+}
+
+// TestTaskCreate_RejectsBadCron: a cron that could never run is refused at the
+// form, and nothing is stored.
+func TestTaskCreate_RejectsBadCron(t *testing.T) {
+	d, routd := splitAdminDash(t, "alice@x")
+	form := url.Values{
+		"owner": {"team"}, "chat_jid": {"web:team"},
+		"prompt": {"do the thing"}, "cron": {"not a cron"},
+	}.Encode()
+	w := httptest.NewRecorder()
+	newMux(d).ServeHTTP(w, adminReq("POST", "/dash/tasks/", form, "alice@x"))
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("POST tasks = %d, want 400", w.Code)
+	}
+	if n := countTasks(t, routd, func(core.Task) bool { return true }); n != 0 {
+		t.Errorf("a refused create stored %d tasks", n)
+	}
+}
+
+// TestTaskResume_ClearsNextRun: resuming a paused task drops its stale next_run
+// so the scheduler fills the next instant of the cron, where a stale past one
+// would fire the task the moment it resumes.
+func TestTaskResume_ClearsNextRun(t *testing.T) {
+	d, routd := splitAdminDash(t, "alice@x")
+	stale := time.Now().Add(-48 * time.Hour)
+	seedScheduledTask(t, routd, core.Task{
+		ID: "t-resume", Owner: "team", ChatJID: "web:team", Prompt: "p",
+		Cron: "0 9 * * *", NextRun: &stale, Status: "paused",
+	})
+	w := httptest.NewRecorder()
+	newMux(d).ServeHTTP(w, adminReq("POST", "/dash/tasks/t-resume/resume", "", "alice@x"))
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("POST task resume = %d body=%q", w.Code, w.Body.String())
+	}
+	got, _, _ := store.NewOver(routd).TaskByID("t-resume")
+	if got.Status != "active" || got.NextRun != nil {
+		t.Errorf("after resume: status %q next_run %v, want active with no next_run", got.Status, got.NextRun)
 	}
 }
 

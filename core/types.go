@@ -185,8 +185,10 @@ func JidRoom(jid string) string {
 }
 
 const (
-	TaskActive = "active"
-	TaskPaused = "paused"
+	TaskActive    = "active"
+	TaskPaused    = "paused"
+	TaskCompleted = "completed"
+	TaskError     = "error"
 )
 
 type Task struct {
@@ -196,7 +198,7 @@ type Task struct {
 	Prompt      string
 	Cron        string // cron expr, interval ms, or empty for one-shot
 	NextRun     *time.Time
-	Status      string // TaskActive | TaskPaused
+	Status      string // TaskActive | TaskPaused | TaskCompleted | TaskError
 	Created     time.Time
 	ContextMode string // "group" | "isolated"; default "group"
 }
