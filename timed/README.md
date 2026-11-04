@@ -14,11 +14,12 @@ of `routd`. Drives routd over HTTP; opens NO local DB.
   The message addresses the task's owner folder (`chat_jid` = owner) and carries
   the task's chat as `forwarded_from`, where the reply is delivered
   (ROUTING.md § A scheduled task runs in its owner folder).
-- Compute `next_run` client-side through `core.NextRun`, the one reader of a
-  task's cron value. A task's `next_run` comes from its `cron` value, never
-  from the caller of `schedule_task`. The one caller-set `next_run` is the
-  operator's run-now, `PATCH /v1/tasks/{id}` on routd's REST face.
-- Reschedule task (`POST /v1/tasks/{id}/reschedule`); mark one-shots completed.
+- Compute no `next_run`. After the enqueue, timed asks routd to re-arm the task
+  (`POST /v1/tasks/{id}/reschedule` with no `next_run`); routd reads the task's
+  cron through `core.NextRun` and answers `active` with the next instant,
+  `completed` for a one-shot, or `error` for a cron that will not parse. A
+  `next_run` set by `reschedule_task` or `PATCH /v1/tasks/{id}` during the job's
+  own turn lands after that re-arm and stands.
 - Log each run (`POST /v1/tasks/runlog`).
 
 ### One fire, one message id
@@ -65,7 +66,7 @@ timed exchanges `AUTHD_SERVICE_KEY` for a `service:timed` ES256 token at boot
 
 ## Dependencies
 
-- `core` (config, `NextRun` — the cron-to-next-instant reader)
+- `core` (config)
 - `auth` (service-token bootstrap)
 - `routd` (HTTP client)
 - `obs` (OTLP setup)

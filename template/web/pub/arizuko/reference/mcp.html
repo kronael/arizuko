@@ -609,6 +609,18 @@
     </table>
     <p class="returns"><strong>Returns:</strong> JSON <code>{"ok": true}</code>.</p>
 
+    <h3 id="reschedule_task"><code>reschedule_task</code></h3>
+    <p>Set the next run of a scheduled task to an RFC3339 time. Use to move a task earlier or later; a job may call it in its own turn to say when it runs next. A cron task resumes its cron after that run. Not for changing the cron (<code>cancel_task</code>, then <code>schedule_task</code>).</p>
+    <p class="meta">Source: <code>resreg/resources/scheduled_tasks.go</code> &middot; Grant action: <code>reschedule_task</code> (delegated, not a default) &middot; <code>auth.Authorize</code> on task owner. REST twin: <code>PATCH /v1/tasks/{taskId}</code> with <code>next_run</code>.</p>
+    <table class="params">
+      <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
+      <tbody>
+        <tr><td class="name">taskId</td><td class="type">string</td><td class="req req-y">yes</td><td>Task to move.</td></tr>
+        <tr><td class="name">next_run</td><td class="type">string</td><td class="req req-y">yes</td><td>RFC3339 time of the next run.</td></tr>
+      </tbody>
+    </table>
+    <p class="returns"><strong>Returns:</strong> JSON <code>core.Task</code>, the task as updated.</p>
+
     <h3 id="resume_task"><code>resume_task</code></h3>
     <p>Re-activate a paused task so it resumes firing on its schedule. Use to undo <code>pause_task</code>. No effect on already-active or cancelled tasks.</p>
     <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/resreg/resources/scheduled_tasks.go#L53"><code>resreg/resources/scheduled_tasks.go:53</code></a> &middot; Grant action: <code>resume_task</code> (delegated, not a default). MCP only; the operator resumes with <code>PATCH /v1/tasks/{taskId}</code> and a new <code>status</code>.</p>
@@ -945,7 +957,7 @@ headers   = { Authorization = "Bearer {secret:CF_API_TOKEN}" }
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/reference/mcp.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-24">2026-10-24</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-03">2026-11-03</time>
       </div>
     </main>
 

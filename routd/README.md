@@ -228,7 +228,8 @@ Tasks:
 
 - `GET /v1/tasks` lists scheduled tasks. `GET`, `PATCH` and `DELETE` on `/v1/tasks/{taskId}` read, change and cancel one. The agent task tools share the handler [`tasks:read`, `tasks:write`]. `schedule_task(targetJid=...)` accepts a registered folder for internal work or a routed external chat. Silent memory reducers target their owner folder.
 - `GET /v1/tasks/due` claims due tasks [`tasks:read`].
-- `POST /v1/tasks/runlog` and `POST /v1/tasks/{id}/reschedule` record logs and reschedule [`tasks:write`].
+- `POST /v1/tasks/runlog` and `POST /v1/tasks/{id}/reschedule` record logs and reschedule [`tasks:write`]. Reschedule with no `next_run` reads the task's own cron: the next instant (`active`), `completed` for a one-shot, `error` for a cron that will not parse. `next_run` in the body retries the same fire.
+- `reschedule_task(taskId, next_run)` is the agent face of `PATCH /v1/tasks/{taskId}`: it sets the next run to an RFC3339 time, under the same owner containment as `pause_task`. timed re-arms a task when it enqueues the prompt, so a job that calls it in its own turn writes last and its time stands.
 - `GET /v1/tasks/runs` and `GET /v1/tasks/{id}/runs` read run logs [`tasks:read`].
 
 Dead letters and cost:

@@ -54,11 +54,11 @@ nothing further (`ErrNoSchedule`), anything else is a 5-field cron expression
 read in `tz`. `Timezone()` resolves that zone from `TZ`, UTC when it is unset or
 unloadable.
 
-Every writer of `scheduled_tasks.next_run` reads it — `store.SeedDefaultTasks`
-for a new group's first run, timed's fire loop for the re-arm after each fire,
-and routd's and dashd's task surfaces for a cron an operator typed. A seeder
-that instead wrote `now` left five tasks due the moment a group was created, so
-timed's next sweep fired all five (BUGS `L312`).
+Only the store writes `scheduled_tasks.next_run` from it: `DueTasks` for a cron
+task's first run and `RescheduleTask` for the run after each fire. The task
+surfaces call it at write time only to refuse a cron that could never run. A
+seeder that instead wrote `now` left five tasks due the moment a group was
+created, so timed's next sweep fired all five (BUGS `L312`).
 
 ## Public API
 

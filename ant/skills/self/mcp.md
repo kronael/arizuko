@@ -42,13 +42,14 @@ that judgment is yours.
 
 ## Scheduling
 
-| Tool            | Description                                          |
-| --------------- | ---------------------------------------------------- |
-| `schedule_task` | Schedule recurring or one-time agent task            |
-| `pause_task`    | Pause a scheduled task                               |
-| `resume_task`   | Resume a paused task                                 |
-| `cancel_task`   | Cancel and delete a scheduled task                   |
-| `list_tasks`    | List scheduled tasks visible to this group           |
+| Tool              | Description                                                                  |
+| ----------------- | ---------------------------------------------------------------------------- |
+| `schedule_task`   | Schedule recurring or one-time agent task                                    |
+| `pause_task`      | Pause a scheduled task                                                       |
+| `resume_task`     | Resume a paused task                                                         |
+| `cancel_task`     | Cancel and delete a scheduled task                                           |
+| `reschedule_task` | Move a task's next run to an RFC3339 time; a job may call it in its own turn |
+| `list_tasks`      | List scheduled tasks visible to this group                                   |
 
 ## Groups and routing
 

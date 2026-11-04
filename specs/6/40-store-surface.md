@@ -197,6 +197,18 @@ what it claimed, which is a work-queue lease. A key-value engine has neither
 the predicate update nor the return, so it becomes query-then-conditional-write
 per item, and the claim stops being atomic across the set.
 
+**The scheduler alone fills `next_run`.** `DueTasks` also reads the active tasks
+that carry a `cron` and no `next_run` and writes `core.NextRun(cron)` into them,
+conditional on the task still being active and still without one. The poll that
+fills a task does not fire it. A cron that will not parse sets the task to
+`error` and logs it. So every creator (the seed, the agent's `schedule_task`,
+dashd's form, `Apply` of package rows) leaves `next_run` empty, and the task's
+first run is the first instant its own cron names. After a fire,
+`store.RescheduleTask` reads the cron forward the same way: the next instant,
+`completed` for a one-shot, `error` for a bad cron. A `next_run` written by
+`reschedule_task` or `PATCH` after the fire is a plain write the scheduler never
+overwrites.
+
 Two corrections to operation 2 as well: invite redemption and `/always`
 condition ONE row and atomically write OTHERS, so the operation is a guarded
 BATCH — a condition check plus a bounded set of writes — not a single-row
