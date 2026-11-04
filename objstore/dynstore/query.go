@@ -112,6 +112,10 @@ func (s *Store) Query(ctx context.Context, q objstore.Query) ([]objstore.Item, e
 		TableName:              s.table(q.Entity),
 		KeyConditionExpression: aws.String(keyCond(b, q)),
 		ScanIndexForward:       aws.Bool(!q.Descending),
+		// Every read is of the base table, where an authorization read must see
+		// the committed write (6/37, 6/42). A GSI would refuse the flag; the
+		// driver declares none.
+		ConsistentRead: aws.Bool(true),
 	}
 	filter, err := filterExpr(b, q.Where)
 	if err != nil {
