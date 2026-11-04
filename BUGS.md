@@ -15,6 +15,7 @@
 
 ## What needs you
 
+- `L652` — engagement answers a group reply addressed to another person; fix queued (routd predicate + core skill line).
 - `L650` — an `extenddb` reached 10 GB and was OOM-killed; the host reset 8 times on 11-03; cause unmeasured.
 - `L647` — weekly memory rollups missing on alternate Mondays (W40, W42 in every active krons group); cause unmeasured, spawn rows gone.
 - `L644` — krons token hit its monthly spend limit; choose a token with budget.
@@ -421,6 +422,31 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
 - **`L15` — the 2026-08-11 dead-code sweep's rejected hits.** `deadcode ./...` gave 149
   hits, 56 under `-test`; nine survived verification and were filed separately. Kept so
   the next sweep does not re-report the same ~135.
+
+## L652 — engagement answers a group message that a person addressed to another person (2026-11-04, open)
+
+MEASURED on sloth, Discord `#main` thread `1567216206165970985`: kronael's
+message at 2026-11-04T16:42:03Z is `verb=message` with
+`reply_to_sender=susheen_` (a Discord reply to susheen_'s message), no bot
+mention. The thread was engaged after sloth's earlier replies, so routd
+dispatched a turn and sloth answered at 16:43:05. kronael at 16:43:32: "this
+was just for sushi... not for you. file an issue with this to improve the
+engagement skills in groups conversations."
+
+Two halves, one rule each:
+
+- **Platform (routd ingress):** a message that replies to another HUMAN's
+  message, or mentions another user and not the bot, does not ride
+  engagement; it lands on the observe fallback. The reply target is already on
+  the row (`reply_to_sender`), so this is one predicate beside `addressesBot`
+  in `routd/server.go`.
+- **Agent (core skill / `ant/CLAUDE.md` engagement text):** on an
+  engagement-carried turn in a group, answer only when the message is
+  addressed to the agent or to nobody in particular; when it is addressed to a
+  named person, stay silent (no reply, no status line).
+
+Needs: a test with the measured row shape (reply to a human, no mention, in an
+engaged thread → observed).
 
 ## ✅ FIXED 2026-11-04 5862034c1 L651 — an `@<bot>` mention outside a PR never starts a turn (2026-11-04)
 
