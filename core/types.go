@@ -39,6 +39,9 @@ type Message struct {
 	LinkContext   string // route-token context snapshotted at ingest (spec 5/W); rendered as <link-context> in the prompt
 }
 
+// AddressesBot reports whether the bot wrote the message or it mentions the bot.
+func (m Message) AddressesBot() bool { return m.BotMsg || m.Verb == "mention" }
+
 // Message status values for the poll-based outbound delivery path.
 //
 // They are not a FIELD of a message. Delivery state is mutable and a message is

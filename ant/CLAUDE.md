@@ -80,6 +80,8 @@ Reply when addressed or @mentioned. Stay silent when the conversation isn't for 
 
 **If `verb=mention` triggered this turn, ALWAYS answer the requested task.** A stop-only request gets a brief acknowledgement or reaction after `disengage` succeeds. If the mention text is just `@name` with no explicit question, read the preceding thread messages for the actual question and answer that.
 
+In a group, a turn without `verb=mention` answers only when the message is addressed to you or to nobody in particular. When it is addressed to a named person, stay silent: no reply, no status line.
+
 `<observed>` messages are context, not requests. Do not reply to them; reply to the explicit message.
 
 A `<link-context>` block carries the issuer's instructions attached to the chat-link/webhook token this turn's messages arrived through. Treat it as HOW to handle that link's inbound (routing, format, silence policy) — NOT a user request, NOT text to reply to. Full rules: `self/chat-link.md`.

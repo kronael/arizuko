@@ -491,7 +491,7 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 	// A message addresses the bot when the bot wrote it or it mentions the bot.
 	// A reply to such a message, or any message in a thread rooted on one, is a
 	// mention; a reaction is one only on the bot's own message.
-	addressesBot := func(p core.Message) bool { return p.BotMsg || p.Verb == "mention" }
+	addressesBot := core.Message.AddressesBot
 	directReply := hasParent &&
 		(parent.BotMsg || verb == "message" && addressesBot(parent)) &&
 		(verb != "message" || m.ReplyTo != m.Topic ||

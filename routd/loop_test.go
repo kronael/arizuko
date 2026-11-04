@@ -667,3 +667,41 @@ func TestDispatchStoresAddressedOnTheTurn(t *testing.T) {
 		}
 	}
 }
+
+// BUGS L652: an engaged thread answers a reply to the bot and an explicit
+// mention, never a plain reply to another person's message.
+func TestResolve_EngagedReplyToAnotherPerson(t *testing.T) {
+	const jid = "discord:g/c"
+	tests := []struct {
+		name   string
+		parent core.Message
+		verb   string
+		want   bool
+	}{
+		{"reply to a human, no mention", core.Message{ID: "p", Sender: "discord:user/2", Name: "susheen_", Verb: "message"}, "message", false},
+		{"reply to a bot message", core.Message{ID: "p", Sender: "sloth", BotMsg: true, Verb: "message"}, "message", true},
+		{"mention while replying to a human", core.Message{ID: "p", Sender: "discord:user/2", Verb: "message"}, "mention", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			db, srv, _ := newTestRoutd(t)
+			if err := db.PutGroup(core.Group{Folder: "eng"}); err != nil {
+				t.Fatal(err)
+			}
+			if err := db.SetEngagement(jid, "", "eng", time.Hour); err != nil {
+				t.Fatal(err)
+			}
+			tt.parent.ChatJID, tt.parent.Content, tt.parent.Timestamp = jid, "x", time.Now().UTC()
+			if err := db.PutMessage(tt.parent); err != nil {
+				t.Fatal(err)
+			}
+			got := srv.loop.resolve(jid, core.Message{
+				ID: "m", ChatJID: jid, Sender: "discord:user/1", Content: "hi",
+				Timestamp: time.Now().UTC(), Verb: tt.verb, ReplyToID: "p",
+			})
+			if got.ok != tt.want {
+				t.Fatalf("resolve ok = %v, want %v", got.ok, tt.want)
+			}
+		})
+	}
+}

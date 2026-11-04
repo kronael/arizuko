@@ -692,7 +692,7 @@ func (l *Loop) resolveFolder(reads *chatReads, last core.Message, routes []core.
 			// A trigger rule addresses the folder whether or not the chat is also
 			// engaged; an observe rule on an engaged chat is engagement alone.
 			addressed := rt.Mode != "observe"
-			if folder, ok := reads.engaged(engTopic, last.Verb); ok {
+			if folder, ok := reads.engaged(engTopic, last); ok {
 				return resolution{Folder: folder, ok: true, Addressed: addressed}
 			}
 			if rt.Mode == "observe" {
@@ -703,7 +703,7 @@ func (l *Loop) resolveFolder(reads *chatReads, last core.Message, routes []core.
 	}
 	// 3. Engagement fallback on a route miss (topic-root normalized).
 	engTopic := reads.effectiveTopic(last.Topic)
-	if folder, ok := reads.engaged(engTopic, last.Verb); ok {
+	if folder, ok := reads.engaged(engTopic, last); ok {
 		return resolution{Folder: folder, ok: true}
 	}
 	return resolution{}
@@ -733,13 +733,21 @@ func (r *chatReads) effectiveTopic(msgTopic string) string {
 	return msgTopic
 }
 
-// engaged returns the live engagement folder for (chatJID, topic) when a row
-// with verb rides engagement: only a person's message or mention does. An empty
+// engaged returns the live engagement folder for (chatJID, topic) when the row
+// rides engagement: only a person's message or mention does. An empty
 // engaged folder (a stale ingress claim) is NOT a route: false, so resolve
 // falls through instead of dispatching to "".
-func (r *chatReads) engaged(topic, verb string) (string, bool) {
-	if verb != "" && verb != "message" && verb != "mention" {
+func (r *chatReads) engaged(topic string, last core.Message) (string, bool) {
+	if last.Verb != "" && last.Verb != "message" && last.Verb != "mention" {
 		return "", false
+	}
+	// A reply to a stored message that is not the bot's and does not mention it
+	// is addressed to that message's author (BUGS L652): an observation, not a
+	// turn. An explicit mention (verb=mention) still rides.
+	if last.Verb != "mention" && last.ReplyToID != "" {
+		if parent, ok := r.db.MessageByID(r.chatJID, last.ReplyToID); ok && !parent.AddressesBot() {
+			return "", false
+		}
 	}
 	return r.engagedFolder(topic)
 }
