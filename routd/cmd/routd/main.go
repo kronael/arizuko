@@ -261,7 +261,7 @@ func main() {
 	)
 	// SEND_DISABLED_GROUPS: muted folders persist outbound but don't deliver it
 	// (Server.mutedGroup). SEND_DISABLED_CHANNELS (jid-prefix) stays in the
-	// Deliverer; this is the group-folder mute applied in appendAndDeliver.
+	// Deliverer; this is the group-folder mute applied in deliverRow.
 	srv.SetDisabledGroups(core.ParseCSV(os.Getenv("SEND_DISABLED_GROUPS")))
 	// send_voice synthesis config (TTS_* env); unset TTS_ENABLED leaves voice
 	// off. Cache lives under DATA_DIR/tts.

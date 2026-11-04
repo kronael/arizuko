@@ -624,8 +624,8 @@ func (d *DB) RecordTurnResult(folder, turnID, sessionID, status, failure string)
 }
 
 // TurnHasBotReply reports whether the agent already delivered a bot message
-// for this turn, so recordTurnResult does not double-send. Interim
-// verb="status" rows are excluded: an auto-status must NEVER count as the
+// for this turn: the "delivered" fact recordTurnResult and check_turn read.
+// Interim verb="status" rows are excluded: an auto-status must NEVER count as the
 // reply, or the agent's real answer is swallowed (spec 5/24).
 func (d *DB) TurnHasBotReply(chatJID, turnID string) bool {
 	return d.store().TurnHasBotReply(chatJID, turnID)

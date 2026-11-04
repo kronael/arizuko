@@ -233,9 +233,8 @@ type StoreFns struct {
 	CurrentTopic func(folder string) string
 
 	// CurrentTurnID returns the active turn's id for `folder`, or "" if none.
-	// recordOutbound stamps it on the bot row so TurnHasBotReply sees the
-	// reply — otherwise recordTurnResult re-delivers the agent's prose result
-	// as a duplicate (e.g. "Replied with …") on top of the real reply.
+	// recordOutbound stamps it on the bot row so TurnHasBotReply counts the
+	// reply as delivered (the turn is not nudged or noticed as silent).
 	CurrentTurnID func(folder string) string
 
 	// Connectors is the configured MCP HTTP connector set. buildMCPServer

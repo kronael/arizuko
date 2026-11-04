@@ -20,9 +20,10 @@ that has one asks routd the same question before the turn ends; it saves a
 round, it does not make the rule true.
 
 `status: partial`: the addressed fact, shared nudge decision, submission
-inversion, harness hooks and explicit delivery contract are built. Fresh
-follow-ups wait until the active run ends, then use their own turn identity
-and MCP binding. Fleet acceptance remains pending.
+inversion, harness hooks and explicit delivery contract are built, and every
+item in §"What leaves" is deleted. Fresh follow-ups wait until the active run
+ends, then use their own turn identity and MCP binding. Only the live fleet
+acceptance run remains.
 `44-delivery-contract` holds the analysis and is `reference`.
 
 ## Problem
