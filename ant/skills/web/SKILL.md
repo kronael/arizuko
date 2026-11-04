@@ -64,7 +64,7 @@ server paid 145 MB of memory idle to watch them (BUGS L360, L393).
 
 - Vite MPA (no build step)
 - Vanilla HTML + CSS + JS/TS
-- Shared assets: link to `/pub/arizuko/assets/hub.css` (operator-curated docs)
+- ALWAYS read `~/public_html/CLAUDE.md` and the `CLAUDE.md` of the subtree you write into before adding or changing a page, and use its stylesheet, page skeleton and link rules; link `/pub/arizuko/assets/hub.css` only for a site with no style of its own.
 - Rich apps: Tailwind CDN, Alpine CDN
 
 ## Browse what other groups publish
@@ -124,9 +124,11 @@ that row. NEVER move the file, NEVER probe host and path variants — sloth
 2026-09-19 had one `/pub/` → `/pub/atlas/` row that broke publishing for every
 folder except `atlas`, and the hunt for a working URL cost a whole turn.
 
-**Elevated `/root`:** `~/public_html/` projects to `<data>/web/pub/` at
-the top level (no folder prefix); it can also write `/var/lib/www/`
-directly (RW, root-only) to stage content for any group.
+**Elevated `/root`:** the web mounts are the same as for any folder.
+`~/public_html/` is `<data>/web/pub/<folder>/` read-write, and the whole
+public tree is mounted read-only at `/var/lib/www/`. An elevated turn can
+write another group's pages only through `/var/lib/groups/`, never through
+`/var/lib/www/`.
 
 ## `~/public_html` not writable, or missing
 
