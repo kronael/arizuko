@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"maps"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -83,48 +82,6 @@ func reportPackageInstall(name, revision string, files []string, applied map[str
 		fmt.Printf("  %s: %d row(s), applied now\n", res, len(applied[res]))
 	}
 }
-
-// isGitURL reports whether src is a remote git source rather than a local dir.
-func isGitURL(src string) bool {
-	return strings.HasPrefix(src, "git+") || strings.HasPrefix(src, "git@") ||
-		strings.HasPrefix(src, "github.com/") || strings.Contains(src, "://")
-}
-
-// fetchSource resolves a package source to a local directory + a revision. A
-// local path is made absolute (revision "local"); a git URL is shallow-cloned to a
-// temp dir and its HEAD commit recorded. cleanup removes any temp clone (noop
-// for a local path). Recursive removal is of arizuko's OWN temp dir only.
-func fetchSource(src string) (dir, revision string, cleanup func()) {
-	if !isGitURL(src) {
-		dir, err := filepath.Abs(src)
-		if err != nil {
-			die("Failed: resolve source %s: %v", src, err)
-		}
-		return dir, "local", func() {}
-	}
-	url := strings.TrimPrefix(src, "git+")
-	if strings.HasPrefix(url, "github.com/") {
-		url = "https://" + url
-	}
-	tmp, err := os.MkdirTemp("", "arizuko-pkg-")
-	if err != nil {
-		die("Failed: temp dir: %v", err)
-	}
-	cleanup = func() { _ = os.RemoveAll(tmp) }
-	if out, err := exec.Command("git", "clone", "--depth", "1", url, tmp).CombinedOutput(); err != nil {
-		cleanup()
-		die("Failed: git clone %s: %v\n%s", url, err, out)
-	}
-	rev, err := exec.Command("git", "-C", tmp, "rev-parse", "HEAD").Output()
-	if err != nil {
-		cleanup()
-		die("Failed: git rev-parse %s: %v", url, err)
-	}
-	return tmp, strings.TrimSpace(string(rev)), cleanup
-}
-
-// packageName derives the package name from its source — the last path segment
-// (git URL or local dir), minus a trailing `.git`.
 
 // checkSourcedFiles bounds what a package from a source may put into
 // services/: no file that would replace one the instance already has (the

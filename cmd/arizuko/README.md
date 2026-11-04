@@ -96,7 +96,7 @@ Talking to an agent:
 - `budget.go` and `network.go` hold the spend caps and the egress rules.
 - `sync.go` holds `package add`, `package rm` and `package sync`: one reconcile of every selection in `installed_packages`.
 - `packages.go` holds package source, asset, environment and scope helpers used by `package`.
-- `products.go` resolves a package source: `catalog:<name>`, a path under `HOST_APP_DIR`, or a Git URL. `resreg` owns the shared YAML schema.
+- `products.go` resolves a package source: `catalog:<name>` (a service in `template/services` or a product in `ant/examples`), an absolute path, a path under `HOST_APP_DIR`, a Git source, or a `.tgz` archive (local or http(s)). `package sync` resolves the recorded source through the same function. `resreg` owns the shared YAML schema.
 - `secret.go` holds `secret` and `user-secret`.
 - `send.go` holds `send` and the SSE reader (`openSSE`, `readSSE`, `handleSSEFrame`) that `talk` shares.
 - `talk.go` and `talk_config.go` hold the argument grammar of `talk`, its MCP and SSE turn, and the reader for `~/.config/arizuko/talk.toml`.

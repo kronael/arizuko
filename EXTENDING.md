@@ -214,8 +214,14 @@ has a `cron` and no `next_run` is written as it is; the scheduler fills the
 first `next_run` from the cron on its next poll. The file never selects a package.
 Only the `installed_packages` rows select packages.
 
-`catalog:<name>` selects a bundled service package. Other sources are local
-directories or Git sources. Relative paths resolve under `HOST_APP_DIR`.
+`catalog:<name>` selects a bundled service package (`template/services/<name>`)
+or a product (`ant/examples/<name>`); a name in both places is an error. Other
+sources: an absolute path, a path relative to `HOST_APP_DIR`, a Git source
+(`github.com/...`, `git@...`, `git+...`, or another `://` URL that is not an
+archive), or a `.tgz` archive, local or `http(s)://`. An archive unpacks into a
+temp dir (64 MiB cap; absolute, `..` and link entries refused), its single
+top-level directory is the package root, and its sha256 is the revision.
+Other archive extensions are refused.
 Each source declares `name` in its own `arizuko.yml`; the source directory name
 does not define package identity.
 In a git checkout, `arizuko package` installs only the `skills/` directories

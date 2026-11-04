@@ -13,6 +13,8 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+- `arizuko package add`: one source resolver. `catalog:<name>` also installs a product from `ant/examples` (a name in both places is an error); a `.tgz` archive, local or http(s), installs with its sha256 as the revision.
+
 ## [v0.73.2] — 2026-11-04
 
 > arizuko v0.73.2 — Company Brain leaves the persona alone

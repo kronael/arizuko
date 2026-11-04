@@ -208,11 +208,11 @@ func cmdPackage(args []string) {
 			if dirty := dirtyAssets(svcDir, held); len(dirty) > 0 {
 				die("Failed: locally edited service assets: %s", strings.Join(dirty, ", "))
 			}
-			if err := checkSourcedFiles(svcDir, candidate.name, candidate.dir, candidate.files, held.AssetHashes, strings.HasPrefix(candidate.source, "catalog:"), *force); err != nil {
+			if err := checkSourcedFiles(svcDir, candidate.name, candidate.dir, candidate.files, held.AssetHashes, candidate.revision == revCatalog, *force); err != nil {
 				die("Failed: %v", err)
 			}
 			bundled := ""
-			if strings.HasPrefix(candidate.source, "catalog:") {
+			if candidate.revision == revCatalog {
 				bundled = candidate.name
 			}
 			binding.fragments = parsePkgManifests(candidate.name, candidate.manifest, bundled)
