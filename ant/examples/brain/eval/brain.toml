@@ -1,0 +1,14 @@
+# brain product eval — run by arizuko's own harness:
+#
+#   anteval run <target> --cases <data-dir>/groups/<folder>/eval \
+#     --token "$AGENTEVAL_TOKEN" --chat <chat-jid> --folder <folder>
+
+[[case]]
+id = "brain-replies"
+dimension = "product-brain"
+smoke = true
+prompt = "Ref {nonce}. Are you there? Reply with the ref and nothing else."
+max_wall_ms = 120000
+[case.check]
+kind = "rest_reply"
+text = "{nonce}"

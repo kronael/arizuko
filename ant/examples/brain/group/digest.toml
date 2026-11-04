@@ -1,0 +1,22 @@
+# The one config of the digest skills. Replace every value below.
+repo = "your-org/your-repo"          # GitHub repo whose PRs and releases are reported
+clone = "/home/node/tmp/your-repo"   # local clone of that repo (commit log source)
+post_jid = "discord:000000000000000000/000000000000000001"  # the ONE chat the digest posts to
+bot_user = "discord:user/000000000000000002"                # the agent's own Discord account
+agent_name = "agent"                 # sender-name prefix of agent rows; never a speaker
+agent_github = "agent-bot"           # the agent's GitHub login, listed apart from people
+agent_folder = "team"                # group folder the agent runs in (message-store scope)
+account_regex = '\b(account\d+)\.([a-z]+\d*)\b'  # what the accounts metric counts
+
+[humans]                             # Discord sender id -> display name; one block per person
+"discord:user/000000000000000003" = "ana"
+"discord:user/000000000000000004" = "ben"
+
+[[channels]]                         # chats to read: jid, name, signal (high | medium | low)
+jid = "discord:000000000000000000/000000000000000001"
+name = "#main"
+signal = "high"
+[[channels]]
+jid = "discord:000000000000000000/000000000000000005"
+name = "#engineering"
+signal = "medium"

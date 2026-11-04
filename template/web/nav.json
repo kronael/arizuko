@@ -107,6 +107,7 @@
         { "href": "", "label": "Start here" },
         { "href": "helpdesk/", "label": "Helpdesk (reference)" },
         { "href": "trip/", "label": "Trip planner (May)" },
+        { "href": "brain/", "label": "Company brain" },
         { "href": "slack-team/", "label": "Slack team agent" },
         { "href": "github/", "label": "Repo worker (Atlas)" },
         { "href": "reality/", "label": "Reality agent" },
