@@ -54,6 +54,7 @@ COPY --from=build /src/ant/arizuko.yml /opt/arizuko/ant/arizuko.yml
 COPY --from=build /src/ant/hooks /opt/arizuko/ant/hooks
 COPY --from=build /src/ant/.claude /opt/arizuko/ant/.claude
 COPY --from=build /src/template/services /opt/arizuko/template/services
+COPY --from=build /src/template/web/pub/arizuko /opt/arizuko/template/web/pub/arizuko
 COPY --from=build /src/CHANGELOG.md /opt/arizuko/CHANGELOG.md
 WORKDIR /srv/app/home
 # Each daemon exposes /health on :8080 internally. HEALTHCHECK probes it;

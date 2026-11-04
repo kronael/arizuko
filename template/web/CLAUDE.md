@@ -1,8 +1,9 @@
 # arizuko doc site
 
 Static HTML served at `/pub/` by vited. Source lives in
-`template/web/pub/` in the arizuko repo; it is copied verbatim
-into each instance's `<data-dir>/web/pub/` on `arizuko create`.
+`template/web/pub/` in the arizuko repo. The release image carries
+`template/web/pub/arizuko/`, and `arizuko generate` copies it into each
+instance's `<data-dir>/web/pub/arizuko/` on every start.
 No build step — plain HTML + one CSS file + one JS file.
 
 ## Deploy to live krons (operational procedure)
@@ -21,10 +22,11 @@ The local permission policy blocks `rsync`, and the live target
 contains files that must not be deleted, so the workflow is:
 
 ```bash
-# 1. Copy contents in (no sudo — target is owned by onvos)
-cp -r template/web/pub/arizuko/. /srv/data/arizuko_krons/web/pub/arizuko/
+# 1. Install: rebuild the image (`make images`), then restart. The unit's
+#    `arizuko generate` step copies the tree in; there is no manual cp.
+sudo systemctl restart arizuko_krons
 
-# 2. Diff to find stale files left over (cp doesn't delete)
+# 2. Diff to find stale files left over (generate never deletes)
 find template/web/pub/arizuko -type f -printf '%P\n' | sort > ./tmp/src.list
 find /srv/data/arizuko_krons/web/pub/arizuko -type f -printf '%P\n' | sort > ./tmp/dst.list
 comm -13 ./tmp/src.list ./tmp/dst.list        # live-only: the stale ones

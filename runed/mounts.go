@@ -202,12 +202,12 @@ func buildMounts(
 	// web_routes row that proxyd applies at the edge (proxyd.matchWebRoute) and a
 	// bind mount does not — ungating the whole tree would hand every folder a read
 	// path around those rows. `pub/arizuko` is not a group's content: it is the doc
-	// site `arizuko create` copies from `template/web/pub/arizuko/`, and every
+	// site `arizuko generate` installs from the image's
+	// `template/web/pub/arizuko/` into the instance on every start, and every
 	// folder gets a skill whose whole job is to read it (`seedSkills` seeds
 	// `ant/skills/arizuko`). So a non-publisher sees that subtree and only it.
 	// Gating it too left the skill naming a directory 53 of krons' 59 folders did
-	// not have, with no other copy in the guest: the image stages `ant/` +
-	// `template/services` + CHANGELOG.md under /opt/arizuko, never `template/web/`.
+	// not have, with no other copy in the guest.
 	webHost := filepath.Join(cfg.WebDir, "pub", webDocsDir)
 	webTarget := filepath.Join(webRoot, webDocsDir)
 	if req.WebPublish {

@@ -17,7 +17,10 @@ arg: <question or keyword>
 The deployment's operator-facing arizuko docs are published at the
 instance top level, `/pub/arizuko/...` — i.e. mounted into your container
 at `/var/lib/www/arizuko/` (RO browse). Public URL:
-`https://$WEB_HOST/pub/arizuko/...`.
+`https://$WEB_HOST/pub/arizuko/...`. When `/var/lib/www/arizuko/` is
+missing, read the canonical public docs at
+`https://krons.fiu.wtf/pub/arizuko/`. For questions about the code, the
+source is `https://github.com/kronael/arizuko`.
 
 ## Layout
 

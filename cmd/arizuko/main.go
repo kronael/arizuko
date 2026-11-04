@@ -159,12 +159,26 @@ func cmdGenerate(args []string) {
 	generateCompose(dataDir, args[0])
 }
 
+// installWebDocs puts the release's arizuko docs where the `arizuko` skill
+// reads them, on every generate (BUGS L654). A failure warns: docs are not a
+// reason to leave the instance down.
+func installWebDocs(dataDir string) {
+	hostAppDir := ""
+	if cfg, err := core.LoadConfigFrom(dataDir); err == nil {
+		hostAppDir = cfg.HostAppDir
+	}
+	if err := compose.InstallWebDocs(dataDir, compose.WebDocsDir(hostAppDir)); err != nil {
+		fmt.Fprintf(os.Stderr, "web docs: %v\n", err)
+	}
+}
+
 func generateCompose(dataDir, instance string) string {
 	// Installed fragments that are still identical copies of the bundled
 	// catalog become symlinks here, so a shipped fix (adapter state mounts, a
 	// retired env var) reaches this instance on every generate/deploy — no
 	// operator step, no flag to remember (BUGS R1).
 	relinkCatalog(dataDir)
+	installWebDocs(dataDir)
 	yml, routes, err := compose.Generate(dataDir, instance)
 	if err != nil {
 		die("Failed: %v", err)
