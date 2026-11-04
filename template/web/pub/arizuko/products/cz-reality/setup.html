@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Reality agent — setup &middot; arizuko</title>
+  <title>CZ Reality agent — setup &middot; arizuko</title>
   <link rel="stylesheet" href="../../assets/hub.css">
 </head>
 <body>
@@ -26,14 +26,13 @@
             <li><a href="../company-brain/">Company Brain</a></li>
             <li><a href="../slack-team/">Slack team agent</a></li>
             <li><a href="../github/">Repo worker (Atlas)</a></li>
-            <li><a href="../reality/">Reality agent</a></li>
+            <li><a href="../cz-reality/">CZ Reality agent</a></li>
             <li><a href="../support/">Support desk (Atlas)</a></li>
             <li><a href="../personal/">Personal assistant (Fiu)</a></li>
             <li><a href="../pm/">PM agent (Sloth)</a></li>
             <li><a href="../creator/">Content pipeline (Inari)</a></li>
             <li><a href="../socials/">Social presence (Phosphene)</a></li>
             <li><a href="../strategy/">Domain researcher (Prometheus)</a></li>
-            <li><a href="../cuzk/">CUZK cadastral lookup</a></li>
             <li><a href="../shapes.html">Shapes</a></li>
           </ul>
         </li>
@@ -43,10 +42,10 @@
     </nav>
 
     <main class="docs-content">
-      <p class="docs-crumb"><a href="../../">arizuko</a> &rsaquo; <a href="../">products</a> &rsaquo; Reality agent &mdash; setup</p>
-      <h1>Reality agent — setup</h1>
+      <p class="docs-crumb"><a href="../../">arizuko</a> &rsaquo; <a href="../">products</a> &rsaquo; CZ Reality agent &mdash; setup</p>
+      <h1>CZ Reality agent — setup</h1>
 
-      <p class="lede">The setup deploys Rhias on Telegram, with WhatsApp as an optional input: the instance, the group from <code>ant/examples/reality/</code>, the first <code>facts/threads/</code> and the monthly sweep.</p>
+      <p class="lede">The setup deploys Rhias on Telegram, with WhatsApp as an optional input: the instance, the group from <code>ant/examples/cz-reality/</code>, the first <code>facts/threads/</code> and the monthly sweep.</p>
 
       <h2>Rhias needs KVM, a bot and a model key</h2>
       <ul>
@@ -82,12 +81,12 @@ OBSERVE_WINDOW_CHARS=8000</code></pre>
       <pre><code>sudo systemctl restart arizuko_demo</code></pre>
 
       <h2>group add makes the assistant group from the template</h2>
-      <p>The template in <code>ant/examples/reality/</code> holds the persona in <code>group/SOUL.md</code>, <code>group/BRANDING.md</code>, the first <code>facts/</code> and the tests. At the first turn, <code>runed</code> renames <code>SOUL.md</code> to <code>PERSONA.md</code>. One command makes the group, selects the template and routes your Telegram DM to it. <code>package sync</code> writes the files of the template:</p>
-      <pre><code>arizuko group -i demo add 'telegram:&lt;bot-id&gt;/user/&lt;your-tg-id&gt;' assistant -p reality
+      <p>The template in <code>ant/examples/cz-reality/</code> holds the persona in <code>group/SOUL.md</code>, <code>group/BRANDING.md</code>, the first <code>facts/</code> and the tests. At the first turn, <code>runed</code> renames <code>SOUL.md</code> to <code>PERSONA.md</code>. One command makes the group, selects the template and routes your Telegram DM to it. <code>package sync</code> writes the files of the template:</p>
+      <pre><code>arizuko group -i demo add 'telegram:&lt;bot-id&gt;/user/&lt;your-tg-id&gt;' assistant -p cz-reality
 arizuko package sync -i demo
 # to change the persona, edit group/SOUL.md in the template source, then sync again</code></pre>
       <p>The <code>facts/</code> files of the template are examples, not package files, so <code>package sync</code> never rewrites them. Copy them once from the repository checkout:</p>
-      <pre><code>cp -r ant/examples/reality/facts /srv/data/arizuko_demo/groups/assistant/</code></pre>
+      <pre><code>cp -r ant/examples/cz-reality/facts /srv/data/arizuko_demo/groups/assistant/</code></pre>
 
       <h2>One file for each situation goes into facts/threads</h2>
       <p>Threads hold ongoing context across weeks. Make one file for each current situation in <code>groups/assistant/facts/threads/</code>:</p>
@@ -131,6 +130,11 @@ facts/threads/relationship-alice.md</code></pre>
       <h2>PERSONA.md sets the voice</h2>
       <p>The shipped persona sets the voice. Edit <code>groups/assistant/PERSONA.md</code> to change it, and add rules for this deployment in <code>groups/assistant/SYSTEM.md</code>. The rules add to the persona and do not rewrite it. The next turn uses the change. To edit the files from another machine, use <a href="../../howto/webdav.html">WebDAV</a>.</p>
 
+      <h2>The cadastre lookup needs a host relay</h2>
+      <p>Provide SOCKS on <code>127.0.0.1:1080</code>. Install the package&rsquo;s two transport units and enable <code>cuzk-socks@1081.socket</code>. Restrict the relay&rsquo;s source network with the host firewall. The relay accepts arbitrary SOCKS targets and does not authenticate groups.</p>
+      <p>Permit <code>host.docker.internal</code> in the group&rsquo;s egress grant. Set <code>KATASTR_RELAY_PORT</code> if the relay uses another port. The <code>parcel-open-data</code> skill needs egress to <code>ags.cuzk.gov.cz</code>, <code>services.cuzk.cz</code> and <code>katastrnemovitosti.cz</code>.</p>
+      <p>Keep the browser profile and quota history under <code>~/tmp/katastr</code> when updating the package. Verify browser access in a guest. An HTTP response alone does not prove ownership details are visible. The <a href="https://github.com/kronael/arizuko/blob/main/ant/examples/cz-reality/README.md">package guide</a> lists the commands.</p>
+
       <h2>Four pages give the details</h2>
       <dl>
         <dt><a href="./">Reality agent</a></dt><dd>What users see.</dd>
@@ -145,7 +149,7 @@ facts/threads/relationship-alice.md</code></pre>
         <a rel="next" href="../support/">Support desk (Atlas) &rarr;</a>
       </nav>
       <div class="docs-footer">
-        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/reality/setup.html">Edit this page</a>
+        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/cz-reality/setup.html">Edit this page</a>
         &middot; updated <time class="docs-updated" datetime="2026-11-04">2026-11-04</time>
       </div>
     </main>

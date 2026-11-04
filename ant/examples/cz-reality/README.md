@@ -1,6 +1,7 @@
-# CUZK package
+# CZ Reality package
 
-Inspect one Czech cadastral property with the [katastr skill](skills/katastr/SKILL.md).
+CZ Reality agent: the Rhias thread-holder persona plus Czech cadastral lookup.
+The [katastr skill](skills/katastr/SKILL.md) inspects one property in a controlled browser; the [parcel-open-data skill](skills/parcel-open-data/SKILL.md) reads open CUZK services (parcel, land type, neighbours) with no browser.
 The [package guide](../../../EXTENDING.md) explains package selection and installation.
 
 ## Install
@@ -8,7 +9,7 @@ The [package guide](../../../EXTENDING.md) explains package selection and instal
 Select the package for a group. The command installs it:
 
 ```sh
-arizuko package add -g FOLDER ant/examples/cuzk
+arizuko package add -g FOLDER ant/examples/cz-reality
 ```
 
 Use `-i/--instance NAME` to select another configured instance. `arizuko package sync` installs every selected package again.
@@ -57,6 +58,6 @@ python3 ~/.claude/skills/katastr/katastr.py snapshot
 For manual browser input, set `AGENT_BROWSER_SOCKET_DIR=/tmp/katastr` and use `agent-browser --session katastr`.
 The [skill](skills/katastr/SKILL.md) defines pacing, evidence requirements and the stop rule for challenges.
 
-Run `python3 -B -m unittest discover -s ant/examples/cuzk/tests` from the repository root.
+Run `python3 -B -m unittest discover -s ant/examples/cz-reality/tests` from the repository root.
 The fixtures start no Chromium and send no CUZK requests.
 Verify guest browser access separately; an HTTP response does not prove ownership details are visible.
