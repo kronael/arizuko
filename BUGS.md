@@ -422,7 +422,7 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
   hits, 56 under `-test`; nine survived verification and were filed separately. Kept so
   the next sweep does not re-report the same ~135.
 
-## ✅ FIXED 2026-11-04 aa81f003e L651 — an `@<bot>` mention outside a PR never starts a turn (2026-11-04)
+## ✅ FIXED 2026-11-04 5862034c1 L651 — an `@<bot>` mention outside a PR never starts a turn (2026-11-04)
 
 MEASURED on sloth: kronael's comment on `vumilan/morha` issue #423 at
 2026-11-03T22:32:25Z ("@sloth-goth Please tell Sushi on Discord about this
