@@ -155,6 +155,9 @@ func TestTaskNextRunUpdate(t *testing.T) {
 	})
 
 	future := now.Add(24 * time.Hour).Format(time.RFC3339)
+	if err := s.SetTaskStatus("nextrun-1", store.TaskStatusFiring); err != nil {
+		t.Fatal(err)
+	}
 	if err := s.RescheduleTask("nextrun-1", future); err != nil {
 		t.Fatal("reschedule:", err)
 	}
@@ -228,6 +231,9 @@ func TestOneShotTaskNullsNextRun(t *testing.T) {
 
 	// A one-shot that has fired carries NO next_run: an empty reschedule takes
 	// the attribute away, and absent is the only null this model has.
+	if err := s.SetTaskStatus("oneshot-1", store.TaskStatusFiring); err != nil {
+		t.Fatal(err)
+	}
 	if err := s.RescheduleTask("oneshot-1", ""); err != nil {
 		t.Fatal("reschedule:", err)
 	}

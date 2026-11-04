@@ -1,6 +1,8 @@
 package store
 
 import (
+	"context"
+	"errors"
 	"strconv"
 	"testing"
 	"time"
@@ -198,7 +200,8 @@ func TestDueTasks_FillKeepsAnExplicitNextRun(t *testing.T) {
 
 // A recurring task whose cron will not parse stops with status 'error' rather
 // than staying active with no next_run, the state nothing recovers from
-// (BUGS L74). A one-shot with no cron and no next_run is left alone.
+// (BUGS L74). An active task with no cron and no next_run can never fire, so it
+// stops with 'error' too.
 func TestDueTasks_BadCronIsAnError(t *testing.T) {
 	s, err := OpenMem()
 	if err != nil {
@@ -220,8 +223,8 @@ func TestDueTasks_BadCronIsAnError(t *testing.T) {
 	if got, _ := s.GetTask("bad"); got.Status != core.TaskError || got.NextRun != nil {
 		t.Fatalf("bad cron: status %q next_run %v, want error with no next_run", got.Status, got.NextRun)
 	}
-	if got, _ := s.GetTask("bare"); got.Status != core.TaskActive || got.NextRun != nil {
-		t.Fatalf("no cron: status %q next_run %v, want untouched", got.Status, got.NextRun)
+	if got, _ := s.GetTask("bare"); got.Status != core.TaskError || got.NextRun != nil {
+		t.Fatalf("no cron: status %q next_run %v, want error with no next_run", got.Status, got.NextRun)
 	}
 }
 
@@ -262,6 +265,9 @@ func TestRescheduleTask_ReadsTheCron(t *testing.T) {
 	}
 
 	explicit := now.Add(time.Hour).Truncate(time.Second)
+	if err := s.SetTaskStatus("rec", TaskStatusFiring); err != nil {
+		t.Fatal(err)
+	}
 	if err := s.RescheduleTask("rec", explicit.Format(time.RFC3339)); err != nil {
 		t.Fatal(err)
 	}
@@ -349,5 +355,113 @@ func TestRecoverFiringTasks(t *testing.T) {
 	due, err := s.DueTasks(time.Now())
 	if err != nil || len(due) != 1 || due[0].ID != "stuck" {
 		t.Fatalf("after recovery: want [stuck], got %v (err %v)", due, err)
+	}
+}
+
+// A next_run written between the poll's read and its fill stands: the fill is
+// conditional on the attribute still being absent.
+func TestFillNextRun_LosesToAWriteAfterTheRead(t *testing.T) {
+	s, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if err := s.CreateTask(core.Task{
+		ID: "race", Owner: "main", ChatJID: "tg:1", Prompt: "p",
+		Cron: "0 9 * * *", Status: core.TaskActive, Created: time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	items, err := s.allTasks(context.Background())
+	if err != nil || len(items) != 1 {
+		t.Fatalf("read tasks: %d items, err %v", len(items), err)
+	}
+	stale := items[0]
+
+	explicit := time.Now().Add(100 * time.Hour).Truncate(time.Second)
+	ws := &WriteSet{}
+	if err := s.PatchTaskInto(ws, "race", "", explicit.Format(time.RFC3339), errors.New("gone")); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Apply(context.Background(), ws); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.fillNextRun(context.Background(), stale); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.GetTask("race"); got.NextRun == nil || !got.NextRun.Equal(explicit) {
+		t.Fatalf("next_run = %v, the fill overwrote the write that came after its read (want %v)",
+			got.NextRun, explicit)
+	}
+}
+
+// RescheduleTask is the re-arm of a CLAIMED task: a task that is no longer
+// firing (paused or moved by the job in the window) is not touched.
+func TestRescheduleTask_OnlyReArmsAFiringTask(t *testing.T) {
+	s, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	now := time.Now()
+	moved := now.Add(72 * time.Hour).Truncate(time.Second)
+	for id, st := range map[string]string{"paused": core.TaskPaused, "moved": core.TaskActive} {
+		if err := s.CreateTask(core.Task{
+			ID: id, Owner: "main", ChatJID: "tg:1", Prompt: "p", Cron: "0 9 * * *",
+			NextRun: &moved, Status: st, Created: now,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.RescheduleTask(id, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got, _ := s.GetTask("paused"); got.Status != core.TaskPaused || !got.NextRun.Equal(moved) {
+		t.Errorf("paused: status %q next_run %v, want untouched", got.Status, got.NextRun)
+	}
+	if got, _ := s.GetTask("moved"); !got.NextRun.Equal(moved) {
+		t.Errorf("job-moved: next_run %v, want the job's %v", got.NextRun, moved)
+	}
+}
+
+// Resume drops a cron task's stale next_run so the scheduler fills the next
+// instant, keeps a one-shot's (it has no cron to fill from), and leaves a task
+// that is not paused alone.
+func TestResumeTaskInto(t *testing.T) {
+	s, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	stale := time.Now().Add(-48 * time.Hour).Truncate(time.Second)
+	seeds := map[string]core.Task{
+		"cron":   {Cron: "0 9 * * *", Status: core.TaskPaused},
+		"shot":   {Status: core.TaskPaused},
+		"active": {Cron: "0 9 * * *", Status: core.TaskActive},
+	}
+	for id, task := range seeds {
+		task.ID, task.Owner, task.ChatJID, task.Prompt = id, "main", "tg:1", "p"
+		task.NextRun, task.Created = &stale, time.Now()
+		if err := s.CreateTask(task); err != nil {
+			t.Fatal(err)
+		}
+		cur, _ := s.GetTask(id)
+		ws := &WriteSet{}
+		if err := s.ResumeTaskInto(ws, cur, errors.New("refused")); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.Apply(context.Background(), ws); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got, _ := s.GetTask("cron"); got.Status != core.TaskActive || got.NextRun != nil {
+		t.Errorf("cron: status %q next_run %v, want active with none", got.Status, got.NextRun)
+	}
+	if got, _ := s.GetTask("shot"); got.Status != core.TaskActive || got.NextRun == nil || !got.NextRun.Equal(stale) {
+		t.Errorf("one-shot: status %q next_run %v, want active keeping %v", got.Status, got.NextRun, stale)
+	}
+	if got, _ := s.GetTask("active"); got.NextRun == nil || !got.NextRun.Equal(stale) {
+		t.Errorf("active: next_run %v, want untouched", got.NextRun)
 	}
 }

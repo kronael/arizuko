@@ -466,3 +466,22 @@ func TestTaskDetailSeparatesNotFoundFromUnreachable(t *testing.T) {
 		t.Errorf("unreachable routd = %d, want 503", w2.Code)
 	}
 }
+
+// A paused one-shot has no cron to fill from, so resume keeps its next_run.
+func TestTaskResume_OneShotKeepsNextRun(t *testing.T) {
+	d, routd := splitAdminDash(t, "alice@x")
+	at := time.Now().Add(48 * time.Hour).Truncate(time.Second)
+	seedScheduledTask(t, routd, core.Task{
+		ID: "t-shot", Owner: "team", ChatJID: "web:team", Prompt: "p",
+		NextRun: &at, Status: "paused",
+	})
+	w := httptest.NewRecorder()
+	newMux(d).ServeHTTP(w, adminReq("POST", "/dash/tasks/t-shot/resume", "", "alice@x"))
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("POST task resume = %d body=%q", w.Code, w.Body.String())
+	}
+	got, _, _ := store.NewOver(routd).TaskByID("t-shot")
+	if got.Status != "active" || got.NextRun == nil || !got.NextRun.Equal(at) {
+		t.Errorf("after resume: status %q next_run %v, want active keeping %v", got.Status, got.NextRun, at)
+	}
+}

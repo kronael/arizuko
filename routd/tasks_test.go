@@ -426,3 +426,23 @@ func TestTaskDeleteEndpoint(t *testing.T) {
 		t.Fatal("task removed despite 403")
 	}
 }
+
+// PATCH status=active on a paused cron task resumes it the way resume_task does:
+// the stale next_run goes and the scheduler fills the next cron instant.
+func TestTaskPatchResumeClearsNextRun(t *testing.T) {
+	db, h := authSrv(t, fakeVerifier{sub: "service:dashd", scope: []string{"tasks:write"}})
+	stale := time.Now().Add(-48 * time.Hour)
+	if err := store.NewOver(db.Obj()).CreateTask(core.Task{
+		ID: "tp-resume", Owner: "main", ChatJID: "web:main", Prompt: "p",
+		Cron: "0 9 * * *", NextRun: &stale, Status: core.TaskPaused, Created: time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	rec := doJSON(t, h, "PATCH", "/v1/tasks/tp-resume", "", map[string]string{"status": core.TaskActive})
+	if rec.Code != 200 {
+		t.Fatalf("PATCH = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if got, _ := db.GetTask("tp-resume"); got.Status != core.TaskActive || got.NextRun != nil {
+		t.Errorf("status %q next_run %v, want active with no next_run", got.Status, got.NextRun)
+	}
+}

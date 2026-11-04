@@ -22,6 +22,7 @@ import (
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/ipc"
+	"github.com/kronael/arizuko/store"
 )
 
 // taskToolNames is the six task tools — the set every task test delegates.
@@ -505,5 +506,79 @@ func TestScheduledTasksMCP_InternalFolderTarget(t *testing.T) {
 	task, ok = db.GetTask(res["taskId"].(string))
 	if !ok || task.Owner != owner || task.ChatJID != external {
 		t.Fatalf("external target changed: %+v", task)
+	}
+}
+
+// seedTaskAt writes a task with an explicit status, cron and next_run.
+func seedTaskAt(t *testing.T, db *DB, id, status, cron string, next *time.Time) {
+	t.Helper()
+	if err := store.NewOver(db.Obj()).CreateTask(core.Task{
+		ID: id, Owner: "world/a", ChatJID: "slack:a", Prompt: "p", Cron: cron,
+		NextRun: next, Status: status, Created: time.Now(),
+	}); err != nil {
+		t.Fatalf("seed %s: %v", id, err)
+	}
+}
+
+// resume_task drops a cron task's stale next_run (the scheduler fills the next
+// cron instant) and keeps a one-shot's; reschedule_task revives a completed
+// one-shot with the job's new time; a next_run written while the task is still
+// firing survives timed's re-arm; schedule_task refuses an empty cron.
+func TestScheduledTasksMCP_ResumeAndRescheduleStates(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	_ = db.PutGroup(core.Group{Folder: "world"})
+	_ = db.PutGroup(core.Group{Folder: "world/a"})
+	doSetRoutes(t, db, []core.Route{{Match: "platform=slack", Target: "world/a"}})
+	grantMCPTools(t, db, "world/a", taskToolNames...)
+	sock := serveTasksMCP(t, db, "world/a", "folder:world/a")
+
+	stale := time.Now().Add(-48 * time.Hour).UTC().Truncate(time.Second)
+	seedTaskAt(t, db, "cr", core.TaskPaused, "0 9 * * *", &stale)
+	seedTaskAt(t, db, "shot", core.TaskPaused, "", &stale)
+	for _, id := range []string{"cr", "shot"} {
+		if _, e := callToolOverSock(t, sock, "resume_task", map[string]any{"taskId": id}); e != "" {
+			t.Fatalf("resume_task %s: %s", id, e)
+		}
+	}
+	if got, _ := db.GetTask("cr"); got.Status != core.TaskActive || got.NextRun != nil {
+		t.Errorf("resumed cron task: status %q next_run %v, want active with none", got.Status, got.NextRun)
+	}
+	if got, _ := db.GetTask("shot"); got.Status != core.TaskActive || got.NextRun == nil || !got.NextRun.Equal(stale) {
+		t.Errorf("resumed one-shot: status %q next_run %v, want active keeping %v", got.Status, got.NextRun, stale)
+	}
+
+	later := time.Now().Add(96 * time.Hour).UTC().Truncate(time.Second)
+	seedTaskAt(t, db, "done", core.TaskCompleted, "", nil)
+	if _, e := callToolOverSock(t, sock, "reschedule_task", map[string]any{
+		"taskId": "done", "next_run": later.Format(time.RFC3339),
+	}); e != "" {
+		t.Fatalf("reschedule_task done: %s", e)
+	}
+	if got, _ := db.GetTask("done"); got.Status != core.TaskActive || got.NextRun == nil || !got.NextRun.Equal(later) {
+		t.Errorf("revived one-shot: status %q next_run %v, want active at %v", got.Status, got.NextRun, later)
+	}
+
+	seedTaskAt(t, db, "win", store.TaskStatusFiring, "0 9 * * *", &stale)
+	if _, e := callToolOverSock(t, sock, "reschedule_task", map[string]any{
+		"taskId": "win", "next_run": later.Format(time.RFC3339),
+	}); e != "" {
+		t.Fatalf("reschedule_task win: %s", e)
+	}
+	if err := db.RescheduleTask("win", ""); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := db.GetTask("win"); got.Status != core.TaskActive || got.NextRun == nil || !got.NextRun.Equal(later) {
+		t.Errorf("job moved the run while firing: status %q next_run %v, want the job's %v",
+			got.Status, got.NextRun, later)
+	}
+
+	if _, e := callToolOverSock(t, sock, "schedule_task", map[string]any{
+		"targetJid": "slack:team/channel/c1", "prompt": "no schedule",
+	}); !strings.Contains(e, "cron") {
+		t.Fatalf("schedule_task without cron: got %q, want a cron refusal", e)
 	}
 }

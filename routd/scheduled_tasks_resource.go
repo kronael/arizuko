@@ -22,6 +22,7 @@ import (
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/resreg/resources"
+	"github.com/kronael/arizuko/store"
 )
 
 // list reuses resreg.ActionList so it stays read-only (no tx); the rest are
@@ -99,6 +100,9 @@ func (s *Server) scheduledTasksHandler(ctx context.Context, x resreg.Execution, 
 		if err := contain(x.Caller, tasksActionSchedule, targetFolder); err != nil {
 			return nil, err
 		}
+		if argString(x.Args, "cron") == "" {
+			return nil, resreg.Errorf(http.StatusBadRequest, "cron required: a cron expression, an interval in ms, or an RFC3339 time")
+		}
 		nextRun, cronStore, err := parseTaskSchedule(argString(x.Args, "cron"))
 		if err != nil {
 			return nil, resreg.Errorf(http.StatusBadRequest, "%v", err)
@@ -140,7 +144,7 @@ func (s *Server) scheduledTasksHandler(ctx context.Context, x resreg.Execution, 
 		case tasksActionPause:
 			err = s.db.store().SetTaskStatusInto(x.Writes, taskID, core.TaskPaused, gone)
 		case tasksActionResume:
-			err = s.db.store().SetTaskStatusInto(x.Writes, taskID, core.TaskActive, gone)
+			err = s.db.store().ResumeTaskInto(x.Writes, task, gone)
 		case tasksActionCancel:
 			err = s.db.store().DeleteTaskInto(x.Writes, taskID)
 		}
@@ -184,8 +188,22 @@ func (s *Server) scheduledTasksHandler(ctx context.Context, x resreg.Execution, 
 		if _, err := time.Parse(time.RFC3339, nextRun); nextRun != "" && err != nil {
 			return nil, resreg.Errorf(http.StatusBadRequest, "next_run must be RFC3339: %v", err)
 		}
-		if err := s.db.store().PatchTaskInto(x.Writes, taskID, status, nextRun,
-			resreg.Errorf(http.StatusNotFound, "task not found")); err != nil {
+		gone := resreg.Errorf(http.StatusNotFound, "task not found")
+		var err error
+		switch {
+		case status == core.TaskActive && nextRun == "" && task.Status == core.TaskPaused:
+			err = s.db.store().ResumeTaskInto(x.Writes, task, gone)
+		default:
+			// A new next_run on a completed one-shot re-arms it; on a firing task
+			// it takes the task out of 'firing', so timed's re-arm, conditional on
+			// 'firing', cannot overwrite it.
+			if status == "" && nextRun != "" &&
+				(task.Status == core.TaskCompleted || task.Status == store.TaskStatusFiring) {
+				status = core.TaskActive
+			}
+			err = s.db.store().PatchTaskInto(x.Writes, taskID, status, nextRun, gone)
+		}
+		if err != nil {
 			return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
 		}
 		// Echo the updated task: the batch has not been sent, so GetTask would

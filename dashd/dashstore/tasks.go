@@ -45,11 +45,8 @@ func (s *Store) CancelTask(ctx context.Context, id string, ev audit.Event) error
 	})
 }
 
-// ResumeTask moves a paused task back to active and clears its next fire time:
-// the scheduler fills the next instant of the task's cron on its next poll. The
-// move is CONDITIONED on the cron still being the one read, so a task cannot
-// resume against a cron line that changed underneath it. ErrTaskMissing means
-// no such task.
+// ResumeTask moves a paused task back to active; store.ResumeTaskInto decides
+// what happens to its next fire time. ErrTaskMissing means no such task.
 func (s *Store) ResumeTask(ctx context.Context, id string, ev audit.Event) error {
 	return s.taskTransition(ctx, ev, func(ws *store.WriteSet) error {
 		t, ok, err := s.st().TaskByID(id)
@@ -62,8 +59,7 @@ func (s *Store) ResumeTask(ctx context.Context, id string, ev audit.Event) error
 		if t.Status != core.TaskPaused {
 			return ErrTaskState
 		}
-		cleared := ""
-		return s.st().MoveTaskInto(ws, t, core.TaskActive, &cleared, ErrTaskState)
+		return s.st().ResumeTaskInto(ws, t, ErrTaskState)
 	})
 }
 

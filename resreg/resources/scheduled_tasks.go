@@ -75,7 +75,7 @@ var ScheduledTasksMCPArgs = map[resreg.Action][]resreg.MCPArg{
 	resreg.Action("schedule"): {
 		{Name: "targetJid", Type: "string", Required: true},
 		{Name: "prompt", Type: "string", Required: true},
-		{Name: "cron", Type: "string"},
+		{Name: "cron", Type: "string", Required: true},
 		{Name: "contextMode", Type: "string"},
 	},
 	resreg.Action("patch"): {

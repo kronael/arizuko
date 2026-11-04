@@ -64,6 +64,9 @@ func TestFeature_Tasks(t *testing.T) {
 		past := now.Add(-time.Minute)
 		s.CreateTask(core.Task{ID: "t-resched", Owner: "main", ChatJID: "tg:1", Prompt: "p", Cron: "0 9 * * *", NextRun: &past, Status: "active", Created: now})
 		future := now.Add(24 * time.Hour).Format(time.RFC3339)
+		if err := s.SetTaskStatus("t-resched", store.TaskStatusFiring); err != nil {
+			t.Fatal(err)
+		}
 		if err := s.RescheduleTask("t-resched", future); err != nil {
 			t.Fatal(err)
 		}
@@ -103,6 +106,9 @@ func TestFeature_Tasks(t *testing.T) {
 		now := time.Now()
 		past := now.Add(-time.Second)
 		s.CreateTask(core.Task{ID: "t-oneshot", Owner: "main", ChatJID: "tg:1", Prompt: "once", Cron: "", NextRun: &past, Status: "active", Created: now})
+		if err := s.SetTaskStatus("t-oneshot", store.TaskStatusFiring); err != nil {
+			t.Fatal(err)
+		}
 		if err := s.RescheduleTask("t-oneshot", ""); err != nil {
 			t.Fatal(err)
 		}

@@ -51,6 +51,24 @@ const TaskContextGroup = "group"
 
 // TaskStatusFiring marks a task one poller has claimed. It is a transient
 // state: the fire loop moves it back to active or paused, and
+// ResumeTaskInto buffers the resume of a paused task: status active, and a
+// cron task's next_run dropped so the scheduler fills the next instant of the
+// cron (a stale past one would fire the task the moment it resumes). A one-shot
+// has no cron to fill from, so it keeps its next_run. Any other status is left
+// alone. `t` is the task the caller READ; the write is conditional on it, as
+// MoveTaskInto's is.
+func (s *Store) ResumeTaskInto(ws *WriteSet, t core.Task, refused error) error {
+	if t.Status != core.TaskPaused {
+		return nil
+	}
+	var next *string
+	if t.Cron != "" {
+		cleared := ""
+		next = &cleared
+	}
+	return s.MoveTaskInto(ws, t, core.TaskActive, next, refused)
+}
+
 // RecoverFiringTasks re-arms whatever a crash left in it.
 const TaskStatusFiring = "firing"
 
@@ -197,7 +215,10 @@ func (s *Store) SetTaskStatus(id, status string) error {
 // nextRun is stored verbatim (a retry of the same fire). An empty one is the
 // task's own cron read forward: the next instant for a recurring task, no
 // further run and status 'completed' for a one-shot, status 'error' for a cron
-// that will not parse. A task deleted since the claim is left deleted.
+// that will not parse. The write is CONDITIONAL on the task still being
+// 'firing': a task deleted since the claim stays deleted, and a pause_task or a
+// reschedule_task written in the window between the claim and this re-arm is the
+// job's word and is not undone.
 func (s *Store) RescheduleTask(id, nextRun string) error {
 	t, ok, err := s.TaskByID(id)
 	if err != nil || !ok {
@@ -210,10 +231,13 @@ func (s *Store) RescheduleTask(id, nextRun string) error {
 	w := objstore.Write{
 		Op: objstore.Update, Entity: ScheduledTasks, Key: key,
 		Attrs: map[string]string{attrTaskStatus: core.TaskActive},
+		Cond: objstore.Cond{Where: []objstore.Cmp{
+			{Attr: attrTaskStatus, Op: objstore.Eq, Value: TaskStatusFiring},
+		}},
 	}
 	if nextRun != "" {
 		w.Attrs[attrTaskNextRun] = nextRun
-		return s.WriteEntities(context.Background(), nil, w)
+		return s.writeRearm(w)
 	}
 	next, err := core.NextRun(t.Cron, core.Timezone())
 	switch {
@@ -227,7 +251,15 @@ func (s *Store) RescheduleTask(id, nextRun string) error {
 	default:
 		w.Attrs[attrTaskNextRun] = next.Format(time.RFC3339)
 	}
-	return s.WriteEntities(context.Background(), nil, w)
+	return s.writeRearm(w)
+}
+
+// writeRearm sends the conditional re-arm. A refusal means the task left
+// 'firing' (paused, moved by the job, or deleted): its new state stands.
+func (s *Store) writeRearm(w objstore.Write) error {
+	// A refusal is the task having left 'firing'; its new state stands.
+	_, err := s.TryWriteEntities(context.Background(), nil, w)
+	return err
 }
 
 // logBadCron is the loud half of a recurring task whose cron will not parse.
@@ -332,7 +364,7 @@ func (s *Store) DueTasks(now time.Time) ([]core.Task, error) {
 	for _, it := range items {
 		if it.Attrs[attrTaskNextRun] == "" {
 			if err := s.fillNextRun(ctx, it); err != nil {
-				return nil, err
+				slog.Error("fill next_run failed; the task waits for the next poll", "err", err)
 			}
 			continue
 		}
@@ -365,12 +397,11 @@ func (s *Store) DueTasks(now time.Time) ([]core.Task, error) {
 // the only writer of a recurring task's first run, so every creator leaves
 // next_run empty. A cron that will not parse moves the task to 'error'. Both
 // writes are conditional on the task still being active and still without a
-// next_run, so a concurrent poller's fill or an explicit next_run wins.
+// next_run, so a concurrent poller's fill or an explicit next_run wins. An
+// active task with neither a cron nor a next_run can never fire: it moves to
+// 'error' too, so it is visible instead of scheduled.
 func (s *Store) fillNextRun(ctx context.Context, it objstore.Item) error {
 	t := taskFrom(it)
-	if t.Cron == "" {
-		return nil
-	}
 	w := objstore.Write{
 		Op: objstore.Update, Entity: ScheduledTasks, Key: it.Key,
 		Cond: objstore.Cond{Where: []objstore.Cmp{
@@ -379,10 +410,15 @@ func (s *Store) fillNextRun(ctx context.Context, it objstore.Item) error {
 		}},
 	}
 	next, err := core.NextRun(t.Cron, core.Timezone())
-	if err != nil {
+	switch {
+	case errors.Is(err, core.ErrNoSchedule):
+		w.Attrs = map[string]string{attrTaskStatus: core.TaskError}
+		slog.Error("active task has no cron and no next_run, so it can never fire; marking it error",
+			"task", t.ID, "jid", t.ChatJID)
+	case err != nil:
 		w.Attrs = map[string]string{attrTaskStatus: core.TaskError}
 		logBadCron(t)
-	} else {
+	default:
 		w.Attrs = map[string]string{attrTaskNextRun: next.Format(time.RFC3339)}
 	}
 	// A refusal is a concurrent poller's fill, an explicit next_run or a status
