@@ -229,8 +229,6 @@ reads those words now.
   persona or output style exists: intended, or pass `append`?
 - `L490` — only GitHub's surrogate OAuth client reaches routd and dashd; the
   other providers' keys in `.env` are dropped.
-- `L483` — the DynamoDB driver sends no `ConsistentRead`, which `6/37` and
-  `6/42` assume. One line; live impact nil on PostgreSQL.
 - `L484`, `L485`, `L494`, `L496` — small fixes, each bounded in its
   entry: the TS adapter's stale `/health` code, the RFC 3339 one-shot dashd
   refuses, onbod's route writes on any allow row, extra mounts with no blocklist.
@@ -656,7 +654,7 @@ existing exact-folder web-publish grant and copy generated HTML reports to the
 private served slot. Prior owner authorization covers Jynx setup repair;
 no new permission system or source publication is involved.
 
-## L483 — the DynamoDB driver sends no `ConsistentRead` on `Query`, and `6/37` and `6/42` say it does (2026-10-20, open)
+## ✅ FIXED 2026-11-04 dc5c36e0c L483 — the DynamoDB driver sends no `ConsistentRead` on `Query`, and `6/37` and `6/42` say it does (2026-10-20)
 
 FOUND 2026-10-20 by the docs fold. Measured at `62d7233a`:
 `objstore/dynstore/query.go:111-135` builds the whole `dynamodb.QueryInput`
@@ -684,9 +682,9 @@ defect.
 
 **Fix:** `ConsistentRead: aws.Bool(true)` on the input at `query.go:111`, with
 a test that captures the `QueryInput`. Until then `6/37` and `6/42` carry
-`status: defected` and `defects: [L483]`. No test yet — this pass records only.
+`status: defected` and `defects: [L483]`.
 
-- **Status:** open (record only).
+- **Status:** fixed. `query.go` sets `ConsistentRead: true`; `dynstore/consistent_test.go` captures the request body. The driver names no index, so no GSI query exists to exclude.
 
 ## L484 — whapd answers `/health` 503 when inbound is five minutes old, and chanlib answers 200 (2026-10-20, open)
 

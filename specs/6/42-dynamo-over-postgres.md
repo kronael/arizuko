@@ -3,8 +3,7 @@ status: defected
 # defects: an OPEN BUGS entry contradicts this spec —
 # L318: §7 says `arizuko create` mints the account, users, policies and keys; the CLI has
 # zero such calls and the minting is a hand procedure in INSTALL.md
-# L483: §2 says the driver sends ConsistentRead: true on every Query; it sends none
-defects: [L318, L483]
+defects: [L318]
 depends:
   [
     37-store-model,
