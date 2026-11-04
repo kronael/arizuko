@@ -223,8 +223,13 @@ func (s *Server) registerGroup(jid string, g core.Group) error {
 	// PutGroup upserts, and the purge is a subtree delete that takes the
 	// folder's children with it (BUGS L245).
 	existed := s.db.GroupExists(g.Folder)
-	if err := s.db.PutGroup(g); err != nil {
-		return err
+	// An existing folder keeps its row: PutGroup writes container_config from
+	// g.Config, and a registration carries none, so an upsert would wipe the
+	// operator's Mounts (BUGS L656). Re-registering adds the route only.
+	if !existed {
+		if err := s.db.PutGroup(g); err != nil {
+			return err
+		}
 	}
 	match := "room=" + core.JidRoom(jid)
 	if _, err := s.db.AddRoute(core.Route{Seq: 0, Match: match, Target: g.Folder}); err != nil {

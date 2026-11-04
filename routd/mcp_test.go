@@ -121,6 +121,29 @@ func TestRegisterGroupAddsRoute(t *testing.T) {
 	}
 }
 
+// TestRegisterGroupKeepsContainerConfig: registering a folder that exists adds
+// the route and leaves the operator's container_config alone (BUGS L656).
+func TestRegisterGroupKeepsContainerConfig(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	srv := NewServer(db, nil, nil, nil, 0, "")
+	srv.SetDirs(t.TempDir(), "")
+	cfg := core.GroupConfig{Mounts: []core.Mount{{Host: "/srv/x", Container: "x"}}}
+	if err := db.PutGroup(core.Group{Folder: "ops", Config: cfg}); err != nil {
+		t.Fatal(err)
+	}
+	if err := srv.registerGroup("telegram:777", core.Group{Folder: "ops"}); err != nil {
+		t.Fatalf("registerGroup: %v", err)
+	}
+	got, ok := db.store().GroupByFolder("ops")
+	if !ok || len(got.Config.Mounts) != 1 {
+		t.Fatalf("container_config wiped: ok=%v config=%+v", ok, got.Config)
+	}
+}
+
 // TestServeTurnMCPSocketLifecycle: ServeTurnMCP binds the group MCP socket in a
 // temp ipc dir; the returned stop removes it.
 func TestServeTurnMCPSocketLifecycle(t *testing.T) {
