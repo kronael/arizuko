@@ -107,7 +107,7 @@ func TestRenderTurnGolden(t *testing.T) {
 			"Timeout": int64(10 * time.Minute),
 			"Mounts":  []any{map[string]any{"Host": filepath.Join(root, "extra"), "Container": "extra", "RO": false}},
 		},
-		ShareReadOnly: true, Egress: true, WebPublish: true, GHWrite: true, Progress: true,
+		ShareReadOnly: true, Egress: true, WebPublish: true, GHWrite: true, Codex: true, Progress: true,
 		EgressAllowlist: []string{"github.com"},
 		Secrets:         map[string]string{"ANTHROPIC_API_KEY": "sk-user"}}, "arizuko-krons-atlas-support-1700000000000", 20*time.Minute)
 	if err != nil {
@@ -138,8 +138,8 @@ func TestRenderTurnGolden(t *testing.T) {
 		root + "/groups/atlas/share -> /var/lib/share ro",
 		root + "/ipc/atlas/support -> /run/ipc",
 		root + "/groups/atlas/support/.codex -> /home/node/.codex",
-		root + "/codexhost/auth.json -> /home/node/.codex/auth.json ro",
-		root + "/codexhost/config.toml -> /home/node/.codex/config.toml ro",
+		root + "/ipc/atlas/support/codex-cred-auth.json -> /home/node/.codex/auth.json ro",
+		root + "/ipc/atlas/support/codex-cred-config.toml -> /home/node/.codex/config.toml ro",
 		root + "/extra -> /mnt/extra ro",
 		root + "/web/pub -> /var/lib/www ro",
 		root + "/web/pub/atlas/support -> /home/node/public_html",
@@ -274,7 +274,7 @@ func TestRenderTurnGoldenElevated(t *testing.T) {
 	folders := resolverFor(cfg)
 
 	turn, err := renderTurn(cfg, folders, runedv1.RunRequest{Packages: []string{"core"}, Folder: "main", ChatJID: "telegram:user/42", Channel: "telegram",
-		MessageBatch: "do the thing", TurnID: "turn-9", Elevated: true,
+		MessageBatch: "do the thing", TurnID: "turn-9", Elevated: true, Codex: true,
 		Secrets:         map[string]string{"ANTHROPIC_API_KEY": "sk-user", "GH_TOKEN": "ghp"},
 		ModelGatewayKey: "sk-virtual-turn"}, "arizuko-krons-main-1700000000000", 0)
 	if err != nil {
@@ -292,8 +292,8 @@ func TestRenderTurnGoldenElevated(t *testing.T) {
 		root + "/groups/share -> /var/lib/share",
 		root + "/ipc/main -> /run/ipc",
 		root + "/groups/main/.codex -> /home/node/.codex",
-		root + "/codexhost/auth.json -> /home/node/.codex/auth.json ro",
-		root + "/codexhost/config.toml -> /home/node/.codex/config.toml ro",
+		root + "/ipc/main/codex-cred-auth.json -> /home/node/.codex/auth.json ro",
+		root + "/ipc/main/codex-cred-config.toml -> /home/node/.codex/config.toml ro",
 		root + "/web/pub/arizuko -> /var/lib/www/arizuko ro",
 		root + "/groups -> /var/lib/groups",
 	}
