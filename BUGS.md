@@ -16,7 +16,6 @@
 ## What needs you
 
 - `L655` — products as full packages (`catalog:<name>`) and persona layering (`PERSONA.local.md`); proposal, needs sign-off.
-- `L654` — the `arizuko` skill's docs exist only on krons; fix queued (install docs in every instance).
 - `L650` — an `extenddb` reached 10 GB and was OOM-killed; the host reset 8 times on 11-03; cause unmeasured.
 - `L647` — weekly memory rollups missing on alternate Mondays (W40, W42 in every active krons group); cause unmeasured, spawn rows gone.
 - `L644` — krons token hit its monthly spend limit; choose a token with budget.
@@ -443,7 +442,7 @@ Owner ruling 2026-11-04: a path two packages ship is the last package's (the
 current install order); an add-on product (company-brain, cuzk) ships no
 persona so it never replaces a group's.
 
-## L654 — the `arizuko` skill reads docs no instance but krons has (2026-11-04, open)
+## ✅ FIXED 2026-11-04 c4d605568 L654 — the `arizuko` skill reads docs no instance but krons has (2026-11-04)
 
 MEASURED on sloth: the core `arizuko` skill reads `/var/lib/www/arizuko/` and
 builds `https://$WEB_HOST/pub/arizuko/`; sloth's `web/pub/` has no `arizuko`
@@ -451,8 +450,9 @@ builds `https://$WEB_HOST/pub/arizuko/`; sloth's `web/pub/` has no `arizuko`
 questions without its docs. No code installs `template/web/pub/arizuko/`:
 `runed/mounts.go:204-205` says `arizuko create` copies them, which is false;
 krons has them only through the manual `cp` in `template/web/CLAUDE.md`.
-Fix: the release installs the docs into every instance's `web/pub/arizuko`
-(one installer, e.g. `generate`), and the runed comment states it.
+Fixed: the image carries `template/web/pub/arizuko`; `arizuko generate` copies
+it into `<data_dir>/web/pub/arizuko` on every start (`compose.InstallWebDocs`),
+the runed comment says so, and the skill names the public docs and the source.
 
 ## ✅ FIXED 2026-11-04 43e8e0526 L653 — removing a service fragment leaves the instance unable to start (2026-11-04)
 
