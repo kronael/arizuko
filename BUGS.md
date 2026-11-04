@@ -15,6 +15,7 @@
 
 ## What needs you
 
+- `L651` — a GitHub `@<bot>` mention outside a PR starts no turn; fix in progress.
 - `L650` — an `extenddb` reached 10 GB and was OOM-killed; the host reset 8 times on 11-03; cause unmeasured.
 - `L647` — weekly memory rollups missing on alternate Mondays (W40, W42 in every active krons group); cause unmeasured, spawn rows gone.
 - `L644` — krons token hit its monthly spend limit; choose a token with budget.
@@ -421,6 +422,18 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
 - **`L15` — the 2026-08-11 dead-code sweep's rejected hits.** `deadcode ./...` gave 149
   hits, 56 under `-test`; nine survived verification and were filed separately. Kept so
   the next sweep does not re-report the same ~135.
+
+## L651 — an `@<bot>` mention outside a PR never starts a turn (2026-11-04, open)
+
+MEASURED on sloth: kronael's comment on `vumilan/morha` issue #423 at
+2026-11-03T22:32:25Z ("@sloth-goth Please tell Sushi on Discord about this
+issue") is stored with `verb=message`, `is_observed=1`, `routed_to=sloth/morha`,
+and no turn ran. gitd's login `sloth-goth` was verified at 21:48:52 and the
+mention regex matches the body. `gitd/event.go:477-479` turns every `mention`
+outside a PR into `message` (from `cf04b1c1e`), and
+`store.GitHubSourceRoutes` (`store/github_sources.go:143`) seeds a mention
+trigger for `pr/*` only. Owner ruling 2026-11-04: every mention counts — issues,
+projects, tasks, CI text — anywhere a person writes `@<login>`.
 
 ## L650 — the kernel killed an `extenddb` at 10 GB RSS; the host reset 8 times on 2026-11-03 (2026-11-03, open)
 
