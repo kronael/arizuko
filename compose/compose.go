@@ -918,7 +918,10 @@ func Generate(dataDir, instance string) (string, []ProxydRoute, error) {
 	if len(services) > 0 {
 		b.WriteString("include:\n")
 		for _, name := range services {
-			fmt.Fprintf(&b, "  - ./services/%s.yml\n", name)
+			// required: false — a fragment deleted after this file was written
+			// must not stop `docker compose down` or `up`, the very steps that
+			// precede the `generate` which would drop it (BUGS `L653`).
+			fmt.Fprintf(&b, "  - path: ./services/%s.yml\n    required: false\n", name)
 		}
 	}
 	b.WriteString("services:\n")

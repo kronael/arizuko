@@ -214,7 +214,7 @@ func TestIncludeFragments(t *testing.T) {
 	write(t, dir, "services/discd.yml", "services:\n  discd:\n    image: arizuko:latest\n")
 	write(t, dir, "services/notes.txt", "ignored")
 	out := gen(t, dir)
-	if !strings.Contains(out, "include:\n  - ./services/discd.yml\n  - ./services/teled.yml\n") {
+	if !strings.Contains(out, "include:\n  - path: ./services/discd.yml\n    required: false\n  - path: ./services/teled.yml\n    required: false\n") {
 		t.Errorf("fragments must be included in sorted order; got:\n%s", out)
 	}
 	if strings.Contains(out, "notes") {
