@@ -14,6 +14,7 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 ## [Unreleased]
 
 - Tasks — the scheduler alone fills `next_run`: `DueTasks` gives an active cron task without one the cron's first instant, and routd computes the run after each fire. A cron that will not parse sets the task to `error`.
+- Tasks — an active row with a cron and no `next_run` (the old BUGS L74 state, dead since it was written) is now filled and starts firing; an active row with neither a cron nor a `next_run` is set to `error`. `schedule_task` requires `cron`.
 - Tasks — `reschedule_task` moves a task's next run (agent face of `PATCH /v1/tasks/{taskId}`); a job that calls it in its own turn keeps its time.
 
 ## [v0.72.7] — 2026-11-04

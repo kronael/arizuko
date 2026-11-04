@@ -72,8 +72,8 @@
     <ol>
       <li>It calls <code>GET /v1/tasks/due</code> on routd. routd claims every active task whose <code>next_run</code> has passed, in one guarded write, and returns them. So two timed instances cannot run the same task twice.</li>
       <li>For each task, it calls <code>POST /v1/messages</code> with the <code>chat_jid</code> of the task. The sender is <code>timed</code>, or <code>timed-isolated:&lt;id&gt;</code> for a task with an isolated session. The message id derives from the task and its scheduled time, so routd drops a repeated post of the same run as a duplicate.</li>
-      <li>It computes the next run with <code>core.NextRun</code>. The <code>cron</code> value is a 5-field cron expression in the <code>TZ</code> of the daemon, a millisecond interval, or empty for a one-time task.</li>
-      <li>It calls <code>POST /v1/tasks/{id}/reschedule</code> with the new <code>next_run</code>, which marks a one-time task completed. Then it calls <code>POST /v1/tasks/runlog</code> for the <code>task_run_logs</code> row.</li>
+      <li>It calls <code>POST /v1/tasks/{id}/reschedule</code> with no <code>next_run</code>. routd reads the <code>cron</code> value of the task: a 5-field cron expression in the <code>TZ</code> of routd, or a millisecond interval. routd stores the next run and keeps the task active. A one-time task becomes completed. A <code>cron</code> that does not parse sets the status to error. A <code>next_run</code> that the job set with <code>reschedule_task</code> during its own turn comes after this step and stands.</li>
+      <li>It calls <code>POST /v1/tasks/runlog</code> for the <code>task_run_logs</code> row.</li>
     </ol>
 
     <h2>timed reads and writes only through routd</h2>
