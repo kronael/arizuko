@@ -13,6 +13,18 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.73.0] — 2026-11-04
+
+> arizuko v0.73.0 — the company brain and the trip computer
+>
+> Two products package skills that already run for real teams: a team digest and a trip planner.
+>
+> • Brain — a daily or weekly digest of a team's chat threads and GitHub work, set up from one `~/digest.toml`.
+> • Trip — itinerary and weather skills join the trip product; Codex comes from the host login through the `codex` grant.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+- Products: new `brain` package (`ant/examples/brain`, skills `digest`, `digest-work`, `digest-discourse`); `trip` ships `itinerary` and `weather`.
 - Removed the `teled-jynx` catalog fragment (`template/services/teled-jynx/`); `teled-atlas` is the remaining multi-account example.
 
 ## [v0.72.9] — 2026-11-04
