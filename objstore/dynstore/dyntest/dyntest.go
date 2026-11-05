@@ -203,10 +203,15 @@ func start() (dynstore.Config, error) {
 		"-e", fmt.Sprintf("EXTENDDB__SERVER__PORT=%d", ImagePort),
 		"-e", "EXTENDDB__STORAGE__SQLITE__PATH=/var/lib/extenddb/extenddb.sqlite",
 		"-e", "EXTENDDB_DEV_ALLOW_ANY_BIND=1",
+		"-e", "EXTENDDB_ADMIN_PASSWORD="+adminPassword,
 		Image, "serve", "--foreground"); err != nil {
 		return dynstore.Config{}, fmt.Errorf("start %s: %v: %s", Image, err, out)
 	}
 	container = name
+	if err := os.Setenv("EXTENDDB_PASSWORD", adminPassword); err != nil {
+		Shutdown()
+		return dynstore.Config{}, err
+	}
 	cfg := dynstore.Config{
 		Endpoint: fmt.Sprintf("http://127.0.0.1:%d", port),
 		KeyID:    dynstore.DevKeyID,
@@ -238,6 +243,10 @@ func start() (dynstore.Config, error) {
 	Shutdown()
 	return dynstore.Config{}, fmt.Errorf("%s did not answer on %d: %w", Image, port, last)
 }
+
+// adminPassword is the password of the admin user of an endpoint this fixture
+// starts, exported as EXTENDDB_PASSWORD, the variable `extenddb manage` reads.
+const adminPassword = "dyntest-admin-password"
 
 // pidLabel carries the pid of the process that started a container. The name
 // carries the same pid for a person reading `docker ps`, and the reap reads the

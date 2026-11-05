@@ -32,7 +32,7 @@ const mainUsage = `arizuko <command> [-i|--instance name] [arguments]
   package  sync | add <source> | rm <name>  [-g|--group folder] [-f|--force]
   create [-i instance] [-p product] | run | generate | status
   group | gate | invite | network | images | route | token
-  chat | send | pair | secret | user-secret | budget
+  chat | send | pair | secret | user-secret | budget | store
   talk     [@name] [-g <folder>] [-t <token>] [--thread <name>] [--prompt [text]]  — REPL against a live instance; no DB, config in ~/.config/arizuko/talk.toml
   dump [file] [--quiesced] | apply <dump.tar|rows.yml> [--force] | plan <rows.yml> | get <resource>
   probe    <base-url> [--token|-t T] [--foreign-folder F]  — check a live component against the 6/16 contract
@@ -65,6 +65,7 @@ func main() {
 		"images":       cmdImages,
 		"package":      cmdPackage,
 		"secret":       cmdSecret,
+		"store":        cmdStore,
 		"user-secret":  cmdUserSecret,
 		"budget":       cmdBudget,
 		"token":        cmdToken,
