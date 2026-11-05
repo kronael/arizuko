@@ -120,38 +120,21 @@ sudo docker compose -p "$project" --env-file "$proof/compose.env" -f template/se
 set -a; . "$proof/admin.env"; set +a
 container=$(sudo docker compose -p "$project" --env-file "$proof/compose.env" -f template/services/extenddb/extenddb.yml ps -q extenddb)
 sudo --preserve-env=EXTENDDB_PASSWORD docker exec -e EXTENDDB_PASSWORD "$container" extenddb settings -c /var/lib/extenddb/extenddb.toml set control_plane_delay_seconds 0 &gt;/dev/null 2&gt;&amp;1
-for user in authd routd onbod operator runed; do
-  case "$user" in
-    authd) resources='["arn:aws:dynamodb:*:*:table/authd.*"]';;
-    routd) resources='["arn:aws:dynamodb:*:*:table/routd.*"]';;
-    onbod) resources='["arn:aws:dynamodb:*:*:table/onbod.*","arn:aws:dynamodb:*:*:table/routd.*"]';;
-    operator) resources='["arn:aws:dynamodb:*:*:table/authd.*","arn:aws:dynamodb:*:*:table/onbod.*","arn:aws:dynamodb:*:*:table/routd.*"]';;
-    runed) resources='["arn:aws:dynamodb:*:*:table/runed.*"]';;
-  esac
-  policy="{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":\"dynamodb:*\",\"Resource\":$resources}]}"
-  sudo --preserve-env=EXTENDDB_PASSWORD docker exec -e EXTENDDB_PASSWORD "$container" extenddb manage -c /var/lib/extenddb/extenddb.toml --user admin create-user --account-id "$STORE_ACCOUNT_ID" --user-name "$user" &gt;/dev/null 2&gt;&amp;1
-  sudo --preserve-env=EXTENDDB_PASSWORD docker exec -e EXTENDDB_PASSWORD "$container" extenddb manage -c /var/lib/extenddb/extenddb.toml --user admin put-user-policy --account-id "$STORE_ACCOUNT_ID" --user-name "$user" --policy-name tables --policy-document "$policy" &gt;/dev/null 2&gt;&amp;1
-  key=$(sudo --preserve-env=EXTENDDB_PASSWORD docker exec -e EXTENDDB_PASSWORD "$container" extenddb manage -c /var/lib/extenddb/extenddb.toml --user admin create-access-key --account-id "$STORE_ACCOUNT_ID" --user-name "$user" 2&gt;/dev/null)
-  printf '%s' "$key" | python3 -c 'import json,sys; x=json.load(sys.stdin); print("AWS_ACCESS_KEY_ID="+x["access_key_id"]+"\nAWS_SECRET_ACCESS_KEY="+x["secret_access_key"])' &gt; "$proof/$user.env"
-  unset key
-done
 sudo cat "$data/store/extenddb/.extenddb/tls/cert.pem" | base64 -w0 &gt; "$proof/ca"
 printf 'AUTHD_SERVICE_KEY=%s\n' "$(openssl rand -hex 32)" &gt; "$proof/service.env"
 printf 'STORE_CA=%s\nRUNED_KERNEL_DIR=%s\nRUNED_ROOTFS_DIR=%s\n' "$(cat "$proof/ca")" "$kernel_dir" "$rootfs_dir" &gt;&gt; "$data/.env"
 mkdir -p "$data/env"
-for name in authd routd onbod runed; do cp "$proof/$name.env" "$data/env/$name.env"; done
-cp "$proof/operator.env" "$data/env/operator.env"
-printf 'DYNAMODB_URL=https://127.0.0.1:%s\n' "$port" &gt;&gt; "$data/env/operator.env"
+./arizuko store enroll -i "$flavor"
 common=(PATH=/usr/bin:/bin HOST_APP_DIR="$source_dir" DYNAMODB_URL="https://127.0.0.1:$port" AWS_REGION=us-east-1 STORE_CA="$(cat "$proof/ca")")
 health() { local name=$1 hp=$2; for n in $(seq 1 60); do if curl -fsS "http://127.0.0.1:$hp/health" &gt;/dev/null 2&gt;&amp;1; then return 0; fi; kill -0 "$(cat "$proof/$name.pid")" 2&gt;/dev/null || return 1; sleep 1; done; return 1; }
 auth_port=$(freeport); rout_port=$(freeport); onbod_port=$(freeport)
-set -a; . "$proof/authd.env"; . "$proof/service.env"; set +a
+set -a; . "$data/env/authd.env"; . "$proof/service.env"; set +a
 env -i "${common[@]}" DATA_DIR="$data" AWS_ACCESS_KEY_ID="$AWS_ACCESS_KEY_ID" AWS_SECRET_ACCESS_KEY="$AWS_SECRET_ACCESS_KEY" LISTEN_ADDR="127.0.0.1:$auth_port" AUTHD_SERVICE_KEYS="service:onbod=$AUTHD_SERVICE_KEY" "$proof/bin/authd" &gt; "$proof/authd.log" 2&gt;&amp;1 &amp; printf '%s\n' "$!" &gt; "$proof/authd.pid"
 health authd "$auth_port"
-set -a; . "$proof/routd.env"; set +a
+set -a; . "$data/env/routd.env"; set +a
 env -i "${common[@]}" DATA_DIR="$data" AWS_ACCESS_KEY_ID="$AWS_ACCESS_KEY_ID" AWS_SECRET_ACCESS_KEY="$AWS_SECRET_ACCESS_KEY" LISTEN_ADDR="127.0.0.1:$rout_port" "$proof/bin/routd" &gt; "$proof/routd.log" 2&gt;&amp;1 &amp; printf '%s\n' "$!" &gt; "$proof/routd.pid"
 health routd "$rout_port"
-set -a; . "$proof/onbod.env"; set +a
+set -a; . "$data/env/onbod.env"; set +a
 env -i "${common[@]}" DATA_DIR="$data" AWS_ACCESS_KEY_ID="$AWS_ACCESS_KEY_ID" AWS_SECRET_ACCESS_KEY="$AWS_SECRET_ACCESS_KEY" ONBOD_LISTEN_ADDR="127.0.0.1:$onbod_port" AUTHD_URL="http://127.0.0.1:$auth_port" AUTHD_SERVICE_KEY="$AUTHD_SERVICE_KEY" ROUTER_URL="http://127.0.0.1:$rout_port" "$proof/bin/onbod" &gt; "$proof/onbod.log" 2&gt;&amp;1 &amp; printf '%s\n' "$!" &gt; "$proof/onbod.pid"
 health onbod "$onbod_port"
 for name in onbod routd authd; do kill "$(cat "$proof/$name.pid")"; wait "$(cat "$proof/$name.pid")" || true; rm "$proof/$name.pid"; done
