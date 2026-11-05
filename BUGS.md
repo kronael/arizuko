@@ -16,6 +16,7 @@
 ## What needs you
 
 - `L660` — a mention by reply engages only the reply chain, not the chat root; proposal, needs sign-off.
+- `L663` — typing is absent while a message waits behind another turn; approved, fix queued.
 - `L655` — products as full packages (`catalog:<name>`) and persona layering (`PERSONA.local.md`); proposal, needs sign-off.
 - `L650` — an `extenddb` reached 10 GB and was OOM-killed; the host reset 8 times on 11-03; cause unmeasured.
 - `L647` — weekly memory rollups missing on alternate Mondays (W40, W42 in every active krons group); cause unmeasured, spawn rows gone.
@@ -567,6 +568,51 @@ for an instance without an `operator.env`).
   `env/operator.env` if `isGeneratedStoreLine` says generate wrote it, and
   keep every other line. Test: an `operator.env` with a loopback line and an
   `.env` on another host gives a file without that line and with its key pair.
+## L663 — a message queued behind another turn shows no typing until its own turn starts (2026-11-05, open)
+
+MEASURED 2026-11-05 on krons, a two-person Telegram group
+(folder `rhias/trip`, adapter `telegram-rhias`). Logs: `journalctl -u
+arizuko_krons` (every daemon's stdout lands there; `docker logs` is dead).
+Inbound rows from `routd.messages`:
+
+| row | arrived | its turn dispatched | no typing for |
+|---|---|---|---|
+| `/46` "?" | 08:49:51 | 08:58:37 (`dispatch run`, turn `/47`) | 8 m 46 s |
+| `/47` | 08:56:41 | 08:58:37 | 1 m 56 s |
+
+The folder was held by operator turn `cli-1793868186991237262` on
+`web:rhias/trip` (`dispatch run` 08:43:08, `guest exited` 08:58:36, 927 s).
+`queue.EnqueueMessageCheck` parks a chat whose folder is held by another chat
+(`queue/queue.go:135-141`, logged at Debug only), so `processGroupMessages`
+never runs for it and `beginProgress` (`routd/dispatch.go:475`, the only
+`Typing(on)`) is not reached. The turn that did run (08:58:37-09:01:04) has
+no `typing failed` / `typing request failed` line on krons. sloth shows the
+same shape: a Telegram direct message arrived 09:12:03, ran
+09:12:26, the moment the `sloth/discord` run ended (`MAX_CONCURRENT_CONTAINERS=2`).
+Ruled out: a refused or failed typing call (none logged on the Telegram path;
+the only `typing request failed` lines are Discord, whose daemon is down),
+`RUNED_RUN_TIMEOUT` (the turn lasted 147 s; `teled-rhias.yml` sets 20m, `teled.yml`
+sets none and defaults to 30m), and adapter selection (`LatestSource` returns
+`telegram-rhias`).
+
+So the indicator is correct from dispatch to turn end and absent for the
+whole wait before it. Spec `6/46` defines presence as `Begin`..`End` of a turn
+and sends `Typing(off)` when runed answers Busy, so a refusal also blinks it
+(5 s on, then off until the 4-60 s backoff re-dispatches).
+
+- **Severity:** medium (a person who messages a busy folder sees a dead bot for minutes)
+- **Scope:** routd queue/dispatch presence; spec `6/46` §Presence
+- **Affected:** krons, sloth (any folder with a second chat or a full run cap)
+- **Source:** journal krons 2026-11-05T08:43:08-09:01:04; `routd.messages`; `queue/queue.go:127-152`
+- **Status:** open — approved, fix queued. The fix changes the 6/46 contract
+  (presence starts when an ADDRESSED message is accepted, not when its turn
+  starts) and needs the addressed test that only `processGroupMessages` holds,
+  so it is not a one-line change. Shape: when the queue parks a chat, call
+  `beginProgress` for it if its newest row is addressed; `Typing(off)` stays
+  at `End`, and a parked chat that is dropped must clear through the same
+  `chatsOwnedBy` path.
+- **Owner 2026-11-05:** shape approved ("1 ok"), and Busy keeps typing on
+  ("2 yes"), which reverses the 6/46 rule that Busy clears it.
 
 ## L655 — products are packages only by convention; persona has no layering (2026-11-04, open — proposal)
 
