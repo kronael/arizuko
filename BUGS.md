@@ -567,7 +567,7 @@ for an instance without an `operator.env`).
   `env/operator.env` if `isGeneratedStoreLine` says generate wrote it, and
   keep every other line. Test: an `operator.env` with a loopback line and an
   `.env` on another host gives a file without that line and with its key pair.
-## ✅ FIXED 2026-11-05 fa5941283 L663 — a message queued behind another turn shows no typing until its own turn starts (2026-11-05)
+## ✅ FIXED 2026-11-05 d73dd6878 L663 — a message queued behind another turn shows no typing until its own turn starts (2026-11-05)
 
 MEASURED 2026-11-05 on krons, a two-person Telegram group
 (folder `rhias/trip`, adapter `telegram-rhias`). Logs: `journalctl -u

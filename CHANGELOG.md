@@ -13,6 +13,16 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.74.4] — 2026-11-05
+
+> arizuko v0.74.4 — typing while you wait
+>
+> A message that waits behind another turn now shows typing at once, not only when its own turn starts.
+>
+> • Presence — an addressed message parked behind a busy folder or a full run cap types until its turn ends; a busy runed keeps typing on.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
 ## [v0.74.3] — 2026-11-05
 
 > arizuko v0.74.3 — packages ship their Python scripts
