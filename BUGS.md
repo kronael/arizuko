@@ -15,7 +15,6 @@
 
 ## What needs you
 
-- `L659`, `L658`, `L657` — auth gaps found by review (dashd `**` projection, REST/dashd skip `Delegate`, `Delegate` containment); measure, then fix.
 - `L655` — products as full packages (`catalog:<name>`) and persona layering (`PERSONA.local.md`); proposal, needs sign-off.
 - `L650` — an `extenddb` reached 10 GB and was OOM-killed; the host reset 8 times on 11-03; cause unmeasured.
 - `L647` — weekly memory rollups missing on alternate Mondays (W40, W42 in every active krons group); cause unmeasured, spawn rows gone.
@@ -423,7 +422,14 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
   hits, 56 under `-test`; nine survived verification and were filed separately. Kept so
   the next sweep does not re-report the same ~135.
 
-## L659 — dashd decides access from the `**` scope projection, ignoring a matching deny (2026-11-05, open — found by review, unmeasured)
+## ✅ FIXED 2026-11-05 77a63b336 L659 — dashd decides access from the `**` scope projection, ignoring a matching deny (2026-11-05)
+
+MEASURED: `TestRequireOperator_DenyBeatsStampedProjection` failed (a deny on
+`admin` `**` left the caller an operator). Fixed in `dashd` `callerScope`: `**` in
+the listing now also needs `auth.Authorize(admin, **)`. Two gaps stay: with no
+routd.db the listing stands, and the other daemons' dashboards
+(`auth.RequireOperator`: timed, onbod, webd, proxyd, authd, runed, ttsd, chanlib)
+still read the header alone; they hold no policy store.
 
 FOUND by an Astra (gpt-6-astra) source review of specs/6/52, not measured:
 `auth/dashauth.go:54` treats a principal whose scope projection includes `**`
@@ -432,7 +438,12 @@ never the decision (`auth/authorize.go` comment), so a dashboard gate built on
 it is a second, weaker evaluator. Needs: a test with a `**` allow plus a
 narrower deny for one dashboard action, asserting the deny holds.
 
-## L658 — REST `acl` writes and dashd grant writes skip `auth.Delegate` (2026-11-05, open — found by review, unmeasured)
+## ✅ FIXED 2026-11-05 a8e39a564 L658 — REST `acl` writes and dashd grant writes skip `auth.Delegate` (2026-11-05)
+
+MEASURED: `TestACLRESTAddDelegates` and `TestDash_GrantAdd_DelegatesSubsetOfHeld`
+failed (200/303 for a row the writer did not hold). Fixed: `aclRESTGate` and
+`handleGroupGrantAdd` call `auth.Delegate` for a non-root allow write; a dashd deny
+stays a restriction inside the admin's folder.
 
 FOUND by the same review: `routd/acl_resource.go:55` writes an acl row without
 `auth.Delegate`, and dashd's grant writes do too, so a non-root writer can
@@ -440,7 +451,12 @@ grant more than it holds, against specs/5/33 decision 3 (delegation is
 subset-of-held). Needs: a test where a folder admin writes, through REST, a row
 broader than its own grants, asserting refusal.
 
-## L657 — `auth.Delegate` misses denies that narrow a broader requested grant (2026-11-05, open — found by review, unmeasured)
+## ✅ FIXED 2026-11-05 c43c1953d L657 — `auth.Delegate` misses denies that narrow a broader requested grant (2026-11-05)
+
+MEASURED: `TestDelegateOverlappingDeny` failed on four cases (narrower-scope deny,
+narrower-action deny, wildcard-principal deny, predicate-bearing held allow).
+Fixed: `Delegate` reads rows through the evaluator's `policyRows`, refuses a request
+any held deny overlaps, and ignores a held allow carrying a predicate.
 
 FOUND by the same review: `auth/delegate.go:63` checks the requested row
 against the delegator's allows, but a narrower deny the delegator holds does
