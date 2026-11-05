@@ -157,6 +157,8 @@ ones no measurement can settle.
 
 **Small fixes awaiting a go.** Each is bounded, and its entry names the fix.
 
+- `L661` — after `.env` moves to another store server, `env/operator.env`
+  keeps generate's own loopback line, so the host CLI dials the old server.
 
 - `L469` — CUZK Chromium runs as a host process rather than inside Rhias's
   QEMU sandbox; host browser stopped and disabled pending guest replacement.
@@ -508,6 +510,41 @@ size the operator set below the instance default.
   `container_config` alone when the caller set none.
 - **Test:** `TestRegisterGroupKeepsContainerConfig` (`routd/mcp_test.go`); fails with the guard removed.
 - **Status:** fixed — `registerGroup` writes the row only when the folder is new; re-registering adds the route and leaves the row alone.
+
+## L661 — a host CLI keeps dialling the old store server after `.env` names a new one (2026-11-05, open)
+
+READ FROM THE CODE at `36f98f1b7`, not run. `writeOperatorEnv` rewrites the
+`DYNAMODB_URL` line of `env/operator.env` only while `.env` names the
+in-network service `extenddb`. For any other host it returns early
+(`compose/compose.go:465-468`):
+
+```go
+	if inNetwork.Hostname() != storeService {
+		// No store server, or one the operator addressed themselves.
+		return nil
+	}
+```
+
+On the host, `core.LoadInstanceEnv` loads `.env` and then overloads
+`env/operator.env` over it (`core/config.go:196-206`). So after an operator
+points `.env` at the shared store server, the loopback line that a previous
+`generate` wrote (`https://127.0.0.1:<STORE_HOST_PORT>`) stays, and every
+`arizuko <cmd> -i <name>` still dials the old per-instance server. The
+function's own comment says a line it wrote must follow a moved port; a moved
+server is the same case, and no test covers it
+(`compose/store_env_test.go` has `TestOperatorEnvLeavesAForeignEndpoint` only
+for an instance without an `operator.env`).
+
+- **Severity:** medium — during the move onto the shared store server, `get`,
+  `apply` and `store enroll` read or write the old server without an error
+- **Scope:** `compose/compose.go` `writeOperatorEnv`
+- **Affected:** every instance that moves onto the shared store server
+  (`specs/6/43-shared-store-server.md` §"The move onto the shared store server")
+- **Status:** open — a bounded fix, not yet run
+- **Fix:** when `.env` names another host, delete the `DYNAMODB_URL` line of
+  `env/operator.env` if `isGeneratedStoreLine` says generate wrote it, and
+  keep every other line. Test: an `operator.env` with a loopback line and an
+  `.env` on another host gives a file without that line and with its key pair.
 
 ## L655 — products are packages only by convention; persona has no layering (2026-11-04, open — proposal)
 
@@ -4392,7 +4429,7 @@ each of the two guard conditions fails it when mutated.
 - **Scope:** `cmd/arizuko` (a new subcommand); `compose/compose.go:882-901` carry-forward; `INSTALL.md` §"A shared server for several instances"
 - **Affected:** any second instance on one store server; the 10.0.5.1 consolidation
 - **Source:** `objstore/dynstore/env.go:16-22`; `compose/compose.go:882-901`; `INSTALL.md:291-390`; `specs/6/43` §6 (which already carries `defects: [L319]`)
-- **Status:** open — the AUTOMATION only; the visibility half is shipped (above). Needs sign-off on the shape: an `arizuko enrol <instance>` subcommand against a shared server, minting the account and the scoped keys `L318` specifies, in one loop. It writes the identity plane arizuko today leaves to a person. The manual path is documented and works; only the automation is missing.
+- **Status:** open — the AUTOMATION only; the visibility half is shipped (above). Needs sign-off on the shape: an `arizuko enrol <instance>` subcommand against a shared server, minting the account and the scoped keys `L318` specifies, in one loop. It writes the identity plane arizuko today leaves to a person. The manual path is documented and works; only the automation is missing. The shape is `arizuko store enroll`, specified in `specs/6/43-shared-store-server.md` §"6. Enrolment" (2026-11-05).
 - **Fix:**
 
 ## L318 — every daemon's store key carries `dynamodb:* on *`, so 19 per-daemon keys give attribution and not isolation (2026-09-20, open)
