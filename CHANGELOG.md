@@ -13,6 +13,16 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.74.5] — 2026-11-05
+
+> arizuko v0.74.5 — issue notices reach the operator
+>
+> When an agent files an issue, it also sends the line to the operator's private issue chat.
+>
+> • Routing — a `#issues` route marks a private chat for issue notices; `send` to `#issues` queues the line there with no turn and no grant to that chat.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
 ## [v0.74.4] — 2026-11-05
 
 > arizuko v0.74.4 — typing while you wait
