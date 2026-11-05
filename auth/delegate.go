@@ -60,7 +60,7 @@ func Delegate(s *store.Store, granter string, want []core.ACLRow) error {
 		}
 		// The granter cannot delegate past its OWN deny: a deny it holds on
 		// (action,scope) blocks it there, so it may not re-grant it away.
-		if coveredByGrantable(denies, r) {
+		if blockedByDeny(denies, r) {
 			return fmt.Errorf("cannot delegate %s on %s: granter holds a deny covering it",
 				r.Action, r.Scope)
 		}
@@ -68,15 +68,21 @@ func Delegate(s *store.Store, granter string, want []core.ACLRow) error {
 	return nil
 }
 
-// denyRows is granter's DENY rows over its expanded principal set — the rows a
-// delegation may not grant past (deny-precedence, mirrored into the subset check).
+// policyFor is granter's rows by the evaluator's own read (Authorize's
+// policyRows over the expanded principal set), so a membership ancestor and a
+// wildcard principal reach Delegate exactly as they reach Authorize.
+func policyFor(s *store.Store, granter string) ([]core.ACLRow, error) {
+	return policyRows(s, expandPrincipals(s, Caller{Principal: granter}))
+}
+
+// denyRows is granter's DENY rows — the rows a delegation may not grant past
+// (deny-precedence, mirrored into the subset check).
 func denyRows(s *store.Store, granter string) ([]core.ACLRow, error) {
-	principals := append([]string{granter}, s.Ancestors(granter)...)
-	all, err := s.ACLRowsFor(principals)
+	all, err := policyFor(s, granter)
 	if err != nil {
 		return nil, err
 	}
-	out := all[:0]
+	var out []core.ACLRow
 	for _, r := range all {
 		if r.Effect == "deny" {
 			out = append(out, r)
@@ -85,23 +91,39 @@ func denyRows(s *store.Store, granter string) ([]core.ACLRow, error) {
 	return out, nil
 }
 
-// grantableRows is granter's allow-rows with grant_option=1, over its expanded
-// principal set (self + transitive membership ancestors). Deny rows and
-// non-grant-option rows are excluded — you cannot delegate what you may not
-// re-grant.
+// grantableRows is granter's allow-rows with grant_option=1. Deny rows,
+// non-grant-option rows and conditional (predicate) rows are excluded — you
+// cannot delegate what you may not re-grant, and a row that holds only under a
+// claim does not cover an unconditional one.
 func grantableRows(s *store.Store, granter string) ([]core.ACLRow, error) {
-	principals := append([]string{granter}, s.Ancestors(granter)...)
-	all, err := s.ACLRowsFor(principals)
+	all, err := policyFor(s, granter)
 	if err != nil {
 		return nil, err
 	}
-	out := all[:0]
+	var out []core.ACLRow
 	for _, r := range all {
-		if r.GrantOption && (r.Effect == "" || r.Effect == "allow") {
+		if r.GrantOption && r.Predicate == "" && (r.Effect == "" || r.Effect == "allow") {
 			out = append(out, r)
 		}
 	}
 	return out, nil
+}
+
+// blockedByDeny reports whether some deny the granter holds OVERLAPS want: the
+// deny's scope lies inside want's, or want's inside the deny's, and the actions
+// overlap. A narrower deny inside a broader requested grant blocks it, since
+// the grant would hand the delegate the slice the granter is denied. Params
+// and predicate are ignored: a deny that may apply is treated as applying.
+func blockedByDeny(denies []core.ACLRow, want core.ACLRow) bool {
+	for _, d := range denies {
+		if !actionCovers(d.Action, want.Action) && !actionCovers(want.Action, d.Action) {
+			continue
+		}
+		if scopeCovers(d.Scope, want.Scope) || scopeCovers(want.Scope, d.Scope) {
+			return true
+		}
+	}
+	return false
 }
 
 // coveredByGrantable reports whether some held grantable row covers want:

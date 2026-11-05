@@ -104,3 +104,57 @@ func TestDelegate(t *testing.T) {
 		}
 	})
 }
+
+// BUGS L657: a deny the delegator holds blocks any requested row that OVERLAPS it,
+// not only one it is covered by; the same holds for a deny reached through a
+// wildcard principal, and a held allow with a predicate covers nothing.
+func TestDelegateOverlappingDeny(t *testing.T) {
+	allow := func(p, a, sc string) core.ACLRow {
+		return core.ACLRow{Principal: p, Action: a, Scope: sc, Effect: "allow", GrantOption: true}
+	}
+	want := core.ACLRow{Principal: "folder:x", Action: "mcp:send", Scope: "a/**", Effect: "allow"}
+
+	t.Run("narrower deny, broader request", func(t *testing.T) {
+		s := openMem(t)
+		addRowFull(t, s, allow("folder:a", "mcp:send", "a/**"))
+		addRowFull(t, s, core.ACLRow{Principal: "folder:a", Action: "mcp:send", Scope: "a/b", Effect: "deny"})
+		if err := auth.Delegate(s, "folder:a", []core.ACLRow{want}); err == nil {
+			t.Fatal("a/** must not be delegated past the delegator's deny on a/b")
+		}
+	})
+	t.Run("narrower-action deny, broader-action request", func(t *testing.T) {
+		s := openMem(t)
+		addRowFull(t, s, allow("folder:a", "admin", "a/**"))
+		addRowFull(t, s, core.ACLRow{Principal: "folder:a", Action: "mcp:send", Scope: "a/b", Effect: "deny"})
+		w := want
+		w.Action = "admin"
+		if err := auth.Delegate(s, "folder:a", []core.ACLRow{w}); err == nil {
+			t.Fatal("admin must not be delegated past the delegator's mcp:send deny")
+		}
+	})
+	t.Run("wildcard-principal deny", func(t *testing.T) {
+		s := openMem(t)
+		addRowFull(t, s, allow("folder:a", "mcp:send", "a/**"))
+		addRowFull(t, s, core.ACLRow{Principal: "folder:*", Action: "mcp:send", Scope: "a/b", Effect: "deny"})
+		if err := auth.Delegate(s, "folder:a", []core.ACLRow{want}); err == nil {
+			t.Fatal("a wildcard-principal deny that reaches the delegator must block delegation")
+		}
+	})
+	t.Run("unrelated deny does not block", func(t *testing.T) {
+		s := openMem(t)
+		addRowFull(t, s, allow("folder:a", "mcp:send", "a/**"))
+		addRowFull(t, s, core.ACLRow{Principal: "folder:a", Action: "mcp:send", Scope: "z/b", Effect: "deny"})
+		if err := auth.Delegate(s, "folder:a", []core.ACLRow{want}); err != nil {
+			t.Fatalf("disjoint deny must not block: %v", err)
+		}
+	})
+	t.Run("held allow with a predicate covers nothing", func(t *testing.T) {
+		s := openMem(t)
+		r := allow("folder:a", "mcp:send", "a/**")
+		r.Predicate = "tenant=acme"
+		addRowFull(t, s, r)
+		if err := auth.Delegate(s, "folder:a", []core.ACLRow{want}); err == nil {
+			t.Fatal("a conditional held row must not delegate an unconditional one")
+		}
+	})
+}
