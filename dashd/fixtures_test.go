@@ -58,7 +58,7 @@ func seedGrant(t *testing.T, h objstore.Store, row core.ACLRow) {
 func seedAdmin(t *testing.T, h objstore.Store, principal, scope string) {
 	t.Helper()
 	seedGrant(t, h, core.ACLRow{
-		Principal: principal, Action: "admin", Scope: scope, Effect: "allow",
+		Principal: principal, Action: "admin", Scope: scope, Effect: "allow", GrantOption: true,
 	})
 }
 

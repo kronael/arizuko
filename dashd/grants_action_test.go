@@ -8,11 +8,16 @@ import (
 	"testing"
 
 	"github.com/kronael/arizuko/auth"
+	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/store"
 )
 
 func TestGrantActionSubmission(t *testing.T) {
 	d, db := splitAdminDash(t, "alice@x")
+	// The operator row: `admin` does not cover egress or shell:env, so delegating
+	// them takes the action it holds them under.
+	seedGrant(t, db, core.ACLRow{Principal: "alice@x", Action: "*", Scope: "**",
+		Effect: "allow", GrantOption: true})
 	mux := newMux(d)
 	for _, action := range []string{"send", "mcp:send", "egress", "shell:env:CUSTOM_TOKEN"} {
 		t.Run(action, func(t *testing.T) {

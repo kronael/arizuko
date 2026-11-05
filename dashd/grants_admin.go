@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/ipc"
@@ -224,6 +225,15 @@ func (d *dash) handleGroupGrantAdd(w http.ResponseWriter, r *http.Request) {
 		Effect:    effect,
 		Params:    params,
 		GrantedBy: sub,
+	}
+	// 5/33-paths-roles: an allow is a subset of what the writer holds WITH the
+	// grant option, as on the MCP and REST faces (BUGS L658). A deny only
+	// restricts, inside the folder requireAdmin already bound.
+	if effect == "allow" {
+		if err := auth.Delegate(s, reviewerSub(r), []core.ACLRow{row}); err != nil {
+			http.Error(w, err.Error(), http.StatusForbidden)
+			return
+		}
 	}
 	// AddACLRow, the audited writer: routd.db HAS had audit_log since routd
 	// migration 0016, so the grant lands with its audit row in one transaction.

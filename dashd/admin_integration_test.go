@@ -328,7 +328,7 @@ func TestDash_GrantAdd(t *testing.T) {
 	srv, inst, _ := newRWDashServer(t)
 	s := inst.Store
 	if err := s.AddACLRow(core.ACLRow{
-		Principal: "alice@x", Action: "admin", Scope: "**", Effect: "allow",
+		Principal: "alice@x", Action: "admin", Scope: "**", Effect: "allow", GrantOption: true,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -633,5 +633,40 @@ func TestDash_TasksPage_PromptColumn(t *testing.T) {
 	}
 	if !strings.Contains(bs, "send summary") {
 		t.Errorf("tasks page missing prompt text")
+	}
+}
+
+// TestDash_GrantAdd_DelegatesSubsetOfHeld (BUGS L658): an admin of a folder who
+// holds no grant option on the row may not hand it on; the write passes
+// auth.Delegate like the MCP and REST faces.
+func TestDash_GrantAdd_DelegatesSubsetOfHeld(t *testing.T) {
+	srv, inst, _ := newRWDashServer(t)
+	s := inst.Store
+	if err := s.AddACLRow(core.ACLRow{
+		Principal: "alice@x", Action: "admin", Scope: "world", Effect: "allow",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	form := url.Values{"principal": {"carol@x"}, "action": {"mcp:reply"}, "scope": {"world"}}
+	req, _ := http.NewRequest("POST", srv.URL+"/dash/groups/world/grants",
+		strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("X-User-Sub", "alice@x")
+	resp, err := noFollow().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("grant of an unheld row = %d, want 403", resp.StatusCode)
+	}
+	rows, err := s.ListACLByScope("world")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range rows {
+		if r.Principal == "carol@x" {
+			t.Fatalf("refused grant still wrote %+v", r)
+		}
 	}
 }

@@ -62,6 +62,14 @@ func (s *Server) aclRESTGate(x resreg.Execution, _ string, _ map[string]string) 
 	if !ownsFolder(x.Caller.Folder, argString(x.Args, "scope")) {
 		return resreg.Errorf(http.StatusForbidden, "scope outside caller subtree")
 	}
+	// 5/33-paths-roles delegation, as on the MCP face: a non-root writer grants
+	// only a row it holds WITH the grant option (BUGS L658).
+	if x.Action == resreg.Action("add") && !auth.Resolve(x.Caller.Folder).IsRoot {
+		want := store.GrantDefaults(aclArgsRow(x.Args))
+		if err := auth.Delegate(s.db.store(), x.Caller.Sub, []core.ACLRow{want}); err != nil {
+			return resreg.Errorf(http.StatusForbidden, "%v", err)
+		}
+	}
 	return nil
 }
 

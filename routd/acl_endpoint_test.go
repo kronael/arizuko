@@ -134,6 +134,11 @@ func TestACLEndpointMissingFields(t *testing.T) {
 func TestACLRESTContainmentDenied(t *testing.T) {
 	db, h := authSrv(t, fakeVerifier{sub: "user:wa", scope: []string{"acl:write"}, folder: "world/a"})
 
+	// The caller holds the row it grants (BUGS L658: delegation is subset-of-held).
+	if err := addACLRow(db, core.ACLRow{Principal: "user:wa", Action: "mcp:fetch_history",
+		Scope: "world/a/**", Effect: "allow", GrantOption: true, GrantedBy: "seed"}); err != nil {
+		t.Fatal(err)
+	}
 	// Own subtree: allowed, row written.
 	if rec := doJSON(t, h, "POST", "/v1/acl", "", aclReq{
 		Principal: "google:x", Scope: "world/a/team", Action: "mcp:fetch_history"}); rec.Code != 200 {
