@@ -13,6 +13,18 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.74.1] — 2026-11-04
+
+> arizuko v0.74.1 — CZ Estate Agent, safer re-registration
+>
+> A Czech real-estate research product joins the catalog, and registering an existing group again no longer resets its operator config.
+>
+> • CZ Estate Agent — cadastre, open parcel data, zoning, valuation and municipality skills in one product.
+> • Groups — `register_group` on an existing folder keeps its `container_config`.
+> • Web — agents read the site's own `CLAUDE.md` style before writing a page.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
 - `cz-estate-agent` product replaces `cuzk`: the `katastr` skill plus `parcel-open-data` (open CUZK services, zoning plans), `property-valuation` and `obec-profile`, and an estate persona. Re-point installs with `catalog:cz-estate-agent`.
 
 ## [v0.74.0] — 2026-11-04
