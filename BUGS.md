@@ -445,7 +445,7 @@ no window.
 Operator half done: the group's `#observe` route is replaced by a turn route,
 so every message in that group starts a turn.
 
-## ✅ FIXED 2026-11-05 0a00f4384 L662 — `.gitignore` drops every Python file, so packages ship without their scripts (2026-11-05)
+## ✅ FIXED 2026-11-05 ae0075b2a L662 — `.gitignore` drops every Python file, so packages ship without their scripts (2026-11-05)
 
 MEASURED 2026-11-05: sloth's 09:00 digest did not run. The installed
 `company-brain` digest skill has no `scripts/*.py`: `git ls-files
@@ -532,7 +532,7 @@ size the operator set below the instance default.
 - **Test:** `TestRegisterGroupKeepsContainerConfig` (`routd/mcp_test.go`); fails with the guard removed.
 - **Status:** fixed — `registerGroup` writes the row only when the folder is new; re-registering adds the route and leaves the row alone.
 
-## ✅ FIXED 2026-11-05 d62b6fbaa L661 — a host CLI keeps dialling the old store server after `.env` names a new one
+## ✅ FIXED 2026-11-05 774c5c00e L661 — a host CLI keeps dialling the old store server after `.env` names a new one
 
 READ FROM THE CODE at `36f98f1b7`, not run. `writeOperatorEnv` rewrites the
 `DYNAMODB_URL` line of `env/operator.env` only while `.env` names the

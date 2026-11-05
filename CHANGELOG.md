@@ -13,6 +13,17 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.74.3] — 2026-11-05
+
+> arizuko v0.74.3 — packages ship their Python scripts
+>
+> A package's Python scripts now reach the release, so the Company Brain digest runs again.
+>
+> • Packages — `.gitignore` ignores only scratch `.py` at the repo root; the digest, excalidraw and video scripts ship.
+> • Store — moving `.env` to another store server drops the stale loopback line from `env/operator.env`.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
 ## [v0.74.2] — 2026-11-05
 
 > arizuko v0.74.2 — a grant never exceeds its granter
