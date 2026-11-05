@@ -248,7 +248,7 @@ lookup. Retired in v0.28.0 (dropped in migration 0065) — the in-memory
 
 A route target is `folder[#fragment]` (`core.ParseRouteTarget`,
 `core/types.go:107`). The fragment selects mode: `#observe`
-(`ROUTING.md` § A target fragment sets the mode), `#announce`,
+(`ROUTING.md` § A target fragment sets the mode), `#announce` (release notes), `#issues` (agent issue notices, the `send` destination `#issues`),
 or anything else as a topic pin. There are no `folder:`, `daemon:` or
 `builtin:` target prefixes. Slash-commands are dispatched directly by
 `routd/steer.go` and never flow through routes. Resolution itself is

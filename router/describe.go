@@ -16,6 +16,7 @@ type RouteView struct {
 	FiresTurn  bool   `json:"fires_turn"`            // the row fires a turn by itself; observe and engaged rows do not
 	TriggersOn string `json:"triggers_on,omitempty"` // "every message" | "verb=mention" | ...
 	Announce   bool   `json:"announce,omitempty"`    // #announce: release-note target channel
+	Issues     bool   `json:"issues,omitempty"`      // #issues: issue-notice target chat
 	Explain    string `json:"explain"`               // one-line plain description
 	ShadowedBy int64  `json:"shadowed_by,omitempty"` // id of an earlier rule that intercepts this one (first-match-wins)
 }
@@ -58,6 +59,10 @@ func Describe(routes []core.Route) []RouteView {
 		if rt.Announce {
 			v.Announce = true
 			v.Explain += " [release-announce target]"
+		}
+		if rt.Issues {
+			v.Issues = true
+			v.Explain += " [issue-notice target]"
 		}
 		synth := synthMessage(r)
 		for j := range i {

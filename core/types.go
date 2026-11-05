@@ -133,17 +133,19 @@ type TopicLineage struct {
 	ObservedCursor string
 }
 
-// RouteTarget parses `folder`, `folder#observe`, `folder#engaged`, `folder#announce` or
+// RouteTarget parses `folder`, `folder#observe`, `folder#engaged`, `folder#announce`, `folder#issues` or
 // `folder#<topic>` on routes.target. observe sets Mode (observe-only, no agent turn);
 // engaged sets Mode (a turn only while the chat and topic are engaged, observed
 // otherwise); announce is a no-op for inbound that flags the channel as a
-// release-announcement target for the migrate skill. Any other fragment is a topic
+// release-announcement target for the migrate skill; issues is the same for
+// agent issue notices (the issues skill), meant for private chats. Any other fragment is a topic
 // name pinned for the routed message.
 type RouteTarget struct {
 	Folder   string
 	Topic    string // when non-empty, route pins this topic on the message
 	Mode     string // "" trigger, "observe" silent ingest, "engaged" trigger only while engaged
 	Announce bool   // #announce: release-note target; inbound-neutral (trigger)
+	Issues   bool   // #issues: issue-notice target; inbound-neutral (trigger)
 }
 
 func ParseRouteTarget(s string) RouteTarget {
@@ -160,6 +162,8 @@ func ParseRouteTarget(s string) RouteTarget {
 		rt.Mode = frag
 	case "announce":
 		rt.Announce = true
+	case "issues":
+		rt.Issues = true
 	default:
 		rt.Topic = frag
 	}
@@ -172,6 +176,8 @@ func (rt RouteTarget) String() string {
 		return rt.Folder + "#" + rt.Mode
 	case rt.Announce:
 		return rt.Folder + "#announce"
+	case rt.Issues:
+		return rt.Folder + "#issues"
 	case rt.Topic != "":
 		return rt.Folder + "#" + rt.Topic
 	default:

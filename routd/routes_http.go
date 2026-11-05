@@ -92,7 +92,7 @@ func (s *Server) routesRESTGate(x resreg.Execution, _ string, _ map[string]strin
 
 // routeTargetOwned reports whether an operator whose JWT folder is jwtFolder
 // may manage a route at target: empty owns everything, else own-or-descendant.
-// The `#observe`/`#announce` fragment comes off first; comparing the raw
+// The `#observe`/`#announce`/`#issues` fragment comes off first; comparing the raw
 // string hid a folder's own `<folder>#observe` rows from it (BUGS L82).
 func routeTargetOwned(jwtFolder, target string) bool {
 	return ownsFolder(jwtFolder, core.ParseRouteTarget(target).Folder)

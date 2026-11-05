@@ -202,11 +202,12 @@ always fires a turn.
 | `#observe`  | store under `target` and fire no turn; the agent sees it in the `<observed>` block and in the history    |
 | `#engaged`  | fire a turn while the chat and topic are engaged, else store under `target` as observed; never addressed |
 | `#announce` | trigger, and mark this channel as a release-note destination                                             |
+| `#issues`   | trigger, and mark this chat as the destination of agent issue notices; put it on private chats only      |
 | `#<topic>`  | trigger, and pin the topic `<topic>` on every matched message                                            |
 
-`observe`, `engaged` and `announce` are reserved words, so no topic can have any
+`observe`, `engaged`, `announce` and `issues` are reserved words, so no topic can have any
 of these names. `folder#announce` always means the announce fragment and never a
-topic called `announce`; the same holds for `#engaged`. A route row has no creation time, so nothing can tell a topic of
+topic called `announce`; the same holds for `#engaged` and `#issues`. A route row has no creation time, so nothing can tell a topic of
 that name apart from the fragment. Pick another topic name.
 
 An explicit `verb=` predicate and `seq` decide whether a message fires a turn.

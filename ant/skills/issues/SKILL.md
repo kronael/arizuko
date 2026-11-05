@@ -34,3 +34,7 @@ One bullet per item: ID, date (UTC), source (channel + time), scope (`platform` 
 The bracketed ID at the front makes `grep "\[krons"` or `grep "20260503"` work across `issues.md` and any message content where the ID is referenced.
 
 Append only.
+
+## Notify
+
+After the append, `send` the same line with `chatJid: "#issues"`. It reaches the operator's issue chats and starts no turn there. `ok:false` means no destination is set: the file entry stands, do not retry.

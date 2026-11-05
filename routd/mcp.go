@@ -50,6 +50,7 @@ func (s *Server) buildRoutdFns(t turnMCP) ipc.RoutdFns {
 		SendMessage: func(jid, text, msgID string) (string, string, error) {
 			return s.mcpDeliver(t.turnID, jid, text, "", msgID, false)
 		},
+		QueueIssueNotice: s.db.QueueIssueNotice,
 		SendReply: func(jid, text, replyTo, msgID string) (string, string, error) {
 			return s.mcpDeliver(t.turnID, jid, text, replyTo, msgID, true)
 		},

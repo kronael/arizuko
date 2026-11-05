@@ -31,6 +31,10 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+// issuesDest is the send destination name that routd resolves to the
+// instance's `#issues` routes.
+const issuesDest = "#issues"
+
 type RoutdFns struct {
 	// msgID, in the three sends below, is the id the bot row will carry AND the
 	// idempotency key the adapter dedups on — one value, because routd's retry
@@ -38,7 +42,10 @@ type RoutdFns struct {
 	// minted inside the send would never match it, so the adapter opened a fresh
 	// claim and posted the message a second time (BUGS L106). The caller mints
 	// it before the send, so a failed send records the same id it tried.
-	SendMessage          func(jid, text, msgID string) (platformID, threadRoot string, err error)
+	SendMessage func(jid, text, msgID string) (platformID, threadRoot string, err error)
+	// QueueIssueNotice queues text to every `#issues` chat of the instance and
+	// returns how many; routd owns the destination list.
+	QueueIssueNotice     func(text string) (int, error)
 	SendReply            func(jid, text, replyToId, msgID string) (platformID, threadRoot string, err error)
 	SendDocument         func(jid, path, filename, caption, replyTo, threadID, msgID string) (platformID, threadRoot string, err error)
 	SendVoice            func(jid, text, voice, folder, threadID string) (platformID, threadRoot string, err error)
@@ -1270,13 +1277,40 @@ func buildMCPServer(routd RoutdFns, db StoreFns, folder string, isRoot bool, cal
 			})
 	}
 
-	registerRaw("send", "Send a notification or a message to an explicit chat. Use `reply` for answers and `send_file` for files. Sends target the specified chat's main channel. Returns the sent message's `id`. Use `<status>` and `TodoWrite` for live progress.",
+	// sendIssueNotice serves send to the name `#issues`: routd resolves it to
+	// the instance's `#issues` routes, so the agent holds no grant to the
+	// operator's chat. Only the `send` grant is checked, never a chat's folder.
+	sendIssueNotice := func(text string) (*mcp.CallToolResult, error) {
+		if !authorizeCall("send", map[string]string{"jid": issuesDest}) {
+			emitAuthzDenied("send", callerSub)
+			return toolErr("send: not permitted")
+		}
+		if routd.QueueIssueNotice == nil {
+			return toolErr("send not configured")
+		}
+		if err := refuseText(text, false); err != nil {
+			return toolErr(err.Error())
+		}
+		n, err := routd.QueueIssueNotice(text)
+		if err != nil {
+			return toolErr(err.Error())
+		}
+		if n == 0 {
+			return toolJSON(map[string]any{"ok": false, "delivered": 0, "reason": "no #issues destination set"})
+		}
+		return toolJSON(map[string]any{"ok": true, "delivered": n})
+	}
+
+	registerRaw("send", "Send a notification or a message to an explicit chat. Use `reply` for answers and `send_file` for files. Sends target the specified chat's main channel. `chatJid` `#issues` queues the text to the operator's issue-notice chats (no grant to them needed) and returns `delivered`, 0 when none is set. Returns the sent message's `id`. Use `<status>` and `TodoWrite` for live progress.",
 		[]mcp.ToolOption{
 			mcp.WithString("chatJid", mcp.Required()),
 			mcp.WithString("text", mcp.Required()),
 		},
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			jid := req.GetString("chatJid", "")
+			if jid == issuesDest {
+				return sendIssueNotice(req.GetString("text", ""))
+			}
 			if err := gateJID("send", jid); err != nil {
 				return toolErr(err.Error())
 			}

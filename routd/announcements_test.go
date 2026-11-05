@@ -142,3 +142,41 @@ func TestReleaseAnnouncementAdapterRegistersAfterStartup(t *testing.T) {
 		t.Fatal("delivered release resent")
 	}
 }
+
+func TestQueueIssueNotice(t *testing.T) {
+	db, loop, runner := recLoop(t)
+	n, err := db.QueueIssueNotice("none")
+	if err != nil || n != 0 {
+		t.Fatalf("no route: n=%d err=%v", n, err)
+	}
+	doSetRoutes(t, db, []core.Route{
+		{Match: "chat_jid=telegram:group/1", Target: "demo#announce"},
+		{Match: "chat_jid=telegram:group/2", Target: "demo"},
+		{Match: "chat_jid=telegram:*", Target: "demo#issues"},
+	})
+	if n, err = db.QueueIssueNotice("none"); err != nil || n != 0 {
+		t.Fatalf("wildcard-only route: n=%d err=%v", n, err)
+	}
+	doSetRoutes(t, db, []core.Route{
+		{Match: "chat_jid=telegram:group/1", Target: "demo#announce"},
+		{Match: "chat_jid=telegram:group/2", Target: "demo"},
+		{Match: "chat_jid=telegram:me", Target: "demo#issues"},
+		{Match: "chat_jid=telegram:me verb=mention", Target: "demo#issues"},
+	})
+	n, err = db.QueueIssueNotice("[x/y/20260101/slug] broken")
+	if err != nil || n != 1 {
+		t.Fatalf("n=%d err=%v", n, err)
+	}
+	rows, err := db.PendingOutbound(time.Now().Add(time.Hour), 100)
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("pending=%v err=%v", rows, err)
+	}
+	row := rows[0]
+	if row.ChatJID != "telegram:me" || row.Content != "[x/y/20260101/slug] broken" || !row.BotMsg || row.TurnID != "" {
+		t.Fatalf("row=%+v", row)
+	}
+	loop.pollOnce()
+	if len(runner.runs) != 0 {
+		t.Fatalf("notice started a turn: %v", runner.runs)
+	}
+}

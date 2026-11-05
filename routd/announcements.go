@@ -15,15 +15,9 @@ import (
 )
 
 func (d *DB) QueueReleaseAnnouncements(changelogPath string) error {
-	routes, err := d.Routes()
+	tagged, err := d.taggedRoutes(func(rt core.RouteTarget) bool { return rt.Announce })
 	if err != nil {
 		return err
-	}
-	var tagged []core.Route
-	for _, route := range routes {
-		if core.ParseRouteTarget(route.Target).Announce {
-			tagged = append(tagged, route)
-		}
 	}
 	if len(tagged) == 0 {
 		return nil
@@ -68,6 +62,48 @@ func (d *DB) QueueReleaseAnnouncements(changelogPath string) error {
 		}
 	}
 	return nil
+}
+
+func (d *DB) taggedRoutes(pick func(core.RouteTarget) bool) ([]core.Route, error) {
+	routes, err := d.Routes()
+	if err != nil {
+		return nil, err
+	}
+	var tagged []core.Route
+	for _, route := range routes {
+		if pick(core.ParseRouteTarget(route.Target)) {
+			tagged = append(tagged, route)
+		}
+	}
+	return tagged, nil
+}
+
+// QueueIssueNotice queues text as a pending outbound row in every distinct
+// chat a `#issues` route names. The outbound queue delivers it; no turn
+// starts. It returns how many chats were queued, 0 when no route is tagged.
+func (d *DB) QueueIssueNotice(text string) (int, error) {
+	tagged, err := d.taggedRoutes(func(rt core.RouteTarget) bool { return rt.Issues })
+	if err != nil {
+		return 0, err
+	}
+	seen := make(map[string]bool)
+	n := 0
+	for _, route := range tagged {
+		jid, _, err := announcementDestination(route)
+		if err != nil {
+			return n, fmt.Errorf("issues route %q: %w", route.Match, err)
+		}
+		if jid == "" || seen[jid] {
+			continue
+		}
+		seen[jid] = true
+		msg := core.Message{ID: core.MsgID("issue"), ChatJID: jid, Content: text, Timestamp: time.Now().UTC(), FromMe: true, BotMsg: true, RoutedTo: core.ParseRouteTarget(route.Target).Folder, Verb: "issue_notice"}
+		if err := d.PutOutbound(msg, core.MessageStatusPending); err != nil {
+			return n, err
+		}
+		n++
+	}
+	return n, nil
 }
 
 func releaseAnnouncement(changelog string) (string, string, error) {
