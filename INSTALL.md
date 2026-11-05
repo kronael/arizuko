@@ -199,38 +199,21 @@ sudo docker compose -p "$project" --env-file "$proof/compose.env" -f template/se
 set -a; . "$proof/admin.env"; set +a
 container=$(sudo docker compose -p "$project" --env-file "$proof/compose.env" -f template/services/extenddb/extenddb.yml ps -q extenddb)
 sudo --preserve-env=EXTENDDB_PASSWORD docker exec -e EXTENDDB_PASSWORD "$container" extenddb settings -c /var/lib/extenddb/extenddb.toml set control_plane_delay_seconds 0 >/dev/null 2>&1
-for user in authd routd onbod operator runed; do
-  case "$user" in
-    authd) resources='["arn:aws:dynamodb:*:*:table/authd.*"]';;
-    routd) resources='["arn:aws:dynamodb:*:*:table/routd.*"]';;
-    onbod) resources='["arn:aws:dynamodb:*:*:table/onbod.*","arn:aws:dynamodb:*:*:table/routd.*"]';;
-    operator) resources='["arn:aws:dynamodb:*:*:table/authd.*","arn:aws:dynamodb:*:*:table/onbod.*","arn:aws:dynamodb:*:*:table/routd.*"]';;
-    runed) resources='["arn:aws:dynamodb:*:*:table/runed.*"]';;
-  esac
-  policy="{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":\"dynamodb:*\",\"Resource\":$resources}]}"
-  sudo --preserve-env=EXTENDDB_PASSWORD docker exec -e EXTENDDB_PASSWORD "$container" extenddb manage -c /var/lib/extenddb/extenddb.toml --user admin create-user --account-id "$STORE_ACCOUNT_ID" --user-name "$user" >/dev/null 2>&1
-  sudo --preserve-env=EXTENDDB_PASSWORD docker exec -e EXTENDDB_PASSWORD "$container" extenddb manage -c /var/lib/extenddb/extenddb.toml --user admin put-user-policy --account-id "$STORE_ACCOUNT_ID" --user-name "$user" --policy-name tables --policy-document "$policy" >/dev/null 2>&1
-  key=$(sudo --preserve-env=EXTENDDB_PASSWORD docker exec -e EXTENDDB_PASSWORD "$container" extenddb manage -c /var/lib/extenddb/extenddb.toml --user admin create-access-key --account-id "$STORE_ACCOUNT_ID" --user-name "$user" 2>/dev/null)
-  printf '%s' "$key" | python3 -c 'import json,sys; x=json.load(sys.stdin); print("AWS_ACCESS_KEY_ID="+x["access_key_id"]+"\nAWS_SECRET_ACCESS_KEY="+x["secret_access_key"])' > "$proof/$user.env"
-  unset key
-done
 sudo cat "$data/store/extenddb/.extenddb/tls/cert.pem" | base64 -w0 > "$proof/ca"
 printf 'AUTHD_SERVICE_KEY=%s\n' "$(openssl rand -hex 32)" > "$proof/service.env"
 printf 'STORE_CA=%s\nRUNED_KERNEL_DIR=%s\nRUNED_ROOTFS_DIR=%s\n' "$(cat "$proof/ca")" "$kernel_dir" "$rootfs_dir" >> "$data/.env"
 mkdir -p "$data/env"
-for name in authd routd onbod runed; do cp "$proof/$name.env" "$data/env/$name.env"; done
-cp "$proof/operator.env" "$data/env/operator.env"
-printf 'DYNAMODB_URL=https://127.0.0.1:%s\n' "$port" >> "$data/env/operator.env"
+./arizuko store enroll -i "$flavor"
 common=(PATH=/usr/bin:/bin HOST_APP_DIR="$source_dir" DYNAMODB_URL="https://127.0.0.1:$port" AWS_REGION=us-east-1 STORE_CA="$(cat "$proof/ca")")
 health() { local name=$1 hp=$2; for n in $(seq 1 60); do if curl -fsS "http://127.0.0.1:$hp/health" >/dev/null 2>&1; then return 0; fi; kill -0 "$(cat "$proof/$name.pid")" 2>/dev/null || return 1; sleep 1; done; return 1; }
 auth_port=$(freeport); rout_port=$(freeport); onbod_port=$(freeport)
-set -a; . "$proof/authd.env"; . "$proof/service.env"; set +a
+set -a; . "$data/env/authd.env"; . "$proof/service.env"; set +a
 env -i "${common[@]}" DATA_DIR="$data" AWS_ACCESS_KEY_ID="$AWS_ACCESS_KEY_ID" AWS_SECRET_ACCESS_KEY="$AWS_SECRET_ACCESS_KEY" LISTEN_ADDR="127.0.0.1:$auth_port" AUTHD_SERVICE_KEYS="service:onbod=$AUTHD_SERVICE_KEY" "$proof/bin/authd" > "$proof/authd.log" 2>&1 & printf '%s\n' "$!" > "$proof/authd.pid"
 health authd "$auth_port"
-set -a; . "$proof/routd.env"; set +a
+set -a; . "$data/env/routd.env"; set +a
 env -i "${common[@]}" DATA_DIR="$data" AWS_ACCESS_KEY_ID="$AWS_ACCESS_KEY_ID" AWS_SECRET_ACCESS_KEY="$AWS_SECRET_ACCESS_KEY" LISTEN_ADDR="127.0.0.1:$rout_port" "$proof/bin/routd" > "$proof/routd.log" 2>&1 & printf '%s\n' "$!" > "$proof/routd.pid"
 health routd "$rout_port"
-set -a; . "$proof/onbod.env"; set +a
+set -a; . "$data/env/onbod.env"; set +a
 env -i "${common[@]}" DATA_DIR="$data" AWS_ACCESS_KEY_ID="$AWS_ACCESS_KEY_ID" AWS_SECRET_ACCESS_KEY="$AWS_SECRET_ACCESS_KEY" ONBOD_LISTEN_ADDR="127.0.0.1:$onbod_port" AUTHD_URL="http://127.0.0.1:$auth_port" AUTHD_SERVICE_KEY="$AUTHD_SERVICE_KEY" ROUTER_URL="http://127.0.0.1:$rout_port" "$proof/bin/onbod" > "$proof/onbod.log" 2>&1 & printf '%s\n' "$!" > "$proof/onbod.pid"
 health onbod "$onbod_port"
 for name in onbod routd authd; do kill "$(cat "$proof/$name.pid")"; wait "$(cat "$proof/$name.pid")" || true; rm "$proof/$name.pid"; done
@@ -391,29 +374,42 @@ Every other adapter in the table gets its own prefix and nothing else. `whapd`
 and `googd` open no store and need no key: none of them is in
 `StoreReach`, and none calls `OpenAdapterStore`.
 
-For each row, create the user, put the policy, and mint the key. This example
-is for `routd`:
+One command does this for every row of the table, after `.env` holds
+`DYNAMODB_URL` and `STORE_CA`:
 
 ```bash
-sudo docker exec -e EXTENDDB_PASSWORD=$STORE_ADMIN_PASSWORD arizuko_extenddb_<name> \
-  extenddb manage -c /var/lib/extenddb/extenddb.toml --user admin \
-  create-user --account-id $STORE_ACCOUNT_ID --user-name routd
-
-sudo docker exec -e EXTENDDB_PASSWORD=$STORE_ADMIN_PASSWORD arizuko_extenddb_<name> \
-  extenddb manage -c /var/lib/extenddb/extenddb.toml --user admin \
-  put-user-policy --account-id $STORE_ACCOUNT_ID --user-name routd --policy-name tables \
-  --policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"dynamodb:*","Resource":["arn:aws:dynamodb:*:*:table/routd.*"]}]}'
-
-sudo docker exec -e EXTENDDB_PASSWORD=$STORE_ADMIN_PASSWORD arizuko_extenddb_<name> \
-  extenddb manage -c /var/lib/extenddb/extenddb.toml --user admin \
-  create-access-key --account-id $STORE_ACCOUNT_ID --user-name routd
+export EXTENDDB_PASSWORD=<the admin password of the store server>
+./arizuko store enroll -i <name>
 ```
 
-Write the printed pair into `env/routd.env` as `AWS_ACCESS_KEY_ID` and
-`AWS_SECRET_ACCESS_KEY`. A later `generate` keeps them. A daemon with a policy
-that is too narrow does not fail at deploy. It fails the first time it touches
-a table that the policy does not cover. Restart one daemon at a time and watch
-it answer.
+It makes the account `arizuko_<name>` on the store server. For each row it makes
+the user, puts the policy `tables` from `StoreReach`, mints the key, and writes
+the pair into `env/<daemon>.env`. The pair of `cmd/arizuko` goes into
+`env/operator.env`. It prints one line per row with the key id and `minted` or
+`kept`. It never prints a secret.
+
+Run it again at any time. A row that already holds a valid key is `kept`, and the
+command checks the pair with one signed request. A file with half a pair, a key
+of another account or user, or an inactive key stops the run before it writes
+anything. To rotate one key, delete its two lines in the env file and run the
+command again, then delete the old key with `extenddb manage delete-access-key`
+after the restart.
+
+To move an instance from its own store server onto a shared one, keep a copy of
+`.env` and `env/` before you change them, then pass that copy:
+
+```bash
+./arizuko store enroll -i <name> <snapshot-dir>
+```
+
+It also copies every table of the old account into the new one and prints
+`<table> <count> equal` for each. It never replaces an item, so a second run is
+safe. A count that is not equal, a table with an index or a stream, and a table
+with a name that no row of the table owns all stop the run with a non-zero
+status. The old store server must stay running during the copy. The operator key
+in the snapshot needs `ListTables`, `DescribeTable` and `Scan` on every table.
+
+Only the ExtendDB management API is supported.
 
 A daemon that has the server address and no key fails earlier and does more
 damage. `dynstore` refuses to dial and prints `endpoint "https://extenddb:18443"
@@ -737,6 +733,11 @@ For each deployment, run `sudo systemctl restart arizuko_<name>`. The unit
 runs the generator from its configured release image on every start.
 When the release image tag changes, update the unit and run
 `sudo systemctl daemon-reload` before the restart.
+
+An instance on a shared store server runs no store of its own. Delete the
+`up -d --wait extenddb_db extenddb` line and the `--network` and
+`-e DYNAMODB_URL` options of the generator line. The generator then reads the
+address of the shared server from `.env`.
 
 ## Check that the instance answers
 

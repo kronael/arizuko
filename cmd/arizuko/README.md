@@ -39,6 +39,7 @@ Groups and access:
 Secrets and tokens:
 
 - `arizuko secret [-i NAME] set <folder> KEY --value|-v V | list <folder> | delete <folder> KEY | seal-legacy [--dry-run]` manages folder-scoped secrets. `list` prints key names and creation times, never values. Shell access also needs an explicit grant, see [Secret injection](../../SECURITY.md#secret-injection). `seal-legacy` encrypts every row that is still unsealed, in place. Rehearse it with `--dry-run`, because it rewrites the attribute that every credential lives in.
+- `arizuko store [-i NAME] enroll [SNAPSHOT]` gives the instance its identity on a store server. It makes the account `arizuko_<NAME>`. For every row of `StoreReach` that needs a key, it makes the IAM user, puts the policy `tables`, mints one access key and writes it to `env/<daemon>.env` (`env/operator.env` for `cmd/arizuko`). It uses the management API of ExtendDB, signed in as `admin` with `EXTENDDB_PASSWORD`, at the `DYNAMODB_URL` of the host view: `.env` with `env/operator.env` over it. The output has one line per row: the user, its prefixes, the key id and `kept` or `minted`. The command never prints a secret. A second run keeps every valid key and mints nothing. A file with half a pair, or a key of another account or user, or an inactive key, stops the run before it writes. With `SNAPSHOT`, the directory that holds the old `.env` and `env/`, it then copies every table of the old account into the new one and prints `<table> <count> equal`. The copy never replaces an item. It stops before any write on a table with an index or a stream, and on a table whose prefix no row owns. It exits non-zero when a count is not equal.
 - `arizuko user-secret [-i NAME] set <user_sub> KEY --value|-v V | list <user_sub> | delete <user_sub> KEY` manages user-scoped secrets.
 - `arizuko token [-i NAME] issue chat <folder> [<suffix>] [--context|-c TEXT]` and `issue webhook <folder> <label> [<suffix>] [--context|-c TEXT]` mint capability URLs. `token <instance> list <folder>` lists `route_tokens`. `token <instance> revoke <jid> [<owner_folder>]` revokes one.
 - `arizuko token [-i NAME] issue bearer <folder> --scope|-s s1,s2 [--ttl 1h] [--sub SUB]` mints an ES256 access JWT for a folder, signed with the active key of authd. The command reads the key from the `signing_keys` of authd and is for operators only. Example: `--scope messages:write,messages:read` serves the inject and inspect steps of anteval.
@@ -100,6 +101,7 @@ Talking to an agent:
 - `secret.go` holds `secret` and `user-secret`.
 - `send.go` holds `send` and the SSE reader (`openSSE`, `readSSE`, `handleSSEFrame`) that `talk` shares.
 - `talk.go` and `talk_config.go` hold the argument grammar of `talk`, its MCP and SSE turn, and the reader for `~/.config/arizuko/talk.toml`.
+- `store.go` holds `store enroll`, and `extenddb.go` holds its calls to the management API of ExtendDB.
 - `token.go` manages route tokens.
 - `github.go` manages the webhook sources of gitd.
 - `gdrive.go` manages the file bindings of googd.
