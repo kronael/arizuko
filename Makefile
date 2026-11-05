@@ -283,9 +283,9 @@ clean:
 # SKILL.md, lands in /opt/arizuko, and routd's start-time core install exits on
 # it, so every instance restart-loops. The runtime image has no git to filter.
 check-skills:
-	@leftovers=$$(git status --porcelain --ignored -- ant/skills ant/hooks ant/.claude | grep -E "^(!!|\?\?)"); \
+	@leftovers=$$(git status --porcelain --ignored -- ant/skills ant/hooks ant/.claude ant/examples | grep -E "^(!!|\?\?)"); \
 	if [ -n "$$leftovers" ]; then \
-	  echo "check-skills: untracked or ignored paths under ant/skills, ant/hooks or ant/.claude would ship in the image:" >&2; \
+	  echo "check-skills: untracked or ignored paths under ant/skills, ant/hooks, ant/.claude or ant/examples would ship in the image:" >&2; \
 	  echo "$$leftovers" >&2; exit 1; fi
 
 images: check-skills

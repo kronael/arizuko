@@ -48,9 +48,9 @@ emaid/emaid
 slakd/slakd
 egress/egress
 ttsd/ttsd
-*.py
-!stamp-docs.py
-!ant/hooks/*.py
+# Scratch Python at the repo root only; a package's scripts ship.
+/*.py
+!/stamp-docs.py
 specs/res/mox/
 
 # Compiled binaries left by `make -C <dir> build`
