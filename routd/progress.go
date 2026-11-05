@@ -56,6 +56,30 @@ func (l *Loop) beginProgress(jid string) {
 	_ = l.deliver.Typing(jid, true)
 }
 
+// noteParked starts presence for a chat the queue parked behind another run,
+// when its newest user row is addressed (the same test processGroupMessages
+// applies). The run that later takes the chat ends it at End; a cursor advance
+// with no run clears it (advance).
+func (l *Loop) noteParked(chatJID string) {
+	if l.deliver == nil {
+		return
+	}
+	msgs, err := l.db.NewMessagesForChat(chatJID, l.db.GetAgentCursor(chatJID), pollBatch)
+	if err != nil {
+		return
+	}
+	i := newestUserIdx(msgs)
+	if i < 0 {
+		return
+	}
+	if row := l.resolveBatch(chatJID, msgs).rows[i]; !row.ok || !row.Addressed {
+		return
+	}
+	reply := replyChat(chatJID, msgs[i])
+	l.waiting.Store(chatJID, reply)
+	l.beginProgress(reply)
+}
+
 // updateProgress is the only code that creates or edits a turn's verb=status
 // row. The first update sends the message, a later one edits it and rewrites
 // the row, and an update whose text the row already holds does nothing.
@@ -179,8 +203,8 @@ func endProgress(db *DB, dl Deliverer, turnID string, end turnEnd) {
 }
 
 // pauseProgress clears presence for a run that returned without ending its
-// turn: the batch re-feeds, a retry is scheduled, or runed was busy or
-// unreachable. The progress message stays ⏳, because the turn is not over.
+// turn: the batch re-feeds, a retry is scheduled, or runed was unreachable.
+// The progress message stays ⏳, because the turn is not over.
 func (l *Loop) pauseProgress(jid, runID string) {
 	if l.deliver == nil {
 		return

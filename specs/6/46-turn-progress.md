@@ -120,14 +120,20 @@ turn's return address for delegated replies.
 
 The agent does not write an opener. `submit_status` carries text only.
 
-**Presence** is `Typing(on)` at `Begin` and `Typing(off)` at `End`, on the
-chat that receives the reply and, at `End`, on every chat the run owns
-(`chatsOwnedBy`). The wire is `POST /typing` unchanged. Presence ends with the
+**Presence** is `Typing(on)` from the moment an addressed message waits for its
+turn until `End`, on the chat that receives the reply and, at `End`, on every chat
+the run owns (`chatsOwnedBy`). A message waits when the queue parks its chat behind
+another run (its folder is held, or the run cap is full) and its newest user row is
+addressed, by the same test the turn uses; `Typing(on)` then starts at once, and
+`Begin` repeats it. The wire is `POST /typing` unchanged. Presence ends with the
 turn, not with the first reply: a `reply` tool call mid-turn leaves it on. A run
-that returns without ending its turn (a retry is scheduled, the batch is re-fed,
-runed is busy or unreachable) also sends `Typing(off)`, because nothing is
-working then; its progress message stays `⏳`. What the sink does
-with it is the sink's declaration (§"The sink's declaration").
+that is refused Busy keeps it on: the batch re-feeds and the next `End` clears it.
+A waiting chat whose cursor advances with no run (the batch is dropped) gets
+`Typing(off)` through `chatsOwnedBy`. A run that returns without ending its turn
+for another reason (a retry is scheduled, the batch is re-fed, runed is
+unreachable) sends `Typing(off)`, because nothing is working then; its progress
+message stays `⏳`. What the sink does with it is the sink's declaration
+(§"The sink's declaration").
 
 **The progress message** is one `verb=status` row per `(turn, chat)`:
 

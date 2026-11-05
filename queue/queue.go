@@ -39,6 +39,10 @@ type groupState struct {
 type processMessagesFn func(groupJid string) (bool, error)
 type folderForJidFn func(groupJid string) string
 
+// parkedFn is told, outside q.mu, each time EnqueueMessageCheck parks a chat
+// behind another run (its folder is held, or the run cap is full).
+type parkedFn func(groupJid string)
+
 type GroupQueue struct {
 	mu              sync.Mutex
 	groups          map[string]*groupState
@@ -48,6 +52,7 @@ type GroupQueue struct {
 	waitingGroups   []string
 	processMessages processMessagesFn
 	folderForJid    folderForJidFn
+	parked          parkedFn
 	shuttingDown    bool
 
 	// depDownSince is when the execution plane was first found unreachable in
@@ -89,6 +94,12 @@ func (q *GroupQueue) SetFolderForJidFn(fn folderForJidFn) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	q.folderForJid = fn
+}
+
+func (q *GroupQueue) SetParkedFn(fn parkedFn) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.parked = fn
 }
 
 // Caller must hold q.mu.
@@ -138,7 +149,11 @@ func (q *GroupQueue) EnqueueMessageCheck(groupJid string) {
 			}
 			slog.Debug("folder already active, queued",
 				"groupJid", groupJid, "folder", folder, "active_jid", other)
+			fn := q.parked
 			q.mu.Unlock()
+			if fn != nil {
+				fn(groupJid)
+			}
 			return
 		}
 	}
@@ -149,7 +164,11 @@ func (q *GroupQueue) EnqueueMessageCheck(groupJid string) {
 		}
 		slog.Debug("at concurrency limit, queued for drain",
 			"groupJid", groupJid, "activeCount", q.activeCount)
+		fn := q.parked
 		q.mu.Unlock()
+		if fn != nil {
+			fn(groupJid)
+		}
 		return
 	}
 

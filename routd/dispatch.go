@@ -308,6 +308,15 @@ func (l *Loop) noteBusy(chatJID, lastMsgID string) {
 	})
 }
 
+// replyChat is the chat that RECEIVES a turn's reply: the origin for a
+// forwarded row.
+func replyChat(chatJID string, last core.Message) string {
+	if last.ForwardedFrom != "" {
+		return last.ForwardedFrom
+	}
+	return chatJID
+}
+
 // runTurn dispatches ONE turn for a bot-stripped trigger batch and records its
 // outcome. It never advances the agent_cursor; busy=true means the batch was
 // not consumed and the caller must re-feed it, not advance.
@@ -468,10 +477,8 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, addressed bool, tr
 		"chat_jid", chatJID, "trigger", last.Sender)
 	// The chat that RECEIVES the reply: the origin for a forwarded turn. It
 	// types there and the run takes its output style from it.
-	replyJID := chatJID
-	if last.ForwardedFrom != "" {
-		replyJID = last.ForwardedFrom
-	}
+	replyJID := replyChat(chatJID, last)
+	l.waiting.Delete(chatJID) // the run owns the indicator now
 	l.beginProgress(replyJID)
 	// The agent nudges for a progress line only where a person is owed an answer
 	// and the reply chat can show and remove one.
@@ -488,7 +495,8 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, addressed bool, tr
 		return false, false, false, "", derr
 	}
 	if out.Busy {
-		l.pauseProgress(replyJID, out.RunID)
+		// Typing stays on: the batch re-feeds. End or a drop of the chat clears it.
+		l.waiting.Store(chatJID, replyJID)
 		// runed keeps no internal queue: leave turn_context running and the
 		// cursor un-advanced, not counted toward the breaker.
 		slog.Debug("dispatch run busy — runed at capacity, retry next poll", "folder", folder, "turn_id", turnID)

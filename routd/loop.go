@@ -75,6 +75,11 @@ type Loop struct {
 	// again (BUGS L55). A new inbound bypasses it; any cursor advance clears it.
 	busyWait sync.Map // chatJID → busyState
 
+	// waiting is the chats whose typing is on while no run owns it: parked
+	// behind another run, or refused Busy. Value is the chat that shows it.
+	// A run's start hands it to the run; a cursor advance without a run clears it.
+	waiting sync.Map // chatJID → reply chatJID
+
 	// Loop-driven maintenance cadence, no free tickers.
 	nextRetryAt time.Time
 	nextGCAt    time.Time
@@ -224,6 +229,7 @@ func NewLoop(db *DB, runner Runner, cfg LoopConfig) *Loop {
 	l.q = queue.New(cfg.MaxRuns)
 	l.q.SetProcessMessagesFn(l.processGroupMessages)
 	l.q.SetFolderForJidFn(l.folderForJid)
+	l.q.SetParkedFn(l.noteParked)
 	return l
 }
 
@@ -809,6 +815,9 @@ func (l *Loop) directFolder(jid string) string {
 func (l *Loop) advance(chatJID string, last core.Message) {
 	// Any cursor advance is progress past the batch a Busy refusal parked.
 	l.busyWait.Delete(chatJID)
+	if reply, ok := l.waiting.LoadAndDelete(chatJID); ok {
+		l.pauseProgress(reply.(string), "")
+	}
 	_ = l.db.SetAgentCursor(chatJID, store.MessageCursor(last))
 }
 
