@@ -453,7 +453,8 @@ func operatorEnvPath(dataDir string) string {
 // URL line is edited, and only when it is absent, names the in-network
 // service, or is the loopback line a previous generate wrote — a moved
 // STORE_HOST_PORT has to reach it, or the host CLI keeps dialling the old
-// port. An address on any other host is the operator's own and is left alone.
+// port. An address on any other host is the operator's own and is left alone,
+// and .env naming another host removes the line generate wrote.
 func writeOperatorEnv(dataDir string, env map[string]string) error {
 	inNetwork, err := url.Parse(env[dynstore.EnvURL])
 	if err != nil {
@@ -462,9 +463,13 @@ func writeOperatorEnv(dataDir string, env map[string]string) error {
 		// leave the host CLI pointed at nothing.
 		return fmt.Errorf("parse %s=%q: %w", dynstore.EnvURL, env[dynstore.EnvURL], err)
 	}
-	if inNetwork.Hostname() != storeService {
-		// No store server, or one the operator addressed themselves.
+	if inNetwork.Hostname() == "" {
 		return nil
+	}
+	if inNetwork.Hostname() != storeService {
+		// An address the operator gave: the loopback line an earlier generate
+		// wrote would overload it on the host, so that line goes.
+		return dropGeneratedStoreLine(dataDir)
 	}
 	port := env[storeHostPortKey]
 	if port == "" {
@@ -490,13 +495,7 @@ func writeOperatorEnv(dataDir string, env map[string]string) error {
 		return writeEnvAtomic(dataDir, path, body)
 	}
 	lines := strings.Split(strings.TrimRight(string(prev), "\n"), "\n")
-	// Last wins, the way godotenv reads the file.
-	at := -1
-	for i, line := range lines {
-		if k, _, ok := strings.Cut(line, "="); ok && strings.TrimSpace(k) == dynstore.EnvURL {
-			at = i
-		}
-	}
+	at := storeLineAt(lines)
 	line := fmt.Sprintf("%s=%s", dynstore.EnvURL, onHost.String())
 	switch {
 	case at == -1:
@@ -507,6 +506,38 @@ func writeOperatorEnv(dataDir string, env map[string]string) error {
 	default:
 		lines[at] = line
 	}
+	return writeEnvAtomic(dataDir, path, strings.Join(lines, "\n")+"\n")
+}
+
+// storeLineAt is the index of the URL line in an env file's lines, or -1.
+// Last wins, the way godotenv reads the file.
+func storeLineAt(lines []string) int {
+	at := -1
+	for i, line := range lines {
+		if k, _, ok := strings.Cut(line, "="); ok && strings.TrimSpace(k) == dynstore.EnvURL {
+			at = i
+		}
+	}
+	return at
+}
+
+// dropGeneratedStoreLine removes the URL line from operator.env when generate
+// wrote it, so .env's address reaches the host CLI. Every other line stays.
+func dropGeneratedStoreLine(dataDir string) error {
+	path := operatorEnvPath(dataDir)
+	prev, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("read %s: %w", path, err)
+	}
+	lines := strings.Split(strings.TrimRight(string(prev), "\n"), "\n")
+	at := storeLineAt(lines)
+	if at == -1 || !isGeneratedStoreLine(lines[at]) {
+		return chmodOperatorEnv(path)
+	}
+	lines = append(lines[:at], lines[at+1:]...)
 	return writeEnvAtomic(dataDir, path, strings.Join(lines, "\n")+"\n")
 }
 

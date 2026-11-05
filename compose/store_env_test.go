@@ -182,6 +182,36 @@ func TestOperatorEnvLeavesAForeignEndpoint(t *testing.T) {
 	}
 }
 
+// A moved server is the same case as a moved port: the loopback line generate
+// wrote would overload .env's address on the host, so it goes and the key pair
+// stays.
+func TestOperatorEnvDropsTheGeneratedLineForAnotherServer(t *testing.T) {
+	dir := seed(t, "APP=arizuko\nFLAVOR=krons\n"+
+		dynstore.EnvURL+"=https://store.example.com:18443\n")
+	if err := os.MkdirAll(filepath.Join(dir, "env"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write(t, dir, filepath.Join("env", "operator.env"),
+		dynstore.EnvKeyID+"=AKIAOPERATOR\n"+
+			dynstore.EnvSecret+"=operatorsecret\n"+
+			dynstore.EnvURL+"=https://127.0.0.1:18443\n")
+	gen(t, dir)
+
+	body := read(t, dir, filepath.Join("env", "operator.env"))
+	if strings.Contains(body, dynstore.EnvURL) {
+		t.Errorf("operator.env still carries the old server's line:\n%s", body)
+	}
+	for _, keep := range []string{
+		dynstore.EnvKeyID + "=AKIAOPERATOR",
+		dynstore.EnvSecret + "=operatorsecret",
+	} {
+		if !strings.Contains(body, keep) {
+			t.Errorf("operator.env lost %q:\n%s", keep, body)
+		}
+	}
+	mustBe0600(t, dir)
+}
+
 // The fragment's published host port and the manifest's declared default are
 // one fact in two readers — docker's and generate's. Drift silently publishes
 // one port and addresses another.
