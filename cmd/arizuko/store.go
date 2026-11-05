@@ -161,9 +161,9 @@ func holders(m *manager) (map[string]holder, error) {
 
 type row struct {
 	user, path string
-	prefixes           []string
-	pair               map[string]string
-	replaced           string
+	prefixes   []string
+	pair       map[string]string
+	replaced   string
 }
 
 func enroll(dataDir, acct string, dst map[string]string, m *manager, w io.Writer) (map[string]*dynamodb.Client, error) {
