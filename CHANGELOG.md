@@ -13,6 +13,17 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.74.2] — 2026-11-05
+
+> arizuko v0.74.2 — a grant never exceeds its granter
+>
+> Every grant written through REST or the dashboard is checked against what the granter holds, and the dashboard's operator check honours a deny.
+>
+> • Grants — REST `acl` and dashd grant writes pass `auth.Delegate`; a held deny that overlaps the request refuses it.
+> • Dashboard — operator access is decided by `auth.Authorize`, not by the scope listing alone.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
 ## [v0.74.1] — 2026-11-04
 
 > arizuko v0.74.1 — CZ Estate Agent, safer re-registration
