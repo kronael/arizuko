@@ -15,6 +15,7 @@
 
 ## What needs you
 
+- `L660` — a mention by reply engages only the reply chain, not the chat root; proposal, needs sign-off.
 - `L655` — products as full packages (`catalog:<name>`) and persona layering (`PERSONA.local.md`); proposal, needs sign-off.
 - `L650` — an `extenddb` reached 10 GB and was OOM-killed; the host reset 8 times on 11-03; cause unmeasured.
 - `L647` — weekly memory rollups missing on alternate Mondays (W40, W42 in every active krons group); cause unmeasured, spawn rows gone.
@@ -421,6 +422,29 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
 - **`L15` — the 2026-08-11 dead-code sweep's rejected hits.** `deadcode ./...` gave 149
   hits, 56 under `-test`; nine survived verification and were filed separately. Kept so
   the next sweep does not re-report the same ~135.
+
+## L660 — a mention by reply engages only the reply chain; the next plain message in the chat starts no turn (2026-11-05, open — proposal)
+
+MEASURED on krons, a two-person Telegram group (a plain group, not a
+forum). The operator's mention at 2026-11-04T20:15:56Z is a
+reply to message 35, so its topic is `33`. routd engaged `(jid, "33")` until
+20:57:16. The agent answered in topic `33` at 20:27. The next four messages
+(20:41, 20:43, 21:02, 2026-11-05 08:40) carry no topic and no reply: they are
+root messages. The root window `(jid, "")` closed at 15:01:16, so routd stored
+all four as `is_observed` and ran no turn.
+
+The fallback goes one way only: `engagedFolder` (`routd/loop.go:758`) reads the
+root window for a topic message, and nothing reads a topic window for a root
+message. In a group without platform threads, a person reads the reply chain
+and the root as one conversation.
+
+Proposal (changes the engagement contract, needs sign-off): when the topic is a
+reply chain and not a platform thread, engaging the topic also engages the
+root window of the chat. L652 still applies: a reply to another person rides
+no window.
+
+Operator half done: the group's `#observe` route is replaced by a turn route,
+so every message in that group starts a turn.
 
 ## ✅ FIXED 2026-11-05 77a63b336 L659 — dashd decides access from the `**` scope projection, ignoring a matching deny (2026-11-05)
 
