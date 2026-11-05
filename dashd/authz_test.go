@@ -175,3 +175,23 @@ func TestRequireAdmin_CrossOriginRejected(t *testing.T) {
 		t.Errorf("status = %d, want 403", w.Code)
 	}
 }
+
+// BUGS L659: the operator verdict is the evaluator's, not the `**` in the signed
+// scope listing. A deny the evaluator honours must hold even when the header,
+// stamped at sign time, still lists `**`.
+func TestRequireOperator_DenyBeatsStampedProjection(t *testing.T) {
+	d, db := splitAdminDash(t, "op@x")
+	r := adminReq("GET", "/dash/invites", "", "op@x")
+	r.Header.Set("X-User-Groups", `["**"]`)
+	if _, operator := d.callerScope(r); !operator {
+		t.Fatal("control: an operator holding admin on ** must be admitted")
+	}
+	seedGrant(t, db, core.ACLRow{Principal: "op@x", Action: "admin", Scope: "**", Effect: "deny"})
+	if _, operator := d.callerScope(r); operator {
+		t.Fatal("a deny on admin/** must beat the `**` in X-User-Groups")
+	}
+	w := httptest.NewRecorder()
+	if d.requireOperator(w, r) {
+		t.Fatal("requireOperator admitted a caller the evaluator denies")
+	}
+}

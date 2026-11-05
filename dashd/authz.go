@@ -35,7 +35,16 @@ func (d *dash) callerScope(r *http.Request) (allowed []string, operator bool) {
 			allowed = scopes
 		}
 	}
-	return allowed, slices.Contains(allowed, auth.OperatorGroup)
+	if !slices.Contains(allowed, auth.OperatorGroup) {
+		return allowed, false
+	}
+	// The listing nominates; the evaluator decides. A deny the listing cannot
+	// represent still holds (BUGS L659). With no routd.db there is no policy to
+	// consult, and the listing proxyd signed stands.
+	if d.routdStore() == nil {
+		return allowed, true
+	}
+	return allowed, d.adminOn(r, auth.OperatorGroup)
 }
 
 // visible reports whether a non-operator caller may see `folder`. Operators see

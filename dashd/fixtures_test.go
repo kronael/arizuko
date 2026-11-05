@@ -35,7 +35,19 @@ func routdDB(t *testing.T) objstore.Store {
 		t.Fatalf("routd.OpenMem: %v", err)
 	}
 	t.Cleanup(func() { d.Close() })
+	seedOperators(t, d.Obj())
 	return d.Obj()
+}
+
+// seedOperators holds the subs the fixtures stamp as operators (asOperator,
+// the invites tests) in the policy, so the evaluator agrees with the signed
+// `**` the request carries (BUGS L659).
+func seedOperators(t *testing.T, h objstore.Store) {
+	t.Helper()
+	for _, sub := range []string{"op@x", "github:operator"} {
+		seedGrant(t, h, core.ACLRow{Principal: sub, Action: "*", Scope: "**",
+			Effect: "allow", GrantOption: true})
+	}
 }
 
 // The seeds below land routd's rows through the writers routd itself uses.

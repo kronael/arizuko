@@ -25,6 +25,7 @@ func TestUsagePageNumbersViaRealRoutd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	seedOperators(t, db.Obj())
 	for _, f := range []string{"alpha", "beta"} {
 		if err := db.PutGroup(core.Group{Folder: f}); err != nil {
 			t.Fatal(err)

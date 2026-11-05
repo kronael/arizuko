@@ -32,6 +32,7 @@ func answeringDash(t *testing.T) (*dash, *routd.DB) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
+	seedOperators(t, db.Obj())
 	// No verifier: routd answers dashd as it answers a service bearer with an
 	// empty folder claim, which is what production sends.
 	ts := httptest.NewServer(routd.NewServer(db, routd.NewLoop(db, nil, routd.LoopConfig{}),
