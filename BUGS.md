@@ -445,6 +445,30 @@ no window.
 Operator half done: the group's `#observe` route is replaced by a turn route,
 so every message in that group starts a turn.
 
+## ✅ FIXED 2026-11-05 0a00f4384 L662 — `.gitignore` drops every Python file, so packages ship without their scripts (2026-11-05)
+
+MEASURED 2026-11-05: sloth's 09:00 digest did not run. The installed
+`company-brain` digest skill has no `scripts/*.py`: `git ls-files
+ant/examples/company-brain/skills/digest/scripts/` lists only the `.sh` and
+`.md` files, and `git check-ignore -v .../post_blocks.py` answers
+`.gitignore:51:*.py`. The six scripts the skills call (`config.py`,
+`window.py`, `gather_discord.py`, `metrics_accounts.py`, `check_format.py`,
+`post_blocks.py`) existed in the working tree, so every local check passed and
+the release image carried none of them. The same pattern hides
+`ant/skills/excalidraw/scripts/upload.py` and two `ant/skills/create` video
+examples that their `SKILL.md` files name. `make check-skills` reports ignored
+files only under `ant/skills`, `ant/hooks` and `ant/.claude`, not under
+`ant/examples`, and it reports nothing in a clean release tree where the
+ignored files do not exist.
+
+- **Severity:** high — a package skill that depends on a script fails at run time
+- **Scope:** `.gitignore`; `Makefile` `check-skills`
+- **Fix:** anchor the pattern to the repo root (`/*.py`), add the referenced
+  scripts, extend `check-skills` to `ant/examples`, and a test that a script
+  path under `ant/` is not ignored
+- **Test:** `TestPackageScriptsAreNotIgnored` (`tests/buildgate/gitignore_test.go`); fails twice on the old `.gitignore`.
+- **Status:** fixed — `/*.py` ignores root scratch only; the six digest scripts, `excalidraw/scripts/upload.py` and the two video examples are tracked; `check-skills` covers `ant/examples`.
+
 ## ✅ FIXED 2026-11-05 77a63b336 L659 — dashd decides access from the `**` scope projection, ignoring a matching deny (2026-11-05)
 
 MEASURED: `TestRequireOperator_DenyBeatsStampedProjection` failed (a deny on
