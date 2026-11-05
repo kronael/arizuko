@@ -15,6 +15,7 @@
 
 ## What needs you
 
+- `L659`, `L658`, `L657` — auth gaps found by review (dashd `**` projection, REST/dashd skip `Delegate`, `Delegate` containment); measure, then fix.
 - `L655` — products as full packages (`catalog:<name>`) and persona layering (`PERSONA.local.md`); proposal, needs sign-off.
 - `L650` — an `extenddb` reached 10 GB and was OOM-killed; the host reset 8 times on 11-03; cause unmeasured.
 - `L647` — weekly memory rollups missing on alternate Mondays (W40, W42 in every active krons group); cause unmeasured, spawn rows gone.
@@ -421,6 +422,32 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
 - **`L15` — the 2026-08-11 dead-code sweep's rejected hits.** `deadcode ./...` gave 149
   hits, 56 under `-test`; nine survived verification and were filed separately. Kept so
   the next sweep does not re-report the same ~135.
+
+## L659 — dashd decides access from the `**` scope projection, ignoring a matching deny (2026-11-05, open — found by review, unmeasured)
+
+FOUND by an Astra (gpt-6-astra) source review of specs/6/52, not measured:
+`auth/dashauth.go:54` treats a principal whose scope projection includes `**`
+as operator, without evaluating a matching deny row. `UserScopes` is a listing,
+never the decision (`auth/authorize.go` comment), so a dashboard gate built on
+it is a second, weaker evaluator. Needs: a test with a `**` allow plus a
+narrower deny for one dashboard action, asserting the deny holds.
+
+## L658 — REST `acl` writes and dashd grant writes skip `auth.Delegate` (2026-11-05, open — found by review, unmeasured)
+
+FOUND by the same review: `routd/acl_resource.go:55` writes an acl row without
+`auth.Delegate`, and dashd's grant writes do too, so a non-root writer can
+grant more than it holds, against specs/5/33 decision 3 (delegation is
+subset-of-held). Needs: a test where a folder admin writes, through REST, a row
+broader than its own grants, asserting refusal.
+
+## L657 — `auth.Delegate` misses denies that narrow a broader requested grant (2026-11-05, open — found by review, unmeasured)
+
+FOUND by the same review: `auth/delegate.go:63` checks the requested row
+against the delegator's allows, but a narrower deny the delegator holds does
+not stop a broader requested grant, and predicate rows and wildcard-principal
+denies escape the check. Needs: a test where the delegator holds `X` on
+`a/**` with a deny on `a/b`, delegates `X` on `a/**`, and the delegate gains
+`a/b`.
 
 ## ✅ FIXED 2026-11-04 bdcbc0ccf L656 — an agent's `register_group` on an existing folder overwrites its `container_config` (2026-11-04)
 
