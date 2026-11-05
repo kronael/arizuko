@@ -509,6 +509,35 @@ func writeOperatorEnv(dataDir string, env map[string]string) error {
 	return writeEnvAtomic(dataDir, path, strings.Join(lines, "\n")+"\n")
 }
 
+// WriteOperatorEnv runs the operator.env step of Generate from the .env of
+// dataDir, so a command that reads the host's view of the store takes it after
+// the URL step.
+func WriteOperatorEnv(dataDir string) error {
+	env, _ := godotenv.Read(filepath.Join(dataDir, ".env"))
+	return writeOperatorEnv(dataDir, env)
+}
+
+// WriteStoreKey replaces the two store key lines of an env file and keeps every
+// other line, in the format mergeStoreCredentials reads.
+func WriteStoreKey(dataDir, path, keyID, secret string) error {
+	prev, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	var lines []string
+	for line := range strings.SplitSeq(strings.TrimRight(string(prev), "\n"), "\n") {
+		k, _, _ := strings.Cut(line, "=")
+		if k = strings.TrimSpace(k); line != "" && k != dynstore.EnvKeyID && k != dynstore.EnvSecret {
+			lines = append(lines, line)
+		}
+	}
+	lines = append(lines, dynstore.EnvKeyID+"="+keyID, dynstore.EnvSecret+"="+secret)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	return writeEnvAtomic(dataDir, path, strings.Join(lines, "\n")+"\n")
+}
+
 // storeLineAt is the index of the URL line in an env file's lines, or -1.
 // Last wins, the way godotenv reads the file.
 func storeLineAt(lines []string) int {

@@ -40,7 +40,7 @@ func FromEnv(prefix string) (*Store, error) {
 	if url == "" {
 		return nil, fmt.Errorf("dynstore: %s names no endpoint", EnvURL)
 	}
-	ca, err := caFromEnv()
+	ca, err := DecodeCA(os.Getenv(EnvCA))
 	if err != nil {
 		return nil, err
 	}
@@ -54,11 +54,11 @@ func FromEnv(prefix string) (*Store, error) {
 	})
 }
 
-// caFromEnv decodes the endpoint certificate. A value that is not base64 is a
-// misconfiguration that would otherwise surface as a TLS handshake failure
-// against a name nobody typed.
-func caFromEnv() ([]byte, error) {
-	raw := strings.TrimSpace(os.Getenv(EnvCA))
+// DecodeCA decodes the endpoint certificate from the value of STORE_CA. A value
+// that is not base64 is a misconfiguration that would otherwise surface as a
+// TLS handshake failure against a name nobody typed.
+func DecodeCA(raw string) ([]byte, error) {
+	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return nil, nil
 	}

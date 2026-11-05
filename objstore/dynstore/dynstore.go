@@ -61,10 +61,19 @@ type Config struct {
 	CA []byte
 }
 
-// Dial builds a client for cfg. A missing credential is an error rather than an
-// anonymous client: an unsigned request fails later, at the first write, with a
-// message about the request instead of the configuration.
+// Dial builds a store for cfg.
 func Dial(cfg Config) (*Store, error) {
+	api, err := Client(cfg)
+	if err != nil {
+		return nil, err
+	}
+	return New(api, cfg.Prefix), nil
+}
+
+// Client builds the SDK client for cfg. A missing credential is an error rather
+// than an anonymous client: an unsigned request fails later, at the first
+// write, with a message about the request instead of the configuration.
+func Client(cfg Config) (*dynamodb.Client, error) {
 	if cfg.KeyID == "" || cfg.Secret == "" {
 		return nil, fmt.Errorf("dynstore: endpoint %q takes an access key and a secret", cfg.Endpoint)
 	}
@@ -83,7 +92,7 @@ func Dial(cfg Config) (*Store, error) {
 		return nil, err
 	}
 	opts = append(opts, func(o *dynamodb.Options) { o.HTTPClient = client })
-	return New(dynamodb.NewFromConfig(aws.Config{Region: region}, opts...), cfg.Prefix), nil
+	return dynamodb.NewFromConfig(aws.Config{Region: region}, opts...), nil
 }
 
 // requestTimeout bounds one attempt at the store. The SDK's own client bounds
