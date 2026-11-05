@@ -16,7 +16,6 @@
 ## What needs you
 
 - `L660` — a mention by reply engages only the reply chain, not the chat root; proposal, needs sign-off.
-- `L663` — typing is absent while a message waits behind another turn; approved, fix queued.
 - `L655` — products as full packages (`catalog:<name>`) and persona layering (`PERSONA.local.md`); proposal, needs sign-off.
 - `L650` — an `extenddb` reached 10 GB and was OOM-killed; the host reset 8 times on 11-03; cause unmeasured.
 - `L647` — weekly memory rollups missing on alternate Mondays (W40, W42 in every active krons group); cause unmeasured, spawn rows gone.
@@ -568,7 +567,7 @@ for an instance without an `operator.env`).
   `env/operator.env` if `isGeneratedStoreLine` says generate wrote it, and
   keep every other line. Test: an `operator.env` with a loopback line and an
   `.env` on another host gives a file without that line and with its key pair.
-## L663 — a message queued behind another turn shows no typing until its own turn starts (2026-11-05, open)
+## ✅ FIXED 2026-11-05 fa5941283 L663 — a message queued behind another turn shows no typing until its own turn starts (2026-11-05)
 
 MEASURED 2026-11-05 on krons, a two-person Telegram group
 (folder `rhias/trip`, adapter `telegram-rhias`). Logs: `journalctl -u
@@ -604,7 +603,8 @@ and sends `Typing(off)` when runed answers Busy, so a refusal also blinks it
 - **Scope:** routd queue/dispatch presence; spec `6/46` §Presence
 - **Affected:** krons, sloth (any folder with a second chat or a full run cap)
 - **Source:** journal krons 2026-11-05T08:43:08-09:01:04; `routd.messages`; `queue/queue.go:127-152`
-- **Status:** open — approved, fix queued. The fix changes the 6/46 contract
+- **Test:** `TestTyping_ParkedChatTypesWhileItWaits`, `TestTyping_BusyKeepsTypingOn`, `TestTyping_ParkedChatDroppedClears` (`routd/typing_parked_test.go`); each fails with its part reverted.
+- **Status:** fixed — the queue reports a parked chat; an addressed one types until its run ends or the batch drops; Busy keeps typing on. The fix changes the 6/46 contract
   (presence starts when an ADDRESSED message is accepted, not when its turn
   starts) and needs the addressed test that only `processGroupMessages` holds,
   so it is not a one-line change. Shape: when the queue parks a chat, call
