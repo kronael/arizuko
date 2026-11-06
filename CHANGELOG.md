@@ -13,7 +13,16 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
-- **Routing.** A leading `@name` addresses the message and starts a turn in the group it selects, even in a chat whose route is `#observe`: the first matching route (an `at=` row is a route, read in `seq` order), else the nearest `<ancestor>/<name>`. The turn sees the message without the `@name`.
+## [v0.75.1] — 2026-11-06
+
+> arizuko v0.75.1 — @name starts a turn, filed issues reach the operator
+>
+> A leading `@name` now starts a turn in its group even where the chat only observes, and an issue an agent files always sends its notice.
+>
+> • Routing — a leading `@name` addresses the message: the first matching route (an `at=` row is a route), else the nearest `<ancestor>/<name>`; the turn sees the message without the `@name`.
+> • Issues — a core hook tells the agent to send each new `~/issues.md` line to `#issues`, also when it appends by hand.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
 
 ## [v0.75.0] — 2026-11-06
 
