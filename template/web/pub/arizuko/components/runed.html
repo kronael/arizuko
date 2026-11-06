@@ -140,7 +140,7 @@
     <p>The section Mounts of <a href="https://github.com/kronael/arizuko/blob/main/runed/README.md">[runed/README.md]</a> has the full table with the host paths.</p>
 
     <h2>One deadline bounds the guest and the agent</h2>
-    <p><code>RUNED_RUN_TIMEOUT</code> is the run ceiling, 30 minutes by default. It sets two limits at once. One is the hard stop of the guest. The other is the query timeout of the agent, <code>ARIZUKO_QUERY_TIMEOUT_MS</code>, which is <code>RUNED_RUN_TIMEOUT &minus; 30s</code>. The 30-second gap lets the agent stop and deliver a summary before runed stops the guest. On a graceful shutdown, runed detaches the running guests. A guest outlives the daemon, so a restart does not stop a turn in the middle. The next runed reaps the guest from the record on disk.</p>
+    <p><code>RUNED_RUN_TIMEOUT</code> is the run ceiling, 60 minutes by default. It sets two limits at once. One is the hard stop of the guest. The other is the query timeout of the agent, <code>ARIZUKO_QUERY_TIMEOUT_MS</code>, which is <code>RUNED_RUN_TIMEOUT &minus; 30s</code>. The 30-second gap lets the agent stop and deliver a summary before runed stops the guest. On a graceful shutdown, runed detaches the running guests. A guest outlives the daemon, so a restart does not stop a turn in the middle. The next runed reaps the guest from the record on disk.</p>
 
     <h2>runed runs alone only with its host preconditions</h2>
     <p>runed runs as a daemon, but it needs the preconditions of the KVM substrate and an authd whose keys it can fetch. It also expects routd to host the MCP socket that the guest calls. Run it only with those.</p>
@@ -176,7 +176,7 @@ export RUNED_ROOTFS_DIR=/srv/data/myinstance/images/rootfs-a35045d89e3e
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/components/runed.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-21">2026-10-21</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-04">2026-11-04</time>
       </div>
     </main>
 

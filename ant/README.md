@@ -141,19 +141,19 @@ every harness unchanged.
 
 ## The turn deadline
 
-A turn has one deadline. `RUNED_RUN_TIMEOUT` (default 30m) is the run
+A turn has one deadline. `RUNED_RUN_TIMEOUT` (default 60m) is the run
 ceiling (`runed/manager.go` `turnTTL`).
 runed hands the guest a query timeout 30 seconds under that ceiling,
 floored at 60 seconds, as `ARIZUKO_QUERY_TIMEOUT_MS`
 (`runed/render.go` `queryTimeoutMs`), so the harness aborts and reports
 before runed kills the guest. ant computes the deadline once, at start, and
 every harness run in the guest aborts at it, the reply-owed nudge round
-and the next IPC turn included. About 60 seconds before the deadline ant
+and the next IPC turn included. About five minutes before the deadline ant
 puts a `[deadline]` note on the steer spool. The agent reads it as
 `<user-steering>`, mid-turn through the steering hook and while it waits on
-a task through the prompt stream. The note tells the agent to `reply` now and
-to stop tasks it does not need with `TaskStop`. A run that starts inside
-the last minute gets no note. The log line reads:
+a task through the prompt stream. The note tells the agent to `reply`, end the turn, and
+stop tasks it does not need with `TaskStop`. A run that starts inside
+the last five minutes gets no note. The log line reads:
 
 ```
 Query timeout: process deadline reached, aborting

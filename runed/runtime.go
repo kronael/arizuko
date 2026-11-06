@@ -2,22 +2,18 @@ package runed
 
 import (
 	"context"
-	"time"
 
 	"github.com/kronael/arizuko/core"
 )
 
-// The turn's boundaries, read by whatever substrate runs it. These four are the
+// The turn's boundaries, read by whatever substrate runs it. These are the
 // turn's contract with the Manager and the agent, not one substrate's: the run
-// ceiling against the idle timer, the wrap-up warning, the code the agent uses
+// ceiling against the idle timer, the code the agent uses
 // to say a retry cannot help, and the cap on the stderr the turn log keeps. They
 // lived in the Docker runtime until spec 6/41 step 4 deleted it.
 const (
 	// maxOutputSize caps the stderr a substrate keeps for the turn log.
 	maxOutputSize = 10 * 1024 * 1024 // 10MB
-	// containerSoftDeadlineOffset is how long before the deadline the agent is
-	// warned to wrap up.
-	containerSoftDeadlineOffset = 2 * time.Minute
 	// agentTerminalExit is sysexits.h EX_CONFIG, which the agent uses to say the
 	// model refused for a reason a retry cannot repair — an exhausted quota or a
 	// spend cap, whose reset is hours out (BUGS L175). It is the agent's own

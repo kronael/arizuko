@@ -136,9 +136,9 @@ function nudgeProgress(): void {
 // DEADLINE_TEXT warns the agent that the process deadline is close. Unlike
 // NUDGE_TEXT it is not dropped between turns: it may start a round, so a
 // session that had stopped gets one last chance to post.
-const DEADLINE_NOTE_LEAD_MS = 60_000;
+const DEADLINE_NOTE_LEAD_MS = 5 * 60_000;
 export const DEADLINE_TEXT =
-  '[deadline] About one minute is left in this run. Post your output to the user now with reply. ' +
+  '[deadline] About five minutes are left in this run. Post your output to the user with reply and end the turn. ' +
   'Stop background tasks you no longer need with TaskStop; anything not posted before the deadline is lost.';
 
 function noteDeadline(): void {

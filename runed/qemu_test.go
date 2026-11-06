@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/kronael/arizuko/core"
@@ -446,6 +447,28 @@ func cfgFor(t *testing.T) *core.Config {
 	cfg, _ := renderWiring(t)
 	cfg.MaxContainers = 5
 	return cfg
+}
+
+func TestAwaitDoesNotSendDeadlineWarning(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		host, guest := net.Pipe()
+		defer host.Close()
+		defer guest.Close()
+		sess := newCtlSession(host, nil, nil)
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+		defer cancel()
+		q := &qemuRuntime{paths: qemuPaths{Grace: time.Second}}
+		done := make(chan turnEnd, 1)
+		go func() { done <- q.await(ctx, sess, nil, nil, Turn{}) }()
+		time.Sleep(2 * time.Minute)
+		synctest.Wait()
+		got := sess.seq.Load()
+		sess.exit <- 0
+		<-done
+		if got != 0 {
+			t.Errorf("sent %d steering frames before deadline", got)
+		}
+	})
 }
 
 func TestAwaitTakesTheExitFrameWhenQemuExitsInTheSameMoment(t *testing.T) {

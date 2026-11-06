@@ -261,7 +261,7 @@ Core variables:
 - `AUTHD_SERVICE_KEY` is the exchange key for the `service:routd` ES256 token. When it is unset, routd falls back to `ROUTD_SERVICE_TOKEN`.
 - `ROUTD_SERVICE_TOKEN` is a static service token. It is deprecated, and the ES256 exchange is preferred.
 - `RUNED_URL` is the runs endpoint of runed. The default is `http://runed:8080`.
-- `RUNED_RUN_TIMEOUT` is the kill deadline for a run. The default is 30m. routd waits 2m longer.
+- `RUNED_RUN_TIMEOUT` is the kill deadline for a run. The default is 60m. routd waits 2m longer.
 - `ONBOD_URL` is the onbod endpoint for the `/invite` and `/gate` commands.
 - `WEB_HOST` is the canonical web origin.
 - `SECRETS_KEY` is the keyring for secret reads. Without it routd returns the ciphertext.

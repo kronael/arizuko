@@ -334,22 +334,23 @@ function lasting(ms: number): Harness {
 }
 
 /**
- * A run still going one minute before the process deadline puts the [deadline]
+ * A run still going five minutes before the process deadline puts the [deadline]
  * note on the steer spool, where the steering hook or the waiting poll reads it.
  */
-test('runTurn: one minute before the deadline the steer spool gets the [deadline] note', async () => {
+test('runTurn: five minutes before the deadline the steer spool gets the [deadline] note', async () => {
   drainLines(STEER_SPOOL);
-  await runTurn(lasting(300), 'p', undefined, INPUT, {}, 't1', spy().deliver, statusSpy().send, Date.now() + 60_100);
+  await runTurn(lasting(300), 'p', undefined, INPUT, {}, 't1', spy().deliver, statusSpy().send, Date.now() + 300_100);
   const lines = drainLines(STEER_SPOOL);
   expect(lines).toHaveLength(1);
-  expect(lines[0]).toStartWith('[deadline] About one minute is left in this run.');
+  expect(lines[0]).toStartWith('[deadline] About five minutes are left in this run.');
+  expect(lines[0]).toContain('end the turn');
   expect(lines[0]).toContain('TaskStop');
 });
 
-/** A run that starts inside the last minute gets no note: the minute has passed. */
-test('runTurn: a run that starts less than a minute before the deadline queues no note', async () => {
+/** A run that starts inside the last five minutes gets no note: the warning time has passed. */
+test('runTurn: a run that starts less than five minutes before the deadline queues no note', async () => {
   drainLines(STEER_SPOOL);
-  await runTurn(lasting(300), 'p', undefined, INPUT, {}, 't1', spy().deliver, statusSpy().send, Date.now() + 59_000);
+  await runTurn(lasting(300), 'p', undefined, INPUT, {}, 't1', spy().deliver, statusSpy().send, Date.now() + 299_000);
   expect(drainLines(STEER_SPOOL)).toEqual([]);
 });
 

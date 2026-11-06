@@ -133,7 +133,7 @@ ant    hooks/prompt_context.py, UserPromptSubmit ► additionalContext
 
     <h2>Each turn gets a new guest</h2>
     <p>The guest lives for one turn. <code>runed</code> starts it when a message arrives, the agent reads the prompt and replies, and the guest powers off. Nothing that matters lives inside the guest, only in the mounted folder. The next turn gets a new guest and a new kernel with the same folder.</p>
-    <p>A turn has one deadline, <code>RUNED_RUN_TIMEOUT</code>, and the default is 30 minutes. The timeout of the agent is 30 seconds shorter, and never below 60 seconds, so the agent can report before <code>runed</code> stops the guest. For a longer job, split it into turns, write checkpoints to <code>~/facts/</code> or <code>~/tmp/</code>, or use a background task. Do not raise the timeout.</p>
+    <p>A turn has one deadline, <code>RUNED_RUN_TIMEOUT</code>, and the default is 60 minutes. The timeout of the agent is 30 seconds shorter, and never below 60 seconds, so the agent can report before <code>runed</code> stops the guest. For a longer job, split it into turns, write checkpoints to <code>~/facts/</code> or <code>~/tmp/</code>, or use a background task. Do not raise the timeout.</p>
 
     <h2>A grant gives capability, not the folder depth</h2>
     <p>The depth of a folder says nothing about what its ant can do. <code>solo/inbox</code> and <code>corp/eng/sre/oncall</code> start with the same rights: the <code>role:member</code> role. Every folder gets this role at creation, and it carries the messaging verbs and nothing more. Every other right is a row that a principal gave to the folder for a subtree. Examples are the rights to register groups, edit routes, open egress or schedule tasks. If an ant has no row for a tool, the ant does not see the tool at all.</p>
@@ -166,7 +166,7 @@ ant    hooks/prompt_context.py, UserPromptSubmit ► additionalContext
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/concepts/ant.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-11-03">2026-11-03</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-04">2026-11-04</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

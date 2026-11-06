@@ -16,7 +16,6 @@
 ## What needs you
 
 - `L674` — `compose down` fails on a deleted fragment despite `required: false`; proposal.
-- `L673` — a long turn is killed at 30 min with no warning; 60 min + a wrap-up nudge, queued.
 - `L672` — a spend-limit failure: retry silently, one `#issues` notice to the operator; approved, queued after L670.
 - `L665` — `unpair` removes the account's denies from the paired identity's turns; needs sign-off.
 - `L664` — `invite_create` mints `admin` the issuing folder cannot delegate; needs sign-off.
@@ -468,7 +467,7 @@ this host's compose version.
   which compose version honours `required: false` for `down` and pin it.
 - **Status:** open
 
-## L673 — a long turn is killed at 30 minutes with no warning, then posts "I ran out of time" (2026-11-06, open)
+## ✅ FIXED 2026-11-06 a072b9562 L673 — a long turn is killed at 30 minutes with no warning, then posts "I ran out of time" (2026-11-06)
 
 MEASURED 2026-11-06: a sloth turn ended with "⚠️ I ran out of time on that —
 say 'continue' to resume, or narrow the request." (`routd/turns.go`
@@ -484,7 +483,8 @@ turn and then fail ... the timeout should be like an hour".
   about 5 minutes before it, the existing steering hook tells the agent to
   deliver what it has and end the turn; the hard stop stays as the last resort.
   One nudge through the existing steering path; no new mechanism or key.
-- **Status:** open — queued for Terra with L672
+- **Test:** `TestRunTimeout` (`core/config_test.go`) and the deadline steering tests (`ant/src/index.test.ts`).
+- **Status:** fixed — the default deadline is one hour and the existing steering spool warns five minutes before the query deadline.
 
 ## L672 — a turn that fails on a model spend limit is never retried, so the message stays unanswered (2026-11-06, open)
 

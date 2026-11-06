@@ -10,7 +10,7 @@ runed does these jobs:
 
 - It serves `POST /v1/runs`, the contract between routd and runed: claim, spawn, return.
 - It serves `POST /v1/holds`. A hold claims the run slot of a folder for an external job that needs the folder alone. Examples are a filesystem restore, a vacuum and a migration. No agent turn starts in that folder until the hold ends.
-- It runs the lifecycle of each KVM guest: one `qemu-system-x86_64` process, its virtio-fs shares, its tap and its egress proxy. A ctl frame over vsock carries the stop and the deadline warning. A kill reaps every pid that the record of the turn names. The section "The guest's turn, step by step" describes the steps.
+- It runs the lifecycle of each KVM guest: one `qemu-system-x86_64` process, its virtio-fs shares, its tap and its egress proxy. A ctl frame over vsock carries the stop. A kill reaps every pid that the record of the turn names. The section "The guest's turn, step by step" describes the steps.
 - It enforces `RUNED_RUN_TIMEOUT` per run. An hourly sweep deletes spawns older than seven days. The retention bounds the one partition that all spawns share.
 - On graceful shutdown it detaches the runs in flight. A guest outlives the daemon, and the next runed reaps it from the record on disk.
 
@@ -61,7 +61,7 @@ A kill is the one revoke that runed has, because runed mints nothing. `Manager.K
 
 - `AUTHD_URL` is the authd base URL. runed fetches the JWKS once at boot and only verifies tokens. It holds no signing key and exchanges no token, because it makes no outbound call that needs one. When the variable is unset, the `/v1` verifier and the `/dash/runed/` gate stay open, which is the shape for local development. A failed fetch is fatal.
 - `DYNAMODB_URL` and the store credentials name the store server that holds the entities of runed. `runed.Open` dials it, and `INSTALL.md` section "The store server holds every table of the instance" describes it.
-- `RUNED_RUN_TIMEOUT` is the run ceiling. The default is 30m. It bounds the hard kill of the guest and the query timeout of the agent inside the guest. The query timeout is `ARIZUKO_QUERY_TIMEOUT_MS`, which equals `RUNED_RUN_TIMEOUT` minus 30 s with a floor of 60 s (`queryTimeoutMs` in `render.go`). So the agent aborts and delivers a summary before runed kills the guest.
+- `RUNED_RUN_TIMEOUT` is the run ceiling. The default is 60m. It bounds the hard kill of the guest and the query timeout of the agent inside the guest. The query timeout is `ARIZUKO_QUERY_TIMEOUT_MS`, which equals `RUNED_RUN_TIMEOUT` minus 30 s with a floor of 60 s (`queryTimeoutMs` in `render.go`). So the agent aborts and delivers a summary before runed kills the guest.
 - `RUNED_SHUTDOWN_GRACE` is the wait for in-flight handlers on graceful shutdown. The default is the value of `RUNED_RUN_TIMEOUT`.
 - `LISTEN_ADDR` is the HTTP listener. The default is `:8080`.
 - `MAX_CONCURRENT_CONTAINERS` is the cap on live guests. The default is 5. It comes from `core.LoadConfig`, together with the directory settings `GroupsDir`, `IpcDir`, `StoreDir` and others.
@@ -194,7 +194,7 @@ Core is required. Package selection is an input to the renderer, outside the
 - `StartSpawn` takes the claim with a condition on `state='queued'`. A `DELETE` that lands between the claim and the launch wins, and the run answers `busy`. A `killed` row makes the folder read free, so a launch without this guard would put two guests on one mount.
 - A new inbound message clears a breaker streak at the threshold of 3, so a retry after three failures does spawn. The run that reaches the threshold reports `breaker_open`.
 - routd owns session lineage. It mints the id and sends it on the request. runed mints an id only for a request that carries none, which is an isolated task. `spawns.session_id` is an echo.
-- Readiness is spawn success. There is no `/readyz` probe, because a probe on the spawn path adds a failure mode. `Manager.spawn` arms the one deadline from `RUNED_RUN_TIMEOUT`. The substrate keeps no timer. The wrap-up warning, two minutes before the end, comes from that deadline.
+- Readiness is spawn success. There is no `/readyz` probe, because a probe on the spawn path adds a failure mode. `Manager.spawn` arms the one deadline from `RUNED_RUN_TIMEOUT`. The substrate keeps no timer. ant sends the wrap-up warning five minutes before its query deadline.
 
 ### The guest's turn, step by step
 
@@ -231,7 +231,7 @@ To reach the tools of folder B, an agent in folder A would need the CID of B. Or
 
 ### Deadline warning and stop
 
-A follow-up for a folder with a live guest is refused with `busy`; routd keeps the batch and feeds it again after the run ends. The run deadline sends a `steer` frame on `ctl` that warns the agent. `guest-init` writes it under `/run/ipc/input`, signals the agent and answers `steer_ack`.
+A follow-up for a folder with a live guest is refused with `busy`; routd keeps the batch and feeds it again after the run ends. ant sends the deadline warning through its steering spool.
 
 The run deadline sends `stop`. `guest-init` sends SIGTERM to the agent and powers off after 10 seconds. runed waits `RUNED_REAP_GRACE` for the `exit` frame. Then it sends SIGKILL to the QEMU pid and confirms that the process is gone, because a guest power-off does not prove that QEMU exited. `DELETE /v1/runs/{run_id}` reaps the same way, from the record on disk.
 

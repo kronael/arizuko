@@ -566,26 +566,12 @@ func (q *qemuRuntime) allocate(t Turn) (*vmRecord, error) {
 func (q *qemuRuntime) await(
 	ctx context.Context, sess *ctlSession, qemuDone <-chan error, served <-chan error, t Turn,
 ) turnEnd {
-	var soft <-chan time.Time
-	if dl, ok := ctx.Deadline(); ok {
-		if d := time.Until(dl) - containerSoftDeadlineOffset; d > 0 {
-			timer := time.NewTimer(d)
-			defer timer.Stop()
-			soft = timer.C
-		}
-	}
 	for {
 		select {
 		case code := <-sess.exit:
 			// The guest's own exit frame. QEMU is on its way out; the reap
 			// waits for the pid with its bounded grace either way.
 			return turnEnd{code: code, framed: true}
-		case <-soft:
-			soft = nil
-			// The same warning the Docker substrate writes into the ipc dir,
-			// carried by the mechanism that reaches the guest's ipc dir here.
-			slog.Info("soft deadline firing, warning agent", "folder", t.Folder, "handle", t.Handle)
-			go sess.steer(deadlineWarning, q.paths.Grace)
 		case err := <-served:
 			// The control channel ended. That happens right AFTER a guest sends
 			// its exit frame, so the frame is looked for first — see lastWord.
@@ -666,12 +652,6 @@ type turnEnd struct {
 // 125-127 are the CLI's invocation failures, and on this substrate those three
 // are just exit codes the agent may return (spec 5/12, BUGS F73).
 func guestTerminalExit(code int) bool { return code == agentTerminalExit }
-
-// deadlineWarning is the message the agent gets two minutes before the hard
-// kill. Same text the Docker substrate delivers, because it is the agent's
-// contract, not the substrate's.
-const deadlineWarning = "⚠️ SYSTEM: You have ~2 minutes before this session is forcefully terminated. " +
-	"Wrap up NOW: summarize what you accomplished, what is still pending, and deliver your response to the user."
 
 // guestPeak carries QEMU's peak resident set (touched guest pages included) out
 // of the goroutine that waits for it. It reaches the turn log and the "guest

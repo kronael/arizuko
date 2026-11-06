@@ -318,9 +318,9 @@ func EnvInt(k string, fallback int) int {
 	return fallback
 }
 
-// RunTimeout is the turn ceiling: RUNED_RUN_TIMEOUT, 30 minutes when unset.
+// RunTimeout is the turn ceiling: RUNED_RUN_TIMEOUT, 60 minutes when unset.
 // Every daemon that waits on a turn reads it here.
-func RunTimeout() time.Duration { return DurOr("RUNED_RUN_TIMEOUT", 30*time.Minute) }
+func RunTimeout() time.Duration { return DurOr("RUNED_RUN_TIMEOUT", 60*time.Minute) }
 
 func DurOr(k string, fallback time.Duration) time.Duration {
 	if v := os.Getenv(k); v != "" {

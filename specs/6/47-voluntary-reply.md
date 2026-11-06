@@ -199,7 +199,7 @@ only when no background agent runs and no notification is queued, and yields
 its result there. The `submit_turn` reader therefore also runs once, at that
 end, and the nudge round it may start is the same one as before. A Stop with no
 `background_tasks`, and a harness whose Stop input has none (codex), asks as
-before. The chassis's `[deadline]` note, posted one minute before the process
+before. The chassis's `[deadline]` note, posted about five minutes before the process
 deadline (`BUGS.md` `L535`), may start a round: unlike `NUDGE_TEXT`, it tells
 the agent that a reply is due now, so a turn it reaches is not stale.
 
