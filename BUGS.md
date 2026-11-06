@@ -15,6 +15,7 @@
 
 ## What needs you
 
+- `L674` — `compose down` fails on a deleted fragment despite `required: false`; proposal.
 - `L673` — a long turn is killed at 30 min with no warning; 60 min + a wrap-up nudge, queued.
 - `L672` — a spend-limit failure: retry silently, one `#issues` notice to the operator; approved, queued after L670.
 - `L665` — `unpair` removes the account's denies from the paired identity's turns; needs sign-off.
@@ -448,6 +449,24 @@ Queued messages can therefore repeat the same warning while the condition holds.
 
 - **Test:** `TestFailureNoticePerChatAndClass` and `TestFailureNoticeRetriesFailedDelivery` (`routd/failure_notice_test.go`).
 - **Status:** fixed — routd suppresses notices per chat and failure class until a successful turn; failed delivery permits another attempt.
+
+## L674 — `docker compose down` fails on a deleted fragment although the include says `required: false` (2026-11-06, open)
+
+MEASURED 2026-11-06 during the sloth store move: after `services/extenddb.yml`
+(a catalog symlink, not a selected package, so `package rm` refused it) was
+moved away, the unit's `docker compose ... down --remove-orphans` failed on
+every start with `open /srv/data/arizuko_sloth/services/extenddb.yml: no such
+file or directory`, although the generated include carries `required: false`
+(BUGS L653's guard). The instance restart-looped 59 times until `generate` ran
+by hand and dropped the include. So L653's guard does not hold for `down` on
+this host's compose version.
+
+- **Severity:** medium (a removed fragment stops the instance)
+- **Scope:** compose generation (`compose/compose.go` include list) and the unit's `down` step
+- **Fix (proposal):** run `generate` before `down` in the unit (the generator
+  already rewrites the include list from the fragments on disk), or check
+  which compose version honours `required: false` for `down` and pin it.
+- **Status:** open
 
 ## L673 — a long turn is killed at 30 minutes with no warning, then posts "I ran out of time" (2026-11-06, open)
 
