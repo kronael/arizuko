@@ -15,6 +15,7 @@
 
 ## What needs you
 
+- `L672` — a turn failed on a spend limit is never retried after the limit clears; fix queued with L670.
 - `L665` — `unpair` removes the account's denies from the paired identity's turns; needs sign-off.
 - `L664` — `invite_create` mints `admin` the issuing folder cannot delegate; needs sign-off.
 - `L660` — a mention by reply engages only the reply chain, not the chat root; proposal, needs sign-off.
@@ -431,6 +432,24 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
   containment (decision 7, `ipc/ipc.go:2267`, `:2334`, `:2387`, `:2426`), and the
   `/root` issuer holds `admin` on `**`, the authority that answers a hold. The defect
   in the same area is who the root turn serves: `L666`.
+
+## L672 — a turn that fails on a model spend limit is never retried, so the message stays unanswered (2026-11-06, open)
+
+MEASURED 2026-11-06 on sloth: kronael's Discord mention at 19:26:10 in
+`discord:837270552959516682/837270552959516687` dispatched a `sloth/discord`
+turn that ended at 19:26:24 with "You've hit your monthly spend limit. Switch
+to another model to continue". The operator switched the instance to another
+token at about 19:40 and turns succeeded again (sloth/support 19:37, 19:43), but
+no turn for that chat ran again and the mention got no reply until an operator
+note re-asked it. The same holds for the 11 rhias/nemo failures at 17:49-17:52
+on krons. A limit failure is a condition that clears, not a bad request.
+
+- **Severity:** medium (a person's request is lost silently once the notice is sent)
+- **Scope:** routd dispatch failure handling (with L670's one-notice state)
+- **Fix (proposal):** classify a spend/usage-limit failure like Busy: leave the
+  batch un-advanced and retry it on the normal backoff; L670's per-chat notice
+  state already marks the chat as waiting on that condition.
+- **Status:** open
 
 ## ✅ FIXED 2026-11-06 8c262dcd4 L671 — `store enroll` scans without a page limit and the old store server runs out of memory (2026-11-06)
 
