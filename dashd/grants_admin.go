@@ -230,7 +230,7 @@ func (d *dash) handleGroupGrantAdd(w http.ResponseWriter, r *http.Request) {
 	// grant option, as on the MCP and REST faces (BUGS L658). A deny only
 	// restricts, inside the folder requireAdmin already bound.
 	if effect == "allow" {
-		if err := auth.Delegate(s, reviewerSub(r), []core.ACLRow{row}); err != nil {
+		if _, err := auth.CheckGrant(s, auth.Caller{Principal: reviewerSub(r)}, auth.Ask{}, auth.Mutation{Row: row}); err != nil {
 			http.Error(w, err.Error(), http.StatusForbidden)
 			return
 		}

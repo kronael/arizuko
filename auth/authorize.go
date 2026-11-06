@@ -85,27 +85,33 @@ type Policy struct {
 func ReadPolicy(s *store.Store, caller Caller) (Policy, objstore.Version, error) {
 	var p Policy
 	version, err := objstore.ReadConsistent(context.Background(), s.Obj(), store.OwnerScope(store.OwnerRoutd), func(context.Context) error {
-		p = Policy{caller: caller}
-		expanded, err := expandPrincipals(s, caller)
-		if err != nil {
-			return err
-		}
-		p.local, err = policyRows(s, expanded)
-		if err != nil {
-			return err
-		}
-		p.route, err = routePrincipals(s, caller)
-		if err != nil {
-			return err
-		}
-		for _, row := range defaultRows {
-			if anyPrincipalMatches(row.Principal, expanded) {
-				p.defaults = append(p.defaults, row)
-			}
-		}
-		return nil
+		var err error
+		p, err = readPolicy(s, caller)
+		return err
 	})
 	return p, version, err
+}
+
+func readPolicy(s *store.Store, caller Caller) (Policy, error) {
+	p := Policy{caller: caller}
+	expanded, err := expandPrincipals(s, caller)
+	if err != nil {
+		return Policy{}, err
+	}
+	p.local, err = policyRows(s, expanded)
+	if err != nil {
+		return Policy{}, err
+	}
+	p.route, err = routePrincipals(s, caller)
+	if err != nil {
+		return Policy{}, err
+	}
+	for _, row := range defaultRows {
+		if anyPrincipalMatches(row.Principal, expanded) {
+			p.defaults = append(p.defaults, row)
+		}
+	}
+	return p, nil
 }
 
 func (p Policy) matching(rows []core.ACLRow, action, scope string, params map[string]string) []core.ACLRow {

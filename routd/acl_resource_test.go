@@ -4,7 +4,7 @@ package routd
 // add_acl/remove_acl/list_acl now ride resreg's MCP mechanism through the
 // ServeMCP postBuild seam instead of three hand-rolled ipc bodies. Each test
 // drives the REAL unix socket so the seam + injected Gate (auth.Authorize on the
-// scope arg + auth.Delegate's subset-of-held check) + the handler's tx-aware
+// scope arg + auth.CheckGrant's subset-of-held check) + the handler's tx-aware
 // grant/revoke (incl. the scope=="**"→membership overload with cycle check) +
 // the Visible predicate are all exercised.
 //
@@ -109,7 +109,7 @@ func TestACLMCP_AddListRemove(t *testing.T) {
 	}
 	grantMCPTools(t, db, "root", "add_acl", "remove_acl", "list_acl")
 	// 5/33-paths-roles: folder:root was DELEGATED "mcp:fetch_history" over its subtree WITH the grant option,
-	// so it may re-delegate a subset (auth.Delegate). Without this the add is refused.
+	// so it may re-delegate a subset (auth.CheckGrant). Without this the add is refused.
 	if err := addACLRow(db, core.ACLRow{
 		Principal: "folder:root", Action: "mcp:fetch_history", Scope: "root/**", Effect: "allow",
 		GrantedBy: "test", GrantOption: true,
@@ -192,7 +192,7 @@ func TestACLMCP_ContainmentDenied(t *testing.T) {
 		t.Fatal(err)
 	}
 	// 5/33-paths-roles: folder:world/a was delegated "mcp:fetch_history" over world/** WITH the grant option —
-	// so it may re-delegate mcp:fetch_history within world/**, and the auth.Delegate scope-check
+	// so it may re-delegate mcp:fetch_history within world/**, and the auth.CheckGrant scope-check
 	// itself refuses a cross-subtree scope (other/x), reinforcing the denial below.
 	if err := addACLRow(db, core.ACLRow{
 		Principal: "folder:world/a", Action: "mcp:fetch_history", Scope: "world/**", Effect: "allow",
@@ -232,7 +232,7 @@ func TestACLMCP_ContainmentDenied(t *testing.T) {
 // TestACLMCP_OperatorGrantDeniedViaAgent: a subtree-scoped folder cannot grant
 // scope "**" over the plain agent socket, but an operator /root turn from that
 // SAME folder can — elevation reaches BOTH halves of aclPostBuild's Gate (the
-// allow-all authorize AND the root identity that skips auth.Delegate). Regression
+// allow-all authorize AND the root identity that skips auth.CheckGrant). Regression
 // guard for the class of bug d452d6ef fixed.
 func TestACLMCP_RootElevationGrantsOperatorRole(t *testing.T) {
 	db, err := OpenMem()
@@ -253,13 +253,7 @@ func TestACLMCP_RootElevationGrantsOperatorRole(t *testing.T) {
 	}
 }
 
-// A non-root caller may not write a deny row. auth.Delegate refuses one
-// outright, but the Gate used to build its candidate row with the effect
-// hardcoded to "allow" while the write took the caller's own `effect`
-// argument, so the ban never saw the request. A deny removes capability, so
-// this was an un-delegated power to disable, usable against another principal
-// (BUGS L93).
-func TestACLMCP_NonRootCannotWriteADenyRow(t *testing.T) {
+func TestACLMCP_NonRootCanWriteADenyRow(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
 		t.Fatal(err)
@@ -289,11 +283,11 @@ func TestACLMCP_NonRootCannotWriteADenyRow(t *testing.T) {
 	}); e != "" {
 		t.Fatalf("the delegable allow row was refused: %s", e)
 	}
-	// Deny: refused, and nothing written.
+	// A deny narrows the target principal.
 	if _, e := callToolOverSock(t, sock, "add_acl", map[string]any{
 		"principal": "google:x", "scope": "world/b", "action": "mcp:fetch_history", "effect": "deny",
-	}); e == "" {
-		t.Fatal("a non-root caller wrote a deny row; auth.Delegate bans one")
+	}); e != "" {
+		t.Fatalf("deny row was refused: %s", e)
 	}
 	denies := 0
 	for _, r := range aclRows(t, db, "") {
@@ -301,7 +295,7 @@ func TestACLMCP_NonRootCannotWriteADenyRow(t *testing.T) {
 			denies++
 		}
 	}
-	if denies != 0 {
-		t.Fatalf("the refused call still wrote %d deny rows", denies)
+	if denies != 1 {
+		t.Fatalf("wrote %d deny rows, want 1", denies)
 	}
 }

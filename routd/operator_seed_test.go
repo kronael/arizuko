@@ -25,9 +25,18 @@ func TestOperatorSeededWithGrantOption(t *testing.T) {
 	if err := st.AddMembership("google:op", "role:operator", "test"); err != nil {
 		t.Fatal(err)
 	}
-	if err := auth.Delegate(st, "google:op", []core.ACLRow{
+	if err := authDelegateForTest(st, "google:op", []core.ACLRow{
 		{Principal: "folder:acme/eng", Action: "mcp:send", Scope: "acme/eng"},
 	}); err != nil {
 		t.Fatalf("operator should delegate anything, got: %v", err)
 	}
+}
+
+func authDelegateForTest(s *store.Store, granter string, rows []core.ACLRow) error {
+	mutations := make([]auth.Mutation, len(rows))
+	for i, row := range rows {
+		mutations[i] = auth.Mutation{Row: row}
+	}
+	_, err := auth.CheckGrant(s, auth.Caller{Principal: granter}, auth.Ask{}, mutations...)
+	return err
 }

@@ -3,7 +3,7 @@ package routd
 // acl_resource.go — the acl tools on one resreg.Resource plus the injected
 // Gate (spec 5/16); routd owns the auth POLICY. Three semantics the shared
 // handler preserves: scope-containment (the Gate runs the 5/33-paths-roles evaluator on
-// the `scope` arg, then auth.Delegate subset-of-held for a non-root add, so
+// the `scope` arg, then auth.CheckGrant subset-of-held for a non-root add, so
 // "**" is reachable only from an operator/root grant); the operator-role
 // overload (scope "**" with the action OMITTED writes an acl_membership edge,
 // not an acl row — any named action at "**" is an ordinary row, and matching
@@ -66,7 +66,7 @@ func (s *Server) aclRESTGate(x resreg.Execution, _ string, _ map[string]string) 
 	// only a row it holds WITH the grant option (BUGS L658).
 	if x.Action == resreg.Action("add") && !auth.Resolve(x.Caller.Folder).IsRoot {
 		want := store.GrantDefaults(aclArgsRow(x.Args))
-		if err := auth.Delegate(s.db.store(), x.Caller.Sub, []core.ACLRow{want}); err != nil {
+		if _, err := auth.CheckGrant(s.db.store(), auth.Caller{Principal: x.Caller.Sub}, auth.Ask{}, auth.Mutation{Row: want}); err != nil {
 			return resreg.Errorf(http.StatusForbidden, "%v", err)
 		}
 	}
@@ -136,7 +136,7 @@ func (s *Server) aclHandler(ctx context.Context, x resreg.Execution) (any, error
 }
 
 // aclPostBuild mounts the acl tools on the agent socket with the Gate
-// (db.Authorize(mcp:) on the target scope + auth.Delegate subset-of-held on
+// (db.Authorize(mcp:) on the target scope + auth.CheckGrant subset-of-held on
 // add) and the turn's visibility view.
 func (s *Server) aclPostBuild(folder, callerSub string, authorize authorizeFn, visible func(string) bool, callerID auth.Identity) func(*mcpserver.MCPServer) {
 	res := s.aclResource()
@@ -155,14 +155,14 @@ func (s *Server) aclPostBuild(folder, callerSub string, authorize authorizeFn, v
 			return resreg.Errorf(http.StatusForbidden, "%s on %s: not permitted", name, target)
 		}
 		// 5/33-paths-roles delegation: a NON-root writer may only grant a row it HOLDS with
-		// the grant option (auth.Delegate). Root delegates anything.
+		// the grant option (auth.CheckGrant). Root delegates anything.
 		if x.Action == resreg.Action("add") && !callerID.IsRoot {
 			// The candidate MUST be the row grantACLInto will WRITE — same builder,
 			// same defaults. A hardcoded `allow` validated an allow row while the
 			// write took the caller's effect (BUGS L93); the same drift on `params`
 			// would let `mcp:t(repo=mine/*)` write the unnarrowed `mcp:t`.
 			want := store.GrantDefaults(aclArgsRow(x.Args))
-			if err := auth.Delegate(s.db.store(), callerSub, []core.ACLRow{want}); err != nil {
+			if _, err := auth.CheckGrant(s.db.store(), auth.Caller{Principal: callerSub}, auth.Ask{}, auth.Mutation{Row: want}); err != nil {
 				return resreg.Errorf(http.StatusForbidden, "%v", err)
 			}
 		}
@@ -239,11 +239,10 @@ func aclOperatorShape(r core.ACLRow) bool {
 }
 
 // grantACLInto buffers the grant so the mutation + audit row ride one batch.
-// It takes the ROW so the candidate the Gate hands auth.Delegate and the row
+// It takes the ROW so the candidate the Gate hands auth.CheckGrant and the row
 // this writes are one value. `params` is the `name=glob` narrowing (spec 5/32-acl-unified);
 // `grant_option` is 5/33-paths-roles's WITH GRANT OPTION, kept honest by the Gate: a
-// non-root writer passes auth.Delegate, whose grantableRows holds only rows the
-// caller itself holds WITH the option.
+// non-root writer passes auth.CheckGrant, which checks the caller's grant option.
 func (d *DB) grantACLInto(ctx context.Context, ws *store.WriteSet, row core.ACLRow) error {
 	grantedBy := row.GrantedBy
 	if grantedBy == "" {

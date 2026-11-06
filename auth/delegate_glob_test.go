@@ -3,7 +3,6 @@ package auth_test
 import (
 	"testing"
 
-	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/core"
 )
 
@@ -16,7 +15,7 @@ func TestDelegateGlobContainment(t *testing.T) {
 	t.Run("held a/??? does not cover a/[x]", func(t *testing.T) {
 		s := openMem(t)
 		addRowFull(t, s, row("folder:g", "mcp:x", "a/???", "allow", true))
-		if err := auth.Delegate(s, "folder:g", []core.ACLRow{row("folder:h", "mcp:x", "a/[x]", "allow", false)}); err == nil {
+		if err := delegateForTest(s, "folder:g", []core.ACLRow{row("folder:h", "mcp:x", "a/[x]", "allow", false)}); err == nil {
 			t.Fatal("a/[x] matches a/x, which a/??? does not hold")
 		}
 	})
@@ -24,7 +23,7 @@ func TestDelegateGlobContainment(t *testing.T) {
 		s := openMem(t)
 		addRowFull(t, s, row("folder:k", "mcp:y", "a/**", "allow", true))
 		addRowFull(t, s, row("folder:k", "mcp:y", "a/*/x", "deny", false))
-		if err := auth.Delegate(s, "folder:k", []core.ACLRow{row("folder:m", "mcp:y", "a/b/*", "allow", false)}); err == nil {
+		if err := delegateForTest(s, "folder:k", []core.ACLRow{row("folder:m", "mcp:y", "a/b/*", "allow", false)}); err == nil {
 			t.Fatal("a/b/* meets the denied a/b/x")
 		}
 	})
@@ -32,7 +31,7 @@ func TestDelegateGlobContainment(t *testing.T) {
 		s := openMem(t)
 		addRowFull(t, s, row("folder:k", "mcp:y", "a/**", "allow", true))
 		addRowFull(t, s, row("folder:k", "mcp:y", "a/b/x", "deny", false))
-		if err := auth.Delegate(s, "folder:k", []core.ACLRow{row("folder:m", "mcp:y", "a/c/*", "allow", false)}); err != nil {
+		if err := delegateForTest(s, "folder:k", []core.ACLRow{row("folder:m", "mcp:y", "a/c/*", "allow", false)}); err != nil {
 			t.Fatalf("disjoint scopes must pass: %v", err)
 		}
 	})

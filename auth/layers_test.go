@@ -59,7 +59,7 @@ func TestPolicyDefaultsAndIsolation(t *testing.T) {
 	if keys := auth.ShellEnvKeys(s, c, "w", []string{"SECRET"}); len(keys) != 0 {
 		t.Fatalf("operator wildcard grants secrets: %v", keys)
 	}
-	if err := auth.Delegate(s, c.Principal, []core.ACLRow{{Principal: "user:other", Action: "mcp:send", Scope: "w", Effect: store.EffectAllow}}); err != nil {
+	if err := authDelegateForTest(s, c.Principal, []core.ACLRow{{Principal: "user:other", Action: "mcp:send", Scope: "w", Effect: store.EffectAllow}}); err != nil {
 		t.Fatalf("operator cannot delegate: %v", err)
 	}
 }
@@ -98,4 +98,13 @@ func TestPolicyRefusesHeldScope(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+}
+
+func authDelegateForTest(s *store.Store, granter string, rows []core.ACLRow) error {
+	mutations := make([]auth.Mutation, len(rows))
+	for i, row := range rows {
+		mutations[i] = auth.Mutation{Row: row}
+	}
+	_, err := auth.CheckGrant(s, auth.Caller{Principal: granter}, auth.Ask{}, mutations...)
+	return err
 }
