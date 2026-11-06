@@ -432,6 +432,17 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
   `/root` issuer holds `admin` on `**`, the authority that answers a hold. The defect
   in the same area is who the root turn serves: `L666`.
 
+## ✅ FIXED 2026-11-06 5cb32d75a L92 — the HITL hold gate fails OPEN when the `acl` read fails (2026-08-24)
+
+`auth.CheckHold` logged and returned `false` when `policyRows` errored, so every
+`hold:mcp:<tool>` stopped gating until the read recovered, while Authorize
+failing closed refused the call and a hold that could not be RECORDED blocked it
+(`routd.holdGate`, `J3`). A failed `Ancestors` read was the same hole: it read as
+"no roles". Found by an oracle review of `specs/6/26` § Decision 5.
+
+- **Test:** `TestHoldGateBlocksWhenThePolicyReadFails` (`routd/hold_read_failure_test.go`), `TestMembershipReadFailureRefuses` (`auth/userscopes_test.go`).
+- **Status:** fixed — the owner signed off 2026-11-06 ("yes on all"). `Ancestors` and `CheckHold` return the read error; `Authorize`, `EffectiveActions`, `ShellEnvKeys` and `UserScopes` refuse on it; `holdGate` blocks the call and notifies, as for J3. `6/52` step 2.
+
 ## ✅ FIXED 2026-11-06 d50afcdcd L669 — dashd's group delete purges `acl` rows and edges after only `admin` on the folder (2026-11-06)
 
 FOUND by source reading at `a4e1cc97b`, Astra's third review of `6/52`; not
@@ -6348,34 +6359,6 @@ signs off should also say whether a reaction should ever spend a turn on its own
   is a bare emoji under a `<reply-to>` header enough? Nothing here needs a
   redesign or a product decision about spending a turn per emoji: (b) is a
   config row and (c) already ships.
-
-## L92 — the HITL hold gate fails OPEN when the `acl` read fails (2026-08-24, proposal)
-
-`auth.CheckHold` (`auth/authorize.go:392`) logs and returns `false` when
-`policyRows` errors:
-
-```go
-slog.Error("check hold: acl read failed; holding NOTHING", ...)
-return false
-```
-
-Nothing is held, and every `hold:mcp:<tool>` the operator configured stops
-gating until the read recovers. The comment argues it matches "Authorize's
-deny", but it does not: Authorize failing closed REFUSES the call, while
-CheckHold failing "open" LETS IT RUN. The two branches of `5/19` disagree with
-each other, too — a hold that cannot be RECORDED blocks the call anyway
-(`routd.holdGate`, BUGS `J3`), precisely so a storage failure cannot silently
-defeat the gate. A read failure defeats it silently.
-
-Found by an oracle review of the four-verdict design (`specs/6/26` § Decision
-5), not by an incident.
-
-**Proposal, not a fix.** Reversing it means an acl read error blocks every
-held-eligible tool call — an availability decision with a real blast radius,
-and the kind of cross-cutting change `CLAUDE.md` says needs sign-off. The two
-candidate shapes: return an error the ipc layer renders as a blocked call with
-a chat notice (mirrors `J3`), or keep failing open but alert loudly. Whoever
-signs off should also decide whether `5/19`'s two branches must agree.
 
 ## L86 — one Discord channel is three sessions, and a triggered message is never ambient for its siblings (2026-08-23, proposal)
 
