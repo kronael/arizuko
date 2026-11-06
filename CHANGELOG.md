@@ -13,6 +13,8 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+- `trip-computer` — the itinerary skill is the census workflow (five OSM-seeded tables, verified venue rows, trail and car-park facts from map data, no inline citations) and ships `scripts/` (`osm_census.py`, `osm_trails.py`, `mapyrc.py`, `page_check.py`).
+
 ## [v0.75.1] — 2026-11-06
 
 > arizuko v0.75.1 — @name starts a turn, filed issues reach the operator

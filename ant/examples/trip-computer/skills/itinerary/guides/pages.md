@@ -1,0 +1,175 @@
+# Pages — what each timeline item carries (Round 3)
+
+Markup, class names and block order: `web-deployment.md` (and the
+site's own `design.md` when it has one); copy an existing day page. This guide says what goes INTO
+the blocks. Every fact is a copy of a `db/` row (`census.md`).
+
+## Timeline
+
+- Chronological, top to bottom; the timeline is the master index.
+  Never "see options below" or separate sections.
+- Drive item: distance, time, then the arrival block (below) when the
+  car stops. Tolls exact or "None".
+- Stop item: name, map link; the text opens with the trip type and the
+  minutes ("Drive-up stop, 20 min." / "Walk-around loop, 1 h 20."), then
+  entry price, the two variants (below), the story box (below), per-item
+  `.map-links` last.
+- Meal item: § Meals below. A sight's `.map-links` row holds that stop's
+  pins and route only; food links live only in meal items.
+- Durations: photo stop 5–10 min · viewpoint + coffee 20–40 · church
+  15–45 · lunch 1–1.5 h · museum 1–2 h.
+- Order: group by area, uphill in the morning, lunch at the view,
+  closure days noted (Mondays), scenic over shortest when time allows.
+- Optional blocks after the last fixed stop and before the drive home,
+  marked "Optional", with the cut-off time in the `.highlight-box`
+  (daylight, closing); Dinner closes the timeline.
+- Facts, not judgements: "crowds arrive 11:00", not "go early".
+- `.route-overview` cost line: per person; parking per car with the fee
+  from the arrival block; entries exact; meals as a range.
+
+## Arrival by car
+
+Every item where the car stops ends with the arrival block. No field
+may be missing; no `db/parking.md` row → no stop (census first).
+
+```
+12:10 — Drive to <Town>, park at the town hall
+  9 km, 13 min
+  park: <Car park name>, <Street> 3 — 3.00/h, first 20 min free,
+  >90 places, asphalt, 210 m / 3 min on foot to the spa house —
+  if full: <Street> 2, 350 m / 5 min
+```
+
+- Car park: the row's name and address; mapy entity link and the Google drive
+  link to the car park, not to the sight.
+- Fee: exact, or `free`, with the trip day and hour covered; "~" for an
+  uncertain figure. The source stays in the row.
+- Capacity: a count, or `≈n` from the OSM outline.
+- Surface and stroller: asphalt / gravel / mud; steps or kerbs.
+- Walk: metres and minutes from walking directions, never straight-line.
+- Fallback: the next row when full; a free row if one exists.
+
+## Stop variants
+
+Every stop that involves parking gets both variants, each timed
+end-to-end so the day can be re-planned on the spot:
+
+```
+13:30 — <Castle>, drive-up (20 min)
+  park: 3-car spot at the gate (free) — if full, variant B
+13:30 — <Castle>, with the walk (55 min)
+  park: <Street>, town (free); green trail 0.8 km, +100 m, 25 min up,
+  15 min down at the group's pace; stroller no, carrier yes
+```
+
+- The `park:` line of each variant is the arrival block above.
+- Walk variant: marked path, OSM distance, climb, minutes at 3 km/h
+  + 15 min per 100 m, stroller yes/no, turnaround point.
+
+## Loops and hiking POIs
+
+- A sight with trails around it is published with a walk-around loop:
+  1. start and end = the parking row;
+  2. waypoints on the marked trails that circle the sight (relation ids
+     from `osm_trails.py`, viewpoints from `db/sights.md`);
+  3. `python3 ~/.claude/skills/itinerary/scripts/mapyrc.py routes.json` (mode `hike` =
+     mapy "Outdoor", follows marked trails; `foot` is the road-first
+     "Fast" profile) → URL; open it and read mapy's length and time;
+  4. `🥾 Loop:` line in the top `.map-links` with length, mapy time,
+     group-pace time, stroller yes/no, turnaround; the same link under
+     the stop's item.
+- A `hiking` row is never a bare stop: "<name> — short loop x km /
+  y min" and "long loop x km / y h", both route links, and the car park
+  row that starts them (`census.md` § Row).
+- The day's census POIs (count: `SKILL.md`) are listed with their kind
+  on or near the route; the group picks on the day.
+
+## Story
+
+Right under the stop's `.timeline-text`, an `.info-box`:
+```html
+<div class="info-box"><strong>Story.</strong> Built 1853–1880 for
+the founding family … <a href="https://en.wikipedia.org/wiki/…">Wikipedia</a> ·
+<a href="https://…">official site</a></div>
+```
+3–6 sentences: origin, history, why it matters. Verified facts only; no
+curiosities, anecdotes or colour. Text and links are the `story` and
+`refs` fields of the row, produced by `/find <poi>`. A story without
+links is removed before delivery.
+
+## No road prose
+
+When the item has a route link, the text is:
+`<distance>, <time>. <arrival facts: car park, fee, toilets, if full>.`
+Never narrate roads, turns or villages passed — the map carries the
+path. The same for walks: colour, length, surface, turnaround point,
+not "go left after the bridge".
+
+## Exposition
+
+- The plan says what to do, where, when, how much. No inline citations,
+  no "(estimate)" tails, no "one listing says", no "by the OSM outline",
+  no host, tool or agent names; an uncertain number is written with "~"
+  or "about".
+- Under the subtitle, one line:
+  `<p class="checked-line">Facts checked <date>; sources at the end of the page.</p>`
+- All sources once, in the `.source-note` at the end; the `db/` row
+  keeps the per-fact source for the next edit.
+- Two readers: the travellers on a phone in the car (plan text) and the next
+  agent (`db/` rows). Never mix the two on the page.
+
+## Meals — timeline items at their time
+
+- Four meal items per day, where they happen: `Breakfast` before
+  leaving, `Lunch` at the lunch stop, `Coffee` right after lunch or at
+  the café stop, `Dinner` after the return. Never a separate Food
+  section, never a café inside a sight's item (a café inside a walk
+  item, pizza next to a spring walk).
+- Each meal item = `timeline-date`, optional one-line text (walk from
+  the car park, cheap fallback), then `<ul class="food-list">` from
+  `db/food.md` (bakeries → Breakfast, cafés → Coffee, restaurants on the
+  route → Lunch, near home → Dinner). Never empty when the census has rows.
+- One `<li>` per place, at most 10 words before the first `·`:
+  `Name — what it is, open to 18:00 · Google 4.6 · <a href="tel:+00…">+00 …</a> · <a href="…/maps/place/…">google</a> · <a href="…source=osm&id=…">mapy</a>`
+  Links in that order (`mapy-links.md` § By kind); phone missing after
+  the Google check → `phone: not found`. Address, hours, price and
+  counts stay in the row.
+- Rating = the platform that was opened + score. `unrated` only after
+  Google Maps was opened and showed no rating (a café
+  "unrated"; Google had 4.5).
+- Select, do not list: the best-rated venues AT the spot where the meal
+  happens (the park café for a park walk, the square for a town lunch),
+  sorted by rating; caps Lunch 3, Breakfast 2, Coffee 2, Dinner 2.
+  Breakfast and Dinner follow the day's route, not the previous page
+  (three pages carried the same four lines). Cost: three
+  cafés, none in the park walked.
+- Open-today proof in EVERY line ("open to 18:00", "from 7:00"):
+  Google's hours for the trip date, the venue website / Facebook, or a
+  call. A card with a rating but no hours is unconfirmed: never first,
+  and in a spa or mountain town assume seasonal closure Nov–Mar until
+  confirmed. Open at the meal time: a café from 10:30 is not Breakfast
+  at 8:45. Cost: a café with Google 4.8, no hours shown,
+  listed first — closed for the season on arrival.
+- The Google entry matches the row's phone or address, not the name
+  alone: a guesthouse and its restaurant are two entries (a restaurant
+  and its guesthouse). Details: `mapy-links.md` § Disambiguation.
+- A spa town, promenade or town stroll ALWAYS has a Coffee item.
+
+## On the day — the group changes the plan
+
+Edit the page in place; Rounds 2–4 run on the changed items only.
+
+- Start time moves ("rebuild Fri start at 11:30"): keep every duration,
+  shift every time, recompute the cut-off line, drop the optional blocks
+  that now end after sunset.
+- A place is closed on the date (call, Google, official site): the next
+  row of the same table by rating, with its car park; the swap goes in
+  `<trip>/CLAUDE.md`; the closed row keeps `closed <date>`.
+- Rain: one "Rain plan" timeline item near the end from the day's
+  `indoor` sights or `kids.md` fallbacks — hours on the date, tickets.
+- Child asleep in the car: the drive-up variant of the next stop; the
+  walk variant waits. Both times are already on the item.
+- The base moves: Round 0 around the new base (`--also` for the old
+  stops), `km` recomputed; the pages keep their stops.
+- A forecast host is down: the last forecast with its date in the
+  weather box; never the hosts tried.

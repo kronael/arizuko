@@ -8,31 +8,20 @@
 ├── day1.html           # Day itinerary
 ├── day2.html
 ├── ...
-├── sites.html          # Landmarks guide
-├── cafes.html          # Cafe database
-└── trips.html          # Day trip fragments
+└── places.html         # The census, published (census.md)
 ```
 
 ## Consistency Checks
 
-Run after EVERY change:
-
-**Title = H1**
-```bash
-cd ~/public_html/<dest>
-for f in *.html; do
-  title=$(grep -m1 '<title>' "$f" | sed 's/.*<title>\(.*\)<\/title>.*/\1/')
-  h1=$(grep -m1 '<h1>' "$f" | sed 's/.*<h1>\(.*\)<\/h1>.*/\1/')
-  if [ "$title" != "$h1" ]; then
-    echo "❌ $f: title='$title' vs h1='$h1'"
-  fi
-done
-```
+Run `scripts/page_check.py` after EVERY change (`checks.md`). It reads
+these classes: `timeline-date` (`HH:MM — <title>`), `food-list`,
+`checked-line`, `source-note`, `info-box`, `map-links`; the stylesheet
+defines them.
 
 **Manual Checks:**
 - Index card headers match page titles exactly
 - Index card descriptions match day page content
-- Map links have coordinates (`&x=&y=&z=` mandatory)
+- Map links follow `mapy-links.md` (no `?q=`)
 - Timeline timing realistic (no overlaps)
 - Cross-references valid (Plan A ↔ Plan B)
 - Transport info consistent across mentions

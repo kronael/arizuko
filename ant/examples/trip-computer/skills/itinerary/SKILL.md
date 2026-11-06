@@ -1,206 +1,150 @@
 ---
 name: itinerary
-description: Travel planning and destination research for one region at a time. Use for trip questions ("what to see in X", "plan trip to Y"), destination highlights, itineraries, routes, maps, restaurants, cafes, attractions, day schedules, sightseeing planning.
+description: >
+  Plan trips and day itineraries from a verified place database: census
+  of sights, restaurants, car parks and trails around the base, then day
+  pages with timelines, map links and routes. USE for "plan a trip to X",
+  "what to see near Y", "suggest trips for Friday", "build the day page",
+  "lunch options", "which trail", "walk-around loop", Google Maps or
+  mapy.com links the user shares. NOT for weather forecasts alone (use
+  weather) or car buying (use find-car).
+user-invocable: true
 ---
 
-# Itinerary Planning
+# Itinerary
 
-A new region needs fresh research: sources, schedules, prices and coordinates from
-another trip do not carry over. Save research in `~/tmp/`, never reuse it blind.
+One trip = `~/workspace/trips/<trip>/` (`db/` tables, `CLAUDE.md` with
+decisions and vetoes) + `~/public_html/<trip>/` (pages). A place is on a
+page only as a copy of a `db/` row that has a source. Page markup and
+style are not here: `guides/web-deployment.md`.
 
-## 3-Round Process
+## Process
 
-**Round 1: User Questioning (ALWAYS first)**
-- Ask preferences: pace, interests, budget (<€15 default), dietary needs
-- Gather themes: areas heard about, must-visit spots
-- Confirm constraints: mobility, time, accommodation location
-- Send the questions as a normal chat message (never AskUserQuestion)
+| round | do | guide |
+| --- | --- | --- |
+| 0 Census | OSM skeleton → the user's links → mapy.com → Google Maps → TripAdvisor → official sites → tourist office → trail data → score → `places.html` | `guides/census.md` |
+| 1 Ask | what `<trip>/CLAUDE.md` and `~/users/` do not answer: pace, interests, budget, food, child age and gear, car, dates, start time — one chat message, 3–4 questions | — |
+| 2 Enrich | for the rows a day uses: hours ON the date, prices, ratings per platform, phone, address, place links per kind, car-park fields, weather (`/weather`), story via `/find` | `guides/census.md` § Row, `guides/mapy-links.md`, `guides/pages.md` § Story |
+| 3 Build | trip type per stop, timeline, arrival block, variants, loops, meal items, routes via `mapyrc.py` | `guides/pages.md`, `guides/mapy-links.md` |
+| 4 Check | `page_check.py` exit 0 (its output goes in the delivery), venue fields, trail facts, live 200 | `guides/checks.md` |
 
-**Round 2: Deep Research (MANDATORY before planning)**
+Round 0 runs before the first suggestion. Rounds 2–4 repeat on every
+rebuild. A change on the day (start time, closure, rain, a sleeping
+child, a new base): `guides/pages.md` § On the day. Bookings (cars,
+rooms, tours): `guides/bookings.md`.
 
-**Weather:** Use `/weather` skill — NEVER skip
-- Cross-check 2 official sources (the national met institute vs yr.no)
-- Report: temps, rain timing, wind, sea conditions
+## Trip types — pick one per stop; the page shows what the type needs
 
-**Restaurants (3-5 per meal):**
-- ALWAYS aggregate reviews: Google Maps, TripAdvisor, Restaurant Guru, Yelp
-- Report ALL ratings: "Google 4.3/5 (500) | TripAdvisor 4.5/5 (#12 of 150)"
-- ONLY recommend 4.0+ averaged (cafes: 4.5+)
-- Flag <100 reviews or conflicting ratings (>0.5 difference)
-- Research via agent-browser, save to `~/tmp/<dest>-restaurants-database.md`
+| type | what the page must contain |
+| --- | --- |
+| drive-up stop | arrival block (`guides/pages.md` § Arrival by car), minutes on site |
+| stop + short walk | lower car park, marked path up, OSM distance, climb, minutes |
+| walk-around loop | circular foot route from the car park around the sight on mapy.com (`mapyrc.py`, mode hike): length, child-pace time, stroller yes/no |
+| town stroll | arrival block for the start car park, the loop on foot with sights in order, Coffee item, toilets |
+| day loop by car | roundtrip route (mapy + Google), stops in road order, fuel, toilets |
+| indoor / rain day | hours on the date, tickets, booking, a second indoor option |
+| on-the-way stop | minutes added to the drive, arrival block, exit back onto the route |
 
-**Cafes:**
-- Build 50-100+ database with multi-platform ratings
-- Pick 3 best ON route (NEVER detours)
-- Save to `~/tmp/<dest>-cafes-<area>.md`
+`kind` in `sights.md` picks the type: hiking → walk-around loop or stop +
+short walk; town → town stroll; indoor → indoor / rain day; roadside →
+drive-up or on-the-way. The type and the minutes open the stop's text
+("Walk-around loop, 1 h 20.") so the group sees it.
 
-**Attractions:**
-- Hours (check seasonal variations: summer vs winter)
-- **ALWAYS state which schedule applies TODAY** (check current date vs seasons)
-- Closure days, renovations (verify current year)
-- Entry prices (exact, NOT estimates)
-- Report: "Open today: HH:00-HH:00 (summer schedule)" NOT just "9-18 winter, 9-20 summer"
+## ALWAYS
 
-**Transport:**
-- Google Maps for time estimates
-- Exact pricing via websites: "€1.55" NOT "~€2"
-- Tolls status: "None (free roads)" OR "€4.20 total (A8)"
-
-**Map Links:**
-- See `guides/mapy-links.md` for mapy.com format
-- MANDATORY: `&x=&y=&z=` coordinates for mobile app
-- Use agent-browser to extract coords, NEVER guess
-
-**Round 3: Build & Deploy**
-- Create day pages with timeline, maps, food, transport
-- Deploy to `~/public_html/<destination>/`
-- Run consistency checks (see `guides/web-deployment.md`)
-
-## Timeline Structure
-
-**REQUIREMENTS:**
-- ALL content flows chronologically (top-to-bottom)
-- Restaurants/cafes/attractions inline or `<details>` in timeline
-- Accordion: expanding one `<details>` collapses others in same timeline-item
-- NEVER "see options below" or separate sections
-
-**Drive/Transfer:**
-- Distance, time, route link (Google Maps)
-- Tolls status (exact amount or "None")
-
-**Attractions:**
-- Name + map link, entry price, time needed
-- Collapsible details: what to see, hours, tips
-
-**Meals:**
-- Walking directions to area
-- 3-6 restaurant options as `<details>`
-- Light outline style: `border: 1px solid var(--border)`
-- Include: price range, dishes, multi-platform ratings, map link
-
-**Timing:**
-- Photo stop: 5-10 min
-- Viewpoint + coffee: 20-40 min
-- Church: 15-45 min
-- Lunch/Dinner: 1-1.5h
-- Museum: 1-2h
-
-**Communication:**
-- NEVER "late/early" — state facts: "Crowds arrive 11am", "Best light morning"
-
-## Route Optimization
-
-ALWAYS:
-- Group by area (minimize backtracking)
-- Uphill morning, downhill after lunch
-- Lunch at scenic viewpoint
-- Dinner near accommodation/transit
-- Note closure days (Mondays common)
-- Choose scenic over shortest
-
-## Route Overview Box
-
-ALWAYS at top of day pages:
-```html
-<div class="route-overview">
-  <strong>📍 Route:</strong> Start → Stop1 → Stop2 → End<br>
-  <strong>⏱️ Total time:</strong> Full day (9:00-21:00) or Half day (14:00-19:00)<br>
-  <strong>🚗 Distance:</strong> ~XX km round trip<br>
-  <strong>🛣️ Tolls:</strong> None (free roads) OR €X.XX total (A8 motorway)<br>
-  <strong>💰 Total cost per person:</strong> €XX-XX (parking + entries + meals + transport)
-</div>
-```
-
-**Cost breakdown:**
-- Per person (not per group)
-- Itemize: parking + entries + meals + transport
-- Ranges for meals (€35-55), exact for fixed costs (€1.50)
-
-## Car Rentals
-
-ALWAYS search: rentalcars.com, kayak.com, momondo.com via agent-browser
-- Compare local vs international
-- Extract: price/day, total, excess, insurance, mileage, fuel policy
-- Check Google Maps ratings + Trustpilot
-- NEVER recommend <3.5/5 without warning
-- Present 3-5 options: budget, mid-range, best value (4.0+ rating)
-
-Format: `Company | Model | Price/day | Excess | Rating | Notes`
-
-## Accommodation
-
-Search: Booking.com, Airbnb, Hostelworld
-- Filter: walkable (max 20min), 8.0+/4.5+, per budget
-- Present 3-5 options with location advantage
-
-Format: `Name | Type | Price/night | Rating | Location | Why`
-
-## Activities/Tours
-
-Search: GetYourGuide, Viator, provider websites
-- Compare: group vs private, skip-line vs regular
-- Extract: price, duration, included, cancellation, rating
-
-Format: `Activity | Provider | Price | Duration | Included | Rating`
-
-## Web Deployment
-
-Deploy to `~/public_html/<destination>/`
-
-**Pre-delivery Checklist (MANDATORY):**
-```bash
-# 1. Every restaurant/cafe/attraction has map link
-grep -L 'mapy.com\|google.com/maps' *.html | grep -E 'day|plan'
-
-# 2. Every venue has price info
-grep -L 'Price:\|€' *.html | grep -E 'day|plan'
-
-# 3. Title = H1 consistency
-for f in *.html; do
-  title=$(grep -m1 '<title>' "$f" | sed 's/.*<title>\(.*\)<\/title>.*/\1/')
-  h1=$(grep -m1 '<h1>' "$f" | sed 's/.*<h1>\(.*\)<\/h1>.*/\1/')
-  [ "$title" != "$h1" ] && echo "❌ $f"
-done
-```
-
-**NEVER deliver without:**
-- ✅ Map link on EVERY restaurant, cafe, brewery, attraction
-- ✅ Price info on EVERY venue (exact or range)
-- ✅ Address on venues where helpful
-- ✅ Hours if relevant (cafes, museums)
-- ✅ Title = H1 on every page
-
-See `guides/web-deployment.md` for:
-- HTML template
-- Design rules
-- Cross-reference validation
-
-See `guides/mapy-links.md` for:
-- Map link format
-- Coordinate extraction
+- Run the census before the first suggestion; the radius covers every
+  planned stop (`census.md` step 1). Cost: four sights within 8 km of
+  the base missed until the user sent links; a town at 11.4 km (radius
+  10) had no car-park row.
+- Resolve every map link the user sends into a row before other work.
+- Copy venue facts from the row; every venue carries address, phone,
+  place links, website — or "not found" written out. Cost: cards with a
+  name and a rating only.
+- Take trail colour, length, surface and car-park fee from map data
+  (`osm_trails.py`, mapy.com). Cost: trail colour and car-park fee
+  published from a blog, wrong.
+- Open Google Maps in the browser for every venue (consent cookies:
+  `mapy-links.md` § Disambiguation); drop "permanently / temporarily
+  closed"; match the entry to the row by phone or address — a
+  guesthouse and its restaurant are two entries. Cost: two venues
+  recommended were closed; a restaurant linked to its guesthouse.
+- Name the platform a number came from. Cost: TripAdvisor
+  snippets labelled Google — "how are you checking Google Maps if you
+  can't reach it?".
+- Precheck egress before research; on a refusal send the exact
+  `network_allow` ask at once (`census.md` § Egress). Cost: mapy.com
+  found outside egress after the page was live.
+- Where the car stops: arrival block from the parking row, then two
+  timed variants, drive-up and with a walk (`pages.md`). Cost:
+  a castle with one 3-car spot at the gate, no plan B.
+- A hiking POI = short loop + long loop as mapy.com hike routes; a sight
+  with trails around it gets a walk-around loop (`pages.md` § Loops).
+  Cost: the castle page had a point, not a loop.
+- At least five census POIs per day page, each with its kind as the
+  first words of its text. Cost: "three POIs is not a day".
+- Every POI on a page gets a story block with reference links from
+  `/find` — verified facts only (`pages.md` § Story).
+- A place link opens the place's own entry, by kind (`mapy-links.md`):
+  food, cafés, museums, shops → Google place first, then mapy entity;
+  trails, rocks, viewpoints, car parks → mapy entity first, then OSM
+  object; a GPS pin (`source=coor`) only when no entry exists. Links
+  under every timeline item; roundtrip and walk routes from `mapyrc.py`
+  in the top box. Cost: `?q=` pins opened on the wrong place;
+  GPS pins showed "Position on the map" instead of the venue.
+- Meals are timeline items at their time — Breakfast, Lunch, Coffee,
+  Dinner — each a `<ul class="food-list">` of the best-rated venues AT
+  that spot, open at that hour, caps Lunch 3 / Breakfast 2 / Coffee 2 /
+  Dinner 2; one `<li>` ≤ 10 words + `Google x.x` + tel link +
+  `google · mapy` (`pages.md` § Meals). Cost: pizza next to a
+  spring walk; three cafés, none in the park walked.
+- Open-today proof in every meal line ("open to 18:00": Google hours ON
+  the date, the website, or a call). No hours = unconfirmed, never first;
+  a spa or mountain town Nov–Mar = seasonal closure until confirmed.
+  Cost: a café with Google 4.8 and no hours, listed first —
+  closed for the season on arrival.
+- A rating = the platform that was opened + score; `unrated` only after
+  Google Maps was opened and showed none. Cost: a café
+  "unrated", Google had 4.5.
+- State hours ON the trip date; prices exact; count, date and source
+  stay in the row.
+- Keep decisions and vetoes in `~/workspace/trips/<trip>/CLAUDE.md`, never
+  under `~/public_html/` (that tree is public). Once the user decides, the
+  day page is one plan. Cost: an options page for a day the user had
+  already decided.
+- Send the result in the chat; the page URL alone is not a delivery.
 
 ## NEVER
 
-- Skip user questioning
-- Estimate pricing (ALWAYS exact)
-- Use WebSearch for weather
-- Choose shortest over scenic
-- Skip 3+ restaurant research per meal
-- Guess coordinates/hours
-- Use mapy.cz short links or search-only URLs
-- Use mapy.cz for car/transit routing (use Google Maps)
-- Manually construct map URLs
-- Put "Why This Route Works" on user-facing pages (planning artifact only)
-- Treat "book in advance" as blocker
-- Recommend <4.0 avg restaurant rating
+- Propose a place that is not a `db/` row with a source.
+- Guess coordinates, hours, phones or prices.
+- Write "park at X" without fee, capacity, walk time and fallback.
+- Hand-write an `rc=` route string, a short link, or a `?q=` pin; build
+  a mapy `source=osm&id=` from an OSM id (mapy's id is its own).
+- Use mapy.com for car routing without the Google route beside it.
+- Recommend a restaurant under 4.0 (café 4.5) except as a labelled
+  fallback.
+- Put a café or restaurant inside a sight's item or `.map-links` row;
+  a link row holds one stop's pins and route only. Cost:
+  "why is pizza next to the spring walk".
+- Narrate the road when a route link exists. Cost: three
+  pages of "east on road 8 through X" nobody read.
+- Cite sources inline in plan text or add "(estimate)" tails; one
+  "Facts checked <date>" line and the `.source-note` carry them
+  (`pages.md` § Exposition). Cost: 4,400 chars stripped.
+- Write a story from memory or copy a blog paragraph.
+- Put planning notes ("why this route works"), host or tool names, or an
+  agent's name on a user-facing page. Cost: a weather box
+  listed five refused APIs; a source note named the agent's model.
+- Deliver while `page_check.py` fails.
+- Treat "book in advance" as a reason to drop a place.
+- Re-propose a vetoed or already visited place.
 
 ## Files
 
-Save research to `~/tmp/`:
-- `<dest>-transport-research.md`
-- `<dest>-cafes-<area>.md`
-- `<dest>-restaurants-database.md`
-
-Supporting guides:
-- `guides/mapy-links.md` — Map link construction
-- `guides/web-deployment.md` — HTML templates, consistency checks
+- `guides/census.md` — workflow, five tables, row fields, rating systems, egress
+- `guides/pages.md` — what each timeline item carries: arrival, variants, loops, story, meals, exposition
+- `guides/mapy-links.md` — place-link order per kind, disambiguation, pin and route URLs
+- `guides/checks.md` — pre-delivery checklist: `page_check.py`, venues, trails, page
+- `guides/bookings.md` — car rental, accommodation, tours
+- `guides/web-deployment.md` — page skeleton, classes `page_check.py` reads
+- `scripts/` (`~/.claude/skills/itinerary/scripts/`) — `osm_census.py`, `osm_trails.py`, `mapyrc.py`, `page_check.py` (`--help`)
