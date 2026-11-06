@@ -432,7 +432,7 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
   `/root` issuer holds `admin` on `**`, the authority that answers a hold. The defect
   in the same area is who the root turn serves: `L666`.
 
-## ✅ FIXED 2026-11-06 fda902913 L669 — dashd's group delete purges `acl` rows and edges after only `admin` on the folder (2026-11-06)
+## ✅ FIXED 2026-11-06 d50afcdcd L669 — dashd's group delete purges `acl` rows and edges after only `admin` on the folder (2026-11-06)
 
 FOUND by source reading at `a4e1cc97b`, Astra's third review of `6/52`; not
 probed. `handleGroupDelete` checks `requireAdmin(folder)`
