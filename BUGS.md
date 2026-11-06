@@ -447,6 +447,7 @@ Queued messages can therefore repeat the same warning while the condition holds.
 
 - **Test:** `TestFailureNoticePerChatAndClass` and `TestFailureNoticeRetriesFailedDelivery` (`routd/failure_notice_test.go`).
 - **Status:** fixed — routd suppresses notices per chat and failure class until a successful turn; failed delivery permits another attempt.
+
 ## L672 — a turn that fails on a model spend limit is never retried, so the message stays unanswered (2026-11-06, open)
 
 MEASURED 2026-11-06 on sloth: kronael's Discord mention at 19:26:10 in
