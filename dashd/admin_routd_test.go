@@ -46,7 +46,6 @@ func splitAdminDash(t *testing.T, adminSub string) (*dash, objstore.Store) {
 		t.Fatal(err)
 	}
 	d := &dash{routd: routd, groupsDir: groupsDir, routdURL: stubRoutd(t, routd)}
-	withRuned(d, stubRuned(t, http.StatusOK, nil))
 	return d, routd
 }
 
@@ -94,20 +93,6 @@ func TestGrantList_ReadsRoutdV1(t *testing.T) {
 	}
 	if !strings.Contains(w.Body.String(), "carol@x") {
 		t.Errorf("grants page missing routd.db row carol@x: %s", w.Body.String())
-	}
-}
-
-// TestGroupDelete_TargetsRoutdDB: deleting a group removes the row from routd.db.
-func TestGroupDelete_TargetsRoutdDB(t *testing.T) {
-	d, routd := splitAdminDash(t, "alice@x")
-	mux := newMux(d)
-	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, adminReq("POST", "/dash/groups/team/delete", "", "alice@x"))
-	if w.Code != http.StatusSeeOther {
-		t.Fatalf("POST delete = %d body=%q", w.Code, w.Body.String())
-	}
-	if hasFolder(t, routd, "team") {
-		t.Error("the group survived its own delete in routd.db")
 	}
 }
 

@@ -684,7 +684,7 @@ func TestDeleteGroup_CascadesRoutes(t *testing.T) {
 		{Seq: 4, Match: "room=5", Target: "atlaswhatever"},
 	})
 
-	if _, _, err := db.DeleteGroup("atlas"); err != nil {
+	if _, _, err := db.store().DeleteGroup("atlas"); err != nil {
 		t.Fatal(err)
 	}
 	if db.GroupExists("atlas") {
@@ -1214,7 +1214,7 @@ func TestDeleteGroup_CascadesTasks(t *testing.T) {
 		}
 	}
 
-	if _, _, err := db.DeleteGroup("atlas"); err != nil {
+	if _, _, err := db.store().DeleteGroup("atlas"); err != nil {
 		t.Fatal(err)
 	}
 

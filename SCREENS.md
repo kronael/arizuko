@@ -646,8 +646,8 @@ p.dim: Unchecked skills are disabled on next agent run.
 
 <details>
   <summary>Danger zone</summary>
-  <form method=post action=/dash/groups/{folder}/delete onsubmit="return confirm(...)">
-    [button.btn-danger: delete group]
+  <form method=post action=/dash/groups/{folder}/delete>
+    [button.btn-danger: how to delete this group]
   </form>
 </details>
 ```
@@ -662,8 +662,8 @@ p.dim: Unchecked skills are disabled on next agent run.
 #### Actions
 
 - Save form → POST /dash/groups/{folder}/settings → redirect back
-- Delete group → POST /dash/groups/{folder}/delete (confirm JS dialog)
-  removes DB row + purges ACL + routes + best-effort rm of groups dir
+- Delete group → POST /dash/groups/{folder}/delete
+  removes nothing; answers 409 with `arizuko group -i <instance> rm <folder>`
 - Open workspace links → /dav/{folder}/ in new tab
 - Manage grants → sub-page
 - Browse tools → sub-page

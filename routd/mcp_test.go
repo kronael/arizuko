@@ -200,3 +200,28 @@ func TestRegisterGroup_RollsBackOnlyWhatItCreated(t *testing.T) {
 		}
 	}
 }
+
+// The rollback deletes the one groups row this call wrote and nothing under
+// it: a deny an operator placed under the folder before it existed stays
+// (BUGS L669).
+func TestRegisterGroup_RollbackLeavesAnOperatorDeny(t *testing.T) {
+	d := memDB(t)
+	srv := &Server{db: d, groupsDir: t.TempDir()}
+	deny := core.ACLRow{Principal: "google:bob", Action: "mcp:send", Scope: "acme/**", Effect: "deny"}
+	if err := d.store().PutACLRow(deny); err != nil {
+		t.Fatal(err)
+	}
+	dropEntity(t, d, store.Routes)
+
+	if err := srv.registerGroup("telegram:group/77", core.Group{Folder: "acme"}); err == nil {
+		t.Fatal("the route insert reported success")
+	}
+
+	if d.GroupExists("acme") {
+		t.Error("the rollback left the groups row it wrote")
+	}
+	rows, err := d.store().ListACLByScope("acme/**")
+	if err != nil || len(rows) != 1 {
+		t.Errorf("the rollback removed the operator's deny: %v %v", rows, err)
+	}
+}

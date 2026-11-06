@@ -221,7 +221,7 @@ Tokens and access:
 
 Held calls:
 
-- The chat verdicts `/approve`, `/reject` and `/always` resolve at ingress, including the native approval buttons. They reach a held call while its agent turn waits. The sender needs admin on the folder of the held call.
+- The chat verdicts `/approve`, `/reject` and `/always` resolve at ingress, including the native approval buttons. They reach a held call while its agent turn waits. The sender needs admin on the folder of the held call. `/always` is offered only for a tool that declares keys to pin (today `like`); on any other tool it is refused.
 - `pending_actions` has a REST face: `GET /v1/pending_actions`, `POST /v1/pending_actions/{id}/approve` and `POST /v1/pending_actions/{id}/reject`. It has no face on the agent socket, because an agent that could approve would approve its own call. Both faces resolve through `resolveHoldInto`. The REST gate requires `pending_actions:read` or `pending_actions:write`, and only `service:dashd` holds them.
 
 Tasks:

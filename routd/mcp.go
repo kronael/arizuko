@@ -216,13 +216,13 @@ func toInviteInfo(inv Invite) ipc.InviteInfo {
 	}
 }
 
-// registerGroup persists the group, adds a room-matched default route (rolling
-// the group row back on a failed insert so a route-less orphan is never left),
+// registerGroup persists the group, adds a room-matched default route (deleting
+// the group row it wrote on a failed insert so a route-less orphan is never
+// left; nothing under the folder goes with it),
 // then git-inits the group dir. The jid supplies the route's room literal.
 func (s *Server) registerGroup(jid string, g core.Group) error {
-	// Whether the folder was ALREADY there decides what a rollback may undo:
-	// PutGroup upserts, and the purge is a subtree delete that takes the
-	// folder's children with it (BUGS L245).
+	// Whether the folder was ALREADY there decides whether a rollback may
+	// delete its row: PutGroup upserts (BUGS L245).
 	existed := s.db.GroupExists(g.Folder)
 	// An existing folder keeps its row: PutGroup writes container_config from
 	// g.Config, and a registration carries none, so an upsert would wipe the
@@ -238,7 +238,7 @@ func (s *Server) registerGroup(jid string, g core.Group) error {
 			// A rollback that ALSO fails leaves the orphan this rollback exists
 			// to prevent, and the next register sees existed==true; the caller
 			// gets both facts (BUGS L343).
-			if _, _, rerr := s.db.DeleteGroup(g.Folder); rerr != nil {
+			if rerr := s.db.DeleteGroupRow(g.Folder); rerr != nil {
 				return fmt.Errorf("add route for %s: %w; the group row is still there: %w",
 					g.Folder, err, rerr)
 			}

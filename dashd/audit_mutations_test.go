@@ -153,40 +153,6 @@ func TestRouteTokenRevoke_Audited(t *testing.T) {
 	}
 }
 
-func TestGroupDelete_Audited(t *testing.T) {
-	d, routd := splitAdminDash(t, "alice@x")
-	mux := newMux(d)
-	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, adminReq("POST", "/dash/groups/team/delete", "", "alice@x"))
-	if w.Code != http.StatusSeeOther {
-		t.Fatalf("POST delete = %d body=%q", w.Code, w.Body.String())
-	}
-	if hasFolder(t, routd, "team") {
-		t.Fatalf("group not deleted")
-	}
-	if got := auditActor(t, d, "group.delete"); got != "alice@x" {
-		t.Errorf("group.delete actor_sub = %q, want alice@x", got)
-	}
-}
-
-// The delete cascade and its audit row share one transaction, so a failed purge
-// cannot leave an audit row claiming a delete that was rolled back. Deleting a
-// folder whose child row blocks the cascade must leave audit_log untouched.
-func TestGroupDelete_AuditRollsBackWithMutation(t *testing.T) {
-	d, routd := splitAdminDash(t, "alice@x")
-	before := len(auditRowsFor(t, routd, "group.delete"))
-	mux := newMux(d)
-	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, adminReq("POST", "/dash/groups/nosuchfolder/delete", "", "alice@x"))
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("delete missing folder = %d, want 404", w.Code)
-	}
-	after := len(auditRowsFor(t, routd, "group.delete"))
-	if after != before {
-		t.Errorf("audit rows for a delete that did not happen: %d -> %d", before, after)
-	}
-}
-
 // Route update and delete record the operator, like every other mutation here;
 // a handler that emits its own row as the daemon ("rest:dashd") fails these.
 func TestRouteDelete_Audited(t *testing.T) {

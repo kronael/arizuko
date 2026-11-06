@@ -343,9 +343,9 @@ func (d *dash) handleGroupSettings(w http.ResponseWriter, r *http.Request) {
 	_, _ = fmt.Fprintf(w, `<p><a href="/dash/groups/%s/tools">Browse tools &rarr;</a></p>`, folderPath(folder))
 
 	_, _ = fmt.Fprintf(w, `<details><summary>Danger zone</summary><div style="margin-top:.5rem">`+
-		`<form method="post" action="/dash/groups/%s/delete" onsubmit="return confirm('Delete group %s? Routes, sessions, files remain on disk; the DB row is removed.')">`+
-		`<button type="submit" class="btn-danger">delete group</button></form>`+
-		`</div></details>`, folderPath(folder), esc(folder))
+		`<form method="post" action="/dash/groups/%s/delete">`+
+		`<button type="submit" class="btn-danger">how to delete this group</button></form>`+
+		`</div></details>`, folderPath(folder))
 
 	pageClose(w, r)
 }
@@ -409,89 +409,25 @@ func (d *dash) handleGroupSettingsSave(w http.ResponseWriter, r *http.Request) {
 }
 
 // DELETE /dash/groups/{folder} (or POST .../delete from the form).
-// Removes the folder's subtree and everything scoped to it, stops each removed
-// folder's run at runed, then does a best-effort rm of the groups/<folder>/ dir.
-// runed unreachable -> 503 and nothing removed, because a live run could
-// outlive the group; the operator's escape is `arizuko group <instance> rm -f`.
-// A stop that fails after the purge is a 200 page with the reason: the rows
-// are gone already.
+// Removes nothing. A purge deletes grants and edges that scope outside the
+// folder, and admin on one folder does not prove the right to remove those, so
+// the purge runs only from the host: `arizuko group rm` (BUGS L669, spec 6/52).
+// The folder admin keeps the gate, and the answer names the command.
 func (d *dash) handleGroupDelete(w http.ResponseWriter, r *http.Request) {
 	folder := groupFromPath(r, "/delete")
-	if folder == "" {
+	if folder == "" || !groupfolder.IsValidFolder(folder) {
 		http.Error(w, "bad folder", http.StatusBadRequest)
 		return
 	}
-	if !groupfolder.IsValidFolder(folder) {
-		http.Error(w, "bad folder", http.StatusBadRequest)
+	if _, ok := d.requireAdmin(w, r, folder); !ok {
 		return
 	}
-	sub, ok := d.requireAdmin(w, r, folder)
-	if !ok {
-		return
+	instance := os.Getenv("ARIZUKO_INSTANCE")
+	if instance == "" {
+		instance = "<instance>"
 	}
-	if d.routdStore() == nil {
-		http.Error(w, "store unavailable", http.StatusServiceUnavailable)
-		return
-	}
-	runed := d.runedClient()
-	if err := runed.Health(r.Context()); err != nil {
-		slog.Warn("group delete: runed unreachable", "folder", folder, "runed", runed.BaseURL, "err", err)
-		http.Error(w, fmt.Sprintf("Nothing was removed: cannot reach runed at %s (%v), so a live run "+
-			"could outlive the group. Bring runed up, or stop the instance and run "+
-			"`arizuko group <instance> rm -f %s`.", runed.BaseURL, err, folder), http.StatusServiceUnavailable)
-		return
-	}
-	stop := func(ctx context.Context, f string) error {
-		_, err := runed.StopFolder(ctx, f)
-		return err
-	}
-	// store.DeleteGroupStopping is the ONE purge — what it removes is declared
-	// once, in store.folderScopePurge — and AsUser attributes its audit row to
-	// the operator who pressed the button. A second list here is a second thing
-	// to keep in step, and two lists purging different halves is BUGS L198.
-	removed, swept, err := d.routdStore().AsUser(sub).DeleteGroupStopping(r.Context(), folder, stop)
-	// 404 only when NOTHING went. A folder whose groups row is already gone can
-	// still own acl, secret, task and route rows, and deleting those is work: a
-	// 404 there told the operator the rows are still there (BUGS L323).
-	if removed == 0 && swept == 0 {
-		if err != nil {
-			slog.Warn("group delete: db", "folder", folder, "err", err)
-			http.Error(w, "delete failed", http.StatusInternalServerError)
-			return
-		}
-		http.Error(w, "not found", http.StatusNotFound)
-		return
-	}
-	if removed == 0 {
-		slog.Info("group delete: swept orphan rows, no groups row",
-			"folder", folder, "swept", swept)
-	}
-	if err != nil {
-		slog.Warn("group delete: rows removed, run not stopped", "folder", folder, "err", err)
-	}
-	if d.groupsDir != "" {
-		// Best-effort cleanup. Symlink-escape guard via filepath.Clean +
-		// prefix check before rm.
-		groupDir := filepath.Join(d.groupsDir, filepath.Clean(folder))
-		if strings.HasPrefix(groupDir, d.groupsDir+string(filepath.Separator)) {
-			if err := os.RemoveAll(groupDir); err != nil && !errors.Is(err, os.ErrNotExist) {
-				slog.Warn("group delete: rm dir", "folder", folder, "err", err)
-			}
-		}
-	}
-	slog.Info("group deleted", "folder", folder)
-	if err != nil {
-		pageTopFor(w, r, "Group deleted", crumb{"/dash/groups/", "Groups"}, crumb{"", "Deleted"})
-		_, _ = fmt.Fprint(w, htmlBanner("warn", "The rows of "+folder+" are removed, but a run may still be live: "+err.Error()))
-		_, _ = fmt.Fprint(w, `<p><a href="/dash/groups/">Back to groups</a></p>`)
-		pageClose(w, r)
-		return
-	}
-	if r.Method == http.MethodPost {
-		http.Redirect(w, r, "/dash/groups/", http.StatusSeeOther)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
+	http.Error(w, fmt.Sprintf("Nothing was removed: the dashboard does not delete groups. "+
+		"On the host, run `arizuko group -i %s rm %s`.", instance, folder), http.StatusConflict)
 }
 
 // getGroup reads one group from routd's /v1 face.

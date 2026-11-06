@@ -33,7 +33,6 @@ func newRWDashServer(t *testing.T) (*httptest.Server, *testutils.Inst, string) {
 	}
 	d := &dash{routd: inst.Store.Obj(), onbod: inst.Store.Obj(), groupsDir: groupsDir,
 		routdURL: stubRoutd(t, inst.Store.Obj())}
-	withRuned(d, stubRuned(t, http.StatusOK, nil))
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 	srv := httptest.NewServer(mux)
@@ -118,120 +117,6 @@ func TestDash_RouteCreate_DenyNonAdmin(t *testing.T) {
 	}
 }
 
-// TestDash_GroupDelete: admin deletes a group via POST-alias.
-func TestDash_GroupDelete(t *testing.T) {
-	srv, inst, groupsDir := newRWDashServer(t)
-	s := inst.Store
-	if err := s.AddACLRow(core.ACLRow{
-		Principal: "alice@x", Action: "admin", Scope: "**", Effect: "allow",
-	}); err != nil {
-		t.Fatal(err)
-	}
-	// {folder} pattern in the mux is a single path segment; use a flat name.
-	folder := "worldsub"
-	if err := s.PutGroup(core.Group{Folder: folder, AddedAt: time.Now()}); err != nil {
-		t.Fatal(err)
-	}
-	groupDir := filepath.Join(groupsDir, folder)
-	if err := os.MkdirAll(groupDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	req, _ := http.NewRequest("POST", srv.URL+"/dash/groups/"+folder+"/delete", nil)
-	req.Header.Set("X-User-Sub", "alice@x")
-	resp, err := noFollow().Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	resp.Body.Close()
-	if resp.StatusCode != http.StatusSeeOther {
-		t.Fatalf("delete status = %d, body deduce", resp.StatusCode)
-	}
-	if _, ok := s.AllGroups()[folder]; ok {
-		t.Errorf("group row still present")
-	}
-	if _, err := os.Stat(groupDir); !os.IsNotExist(err) {
-		t.Errorf("group dir still present: %v", err)
-	}
-}
-
-// TestGroupDelete_PurgesOrphanAclAndRoutes: deleting folder X must also remove
-// X's acl grants and routes (no FK cascade — both are plain TEXT columns), so a
-// re-created X cannot inherit stale privileges. A sibling Y stays untouched.
-func TestGroupDelete_PurgesOrphanAclAndRoutes(t *testing.T) {
-	srv, inst, groupsDir := newRWDashServer(t)
-	s := inst.Store
-	if err := s.AddACLRow(core.ACLRow{
-		Principal: "alice@x", Action: "admin", Scope: "**", Effect: "allow",
-	}); err != nil {
-		t.Fatal(err)
-	}
-	// Flat folder names: {folder} POST-delete dispatch is a single segment.
-	const X, Y = "worldx", "worldy"
-	for _, f := range []string{X, Y} {
-		if err := s.PutGroup(core.Group{Folder: f, AddedAt: time.Now()}); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.MkdirAll(filepath.Join(groupsDir, f), 0o755); err != nil {
-			t.Fatal(err)
-		}
-	}
-	// X: admin grant on the folder + a X/** glob grant + a child-subtree route.
-	if err := s.AddACLRow(core.ACLRow{Principal: "bob@x", Action: "admin", Scope: X, Effect: "allow"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.AddACLRow(core.ACLRow{Principal: "bob@x", Action: "mcp:send", Scope: X + "/**", Effect: "allow"}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.AddRoute(core.Route{Seq: 5, Match: "room=99", Target: X + "/sub"}); err != nil {
-		t.Fatal(err)
-	}
-	// Y: its own grant + route — must SURVIVE the delete of X.
-	if err := s.AddACLRow(core.ACLRow{Principal: "carol@x", Action: "admin", Scope: Y, Effect: "allow"}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.AddRoute(core.Route{Seq: 6, Match: "room=100", Target: Y}); err != nil {
-		t.Fatal(err)
-	}
-
-	req, _ := http.NewRequest("POST", srv.URL+"/dash/groups/"+X+"/delete", nil)
-	req.Header.Set("X-User-Sub", "alice@x")
-	resp, err := noFollow().Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	resp.Body.Close()
-	if resp.StatusCode != http.StatusSeeOther {
-		t.Fatalf("delete status = %d, want 303", resp.StatusCode)
-	}
-
-	// X's acl rows (folder + X/** glob) must be gone.
-	for _, sc := range []string{X, X + "/**"} {
-		if rows, err := s.ListACLByScope(sc); err != nil || len(rows) != 0 {
-			t.Errorf("acl scope %q still present after delete: %+v", sc, rows)
-		}
-	}
-	// X's route (target under X/) must be gone.
-	for _, r := range s.AllRoutes() {
-		if r.Target == X+"/sub" {
-			t.Errorf("route target %q still present after delete", r.Target)
-		}
-	}
-	// Y untouched: grant + route survive.
-	if rows, err := s.ListACLByScope(Y); err != nil || len(rows) != 1 || rows[0].Principal != "carol@x" {
-		t.Errorf("sibling Y acl not preserved: %+v", rows)
-	}
-	yRoute := false
-	for _, r := range s.AllRoutes() {
-		if r.Target == Y {
-			yRoute = true
-		}
-	}
-	if !yRoute {
-		t.Errorf("sibling Y route purged; want preserved")
-	}
-}
-
 // TestDash_NestedFolderRouting: multi-segment folders (corp/eng/sre)
 // address the settings + delete handlers via literal nested paths.
 // Pre-fix, Go's single-segment {folder} let them fall through to the
@@ -278,7 +163,8 @@ func TestDash_NestedFolderRouting(t *testing.T) {
 		t.Errorf("settings page not rendered for nested folder; got list/other page")
 	}
 
-	// Delete POST-alias must remove the nested group.
+	// The delete alias must reach the handler for a nested folder: it answers
+	// 409 with the host command and removes nothing.
 	req, _ = http.NewRequest("POST", srv.URL+"/dash/groups/"+folder+"/delete", nil)
 	req.Header.Set("X-User-Sub", "alice@x")
 	resp, err = noFollow().Do(req)
@@ -286,11 +172,11 @@ func TestDash_NestedFolderRouting(t *testing.T) {
 		t.Fatal(err)
 	}
 	resp.Body.Close()
-	if resp.StatusCode != http.StatusSeeOther {
-		t.Fatalf("nested delete status = %d, want 303", resp.StatusCode)
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("nested delete status = %d, want 409", resp.StatusCode)
 	}
-	if _, ok := s.AllGroups()[folder]; ok {
-		t.Errorf("nested group row still present after delete")
+	if _, ok := s.AllGroups()[folder]; !ok {
+		t.Errorf("nested group row was removed")
 	}
 }
 

@@ -514,7 +514,8 @@ type holdShape struct {
 }
 
 // holdShapes declares the tools with a measured case. A tool with no entry
-// reads as its name and its arguments, and an `always` on it is tool-wide.
+// reads as its name and its arguments. A tool with no keys gets no `always`:
+// the row would pin nothing and run every call of the tool.
 var holdShapes = map[string]holdShape{
 	"like":    {ask: "react {reaction} to message {targetId}", keys: []string{"reaction"}},
 	"dislike": {ask: "dislike message {targetId}"},
@@ -548,19 +549,20 @@ func withMatcher(p PendingAction) PendingAction {
 		p.RuleText = "Always is not offered: " + p.MatcherError
 		return p
 	}
-	p.RuleText = "Always: every " + p.Tool + " call"
-	if p.Matcher != "" {
-		p.RuleText += " with " + p.Matcher
-	}
-	p.RuleText += " in " + p.GroupFolder + " runs without asking."
+	p.RuleText = "Always: every " + p.Tool + " call with " + p.Matcher +
+		" in " + p.GroupFolder + " runs without asking."
 	return p
 }
 
 // pinnedSpec is the params spec of an `always` on tool: the tool's keys at the
 // held call's values, every other argument free.
 func pinnedSpec(tool string, scalars map[string]string) (string, error) {
+	keys := holdShapes[tool].keys
+	if len(keys) == 0 {
+		return "", fmt.Errorf("%s declares no standing rule; an operator writes one", tool)
+	}
 	pinned := map[string]string{}
-	for _, k := range holdShapes[tool].keys {
+	for _, k := range keys {
 		v, ok := scalars[k]
 		if !ok {
 			return "", fmt.Errorf("argument %q: the call carries no scalar value to pin", k)

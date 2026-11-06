@@ -164,36 +164,34 @@ func TestAlways_RefusesAnUnstatableMatcher(t *testing.T) {
 	}
 }
 
-// A tool that declares no always keys gets a tool-wide row: no params, every
-// call of the tool in the folder runs. The Always line says so in those words.
-func TestAlways_ToolWithoutKeysWritesTheToolWideRow(t *testing.T) {
-	srv, d, dl, id := holdOnce(t, "create_pr", map[string]any{"repo": "kronael/arizuko"})
-	line := "Always: every create_pr call in atlas runs without asking."
-	if notice := dl.sends[0].text; !strings.HasSuffix(notice, line) {
-		t.Errorf("the notice must end with %q:\n%s", line, notice)
+// A tool that declares no always keys gets no standing rule: the held call
+// carries the reason in MatcherError, the notice offers no Always, `/always` is
+// refused with the same text and writes no row, and the call stays held. A
+// tool-wide row would run every later call of the tool.
+func TestAlways_ToolWithoutKeysIsRefused(t *testing.T) {
+	_, d, dl, id := holdOnce(t, "schedule_task", map[string]any{"prompt": "x"})
+	const reason = "schedule_task declares no standing rule; an operator writes one"
+	if notice := dl.sends[0].text; !strings.HasSuffix(notice, "Always is not offered: "+reason) {
+		t.Errorf("the notice must say why no Always is offered:\n%s", notice)
 	}
-	if err := always(t, d, id, "google:op"); err != nil {
-		t.Fatalf("always: %v", err)
+	if row, ok := pendingActionRow(d, id); !ok || row.MatcherError != reason {
+		t.Errorf("MatcherError = %q, want %q", row.MatcherError, reason)
 	}
-	rows, err := d.ListACL("")
-	if err != nil {
-		t.Fatal(err)
+	err := always(t, d, id, "google:op")
+	if err == nil || !strings.Contains(err.Error(), reason) {
+		t.Fatalf("always on a tool with no keys = %v, want a refusal naming %q", err, reason)
 	}
-	var found int
+	rows, listErr := d.ListACL("")
+	if listErr != nil {
+		t.Fatal(listErr)
+	}
 	for _, r := range rows {
-		if r.Action == auth.HoldPrefix+"create_pr" && r.Effect == auth.EffectSkipApproval {
-			found++
-			if r.Params != "" {
-				t.Errorf("tool-wide row carries params %q, want none", r.Params)
-			}
+		if strings.HasPrefix(r.GrantedBy, "always:") {
+			t.Fatalf("a refused always still wrote %+v", r)
 		}
 	}
-	if found != 1 {
-		t.Fatalf("always wrote %d tool-wide rows, want 1", found)
-	}
-	gate := srv.holdGate(turnMCP{folder: "atlas", chatJID: "tg:1", turnID: "t2"})
-	if _, held := gate("create_pr", map[string]any{"repo": "other/repo"}); held {
-		t.Fatal("any call of the tool must run after a tool-wide always")
+	if row, ok := pendingActionRow(d, id); !ok || row.Status != PendingHeld {
+		t.Fatalf("a refused always left the call in %q, want still held", row.Status)
 	}
 }
 
@@ -232,12 +230,13 @@ func TestResolveHold_AcknowledgesInOneLine(t *testing.T) {
 		{PendingRejected, false, func(id string) string { return "⛔ rejected (" + id + ")." }},
 		{PendingApproved, false, func(id string) string { return "✅ ok (" + id + ") — the agent runs it now." }},
 		{PendingApproved, true, func(id string) string {
-			return "✅ ok (" + id + "). Always: every create_pr call in atlas " +
-				"runs without asking. Undo: revoke the hold:mcp:create_pr skip row on the grants page."
+			return "✅ ok (" + id + "). Always: every like call with reaction=👀 in atlas " +
+				"runs without asking. Undo: revoke the hold:mcp:like skip row on the grants page."
 		}},
 	}
 	for _, c := range cases {
-		_, d, _, id := holdOnce(t, "create_pr", map[string]any{"repo": "kronael/arizuko"})
+		_, d, _, id := holdOnce(t, "like", map[string]any{
+			"chatJid": "tg:1", "targetId": "156", "reaction": "👀"})
 		dl := &recDeliverer{}
 		l := &Loop{db: d, deliver: dl}
 		l.cmdResolveHold("tg:1", "atlas", id, "google:op", c.verdict, c.standing)

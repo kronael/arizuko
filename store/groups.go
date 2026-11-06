@@ -285,10 +285,22 @@ func (s *Store) PutGroupRow(g core.Group) error {
 	return nil
 }
 
+// DeleteGroupRow removes the one groups row and nothing else: no subtree, no
+// acl row, no edge. It undoes a row the caller itself just wrote, so a deny an
+// operator placed under the folder before it existed stays (BUGS L669). A
+// folder that is not there is not an error.
+func (s *Store) DeleteGroupRow(folder string) error {
+	key, err := groupKey(folder)
+	if err != nil {
+		return err
+	}
+	return s.WriteEntities(context.Background(), nil,
+		objstore.Write{Op: objstore.Delete, Entity: Groups, Key: key})
+}
+
 // DeleteGroup removes the folder's subtree and every row that confers on it or
-// routes into it: the ONE delete behind `arizuko group rm`, dashd's delete page
-// and routd's registration rollback, with the scope declared once in
-// folder_scope.go.
+// routes into it: the ONE purge, behind `arizuko group rm`, with the scope
+// declared once in folder_scope.go.
 //
 // The purge has to be total. A bare delete of the groups item left tasks timed
 // fired forever, each firing read by onbod as a new account to onboard (BUGS

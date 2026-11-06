@@ -3,77 +3,56 @@ package main
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
-	"time"
 
-	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/store"
 )
 
-// TestGroupDeletePage_RecreatedFolderInheritsNothing is BUGS L198 stated as an
-// assertion on the OPERATOR path. Both deletes have to reach the same purge, so
-// the same folder re-created after the delete page ran must hold none of the
-// previous tenant's authority — the grant this page always removed, and the
-// scheduled task and engagement it did not.
-//
-// The verdict on the grant comes from auth.Authorize, the one evaluator.
-func TestGroupDeletePage_RecreatedFolderInheritsNothing(t *testing.T) {
+// TestGroupDelete_RemovesNothing is BUGS L669: admin on one folder does not
+// prove the right to remove a deny that lives under it and binds elsewhere, so
+// the dashboard purges nothing and names the host command that does. Every
+// item the old purge touched is read back: the group, its subtree, an acl row
+// under it and the membership edges of both folders.
+func TestGroupDelete_RemovesNothing(t *testing.T) {
 	d, routd := splitAdminDash(t, "alice@x")
+	seedFolder(t, routd, "team/child")
 	seedGrant(t, routd, core.ACLRow{
-		Principal: "google:oldadmin", Action: "*", Scope: "team/**", Effect: "allow",
+		Principal: "google:bob", Action: "mcp:send", Scope: "team/**", Effect: "deny",
 	})
-	nightly := time.Date(2026, 1, 1, 2, 0, 0, 0, time.UTC)
-	seedScheduledTask(t, routd, core.Task{
-		ID: "team-nightly", Owner: "team", ChatJID: "web:team", Prompt: "/compact",
-		Cron: "0 2 * * *", NextRun: &nightly, Status: "active",
-	})
-	if err := store.NewOver(routd).SetLastReply("web:team", "", "m1", "team"); err != nil {
-		t.Fatalf("seed engagement: %v", err)
-	}
-	// A sibling sharing the leading characters: a green result must mean the
-	// subtree went, not the table.
-	seedFolder(t, routd, "teamwork")
-	seedScheduledTask(t, routd, core.Task{
-		ID: "teamwork-nightly", Owner: "teamwork", ChatJID: "web:teamwork",
-		Prompt: "/compact", Cron: "0 2 * * *", NextRun: &nightly, Status: "active",
-	})
-
 	st := store.NewOver(routd)
-	old := auth.Caller{Principal: "google:oldadmin"}
-	if !auth.Authorize(st, old, "interact", "team/inbox", nil) {
-		t.Fatal("seed: the old admin must hold team before the delete")
-	}
 
-	mux := newMux(d)
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, adminReq("POST", "/dash/groups/team/delete", "", "alice@x"))
-	if w.Code != http.StatusSeeOther {
-		t.Fatalf("POST delete = %d body=%q", w.Code, w.Body.String())
-	}
+	newMux(d).ServeHTTP(w, adminReq("POST", "/dash/groups/team/delete", "", "alice@x"))
 
-	// A different tenant takes the path.
-	if err := store.NewOver(routd).PutGroupRow(core.Group{
-		Folder: "team", AddedAt: time.Now().UTC(),
-	}); err != nil {
-		t.Fatalf("re-create: %v", err)
+	if w.Code != http.StatusConflict {
+		t.Fatalf("POST delete = %d, want 409 body=%q", w.Code, w.Body.String())
 	}
-	if auth.Authorize(st, old, "interact", "team/inbox", nil) {
-		t.Fatal("the re-created folder inherited the old tenant's admin grant")
+	if !strings.Contains(w.Body.String(), "arizuko group -i") ||
+		!strings.Contains(w.Body.String(), " rm team") {
+		t.Errorf("body does not name the host command: %q", w.Body.String())
 	}
-	if n := countTasks(t, routd, func(task core.Task) bool { return task.Owner == "team" }); n != 0 {
-		t.Errorf("scheduled_tasks for the deleted folder survived: %d", n)
+	for _, f := range []string{"team", "team/child"} {
+		if !hasFolder(t, routd, f) {
+			t.Errorf("groups row %s was removed", f)
+		}
+		if edges, err := st.ParentEdges("folder:" + f); err != nil || len(edges) == 0 {
+			t.Errorf("membership edge of %s was removed: %v %v", f, edges, err)
+		}
 	}
-	if id := store.NewOver(routd).LastReplyID("web:team", ""); id != "" {
-		t.Errorf("the deleted folder's reply state survived: last_reply_id = %q", id)
+	if rows, err := st.ListACLByScope("team/**"); err != nil || len(rows) != 1 {
+		t.Errorf("acl row under the folder was removed: %v %v", rows, err)
 	}
-	if !hasFolder(t, routd, "teamwork") {
-		t.Error("the purge widened onto the sibling folder, which is gone")
-	}
-	if n := countTasks(t, routd, func(task core.Task) bool { return task.Owner == "teamwork" }); n != 1 {
-		t.Errorf("the purge widened onto the sibling folder's tasks: %d rows left", n)
-	}
-	if got := auditActor(t, d, "group.delete"); got != "alice@x" {
-		t.Errorf("group.delete actor_sub = %q, want alice@x", got)
+}
+
+// A caller without admin on the folder is still refused with 403, and is not
+// told the command.
+func TestGroupDelete_StillNeedsAdmin(t *testing.T) {
+	d, _ := splitAdminDash(t, "alice@x")
+	w := httptest.NewRecorder()
+	newMux(d).ServeHTTP(w, adminReq("POST", "/dash/groups/team/delete", "", "stranger@x"))
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("POST delete by a stranger = %d, want 403", w.Code)
 	}
 }

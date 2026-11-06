@@ -136,11 +136,10 @@ func (d *DB) GroupExists(folder string) bool {
 	return ok
 }
 
-// DeleteGroup removes a group's subtree and every row that confers on it or
-// routes into it, reporting the groups rows AND the orphans swept with them.
-// store.DeleteGroup is the ONE delete, shared with `arizuko group rm` and dashd.
-func (d *DB) DeleteGroup(folder string) (int, int, error) {
-	return d.store().DeleteGroup(folder)
+// DeleteGroupRow removes the one groups row, for the registration rollback.
+// The purge is `arizuko group rm`, never a routd path (BUGS L669).
+func (d *DB) DeleteGroupRow(folder string) error {
+	return d.store().DeleteGroupRow(folder)
 }
 
 // GroupConfig returns the per-group model override + the opaque container_config

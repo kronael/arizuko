@@ -178,7 +178,7 @@ The verbs each adapter supports are in [EXTENDING.md § Verb support matrix](EXT
 | Task status       | An admin pauses, resumes or cancels a task.                                       | `dashd/admin_integration_test.go::TestDash_TaskPauseResume`                         |
 | Groups            | The groups page lists the groups that the caller can see, with their routes.      | `dashd/coverage_test.go::TestGroupsWithRoutes`                                      |
 | Group create      | An admin creates a folder and the creator's `admin` grant in one transaction.     | `dashd/group_create_test.go::TestGroupCreatePage_CommitsTheAdminGrantWithTheFolder` |
-| Group delete      | An admin removes the group row and its directory.                                 | `dashd/admin_integration_test.go::TestDash_GroupDelete`                             |
+| Group delete      | The host command `arizuko group rm` removes the group; the dashboard names it.    | `dashd/group_delete_purge_test.go::TestGroupDelete_RemovesNothing`                  |
 | Routes            | An admin creates and deletes a route.                                             | `dashd/admin_integration_test.go::TestDash_RouteCreateAndDelete`                    |
 | Unrouted chats    | An operator claims an unrouted chat, and dashd writes a `chat_jid=` route.        | `dashd/unrouted_test.go::TestRoutes_ClaimWritesTheRoute`                            |
 | Grants add        | An admin adds a grant row for a folder.                                           | `dashd/admin_integration_test.go::TestDash_GrantAdd`                                |
