@@ -15,6 +15,7 @@
 
 ## What needs you
 
+- `L675` — the guest's Python is under `/root` (700); fix at the next rootfs build.
 - `L674` — `compose down` fails on a deleted fragment despite `required: false`; proposal.
 - `L672` — a spend-limit failure: retry silently, one `#issues` notice to the operator; approved, queued after L670.
 - `L665` — `unpair` removes the account's denies from the paired identity's turns; needs sign-off.
@@ -448,6 +449,23 @@ Queued messages can therefore repeat the same warning while the condition holds.
 
 - **Test:** `TestFailureNoticePerChat` and `TestFailureNoticeDoesNotRetryFailedDelivery` (`routd/failure_notice_test.go`).
 - **Status:** fixed — the stored errored flag suppresses repeat notices per chat until a successful turn clears it.
+
+## L675 — the guest's only Python lives under `/root`, which the agent cannot read (2026-11-06, open)
+
+MEASURED 2026-11-06 on sloth's rootfs `rootfs-417487f600e2`: `/usr/local/bin/python3.14`
+is a symlink to `/root/.local/share/uv/python/cpython-3.14-linux-x86_64-gnu/bin/python3.14`,
+and `/root` is mode 700. The rootfs has no `/usr/bin/python3`. A turn running
+`uv run --python /usr/local/bin/python3.14` failed: "failed to canonicalize path
+`/usr/local/bin/python3.14`: Permission denied". The cause is `ant/Dockerfile`
+~131: `uv python install 3.14` runs as root with the default install dir. Every
+package script that needs Python must download its own interpreter (terminal-agent
+now does, into `~/.cache/uv`).
+
+- **Severity:** medium (no usable Python in the guest; each package re-downloads one)
+- **Scope:** `ant/Dockerfile` (the uv Python install)
+- **Fix:** install with `UV_PYTHON_INSTALL_DIR=/usr/local/share/uv/python` (world-readable)
+  and link `/usr/local/bin/python3`; takes effect at the next rootfs build.
+- **Status:** open
 
 ## L674 — `docker compose down` fails on a deleted fragment although the include says `required: false` (2026-11-06, open)
 
