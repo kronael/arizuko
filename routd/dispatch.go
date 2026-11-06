@@ -568,6 +568,7 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, addressed bool, tr
 		_ = l.db.MarkMessagesErrored(trigger)
 		if l.deliver != nil {
 			notice := runFailureNotice
+			cause := out.Error
 			if !hasBotReply && tc.RetryCount > 0 && tc.RetryCount >= l.maxTurnRetry {
 				notice = retryExhaustedNotice(l.maxTurnRetry)
 			}
@@ -576,7 +577,7 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, addressed bool, tr
 			// tail, truncated mid-word and carrying ant's log lines, so a user
 			// was shown "ake says no" for an API Error: 400 (BUGS L349).
 			if out.Terminal {
-				cause := l.db.TurnFailure(folder, turnID)
+				cause = l.db.TurnFailure(folder, turnID)
 				if cause == "" {
 					cause = out.Error
 				}
@@ -592,7 +593,12 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, addressed bool, tr
 				if jid == chatJID {
 					thread = topic
 				}
-				l.sendNotice(turnID, jid, notice, thread, "fail-"+turnID+"-"+jid)
+				key := failureNoticeKey{jid, failureClass(cause)}
+				if _, sent := l.failureNotices.LoadOrStore(key, struct{}{}); !sent {
+					if !l.sendNotice(turnID, jid, notice, thread, "fail-"+turnID+"-"+jid) {
+						l.failureNotices.Delete(key)
+					}
+				}
 			}
 		}
 		finishTurn(l.db, l.deliver, turnID, endFailed)
@@ -607,8 +613,14 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, addressed bool, tr
 	if err != nil {
 		return false, false, false, "", err
 	}
-	if result.Status == "error" {
+	switch result.Status {
+	case "error":
 		end = endFailed
+	case "success":
+		for _, jid := range l.db.chatsOwnedBy(chatJID, out.RunID) {
+			l.failureNotices.Delete(failureNoticeKey{jid, "limit"})
+			l.failureNotices.Delete(failureNoticeKey{jid, "other"})
+		}
 	}
 	recorded := result.Status != "pending"
 	// Deliberate silence still records a result, so this fires only on a
@@ -631,12 +643,27 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, addressed bool, tr
 	return out.Outcome != runedv1.OutcomeSilent, false, false, observedMark, nil
 }
 
+type failureNoticeKey struct {
+	jid   string
+	class string
+}
+
+func failureClass(cause string) string {
+	cause = strings.ToLower(cause)
+	if strings.Contains(cause, "limit") && (strings.Contains(cause, "spend") || strings.Contains(cause, "usage")) {
+		return "limit"
+	}
+	return "other"
+}
+
 // sendNotice tells a chat the turn could not answer. A failed send leaves no
 // outbound row, so the log line is the only trace that the notice was owed.
-func (l *Loop) sendNotice(turnID, jid, text, thread, idempotencyKey string) {
+func (l *Loop) sendNotice(turnID, jid, text, thread, idempotencyKey string) bool {
 	if _, err := l.deliver.Send(jid, text, "", thread, "", idempotencyKey); err != nil {
 		slog.Warn("turn notice not sent", "jid", jid, "turn_id", turnID, "err", err)
+		return false
 	}
+	return true
 }
 
 // forkParent answers the topic a new topic forks lineage from: the topic of

@@ -75,7 +75,8 @@ type Loop struct {
 	// busyWait backs off the re-dispatch of a batch nothing consumed; without
 	// it every 2s re-feed does the FULL pre-dispatch setup before runed refuses
 	// again (BUGS L55). A new inbound bypasses it; any cursor advance clears it.
-	busyWait sync.Map // chatJID → busyState
+	busyWait       sync.Map // chatJID → busyState
+	failureNotices sync.Map
 
 	// waiting is the chats whose typing is on while no run owns it: parked
 	// behind another run, or refused Busy. Value is the chat that shows it.
