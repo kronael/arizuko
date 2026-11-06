@@ -17,7 +17,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/ipc"
@@ -31,7 +30,7 @@ func serveACLMCP(t *testing.T, db *DB, folder, callerSub string) string {
 	srv := NewServer(db, nil, nil, nil, 0, "")
 	sock := groupfolder.IpcSocket(t.TempDir())
 	pb := srv.aclPostBuild(folder, callerSub, srv.turnAuthorize(turnMCP{folder: folder}),
-		srv.turnVisible(turnMCP{folder: folder}), auth.Resolve(folder))
+		srv.turnVisible(turnMCP{folder: folder}), turnMCP{folder: folder})
 	stop, err := ipc.ServeMCP(sock, srv.buildRoutdFns(turnMCP{folder: folder}),
 		srv.buildStoreFns(turnMCP{folder: folder}), folder, false, 0, callerSub, pb)
 	if err != nil {
@@ -55,7 +54,7 @@ func serveACLMCPElevated(t *testing.T, db *DB, folder string) string {
 	sock := groupfolder.IpcSocket(t.TempDir())
 	callerSub := "folder:" + folder
 	pb := srv.aclPostBuild(folder, callerSub, srv.turnAuthorize(turnMCP{folder: folder, elevated: true}),
-		srv.turnVisible(turnMCP{folder: folder, elevated: true}), turnIdentity(folder, true))
+		srv.turnVisible(turnMCP{folder: folder, elevated: true}), turnMCP{folder: folder, elevated: true})
 	stop, err := ipc.ServeMCP(sock, srv.buildRoutdFns(turnMCP{folder: folder}),
 		srv.buildStoreFns(turnMCP{folder: folder}), folder, true, 0, callerSub, pb)
 	if err != nil {
@@ -297,5 +296,38 @@ func TestACLMCP_NonRootCanWriteADenyRow(t *testing.T) {
 	}
 	if denies != 1 {
 		t.Fatalf("wrote %d deny rows, want 1", denies)
+	}
+}
+
+func TestACLMCPSenderDenyBlocksGrant(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	for _, row := range []core.ACLRow{
+		{Principal: "folder:a", Action: "admin", Scope: "a", Effect: "allow", GrantOption: true},
+		{Principal: "google:sender", Action: "mcp:send", Scope: "a", Effect: "deny"},
+	} {
+		if err := addACLRow(db, row); err != nil {
+			t.Fatal(err)
+		}
+	}
+	srv := NewServer(db, nil, nil, nil, 0, "")
+	turn := turnMCP{folder: "a", trigger: "google:sender"}
+	sock := groupfolder.IpcSocket(t.TempDir())
+	pb := srv.aclPostBuild("a", "folder:a", srv.turnAuthorize(turn), srv.turnVisible(turn), turn)
+	stop, err := ipc.ServeMCP(sock, srv.buildRoutdFns(turn), srv.buildStoreFns(turn), "a", false, 0, "folder:a", pb)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(stop)
+	deadline := time.Now().Add(2 * time.Second)
+	for !fileExists(sock) && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	_, e := callToolOverSock(t, sock, "add_acl", map[string]any{"principal": "google:target", "scope": "a", "action": "mcp:send"})
+	if e == "" {
+		t.Fatal("sender deny must prevent the grant")
 	}
 }

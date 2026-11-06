@@ -265,3 +265,17 @@ func TestCheckGrantDoorAndSecrets(t *testing.T) {
 		t.Fatal("door outside the held scope must be refused")
 	}
 }
+
+func TestCheckGrantWildcardMeetsIsolatedDeny(t *testing.T) {
+	for _, action := range []string{"shell:env:KEY", "hold:mcp:send"} {
+		t.Run(action, func(t *testing.T) {
+			s := openMem(t)
+			addRowFull(t, s, core.ACLRow{Principal: "user:g", Action: "*", Scope: "a", Effect: "allow", GrantOption: true})
+			addRowFull(t, s, core.ACLRow{Principal: "user:g", Action: action, Scope: "a", Effect: "deny"})
+			_, err := auth.CheckGrant(s, auth.Caller{Principal: "user:g"}, auth.Ask{}, auth.Mutation{Row: core.ACLRow{Principal: "user:b", Action: "*", Scope: "a", Effect: "allow", GrantOption: true}})
+			if err == nil {
+				t.Fatal("wildcard grant must not cross an isolated deny")
+			}
+		})
+	}
+}

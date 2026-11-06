@@ -138,7 +138,7 @@ func (s *Server) aclHandler(ctx context.Context, x resreg.Execution) (any, error
 // aclPostBuild mounts the acl tools on the agent socket with the Gate
 // (db.Authorize(mcp:) on the target scope + auth.CheckGrant subset-of-held on
 // add) and the turn's visibility view.
-func (s *Server) aclPostBuild(folder, callerSub string, authorize authorizeFn, visible func(string) bool, callerID auth.Identity) func(*mcpserver.MCPServer) {
+func (s *Server) aclPostBuild(folder, callerSub string, authorize authorizeFn, visible func(string) bool, t turnMCP) func(*mcpserver.MCPServer) {
 	res := s.aclResource()
 	res.Gate = func(x resreg.Execution, _ string, _ map[string]string) error {
 		name := aclMCPNames[x.Action]
@@ -156,13 +156,13 @@ func (s *Server) aclPostBuild(folder, callerSub string, authorize authorizeFn, v
 		}
 		// 5/33-paths-roles delegation: a NON-root writer may only grant a row it HOLDS with
 		// the grant option (auth.CheckGrant). Root delegates anything.
-		if x.Action == resreg.Action("add") && !callerID.IsRoot {
+		if x.Action == resreg.Action("add") && !turnIdentity(t.folder, t.elevated).IsRoot {
 			// The candidate MUST be the row grantACLInto will WRITE — same builder,
 			// same defaults. A hardcoded `allow` validated an allow row while the
 			// write took the caller's effect (BUGS L93); the same drift on `params`
 			// would let `mcp:t(repo=mine/*)` write the unnarrowed `mcp:t`.
 			want := store.GrantDefaults(aclArgsRow(x.Args))
-			if _, err := auth.CheckGrant(s.db.store(), auth.Caller{Principal: callerSub}, auth.Ask{}, auth.Mutation{Row: want}); err != nil {
+			if _, err := auth.CheckGrant(s.db.store(), auth.Caller{Principal: turnCallerSub(t.trigger), Route: t.folder}, auth.Ask{}, auth.Mutation{Row: want}); err != nil {
 				return resreg.Errorf(http.StatusForbidden, "%v", err)
 			}
 		}

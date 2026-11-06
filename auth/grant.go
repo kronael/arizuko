@@ -120,7 +120,8 @@ func (p Policy) checkAuthority(row core.ACLRow, option bool) error {
 }
 
 func grantActionsMeet(a, b string) bool {
-	if a == "*" && strings.HasPrefix(b, ShellEnvPrefix) {
+	if (a == "*" && (strings.HasPrefix(b, ShellEnvPrefix) || strings.HasPrefix(b, HoldPrefix))) ||
+		(b == "*" && (strings.HasPrefix(a, ShellEnvPrefix) || strings.HasPrefix(a, HoldPrefix))) {
 		return true
 	}
 	return actionCovers(a, b) || actionCovers(b, a)
