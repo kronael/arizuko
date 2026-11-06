@@ -15,7 +15,6 @@
 
 ## What needs you
 
-- `L668` — an agent appends to `~/issues.md` by hand and never sends the `#issues` notice; fix running.
 - `L667` — `auth.Delegate` admits a grant wider than the granter holds (`?`/`[` globs, a deny on a crossing glob); a tightening, lands alone or with `6/52`.
 - `L666` — `/root` elevates the whole batch, so another sender's message runs in a root turn; needs sign-off.
 - `L665` — `unpair` removes the account's denies from the paired identity's turns; needs sign-off.
@@ -435,7 +434,7 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
   `/root` issuer holds `admin` on `**`, the authority that answers a hold. The defect
   in the same area is who the root turn serves: `L666`.
 
-## L668 — an agent appends to `~/issues.md` with Bash and never sends the `#issues` notice (2026-11-06, open)
+## ✅ FIXED 2026-11-06 50362a357 L668 — an agent appends to `~/issues.md` with Bash and never sends the `#issues` notice (2026-11-06)
 
 MEASURED 2026-11-06 on krons, folder `rhias/trip`: the owner saw an issue filed
 and got no notification. Two causes. (1) krons had no `#issues` route (fixed
@@ -452,7 +451,8 @@ a hook nudge works).
 - **Fix:** one PostToolUse hook in core: when a tool call grows `~/issues.md`,
   return a nudge with the new lines and the instruction to `send` them to
   `#issues`. Test: a grown file gives the nudge, an unchanged one gives none.
-- **Status:** open
+- **Test:** `TestIssuesNotify`, `TestCorePackageShipsIssuesNotify` (`runed/issues_notify_test.go`).
+- **Status:** fixed — `ant/hooks/issues_notify.py` (PostToolUse, Claude Code only; core ships no Codex hooks.json). A wipe followed by a new append before the next tool call is not noticed.
 
 ## L667 — `auth.Delegate` admits a grant wider than the granter holds: `?` and `[` globs, and a deny on a crossing glob (2026-11-06, open)
 
