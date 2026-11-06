@@ -31,6 +31,11 @@ type holder struct {
 	active     bool
 }
 
+// scanPage bounds one Scan page. An unbounded Scan grew the old ExtendDB
+// server past 8 GB on a 369,318-item table until the host killed it (BUGS
+// L671); pages of 500 kept it under 40 MB.
+const scanPage = 500
+
 func cmdStore(args []string) {
 	if verb(args, storeUsage) != "enroll" {
 		usage(nil, storeUsage)
@@ -352,7 +357,7 @@ func copyTable(src, dst *dynamodb.Client, td types.TableDescription) (int, error
 		}
 	}
 	scanned := 0
-	pages := dynamodb.NewScanPaginator(src, &dynamodb.ScanInput{TableName: td.TableName, ConsistentRead: aws.Bool(true)})
+	pages := dynamodb.NewScanPaginator(src, &dynamodb.ScanInput{TableName: td.TableName, ConsistentRead: aws.Bool(true), Limit: aws.Int32(scanPage)})
 	for pages.HasMorePages() {
 		page, err := pages.NextPage(ctx)
 		if err != nil {
@@ -374,7 +379,7 @@ func copyTable(src, dst *dynamodb.Client, td types.TableDescription) (int, error
 	}
 
 	counted := 0
-	pages = dynamodb.NewScanPaginator(dst, &dynamodb.ScanInput{TableName: td.TableName, ConsistentRead: aws.Bool(true), Select: types.SelectCount})
+	pages = dynamodb.NewScanPaginator(dst, &dynamodb.ScanInput{TableName: td.TableName, ConsistentRead: aws.Bool(true), Select: types.SelectCount, Limit: aws.Int32(scanPage)})
 	for pages.HasMorePages() {
 		page, err := pages.NextPage(ctx)
 		if err != nil {
