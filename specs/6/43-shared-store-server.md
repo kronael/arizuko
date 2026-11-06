@@ -412,7 +412,9 @@ attribute values carry every DynamoDB type.
    values unchanged and the condition `attribute_not_exists` on the partition
    key. `ConditionalCheckFailedException` means the key is there, and the copy
    keeps that item. So the copy never replaces an item, and a run after the
-   restart on the new server cannot put an old value over a new one.
+   restart on the new server cannot put an old value over a new one. The copy
+   does put back an item that was deleted in the new account, so a run with
+   the snapshot is safe only until step 4 of the move.
 4. **The count.** The source count is the number of items that the scan of
    step 3 returned. The destination count is the sum of `Count` over a `Scan`
    with `Select: COUNT` and `ConsistentRead`, every page until
@@ -527,8 +529,8 @@ unequal.
 2. **Point.** `.env` names the shared store server in `DYNAMODB_URL` and its
    certificate in `STORE_CA`. The address is one that the host and every
    container reach, and that the certificate carries as a SAN.
-3. **Enrol and copy.** `arizuko store enroll -i <name> <snapshot>` reports the
-   account, 13 minted keys (the shared server knows no key of the old one) and
+3. **Enrol and copy.** `arizuko store enroll -i <name> <snapshot>` prints 13
+   minted keys (the shared server knows no key of the old one) and
    every table `equal`, and exits 0.
 4. **Detach the private store.** `arizuko package rm -i <name> extenddb`, the
    unit as the previous section shows, wherever the unit is deployed from, and
