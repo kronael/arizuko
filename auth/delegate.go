@@ -16,6 +16,7 @@ package auth
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/kronael/arizuko/core"
@@ -119,7 +120,7 @@ func blockedByDeny(denies []core.ACLRow, want core.ACLRow) bool {
 		if !actionCovers(d.Action, want.Action) && !actionCovers(want.Action, d.Action) {
 			continue
 		}
-		if scopeCovers(d.Scope, want.Scope) || scopeCovers(want.Scope, d.Scope) {
+		if mayMeet(d.Scope, want.Scope) {
 			return true
 		}
 	}
@@ -165,11 +166,29 @@ func scopeCovers(held, want string) bool {
 		return groupfolder.Contains(base, want)
 	}
 	// held carries no recursive tail: it can only cover a concrete want. A want
-	// with its own wildcard might span beyond held, so refuse it outright.
-	if strings.ContainsAny(want, "*") {
+	// with its own glob character might span beyond held (`?` and `[` widen as
+	// `*` does), so refuse it outright.
+	if strings.ContainsAny(want, `*?[\`) {
 		return false
 	}
 	return matchPattern(held, want)
+}
+
+// mayMeet reports whether two scope globs can match one path. It answers false
+// only on proof: before the first `**` of either glob, segments align one to
+// one, so two segments without a glob character that differ there keep the
+// globs apart; and two globs without `**` match paths of their own length only.
+func mayMeet(a, b string) bool {
+	as, bs := strings.Split(a, "/"), strings.Split(b, "/")
+	for i := 0; i < len(as) && i < len(bs); i++ {
+		if as[i] == "**" || bs[i] == "**" {
+			return true
+		}
+		if !strings.ContainsAny(as[i], `*?[\`) && !strings.ContainsAny(bs[i], `*?[\`) && as[i] != bs[i] {
+			return false
+		}
+	}
+	return len(as) == len(bs) || slices.Contains(as, "**") || slices.Contains(bs, "**")
 }
 
 // paramsCover reports whether a held row's param spec permits a wanted row's.
