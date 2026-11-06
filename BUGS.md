@@ -432,7 +432,7 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
   `/root` issuer holds `admin` on `**`, the authority that answers a hold. The defect
   in the same area is who the root turn serves: `L666`.
 
-## ✅ FIXED 2026-11-06 5cb32d75a L92 — the HITL hold gate fails OPEN when the `acl` read fails (2026-08-24)
+## ✅ FIXED 2026-11-06 178fcb079 L92 — the HITL hold gate fails OPEN when the `acl` read fails (2026-08-24)
 
 `auth.CheckHold` logged and returned `false` when `policyRows` errored, so every
 `hold:mcp:<tool>` stopped gating until the read recovered, while Authorize
