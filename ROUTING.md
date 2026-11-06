@@ -149,8 +149,10 @@ every message.
 | `verb`     | `msg.Verb`; see the verb table below                      |
 | `at`       | the leading `@name` of the message text, without the `@`  |
 
-A row with an `at` predicate sends a prefix, not a chat. Ordinary routing
-never matches it, and only the prefix layer reads it (see the next section).
+A row with an `at` predicate is an ordinary row: it matches in `seq` order
+like any other, and only a message that starts with that `@name` matches it. A
+message with no leading `@name` never matches it. When the row matches, the
+message starts a turn in the row's target (see the next section).
 
 A glob uses `path.Match` over segments that `/` separates. `*` never matches
 `/`.
@@ -406,48 +408,51 @@ messages.
 To make the agent reply to every channel message, change the targets at seq 100
 from `atlas#observe` to `atlas`.
 
-### An @name or #topic prefix is code, not a route
+### A leading @name selects a group, and a #topic prefix is code
 
-The `@` and `#` prefix layer is not in the routes table. It lives in
-`handlePrefixLayer` in `routd/steer.go`. An anchored regular expression,
-`^\s*@(\w[\w-]*)` or `^\s*#(\w[\w-]*)`, matches a sigil at the very start of
-`msg.Content`. A `@handle` or `#hashtag` inside the content, for example in a
-forwarded tweet, does not trigger the layer. The layer ignores messages from
-bots and from `timed-` senders.
+A leading `@name` addresses the message and starts a turn in the group it
+selects: the first matching route (an `at=` row is a route), else the nearest
+`<ancestor>/<name>`.
 
-- **`@name` at the start of a message.** `routd` picks the target group in
-  this order, and delegates the message, with `@name` removed, to its agent:
-  1. The first route row that has an `at=` predicate and matches the message.
-     Its target can be any group.
-  2. The nearest group `<ancestor>/<name>`. `routd` tries `<current-group>/<name>`,
-     then `<parent>/<name>`, and so on. It stops at the top-level group (the
-     first path segment), so a name never reaches another tenant.
-  3. No group: the prefix stays in the message, and the message goes to the
-     agent unchanged.
+An anchored regular expression, `^\s*@(\w[\w-]*)`, reads the `@name`
+(`router.RePrefixAt`, the one reader). A `@handle` inside the content, for
+example in a forwarded tweet, is not a prefix. Messages from bots and from
+`timed-` senders are never addressed by it. `resolveFolder` in `routd/loop.go`
+decides it, in the same place that decides every other address.
 
-  ```
-  Chat routed to sloth/discord. Group sloth/killer exists.
-  User sends: "@killer clean up the queue"
-  Lookup: sloth/discord/killer is missing, sloth/killer exists
-  Delegation: "clean up the queue" goes to the sloth/killer agent
+- **The first matching route.** An `at=` row is read in `seq` order like any
+  other row. When it is the first row that matches and its target is a plain
+  group, that group takes the message. The target can be any group.
+- **Else the nearest `<ancestor>/<name>`.** When the first matching row is not
+  an `at=` row, `routd` tries `<group>/<name>`, then `<parent>/<name>`, and so
+  on, where `<group>` is the group the chat's route picks (an `#observe` route
+  counts). It stops at the top-level group (the first path segment), so a name
+  never reaches another tenant.
+- **No group.** The message is not changed: it follows the chat's route.
 
-  arizuko route -i demo add 'room=T/C at=killer' ops/killer
-  → "@killer ..." in that room goes to ops/killer, whatever groups exist
-  ```
+The group starts a turn even when the chat's route is `#observe`. The turn
+sees the message with `@name` removed.
 
-  The delegation also opens an engagement window for the target on the chat
-  and topic of the message, as a reply from that group would. A plain
-  message in that chat or thread is then observed under the target. A mention
-  starts a turn there. A reply to a message from the target goes back to it by
-  the reply chain. A thread that starts later falls back to the chat window.
-  The window ends as any window ends (`disengage`, or no reply within
-  `ENGAGEMENT_TTL`). A chat route that is `#observe` for plain messages hides
-  the prefix, because the message never starts a turn: send the prefix as a
-  mention.
+```
+Chat routed to sloth/discord#observe. Group sloth/killer exists.
+User sends: "@killer clean up the queue"
+Lookup: sloth/discord/killer is missing, sloth/killer exists
+Turn: "clean up the queue" runs in sloth/killer
 
-- **`#topic` at the start of a message.** `routd` stores the message, with
-  `#topic` removed, under the topic `#topic` and runs it in a session for that
-  topic inside the current group.
+arizuko route -i demo add 'room=T/C at=killer' ops/killer
+→ "@killer ..." in that room runs in ops/killer, whatever groups exist
+```
+
+The turn also opens an engagement window for the group on the chat and
+topic of the message, as a reply from that group would. A plain message in
+that chat or thread is then observed under the group. A mention starts a
+turn there. A reply to a message from the group goes back to it by the reply
+chain. A thread that starts later falls back to the chat window. The window
+ends as any window ends (`disengage`, or no reply within `ENGAGEMENT_TTL`).
+
+- **`#topic` at the start of a message.** `handlePrefixLayer` in
+  `routd/steer.go` stores the message, with `#topic` removed, under the topic
+  `#topic` and runs it in a session for that topic inside the current group.
 
   ```
   User in atlas sends: "#support my account is locked"
@@ -459,9 +464,10 @@ to the folder that owns the chat. A row would repeat for every group, and each
 folder move would force a rewrite. An `at=` row is for a name that must reach
 one fixed group, or a group outside the current world.
 
-The layer reads one row for each poll batch. The row is the oldest slash
-command when the batch holds one. Otherwise it is the newest user message, see `steerRowIdx` in `routd/dispatch.go`. The layer does not apply an `@name` or
-`#topic` on an older row of the same batch.
+The `#topic` prefix is read on one row for each poll batch. The row is the
+oldest slash command when the batch holds one. Otherwise it is the newest user
+message, see `steerRowIdx` in `routd/dispatch.go`. The prefix is not applied to
+an older row of the same batch. Each row's `@name` is read on that row.
 
 ## routd resolves a chat in two stages
 
@@ -544,8 +550,8 @@ The second stage runs these steps in order:
 
 1. A bare `@group` or `#topic` sets sticky navigation.
 2. A slash command runs.
-3. An `@name` or `#topic` prefix delegates the message, or posts it again
-   under that topic.
+3. A `#topic` prefix posts the message again under that topic. (A leading
+   `@name` is not a step here: the first stage already picked its group.)
 4. `routd` looks up a delegation target. It tries the folder that a replied-to
    bot row was routed to, then the sticky group of the chat, then the route
    table.
@@ -727,7 +733,7 @@ Routes: match='platform=telegram' → atlas
 Groups: atlas, atlas/content, atlas/social
 
 1. User sends: "@content write about cats"
-   → the prefix layer finds atlas/content and delegates to it
+   → the first stage finds atlas/content and runs the turn there
    → atlas/content replies: "Here's a post about cats..." (routed_to=atlas/content)
 
 2. User replies to that message: "make it shorter"
@@ -804,7 +810,7 @@ route table. This has three effects:
   it. The reply chain takes precedence.
 - Sticky overrides the default route table.
 - An inline `@name` in a message with content, such as `@content do this`,
-  still fires the prefix layer for that one message. Sticky persists.
+  still selects its group for that one message. Sticky persists.
 
 ## One chat can reach several groups
 
@@ -815,7 +821,7 @@ replies and sticky state.
 Routes table:
   seq=0  match='platform=telegram'  target=atlas    # catch-all
 
-The prefix layer is built in and needs no table rows.
+The `@name` lookup is built in and needs no table rows.
 
 Possible message flows in the same chat:
   "hello"                → atlas (route)

@@ -72,7 +72,7 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 	steerConsumed := false
 	steerIdx := steerRowIdx(msgs)
 	steerMsg := msgs[steerIdx]
-	if l.steer(chatJID, steerMsg, folder) {
+	if l.steer(chatJID, steerMsg, folder, b.rows[steerIdx].AtName) {
 		// Consumed HERE, exactly once, before anything else can fail: no steer
 		// handler may run a second time because a later dispatch was refused.
 		l.advance(chatJID, steerMsg)
@@ -91,6 +91,9 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 		switch {
 		case m.BotMsg:
 		case b.rows[i].ok:
+			if b.rows[i].AtName {
+				m = l.takeAtName(chatJID, m, b.rows[i].Folder)
+			}
 			trigger = append(trigger, m)
 			addressed[m.ID] = b.rows[i].Addressed
 		default:

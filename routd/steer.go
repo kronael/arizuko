@@ -17,17 +17,18 @@ import (
 )
 
 // steer consumes the latest message of a routed chat BEFORE it reaches a turn:
-// sticky navigation (@group / #topic), then slash commands, then @child
-// delegation / the external-route prefix layer. True means consumed — the
-// caller advances the cursor and skips the turn.
-func (l *Loop) steer(chatJID string, last core.Message, folder string) bool {
+// sticky navigation (@group / #topic), then slash commands, then the #topic
+// prefix and the external route. True means consumed — the caller advances the
+// cursor and skips the turn. at says a leading @name already selected folder,
+// so no external route overrides it.
+func (l *Loop) steer(chatJID string, last core.Message, folder string, at bool) bool {
 	if l.handleStickyCommand(chatJID, last) {
 		return true
 	}
 	if l.handleCommand(chatJID, last, folder) {
 		return true
 	}
-	return l.tryExternalRoute(chatJID, last, folder)
+	return l.tryExternalRoute(chatJID, last, folder, at)
 }
 
 // ack sends a steering acknowledgement to the chat; no-op without a Deliverer.
@@ -480,11 +481,16 @@ func parsePrefix(text string) (name, rest string, ok bool) {
 	return "", "", false
 }
 
-// tryExternalRoute delegates the message to a child group when an explicit
-// @child / #topic prefix or a routing rule points outside the current folder.
-func (l *Loop) tryExternalRoute(chatJID string, msg core.Message, folder string) bool {
-	if l.handlePrefixLayer(chatJID, msg, folder) {
+// tryExternalRoute re-appends a #topic-prefixed message under that topic, or
+// delegates the message to the group a reply, the sticky pin or a routing rule
+// names outside the current folder. A leading @name that selected folder
+// (at) is final: resolveFolder decided it.
+func (l *Loop) tryExternalRoute(chatJID string, msg core.Message, folder string, at bool) bool {
+	if l.handlePrefixLayer(chatJID, msg) {
 		return true
+	}
+	if at {
+		return false
 	}
 	target := l.resolveTarget(chatJID, msg, folder)
 	if target != "" && router.IsAuthorizedRoutingTarget(folder, target) {
@@ -494,18 +500,13 @@ func (l *Loop) tryExternalRoute(chatJID string, msg core.Message, folder string)
 	return false
 }
 
-// handlePrefixLayer routes an explicit @name / #topic prefix: @name
-// delegates to the nearest <ancestor>/name (findNamedGroup) and engages the
-// chat and topic for it; #topic re-appends the stripped message under
-// topic="#name". An unknown child is NOT swallowed.
-func (l *Loop) handlePrefixLayer(chatJID string, msg core.Message, folder string) bool {
+// handlePrefixLayer re-appends the stripped message under topic="#name".
+func (l *Loop) handlePrefixLayer(chatJID string, msg core.Message) bool {
 	if msg.BotMsg || strings.HasPrefix(msg.Sender, "timed-") {
 		return false
 	}
 	envelope, typed := typedText(msg.Content)
-	hasAt := rePrefixAt.MatchString(typed)
-	hasHash := rePrefixHash.MatchString(typed)
-	if !hasAt && !hasHash {
+	if !rePrefixHash.MatchString(typed) {
 		return false
 	}
 	name, stripped, ok := parsePrefix(typed)
@@ -516,30 +517,6 @@ func (l *Loop) handlePrefixLayer(chatJID string, msg core.Message, folder string
 	// reads where it sits and which id a reply names.
 	if envelope != "" {
 		stripped = envelope + "\n\n" + stripped
-	}
-	if hasAt {
-		if strings.Contains(name, "/") {
-			slog.Warn("@prefix: name contains slash, rejecting", "name", name)
-			return false
-		}
-		target := l.atTarget(msg, typed, name, folder)
-		if target == "" {
-			slog.Warn("@prefix: group not found", "from", folder, "name", name)
-			return false
-		}
-		if target == folder {
-			return false
-		}
-		l.delegate(target, stripped, chatJID)
-		// The address opens the conversation for the target: later messages in
-		// this chat and thread follow the engagement rules, as after a reply.
-		if l.engagementTTL > 0 {
-			topic := (&chatReads{db: l.db, chatJID: chatJID}).effectiveTopic(msg.Topic)
-			if err := l.db.SetEngagement(chatJID, topic, target, l.engagementTTL); err != nil {
-				slog.Error("@prefix: engage the target", "target", target, "jid", chatJID, "err", err)
-			}
-		}
-		return true
 	}
 	_ = l.db.PutMessage(core.Message{
 		ID:        core.MsgID("topic"),
@@ -554,19 +531,36 @@ func (l *Loop) handlePrefixLayer(chatJID string, msg core.Message, folder string
 	return true
 }
 
-// atTarget is where @name goes: a route row with an `at` predicate wins (any
-// folder, so a row can reach across the world), else the nearest
-// <ancestor>/name. The row is matched against the typed text, so the envelope
-// gitd adds in front never hides the prefix.
-func (l *Loop) atTarget(msg core.Message, typed, name, folder string) string {
-	if routes, err := l.db.Routes(); err == nil {
-		probe := msg
-		probe.Content = typed
-		if t := router.ResolveAtRoute(probe, routes); t != "" && l.db.GroupExists(t) {
-			return t
+// leadingAt reads the leading @name of a message through the typed text, so
+// the envelope gitd adds in front never hides it. rest is the message without
+// the prefix, envelope kept.
+func leadingAt(content string) (name, rest string, ok bool) {
+	envelope, typed := typedText(content)
+	m := rePrefixAt.FindStringSubmatchIndex(typed)
+	if m == nil {
+		return "", "", false
+	}
+	rest = strings.TrimSpace(typed[m[1]:])
+	if envelope != "" {
+		rest = envelope + "\n\n" + rest
+	}
+	return typed[m[2]:m[3]], rest, true
+}
+
+// takeAtName hands a message its leading @name selected for target to the turn
+// without the prefix, and opens the conversation for target: later messages in
+// this chat and thread follow the engagement rules, as after a reply.
+func (l *Loop) takeAtName(chatJID string, m core.Message, target string) core.Message {
+	if _, rest, ok := leadingAt(m.Content); ok {
+		m.Content = rest
+	}
+	if l.engagementTTL > 0 {
+		topic := (&chatReads{db: l.db, chatJID: chatJID}).effectiveTopic(m.Topic)
+		if err := l.db.SetEngagement(chatJID, topic, target, l.engagementTTL); err != nil {
+			slog.Error("@name: engage the target", "target", target, "jid", chatJID, "err", err)
 		}
 	}
-	return l.findNamedGroup(folder, name)
+	return m
 }
 
 // findNamedGroup resolves @name to the nearest existing <ancestor>/<name>,

@@ -46,16 +46,13 @@ func TestSteer_GitHubChildDelegationReadsPastTheHeader(t *testing.T) {
 	if _, err := loop.processGroupMessages(prJID); err != nil {
 		t.Fatalf("process: %v", err)
 	}
-	if len(rr.runs) != 0 {
-		t.Fatalf("the delegation reached the parent agent: %+v", rr.runs)
-	}
-	msgs, _ := db.MessagesSince("eng/child", "")
-	if len(msgs) != 1 {
-		t.Fatalf("delegation rows on the child=%d want 1", len(msgs))
+	if len(rr.runs) != 1 || rr.runs[0].folder != "eng/child" {
+		t.Fatalf("the turn did not run in the child alone: %+v", rr.runs)
 	}
 	// The child keeps the location, so its reply can name the comment it answers.
-	if got := msgs[0].Content; got != strings.TrimSpace(ghHeader)+"\n\ndo X" {
-		t.Fatalf("delegated content=%q want the header and the stripped prompt", got)
+	got := rr.runs[0].batch
+	if !strings.Contains(got, strings.TrimSpace(ghHeader)) || !strings.Contains(got, "do X") || strings.Contains(got, "@child") {
+		t.Fatalf("the turn saw %q, want the header and the stripped prompt", got)
 	}
 }
 

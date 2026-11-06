@@ -134,7 +134,7 @@ func TestReactionVerdict_RunsTheOrdinaryCommandPath(t *testing.T) {
 	cmd := db.VerdictForReaction("tg:1", "m7", "✅")
 	if !loop.steer("tg:1", core.Message{
 		ChatJID: "tg:1", Sender: "u", Content: cmd, Timestamp: time.Now().UTC(),
-	}, "atlas") {
+	}, "atlas", false) {
 		t.Fatalf("the reaction's command %q was not consumed", cmd)
 	}
 	row, _ := pendingActionRow(db, "ab12")
@@ -154,7 +154,7 @@ func TestReactionVerdict_BystanderIsRefused(t *testing.T) {
 	cmd := db.VerdictForReaction("tg:1", "m7", "✅")
 	loop.steer("tg:1", core.Message{
 		ChatJID: "tg:1", Sender: "bystander", Content: cmd, Timestamp: time.Now().UTC(),
-	}, "atlas")
+	}, "atlas", false)
 	row, _ := pendingActionRow(db, "ab12")
 	if row.Status != PendingHeld {
 		t.Fatalf("a bystander's reaction decided the call: %+v", row)

@@ -13,6 +13,8 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+- **Routing.** A leading `@name` addresses the message and starts a turn in the group it selects, even in a chat whose route is `#observe`: the first matching route (an `at=` row is a route, read in `seq` order), else the nearest `<ancestor>/<name>`. The turn sees the message without the `@name`.
+
 ## [v0.75.0] — 2026-11-06
 
 > arizuko v0.75.0 — one command onto a shared store, and @name reaches any group

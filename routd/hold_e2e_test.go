@@ -112,7 +112,7 @@ func TestHoldE2E_ButtonPressReleasesTheBlockedCall(t *testing.T) {
 	// text, from the presser.
 	if !loop.steer("tg:1", core.Message{
 		ChatJID: "tg:1", Sender: "u", Content: press, Timestamp: time.Now().UTC(),
-	}, "atlas") {
+	}, "atlas", false) {
 		t.Fatalf("the button's data %q was not consumed as a command", press)
 	}
 
@@ -152,7 +152,7 @@ func TestHoldE2E_RejectPressKeepsTheCallUnrun(t *testing.T) {
 	press := options[1].(map[string]any)["data"].(string)
 	if !loop.steer("tg:1", core.Message{
 		ChatJID: "tg:1", Sender: "u", Content: press, Timestamp: time.Now().UTC(),
-	}, "atlas") {
+	}, "atlas", false) {
 		t.Fatalf("the reject button's data %q was not consumed", press)
 	}
 
@@ -195,7 +195,7 @@ func TestHoldE2E_ChannelWithoutButtonsStillGetsAnAnswerablePrompt(t *testing.T) 
 
 	if !loop.steer("tg:1", core.Message{
 		ChatJID: "tg:1", Sender: "u", Content: "/approve " + id, Timestamp: time.Now().UTC(),
-	}, "atlas") {
+	}, "atlas", false) {
 		t.Fatal("the typed command was not consumed")
 	}
 	select {

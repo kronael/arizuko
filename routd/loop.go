@@ -598,7 +598,10 @@ type resolution struct {
 	// Addressed: a person put a question to this folder and is owed an answer
 	// (spec 6/47 §"Addressed"). Declared here once and stored on the turn.
 	Addressed bool
-	ok        bool
+	// AtName: the message's leading @name selected Folder. The turn that takes
+	// the row drops the prefix and engages the chat and topic for Folder.
+	AtName bool
+	ok     bool
 }
 
 // resolveGroup is resolve for callers that only need (folder, ok).
@@ -686,32 +689,66 @@ func (l *Loop) resolveRows(chatJID string, rows []core.Message) []resolution {
 	return out
 }
 
+// resolveFolder is the one place a leading @name addresses a message. The
+// first matching route wins, an `at` row like any other. A plain-target `at`
+// row selects the group; with no `at` row the nearest <ancestor>/<name> does.
+// Either starts a turn there, even when the chat's own route only observes.
 func (l *Loop) resolveFolder(reads *chatReads, last core.Message, routes []core.Route, routesOK bool) resolution {
-	// 2. Route table.
+	// The row is matched against the typed text, so the envelope gitd adds in
+	// front never hides the prefix.
+	probe := last
+	_, probe.Content = typedText(last.Content)
+	var row core.Route
+	var rt core.RouteTarget
 	if routesOK {
-		rt := router.ResolveRouteTarget(last, routes)
-		if rt.Folder != "" {
-			engTopic := reads.effectiveTopic(last.Topic)
-			// #engaged extends engagement to the rows the rule matches, whatever
-			// their verb: it fires in the engaged folder while the chat and topic
-			// are engaged and is observed under the target otherwise. Never addressed.
-			if rt.Mode == "engaged" {
-				if folder, ok := reads.engagedFolder(engTopic); ok {
-					return resolution{Folder: folder, ok: true}
-				}
-				return resolution{Observe: rt.Folder}
-			}
-			// A trigger rule addresses the folder whether or not the chat is also
-			// engaged; an observe rule on an engaged chat is engagement alone.
-			addressed := rt.Mode != "observe"
-			if folder, ok := reads.engaged(engTopic, last); ok {
-				return resolution{Folder: folder, ok: true, Addressed: addressed}
-			}
-			if rt.Mode == "observe" {
-				return resolution{Observe: rt.Folder}
-			}
-			return resolution{Folder: rt.Folder, Topic: rt.Topic, ok: true, Addressed: true}
+		var target string
+		row, target, _ = router.MatchRoute(probe, routes)
+		rt = core.ParseRouteTarget(target)
+	}
+	name, _, hasAt := leadingAt(last.Content)
+	hasAt = hasAt && !last.BotMsg && !isSystemTrigger(last.Sender)
+	atRow := router.HasAt(row)
+	if hasAt && atRow && rt.Folder != "" && rt.Mode == "" {
+		return resolution{Folder: rt.Folder, Topic: rt.Topic, ok: true, Addressed: true, AtName: true}
+	}
+	res := l.routedFolder(reads, last, rt)
+	if hasAt && !atRow {
+		base := res.Folder
+		if base == "" {
+			base = res.Observe
 		}
+		if t := l.findNamedGroup(base, name); base != "" && t != "" {
+			return resolution{Folder: t, ok: true, Addressed: true, AtName: true}
+		}
+	}
+	return res
+}
+
+// routedFolder decides a message from its matched route rt (empty on a miss),
+// then from engagement.
+func (l *Loop) routedFolder(reads *chatReads, last core.Message, rt core.RouteTarget) resolution {
+	// 2. Route table.
+	if rt.Folder != "" {
+		engTopic := reads.effectiveTopic(last.Topic)
+		// #engaged extends engagement to the rows the rule matches, whatever
+		// their verb: it fires in the engaged folder while the chat and topic
+		// are engaged and is observed under the target otherwise. Never addressed.
+		if rt.Mode == "engaged" {
+			if folder, ok := reads.engagedFolder(engTopic); ok {
+				return resolution{Folder: folder, ok: true}
+			}
+			return resolution{Observe: rt.Folder}
+		}
+		// A trigger rule addresses the folder whether or not the chat is also
+		// engaged; an observe rule on an engaged chat is engagement alone.
+		addressed := rt.Mode != "observe"
+		if folder, ok := reads.engaged(engTopic, last); ok {
+			return resolution{Folder: folder, ok: true, Addressed: addressed}
+		}
+		if rt.Mode == "observe" {
+			return resolution{Observe: rt.Folder}
+		}
+		return resolution{Folder: rt.Folder, Topic: rt.Topic, ok: true, Addressed: true}
 	}
 	// 3. Engagement fallback on a route miss (topic-root normalized).
 	engTopic := reads.effectiveTopic(last.Topic)

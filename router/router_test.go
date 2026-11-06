@@ -550,23 +550,41 @@ func TestAtMatchKey(t *testing.T) {
 		{Match: "platform=slack", Target: "w"},
 	}
 	m := core.Message{ChatJID: "slack:T/C", Content: "  @killer go"}
-	if got := ResolveAtRoute(m, routes); got != "w/killer" {
+	if got := ResolveRoute(m, routes); got != "w/killer" {
 		t.Fatalf("at=killer: %q", got)
 	}
 	m.Content = "@ops go"
-	if got := ResolveAtRoute(m, routes); got != "w/ops" {
+	if got := ResolveRoute(m, routes); got != "w/ops" {
 		t.Fatalf("room+at: %q", got)
 	}
 	m.ChatJID = "slack:T/D"
-	if got := ResolveAtRoute(m, routes); got != "" {
+	if got := ResolveRoute(m, routes); got != "w" {
 		t.Fatalf("room mismatch: %q", got)
 	}
+	// No leading @name: an at row never matches, the next row does.
+	m.ChatJID = "slack:T/C"
 	m.Content = "hi @killer"
-	if got := ResolveAtRoute(m, routes); got != "" {
-		t.Fatalf("mid-content @ matched: %q", got)
-	}
-	m.Content = "@killer go"
 	if got := ResolveRoute(m, routes); got != "w" {
-		t.Fatalf("ordinary resolution = %q want w", got)
+		t.Fatalf("mid-content @ matched an at row: %q", got)
+	}
+	m.Content = "plain"
+	if row, _, ok := MatchRoute(m, routes); !ok || HasAt(row) {
+		t.Fatalf("plain message matched an at row: %+v", row)
+	}
+}
+
+// An at row is read in seq order like any other row.
+func TestAtRowSeqOrder(t *testing.T) {
+	m := core.Message{ChatJID: "slack:T/C", Content: "@killer go"}
+	before := []core.Route{
+		{Match: "platform=slack", Target: "w"},
+		{Match: "at=killer", Target: "w/killer"},
+	}
+	if got := ResolveRoute(m, before); got != "w" {
+		t.Fatalf("earlier row lost to a later at row: %q", got)
+	}
+	after := []core.Route{before[1], before[0]}
+	if got := ResolveRoute(m, after); got != "w/killer" {
+		t.Fatalf("earlier at row lost: %q", got)
 	}
 }

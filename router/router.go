@@ -236,8 +236,8 @@ func msgField(msg core.Message, key string) string {
 }
 
 // RePrefixAt is the leading @name of a message: the one reader of the prefix,
-// shared by the prefix layer and the `at` match key. A mid-content @handle is
-// not a prefix.
+// used by the `at` match key and by routd's @name selection. A mid-content
+// @handle is not a prefix.
 var RePrefixAt = regexp.MustCompile(`^\s*@(\w[\w-]*)`)
 
 // RouteMatches reports whether every "key=glob" predicate in r.Match matches
@@ -263,20 +263,10 @@ func RouteMatchesIgnoreVerb(r core.Route, msg core.Message) bool {
 }
 
 func routeMatches(r core.Route, msg core.Message, ignoreVerb bool) bool {
-	return matchPredicates(r, msg, ignoreVerb, false)
-}
-
-// matchPredicates is the one matcher. A row with an `at` predicate redirects a
-// prefix, not a chat: it matches only when atOK, so ordinary resolution never
-// routes a message because it starts with @name.
-func matchPredicates(r core.Route, msg core.Message, ignoreVerb, atOK bool) bool {
 	for f := range strings.FieldsSeq(r.Match) {
 		k, pat, ok := strings.Cut(f, "=")
 		if !ok || k == "" {
 			continue
-		}
-		if k == "at" && !atOK {
-			return false
 		}
 		if ignoreVerb && k == "verb" {
 			continue
@@ -301,32 +291,34 @@ func matchPredicates(r core.Route, msg core.Message, ignoreVerb, atOK bool) bool
 	return true
 }
 
-// ResolveAtRoute answers the target of the first row that has an `at`
-// predicate and matches msg, "" when none does. msg.Content is the text whose
-// leading @name the predicate reads.
-func ResolveAtRoute(msg core.Message, routes []core.Route) string {
-	for _, r := range routes {
-		if !strings.Contains(" "+r.Match, " at=") || !matchPredicates(r, msg, false, true) {
-			continue
-		}
-		if t := expandTarget(r.Target, msg); t != "" {
-			return core.ParseRouteTarget(t).Folder
+// HasAt reports whether r selects on the leading @name of a message.
+func HasAt(r core.Route) bool {
+	for f := range strings.FieldsSeq(r.Match) {
+		if k, _, ok := strings.Cut(f, "="); ok && k == "at" {
+			return true
 		}
 	}
-	return ""
+	return false
 }
 
-func ResolveRoute(msg core.Message, routes []core.Route) string {
+// MatchRoute returns the first row that matches msg and its expanded target;
+// ok is false when none does. Rows are read in seq order, an `at` row like any
+// other.
+func MatchRoute(msg core.Message, routes []core.Route) (row core.Route, target string, ok bool) {
 	for _, r := range routes {
 		if !RouteMatches(r, msg) {
 			continue
 		}
-		t := expandTarget(r.Target, msg)
-		if t != "" {
-			return t
+		if t := expandTarget(r.Target, msg); t != "" {
+			return r, t, true
 		}
 	}
-	return ""
+	return core.Route{}, "", false
+}
+
+func ResolveRoute(msg core.Message, routes []core.Route) string {
+	_, t, _ := MatchRoute(msg, routes)
+	return t
 }
 
 // ResolveRouteTarget resolves the matching route and parses target fragment.

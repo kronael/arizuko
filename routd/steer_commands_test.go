@@ -32,7 +32,7 @@ func steerOne(l *Loop, chatJID, folder, content string) bool {
 func steerAs(l *Loop, chatJID, folder, sender, content string) bool {
 	return l.steer(chatJID, core.Message{
 		ChatJID: chatJID, Sender: sender, Content: content, Timestamp: time.Now().UTC(),
-	}, folder)
+	}, folder, false)
 }
 
 // TestCmdChatID: /chatid acks the chat jid verbatim (gated cmdChatID).

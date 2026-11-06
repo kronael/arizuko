@@ -389,7 +389,7 @@ routd obtains its own `service:routd` token at boot
 - `routd/loop.go`, `routd/dispatch.go` — the loop, resolution, dispatch.
 - `routd/server.go` — ingress, the `/v1/turns/*` mux, 5/L promotion.
 - `routd/turns.go` — turn callbacks, idempotency wrapper, `submit_turn`.
-- `routd/steer.go` — sticky nav, slash commands, `@name` delegation (an `at=` route row, else the nearest `<ancestor>/<name>`; it engages the target).
+- `routd/steer.go` — sticky nav, slash commands, the `#topic` prefix, `takeAtName` (a leading `@name` is selected in `resolveFolder`: the first matching route, an `at=` row included, else the nearest `<ancestor>/<name>`; the turn engages the group).
 - `routd/prompt.go` — `buildAgentPrompt`, `paneHints`, `linkContextBlock`.
 - `routd/mcp.go` — `ServeTurnMCP`, the per-turn socket.
 - `routd/db.go`, `routd/migrations/` — schema + access.

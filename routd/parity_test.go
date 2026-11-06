@@ -228,7 +228,7 @@ func TestSlashNewClearsSession(t *testing.T) {
 // delegation row carrying the origin chat as forwarded_from (the return
 // address). Mirrors gated handlePrefixLayer + delegateViaMessage.
 func TestChildDelegation(t *testing.T) {
-	db, loop, _ := recLoop(t)
+	db, loop, rr := recLoop(t)
 	_ = db.PutGroup(core.Group{Folder: "root"})
 	_ = db.PutGroup(core.Group{Folder: "root/eng"})
 	doSetRoutes(t, db, []core.Route{{Match: "platform=slack", Target: "root"}})
@@ -238,19 +238,15 @@ func TestChildDelegation(t *testing.T) {
 	if _, err := loop.processGroupMessages("slack:T/C/X"); err != nil {
 		t.Fatalf("process: %v", err)
 	}
-	// the delegation row landed on the child folder JID with the return address.
-	msgs, _ := db.MessagesSince("root/eng", "")
-	if len(msgs) != 1 {
-		t.Fatalf("delegation rows on child=%d want 1", len(msgs))
+	// The turn runs in the child on the chat itself, without the prefix.
+	if len(rr.runs) != 1 || rr.runs[0].folder != "root/eng" {
+		t.Fatalf("runs = %+v, want one turn in root/eng", rr.runs)
 	}
-	if msgs[0].ForwardedFrom != "slack:T/C/X" {
-		t.Fatalf("forwarded_from=%q want slack:T/C/X", msgs[0].ForwardedFrom)
-	}
-	if msgs[0].Content != "please ship it" {
-		t.Fatalf("delegated content=%q want stripped prompt", msgs[0].Content)
+	if b := rr.runs[0].batch; !strings.Contains(b, "please ship it") || strings.Contains(b, "@eng") {
+		t.Fatalf("turn batch = %q, want the stripped prompt", b)
 	}
 	if db.GetAgentCursor("slack:T/C/X") == "" {
-		t.Fatal("consumed delegation did not advance origin cursor")
+		t.Fatal("the turn did not advance the origin cursor")
 	}
 }
 
