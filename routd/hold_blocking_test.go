@@ -221,10 +221,10 @@ func TestNotifyHeld_OffersTheVerdictsAsButtons(t *testing.T) {
 	d := memDB(t)
 	dl := &recDeliverer{}
 	srv := &Server{db: d, deliver: dl}
-	holdRule(t, d, "mcp:delete", auth.EffectHoldBlock)
+	holdRule(t, d, "like", auth.EffectHoldBlock)
 	gate := srv.holdGate(turnMCP{folder: "atlas", chatJID: "tg:1", turnID: "t9"})
 
-	_, held := gate("mcp:delete", map[string]any{"target": "prod"})
+	_, held := gate("like", map[string]any{"chatJid": "tg:1", "targetId": "156", "reaction": "👀"})
 	if !held {
 		t.Fatal("a matching hold rule must suspend the call")
 	}
