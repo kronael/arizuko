@@ -452,7 +452,9 @@ on krons. A limit failure is a condition that clears, not a bad request.
   hour or so"), so the answer lands in
   its own chat and thread once the limit clears. The operator gets one
   `#issues` notice when a limit starts (per instance, until a turn succeeds).
-  Other failures keep L670's one-notice-per-chat rule.
+  Other failures keep L670's one-notice-per-chat rule. Minimal code: reuse
+  the retry path routd already has (the Busy/busyWait re-feed or the existing
+  scheduled retry), with an hour as its delay; no new mechanism.
 - **Status:** open — approved, queued for Terra after L670
 
 ## ✅ FIXED 2026-11-06 8c262dcd4 L671 — `store enroll` scans without a page limit and the old store server runs out of memory (2026-11-06)
