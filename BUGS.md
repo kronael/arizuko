@@ -479,7 +479,7 @@ a hook nudge works).
 - **Test:** `TestIssuesNotify`, `TestCorePackageShipsIssuesNotify` (`runed/issues_notify_test.go`).
 - **Status:** fixed — `ant/hooks/issues_notify.py` (PostToolUse, Claude Code only; core ships no Codex hooks.json). A wipe followed by a new append before the next tool call is not noticed.
 
-## ✅ FIXED 2026-11-06 f85634736 L667 — `auth.Delegate` admits a grant wider than the granter holds: `?` and `[` globs, and a deny on a crossing glob (2026-11-06)
+## ✅ FIXED 2026-11-06 c317464bb L667 — `auth.Delegate` admits a grant wider than the granter holds: `?` and `[` globs, and a deny on a crossing glob (2026-11-06)
 
 MEASURED at `684b3eeed` with a scratch probe (`TestProbeDelegateGlobs`, not
 committed) against the real store:
@@ -506,7 +506,7 @@ more.
 - **Test:** `TestDelegateGlobContainment` (`auth/delegate_glob_test.go`).
 - **Status:** fixed — `scopeCovers` refuses a wanted `*`, `?`, `[` or `\` glob a held `**`, identical glob or `<base>/**` does not span; `mayMeet` replaces the covers test in `blockedByDeny`.
 
-## ✅ FIXED 2026-11-06 17791926f L666 — `/root` elevates the whole batch, so another sender's message runs in a root turn (2026-11-06)
+## ✅ FIXED 2026-11-06 707899d29 L666 — `/root` elevates the whole batch, so another sender's message runs in a root turn (2026-11-06)
 
 MEASURED at `684b3eeed` with a scratch routd test (not committed; the
 `cursor_skip_test.go` fixture, a `web:` chat). Operator `u` sends `/root list
