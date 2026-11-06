@@ -131,11 +131,11 @@ if that instance exists. The command refuses to overwrite its directory.
 
 The commands build the daemon image and guest artifacts in the new instance.
 Enter the two absolute artifact directories printed by the build when prompted. The instance uses
-the image `arizuko:latest`. This procedure creates five scoped store users and
-keeps their keys in `env/`. The admin password is in `env/store-admin.env`.
+the image `arizuko:latest`. `arizuko store enroll` creates one scoped store user
+for each daemon that reaches the store, also for a daemon that is not installed,
+and keeps their keys in `env/`. The admin password is in `env/store-admin.env`.
 Keep the instance and the temporary bootstrap directory private. If a command
-fails, inspect the instance and the temporary directory before retrying. Sync may
-report missing keys for other daemons; enroll each one before enabling it.
+fails, inspect the instance and the temporary directory before retrying.
 
 A disposable test initialized the store, ran `package add` and `package sync`, and restarted the
 seven services. The test used a separate image and host ports. It reused
@@ -375,18 +375,42 @@ and `googd` open no store and need no key: none of them is in
 `StoreReach`, and none calls `OpenAdapterStore`.
 
 One command does this for every row of the table, after `.env` holds
-`DYNAMODB_URL` and `STORE_CA`:
+`DYNAMODB_URL` and `STORE_CA`. Run it as a user that can read `.env` and write
+`env/`. The bootstrap runs it as the owner of the new instance. On a deployed
+instance root owns `.env` and `env/`, so use `sudo` and keep the password in the
+environment of the command:
 
 ```bash
-export EXTENDDB_PASSWORD=<the admin password of the store server>
-./arizuko store enroll -i <name>
+export EXTENDDB_PASSWORD=<the password of the admin user of the store server>
+sudo --preserve-env=EXTENDDB_PASSWORD ./arizuko store enroll -i <name>
 ```
 
-It makes the account `arizuko_<name>` on the store server. For each row it makes
-the user, puts the policy `tables` from `StoreReach`, mints the key, and writes
-the pair into `env/<daemon>.env`. The pair of `cmd/arizuko` goes into
-`env/operator.env`. It prints one line per row with the key id and `minted` or
-`kept`. It never prints a secret.
+The command signs in to the management API of the store server as the user
+`admin`. On a store server of the instance, `init` made that user, and the
+bootstrap keeps its password in `env/store-admin.env`. On a shared store server
+you make that user yourself, see "Share one store server between instances".
+
+It makes the account `arizuko_<name>` on the server that `DYNAMODB_URL` names.
+For each row it makes the user, puts the policy `tables` from `StoreReach`,
+mints the key, and writes the pair into `env/<daemon>.env` with mode `0600`.
+The row `cmd/arizuko` is the user `operator`, and its pair goes into
+`env/operator.env`. The command enrols every row, also a daemon that is not
+installed, so a later `package add` finds its key.
+
+The output is one line for each row, and nothing more. It does not print the
+account or its id:
+
+```text
+authd authd <key id> minted
+onbod onbod,routd <key id> kept
+webd routd <key id> minted replaced <old key id>
+```
+
+The fields are the user, the prefixes of its policy, the key id, and `minted`
+or `kept`. `replaced <old key id>` means that the file held a key id that no
+user on this server holds, for example a key of another store server. The
+command never prints a secret. A failed call stops the run with a non-zero
+status.
 
 Run it again at any time. A row that already holds a valid key is `kept`, and the
 command checks the pair with one signed request. A file with half a pair, a key
@@ -395,19 +419,26 @@ anything. To rotate one key, delete its two lines in the env file and run the
 command again, then delete the old key with `extenddb manage delete-access-key`
 after the restart.
 
-To move an instance from its own store server onto a shared one, keep a copy of
-`.env` and `env/` before you change them, then pass that copy:
+The command writes each pair to its file immediately after the mint. A run that
+stops between the mint and the write leaves one key on the server that no file
+holds. The command does not find or print such a key. To find it, list the keys
+of the user and compare each key id with `AWS_ACCESS_KEY_ID` in the file of the
+row:
 
 ```bash
-./arizuko store enroll -i <name> <snapshot-dir>
+sudo --preserve-env=EXTENDDB_PASSWORD docker exec -e EXTENDDB_PASSWORD <store container> \
+  extenddb manage -c /var/lib/extenddb/extenddb.toml --user admin \
+  list-access-keys --account-id <account id> --user-name <user>
 ```
 
-It also copies every table of the old account into the new one and prints
-`<table> <count> equal` for each. It never replaces an item, so a second run is
-safe. A count that is not equal, a table with an index or a stream, and a table
-with a name that no row of the table owns all stop the run with a non-zero
-status. The old store server must stay running during the copy. The operator key
-in the snapshot needs `ListTables`, `DescribeTable` and `Scan` on every table.
+`list-accounts` with the same first two lines prints the id of the account
+`arizuko_<name>`. Delete a key that no file holds with `delete-access-key` and
+the same flags, plus `--access-key-id <key id>`. The store container of an
+instance is `arizuko_extenddb_<name>`.
+
+With a second argument, the command also moves the rows of the instance from
+its old store server. "Move an instance onto the shared store server" gives
+every step.
 
 Only the ExtendDB management API is supported.
 
@@ -453,7 +484,8 @@ A shared PostgreSQL usually withholds `CREATEDB`. `init` needs that right only
 to create the two databases. `init` also refuses to run when the databases
 already exist, and it says `Run 'destroy' first`. The `destroy` command drops
 them. When the role cannot create databases, you create them and finish the
-deployment by hand. The work is four rows and nothing else.
+deployment by hand. The work is four settings rows, one admin row, and nothing
+else.
 
 1. **Create the pair** as a role that has `CREATEDB`, and give both databases to
    the application role:
@@ -464,10 +496,7 @@ deployment by hand. The work is four rows and nothing else.
    CREATE DATABASE dynamo_catalog OWNER dynamo;
    ```
 
-2. **Apply the catalog schema** with `extenddb migrate`. The role owns both
-   databases, so it needs no other grant.
-
-3. **Generate the certificate.** TLS is required. Only `init` writes a
+2. **Generate the certificate.** TLS is required. Only `init` writes a
    certificate, and it writes the certificate before it touches PostgreSQL.
    Run it once for that purpose. It then fails with `AlreadyExists`, and that
    failure is expected. Give it every address that a client uses:
@@ -483,24 +512,7 @@ deployment by hand. The work is four rows and nothing else.
      --config /var/lib/extenddb/extenddb.toml --overwrite
    ```
 
-4. **Write the four rows** that `init` would write. Without them, the server
-   looks for the data tables in the catalog and exits with
-   `Encryption key not found in settings table`:
-
-   ```sql
-   INSERT INTO settings (key, value) VALUES
-     ('encryption_key',                  '<openssl rand -base64 32>'),
-     ('data_database_name',              'dynamo'),
-     ('data_database_connection_string', 'postgresql://dynamo:<pw>@<pg-host>:5432/dynamo'),
-     ('default_account_id',              '<12 digits>')
-   ON CONFLICT (key) DO UPDATE SET value = excluded.value;
-   ```
-
-   `encryption_key` is the root secret of the deployment. It encrypts every
-   stored credential. Generate it once. If you lose it, you lose every
-   credential.
-
-5. **Write `extenddb.toml`** with mode `0600`, owned by the service user. The
+3. **Write `extenddb.toml`** with mode `0600`, owned by the service user. The
    `connection_string` names the catalog. The port must be unique on the host.
    The fleet uses 18443, 18444 and 18445.
 
@@ -520,12 +532,64 @@ deployment by hand. The work is four rows and nothing else.
    connection_string = "postgresql://dynamo:<pw>@<pg-host>:5432/dynamo_catalog"
    ```
 
-6. **Run the server.** The command must carry `--foreground`. Without it, the
+4. **Apply the catalog schema** with `extenddb migrate`. It reads the
+   connection string from `extenddb.toml`, so it runs after step 3. The role
+   owns both databases, so it needs no other grant:
+
+   ```bash
+   sudo docker run --rm --network=host -u 1000:1000 \
+     -v /srv/data/extenddb:/var/lib/extenddb -e EXTENDDB_PG_PASSWORD="$PW" \
+     ghcr.io/extenddb/extenddb-postgres:0.1.11 migrate \
+     --config /var/lib/extenddb/extenddb.toml --pg-user dynamo --yes
+   ```
+
+5. **Write the four rows** that `init` would write, in the catalog database
+   `dynamo_catalog`. Without them, the server looks for the data tables in the
+   catalog and exits with `Encryption key not found in settings table`:
+
+   ```sql
+   INSERT INTO settings (key, value) VALUES
+     ('encryption_key',                  '<openssl rand -base64 32>'),
+     ('data_database_name',              'dynamo'),
+     ('data_database_connection_string', 'postgresql://dynamo:<pw>@<pg-host>:5432/dynamo'),
+     ('default_account_id',              '<12 digits>')
+   ON CONFLICT (key) DO UPDATE SET value = excluded.value;
+   ```
+
+   `encryption_key` is the root secret of the deployment. It encrypts every
+   stored credential. Generate it once. If you lose it, you lose every
+   credential.
+
+6. **Create the admin user.** Only `init` creates the first admin user, and
+   `init` stopped at the databases, so the table `admin_users` is empty. The
+   management call that creates an admin user needs an admin user itself, so
+   the first row goes in with SQL. The server compares the password with a
+   bcrypt hash. `mkpasswd` from the Debian package `whois` makes the hash from
+   a file and prints no password. `psql` replaces `:'hash'` only in a script
+   that it reads from its input, never in a `-c` command:
+
+   ```bash
+   sudo install -m 0600 /dev/null /srv/data/extenddb/admin.pw
+   openssl rand -hex 24 | sudo tee /srv/data/extenddb/admin.pw >/dev/null
+   hash=$(sudo cat /srv/data/extenddb/admin.pw | mkpasswd -m bcrypt -R 12 --stdin)
+   psql 'postgresql://dynamo@<pg-host>:5432/dynamo_catalog' -v hash="$hash" <<'SQL'
+   INSERT INTO admin_users (admin_name, password_hash) VALUES ('admin', :'hash');
+   SQL
+   unset hash
+   psql 'postgresql://dynamo@<pg-host>:5432/dynamo_catalog' -Atc 'SELECT admin_name FROM admin_users'
+   ```
+
+   The last command must print `admin`. The user name must be `admin`, because
+   `arizuko store enroll` signs in as `admin`. The content of `admin.pw` is the
+   `EXTENDDB_PASSWORD` for `enroll` on this server. It controls every account on
+   the server, so only root may read the file.
+
+7. **Run the server.** The command must carry `--foreground`. Without it, the
    server daemonizes, and systemd reports `PID file not created within 5
 seconds`. The image `ENTRYPOINT` is already `extenddb`, so the command is
    `serve --config … --foreground`. Never write `extenddb serve …`.
 
-7. **Verify the server** before you point anything at it:
+8. **Verify the server** before you point anything at it:
 
    ```bash
    sudo docker run --rm --network=host -u 1000:1000 \
@@ -536,9 +600,172 @@ seconds`. The image `ENTRYPOINT` is already `extenddb`, so the command is
 
    The command must print `HEALTHY: All checks passed`.
 
-An instance then joins with its own account and its own key pair, and it points
-`DYNAMODB_URL` at this server. You create that account and mint that key by
-hand with `extenddb manage`. `arizuko` has no subcommand for it, see BUGS `L319`.
+An instance then joins with its own account and its own key pairs, and it
+points `DYNAMODB_URL` at this server. `arizuko store enroll` makes both. A new
+instance runs it as the bootstrap does. An instance that already has rows on a
+store server of its own moves as the next section shows.
+
+### Move an instance onto the shared store server
+
+`arizuko store enroll -i <name> <snapshot>` moves the rows of an instance from
+its own store server onto the shared one. It makes the account
+`arizuko_<name>` and its keys on the shared server, as above. Then it copies
+every table of the old account into the new one, and it counts the items of
+each table on both sides. It only reads the old server, and it never replaces
+an item.
+
+Do the steps in this order. `generate` writes store rows, so the instance must
+not start before `enroll` exits 0. A row written before the copy makes the
+counts unequal. Do the dry run at the end of this section first.
+
+**Before the move, let the old operator key read every table.** The copy reads
+the old server with the operator key of the snapshot. The policy `tables` of
+that key covers only the tables of `authd`, `onbod` and `routd`. `ListTables` names no table,
+so the server checks it against every table and refuses it, and the copy stops
+at its first call. Put a second policy, `move`, on the user `operator` of the
+old account, while the old server runs:
+
+```bash
+export EXTENDDB_PASSWORD=<the admin password of the old server>
+sudo --preserve-env=EXTENDDB_PASSWORD docker exec -e EXTENDDB_PASSWORD arizuko_extenddb_<name> \
+  extenddb manage -c /var/lib/extenddb/extenddb.toml --user admin \
+  put-user-policy --account-id <old account id> --user-name operator --policy-name move \
+  --policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["dynamodb:ListTables","dynamodb:DescribeTable","dynamodb:Scan"],"Resource":"arn:aws:dynamodb:*:*:table/*"}]}'
+```
+
+The admin password of the old server is `EXTENDDB_PASSWORD` in
+`env/store-admin.env`. The old account is `arizuko_<name>` when `enroll` made
+the keys of the instance, else `default`, the account that `init` made.
+`list-accounts` with the same first two lines prints the id of each account.
+The server applies every policy of a user, so `tables` stays in effect. `enroll`
+replaces only the policy `tables`, and on the new server only.
+
+1. **Stop and keep.** Stop the instance. Copy `.env`, `env/` and the unit file
+   to a snapshot directory with mode `0700`. Then start only the old store:
+
+   ```bash
+   sudo systemctl stop arizuko_<name>
+   sudo install -d -m 0700 <snapshot>
+   sudo cp -a /srv/data/arizuko_<name>/.env /srv/data/arizuko_<name>/env \
+     /etc/systemd/system/arizuko_<name>.service <snapshot>/
+   sudo docker compose -f /srv/data/arizuko_<name>/docker-compose.yml up -d --wait extenddb_db extenddb
+   ```
+
+   The snapshot holds the address, the certificate and the operator key of the
+   old server. Do not change it after the first run of `enroll`, because a
+   second run must read the same old server from it.
+
+2. **Point.** In `.env`, replace `DYNAMODB_URL` with the address of the shared
+   server and `STORE_CA` with its certificate:
+
+   ```bash
+   DYNAMODB_URL=https://<shared server address>:<port>
+   STORE_CA=<the output of: sudo base64 -w0 /srv/data/extenddb/.extenddb/tls/cert.pem>
+   ```
+
+   The host and every container must reach the address, and the certificate
+   must carry it as a SAN, see `--tls-san` in step 2 above.
+
+3. **Enrol and copy.** Use the admin password of the shared server:
+
+   ```bash
+   export EXTENDDB_PASSWORD="$(sudo cat /srv/data/extenddb/admin.pw)"
+   sudo --preserve-env=EXTENDDB_PASSWORD ./arizuko store enroll -i <name> <snapshot>
+   ```
+
+   The command must exit 0. It prints 13 key lines, each with `minted`,
+   because the shared server holds no key of the old one. A row whose file held
+   an old key also prints `replaced <old key id>`. Then it prints one line for
+   each table:
+
+   ```text
+   <table> <count> equal
+   ```
+
+   Before it writes anything, the command lists and describes every table of
+   the old account. It stops there on a table with a secondary index or a
+   stream, and on a table whose name has no prefix of a row of the table of
+   keys above. Later, a count that is not equal stops it. The old store server
+   must run until the command exits.
+
+   The copy writes one item with one request. Expect a large message table to
+   take minutes. This time was not measured.
+
+   When the run stops, fix the cause and run the same command again. A second
+   run before step 4 keeps every key and every item that the first run wrote,
+   and it reports the same counts. Never run it with the snapshot after step 4.
+   From step 4 on, the new account changes: `package rm` deletes a row, and
+   the daemons add rows. A run then puts back from the old account every item
+   that was deleted, and it stops with `source <n> items, destination <m>` on
+   a table that has new items. That stop is correct, because the new account
+   is then the record.
+
+4. **Detach the private store.** Remove the store package:
+
+   ```bash
+   sudo ./arizuko package rm -i <name> extenddb
+   ```
+
+   Then edit the unit, wherever you deploy it from. Delete the line
+   `up -d --wait extenddb_db extenddb`, and delete `--network` and
+   `-e DYNAMODB_URL` from the generator line. `down` removes the network of
+   the instance, and only the store line made it again. `-e DYNAMODB_URL`
+   puts the address of the old store over `.env`. Without it, the generator
+   reads the shared address from `.env`. The two lines are then:
+
+   ```ini
+   ExecStartPre=/usr/bin/docker compose -f /srv/data/arizuko_<name>/docker-compose.yml down --remove-orphans
+   ExecStartPre=/usr/bin/docker run --rm --pull=never -v /srv/data/arizuko_<name>:/srv/data/arizuko_<name> -v /var/run/docker.sock:/var/run/docker.sock <release-image> arizuko generate -i <name>
+   ```
+
+   Run `sudo systemctl daemon-reload`.
+
+5. **Restart without the old server.** Stop the two containers of the old
+   store, then start the instance:
+
+   ```bash
+   sudo docker stop arizuko_extenddb_<name> arizuko_extenddb_db_<name>
+   sudo systemctl start arizuko_<name>
+   ```
+
+   The start must succeed while the old server is down.
+
+6. **Verify.** Every daemon is healthy. A browser session from before the move
+   opens the dashboard without a new login. That proves the users, the
+   signing keys and the refresh tokens of authd. Each adapter in `services/`
+   takes one inbound message to a reply, and no message from before step 1 is
+   delivered again.
+
+7. **Keep the old data.** Keep `store/extenddb/` and `store/extenddb_db/` of
+   the instance.
+
+Until step 5 the old account is only read. To return the instance to the old
+server, copy `.env`, `env/` and the unit back from the snapshot, run
+`sudo systemctl daemon-reload` and `sudo ./arizuko package sync -i <name>`,
+and start the instance. After step 5, new rows exist only in the new account,
+and a return loses them.
+
+**Do a dry run on a copy first.** Copy the data directory of the stopped
+instance to another instance name, so that `enroll` makes another account and
+the copy holds a copy of the PostgreSQL data of the old store. Start no
+adapter of the copy. Do the steps on the copy, and give it its own snapshot.
+The copied `env/operator.env` names the host port of the old store of the
+original instance, and so does the snapshot of the copy. Until `enroll` runs
+on the copy, every `arizuko` command on the copy dials that server, and the
+copy reads its rows from the server that the snapshot names. Change that line
+in the snapshot of the copy to the port of the store that holds the copied
+data. The dry run must show:
+
+- the tables that `enroll` copies equal
+  `SELECT table_name FROM tables WHERE account_id = '<old id>'` in the
+  catalog of the old store;
+- every table `equal` with its item count, or the name and the reason of each
+  table that stopped the run;
+- a second run that mints nothing and reports the same counts;
+- `generate` after the run, and every core daemon healthy while the old
+  server is stopped;
+- one row pair that signs `DescribeTable` on a table under a prefix outside
+  its row gets `AccessDeniedException`.
 
 ## Set the model key and the channel token in .env
 

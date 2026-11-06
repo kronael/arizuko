@@ -64,7 +64,7 @@
     <h2 id="install">Create an instance and configure its store</h2>
     <p>Clone the repository. The daemon images, the guest kernel and the agent rootfs build from it. Nothing mounts the checkout at run time, because the image contains the agent code from <code>ant/</code>. <code>make images</code> and <code>make kernel</code> need <code>sudo</code>. <code>./arizuko</code> runs as you.</p>
     <p>A new instance needs a store and initialized owner tables before the first <code>package add</code>. Run the following commands from the repository as the UID 1000 instance owner. Change <code>demo</code> if that instance exists. The commands refuse to overwrite its directory.</p>
-    <p>The commands build the daemon image and guest artifacts in the new instance. Enter the absolute artifact directories printed by the build when prompted. The bootstrap creates scoped keys and saves the store administrator password in <code>env/store-admin.env</code>. Keep the instance and temporary bootstrap directory private. If a command fails, inspect both directories before retrying. Sync may report missing keys for other daemons; enroll each one before enabling it.</p>
+    <p>The commands build the daemon image and guest artifacts in the new instance. Enter the absolute artifact directories printed by the build when prompted. The bootstrap creates scoped keys and saves the store administrator password in <code>env/store-admin.env</code>. Keep the instance and temporary bootstrap directory private. If a command fails, inspect both directories before retrying.</p>
     <p>A disposable test ran <code>package add</code> and <code>package sync</code> and restarted the seven services using a separate image and host ports. The test reused read-only guest artifacts. It did not test the release image build, <code>arizuko run</code>, or guest execution.</p>
     <pre id="twin-install"><code># Run from the repository as the instance owner, with UID 1000.
 set -Eeuo pipefail
@@ -171,7 +171,7 @@ printf 'Private bootstrap files remain in %s; protect or remove them after savin
 
     <h2>Every daemon keeps its tables on one store server</h2>
     <p>The store server is ExtendDB over PostgreSQL. It speaks the DynamoDB protocol. Every daemon reads its address from <code>DYNAMODB_URL</code> and does not start without it. The <code>extenddb</code> package adds both containers. You run the <code>init</code> of the server yourself, because it prints an admin password and the account id only once. The bootstrap keeps them in the private file <code>env/store-admin.env</code>.</p>
-    <p>Each daemon signs in to the server with its own access key in <code>env/&lt;daemon&gt;.env</code>. A policy limits each key to the tables of that daemon. You make these keys by hand with <code>extenddb manage</code>, one for each daemon. <a href="https://github.com/kronael/arizuko/blob/main/INSTALL.md">[INSTALL.md]</a> &sect; The per-daemon store keys lists the daemons and the commands. A daemon without a key stops at start, and the instance then restarts in a loop. <code>arizuko generate</code> logs <code>store enrolment is partial</code> with the names of the daemons that have no key. Read that line before you continue.</p>
+    <p>Each daemon signs in to the server with its own access key in <code>env/&lt;daemon&gt;.env</code>. A policy limits each key to the tables of that daemon. <code>arizuko store enroll</code> makes the account, one user, one policy and one key for each daemon, and writes each key to its file. It prints one line for each daemon and never prints a secret. The bootstrap runs it. Run it again after an upgrade that adds a daemon: it keeps every valid key and mints only the missing ones. <a href="https://github.com/kronael/arizuko/blob/main/INSTALL.md">[INSTALL.md]</a> &sect; The per-daemon store keys lists the daemons, and &sect; Move an instance onto the shared store server moves the rows of an instance to a server that several instances share. A daemon without a key stops at start, and the instance then restarts in a loop. <code>arizuko generate</code> logs <code>store enrolment is partial</code> with the names of the daemons that have no key. Read that line before you continue.</p>
 
     <h2>The systemd service runs the instance</h2>
     <p>The bootstrap starts the instance. For later deployments, run <code>sudo systemctl restart arizuko_demo</code>. The systemd service starts the store, runs the generator from the release image, and starts Docker Compose. The <a href="https://github.com/kronael/arizuko/blob/main/INSTALL.md">[INSTALL.md]</a> has the unit file. Check the instance status:</p>
@@ -281,7 +281,7 @@ arizuko apply -i demo rows.yml          # write only the rows in the file</code>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/howto/index.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-28">2026-10-28</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-05">2026-11-05</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>
