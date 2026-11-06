@@ -459,6 +459,13 @@ on krons. A limit failure is a condition that clears, not a bad request.
   Other failures keep L670's one-notice-per-chat rule. Minimal code: reuse
   the retry path routd already has (the Busy/busyWait re-feed or the existing
   scheduled retry), with an hour as its delay; no new mechanism.
+- **One rule for every recoverable failure** (owner: "all should be trivial
+  simple minimal fitting into the code we have for handling recoverable error
+  which all should have this structure"): a recoverable failure (spend or usage
+  limit, API unreachable, timeout, Busy) gets the same handling — one status
+  line, the batch stays queued on the existing retry path, the turn's End
+  deletes the line. Only a non-recoverable failure posts L670's one notice per
+  chat. One classifier decides recoverable vs not; no second path.
 - **Status:** open — approved, queued for Terra after L670
 
 ## ✅ FIXED 2026-11-06 8c262dcd4 L671 — `store enroll` scans without a page limit and the old store server runs out of memory (2026-11-06)
