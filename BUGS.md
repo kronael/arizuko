@@ -15,7 +15,6 @@
 
 ## What needs you
 
-- `L669` — dashd's group delete purges `acl` rows and edges after only `admin` on the folder; needs sign-off (`6/52` open question 6).
 - `L665` — `unpair` removes the account's denies from the paired identity's turns; needs sign-off.
 - `L664` — `invite_create` mints `admin` the issuing folder cannot delegate; needs sign-off.
 - `L660` — a mention by reply engages only the reply chain, not the chat root; proposal, needs sign-off.
@@ -433,7 +432,7 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
   `/root` issuer holds `admin` on `**`, the authority that answers a hold. The defect
   in the same area is who the root turn serves: `L666`.
 
-## L669 — dashd's group delete purges `acl` rows and edges after only `admin` on the folder (2026-11-06, open — needs sign-off)
+## ✅ FIXED 2026-11-06 fda902913 L669 — dashd's group delete purges `acl` rows and edges after only `admin` on the folder (2026-11-06)
 
 FOUND by source reading at `a4e1cc97b`, Astra's third review of `6/52`; not
 probed. `handleGroupDelete` checks `requireAdmin(folder)`
@@ -455,9 +454,8 @@ and the registration rollback deletes only the groups row it wrote. One check
 before a purge cannot prove its later writes, so a dashboard purge waits until
 each of its writes passes `CheckGrant` with a version.
 
-- **Status:** open — needs sign-off (removes a dashboard control). **Options:**
-  (a) the fix; (b) keep the button and accept that a folder admin lifts the
-  denies its folder carries. **Default if nothing is decided:** unchanged.
+- **Test:** `TestGroupDelete_RemovesNothing` (`dashd/group_delete_purge_test.go`), `TestRegisterGroup_RollbackLeavesAnOperatorDeny` (`routd/mcp_test.go`).
+- **Status:** fixed — the owner signed off 2026-11-06. dashd's delete answers 409 with `arizuko group -i <instance> rm <folder>` and removes nothing; the registration rollback calls `store.DeleteGroupRow`. A dashboard purge waits for `CheckGrant` with a version on each of its writes (`6/52`).
 
 ## ✅ FIXED 2026-11-06 50362a357 L668 — an agent appends to `~/issues.md` with Bash and never sends the `#issues` notice (2026-11-06)
 
