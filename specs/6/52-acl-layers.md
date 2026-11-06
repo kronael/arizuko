@@ -14,73 +14,64 @@ depends:
 # specs/6/52 — acl layers: one evaluator, the release's rules under the operator's, one gate on every grant
 
 Access control is one rule shape read by one evaluator. The rules come from two
-layers: the release's defaults, which are code in one file, and the local
-rows in `acl`, which the operator and the agents write. For one call, the
-local rows decide when any of them matches, and the defaults decide only
-when none does. Every verdict reads one consistent state of the rules, and
-every write to them passes one containment check: a writer never grants more
+layers: the release's defaults, which are code in one file, and the local rows
+in `acl`, which the operator and the agents write. For one call, the local rows
+decide when any of them matches, and the defaults decide only when none does.
+Every verdict reads one consistent state of the rules, and every write to them
+passes one containment check in that same state: a writer never grants more
 than it holds.
 
-The owner's words, 2026-11-04 and 2026-11-05: "like a config a distro ships
-… you do have a way to override", "cant rows be layered on top of another?",
-"defaults in code ok but in a single place, well readable", "only allow
-always for concrete rules … or you have to use some operator prompt", and on
-delegation "you need to check the grant he is granting and reject that
-also".
+The owner's words, 2026-11-04 and 2026-11-05: "like a config a distro ships …
+you do have a way to override", "cant rows be layered on top of another?",
+"defaults in code ok but in a single place, well readable", "only allow always
+for concrete rules … or you have to use some operator prompt", and on
+delegation "you need to check the grant he is granting and reject that also".
 
-## The problem — two evaluators, defaults that never arrive, seven write doors with five rules
+## The problem — two evaluators, defaults that never arrive, write doors with different rules
 
-Read at `684b3eeed`.
+Read at `a4e1cc97b`.
 
-- **Two evaluators over one row.** `Authorize` folds deny-wins over the
-  lattice (`auth/authorize.go:88-122`). `CheckHold` and `ShellEnvKeys` fold
-  the same rows again in `namespacedAllows`, with exact action matching
-  (`auth/authorize.go:619-646`). Three gates decide from a listing instead:
-  `auth.IsOperator` reads `**` in the stamped `X-User-Groups`
-  (`auth/dashauth.go:54-56`, BUGS `L659` names its readers), routd's
-  `IsOperator` takes membership in `role:operator` as the answer before any
-  deny is read (`routd/sibling_db.go:269-271`), and dashd shows a folder's
-  pages when that listing holds a scope covering it (`dashd/authz.go:55-66`),
-  then folds the listing's scope strings in as principals
-  (`dashd/authz.go:198-205`).
+- **Two evaluators over one row.** `Authorize` folds deny-wins over the action
+  lattice (`auth/authorize.go:88-122`); `CheckHold` and `ShellEnvKeys` fold the
+  same rows again with exact matching (`auth/authorize.go:619-646`). Three
+  gates decide from a listing: `auth.IsOperator` reads `**` in `X-User-Groups`
+  (`auth/dashauth.go:54-56`, BUGS `L659`), routd's `IsOperator` answers from
+  `role:operator` membership before any deny (`routd/sibling_db.go:269-271`),
+  and dashd shows pages by the listing (`dashd/authz.go:55-66`) and folds its
+  scope strings in as principals (`dashd/authz.go:202`).
 - **The defaults are rows written once.** `SeedRoutdFloor` writes the 39 floor
-  rows only into an empty `acl` (`store/seed.go:76-111`). An instance born
-  before a floor row existed never receives it: the 23 skip rows went into
-  krons and sloth by hand on 2026-10-20, and the two `service:dashd` rows of
-  2026-10-27 are on neither (BUGS `L473`).
+  rows only into an empty `acl` (`store/seed.go:75-113`), so an older instance
+  never receives a newer row (BUGS `L473`).
 - **A default cannot yield.** The skip rows are `deny` on `role:member` at
-  `**`, and deny wins over every hold row (`auth/authorize.go:639-645`). An
+  `**`, and a deny wins over every hold row (`auth/authorize.go:639-645`). An
   operator row that holds `reply` in one folder never holds it (BUGS `L273`).
-- **Seven write doors, five rules.** The agent socket and REST call
+- **Each write door has its own rule.** The agent socket and REST call
   `auth.Delegate` for an add by a non-root writer only
   (`routd/acl_resource.go:67`, `:159`); a remove passes unchecked. dashd checks
   an allow and lets any deny through (`dashd/grants_admin.go:229-237`), and a
-  deny on a `hold:` action is a skip, which widens what the agent does
-  unwatched. `/always` runs its own check, that the reviewer holds `admin`
-  (`routd/pending_actions.go:347`, `:371`). `invite_create` checks only that the
+  deny on a `hold:` action is a skip. `/always` checks that the reviewer holds
+  `admin` (`routd/pending_actions.go:347`). `invite_create` checks only that the
   agent may call the tool, and the redemption writes `admin` (BUGS `L664`).
-  `unpair` removes an edge whose parent may hold a deny (BUGS `L665`). The
-  host CLI checks nothing (`cmd/arizuko/main.go:627-651`).
+  `unpair` removes an edge whose parent may hold a deny (BUGS `L665`). dashd's
+  group delete purges the folder's `acl` rows and edges after only `admin` on
+  the folder (`dashd/groups_admin.go:452`, `store/folder_scope.go:51-65`,
+  BUGS `L669`).
 - **`Delegate` covers more than the granter holds.** A held `a/???` covers the
-  requested glob `a/[x]`, which then matches `a/x`; a deny on `a/*/x` does not
-  block a grant on `a/b/*`, which meets it at `a/b/x` (BUGS `L667`, measured).
-- **A verdict reads the rules in pieces.** `Authorize` reads each principal's
-  rows, each membership level and the route's ancestors with separate queries
-  (`auth/authorize.go:267-282`, `:289-316`, `:129-135`). A revoke of a direct
-  allow and the removal of an inherited deny, landing between two of those
-  reads, give a verdict no single state gives. `Delegate`'s answer is not tied
-  to the write it permits: the rows it proved can change before the grant
-  lands.
+  glob `a/[x]`; a deny on `a/*/x` does not block a grant on `a/b/*`, which meets
+  it at `a/b/x` (BUGS `L667`).
+- **A verdict reads the rules in pieces.** `Authorize` reads rows, membership
+  levels and the route's ancestors with separate queries
+  (`auth/authorize.go:267-316`, `:129-135`), so writes landing between them
+  give a verdict no single state gives. A door's gate, `Delegate` and the write
+  are two reads and a write, each at its own instant
+  (`routd/acl_resource.go:154-166`).
 - **Two operator overloads that disagree.** routd writes the `role:operator`
   edge for scope `**` with the action omitted or `*`
   (`routd/acl_resource.go:234-239`); the CLI writes it for `admin` at `**`
-  after it fills the omitted action with `admin`
-  (`cmd/arizuko/main.go:617-620`). `add_acl(action="admin", scope="**")` is a
-  row on one door and the edge on the other.
-- **A failed read hides a deny.** `Ancestors` returns nothing when a
-  membership read fails (`store/membership.go:376-378`), so a deny on a role
-  the caller holds is not read and a direct allow stands. `CheckHold` holds
-  nothing when the `acl` read fails (`auth/authorize.go:593-605`, BUGS `L92`).
+  (`cmd/arizuko/main.go:617-620`).
+- **A failed read hides a deny.** `Ancestors` returns nothing when a membership
+  read fails (`store/membership.go:376-378`); `CheckHold` holds nothing when the
+  `acl` read fails (`auth/authorize.go:593-605`, BUGS `L92`).
 - **`/always` widens to a whole tool.** A tool with no declared keys gets a
   tool-wide skip row (`routd/pending_actions.go:516-517`, `:561-571`).
 
@@ -92,23 +83,22 @@ Read at `684b3eeed`.
         │ default layer (new)                       │ local layer (unchanged)
         ▼                                           ▼
  ┌─────────────────────────────────────────────────────────────────────────┐
- │ auth.ReadPolicy (new): one objstore.ReadConsistent over routd's scope    │
+ │ auth.ReadPolicy (new): one objstore.ReadConsistent over routd's scope   │
  │ Policy.Allows (new):                                                    │
  │   any matching local row → the local rows decide, a deny wins           │
  │   else                   → the default rows decide, a deny wins         │
  └───┬────────────┬─────────────┬─────────────┬──────────────┬─────────────┘
-     │ Authorize  │ CheckHold   │ ShellEnvKeys│ UserScopes   │ CheckGrant (new)
-     │ (changed)  │ (changed)   │ (changed)   │ (changed)    │ + the version it read
-     ▼            ▼             ▼             ▼              ▼
+     │ Authorize  │ CheckHold   │ ShellEnvKeys│ UserScopes   │ CheckGrant (new):
+     │ (changed)  │ (changed)   │ (changed)   │ (changed)    │ the door's question
+     ▼            ▼             ▼             ▼              ▼ and containment, one read
   every gate,  holdGate      spawn env     proxyd's       acl rows, edges, unpair,
   IsOperator,                              X-User-Groups  dashd grants, /always,
-  dashd pages                                             invites (all changed)
-  (changed)                                                      │ write + BumpAt (new)
+  dashd pages                                             invites, worlds (changed)
+  (changed)                                                      │ write + BumpAt(v) (new)
                                                                  ▼
                                                            GuardedBatch (unchanged)
- auth.namespacedAllows (removed)   auth.Delegate (removed)
- store.SeedRoutdFloor's acl rows (removed)   tool-wide /always (removed)
- dashd's listing as visibility (removed)
+ auth.namespacedAllows, auth.Delegate, SeedRoutdFloor's acl rows,
+ tool-wide /always, dashd's listing as visibility, dashd group delete (removed)
 ```
 
 ```yaml
@@ -120,94 +110,97 @@ Read at `684b3eeed`.
     - 'defaultRows []core.ACLRow'
   never: reads the store, or carries a row the evaluator could not store
 - path: auth/authorize.go (changed)
-  job: one consistent policy read, one fold; Authorize, CheckHold,
-    ShellEnvKeys, EffectiveActions and UserScopes are views of it
+  job: one consistent policy read, one fold; Authorize, CheckHold, ShellEnvKeys,
+    EffectiveActions and UserScopes are views of it
   names:
     - 'Policy struct{ caller Caller; route []string; local, defaults []core.ACLRow }'
     - 'ReadPolicy(s *store.Store, caller Caller) (Policy, objstore.Version, error)'
     - '(Policy) Allows(action, scope string, params map[string]string) bool'
     - 'CheckHold(s, caller, tool, scope, params) (bool, error)'
-  never: folds a row a second way, answers from a listing, or reads outside
-    ReadPolicy
+  never: folds a row a second way, answers from a listing, or reads outside ReadPolicy
 - path: auth/grant.go (new, replaces auth/delegate.go)
-  job: the one containment gate every policy write passes
+  job: the one gate every policy write passes, the door's acl question included
   names:
-    - 'Mutation struct{ Remove bool; Row core.ACLRow; Role string }'
-    - 'CheckGrant(s *store.Store, granter Caller, m Mutation) (objstore.Version, error)'
+    - 'Ask struct{ Action, Scope string }'
+    - 'Mutation struct{ Remove bool; Row core.ACLRow; Parent string }'
+    - 'CheckGrant(s *store.Store, granter Caller, door Ask, m ...Mutation) (objstore.Version, error)'
     - 'scopeCovers(held, want string) bool'
     - 'mayMeet(a, b string) bool'
   never: writes, or exempts a writer by who it is
-- path: objstore/consistent.go, objstore/marker.go (changed)
-  job: the consistent read returns the version it read at; a Bump can carry it
+- path: objstore/consistent.go, objstore/marker.go, objstore/reach.go (changed)
+  job: the consistent read returns its version; a Bump and an edge write can
+    start from it
   names:
     - 'type Version string'
     - 'ReadConsistent(ctx, s, sc, read) (Version, error)'
     - 'BumpAt(sc Scope, v Version) Write'
+    - 'AddEdge(ctx, s, sc, at Version, ...) (bool, error)'
   never: adds a method to Store or a field to Write
-- path: store/writeset.go, store/scopes.go (changed)
+- path: store/writeset.go, store/acl.go, store/membership.go (changed)
   job: a proved set renders routd's Bump as BumpAt; a refusal says whether the
-    rules moved or the set's guarded write refused
+    rules moved; the writers outside resreg take the version they prove; one
+    renderer per granted row; Ancestors reports a failed read; the operator
+    overload is one test
   names:
     - '(*WriteSet).Prove(v objstore.Version)'
-    - 'ErrPolicyMoved'
-- path: resreg/archive.go (changed)
-  job: reads ReadConsistent's version and ignores it, as today
+    - 'AddACLRow(row, v) error'
+    - 'SeedMemberRole(ctx, s, folder, at objstore.Version, also ...) (bool, error)'
+    - 'InviteGrantRow(targetGlob string) core.ACLRow'
+    - 'WorldGrantRows(owner, folder string) []core.ACLRow'
+    - 'OperatorShape(raw core.ACLRow) bool'
+    - 'RoleWorld = "role:world"'
+    - 'Ancestors(child string) ([]string, error)'
+  never: imports auth; the empty version proves nothing
 - path: store/seed.go (changed)
   job: seeds the base egress allowlist into an empty network_rules
   never: writes an acl row
-- path: store/membership.go (changed)
-  job: names role:world; reports a failed membership read
+- path: onbod/main.go, store/invites.go, store/invite_redemptions.go (changed)
+  job:
+    writeWorld writes WorldGrantRows and the role:world edge; a redemption and
+    a world created from it pass CheckGrant with the invite's issuer as granter
+    and prove the routd write that follows
   names:
-    - 'RoleWorld = "role:world"'
-    - 'Ancestors(child string) ([]string, error)'
-- path: store/acl.go (changed)
-  job: the one test for the operator overload
-  names:
-    - 'OperatorShape(raw core.ACLRow) bool'
-- path: onbod/main.go, store/invites.go (changed)
-  job: writeWorld writes the role:world edge where it wrote the hold:mcp:* row;
-    a redemption passes CheckGrant with the invite's issuer as granter
-  names:
-    - 'InviteGrantRow(targetGlob string) core.ACLRow'
-  never: renders the redemption's row a second way at issue
-- path: routd/acl_resource.go, dashd/grants_admin.go, routd/pending_actions.go,
-    routd/membership_resource.go, routd/mcp.go, routd/steer.go, dashd/invites.go (changed)
-  job: every add and every remove, every edge removal and every invite issue
-    calls CheckGrant and proves its write with the version; /always is offered
-    only for a tool with keys; holdGate blocks a call whose CheckHold returns an
-    error; /invite records its sender as the issuer
-  never: skips CheckGrant for root
-- path: routd/sibling_db.go (changed)
-  job: IsOperator asks Authorize
-  never: decides from membership presence
-- path: dashd/authz.go (changed)
-  job: a page is visible when the caller's policy allows interact on its folder
-  never: reads X-User-Groups, or makes a scope string a principal
+    - 'Redemption.IssuedBy string'
+  never: writes an acl row from store.consumeInvite, or proves a write on onbod's handle
+- path:
+    routd/acl_resource.go, routd/membership_resource.go, routd/pending_actions.go,
+    routd/mcp.go, routd/steer.go, routd/sibling_db.go, dashd/grants_admin.go,
+    dashd/invites.go (changed)
+  job: every add, remove, edge removal and invite issue calls CheckGrant with
+    its door's question and proves its write with the version; /always only for
+    a tool with keys; holdGate blocks on a CheckHold error; an invite records the
+    identity its check read; registerGroup's rollback deletes only its own row;
+    IsOperator asks Authorize
+  never: skips CheckGrant for root, asks the door's question in a second read,
+    or decides operator from membership presence
+- path: dashd/authz.go, dashd/main.go, dashd/groups_admin.go (changed)
+  job: a page is visible when the caller's policy allows interact on its folder;
+    group delete answers with the host CLI command
+  never: reads X-User-Groups, makes a scope string a principal, skips a
+    per-folder test for an operator, or purges a folder
 ```
 
-`objstore`'s two methods do not change, and neither does the `Write` it
-carries: `BumpAt` is `Bump` with a `Cond` the type already has, the
-compare-and-swap the versioned replace writes on the same marker
-(`objstore/replace.go:189`). The `acl` row, its six-field coordinate
-(`store/acl.go:37-57`) and `acl_membership` do not change.
+`objstore`'s two methods do not change, and neither does `Write`: `BumpAt` is
+`Bump` with a `Cond`, the compare-and-swap the versioned replace already writes
+on the marker (`objstore/replace.go:189`). `AddEdge` is a function over the two
+methods. The `acl` row, its six-field key (`store/acl.go:37`) and
+`acl_membership` do not change.
 
 ## A rule, and the two layers it comes from
 
-A rule is the row `specs/5/32-acl-unified.md` owns, unchanged: `(principal, action,
-scope, params, predicate, effect, grant_option)`, `core.ACLRow`. The layer is
-not a field. Every row in `acl` is local; every row in `auth/defaults.go` is a
-default. A writer cannot make a default, so there is no attribute to forge,
-and `granted_by` stays an audit field the evaluator never reads.
+A rule is the row `specs/5/32-acl-unified.md` owns, unchanged: `core.ACLRow`,
+`(principal, action, scope, params, predicate, effect, grant_option)`. The
+layer is not a field. Every row in `acl` is local; every row in
+`auth/defaults.go` is a default. A writer cannot make a default, so there is no
+attribute to forge, and `granted_by` stays an audit field the evaluator never
+reads.
 
-Defaults reach every instance with the binary: nothing is written at a start,
-so an instance born before a default existed reads it at the next deploy, and
-a local row an operator wrote survives every restart. Revoking the local row
-that overrides a default brings the current default back.
-
-A package cannot declare `acl` rows (`EXTENDING.md` § Package definition), so
-the release is the only source of defaults, and two sources never meet on one
-rule. The package order rule (`EXTENDING.md` § Order and overrides) is the
-one to apply when a package may ship rules; that case does not exist today.
+Defaults reach every instance with the binary. Nothing is written at a start,
+so an instance born before a default existed reads it at the next deploy, and a
+local row survives every restart. Revoking the local row that overrides a
+default brings the current default back. A package cannot declare `acl` rows
+(`EXTENDING.md` § Package definition), so the release is the only source of
+defaults.
 
 ## One evaluator, and the layer it reads
 
@@ -225,65 +218,7 @@ one to apply when a package may ship rules; that case does not exist today.
  a matching deny → DENY;  a matching allow → ALLOW;  nothing → DENY
 ```
 
-Current, `auth/authorize.go:88-122` (the `Authorize` fold) and `:619-646`
-(the second fold):
-
-```go
-	allowed, denied := false, false
-	for _, r := range rows {
-		if !matchPattern(r.Scope, scope) {
-			continue
-		}
-		if !predicateMatches(r.Predicate, caller.Claims) {
-			continue
-		}
-		if !paramsMatch(r.Params, params) {
-			continue
-		}
-		if r.Effect == "deny" {
-			if actionCovers(r.Action, action) {
-				denied = true
-			}
-			continue
-		}
-		if caller.Route == "" || anyPrincipalMatches(r.Principal, route) {
-			if actionCovers(r.Action, action) {
-				allowed = true
-			}
-			continue
-		}
-		if withinSubtree(caller.Route, scope) && identityCovers(r.Action, action) {
-			allowed = true
-		}
-	}
-	if denied {
-		return false
-	}
-	return allowed
-
-func namespacedAllows(
-	rows []core.ACLRow,
-	prefix, name, scope string,
-	claims, params map[string]string,
-) bool {
-	var allowed, denied bool
-	want := prefix + name
-	for _, r := range rows {
-		if r.Action != want && r.Action != prefix+"*" {
-			continue
-		}
-		// ... the same scope, predicate and params tests
-		if r.Effect == EffectSkipApproval {
-			denied = true
-		} else {
-			allowed = true
-		}
-	}
-	return allowed && !denied
-}
-```
-
-Proposed:
+Proposed, replacing the two folds (`auth/authorize.go:88-122`, `:619-646`):
 
 ```go
 // Allows is the one decision. A local row that matches is the operator's word
@@ -298,7 +233,6 @@ func (p Policy) Allows(action, scope string, params map[string]string) bool {
 	return verdict(p.matching(p.defaults, q))
 }
 
-// verdict: any deny refuses, any allow admits, nothing refuses.
 func verdict(rows []core.ACLRow) bool {
 	for _, r := range rows {
 		if r.Effect == store.EffectDeny {
@@ -307,168 +241,55 @@ func verdict(rows []core.ACLRow) bool {
 	}
 	return len(rows) > 0
 }
+```
 
-// actionCovers keeps the lattice for every namespace but two. A `hold:` or
-// `shell:env:` action is matched exactly or by its own `*`: an operator's
-// (`*`, `**`) row would otherwise hold every call it makes and put every
-// folder secret in its turns (spec 5/19 Hazard 2).
-func actionCovers(rowAction, requested string) bool {
-	if rowAction == requested {
-		return true
-	}
+Proposed, in `actionCovers` (`auth/authorize.go:391`) after its equality test:
+
+```go
+	// A `hold:` or `shell:env:` action is matched exactly or by its own `*`: an
+	// operator's (`*`, `**`) row would otherwise hold every call it makes and
+	// put every folder secret in its turns (spec 5/19 Hazard 2).
 	for _, ns := range []string{HoldPrefix, ShellEnvPrefix} {
 		if strings.HasPrefix(requested, ns) {
 			return rowAction == ns+"*"
 		}
 	}
-	switch rowAction {
-	case "*":
-		return true
-	case "admin":
-		return requested == "interact" || strings.HasPrefix(requested, "mcp:")
-	case "mcp:*":
-		return strings.HasPrefix(requested, "mcp:")
-	}
-	return false
-}
 ```
 
 `matching` is the body of today's loop: the scope, predicate and params tests,
 `actionCovers` for a deny and for a route-axis allow, and `withinSubtree` with
 `identityCovers` for an identity-axis allow (`auth/authorize.go:105-114`). A
 deny is never confined. `Authorize` is `ReadPolicy` then `Allows`.
-`CheckHold(folder, tool)` is `Allows(HoldPrefix+tool, f)` on the policy of
-`folder:<f>`, and `ShellEnvKeys` is the same per key on `ShellEnvPrefix`. No
-call to `Authorize` asks a `hold:` or `shell:env:` action today, so the
-isolation changes no `Authorize` verdict. `EffectiveActions` and `UserScopes`
-list the allows of both layers, so a member verb that leaves the store stays
-listed.
+`ShellEnvKeys` is `Allows` per key on `ShellEnvPrefix`. No `Authorize` call
+asks a `hold:` or `shell:env:` action, so the isolation changes no `Authorize`
+verdict. `EffectiveActions` and `UserScopes` list the allows of both layers.
 
-The layer split changes no verdict outside `hold:`. The defaults hold no deny
-in any other namespace, so when a local row matches, the defaults it hides
-could only add an allow to a verdict the local rows already gave: a local
-allow admits either way, and a local deny refuses either way. The split does
-change what a principal may delegate, so `CheckGrant` reads the deciding layer
-too (§"The containment tests").
+The layer split changes no verdict outside `hold:`: the defaults hold no deny
+in any other namespace, so the defaults a matching local row hides could only
+add an allow to a verdict the local rows already gave. It does change what a
+principal may delegate, so `CheckGrant` reads the deciding layer too.
 
-A read failure refuses. `ReadPolicy` returns the error of the `acl` read and
-of each membership read (`Ancestors` returns its error in place of an empty
-set), `Authorize` denies as today, and `CheckHold` returns the error, which
-`holdGate` renders as a blocked call the way it renders a hold it could not
-record (`routd/pending_actions.go:418-425`, BUGS `J3`). BUGS `L92` closes in
-that direction: a broken `acl` blocks a held-eligible call instead of
-releasing it.
-
-### One read of one state
-
-Current, `auth/authorize.go:70-85`: the rows of the expanded set, read with
-`Query` per principal after a membership walk of its own, and the route's
-ancestors read again at `:129-135`:
-
-```go
-	expanded := expandPrincipals(s, caller)
-	rows, err := policyRows(s, expanded)
-	if err != nil {
-		slog.Error("authorize: acl read failed; DENYING", /* ... */)
-		return false
-	}
-	route := routePrincipals(s, caller)
-```
-
-Proposed:
-
-```go
-// ReadPolicy is the one read behind every verdict: the caller's principals,
-// both axes, and their rows, inside one consistent read of routd's scope, so
-// a verdict is a state the rules held at one instant. acl and acl_membership
-// both move that scope (store/scopes.go:60-82). The version is what a write
-// resting on this read proves itself with (§"The proof").
-func ReadPolicy(s *store.Store, caller Caller) (Policy, objstore.Version, error) {
-	var p Policy
-	v, err := objstore.ReadConsistent(context.Background(), s.Obj(),
-		store.OwnerScope(store.OwnerRoutd), func(context.Context) error {
-			p = Policy{caller: caller}
-			expanded, route, err := expandPrincipals(s, caller)
-			if err != nil {
-				return err
-			}
-			p.route = route
-			p.local, err = policyRows(s, expanded)
-			p.defaults = defaultsFor(expanded)
-			return err
-		})
-	return p, v, err
-}
-```
-
-`ReadConsistent` exists and the export already reads through it
+`ReadPolicy` is the one read behind every verdict. It runs `expandPrincipals`
+(both axes, `auth/authorize.go:289`, `:129`) and `policyRows`
+(`auth/authorize.go:267`) inside one `objstore.ReadConsistent` of routd's
+scope, which `acl` and `acl_membership` both move (`store/scopes.go:60-82`),
+adds the default rows of the expanded principals, and returns the version it
+read at. `ReadConsistent` exists and the export reads through it
 (`objstore/consistent.go:24-42`, `resreg/archive.go:72`). It costs two point
 reads of the marker per verdict, and a retry when a routd-owned write lands
-inside the read. The caveat: while a replace holds routd's scope, which is
-`arizuko apply` to routd, every verdict is refused. The rows are part-replaced
-then, so no verdict read from them is one the rules gave.
+inside the read. The caveat: while `arizuko apply` replaces routd's scope,
+every verdict is refused, because the rows are part-replaced.
 
-## The hold decision, through the same evaluator
+`CheckHold` is `ReadPolicy` of `folder:<f>` then `Allows(HoldPrefix+tool, f,
+args)`, asked of the folder alone, as today (`routd/pending_actions.go:410`).
+An approval needs `admin` on the folder (`routd/pending_actions.go:347`) and
+the tool's own gate runs after it, so an approval never defeats a deny.
 
-```
- tools/call (tool, args) on the turn of folder f
-   │ ipc: holdEligible (unchanged)
-   ▼
- CheckHold (changed) = Allows(hold:mcp:<tool>, f, args) on folder:f
-   ├─ error → blocked, the J3 notice (changed)
-   ├─ false → the tool's own gate: Authorize (unchanged)
-   └─ true  → pending row, notice, the waiter (unchanged)
-                └─ approved → the tool's own gate: Authorize (unchanged)
-```
-
-Current, `auth/authorize.go:589-607`:
-
-```go
-func CheckHold(s *store.Store, caller Caller, tool, scope string, params map[string]string) bool {
-	if s == nil || caller.Principal == "" || tool == "" {
-		return false
-	}
-	rows, err := policyRows(s, expandPrincipals(s, caller))
-	if err != nil {
-		slog.Error("check hold: acl read failed; holding NOTHING",
-			"principal", caller.Principal, "tool", tool, "err", err)
-		return false
-	}
-	return namespacedAllows(rows, HoldPrefix, tool, scope, caller.Claims, params)
-}
-```
-
-Proposed:
-
-```go
-// CheckHold answers "must this call wait for a human?" with the one evaluator,
-// on the hold namespace. An allow holds the call; a deny is "skip approval"
-// and holds nothing. Neither grants the tool: the tool's own gate still runs.
-func CheckHold(s *store.Store, caller Caller, tool, scope string, params map[string]string) (bool, error) {
-	if s == nil || caller.Principal == "" || tool == "" {
-		return false, nil
-	}
-	p, _, err := ReadPolicy(s, caller)
-	if err != nil {
-		return false, fmt.Errorf("check hold: %w", err)
-	}
-	return p.Allows(HoldPrefix+tool, scope, params), nil
-}
-```
-
-The hold is asked of the folder principal, single-axis, as today
-(`routd/pending_actions.go:410`): whether a call waits is the folder's policy,
-not the sender's (`specs/5/33-paths-roles.md` §"Two axes"). The approval is
-bound to one call: the waiter suspended on that call runs it once, and a
-second call is a second pending row. Approving needs `admin` on the held
-row's folder through `Authorize` (`routd/pending_actions.go:347`), and the
-tool's own gate runs after the approval, so an approval never defeats a deny.
-
-The hold is asked before the tool's own gate, as today, and not after it. The
-gate's action and target are resolved inside each tool's handler; moving them
-in front of the hold would put a second resolver of every tool's target in
-ipc. The caveat: a human can be asked about a call the gate then refuses. The
-call still does not run.
+A read failure refuses. `ReadPolicy` returns the error of the `acl` read and of
+each membership read, `Authorize` denies, and `CheckHold` returns the error,
+which `holdGate` renders as a blocked call the way it renders a hold it could
+not record (`routd/pending_actions.go:418-425`, BUGS `J3`); BUGS `L92` closes in
+that direction.
 
 ## The defaults are one file, read top to bottom
 
@@ -476,46 +297,11 @@ call still does not run.
  auth/defaults.go (new) ── defaultRows ──► ReadPolicy (the only reader)
  store/seed.go: memberVerbs, alwaysMountedTools, skipApprovalFloor and the
    acl half of SeedRoutdFloor (removed)
- onbod writeWorld: folder:w → role:world edge (new),
-   folder:w hold:mcp:* row (removed)
+ onbod writeWorld: folder:w → role:world edge (new), folder:w hold:mcp:* row (removed)
 ```
 
-Current, `store/seed.go:29-58` (the lists) and `:76-111` (the write):
-
-```go
-var memberVerbs = []string{
-	"mcp:reply", "mcp:send", "mcp:send_file", "mcp:send_voice",
-	"mcp:post", "mcp:forward", "mcp:quote", "mcp:repost",
-	"mcp:like", "mcp:dislike", "mcp:edit", "mcp:delete",
-	"mcp:disengage",
-}
-
-var alwaysMountedTools = []string{
-	"mcp:inspect_routing", "mcp:inspect_tasks", "mcp:inspect_session",
-	"mcp:inspect_identity", "mcp:inspect_messages", "mcp:find_messages",
-	"mcp:get_thread", "mcp:fetch_history", "mcp:get_work", "mcp:set_work",
-}
-
-func skipApprovalFloor() []string { /* memberVerbs + alwaysMountedTools */ }
-
-func SeedRoutdFloor(ctx context.Context, d objstore.Store) error {
-	empty, err := entityIsEmpty(ctx, d, ACL)
-	// ...
-	if empty {
-		rows := []core.ACLRow{{
-			Principal: RoleOperator, Action: "*", Scope: "**", Effect: "allow",
-			GrantedBy: "system", GrantedAt: core.TS(operatorGrantedAt), GrantOption: true,
-		}}
-		// + service:dashd chats:get and chats:update at **
-		// + role:member <memberVerbs> at ** allow
-		// + role:member hold:mcp:<skipApprovalFloor> at ** deny
-		// each written with putIfAbsent
-	}
-	// ... the network_rules half
-}
-```
-
-Proposed, `auth/defaults.go`, the whole file:
+Proposed, `auth/defaults.go`, the whole file, replacing `store/seed.go:32-58`
+and the acl half of `:75-113`:
 
 ```go
 package auth
@@ -525,11 +311,6 @@ package auth
 // a local row that matches decides, and these decide only when none does. An
 // operator overrides a default with a local row and gets it back by revoking
 // that row. The docs name this file and never copy it.
-
-import (
-	"github.com/kronael/arizuko/core"
-	"github.com/kronael/arizuko/store"
-)
 
 // memberVerbs are what every folder may do: answer the chats it is routed to.
 // Scope ** because the route, not the scope, bounds where a message goes.
@@ -594,151 +375,92 @@ var defaultRows = func() []core.ACLRow {
 }()
 ```
 
-The 40 rows are the 39 the seed writes at `684b3eeed` plus the world's
-blanket hold, the tool names spelled as production passes them: the hold gate
-passes `reply`, never `mcp:reply` (`auth/checkhold_test.go:15-31` passes the
-wrong spelling and is corrected). `memberVerbs` and `skipApproval` share 13
-names and neither derives from the other: one answers what a member may call,
-the other which of its calls skip a human.
+The 40 rows are the 39 the seed writes plus the world's blanket hold, spelled
+as production passes them: the hold gate passes `reply`, never `mcp:reply`
+(`auth/checkhold_test.go:15-31` is corrected). `memberVerbs` and
+`skipApproval` share 13 names and neither derives from the other.
 
 The world's blanket hold is a default on `role:world` because a stored
-`hold:mcp:*` row on the world matches every tool, so the local layer would
-decide every hold of the world and the skip rows in the default layer would
-never be read. A role is the codebase's way to say "this folder is of this
-kind" (`GRANTS.md:18-24`), and membership is read at every call:
-a world taken out of `role:world` stops holding, and one taken out of
-`role:member` holds its messaging too. The blanket's scope is `**` where
-writeWorld wrote `w/**`; the hold is asked about the turn's own folder
+`hold:mcp:*` row would make the local layer decide every hold of the world, and
+the default skip rows would never be read. Its scope is `**` where writeWorld
+wrote `w/**`; the hold is asked about the turn's own folder
 (`routd/sibling_db.go:258-260`), so both match the same calls.
 
-## CheckGrant — one containment gate for every write
+## CheckGrant — one gate for every write, in one read
 
 ```
- add_acl, remove_acl (changed)      ─┐
- POST, DELETE /v1/acl (changed)     ─┤
- dashd grants add, revoke (changed) ─┤ the door's gate (unchanged): may the
- /always (changed)                  ─┤ writer write rules on this target?
- unpair, REST and agent (changed)   ─┤                │
- invite issue, redemption (changed) ─┘                ▼
-                        auth.CheckGrant (new): ReadPolicy of the granter and
-                        of every principal the write touches → version v;
-                        what does this write move, and does the granter hold it?
-                          ├─ no  → 403, nothing written
-                          └─ yes → v
-                                                      │
-                                                      ▼
-                        GuardedBatch: the write, its audit row, BumpAt(v) (new);
-                        it commits only while routd's scope is still at v
- auth.Delegate (removed)    the root exemptions (removed)
- host CLI: arizuko group grant, arizuko apply (unchanged, the trust root)
+ add_acl, remove_acl, agent unpair   door question: mcp:<tool> on the target ─┐
+ dashd grants add, revoke            door question: admin on the scope ───────┤
+ /always                             door question: admin on the folder ──────┤
+ POST, DELETE /v1/acl; REST unpair   bearer scope, ownsFolder, sub = parent   │
+   (unchanged, no acl read) ─────────────────────── empty question ───────────┤
+ redemption, world from a redemption the invite's recorded issuer ────────────┤
+                                                                              ▼
+              auth.CheckGrant (new): one ReadPolicy of the granter and of every
+              principal the write touches → version v; the door question, then
+              what each mutation moves, and does the granter hold it?
+                ├─ no  → 403, nothing written
+                └─ yes → v
+                                         │
+                                         ▼
+              GuardedBatch: the write, its audit row, BumpAt(v) (new);
+              it commits only while routd's scope is still at v
+ auth.Delegate (removed)   the door's separate acl read (removed)   the root exemptions (removed)
+ host CLI: arizuko group grant, group rm, apply (unchanged, the trust root)
 ```
 
-Current, `auth/delegate.go:34-67`:
+Proposed, `auth/grant.go`, replacing `auth/delegate.go:34-127` and its calls
+(`routd/acl_resource.go:67`, `:159`, `dashd/grants_admin.go:229-237`), and
+asking each door's acl question in the same read
+(`routd/acl_resource.go:154`, `routd/membership_resource.go:85`,
+`dashd/authz.go:208`, `routd/pending_actions.go:347`):
 
 ```go
-func Delegate(s *store.Store, granter string, want []core.ACLRow) error {
-	held, err := grantableRows(s, granter)
-	// ...
-	denies, err := denyRows(s, granter)
-	// ...
-	for _, r := range want {
-		if r.Effect == "deny" {
-			return fmt.Errorf("cannot delegate a deny row (%s %s on %s)", r.Principal, r.Action, r.Scope)
-		}
-		if strings.Contains(r.Principal, "*") {
-			return fmt.Errorf("cannot delegate to a wildcard principal %q", r.Principal)
-		}
-		if !coveredByGrantable(held, r) {
-			return fmt.Errorf("cannot delegate %s %s on %s: not held WITH GRANT OPTION",
-				r.Principal, r.Action, r.Scope)
-		}
-		if blockedByDeny(denies, r) {
-			return fmt.Errorf("cannot delegate %s on %s: granter holds a deny covering it",
-				r.Action, r.Scope)
-		}
-	}
-	return nil
-}
-```
+// Ask is the door's own acl question: may the granter use this door on this
+// target. Zero when the door's gate reads no acl row (a bearer scope, the
+// account that owns a pairing, an invite's recorded issuer).
+type Ask struct{ Action, Scope string }
 
-Current, the root exemption, `routd/acl_resource.go:159-169`:
-
-```go
-		if x.Action == resreg.Action("add") && !callerID.IsRoot {
-			want := store.GrantDefaults(aclArgsRow(x.Args))
-			if err := auth.Delegate(s.db.store(), callerSub, []core.ACLRow{want}); err != nil {
-				return resreg.Errorf(http.StatusForbidden, "%v", err)
-			}
-		}
-```
-
-Proposed:
-
-```go
-// Mutation is one write to the rules: Row added or removed, or, when Role is
-// set, the membership edge Row.Principal → Role added or removed.
+// Mutation is one write to the rules: Row added or removed, or, when Parent is
+// set, the membership edge Row.Principal → Parent added or removed.
 type Mutation struct {
 	Remove bool
 	Row    core.ACLRow
-	Role   string
+	Parent string
 }
 
-// CheckGrant refuses a write that hands out authority the granter does not
-// hold. granter is the Caller the door's gate evaluates; on a turn that is the
-// route and the attested sender, and the sender's denies count. It returns the
-// version of the one read it decided on, which the write's batch proves.
-func CheckGrant(s *store.Store, granter Caller, m Mutation) (objstore.Version, error)
+// CheckGrant answers the door's question and refuses a write that hands out
+// authority the granter does not hold, from one ReadPolicy. It returns the
+// version of that read; the write's batch proves it.
+func CheckGrant(s *store.Store, granter Caller, door Ask, m ...Mutation) (objstore.Version, error)
 ```
 
-```go
-	// every door, add and remove alike, root included
-	v, err := auth.CheckGrant(s.db.store(), granter, auth.Mutation{Remove: remove, Row: row})
-	if err != nil {
-		return resreg.Errorf(http.StatusForbidden, "%v", err)
-	}
-	x.Writes.Prove(v)
-```
+Each door, root included, calls it with its own question and the mutation,
+answers a refusal with 403, and passes `v` to its write as `x.Writes.Prove(v)`.
 
 What one write moves, and when it is contained:
 
-| write                                                            | the authority it moves                                            | contained when                                                                                   |
-| ---------------------------------------------------------------- | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| add an allow, or remove a deny, outside `hold:` and `shell:env:` | the row's action on its scope, with its params                    | the granter's deciding layer holds it with the option, and no granter deny may meet it           |
-| add a deny, or remove an allow, outside `hold:`                  | none: it narrows                                                  | always; the door gate decided who may write there                                                |
-| remove any local row                                             | each default row of the row's principal that may meet it          | each, narrowed to the removed row's action and scope, is contained as an add                     |
-| add or remove any `hold:` row                                    | an approval standing for the calls it matches                     | the granter holds `admin` on every target in the row's scope                                     |
-| add a `shell:env:` allow, or remove its deny                     | a folder secret into an agent's shell                             | a granter allow WITH the option on the whole scope whose action is `*`, `shell:env:*` or the key |
-| add the edge child → role R                                      | every allow and `hold:` row R holds, both layers                  | each row is contained by the rules above                                                         |
-| remove the edge child → R, a pairing edge included               | every deny and `hold:` row R holds, both layers                   | each row is contained by the rules above                                                         |
-| issue or redeem an invite                                        | `admin` on the target, or on `<target>*/**` for a subgroup invite | as an added allow (§"Invitations and unpairing are grant writes")                                |
+| write                                                            | the authority it moves                                                        | contained when                                                                           |
+| ---------------------------------------------------------------- | ----------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| add an allow, or remove a deny, outside `hold:` and `shell:env:` | the row's action on its scope, with its params                                | the granter's deciding layer holds it with the option, and no granter deny may meet it   |
+| remove a local allow outside `hold:`                             | what the defaults under it may reveal                                         | as adding that allow with the option                                                     |
+| add a deny outside `hold:`                                       | none: it narrows                                                              | always; the door decided who may write there                                             |
+| add or remove any `hold:` row                                    | an approval standing for the calls it matches                                 | the granter holds `admin` on the row's scope                                             |
+| add a `shell:env:` allow, or remove its deny                     | a folder secret in an agent's shell                                           | a granter allow with the option on the whole scope, action `*`, `shell:env:*` or the key |
+| add the edge child → P                                           | every allow and `hold:` row P and its ancestors hold, both layers             | each row by the rules above                                                              |
+| remove the edge child → P, a pairing edge included               | every deny, `hold:` row and local allow P and its ancestors hold, both layers | each row by the rules above                                                              |
+| issue or redeem an invite; create a world from one               | `InviteGrantRow`; `WorldGrantRows`                                            | as added allows (§"Invitations, worlds and unpairing")                                   |
 
 ### The containment tests
 
-Each test is conservative, and an inclusion it cannot prove is a refusal.
+Each test is conservative: an inclusion it cannot prove is a refusal.
 
-- **Covers** is today's `coveredByGrantable` with a stricter scope test:
-  `actionCovers` with the two namespaces isolated, `scopeCovers` and
-  `paramsCover` (`auth/delegate.go:178-180`). A granter allow with a
-  predicate covers nothing, because it holds only under a claim. Current,
-  `auth/delegate.go:160-173`:
-
-  ```go
-  func scopeCovers(held, want string) bool {
-  	if held == want || held == "**" {
-  		return true
-  	}
-  	if base, ok := strings.CutSuffix(held, "/**"); ok {
-  		return groupfolder.Contains(base, want)
-  	}
-  	if strings.ContainsAny(want, "*") {
-  		return false
-  	}
-  	return matchPattern(held, want)
-  }
-  ```
-
-  Proposed: the last test refuses every glob character `path.Match` reads,
-  so a held `a/???` no longer covers the glob `a/[x]` (BUGS `L667`):
+- **Covers** is `coveredByGrantable` (`auth/delegate.go:133`) with the two
+  namespaces isolated in `actionCovers`, `paramsCover` (`auth/delegate.go:178`)
+  and a stricter `scopeCovers` (`auth/delegate.go:160-173`). A granter allow
+  with a predicate covers nothing. The last scope test refuses every glob
+  character `path.Match` reads, so a held `a/???` does not cover `a/[x]`
+  (BUGS `L667`):
 
   ```go
   	// held has no recursive tail, so it covers only a want with no glob
@@ -749,8 +471,7 @@ Each test is conservative, and an inclusion it cannot prove is a refusal.
   	return matchPattern(held, want)
   ```
 
-- **May meet** replaces "one scope covers the other" (`auth/delegate.go:122`).
-  It answers "cannot meet" only on proof:
+- **May meet** replaces "one scope covers the other" (`auth/delegate.go:122`):
 
   ```go
   // mayMeet reports whether two scope globs can match one path. It answers
@@ -761,66 +482,50 @@ Each test is conservative, and an inclusion it cannot prove is a refusal.
   func mayMeet(a, b string) bool
   ```
 
-  `a/*/x` and `a/b/*` meet at `a/b/x`, so the grant of the example in
-  §"The problem" is refused. `a/**/x` and `a/b/c/*` compare only their first
-  segment, which is equal, so they may meet, and they do at `a/b/c/x`. A
-  deny's params and predicate are not read: a deny that might apply counts.
+  `a/*/x` and `a/b/*` meet at `a/b/x`, so that grant is refused. A deny's
+  params and predicate are not read: a deny that might apply counts.
 
 - **The axes.** The covering allow comes from the route axis, or from the
-  caller's own principal on a single-axis caller: a sender's allows never
-  count toward what a turn may grant, since execution confines them to the
-  route's subtree. The denies come from every principal of the caller, both
-  axes, as execution reads them (`auth/authorize.go:57-58`). A folder that
-  holds `X` with the option cannot grant `X` during a turn whose sender is
-  denied `X`, and cannot remove that sender's deny.
-- **The deciding layer.** Delegation reads the layer that decides, as
-  `Allows` does. When some local row of the granter may meet the wanted
-  authority, the local layer decides there, and the write is contained only
-  when a local allow with the option covers it and no local deny may meet
-  it. When no local row may meet it, the same test runs on the default rows. A folder in `role:operator` with a local
-  `mcp:X a allow` without the option therefore cannot grant `mcp:X` on `a`
-  through the default `*` on `**`: the local row decides that call, and it
-  holds no option.
-- **What a removal reveals.** Removing a local row of principal P lets the
-  default layer decide where that row matched. Each default row of P's
-  principals that may meet the removed row is checked as an add, narrowed to
-  the removed row's action and scope, with that default's effect and option.
-  Removing a local allow without the option that hides `role:operator`'s
-  default is checked as adding that allow with the option. Removing a local
-  deny is also checked as granting its allow, as the table says, because it
-  reveals the local allows it blocked.
-- **A wildcard principal** on an added allow is refused, as today
-  (`auth/delegate.go:54-56`): the rows it reaches are not known at write time.
+  caller's own principal on a single-axis caller: a sender's allows never count
+  toward what a turn may grant, since execution confines them to the route's
+  subtree. The denies come from every principal of the caller, both axes
+  (`auth/authorize.go:57-58`). A folder that holds `X` with the option cannot
+  grant `X` in a turn whose sender is denied `X`.
+- **The deciding layer.** When some local row of any of the granter's
+  principals, either axis, may meet the wanted authority, the write is
+  contained only when a local allow with the option covers it and no local deny
+  may meet it; otherwise the same test runs on the default rows. A folder in
+  `role:operator` with a local `mcp:X a allow` without the option cannot grant
+  `mcp:X` on `a` through the default `*` on `**`.
+- **A removal is a grant.** Taking a local allow away never widens a call's
+  verdict outside `hold:`, but it can change which layer decides for some
+  principal, on either axis or through a wildcard principal, and so reveal a
+  default's grant option. CheckGrant does not search for who is affected:
+  every removal of a local allow, and every local allow an edge removal takes
+  from the child, is checked as adding that allow with the option. The caveat:
+  a writer that passes the door but holds the row without the option cannot
+  revoke it; an operator holds every allow with the option and revokes
+  anything.
+- **A wildcard principal** on an added allow is refused (`auth/delegate.go:54`),
+  since the rows it reaches are not known at write time; a removed one passes
+  the removal test like any other row.
 
 ### The proof
 
-CheckGrant reads every row it decides on, the granter's and, for an edge or a
-removal, those of the role or the principal it changes, inside one
-`ReadPolicy`, so the rules it judges are one state at version `v`. The write's
-batch carries routd's Bump at that version, so it commits only while no write
-to routd's scope has landed since. A revoke, a new deny, a grant-option change
-on the same coordinate and a new membership edge all move it, because `acl`
-and `acl_membership` both move routd's marker (`store/scopes.go:60-81`). The
-Bump is a write the batch already makes, so no item is named twice
-(`objstore/batch.go:108-120`).
+CheckGrant reads every row it decides on, the door's question included, inside
+one `ReadPolicy`, so the rules it judges are one state, at version `v`. The
+write's batch carries routd's Bump at that version, so it commits only while no
+write to routd's scope has landed since: a revoke of the door's own grant, a new
+deny, a grant-option change and a new edge all move it (`store/scopes.go:60-82`).
+The Bump is a write the batch already makes, so no item is named twice
+(`objstore/batch.go:108-120`). Bearer scopes, `ownsFolder` and the pairing
+parent test read no rule and stay where they are.
 
-Current, `objstore/marker.go:88-93`:
-
-```go
-func Bump(sc Scope) Write {
-	return Write{
-		Op: Update, Entity: sc.Entity, Key: sc.Key,
-		Attrs: map[string]string{markerVersion: freshVersion()},
-	}
-}
-```
-
-Proposed, beside it:
+Proposed, beside `Bump` (`objstore/marker.go:88-93`):
 
 ```go
 // BumpAt is Bump for a write that rests on a consistent read: it moves the
-// marker only while the marker is still at v, so the batch commits only on
-// the state the read saw.
+// marker only while the marker is still at v.
 func BumpAt(sc Scope, v Version) Write {
 	w := Bump(sc)
 	w.Cond = Cond{Where: []Cmp{{Attr: markerVersion, Op: Eq, Value: string(v)}}}
@@ -828,109 +533,124 @@ func BumpAt(sc Scope, v Version) Write {
 }
 ```
 
-A batch that also carries a guarded write, a revoke's "not found" or
-`/always`'s verdict, still reports one bit. On a refusal `Apply` reads the
-marker once: moved, the answer is `ErrPolicyMoved`, a 409 the caller sends
-again; unchanged, it is the guarded write's own error, because an unchanged
-version means no other write landed. The caveat: every routd-owned write
-moves the same version, routes, tasks and pending actions among them, so a
-grant that lands beside one is refused and sent again. A grant is a write at
-the pace of a person.
+On a refusal `Apply` reads the marker once: moved, the answer is
+`objstore.ErrScopeMoved` (`objstore/replace.go:35`), a 409 the caller sends
+again; unchanged, it is the batch's own guarded write refusing, a revoke's "not
+found" or `/always`'s verdict. The caveat: every routd-owned write moves the
+same version, routes and tasks among them, so a grant beside one is refused and
+sent again; a grant is a write at the pace of a person.
+
+A proved write is made on routd's handle, since dynstore puts the handle's
+owner in front of every entity (`store/served.go:17-19`,
+`objstore/dynstore/dynstore.go:129-131`); onbod and dashd hold one
+(`onbod/main.go:89`, `dashd/grants_admin.go:220`). `CheckGrant` runs in the
+caller, never in `store`, since `auth` imports `store`
+(`auth/authorize.go:10`); the caller passes `v` as
+`x.Writes.Prove(v)`, `AddACLRow(row, v)` or `SeedMemberRole(..., v, ...)`.
+`objstore.AddEdge` given a version refuses with `ErrScopeMoved` when the marker
+is not at it (`objstore/reach.go:82-107`).
 
 ### Who the granter is
 
-The granter is the Caller the door's gate evaluates: the JWT sub on REST and
-dashd, the reviewer on `/always`, on the agent socket the turn's route and
-sender (`routd/agent_gate.go:34-37`), in an elevated `/root` turn the issuer
-of the `/root` row, which `turnMCP.trigger` carries once BUGS `L666` is fixed
-(§"An operator is an evaluator verdict"), and at an
-invite's redemption the issuer the invite records.
+The granter is the Caller the door evaluates: the JWT sub on REST and dashd,
+the reviewer on `/always`, the turn's route and sender on the agent socket
+(`routd/agent_gate.go:34-37`), the `/root` issuer in an elevated turn, and at an
+invite's redemption the issuer the invite records. routd names the turn's
+granter in one place, `turnGranter(t)`. The `/root` issuer is `turnMCP.trigger`
+only once BUGS `L666` is fixed, so `L666` ships first or in this commit.
 
-Root is a grant, not an exemption (`specs/5/33-paths-roles.md`, Decision 1).
-An operator's sub expands to `role:operator`, whose default row holds `*` on
-`**` with the option, so `CheckGrant` admits every write it admitted under the
-exemption. A token with an empty folder whose sub holds no root grant loses
-the acl writes it had; no Go client writes `/v1/acl` (`grep -rn '/v1/acl'`
-finds only dashd's GET at `dashd/grants_admin.go:331`).
+Root is a grant, not an exemption (`specs/5/33-paths-roles.md`, Decision 1): an
+operator's sub expands to `role:operator`, whose default holds `*` on `**` with
+the option. A root token whose sub holds no root grant loses its acl writes; no
+Go client writes `/v1/acl` (`git grep -n '/v1/acl'` finds only dashd's GET at
+`dashd/grants_admin.go:331`). The host CLI is the trust root: it holds the
+store's write credential (`specs/5/32-acl-unified.md` §"Bootstrap"), so
+`arizuko group grant`, `group rm` and `apply` write without `CheckGrant`.
 
-The host CLI is the trust root. It holds the store's write credential, so a
-check inside it guards nothing a direct write could not bypass, and
-`specs/5/32-acl-unified.md` §"Bootstrap" makes the operator's first grant
-there. `arizuko group grant` and `arizuko apply` write without `CheckGrant`.
-
-The operator overload is one test, `store.OperatorShape`, on the raw row:
-scope `**`, the action omitted, no effect other than allow, no params or
-predicate. Both routd (`routd/acl_resource.go:234-239`) and the CLI
-(`cmd/arizuko/main.go:617-620`) call it, and it renders the edge to
-`role:operator`, which `CheckGrant` checks as an edge write. An explicit
-`admin` or `*` at `**` is an ordinary row on every door.
+The operator overload is one test, `store.OperatorShape`, on the raw row: scope
+`**`, the action omitted, no effect other than allow, no params or predicate.
+routd and the CLI both call it, and it renders the edge to `role:operator`,
+which `CheckGrant` checks as an edge write. An explicit `admin` or `*` at `**`
+is an ordinary row on every door.
 
 A folder's `role:member` and `role:world` edges ride its creation batch, whose
 own gate authorizes the creation, and a pairing edge is added only with the
 account owner's consent (`specs/5/31-identity-pairing.md`). Neither passes
 `CheckGrant`.
 
-## Invitations and unpairing are grant writes
+### A purge runs only from the host CLI
+
+A folder purge deletes every `acl` row scoped under the folder and every
+membership edge whose child is under it (`store/folder_scope.go:51-65`), in
+several writes, `groups` first (`store/groups.go:328-331`). Removing
+`U → folder:f → R` takes R's denies from U on every folder, which `admin` on
+`f` does not prove the right to lift, and one check before the purge proves
+nothing about its later writes. So `arizuko group rm`
+(`cmd/arizuko/group_rm.go:119`) is the only purge. dashd's delete
+(`dashd/groups_admin.go:452`) answers with that command, as its
+unreachable-runed page already does (`dashd/groups_admin.go:438-441`), and
+routd's registration rollback (`routd/mcp.go:241`) deletes only the groups row
+it wrote (BUGS `L669`).
+
+## Invitations, worlds and unpairing are grant writes
 
 ```
  invite_create, /invite, dashd invites (changed)
-   └─ CheckGrant(issuer, add admin on the target) ─► onbod mints, issued_by = issuer
+   └─ CheckGrant(issuer, InviteGrantRow) ─► onbod mints, issued_by_sub = the identity read
  GET /invite/<token> (changed)
-   └─ CheckGrant(recorded issuer, add admin on the target) ─► acl row + BumpAt(v)
-                                                    refused → the invite stays unspent
+   └─ CheckGrant(recorded issuer, InviteGrantRow) ─► consume (unchanged)
+        ├─ a folder invite:   AddACLRow(InviteGrantRow, v) on routd's handle (changed)
+        └─ a subgroup invite: redemption with issued_by_sub (changed)
+ create_world from a redemption (changed)
+   └─ CheckGrant(the redemption's issuer, WorldGrantRows) ─► spend
+        ─► creation batch: WorldGrantRows + edges, AddEdge at v (changed)
  unpair, REST and agent (changed)
    └─ CheckGrant(caller, remove edge child → parent) ─► edge delete + BumpAt(v)
 ```
 
 An invite is a grant written later by someone else, so it passes the gate
-twice: when it is issued, with the issuer's whole Caller, and when it is
-redeemed, with the issuer it records, so a redemption after the issuer lost
-the authority is refused. The row is `admin` on the target, or `admin` on
-`<target>*/**` for a subgroup invite, whose redemption creates one child and
-its admin. An issuer of `cli`, `onbod` or `routd` is a holder of the store's
-or onbod's bearer, the trust root, and is not checked; `/invite` records its
-sender in place of `routd`.
+where it is issued and again before each routd write that acts on it, and each
+check reads the row its write writes, from one renderer. `InviteGrantRow` is
+`admin` on the target, or on `<target>*/**` for a subgroup invite, and the
+redemption writes it. `WorldGrantRows(owner, folder)` is the owner's `admin` on
+`<folder>/**` (`store.AdminGrantWrite`, `store/acl.go:187-191`) and the
+folder's `mcp:*` on `<folder>/**` (`onbod/main.go:926-929`), and writeWorld
+writes exactly those. An issuer narrowed after the redemption to `admin` on the
+new folder alone cannot create it, because the creation grants `<folder>/**`.
 
-Current, the agent door's only gate, `ipc/ipc.go:2160-2162`, and the
-redemption's write, `onbod/main.go:1217-1222`:
+At issue the check only refuses: the invite confers nothing yet, so no version
+is carried and the door's gate stays where it is (`ipc/ipc.go:2160`). The
+invite records the identity the check read: `agent:<f>` from a turn
+(`ipc/ipc.go:2172`), the `/root` issuer from an elevated turn, the sender from
+`/invite`, the sub from dashd. The recheck reads that identity alone, with
+`agent:<f>` as `folder:<f>`; an issuer of `cli`, `onbod` or `routd` holds a
+trust-root bearer and is not checked. The caveat: an invite from an elevated
+turn is not in that folder's `invite_list` (`ipc/ipc.go:2196-2200`).
 
-```go
-			if err := authzStructural("invite_create", targetGlob); err != nil {
-				return toolErr(err.Error())
-			}
+A redemption runs `CheckGrant` on onbod's routd handle before the consume, so a
+refusal leaves the invite unspent, then writes `AddACLRow(row, v)` (BUGS
+`L664`). When that write is refused, onbod calls `RestoreInvite`
+(`onbod/main.go:1223-1236`) and asks the person to open the link again; when
+the restore also fails, the invite stays spent and the failure is logged. onbod
+always consumes with `ConsumeInviteNoGrant`, since split is the only topology
+(`onbod/main.go:70-76`), so `ConsumeInvite` and `consumeInvite`'s acl branch
+(`store/invites.go:438-449`) go and the row has one writer.
 
-	if split && !strings.HasSuffix(target, "/") {
-		if perr := db.AddACLRow(core.ACLRow{
-			Principal: userSub, Action: "admin", Scope: target,
-			Effect: "allow", GrantedBy: "invite",
-		}); perr != nil {
-```
+A subgroup redemption records the invite's issuer in a new `issued_by_sub`
+attribute. `create_world` (`onbod/main.go:750-770`) checks that issuer before
+it spends the redemption, refuses a redemption with no recorded issuer, and
+proves its creation batch through `SeedMemberRole`; a moved scope runs the
+check and the batch again, at most `maxCASAttempts` times. The caveat: a revoke
+between the spend and the batch leaves the redemption spent and no world.
 
-Proposed, routd's `CreateInvite` closure (`routd/mcp.go:144-154`), which holds
-the turn:
-
-```go
-		CreateInvite: func(targetGlob, issuedBySub string, maxUses int, expiresAt *time.Time) (ipc.InviteInfo, error) {
-			// An invite hands out what its redemption writes; the turn must hold it.
-			if _, err := auth.CheckGrant(s.db.store(), s.turnGranter(t),
-				auth.Mutation{Row: store.InviteGrantRow(targetGlob)}); err != nil {
-				return ipc.InviteInfo{}, err
-			}
-			// ... unchanged
-		},
-```
-
-The redemption runs the same call with `auth.Caller{Principal:
-issuerPrincipal(inv.IssuedBySub)}`, where `agent:<f>` is `folder:<f>`, and
-proves its acl write with the version (BUGS `L664`). The same check in
-`consumeInvite` covers the single-store path (`store/invites.go:438-449`).
-
-`unpair` removes an edge whose parent may hold denies, and the child's turns
-lose them (BUGS `L665`). It is an edge removal like any other: an account with
-no deny unpairs as today, and an account with a deny unpairs only through a
-caller that could grant each denied action, which `role:operator` can. Its
-`contain` checks (`routd/membership_resource.go:83-90`, `:99-110`) stay as the
-door's gate.
+`unpair` is an edge removal: an account with no deny and no local allow unpairs
+as today, and one holding either unpairs only through a caller that could
+grant each of them with the option, which `role:operator` can (BUGS `L665`). A
+person invited to a world holds `admin` there without the option, so that
+person's unpair goes through an operator. The `contain`
+checks (`routd/membership_resource.go:83-110`) supply the door: the agent's
+`mcp:unpair` on the target becomes CheckGrant's question, and the REST parent
+test stays as it is.
 
 ## An operator is an evaluator verdict
 
@@ -942,21 +662,7 @@ door's gate.
  elevated /root turn (unchanged): root for one turn
 ```
 
-Current, `routd/sibling_db.go:265-273`:
-
-```go
-func (d *DB) IsOperator(sub string) bool {
-	if sub == "" {
-		return false
-	}
-	if slices.Contains(d.store().Ancestors(sub), "role:operator") {
-		return true
-	}
-	return auth.Authorize(d.store(), auth.Caller{Principal: sub}, "admin", "**", nil)
-}
-```
-
-Proposed:
+Proposed, replacing `routd/sibling_db.go:265-273`:
 
 ```go
 func (d *DB) IsOperator(sub string) bool {
@@ -964,24 +670,17 @@ func (d *DB) IsOperator(sub string) bool {
 }
 ```
 
-`UserScopes` stays a listing, and it lists `**` only when `Authorize(sub,
-"admin", "**")` allows. proxyd computes it on every request
-(`proxyd/main.go:982`), so every dashboard gate that reads `**` in the header
-(`auth/dashauth.go:54-56`) reads an evaluator verdict, and the gap BUGS `L659`
-records for the daemons that hold no store closes.
+proxyd computes `UserScopes` on every request (`proxyd/main.go:982`), so every
+dashboard gate that reads `**` in the header reads an evaluator verdict, and
+BUGS `L659`'s gap for the daemons with no store closes.
 
-An elevated `/root` turn stays root for its one turn: every call allowed, no
-hold, every chat readable (`routd/agent_gate.go:30-32`, `ipc/ipc.go:1089`).
-The verdict is read once, at `/root`, where `cmdRoot` asks `IsOperator`
-(`routd/steer.go:301`). Asking the issuer's rows at each call instead would
-replace every `IsRoot` read in ipc and routd with an evaluator question, and
-the listing views among them (`ListRoutes`, `ErroredChats`, `ListTasks`, the
-groups snapshot) ask no target to put to it. No hold is needed: the issuer
-holds `admin` on `**`, the authority that answers a hold. The caveat: a deny
-an operator holds below `**` does not reach their root turn; an operator who
-must be refused somewhere is taken out of `role:operator`. The root turn
-serves only its issuer: today it also runs the rows another sender adds to
-its batch, under that sender's name (BUGS `L666`).
+An elevated `/root` turn stays root for its one turn (`routd/agent_gate.go:30-32`,
+`ipc/ipc.go:1089`); the verdict is read once, where `cmdRoot` asks `IsOperator`
+(`routd/steer.go:301`). Asking at each call would put an evaluator question
+behind every `IsRoot` read, and the listing views among them ask no target. The
+caveat: a deny an operator holds below `**` does not reach their root turn; an
+operator who must be refused somewhere is taken out of `role:operator`. The
+root turn serves only its issuer once BUGS `L666` is fixed.
 
 ## dashd pages ask the evaluator
 
@@ -993,51 +692,26 @@ its batch, under that sender's name (BUGS `L666`).
  CallerGroups as Extra principals in adminOn (removed)
 ```
 
-Current, `dashd/authz.go:55-66` and `:198-205`:
-
-```go
-func visible(allowed []string, operator bool, folder string) bool {
-	if operator {
-		return true
-	}
-	if folder == "" {
-		return false
-	}
-	return auth.MatchGroups(allowed, folder)
-}
-
-func (d *dash) adminOn(r *http.Request, scope string) bool {
-	if d.routdStore() == nil {
-		return false
-	}
-	caller := auth.Caller{Principal: reviewerSub(r), Extra: auth.CallerGroups(r)}
-	return auth.Authorize(d.routdStore(), caller, "admin", scope, nil)
-}
-```
-
-Proposed:
+Proposed, replacing `dashd/authz.go:55-66`:
 
 ```go
 // visible reports whether the caller may see folder's pages: the evaluator's
-// verdict on `interact`, the floor `admin` and `*` cover, so a deny hides a
-// page. p is read once per request; a count over every folder asks it per row.
+// verdict on `interact`, which `admin` and `*` cover, so a deny hides a page.
 func visible(p auth.Policy, folder string) bool {
 	return folder != "" && p.Allows("interact", folder, nil)
 }
-
-func (d *dash) adminOn(r *http.Request, scope string) bool {
-	if d.routdStore() == nil {
-		return false
-	}
-	return auth.Authorize(d.routdStore(), auth.Caller{Principal: reviewerSub(r)}, "admin", scope, nil)
-}
 ```
 
-A scope string is not a principal: `CallerGroups` folded `acme/**` into the
-expanded set, where only a wildcard-principal row could match it. The caveat:
-a principal that holds only `mcp:<tool>` on a folder stops seeing its pages.
-proxyd's `/priv` still reads the listing (BUGS `L493`), which this spec does
-not change.
+`adminOn` (`dashd/authz.go:198-205`) asks `Authorize` with the reviewer's sub
+alone and no `Extra`: a scope string is not a principal, and `CallerGroups`
+folded `acme/**` into the expanded set, where only a wildcard-principal row
+could match it. `callerScope`
+(`dashd/authz.go:23-47`) returns the policy; its `operator` opens what only an
+operator sees and nothing else. A per-folder filter asks `visible` alone, so
+the operator shortcuts beside the filters go (`dashd/main.go:1063`,
+`dashd/authz.go:141-147`). The caveat: a principal that holds only
+`mcp:<tool>` on a folder stops seeing its pages. proxyd's `/priv` still reads
+the listing (BUGS `L493`).
 
 ## `/always` writes only a concrete rule
 
@@ -1048,191 +722,164 @@ not change.
  holdShapes' tool-wide fallback (removed)
 ```
 
-Current, `routd/pending_actions.go:561-571`:
+Proposed, in `pinnedSpec` (`routd/pending_actions.go:561-571`), before the loop:
 
 ```go
-func pinnedSpec(tool string, scalars map[string]string) (string, error) {
-	pinned := map[string]string{}
-	for _, k := range holdShapes[tool].keys {
-		v, ok := scalars[k]
-		if !ok {
-			return "", fmt.Errorf("argument %q: the call carries no scalar value to pin", k)
-		}
-		pinned[k] = v
-	}
-	return auth.ParamsSpec(pinned)
-}
-```
-
-Proposed:
-
-```go
-// pinnedSpec is the params spec of an `always` on tool: its declared keys at
-// the held call's values. A tool that declares no key has no standing rule a
-// button can write; the operator writes one on the grants page.
-func pinnedSpec(tool string, scalars map[string]string) (string, error) {
 	keys := holdShapes[tool].keys
 	if len(keys) == 0 {
 		return "", fmt.Errorf("%s declares no standing rule; an operator writes one", tool)
 	}
-	pinned := map[string]string{}
-	for _, k := range keys {
-		// ... unchanged
-	}
-	return auth.ParamsSpec(pinned)
-}
 ```
 
-The refusal fills `MatcherError`, which every sink already reads: the chat
-shows no ♾ button and `/always` is refused with the same text
-(`routd/pending_actions.go:360-364`). The row `/always` writes is a `hold:`
-row, so it passes `CheckGrant` as any other door's: the reviewer holds `admin`
-on the folder, the check that answering the call already made, and its batch
-proves the verdict and the row with one version. Today only `like` declares a
-key (`routd/pending_actions.go:518-523`).
+The refusal fills `MatcherError`, which every sink reads: the chat shows no ♾
+button and `/always` is refused with the same text
+(`routd/pending_actions.go:360-364`). The row is a `hold:` row, so CheckGrant
+asks the reviewer's `admin` on the folder, as the door's question and as the
+`hold:` rule, in one read, and the batch proves the verdict and the row with
+one version. Only `like` declares a key (`routd/pending_actions.go:518-523`).
 
 ## What this deletes
 
-- `auth.namespacedAllows`, the second fold (`auth/authorize.go:609-646`), and
-  `CheckHold`'s own read; `CheckHold` and `ShellEnvKeys` call `Allows`.
-- `auth.Delegate`, `grantableRows`, `denyRows`, `blockedByDeny`
-  (`auth/delegate.go:34-127`); `scopeCovers` and `paramsCover` move to
-  `auth/grant.go`.
-- The root exemptions at `routd/acl_resource.go:67` and `:159`, and dashd's
-  allow-only branch (`dashd/grants_admin.go:229-237`).
-- The acl half of `SeedRoutdFloor`, with `memberVerbs`, `alwaysMountedTools`,
-  `skipApprovalFloor` and four of its five fixed instants
-  (`store/seed.go:29-58`, `:66-111`).
-- onbod's `hold:mcp:*` row in writeWorld (`onbod/main.go:933-939`).
-- `aclOperatorShape` (`routd/acl_resource.go:234-239`) and `operatorRow`
-  (`cmd/arizuko/main.go:617-620`), for one `store.OperatorShape`.
-- routd `IsOperator`'s membership shortcut (`routd/sibling_db.go:269-271`).
-- dashd's listing as visibility and `adminOn`'s `Extra` (`dashd/authz.go:23-47`,
-  `:55-66`, `:202`).
-- The tool-wide `/always` (`routd/pending_actions.go:516-517`).
-- From `6/49-approval-ask.md`: Decision 5's floor batches and the proposed
-  `acl_floor` entity, never built.
+`auth.namespacedAllows` (`auth/authorize.go:609-646`); `auth.Delegate` with
+`grantableRows`, `denyRows` and `blockedByDeny` (`auth/delegate.go:34-127`);
+the root exemptions and door reads at `routd/acl_resource.go:67` and
+`:154-166`; dashd's allow-only branch (`dashd/grants_admin.go:229-237`); the
+acl half of `SeedRoutdFloor` with its lists and four of its five fixed instants
+(`store/seed.go:32-113`); writeWorld's `hold:mcp:*` row
+(`onbod/main.go:933-939`); `aclOperatorShape` and `operatorRow`
+(`routd/acl_resource.go:234-239`, `cmd/arizuko/main.go:617-620`); routd
+`IsOperator`'s membership shortcut; dashd's listing as visibility, `adminOn`'s
+`Extra` and the operator shortcuts (`dashd/authz.go:23-66`, `:141-147`,
+`dashd/main.go:1063`); dashd's group purge and the purge in routd's
+registration rollback; `store.ConsumeInvite`, `consumeInvite`'s acl branch and
+onbod's `split` switch (`onbod/main.go:1181`, `:1199-1202`); the tool-wide
+`/always`; and from `6/49-approval-ask.md`, Decision 5's floor batches and the
+proposed `acl_floor` entity, never built.
 
 ## The live rows after the deploy
 
 Measured 2026-11-04 with `arizuko get -i <instance> acl` built from
 `bd6f74091`; the audit runs again on each instance before its deploy.
 
-- Neither krons nor sloth holds a `hold:mcp:*` row, so neither has a world
-  made with the stored blanket hold.
-- Each holds the 23 `role:member hold:mcp:<tool> ** deny` rows, local copies
-  of defaults, and neither holds the two `service:dashd` rows (BUGS `L473`).
-  The audit also counts the copies of the root row and the 13 member verbs.
-  A local copy matches the calls its default matches and gives the same
-  answer, so the release changes a verdict only where a default has no local
-  copy: on both, the two `service:dashd` rows.
-- krons holds four skip rows and one hold row on one folder. They decide that
-  folder's calls to their tools, as today.
-
-The copies hide future changes to their defaults: a tool taken out of
-`skipApproval` still skips where a copy stands. And BUGS `L273` closes only
-where the copy is gone, since a copied skip row and an operator's hold row on
-the same call are both local, and the deny wins. Removing a copy is not a
-revoke: the default it copied answers again. Removing the copies is an
-operator action on live data, done per instance after the audit with
-`arizuko group ungrant`. A world with a stored `hold:mcp:*` row needs its
-`role:world` edge and that row's removal first, or it holds its messaging
-once the skip copies are gone.
+Neither krons nor sloth holds a `hold:mcp:*` row. Each holds the 23
+`role:member hold:mcp:<tool> ** deny` rows as local copies of defaults, and
+neither holds the two `service:dashd` rows (BUGS `L473`). A copy gives its
+default's answer, so the release changes a verdict only at the two
+`service:dashd` rows. krons's four skip rows and one hold row on one folder
+decide that folder's calls, as today. The copies hide later changes to their
+defaults, and BUGS `L273` closes only where the copy is gone; removing them is
+an operator action, per instance after the audit, with `arizuko group ungrant`.
 
 ## Acceptance
 
 Tests in the shipping commit, each failing without the change, every tool
-spelled as production passes it:
+spelled as production passes it.
 
-- `auth`: a folder in `role:world` and `role:member` with no local row:
-  `reply` runs inline, `schedule_task` is held.
-- `auth`: the same folder out of `role:member`: `reply` is held.
-- `auth`: a world with a local `folder:w hold:mcp:reply w allow`: `reply` is
-  held, `like` runs inline (BUGS `L273`).
-- `auth`: a folder with a local `hold:mcp:*` and the 23 local skip copies
-  minus `delete`: `delete` is held, `reply` runs inline.
-- `auth`: a world with a local `/always` row on `like(reaction=👀)`: a 👀 like
-  runs inline from the local row, a ❤️ like from the default.
-- `auth`: an empty `acl`: `service:dashd` holds `chats:update` on any folder,
-  and a member of `role:operator` holds `*` on `**`.
-- `auth`: a failed membership read refuses `Authorize` and returns an error
-  from `CheckHold`; a role's deny is never dropped; a scope a replace holds
+- `auth`, layers: a folder in `role:world` and `role:member` with no local row
+  runs `reply` inline and holds `schedule_task`; out of `role:member` it holds
+  `reply`; with a local `hold:mcp:reply w allow` it holds `reply` and runs `like`
+  inline (BUGS `L273`); with a local `hold:mcp:*` and the 23 skip copies minus
+  `delete` it holds `delete` and runs `reply`; with a local `/always` on
+  `like(reaction=👀)` a 👀 like runs from the local row and a ❤️ like from the
+  default.
+- `auth`: an empty `acl` gives `service:dashd` `chats:update` on any folder and
+  a `role:operator` member `*` on `**`; a failed membership read refuses
+  `Authorize` and makes `CheckHold` return an error; a scope a replace holds
   refuses `Authorize`.
-- `auth`: `CheckGrant` refuses `X` on `a/b/*` from a granter holding `X` on
-  `a/**` with the option and a deny on `a/*/x`; refuses `a/[x]` from a granter
-  holding `a/???`; refuses `X` on `a/b/c/*` past a deny on `a/**/x`; refuses
-  `X` from a turn whose sender is denied `X`; refuses `mcp:X` on `a` from a
-  `role:operator` member with a local `mcp:X a allow` without the option;
-  refuses removing that local allow from a granter without the option;
-  refuses a skip row from a writer without `admin` on its scope; admits it
-  from a world's creator; refuses removing a deny the writer could not grant;
-  refuses the `role:operator` edge from a non-operator.
-- `store`: a proved batch whose scope moved after the read is refused with
-  `ErrPolicyMoved`; a proved revoke of an absent row answers its own "not
-  found".
-- `routd`: `add_acl` and `/v1/acl` by root pass `CheckGrant` for a row
-  `role:operator` covers; `remove_acl` of a deny is checked.
-- `routd`: `invite_create` from a world's agent holding `mcp:*` on `w/**` is
-  refused (BUGS `L664`); `onbod`: a redemption whose issuer lost `admin` with
-  the option is refused and the invite stays unspent.
-- `routd`: `unpair` of an edge whose parent holds a deny the caller could not
-  grant is refused, and of an edge whose parent holds none is admitted (BUGS
-  `L665`).
-- `dashd`: revoking a deny the admin could not grant as an allow is
-  refused; adding a deny outside `hold:` is admitted; a caller holding
-  `interact` on `a/**` and a deny on `interact` at `a/b` does not see `a/b`'s
-  pages.
+- `auth`, containment: `CheckGrant` refuses `X` on `a/b/*` past a deny on
+  `a/*/x`; `a/[x]` from `a/???`; `X` on `a/b/c/*` past a deny on `a/**/x`; `X`
+  from a turn whose sender is denied `X`; `mcp:X` on `a` from a `role:operator`
+  member with a local `mcp:X a allow` without the option; a skip row from a
+  writer without `admin` on its scope; removing a deny the writer could not
+  grant; the `role:operator` edge from a non-operator.
+- `auth`, removals: with folder `f` in `role:operator` and sender S holding a
+  local `mcp:X f allow` without the option, removing S's row is refused from a
+  granter without `mcp:X` on `f` with the option; the same for a
+  `user:*` row and for the edge U → R that carries R's local allow; each is
+  admitted from an operator.
+- `auth` and `routd`, the door in the read: a granter holding `mcp:add_acl` and
+  not `X` with the option, then losing `mcp:add_acl` and gaining `X` with the
+  option between the read and the batch, has its write refused with
+  `objstore.ErrScopeMoved`; a proved revoke of an absent row answers its own
+  "not found".
+- `routd`: `add_acl` and `/v1/acl` by root pass `CheckGrant`; `remove_acl` of a
+  deny is checked; `unpair` of an edge whose parent holds a deny the caller
+  could not grant is refused, of one whose parent holds none is admitted
+  (BUGS `L665`).
+- `routd` and `onbod`, invites: `invite_create` from a world's agent holding
+  `mcp:*` on `w/**` is refused (BUGS `L664`); a redemption whose issuer lost
+  `admin` with the option is refused and the invite stays unspent; an elevated
+  `/root` turn in a folder without `admin` with the option issues an invite that
+  records the operator's sender and redeems, and the unelevated turn is refused.
+- `onbod`, worlds: a subgroup redemption whose issuer is then narrowed to
+  `admin` with the option on the new folder alone is refused at `create_world`
+  and stays unspent; a redemption with no issuer is refused; writeWorld writes
+  `WorldGrantRows`, the `role:world` edge and no hold row.
+- `dashd`: revoking a deny the admin could not grant is refused; adding a deny
+  outside `hold:` is admitted; a caller with `interact` on `a/**` and a deny on
+  `interact` at `a/b` sees no `a/b` page, row or count, operator or not; group
+  delete removes nothing and names `arizuko group rm`.
 - `routd`: a held `schedule_task` shows no ♾ button and `/always` on it is
-  refused; a held `like` keeps the button.
-- `routd`: `IsOperator` is false for a `role:operator` member with a deny on
-  `admin` at `**`; `UserScopes` for that sub lists no `**`.
-- `routd`: `TestWorld_HoldsOnlyWhatAPersonShouldSee` builds the world with
-  the `role:world` edge and stops listing the 23 names
+  refused, a held `like` keeps it; `IsOperator` is false and `UserScopes` lists
+  no `**` for a `role:operator` member denied `admin` at `**`; a registration
+  whose route insert fails leaves an orphan deny under the folder in place;
+  `TestWorld_HoldsOnlyWhatAPersonShouldSee` builds the world with the
+  `role:world` edge and stops listing the 23 names
   (`routd/hold_world_inversion_test.go:150-159`): every mounted tool is free
-  exactly when `skipApproval` names it, a row that names no mounted tool
-  fails, and three fixed anchors stay (`reply` and `get_work` free,
-  `schedule_task` held).
-- `store`: `SeedRoutdFloor` into an empty store writes no acl row and the
-  base allowlist as today; `onbod`: writeWorld writes the `role:world` edge
-  and no hold row.
+  exactly when `skipApproval` names it, and `reply`, `get_work` free and
+  `schedule_task` held stay as anchors.
+- `store`: `SeedRoutdFloor` into an empty store writes no acl row.
 - `make build && make lint && go test ./... -short` green.
 
 ## The text that states the rule
 
 Each changes in the shipping commit, naming `auth/defaults.go` and listing no
-rule:
-
-- `GRANTS.md` and `auth/README.md` § Authorization is one row and one
-  question: two layers, one evaluator, `CheckGrant`
-- `specs/5/32-acl-unified.md` §"Evaluation — `auth.Authorize`
-  (`auth/authorize.go:25`)" and §"Bootstrap", and Decision 3 of
-  `specs/5/33-paths-roles.md`; BUGS `L540` closes
-- `specs/5/31-identity-pairing.md`, the paragraph that calls both unpair
-  directions de-escalation, and the same claim at
-  `routd/membership_resource.go:7-8`
-- `specs/6/26-personal-mode.md` §"The mechanics behind `always`"
-- `template/web/pub/arizuko/reference/grants.html` §"Holding a call for a
-  human" and its delegation section
-- the `invite_create` description (`ipc/ipc.go:2146`), the comments at
-  `onbod/main.go:917-925`, `store/seed.go:1-13`, `dashd/authz.go:15-22` and
-  `routd/hold_world_inversion_test.go:1-11`
-- `CHANGELOG.md` [Unreleased]; BUGS `L473`, `L273`, `L92`, `L664`, `L665` and
-  `L667` close
+rule: `GRANTS.md` and `auth/README.md` § Authorization is one row and one
+question; `specs/5/32-acl-unified.md` §"Evaluation — `auth.Authorize`
+(`auth/authorize.go:25`)" and §"Bootstrap", and Decision 3 of
+`specs/5/33-paths-roles.md` (BUGS `L540` closes); the paragraph of
+`specs/5/31-identity-pairing.md` that calls both unpair directions
+de-escalation, and the same claim at `routd/membership_resource.go:7-8`;
+`specs/6/26-personal-mode.md` §"The mechanics behind `always`";
+`template/web/pub/arizuko/reference/grants.html` §"Holding a call for a human"
+and its delegation section; the `invite_create` description
+(`ipc/ipc.go:2146`) and the comments at `onbod/main.go:917-925`,
+`store/seed.go:1-13`, `dashd/authz.go:15-22` and
+`routd/hold_world_inversion_test.go:1-11`; `CHANGELOG.md` [Unreleased]. BUGS
+`L473`, `L273`, `L92`, `L664`, `L665`, `L667` and `L669` close.
 
 ## Open questions
 
-1. A world's agent issues invites today with `mcp:*` on `w/**`, and neither
-   the folder nor the world's creator holds `admin` with the grant option
+1. A world's agent issues invites today with `mcp:*` on `w/**`, and neither the
+   folder nor the world's creator holds `admin` with the grant option
    (`onbod/main.go:926-929`, `store/acl.go:187-191`). After the change only an
-   operator, or a folder granted `admin` with the option, issues one
-   (BUGS `L664`). Recommendation: accept it; an invite hands out `admin`, and
+   operator, or a folder granted `admin` with the option, issues one (BUGS
+   `L664`). Recommendation: accept it; an invite hands out `admin`, and
    delegation without the option is the rule `specs/5/33-paths-roles.md`
-   decision 3 already states.
-2. A person whose account holds a deny cannot unpair their own channel
-   identity after the change; an operator does it (BUGS `L665`).
-   Recommendation: accept it; the deny is the operator's, and so is the
-   decision to drop it.
-3. Remove the local copies of defaults on krons and sloth after the
-   deploy, so the next change to a default reaches them and BUGS `L273`
-   closes there? Recommendation: yes, per instance after its audit; the
-   copies give today's answer until then.
+   decision 3 states.
+2. A person whose account holds a deny, or an allow without the option, cannot
+   unpair their own channel identity after the change; an operator does it
+   (BUGS `L665`). Every person an invite admitted holds `admin` without the
+   option (`onbod/main.go:1217-1222`, `store/acl.go:187-191`).
+   Recommendation: accept it; the rows are the operator's, and
+   so is the decision to take them from an identity. The answer that keeps
+   self-unpair is to make the deciding layer of a delegation read the route
+   axis alone, so a sender's rows never hide a default; it is a second rule
+   beside `Allows`, and this spec does not take it.
+3. Remove the local copies of defaults on krons and sloth after the deploy, so
+   the next change to a default reaches them and BUGS `L273` closes there?
+   Recommendation: yes, per instance after its audit.
+4. This spec rests on BUGS `L666`'s fix (a): the `/root` issuer is the elevated
+   turn's granter and the issuer its invites record, which holds only when the
+   root turn carries the issuer's row alone. Sign off `L666` (a) and ship it
+   first? Recommendation: yes.
+5. Revoking a local allow needs the authority to grant it with the option,
+   including the cases where the removal reveals nothing: a folder admin
+   without the option cannot revoke a grant in its folder. Accept the extra
+   refusals? Recommendation: yes; the alternative is a search over both axes and
+   every wildcard principal for who the removal affects, and an operator makes
+   any removal.
+6. dashd's group delete stops deleting and names `arizuko group <instance> rm`
+   (BUGS `L669`). Accept losing the dashboard button until a purge passes
+   `CheckGrant` per batch? Recommendation: yes; the purge lifts denies on other
+   folders, and the CLI is the trust root that may.

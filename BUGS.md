@@ -15,6 +15,7 @@
 
 ## What needs you
 
+- `L669` — dashd's group delete purges `acl` rows and edges after only `admin` on the folder; needs sign-off (`6/52` open question 6).
 - `L667` — `auth.Delegate` admits a grant wider than the granter holds (`?`/`[` globs, a deny on a crossing glob); a tightening, lands alone or with `6/52`.
 - `L666` — `/root` elevates the whole batch, so another sender's message runs in a root turn; needs sign-off.
 - `L665` — `unpair` removes the account's denies from the paired identity's turns; needs sign-off.
@@ -434,6 +435,32 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
   `/root` issuer holds `admin` on `**`, the authority that answers a hold. The defect
   in the same area is who the root turn serves: `L666`.
 
+## L669 — dashd's group delete purges `acl` rows and edges after only `admin` on the folder (2026-11-06, open — needs sign-off)
+
+FOUND by source reading at `a4e1cc97b`, Astra's third review of `6/52`; not
+probed. `handleGroupDelete` checks `requireAdmin(folder)`
+(`dashd/groups_admin.go:428`) and calls `DeleteGroupStopping`
+(`dashd/groups_admin.go:452`), whose purge deletes every `acl` row scoped under
+the folder and every `acl_membership` edge whose child is `folder:<under it>`
+(`store/folder_scope.go:51-65`), in several writes, `groups` first
+(`store/groups.go:328-331`). With `U → folder:f → R`, deleting `f` takes R's
+denies from U on every folder, and `admin` on `f` does not prove the right to
+lift a deny on another folder. routd's registration rollback
+(`routd/mcp.go:241`) runs the same purge on a folder it just created, so a deny
+an operator placed under that folder before it existed goes with it. The
+premise needs an edge whose parent is a folder principal; how many live rows
+have one is not counted.
+
+**Fix** (`specs/6/52-acl-layers.md` §"A purge runs only from the host CLI"):
+`arizuko group rm` is the only purge. dashd's delete answers with that command,
+and the registration rollback deletes only the groups row it wrote. One check
+before a purge cannot prove its later writes, so a dashboard purge waits until
+each of its writes passes `CheckGrant` with a version.
+
+- **Status:** open — needs sign-off (removes a dashboard control). **Options:**
+  (a) the fix; (b) keep the button and accept that a folder admin lifts the
+  denies its folder carries. **Default if nothing is decided:** unchanged.
+
 ## ✅ FIXED 2026-11-06 50362a357 L668 — an agent appends to `~/issues.md` with Bash and never sends the `#issues` notice (2026-11-06)
 
 MEASURED 2026-11-06 on krons, folder `rhias/trip`: the owner saw an issue filed
@@ -484,7 +511,8 @@ more.
 ## L666 — `/root` elevates the whole batch, so another sender's message runs in a root turn (2026-11-06, open — needs sign-off)
 
 MEASURED at `684b3eeed` with a scratch routd test (not committed; the
-`cursor_skip_test.go` fixture). Operator `u` sends `/root list the folders`.
+`cursor_skip_test.go` fixture, a `web:` chat). Operator `u` sends `/root list
+the folders`.
 `cmdRoot` re-injects the argument as a row marked in `pendingElevation`
 (`routd/steer.go:300-323`). A message from `v`, who holds no grant, lands in the
 same chat before the turn starts. `runTurn` takes elevation from any row of the
@@ -498,15 +526,20 @@ dispatch capabilities resolved folder=demo turn_id=v-1 elevated=true egress=true
 ```
 
 An elevated turn allows every call (`routd/agent_gate.go:30-32`), skips every
-hold (`routd/pending_actions.go:406`) and reads every chat. So in a shared chat,
-a message another person sends between the `/root` and the start of the turn
-is answered with root. The turn also records `v` as its sender
+hold (`routd/pending_actions.go:406`) and reads every chat. So in a shared web
+chat, a message another person sends between the `/root` and the start of the
+turn is answered with root. The path is web only: a web chat's batch is cut by
+topic, every other chat's by sender and topic (`routd/dispatch.go:125-135`),
+so there another sender's row is already its own turn. The turn also records `v` as its sender
 (`routd/dispatch.go:398`), charges `v`'s budget (`:360`) and gives `v` to the
 socket as `trigger` (`:419`).
 
 **Fix:** a row in `pendingElevation` is a batch of one. The feed cuts the batch
 before and after it, so the root turn holds only the issuer's row and its
 `trigger` is the issuer; the other rows run in their own turns, unelevated.
+The test goes through `processGroupMessages` on a `web:` chat.
+`specs/6/52-acl-layers.md` rests on this fix: the `/root` issuer is its
+elevated turn's granter.
 
 - **Status:** open — needs sign-off (changes the dispatch batch for one case).
   **Options:** (a) the fix above; (b) keep the batch, and elevate only when
@@ -534,14 +567,18 @@ restrained sheds it for them.
 The bound: after the unpair the identity is an unpaired sender, so its turns
 hold what any unpaired sender's turns hold in that folder.
 
-**Fix** (`specs/6/52-acl-layers.md` §"Invitations and unpairing are grant
-writes"): unpair is an edge removal and passes `CheckGrant` like every other.
-It moves every deny the parent holds, so it is contained only when the remover
-could grant each of them as an allow. An account with no deny unpairs as today.
+**Fix** (`specs/6/52-acl-layers.md` §"Invitations, worlds and unpairing are
+grant writes"): unpair is an edge removal and passes `CheckGrant` like every
+other. It moves every deny the parent holds, so it is contained only when the
+remover could grant each of them as an allow. It also takes the parent's local
+allows away, and the spec checks every removed local allow as a grant of it
+with the option (§"The containment tests"). An account with no deny and no
+local allow unpairs as today.
 
 - **Status:** open — needs sign-off (auth change). **Options:** (a) the fix: a
-  person whose account holds a deny cannot unpair it; an operator, whose `*` on
-  `**` covers every deny, can; (b) rule it intentional: an account's deny
+  person whose account holds a deny, or an allow without the option (every
+  invited person's `admin`), cannot unpair; an operator, whose `*` on `**`
+  covers every row, can; (b) rule it intentional: an account's deny
   restrains only the identities linked to it, and move this to Design
   invariants. **Default if nothing is decided:** unchanged.
 
@@ -570,11 +607,16 @@ with no person in the path. dashd (`dashd/invites.go:121`) and the `/invite`
 command (`routd/steer.go`, `denyNonOperator`) need an operator, so the agent
 door is the hole.
 
-**Fix** (`specs/6/52-acl-layers.md` §"Invitations and unpairing are grant
-writes"): the row the redemption writes passes `CheckGrant` at issue, with the
-turn as granter, and again at redemption, with the recorded issuer as granter.
-A redemption whose issuer no longer holds it is refused and the invite stays
-unspent.
+**Fix** (`specs/6/52-acl-layers.md` §"Invitations, worlds and unpairing are
+grant writes"): the row the redemption writes passes `CheckGrant` at issue, with the
+turn as granter, and the invite records the identity that check read (in an
+elevated turn the `/root` issuer, not `agent:<folder>`). The check runs again,
+with that identity, before the redemption's consume and, for a subgroup
+invite, before `create_world` spends the redemption, which records the issuer.
+`create_world` checks the rows the creation writes (`store.WorldGrantRows`,
+`admin` on `<folder>/**`), and refuses a redemption with no recorded issuer. The check runs in onbod, since `auth` imports `store`, and the routd
+write that follows carries its version on routd's handle. A redemption whose
+issuer no longer holds it is refused and the invite stays unspent.
 
 - **Status:** open — needs sign-off (auth change). **Options:** (a) the fix: a
   world's agent no longer issues invites, because neither the folder nor its
