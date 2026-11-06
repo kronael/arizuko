@@ -564,11 +564,9 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, addressed bool, tr
 		// Final failure: retries exhausted, or a partial reply exists.
 		slog.Warn("run outcome error", "folder", folder, "turn_id", turnID, "err", out.Error,
 			"retry_count", tc.RetryCount)
-		_ = l.db.MarkChatErrored(chatJID)
 		_ = l.db.MarkMessagesErrored(trigger)
-		if l.deliver != nil {
+		{
 			notice := runFailureNotice
-			cause := out.Error
 			if !hasBotReply && tc.RetryCount > 0 && tc.RetryCount >= l.maxTurnRetry {
 				notice = retryExhaustedNotice(l.maxTurnRetry)
 			}
@@ -577,7 +575,7 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, addressed bool, tr
 			// tail, truncated mid-word and carrying ant's log lines, so a user
 			// was shown "ake says no" for an API Error: 400 (BUGS L349).
 			if out.Terminal {
-				cause = l.db.TurnFailure(folder, turnID)
+				cause := l.db.TurnFailure(folder, turnID)
 				if cause == "" {
 					cause = out.Error
 				}
@@ -589,16 +587,19 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, addressed bool, tr
 			// chat. The idempotency key is per destination, or the adapter dedups
 			// the fan-out into one delivery.
 			for _, jid := range l.db.chatsOwnedBy(chatJID, out.RunID) {
+				already, err := l.db.MarkChatErrored(jid)
+				if err != nil {
+					slog.Error("flag chat errored", "jid", jid, "err", err)
+					continue
+				}
+				if already || l.deliver == nil {
+					continue
+				}
 				thread := ""
 				if jid == chatJID {
 					thread = topic
 				}
-				key := failureNoticeKey{jid, failureClass(cause)}
-				if _, sent := l.failureNotices.LoadOrStore(key, struct{}{}); !sent {
-					if !l.sendNotice(turnID, jid, notice, thread, "fail-"+turnID+"-"+jid) {
-						l.failureNotices.Delete(key)
-					}
-				}
+				l.sendNotice(turnID, jid, notice, thread, "fail-"+turnID+"-"+jid)
 			}
 		}
 		finishTurn(l.db, l.deliver, turnID, endFailed)
@@ -618,8 +619,7 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, addressed bool, tr
 		end = endFailed
 	case "success":
 		for _, jid := range l.db.chatsOwnedBy(chatJID, out.RunID) {
-			l.failureNotices.Delete(failureNoticeKey{jid, "limit"})
-			l.failureNotices.Delete(failureNoticeKey{jid, "other"})
+			_ = l.db.ClearChatErrored(jid)
 		}
 	}
 	recorded := result.Status != "pending"
@@ -636,24 +636,8 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, addressed bool, tr
 		}
 	}
 	obs.SetCircuitBreakerState(folder, 0) // 0=closed: a clean run clears the breaker
-	// The errored flag is a claim about NOW; without this dual it is monotonic
-	// for the life of the instance (BUGS L304).
-	_ = l.db.ClearChatErrored(chatJID)
 	finishTurn(l.db, l.deliver, turnID, end)
 	return out.Outcome != runedv1.OutcomeSilent, false, false, observedMark, nil
-}
-
-type failureNoticeKey struct {
-	jid   string
-	class string
-}
-
-func failureClass(cause string) string {
-	cause = strings.ToLower(cause)
-	if strings.Contains(cause, "limit") && (strings.Contains(cause, "spend") || strings.Contains(cause, "usage")) {
-		return "limit"
-	}
-	return "other"
 }
 
 // sendNotice tells a chat the turn could not answer. A failed send leaves no

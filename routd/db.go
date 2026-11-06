@@ -292,7 +292,7 @@ func (d *DB) ClearChatErrored(chatJID string) error {
 
 // MarkChatErrored flags a chat as errored. The flag surfaces in inspection; it
 // does not block re-feed (the cursor advance is the starvation guard).
-func (d *DB) MarkChatErrored(chatJID string) error {
+func (d *DB) MarkChatErrored(chatJID string) (bool, error) {
 	return d.store().MarkChatErrored(chatJID)
 }
 

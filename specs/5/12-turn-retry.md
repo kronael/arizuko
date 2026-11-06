@@ -27,7 +27,8 @@ the failure.
 **Automatic and silent, bounded at `MAX_TURN_RETRY` (default 3)**
 (`core/config.go:250`, `routd/cmd/routd/main.go:188`). From the user's
 side this is one slightly slower reply; only the final failure surfaces,
-as an error notice. Retry state is `turn_context.retry_count` +
+as an error notice. Each chat receives one failure notice until a successful
+turn clears its stored errored flag. Retry state is `turn_context.retry_count` +
 `state='pending_retry'` (`routd/migrations/0013-retry-count.sql`,
 `routd/db.go:911` `IncrementRetryCount`), so it survives a routd restart
 and `RunningTurns` re-feeds `running` and `pending_retry` alike

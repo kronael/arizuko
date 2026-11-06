@@ -446,8 +446,8 @@ run, with a different idempotency key per turn. The direct notices are not
 stored in `routd.messages`, so delivery counts are not independently known.
 Queued messages can therefore repeat the same warning while the condition holds.
 
-- **Test:** `TestFailureNoticePerChatAndClass` and `TestFailureNoticeRetriesFailedDelivery` (`routd/failure_notice_test.go`).
-- **Status:** fixed — routd suppresses notices per chat and failure class until a successful turn; failed delivery permits another attempt.
+- **Test:** `TestFailureNoticePerChat` and `TestFailureNoticeDoesNotRetryFailedDelivery` (`routd/failure_notice_test.go`).
+- **Status:** fixed — the stored errored flag suppresses repeat notices per chat until a successful turn clears it.
 
 ## L674 — `docker compose down` fails on a deleted fragment although the include says `required: false` (2026-11-06, open)
 

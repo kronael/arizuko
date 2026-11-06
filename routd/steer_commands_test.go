@@ -209,7 +209,7 @@ func TestCmdStatusErroredCount(t *testing.T) {
 	loop.deliver = dl
 	_ = db.PutGroup(core.Group{Folder: "demo"})
 	_ = addMembership(db, "u", "role:operator", "test")
-	_ = db.MarkChatErrored("tg:99")
+	_, _ = db.MarkChatErrored("tg:99")
 	_ = steerOne(loop, "web:demo", "demo", "/status")
 	if !strings.Contains(lastAck(t, dl), "errored chats: 1") {
 		t.Fatalf("/status ack=%q want errored chats: 1", lastAck(t, dl))

@@ -3,6 +3,7 @@ package routd
 import (
 	"context"
 	"fmt"
+	"slices"
 	"testing"
 	"time"
 
@@ -10,7 +11,7 @@ import (
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 )
 
-func TestFailureNoticePerChatAndClass(t *testing.T) {
+func TestFailureNoticePerChat(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
 		t.Fatal(err)
@@ -41,19 +42,21 @@ func TestFailureNoticePerChatAndClass(t *testing.T) {
 	doSetRoutes(t, db, []core.Route{{Match: "platform=slack", Target: "demo"}})
 	steps := []struct {
 		jid, cause string
-		want       int
+		want       []string
 	}{
-		{"slack:T/A/U", "Monthly spend limit reached", 1},
-		{"slack:T/A/U", "Organization spend limit reached", 1},
-		{"slack:T/A/U", "container failed", 2},
-		{"slack:T/A/U", "another failure", 2},
-		{"slack:T/B/U", "usage limit reached", 3},
-		{"slack:T/A/U", "", 3},
-		{"slack:T/A/U", "usage limit reached", 4},
-		{"slack:T/A/U", "container failed", 5},
-		{"slack:T/B/U", "spend limit reached", 6},
+		{"slack:T/A/U", "Monthly spend limit reached", []string{"slack:T/A/U"}},
+		{"slack:T/A/U", "Organization spend limit reached", []string{"slack:T/A/U"}},
+		{"slack:T/A/U", "container failed", []string{"slack:T/A/U"}},
+		{"slack:T/B/U", "usage limit reached", []string{"slack:T/A/U", "slack:T/B/U"}},
+		{"slack:T/A/U", "", []string{"slack:T/A/U", "slack:T/B/U"}},
+		{"slack:T/A/U", "usage limit reached", []string{"slack:T/A/U", "slack:T/B/U", "slack:T/A/U"}},
+		{"slack:T/B/U", "spend limit reached", []string{"slack:T/A/U", "slack:T/B/U", "slack:T/A/U", "slack:T/B/U"}},
 	}
 	for i, step := range steps {
+		if i == 2 {
+			loop = NewLoop(db, runner, LoopConfig{Deliver: dl, MaxTurnRetry: -1})
+			loop.StopQueue()
+		}
 		cause = step.cause
 		if err := db.PutMessage(core.Message{ID: fmt.Sprintf("m%d", i), ChatJID: step.jid, Sender: "u", Content: "hi", Timestamp: time.Now().UTC().Add(time.Duration(i) * time.Second), Verb: "message"}); err != nil {
 			t.Fatal(err)
@@ -61,13 +64,17 @@ func TestFailureNoticePerChatAndClass(t *testing.T) {
 		if _, err := loop.processGroupMessages(step.jid); err != nil {
 			t.Fatalf("step %d: %v", i, err)
 		}
-		if len(dl.sends) != step.want {
-			t.Fatalf("step %d: sends=%+v, want %d", i, dl.sends, step.want)
+		var got []string
+		for _, send := range dl.sentMsgs() {
+			got = append(got, send.jid)
+		}
+		if !slices.Equal(got, step.want) {
+			t.Fatalf("step %d: recipients=%v, want %v", i, got, step.want)
 		}
 	}
 }
 
-func TestFailureNoticeRetriesFailedDelivery(t *testing.T) {
+func TestFailureNoticeDoesNotRetryFailedDelivery(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
 		t.Fatal(err)
@@ -92,7 +99,7 @@ func TestFailureNoticeRetriesFailedDelivery(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if len(recorded.sends) != 2 {
-		t.Fatalf("delivery attempts=%d, want 2", len(recorded.sends))
+	if len(recorded.sends) != 1 || recorded.sends[0].jid != "slack:T/A/U" {
+		t.Fatalf("delivery attempts=%+v, want one to slack:T/A/U", recorded.sends)
 	}
 }

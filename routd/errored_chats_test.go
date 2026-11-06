@@ -24,7 +24,7 @@ func erroredDB(t *testing.T, routes map[string]string) *DB {
 			t.Fatal(err)
 		}
 		seq++
-		if err := db.MarkChatErrored(jid); err != nil {
+		if _, err := db.MarkChatErrored(jid); err != nil {
 			t.Fatal(err)
 		}
 	}
