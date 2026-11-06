@@ -15,7 +15,7 @@
 
 ## What needs you
 
-- `L672` — a turn failed on a spend limit is never retried after the limit clears; fix queued with L670.
+- `L672` — a spend-limit failure: retry silently, one `#issues` notice to the operator; approved, queued after L670.
 - `L665` — `unpair` removes the account's denies from the paired identity's turns; needs sign-off.
 - `L664` — `invite_create` mints `admin` the issuing folder cannot delegate; needs sign-off.
 - `L660` — a mention by reply engages only the reply chain, not the chat root; proposal, needs sign-off.
@@ -446,10 +446,13 @@ on krons. A limit failure is a condition that clears, not a bad request.
 
 - **Severity:** medium (a person's request is lost silently once the notice is sent)
 - **Scope:** routd dispatch failure handling (with L670's one-notice state)
-- **Fix (proposal):** classify a spend/usage-limit failure like Busy: leave the
-  batch un-advanced and retry it on the normal backoff; L670's per-chat notice
-  state already marks the chat as waiting on that condition.
-- **Status:** open
+- **Fix (owner 2026-11-06: "it should like retry .. but not send the limit
+  errors"):** a spend/usage-limit failure sends nothing to the chat; the batch
+  stays un-advanced and retries on the normal backoff, so the answer lands in
+  its own chat and thread once the limit clears. The operator gets one
+  `#issues` notice when a limit starts (per instance, until a turn succeeds).
+  Other failures keep L670's one-notice-per-chat rule.
+- **Status:** open — approved, queued for Terra after L670
 
 ## ✅ FIXED 2026-11-06 8c262dcd4 L671 — `store enroll` scans without a page limit and the old store server runs out of memory (2026-11-06)
 
