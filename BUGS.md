@@ -16,8 +16,6 @@
 ## What needs you
 
 - `L669` — dashd's group delete purges `acl` rows and edges after only `admin` on the folder; needs sign-off (`6/52` open question 6).
-- `L667` — `auth.Delegate` admits a grant wider than the granter holds (`?`/`[` globs, a deny on a crossing glob); a tightening, lands alone or with `6/52`.
-- `L666` — `/root` elevates the whole batch, so another sender's message runs in a root turn; needs sign-off.
 - `L665` — `unpair` removes the account's denies from the paired identity's turns; needs sign-off.
 - `L664` — `invite_create` mints `admin` the issuing folder cannot delegate; needs sign-off.
 - `L660` — a mention by reply engages only the reply chain, not the chat root; proposal, needs sign-off.
@@ -481,7 +479,7 @@ a hook nudge works).
 - **Test:** `TestIssuesNotify`, `TestCorePackageShipsIssuesNotify` (`runed/issues_notify_test.go`).
 - **Status:** fixed — `ant/hooks/issues_notify.py` (PostToolUse, Claude Code only; core ships no Codex hooks.json). A wipe followed by a new append before the next tool call is not noticed.
 
-## L667 — `auth.Delegate` admits a grant wider than the granter holds: `?` and `[` globs, and a deny on a crossing glob (2026-11-06, open)
+## ✅ FIXED 2026-11-06 f85634736 L667 — `auth.Delegate` admits a grant wider than the granter holds: `?` and `[` globs, and a deny on a crossing glob (2026-11-06)
 
 MEASURED at `684b3eeed` with a scratch probe (`TestProbeDelegateGlobs`, not
 committed) against the real store:
@@ -505,10 +503,10 @@ of segments without a glob character differs before the first `**` of either,
 or neither holds `**` and their segment counts differ. Both rules only refuse
 more.
 
-- **Status:** open. A tightening inside today's `Delegate`; it lands alone or
-  with `6/52`. **Default if nothing is decided:** unchanged.
+- **Test:** `TestDelegateGlobContainment` (`auth/delegate_glob_test.go`).
+- **Status:** fixed — `scopeCovers` refuses a wanted `*`, `?`, `[` or `\` glob a held `**`, identical glob or `<base>/**` does not span; `mayMeet` replaces the covers test in `blockedByDeny`.
 
-## L666 — `/root` elevates the whole batch, so another sender's message runs in a root turn (2026-11-06, open — needs sign-off)
+## ✅ FIXED 2026-11-06 17791926f L666 — `/root` elevates the whole batch, so another sender's message runs in a root turn (2026-11-06)
 
 MEASURED at `684b3eeed` with a scratch routd test (not committed; the
 `cursor_skip_test.go` fixture, a `web:` chat). Operator `u` sends `/root list
@@ -541,10 +539,8 @@ The test goes through `processGroupMessages` on a `web:` chat.
 `specs/6/52-acl-layers.md` rests on this fix: the `/root` issuer is its
 elevated turn's granter.
 
-- **Status:** open — needs sign-off (changes the dispatch batch for one case).
-  **Options:** (a) the fix above; (b) keep the batch, and elevate only when
-  every row's sender is the issuer, else run the turn unelevated and tell the
-  chat. **Default if nothing is decided:** unchanged.
+- **Test:** `TestRootTurnHoldsOnlyTheIssuersRow` (`routd/root_batch_test.go`).
+- **Status:** fixed (option a) — `isolateElevated` (`routd/dispatch.go`) cuts the batch around a `pendingElevation` row.
 
 ## L665 — `unpair` removes the account's denies from the paired identity's turns (2026-11-06, open — needs sign-off)
 
