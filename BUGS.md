@@ -432,6 +432,24 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
   `/root` issuer holds `admin` on `**`, the authority that answers a hold. The defect
   in the same area is who the root turn serves: `L666`.
 
+## ✅ FIXED 2026-11-06 8c262dcd4 L671 — `store enroll` scans without a page limit and the old store server runs out of memory (2026-11-06)
+
+MEASURED 2026-11-06 in the sloth dry run (a copy of sloth's store, account
+`default`, 67 tables, 787,779 items): `copyTable` scanned each table with no
+`Limit`. On `routd.audit_log` (369,318 items) the copy's ExtendDB grew to about
+8 GB and the host OOM killer killed it; capped at 3 GB it died again within 20
+s. A probe Scan with `Limit` 500 read all 369,318 items in 61 s and the server
+stayed under 40 MB. With the limit, two full runs exited 0 (1485 s, then 1120 s
+for the repeat) with every table `equal`. In the real move the old server is
+the live instance's store, so the unbounded Scan would take the instance down.
+
+- **Severity:** high (the move kills the live store server)
+- **Scope:** `cmd/arizuko/store.go` `copyTable`
+- **Test:** none in unit tests: dyntest's dev server does not show the memory
+  growth; the guard is the measured dry run above.
+- **Status:** fixed — both Scans (the copy and the destination count) carry
+  `Limit: scanPage` (500).
+
 ## ✅ FIXED 2026-11-06 178fcb079 L92 — the HITL hold gate fails OPEN when the `acl` read fails (2026-08-24)
 
 `auth.CheckHold` logged and returned `false` when `policyRows` errored, so every

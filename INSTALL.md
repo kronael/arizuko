@@ -634,7 +634,8 @@ sudo --preserve-env=EXTENDDB_PASSWORD docker exec -e EXTENDDB_PASSWORD arizuko_e
 ```
 
 The admin password of the old server is `EXTENDDB_PASSWORD` in
-`env/store-admin.env`. The old account is `arizuko_<name>` when `enroll` made
+`env/store-admin.env`, or in `.env` on an instance whose store predates that
+file. The old account is `arizuko_<name>` when `enroll` made
 the keys of the instance, else `default`, the account that `init` made.
 `list-accounts` with the same first two lines prints the id of each account.
 The server applies every policy of a user, so `tables` stays in effect. `enroll`
@@ -656,7 +657,9 @@ replaces only the policy `tables`, and on the new server only.
    second run must read the same old server from it.
 
 2. **Point.** In `.env`, replace `DYNAMODB_URL` with the address of the shared
-   server and `STORE_CA` with its certificate:
+   server and `STORE_CA` with its certificate. Delete a `STORE_CA` line from
+   `env/operator.env`: that file overrides `.env` on the host, and an old
+   certificate there fails the first call to the shared server.
 
    ```bash
    DYNAMODB_URL=https://<shared server address>:<port>
@@ -689,7 +692,8 @@ replaces only the policy `tables`, and on the new server only.
    must run until the command exits.
 
    The copy writes one item with one request. Expect a large message table to
-   take minutes. This time was not measured.
+   take minutes. A dry run on a copy of one instance (787,779 items, the
+   largest table 369,318) took 25 minutes, and its repeat 19 minutes.
 
    When the run stops, fix the cause and run the same command again. A second
    run before step 4 keeps every key and every item that the first run wrote,
