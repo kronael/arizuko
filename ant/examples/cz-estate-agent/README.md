@@ -1,7 +1,7 @@
 # CZ Estate Agent package
 
 Czech real-estate research agent: cadastre, zoning plan and listing checks.
-Skills: [katastr](skills/katastr/SKILL.md) (one property in a controlled browser), [parcel-open-data](skills/parcel-open-data/SKILL.md) (open CUZK services and zoning plans), [property-valuation](skills/property-valuation/SKILL.md) and [obec-profile](skills/obec-profile/SKILL.md). The persona is `group/PERSONA.md`.
+Skills: [katastr](skills/katastr/SKILL.md) (one property in a controlled browser), [parcel-open-data](skills/parcel-open-data/SKILL.md) (open CUZK services and zoning plans), [property-valuation](skills/property-valuation/SKILL.md) and [obec-profile](skills/obec-profile/SKILL.md), and [estate-site](skills/estate-site/SKILL.md) (the web app: a generator, page parts and a default stylesheet; the group keeps its data and `local.css`). The persona is `group/PERSONA.md`.
 The [package guide](../../../EXTENDING.md) explains package selection and installation.
 
 ## Install

@@ -1,0 +1,67 @@
+/* estate-site default look. Package file: overwritten on every build.
+   Tune the site in local.css (loaded after this file), never here. */
+:root {
+  --text: #222; --muted: #666; --faint: #999; --line: #e0e0e0;
+  --bg: #fff; --panel: #fafafa; --head: #f5f5f5; --accent: #0066cc;
+  --good: #2e7d32; --warn: #b58900; --bad: #c62828;
+  --width: 720px;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font: 15px/1.6 -apple-system, sans-serif; color: var(--text); background: var(--bg);
+       padding: 1.5rem 1rem; max-width: var(--width); margin: 0 auto; }
+h1 { font-size: 1.8rem; font-weight: 600; margin-bottom: 0.3rem; }
+h2 { font-size: 1.1rem; font-weight: 600; margin: 2rem 0 0.8rem;
+     border-bottom: 1px solid var(--line); padding-bottom: 0.5rem; }
+a { color: var(--accent); text-decoration: none; } a:hover { text-decoration: underline; }
+code { font-size: 0.85em; background: #f4f4f4; padding: 0.1rem 0.3rem; }
+.sub { color: var(--muted); font-size: 0.9rem; margin-bottom: 1.5rem; }
+.nav { margin-bottom: 1.5rem; color: var(--faint); font-size: 0.9rem; padding-bottom: 0.5rem; }
+.foot { color: var(--faint); font-size: 0.8rem; margin-top: 2rem; border-top: 1px solid var(--line); padding-top: 0.8rem; }
+.zel { color: var(--good); } .zlu { color: var(--warn); } .cer { color: var(--bad); }
+.seen { color: var(--faint); }
+.mut { color: var(--muted); }
+
+/* card list */
+.item { display: block; margin-bottom: 0.8rem; padding: 1rem; border: 1px solid var(--line); min-height: 44px; }
+.item:hover { border-color: var(--accent); background: var(--panel); }
+.name { font-weight: 500; font-size: 1.05rem; display: inline-block; margin-bottom: 0.3rem; color: var(--text); }
+.name:hover { color: var(--accent); text-decoration: underline; }
+.price { color: var(--accent); font-weight: 500; }
+.meta { color: var(--muted); font-size: 0.9rem; margin-top: 0.4rem; }
+.badge { display: inline-block; font-size: 0.7rem; font-weight: 600; text-transform: uppercase;
+         padding: 0.2rem 0.4rem; margin-left: 0.5rem; border: 1px solid #ccc; }
+.top { border-color: var(--good); color: var(--good); }
+
+/* page parts */
+.big { font-size: 1.15rem; font-weight: 600; border: 1px solid var(--line); background: var(--panel); padding: 1rem; margin: 1rem 0; }
+.warn { border: 1px solid var(--warn); padding: 0.8rem 1rem; margin: 1rem 0; }
+table { border-collapse: collapse; width: 100%; font-size: 0.9rem; }
+th, td { border: 1px solid var(--line); padding: 0.35rem 0.5rem; text-align: left; vertical-align: top; }
+th { background: var(--head); font-weight: 600; }
+td.n, th.n { text-align: right; white-space: nowrap; }
+.tbl { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 0.5rem 0; }
+.tbl table { margin: 0; }
+p, li, td, th { overflow-wrap: break-word; }
+.sub, .mut { overflow-wrap: anywhere; }
+.nav a { display: inline-block; padding: 0.7rem 0; margin: -0.7rem 0; }
+
+@media (min-width: 600px) {
+  body { padding: 3rem 1.5rem; } .sub { margin-bottom: 2rem; }
+  .item { padding: 0.8rem; } .name, .price { font-size: 1rem; } .meta { font-size: 0.85rem; margin-top: 0.3rem; }
+}
+/* A table with class "stack" and a data-label on each cell but the first
+   becomes one card per row on a phone. */
+@media (max-width: 600px) {
+  table { font-size: 0.85rem; }
+  th, td { padding: 0.3rem 0.4rem; }
+  .big { font-size: 1.05rem; line-height: 1.5; padding: 0.8rem 0.9rem; }
+  .warn { padding: 0.7rem 0.9rem; }
+  .stack, .stack tbody { display: block; }
+  .stack tr { display: block; border: 1px solid var(--line); margin-bottom: 0.6rem; }
+  .stack tr:first-child { display: none; }
+  .stack td, .stack th { display: flow-root; padding-left: 6.4rem; border: 0; border-top: 1px solid var(--line); text-align: left; }
+  .stack td:first-child, .stack th:first-child { padding-left: 0.4rem; border-top: 0; background: var(--head); font-weight: 600; }
+  .stack td::before, .stack th::before { content: attr(data-label); float: left; width: 5.6rem; margin-left: -6rem; color: var(--muted); font-weight: 400; white-space: normal; }
+  .stack td:first-child::before, .stack th:first-child::before { display: none; }
+  .stack td:empty, .stack th:empty { display: none; }
+}
