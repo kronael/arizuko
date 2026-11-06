@@ -15,6 +15,10 @@
 
 ## What needs you
 
+- `L667` — `auth.Delegate` admits a grant wider than the granter holds (`?`/`[` globs, a deny on a crossing glob); a tightening, lands alone or with `6/52`.
+- `L666` — `/root` elevates the whole batch, so another sender's message runs in a root turn; needs sign-off.
+- `L665` — `unpair` removes the account's denies from the paired identity's turns; needs sign-off.
+- `L664` — `invite_create` mints `admin` the issuing folder cannot delegate; needs sign-off.
 - `L660` — a mention by reply engages only the reply chain, not the chat root; proposal, needs sign-off.
 - `L655` — products as full packages (`catalog:<name>`) and persona layering (`PERSONA.local.md`); proposal, needs sign-off.
 - `L650` — an `extenddb` reached 10 GB and was OOM-killed; the host reset 8 times on 11-03; cause unmeasured.
@@ -421,6 +425,144 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
 - **`L15` — the 2026-08-11 dead-code sweep's rejected hits.** `deadcode ./...` gave 149
   hits, 56 under `-test`; nine survived verification and were filed separately. Kept so
   the next sweep does not re-report the same ~135.
+- **An elevated `/root` turn reads every chat, skips every hold and allows every
+  call.** Reported 2026-11-06 as "`get_thread` and `fetch_history` lack action
+  authorization and bypass JID restrictions under `IsRoot`; elevated turns skip the
+  hold gate". Root is allow-all for its one turn by design (`routd/agent_gate.go:26-33`,
+  `specs/5/33-paths-roles.md` decision 1), the four chat reads are always-on with JID
+  containment (decision 7, `ipc/ipc.go:2267`, `:2334`, `:2387`, `:2426`), and the
+  `/root` issuer holds `admin` on `**`, the authority that answers a hold. The defect
+  in the same area is who the root turn serves: `L666`.
+
+## L667 — `auth.Delegate` admits a grant wider than the granter holds: `?` and `[` globs, and a deny on a crossing glob (2026-11-06, open)
+
+MEASURED at `684b3eeed` with a scratch probe (`TestProbeDelegateGlobs`, not
+committed) against the real store:
+
+- A granter that holds `mcp:x` on `a/???` with the grant option delegates
+  `mcp:x` on `a/[x]`. `scopeCovers` (`auth/delegate.go:160-173`) refuses a
+  wanted scope only when it holds `*`, and `matchPattern("a/???", "a/[x]")` is
+  true because each `?` matches one of `[`, `x`, `]`. The written row matches
+  the path `a/x`: the grantee then holds `mcp:x` on `a/x`, and the granter does
+  not.
+- A granter that holds `mcp:y` on `a/**` with the option and a deny on `a/*/x`
+  delegates `mcp:y` on `a/b/*`. `blockedByDeny` (`:117-127`) asks whether one
+  scope covers the other. Neither does, so the deny does not block, and the
+  grantee gains `a/b/x`, which the granter is denied. `L657` fixed the nested
+  case only.
+
+**Fix** (`specs/6/52-acl-layers.md` §"The containment tests"): a wanted scope
+that holds a glob character (`*`, `?`, `[`, `\`) is covered only by `**`, by
+itself, or by a held `<base>/**` it lies under. Two globs may meet unless a pair
+of segments without a glob character differs before the first `**` of either,
+or neither holds `**` and their segment counts differ. Both rules only refuse
+more.
+
+- **Status:** open. A tightening inside today's `Delegate`; it lands alone or
+  with `6/52`. **Default if nothing is decided:** unchanged.
+
+## L666 — `/root` elevates the whole batch, so another sender's message runs in a root turn (2026-11-06, open — needs sign-off)
+
+MEASURED at `684b3eeed` with a scratch routd test (not committed; the
+`cursor_skip_test.go` fixture). Operator `u` sends `/root list the folders`.
+`cmdRoot` re-injects the argument as a row marked in `pendingElevation`
+(`routd/steer.go:300-323`). A message from `v`, who holds no grant, lands in the
+same chat before the turn starts. `runTurn` takes elevation from any row of the
+batch (`routd/dispatch.go:328-333`), so ONE turn runs with `elevated=true`,
+`trigger="v"`, turn id `v-1`, and both rows in its prompt:
+
+```
+<message ... sender="u" ...>list the folders</message>
+<message id="v-1" sender="v" ...>also delete every route</message>
+dispatch capabilities resolved folder=demo turn_id=v-1 elevated=true egress=true ... gh_write=true codex=true
+```
+
+An elevated turn allows every call (`routd/agent_gate.go:30-32`), skips every
+hold (`routd/pending_actions.go:406`) and reads every chat. So in a shared chat,
+a message another person sends between the `/root` and the start of the turn
+is answered with root. The turn also records `v` as its sender
+(`routd/dispatch.go:398`), charges `v`'s budget (`:360`) and gives `v` to the
+socket as `trigger` (`:419`).
+
+**Fix:** a row in `pendingElevation` is a batch of one. The feed cuts the batch
+before and after it, so the root turn holds only the issuer's row and its
+`trigger` is the issuer; the other rows run in their own turns, unelevated.
+
+- **Status:** open — needs sign-off (changes the dispatch batch for one case).
+  **Options:** (a) the fix above; (b) keep the batch, and elevate only when
+  every row's sender is the issuer, else run the turn unelevated and tell the
+  chat. **Default if nothing is decided:** unchanged.
+
+## L665 — `unpair` removes the account's denies from the paired identity's turns (2026-11-06, open — needs sign-off)
+
+MEASURED at `684b3eeed` with a scratch probe (`TestProbeUnpairDropsAnInheritedDeny`,
+not committed): `telegram:1` paired to `google:bob` (edge `added_by=pairing`), a
+deny `google:bob mcp:schedule_task **`, and `folder:f mcp:schedule_task f/**`. A
+turn in `f` triggered by `telegram:1` is refused `schedule_task` before the
+unpair and admitted after it.
+
+The turn's sender expands through the pairing edge, and a deny is never
+confined (`auth/authorize.go:57-58`), so the account's deny refuses every turn
+the paired identity triggers. `UnpairInto` (`store/pairing.go:186-198`) deletes
+the edge after `contain` only: on REST the caller must be the edge's parent
+(`routd/membership_resource.go:99-110`), on the agent socket the turn must hold
+`mcp:unpair` on the chat's folder (`:83-90`). The file's claim "Both directions
+are de-escalation" (`:7-8`) is false when the parent holds a deny: the person
+sheds a deny an operator wrote on them, or the agent of the folder the deny
+restrained sheds it for them.
+
+The bound: after the unpair the identity is an unpaired sender, so its turns
+hold what any unpaired sender's turns hold in that folder.
+
+**Fix** (`specs/6/52-acl-layers.md` §"Invitations and unpairing are grant
+writes"): unpair is an edge removal and passes `CheckGrant` like every other.
+It moves every deny the parent holds, so it is contained only when the remover
+could grant each of them as an allow. An account with no deny unpairs as today.
+
+- **Status:** open — needs sign-off (auth change). **Options:** (a) the fix: a
+  person whose account holds a deny cannot unpair it; an operator, whose `*` on
+  `**` covers every deny, can; (b) rule it intentional: an account's deny
+  restrains only the identities linked to it, and move this to Design
+  invariants. **Default if nothing is decided:** unchanged.
+
+## L664 — `invite_create` mints `admin` the issuing folder cannot delegate (2026-11-06, open — needs sign-off)
+
+MEASURED at `684b3eeed` with a scratch probe
+(`TestProbeInviteMintsAdminTheIssuerCannotDelegate`, not committed) against the
+real store. A folder holding `folder:w mcp:* w/**`, the row onbod's
+`writeWorld` writes for every world (`onbod/main.go:926-929`), passes the only
+gate `invite_create` has: `authzStructural`, which is
+`Authorize(mcp:invite_create, target)` (`ipc/ipc.go:2160`, `:1205-1214`).
+`auth.Delegate` refuses the same row on `add_acl`: "not held WITH GRANT
+OPTION". Redeeming the invite writes `admin` on `w/x` for the redeemer
+(`store/invites.go:438-449`, and `onbod/main.go:1217-1222` on the split store),
+and the redeemer then holds `admin` on `w/x`. A subgroup invite (`w/`) leads to
+`create_world`, which writes `admin` on the new child.
+
+So an invitation is a grant door with no containment. The agent hands out
+`admin`, which answers the folder's holds and covers `mcp:*`, where delegation
+(`specs/5/33-paths-roles.md` decision 3) refuses it. The tool's description says
+"you can't issue access you don't have"; the code checks only that the agent
+may call the tool. For a world the call is held, and the person who answers
+holds `admin` on `w/**` without the option (`store/acl.go:187-191`), so that
+person cannot delegate it either. A folder with no hold row issues the invite
+with no person in the path. dashd (`dashd/invites.go:121`) and the `/invite`
+command (`routd/steer.go`, `denyNonOperator`) need an operator, so the agent
+door is the hole.
+
+**Fix** (`specs/6/52-acl-layers.md` §"Invitations and unpairing are grant
+writes"): the row the redemption writes passes `CheckGrant` at issue, with the
+turn as granter, and again at redemption, with the recorded issuer as granter.
+A redemption whose issuer no longer holds it is refused and the invite stays
+unspent.
+
+- **Status:** open — needs sign-off (auth change). **Options:** (a) the fix: a
+  world's agent no longer issues invites, because neither the folder nor its
+  creator holds `admin` with the option; an operator issues them, or grants a
+  folder `admin` with the option; (b) `invite_create` also asks `admin` on the
+  target: it stops a folder that holds only `mcp:*`, and an `admin` holder
+  without the option still hands out `admin`. **Default if nothing is
+  decided:** unchanged.
 
 ## L660 — a mention by reply engages only the reply chain; the next plain message in the chat starts no turn (2026-11-05, open — proposal)
 

@@ -1,6 +1,7 @@
 ---
 status: partial
-depends: [../5/19-hitl-firewall, ../5/32-acl-unified, 26-personal-mode]
+depends:
+  [../5/19-hitl-firewall, ../5/32-acl-unified, 26-personal-mode, 52-acl-layers]
 ---
 
 # specs/6/49 — approvals: one line to ask, one rule to stop asking
@@ -75,18 +76,22 @@ name the kind, its always keys. `/always` writes a skip-approval row whose
 params pin exactly those keys to the held call's values, and it leaves every
 other argument free. `like` declares `reaction`, so `/always` on the first
 hold writes `hold:mcp:like(reaction=👀)` at `deny` in rhias/nemo, and every
-later 👀 reaction in that folder runs. A tool that declares no key writes a
-tool-wide row, and the second line says so: `Always: every schedule_task call
-in rhias/nemo runs without asking.`
+later 👀 reaction in that folder runs. `/always` exists only for a tool that
+declares its always keys. A tool that declares none gets no `Always` button,
+and the second line says so: `Always is not offered: schedule_task declares
+no standing rule; an operator writes one.` The operator writes that rule with
+`arizuko group grant` or on the grants page (owner, 2026-11-05).
 
 A value stays exact, never a glob. A value with `,`, `*` or outer spaces still
 refuses `/always` (`auth.ParamsSpec`, `auth/authorize.go:515`), and a
 non-scalar argument is never pinned. A key the call carries no scalar value
-for refuses `/always`. The row, its `deny` effect, its batch
+for refuses `/always`. The row passes `auth.CheckGrant` like every other
+write to the rules (`52-acl-layers.md`). The row, its `deny` effect, its batch
 with the verdict and its revocation do not change
 (`6/26-personal-mode §"The mechanics behind `always`"`).
 
-`/always` is offered on every hold, not after N holds. The owner pressed it on
+`/always` is offered on every hold of a tool that declares keys, not after N
+holds. The owner pressed it on
 the first hold and on the second. The rule's shape failed, not its timing, and
 a counter is state nobody asked for.
 
@@ -100,6 +105,8 @@ declarations:
 | `edit`         | edit message {targetId}                | none        |
 | `delete`       | delete message {targetId}              | none        |
 | any other tool | run `<tool>` and its scalar arguments  | none        |
+
+A tool with `none` gets no `/always`.
 
 ## Decision 3 — two lines and three buttons
 
@@ -134,8 +141,8 @@ show the row with its coordinate and a revoke control.
 Three artifacts own the approval, each in one place:
 
 - **Hold policy** stays in `acl` rows read by `auth.CheckHold`
-  (`auth/authorize.go:589`) and in the seed floor (`store/seed.go:32-58`).
-  Nothing here changes.
+  (`auth/authorize.go:589`) and in the release defaults, one file
+  `auth/defaults.go` (`52-acl-layers.md`). This spec changes neither.
 - **The hold shape** — how a call reads, and which arguments `/always` pins —
   is declared once, in `holdShapes` beside the renderer
   (§"The hold shape").
@@ -154,37 +161,21 @@ The agent-side text ships with the change as a new migration under
 the agent to re-issue an approved call; the gate runs the approved call
 itself (`holdGate`, `routd/pending_actions.go:430`).
 
-## Decision 5 — the floor reaches a running instance, one batch at a time
+## Decision 5 — the skip list reaches a running instance with the binary
 
-A floor batch is the set of rows the seed writes under one `GrantedBy` stamp
-with one fixed instant: `system` the operator root, `system:4r` the member
-verbs of 2026-08-01, `system:5r` the skip-approval rows of 2026-09-12
-(`store/seed.go:80-96`). routd records each batch it applied, and at every boot
-it writes the rows of each unrecorded batch with `putIfAbsent`, then the
-record (§"Proposed — the floor record").
-
-- A row an operator removed after its batch was recorded stays removed: the
-  batch is recorded, so the boot writes nothing for it. The seed's reason for
-  the empty-store gate holds.
-- An instance born before the record exists counts a batch as applied when at
-  least one `acl` row carries its stamp. On krons that rule applies `5r`,
-  which no row carried before 2026-10-20, and skips `4r`. A row added by hand
-  shares the coordinate `store.aclKey` builds, so `putIfAbsent` writes nothing
-  over it and restamps nothing.
-- The residual: an operator who removed every row of one batch before the
-  record exists receives that batch once more, and removes it once more.
-- An empty `acl` is the same rule: every batch is unrecorded and applies.
-
-A new batch is a new stamp and a new instant in `store/seed.go`; nothing else
-has to change for it to reach the fleet at the next deploy.
+The skip list is a default the release carries in code, never `acl` rows:
+the evaluator reads it when no local row matches a call, and any local row
+that matches decides instead (`52-acl-layers.md`). A tool added to the list
+reaches every instance at the next deploy, and the seed writes no skip row.
 
 ## Decision 6 — a reaction, an edit and a delete never wait
 
 The floor already lists `like`, `dislike`, `edit` and `delete`
-(`store/seed.go:35`), and Decision 5 delivers it. A folder that must hold one
-of them writes its own `hold:mcp:<verb>` row at `allow`, and the member skip
-row beats it only when the operator keeps that skip; BUGS `L273` records that
-trade and stays open.
+(`auth/defaults.go`), and Decision 5 delivers it. A folder that must hold one
+of them writes its own `hold:mcp:<verb>` row at `allow`; a local row decides
+before the skip list (`52-acl-layers.md`). BUGS `L273` closes on an instance
+once its local copies of the skip rows are gone
+(`6/52-acl-layers §"The live rows after the deploy"`).
 
 The platforms bind `edit` to the agent's own messages: Telegram
 `editMessageText` (`teled/bot.go:704`), Discord `ChannelMessageEdit`
@@ -207,7 +198,7 @@ that is its only reader:
 ```go
 type holdShape struct {
 	ask  string   // "react {reaction} to message {targetId}"
-	keys []string // the arguments /always pins; nil pins none
+	keys []string // the arguments /always pins; nil offers no /always
 }
 ```
 
@@ -226,24 +217,13 @@ stored: `ask`, `matcher` (the params spec the row would carry), `rule_text`
 (the second line) and `matcher_error`. The field keeps its name `matcher`;
 `unmatchable` is gone, since the rule pins the declared keys and no others.
 
-## Proposed — the floor record
-
-One entity in the routd partition, `acl_floor`, one item per batch id with
-`applied_at`. `SeedRoutdFloor` reads it, applies each unrecorded batch with
-`putIfAbsent`, and writes the item. The bootstrap rule of Decision 5 runs only
-when the entity is empty and `acl` is not.
-
-The record is not a manifest resource: `arizuko dump` carries the `acl` rows
-themselves, and an `apply` that removes a floor row is an operator decision
-the record must not undo.
-
 ## Pointers
 
 - `routd/pending_actions.go` — the renderer, `holdShapes` (the ask and the always
   keys per tool), the notice and the buttons.
 - `routd/steer.go` — the one-line acknowledgements.
 - `dashd/approvals_page.go` — shows `ask` and `rule_text`, derives nothing.
-- `store/seed.go` — the batches and the floor record.
+- `auth/defaults.go` — the skip list (`52-acl-layers.md`).
 - `template/web/pub/arizuko/reference/grants.html` §"Holding a call for a
   human" and `routd/README.md` — the operator text.
 - `ant/skills/self/migrations/` — the agent text, with the
@@ -255,23 +235,20 @@ the record must not undo.
   and three buttons. `/always` on it writes `hold:mcp:like(reaction=👀)` at
   `deny` in the folder; the next 👀 reaction in that folder runs with no
   notice, and a ❤️ reaction is held.
-- An `/always` on a tool with no keys writes the tool-wide row and the button
-  label names every call of the tool.
+- A held call to a tool with no keys shows no `Always` button, the second line
+  says why, and `/always` on it is refused with the same text.
 - The approvals page and the `/v1/pending_actions` row show the strings the
   chat showed, and dashd holds no function that reads `args`.
-- An instance with a `system:4r` row and no `system:5r` row receives the 23
-  skip rows and the `acl_floor` record at the next routd boot; a second boot
-  writes nothing; a floor row removed after that stays removed.
+- An instance whose `acl` holds no skip row answers `CheckHold` from the skip
+  list (`6/52-acl-layers §"Acceptance"`).
 - `TestWorld_HoldsOnlyWhatAPersonShouldSee` stays green.
 - `make build && make lint && go test ./... -short` green, tests in the
   shipping commit, and the migration file with the version bump.
 
 ## Open questions
 
-1. The tool-wide default for a tool with no keys is an authorization widening
-   one button away. The alternative refuses `/always` until the tool declares
-   its keys. Decided: tool-wide, and the Always line names every call of the
-   tool.
+1. A tool with no keys gets no `/always`; the operator writes the standing
+   rule. Decided by the owner, 2026-11-05.
 2. Must routd bind `delete` to the agent's own messages, by the `BotMsg` flag
    of the `messages` row the platform id names? The cost is one store read per
    delete, and a message routd never recorded cannot be deleted.
