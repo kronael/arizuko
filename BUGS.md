@@ -542,8 +542,7 @@ the live instance's store, so the unbounded Scan would take the instance down.
 
 - **Severity:** high (the move kills the live store server)
 - **Scope:** `cmd/arizuko/store.go` `copyTable`
-- **Test:** none in unit tests: dyntest's dev server does not show the memory
-  growth; the guard is the measured dry run above.
+- **Test:** `TestEnrollCopyScanLimits` (`cmd/arizuko/store_test.go`) checks every Scan request.
 - **Status:** fixed — both Scans (the copy and the destination count) carry
   `Limit: scanPage` (500).
 

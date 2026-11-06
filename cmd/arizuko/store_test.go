@@ -5,11 +5,17 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -390,6 +396,65 @@ func TestEnrollCopiesEveryTableAndCounts(t *testing.T) {
 		if got, want := scan(t, dst, name), scan(t, src, name); !reflect.DeepEqual(got, want) {
 			t.Errorf("%s differs from the source", name)
 		}
+	}
+}
+
+func TestEnrollCopyScanLimits(t *testing.T) {
+	source := uniq("src")
+	src := account(t, source)
+	name := uniq("teled.scanlimit")
+	makeTable(t, src, name)
+	for i := range 501 {
+		put(t, src, name, map[string]types.AttributeValue{"pk": s(fmt.Sprint(i)), "sk": s("1")})
+	}
+	snap := snapshot(t, source)
+	instance, dir := newInstance(t)
+	target, err := url.Parse(dyntest.Config(t).Endpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proxy := httputil.NewSingleHostReverseProxy(target)
+	var mu sync.Mutex
+	var scans [][]byte
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Amz-Target") == "DynamoDB_20120810.Scan" {
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			r.Body = io.NopCloser(bytes.NewReader(body))
+			mu.Lock()
+			scans = append(scans, body)
+			mu.Unlock()
+		}
+		proxy.ServeHTTP(w, r)
+	}))
+	defer server.Close()
+	for _, path := range []string{filepath.Join(snap, ".env"), filepath.Join(dir, ".env")} {
+		writeFile(t, path, dynstore.EnvURL+"="+server.URL+"\n"+dynstore.EnvRegion+"=us-east-1\n")
+	}
+	if out, err := enrollRun(t, instance, snap); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	counts := map[string]int{}
+	for _, body := range scans {
+		var request struct {
+			Limit  *int   `json:"Limit"`
+			Select string `json:"Select"`
+		}
+		if err := json.Unmarshal(body, &request); err != nil {
+			t.Fatal(err)
+		}
+		if request.Limit == nil || *request.Limit <= 0 || *request.Limit > 500 {
+			t.Errorf("Scan has invalid Limit: %s", body)
+		}
+		counts[request.Select]++
+	}
+	if counts[""] < 2 || counts["COUNT"] < 2 {
+		t.Errorf("Scan pages by Select = %v, want at least two of each", counts)
 	}
 }
 
