@@ -13,6 +13,20 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.75.3] — 2026-11-06
+
+> arizuko v0.75.3 — one Discord token, safer installs, closed grant holes
+>
+> Discord takes one `DISCORD_TOKEN` whose `Bot ` prefix picks bot mode, a package install keeps a copy of a file it replaces, and two grant holes are closed.
+>
+> • Discord — one `DISCORD_TOKEN`: `Bot <token>` runs a bot, a bare token runs a user; `DISCORD_BOT_TOKEN` and `DISCORD_USER_TOKEN` are gone.
+> • Packages — an install copies a changed group file to `~/.package-backup/<time>/` before it replaces it, and deletes copies older than 30 days.
+> • CZ estate agent — the `estate-site` skill ships the site generator, its components and a default stylesheet that `local.css` overrides.
+> • Grants — `/root` runs as a batch of one; a delegation refuses a `?` or `[` glob the granter does not hold.
+> • Dashboard — group delete names the `arizuko group rm` command; `/always` is offered only for a tool with concrete keys.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
 - `discd` reads one variable, `DISCORD_TOKEN`: put `DISCORD_TOKEN=Bot <token>` (bot) or the bare user token in `.env` and remove `DISCORD_BOT_TOKEN` and `DISCORD_USER_TOKEN`; discd does not read the old keys.
 
 ## [v0.75.2] — 2026-11-06
