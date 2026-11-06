@@ -130,7 +130,7 @@ func TestEnrollMintsEveryRowAndConverges(t *testing.T) {
 			Name string          `json:"policy_name"`
 			Doc  json.RawMessage `json:"policy_document"`
 		}
-		if err := m.do("GET", "/accounts/"+id+"/users/"+user+"/policies", nil, &docs); err != nil {
+		if err := m.do("GET", "/accounts/"+id+"/users/"+user+"/policies", nil, &docs, 0); err != nil {
 			t.Fatal(err)
 		}
 		var got, want any
@@ -237,8 +237,15 @@ func TestEnrollWrongSecretEndsWithoutKept(t *testing.T) {
 	writeFile(t, filepath.Join(dir, "env", "authd.env"),
 		dynstore.EnvKeyID+"="+pair[dynstore.EnvKeyID]+"\n"+dynstore.EnvSecret+"=wrongsecretwrongsecretwrongsecretwrong0\n")
 	out, err := enrollRun(t, instance)
-	if err == nil || strings.Contains(out, "kept") {
+	if err == nil || !strings.Contains(err.Error(), "authd:") || strings.Contains(out, "kept") {
 		t.Fatalf("err = %v, output %q", err, out)
+	}
+}
+
+func TestPolicyDocument(t *testing.T) {
+	want := `{"Statement":[{"Action":"dynamodb:*","Effect":"Allow","Resource":["arn:aws:dynamodb:*:*:table/onbod.*","arn:aws:dynamodb:*:*:table/routd.*"]}],"Version":"2012-10-17"}`
+	if got := policy([]string{"onbod", "routd"}); got != want {
+		t.Errorf("policy = %s, want %s", got, want)
 	}
 }
 

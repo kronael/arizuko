@@ -2,17 +2,13 @@ package main
 
 import (
 	"bytes"
-	"crypto/tls"
-	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"os"
-	"slices"
 	"strings"
-	"time"
 
 	"github.com/kronael/arizuko/objstore/dynstore"
 )
@@ -21,8 +17,12 @@ const adminUser = "admin"
 
 type manager struct {
 	base     string
-	client   *http.Client
+	client   doer
 	password string
+}
+
+type doer interface {
+	Do(*http.Request) (*http.Response, error)
 }
 
 type key struct {
@@ -40,21 +40,14 @@ func newManager(view map[string]string) (*manager, error) {
 	if err != nil {
 		return nil, err
 	}
-	client := &http.Client{Timeout: 30 * time.Second}
-	if len(ca) > 0 {
-		pool, err := x509.SystemCertPool()
-		if err != nil {
-			pool = x509.NewCertPool()
-		}
-		if !pool.AppendCertsFromPEM(ca) {
-			return nil, fmt.Errorf("%s holds no certificate", dynstore.EnvCA)
-		}
-		client.Transport = &http.Transport{TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: pool}}
+	client, err := dynstore.HTTPClient(ca)
+	if err != nil {
+		return nil, err
 	}
 	return &manager{base: strings.TrimRight(view[dynstore.EnvURL], "/") + "/management", client: client, password: password}, nil
 }
 
-func (m *manager) do(method, path string, in, out any, also ...int) error {
+func (m *manager) do(method, path string, in, out any, tolerate int) error {
 	var body io.Reader
 	if in != nil {
 		b, err := json.Marshal(in)
@@ -77,7 +70,7 @@ func (m *manager) do(method, path string, in, out any, also ...int) error {
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode/100 != 2 {
-		if slices.Contains(also, resp.StatusCode) {
+		if resp.StatusCode == tolerate {
 			return nil
 		}
 		return fmt.Errorf("%s %s: %s", method, path, resp.Status)
@@ -93,7 +86,7 @@ func (m *manager) accounts() (map[string]string, error) {
 		ID   string `json:"account_id"`
 		Name string `json:"account_name"`
 	}
-	if err := m.do("GET", "/accounts", nil, &rows); err != nil {
+	if err := m.do("GET", "/accounts", nil, &rows, 0); err != nil {
 		return nil, err
 	}
 	byName := map[string]string{}
@@ -114,7 +107,7 @@ func (m *manager) account(name string) (string, error) {
 	var made struct {
 		ID string `json:"account_id"`
 	}
-	err = m.do("POST", "/accounts", map[string]string{"account_name": name}, &made)
+	err = m.do("POST", "/accounts", map[string]string{"account_name": name}, &made, 0)
 	return made.ID, err
 }
 
@@ -122,7 +115,7 @@ func (m *manager) users(acct string) ([]string, error) {
 	var rows []struct {
 		Name string `json:"user_name"`
 	}
-	if err := m.do("GET", "/accounts/"+url.PathEscape(acct)+"/users", nil, &rows); err != nil {
+	if err := m.do("GET", "/accounts/"+url.PathEscape(acct)+"/users", nil, &rows, 0); err != nil {
 		return nil, err
 	}
 	names := make([]string, len(rows))
@@ -137,17 +130,17 @@ func (m *manager) user(acct, name string) error {
 }
 
 func (m *manager) putPolicy(acct, user, doc string) error {
-	return m.do("PUT", "/accounts/"+url.PathEscape(acct)+"/users/"+url.PathEscape(user)+"/policy/tables", json.RawMessage(doc), nil)
+	return m.do("PUT", "/accounts/"+url.PathEscape(acct)+"/users/"+url.PathEscape(user)+"/policy/tables", json.RawMessage(doc), nil, 0)
 }
 
 func (m *manager) keys(acct, user string) ([]key, error) {
 	var rows []key
-	err := m.do("GET", "/accounts/"+url.PathEscape(acct)+"/users/"+url.PathEscape(user)+"/access-keys", nil, &rows)
+	err := m.do("GET", "/accounts/"+url.PathEscape(acct)+"/users/"+url.PathEscape(user)+"/access-keys", nil, &rows, 0)
 	return rows, err
 }
 
 func (m *manager) mint(acct, user string) (string, string, error) {
 	var k key
-	err := m.do("POST", "/accounts/"+url.PathEscape(acct)+"/users/"+url.PathEscape(user)+"/access-keys", nil, &k)
+	err := m.do("POST", "/accounts/"+url.PathEscape(acct)+"/users/"+url.PathEscape(user)+"/access-keys", nil, &k, 0)
 	return k.ID, k.Secret, err
 }

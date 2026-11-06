@@ -45,11 +45,16 @@ func (s *Store) CreateEntity(ctx context.Context, entity string) error {
 	}
 	// Creation is asynchronous, so the table is not servable the moment the call
 	// returns. A write before it is active fails as a missing resource.
-	w := dynamodb.NewTableExistsWaiter(s.api, func(o *dynamodb.TableExistsWaiterOptions) {
+	return WaitTable(ctx, s.api, s.table(entity), 30*time.Second)
+}
+
+// WaitTable blocks until the table is active or max passes.
+func WaitTable(ctx context.Context, api *dynamodb.Client, table *string, max time.Duration) error {
+	w := dynamodb.NewTableExistsWaiter(api, func(o *dynamodb.TableExistsWaiterOptions) {
 		o.MinDelay = 10 * time.Millisecond
 		o.MaxDelay = 200 * time.Millisecond
 	})
-	return w.Wait(ctx, &dynamodb.DescribeTableInput{TableName: s.table(entity)}, 30*time.Second)
+	return w.Wait(ctx, &dynamodb.DescribeTableInput{TableName: table}, max)
 }
 
 // DropEntity removes a table. Tests use it; nothing in production does.

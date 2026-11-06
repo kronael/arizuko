@@ -41,16 +41,16 @@ func cmdStore(args []string) {
 }
 
 func storeEnroll(args []string, w io.Writer) error {
-	if len(args) < 2 || args[1] != "enroll" || len(args) > 3 {
+	if len(args) < 2 || len(args) > 3 {
 		return errors.New("usage: " + storeUsage)
 	}
 	instance := args[0]
+	if instance == "" {
+		return errors.New("enroll needs an instance: -i NAME")
+	}
 	dataDir, err := instanceDir(instance)
 	if err != nil {
 		return err
-	}
-	if instance == "" {
-		return errors.New("enroll needs an instance: -i NAME")
 	}
 	if err := compose.WriteOperatorEnv(dataDir); err != nil {
 		return err
@@ -212,8 +212,9 @@ func enroll(dataDir, acct string, dst map[string]string, m *manager, w io.Writer
 		if err := m.putPolicy(id, r.user, policy(r.prefixes)); err != nil {
 			return nil, err
 		}
+		minted := r.pair == nil
 		how := "kept"
-		if r.pair == nil {
+		if minted {
 			how = "minted"
 			keyID, secret, err := m.mint(id, r.user)
 			if err != nil {
@@ -228,7 +229,7 @@ func enroll(dataDir, acct string, dst map[string]string, m *manager, w io.Writer
 		if err != nil {
 			return nil, err
 		}
-		if how == "kept" {
+		if !minted {
 			if err := signedCheck(c, r.prefixes[0]); err != nil {
 				return nil, fmt.Errorf("%s: %w", r.user, err)
 			}
@@ -333,11 +334,7 @@ func copyTable(src, dst *dynamodb.Client, td types.TableDescription) (int, error
 			return 0, err
 		}
 	}
-	wait := dynamodb.NewTableExistsWaiter(dst, func(o *dynamodb.TableExistsWaiterOptions) {
-		o.MinDelay = 10 * time.Millisecond
-		o.MaxDelay = 200 * time.Millisecond
-	})
-	if err := wait.Wait(ctx, table, 60*time.Second); err != nil {
+	if err := dynstore.WaitTable(ctx, dst, td.TableName, 60*time.Second); err != nil {
 		return 0, err
 	}
 	have, err := dst.DescribeTable(ctx, table)

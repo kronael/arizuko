@@ -513,7 +513,10 @@ func writeOperatorEnv(dataDir string, env map[string]string) error {
 // dataDir, so a command that reads the host's view of the store takes it after
 // the URL step.
 func WriteOperatorEnv(dataDir string) error {
-	env, _ := godotenv.Read(filepath.Join(dataDir, ".env"))
+	env, err := godotenv.Read(filepath.Join(dataDir, ".env"))
+	if err != nil {
+		return err
+	}
 	return writeOperatorEnv(dataDir, env)
 }
 

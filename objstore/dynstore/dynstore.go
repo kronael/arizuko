@@ -87,7 +87,7 @@ func Client(cfg Config) (*dynamodb.Client, error) {
 	if cfg.Endpoint != "" {
 		opts = append(opts, func(o *dynamodb.Options) { o.BaseEndpoint = aws.String(cfg.Endpoint) })
 	}
-	client, err := httpClient(cfg.CA)
+	client, err := HTTPClient(cfg.CA)
 	if err != nil {
 		return nil, err
 	}
@@ -103,10 +103,10 @@ func Client(cfg Config) (*dynamodb.Client, error) {
 // test can lower it and prove the bound holds.
 var requestTimeout = 30 * time.Second
 
-// httpClient bounds every attempt and, when the endpoint carries a certificate
+// HTTPClient bounds every attempt and, when the endpoint carries a certificate
 // of its own, trusts it in ADDITION to the host's roots — so an instance with a
 // self-signed store keeps verifying every other name it talks to.
-func httpClient(ca []byte) (*awshttp.BuildableClient, error) {
+func HTTPClient(ca []byte) (*awshttp.BuildableClient, error) {
 	client := awshttp.NewBuildableClient().WithTimeout(requestTimeout)
 	if len(ca) == 0 {
 		return client, nil
