@@ -37,4 +37,4 @@ Append only.
 
 ## Notify
 
-After the append, `send` the same line with `chatJid: "#issues"`. It reaches the operator's issue chats and starts no turn there. `ok:false` means no destination is set: the file entry stands, do not retry.
+A core hook watches `~/issues.md` after every tool call, hand-written appends included. When the file grew it returns the new lines; `send` them then, one call with `chatJid: "#issues"` and the same text. It reaches the operator's issue chats and starts no turn there. `ok:false` means no destination is set: the file entry stands, do not retry. Send once per append.
