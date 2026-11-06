@@ -15,6 +15,7 @@
 
 ## What needs you
 
+- `L670` — repeated terminal failure notices; existing state does not track delivery per condition.
 - `L672` — a spend-limit failure: retry silently, one `#issues` notice to the operator; approved, queued after L670.
 - `L665` — `unpair` removes the account's denies from the paired identity's turns; needs sign-off.
 - `L664` — `invite_create` mints `admin` the issuing folder cannot delegate; needs sign-off.
@@ -433,6 +434,20 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
   `/root` issuer holds `admin` on `**`, the authority that answers a hold. The defect
   in the same area is who the root turn serves: `L666`.
 
+## L670 — repeated terminal failures send repeated chat notices (2026-11-06)
+
+On krons, `rhias/nemo` runs for `telegram:group/1004358948112` failed
+11 times from 17:49:53 to 17:52:17 UTC on 2026-11-06, all with guest exit
+78 and no retries. Their turn results all recorded the same monthly spend-limit
+error. On sloth, three turns in `discord:837270552959516682/920916162416635944`
+recorded the same organization spend-limit error at 22:17:34, 22:19:44 and
+22:20:25 UTC on 2026-11-01. `routd/dispatch.go` sends a terminal failure notice per
+run, with a different idempotency key per turn. The direct notices are not
+stored in `routd.messages`, so delivery counts are not independently known.
+Queued messages can therefore repeat the same warning while the condition holds.
+
+- **Status:** open — existing state does not track notice delivery per condition;
+  suppression needs state that can distinguish conditions and failed sends.
 ## L672 — a turn that fails on a model spend limit is never retried, so the message stays unanswered (2026-11-06, open)
 
 MEASURED 2026-11-06 on sloth: kronael's Discord mention at 19:26:10 in
