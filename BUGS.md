@@ -433,7 +433,7 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
   `/root` issuer holds `admin` on `**`, the authority that answers a hold. The defect
   in the same area is who the root turn serves: `L666`.
 
-## ✅ FIXED 2026-11-06 a1b3cdbe9dd7738b6be16b823c8eaa50a18104e3 L670 — repeated terminal failures send repeated chat notices (2026-11-06)
+## ✅ FIXED 2026-11-06 f25f7cb3a L670 — repeated terminal failures send repeated chat notices (2026-11-06)
 
 On krons, `rhias/nemo` runs for `telegram:group/1004358948112` failed
 11 times from 17:49:53 to 17:52:17 UTC on 2026-11-06, all with guest exit
@@ -445,9 +445,8 @@ run, with a different idempotency key per turn. The direct notices are not
 stored in `routd.messages`, so delivery counts are not independently known.
 Queued messages can therefore repeat the same warning while the condition holds.
 
-<<<<<<< HEAD
-- **Status:** open — existing state does not track notice delivery per condition;
-  suppression needs state that can distinguish conditions and failed sends.
+- **Test:** `TestFailureNoticePerChatAndClass` and `TestFailureNoticeRetriesFailedDelivery` (`routd/failure_notice_test.go`).
+- **Status:** fixed — routd suppresses notices per chat and failure class until a successful turn; failed delivery permits another attempt.
 ## L672 — a turn that fails on a model spend limit is never retried, so the message stays unanswered (2026-11-06, open)
 
 MEASURED 2026-11-06 on sloth: kronael's Discord mention at 19:26:10 in
@@ -500,10 +499,6 @@ the live instance's store, so the unbounded Scan would take the instance down.
   growth; the guard is the measured dry run above.
 - **Status:** fixed — both Scans (the copy and the destination count) carry
   `Limit: scanPage` (500).
-=======
-- **Test:** `TestFailureNoticePerChatAndClass` and `TestFailureNoticeRetriesFailedDelivery` (`routd/failure_notice_test.go`).
-- **Status:** fixed — routd suppresses notices per chat and failure class until a successful turn; failed delivery permits another attempt.
->>>>>>> 20d5afc7c (docs(bugs): Mark L670 fixed)
 
 ## ✅ FIXED 2026-11-06 178fcb079 L92 — the HITL hold gate fails OPEN when the `acl` read fails (2026-08-24)
 
