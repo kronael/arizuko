@@ -202,14 +202,14 @@ The `target` column is a URI. It has a folder and an optional fragment
 without a fragment means trigger. Trigger is the default and the only mode that
 always fires a turn.
 
-| Fragment    | Effect                                                                                                   |
-| ----------- | -------------------------------------------------------------------------------------------------------- |
-| none        | trigger: store under `target` and fire a turn                                                            |
-| `#observe`  | store under `target` and fire no turn; the agent sees it in the `<observed>` block and in the history    |
-| `#engaged`  | fire a turn while the chat and topic are engaged, else store under `target` as observed; never addressed |
-| `#announce` | trigger, and mark this channel as a release-note destination                                             |
-| `#issues`   | trigger, and mark this chat as the destination of agent issue notices; put it on private chats only      |
-| `#<topic>`  | trigger, and pin the topic `<topic>` on every matched message                                            |
+| Fragment    | Effect                                                                                                                          |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| none        | trigger: store under `target` and fire a turn                                                                                   |
+| `#observe`  | store under `target` and fire no turn; the agent sees it in the `<observed>` block and in the history                           |
+| `#engaged`  | fire a turn while the chat and topic are engaged, else store under `target` as observed; never addressed                        |
+| `#announce` | trigger, and mark this channel as a release-note destination                                                                    |
+| `#issues`   | trigger, and mark this chat as the destination of agent issue notices and new onboarding requests; put it on private chats only |
+| `#<topic>`  | trigger, and pin the topic `<topic>` on every matched message                                                                   |
 
 `observe`, `engaged`, `announce` and `issues` are reserved words, so no topic can have any
 of these names. `folder#announce` always means the announce fragment and never a
@@ -332,7 +332,9 @@ With `ONBOARDING_ENABLED`, `routd` also hands a held chat to `onbod`, which
 greets it with a pairing link. A Discord guild channel starts onboarding only
 on an explicit `@mention`, so a busy server does not queue every poster.
 [`onbod/README.md`](onbod/README.md#from-an-unrouted-chat-to-a-routed-one)
-draws the flow.
+draws the flow. When a new chat first asks to onboard, `routd` also queues one
+short notice to every `#issues` chat, with the sender and the chat. Later
+messages of the same chat queue none. With no `#issues` route, nothing is sent.
 
 No default catch-all rule exists, and `arizuko create` seeds none:
 

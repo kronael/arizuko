@@ -3,6 +3,7 @@ package routd
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -557,7 +558,11 @@ func (l *Loop) routeMiss(chatJID string, msgs []core.Message, r resolution) {
 				!strings.HasPrefix(chatJID, "discord:dm/")
 			if onboardingAllowed(chatJID, l.onboardingPlatforms) &&
 				(!discordGuild || last.Verb == "mention") {
-				if err := l.onbod.InsertOnboarding(chatJID, last.Sender); err != nil {
+				created, err := l.onbod.InsertOnboarding(chatJID, last.Sender)
+				if created {
+					l.noticeOnboarding(chatJID, last.Sender)
+				}
+				if err != nil {
 					// Without the row the new user gets silence forever: tell the chat.
 					slog.Error("insert onboarding failed", "jid", chatJID, "err", err)
 					if l.deliver != nil {
@@ -568,6 +573,15 @@ func (l *Loop) routeMiss(chatJID string, msgs []core.Message, r resolution) {
 		}
 	}
 	l.advance(chatJID, last)
+}
+
+// noticeOnboarding tells the `#issues` chats that a new chat asks to onboard.
+// It names no token. The queue delivers it; no `#issues` route means no notice.
+func (l *Loop) noticeOnboarding(chatJID, sender string) {
+	text := fmt.Sprintf("New onboarding request: %s in chat %s. Approve or deny it on the onbod dashboard, /dash/onbod/.", sender, chatJID)
+	if _, err := l.db.QueueIssueNotice(text); err != nil {
+		slog.Warn("onboarding notice", "jid", chatJID, "err", err)
+	}
 }
 
 // observeRows stores rows as ambient context of folder, the one writer for the

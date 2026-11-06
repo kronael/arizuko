@@ -163,6 +163,7 @@ func TestRouteMissCarriesSenderOverHTTP(t *testing.T) {
 			t.Error(err)
 			w.WriteHeader(http.StatusBadRequest)
 		}
+		_, _ = w.Write([]byte(`{"ok":true,"created":true}`))
 	}))
 	t.Cleanup(srv.Close)
 	loop := &Loop{db: db, onboardingEnabled: true,

@@ -442,12 +442,17 @@ func (f *fakeOnbod) RevokeInviteByRef(ref string) error {
 	f.revoked = append(f.revoked, ref)
 	return nil
 }
-func (f *fakeOnbod) InsertOnboarding(jid, sender string) error {
+func (f *fakeOnbod) InsertOnboarding(jid, sender string) (bool, error) {
 	if f.insertErr != nil {
-		return f.insertErr
+		return false, f.insertErr
+	}
+	for _, j := range f.onboarded {
+		if j == jid {
+			return false, nil
+		}
 	}
 	f.onboarded = append(f.onboarded, jid)
-	return nil
+	return true, nil
 }
 func (f *fakeOnbod) ListGates() ([]GateRow, error) { return f.gates, nil }
 func (f *fakeOnbod) PutGate(gate string, n int) error {

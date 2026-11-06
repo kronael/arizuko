@@ -10,17 +10,17 @@ func TestOnboardingSenderPersistsAndArchives(t *testing.T) {
 	s := openEntities(t)
 	const chat = "discord:dm/456"
 	const sender = "discord:user/123"
-	if err := s.InsertOnboarding(chat, ""); err == nil {
+	if _, err := s.InsertOnboarding(chat, ""); err == nil {
 		t.Fatal("empty sender accepted")
 	}
-	if err := s.InsertOnboarding(chat, sender); err != nil {
+	if _, err := s.InsertOnboarding(chat, sender); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.AdmitOnboarding(chat, "github:alice"); err != nil {
 		t.Fatal(err)
 	}
 	before := maps.Clone(admissionItem(t, s, chat).Attrs)
-	if err := s.InsertOnboarding(chat, "discord:user/other"); err != nil {
+	if _, err := s.InsertOnboarding(chat, "discord:user/other"); err != nil {
 		t.Fatal(err)
 	}
 	if after := admissionItem(t, s, chat).Attrs; !maps.Equal(before, after) {
@@ -60,10 +60,10 @@ func TestInsertOnboardingSenderPreservesVerdicts(t *testing.T) {
 			if status == statusAwaitingMessage {
 				delete(want, attrOnbPromptedAt)
 			}
-			if err := s.InsertOnboarding(row.JID, "discord:user/123"); err != nil {
+			if _, err := s.InsertOnboarding(row.JID, "discord:user/123"); err != nil {
 				t.Fatal(err)
 			}
-			if err := s.InsertOnboarding(row.JID, "discord:user/other"); err != nil {
+			if _, err := s.InsertOnboarding(row.JID, "discord:user/other"); err != nil {
 				t.Fatal(err)
 			}
 			if got := admissionItem(t, s, row.JID).Attrs; !maps.Equal(got, want) {
@@ -82,7 +82,7 @@ func TestInsertOnboardingResolvesSenderAndRearmsGreeting(t *testing.T) {
 	if _, err := s.ImportOnboarding(t.Context(), []ArchiveOnboardingRow{row}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.InsertOnboarding(row.JID, "discord:user/123"); err != nil {
+	if _, err := s.InsertOnboarding(row.JID, "discord:user/123"); err != nil {
 		t.Fatal(err)
 	}
 	got := admissionItem(t, s, row.JID).Attrs

@@ -48,12 +48,13 @@ func TestOnboardingEndToEnd(t *testing.T) {
 			http.Error(w, "bad request", http.StatusBadRequest)
 			return
 		}
-		if err := onbodStore.InsertOnboarding(body.JID, body.Sender); err != nil {
+		created, err := onbodStore.InsertOnboarding(body.JID, body.Sender)
+		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"ok":true}`))
+		_ = json.NewEncoder(w).Encode(map[string]bool{"ok": true, "created": created})
 	})
 	onbodTS := httptest.NewServer(onbodMux)
 	t.Cleanup(onbodTS.Close)

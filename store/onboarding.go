@@ -95,14 +95,15 @@ func gateKey(gate string) (objstore.Key, error) {
 
 // InsertOnboarding requires an inbound sender and preserves existing senders
 // and admission verdicts. A route miss can re-arm an awaiting greeting after
-// PairingTTL, or when the row's sender first becomes known.
-func (s *Store) InsertOnboarding(jid, sender string) error {
+// PairingTTL, or when the row's sender first becomes known. It returns true
+// only when this call created the row.
+func (s *Store) InsertOnboarding(jid, sender string) (bool, error) {
 	if sender == "" {
-		return errors.New("onboarding row carries no sender")
+		return false, errors.New("onboarding row carries no sender")
 	}
 	key, err := onboardingKey(jid)
 	if err != nil {
-		return err
+		return false, err
 	}
 	ctx := context.Background()
 	now := time.Now().UTC()
@@ -116,13 +117,13 @@ func (s *Store) InsertOnboarding(jid, sender string) error {
 		Cond: objstore.Cond{Item: objstore.ItemAbsent},
 	})
 	if err != nil {
-		return fmt.Errorf("record %s as awaiting onboarding: %w", jid, err)
+		return false, fmt.Errorf("record %s as awaiting onboarding: %w", jid, err)
 	}
 	if created {
-		return nil
+		return true, nil
 	}
 	if err := s.BackfillOnboardingSender(jid, sender); err != nil {
-		return err
+		return false, err
 	}
 	// `prompted_at <` already excludes a row that was never greeted: a
 	// comparison against an absent attribute is not TRUE on either engine. A
@@ -135,9 +136,9 @@ func (s *Store) InsertOnboarding(jid, sender string) error {
 			{Attr: attrOnbPromptedAt, Op: objstore.Lt, Value: onbodTS(now.Add(-PairingTTL))},
 		}},
 	}); err != nil {
-		return fmt.Errorf("re-arm the greeting for %s: %w", jid, err)
+		return false, fmt.Errorf("re-arm the greeting for %s: %w", jid, err)
 	}
-	return nil
+	return false, nil
 }
 
 // BackfillOnboardingSender preserves resolved senders and admission verdicts.

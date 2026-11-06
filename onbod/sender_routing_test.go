@@ -104,7 +104,7 @@ func TestUnresolvedOnboardingSenderWaitsForInbound(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := obdb.InsertOnboarding(chat, "discord:user/123"); err != nil {
+	if _, err := obdb.InsertOnboarding(chat, "discord:user/123"); err != nil {
 		t.Fatal(err)
 	}
 	observePairings(xdb, obdb, cfg)

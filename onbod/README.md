@@ -222,7 +222,9 @@ routd reads.
     the world picker; delete_route is dispatched but no page renders a form)
   - `GET /invite/{token}` — invite redemption
 - Admin surface (bearer-gated, authd JWKS; nil keyset = open):
-  - `POST /v1/onboarding` — record unrouted JID (invites:write)
+  - `POST /v1/onboarding` — record unrouted JID (invites:write). The answer
+    has `created`, true only when this call made the row; `routd` uses it to
+    send one notice to the `#issues` chats for each new request
   - `POST /v1/invites`, `GET /v1/invites`, `DELETE /v1/invites/{ref}` (invites:read/write)
   - `GET /v1/gates`, `PUT /v1/gates/{gate}`, `DELETE /v1/gates/{gate}` (gates:read/write)
 - `GET|POST /dash/onbod/` — onbod's own operator page: the admission queue
