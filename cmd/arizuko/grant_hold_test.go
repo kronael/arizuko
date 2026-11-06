@@ -37,8 +37,12 @@ func seedHold(t *testing.T, s *store.Store) {
 // held asks the evaluator the question the agent's turn asks: must this call
 // wait for a human?
 func held(s *store.Store) bool {
-	return auth.CheckHold(s, auth.Caller{Principal: holdAgent}, holdTool, holdFolder,
+	h, err := auth.CheckHold(s, auth.Caller{Principal: holdAgent}, holdTool, holdFolder,
 		map[string]string{"to": "slack:C1"})
+	if err != nil {
+		panic(err)
+	}
+	return h
 }
 
 // TestUngrantRemovesTheRowAlwaysWrote is L138 itself. `runUngrant` pinned
@@ -117,8 +121,8 @@ func TestGrantWritesAHoldRule(t *testing.T) {
 	}
 
 	// The narrowing is real: a call with a different argument still waits.
-	if !auth.CheckHold(s, auth.Caller{Principal: holdAgent}, holdTool, holdFolder,
-		map[string]string{"to": "slack:OTHER"}) {
+	if h, err := auth.CheckHold(s, auth.Caller{Principal: holdAgent}, holdTool, holdFolder,
+		map[string]string{"to": "slack:OTHER"}); err != nil || !h {
 		t.Fatal("the rule skipped a call its matcher does not name")
 	}
 }
@@ -210,7 +214,11 @@ func TestUngrantOfAGlobRuleKeepsTheOperatorRole(t *testing.T) {
 }
 
 func hasOperator(s *store.Store, sub string) bool {
-	for _, a := range s.Ancestors(sub) {
+	ancs, err := s.Ancestors(sub)
+	if err != nil {
+		panic(err)
+	}
+	for _, a := range ancs {
 		if a == "role:operator" {
 			return true
 		}

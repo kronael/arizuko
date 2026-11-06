@@ -53,7 +53,10 @@ func TestGrantOperatorMembership(t *testing.T) {
 		t.Errorf("expected role:operator output, got %q", out.String())
 	}
 
-	ancs := s.Ancestors("github:1")
+	ancs, err := s.Ancestors("github:1")
+	if err != nil {
+		t.Fatal(err)
+	}
 	found := slices.Contains(ancs, "role:operator")
 	if !found {
 		t.Fatalf("expected role:operator in ancestors, got %v", ancs)

@@ -23,7 +23,7 @@ func TestMembership_AddAndIndex(t *testing.T) {
 	if got := s.Members("role:operator"); len(got) != 1 || got[0] != "alice" {
 		t.Fatalf("Members: %v", got)
 	}
-	if got := s.Ancestors("alice"); len(got) != 1 || got[0] != "role:operator" {
+	if got, err := s.Ancestors("alice"); err != nil || len(got) != 1 || got[0] != "role:operator" {
 		t.Fatalf("Ancestors: %v", got)
 	}
 	if err := s.RemoveMembership("alice", "role:operator"); err != nil {
@@ -93,7 +93,10 @@ func TestMembership_AncestorsTransitive(t *testing.T) {
 	if err := s.AddMembership("c", "d", ""); err != nil {
 		t.Fatal(err)
 	}
-	got := s.Ancestors("a")
+	got, err := s.Ancestors("a")
+	if err != nil {
+		t.Fatal(err)
+	}
 	want := map[string]bool{"b": true, "c": true, "d": true}
 	if len(got) != 3 {
 		t.Fatalf("Ancestors len: %v", got)

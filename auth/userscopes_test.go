@@ -166,3 +166,51 @@ func TestAuthorizeDeniesOnAnUnreadablePolicy(t *testing.T) {
 		t.Error("EffectiveActions advertised a tool with an unreadable policy")
 	}
 }
+
+func dropMembership(t *testing.T, s *store.Store) {
+	t.Helper()
+	d, ok := s.Obj().(*dynstore.Store)
+	if !ok {
+		t.Fatalf("this fixture is not served: %T", s.Obj())
+	}
+	if err := d.DropEntity(context.Background(), store.ACLMembership); err != nil {
+		t.Fatalf("drop membership: %v", err)
+	}
+}
+
+// BUGS L92: an unreadable membership table refuses. A failed Ancestors read
+// used to read as "no roles", so CheckHold answered "no hold rule" and the call
+// ran unapproved, and Authorize/ShellEnvKeys evaluated half of the policy.
+func TestMembershipReadFailureRefuses(t *testing.T) {
+	s := scopesEnv(t,
+		core.ACLRow{Principal: "u1", Action: "*", Scope: "**", Effect: "allow"},
+		core.ACLRow{Principal: "u1", Action: auth.HoldPrefix + "mcp:send", Scope: "atlas", Effect: "allow"},
+		core.ACLRow{Principal: "u1", Action: auth.ShellEnvPrefix + "K", Scope: "atlas", Effect: "allow"},
+	)
+	c := auth.Caller{Principal: "u1"}
+	if !auth.Authorize(s, c, "admin", "alpha", nil) {
+		t.Fatal("fixture is vacuous: the grant does not authorize before the drop")
+	}
+	if h, err := auth.CheckHold(s, c, "mcp:send", "atlas", nil); err != nil || !h {
+		t.Fatalf("fixture is vacuous: CheckHold = %v, %v before the drop", h, err)
+	}
+	dropMembership(t, s)
+	if auth.Authorize(s, c, "admin", "alpha", nil) {
+		t.Error("Authorize allowed with an unreadable membership table")
+	}
+	if auth.Authorize(s, auth.Caller{Route: "alpha"}, "admin", "alpha", nil) {
+		t.Error("Authorize allowed a route-only caller with an unreadable membership table")
+	}
+	if _, err := auth.CheckHold(s, c, "mcp:send", "atlas", nil); err == nil {
+		t.Error("CheckHold answered without an error on an unreadable membership table")
+	}
+	if got := auth.ShellEnvKeys(s, c, "atlas", []string{"K"}); len(got) != 0 {
+		t.Errorf("ShellEnvKeys = %v, want none", got)
+	}
+	if _, err := auth.UserScopes(s, "u1"); err == nil {
+		t.Error("UserScopes answered without an error")
+	}
+	if auth.EffectiveActions(s, c)("mcp:send") {
+		t.Error("EffectiveActions advertised a tool")
+	}
+}

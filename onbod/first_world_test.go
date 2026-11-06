@@ -265,7 +265,7 @@ func TestTheWinnerIsNamedAndHoldsWhatTheFolderImplies(t *testing.T) {
 	}
 	// A groups row implies the member edge (BUGS L119): without it the world
 	// expands to nothing and comes up mute.
-	if up := db.Ancestors("folder:newworld"); !slices.Contains(up, store.RoleMember) {
+	if up, err := db.Ancestors("folder:newworld"); err != nil || !slices.Contains(up, store.RoleMember) {
 		t.Errorf("folder:newworld sits under %v, want role:member among them", up)
 	}
 }

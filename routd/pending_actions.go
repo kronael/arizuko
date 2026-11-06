@@ -407,7 +407,15 @@ func (s *Server) holdGate(t turnMCP) func(string, map[string]any) (string, bool)
 		return nil
 	}
 	return func(tool string, args map[string]any) (string, bool) {
-		if !s.db.CheckHold("folder:"+t.folder, t.folder, tool, stringArgs(args)) {
+		hold, err := s.db.CheckHold("folder:"+t.folder, t.folder, tool, stringArgs(args))
+		if err != nil {
+			// Fail CLOSED: an unreadable policy cannot say the call is free.
+			slog.Error("hitl could not read the hold policy; blocking the call",
+				"folder", t.folder, "tool", tool, "err", err)
+			s.notifyHoldFailed(t, tool, err)
+			return "", true
+		}
+		if !hold {
 			return "", false
 		}
 		id := NewPendingID()
@@ -642,13 +650,13 @@ func verdictOptions(p PendingAction) []chanlib.Option {
 	return out
 }
 
-// notifyHoldFailed reports a call the gate blocked but could not record: no
-// row, so nothing lists it and no id can resolve it — this notice and the
+// notifyHoldFailed reports a call the gate blocked because the hold could not
+// be decided or recorded: no row, so nothing lists it and no id can resolve it — this notice and the
 // agent's error are the whole trace. Keyed per turn so a failing turn reports
 // once.
 func (s *Server) notifyHoldFailed(t turnMCP, tool string, cause error) {
 	_ = s.notifyHold(t, "hitl-fail-"+t.turnID, fmt.Sprintf(
-		"⛔ %s needs approval and the hold could not be recorded (%v). The call was "+
+		"⛔ %s could not be checked or held (%v). The call was "+
 			"blocked and there is nothing to /approve — an operator must check routd.",
 		tool, cause), nil)
 }

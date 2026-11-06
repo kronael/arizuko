@@ -61,7 +61,11 @@ func TestACLAddOperatorEndpoint(t *testing.T) {
 	}
 	st := db.store()
 	found := false
-	for _, a := range st.Ancestors("github:9") {
+	ancs9, err := st.Ancestors("github:9")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range ancs9 {
 		if a == "role:operator" {
 			found = true
 		}
@@ -95,7 +99,11 @@ func TestACLRemoveEndpoint(t *testing.T) {
 		Principal: "u1", Scope: "**"}); rec.Code != 200 {
 		t.Fatalf("DELETE operator = %d body=%s", rec.Code, rec.Body.String())
 	}
-	for _, a := range db.store().Ancestors("u1") {
+	ancsU1, err := db.store().Ancestors("u1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range ancsU1 {
 		if a == "role:operator" {
 			t.Fatal("u1 still member of role:operator after DELETE **")
 		}

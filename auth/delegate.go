@@ -73,7 +73,11 @@ func Delegate(s *store.Store, granter string, want []core.ACLRow) error {
 // policyRows over the expanded principal set), so a membership ancestor and a
 // wildcard principal reach Delegate exactly as they reach Authorize.
 func policyFor(s *store.Store, granter string) ([]core.ACLRow, error) {
-	return policyRows(s, expandPrincipals(s, Caller{Principal: granter}))
+	expanded, err := expandPrincipals(s, Caller{Principal: granter})
+	if err != nil {
+		return nil, err
+	}
+	return policyRows(s, expanded)
 }
 
 // denyRows is granter's DENY rows — the rows a delegation may not grant past

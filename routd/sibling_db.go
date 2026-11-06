@@ -255,7 +255,7 @@ func (d *DB) AuthorizeTurn(senderSub, turnFolder, scope, action string, params m
 // CheckHold asks whether this folder's call must wait for a human (spec 5/19).
 // Deliberately NOT routed through Authorize — see auth.CheckHold for why the
 // operator's (*, **) row would otherwise hold every tool.
-func (d *DB) CheckHold(sub, folder, tool string, params map[string]string) bool {
+func (d *DB) CheckHold(sub, folder, tool string, params map[string]string) (bool, error) {
 	return auth.CheckHold(d.store(), auth.Caller{Principal: sub}, tool, folder, params)
 }
 
@@ -266,7 +266,11 @@ func (d *DB) IsOperator(sub string) bool {
 	if sub == "" {
 		return false
 	}
-	if slices.Contains(d.store().Ancestors(sub), "role:operator") {
+	anc, err := d.store().Ancestors(sub)
+	if err != nil {
+		return false
+	}
+	if slices.Contains(anc, "role:operator") {
 		return true
 	}
 	return auth.Authorize(d.store(), auth.Caller{Principal: sub}, "admin", "**", nil)

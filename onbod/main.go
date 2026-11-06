@@ -1449,7 +1449,12 @@ func userFolders(db *store.Store, sub string) []string {
 	}
 	// Every principal the sub speaks as: itself, and the transitive closure of
 	// acl_membership above it.
-	principals := append([]string{sub}, db.Ancestors(sub)...)
+	anc, err := db.Ancestors(sub)
+	if err != nil {
+		slog.Error("userFolders read memberships", "sub", sub, "err", err)
+		return nil
+	}
+	principals := append([]string{sub}, anc...)
 	// One begins_with per principal, which is the exactness `principal IN (…)`
 	// had: the separator ends the principal, so `folder:a` cannot reach
 	// `folder:ab`.

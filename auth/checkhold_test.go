@@ -12,7 +12,7 @@ import (
 
 func TestCheckHold_NoRowsRunInline(t *testing.T) {
 	s := openMem(t)
-	if auth.CheckHold(s, auth.Caller{Principal: "folder:atlas"}, "mcp:send", "atlas", nil) {
+	if mustHold(t, s, auth.Caller{Principal: "folder:atlas"}, "mcp:send", "atlas", nil) {
 		t.Fatal("no hold row should run inline")
 	}
 }
@@ -20,7 +20,7 @@ func TestCheckHold_NoRowsRunInline(t *testing.T) {
 func TestCheckHold_BareRuleAlwaysHolds(t *testing.T) {
 	s := openMem(t)
 	addRow(t, s, "folder:atlas", auth.HoldPrefix+"mcp:delete", "atlas", "allow")
-	if !auth.CheckHold(s, auth.Caller{Principal: "folder:atlas"}, "mcp:delete", "atlas", nil) {
+	if !mustHold(t, s, auth.Caller{Principal: "folder:atlas"}, "mcp:delete", "atlas", nil) {
 		t.Fatal("bare hold rule should hold")
 	}
 }
@@ -28,7 +28,7 @@ func TestCheckHold_BareRuleAlwaysHolds(t *testing.T) {
 func TestCheckHold_OtherToolUnaffected(t *testing.T) {
 	s := openMem(t)
 	addRow(t, s, "folder:atlas", auth.HoldPrefix+"mcp:delete", "atlas", "allow")
-	if auth.CheckHold(s, auth.Caller{Principal: "folder:atlas"}, "mcp:send", "atlas", nil) {
+	if mustHold(t, s, auth.Caller{Principal: "folder:atlas"}, "mcp:send", "atlas", nil) {
 		t.Fatal("a hold on delete must not hold send")
 	}
 }
@@ -47,7 +47,7 @@ func TestCheckHold_OperatorStarDoesNotHoldEverything(t *testing.T) {
 	if !auth.Authorize(s, caller, "mcp:delete", "atlas", nil) {
 		t.Fatal("precondition: operator should be authorized for the tool")
 	}
-	if auth.CheckHold(s, caller, "mcp:delete", "atlas", nil) {
+	if mustHold(t, s, caller, "mcp:delete", "atlas", nil) {
 		t.Fatal("operator (*, **) must NOT hold every tool")
 	}
 }
@@ -58,7 +58,7 @@ func TestCheckHold_OperatorStarDoesNotHoldEverything(t *testing.T) {
 func TestCheckHold_PlainAllowRowIsNotAHold(t *testing.T) {
 	s := openMem(t)
 	addRow(t, s, "folder:atlas", "mcp:delete", "atlas", "allow")
-	if auth.CheckHold(s, auth.Caller{Principal: "folder:atlas"}, "mcp:delete", "atlas", nil) {
+	if mustHold(t, s, auth.Caller{Principal: "folder:atlas"}, "mcp:delete", "atlas", nil) {
 		t.Fatal("a plain grant row must not be read as a hold")
 	}
 }
@@ -70,10 +70,10 @@ func TestCheckHold_ParamsMakeItConditional(t *testing.T) {
 		Scope: "atlas", Effect: "allow", Params: "host=*.prod.example.com",
 	})
 	caller := auth.Caller{Principal: "folder:atlas"}
-	if !auth.CheckHold(s, caller, "mcp:network_allow", "atlas", map[string]string{"host": "db.prod.example.com"}) {
+	if !mustHold(t, s, caller, "mcp:network_allow", "atlas", map[string]string{"host": "db.prod.example.com"}) {
 		t.Fatal("matching param should hold")
 	}
-	if auth.CheckHold(s, caller, "mcp:network_allow", "atlas", map[string]string{"host": "docs.example.com"}) {
+	if mustHold(t, s, caller, "mcp:network_allow", "atlas", map[string]string{"host": "docs.example.com"}) {
 		t.Fatal("non-matching param should run inline")
 	}
 }
@@ -82,10 +82,10 @@ func TestCheckHold_ScopeContains(t *testing.T) {
 	s := openMem(t)
 	addRow(t, s, "folder:atlas", auth.HoldPrefix+"mcp:delete", "atlas/**", "allow")
 	caller := auth.Caller{Principal: "folder:atlas"}
-	if !auth.CheckHold(s, caller, "mcp:delete", "atlas/eng", nil) {
+	if !mustHold(t, s, caller, "mcp:delete", "atlas/eng", nil) {
 		t.Fatal("subtree scope should cover the child folder")
 	}
-	if auth.CheckHold(s, caller, "mcp:delete", "other", nil) {
+	if mustHold(t, s, caller, "mcp:delete", "other", nil) {
 		t.Fatal("scope must not reach outside the subtree")
 	}
 }
@@ -93,20 +93,20 @@ func TestCheckHold_ScopeContains(t *testing.T) {
 func TestCheckHold_WildcardToolRule(t *testing.T) {
 	s := openMem(t)
 	addRow(t, s, "folder:atlas", auth.HoldPrefix+"*", "atlas", "allow")
-	if !auth.CheckHold(s, auth.Caller{Principal: "folder:atlas"}, "mcp:anything", "atlas", nil) {
+	if !mustHold(t, s, auth.Caller{Principal: "folder:atlas"}, "mcp:anything", "atlas", nil) {
 		t.Fatal("hold:mcp:* should hold every tool for that folder")
 	}
 }
 
 func TestCheckHold_NilStoreAndEmptyInputs(t *testing.T) {
 	s := openMem(t)
-	if auth.CheckHold(nil, auth.Caller{Principal: "folder:atlas"}, "mcp:x", "atlas", nil) {
+	if mustHold(t, nil, auth.Caller{Principal: "folder:atlas"}, "mcp:x", "atlas", nil) {
 		t.Fatal("nil store should not hold")
 	}
-	if auth.CheckHold(s, auth.Caller{}, "mcp:x", "atlas", nil) {
+	if mustHold(t, s, auth.Caller{}, "mcp:x", "atlas", nil) {
 		t.Fatal("empty principal should not hold")
 	}
-	if auth.CheckHold(s, auth.Caller{Principal: "folder:atlas"}, "", "atlas", nil) {
+	if mustHold(t, s, auth.Caller{Principal: "folder:atlas"}, "", "atlas", nil) {
 		t.Fatal("empty tool should not hold")
 	}
 }
@@ -125,10 +125,10 @@ func TestCheckHold_SkipApprovalRowBeatsMatchingHold(t *testing.T) {
 	})
 	c := auth.Caller{Principal: "folder:atlas"}
 
-	if auth.CheckHold(s, c, "mcp:delete", "atlas", map[string]string{"target": "staging"}) {
+	if mustHold(t, s, c, "mcp:delete", "atlas", map[string]string{"target": "staging"}) {
 		t.Error("the skipped shape must run inline")
 	}
-	if !auth.CheckHold(s, c, "mcp:delete", "atlas", map[string]string{"target": "prod"}) {
+	if !mustHold(t, s, c, "mcp:delete", "atlas", map[string]string{"target": "prod"}) {
 		t.Error("every other shape must still be held")
 	}
 }
@@ -145,10 +145,10 @@ func TestCheckHold_BroadHoldDoesNotResurrectSkippedShape(t *testing.T) {
 	addRow(t, s, "folder:atlas", auth.HoldPrefix+"*", "atlas", "allow")
 	c := auth.Caller{Principal: "folder:atlas"}
 
-	if auth.CheckHold(s, c, "mcp:delete", "atlas", map[string]string{"target": "staging"}) {
+	if mustHold(t, s, c, "mcp:delete", "atlas", map[string]string{"target": "staging"}) {
 		t.Error("a later broad hold must not override the exception")
 	}
-	if !auth.CheckHold(s, c, "mcp:send", "atlas", nil) {
+	if !mustHold(t, s, c, "mcp:send", "atlas", nil) {
 		t.Error("hold:mcp:* must still hold a tool the exception does not name")
 	}
 }
@@ -177,14 +177,14 @@ func TestCheckHold_RawToolNameIsWhatProductionSends(t *testing.T) {
 	s := openMem(t)
 	addRow(t, s, "folder:atlas", auth.HoldPrefix+"reply", "atlas", "allow")
 	c := auth.Caller{Principal: "folder:atlas"}
-	if !auth.CheckHold(s, c, "reply", "atlas", nil) {
+	if !mustHold(t, s, c, "reply", "atlas", nil) {
 		t.Fatal("a hold on the raw tool name must hold it")
 	}
 	addRowFull(t, s, core.ACLRow{
 		Principal: "folder:atlas", Action: auth.HoldPrefix + "reply",
 		Scope: "atlas", Effect: auth.EffectSkipApproval,
 	})
-	if auth.CheckHold(s, c, "reply", "atlas", nil) {
+	if mustHold(t, s, c, "reply", "atlas", nil) {
 		t.Fatal("the skip-approval row must release the raw tool name too")
 	}
 }
@@ -212,7 +212,7 @@ func TestCheckHold_SkipWinsInEitherInsertOrder(t *testing.T) {
 			s := openMem(t)
 			addRowFull(t, s, tc.first)
 			addRowFull(t, s, tc.second)
-			if auth.CheckHold(s, auth.Caller{Principal: "folder:atlas"}, "deploy", "atlas", nil) {
+			if mustHold(t, s, auth.Caller{Principal: "folder:atlas"}, "deploy", "atlas", nil) {
 				t.Error("a skip-approval row must win regardless of insert order")
 			}
 		})
@@ -232,7 +232,7 @@ func TestCheckHold_InheritedSkipBeatsDirectHold(t *testing.T) {
 	if err := s.AddMembership("folder:atlas", "role:release", "test"); err != nil {
 		t.Fatalf("AddMembership: %v", err)
 	}
-	if auth.CheckHold(s, auth.Caller{Principal: "folder:atlas"}, "deploy", "atlas", nil) {
+	if mustHold(t, s, auth.Caller{Principal: "folder:atlas"}, "deploy", "atlas", nil) {
 		t.Error("an inherited skip-approval row must release the hold")
 	}
 }
@@ -244,7 +244,7 @@ func TestCheckHold_InheritedSkipBeatsDirectHold(t *testing.T) {
 func TestCheckHold_LegacyNonDenyEffectStillHolds(t *testing.T) {
 	s := openMem(t)
 	addLegacyEffectRow(t, s, "folder:atlas", auth.HoldPrefix+"mcp:delete", "atlas", "async")
-	if !auth.CheckHold(s, auth.Caller{Principal: "folder:atlas"}, "mcp:delete", "atlas", nil) {
+	if !mustHold(t, s, auth.Caller{Principal: "folder:atlas"}, "mcp:delete", "atlas", nil) {
 		t.Fatal("a hold row stopped holding because of how its allow is spelled")
 	}
 }
@@ -255,7 +255,7 @@ func TestCheckHold_TwoMatchingRulesStillHold(t *testing.T) {
 	s := openMem(t)
 	addRow(t, s, "folder:atlas", auth.HoldPrefix+"mcp:delete", "atlas", auth.EffectHoldBlock)
 	addRow(t, s, "folder:atlas", auth.HoldPrefix+"*", "atlas", auth.EffectHoldBlock)
-	if !auth.CheckHold(s, auth.Caller{Principal: "folder:atlas"}, "mcp:delete", "atlas", nil) {
+	if !mustHold(t, s, auth.Caller{Principal: "folder:atlas"}, "mcp:delete", "atlas", nil) {
 		t.Fatal("two matching hold rules must still hold")
 	}
 }
@@ -298,7 +298,7 @@ func TestCheckHold_PredicateIsInertOnTheLiveCaller(t *testing.T) {
 	})
 	// Exactly the caller routd builds: a principal and nothing else.
 	live := auth.Caller{Principal: "folder:atlas"}
-	if auth.CheckHold(s, live, "mcp:delete", "atlas", nil) {
+	if mustHold(t, s, live, "mcp:delete", "atlas", nil) {
 		t.Fatal("a predicated hold rule matched a claimless caller — the trap is closed and this test is stale")
 	}
 
@@ -306,7 +306,7 @@ func TestCheckHold_PredicateIsInertOnTheLiveCaller(t *testing.T) {
 	// without one holds for the same caller.
 	bare := openMem(t)
 	addRow(t, bare, "folder:atlas", auth.HoldPrefix+"mcp:delete", "atlas", auth.EffectHoldBlock)
-	if !auth.CheckHold(bare, live, "mcp:delete", "atlas", nil) {
+	if !mustHold(t, bare, live, "mcp:delete", "atlas", nil) {
 		t.Fatal("the bare hold rule stopped holding, so this case no longer isolates the predicate")
 	}
 
@@ -317,7 +317,18 @@ func TestCheckHold_PredicateIsInertOnTheLiveCaller(t *testing.T) {
 		Principal: "folder:atlas",
 		Claims:    map[string]string{"platform": "telegram"},
 	}
-	if !auth.CheckHold(s, withClaim, "mcp:delete", "atlas", nil) {
+	if !mustHold(t, s, withClaim, "mcp:delete", "atlas", nil) {
 		t.Fatal("the predicate did not match even with the claim present; the gap would not be the caller")
 	}
+}
+
+// mustHold is CheckHold for tests whose store reads cleanly: a read error fails
+// the test instead of reading as "not held".
+func mustHold(t *testing.T, s *store.Store, c auth.Caller, tool, scope string, params map[string]string) bool {
+	t.Helper()
+	held, err := auth.CheckHold(s, c, tool, scope, params)
+	if err != nil {
+		t.Fatalf("CheckHold: %v", err)
+	}
+	return held
 }

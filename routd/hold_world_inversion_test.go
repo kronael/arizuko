@@ -159,7 +159,10 @@ func TestWorld_HoldsOnlyWhatAPersonShouldSee(t *testing.T) {
 	}
 
 	for name := range listToolNames(t, sock) {
-		held := d.CheckHold("folder:atlas", "atlas", name, nil)
+		held, err := d.CheckHold("folder:atlas", "atlas", name, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
 		switch {
 		case free[name] && held:
 			t.Errorf("%s waits for a human; a world cannot read or answer without asking", name)

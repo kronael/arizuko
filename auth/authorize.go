@@ -67,7 +67,13 @@ func Authorize(
 	}
 
 	// 1. Expand principal set.
-	expanded := expandPrincipals(s, caller)
+	expanded, err := expandPrincipals(s, caller)
+	if err != nil {
+		slog.Error("authorize: membership read failed; DENYING",
+			"principal", caller.Principal, "route", caller.Route,
+			"action", action, "scope", scope, "err", err)
+		return false
+	}
 
 	// 2+3. Exact-match rows plus wildcard rows (stored principal contains '*',
 	// filtered against the expanded set with segment-wise glob).
@@ -82,7 +88,12 @@ func Authorize(
 			"action", action, "scope", scope, "err", err)
 		return false
 	}
-	route := routePrincipals(s, caller)
+	route, err := routePrincipals(s, caller)
+	if err != nil {
+		slog.Error("authorize: membership read failed; DENYING",
+			"route", caller.Route, "action", action, "scope", scope, "err", err)
+		return false
+	}
 
 	// 4. Evaluate.
 	allowed, denied := false, false
@@ -126,12 +137,16 @@ func Authorize(
 // principal plus its transitive role memberships. A row reachable from this set is
 // one the DESTINATION holds, so it authorizes unconfined. Empty when there is no
 // second axis, which is what leaves every existing caller unchanged.
-func routePrincipals(s *store.Store, caller Caller) []string {
+func routePrincipals(s *store.Store, caller Caller) ([]string, error) {
 	if caller.Route == "" {
-		return nil
+		return nil, nil
 	}
 	p := FolderPrincipal(caller.Route)
-	return append([]string{p}, s.Ancestors(p)...)
+	anc, err := s.Ancestors(p)
+	if err != nil {
+		return nil, err
+	}
+	return append([]string{p}, anc...), nil
 }
 
 // withinSubtree reports whether the CONCRETE target `scope` is `folder` itself or
@@ -185,14 +200,24 @@ func EffectiveActions(s *store.Store, caller Caller) func(action string) bool {
 	if s == nil || (caller.Principal == "" && caller.Route == "") {
 		return func(string) bool { return false }
 	}
-	expanded := expandPrincipals(s, caller)
+	expanded, err := expandPrincipals(s, caller)
+	if err != nil {
+		slog.Error("effective actions: membership read failed; advertising NO tools",
+			"principal", caller.Principal, "route", caller.Route, "err", err)
+		return func(string) bool { return false }
+	}
 	rows, err := policyRows(s, expanded)
 	if err != nil {
 		slog.Error("effective actions: acl read failed; advertising NO tools",
 			"principal", caller.Principal, "route", caller.Route, "err", err)
 		return func(string) bool { return false }
 	}
-	route := routePrincipals(s, caller)
+	route, err := routePrincipals(s, caller)
+	if err != nil {
+		slog.Error("effective actions: membership read failed; advertising NO tools",
+			"route", caller.Route, "err", err)
+		return func(string) bool { return false }
+	}
 	lattice := false
 	held := map[string]bool{}
 	for _, r := range rows {
@@ -240,7 +265,10 @@ func UserScopes(s *store.Store, sub string) ([]string, error) {
 	if s == nil || sub == "" {
 		return nil, nil
 	}
-	expanded := expandPrincipals(s, Caller{Principal: sub})
+	expanded, err := expandPrincipals(s, Caller{Principal: sub})
+	if err != nil {
+		return nil, err
+	}
 	rows, err := policyRows(s, expanded)
 	if err != nil {
 		return nil, err
@@ -286,7 +314,7 @@ func policyRows(s *store.Store, expanded []string) ([]core.ACLRow, error) {
 // Deduplicated. It deliberately loses which axis a principal came from — the row
 // read is one query over the union; routePrincipals re-derives the route half for
 // the confinement, so the two never disagree about who is in the set.
-func expandPrincipals(s *store.Store, caller Caller) []string {
+func expandPrincipals(s *store.Store, caller Caller) ([]string, error) {
 	// Start a frontier; expand each new principal's ancestors. Ancestors
 	// is itself transitive but is keyed off a single child — fold them.
 	frontier := append([]string{caller.Principal}, caller.Extra...)
@@ -306,11 +334,15 @@ func expandPrincipals(s *store.Store, caller Caller) []string {
 		add(p)
 	}
 	for _, p := range frontier {
-		for _, anc := range s.Ancestors(p) {
+		ancs, err := s.Ancestors(p)
+		if err != nil {
+			return nil, err
+		}
+		for _, anc := range ancs {
 			add(anc)
 		}
 	}
-	return out
+	return out, nil
 }
 
 // anyPrincipalMatches: row.Principal contains a glob; does it match any
@@ -586,24 +618,22 @@ const EffectHoldBlock = store.EffectAllow
 //
 // Any matching deny beats every hold rule regardless of specificity, so revocation is
 // removing the skip-approval row.
-func CheckHold(s *store.Store, caller Caller, tool, scope string, params map[string]string) bool {
+//
+// A failed policy read is an error, not a "no": the caller refuses the call
+// (BUGS L92).
+func CheckHold(s *store.Store, caller Caller, tool, scope string, params map[string]string) (bool, error) {
 	if s == nil || caller.Principal == "" || tool == "" {
-		return false
+		return false, nil
 	}
-	rows, err := policyRows(s, expandPrincipals(s, caller))
+	expanded, err := expandPrincipals(s, caller)
 	if err != nil {
-		// This is the OPPOSITE direction to Authorize's deny. Authorize's false
-		// REFUSES the call; this false only says "no special treatment", so the
-		// call proceeds unapproved. It is survivable because every write tool
-		// runs Authorize after this gate and Authorize denies on the same
-		// unreadable acl — the reads that skip Authorize are never held anyway.
-		// Whether an unreadable acl should HOLD instead is an open decision,
-		// not an oversight (BUGS L92).
-		slog.Error("check hold: acl read failed; holding NOTHING",
-			"principal", caller.Principal, "tool", tool, "err", err)
-		return false
+		return false, err
 	}
-	return namespacedAllows(rows, HoldPrefix, tool, scope, caller.Claims, params)
+	rows, err := policyRows(s, expanded)
+	if err != nil {
+		return false, err
+	}
+	return namespacedAllows(rows, HoldPrefix, tool, scope, caller.Claims, params), nil
 }
 
 // namespacedAllows answers one namespaced rule: does the caller hold an allow row
@@ -665,7 +695,13 @@ func ShellEnvKeys(s *store.Store, caller Caller, scope string, keys []string) []
 	if s == nil || caller.Principal == "" || len(keys) == 0 {
 		return nil
 	}
-	rows, err := policyRows(s, expandPrincipals(s, caller))
+	expanded, err := expandPrincipals(s, caller)
+	if err != nil {
+		slog.Error("shell env: membership read failed; GRANTING NOTHING",
+			"principal", caller.Principal, "scope", scope, "err", err)
+		return nil
+	}
+	rows, err := policyRows(s, expanded)
 	if err != nil {
 		// Same direction as Authorize's deny, said out loud: an unreadable acl
 		// table grants no shell credential rather than falling back to the set.

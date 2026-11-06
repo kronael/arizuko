@@ -363,8 +363,9 @@ func (s *Store) Members(parent string) []string {
 }
 
 // Ancestors returns the transitive closure of parents reachable from `child`,
-// excluding `child` itself. Cycle-safe by the visited set.
-func (s *Store) Ancestors(child string) []string {
+// excluding `child` itself. Cycle-safe by the visited set. A failed read is an
+// error, never a shorter closure: callers refuse on it (BUGS L92).
+func (s *Store) Ancestors(child string) ([]string, error) {
 	parents := MembershipParents(s.Obj())
 	ctx := context.Background()
 	seen := map[string]bool{child: true}
@@ -375,7 +376,7 @@ func (s *Store) Ancestors(child string) []string {
 		frontier = frontier[:len(frontier)-1]
 		up, err := parents(ctx, node)
 		if err != nil {
-			return nil
+			return nil, err
 		}
 		for _, p := range up {
 			if seen[p] {
@@ -387,7 +388,7 @@ func (s *Store) Ancestors(child string) []string {
 		}
 	}
 	slices.Sort(out)
-	return out
+	return out, nil
 }
 
 // RemoveMembershipInto buffers the removal of ONE edge on the caller's write

@@ -676,7 +676,11 @@ func runGrants(s *store.Store, sub string, w io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if len(rows) == 0 && len(s.Ancestors(sub)) == 0 {
+	anc, err := s.Ancestors(sub)
+	if err != nil {
+		return err
+	}
+	if len(rows) == 0 && len(anc) == 0 {
 		_, _ = fmt.Fprintln(w, "no grants")
 		return nil
 	}
@@ -697,7 +701,7 @@ func runGrants(s *store.Store, sub string, w io.Writer) error {
 		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", r.Principal, r.Action, r.Scope, r.Effect, params, ts)
 	}
 	// Also show role memberships transitively reachable from sub.
-	if anc := s.Ancestors(sub); len(anc) > 0 {
+	if len(anc) > 0 {
 		_, _ = fmt.Fprintf(tw, "\nMEMBER OF\n")
 		for _, p := range anc {
 			_, _ = fmt.Fprintf(tw, "  %s\n", p)
