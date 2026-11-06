@@ -13,6 +13,17 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.75.0] — 2026-11-06
+
+> arizuko v0.75.0 — one command onto a shared store, and @name reaches any group
+>
+> `arizuko store enroll` gives every daemon its own store key on a shared server and copies an instance there; `@name` now finds the nearest group of that name.
+>
+> • Store — `arizuko store enroll -i NAME [SNAPSHOT]` mints the account and one scoped key per daemon, and with a snapshot copies every table and checks the counts.
+> • Routing — `@name` at the start of a message reaches the nearest `<ancestor>/<name>` in the world; an `at=<name>` route sends it anywhere; the thread follows.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
 ## [v0.74.5] — 2026-11-05
 
 > arizuko v0.74.5 — issue notices reach the operator

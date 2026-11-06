@@ -54,7 +54,7 @@ line; none can be answered from the code.
   the consume contract (`L104`).
 - `L317` — may `/stop` drop the backlog older than itself, and is that drop
   sender-scoped? No other command eats a row it did not author.
-- `L273`, `L249`, `L319`, `L159`, `L202` — proposals, each costed in
+- `L273`, `L249`, `L159`, `L202` — proposals, each costed in
   its entry.
 - `L339`, `L167`, `L200` — proposals too. `L200` and `L133` were re-measured
   2026-09-21 and each came back narrower than filed.
@@ -4389,7 +4389,7 @@ should be red, now also red when it should be green.
   for signal without making the verdict honest. The runbook's drain-first
   instruction (`.claude/skills/eval/gates.md`) stays load-bearing meanwhile.
 
-## L319 — arizuko never provisions a store identity, so a shared store server has no enrolment path (2026-09-20, open)
+## ✅ FIXED 2026-11-06 5dd6369ac L319 — arizuko never provisions a store identity, so a shared store server has no enrolment path (2026-09-20)
 
 **The shared server is now live, so this is the only thing between it and use.**
 `extenddb 0.1.11` serves `0.0.0.0:18445` on hel1v5 against `dynamo` /
@@ -4497,7 +4497,8 @@ each of the two guard conditions fails it when mutated.
 - **Scope:** `cmd/arizuko` (a new subcommand); `compose/compose.go:882-901` carry-forward; `INSTALL.md` §"A shared server for several instances"
 - **Affected:** any second instance on one store server; the 10.0.5.1 consolidation
 - **Source:** `objstore/dynstore/env.go:16-22`; `compose/compose.go:882-901`; `INSTALL.md:291-390`; `specs/6/43` §6 (which already carries `defects: [L319]`)
-- **Status:** open — the AUTOMATION only; the visibility half is shipped (above). Needs sign-off on the shape: an `arizuko enrol <instance>` subcommand against a shared server, minting the account and the scoped keys `L318` specifies, in one loop. It writes the identity plane arizuko today leaves to a person. The manual path is documented and works; only the automation is missing. The shape is `arizuko store enroll`, specified in `specs/6/43-shared-store-server.md` §"6. Enrolment" (2026-11-05).
+- **Test:** `TestEnroll*` (`cmd/arizuko/store_test.go`), against dyntest.
+- **Status:** fixed — `arizuko store enroll -i NAME [SNAPSHOT]` mints the account and one key per daemon, writes `env/<daemon>.env`, and with a snapshot copies every table (spec `6/43` §6). L318 closes per instance after its move.
 - **Fix:**
 
 ## L318 — every daemon's store key carries `dynamodb:* on *`, so 19 per-daemon keys give attribution and not isolation (2026-09-20, open)
