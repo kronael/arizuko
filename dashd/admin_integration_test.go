@@ -260,7 +260,7 @@ func TestDash_GrantRevoke(t *testing.T) {
 	srv, inst, _ := newRWDashServer(t)
 	s := inst.Store
 	if err := s.AddACLRow(core.ACLRow{
-		Principal: "alice@x", Action: "admin", Scope: "**", Effect: "allow",
+		Principal: "alice@x", Action: "admin", Scope: "**", Effect: "allow", GrantOption: true,
 	}, ""); err != nil {
 		t.Fatal(err)
 	}

@@ -83,3 +83,23 @@ func TestGrantActionForm(t *testing.T) {
 		t.Error("action must allow a concrete custom shell:env key")
 	}
 }
+
+func TestGrantDenyAndRevokeContainment(t *testing.T) {
+	d, db := splitAdminDash(t, "alice@x")
+	seedGrant(t, db, core.ACLRow{Principal: "alice@x", Action: "mcp:send", Scope: "team", Effect: "deny"})
+	mux := newMux(d)
+	form := url.Values{"principal": {"bob"}, "action": {"mcp:send"}, "effect": {"deny"}, "scope": {"team"}}.Encode()
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, adminReq("POST", "/dash/groups/team/grants", form, "alice@x"))
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("add deny: %d %s", w.Code, w.Body)
+	}
+	w = httptest.NewRecorder()
+	mux.ServeHTTP(w, adminReq("POST", "/dash/groups/team/grants/revoke", form, "alice@x"))
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("revoke deny: %d %s", w.Code, w.Body)
+	}
+	if countGrants(t, db, "bob", "mcp:send") != 1 {
+		t.Fatal("deny removed")
+	}
+}

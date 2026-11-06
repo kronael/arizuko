@@ -636,7 +636,7 @@ func (s *Server) ServeTurnMCP(t turnMCP, ipcDir string) (func(), error) {
 	githubSources := s.githubSourcesPostBuild(t.folder, callerSub, authorize, visible)
 	gdriveFiles := s.gdriveFilesPostBuild(t.folder, callerSub, authorize, visible)
 	groups := s.groupsPostBuild(t.folder, callerSub, authorize, visible, callerID)
-	membership := s.membershipPostBuild(t.folder, callerSub, authorize, visible)
+	membership := s.membershipPostBuild(t.folder, callerSub, visible, t)
 	packages := s.installedPackagesPostBuild(t.folder, callerSub, authorize, visible)
 	auditTools := s.auditPostBuild(t.folder, callerSub, authorize, visible)
 	deadLetters := s.deadLettersPostBuild(t.folder, callerSub, authorize, visible)

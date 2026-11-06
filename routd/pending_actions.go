@@ -344,11 +344,15 @@ func (d *DB) resolveHoldInto(ctx context.Context, ws *store.WriteSet, id, verdic
 	if !ok {
 		return PendingAction{}, fmt.Errorf("no pending action %q: %w", id, ErrPendingNotFound)
 	}
-	if !d.Authorize(reviewer, held.GroupFolder, "admin", nil) {
-		return PendingAction{}, fmt.Errorf(
-			"%w: answering a held call in %q needs an admin grant covering that folder",
-			ErrPendingForbidden, held.GroupFolder)
+	var mutations []auth.Mutation
+	if verdict == PendingApproved && standing {
+		mutations = append(mutations, auth.Mutation{Row: skipApprovalRow(held, reviewer)})
 	}
+	v, err := auth.CheckGrant(d.store(), auth.Caller{Principal: reviewer}, auth.Ask{Action: "admin", Scope: held.GroupFolder}, mutations...)
+	if err != nil {
+		return PendingAction{}, fmt.Errorf("%w: answering a held call in %q: %v", ErrPendingForbidden, held.GroupFolder, err)
+	}
+	ws.Prove(v)
 	p, err := d.resolvePendingActionInto(ws, id, verdict, reviewer, note, lost)
 	if err != nil {
 		return PendingAction{}, err

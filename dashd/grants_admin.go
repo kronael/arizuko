@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/ipc"
+	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/routd"
 	"github.com/kronael/arizuko/store"
 )
@@ -175,7 +177,7 @@ func (d *dash) handleGroupGrantAdd(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad folder", http.StatusBadRequest)
 		return
 	}
-	sub, ok := d.requireAdmin(w, r, folder)
+	sub, ok := d.requireWriter(w, r)
 	if !ok {
 		return
 	}
@@ -226,20 +228,20 @@ func (d *dash) handleGroupGrantAdd(w http.ResponseWriter, r *http.Request) {
 		Params:    params,
 		GrantedBy: sub,
 	}
-	// 5/33-paths-roles: an allow is a subset of what the writer holds WITH the
-	// grant option, as on the MCP and REST faces (BUGS L658). A deny only
-	// restricts, inside the folder requireAdmin already bound.
-	if effect == "allow" {
-		if _, err := auth.CheckGrant(s, auth.Caller{Principal: reviewerSub(r)}, auth.Ask{}, auth.Mutation{Row: row}); err != nil {
-			http.Error(w, err.Error(), http.StatusForbidden)
-			return
-		}
+	v, err := auth.CheckGrant(s, auth.Caller{Principal: reviewerSub(r)}, auth.Ask{Action: "admin", Scope: folder}, auth.Mutation{Row: row})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
 	}
 	// AddACLRow, the audited writer: routd.db HAS had audit_log since routd
 	// migration 0016, so the grant lands with its audit row in one transaction.
 	// Same INSERT OR IGNORE as PutACLRow; the actor comes from row.GrantedBy.
-	if err := s.AddACLRow(row, ""); err != nil {
+	if err := s.AddACLRow(row, v); err != nil {
 		slog.Warn("grants add: insert", "folder", folder, "err", err)
+		if errors.Is(err, objstore.ErrScopeMoved) {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
 		http.Error(w, "insert failed", http.StatusInternalServerError)
 		return
 	}
@@ -274,7 +276,7 @@ func (d *dash) handleGroupGrantRevoke(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad folder", http.StatusBadRequest)
 		return
 	}
-	sub, ok := d.requireAdmin(w, r, folder)
+	sub, ok := d.requireWriter(w, r)
 	if !ok {
 		return
 	}
@@ -307,11 +309,20 @@ func (d *dash) handleGroupGrantRevoke(w http.ResponseWriter, r *http.Request) {
 		Params:    params,
 		Predicate: predicate,
 	}
+	v, err := auth.CheckGrant(s, auth.Caller{Principal: reviewerSub(r)}, auth.Ask{Action: "admin", Scope: folder}, auth.Mutation{Remove: true, Row: row})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
 	// RemoveACLRow, the audited writer (routd.db has audit_log since routd
 	// migration 0016). AsUser attributes the revoke to the operator — unlike a
 	// grant, the row carries no field naming who removed it.
-	if err := s.AsUser(sub).RemoveACLRow(row, ""); err != nil {
+	if err := s.AsUser(sub).RemoveACLRow(row, v); err != nil {
 		slog.Warn("grants revoke: delete", "folder", folder, "err", err)
+		if errors.Is(err, objstore.ErrScopeMoved) {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
 		http.Error(w, "delete failed", http.StatusInternalServerError)
 		return
 	}

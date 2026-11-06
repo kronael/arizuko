@@ -2,11 +2,13 @@ package main
 
 import (
 	"bytes"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/store"
 )
 
 // TestGrantActionReachesEgress pins the gap migration 0023 opened. It removed the
@@ -131,5 +133,34 @@ func TestGrantActionReachesAnExtTool(t *testing.T) {
 	}
 	if !auth.Authorize(s, auth.Caller{Principal: "folder:atlas"}, scope, "atlas", nil) {
 		t.Fatal("explicit ext grant did not authorize the tool the socket asks about")
+	}
+}
+
+func TestOperatorShortcutRequiresOmittedAction(t *testing.T) {
+	s := newMem(t)
+	var out bytes.Buffer
+	if err := runGrant(s, core.ACLRow{Principal: "operator", Scope: "**"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	ancestors, err := s.Ancestors("operator")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(ancestors, store.RoleOperator) {
+		t.Fatalf("operator edge missing: %v", ancestors)
+	}
+	if err := runGrant(s, core.ACLRow{Principal: "ordinary", Scope: "**", Action: "admin"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	ancestors, err = s.Ancestors("ordinary")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if slices.Contains(ancestors, store.RoleOperator) {
+		t.Fatalf("explicit admin made operator: %v", ancestors)
+	}
+	rows, err := s.ListACL("ordinary")
+	if err != nil || len(rows) != 1 || rows[0].Action != "admin" {
+		t.Fatalf("admin row: %v, %v", rows, err)
 	}
 }

@@ -203,9 +203,7 @@ func (d *dash) adminOn(r *http.Request, scope string) bool {
 	return auth.Authorize(d.routdStore(), caller, "admin", scope, nil)
 }
 
-// requireAdmin gates a write to scope via adminOn; deny-wins, no tier-default
-// fallback. Returns false if the handler must abort.
-func (d *dash) requireAdmin(w http.ResponseWriter, r *http.Request, scope string) (string, bool) {
+func (d *dash) requireWriter(w http.ResponseWriter, r *http.Request) (string, bool) {
 	sub, ok := requireUser(w, r)
 	if !ok {
 		return "", false
@@ -215,6 +213,16 @@ func (d *dash) requireAdmin(w http.ResponseWriter, r *http.Request, scope string
 	}
 	if d.routdStore() == nil {
 		http.Error(w, "backend unavailable", http.StatusServiceUnavailable)
+		return "", false
+	}
+	return strings.TrimPrefix(sub, "user:"), true
+}
+
+// requireAdmin gates a write to scope via adminOn; deny-wins, no tier-default
+// fallback. Returns false if the handler must abort.
+func (d *dash) requireAdmin(w http.ResponseWriter, r *http.Request, scope string) (string, bool) {
+	sub, ok := d.requireWriter(w, r)
+	if !ok {
 		return "", false
 	}
 	if !d.adminOn(r, scope) {

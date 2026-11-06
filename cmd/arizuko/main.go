@@ -610,21 +610,13 @@ func checkGrantRow(row core.ACLRow) error {
 	return nil
 }
 
-// operatorRow reports whether the row is the operator membership rather than a
-// per-folder grant. BOTH verbs ask, and they must agree: `ungrant sub **` used
-// to drop the operator role whatever action it carried, so revoking one `**`
-// rule took the whole role with it.
-func operatorRow(row core.ACLRow) bool {
-	return row.Scope == "**" && row.Action == "admin" &&
-		row.Effect == store.EffectAllow && row.Params == ""
-}
-
 // runGrant writes acl rows through the AUDITED AddACLRow / AddMembership:
 // routd.db HAS had audit_log since routd migration 0016, so the grant and its
 // audit row commit together, matching what the same grant already records
 // through dashd and MCP. Granting authority is the mutation an audit trail
 // exists for.
 func runGrant(s *store.Store, row core.ACLRow, w io.Writer) error {
+	operator := store.OperatorShape(row)
 	row = store.GrantDefaults(row)
 	if err := checkGrantRow(row); err != nil {
 		return err
@@ -633,7 +625,7 @@ func runGrant(s *store.Store, row core.ACLRow, w io.Writer) error {
 	// form do. A row written against a linked alias looks applied and never
 	// fires, and the denial afterwards reads as policy (BUGS L152).
 	warn := func(m string) { _, _ = fmt.Fprintln(w, "warning: "+m) }
-	if operatorRow(row) {
+	if operator {
 		// Operator grant: add to role:operator instead of a per-folder row.
 		if err := s.AddMembership(row.Principal, "role:operator", "arizuko grant"); err != nil {
 			return err
@@ -652,11 +644,12 @@ func runGrant(s *store.Store, row core.ACLRow, w io.Writer) error {
 }
 
 func runUngrant(s *store.Store, row core.ACLRow, w io.Writer) error {
+	operator := store.OperatorShape(row)
 	row = store.GrantDefaults(row)
 	if err := checkGrantRow(row); err != nil {
 		return err
 	}
-	if operatorRow(row) {
+	if operator {
 		if err := s.RemoveMembership(row.Principal, "role:operator"); err != nil {
 			return err
 		}

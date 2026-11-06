@@ -9,6 +9,7 @@ package routd
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/core"
@@ -40,9 +41,22 @@ func holdOnce(t *testing.T, tool string, args map[string]any) (*Server, *DB, *re
 	// The NOTICE is a second write, after the row: the gate records the held call
 	// and then delivers. Every caller below reads dl.sends[0], so wait for it.
 	dl.waitSends(t, 1)
+	awaitNoticeRecorded(t, d, id)
 	// End the waiter even when the test leaves the call unanswered.
 	t.Cleanup(func() { _, _ = d.expirePendingAction(id) })
 	return srv, d, dl, id
+}
+
+func awaitNoticeRecorded(t *testing.T, d *DB, id string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if p, ok := d.pendingAction(id); ok && p.NoticeID != "" {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("notice id not recorded")
 }
 
 // always runs the standing verdict through the shared funnel, the way both the

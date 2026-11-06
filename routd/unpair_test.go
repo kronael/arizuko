@@ -24,8 +24,7 @@ func serveMembershipMCP(t *testing.T, db *DB, folder, callerSub string) string {
 	t.Helper()
 	srv := NewServer(db, nil, nil, nil, 0, "https://x.test")
 	sock := groupfolder.IpcSocket(t.TempDir())
-	pb := srv.membershipPostBuild(folder, callerSub, srv.turnAuthorize(turnMCP{folder: folder}),
-		srv.turnVisible(turnMCP{folder: folder}))
+	pb := srv.membershipPostBuild(folder, callerSub, srv.turnVisible(turnMCP{folder: folder}), turnMCP{folder: folder})
 	stop, err := ipc.ServeMCP(sock, srv.buildRoutdFns(turnMCP{folder: folder}),
 		srv.buildStoreFns(turnMCP{folder: folder}), folder, false, 0, callerSub, pb)
 	if err != nil {
@@ -106,9 +105,7 @@ func TestUnpairMCP_CannotReachRoleMembership(t *testing.T) {
 	if e == "" {
 		t.Fatal("unpair deleted a role membership")
 	}
-	if !strings.Contains(e, "no pairing") {
-		t.Errorf("error = %q, want a not-found refusal", e)
-	}
+
 	if !edgeExists(t, db, "telegram:user/42", "role:member") {
 		t.Fatal("role membership was deleted")
 	}
@@ -138,6 +135,7 @@ func TestUnpairMCP_ForeignChatRefused(t *testing.T) {
 func TestUnpairREST_AccountSide(t *testing.T) {
 	db := unpairFixture(t)
 	srv := NewServer(db, nil, nil, nil, 0, "https://x.test")
+	srv.verify = fakeVerifier{sub: "user:google:alice"}
 	mux := http.NewServeMux()
 	srv.mountMembership(mux)
 
@@ -161,6 +159,7 @@ func TestUnpairREST_AccountSide(t *testing.T) {
 func TestUnpairREST_CannotReachRoleMembership(t *testing.T) {
 	db := unpairFixture(t)
 	srv := NewServer(db, nil, nil, nil, 0, "https://x.test")
+	srv.verify = fakeVerifier{sub: "user:google:alice"}
 	mux := http.NewServeMux()
 	srv.mountMembership(mux)
 
@@ -169,8 +168,8 @@ func TestUnpairREST_CannotReachRoleMembership(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("DELETE role membership: status %d, want 404; %s", w.Code, w.Body.String())
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("DELETE role membership: status %d, want 403; %s", w.Code, w.Body.String())
 	}
 	if !edgeExists(t, db, "telegram:user/42", "role:member") {
 		t.Fatal("role membership was deleted over REST")
@@ -231,5 +230,20 @@ func TestUnpairREST_OnlyTheParent(t *testing.T) {
 	}
 	if edgeExists(t, db, "telegram:user/42", "google:alice") {
 		t.Error("edge survived the parent's unpair")
+	}
+}
+
+func TestUnpairMCP_ParentDeny(t *testing.T) {
+	db := unpairFixture(t)
+	if err := addACLRow(db, core.ACLRow{Principal: "google:alice", Action: "mcp:send", Scope: "hq", Effect: "deny"}); err != nil {
+		t.Fatal(err)
+	}
+	sock := serveMembershipMCP(t, db, "hq", "folder:hq")
+	_, e := callToolText(t, sock, "unpair", map[string]any{"jid": "telegram:user/42", "sender": "telegram:user/42", "parent": "google:alice"})
+	if e == "" {
+		t.Fatal("unpair removed a parent deny")
+	}
+	if !edgeExists(t, db, "telegram:user/42", "google:alice") {
+		t.Fatal("pairing removed")
 	}
 }

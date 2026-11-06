@@ -31,6 +31,9 @@ type aclReq struct {
 // scope snapshot looks.
 func TestACLAddEndpoint(t *testing.T) {
 	db, h := authSrv(t, fakeVerifier{sub: "service:dashd", scope: []string{"acl:write"}})
+	if err := addMembership(db, "service:dashd", "role:operator", "test"); err != nil {
+		t.Fatal(err)
+	}
 
 	rec := doJSON(t, h, "POST", "/v1/acl", "", aclReq{
 		Principal: "github:7", Scope: "main/eng"})
@@ -54,6 +57,9 @@ func TestACLAddEndpoint(t *testing.T) {
 // same semantic the CLI uses), reachable via the closure walk.
 func TestACLAddOperatorEndpoint(t *testing.T) {
 	db, h := authSrv(t, fakeVerifier{sub: "service:dashd", scope: []string{"acl:write"}})
+	if err := addMembership(db, "service:dashd", "role:operator", "test"); err != nil {
+		t.Fatal(err)
+	}
 
 	if rec := doJSON(t, h, "POST", "/v1/acl", "", aclReq{
 		Principal: "github:9", Scope: "**"}); rec.Code != 200 {
@@ -78,6 +84,9 @@ func TestACLAddOperatorEndpoint(t *testing.T) {
 // TestACLRemoveEndpoint: DELETE /v1/acl (root) removes a previously-written row.
 func TestACLRemoveEndpoint(t *testing.T) {
 	db, h := authSrv(t, fakeVerifier{sub: "service:dashd", scope: []string{"acl:write"}})
+	if err := addMembership(db, "service:dashd", "role:operator", "test"); err != nil {
+		t.Fatal(err)
+	}
 
 	if err := addACLRow(db, core.ACLRow{
 		Principal: "u1", Action: "admin", Scope: "main", Effect: "allow", GrantedBy: "seed"}); err != nil {
@@ -188,6 +197,9 @@ func TestACLRESTContainmentDenied(t *testing.T) {
 // is covered by TestACLRESTContainmentDenied.
 func TestACLRESTOperatorRootOnly(t *testing.T) {
 	db, h := authSrv(t, fakeVerifier{sub: "service:dashd", scope: []string{"acl:write"}, folder: ""})
+	if err := addMembership(db, "service:dashd", "role:operator", "test"); err != nil {
+		t.Fatal(err)
+	}
 
 	if rec := doJSON(t, h, "POST", "/v1/acl", "", aclReq{
 		Principal: "google:op", Scope: "**"}); rec.Code != 200 {
@@ -226,5 +238,19 @@ func TestACLRESTDeleteContainmentDenied(t *testing.T) {
 	}
 	if aclRowCount(t, db, "other/x") != 1 {
 		t.Fatal("denied cross-world DELETE still dropped the row")
+	}
+}
+
+func TestACLRootTokenNeedsGrant(t *testing.T) {
+	db, h := authSrv(t, fakeVerifier{sub: "service:writer", scope: []string{"acl:write"}})
+	request := aclReq{Principal: "google:target", Scope: "**"}
+	if rec := doJSON(t, h, "POST", "/v1/acl", "", request); rec.Code != 403 {
+		t.Fatalf("ungranted root: %d %s", rec.Code, rec.Body.String())
+	}
+	if err := addMembership(db, "service:writer", "role:operator", "test"); err != nil {
+		t.Fatal(err)
+	}
+	if rec := doJSON(t, h, "POST", "/v1/acl", "", request); rec.Code != 200 {
+		t.Fatalf("granted root: %d %s", rec.Code, rec.Body.String())
 	}
 }

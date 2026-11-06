@@ -1,12 +1,6 @@
 package routd
 
-// Unpair (spec 5/31-identity-pairing): acl_membership gains exactly ONE action — delete —
-// scoped to added_by='pairing' so it cannot reach role membership. Either
-// endpoint of the edge may call it, each face proving it IS that endpoint:
-// the AGENT is authorized against the folder the child JID routes to, the
-// REST caller's JWT sub must BE the parent, with no operator override. Both
-// directions are de-escalation; adding an edge needs the account owner's
-// consent at the browser step.
+// Unpair removes pairing edges after checking the authority the edge carries.
 
 import (
 	"context"
@@ -18,6 +12,8 @@ import (
 
 	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/auth"
+	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/resreg/resources"
 )
@@ -25,16 +21,16 @@ import (
 // membershipResource is the single renderer for both unpair faces. contain
 // receives the resolved target — the child's routing folder for the agent,
 // the row's parent for REST.
-func (s *Server) membershipResource(contain containFn) resreg.Resource {
+func (s *Server) membershipResource(contain containFn, check grantCheck) resreg.Resource {
 	r := resreg.Mount(resources.ACLMembershipName)
 	r.Store = s.db.store()
 	r.Handler = func(ctx context.Context, x resreg.Execution) (any, error) {
-		return s.membershipHandler(ctx, x, contain)
+		return s.membershipHandler(ctx, x, contain, check)
 	}
 	return r
 }
 
-func (s *Server) membershipHandler(ctx context.Context, x resreg.Execution, contain containFn) (any, error) {
+func (s *Server) membershipHandler(ctx context.Context, x resreg.Execution, contain containFn, check grantCheck) (any, error) {
 	if x.Action != resreg.ActionDelete {
 		return nil, resreg.Errorf(http.StatusBadRequest, "unknown action %q", x.Action)
 	}
@@ -65,6 +61,11 @@ func (s *Server) membershipHandler(ctx context.Context, x resreg.Execution, cont
 			return nil, err
 		}
 	}
+	v, err := check(x, auth.Mutation{Remove: true, Row: core.ACLRow{Principal: child, Scope: target}, Parent: parent})
+	if err != nil {
+		return nil, resreg.Errorf(http.StatusForbidden, "%v", err)
+	}
+	x.Writes.Prove(v)
 	// added_by='pairing' is the whole scope: a role or manifest edge matches
 	// zero rows. The delete conditions on the edge being pairing's, so its
 	// refusal IS the not-found answer, reached from the batch.
@@ -77,17 +78,12 @@ func (s *Server) membershipHandler(ctx context.Context, x resreg.Execution, cont
 	return map[string]any{"removed": true, "child": child, "parent": parent}, nil
 }
 
-// membershipPostBuild mounts `unpair` on the agent socket; contain authorizes
-// the caller against the folder the child JID routes to.
-func (s *Server) membershipPostBuild(folder, callerSub string, authorize authorizeFn, visible func(string) bool) func(*mcpserver.MCPServer) {
-	contain := func(_ resreg.Caller, a resreg.Action, target string) error {
-		name := resources.ACLMembershipMCPNames[a]
-		if !authorize(target, "mcp:"+name, nil) {
-			return resreg.Errorf(http.StatusForbidden, "%s on %s: not permitted", name, target)
-		}
-		return nil
-	}
-	res := s.membershipResource(contain)
+// membershipPostBuild mounts `unpair` on the agent socket.
+func (s *Server) membershipPostBuild(folder, callerSub string, visible func(string) bool, t turnMCP) func(*mcpserver.MCPServer) {
+	contain := func(resreg.Caller, resreg.Action, string) error { return nil }
+	res := s.membershipResource(contain, func(_ resreg.Execution, m auth.Mutation) (objstore.Version, error) {
+		return auth.CheckGrant(s.db.store(), turnGranter(t), auth.Ask{Action: "mcp:unpair", Scope: m.Row.Scope}, m)
+	})
 	res.Gate = agentAllowGate
 	return mountAgentResource(res, callerSub, folder, visible)
 }
@@ -108,7 +104,9 @@ func (s *Server) mountMembership(mux *http.ServeMux) {
 		}
 		return nil
 	}
-	res := s.membershipResource(contain)
+	res := s.membershipResource(contain, func(x resreg.Execution, m auth.Mutation) (objstore.Version, error) {
+		return auth.CheckGrant(s.db.store(), auth.Caller{Principal: auth.BareSub(x.Caller.Sub)}, auth.Ask{}, m)
+	})
 	// No scope gate: being the edge's parent IS the authorization, and that
 	// check needs the row's parent arg, so it rides contain. resreg's
 	// defaultGate would demand an acl_membership:delete scope nobody holds.

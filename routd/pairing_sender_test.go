@@ -99,7 +99,7 @@ func TestPairingSenderValidationBounded(t *testing.T) {
 			} else {
 				x.Action = resreg.ActionDelete
 				_, err = s.membershipHandler(context.Background(), x,
-					func(resreg.Caller, resreg.Action, string) error { return nil })
+					func(resreg.Caller, resreg.Action, string) error { return nil }, nil)
 			}
 			var response *resreg.HandlerError
 			if !errors.As(err, &response) || response.Code != http.StatusBadRequest ||

@@ -23,6 +23,14 @@ import (
 // only as the audit actor, never as an authorization input.
 type authorizeFn func(folder, action string, params map[string]string) bool
 
+func turnGranter(t turnMCP) auth.Caller {
+	caller := auth.Caller{Principal: turnCallerSub(t.trigger)}
+	if !t.elevated {
+		caller.Route = t.folder
+	}
+	return caller
+}
+
 // turnAuthorize renders the check on the two axes of 5/33-paths-roles: the turn's folder
 // confers, the attested sender adds inside that folder's subtree. An elevated
 // /root turn allows every call — the ONLY path by which a person's own

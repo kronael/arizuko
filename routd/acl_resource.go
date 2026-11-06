@@ -1,15 +1,6 @@
 package routd
 
-// acl_resource.go — the acl tools on one resreg.Resource plus the injected
-// Gate (spec 5/16); routd owns the auth POLICY. Three semantics the shared
-// handler preserves: scope-containment (the Gate runs the 5/33-paths-roles evaluator on
-// the `scope` arg, then auth.CheckGrant subset-of-held for a non-root add, so
-// "**" is reachable only from an operator/root grant); the operator-role
-// overload (scope "**" with the action OMITTED writes an acl_membership edge,
-// not an acl row — any named action at "**" is an ordinary row, and matching
-// on scope alone over-granted); and list_acl, MCPOnly, returning only rows
-// whose scope == the queried folder. The REST face rides the SAME handler
-// and binds the body `scope` to the caller's JWT folder.
+// The shared ACL handler checks each mutation and proves the policy version.
 
 import (
 	"context"
@@ -20,6 +11,7 @@ import (
 
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/resreg/resources"
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
@@ -32,9 +24,11 @@ var aclMCPNames = resources.ACLMCPNames
 
 // aclResource is the acl agent-face Resource. No RowType: args are the exact
 // wire shapes, single-sourced in resreg/resources.
-func (s *Server) aclResource() resreg.Resource {
+type grantCheck func(resreg.Execution, auth.Mutation) (objstore.Version, error)
+
+func (s *Server) aclResource(check grantCheck) resreg.Resource {
 	r := resreg.Mount(resources.ACLName)
-	r.Handler = s.aclHandler
+	r.Handler = func(ctx context.Context, x resreg.Execution) (any, error) { return s.aclHandler(ctx, x, check) }
 	r.Store = s.db.store()
 	return r
 }
@@ -44,7 +38,9 @@ func (s *Server) aclResource() resreg.Resource {
 // trimmed copy left GET /v1/acl advertised and unmounted (BUGS F27);
 // endpoints_source_test.go probes this mux to catch it.
 func (s *Server) mountACL(mux *http.ServeMux) {
-	res := s.aclResource()
+	res := s.aclResource(func(x resreg.Execution, m auth.Mutation) (objstore.Version, error) {
+		return auth.CheckGrant(s.db.store(), auth.Caller{Principal: x.Caller.Sub}, auth.Ask{}, m)
+	})
 	res.Gate = s.aclRESTGate
 	resreg.RegisterREST(mux, res, s.restCaller(nil))
 }
@@ -62,18 +58,10 @@ func (s *Server) aclRESTGate(x resreg.Execution, _ string, _ map[string]string) 
 	if !ownsFolder(x.Caller.Folder, argString(x.Args, "scope")) {
 		return resreg.Errorf(http.StatusForbidden, "scope outside caller subtree")
 	}
-	// 5/33-paths-roles delegation, as on the MCP face: a non-root writer grants
-	// only a row it holds WITH the grant option (BUGS L658).
-	if x.Action == resreg.Action("add") && !auth.Resolve(x.Caller.Folder).IsRoot {
-		want := store.GrantDefaults(aclArgsRow(x.Args))
-		if _, err := auth.CheckGrant(s.db.store(), auth.Caller{Principal: x.Caller.Sub}, auth.Ask{}, auth.Mutation{Row: want}); err != nil {
-			return resreg.Errorf(http.StatusForbidden, "%v", err)
-		}
-	}
 	return nil
 }
 
-func (s *Server) aclHandler(ctx context.Context, x resreg.Execution) (any, error) {
+func (s *Server) aclHandler(ctx context.Context, x resreg.Execution, check grantCheck) (any, error) {
 	switch x.Action {
 	case resreg.ActionList:
 		gf := argString(x.Args, "folder")
@@ -106,8 +94,14 @@ func (s *Server) aclHandler(ctx context.Context, x resreg.Execution) (any, error
 		}
 		// Only ADD validates the narrowing: a remove must still address a row
 		// written before this check existed.
+		if err := store.ValidateACLAction(store.GrantDefaults(row).Action); err != nil {
+			return nil, resreg.Errorf(http.StatusBadRequest, "%v", err)
+		}
 		if err := auth.ValidateParams(row.Params); err != nil {
 			return nil, resreg.Errorf(http.StatusBadRequest, "%v", err)
+		}
+		if err := proveACL(x, check, row, false); err != nil {
+			return nil, err
 		}
 		warning := s.nonCanonicalWarning(row.Principal)
 		row.GrantedBy = "agent:" + x.Caller.Folder
@@ -120,6 +114,9 @@ func (s *Server) aclHandler(ctx context.Context, x resreg.Execution) (any, error
 		row := aclArgsRow(x.Args)
 		if row.Principal == "" || row.Scope == "" {
 			return nil, resreg.Errorf(http.StatusBadRequest, "principal and scope required")
+		}
+		if err := proveACL(x, check, row, true); err != nil {
+			return nil, err
 		}
 		// The delete conditions on the row being there, so its refusal IS the
 		// not-found answer, reached from the batch rather than from this call.
@@ -135,36 +132,28 @@ func (s *Server) aclHandler(ctx context.Context, x resreg.Execution) (any, error
 	return nil, resreg.Errorf(http.StatusBadRequest, "unknown action %q", x.Action)
 }
 
-// aclPostBuild mounts the acl tools on the agent socket with the Gate
-// (db.Authorize(mcp:) on the target scope + auth.CheckGrant subset-of-held on
-// add) and the turn's visibility view.
+func proveACL(x resreg.Execution, check grantCheck, row core.ACLRow, remove bool) error {
+	m := auth.Mutation{Remove: remove, Row: store.GrantDefaults(row)}
+	if store.OperatorShape(row) {
+		m.Row = core.ACLRow{Principal: row.Principal}
+		m.Parent = store.RoleOperator
+	}
+	v, err := check(x, m)
+	if err != nil {
+		return resreg.Errorf(http.StatusForbidden, "%v", err)
+	}
+	x.Writes.Prove(v)
+	return nil
+}
+
+// aclPostBuild mounts the ACL tools with the turn’s policy and visibility.
 func (s *Server) aclPostBuild(folder, callerSub string, authorize authorizeFn, visible func(string) bool, t turnMCP) func(*mcpserver.MCPServer) {
-	res := s.aclResource()
+	res := s.aclResource(func(x resreg.Execution, m auth.Mutation) (objstore.Version, error) {
+		return auth.CheckGrant(s.db.store(), turnGranter(t), auth.Ask{Action: "mcp:" + aclMCPNames[x.Action], Scope: argString(x.Args, "scope")}, m)
+	})
 	res.Gate = func(x resreg.Execution, _ string, _ map[string]string) error {
-		name := aclMCPNames[x.Action]
-		// "**" is covered only by an operator/root grant.
-		var target string
-		switch x.Action {
-		case resreg.Action("add"), resreg.Action("remove"):
-			target = argString(x.Args, "scope")
-		case resreg.ActionList:
-			target = argString(x.Args, "folder")
-		}
-		// One evaluator: the caller must hold the tool scoped to cover the target.
-		if !authorize(target, "mcp:"+name, nil) {
-			return resreg.Errorf(http.StatusForbidden, "%s on %s: not permitted", name, target)
-		}
-		// 5/33-paths-roles delegation: a NON-root writer may only grant a row it HOLDS with
-		// the grant option (auth.CheckGrant). Root delegates anything.
-		if x.Action == resreg.Action("add") && !turnIdentity(t.folder, t.elevated).IsRoot {
-			// The candidate MUST be the row grantACLInto will WRITE — same builder,
-			// same defaults. A hardcoded `allow` validated an allow row while the
-			// write took the caller's effect (BUGS L93); the same drift on `params`
-			// would let `mcp:t(repo=mine/*)` write the unnarrowed `mcp:t`.
-			want := store.GrantDefaults(aclArgsRow(x.Args))
-			if _, err := auth.CheckGrant(s.db.store(), auth.Caller{Principal: turnCallerSub(t.trigger), Route: t.folder}, auth.Ask{}, auth.Mutation{Row: want}); err != nil {
-				return resreg.Errorf(http.StatusForbidden, "%v", err)
-			}
+		if x.Action == resreg.ActionList && !authorize(argString(x.Args, "folder"), "mcp:"+aclMCPNames[x.Action], nil) {
+			return resreg.Errorf(http.StatusForbidden, "list_acl: not permitted")
 		}
 		return nil
 	}
@@ -212,7 +201,7 @@ func NonCanonicalWarning(ident IdentityResolver, principal string) string {
 }
 
 // aclArgsRow reads the add/remove wire arguments with NO defaults applied —
-// aclOperatorShape tests the raw row, where an omitted action is the signal.
+// OperatorShape tests the raw row, where an omitted action is the signal.
 // One builder for the Gate and the handler. There is no `predicate` argument:
 // this face writes rules over call ARGUMENTS, and revokeACLInto pins
 // `predicate=""` to match.
@@ -227,28 +216,13 @@ func aclArgsRow(args resreg.Args) core.ACLRow {
 	}
 }
 
-// aclOperatorShape reports whether a row is the operator-role overload: scope
-// "**", the action OMITTED (or "*"), no narrowing — tested on the RAW row.
-// Matching on scope alone let `add_acl(action="read", scope="**")` mint full
-// operator membership, and a shaped row at "**" is an ordinary wildcard row.
-func aclOperatorShape(r core.ACLRow) bool {
-	return r.Scope == "**" &&
-		(r.Action == "" || r.Action == "*") &&
-		(r.Effect == "" || r.Effect == "allow") &&
-		r.Params == "" && r.Predicate == ""
-}
-
-// grantACLInto buffers the grant so the mutation + audit row ride one batch.
-// It takes the ROW so the candidate the Gate hands auth.CheckGrant and the row
-// this writes are one value. `params` is the `name=glob` narrowing (spec 5/32-acl-unified);
-// `grant_option` is 5/33-paths-roles's WITH GRANT OPTION, kept honest by the Gate: a
-// non-root writer passes auth.CheckGrant, which checks the caller's grant option.
+// grantACLInto buffers the grant and its audit row in one batch.
 func (d *DB) grantACLInto(ctx context.Context, ws *store.WriteSet, row core.ACLRow) error {
 	grantedBy := row.GrantedBy
 	if grantedBy == "" {
 		grantedBy = "routd"
 	}
-	if aclOperatorShape(row) {
+	if store.OperatorShape(row) {
 		// The edge is the operator role itself, so the cycle walk runs here too
 		// (store.PutMembershipInto).
 		return d.store().PutMembershipInto(ctx, ws, row.Principal, "role:operator", grantedBy)
@@ -266,7 +240,7 @@ func (d *DB) grantACLInto(ctx context.Context, ws *store.WriteSet, row core.ACLR
 func (d *DB) revokeACLInto(ws *store.WriteSet, row core.ACLRow, refused error) error {
 	// Same raw-row test as the grant guard: keying on scope alone let a
 	// narrow-row revoke strip an operator membership granted separately.
-	if aclOperatorShape(row) {
+	if store.OperatorShape(row) {
 		return d.store().RemoveMembershipInto(ws, row.Principal, "role:operator", refused)
 	}
 	// The six coordinate fields address exactly one grant.

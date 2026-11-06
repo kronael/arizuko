@@ -59,6 +59,7 @@ func TestWorld_HoldsWhatTheOwnerShouldSeeAndRunsTheRest(t *testing.T) {
 	// row is not waiting for the notice. awaitNotice takes the deliverer's lock,
 	// which is what makes the read below safe as well as non-empty.
 	awaitNotice(t, dl)
+	awaitNoticeRecorded(t, d, id)
 
 	// The person is told, in the chat, with the id they answer on.
 	sends := dl.sentMsgs()

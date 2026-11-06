@@ -12,7 +12,7 @@ import (
 // only (admin, **, grant_option=1) could pass auth.Delegate for an admin grant
 // and then mint a strictly stronger right than it held.
 func TestGrantACLTx_NarrowActionAtTreeScopeIsNotOperator(t *testing.T) {
-	for _, action := range []string{"mcp:fetch_history", "admin", "mcp:reply", "egress"} {
+	for _, action := range []string{"mcp:fetch_history", "admin", "mcp:reply", "egress", "*"} {
 		db, err := OpenMem()
 		if err != nil {
 			t.Fatal(err)
@@ -39,10 +39,10 @@ func TestGrantACLTx_NarrowActionAtTreeScopeIsNotOperator(t *testing.T) {
 }
 
 // The operator-grant shape is an OMITTED action (what /root grant and its REST
-// twin send) or an explicit "*". Both must still mint the membership edge —
+// twin send). It mints the membership edge —
 // this is the path TestACLMCP_RootElevationGrantsOperatorRole exercises.
 func TestGrantACLTx_OperatorShapeStillMintsMembership(t *testing.T) {
-	for _, action := range []string{"", "*"} {
+	for _, action := range []string{""} {
 		db, err := OpenMem()
 		if err != nil {
 			t.Fatal(err)

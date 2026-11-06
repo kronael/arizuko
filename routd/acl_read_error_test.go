@@ -33,6 +33,9 @@ func dropEntity(t *testing.T, db *DB, entity string) {
 // second is true will happily re-grant what is already denied.
 func TestUserScopesEndpointReportsAReadFailure(t *testing.T) {
 	db, h := authSrv(t, fakeVerifier{sub: "service:authd", scope: []string{"grants:read", "acl:write"}})
+	if err := addMembership(db, "service:authd", "role:operator", "test"); err != nil {
+		t.Fatal(err)
+	}
 
 	rec := doJSON(t, h, "POST", "/v1/acl", "", aclReq{Principal: "github:7", Scope: "main/eng"})
 	if rec.Code != 200 {

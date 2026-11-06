@@ -50,11 +50,14 @@ func serveACLMCP(t *testing.T, db *DB, folder, callerSub string) string {
 // hands the postBuild for an elevated turn.
 func serveACLMCPElevated(t *testing.T, db *DB, folder string) string {
 	t.Helper()
+	if err := addMembership(db, "google:operator", "role:operator", "test"); err != nil {
+		t.Fatal(err)
+	}
 	srv := NewServer(db, nil, nil, nil, 0, "")
 	sock := groupfolder.IpcSocket(t.TempDir())
 	callerSub := "folder:" + folder
-	pb := srv.aclPostBuild(folder, callerSub, srv.turnAuthorize(turnMCP{folder: folder, elevated: true}),
-		srv.turnVisible(turnMCP{folder: folder, elevated: true}), turnMCP{folder: folder, elevated: true})
+	pb := srv.aclPostBuild(folder, callerSub, srv.turnAuthorize(turnMCP{folder: folder, trigger: "google:operator", elevated: true}),
+		srv.turnVisible(turnMCP{folder: folder, trigger: "google:operator", elevated: true}), turnMCP{folder: folder, trigger: "google:operator", elevated: true})
 	stop, err := ipc.ServeMCP(sock, srv.buildRoutdFns(turnMCP{folder: folder}),
 		srv.buildStoreFns(turnMCP{folder: folder}), folder, true, 0, callerSub, pb)
 	if err != nil {
@@ -329,5 +332,25 @@ func TestACLMCPSenderDenyBlocksGrant(t *testing.T) {
 	_, e := callToolOverSock(t, sock, "add_acl", map[string]any{"principal": "google:target", "scope": "a", "action": "mcp:send"})
 	if e == "" {
 		t.Fatal("sender deny must prevent the grant")
+	}
+}
+
+func TestACLRemoveDenyRequiresGrantOption(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	grantMCPTools(t, db, "a", "remove_acl")
+	if err := addACLRow(db, core.ACLRow{Principal: "bob", Action: "mcp:send", Scope: "a", Effect: "deny"}); err != nil {
+		t.Fatal(err)
+	}
+	sock := serveACLMCP(t, db, "a", "folder:a")
+	_, e := callToolOverSock(t, sock, "remove_acl", map[string]any{"principal": "bob", "action": "mcp:send", "scope": "a", "effect": "deny"})
+	if e == "" {
+		t.Fatal("removed deny without authority to grant")
+	}
+	if aclRowCount(t, db, "a") < 1 {
+		t.Fatal("deny removed")
 	}
 }

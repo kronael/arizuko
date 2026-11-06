@@ -219,6 +219,11 @@ func GrantDefaults(row core.ACLRow) core.ACLRow {
 	return row
 }
 
+// OperatorShape identifies the raw operator membership shortcut.
+func OperatorShape(row core.ACLRow) bool {
+	return row.Scope == "**" && row.Action == "" && (row.Effect == "" || row.Effect == EffectAllow) && row.Params == "" && row.Predicate == ""
+}
+
 // AddACLRow grants a row idempotently and records it.
 func (s *Store) AddACLRow(row core.ACLRow, v objstore.Version) error {
 	row = aclDefaults(row)
