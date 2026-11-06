@@ -247,3 +247,23 @@ func TestUnpairMCP_ParentDeny(t *testing.T) {
 		t.Fatal("pairing removed")
 	}
 }
+
+func TestUnpairREST_ParentDeny(t *testing.T) {
+	db := unpairFixture(t)
+	if err := addACLRow(db, core.ACLRow{Principal: "google:alice", Action: "mcp:send", Scope: "hq", Effect: "deny"}); err != nil {
+		t.Fatal(err)
+	}
+	srv := NewServer(db, nil, nil, fakeVerifier{sub: "user:google:alice"}, 0, "https://x.test")
+	mux := http.NewServeMux()
+	srv.mountMembership(mux)
+	req := httptest.NewRequest("DELETE", "/v1/acl_membership", strings.NewReader(`{"child":"telegram:user/42","parent":"google:alice"}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("unpair = %d: %s", w.Code, w.Body)
+	}
+	if !edgeExists(t, db, "telegram:user/42", "google:alice") {
+		t.Fatal("pairing removed")
+	}
+}

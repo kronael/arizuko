@@ -36,3 +36,17 @@ func TestACLRESTAddDelegates(t *testing.T) {
 		t.Fatalf("subset grant = %d want 200 body=%s", rec.Code, rec.Body.String())
 	}
 }
+
+func TestACLRESTRemoveDenyRequiresGrantOption(t *testing.T) {
+	db, h := authSrv(t, fakeVerifier{sub: "user:wa", scope: []string{"acl:write"}, folder: "world/a"})
+	if err := addACLRow(db, core.ACLRow{Principal: "bob", Action: "mcp:send", Scope: "world/a", Effect: "deny"}); err != nil {
+		t.Fatal(err)
+	}
+	rec := doJSON(t, h, "DELETE", "/v1/acl", "", aclReq{Principal: "bob", Scope: "world/a", Action: "mcp:send", Effect: "deny"})
+	if rec.Code != 403 {
+		t.Fatalf("remove deny = %d: %s", rec.Code, rec.Body)
+	}
+	if aclRowCount(t, db, "world/a") != 1 {
+		t.Fatal("deny removed")
+	}
+}
