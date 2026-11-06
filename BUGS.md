@@ -15,6 +15,7 @@
 
 ## What needs you
 
+- `L668` — an agent appends to `~/issues.md` by hand and never sends the `#issues` notice; fix running.
 - `L667` — `auth.Delegate` admits a grant wider than the granter holds (`?`/`[` globs, a deny on a crossing glob); a tightening, lands alone or with `6/52`.
 - `L666` — `/root` elevates the whole batch, so another sender's message runs in a root turn; needs sign-off.
 - `L665` — `unpair` removes the account's denies from the paired identity's turns; needs sign-off.
@@ -433,6 +434,25 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
   containment (decision 7, `ipc/ipc.go:2267`, `:2334`, `:2387`, `:2426`), and the
   `/root` issuer holds `admin` on `**`, the authority that answers a hold. The defect
   in the same area is who the root turn serves: `L666`.
+
+## L668 — an agent appends to `~/issues.md` with Bash and never sends the `#issues` notice (2026-11-06, open)
+
+MEASURED 2026-11-06 on krons, folder `rhias/trip`: the owner saw an issue filed
+and got no notification. Two causes. (1) krons had no `#issues` route (fixed
+live: route 92). (2) The agent never called `send` to `#issues`: its two
+issue appends in the session transcripts are `Bash` `cat >> /home/node/issues.md`
+and `printf ... >> issues.md`, and the only `Skill` call in the session is
+`migrate`. The notify step lives in the `issues` skill, which the agent does not
+load before it appends. A step that only a skill states does not run when the
+agent writes the file by hand (same class as L645: a prompt line is ignored,
+a hook nudge works).
+
+- **Severity:** medium (the operator misses issues)
+- **Scope:** `ant/hooks/` (core package hooks), `ant/skills/issues/SKILL.md`
+- **Fix:** one PostToolUse hook in core: when a tool call grows `~/issues.md`,
+  return a nudge with the new lines and the instruction to `send` them to
+  `#issues`. Test: a grown file gives the nudge, an unchanged one gives none.
+- **Status:** open
 
 ## L667 — `auth.Delegate` admits a grant wider than the granter holds: `?` and `[` globs, and a deny on a crossing glob (2026-11-06, open)
 
