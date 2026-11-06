@@ -134,6 +134,8 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 		})
 	}
 
+	groups = l.isolateElevated(groups)
+
 	hadAny := false
 	// Applied only with the cursor advance past the turns that set them (BUGS L58).
 	var marks []observedAdvance
@@ -318,6 +320,30 @@ func replyChat(chatJID string, last core.Message) string {
 		return last.ForwardedFrom
 	}
 	return chatJID
+}
+
+// isolateElevated cuts every batch around a row marked in pendingElevation, so
+// the root turn holds only the /root issuer's row and its trigger is the
+// issuer; another sender's row runs in its own unelevated turn (BUGS L666).
+func (l *Loop) isolateElevated(groups [][]core.Message) [][]core.Message {
+	var out [][]core.Message
+	for _, g := range groups {
+		start := 0
+		for i, m := range g {
+			if _, ok := l.pendingElevation.Load(m.ID); !ok {
+				continue
+			}
+			if i > start {
+				out = append(out, g[start:i])
+			}
+			out = append(out, g[i:i+1])
+			start = i + 1
+		}
+		if start < len(g) {
+			out = append(out, g[start:])
+		}
+	}
+	return out
 }
 
 // runTurn dispatches ONE turn for a bot-stripped trigger batch and records its
