@@ -13,7 +13,16 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
-- `trip-computer` — the itinerary skill is the census workflow (five OSM-seeded tables, verified venue rows, trail and car-park facts from map data, no inline citations) and ships `scripts/` (`osm_census.py`, `osm_trails.py`, `mapyrc.py`, `page_check.py`).
+## [v0.75.2] — 2026-11-06
+
+> arizuko v0.75.2 — onboarding requests reach the operator, a fuller trip computer
+>
+> A new onboarding request now sends one notice to the operator's `#issues` chats, and the trip computer ships its census workflow and scripts.
+>
+> • Onboarding — a new request queues one `#issues` notice with the sender, the chat and the dashboard link; later messages of the same request send none.
+> • Trip computer — the itinerary skill ships the census workflow, its guides and four scripts (OSM census, OSM trails, map links, page check).
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
 
 ## [v0.75.1] — 2026-11-06
 
