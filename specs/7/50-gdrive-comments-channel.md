@@ -2,9 +2,9 @@
 status: partial
 depends:
   [
-    27-git-channel,
-    31-adapter-contract,
-    33-social-adapter-model,
+    ../6/27-git-channel,
+    ../6/31-adapter-contract,
+    ../6/33-social-adapter-model,
     ../5/34-channel-protocol,
     ../5/13-ext-mcp,
     ../5/14-credentials,
@@ -12,7 +12,7 @@ depends:
   ]
 ---
 
-# specs/6/45 — googd: Google Drive comment threads as a channel
+# specs/7/50 — googd: Google Drive comment threads as a channel
 
 A Google Docs, Sheets or Slides file bound to a folder delivers each of its
 comment threads to that folder's agent as a topic, and the agent answers inside

@@ -130,4 +130,4 @@ that pretends otherwise is wrong on day one.
 ## Order
 
 Phase 6 finishes first — the owner said so. `6/47` is `planned` and unbuilt,
-and `6/45` and `6/46` are `partial`. This spec begins only on the owner's word.
+and `7/50` and `6/46` are `partial`. This spec begins only on the owner's word.

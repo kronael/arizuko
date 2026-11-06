@@ -8,7 +8,7 @@ import (
 
 // GDriveFilesRow mirrors gdrive_files: one Drive file a folder binds. The item
 // holds no secret, so every column is returned. Apply never rebuilds this table
-// (specs/6/45-gdrive-comments-channel.md).
+// (specs/7/50-gdrive-comments-channel.md).
 type GDriveFilesRow struct {
 	FileID       string `db:"file_id"       yaml:"file_id"       json:"file_id"`
 	OwnerFolder  string `db:"owner_folder"  yaml:"owner_folder"  json:"owner_folder"`
@@ -42,11 +42,11 @@ var GDriveFilesMCPDoc = map[resreg.Action]string{
 		"Share the file with the service account first; the binding does not grant access. " +
 		"Comment threads land on gdrive:<file_id>/c/<comment_id> JIDs; human comments and " +
 		"mentions trigger a turn, everything else is observed. Edit the seeded `routes` rows " +
-		"to change that. A file is bound to one folder per instance. Spec 6/45.",
+		"to change that. A file is bound to one folder per instance. Spec `7/50`.",
 	resreg.ActionList: "List the Drive files bound by your folder. Returns " +
-		"{file_id, owner_folder, target_folder, created_at}. Spec 6/45.",
+		"{file_id, owner_folder, target_folder, created_at}. Spec `7/50`.",
 	resreg.Action("revoke"): "Unbind a Drive file by its id. The adapter stops polling it and " +
-		"the seeded route rows are removed. Caller must own the binding. Spec 6/45.",
+		"the seeded route rows are removed. Caller must own the binding. Spec `7/50`.",
 }
 
 var GDriveFilesMCPArgs = map[resreg.Action][]resreg.MCPArg{

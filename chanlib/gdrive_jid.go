@@ -2,7 +2,7 @@ package chanlib
 
 import "strings"
 
-// GDriveJID is a parsed Google Drive JID (specs/6/45-gdrive-comments-channel.md):
+// GDriveJID is a parsed Google Drive JID (specs/7/50-gdrive-comments-channel.md):
 //
 //	gdrive:<fileId>                 one file (observe only)
 //	gdrive:<fileId>/c/<commentId>   one comment thread
