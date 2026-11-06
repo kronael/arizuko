@@ -18,7 +18,6 @@
 - `L675` — the guest's Python is under `/root` (700); fix at the next rootfs build.
 - `L674` — `compose down` fails on a deleted fragment despite `required: false`; proposal.
 - `L672` — a spend-limit failure: retry silently, one `#issues` notice to the operator; approved, queued after L670.
-- `L665` — `unpair` removes the account's denies from the paired identity's turns; needs sign-off.
 - `L664` — `invite_create` mints `admin` the issuing folder cannot delegate; needs sign-off.
 - `L660` — a mention by reply engages only the reply chain, not the chat root; proposal, needs sign-off.
 - `L655` — products as full packages (`catalog:<name>`) and persona layering (`PERSONA.local.md`); proposal, needs sign-off.
@@ -683,7 +682,7 @@ elevated turn's granter.
 - **Test:** `TestRootTurnHoldsOnlyTheIssuersRow` (`routd/root_batch_test.go`).
 - **Status:** fixed (option a) — `isolateElevated` (`routd/dispatch.go`) cuts the batch around a `pendingElevation` row.
 
-## L665 — `unpair` removes the account's denies from the paired identity's turns (2026-11-06, open — needs sign-off)
+## L665 — `unpair` removes the account's denies from the paired identity's turns (2026-11-06, ✅ FIXED)
 
 MEASURED at `684b3eeed` with a scratch probe (`TestProbeUnpairDropsAnInheritedDeny`,
 not committed): `telegram:1` paired to `google:bob` (edge `added_by=pairing`), a
@@ -712,12 +711,7 @@ allows away, and the spec checks every removed local allow as a grant of it
 with the option (§"The containment tests"). An account with no deny and no
 local allow unpairs as today.
 
-- **Status:** open — needs sign-off (auth change). **Options:** (a) the fix: a
-  person whose account holds a deny, or an allow without the option (every
-  invited person's `admin`), cannot unpair; an operator, whose `*` on `**`
-  covers every row, can; (b) rule it intentional: an account's deny
-  restrains only the identities linked to it, and move this to Design
-  invariants. **Default if nothing is decided:** unchanged.
+- **Status:** ✅ FIXED `925d9f5ccf80c6182bb071b9cfd10b84bb50972e`; `TestUnpairMCP_ParentDeny` checks the removal.
 
 ## L664 — `invite_create` mints `admin` the issuing folder cannot delegate (2026-11-06, open — needs sign-off)
 
