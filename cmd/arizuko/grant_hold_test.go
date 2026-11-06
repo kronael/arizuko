@@ -29,7 +29,7 @@ func seedHold(t *testing.T, s *store.Store) {
 	if err := s.AddACLRow(core.ACLRow{
 		Principal: holdAgent, Action: auth.HoldPrefix + holdTool, Scope: holdFolder,
 		Effect: auth.EffectHoldBlock, GrantedBy: "test",
-	}); err != nil {
+	}, ""); err != nil {
 		t.Fatalf("seed the hold rule: %v", err)
 	}
 }
@@ -61,7 +61,7 @@ func TestUngrantRemovesTheRowAlwaysWrote(t *testing.T) {
 		Principal: holdAgent, Action: auth.HoldPrefix + holdTool, Scope: holdFolder,
 		Effect: auth.EffectSkipApproval, Params: holdMatcher, GrantedBy: "always:operator",
 	}
-	if err := s.AddACLRow(skip); err != nil {
+	if err := s.AddACLRow(skip, ""); err != nil {
 		t.Fatalf("write the row /always writes: %v", err)
 	}
 	if held(s) {
@@ -139,7 +139,7 @@ func TestUngrantRejectsUnknownEffect(t *testing.T) {
 		Principal: holdAgent, Action: auth.HoldPrefix + holdTool, Scope: holdFolder,
 		Effect: auth.EffectSkipApproval, Params: holdMatcher, GrantedBy: "always:operator",
 	}
-	if err := s.AddACLRow(skip); err != nil {
+	if err := s.AddACLRow(skip, ""); err != nil {
 		t.Fatalf("write the row the revoke will miss: %v", err)
 	}
 

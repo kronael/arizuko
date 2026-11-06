@@ -24,7 +24,7 @@ func TestCallerSubIsBareSoANamedACLRowMatches(t *testing.T) {
 	st := testutils.NewRoutdStore(t)
 	if err := st.AddACLRow(core.ACLRow{
 		Principal: "alice", Action: "*", Scope: "**", Effect: "allow",
-	}); err != nil {
+	}, ""); err != nil {
 		t.Fatal(err)
 	}
 	ks, _, tok := webdBearerKS(t)

@@ -17,7 +17,7 @@ import (
 // them without becoming a second implementation of the write.
 
 func addACLRow(d *DB, row core.ACLRow) error {
-	return store.NewOver(d.Obj()).AddACLRow(row)
+	return store.NewOver(d.Obj()).AddACLRow(row, "")
 }
 
 func addMembership(d *DB, child, parent, addedBy string) error {

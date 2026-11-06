@@ -140,6 +140,24 @@ func (s *Store) TryWriteEntities(ctx context.Context, checks []objstore.Check,
 	return s.Obj().GuardedBatch(ctx, checks, withBumps(writes))
 }
 
+func (s *Store) tryWriteEntitiesAt(ctx context.Context, version objstore.Version, writes []objstore.Write) (bool, error) {
+	batch := withBumps(writes)
+	if version != "" {
+		sc := OwnerScope(OwnerRoutd)
+		found := false
+		for i := range batch {
+			if batch[i].Entity == sc.Entity && batch[i].Key == sc.Key {
+				batch[i] = objstore.BumpAt(sc, version)
+				found = true
+			}
+		}
+		if !found {
+			batch = append(batch, objstore.BumpAt(sc, version))
+		}
+	}
+	return s.Obj().GuardedBatch(ctx, nil, batch)
+}
+
 // refusal turns a verdict into the error a must-commit caller gets. It names
 // the batch, not the write: committed is ONE bit. A batch of unconditional
 // writes can still refuse, because the Bump is an Update against a marker

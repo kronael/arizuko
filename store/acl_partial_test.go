@@ -25,7 +25,7 @@ func TestACLReadRefusesToReturnAPartialPolicy(t *testing.T) {
 		{Principal: "google:alice", Action: "mcp:send", Scope: "atlas/secret", Effect: "deny"},
 	}
 	for _, r := range rows {
-		if err := s.AddACLRow(r); err != nil {
+		if err := s.AddACLRow(r, ""); err != nil {
 			t.Fatal(err)
 		}
 	}

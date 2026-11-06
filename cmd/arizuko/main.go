@@ -643,7 +643,7 @@ func runGrant(s *store.Store, row core.ACLRow, w io.Writer) error {
 		return nil
 	}
 	row.GrantedBy = "arizuko grant"
-	if err := s.AddACLRow(row); err != nil {
+	if err := s.AddACLRow(row, ""); err != nil {
 		return err
 	}
 	_, _ = fmt.Fprintln(w, "granted "+describeGrant(row))
@@ -663,7 +663,7 @@ func runUngrant(s *store.Store, row core.ACLRow, w io.Writer) error {
 		_, _ = fmt.Fprintf(w, "ungranted %s -> role:operator\n", row.Principal)
 		return nil
 	}
-	if err := s.RemoveACLRow(row); err != nil {
+	if err := s.RemoveACLRow(row, ""); err != nil {
 		return err
 	}
 	_, _ = fmt.Fprintln(w, "ungranted "+describeGrant(row))

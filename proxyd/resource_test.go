@@ -49,7 +49,7 @@ func testResourceMux(t *testing.T, callerBuild resreg.CallerFromHTTPFunc) (*http
 	if err := st.AddACLRow(core.ACLRow{
 		Principal: "**", Action: "*", Scope: "**",
 		Effect: "allow", Predicate: "operator=1",
-	}); err != nil {
+	}, ""); err != nil {
 		t.Fatal(err)
 	}
 	rr := newRoutesResource(st, nil)

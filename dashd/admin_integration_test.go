@@ -52,7 +52,7 @@ func TestDash_RouteCreateAndDelete(t *testing.T) {
 	s := inst.Store
 	if err := s.AddACLRow(core.ACLRow{
 		Principal: "alice@x", Action: "admin", Scope: "**", Effect: "allow",
-	}); err != nil {
+	}, ""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -136,7 +136,7 @@ func TestDash_NestedFolderRouting(t *testing.T) {
 	}
 	if err := s.AddACLRow(core.ACLRow{
 		Principal: "alice@x", Action: "admin", Scope: "**", Effect: "allow",
-	}); err != nil {
+	}, ""); err != nil {
 		t.Fatal(err)
 	}
 	folder := "corp/eng/sre"
@@ -186,14 +186,14 @@ func TestDash_GrantsView(t *testing.T) {
 	s := inst.Store
 	if err := s.AddACLRow(core.ACLRow{
 		Principal: "alice@x", Action: "admin", Scope: "**", Effect: "allow",
-	}); err != nil {
+	}, ""); err != nil {
 		t.Fatal(err)
 	}
 	folder := "world"
 	// Seed a grant row for this folder.
 	if err := s.AddACLRow(core.ACLRow{
 		Principal: "bob@x", Action: "mcp:send", Scope: folder, Effect: "allow",
-	}); err != nil {
+	}, ""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -215,7 +215,7 @@ func TestDash_GrantAdd(t *testing.T) {
 	s := inst.Store
 	if err := s.AddACLRow(core.ACLRow{
 		Principal: "alice@x", Action: "admin", Scope: "**", Effect: "allow", GrantOption: true,
-	}); err != nil {
+	}, ""); err != nil {
 		t.Fatal(err)
 	}
 	folder := "world"
@@ -261,13 +261,13 @@ func TestDash_GrantRevoke(t *testing.T) {
 	s := inst.Store
 	if err := s.AddACLRow(core.ACLRow{
 		Principal: "alice@x", Action: "admin", Scope: "**", Effect: "allow",
-	}); err != nil {
+	}, ""); err != nil {
 		t.Fatal(err)
 	}
 	folder := "world"
 	if err := s.AddACLRow(core.ACLRow{
 		Principal: "dave@x", Action: "mcp:send", Scope: folder, Effect: "allow",
-	}); err != nil {
+	}, ""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -326,7 +326,7 @@ func TestDash_TaskCreate(t *testing.T) {
 	s := inst.Store
 	if err := s.AddACLRow(core.ACLRow{
 		Principal: "alice@x", Action: "admin", Scope: "**", Effect: "allow",
-	}); err != nil {
+	}, ""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -379,7 +379,7 @@ func TestDash_TaskPauseResume(t *testing.T) {
 	s := inst.Store
 	if err := s.AddACLRow(core.ACLRow{
 		Principal: "alice@x", Action: "admin", Scope: "**", Effect: "allow",
-	}); err != nil {
+	}, ""); err != nil {
 		t.Fatal(err)
 	}
 	seedScheduledTask(t, inst.Store.Obj(), core.Task{
@@ -419,7 +419,7 @@ func TestDash_TaskCancel(t *testing.T) {
 	s := inst.Store
 	if err := s.AddACLRow(core.ACLRow{
 		Principal: "alice@x", Action: "admin", Scope: "**", Effect: "allow",
-	}); err != nil {
+	}, ""); err != nil {
 		t.Fatal(err)
 	}
 	seedScheduledTask(t, inst.Store.Obj(), core.Task{
@@ -530,7 +530,7 @@ func TestDash_GrantAdd_DelegatesSubsetOfHeld(t *testing.T) {
 	s := inst.Store
 	if err := s.AddACLRow(core.ACLRow{
 		Principal: "alice@x", Action: "admin", Scope: "world", Effect: "allow",
-	}); err != nil {
+	}, ""); err != nil {
 		t.Fatal(err)
 	}
 	form := url.Values{"principal": {"carol@x"}, "action": {"mcp:reply"}, "scope": {"world"}}

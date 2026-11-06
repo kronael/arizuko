@@ -64,7 +64,7 @@ func isoEnv(t *testing.T) (*http.ServeMux, *testutils.Inst) {
 		{Principal: "alice@x", Action: "admin", Scope: folderEngTree, Effect: "allow"},
 		{Principal: "bob@x", Action: "admin", Scope: folderSales, Effect: "allow"},
 	} {
-		if err := inst.Store.AddACLRow(g); err != nil {
+		if err := inst.Store.AddACLRow(g, ""); err != nil {
 			t.Fatalf("seed acl %+v: %v", g, err)
 		}
 	}

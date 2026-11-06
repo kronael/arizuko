@@ -55,7 +55,7 @@ func TestACLLists_FailClosedOnStoreError(t *testing.T) {
 		{Principal: "*", Action: "mcp:send", Scope: "atlas/**", Effect: "allow"},
 	}
 	for _, r := range rows {
-		if err := s.AddACLRow(r); err != nil {
+		if err := s.AddACLRow(r, ""); err != nil {
 			t.Fatal(err)
 		}
 	}

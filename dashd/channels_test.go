@@ -68,7 +68,7 @@ func TestDash_WhatsappPairStart_AdminProxiesAndAudits(t *testing.T) {
 	s := inst.Store
 	if err := s.AddACLRow(core.ACLRow{
 		Principal: "alice@x", Action: "admin", Scope: "**", Effect: "allow",
-	}); err != nil {
+	}, ""); err != nil {
 		t.Fatal(err)
 	}
 

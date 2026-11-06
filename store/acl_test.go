@@ -15,11 +15,11 @@ func TestACL_CRUD(t *testing.T) {
 		Scope:     "atlas/**",
 		Effect:    "allow",
 	}
-	if err := s.AddACLRow(row); err != nil {
+	if err := s.AddACLRow(row, ""); err != nil {
 		t.Fatal(err)
 	}
 	// Idempotent.
-	if err := s.AddACLRow(row); err != nil {
+	if err := s.AddACLRow(row, ""); err != nil {
 		t.Fatal(err)
 	}
 	got := mustACL(s.ACLRowsFor([]string{"google:alice"}))
@@ -29,7 +29,7 @@ func TestACL_CRUD(t *testing.T) {
 	if got[0].Action != "admin" || got[0].Scope != "atlas/**" {
 		t.Fatalf("row contents: %+v", got[0])
 	}
-	if err := s.RemoveACLRow(row); err != nil {
+	if err := s.RemoveACLRow(row, ""); err != nil {
 		t.Fatal(err)
 	}
 	if got := mustACL(s.ACLRowsFor([]string{"google:alice"})); len(got) != 0 {
@@ -42,12 +42,12 @@ func TestACL_GrantOption(t *testing.T) {
 	s := openMem(t)
 	if err := s.AddACLRow(core.ACLRow{
 		Principal: "role:owner", Action: "admin", Scope: "acme/**", GrantOption: true,
-	}); err != nil {
+	}, ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.AddACLRow(core.ACLRow{
 		Principal: "role:member", Action: "mcp:send", Scope: "acme/eng",
-	}); err != nil {
+	}, ""); err != nil {
 		t.Fatal(err)
 	}
 	owner := mustACL(s.ACLRowsFor([]string{"role:owner"}))
@@ -67,7 +67,7 @@ func TestACL_DefaultEffectAllow(t *testing.T) {
 		Action:    "interact",
 		Scope:     "f",
 	}
-	if err := s.AddACLRow(row); err != nil {
+	if err := s.AddACLRow(row, ""); err != nil {
 		t.Fatal(err)
 	}
 	got := mustACL(s.ACLRowsFor([]string{"p"}))
@@ -80,10 +80,10 @@ func TestACL_WildcardRows(t *testing.T) {
 	s := openMem(t)
 	exact := core.ACLRow{Principal: "google:alice", Action: "admin", Scope: "f"}
 	wild := core.ACLRow{Principal: "discord:user/*", Action: "interact", Scope: "f"}
-	if err := s.AddACLRow(exact); err != nil {
+	if err := s.AddACLRow(exact, ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AddACLRow(wild); err != nil {
+	if err := s.AddACLRow(wild, ""); err != nil {
 		t.Fatal(err)
 	}
 	w := mustACL(s.ACLWildcardRows())
@@ -101,10 +101,10 @@ func TestACL_DenyCoexistsWithAllow(t *testing.T) {
 	s := openMem(t)
 	allow := core.ACLRow{Principal: "p", Action: "admin", Scope: "f", Effect: "allow"}
 	deny := core.ACLRow{Principal: "p", Action: "admin", Scope: "f", Effect: "deny"}
-	if err := s.AddACLRow(allow); err != nil {
+	if err := s.AddACLRow(allow, ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AddACLRow(deny); err != nil {
+	if err := s.AddACLRow(deny, ""); err != nil {
 		t.Fatal(err)
 	}
 	got := mustACL(s.ACLRowsFor([]string{"p"}))
@@ -258,7 +258,7 @@ func TestGrantDefaultsFillsTheActionAndTheRowWriterDoesNot(t *testing.T) {
 // storing a row that reads like a grant and is not one.
 func TestAGrantWithNoActionIsRefused(t *testing.T) {
 	s := openMem(t)
-	err := s.AddACLRow(core.ACLRow{Principal: "github:bob", Scope: "main/**"})
+	err := s.AddACLRow(core.ACLRow{Principal: "github:bob", Scope: "main/**"}, "")
 	if err == nil {
 		t.Fatal("a grant with no action was stored; it grants nothing and reads " +
 			"in the table like one that does")

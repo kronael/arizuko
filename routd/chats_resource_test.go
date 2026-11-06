@@ -83,7 +83,7 @@ func TestChatsRESTSignedServiceAuthorizationAndAudit(t *testing.T) {
 		}
 	}
 	row := core.ACLRow{Principal: "service:dashd", Action: "chats:update", Scope: "**", Effect: store.EffectDeny}
-	if err := db.store().AddACLRow(row); err != nil {
+	if err := db.store().AddACLRow(row, ""); err != nil {
 		t.Fatal(err)
 	}
 	if code := put(token, map[string]any{"jid": jid, "thread_replies": false}); code != 403 {
@@ -93,7 +93,7 @@ func TestChatsRESTSignedServiceAuthorizationAndAudit(t *testing.T) {
 		t.Fatalf("GET after revoke = %d", code)
 	}
 	row.Action, row.Effect = "chats:get", store.EffectDeny
-	if err := db.store().AddACLRow(row); err != nil {
+	if err := db.store().AddACLRow(row, ""); err != nil {
 		t.Fatal(err)
 	}
 	if code := read(token); code != 403 {

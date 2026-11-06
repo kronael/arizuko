@@ -324,6 +324,9 @@ func Errorf(code int, format string, a ...any) error {
 }
 
 func errStatus(err error) int {
+	if errors.Is(err, objstore.ErrScopeMoved) {
+		return http.StatusConflict
+	}
 	var he *HandlerError
 	if errors.As(err, &he) && he.Code != 0 {
 		return he.Code

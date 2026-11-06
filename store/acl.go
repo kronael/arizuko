@@ -220,14 +220,14 @@ func GrantDefaults(row core.ACLRow) core.ACLRow {
 }
 
 // AddACLRow grants a row idempotently and records it.
-func (s *Store) AddACLRow(row core.ACLRow) error {
+func (s *Store) AddACLRow(row core.ACLRow, v objstore.Version) error {
 	row = aclDefaults(row)
 	w, err := aclPut(row)
 	if err != nil {
 		return err
 	}
 	// A refusal is the grant already being there, and it records nothing.
-	_, err = s.tryWriteAudited(func() ([]objstore.Write, audit.Event, error) {
+	writes, ev, err := func() ([]objstore.Write, audit.Event, error) {
 		// GrantedBy stands in as the actor for callers that never set AsUser
 		// (the CLI, onbod invite-accept).
 		actor, actorSub, surface := s.auditIdentity()
@@ -254,11 +254,18 @@ func (s *Store) AddACLRow(row core.ACLRow) error {
 				"granted_by": row.GrantedBy,
 			},
 		}, nil
-	})
-	return err
+	}()
+	if err != nil {
+		return err
+	}
+	_, rec := audit.WriteFor(ev)
+	ws := &WriteSet{}
+	ws.Add(writes...)
+	ws.Prove(v)
+	return s.Apply(context.Background(), ws, rec)
 }
 
-func (s *Store) RemoveACLRow(row core.ACLRow) error {
+func (s *Store) RemoveACLRow(row core.ACLRow, v objstore.Version) error {
 	if row.Effect == "" {
 		row.Effect = EffectAllow
 	}
@@ -266,7 +273,7 @@ func (s *Store) RemoveACLRow(row core.ACLRow) error {
 	if err != nil {
 		return err
 	}
-	return s.writeAudited(func() ([]objstore.Write, audit.Event, error) {
+	writes, ev, err := func() ([]objstore.Write, audit.Event, error) {
 		w := objstore.Write{Op: objstore.Delete, Entity: ACL, Key: key}
 		actor, actorSub, surface := s.auditIdentity()
 		return []objstore.Write{w}, audit.Event{
@@ -285,7 +292,15 @@ func (s *Store) RemoveACLRow(row core.ACLRow) error {
 				"effect":    row.Effect,
 			},
 		}, nil
-	})
+	}()
+	if err != nil {
+		return err
+	}
+	_, rec := audit.WriteFor(ev)
+	ws := &WriteSet{}
+	ws.Add(writes...)
+	ws.Prove(v)
+	return s.Apply(context.Background(), ws, rec)
 }
 
 // PutACLRow is the audit-free twin of AddACLRow, for a caller with no audit

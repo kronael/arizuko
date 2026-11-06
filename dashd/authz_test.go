@@ -65,7 +65,7 @@ func TestRequireAdmin_Admitted(t *testing.T) {
 	inst := testutils.NewRoutdInstance(t)
 	if err := inst.Store.AddACLRow(core.ACLRow{
 		Principal: "alice@x", Action: "admin", Scope: "mygroup", Effect: "allow",
-	}); err != nil {
+	}, ""); err != nil {
 		t.Fatal(err)
 	}
 	d := &dash{routd: inst.Store.Obj(), routdURL: stubRoutd(t, inst.Store.Obj())}
@@ -105,7 +105,7 @@ func TestRequireAdmin_OperatorGrant(t *testing.T) {
 	inst := testutils.NewRoutdInstance(t)
 	if err := inst.Store.AddACLRow(core.ACLRow{
 		Principal: "op@x", Action: "admin", Scope: "**", Effect: "allow",
-	}); err != nil {
+	}, ""); err != nil {
 		t.Fatal(err)
 	}
 	d := &dash{routd: inst.Store.Obj(), routdURL: stubRoutd(t, inst.Store.Obj())}
@@ -125,7 +125,7 @@ func TestRequireAdmin_GroupHeader(t *testing.T) {
 	// Grant is on "ops" principal; user's groups claim includes "ops".
 	if err := inst.Store.AddACLRow(core.ACLRow{
 		Principal: "ops", Action: "admin", Scope: "grp", Effect: "allow",
-	}); err != nil {
+	}, ""); err != nil {
 		t.Fatal(err)
 	}
 	d := &dash{routd: inst.Store.Obj(), routdURL: stubRoutd(t, inst.Store.Obj())}
@@ -158,7 +158,7 @@ func TestRequireAdmin_CrossOriginRejected(t *testing.T) {
 	inst := testutils.NewRoutdInstance(t)
 	if err := inst.Store.AddACLRow(core.ACLRow{
 		Principal: "alice@x", Action: "admin", Scope: "**", Effect: "allow",
-	}); err != nil {
+	}, ""); err != nil {
 		t.Fatal(err)
 	}
 	d := &dash{routd: inst.Store.Obj(), routdURL: stubRoutd(t, inst.Store.Obj())}

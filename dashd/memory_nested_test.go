@@ -23,7 +23,7 @@ func setupNestedMemoryTest(t *testing.T) (*dash, string, *http.ServeMux) {
 	inst := testutils.NewRoutdInstance(t)
 	if err := inst.Store.AddACLRow(core.ACLRow{
 		Principal: "admin@x", Action: "admin", Scope: folder, Effect: "allow",
-	}); err != nil {
+	}, ""); err != nil {
 		t.Fatal(err)
 	}
 	d := &dash{routd: inst.Store.Obj(), groupsDir: groups, routdURL: stubRoutd(t, inst.Store.Obj())}

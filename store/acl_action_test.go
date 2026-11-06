@@ -10,7 +10,7 @@ import (
 func TestACLActionEveryWriteDoor(t *testing.T) {
 	s := openMem(t)
 	doors := map[string]func(core.ACLRow) error{
-		"AddACLRow": s.AddACLRow,
+		"AddACLRow": func(row core.ACLRow) error { return s.AddACLRow(row, "") },
 		"PutACLRow": s.PutACLRow,
 		"ACLGrantWrite": func(row core.ACLRow) error {
 			_, err := ACLGrantWrite(row)

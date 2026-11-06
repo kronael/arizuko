@@ -92,6 +92,12 @@ func Bump(sc Scope) Write {
 	}
 }
 
+func BumpAt(sc Scope, v Version) Write {
+	w := Bump(sc)
+	w.Cond = Cond{Where: []Cmp{{Attr: markerVersion, Op: Eq, Value: string(v)}}}
+	return w
+}
+
 // marker is one point read of a scope's marker.
 type marker struct {
 	version string

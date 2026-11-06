@@ -47,7 +47,7 @@ func TestSeedMemberRoleCarriesTheCreationItBelongsTo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	created, err := SeedMemberRole(ctx, s, "world", row)
+	created, err := SeedMemberRole(ctx, s, "world", "", row)
 	if err != nil || !created {
 		t.Fatalf("the first creation reported created=%v err=%v", created, err)
 	}
@@ -60,7 +60,7 @@ func TestSeedMemberRoleCarriesTheCreationItBelongsTo(t *testing.T) {
 
 	// A second creation loses: the groups write is the only guarded one in the
 	// batch, so a false names exactly the folder already being someone's.
-	again, err := SeedMemberRole(ctx, s, "world", row)
+	again, err := SeedMemberRole(ctx, s, "world", "", row)
 	if err != nil {
 		t.Fatalf("the second creation errored: %v", err)
 	}

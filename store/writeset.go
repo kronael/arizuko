@@ -20,6 +20,7 @@ type WriteSet struct {
 	// refused is what a refused batch MEANS to the caller. One per set, because
 	// a driver answers a batch with ONE bit (objstore.Store).
 	refused error
+	version objstore.Version
 }
 
 // Add buffers writes that cannot refuse. A write whose condition IS the
@@ -47,6 +48,8 @@ func (w *WriteSet) AddGuarded(refused error, write objstore.Write) error {
 	return nil
 }
 
+func (w *WriteSet) Prove(v objstore.Version) { w.version = v }
+
 // Len is how many writes the set holds. Several actions legitimately buffer
 // none: a PATCH naming no field, a dedup that found the task it was to create.
 func (w *WriteSet) Len() int { return len(w.writes) }
@@ -59,12 +62,21 @@ func (s *Store) Apply(ctx context.Context, ws *WriteSet, also ...objstore.Write)
 	if len(writes) == 0 {
 		return nil
 	}
-	committed, err := s.TryWriteEntities(ctx, nil, writes...)
+	committed, err := s.tryWriteEntitiesAt(ctx, ws.version, writes)
 	if err != nil {
 		return err
 	}
 	if committed {
 		return nil
+	}
+	if ws.version != "" {
+		v, err := objstore.CurrentVersion(ctx, s.Obj(), OwnerScope(OwnerRoutd))
+		if err != nil {
+			return err
+		}
+		if v != ws.version {
+			return objstore.ErrScopeMoved
+		}
 	}
 	if ws.refused != nil {
 		return ws.refused

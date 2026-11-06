@@ -102,3 +102,41 @@ func TestWriteSet_ApplySendsTheCompanionOfAnEmptySet(t *testing.T) {
 		t.Errorf("the companion write landed %d rows (%v), want 1", len(rows), err)
 	}
 }
+
+func TestWriteSetProof(t *testing.T) {
+	s := openMem(t)
+	defer s.Close()
+	ctx := context.Background()
+	version, err := objstore.ReadConsistent(ctx, s.Obj(), OwnerScope(OwnerRoutd), func(context.Context) error { return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	ws := &WriteSet{}
+	if err := s.PutACLRowInto(ws, core.ACLRow{Principal: "user:proof", Action: "mcp:send", Scope: "acme"}); err != nil {
+		t.Fatal(err)
+	}
+	ws.Prove(version)
+	if err := s.PutACLRow(core.ACLRow{Principal: "user:move", Action: "mcp:send", Scope: "acme"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Apply(ctx, ws); !errors.Is(err, objstore.ErrScopeMoved) {
+		t.Fatalf("Apply = %v", err)
+	}
+	rows, err := s.ListACL("user:proof")
+	if err != nil || len(rows) != 0 {
+		t.Fatalf("rows = %v, %v", rows, err)
+	}
+	version, err = objstore.ReadConsistent(ctx, s.Obj(), OwnerScope(OwnerRoutd), func(context.Context) error { return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	absent := errors.New("absent")
+	ws = &WriteSet{}
+	if err := s.RemoveACLRowInto(ws, core.ACLRow{Principal: "user:absent", Action: "mcp:send", Scope: "acme"}, absent); err != nil {
+		t.Fatal(err)
+	}
+	ws.Prove(version)
+	if err := s.Apply(ctx, ws); !errors.Is(err, absent) {
+		t.Fatalf("Apply = %v", err)
+	}
+}

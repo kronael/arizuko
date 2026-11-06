@@ -62,6 +62,7 @@ func Run(t *testing.T, newStore Factory) {
 		{"CountersAreACompareAndSwapProtocol", CountersAreACompareAndSwapProtocol},
 		{"CountersCarryTheirCompanionWrites", CountersCarryTheirCompanionWrites},
 		{"OrderedWidthsAreRefusedRatherThanMisSorted", OrderedWidthsAreRefusedRatherThanMisSorted},
+		{"ProofFencesWrites", ProofFencesWrites},
 		{"AVersionedReplaceIsFencedByItsMarker", AVersionedReplaceIsFencedByItsMarker},
 		{"AnAbandonedClaimIsFinishedByTheSameWork", AnAbandonedClaimIsFinishedByTheSameWork},
 		{"AConsistentMultiReadRetriesWhenTheScopeMovesUnderIt",

@@ -164,7 +164,7 @@ func (s *Store) RedeemPairing(rawToken, parentSub string) (string, error) {
 	// THE EDGE AND THE TOKEN GO IN ONE BATCH, under the cycle guard. The token
 	// delete is the only guarded write in it, so a false is the token being
 	// spent between the read above and this write (BUGS L256).
-	spent, err := s.AddEdgeWith(ctx, jid, parentSub, PairingAddedBy, objstore.Write{
+	spent, err := s.AddEdgeWith(ctx, jid, parentSub, PairingAddedBy, "", objstore.Write{
 		Op: objstore.Delete, Entity: RouteTokens, Key: it.Key,
 		Cond: objstore.Cond{Item: objstore.ItemPresent},
 	})

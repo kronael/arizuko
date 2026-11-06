@@ -78,7 +78,7 @@ func newMCPHarness(t *testing.T, folder string) *mcpHarness {
 	// Grant the folder admin (covers every mcp: tool) over its own subtree.
 	if err := s.AddACLRow(core.ACLRow{
 		Principal: "folder:" + folder, Action: "admin", Scope: folder + "/**", Effect: "allow",
-	}); err != nil {
+	}, ""); err != nil {
 		t.Fatal(err)
 	}
 

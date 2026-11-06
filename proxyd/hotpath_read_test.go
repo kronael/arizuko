@@ -48,7 +48,7 @@ func TestGroupsForSub_RevokedGrantDeniedDespiteTokenScope(t *testing.T) {
 	}
 
 	// Operator revokes. The token is untouched and still valid.
-	if err := st.RemoveACLRow(row); err != nil {
+	if err := st.RemoveACLRow(row, ""); err != nil {
 		t.Fatal(err)
 	}
 

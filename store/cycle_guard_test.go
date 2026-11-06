@@ -45,10 +45,10 @@ func TestTwoEdgesClosingARingAreSerialisedByTheMarker(t *testing.T) {
 	var firstOK bool
 	var firstErr error
 	second := conformance.SlipAt(obj, ACLMembership, 1, func() {
-		firstOK, firstErr = objstore.AddEdge(ctx, obj, sc, MembershipParents(obj),
+		firstOK, firstErr = objstore.AddEdge(ctx, obj, sc, "", MembershipParents(obj),
 			"b", "a", []objstore.Write{edgeBA})
 	})
-	_, err = objstore.AddEdge(ctx, second, sc, MembershipParents(second),
+	_, err = objstore.AddEdge(ctx, second, sc, "", MembershipParents(second),
 		"a", "b", []objstore.Write{edgeAB})
 
 	if firstErr != nil || !firstOK {
@@ -141,7 +141,7 @@ func TestTheFolderCreationRefusesAGraphWithNoMarker(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := SeedMemberRole(context.Background(), s, "atlas", row); !errors.Is(
+	if _, err := SeedMemberRole(context.Background(), s, "atlas", "", row); !errors.Is(
 		err, objstore.ErrNoMarker) {
 		t.Errorf("SeedMemberRole answered %v with routd's marker gone, want ErrNoMarker", err)
 	}

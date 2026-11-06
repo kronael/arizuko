@@ -73,7 +73,7 @@ func Reachable(ctx context.Context, parents ParentsFunc, from, to string) (bool,
 // land on a graph that moved after it was walked, nor slip past a replace's
 // claim. committed=false is the CALLER'S OWN condition refusing; a lost race
 // on the marker is retried here and never returned.
-func AddEdge(ctx context.Context, s Store, sc Scope, parents ParentsFunc,
+func AddEdge(ctx context.Context, s Store, sc Scope, at Version, parents ParentsFunc,
 	child, parent string, writes []Write) (bool, error) {
 	if len(writes) == 0 {
 		return false, fmt.Errorf("add the edge %s -> %s: no writes, so the guard would "+
@@ -91,6 +91,9 @@ func AddEdge(ctx context.Context, s Store, sc Scope, parents ParentsFunc,
 		if !was.settled() {
 			return false, fmt.Errorf("add the edge %s -> %s: %w since %s",
 				child, parent, ErrScopeHeld, was.since)
+		}
+		if at != "" && string(at) != was.version {
+			return false, ErrScopeMoved
 		}
 		hit, err := Reachable(ctx, parents, parent, child)
 		if err != nil {
@@ -117,6 +120,9 @@ func AddEdge(ctx context.Context, s Store, sc Scope, parents ParentsFunc,
 		now, err := readMarker(ctx, s, sc)
 		if err != nil {
 			return false, err
+		}
+		if at != "" && now.version != string(at) {
+			return false, ErrScopeMoved
 		}
 		if now.version == was.version && now.settled() {
 			return false, nil

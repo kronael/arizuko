@@ -279,7 +279,7 @@ func (s *Store) PutGroupRow(g core.Group) error {
 	}
 	// The upsert is a Merge and the edge is create-if-absent, so nothing in
 	// this batch can refuse and the verdict says only that it ran.
-	if _, err := SeedMemberRole(ctx, s, g.Folder, row); err != nil {
+	if _, err := SeedMemberRole(ctx, s, g.Folder, "", row); err != nil {
 		return err
 	}
 	return nil

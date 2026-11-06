@@ -14,7 +14,7 @@ func scopesEnv(t *testing.T, rows ...core.ACLRow) *store.Store {
 	t.Helper()
 	s := openMem(t)
 	for _, r := range rows {
-		if err := s.AddACLRow(r); err != nil {
+		if err := s.AddACLRow(r, ""); err != nil {
 			t.Fatalf("seed %+v: %v", r, err)
 		}
 	}

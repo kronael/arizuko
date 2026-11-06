@@ -592,11 +592,11 @@ func AnEdgeThatWouldCloseACycleIsRefusedFromBothEnds(t *testing.T, newStore Fact
 	up := parentsIn(s)
 
 	// b is a member of a.
-	if ok, err := objstore.AddEdge(ctx, s, sc, up, "b", "a", edge("b", "a")); err != nil || !ok {
+	if ok, err := objstore.AddEdge(ctx, s, sc, "", up, "b", "a", edge("b", "a")); err != nil || !ok {
 		t.Fatalf("the first edge reported ok=%v err=%v", ok, err)
 	}
 	// a therefore cannot be a member of b.
-	if _, err := objstore.AddEdge(ctx, s, sc, up, "a", "b", edge("a", "b")); !errors.Is(
+	if _, err := objstore.AddEdge(ctx, s, sc, "", up, "a", "b", edge("a", "b")); !errors.Is(
 		err, objstore.ErrCycle) {
 		t.Errorf("the edge that closes a two-node cycle returned %v, want ErrCycle", err)
 	}
@@ -606,10 +606,10 @@ func AnEdgeThatWouldCloseACycleIsRefusedFromBothEnds(t *testing.T, newStore Fact
 
 	// The walk is TRANSITIVE, not one hop: c is a member of b, so a cannot be a
 	// member of c.
-	if ok, err := objstore.AddEdge(ctx, s, sc, up, "c", "b", edge("c", "b")); err != nil || !ok {
+	if ok, err := objstore.AddEdge(ctx, s, sc, "", up, "c", "b", edge("c", "b")); err != nil || !ok {
 		t.Fatalf("the second edge reported ok=%v err=%v", ok, err)
 	}
-	if _, err := objstore.AddEdge(ctx, s, sc, up, "a", "c", edge("a", "c")); !errors.Is(
+	if _, err := objstore.AddEdge(ctx, s, sc, "", up, "a", "c", edge("a", "c")); !errors.Is(
 		err, objstore.ErrCycle) {
 		t.Errorf("the edge that closes a three-node cycle returned %v, want ErrCycle: a walk "+
 			"that stops at the direct parents finds no cycle deeper than one hop", err)
@@ -618,14 +618,14 @@ func AnEdgeThatWouldCloseACycleIsRefusedFromBothEnds(t *testing.T, newStore Fact
 	// A node cannot be its own parent. The walk seeds with the node it starts
 	// from, which is the `SELECT ?` seed of the recursive query both copies run,
 	// so a cycle of length one needs no separate test.
-	if _, err := objstore.AddEdge(ctx, s, sc, up, "d", "d", edge("d", "d")); !errors.Is(
+	if _, err := objstore.AddEdge(ctx, s, sc, "", up, "d", "d", edge("d", "d")); !errors.Is(
 		err, objstore.ErrCycle) {
 		t.Errorf("a self edge returned %v, want ErrCycle", err)
 	}
 
 	// The caller's own condition still refuses in its own terms: an edge already
 	// there is a plain refusal, not a cycle and not a fault.
-	if ok, err := objstore.AddEdge(ctx, s, sc, up, "b", "a", edge("b", "a")); err != nil || ok {
+	if ok, err := objstore.AddEdge(ctx, s, sc, "", up, "b", "a", edge("b", "a")); err != nil || ok {
 		t.Errorf("re-adding an edge reported ok=%v err=%v, want a refusal with no error", ok, err)
 	}
 
@@ -640,9 +640,9 @@ func AnEdgeThatWouldCloseACycleIsRefusedFromBothEnds(t *testing.T, newStore Fact
 	// whole edge. So the second decides on a graph with no cycle in it and has
 	// nothing but the marker to catch it.
 	second := &slip{Store: g, on: graph, left: 1, at: func() {
-		firstOK, firstErr = objstore.AddEdge(ctx, g, gsc, parentsIn(g), "b", "a", edge("b", "a"))
+		firstOK, firstErr = objstore.AddEdge(ctx, g, gsc, "", parentsIn(g), "b", "a", edge("b", "a"))
 	}}
-	ok, err := objstore.AddEdge(ctx, second, gsc, parentsIn(second), "a", "b", edge("a", "b"))
+	ok, err := objstore.AddEdge(ctx, second, gsc, "", parentsIn(second), "a", "b", edge("a", "b"))
 	if firstErr != nil || !firstOK {
 		t.Fatalf("the first insert reported ok=%v err=%v", firstOK, firstErr)
 	}
@@ -658,7 +658,7 @@ func AnEdgeThatWouldCloseACycleIsRefusedFromBothEnds(t *testing.T, newStore Fact
 
 	// A graph with no marker has nothing for two inserts to serialise on, so it
 	// is refused rather than walked.
-	if _, err := objstore.AddEdge(ctx, s, scope("unmarked"), up, "e", "f",
+	if _, err := objstore.AddEdge(ctx, s, scope("unmarked"), "", up, "e", "f",
 		edge("e", "f")); !errors.Is(err, objstore.ErrNoMarker) {
 		t.Errorf("an edge against a scope with no marker returned %v, want ErrNoMarker", err)
 	}
@@ -756,4 +756,29 @@ func parentsIn(s objstore.Store) objstore.ParentsFunc {
 func edges(t *testing.T, s objstore.Store) []string {
 	t.Helper()
 	return s2keys(t, s, objstore.Query{Entity: graph, Partition: tenant})
+}
+
+func ProofFencesWrites(t *testing.T, newStore Factory) {
+	ctx := context.Background()
+	s := newStore(t, markers, graph)
+	sc := scope("proof")
+	ensure(t, s, sc)
+	v, err := objstore.ReadConsistent(ctx, s, sc, func(context.Context) error { return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	ok, err := s.GuardedBatch(ctx, nil, append(edge("a", "b"), objstore.BumpAt(sc, v)))
+	if err != nil || !ok {
+		t.Fatalf("current version: %v %v", ok, err)
+	}
+	ok, err = s.GuardedBatch(ctx, nil, append(edge("c", "d"), objstore.BumpAt(sc, v)))
+	if err != nil || ok {
+		t.Fatalf("stale version: %v %v", ok, err)
+	}
+	if _, err := objstore.AddEdge(ctx, s, sc, v, parentsIn(s), "e", "f", edge("e", "f")); !errors.Is(err, objstore.ErrScopeMoved) {
+		t.Fatalf("stale edge: %v", err)
+	}
+	if got := s2keys(t, s, objstore.Query{Entity: graph, Partition: tenant}); len(got) != 1 {
+		t.Fatalf("edges: %v", got)
+	}
 }

@@ -44,6 +44,17 @@ func ReadConsistent(ctx context.Context, s Store, sc Scope, read func(context.Co
 		sc.Entity, sc.Key.Sort, maxCASAttempts)
 }
 
+func CurrentVersion(ctx context.Context, s Store, sc Scope) (Version, error) {
+	m, err := readMarker(ctx, s, sc)
+	if err != nil {
+		return "", err
+	}
+	if !m.present {
+		return "", ErrNoMarker
+	}
+	return Version(m.version), nil
+}
+
 // settledMarker refuses a missing marker (no writer bumps a marker that is not
 // there, so "unchanged" would be a guarantee nobody made) and a HELD one (a
 // replace bumps at claim and at finish, so equal versions can bracket every

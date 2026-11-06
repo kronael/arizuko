@@ -15,6 +15,7 @@ import (
 
 	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -378,10 +379,10 @@ func TestReadOnly_NoAuditRow(t *testing.T) {
 func TestMCPTools_PerInvocationCallerResolver(t *testing.T) {
 	st := withAuditDB(t)
 	// Seed two ACL rows so both alice and bob can access.
-	if err := st.AddACLRow(core.ACLRow{Principal: "alice", Action: "*", Scope: "**", Effect: "allow"}); err != nil {
+	if err := st.AddACLRow(core.ACLRow{Principal: "alice", Action: "*", Scope: "**", Effect: "allow"}, ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.AddACLRow(core.ACLRow{Principal: "bob", Action: "*", Scope: "**", Effect: "allow"}); err != nil {
+	if err := st.AddACLRow(core.ACLRow{Principal: "bob", Action: "*", Scope: "**", Effect: "allow"}, ""); err != nil {
 		t.Fatal(err)
 	}
 	s := &fakeState{}
@@ -697,4 +698,30 @@ func auditTrail(t *testing.T, st *store.Store) []audit.Row {
 		t.Fatalf("read the audit trail: %v", err)
 	}
 	return rows
+}
+
+func TestRESTHandlerScopeMoved(t *testing.T) {
+	st := withAuditDB(t)
+	r := fakeResource(st, &fakeState{})
+	r.Handler = func(ctx context.Context, x Execution) (any, error) {
+		v, err := objstore.ReadConsistent(ctx, st.Obj(), store.OwnerScope(store.OwnerRoutd), func(context.Context) error { return nil })
+		if err != nil {
+			return nil, err
+		}
+		if err := st.PutACLRowInto(x.Writes, markerRow); err != nil {
+			return nil, err
+		}
+		x.Writes.Prove(v)
+		if err := st.PutACLRow(core.ACLRow{Principal: "test:move", Action: "mcp:send", Scope: "**"}); err != nil {
+			return nil, err
+		}
+		return nil, nil
+	}
+	mux := http.NewServeMux()
+	RegisterREST(mux, r, operatorBuilder)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, httptest.NewRequest("POST", "/v1/routes", bytes.NewReader([]byte(`{"x":"y"}`))))
+	if w.Code != http.StatusConflict {
+		t.Fatalf("status = %d body=%s", w.Code, w.Body.String())
+	}
 }

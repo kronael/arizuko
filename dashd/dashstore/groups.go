@@ -66,7 +66,7 @@ func (s *Store) CreateGroupWithAdmin(ctx context.Context, folder, product, admin
 		return fmt.Errorf("%w: %w", ErrGrantAdmin, err)
 	}
 	_, rec := audit.WriteFor(ev)
-	created, err := store.SeedMemberRole(ctx, st, folder, row, grant, rec)
+	created, err := store.SeedMemberRole(ctx, st, folder, "", row, grant, rec)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrSeedMemberRole, err)
 	}

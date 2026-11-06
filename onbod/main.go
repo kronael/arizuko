@@ -926,7 +926,7 @@ func writeWorld(db *store.Store, folder, username, userSub string) error {
 	if err != nil {
 		return err
 	}
-	created, err := store.SeedMemberRole(ctx, db, folder, row, grant, reach, world)
+	created, err := store.SeedMemberRole(ctx, db, folder, "", row, grant, reach, world)
 	if err != nil {
 		return err
 	}
@@ -1207,7 +1207,7 @@ func handleInvite(w http.ResponseWriter, r *http.Request, db, obdb *store.Store)
 		if perr := db.AddACLRow(core.ACLRow{
 			Principal: userSub, Action: "admin", Scope: target,
 			Effect: "allow", GrantedBy: "invite",
-		}); perr != nil {
+		}, ""); perr != nil {
 			// The grant (routd.db) failed AFTER the consume (onbod.db) — separate
 			// DBs, no shared tx. Roll back the consume so the invite isn't burned
 			// without a grant (silent permanent lockout), and surface the failure

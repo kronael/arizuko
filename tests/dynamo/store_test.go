@@ -76,7 +76,7 @@ func TestStoreRunsOverDynamo(t *testing.T) {
 
 	if err := s.AddACLRow(core.ACLRow{
 		Principal: "user:u1", Action: "admin", Scope: "acme", Effect: "allow",
-	}); err != nil {
+	}, ""); err != nil {
 		t.Fatalf("AddACLRow: %v", err)
 	}
 	rows, err := s.ACLRowsFor([]string{"user:u1"})

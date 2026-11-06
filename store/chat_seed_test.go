@@ -21,7 +21,7 @@ func TestSeedChatSettingsGrantsOnlyOnEmptyACL(t *testing.T) {
 	})
 	t.Run("existing acl", func(t *testing.T) {
 		s := openEntities(t)
-		if err := s.AddACLRow(core.ACLRow{Principal: "person", Action: "routes:get", Scope: "**", Effect: EffectAllow}); err != nil {
+		if err := s.AddACLRow(core.ACLRow{Principal: "person", Action: "routes:get", Scope: "**", Effect: EffectAllow}, ""); err != nil {
 			t.Fatal(err)
 		}
 		if err := SeedRoutdFloor(ctx, s.Obj()); err != nil {

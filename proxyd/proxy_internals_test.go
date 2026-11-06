@@ -550,7 +550,7 @@ func TestTryAuth_ES256SubPrefixGrantLookup(t *testing.T) {
 	st := testutils.NewRoutdStore(t)
 	if err := st.AddACLRow(core.ACLRow{
 		Principal: "google:123", Action: "*", Scope: "atlas", Effect: "allow",
-	}); err != nil {
+	}, ""); err != nil {
 		t.Fatal(err)
 	}
 	k, ks := es256KeySet(t)
@@ -587,7 +587,7 @@ func TestTryAuth_ES256OperatorGroupsFromDB(t *testing.T) {
 	// Operator grant: bare sub `google:999` holds `**` (cross-folder operator).
 	if err := st.AddACLRow(core.ACLRow{
 		Principal: "google:999", Action: "*", Scope: "**", Effect: "allow",
-	}); err != nil {
+	}, ""); err != nil {
 		t.Fatal(err)
 	}
 	k, ks := es256KeySet(t)

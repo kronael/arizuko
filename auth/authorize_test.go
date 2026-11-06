@@ -32,14 +32,14 @@ func addRow(t *testing.T, s *store.Store, principal, action, scope, effect strin
 	t.Helper()
 	if err := s.AddACLRow(core.ACLRow{
 		Principal: principal, Action: action, Scope: scope, Effect: effect,
-	}); err != nil {
+	}, ""); err != nil {
 		t.Fatalf("AddACLRow: %v", err)
 	}
 }
 
 func addRowFull(t *testing.T, s *store.Store, r core.ACLRow) {
 	t.Helper()
-	if err := s.AddACLRow(r); err != nil {
+	if err := s.AddACLRow(r, ""); err != nil {
 		t.Fatalf("AddACLRow: %v", err)
 	}
 }

@@ -167,7 +167,7 @@ func (s *Store) AddMembership(child, parent, addedBy string) error {
 // these batches touch is routd-scoped, so that one marker is the one a bump
 // would have moved.
 func (s *Store) addEdge(child, parent string, writes ...objstore.Write) error {
-	_, err := s.AddEdgeWith(context.Background(), child, parent, "", writes...)
+	_, err := s.AddEdgeWith(context.Background(), child, parent, "", "", writes...)
 	return err
 }
 
@@ -181,7 +181,7 @@ func (s *Store) addEdge(child, parent string, writes ...objstore.Write) error {
 // FALSE IS A COMPANION'S CONDITION REFUSING, never this edge's: the edge write
 // is a Merge and has nothing to refuse, so a caller reads a false as its own
 // answer. addedBy empty means the caller rendered the edge write itself.
-func (s *Store) AddEdgeWith(ctx context.Context, child, parent, addedBy string,
+func (s *Store) AddEdgeWith(ctx context.Context, child, parent, addedBy string, at objstore.Version,
 	writes ...objstore.Write) (bool, error) {
 	if child == parent {
 		return false, ErrSelfMembership
@@ -193,7 +193,7 @@ func (s *Store) AddEdgeWith(ctx context.Context, child, parent, addedBy string,
 		}
 		writes = append([]objstore.Write{edge}, writes...)
 	}
-	ok, err := objstore.AddEdge(ctx, s.Obj(), OwnerScope(OwnerRoutd),
+	ok, err := objstore.AddEdge(ctx, s.Obj(), OwnerScope(OwnerRoutd), at,
 		MembershipParents(s.Obj()), child, parent, writes)
 	if errors.Is(err, objstore.ErrCycle) {
 		return false, ErrCycle
@@ -238,9 +238,9 @@ func WorldEdgeWrite(folder string) (objstore.Write, error) {
 // folder with no edge expands to nothing and has no messaging tools (BUGS
 // L119). Idempotent. A false is the CREATION's own condition: the folder is
 // already someone's (AddEdgeWith).
-func SeedMemberRole(ctx context.Context, s *Store, folder string,
+func SeedMemberRole(ctx context.Context, s *Store, folder string, at objstore.Version,
 	also ...objstore.Write) (bool, error) {
-	return s.AddEdgeWith(ctx, "folder:"+folder, RoleMember, "system:4r-member", also...)
+	return s.AddEdgeWith(ctx, "folder:"+folder, RoleMember, "system:4r-member", at, also...)
 }
 
 // PutMembership is the audit-free twin of AddMembership, for an edge no
