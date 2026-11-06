@@ -7,5 +7,5 @@ env:
     hint: Oracle — required for deep document analysis and synthesis
   TELEGRAM_BOT_TOKEN:
     hint: Team channel for briefing delivery (Telegram or Discord — set at least one)
-  DISCORD_BOT_TOKEN:
+  DISCORD_TOKEN:
     hint: Discord team channel for briefing delivery

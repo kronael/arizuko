@@ -167,7 +167,7 @@ secrets:
   # Platform tokens. adapters[].secretEnv names which ones reach which adapter;
   # a listed key with no value here fails the render.
   telegramBotToken: '' # TELEGRAM_BOT_TOKEN     (teled)
-  discordBotToken: '' # DISCORD_BOT_TOKEN      (discd)
+  discordToken: '' # DISCORD_TOKEN          (discd)
   slackBotToken: '' # SLACK_BOT_TOKEN        (slakd)
   slackSigningSecret: '' # SLACK_SIGNING_SECRET   (slakd)
   emailImapHost: '' # EMAIL_IMAP_HOST        (emaid)
@@ -228,7 +228,7 @@ adapters:
     enabled: false
     entrypoint: ['discd']
     secretEnv:
-      - DISCORD_BOT_TOKEN
+      - DISCORD_TOKEN
 
   - name: slakd
     enabled: false

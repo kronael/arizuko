@@ -1,5 +1,5 @@
-# discd — Discord adapter. DISCORD_BOT_TOKEN arrives via env/discd.env;
-# DISCORD_USER_TOKEN is optional (user-account mode) and not scoped.
+# discd — Discord adapter. DISCORD_TOKEN (`Bot <token>` = bot, bare = user
+# account) arrives via env/discd.env.
 # The outbound dedup record is discd's own prefix on the store server, so discd
 # mounts no part of the data dir. Losing that record lets routd's re-send of a
 # still-pending row post a second Discord message.
@@ -11,7 +11,6 @@ services:
     env_file: ['../env/discd.env']
     environment:
       ROUTER_URL: 'http://routd:8080'
-      DISCORD_USER_TOKEN: '${DISCORD_USER_TOKEN}'
       LISTEN_ADDR: ':8080'
       LISTEN_URL: 'http://discd:8080'
     depends_on: [routd]

@@ -213,7 +213,7 @@ var daemonKeys = map[string][]string{
 	// Channel adapters exchange a service:<adapter> JWT presented on EVERY
 	// routd call (spec 5/1).
 	"teled": {"AUTHD_URL", "AUTHD_SERVICE_KEY", "TELEGRAM_BOT_TOKEN"},
-	"discd": {"AUTHD_URL", "AUTHD_SERVICE_KEY", "DISCORD_BOT_TOKEN"},
+	"discd": {"AUTHD_URL", "AUTHD_SERVICE_KEY", "DISCORD_TOKEN"},
 	"slakd": {"AUTHD_URL", "AUTHD_SERVICE_KEY", "SLACK_BOT_TOKEN", "SLACK_SIGNING_SECRET", "SLAKD_USERS_CACHE_TTL"},
 	// The five auth keys are load-bearing: with EMAIL_TRUSTED_AUTHSERV absent
 	// emaid classifies EVERY inbound as untrusted (fail-closed, spec 11/17)

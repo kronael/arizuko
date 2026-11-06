@@ -4,5 +4,5 @@ tagline: PM agent — task board, status summaries, decisions.
 env:
   TELEGRAM_BOT_TOKEN:
     hint: Team channel (Telegram or Discord — set at least one)
-  DISCORD_BOT_TOKEN:
+  DISCORD_TOKEN:
     hint: Discord team channel for task tracking and status updates

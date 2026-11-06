@@ -7,4 +7,4 @@ proxyd_routes:
   - path: /dash/discd/
     backend: http://discd:8080
     auth: user
-    gated_by: DISCORD_BOT_TOKEN
+    gated_by: DISCORD_TOKEN

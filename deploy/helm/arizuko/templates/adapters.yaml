@@ -15,7 +15,7 @@ volume in compose and are not in the default list.
 {{- $configMap := include "arizuko.configMapName" . -}}
 {{- $tokens := dict
     "TELEGRAM_BOT_TOKEN"     "telegramBotToken"
-    "DISCORD_BOT_TOKEN"      "discordBotToken"
+    "DISCORD_TOKEN"      "discordToken"
     "SLACK_BOT_TOKEN"        "slackBotToken"
     "SLACK_SIGNING_SECRET"   "slackSigningSecret"
     "EMAIL_IMAP_HOST"        "emailImapHost"

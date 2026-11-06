@@ -2,8 +2,11 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net/http"
+	"os"
+	"strings"
 
 	"github.com/kronael/arizuko/chanlib"
 )
@@ -67,17 +70,24 @@ type config struct {
 	UserMode                             bool // true when authenticating as a user account, not a bot
 }
 
-func loadConfig() config {
-	botToken := chanlib.EnvOr("DISCORD_BOT_TOKEN", "")
-	userToken := chanlib.EnvOr("DISCORD_USER_TOKEN", "")
-	if botToken == "" && userToken == "" {
-		chanlib.MustEnv("DISCORD_BOT_TOKEN")
+// parseToken reads DISCORD_TOKEN the way Discord's Authorization header is
+// written: "Bot <token>" is a bot account, a bare token is a user account.
+func parseToken(v string) (token string, userMode bool, err error) {
+	t, isBot := strings.CutPrefix(v, "Bot ")
+	if !isBot {
+		t = v
 	}
-	token := botToken
-	userMode := false
-	if userToken != "" {
-		token = userToken
-		userMode = true
+	if t = strings.TrimSpace(t); t == "" {
+		return "", false, errors.New("DISCORD_TOKEN missing: set `Bot <token>` for a bot, a bare token for a user account")
+	}
+	return t, !isBot, nil
+}
+
+func loadConfig() config {
+	token, userMode, err := parseToken(os.Getenv("DISCORD_TOKEN"))
+	if err != nil {
+		slog.Error("required env var missing", "key", "DISCORD_TOKEN", "err", err)
+		os.Exit(1)
 	}
 	return config{
 		Name:          chanlib.EnvOr("CHANNEL_NAME", "discord"),

@@ -13,6 +13,8 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+- `discd` reads one variable, `DISCORD_TOKEN`: put `DISCORD_TOKEN=Bot <token>` (bot) or the bare user token in `.env` and remove `DISCORD_BOT_TOKEN` and `DISCORD_USER_TOKEN`; discd does not read the old keys.
+
 ## [v0.75.2] — 2026-11-06
 
 > arizuko v0.75.2 — onboarding requests reach the operator, a fuller trip computer

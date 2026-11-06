@@ -717,7 +717,7 @@ func TestOnReactionAddInThreadUsesTheParentChat(t *testing.T) {
 }
 
 func TestLoadConfig_Defaults(t *testing.T) {
-	t.Setenv("DISCORD_BOT_TOKEN", "tok")
+	t.Setenv("DISCORD_TOKEN", "Bot tok")
 	t.Setenv("ROUTER_URL", "http://router:7000")
 	t.Setenv("CHANNEL_NAME", "")
 	t.Setenv("LISTEN_ADDR", "")

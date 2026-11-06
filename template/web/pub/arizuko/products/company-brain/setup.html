@@ -51,7 +51,7 @@
       <h2>Fill the config</h2>
       <p>The digest skill ships <code>digest.example.toml</code>; copy it to <code>~/digest.toml</code> in the group once, then edit it. Replace the repository, the clone path, the post chat, the agent&rsquo;s accounts, the people and the channels. The scripts stop when the file is missing.</p>
       <h2>Credentials</h2>
-      <p>Set <code>DISCORD_BOT_TOKEN</code> for the channel. Give the group a GitHub token as <code>GH_TOKEN</code>; without it the digest reads the local clone and the message store.</p>
+      <p>Set <code>DISCORD_TOKEN</code> for the channel. Give the group a GitHub token as <code>GH_TOKEN</code>; without it the digest reads the local clone and the message store.</p>
       <h2>Schedule it</h2>
       <p>Add a daily task that runs <code>/digest</code> and a Monday task that runs <code>/digest --week</code> with the weekly state file. Use <code>--preview</code> with a test chat before the first post to the team channel.</p>
       <div class="docs-footer">

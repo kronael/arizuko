@@ -51,7 +51,7 @@
       <h2>The manager needs an instance and an approval channel</h2>
       <ul>
         <li>A running instance, from <a href="../../howto/">getting started</a>.</li>
-        <li>An approval channel: <code>TELEGRAM_BOT_TOKEN</code> or <code>DISCORD_BOT_TOKEN</code>, with its adapter installed. Without one, approvals have no place.</li>
+        <li>An approval channel: <code>TELEGRAM_BOT_TOKEN</code> or <code>DISCORD_TOKEN</code>, with its adapter installed. Without one, approvals have no place.</li>
         <li>One or more publish adapters. Without them, the agent still plans and reports, and gives you the text.</li>
       </ul>
 
@@ -71,7 +71,7 @@
 arizuko package add -i &lt;instance&gt; catalog:discd</code></pre>
       <p>Add the tokens to <code>/srv/data/arizuko_&lt;instance&gt;/.env</code>:</p>
       <pre><code>TELEGRAM_BOT_TOKEN=REPLACE_ME
-DISCORD_BOT_TOKEN=REPLACE_ME</code></pre>
+DISCORD_TOKEN=Bot REPLACE_ME</code></pre>
       <p>Restart the running instance:</p>
       <pre><code>sudo systemctl restart arizuko_&lt;instance&gt;</code></pre>
       <p>Posting is an adapter action with a grant, so the agent can publish only where it has both. Revoke the grant to stop it. The next turn uses the change. <a href="../../concepts/grants.html">Grants</a> explains the rows.</p>

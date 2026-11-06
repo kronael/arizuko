@@ -100,13 +100,13 @@
 export AUTHD_URL=http://authd:8080
 export AUTHD_SERVICE_KEY=$(grep ^AUTHD_SERVICE_KEY .env | cut -d= -f2)
 export LISTEN_ADDR=:8080
-export DISCORD_BOT_TOKEN=&lt;bot token&gt;
+export DISCORD_TOKEN="Bot &lt;bot token&gt;"
 export ASSISTANT_NAME=arizuko
 ./discd</code></pre>
 
     <p>On the Discord side, create an application at <code>discord.com/developers</code>, add a bot and copy the token. The bot needs the gateway intents <code>GUILDS</code>, <code>GUILD_MESSAGES</code>, <code>GUILD_MESSAGE_REACTIONS</code>, <code>MESSAGE_CONTENT</code> and <code>DIRECT_MESSAGES</code>. Invite the bot with the OAuth URL.</p>
 
-    <p>User mode, with <code>DISCORD_USER_TOKEN</code> instead of a bot token, signs in as a Discord user account. Use it where a bot account is not allowed. User mode skips the gateway intents, which a user token cannot request.</p>
+    <p>User mode, with a bare token in <code>DISCORD_TOKEN</code> and no <code>Bot </code> prefix, signs in as a Discord user account. Use it where a bot account is not allowed. User mode skips the gateway intents, which a user token cannot request.</p>
 
     <p><code>GET /health</code> returns 503 when the websocket is down. <code>discordgo</code> reconnects automatically, so a 503 that stays means a revoked token or an outage at Discord.</p>
 
@@ -122,7 +122,7 @@ export ASSISTANT_NAME=arizuko
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/components/discd.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-21">2026-10-21</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-28">2026-10-28</time>
       </div>
     </main>
 

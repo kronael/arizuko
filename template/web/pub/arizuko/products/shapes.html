@@ -160,7 +160,7 @@ arizuko network -i shop allow supermarket lidl.co.uk</code></pre>
 
       <h3>A running instance and Discord bot support the team</h3>
       <p>Start an instance named <code>acme</code>. Set the token, run <code>arizuko package add -i acme catalog:discd</code> and restart the service. The <a href="../howto/discord.html">Discord guide</a> has the steps.</p>
-      <pre><code>$EDITOR /srv/data/arizuko_acme/.env    # WEB_HOST, WEB_PORT, DISCORD_BOT_TOKEN, a model key
+      <pre><code>$EDITOR /srv/data/arizuko_acme/.env    # WEB_HOST, WEB_PORT, DISCORD_TOKEN, a model key
 arizuko group -i acme add discord:123456789/987654321 main
 </code></pre>
       <p>No <code>discord-team</code> template exists, so the <code>main</code> group starts with the generic persona. The nearest start is <code>ant/examples/slack-team/</code>: copy its <code>PERSONA.md</code> into <code>groups/main/</code> and adapt the package's <code>CLAUDE.md</code> as that group's <code>SYSTEM.md</code>. For linked identities, add <code>GITHUB_CLIENT_ID</code>, <code>GOOGLE_CLIENT_ID</code> or <code>DISCORD_CLIENT_ID</code> with its secret to <code>.env</code>.</p>
@@ -170,7 +170,7 @@ arizuko group -i acme add discord:123456789/987654321 main
 -2   chat_jid=discord:dm/*                main
 -1   chat_jid=discord:*/* verb=mention    main
 0    chat_jid=discord:*/*                 main#observe</code></pre>
-      <p>To check the shape, send <code>@acme hello</code> in a channel that the bot can see; the agent replies. When the bot answers in DMs and not in channels, the channel routes are <code>#observe</code> only: add a <code>verb=mention</code> route to <code>main</code>. When <code>discd</code> is unhealthy, the token changed or the bot left the guild: copy the new token into <code>DISCORD_BOT_TOKEN</code> and restart the instance. A new channel is one more group: <code>arizuko group -i acme add 'discord:123456789/987654321' dev-chat</code>.</p>
+      <p>To check the shape, send <code>@acme hello</code> in a channel that the bot can see; the agent replies. When the bot answers in DMs and not in channels, the channel routes are <code>#observe</code> only: add a <code>verb=mention</code> route to <code>main</code>. When <code>discd</code> is unhealthy, the token changed or the bot left the guild: copy the new token into <code>DISCORD_TOKEN</code> and restart the instance. A new channel is one more group: <code>arizuko group -i acme add 'discord:123456789/987654321' dev-chat</code>.</p>
 
       <h2 id="team-brain">The team brain runs one agent for each team</h2>
       <p>A network of per-team agents, each with its own inbox and memory,

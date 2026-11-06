@@ -10,7 +10,7 @@ attachments (cached via `chanlib.URLCache`).
 
 ## Responsibilities
 
-- Authenticate with `DISCORD_BOT_TOKEN`, open gateway websocket.
+- Authenticate with `DISCORD_TOKEN`, open gateway websocket.
 - Post inbound to router with `discord:<channel_id>` JIDs.
 - Emit synthetic `like` / `dislike` inbound events on
   `MessageReactionAdd` (raw emoji on `InboundMsg.Reaction`,
@@ -59,11 +59,13 @@ attachments (cached via `chanlib.URLCache`).
 
 ## Configuration
 
-- `DISCORD_BOT_TOKEN` or `DISCORD_USER_TOKEN` (one required), `ROUTER_URL`, `AUTHD_URL`, `AUTHD_SERVICE_KEY`, `AUTHD_SERVICE_NAME`
+- `DISCORD_TOKEN` (required), `ROUTER_URL`, `AUTHD_URL`, `AUTHD_SERVICE_KEY`, `AUTHD_SERVICE_NAME`
 - `LISTEN_ADDR`, `LISTEN_URL`, `CHANNEL_NAME`
 - `MEDIA_MAX_FILE_BYTES`, `ASSISTANT_NAME`
 
-User mode (`DISCORD_USER_TOKEN`): authenticates as a Discord user account instead of a bot.
+`DISCORD_TOKEN` is written as the Discord Authorization header is: `Bot <token>` runs a bot, a bare token runs a user account.
+
+User mode (a bare token): authenticates as a Discord user account instead of a bot.
 Skips gateway intents (not available to user tokens). Bot mode is preferred; user mode is
 for self-bot use cases where a bot account cannot be created.
 

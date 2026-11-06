@@ -4099,7 +4099,7 @@ manifest does not declare:
 | fragment | undeclared `${…}` |
 | --- | --- |
 | `litellm` | `ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`, the three `OTEL_EXPORTER_OTLP_*` |
-| `discd` | `DISCORD_USER_TOKEN`, `RUNED_RUN_TIMEOUT` |
+| `discd` | `RUNED_RUN_TIMEOUT` |
 | `bskyd` | `BLUESKY_IDENTIFIER`, `BLUESKY_PASSWORD` |
 | `teled` | `RUNED_RUN_TIMEOUT` |
 | `reditd` | `REDDIT_SUBREDDITS` |
@@ -4149,7 +4149,7 @@ The bundled catalog is exempt, which is what makes a denylist safe here: `litell
 interpolates `MODEL_GATEWAY_KEY` legitimately, because it IS the gateway.
 
 **What is NOT a defect, re-measured:** eight first-party fragments reference keys absent
-from `daemonKeys` — `BLUESKY_IDENTIFIER`/`_PASSWORD`, `DISCORD_USER_TOKEN`,
+from `daemonKeys` — `BLUESKY_IDENTIFIER`/`_PASSWORD`,
 `STORE_DB_PASSWORD`, `ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`,
 `MODEL_GATEWAY_DB_PASSWORD`, `REDDIT_SUBREDDITS`. Each arrives by an explicit
 `environment: KEY: '${KEY}'` line naming exactly one value, which is a second delivery

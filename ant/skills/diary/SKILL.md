@@ -22,7 +22,7 @@ levels; `/compact-memories diary week|month` writes them, never a hand.
 summary: |
   Working on arizuko gateway. Main user: onvos.
   - telegram: bot token rotated, env not updated
-  - discord: DISCORD_BOT_TOKEN missing in staging
+  - discord: DISCORD_TOKEN missing in staging
 ---
 
 ## 10:32

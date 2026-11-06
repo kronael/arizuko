@@ -83,13 +83,13 @@
 
     <h2>discd uses a bot token or a user token</h2>
     <table>
-      <thead><tr><th>mode</th><th>env var</th><th>use</th></tr></thead>
+      <thead><tr><th>mode</th><th>value of <code>DISCORD_TOKEN</code></th><th>use</th></tr></thead>
       <tbody>
-        <tr><td>bot token</td><td><code>DISCORD_BOT_TOKEN</code></td><td>shared deployments, servers that you do not own, production</td></tr>
-        <tr><td>user token</td><td><code>DISCORD_USER_TOKEN</code></td><td>personal use with your own account, servers where you cannot add a bot</td></tr>
+        <tr><td>bot token</td><td><code>Bot &lt;token&gt;</code></td><td>shared deployments, servers that you do not own, production</td></tr>
+        <tr><td>user token</td><td><code>&lt;token&gt;</code>, with no prefix</td><td>personal use with your own account, servers where you cannot add a bot</td></tr>
       </tbody>
     </table>
-    <div class="callout"><strong>Set one token.</strong> If both are set, <code>discd</code> uses the user token. If neither is set, <code>discd</code> stops at start.</div>
+    <div class="callout"><strong>One variable holds the token.</strong> The prefix <code>Bot </code> selects bot mode, and a bare token selects user mode. If <code>DISCORD_TOKEN</code> is empty, <code>discd</code> stops at start.</div>
     <div class="callout"><strong>A user token runs the agent as your own account.</strong> The Discord terms of service limit automated use of user accounts. Use a user token only on an account that you own and can lose. For production and team deployments, use a bot token.</div>
 
     <h2>Step 1: make a Discord application</h2>
@@ -115,10 +115,10 @@
     <h2>Step 3: configure the instance</h2>
     <p>Add the token to <code>/srv/data/arizuko_&lt;instance&gt;/.env</code>:</p>
     <pre><code># bot mode
-DISCORD_BOT_TOKEN=your_bot_token_here
+DISCORD_TOKEN=Bot your_bot_token_here
 
 # user mode, personal use
-# DISCORD_USER_TOKEN=your_user_token_here</code></pre>
+# DISCORD_TOKEN=your_user_token_here</code></pre>
     <p>Select the package and restart. The existing package selections stay:</p>
     <pre><code>./arizuko package add -i &lt;instance&gt; catalog:discd
 sudo systemctl restart arizuko_&lt;instance&gt;</code></pre>
@@ -203,7 +203,7 @@ send_file chatJid:="discord:123456789/987654321" \
       <dt>Messages arrive with no text in bot mode</dt>
       <dd>Message Content Intent is off. Open the Discord Developer Portal, then Bot, then Privileged Gateway Intents, and turn it on. User mode needs no intents.</dd>
       <dt><code>discd</code> reports "disconnected"</dt>
-      <dd>The token is wrong or was reset. In bot mode, make a new token in the Developer Portal and update <code>DISCORD_BOT_TOKEN</code>. In user mode, check <code>DISCORD_USER_TOKEN</code>, because a password change or a forced logout cancels a user token. Then restart the instance.</dd>
+      <dd>The token is wrong or was reset. In bot mode, make a new token in the Developer Portal and update <code>DISCORD_TOKEN</code>. In user mode, check <code>DISCORD_TOKEN</code>, because a password change or a forced logout cancels a user token. Then restart the instance.</dd>
       <dt>Replies go to the wrong channel</dt>
       <dd>The agent calls <code>send</code> with a fixed JID. Use <code>reply</code>, which answers in the chat of the message.</dd>
       <dt>Only mentions start the agent</dt>
@@ -216,8 +216,7 @@ send_file chatJid:="discord:123456789/987654321" \
     <table>
       <thead><tr><th>variable</th><th>required</th><th>default</th><th>notes</th></tr></thead>
       <tbody>
-        <tr><td><code>DISCORD_BOT_TOKEN</code></td><td>one of two</td><td>&mdash;</td><td>from the Discord Developer Portal, under Bot</td></tr>
-        <tr><td><code>DISCORD_USER_TOKEN</code></td><td>one of two</td><td>&mdash;</td><td>the token of a personal account; <code>discd</code> uses it when both are set</td></tr>
+        <tr><td><code>DISCORD_TOKEN</code></td><td>yes</td><td>&mdash;</td><td><code>Bot &lt;token&gt;</code> with the bot token from the Developer Portal, or the bare token of a personal account</td></tr>
         <tr><td><code>LISTEN_ADDR</code></td><td>no</td><td><code>:8080</code> in the fragment</td><td>internal HTTP address for health and file serving</td></tr>
         <tr><td><code>ASSISTANT_NAME</code></td><td>no</td><td>&mdash;</td><td>replaces <code>&lt;@bot_id&gt;</code> mentions with a readable name in stored messages</td></tr>
         <tr><td><code>MEDIA_MAX_FILE_BYTES</code></td><td>no</td><td><code>20971520</code>, 20 MiB</td><td>the largest attachment that <code>discd</code> serves</td></tr>
@@ -231,7 +230,7 @@ send_file chatJid:="discord:123456789/987654321" \
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/howto/discord.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-24">2026-10-24</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-28">2026-10-28</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

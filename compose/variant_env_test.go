@@ -85,11 +85,11 @@ func TestVariantWithoutOverrideKeepsBaseValue(t *testing.T) {
 }
 
 func TestVariantOverrideIsGenericAcrossAdapters(t *testing.T) {
-	dir := seed(t, "DISCORD_BOT_TOKEN=base\nDISCORD_BOT_TOKEN_MY_TEAM=team\n")
+	dir := seed(t, "DISCORD_TOKEN=Bot base\nDISCORD_TOKEN_MY_TEAM=Bot team\n")
 	installAdapters(t, dir, "discd", "discd-my.team")
 	gen(t, dir)
-	if got := envLines(read(t, dir, "env/discd-my.team.env"))["DISCORD_BOT_TOKEN"]; got != "team" {
-		t.Errorf("variant token = %q, want team (label my.team -> _MY_TEAM)", got)
+	if got := envLines(read(t, dir, "env/discd-my.team.env"))["DISCORD_TOKEN"]; got != "Bot team" {
+		t.Errorf("variant token = %q, want Bot team (label my.team -> _MY_TEAM)", got)
 	}
 }
 

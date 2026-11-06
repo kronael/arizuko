@@ -2,7 +2,7 @@ name: company-brain
 brand: company-brain
 tagline: Company brain — a daily and weekly digest of what the team built and decided.
 env:
-  DISCORD_BOT_TOKEN:
+  DISCORD_TOKEN:
     required: true
     hint: Discord team channels the digest reads and posts to
   GH_TOKEN:
