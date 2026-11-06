@@ -44,7 +44,7 @@ func TestAConsistentReadSeesAnInviteMintedUnderIt(t *testing.T) {
 		_, _, mintErr = s.CreateInvite("beta", "operator", 1, nil)
 	})
 	seen := -1
-	if err := objstore.ReadConsistent(ctx, slipped, OwnerScope(OwnerOnbod),
+	if _, err := objstore.ReadConsistent(ctx, slipped, OwnerScope(OwnerOnbod),
 		func(ctx context.Context) error {
 			// A retry re-runs this, so what it accumulates it discards first.
 			items, err := slipped.Query(ctx, objstore.Query{Entity: Invites, Partition: OwnerOnbod})

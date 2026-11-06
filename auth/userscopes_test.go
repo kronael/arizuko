@@ -184,14 +184,14 @@ func dropMembership(t *testing.T, s *store.Store) {
 func TestMembershipReadFailureRefuses(t *testing.T) {
 	s := scopesEnv(t,
 		core.ACLRow{Principal: "u1", Action: "*", Scope: "**", Effect: "allow"},
-		core.ACLRow{Principal: "u1", Action: auth.HoldPrefix + "mcp:send", Scope: "atlas", Effect: "allow"},
+		core.ACLRow{Principal: "u1", Action: auth.HoldPrefix + "send", Scope: "atlas", Effect: "allow"},
 		core.ACLRow{Principal: "u1", Action: auth.ShellEnvPrefix + "K", Scope: "atlas", Effect: "allow"},
 	)
 	c := auth.Caller{Principal: "u1"}
 	if !auth.Authorize(s, c, "admin", "alpha", nil) {
 		t.Fatal("fixture is vacuous: the grant does not authorize before the drop")
 	}
-	if h, err := auth.CheckHold(s, c, "mcp:send", "atlas", nil); err != nil || !h {
+	if h, err := auth.CheckHold(s, c, "send", "atlas", nil); err != nil || !h {
 		t.Fatalf("fixture is vacuous: CheckHold = %v, %v before the drop", h, err)
 	}
 	dropMembership(t, s)
@@ -201,7 +201,7 @@ func TestMembershipReadFailureRefuses(t *testing.T) {
 	if auth.Authorize(s, auth.Caller{Route: "alpha"}, "admin", "alpha", nil) {
 		t.Error("Authorize allowed a route-only caller with an unreadable membership table")
 	}
-	if _, err := auth.CheckHold(s, c, "mcp:send", "atlas", nil); err == nil {
+	if _, err := auth.CheckHold(s, c, "send", "atlas", nil); err == nil {
 		t.Error("CheckHold answered without an error on an unreadable membership table")
 	}
 	if got := auth.ShellEnvKeys(s, c, "atlas", []string{"K"}); len(got) != 0 {

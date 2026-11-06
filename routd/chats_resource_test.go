@@ -82,8 +82,8 @@ func TestChatsRESTSignedServiceAuthorizationAndAudit(t *testing.T) {
 			t.Fatalf("reset = %v, %v", got, err)
 		}
 	}
-	row := core.ACLRow{Principal: "service:dashd", Action: "chats:update", Scope: "**", Effect: store.EffectAllow}
-	if err := db.store().RemoveACLRow(row); err != nil {
+	row := core.ACLRow{Principal: "service:dashd", Action: "chats:update", Scope: "**", Effect: store.EffectDeny}
+	if err := db.store().AddACLRow(row); err != nil {
 		t.Fatal(err)
 	}
 	if code := put(token, map[string]any{"jid": jid, "thread_replies": false}); code != 403 {

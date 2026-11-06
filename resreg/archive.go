@@ -69,7 +69,7 @@ func snapshotEntities(ctx context.Context, be Backend, subsystem string) (map[st
 	}
 	var manifest map[string]any
 	snapshotAt := time.Now().UTC().Format(time.RFC3339)
-	err := objstore.ReadConsistent(ctx, be.Obj, store.OwnerScope(subsystem), func(ctx context.Context) error {
+	_, err := objstore.ReadConsistent(ctx, be.Obj, store.OwnerScope(subsystem), func(ctx context.Context) error {
 		m, err := exportRows(be.read(), subsystem)
 		if err != nil {
 			return err

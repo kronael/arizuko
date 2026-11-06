@@ -105,35 +105,8 @@ func TestExport_FreshDB(t *testing.T) {
 	if !ok {
 		t.Fatalf("Export missing acl key")
 	}
-	if len(acl) != 39 {
-		t.Errorf("acl = %d rows, want 39 (the seeded floor)", len(acl))
-	}
-	for _, want := range []ACLRow{
-		{Principal: store.RoleMember, Action: "mcp:disengage", Scope: "**", Effect: store.EffectAllow},
-		{Principal: store.RoleMember, Action: "hold:mcp:disengage", Scope: "**", Effect: store.EffectDeny},
-		{Principal: "service:dashd", Action: "chats:get", Scope: "**", Effect: store.EffectAllow},
-		{Principal: "service:dashd", Action: "chats:update", Scope: "**", Effect: store.EffectAllow},
-	} {
-		found := slices.ContainsFunc(acl, func(row ACLRow) bool {
-			return row.Principal == want.Principal &&
-				row.Action == want.Action && row.Scope == want.Scope &&
-				row.Effect == want.Effect
-		})
-		if !found {
-			t.Errorf("Export dropped floor row: %+v", want)
-		}
-	}
-	root := false
-	for _, r := range acl {
-		if r.Principal == store.RoleOperator && r.Action == "*" && r.Scope == "**" {
-			root = true
-			if !r.GrantOption {
-				t.Error("the delegation root exported without its grant option")
-			}
-		}
-	}
-	if !root {
-		t.Error("Export dropped role:operator's root grant")
+	if len(acl) != 0 {
+		t.Errorf("acl = %d rows, want no stored defaults", len(acl))
 	}
 }
 

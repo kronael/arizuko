@@ -226,6 +226,12 @@ func (s *Store) RemoveMembership(child, parent string) error {
 // delegation, never derived from path depth.
 const RoleMember = "role:member"
 
+const RoleWorld = "role:world"
+
+func WorldEdgeWrite(folder string) (objstore.Write, error) {
+	return membershipPut("folder:"+folder, RoleWorld, "onbod")
+}
+
 // SeedMemberRole binds a new folder to RoleMember, with the creation's own
 // writes in the SAME batch. It is the ONE writer of the create-time edge:
 // three of four creating writers once wrote a groups row without it, and a

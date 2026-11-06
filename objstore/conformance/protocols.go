@@ -493,7 +493,7 @@ func AConsistentMultiReadRetriesWhenTheScopeMovesUnderIt(t *testing.T, newStore 
 	slipped := &slip{Store: s, left: 1, at: func() {
 		mustCommit(t, s, ctx, objstore.Bump(sc))
 	}}
-	if err := objstore.ReadConsistent(ctx, slipped, sc, func(ctx context.Context) error {
+	if _, err := objstore.ReadConsistent(ctx, slipped, sc, func(ctx context.Context) error {
 		attempts++
 		// A retry re-runs this, so what it accumulates it discards first.
 		seen = s2keys(t, slipped, objstore.Query{Entity: config, Partition: tenant})
@@ -513,7 +513,7 @@ func AConsistentMultiReadRetriesWhenTheScopeMovesUnderIt(t *testing.T, newStore 
 	// A scope with no marker is refused rather than reported consistent: no
 	// writer bumps a marker that is not there, so "unchanged" over an absent one
 	// is a guarantee nobody made.
-	if err := objstore.ReadConsistent(ctx, s, scope("nobody"), func(context.Context) error {
+	if _, err := objstore.ReadConsistent(ctx, s, scope("nobody"), func(context.Context) error {
 		t.Error("a consistent read ran its queries over a scope with no marker")
 		return nil
 	}); !errors.Is(err, objstore.ErrNoMarker) {
@@ -527,7 +527,7 @@ func AConsistentMultiReadRetriesWhenTheScopeMovesUnderIt(t *testing.T, newStore 
 	var held error
 	if _, err := objstore.Replace(ctx, s, sc, "", work("the document"), func(
 		ctx context.Context, r *objstore.Replacer) error {
-		held = objstore.ReadConsistent(ctx, s, sc, func(context.Context) error {
+		_, held = objstore.ReadConsistent(ctx, s, sc, func(context.Context) error {
 			t.Error("a consistent read ran its queries across a scope being replaced")
 			return nil
 		})
@@ -547,7 +547,7 @@ func AConsistentMultiReadRetriesWhenTheScopeMovesUnderIt(t *testing.T, newStore 
 		put(t, s, config, objstore.Key{Partition: tenant, Sort: "acl/unmarked"},
 			map[string]string{"seq": "1"})
 	}}
-	if err := objstore.ReadConsistent(ctx, quiet, sc, func(context.Context) error {
+	if _, err := objstore.ReadConsistent(ctx, quiet, sc, func(context.Context) error {
 		return nil
 	}); err != nil {
 		t.Fatalf("a write that carried no Bump was reported as an interleave: %v", err)
@@ -558,14 +558,14 @@ func AConsistentMultiReadRetriesWhenTheScopeMovesUnderIt(t *testing.T, newStore 
 	busy := &slip{Store: s, left: 1000, at: func() {
 		mustCommit(t, s, ctx, objstore.Bump(sc))
 	}}
-	if err := objstore.ReadConsistent(ctx, busy, sc, func(context.Context) error {
+	if _, err := objstore.ReadConsistent(ctx, busy, sc, func(context.Context) error {
 		return nil
 	}); err == nil {
 		t.Error("a read of a scope that moved under every attempt reported success")
 	}
 
 	// An error from the caller's own read is the caller's, returned as it is.
-	if err := objstore.ReadConsistent(ctx, s, sc, func(context.Context) error {
+	if _, err := objstore.ReadConsistent(ctx, s, sc, func(context.Context) error {
 		return errBody
 	}); !errors.Is(err, errBody) {
 		t.Errorf("the consistent read returned %v, want the caller's own error", err)

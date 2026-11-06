@@ -914,15 +914,7 @@ func writeWorld(db *store.Store, folder, username, userSub string) error {
 	if err != nil {
 		return err
 	}
-	// A WORLD MAY DO EVERYTHING AND ITS OWNER ANSWERS FOR IT. Two rows, not one
-	// per tool: the tool grant says the world can reach any tool inside its own
-	// subtree, and the hold beside it says a human sees every one of those calls
-	// before it runs. A world granted nothing could not create a cron and nobody
-	// could tell why; a world granted everything with no hold would act unwatched.
-	//
-	// The messaging floor and the always-mounted reads carry skip rows
-	// (store.skipApprovalFloor), so the hold falls on what a person would want to
-	// see and not on the agent answering a message.
+	// auth/defaults.go defines the world hold and its exceptions.
 	reach, err := store.ACLGrantWrite(core.ACLRow{
 		Principal: "folder:" + folder, Action: "mcp:*", Scope: folder + "/**",
 		Effect: store.EffectAllow, GrantedBy: "onbod",
@@ -930,14 +922,11 @@ func writeWorld(db *store.Store, folder, username, userSub string) error {
 	if err != nil {
 		return err
 	}
-	hold, err := store.ACLGrantWrite(core.ACLRow{
-		Principal: "folder:" + folder, Action: store.HoldPrefix + "*", Scope: folder + "/**",
-		Effect: store.EffectAllow, GrantedBy: "onbod",
-	})
+	world, err := store.WorldEdgeWrite(folder)
 	if err != nil {
 		return err
 	}
-	created, err := store.SeedMemberRole(ctx, db, folder, row, grant, reach, hold)
+	created, err := store.SeedMemberRole(ctx, db, folder, row, grant, reach, world)
 	if err != nil {
 		return err
 	}
@@ -1444,35 +1433,11 @@ func sendReply(cfg config, jid, text string) error {
 // unified acl tables (post-0053 cutover). Operator (`role:operator` membership)
 // returns the `**` scope through the role's row.
 func userFolders(db *store.Store, sub string) []string {
-	if sub == "" {
-		return nil
-	}
-	// Every principal the sub speaks as: itself, and the transitive closure of
-	// acl_membership above it.
-	anc, err := db.Ancestors(sub)
+	folders, err := auth.UserScopes(db, sub)
 	if err != nil {
-		slog.Error("userFolders read memberships", "sub", sub, "err", err)
+		slog.Error("userFolders read policy", "sub", sub, "err", err)
 		return nil
 	}
-	principals := append([]string{sub}, anc...)
-	// One begins_with per principal, which is the exactness `principal IN (…)`
-	// had: the separator ends the principal, so `folder:a` cannot reach
-	// `folder:ab`.
-	rows, err := db.ACLRowsFor(principals)
-	if err != nil {
-		slog.Error("userFolders read grants", "sub", sub, "err", err)
-		return nil
-	}
-	var folders []string
-	for _, r := range rows {
-		if r.Effect != "allow" || r.Scope == "" {
-			continue
-		}
-		if !slices.Contains(folders, r.Scope) {
-			folders = append(folders, r.Scope)
-		}
-	}
-	slices.Sort(folders)
 	return folders
 }
 

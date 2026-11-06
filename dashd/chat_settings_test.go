@@ -101,7 +101,7 @@ func TestChatSettingsDashboardAuthorizationAndRoundTrip(t *testing.T) {
 	if got, err := s.ChatThreadReplies(own); err != nil || !got {
 		t.Fatalf("reset stored = %v %v", got, err)
 	}
-	if err := s.RemoveACLRow(core.ACLRow{Principal: "service:dashd", Action: "chats:get", Scope: "**", Effect: "allow"}); err != nil {
+	if err := s.AddACLRow(core.ACLRow{Principal: "service:dashd", Action: "chats:get", Scope: "**", Effect: "deny"}); err != nil {
 		t.Fatal(err)
 	}
 	w = request("GET", "/dash/groups/team/settings?jid="+url.QueryEscape(own), "")

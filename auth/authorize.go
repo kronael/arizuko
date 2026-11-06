@@ -1,12 +1,14 @@
 package auth
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"slices"
 	"strings"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -66,71 +68,77 @@ func Authorize(
 		return false
 	}
 
-	// 1. Expand principal set.
-	expanded, err := expandPrincipals(s, caller)
+	p, _, err := ReadPolicy(s, caller)
 	if err != nil {
-		slog.Error("authorize: membership read failed; DENYING",
-			"principal", caller.Principal, "route", caller.Route,
-			"action", action, "scope", scope, "err", err)
+		slog.Error("authorize: policy read failed; denying", "err", err)
 		return false
 	}
+	return p.Allows(action, scope, params)
+}
 
-	// 2+3. Exact-match rows plus wildcard rows (stored principal contains '*',
-	// filtered against the expanded set with segment-wise glob).
-	//
-	// A read failure DENIES — but loudly. It used to be indistinguishable from
-	// "this principal holds no grants", so a broken acl table degraded every caller
-	// to no-access with nothing in the log to say why (BUGS A4).
-	rows, err := policyRows(s, expanded)
-	if err != nil {
-		slog.Error("authorize: acl read failed; DENYING",
-			"principal", caller.Principal, "route", caller.Route,
-			"action", action, "scope", scope, "err", err)
-		return false
-	}
-	route, err := routePrincipals(s, caller)
-	if err != nil {
-		slog.Error("authorize: membership read failed; DENYING",
-			"route", caller.Route, "action", action, "scope", scope, "err", err)
-		return false
-	}
+type Policy struct {
+	caller          Caller
+	route           []string
+	local, defaults []core.ACLRow
+}
 
-	// 4. Evaluate.
-	allowed, denied := false, false
+func ReadPolicy(s *store.Store, caller Caller) (Policy, objstore.Version, error) {
+	var p Policy
+	version, err := objstore.ReadConsistent(context.Background(), s.Obj(), store.OwnerScope(store.OwnerRoutd), func(context.Context) error {
+		p = Policy{caller: caller}
+		expanded, err := expandPrincipals(s, caller)
+		if err != nil {
+			return err
+		}
+		p.local, err = policyRows(s, expanded)
+		if err != nil {
+			return err
+		}
+		p.route, err = routePrincipals(s, caller)
+		if err != nil {
+			return err
+		}
+		for _, row := range defaultRows {
+			if anyPrincipalMatches(row.Principal, expanded) {
+				p.defaults = append(p.defaults, row)
+			}
+		}
+		return nil
+	})
+	return p, version, err
+}
+
+func (p Policy) matching(rows []core.ACLRow, action, scope string, params map[string]string) []core.ACLRow {
+	var out []core.ACLRow
 	for _, r := range rows {
-		if !matchPattern(r.Scope, scope) {
+		if !matchPattern(r.Scope, scope) || !predicateMatches(r.Predicate, p.caller.Claims) || !paramsMatch(r.Params, params) {
 			continue
 		}
-		if !predicateMatches(r.Predicate, caller.Claims) {
-			continue
-		}
-		if !paramsMatch(r.Params, params) {
-			continue
-		}
-		if r.Effect == "deny" {
+		if r.Effect == store.EffectDeny || p.caller.Route == "" || anyPrincipalMatches(r.Principal, p.route) {
 			if actionCovers(r.Action, action) {
-				denied = true
+				out = append(out, r)
 			}
-			continue
-		}
-		if caller.Route == "" || anyPrincipalMatches(r.Principal, route) {
-			// Single-axis caller, or a row the ROUTE itself reaches: unconfined.
-			if actionCovers(r.Action, action) {
-				allowed = true
-			}
-			continue
-		}
-		if withinSubtree(caller.Route, scope) && identityCovers(r.Action, action) {
-			allowed = true
+		} else if withinSubtree(p.caller.Route, scope) && identityCovers(r.Action, action) {
+			out = append(out, r)
 		}
 	}
-	if denied {
-		return false
+	return out
+}
+
+func verdict(rows []core.ACLRow) bool {
+	for _, r := range rows {
+		if r.Effect == store.EffectDeny {
+			return false
+		}
 	}
-	// A folder's magnitude is its role membership (role:member floor + delegated
-	// grants) + operator grants. No fallback: a folder with no matching allow row is
-	// denied, loud.
-	return allowed
+	return len(rows) > 0
+}
+
+func (p Policy) Allows(action, scope string, params map[string]string) bool {
+	if rows := p.matching(p.local, action, scope, params); len(rows) > 0 {
+		return verdict(rows)
+	}
+	return verdict(p.matching(p.defaults, action, scope, params))
 }
 
 // routePrincipals is the ROUTE axis's own expansion: the destination folder's
@@ -200,24 +208,13 @@ func EffectiveActions(s *store.Store, caller Caller) func(action string) bool {
 	if s == nil || (caller.Principal == "" && caller.Route == "") {
 		return func(string) bool { return false }
 	}
-	expanded, err := expandPrincipals(s, caller)
+	p, _, err := ReadPolicy(s, caller)
 	if err != nil {
-		slog.Error("effective actions: membership read failed; advertising NO tools",
-			"principal", caller.Principal, "route", caller.Route, "err", err)
+		slog.Error("effective actions: policy read failed", "err", err)
 		return func(string) bool { return false }
 	}
-	rows, err := policyRows(s, expanded)
-	if err != nil {
-		slog.Error("effective actions: acl read failed; advertising NO tools",
-			"principal", caller.Principal, "route", caller.Route, "err", err)
-		return func(string) bool { return false }
-	}
-	route, err := routePrincipals(s, caller)
-	if err != nil {
-		slog.Error("effective actions: membership read failed; advertising NO tools",
-			"route", caller.Route, "err", err)
-		return func(string) bool { return false }
-	}
+	rows := append(p.local, p.defaults...)
+	route := p.route
 	lattice := false
 	held := map[string]bool{}
 	for _, r := range rows {
@@ -265,14 +262,11 @@ func UserScopes(s *store.Store, sub string) ([]string, error) {
 	if s == nil || sub == "" {
 		return nil, nil
 	}
-	expanded, err := expandPrincipals(s, Caller{Principal: sub})
+	p, _, err := ReadPolicy(s, Caller{Principal: sub})
 	if err != nil {
 		return nil, err
 	}
-	rows, err := policyRows(s, expanded)
-	if err != nil {
-		return nil, err
-	}
+	rows := append(p.local, p.defaults...)
 	seen := map[string]bool{}
 	var out []string
 	for _, r := range rows {
@@ -421,10 +415,15 @@ func segGlob(pat, s string) bool {
 // Lattice: `*` ⊃ admin ⊃ interact; `*` ⊃ mcp:<tool>; admin ⊃ mcp:<tool>;
 // `mcp:*` ⊃ mcp:<tool>.
 func actionCovers(rowAction, requested string) bool {
-	if rowAction == "*" {
+	if rowAction == requested {
 		return true
 	}
-	if rowAction == requested {
+	for _, ns := range []string{HoldPrefix, ShellEnvPrefix} {
+		if strings.HasPrefix(requested, ns) {
+			return rowAction == ns+"*"
+		}
+	}
+	if rowAction == "*" {
 		return true
 	}
 	switch rowAction {
@@ -578,8 +577,7 @@ func ParamsSpec(values map[string]string) (string, error) {
 // `mcp:<tool>` row: Authorize treats every non-deny effect as ALLOW, so such a
 // row would silently GRANT the tool it meant to gate (spec 5/19 Hazard 1).
 //
-// store declares it, because the row is store's and the seed floor writes these
-// actions. One declaration, two readers.
+// store declares the wire prefix.
 const HoldPrefix = store.HoldPrefix
 
 // EffectSkipApproval is the deny effect on a namespaced rule row — on a `hold:`
@@ -601,78 +599,16 @@ const EffectSkipApproval = store.EffectDeny
 // report an action it had not taken (spec 5/19, 2026-09-02).
 const EffectHoldBlock = store.EffectAllow
 
-// CheckHold answers "must this tool call wait for a human?" — a DIRECT scoped read of
-// `hold:mcp:`-prefixed rows, deliberately NOT routed through Authorize, whose action
-// lattice would hold EVERY tool for the operator (spec 5/19 Hazard 2). Matching is
-// exact on the action with `hold:mcp:*` as the only wildcard; scope, predicate and
-// params reuse Authorize's own matchers, so there is one predicate language.
-//
-// The answer is a yes or a no, because a hold has one meaning: the call waits.
-//
-// Deny-wins IS modelled, and a matching `effect='deny'` row means SKIP APPROVAL. It
-// denies the `hold:` action, not the tool, and it is the only way an exception can be
-// expressed: the obvious alternative (an allow row on plain `mcp:<tool>`) is Hazard 1
-// — Authorize reads every non-deny effect as ALLOW, so it would grant the tool while
-// the hold still fired. Every surface calls this "skip approval"; only the wire says
-// `deny` (spec 6/26 § Decision 5).
-//
-// Any matching deny beats every hold rule regardless of specificity, so revocation is
-// removing the skip-approval row.
-//
-// A failed policy read is an error, not a "no": the caller refuses the call
-// (BUGS L92).
+// CheckHold returns whether a tool call requires approval, or an error if policy cannot be read.
 func CheckHold(s *store.Store, caller Caller, tool, scope string, params map[string]string) (bool, error) {
 	if s == nil || caller.Principal == "" || tool == "" {
 		return false, nil
 	}
-	expanded, err := expandPrincipals(s, caller)
+	p, _, err := ReadPolicy(s, caller)
 	if err != nil {
 		return false, err
 	}
-	rows, err := policyRows(s, expanded)
-	if err != nil {
-		return false, err
-	}
-	return namespacedAllows(rows, HoldPrefix, tool, scope, caller.Claims, params), nil
-}
-
-// namespacedAllows answers one namespaced rule: does the caller hold an allow row
-// for `prefix+name` (or the namespace's `prefix+"*"`) covering scope, with no deny
-// row? Deny wins, and an absent row is no.
-//
-// The action is matched EXACTLY, never through actionCovers. That is the whole
-// reason this body exists apart from Authorize: an operator's (`*`, `**`) row
-// covers every action under the lattice, so a lattice read here would hold every
-// tool the operator calls (spec 5/19 Hazard 2) and hand every folder secret to
-// every operator turn. Both namespaces need the same refusal, so they share one
-// body rather than two loops that drift.
-func namespacedAllows(
-	rows []core.ACLRow,
-	prefix, name, scope string,
-	claims, params map[string]string,
-) bool {
-	var allowed, denied bool
-	want := prefix + name
-	for _, r := range rows {
-		if r.Action != want && r.Action != prefix+"*" {
-			continue
-		}
-		if !matchPattern(r.Scope, scope) {
-			continue
-		}
-		if !predicateMatches(r.Predicate, claims) {
-			continue
-		}
-		if !paramsMatch(r.Params, params) {
-			continue
-		}
-		if r.Effect == EffectSkipApproval {
-			denied = true
-		} else {
-			allowed = true
-		}
-	}
-	return allowed && !denied
+	return p.Allows(HoldPrefix+tool, scope, params), nil
 }
 
 const ShellEnvPrefix = store.ShellEnvPrefix
@@ -685,33 +621,19 @@ const ShellEnvPrefix = store.ShellEnvPrefix
 // elevation, both of which confer everything (BUGS L230).
 const ExtScopePrefix = "ext:"
 
-// ShellEnvKeys returns the subset of keys the caller may read from the shell env
-// in scope, sorted. Matched EXACTLY, like CheckHold and for the same reason: an
-// operator's (`*`, `**`) row covers every action, so routing this through
-// Authorize would put every folder secret into every operator turn's env — the
-// grant would widen hardest exactly where it should not. `shell:env:*` is the
-// deliberate all-keys row; a deny row wins, as everywhere else.
+// ShellEnvKeys returns the keys the caller may read from the shell environment.
 func ShellEnvKeys(s *store.Store, caller Caller, scope string, keys []string) []string {
 	if s == nil || caller.Principal == "" || len(keys) == 0 {
 		return nil
 	}
-	expanded, err := expandPrincipals(s, caller)
+	p, _, err := ReadPolicy(s, caller)
 	if err != nil {
-		slog.Error("shell env: membership read failed; GRANTING NOTHING",
-			"principal", caller.Principal, "scope", scope, "err", err)
-		return nil
-	}
-	rows, err := policyRows(s, expanded)
-	if err != nil {
-		// Same direction as Authorize's deny, said out loud: an unreadable acl
-		// table grants no shell credential rather than falling back to the set.
-		slog.Error("shell env: acl read failed; GRANTING NOTHING",
-			"principal", caller.Principal, "scope", scope, "err", err)
+		slog.Error("shell env: policy read failed", "err", err)
 		return nil
 	}
 	var out []string
 	for _, k := range keys {
-		if namespacedAllows(rows, ShellEnvPrefix, k, scope, caller.Claims, nil) {
+		if p.Allows(ShellEnvPrefix+k, scope, nil) {
 			out = append(out, k)
 		}
 	}

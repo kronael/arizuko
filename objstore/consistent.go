@@ -14,6 +14,8 @@ import (
 	"fmt"
 )
 
+type Version string
+
 // ReadConsistent runs read between two point reads of the scope's marker, and
 // runs it again if the scope moved in between. It detects exactly the writers
 // that carry Bump (marker.go). A replace holding the scope answers
@@ -21,24 +23,24 @@ import (
 //
 // read may run more than once and must DISCARD what it accumulated at the top
 // of each run.
-func ReadConsistent(ctx context.Context, s Store, sc Scope, read func(context.Context) error) error {
+func ReadConsistent(ctx context.Context, s Store, sc Scope, read func(context.Context) error) (Version, error) {
 	for range maxCASAttempts {
 		before, err := settledMarker(ctx, s, sc)
 		if err != nil {
-			return err
+			return "", err
 		}
 		if err := read(ctx); err != nil {
-			return err
+			return "", err
 		}
 		after, err := settledMarker(ctx, s, sc)
 		if err != nil {
-			return err
+			return "", err
 		}
 		if before.version == after.version {
-			return nil
+			return Version(after.version), nil
 		}
 	}
-	return fmt.Errorf("read %s/%s consistently: the scope moved under %d reads in a row",
+	return "", fmt.Errorf("read %s/%s consistently: the scope moved under %d reads in a row",
 		sc.Entity, sc.Key.Sort, maxCASAttempts)
 }
 

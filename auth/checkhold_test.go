@@ -12,23 +12,23 @@ import (
 
 func TestCheckHold_NoRowsRunInline(t *testing.T) {
 	s := openMem(t)
-	if mustHold(t, s, auth.Caller{Principal: "folder:atlas"}, "mcp:send", "atlas", nil) {
+	if mustHold(t, s, auth.Caller{Principal: "folder:atlas"}, "send", "atlas", nil) {
 		t.Fatal("no hold row should run inline")
 	}
 }
 
 func TestCheckHold_BareRuleAlwaysHolds(t *testing.T) {
 	s := openMem(t)
-	addRow(t, s, "folder:atlas", auth.HoldPrefix+"mcp:delete", "atlas", "allow")
-	if !mustHold(t, s, auth.Caller{Principal: "folder:atlas"}, "mcp:delete", "atlas", nil) {
+	addRow(t, s, "folder:atlas", auth.HoldPrefix+"delete", "atlas", "allow")
+	if !mustHold(t, s, auth.Caller{Principal: "folder:atlas"}, "delete", "atlas", nil) {
 		t.Fatal("bare hold rule should hold")
 	}
 }
 
 func TestCheckHold_OtherToolUnaffected(t *testing.T) {
 	s := openMem(t)
-	addRow(t, s, "folder:atlas", auth.HoldPrefix+"mcp:delete", "atlas", "allow")
-	if mustHold(t, s, auth.Caller{Principal: "folder:atlas"}, "mcp:send", "atlas", nil) {
+	addRow(t, s, "folder:atlas", auth.HoldPrefix+"delete", "atlas", "allow")
+	if mustHold(t, s, auth.Caller{Principal: "folder:atlas"}, "send", "atlas", nil) {
 		t.Fatal("a hold on delete must not hold send")
 	}
 }
@@ -47,7 +47,7 @@ func TestCheckHold_OperatorStarDoesNotHoldEverything(t *testing.T) {
 	if !auth.Authorize(s, caller, "mcp:delete", "atlas", nil) {
 		t.Fatal("precondition: operator should be authorized for the tool")
 	}
-	if mustHold(t, s, caller, "mcp:delete", "atlas", nil) {
+	if mustHold(t, s, caller, "delete", "atlas", nil) {
 		t.Fatal("operator (*, **) must NOT hold every tool")
 	}
 }
@@ -58,7 +58,7 @@ func TestCheckHold_OperatorStarDoesNotHoldEverything(t *testing.T) {
 func TestCheckHold_PlainAllowRowIsNotAHold(t *testing.T) {
 	s := openMem(t)
 	addRow(t, s, "folder:atlas", "mcp:delete", "atlas", "allow")
-	if mustHold(t, s, auth.Caller{Principal: "folder:atlas"}, "mcp:delete", "atlas", nil) {
+	if mustHold(t, s, auth.Caller{Principal: "folder:atlas"}, "delete", "atlas", nil) {
 		t.Fatal("a plain grant row must not be read as a hold")
 	}
 }
@@ -66,26 +66,26 @@ func TestCheckHold_PlainAllowRowIsNotAHold(t *testing.T) {
 func TestCheckHold_ParamsMakeItConditional(t *testing.T) {
 	s := openMem(t)
 	addRowFull(t, s, core.ACLRow{
-		Principal: "folder:atlas", Action: auth.HoldPrefix + "mcp:network_allow",
+		Principal: "folder:atlas", Action: auth.HoldPrefix + "network_allow",
 		Scope: "atlas", Effect: "allow", Params: "host=*.prod.example.com",
 	})
 	caller := auth.Caller{Principal: "folder:atlas"}
-	if !mustHold(t, s, caller, "mcp:network_allow", "atlas", map[string]string{"host": "db.prod.example.com"}) {
+	if !mustHold(t, s, caller, "network_allow", "atlas", map[string]string{"host": "db.prod.example.com"}) {
 		t.Fatal("matching param should hold")
 	}
-	if mustHold(t, s, caller, "mcp:network_allow", "atlas", map[string]string{"host": "docs.example.com"}) {
+	if mustHold(t, s, caller, "network_allow", "atlas", map[string]string{"host": "docs.example.com"}) {
 		t.Fatal("non-matching param should run inline")
 	}
 }
 
 func TestCheckHold_ScopeContains(t *testing.T) {
 	s := openMem(t)
-	addRow(t, s, "folder:atlas", auth.HoldPrefix+"mcp:delete", "atlas/**", "allow")
+	addRow(t, s, "folder:atlas", auth.HoldPrefix+"delete", "atlas/**", "allow")
 	caller := auth.Caller{Principal: "folder:atlas"}
-	if !mustHold(t, s, caller, "mcp:delete", "atlas/eng", nil) {
+	if !mustHold(t, s, caller, "delete", "atlas/eng", nil) {
 		t.Fatal("subtree scope should cover the child folder")
 	}
-	if mustHold(t, s, caller, "mcp:delete", "other", nil) {
+	if mustHold(t, s, caller, "delete", "other", nil) {
 		t.Fatal("scope must not reach outside the subtree")
 	}
 }
@@ -93,17 +93,17 @@ func TestCheckHold_ScopeContains(t *testing.T) {
 func TestCheckHold_WildcardToolRule(t *testing.T) {
 	s := openMem(t)
 	addRow(t, s, "folder:atlas", auth.HoldPrefix+"*", "atlas", "allow")
-	if !mustHold(t, s, auth.Caller{Principal: "folder:atlas"}, "mcp:anything", "atlas", nil) {
+	if !mustHold(t, s, auth.Caller{Principal: "folder:atlas"}, "anything", "atlas", nil) {
 		t.Fatal("hold:mcp:* should hold every tool for that folder")
 	}
 }
 
 func TestCheckHold_NilStoreAndEmptyInputs(t *testing.T) {
 	s := openMem(t)
-	if mustHold(t, nil, auth.Caller{Principal: "folder:atlas"}, "mcp:x", "atlas", nil) {
+	if mustHold(t, nil, auth.Caller{Principal: "folder:atlas"}, "x", "atlas", nil) {
 		t.Fatal("nil store should not hold")
 	}
-	if mustHold(t, s, auth.Caller{}, "mcp:x", "atlas", nil) {
+	if mustHold(t, s, auth.Caller{}, "x", "atlas", nil) {
 		t.Fatal("empty principal should not hold")
 	}
 	if mustHold(t, s, auth.Caller{Principal: "folder:atlas"}, "", "atlas", nil) {
@@ -118,17 +118,17 @@ func TestCheckHold_NilStoreAndEmptyInputs(t *testing.T) {
 // Hazard 1, granting the tool while the hold still fires.
 func TestCheckHold_SkipApprovalRowBeatsMatchingHold(t *testing.T) {
 	s := openMem(t)
-	addRow(t, s, "folder:atlas", auth.HoldPrefix+"mcp:delete", "atlas", "allow")
+	addRow(t, s, "folder:atlas", auth.HoldPrefix+"delete", "atlas", "allow")
 	addRowFull(t, s, core.ACLRow{
-		Principal: "folder:atlas", Action: auth.HoldPrefix + "mcp:delete",
+		Principal: "folder:atlas", Action: auth.HoldPrefix + "delete",
 		Scope: "atlas", Effect: auth.EffectSkipApproval, Params: "target=staging",
 	})
 	c := auth.Caller{Principal: "folder:atlas"}
 
-	if mustHold(t, s, c, "mcp:delete", "atlas", map[string]string{"target": "staging"}) {
+	if mustHold(t, s, c, "delete", "atlas", map[string]string{"target": "staging"}) {
 		t.Error("the skipped shape must run inline")
 	}
-	if !mustHold(t, s, c, "mcp:delete", "atlas", map[string]string{"target": "prod"}) {
+	if !mustHold(t, s, c, "delete", "atlas", map[string]string{"target": "prod"}) {
 		t.Error("every other shape must still be held")
 	}
 }
@@ -139,16 +139,16 @@ func TestCheckHold_SkipApprovalRowBeatsMatchingHold(t *testing.T) {
 func TestCheckHold_BroadHoldDoesNotResurrectSkippedShape(t *testing.T) {
 	s := openMem(t)
 	addRowFull(t, s, core.ACLRow{
-		Principal: "folder:atlas", Action: auth.HoldPrefix + "mcp:delete",
+		Principal: "folder:atlas", Action: auth.HoldPrefix + "delete",
 		Scope: "atlas", Effect: auth.EffectSkipApproval, Params: "target=staging",
 	})
 	addRow(t, s, "folder:atlas", auth.HoldPrefix+"*", "atlas", "allow")
 	c := auth.Caller{Principal: "folder:atlas"}
 
-	if mustHold(t, s, c, "mcp:delete", "atlas", map[string]string{"target": "staging"}) {
+	if mustHold(t, s, c, "delete", "atlas", map[string]string{"target": "staging"}) {
 		t.Error("a later broad hold must not override the exception")
 	}
-	if !mustHold(t, s, c, "mcp:send", "atlas", nil) {
+	if !mustHold(t, s, c, "send", "atlas", nil) {
 		t.Error("hold:mcp:* must still hold a tool the exception does not name")
 	}
 }
@@ -160,7 +160,7 @@ func TestCheckHold_SkipApprovalDoesNotDenyTheTool(t *testing.T) {
 	s := openMem(t)
 	addRow(t, s, "folder:atlas", "mcp:delete", "atlas", "allow")
 	addRowFull(t, s, core.ACLRow{
-		Principal: "folder:atlas", Action: auth.HoldPrefix + "mcp:delete",
+		Principal: "folder:atlas", Action: auth.HoldPrefix + "delete",
 		Scope: "atlas", Effect: auth.EffectSkipApproval,
 	})
 	if !auth.Authorize(s, auth.Caller{Principal: "folder:atlas"}, "mcp:delete", "atlas", nil) {
@@ -168,11 +168,6 @@ func TestCheckHold_SkipApprovalDoesNotDenyTheTool(t *testing.T) {
 	}
 }
 
-// Production passes the RAW MCP tool name — ipc hands CheckHold
-// `p.Params.Name` ("reply", "add_acl"), and routd prefixes it once
-// (`HoldPrefix + tool`). The cases above use "mcp:delete", which is
-// self-consistent but builds `hold:mcp:mcp:delete` and so would not notice a
-// prefix bug. This one uses the shape production actually sends.
 func TestCheckHold_RawToolNameIsWhatProductionSends(t *testing.T) {
 	s := openMem(t)
 	addRow(t, s, "folder:atlas", auth.HoldPrefix+"reply", "atlas", "allow")
@@ -243,8 +238,8 @@ func TestCheckHold_InheritedSkipBeatsDirectHold(t *testing.T) {
 // "not a hold" would silently drop the gate it was written to apply.
 func TestCheckHold_LegacyNonDenyEffectStillHolds(t *testing.T) {
 	s := openMem(t)
-	addLegacyEffectRow(t, s, "folder:atlas", auth.HoldPrefix+"mcp:delete", "atlas", "async")
-	if !mustHold(t, s, auth.Caller{Principal: "folder:atlas"}, "mcp:delete", "atlas", nil) {
+	addLegacyEffectRow(t, s, "folder:atlas", auth.HoldPrefix+"delete", "atlas", "async")
+	if !mustHold(t, s, auth.Caller{Principal: "folder:atlas"}, "delete", "atlas", nil) {
 		t.Fatal("a hold row stopped holding because of how its allow is spelled")
 	}
 }
@@ -253,9 +248,9 @@ func TestCheckHold_LegacyNonDenyEffectStillHolds(t *testing.T) {
 // a hold rule can give, so they cannot disagree and the call waits.
 func TestCheckHold_TwoMatchingRulesStillHold(t *testing.T) {
 	s := openMem(t)
-	addRow(t, s, "folder:atlas", auth.HoldPrefix+"mcp:delete", "atlas", auth.EffectHoldBlock)
+	addRow(t, s, "folder:atlas", auth.HoldPrefix+"delete", "atlas", auth.EffectHoldBlock)
 	addRow(t, s, "folder:atlas", auth.HoldPrefix+"*", "atlas", auth.EffectHoldBlock)
-	if !mustHold(t, s, auth.Caller{Principal: "folder:atlas"}, "mcp:delete", "atlas", nil) {
+	if !mustHold(t, s, auth.Caller{Principal: "folder:atlas"}, "delete", "atlas", nil) {
 		t.Fatal("two matching hold rules must still hold")
 	}
 }
@@ -293,20 +288,20 @@ func addLegacyEffectRow(t *testing.T, s *store.Store, principal, action, scope, 
 func TestCheckHold_PredicateIsInertOnTheLiveCaller(t *testing.T) {
 	s := openMem(t)
 	addRowFull(t, s, core.ACLRow{
-		Principal: "folder:atlas", Action: auth.HoldPrefix + "mcp:delete",
+		Principal: "folder:atlas", Action: auth.HoldPrefix + "delete",
 		Scope: "atlas", Effect: auth.EffectHoldBlock, Predicate: "platform=telegram",
 	})
 	// Exactly the caller routd builds: a principal and nothing else.
 	live := auth.Caller{Principal: "folder:atlas"}
-	if mustHold(t, s, live, "mcp:delete", "atlas", nil) {
+	if mustHold(t, s, live, "delete", "atlas", nil) {
 		t.Fatal("a predicated hold rule matched a claimless caller — the trap is closed and this test is stale")
 	}
 
 	// The predicate is what kills it, not the action or the scope: the same row
 	// without one holds for the same caller.
 	bare := openMem(t)
-	addRow(t, bare, "folder:atlas", auth.HoldPrefix+"mcp:delete", "atlas", auth.EffectHoldBlock)
-	if !mustHold(t, bare, live, "mcp:delete", "atlas", nil) {
+	addRow(t, bare, "folder:atlas", auth.HoldPrefix+"delete", "atlas", auth.EffectHoldBlock)
+	if !mustHold(t, bare, live, "delete", "atlas", nil) {
 		t.Fatal("the bare hold rule stopped holding, so this case no longer isolates the predicate")
 	}
 
@@ -317,7 +312,7 @@ func TestCheckHold_PredicateIsInertOnTheLiveCaller(t *testing.T) {
 		Principal: "folder:atlas",
 		Claims:    map[string]string{"platform": "telegram"},
 	}
-	if !mustHold(t, s, withClaim, "mcp:delete", "atlas", nil) {
+	if !mustHold(t, s, withClaim, "delete", "atlas", nil) {
 		t.Fatal("the predicate did not match even with the claim present; the gap would not be the caller")
 	}
 }

@@ -14,9 +14,10 @@ import (
 
 func TestGrantActionSubmission(t *testing.T) {
 	d, db := splitAdminDash(t, "alice@x")
-	// The operator row: `admin` does not cover egress or shell:env, so delegating
-	// them takes the action it holds them under.
+	// Delegation requires each namespaced capability with the grant option.
 	seedGrant(t, db, core.ACLRow{Principal: "alice@x", Action: "*", Scope: "**",
+		Effect: "allow", GrantOption: true})
+	seedGrant(t, db, core.ACLRow{Principal: "alice@x", Action: "shell:env:*", Scope: "**",
 		Effect: "allow", GrantOption: true})
 	mux := newMux(d)
 	for _, action := range []string{"send", "mcp:send", "egress", "shell:env:CUSTOM_TOKEN"} {

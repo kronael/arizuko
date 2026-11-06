@@ -8,8 +8,6 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
-// F1 (adversary audit): a fresh routd.db must seed role:operator WITH GRANT OPTION,
-// else auth.Delegate's root can delegate nothing once wired (spec 5/33-paths-roles step 3).
 func TestOperatorSeededWithGrantOption(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
@@ -18,21 +16,8 @@ func TestOperatorSeededWithGrantOption(t *testing.T) {
 	defer db.Close()
 
 	rows, err := store.NewOver(db.Obj()).ListACL("role:operator")
-	if err != nil {
-		t.Fatal(err)
-	}
-	seeded := false
-	for _, r := range rows {
-		if r.Action != "*" {
-			continue
-		}
-		seeded = true
-		if !r.GrantOption {
-			t.Fatalf("role:operator (*, %s) carries no grant option", r.Scope)
-		}
-	}
-	if !seeded {
-		t.Fatal("role:operator (*, **) row missing from a fresh routd.db")
+	if err != nil || len(rows) != 0 {
+		t.Fatalf("stored operator rows = %v, %v", rows, err)
 	}
 
 	// End-to-end: the operator (via membership) can delegate anything.

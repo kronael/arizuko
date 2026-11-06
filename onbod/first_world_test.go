@@ -270,10 +270,6 @@ func TestTheWinnerIsNamedAndHoldsWhatTheFolderImplies(t *testing.T) {
 	}
 }
 
-// A WORLD IS GRANTED ITS REACH AND ITS HOLD, in the same act that creates it. A
-// world granted no tools cannot create a cron and nobody can tell why; a world
-// granted every tool with no hold acts unwatched. Two rows carry both, and they
-// are scoped to the world's own subtree so neither reaches a sibling tenant.
 func TestAWorldIsGrantedItsReachAndItsHold(t *testing.T) {
 	db := testDB(t)
 	seedStranger(t, db, "github:new", "approved")
@@ -287,8 +283,7 @@ func TestAWorldIsGrantedItsReachAndItsHold(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := map[string]string{
-		"mcp:*":                "newworld/**",
-		store.HoldPrefix + "*": "newworld/**",
+		"mcp:*": "newworld/**",
 	}
 	for _, r := range rows {
 		scope, ok := want[r.Action]
@@ -304,8 +299,7 @@ func TestAWorldIsGrantedItsReachAndItsHold(t *testing.T) {
 	for action := range want {
 		t.Errorf("the world holds no %q row: it can %s", action,
 			map[string]string{
-				"mcp:*":                "reach no tool it was not separately granted",
-				store.HoldPrefix + "*": "act without its owner ever being asked",
+				"mcp:*": "reach no tool it was not separately granted",
 			}[action])
 	}
 }

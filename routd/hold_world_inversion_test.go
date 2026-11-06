@@ -1,29 +1,17 @@
 package routd
 
-// The inversion: a world folder may reach every tool inside its own subtree, and
-// a human sees every one of those calls before it runs. The old shape was the
-// opposite — a group that was never granted a tool simply could not use it, and
-// the refusal was invisible to the person, so a trading world could not create a
-// cron and nobody could tell why.
-//
-// Two rows carry it (onbod writeWorld) and seventeen carry the exception
-// (store.SeedRoutdFloor): the messaging verbs and the always-mounted reads skip
-// approval, so the agent still answers a message without asking anyone.
-
 import (
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/ipc"
 	"github.com/kronael/arizuko/store"
 )
 
-// worldFolder gives `folder` exactly what onbod's writeWorld gives a new world:
-// the member edge, the blanket tool reach and the blanket hold, all scoped to
-// its own subtree. The rows are spelled here the way that writer spells them.
 func worldFolder(t *testing.T, d *DB, folder string) {
 	t.Helper()
 	if err := d.PutGroup(core.Group{Folder: folder}); err != nil {
@@ -32,7 +20,10 @@ func worldFolder(t *testing.T, d *DB, folder string) {
 	if err := addMembership(d, "folder:"+folder, store.RoleMember, "test"); err != nil {
 		t.Fatalf("bind %s to role:member: %v", folder, err)
 	}
-	for _, action := range []string{"mcp:*", store.HoldPrefix + "*"} {
+	if err := addMembership(d, "folder:"+folder, store.RoleWorld, "test"); err != nil {
+		t.Fatal(err)
+	}
+	for _, action := range []string{"mcp:*"} {
 		if err := addACLRow(d, core.ACLRow{
 			Principal: "folder:" + folder, Action: action,
 			Scope: folder + "/**", Effect: store.EffectAllow, GrantedBy: "onbod",
@@ -148,13 +139,7 @@ func TestWorld_HoldsOnlyWhatAPersonShouldSee(t *testing.T) {
 
 	// Reads, messages, and stopping the turn's own conversation.
 	free := map[string]bool{}
-	for _, n := range []string{
-		"reply", "send", "send_file", "send_voice", "post", "forward", "quote",
-		"repost", "like", "dislike", "edit", "delete", "disengage",
-		"inspect_routing", "inspect_tasks", "inspect_session", "inspect_identity",
-		"inspect_messages", "find_messages", "get_thread", "fetch_history",
-		"get_work", "set_work",
-	} {
+	for _, n := range auth.SkipApprovalTools() {
 		free[n] = true
 	}
 
