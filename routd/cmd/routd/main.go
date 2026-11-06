@@ -182,6 +182,7 @@ func main() {
 		os.Exit(1)
 	}
 
+	engagementTTL := core.DurOr("ENGAGEMENT_TTL", routd.DefaultEngagementTTL)
 	loop := routd.NewLoop(db, runedClient, routd.LoopConfig{
 		RunTimeout: runedWait,
 		IpcDir:     filepath.Join(dataDir, "ipc"),
@@ -189,10 +190,11 @@ func main() {
 		// paces the work and runed admits it, so the two must agree: while
 		// this was unwired, routd held a hardcoded 5 and an operator raising
 		// MAX_CONCURRENT_CONTAINERS moved one cap and not the other (BUGS F71).
-		MaxRuns:   core.EnvInt("MAX_CONCURRENT_CONTAINERS", 5),
-		Deliver:   deliver,
-		Proactive: routd.LoadProactiveConfig(os.Getenv),
-		GroupsDir: filepath.Join(dataDir, "groups"),
+		MaxRuns:       core.EnvInt("MAX_CONCURRENT_CONTAINERS", 5),
+		EngagementTTL: engagementTTL,
+		Deliver:       deliver,
+		Proactive:     routd.LoadProactiveConfig(os.Getenv),
+		GroupsDir:     filepath.Join(dataDir, "groups"),
 		// Prompt envelope (buildAgentPrompt).
 		InstanceName:          core.EnvOr("ASSISTANT_NAME", core.DefaultAssistantName),
 		ObserveWindowMessages: core.EnvInt("OBSERVE_WINDOW_MESSAGES", 10),
@@ -242,7 +244,7 @@ func main() {
 	})
 
 	loop.SetOnbodClient(onbod)
-	srv := routd.NewServer(db, loop, deliver, verify, core.DurOr("ENGAGEMENT_TTL", routd.DefaultEngagementTTL), webHost)
+	srv := routd.NewServer(db, loop, deliver, verify, engagementTTL, webHost)
 	srv.SetDashKeySet(dashKeys)
 	srv.SetIdentityResolver(identity)
 	// session_log run history federated from runed (runed OWNS it — spec 5/P-runed):

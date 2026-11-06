@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"path"
 	"regexp"
 	"strconv"
 	"strings"
@@ -465,7 +466,7 @@ func (l *Loop) cmdNew(chatJID, folder, arg string) {
 
 // Navigation prefixes sit at the very start of the message; mid-content
 // @mentions / #tags are references, not nav.
-var rePrefixAt = regexp.MustCompile(`^\s*@(\w[\w-]*)`)
+var rePrefixAt = router.RePrefixAt
 var rePrefixHash = regexp.MustCompile(`^\s*#(\w[\w-]*)`)
 
 func parsePrefix(text string) (name, rest string, ok bool) {
@@ -493,8 +494,9 @@ func (l *Loop) tryExternalRoute(chatJID string, msg core.Message, folder string)
 	return false
 }
 
-// handlePrefixLayer routes an explicit @child / #topic prefix: @child
-// delegates to folder/child; #topic re-appends the stripped message under
+// handlePrefixLayer routes an explicit @name / #topic prefix: @name
+// delegates to the nearest <ancestor>/name (findNamedGroup) and engages the
+// chat and topic for it; #topic re-appends the stripped message under
 // topic="#name". An unknown child is NOT swallowed.
 func (l *Loop) handlePrefixLayer(chatJID string, msg core.Message, folder string) bool {
 	if msg.BotMsg || strings.HasPrefix(msg.Sender, "timed-") {
@@ -520,12 +522,23 @@ func (l *Loop) handlePrefixLayer(chatJID string, msg core.Message, folder string
 			slog.Warn("@prefix: name contains slash, rejecting", "name", name)
 			return false
 		}
-		child := folder + "/" + name
-		if !l.db.GroupExists(child) {
-			slog.Warn("@prefix: child group not found", "child", child)
+		target := l.atTarget(msg, typed, name, folder)
+		if target == "" {
+			slog.Warn("@prefix: group not found", "from", folder, "name", name)
 			return false
 		}
-		l.delegate(child, stripped, chatJID)
+		if target == folder {
+			return false
+		}
+		l.delegate(target, stripped, chatJID)
+		// The address opens the conversation for the target: later messages in
+		// this chat and thread follow the engagement rules, as after a reply.
+		if l.engagementTTL > 0 {
+			topic := (&chatReads{db: l.db, chatJID: chatJID}).effectiveTopic(msg.Topic)
+			if err := l.db.SetEngagement(chatJID, topic, target, l.engagementTTL); err != nil {
+				slog.Error("@prefix: engage the target", "target", target, "jid", chatJID, "err", err)
+			}
+		}
 		return true
 	}
 	_ = l.db.PutMessage(core.Message{
@@ -539,6 +552,37 @@ func (l *Loop) handlePrefixLayer(chatJID string, msg core.Message, folder string
 	})
 	l.Enqueue(chatJID)
 	return true
+}
+
+// atTarget is where @name goes: a route row with an `at` predicate wins (any
+// folder, so a row can reach across the world), else the nearest
+// <ancestor>/name. The row is matched against the typed text, so the envelope
+// gitd adds in front never hides the prefix.
+func (l *Loop) atTarget(msg core.Message, typed, name, folder string) string {
+	if routes, err := l.db.Routes(); err == nil {
+		probe := msg
+		probe.Content = typed
+		if t := router.ResolveAtRoute(probe, routes); t != "" && l.db.GroupExists(t) {
+			return t
+		}
+	}
+	return l.findNamedGroup(folder, name)
+}
+
+// findNamedGroup resolves @name to the nearest existing <ancestor>/<name>,
+// walking up from folder: folder/name, then parent/name, and so on. The walk
+// stops at the top-level world (the first path segment), so a name never
+// reaches another tenant. "" when no such group exists.
+func (l *Loop) findNamedGroup(folder, name string) string {
+	for cur := folder; cur != "" && cur != "."; cur = path.Dir(cur) {
+		if cand := cur + "/" + name; l.db.GroupExists(cand) {
+			return cand
+		}
+		if !strings.Contains(cur, "/") {
+			break
+		}
+	}
+	return ""
 }
 
 // resolveTarget picks a delegation target distinct from selfFolder: a reply to

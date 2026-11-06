@@ -147,6 +147,10 @@ every message.
 | `chat_jid` | `msg.ChatJID`, the full JID                               |
 | `sender`   | `msg.Sender`                                              |
 | `verb`     | `msg.Verb`; see the verb table below                      |
+| `at`       | the leading `@name` of the message text, without the `@`  |
+
+A row with an `at` predicate sends a prefix, not a chat. Ordinary routing
+never matches it, and only the prefix layer reads it (see the next section).
 
 A glob uses `path.Match` over segments that `/` separates. `*` never matches
 `/`.
@@ -411,16 +415,35 @@ The `@` and `#` prefix layer is not in the routes table. It lives in
 forwarded tweet, does not trigger the layer. The layer ignores messages from
 bots and from `timed-` senders.
 
-- **`@name` at the start of a message.** `routd` looks for the child group
-  `<current-group>/<name>`. If the child exists, `routd` delegates the message,
-  with `@name` removed, to the agent of that child.
+- **`@name` at the start of a message.** `routd` picks the target group in
+  this order, and delegates the message, with `@name` removed, to its agent:
+  1. The first route row that has an `at=` predicate and matches the message.
+     Its target can be any group.
+  2. The nearest group `<ancestor>/<name>`. `routd` tries `<current-group>/<name>`,
+     then `<parent>/<name>`, and so on. It stops at the top-level group (the
+     first path segment), so a name never reaches another tenant.
+  3. No group: the prefix stays in the message, and the message goes to the
+     agent unchanged.
 
   ```
-  User in group atlas sends: "@content write a blog post about cats"
-  parsePrefix: name="content", rest="write a blog post about cats"
-  Child lookup: atlas/content exists
-  Delegation: "write a blog post about cats" goes to the atlas/content agent
+  Chat routed to sloth/discord. Group sloth/killer exists.
+  User sends: "@killer clean up the queue"
+  Lookup: sloth/discord/killer is missing, sloth/killer exists
+  Delegation: "clean up the queue" goes to the sloth/killer agent
+
+  arizuko route -i demo add 'room=T/C at=killer' ops/killer
+  → "@killer ..." in that room goes to ops/killer, whatever groups exist
   ```
+
+  The delegation also opens an engagement window for the target on the chat
+  and topic of the message, as a reply from that group would. A plain
+  message in that chat or thread is then observed under the target. A mention
+  starts a turn there. A reply to a message from the target goes back to it by
+  the reply chain. A thread that starts later falls back to the chat window.
+  The window ends as any window ends (`disengage`, or no reply within
+  `ENGAGEMENT_TTL`). A chat route that is `#observe` for plain messages hides
+  the prefix, because the message never starts a turn: send the prefix as a
+  mention.
 
 - **`#topic` at the start of a message.** `routd` stores the message, with
   `#topic` removed, under the topic `#topic` and runs it in a session for that
@@ -431,12 +454,10 @@ bots and from `timed-` senders.
   Agent runs: "my account is locked" in session (atlas, #support)
   ```
 
-If the child group named by `@name` does not exist, the prefix stays in the
-message, and the message goes to the agent unchanged.
-
-The prefix layer is code and not `routes` rows, because `@name` is relative to
-the folder that owns the chat. A row would repeat for every group, and each
-folder move would force a rewrite.
+The relative lookup is code and not `routes` rows, because `@name` is relative
+to the folder that owns the chat. A row would repeat for every group, and each
+folder move would force a rewrite. An `at=` row is for a name that must reach
+one fixed group, or a group outside the current world.
 
 The layer reads one row for each poll batch. The row is the oldest slash
 command when the batch holds one. Otherwise it is the newest user message, see `steerRowIdx` in `routd/dispatch.go`. The layer does not apply an `@name` or
@@ -523,7 +544,7 @@ The second stage runs these steps in order:
 
 1. A bare `@group` or `#topic` sets sticky navigation.
 2. A slash command runs.
-3. An `@child` or `#topic` prefix delegates the message, or posts it again
+3. An `@name` or `#topic` prefix delegates the message, or posts it again
    under that topic.
 4. `routd` looks up a delegation target. It tries the folder that a replied-to
    bot row was routed to, then the sticky group of the chat, then the route
@@ -706,7 +727,7 @@ Routes: match='platform=telegram' → atlas
 Groups: atlas, atlas/content, atlas/social
 
 1. User sends: "@content write about cats"
-   → the prefix layer matches and delegates to atlas/content
+   → the prefix layer finds atlas/content and delegates to it
    → atlas/content replies: "Here's a post about cats..." (routed_to=atlas/content)
 
 2. User replies to that message: "make it shorter"
@@ -798,7 +819,7 @@ The prefix layer is built in and needs no table rows.
 
 Possible message flows in the same chat:
   "hello"                → atlas (route)
-  "@content draft post"  → atlas/content (prefix @)
+  "@content draft post"  → atlas/content (prefix @; also later messages in the thread)
   [reply to content msg] → atlas/content (reply chain)
   "#support help me"     → atlas, session=#support (prefix #)
   "@atlas/social"        → sticky set to atlas/social

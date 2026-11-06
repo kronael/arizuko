@@ -68,6 +68,7 @@ type Loop struct {
 	// writes it, an agent/user cannot forge a map entry, so root is never
 	// reached by message content. One-shot (LoadAndDelete per turn).
 	pendingElevation sync.Map // message_id → struct{}
+	engagementTTL    time.Duration
 	nextScanAt       time.Time
 
 	// busyWait backs off the re-dispatch of a batch nothing consumed; without
@@ -165,6 +166,10 @@ type LoopConfig struct {
 	// leaves the harness CLI's own default.
 	DefaultEffort string
 
+	// EngagementTTL (ENGAGEMENT_TTL) is the window an @name delegation opens for
+	// its target; zero opens none.
+	EngagementTTL time.Duration
+
 	// MaxTurnRetry bounds retries of a turn that fails without a reply
 	// (SIGKILL/OOM/timeout). Default 3.
 	MaxTurnRetry int
@@ -221,6 +226,7 @@ func NewLoop(db *DB, runner Runner, cfg LoopConfig) *Loop {
 		defaultModel:        cfg.DefaultModel,
 		defaultEffort:       cfg.DefaultEffort,
 		maxTurnRetry:        maxRetry,
+		engagementTTL:       cfg.EngagementTTL,
 		maxOutboundRetry:    maxOutRetry,
 	}
 	if cfg.Proactive.Enabled {

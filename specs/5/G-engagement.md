@@ -55,6 +55,11 @@ can engage again. Clear state stays scoped to its `(jid, topic)`.
 Timed turns never renew engagement. An empty platform reply id cannot renew
 an MCP answer. The reply anchor survives disengage.
 
+An `@name` delegation (ROUTING.md §"An @name or #topic prefix is code, not a
+route") is a write site too: the prefix layer calls `BumpEngagement` for the
+target group on the message's chat and topic. The target did not reply yet, and
+the window already carries its later messages.
+
 The agent calls `disengage` when the user asks it to stop or when a clearly
 bounded request is complete. The agent can send the answer before or after
 that call. The answer cannot cancel the explicit choice to stop.

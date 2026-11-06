@@ -3,6 +3,7 @@ package router
 import (
 	"fmt"
 	"path"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -226,9 +227,18 @@ func msgField(msg core.Message, key string) string {
 		return msg.Sender
 	case "verb":
 		return msg.Verb
+	case "at":
+		if m := RePrefixAt.FindStringSubmatch(msg.Content); m != nil {
+			return m[1]
+		}
 	}
 	return ""
 }
+
+// RePrefixAt is the leading @name of a message: the one reader of the prefix,
+// shared by the prefix layer and the `at` match key. A mid-content @handle is
+// not a prefix.
+var RePrefixAt = regexp.MustCompile(`^\s*@(\w[\w-]*)`)
 
 // RouteMatches reports whether every "key=glob" predicate in r.Match matches
 // the corresponding field of msg. Empty match expression matches everything.
@@ -253,10 +263,20 @@ func RouteMatchesIgnoreVerb(r core.Route, msg core.Message) bool {
 }
 
 func routeMatches(r core.Route, msg core.Message, ignoreVerb bool) bool {
+	return matchPredicates(r, msg, ignoreVerb, false)
+}
+
+// matchPredicates is the one matcher. A row with an `at` predicate redirects a
+// prefix, not a chat: it matches only when atOK, so ordinary resolution never
+// routes a message because it starts with @name.
+func matchPredicates(r core.Route, msg core.Message, ignoreVerb, atOK bool) bool {
 	for f := range strings.FieldsSeq(r.Match) {
 		k, pat, ok := strings.Cut(f, "=")
 		if !ok || k == "" {
 			continue
+		}
+		if k == "at" && !atOK {
+			return false
 		}
 		if ignoreVerb && k == "verb" {
 			continue
@@ -279,6 +299,21 @@ func routeMatches(r core.Route, msg core.Message, ignoreVerb bool) bool {
 		}
 	}
 	return true
+}
+
+// ResolveAtRoute answers the target of the first row that has an `at`
+// predicate and matches msg, "" when none does. msg.Content is the text whose
+// leading @name the predicate reads.
+func ResolveAtRoute(msg core.Message, routes []core.Route) string {
+	for _, r := range routes {
+		if !strings.Contains(" "+r.Match, " at=") || !matchPredicates(r, msg, false, true) {
+			continue
+		}
+		if t := expandTarget(r.Target, msg); t != "" {
+			return core.ParseRouteTarget(t).Folder
+		}
+	}
+	return ""
 }
 
 func ResolveRoute(msg core.Message, routes []core.Route) string {

@@ -542,3 +542,31 @@ func msgLineByID(t *testing.T, rendered, id string) string {
 	t.Fatalf("no rendered row with id=%q in:\n%s", id, rendered)
 	return ""
 }
+
+func TestAtMatchKey(t *testing.T) {
+	routes := []core.Route{
+		{Match: "at=killer", Target: "w/killer"},
+		{Match: "room=T/C at=ops", Target: "w/ops"},
+		{Match: "platform=slack", Target: "w"},
+	}
+	m := core.Message{ChatJID: "slack:T/C", Content: "  @killer go"}
+	if got := ResolveAtRoute(m, routes); got != "w/killer" {
+		t.Fatalf("at=killer: %q", got)
+	}
+	m.Content = "@ops go"
+	if got := ResolveAtRoute(m, routes); got != "w/ops" {
+		t.Fatalf("room+at: %q", got)
+	}
+	m.ChatJID = "slack:T/D"
+	if got := ResolveAtRoute(m, routes); got != "" {
+		t.Fatalf("room mismatch: %q", got)
+	}
+	m.Content = "hi @killer"
+	if got := ResolveAtRoute(m, routes); got != "" {
+		t.Fatalf("mid-content @ matched: %q", got)
+	}
+	m.Content = "@killer go"
+	if got := ResolveRoute(m, routes); got != "w" {
+		t.Fatalf("ordinary resolution = %q want w", got)
+	}
+}
