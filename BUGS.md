@@ -519,7 +519,15 @@ on krons. A limit failure is a condition that clears, not a bad request.
   line, the batch stays queued on the existing retry path, the turn's End
   deletes the line. Only a non-recoverable failure posts L670's one notice per
   chat. One classifier decides recoverable vs not; no second path.
-- **Status:** open — approved, queued for Terra after L670
+- **Shape (owner 2026-11-06 "yes widen"):** the producer classifies, per spec
+  5/12: ant reports a model limit as its own failure kind (exit 75,
+  EX_TEMPFAIL, from the `rate_limit_event` it already sees) and submits no
+  error result; runed carries one new field beside `Terminal` in
+  `RunResult`/`RunOutcome`; routd switches on it. No error-text matching in
+  routd. Timeouts and transport errors stay on the bounded 5/12 path. The
+  first build (`48a4ca948` in .terra-fail) is discarded: it matched text and
+  retried a hard-killed turn forever.
+- **Status:** open — approved, queued for Terra after the L670 rework
 
 ## ✅ FIXED 2026-11-06 8c262dcd4 L671 — `store enroll` scans without a page limit and the old store server runs out of memory (2026-11-06)
 
