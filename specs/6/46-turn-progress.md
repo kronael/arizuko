@@ -10,100 +10,204 @@ depends:
   ]
 ---
 
-# specs/6/46 — turn progress: one declaration, two renderings, a declared degradation per sink
+# Turn progress uses one checklist and one temporary message
 
-routd declares that a turn is running, what it is doing, and that it ended.
-Every channel declares its presence, edit and delete capabilities. A turn that
-reports shows ONE temporary progress line, posted where the turn's answer will
-go and edited in place. When the turn ends the line is deleted. A channel that
-cannot both edit and delete shows no progress line. Nothing of progress stays
-behind and no progress message starts a thread.
+A task checklist shows the remaining work and the checked results of one turn.
+`ant` owns the checklist text. `routd` owns presence and the temporary message.
+A supported chat shows one message where the answer will go.
+`End` removes that message. Native typing and acknowledgement marks remain separate from the text.
 
-`status: partial`: the renderer, the `edit` and `delete` sink webd,
-the shared `👀` mark, gitd without `edit` and the deletion of the progress
-line at `End` are built (§"Build state"). Not built: the `Typing` port
-change (D3, declined), Drive `edit` (blocked on the Drive API, §"Unverified") and
-the measurement on krons (§"Acceptance").
-
-## Build state
-
-The voluntary-reply contract (`47-voluntary-reply.md`) removes the historical
-final-result status reader below. Only ant extracts `<status>` blocks;
-`submit_status` remains routd's progress input.
-
-| Step | What                                                                                         | State                                                                       | Pointer                                               |
-| ---- | -------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- | ----------------------------------------------------- |
-| 1    | routd renders `Begin` and `Update`; no `edit`, no message; equal text no-op                  | built, `d6572106`                                                           | `routd/progress.go` `beginProgress`, `updateProgress` |
-| 2    | `finishTurn` is the one writer of `done`; `End` ends the progress line                       | built, `dd670329`                                                           | `routd/progress.go` `finishTurn`, `endProgress`       |
-| 3    | gitd advertises no `edit`; GitHub renders the `👀` mark and no comment                       | built, `0c175988`                                                           | `gitd/main.go` `capsFor`                              |
-| 4    | webd `edit` as a replace frame; `typing` out of its map                                      | built, `eddce204`; open: `L439`, `L440` in `BUGS.md`                        | `webd/channel.go`                                     |
-| 5    | the `👀` mark once in chanlib; slakd and gitd on it                                          | built, `68fc2895`                                                           | `chanlib/mark.go`                                     |
-| 6    | `Typing(req TypingRequest)` carrying the trigger id (D3)                                     | not built; declined                                                         | —                                                     |
-| 7    | googd `edit` on its own reply                                                                | not built; the probe has not run, the Drive API is off in the key's project | §"Unverified"                                         |
-| 8    | `End` deletes the progress message on a channel that advertises `delete`                     | built, `c0e361ac`                                                           | `routd/progress.go` `endProgress`                     |
-| 9    | one temporary line: no agent-written opener; a line needs `edit` and `delete`; webd `delete` | built (this change)                                                         | `routd/progress.go`, `webd/channel.go`                |
-| 10   | the nudge: first at 180 s, only where a line shows, says what comes next                     | built (this change)                                                         | §"The nudge", `ant/src/index.ts`                      |
-| —    | the acceptance list measured on krons                                                        | not measured                                                                | §"Acceptance"                                         |
+This spec is `partial`. The message lifecycle exists; the shared producer,
+checklist reminder, browser deletion, and active replay require code and tests.
+The skill and manual rules are present. Their presence does not prove adoption.
+D1, D2 and D3 remain the owner decisions below.
 
 ## Problem
 
-At `dfa01214`, before the renderer, "the agent is working" was one fact with five
-declaration sites in routd and a rendering per adapter:
+At `b869bd16a5ee985a07d377b1e680666bfbf1c427`, two senders replace the same text:
+`ant/src/todo-status.ts:57` sends a checklist, and `ant/src/index.ts:166`
+sends a `<status>` block. The second sender can overwrite the checklist.
+The `TodoWrite` matcher in `ant/src/policy.ts:90` misses Claude task tools
+and Codex plans. The policy does not exclude child calls.
 
-| Site                                | What it declares                                                                                    |
-| ----------------------------------- | --------------------------------------------------------------------------------------------------- |
-| `routd/dispatch.go:436`             | `Typing(on)` when the run is dispatched                                                             |
-| `routd/dispatch.go:444`             | `Typing(off)` for every chat the run owns, after the run returns                                    |
-| `routd/turns.go:85`                 | `Typing(off)` after the prose reply is delivered                                                    |
-| `routd/mcp.go` `mcpSubmitStatus`    | the text of a `submit_status` call: edit the last `verb=status` row, else send a fresh `⏳` message |
-| `routd/turns.go` `appendAndDeliver` | every `<status>` block left in the final result, each as a fresh `⏳` message                       |
+`ant/src/index.ts:316` requests a status every 180 seconds when display is enabled.
+It does not check for a checklist. The policy ignores empty and single-item
+lists (`ant/src/todo-status.ts:54`). Neither sender bounds the text.
+`chanlib.Chunk` counts UTF-8 bytes; teled and discd split sends at 4,096 and
+2,000 bytes (`teled/bot.go:439`, `discd/bot.go:399`). Only the first ID is retained.
 
-The renderings disagreed, and two of them lied:
+The web server emits deletion events, but the built-in browser has no deletion
+subscription (`webd/route_token.go:660`). Turn replay excludes all status rows
+(`store/messages.go:789`). The route-token stream uses a separate topic replay
+(`webd/route_token.go:442`); active replay must cover both browser entry points.
 
-- Three adapters render `Typing` natively (teled `sendChatAction`, discd
-  `ChannelTyping`, whapd composing). slakd and gitd render it as an `👀`
-  reaction on the message that started the turn, through one chanlib helper
-  (`chanlib/mark.go`, §"The mark, implemented once"). Six adapters and webd
-  render nothing; webd advertised `typing` and answered `ok` (`webd/channel.go:71`).
-- The progress message was edited in place only where the channel advertises
-  `edit`. Everywhere else `mcpSubmitStatus` fell back to a fresh send, so the
-  one-message rule of `specs/5/24-live-tasklist-status.md §"Design"` held on
-  five adapters and failed on seven. Measured on `vumilan/morha` 2026-10-16
-  through `gitd`: PR 277 carries two `⏳` comments before the review
-  (`6223825595`, `6223840016`); PR 278 carries three, two of them the same
-  text one second apart (`6223728182` 20:06:35Z, `6223728470` 20:06:36Z; BUGS
-  `L438`, closed by `d6572106`). Each stands above the answer forever, still saying `⏳`.
-- A status row kept the FIRST text it was sent with; the edits reached the
-  platform and never the row, so history and the web frames showed a text the
-  user no longer saw.
-- webd decided a row is a status by its glyph (`webd/turn.go:28`,
-  `strings.HasPrefix(m.Content, "⏳ ")`) while the row carried
-  `verb="status"`: two declarations of one fact.
+## Where it fits
 
-The Drive channel makes the gap unavoidable rather than untidy: the Drive
-comments API has no reaction. Verified 2026-10-17 on Google's reference pages
-— the Comment resource (`replies`, `mentionedEmailAddresses`, `id`, `kind`,
-`createdTime`, `modifiedTime`, `resolved`, `anchor`, `author`, `deleted`,
-`htmlContent`, `content`, `quotedFileContent`, `assigneeEmailAddress`), the
-Reply resource, the Docs API `CommentThread`/`Post`/`PostAuthor` objects and
-the "Manage comments and replies" guide name no reaction, emoji or like. A
-reaction-shaped indicator cannot exist on `gdrive:`; the only rendering Drive
-offers is a reply, edited.
+```text
+Native successful parent checklist changes (changed) ─┐
+Parent <status> fallback (changed) ──────────────────┼─► ant progress state (changed)
+Completed parent tool calls (new) ───────────────────┘      │              │
+                                                  text (changed)   reminder (changed)
+                                                          │              ▼
+                                                   submit_status    nudgeProgress
+                                                          │              │
+                                                          ▼         STEER_SPOOL
+                                               routd/progress.go         │
+                                                  one message       steering hook
+                                                          │              │
+                                                          ▼              ▼
+                                              supported reply chat     agent
+
+Direct TodoWrite sender (removed)
+Independent streamStatuses sender and repeating status request (removed)
+```
+
+## Module map
+
+```yaml
+- path: ant/src/todo-status.ts (changed)
+  job: owns turn-scoped checklist state, bounded rendering, and the only submitStatus sender
+  names: [Todo, renderTodos, todoStatus]
+  never: publishes child plans or leaves stale text after an empty update
+  remove: direct policy sender and the minimum-two-items filter
+- path: ant/src/backend.ts (changed)
+  job: carries normalized parent tool completions and checklist changes in Frame
+  names: [Frame, Turn]
+  never: adds a progress method to Harness or enables pi without its MCP bridge
+- path: ant/src/claude.ts (changed)
+  job: normalizes successful native task results with native IDs and parent scope
+  names: [claudeHarness, claudeHooks]
+  never: treats Agent, TaskStop, or scheduler jobs as checklist entries
+- path: ant/src/policy.ts (changed)
+  job: observes parent tool completions and preserves the existing steering delivery
+  names: [ToolEvent, bindings]
+  never: sends progress independently or counts child calls
+  remove: the Claude-only TodoWrite matcher
+- path: ant/src/index.ts (changed)
+  job: owns progress state across attempts of one turn and feeds both inputs into it
+  names: [runTurn, statusBlocks, PROGRESS_INTERVAL_MS]
+  never: resets progress on an attempt retry or shares it with another turn
+  remove: streamStatuses sender, whole-turn text-set deduplication, and repeating status timer
+- path: ant/src/spool.ts (changed)
+  job: carries the single checklist reminder through the existing steering spool
+  names: [NUDGE_TEXT, STEER_SPOOL, drainSteering]
+  never: starts a turn from a stale reminder
+  remove: the request for a standalone status
+- path: ant/src/codex.ts (changed)
+  job: normalizes successful Codex plans and parent tool completions in its reducer
+  names: [CodexTurn]
+  never: parses Codex events in the shared renderer
+- path: routd/mcp.go (changed)
+  job: gates public status updates on the bound addressed turn and reply destination
+  names: [submitStatus]
+  never: trusts checklist labels as authorization
+- path: routd/progress.go (changed)
+  job: preserves one persisted message lifecycle with the bounded shared text
+  names: [updateProgress, endProgress, finishTurn]
+  never: renders a second checklist or fails an answer because deletion failed
+- path: store/messages.go (changed)
+  job: returns active progress snapshots for replay and excludes ended progress
+  names: [TurnFrames, MessagesSinceTopic, LastStatusRow]
+  never: uses the message timestamp alone to decide whether progress changed
+- path: webd/turn.go (changed)
+  job: replays the latest active progress snapshot on turn reconnect
+  names: [frameKind]
+  never: restores progress for an ended turn
+- path: webd/route_token.go (changed)
+  job: removes the matching browser node on delete and restores active topic progress
+  names: [handleRouteTokenStream]
+  never: treats a reconnect cursor as proof that a status snapshot is current
+- path: ant/skills/progress/SKILL.md (changed)
+  job: requires native checklists for meaningful longer work
+  names: [progress]
+  never: asks the agent to publish a checklist with reply or send
+- path: ant/CLAUDE.md (changed)
+  job: routes longer work through progress and treats labels as public output
+  never: makes the manual a publication gate
+- path: ant/skills/solve/SKILL.md (changed)
+  job: applies progress when several meaningful steps remain
+  names: [solve]
+  never: duplicates checklist counting in solve_nudge.py
+```
+
+Tests belong beside the changed modules. The acceptance cases below define their results.
+`ant/hooks/solve_nudge.py`, the hidden RPC, native presence, placement, and the
+widget SDK's `onDelete` interface remain in place.
+
+## Build state
+
+The following state is checked against `b869bd16a5ee985a07d377b1e680666bfbf1c427`.
+The skill and manual rows describe this spec amendment.
+
+| Contract                                                              | State        | Evidence or remaining work                                 |
+| --------------------------------------------------------------------- | ------------ | ---------------------------------------------------------- |
+| Presence, persisted ID, equal-text suppression, edit and End deletion | built        | `routd/progress.go`                                        |
+| Shared acknowledgement mark and GitHub exception                      | built        | `chanlib/mark.go`, `gitd/main.go`                          |
+| Web edit/delete server and widget SDK callback                        | built        | `webd/channel.go`, `webd/assets/arizuko-client.js`         |
+| Built-in browser deletion and active reconnect replay                 | not built    | `webd/route_token.go`, `webd/turn.go`, `store/messages.go` |
+| One parent-scoped producer across Claude and Codex                    | not built    | replace both ant senders                                   |
+| Bounded rendering, list clearing, coalescing, retry state             | not built    | shared producer and lifecycle tests required               |
+| Addressed publication gate at receiver                                | not built    | `routd/mcp.go` checks closure, mute and capabilities only  |
+| One reminder at eight calls or 180 seconds                            | not built    | replace the repeating timer and NUDGE_TEXT                 |
+| Progress skill, manual sentence and solve routing                     | present      | adoption requires measurement                              |
+| D3 Typing port change                                                 | declined     | no port change                                             |
+| Drive edit/delete                                                     | not built    | §"Unverified"                                              |
+| pi checklist                                                          | unavailable  | backend selection rejects pi until its MCP bridge ships    |
+| Cross-harness acceptance and krons adoption                           | not measured | §"Acceptance"                                              |
 
 ## The declaration
 
-routd owns the turn, so routd declares its progress. One renderer,
-`routd/progress.go`, is the only code that calls `Typing`, or sends or edits
-progress-only rows:
+`ant` is the single producer of progress text. One reducer owns the native
+checklist, and `renderTodos` produces one plain-text snapshot for every sink.
+One sender calls the hidden `submit_status({turn_id, text})` method.
+`routd/progress.go` owns the message lifecycle and presence.
 
-| Event             | Called from                                                                                                     | Carries                      |
-| ----------------- | --------------------------------------------------------------------------------------------------------------- | ---------------------------- |
-| `Begin(turn)`     | the dispatch, once, before the run                                                                              | chat JID, trigger message id |
-| `Update(turn, t)` | `submit_status` from `TodoWrite` and streamed `<status>` blocks                                                 | progress text                |
-| `End(turn, o)`    | `finishTurn`, the one function every state→`done` site calls (result recorded, terminal failure, silent, clean) | outcome ∈ {`done`, `failed`} |
+| Event                | Source                   | Carries                      |
+| -------------------- | ------------------------ | ---------------------------- |
+| `Begin(turn)`        | dispatch, before the run | reply chat and presence      |
+| `Update(turn, text)` | the shared ant producer  | the latest rendered snapshot |
+| `End(turn, outcome)` | `finishTurn`             | `done` or `failed`           |
 
-In code these are `Loop.beginProgress`, `Server.updateProgress` and
-`endProgress`, called by `finishTurn`.
+Any nonempty native list activates the checklist.
+Successful parent checklist changes are authoritative:
+
+- `TodoWrite` and Codex `update_plan` replace the list.
+- Claude `TaskCreate` and `TaskUpdate` change entries by native task ID.
+  An update preserves fields it does not change.
+  A successful native deletion removes the entry.
+- Successful `TaskList` and `TaskGet` results hydrate resumed tasks by ID.
+  Task descriptions and metadata never become labels.
+- Failed calls and malformed fields change nothing. Validate label, status,
+  and optional `activeForm` types before changing state.
+- Child plans never replace the parent plan. The parent records a delegated
+  job as one milestone. `Agent`, `TaskStop`, and scheduler tasks are not checklist entries.
+
+The reducer retains state across attempts of the same turn and discards it at
+turn end. Duplicate events are idempotent. Each native checklist event enters
+this reducer once, even when both a hook and a stream observe the call.
+
+Before a checklist exists, parent `<status>` blocks provide a planless fallback.
+Once a checklist exists, standalone status blocks cannot replace it.
+An explicit clear keeps checklist ownership for the rest of the turn.
+It cannot reactivate fallback statuses or leave the old list visible.
+
+Current direct policy send, `ant/src/todo-status.ts:57`:
+
+```typescript
+await send({ turn_id: turnID, text: renderTodos(todos) });
+```
+
+Current independent text send, `ant/src/index.ts:166`:
+
+```typescript
+await send({ turn_id: turnID, text: s });
+```
+
+Proposed: both inputs change the same progress state. Only its sender calls
+`submitStatus`. Delete the direct policy send and the sender in `streamStatuses`.
+Delete the Claude-only matcher and the whole-turn set of seen texts.
+Compare the latest rendered snapshot for equal-text suppression.
+A sequence `A,B,A` must restore `A`.
 
 `routd/placement.go` places progress, text, files, voice, terminal notices and
 outbound retries. The progress line goes where the reply will go: an existing
@@ -137,24 +241,42 @@ message stays `⏳`. What the sink does with it is the sink's declaration
 
 **The progress message** is one `verb=status` row per `(turn, chat)`:
 
-- It is created by the FIRST `Update`, never by `Begin`: a turn that reports
-  nothing posts nothing.
-- It is created only on a channel that advertises `edit` and `delete`: the
-  line is edited while the turn runs and removed when it ends, so a channel that
-  lacks either shows none. On any other channel the update is dropped and logged
-  at debug with the turn id. There is no fallback to a fresh send, and no
-  terminal edit (`✓`, `✗`) that would leave a line behind.
-- Each later `Update` edits it. Equal text is a no-op.
-- The row's content is rewritten on every edit, so the row is the message as
-  the user sees it.
-- `End` deletes the message (`Deliverer.Delete`) and marks the row `✓`/`✗`
-  without a platform edit, so a second `End` does nothing. A refused delete is
-  logged at Error and the row keeps what the user sees. A row with no platform
-  id has nothing to delete. The failure notice stays its own message, because a
-  notice must notify.
-- A real edit failure (not `ErrUnsupported`) surfaces to the caller, as
-  `specs/5/24-live-tasklist-status.md §"Design"` already requires; nothing is
-  re-posted.
+- The first `Update` creates the message. `Begin` creates presence only.
+  A turn that reports nothing posts nothing.
+- Public updates require an addressed turn and a reply channel with both
+  `edit` and `delete`. `ant` checks `ARIZUKO_PROGRESS`; the receiver also checks
+  `tc.Addressed`, closure, mute state, and the resolved reply capabilities.
+  The bound callback validates the turn ID. Other updates create no row or message.
+- The renderer uses `☑` for completed, `⏳` for current, and `☐` for pending.
+  It uses `activeForm` for the current label when present.
+  It omits descriptions and metadata and neutralizes mentions and formatting controls.
+  Labels are public output; deletion cannot retract a notification or screenshot.
+- The complete wire text, including the routd `⏳ ` prefix, stays below
+  2,000 UTF-8 bytes. This also stays below the teled chunk limit.
+  Preserve the current item and show an omitted-item count when space is short.
+  Shorten labels at Unicode boundaries. No snapshot produces a second platform message.
+- The first checklist snapshot sends immediately. Later updates retain only
+  the latest snapshot and publish at most once per five seconds per turn.
+  This interval limits chat noise; it is not a provider quota.
+  Equal text does nothing. The row tracks the last successful send or edit.
+- After activation, a one-item list replaces the list.
+  An empty list replaces the text with `No remaining tasks.`
+  The renderer never sends empty wire text or leaves stale tasks visible.
+- `End` cancels pending updates and waits for an in-flight update before deletion.
+  It deletes the platform message and marks the retained row terminal without a platform edit.
+  A repeated `End` after successful deletion does nothing.
+  An unsent row is dead-lettered, so a later sweep cannot post ended progress.
+- A failed delete logs an error and leaves the row text unchanged.
+  `finishTurn` still marks the turn done. Cleanup failure cannot fail the answer.
+  Respect transient provider backoff and report exhausted cleanup failures.
+- A real edit failure surfaces to the caller. Never repost the snapshot as a new message.
+
+A reconnect returns the latest active status snapshot with its original ID.
+This snapshot is independent of the normal message cursor: edits keep the same
+ID and timestamp. Ended turns return no status, including rows whose deletion
+failed. Apply this rule to turn replay and route-token topic replay.
+The built-in browser replaces the matching node on update and removes it on `delete`.
+The widget SDK exposes `onDelete`; its consumer must remove the node.
 
 The live message id is the newest `verb=status` row's `platform_id`
 (`store/messages.go` `LastStatusRow`), so the message survives a routd
@@ -167,6 +289,13 @@ replies through the `reply` tool and then writes its diary is still working,
 and the message says so until it is not.
 
 ## The sink's declaration
+
+All supported sinks receive the same bounded plain text. Telegram converts the
+first send through its Markdown-to-HTML helper; edits use plain text.
+The rendering tests must check that labels stay plain and safe on both paths.
+The web server and widget SDK support deletion. Built-in browser deletion and
+active replay remain unbuilt, as recorded in §"Build state".
+GitHub keeps the D1 exception. pi remains disabled until its MCP bridge ships.
 
 An adapter's capability map says what it renders. routd reads it; it never
 probes a platform error to find out.
@@ -185,39 +314,72 @@ probes a platform error to find out.
 and is never used as a mark: bskyd, linkd and reditd advertise `like` and
 render no presence. A sink with a native indicator does not add a mark.
 
-| Sink   | Native presence | Mark | `edit`                                           | Begin renders   | Update renders             | End renders                |
-| ------ | --------------- | ---- | ------------------------------------------------ | --------------- | -------------------------- | -------------------------- |
-| teled  | yes             | —    | yes, and `delete`                                | typing          | one `⏳` line, edited      | typing off, line deleted   |
-| discd  | yes             | —    | yes, and `delete`                                | typing          | same                       | same                       |
-| whapd  | yes             | —    | yes, and `delete`                                | typing          | same                       | same                       |
-| slakd  | no              | `👀` | yes, and `delete`                                | `👀` on trigger | same                       | `👀` removed, line deleted |
-| gitd   | no              | `👀` | no                                               | `👀` on trigger | dropped                    | `👀` removed               |
-| googd  | no              | none | no; step 7 needs `edit` and `delete`             | nothing         | dropped                    | nothing                    |
-| reditd | no              | none | yes, no `delete`                                 | nothing         | dropped                    | nothing                    |
-| webd   | no              | none | yes (replace frame), and `delete` (remove frame) | nothing         | one status frame, replaced | frame removed              |
-| bskyd  | no              | none | no                                               | nothing         | dropped                    | nothing                    |
-| linkd  | no              | none | no                                               | nothing         | dropped                    | nothing                    |
-| twitd  | no              | none | no                                               | nothing         | dropped                    | nothing                    |
-| emaid  | no              | none | no                                               | nothing         | dropped                    | nothing                    |
+| Sink   | Native presence | Mark | `edit`                                       | Begin renders   | Update renders             | End renders                                                |
+| ------ | --------------- | ---- | -------------------------------------------- | --------------- | -------------------------- | ---------------------------------------------------------- |
+| teled  | yes             | —    | yes, and `delete`                            | typing          | one `⏳` line, edited      | typing off, line deleted                                   |
+| discd  | yes             | —    | yes, and `delete`                            | typing          | same                       | same                                                       |
+| whapd  | yes             | —    | yes, and `delete`                            | typing          | same                       | same                                                       |
+| slakd  | no              | `👀` | yes, and `delete`                            | `👀` on trigger | same                       | `👀` removed, line deleted                                 |
+| gitd   | no              | `👀` | no                                           | `👀` on trigger | dropped                    | `👀` removed                                               |
+| googd  | no              | none | no; Drive needs `edit` and `delete`          | nothing         | dropped                    | nothing                                                    |
+| reditd | no              | none | yes, no `delete`                             | nothing         | dropped                    | nothing                                                    |
+| webd   | no              | none | server edit/delete; browser removal required | nothing         | one status frame, replaced | server emits delete; built-in browser must remove the node |
+| bskyd  | no              | none | no                                           | nothing         | dropped                    | nothing                                                    |
+| linkd  | no              | none | no                                           | nothing         | dropped                    | nothing                                                    |
+| twitd  | no              | none | no                                           | nothing         | dropped                    | nothing                                                    |
+| emaid  | no              | none | no                                           | nothing         | dropped                    | nothing                                                    |
 
 `typing` is not in webd's map: webd renders no presence, and a declared
 capability with a no-op behind it is the drift `CapImplReport` exists to catch,
 `typing` being the one verb it does not probe. googd advertises `send_text` alone
 today, so routd drops its updates and Drive shows nothing between the question
-and the answer; step 7 gives it a line only with both `edit` and `delete`.
+and the answer; Drive requires both `edit` and `delete` to show a line.
 
 ## The nudge
 
-ant asks a running agent for a `<status>` line when the turn has run long and
-no line has been reported. The text asks what the user gets next, not which tool,
-model or file. The first nudge comes 180 s into a run and repeats every 180 s.
+Use one reminder for a turn without a checklist. Trigger it after eight
+completed parent tool calls or 180 seconds, whichever comes first.
+Seven calls do not trigger it. A checklist suppresses it, including a checklist
+that the agent explicitly clears. Recent fallback statuses do not count as a checklist.
+Count each completed call once by native call ID; exclude child calls.
+The call count and reminder state survive attempts of the same turn.
 
-A nudge is useful only where a line shows. routd resolves that once at dispatch
-and hands ant the fact as `ARIZUKO_PROGRESS` (`runed.RunRequest.Progress`): `1`
-when the turn is addressed (a person is owed an answer; cron, scheduled and
-migrate turns are not) and the reply chat advertises `edit` and `delete`;
-empty otherwise. Without `1`, ant starts no nudge timer.
-`runed/env_contract_test.go` ties the key's producer to ant's read.
+Reuse `nudgeProgress`, `STEER_SPOOL`, and the existing steering hook.
+Use the existing timer as the one-shot time limit. Do not add another timer,
+Python hook, blocking guard, or reminder path. `drainSteering` drops a stale
+reminder before a new turn. `solve_nudge.py` remains the solve entry nudge.
+
+Current timer, `ant/src/index.ts:316`:
+
+```typescript
+const nudgeTimer =
+  env.ARIZUKO_PROGRESS === '1'
+    ? setInterval(nudgeProgress, PROGRESS_INTERVAL_MS)
+    : undefined;
+```
+
+Proposed: the same reminder state accepts the call-count and time triggers.
+It queues at most one reminder while the turn has no checklist.
+It does not depend on public display. GitHub and silent tasks can still use
+native checklists internally. Unavailable checklist tools do not cause repeated reminders.
+
+Required replacement for `NUDGE_TEXT` in `ant/src/spool.ts`:
+
+```text
+This turn has no checklist. If meaningful work remains, invoke /progress
+and track the remaining milestones with the exposed native checklist.
+If the answer is ready, deliver it.
+```
+
+`ARIZUKO_PROGRESS` remains the public-display fact. routd sets `1` for an
+addressed turn whose reply chat supports edit and delete; otherwise it is empty.
+`runed/env_contract_test.go` ties the producer to ant's read.
+A silent task can plan internally but emits no public progress.
+
+The core package owns `ant/skills/progress/SKILL.md`, `ant/CLAUDE.md`, and
+`ant/skills/solve/SKILL.md`. These files require meaningful milestones before
+longer work, checked completion, scope updates, and public-safe labels.
+The solve rule applies whenever several meaningful steps remain, including a continuation.
 
 ## The mark, implemented once
 
@@ -320,7 +482,7 @@ The two channel specs disagree about what the channel may do to a thread.
 post AND react; `specs/7/50-gdrive-comments-channel.md §"Decision 3 — one
 verb, the thread reply"` has googd post and nothing else, with `Typing` a
 no-op and a test that the capability map holds exactly one entry. Both get
-one line, and it is the same line (`6/27` carries it; `7/50` takes it with step 7):
+one line, and it is the same line (`6/27` carries it; `7/50` takes it when the Drive probe passes):
 
 > The channel creates, edits and reacts to ITS OWN posts in the thread it was
 > addressed in. Every change to another party's state — resolve, reopen,
@@ -335,7 +497,7 @@ human's comment and `action=resolve` are not. Concretely:
   token, and no `edit`, so GitHub shows the `👀` mark and no progress comment.
   §"Typing indicator" there is the rendering (`👀` through the shared helper,
   the two reaction endpoints) and points here for the mechanism.
-- `7/50`, with step 7 (not built): `capsFor` advertises `send_text` and, when the probe below passes,
+- `7/50`, with Drive editing (not built): `capsFor` advertises `send_text` and, when the probe below passes,
   `edit`; `Edit` is `replies.update` on a reply whose id googd minted
   (`gd-r<fileId>.<commentId>.<replyId>`), `{"content"}` only, and the
   one-verb test becomes "the serialized body of every call has no `action`
@@ -352,40 +514,49 @@ plumbing in the adapter store, not a managed entity.
 
 ## Acceptance
 
-The routd items are pinned by `routd/progress_test.go`, the mark items by
-`chanlib/mark_test.go`, `gitd/typing_test.go` and `slakd/integration_test.go`, the
-edit items by `webd/edit_test.go`, and the gitd capability map by `gitd/caps_test.go`. None has been measured
-on krons; that run is what holds this spec at `partial`. The googd clause waits
-on step 7.
+The existing tests cover parts of the routd lifecycle and adapter capabilities.
+They do not prove the shared producer or adoption. Keep the spec `partial`
+until the required code, tests, image build, and krons measurements pass.
+A lint result does not satisfy these requirements.
 
-- One turn on a channel with `edit` and `delete` that reports three statuses,
-  two of them equal, leaves exactly one `verb=status` row, one platform message,
-  two edits and a delete; the row's content equals the last text.
-- The same turn on a channel without `edit` or without `delete` leaves no status
-  row and no platform message, and a debug log line per dropped update.
-- Duplicate progress text posts once
-  (`TestProgress_EqualTextIsNoOp`).
-- No `submit_status` call posts an opener, and a progress line in a topic joins
-  that topic (`routd/progress_test.go`).
-- A failed turn's line is deleted like any other; the failure notice is a
-  separate message.
-- `End` deletes the message and a second `End` deletes nothing; a refused delete
-  is logged and leaves the row as the user sees it.
-- webd `POST /delete` publishes a `delete` frame with the target id on the same
-  hub key as the original frame (`webd/edit_test.go`); replay of a turn never
-  returns a status row.
-- The nudge starts at 180 s only when `ARIZUKO_PROGRESS` is `1`, and its text
-  asks what the user gets next (`ant/src/index.test.ts`).
-- A GitHub turn that reports a status posts no progress comment; the `👀` stands
-  while the turn runs and is removed at `End`.
-- gitd and slakd set and remove the `👀` through the shared helper; a
-  persisted mark older than `DefaultTypingMaxTTL` at boot is removed; no
-  `eyes.json` is written.
-- `CapImplReport` is clean for gitd (`send_text`, `send_file`, `typing`), googd
-  (`send_text`, `edit` when credentialed and the probe passed) and webd
-  (`send_text`, `edit`).
-- Every existing `routd/typing_test.go` and `routd/fixes_test.go` case passes
-  or is rewritten against the renderer, never deleted.
+| Area                 | Required result                                                                                                                                                                                                                                                                    |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Native contracts     | Successful fixtures for TodoWrite, Claude TaskCreate/Update/deletion, resumed TaskList/Get, and Codex plans produce the same normalized state. Use the installed native event shapes.                                                                                              |
+| Scope and validation | Failed calls, malformed fields, and child calls cannot change public progress. Native call IDs prevent double ingestion.                                                                                                                                                           |
+| Producer ownership   | Checklist → status → checklist retains the checklist. Duplicate events are idempotent. Attempts retain state; separate turns do not share state. `A,B,A` restores A.                                                                                                               |
+| Rendering            | One-item and empty updates replace stale text. Overflow keeps the current item and an omitted count. Unicode, mentions and formatting remain safe. Complete wire text stays below 2,000 UTF-8 bytes.                                                                               |
+| Reminder             | Seven completed parent calls do nothing. Eight calls without a checklist queue one reminder. The 180-second trigger uses the same state and delivery. A checklist suppresses both triggers. GitHub and silent tasks can plan internally. Missing tools cause no repeated reminder. |
+| Message lifecycle    | `A,A,B`, with B outside the coalescing interval, gives one send, one edit and one delete. Rapid changes publish the latest snapshot. End cancels pending edits and waits for in-flight updates.                                                                                    |
+| Publication gate     | Unaddressed, muted, closed and unsupported turns publish no progress. A forged or mismatched turn ID fails the bound callback.                                                                                                                                                     |
+| Web clients          | The built-in browser removes the node on delete. Turn and topic reconnect restore only active progress, including a snapshot edited before the cursor. Ended progress never returns.                                                                                               |
+| Cleanup              | End deletes once after success. Failed deletion preserves row text, logs an error, and still ends the turn. An unsent status never posts after End.                                                                                                                                |
+| Sink exceptions      | GitHub posts no progress comment and removes its eyes mark at End. pi remains rejected. Drive remains blocked on §"Unverified".                                                                                                                                                    |
+
+Retain the lifecycle checks in `routd/progress_test.go`, `routd/typing_test.go`
+and `routd/fixes_test.go`. Retain the mark checks in `chanlib/mark_test.go`,
+`gitd/typing_test.go` and `slakd/integration_test.go`.
+Check the web server in `webd/edit_test.go` and the built-in browser with a
+browser test. The Go producer and TypeScript reader share a contract test for
+`ARIZUKO_PROGRESS` and `submit_status`. Do not add a second wire format.
+
+On krons, measure addressed longer turns on Telegram, Discord and web.
+Record the commit, native tools, calls, elapsed time, snapshots, platform IDs,
+sends, edits, deletion results, and reconnect results.
+Exercise both Claude and Codex. Check GitHub and silent-task internal planning separately.
+
+Measure adoption on a declared sample of closed parent turns.
+For comparison, define a long turn as at least 20 parent tool calls and
+120 elapsed seconds. Deduplicate copied or forked histories by prompt and tool-use IDs.
+Exclude child transcripts and active segments. Report malformed input counts.
+Record checklist use, progress skill use, time to the first checklist,
+reminder delivery, and any eligible turn without a checklist.
+Compare the same sampling rules before and after the change.
+A missing checklist requires an explained one-shot answer or missing capability;
+unexplained omissions fail adoption acceptance. Do not claim fleet-wide adoption from this sample.
+
+`specs/CLAUDE.md` defines shipping completion. Build and lint must pass,
+and the packaged skill changes require an agent image build before release.
+No live acceptance or image build is claimed by this spec amendment.
 
 ## Unverified
 

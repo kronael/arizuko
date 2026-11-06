@@ -136,7 +136,11 @@ nobody addressed you.
 
 A `<status>` is one line under 100 chars saying what the user gets next, never
 a tool, model or file, and it promises an answer: end that turn with `reply`.
-`TodoWrite` plans multi-step work. A silent scheduled task whose artifact is the
+ALWAYS invoke /progress before work with several meaningful steps,
+delegation, or a long verification loop. Checklist labels can appear in
+the reply chat; treat them as public output.
+
+A silent scheduled task whose artifact is the
 work emits no `<status>` and calls no delivery tool.
 
 When you were addressed and end without a reply, you are prompted once; after

@@ -23,17 +23,10 @@ should not be something the model can forget.
 
 ## Design
 
-The agent reports progress in `<status>` blocks and plans with the SDK's
-`TodoWrite` tool.
-
-1. **ant — a `TodoWrite` PostToolUse hook** (`ant/src/todo-status.ts`). On
-   each `TodoWrite`, render the whole list (`☑`/`⏳`/`☐`) and call
-   `submitStatus({turn_id, text})`. The hook reads the list already written by
-   the agent.
-2. **ant — streamed `<status>` blocks.** Each new block goes through
-   `submitStatus({turn_id, text})`.
-3. **routd — one renderer.** `routd/progress.go` creates and edits one `⏳`
-   checklist where the reply will go, and deletes it when the turn ends.
+`ant` owns one progress producer for native checklist changes and planless
+`<status>` fallback. The producer, rendering, reminder, and native-tool contracts
+are defined in `../6/46-turn-progress.md` §"The declaration" and §"The nudge".
+`routd/progress.go` owns placement, edits, and deletion of the temporary message.
 
 The renderer keeps these boundaries:
 
@@ -46,18 +39,9 @@ The renderer keeps these boundaries:
   agent sends there is dropped and logged at debug. A real edit failure
   (401/500/timeout) surfaces — never a silent duplicate.
 
-Both inputs use the existing hidden `submit_status` method. Neither source
-sends checklist messages directly or creates an extra status protocol.
-
-## Code pointers
-
-- `ant/src/todo-status.ts` — render + the `TodoWrite` PostToolUse hook.
-- `ant/src/claude.ts` — `TodoWrite` hook registration.
-- `ant/src/index.ts` — streamed `<status>` forwarding.
-- `routd/progress.go` — checklist rendering.
-- `routd/placement.go` — common placement for progress and answers.
-- `routd/db.go` — `TurnHasBotReply` excludes progress-only rows;
-  `LastStatusRow` finds the persisted checklist.
+The producer uses the existing hidden `submit_status` method.
+It sends no checklist messages directly and adds no status protocol.
+The module map in `../6/46-turn-progress.md` names the code boundaries.
 
 ## Tier
 

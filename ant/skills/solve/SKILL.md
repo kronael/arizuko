@@ -69,6 +69,8 @@ unless the entity has clearly changed.
 
 ## 4. Act
 
+ALWAYS apply /progress when the remaining work has several meaningful steps.
+
 Respond to the user. Apply matched skill workflows. Do not mention this
 skill. Before you send, check each claim with a number, name, date or path
 against its source — the thread, a file, a tool result. Drop or mark a claim

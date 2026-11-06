@@ -1,29 +1,22 @@
 ---
 name: progress
-description: >
-  Plan with TodoWrite for a live checklist.
-  USE for multi-step work. NOT for one-shot replies.
+description: Track longer work with the native checklist. NOT for one-shot replies.
+when_to_use: "multi-step task, longer task, investigation, implementation, delegation, verification"
 ---
 
-# Live progress checklist
+# Progress
 
-ALWAYS plan real milestones with `TodoWrite`. The harness edits one `⏳`
-checklist as tasks move `pending → in_progress → completed`, and deletes it
-when the turn ends:
-
-```
-☑ build
-⏳ deploy
-☐ verify
-```
-
-NEVER post or edit the checklist yourself; ALWAYS update `TodoWrite`.
-NEVER force a task list onto a one-line answer; ALWAYS answer directly.
-
-## Planless turns and unsupported platforms
-
-- `<status>` blocks update progress for turns without a task list. Say what the
-  user gets next, never which tool, model or file. ALWAYS close a reported
-  status with `reply`.
-- A channel that cannot both edit and delete shows no checklist, GitHub
-  included.
+- ALWAYS use the exposed native checklist: Claude task tools or TodoWrite;
+  Codex update_plan.
+- ALWAYS plan meaningful outcomes before work with several steps.
+- ALWAYS track a delegated job as one parent milestone.
+- ALWAYS mark the current step before starting it.
+- ALWAYS mark a step complete only after checking its result.
+- ALWAYS revise the checklist when scope changes or work becomes blocked.
+- ALWAYS use short labels safe for everyone in the reply chat.
+- NEVER put secrets or private source details in labels; ALWAYS describe
+  the public outcome.
+- NEVER post the checklist through reply or send; ALWAYS update its tool.
+- NEVER add a checklist to a one-shot answer; ALWAYS answer directly.
+- ALWAYS use the checklist internally when the platform cannot display it.
+- NEVER invent an unavailable tool; ALWAYS report the missing capability.
