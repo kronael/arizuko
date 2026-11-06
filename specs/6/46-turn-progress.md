@@ -39,7 +39,10 @@ lists (`ant/src/todo-status.ts:54`). Neither sender bounds the text.
 The web server emits deletion events, but the built-in browser has no deletion
 subscription (`webd/route_token.go:660`). Turn replay excludes all status rows
 (`store/messages.go:789`). The route-token stream uses a separate topic replay
-(`webd/route_token.go:442`); active replay must cover both browser entry points.
+(`webd/route_token.go:442`). History-on-open returns retained ended statuses
+through `MessagesByThread` (`webd/route_token.go:135`). Reconnect keeps existing
+nodes (`webd/route_token.go:660`). Active-only replay must cover all three paths
+and reconcile displayed progress.
 
 ## Where it fits
 
@@ -75,7 +78,7 @@ Independent streamStatuses sender and repeating status request (removed)
   names: [Frame, Turn]
   never: adds a progress method to Harness or enables pi without its MCP bridge
 - path: ant/src/claude.ts (changed)
-  job: normalizes successful native task results with native IDs and parent scope
+  job: normalizes parent task results and delivers the current reminder while waiting on background agents
   names: [claudeHarness, claudeHooks]
   never: treats Agent, TaskStop, or scheduler jobs as checklist entries
 - path: ant/src/policy.ts (changed)
@@ -107,15 +110,15 @@ Independent streamStatuses sender and repeating status request (removed)
   never: renders a second checklist or fails an answer because deletion failed
 - path: store/messages.go (changed)
   job: returns active progress snapshots for replay and excludes ended progress
-  names: [TurnFrames, MessagesSinceTopic, LastStatusRow]
+  names: [TurnFrames, MessagesSinceTopic, MessagesByThread, LastStatusRow]
   never: uses the message timestamp alone to decide whether progress changed
 - path: webd/turn.go (changed)
   job: replays the latest active progress snapshot on turn reconnect
   names: [frameKind]
   never: restores progress for an ended turn
 - path: webd/route_token.go (changed)
-  job: removes the matching browser node on delete and restores active topic progress
-  names: [handleRouteTokenStream]
+  job: filters history to active progress and reconciles browser nodes on reconnect and delete
+  names: [handleChatTokenHistory, handleRouteTokenStream]
   never: treats a reconnect cursor as proof that a status snapshot is current
 - path: ant/skills/progress/SKILL.md (changed)
   job: requires native checklists for meaningful longer work
@@ -274,7 +277,12 @@ message stays `⏳`. What the sink does with it is the sink's declaration
 A reconnect returns the latest active status snapshot with its original ID.
 This snapshot is independent of the normal message cursor: edits keep the same
 ID and timestamp. Ended turns return no status, including rows whose deletion
-failed. Apply this rule to turn replay and route-token topic replay.
+failed. Apply this rule to turn replay, route-token topic replay, and
+history-on-open through `handleChatTokenHistory` and `MessagesByThread`.
+On reconnect, the browser reconciles displayed progress against the active
+snapshot and removes nodes absent from it, even if the browser missed `delete`.
+An empty snapshot clears displayed progress. Reconciliation must not restore
+progress that ends during reconnect.
 The built-in browser replaces the matching node on update and removes it on `delete`.
 The widget SDK exposes `onDelete`; its consumer must remove the node.
 
@@ -346,8 +354,13 @@ The call count and reminder state survive attempts of the same turn.
 
 Reuse `nudgeProgress`, `STEER_SPOOL`, and the existing steering hook.
 Use the existing timer as the one-shot time limit. Do not add another timer,
-Python hook, blocking guard, or reminder path. `drainSteering` drops a stale
-reminder before a new turn. `solve_nudge.py` remains the solve entry nudge.
+Python hook, blocking guard, or reminder path. Only between turns does
+`drainSteering` discard stale reminders. During live background-agent waiting,
+the existing poll delivers the current reminder through the same spool and
+`renderSteering`, even without another parent tool call.
+`ant/src/claude.ts:521` calls the stale filter during that wait;
+`ant/src/claude.test.ts:470` expects the reminder to disappear. Both must change.
+`solve_nudge.py` remains the solve entry nudge.
 
 Current timer, `ant/src/index.ts:316`:
 
@@ -519,18 +532,18 @@ They do not prove the shared producer or adoption. Keep the spec `partial`
 until the required code, tests, image build, and krons measurements pass.
 A lint result does not satisfy these requirements.
 
-| Area                 | Required result                                                                                                                                                                                                                                                                    |
-| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Native contracts     | Successful fixtures for TodoWrite, Claude TaskCreate/Update/deletion, resumed TaskList/Get, and Codex plans produce the same normalized state. Use the installed native event shapes.                                                                                              |
-| Scope and validation | Failed calls, malformed fields, and child calls cannot change public progress. Native call IDs prevent double ingestion.                                                                                                                                                           |
-| Producer ownership   | Checklist → status → checklist retains the checklist. Duplicate events are idempotent. Attempts retain state; separate turns do not share state. `A,B,A` restores A.                                                                                                               |
-| Rendering            | One-item and empty updates replace stale text. Overflow keeps the current item and an omitted count. Unicode, mentions and formatting remain safe. Complete wire text stays below 2,000 UTF-8 bytes.                                                                               |
-| Reminder             | Seven completed parent calls do nothing. Eight calls without a checklist queue one reminder. The 180-second trigger uses the same state and delivery. A checklist suppresses both triggers. GitHub and silent tasks can plan internally. Missing tools cause no repeated reminder. |
-| Message lifecycle    | `A,A,B`, with B outside the coalescing interval, gives one send, one edit and one delete. Rapid changes publish the latest snapshot. End cancels pending edits and waits for in-flight updates.                                                                                    |
-| Publication gate     | Unaddressed, muted, closed and unsupported turns publish no progress. A forged or mismatched turn ID fails the bound callback.                                                                                                                                                     |
-| Web clients          | The built-in browser removes the node on delete. Turn and topic reconnect restore only active progress, including a snapshot edited before the cursor. Ended progress never returns.                                                                                               |
-| Cleanup              | End deletes once after success. Failed deletion preserves row text, logs an error, and still ends the turn. An unsent status never posts after End.                                                                                                                                |
-| Sink exceptions      | GitHub posts no progress comment and removes its eyes mark at End. pi remains rejected. Drive remains blocked on §"Unverified".                                                                                                                                                    |
+| Area                 | Required result                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Native contracts     | Successful fixtures for TodoWrite, Claude TaskCreate/Update/deletion, resumed TaskList/Get, and Codex plans produce the same normalized state. Use the installed native event shapes.                                                                                                                                                                                                                                                                                        |
+| Scope and validation | Failed calls, malformed fields, and child calls cannot change public progress. Native call IDs prevent double ingestion.                                                                                                                                                                                                                                                                                                                                                     |
+| Producer ownership   | Checklist → status → checklist retains the checklist. Duplicate events are idempotent. Attempts, fresh-session retries, and process retries of the same turn retain state; separate turns do not share state. `A,B,A` restores A.                                                                                                                                                                                                                                            |
+| Rendering            | One-item and empty updates replace stale text. Overflow keeps the current item and an omitted count. Unicode, mentions and formatting remain safe. Complete wire text stays below 2,000 UTF-8 bytes.                                                                                                                                                                                                                                                                         |
+| Reminder             | Seven completed parent calls do nothing. Eight calls without a checklist queue one reminder. The 180-second trigger uses the same state and delivery. A reminder queued before or during background waiting reaches the agent once through the waiting poll without another parent tool call. Only between turns are stale reminders discarded. A checklist suppresses both triggers. GitHub and silent tasks can plan internally. Missing tools cause no repeated reminder. |
+| Message lifecycle    | `A,A,B`, with B outside the coalescing interval, gives one send, one edit and one delete. Rapid changes publish the latest snapshot. End cancels pending edits and waits for in-flight updates.                                                                                                                                                                                                                                                                              |
+| Publication gate     | Unaddressed, muted, closed and unsupported turns publish no progress. A forged or mismatched turn ID fails the bound callback.                                                                                                                                                                                                                                                                                                                                               |
+| Web clients          | The built-in browser removes the node on delete. Turn replay, topic replay, and history-on-open return only active progress, including a snapshot edited before the cursor. Reload after End shows no progress, including after failed deletion. A disconnect spanning End deletion leaves no stale node after reconnect.                                                                                                                                                    |
+| Cleanup              | End deletes once after success. Failed deletion preserves row text, logs an error, and still ends the turn. An outbound send racing End either finishes before deletion or is cancelled; no status appears after End. An unsent status never posts after End.                                                                                                                                                                                                                |
+| Sink exceptions      | GitHub posts no progress comment and removes its eyes mark at End. pi remains rejected. Drive remains blocked on §"Unverified".                                                                                                                                                                                                                                                                                                                                              |
 
 Retain the lifecycle checks in `routd/progress_test.go`, `routd/typing_test.go`
 and `routd/fixes_test.go`. Retain the mark checks in `chanlib/mark_test.go`,
@@ -548,8 +561,9 @@ Measure adoption on a declared sample of closed parent turns.
 For comparison, define a long turn as at least 20 parent tool calls and
 120 elapsed seconds. Deduplicate copied or forked histories by prompt and tool-use IDs.
 Exclude child transcripts and active segments. Report malformed input counts.
-Record checklist use, progress skill use, time to the first checklist,
-reminder delivery, and any eligible turn without a checklist.
+Record checklist use, milestone quality, unnecessary checklist use, progress
+skill use, time to the first checklist, reminder delivery, and any eligible
+turn without a checklist.
 Compare the same sampling rules before and after the change.
 A missing checklist requires an explained one-shot answer or missing capability;
 unexplained omissions fail adoption acceptance. Do not claim fleet-wide adoption from this sample.

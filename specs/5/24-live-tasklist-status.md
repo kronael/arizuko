@@ -1,5 +1,5 @@
 ---
-status: shipped
+status: partial
 ---
 
 # Live tasklist status — harness-driven, one edited message per turn
@@ -7,6 +7,9 @@ status: shipped
 Progress uses a harness hook on the structured task list, delivered as one
 editable checklist that lives while the turn runs. Placement, capability and
 removal belong to `../6/46-turn-progress.md`.
+
+The message lifecycle exists. The shared native checklist producer remains
+unbuilt, as recorded in `../6/46-turn-progress.md` §"Build state".
 
 ## Problem
 
