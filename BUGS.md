@@ -447,10 +447,14 @@ on krons. A limit failure is a condition that clears, not a bad request.
 - **Severity:** medium (a person's request is lost silently once the notice is sent)
 - **Scope:** routd dispatch failure handling (with L670's one-notice state)
 - **Fix (owner 2026-11-06: "it should like retry .. but not send the limit
-  errors"):** a spend/usage-limit failure sends nothing to the chat; the batch
+  errors"; "limit should send its over limit but once its ok it should be
+  deleted and continue"):** a spend/usage-limit failure posts ONE status line
+  in the chat ("over the model limit, retrying in about an hour") as the waiting
+  turn's 6/46 status message, never a reply; the batch
   stays un-advanced and retries after about an hour (owner: "retry after an
   hour or so"), so the answer lands in
-  its own chat and thread once the limit clears. The operator gets one
+  its own chat and thread once the limit clears, and the turn's End deletes
+  the status line as it deletes every status line. The operator gets one
   `#issues` notice when a limit starts (per instance, until a turn succeeds).
   Other failures keep L670's one-notice-per-chat rule. Minimal code: reuse
   the retry path routd already has (the Busy/busyWait re-feed or the existing
