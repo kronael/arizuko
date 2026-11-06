@@ -201,6 +201,12 @@ applies to that group only. Use `-i/--instance NAME` to select another
 instance. The default comes from the configured environment. Use `-f/--force`
 only to replace an existing destination that no package owns.
 
+Before an install replaces a group file whose bytes differ, it copies the old
+bytes to `<group>/.package-backup/<YYYYMMDDTHHMMSS>/<path>` and prints that
+directory. A later install deletes run directories older than 30 days. To
+backport a local edit, diff the copy against the package's `group/` file and
+commit the change in the package source.
+
 Installing `github.com/kronael/tools` requires `uv` on the host and can download
 Python and dependencies. The installed checker runs offline in the guest.
 

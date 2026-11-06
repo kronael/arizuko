@@ -7,7 +7,70 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
+
+func backupRuns(t *testing.T, group string) []string {
+	t.Helper()
+	runs, _ := os.ReadDir(filepath.Join(group, backupDir))
+	var names []string
+	for _, r := range runs {
+		names = append(names, r.Name())
+	}
+	return names
+}
+
+// A blend copies a local edit aside before it replaces the file, and names the copy.
+func TestBlendBacksUpLocalEdit(t *testing.T) {
+	root := t.TempDir()
+	a := mkProduct(t, root, "a", map[string]string{"facts/f.md": "package"})
+	group := filepath.Join(root, "group")
+	writeFile(t, filepath.Join(group, "facts/f.md"), "mine")
+	_, notes, err := BlendProducts(group, []Product{a}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runs := backupRuns(t, group)
+	if len(runs) != 1 {
+		t.Fatalf("backup runs = %v, want one", runs)
+	}
+	if got := read(t, group, backupDir, runs[0], "facts/f.md"); got != "mine" {
+		t.Errorf("backup = %q, want the local edit", got)
+	}
+	if got := read(t, group, "facts/f.md"); got != "package" {
+		t.Errorf("file = %q, want the package's bytes", got)
+	}
+	if !slices.ContainsFunc(notes, func(n string) bool { return strings.Contains(n, filepath.Join(group, backupDir, runs[0])) }) {
+		t.Errorf("notes %q do not name the backup", notes)
+	}
+}
+
+// A file that already holds the package's bytes, or is new, leaves no backup.
+func TestBlendUntouchedFileNotBackedUp(t *testing.T) {
+	root := t.TempDir()
+	a := mkProduct(t, root, "a", map[string]string{"facts/f.md": "package"})
+	group := filepath.Join(root, "group")
+	first := blendInto(t, group, []Product{a}, nil)
+	blendInto(t, group, []Product{a}, first[0].Manifest[ManifestGroupFiles])
+	if runs := backupRuns(t, group); len(runs) != 0 {
+		t.Errorf("backup runs = %v, want none", runs)
+	}
+}
+
+// A blend deletes a run directory older than backupKeep and keeps a newer one.
+func TestBlendReapsOldBackups(t *testing.T) {
+	root := t.TempDir()
+	a := mkProduct(t, root, "a", map[string]string{"facts/f.md": "package"})
+	group := filepath.Join(root, "group")
+	old := time.Now().Add(-backupKeep - time.Hour).UTC().Format(backupTime)
+	fresh := time.Now().Add(-time.Hour).UTC().Format(backupTime)
+	writeFile(t, filepath.Join(group, backupDir, old, "x.md"), "old")
+	writeFile(t, filepath.Join(group, backupDir, fresh, "x.md"), "fresh")
+	blendInto(t, group, []Product{a}, nil)
+	if runs := backupRuns(t, group); !slices.Equal(runs, []string{fresh}) {
+		t.Errorf("backup runs = %v, want only %s", runs, fresh)
+	}
+}
 
 // mkProduct writes a product tree under root/name and returns its mix entry.
 // Keys are slash-separated product-relative paths.

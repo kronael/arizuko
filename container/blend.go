@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"maps"
 	"os"
 	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
+	"time"
 )
 
 type Product struct {
@@ -27,6 +29,27 @@ const settingsRel = ".claude/settings.json"
 // ManifestGroupFiles is the receipt kind that lists the group/ files a
 // package wrote into a group folder.
 const ManifestGroupFiles = "group_seed"
+
+// A write that replaces a group file's different bytes first copies them to
+// <group>/.package-backup/<run>/<rel>, so the operator can carry a local edit
+// back into the package. A run directory stays backupKeep, then the next
+// blend reaps it.
+const (
+	backupDir  = ".package-backup"
+	backupKeep = 30 * 24 * time.Hour
+	backupTime = "20060102T150405"
+)
+
+func reapBackups(groupDir string) {
+	runs, _ := os.ReadDir(filepath.Join(groupDir, backupDir))
+	for _, run := range runs {
+		if at, err := time.Parse(backupTime, run.Name()); err == nil && time.Since(at) > backupKeep {
+			if err := os.RemoveAll(filepath.Join(groupDir, backupDir, run.Name())); err != nil {
+				slog.Warn("old package backup not removed", "run", run.Name(), "err", err)
+			}
+		}
+	}
+}
 
 type payload int
 
@@ -149,6 +172,8 @@ func BlendProducts(groupDir string, mix []Product, managed []string) ([]Blended,
 	if err != nil {
 		return nil, nil, err
 	}
+	reapBackups(groupDir)
+	runDir := filepath.Join(groupDir, backupDir, time.Now().UTC().Format(backupTime))
 	out := make([]Blended, len(mix))
 	for i := range mix {
 		out[i] = Blended{Name: mix[i].Name, Manifest: map[string][]string{}}
@@ -159,7 +184,7 @@ func BlendProducts(groupDir string, mix []Product, managed []string) ([]Blended,
 		if err != nil {
 			return nil, nil, err
 		}
-		if _, err := writeIfDifferent(groupDir, rel, b); err != nil {
+		if _, err := writeIfDifferent(groupDir, rel, b, runDir); err != nil {
 			return nil, nil, err
 		}
 		out[i].Manifest[ManifestGroupFiles] = append(out[i].Manifest[ManifestGroupFiles], rel)
@@ -171,10 +196,14 @@ func BlendProducts(groupDir string, mix []Product, managed []string) ([]Blended,
 			}
 		}
 	}
-	return out, p.overrides, blendSettings(groupDir, mix, p, out)
+	err = blendSettings(groupDir, mix, p, out, runDir)
+	if _, serr := os.Stat(runDir); serr == nil {
+		p.overrides = append(p.overrides, "replaced local edits, copies in "+runDir)
+	}
+	return out, p.overrides, err
 }
 
-func blendSettings(groupDir string, mix []Product, p *plan, out []Blended) error {
+func blendSettings(groupDir string, mix []Product, p *plan, out []Blended, runDir string) error {
 	if len(p.settings) == 0 {
 		return nil
 	}
@@ -228,15 +257,24 @@ func blendSettings(groupDir string, mix []Product, p *plan, out []Blended) error
 	if err != nil {
 		return err
 	}
-	_, err = writeIfDifferent(groupDir, settingsRel, append(b, '\n'))
+	_, err = writeIfDifferent(groupDir, settingsRel, append(b, '\n'), runDir)
 	return err
 }
 
-func writeIfDifferent(groupDir, rel string, b []byte) (bool, error) {
+func writeIfDifferent(groupDir, rel string, b []byte, runDir string) (bool, error) {
 	path := filepath.Join(groupDir, filepath.FromSlash(rel))
-	if cur, err := os.ReadFile(path); err == nil && bytes.Equal(cur, b) {
-		return false, nil
-	} else if err != nil && !os.IsNotExist(err) {
+	if cur, err := os.ReadFile(path); err == nil {
+		if bytes.Equal(cur, b) {
+			return false, nil
+		}
+		backup := filepath.Join(runDir, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(backup), 0o755); err != nil {
+			return false, err
+		}
+		if err := os.WriteFile(backup, cur, 0o644); err != nil {
+			return false, err
+		}
+	} else if !os.IsNotExist(err) {
 		return false, err
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
