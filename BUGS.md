@@ -15,6 +15,7 @@
 
 ## What needs you
 
+- `L673` — a long turn is killed at 30 min with no warning; 60 min + a wrap-up nudge, queued.
 - `L672` — a spend-limit failure: retry silently, one `#issues` notice to the operator; approved, queued after L670.
 - `L665` — `unpair` removes the account's denies from the paired identity's turns; needs sign-off.
 - `L664` — `invite_create` mints `admin` the issuing folder cannot delegate; needs sign-off.
@@ -447,6 +448,24 @@ Queued messages can therefore repeat the same warning while the condition holds.
 
 - **Test:** `TestFailureNoticePerChatAndClass` and `TestFailureNoticeRetriesFailedDelivery` (`routd/failure_notice_test.go`).
 - **Status:** fixed — routd suppresses notices per chat and failure class until a successful turn; failed delivery permits another attempt.
+
+## L673 — a long turn is killed at 30 minutes with no warning, then posts "I ran out of time" (2026-11-06, open)
+
+MEASURED 2026-11-06: a sloth turn ended with "⚠️ I ran out of time on that —
+say 'continue' to resume, or narrow the request." (`routd/turns.go`
+`timedOutNotice`). The run deadline is `core.RunTimeout()`, 30 minutes by
+default (`core/config.go:323`); the agent gets no signal before it, so a turn
+that is about to finish is cut off and its work is lost to the person. The
+owner: "have some limit but... more like telling the model first to end the
+turn and then fail ... the timeout should be like an hour".
+
+- **Severity:** medium (long work is cut off without a chance to deliver)
+- **Scope:** `core.RunTimeout` default; ant steering (`nudgeProgress`, `STEER_SPOOL`); routd `timedOutNotice`
+- **Fix (owner-approved shape):** the default run deadline becomes 60 minutes;
+  about 5 minutes before it, the existing steering hook tells the agent to
+  deliver what it has and end the turn; the hard stop stays as the last resort.
+  One nudge through the existing steering path; no new mechanism or key.
+- **Status:** open — queued for Terra with L672
 
 ## L672 — a turn that fails on a model spend limit is never retried, so the message stays unanswered (2026-11-06, open)
 
