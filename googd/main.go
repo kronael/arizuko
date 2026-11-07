@@ -81,34 +81,6 @@ type capSetter interface {
 	SetCaps(map[string]bool) error
 }
 
-// verifyCredential checks the key and, on any failure, keeps the daemon up.
-// chanlib.Run exits on a Start error, and a daemon that exits at boot cycles
-// the whole compose project (BUGS L406, L419), so one credential must never
-// take every other daemon on the instance down. A key gates BOTH reading and
-// replying here, so googd advertises no send_text and says why on its
-// dashboard. rc.Register already ran, so routd would otherwise keep routing
-// replies to an adapter that cannot post them.
-//
-// A key that is missing or will not parse is final until the operator fixes
-// it. A key Google refused or never answered is asked again every `every`,
-// and the first answer puts send_text back.
-func verifyCredential(ctx context.Context, b *bot, rc capSetter, every time.Duration) {
-	err := b.start(ctx)
-	if err == nil {
-		slog.Info("service account verified", "account", b.cred.account())
-		if b.cred.src != nil {
-			go reacquire(ctx, b, rc, every)
-		}
-		return
-	}
-	slog.Error("service account credential unusable; googd runs without send_text and reads nothing until it is fixed",
-		"err", err)
-	setCaps(rc, capsFor(false))
-	if b.cred.isRetryable() {
-		go reacquire(ctx, b, rc, every)
-	}
-}
-
 // reacquire refreshes API state and updates the Drive capability.
 func reacquire(ctx context.Context, b *bot, rc capSetter, every time.Duration) {
 	t := time.NewTicker(every)

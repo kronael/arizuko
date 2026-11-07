@@ -201,15 +201,6 @@ func (c *credential) stored() error {
 	return c.err
 }
 
-// isRetryable answers whether another verify can change the outcome without a
-// new key.
-func (c *credential) isRetryable() bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.state == credRefused || c.state == credUnreachable ||
-		(c.state == credOK && c.user.EmailAddress == "")
-}
-
 func (c *credential) usable() bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()

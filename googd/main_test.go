@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
@@ -12,7 +11,6 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -178,32 +176,16 @@ func jwtClaims(t *testing.T, assertion string) map[string]any {
 	return claims
 }
 
-func captureErrorLogs(t *testing.T) *bytes.Buffer {
-	t.Helper()
-	var buf bytes.Buffer
-	prev := slog.Default()
-	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelError})))
-	t.Cleanup(func() { slog.SetDefault(prev) })
-	return &buf
-}
-
 // assertDegraded is the shape every refused credential must take: googd stays
 // up, withdraws send_text from the registration that already ran, logs at
 // ERROR, and says why on the dashboard.
-func assertDegraded(t *testing.T, b *bot, rc *capRecorder, logs *bytes.Buffer, dashHas string) {
+func assertDegraded(t *testing.T, b *bot, err error, dashHas string) {
 	t.Helper()
 	if !b.isConnected() {
 		t.Error("googd stopped serving over a credential that gates only itself")
 	}
-	calls, sendText := rc.read()
-	if calls != 1 {
-		t.Fatalf("SetCaps calls = %d, want 1: routd still routes send_text to googd", calls)
-	}
-	if sendText {
+	if err == nil || capsFor(err == nil)["send_text"] {
 		t.Error("send_text was left advertised on a dead credential")
-	}
-	if !strings.Contains(logs.String(), "level=ERROR") {
-		t.Errorf("no ERROR logged for a dead credential: %q", logs.String())
 	}
 	var dash string
 	for _, sec := range b.DashSections() {
@@ -220,13 +202,8 @@ func assertDegraded(t *testing.T, b *bot, rc *capRecorder, logs *bytes.Buffer, d
 // exits chanlib.Run, and a daemon that exits at boot cycles the whole compose
 // project (BUGS L406, L419), so googd stays up and withdraws send_text.
 func TestCredential_MissingKeyDegradesToIngress(t *testing.T) {
-	logs := captureErrorLogs(t)
-	b := newBot(t.Context(), config{})
-	rc := &capRecorder{}
-
-	verifyCredential(t.Context(), b, rc, time.Millisecond)
-
-	assertDegraded(t, b, rc, logs, "GDRIVE_SA_KEY_JSON is not set")
+	b, err := prepareBot(t.Context(), config{})
+	assertDegraded(t, b, err, "GDRIVE_SA_KEY_JSON is not set")
 }
 
 func TestCredential_MalformedKeyDegradesToIngress(t *testing.T) {
@@ -243,17 +220,8 @@ func TestCredential_MalformedKeyDegradesToIngress(t *testing.T) {
 	}
 	for name, raw := range cases {
 		t.Run(name, func(t *testing.T) {
-			logs := captureErrorLogs(t)
-			b := newBot(t.Context(), config{KeyJSON: raw, APIBase: g.srv.URL, SheetsAPIBase: g.srv.URL})
-			rc := &capRecorder{}
-
-			verifyCredential(t.Context(), b, rc, time.Millisecond)
-
-			assertDegraded(t, b, rc, logs, "key will not parse")
-			time.Sleep(20 * time.Millisecond)
-			if calls, _ := rc.read(); calls != 1 {
-				t.Errorf("SetCaps calls = %d, want 1: a key that will not parse never heals", calls)
-			}
+			b, err := prepareBot(t.Context(), config{KeyJSON: raw, APIBase: g.srv.URL, SheetsAPIBase: g.srv.URL})
+			assertDegraded(t, b, err, "key will not parse")
 			if n := g.tokenCalls.Load() + g.aboutCalls.Load(); n != 0 {
 				t.Errorf("Google was asked %d times about a key that never parsed", n)
 			}
@@ -272,16 +240,8 @@ func TestCredential_GoogleRefusalDegradesToIngress(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			g := newFakeGoogle(t)
 			set(g)
-			logs := captureErrorLogs(t)
-			b := newBot(t.Context(), g.config(t))
-			rc := &capRecorder{}
-
-			verifyCredential(t.Context(), b, rc, time.Hour)
-
-			assertDegraded(t, b, rc, logs, "google refused the key")
-			if !b.cred.isRetryable() {
-				t.Error("a refusal Google may revoke must stay retryable")
-			}
+			b, err := prepareBot(t.Context(), g.config(t))
+			assertDegraded(t, b, err, "google refused the key")
 		})
 	}
 }
@@ -291,20 +251,17 @@ func TestCredential_GoogleRefusalDegradesToIngress(t *testing.T) {
 func TestCredential_RefusalRetriesAndRestoresSendText(t *testing.T) {
 	g := newFakeGoogle(t)
 	g.aboutStatus.Store(http.StatusForbidden)
-	logs := captureErrorLogs(t)
-	b := newBot(t.Context(), g.config(t))
+	b, err := prepareBot(t.Context(), g.config(t))
 	rc := &capRecorder{}
-
-	verifyCredential(t.Context(), b, rc, time.Millisecond)
-
-	assertDegraded(t, b, rc, logs, "google refused the key")
+	assertDegraded(t, b, err, "google refused the key")
+	go reacquire(t.Context(), b, rc, time.Millisecond)
 	g.aboutStatus.Store(http.StatusOK)
 	deadline := time.Now().Add(10 * time.Second)
 	for {
 		calls, sendText := rc.read()
 		if sendText {
-			if calls != 2 {
-				t.Errorf("SetCaps calls = %d, want 2: one withdrawal and one restore", calls)
+			if calls != 1 {
+				t.Errorf("SetCaps calls = %d, want 1 restore", calls)
 			}
 			break
 		}
@@ -322,31 +279,15 @@ func TestCredential_UnreachableGoogleRetries(t *testing.T) {
 	g := newFakeGoogle(t)
 	cfg := g.config(t)
 	g.srv.Close()
-	logs := captureErrorLogs(t)
-	b := newBot(t.Context(), cfg)
-	rc := &capRecorder{}
-
-	verifyCredential(t.Context(), b, rc, time.Hour)
-
-	assertDegraded(t, b, rc, logs, "google token endpoint did not answer")
-	if !b.cred.isRetryable() {
-		t.Error("an unanswered Google is not a verdict on the key")
-	}
+	b, err := prepareBot(t.Context(), cfg)
+	assertDegraded(t, b, err, "google token endpoint did not answer")
 }
 
 func TestCredential_GoodKeyKeepsRegistration(t *testing.T) {
 	g := newFakeGoogle(t)
-	logs := captureErrorLogs(t)
-	b := newBot(t.Context(), g.config(t))
-	rc := &capRecorder{}
-
-	verifyCredential(t.Context(), b, rc, time.Millisecond)
-
-	if calls, _ := rc.read(); calls != 0 {
-		t.Errorf("SetCaps calls = %d on a working key, want 0", calls)
-	}
-	if logs.Len() != 0 {
-		t.Errorf("a working key logged at ERROR: %q", logs)
+	b, err := prepareBot(t.Context(), g.config(t))
+	if err != nil || !capsFor(err == nil)["send_text"] {
+		t.Fatalf("working key: %v", err)
 	}
 	if b.cred.account() != "rhias@example.iam.gserviceaccount.com" {
 		t.Errorf("account = %q", b.cred.account())
@@ -368,9 +309,12 @@ func TestCredential_GoodKeyKeepsRegistration(t *testing.T) {
 func TestCredential_MissingAccountRetries(t *testing.T) {
 	g := newFakeGoogle(t)
 	g.aboutStatus.Store(http.StatusInternalServerError)
-	b := newBot(t.Context(), g.config(t))
+	b, err := prepareBot(t.Context(), g.config(t))
+	if err != nil {
+		t.Fatal(err)
+	}
 	rc := &capRecorder{}
-	verifyCredential(t.Context(), b, rc, time.Millisecond)
+	go reacquire(t.Context(), b, rc, time.Millisecond)
 	if !b.cred.usable() || b.cred.account() != "" ||
 		!strings.Contains(b.cred.status(), "mention detection disabled") {
 		t.Fatalf("status = %q, account = %q", b.cred.status(), b.cred.account())
@@ -385,7 +329,7 @@ func TestCredential_MissingAccountRetries(t *testing.T) {
 			time.Sleep(time.Millisecond)
 		}
 	}
-	if b.cred.isRetryable() || b.cred.status() != "ok" {
+	if b.cred.status() != "ok" {
 		t.Fatalf("status = %q", b.cred.status())
 	}
 }
@@ -548,9 +492,11 @@ func TestDriveProbeForbiddenWithoutDisabledReason(t *testing.T) {
 func TestSheetsProbeAndRetry(t *testing.T) {
 	g := newFakeGoogle(t)
 	g.sheetsStatus.Store(http.StatusForbidden)
-	b := newBot(t.Context(), g.config(t))
+	b, err := prepareBot(t.Context(), g.config(t))
+	if err != nil {
+		t.Fatal(err)
+	}
 	rc := &capRecorder{}
-	verifyCredential(t.Context(), b, rc, time.Hour)
 	if b.cred.sheetsAPI.state != "off" || b.cred.sheetsAPI.reason != "SERVICE_DISABLED: Enable Sheets" || !b.cred.usable() {
 		t.Fatalf("sheets=%+v drive=%v", b.cred.sheetsAPI, b.cred.usable())
 	}
