@@ -25,8 +25,9 @@ credential.
 handler and CLI are built. The mapper, `Send` and poll loop are built. The
 compose fragment starts googd as a container.
 Drive and Sheets probes run before registration and on the credential retry
-tick. The dashboard shows API states and bound-file poll state. The Sheets
-passthrough is not built. The owner's framing — a document is a group, a comment thread is a topic — holds
+tick. The dashboard shows API states and bound-file poll state. The authenticated
+Drive and Sheets passthrough is built. The owner's framing — a document is a
+group, a comment thread is a topic — holds
 only in part (§"The owner's framing, tested"), and nine facts the design rests
 on are marked unverified until a probe against a real file measures them
 (§"Unverified").
@@ -392,16 +393,17 @@ anchored comments render reliably.
 
 ## Env (proposed)
 
-| Var                     | Default                      | Note                                                                                                                                                                                           |
-| ----------------------- | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ROUTER_URL`            | required                     |                                                                                                                                                                                                |
-| `GDRIVE_SA_KEY_JSON`    | unset                        | the downloaded service-account key, whole, as JSON. Unset leaves a running daemon with no capability, never an exit (§"Decision 2 — the credential is a service account, shared per document") |
-| `GOOGD_CONNECTOR_TOKEN` | unset                        | the bearer routd's connector presents to the passthrough; unset refuses every passthrough call                                                                                                 |
-| `GDRIVE_IMPERSONATE`    | unset                        | domain-wide delegation subject                                                                                                                                                                 |
-| `GDRIVE_POLL_INTERVAL`  | `30s`                        | floor `10s`                                                                                                                                                                                    |
-| `GDRIVE_API_URL`        | `https://www.googleapis.com` | tests point it at a fake                                                                                                                                                                       |
-| `CHANNEL_NAME`          | `gdrive`                     |                                                                                                                                                                                                |
-| `LISTEN_ADDR`           | `:8080`                      |                                                                                                                                                                                                |
+| Var                     | Default                         | Note                                                                                                                                                                                           |
+| ----------------------- | ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ROUTER_URL`            | required                        |                                                                                                                                                                                                |
+| `GDRIVE_SA_KEY_JSON`    | unset                           | the downloaded service-account key, whole, as JSON. Unset leaves a running daemon with no capability, never an exit (§"Decision 2 — the credential is a service account, shared per document") |
+| `GOOGD_CONNECTOR_TOKEN` | unset                           | the bearer routd's connector presents to the passthrough; unset refuses every passthrough call                                                                                                 |
+| `GDRIVE_IMPERSONATE`    | unset                           | domain-wide delegation subject                                                                                                                                                                 |
+| `GDRIVE_POLL_INTERVAL`  | `30s`                           | floor `10s`                                                                                                                                                                                    |
+| `GDRIVE_API_URL`        | `https://www.googleapis.com`    | tests point it at a fake                                                                                                                                                                       |
+| `SHEETS_API_URL`        | `https://sheets.googleapis.com` | Sheets probe and passthrough host; tests point it at a fake                                                                                                                                    |
+| `CHANNEL_NAME`          | `gdrive`                        |                                                                                                                                                                                                |
+| `LISTEN_ADDR`           | `:8080`                         |                                                                                                                                                                                                |
 
 `compose/compose.go` lists which host `.env` keys each daemon's generated env
 file receives; the `googd` entry names `AUTHD_URL`, `AUTHD_SERVICE_KEY`,

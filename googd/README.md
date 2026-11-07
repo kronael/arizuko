@@ -10,10 +10,15 @@ replies. The protocol it speaks is [`chanlib/README.md`](../chanlib/README.md).
   only when the Drive probe succeeds before registration (`capsFor`, `prepareBot`). A
   missing or unparseable `GDRIVE_SA_KEY_JSON` is final until the operator
   fixes it. Drive and Sheets are probed every 30 s with separate API scopes. A Drive
-  probe that recovers puts `send_text` back. The Sheets probe records state
-  but does not advertise a capability.
+  probe that recovers puts `send_text` back. The Sheets probe enables the
+  `sheets` passthrough prefix only while the API is on.
 - **It never exits on a bad key**: a daemon that exits at boot restarts the
   whole compose project.
+- **Connector passthrough.** `/google/drive/` and `/google/sheets/` forward
+  requests using each API’s scope while its probe is on. `GOOGD_CONNECTOR_TOKEN`
+  authenticates callers; an unset token refuses every request. The passthrough
+  reaches every file the account can access, so connector tools and grants
+  must limit access. It is not published through proxyd.
 - **Thread replies.** `send_text` posts a reply to the thread named by its JID.
 - **Inbound.** The poll delivers comment threads from bound files to routd.
   It stores each file cursor only after routd accepts the page.
@@ -35,5 +40,6 @@ The bundled `googd` package starts the adapter and exposes its dashboard.
   deliver no comment content, only that something changed.
 
 Configuration: `CHANNEL_NAME` (default `gdrive`), `GDRIVE_SA_KEY_JSON`,
-`GDRIVE_IMPERSONATE`, `GDRIVE_API_URL`, `GDRIVE_POLL_INTERVAL` (default 30s,
+`GDRIVE_IMPERSONATE`, `GDRIVE_API_URL`, `SHEETS_API_URL` (default
+`https://sheets.googleapis.com`), `GOOGD_CONNECTOR_TOKEN`, `GDRIVE_POLL_INTERVAL` (default 30s,
 minimum 10s), `ROUTER_URL`, `LISTEN_ADDR`, `LISTEN_URL`.

@@ -156,7 +156,7 @@ func newFakeGoogle(t *testing.T) *fakeGoogle {
 }
 
 func (g *fakeGoogle) config(t *testing.T) config {
-	return config{KeyJSON: keyJSON(t, g.srv.URL+"/token"), APIBase: g.srv.URL}
+	return config{KeyJSON: keyJSON(t, g.srv.URL+"/token"), APIBase: g.srv.URL, SheetsAPIBase: g.srv.URL}
 }
 
 func jwtClaims(t *testing.T, assertion string) map[string]any {
@@ -244,7 +244,7 @@ func TestCredential_MalformedKeyDegradesToIngress(t *testing.T) {
 	for name, raw := range cases {
 		t.Run(name, func(t *testing.T) {
 			logs := captureErrorLogs(t)
-			b := newBot(t.Context(), config{KeyJSON: raw, APIBase: g.srv.URL})
+			b := newBot(t.Context(), config{KeyJSON: raw, APIBase: g.srv.URL, SheetsAPIBase: g.srv.URL})
 			rc := &capRecorder{}
 
 			verifyCredential(t.Context(), b, rc, time.Millisecond)
@@ -579,9 +579,6 @@ func TestSheetsProbeAndRetry(t *testing.T) {
 			time.Sleep(time.Millisecond)
 		}
 	}
-	if len(capsFor(true)) != 1 {
-		t.Fatal("Sheets advertised a capability")
-	}
 }
 
 func TestSheetsProbeResponses(t *testing.T) {
@@ -635,4 +632,27 @@ func TestRetryWithdrawsAndRestoresDrive(t *testing.T) {
 	wait(1, false)
 	g.aboutStatus.Store(http.StatusOK)
 	wait(2, true)
+}
+
+func TestSheetsPassthroughFollowsProbe(t *testing.T) {
+	g := newFakeGoogle(t)
+	b := newBot(t.Context(), g.config(t))
+	req := httptest.NewRequest(http.MethodGet, "/google/sheets/v4/spreadsheets/!", nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	for _, status := range []int{http.StatusForbidden, http.StatusNotFound, http.StatusForbidden} {
+		g.sheetsStatus.Store(int64(status))
+		if err := b.cred.verify(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+		before := g.sheetsCalls.Load()
+		w := httptest.NewRecorder()
+		b.passthrough("secret").ServeHTTP(w, req)
+		want := before
+		if status == http.StatusNotFound {
+			want++
+		}
+		if got := g.sheetsCalls.Load(); got != want {
+			t.Fatalf("probe status %d: upstream calls %d, want %d", status, got, want)
+		}
+	}
 }

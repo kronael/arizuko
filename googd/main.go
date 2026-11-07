@@ -60,6 +60,7 @@ func main() {
 			b.poll = p
 			go func() { defer close(done); p.pollLoop(pollCtx) }()
 			mux := chanlib.NewAdapterMux(cfg.Name, []string{"gdrive:"}, b, b.isConnected, b.LastInboundAt, as.Chan)
+			mux.Handle("/google/", b.passthrough(cfg.ConnectorToken))
 			return mux, func() { cancel(); <-done; b.stop(); _ = st.Close(); _ = as.Close() }, nil
 		},
 	})
@@ -254,23 +255,27 @@ func apiLine(state apiState, service string) string {
 }
 
 type config struct {
-	Name       string
-	KeyJSON    string
-	Subject    string
-	APIBase    string
-	RouterURL  string
-	ListenAddr string
-	ListenURL  string
+	Name           string
+	KeyJSON        string
+	Subject        string
+	APIBase        string
+	SheetsAPIBase  string
+	ConnectorToken string
+	RouterURL      string
+	ListenAddr     string
+	ListenURL      string
 }
 
 func loadConfig() config {
 	return config{
-		Name:       chanlib.EnvOr("CHANNEL_NAME", "gdrive"),
-		KeyJSON:    chanlib.EnvOr("GDRIVE_SA_KEY_JSON", ""),
-		Subject:    chanlib.EnvOr("GDRIVE_IMPERSONATE", ""),
-		APIBase:    chanlib.EnvOr("GDRIVE_API_URL", "https://www.googleapis.com"),
-		RouterURL:  chanlib.MustEnv("ROUTER_URL"),
-		ListenAddr: chanlib.EnvOr("LISTEN_ADDR", ":8080"),
-		ListenURL:  chanlib.EnvOr("LISTEN_URL", "http://googd:8080"),
+		Name:           chanlib.EnvOr("CHANNEL_NAME", "gdrive"),
+		KeyJSON:        chanlib.EnvOr("GDRIVE_SA_KEY_JSON", ""),
+		Subject:        chanlib.EnvOr("GDRIVE_IMPERSONATE", ""),
+		APIBase:        chanlib.EnvOr("GDRIVE_API_URL", "https://www.googleapis.com"),
+		SheetsAPIBase:  chanlib.EnvOr("SHEETS_API_URL", "https://sheets.googleapis.com"),
+		ConnectorToken: chanlib.EnvOr("GOOGD_CONNECTOR_TOKEN", ""),
+		RouterURL:      chanlib.MustEnv("ROUTER_URL"),
+		ListenAddr:     chanlib.EnvOr("LISTEN_ADDR", ":8080"),
+		ListenURL:      chanlib.EnvOr("LISTEN_URL", "http://googd:8080"),
 	}
 }

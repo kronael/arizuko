@@ -45,7 +45,8 @@ type driveUser struct {
 }
 
 type credential struct {
-	apiBase string
+	apiBase       string
+	sheetsAPIBase string
 
 	mu                  sync.Mutex
 	state               credState
@@ -62,7 +63,7 @@ type credential struct {
 // newCredential reads the key once. A key that is absent or will not parse
 // leaves the credential in a state that never touches the network.
 func newCredential(ctx context.Context, cfg config) *credential {
-	c := &credential{apiBase: cfg.APIBase}
+	c := &credential{apiBase: cfg.APIBase, sheetsAPIBase: cfg.SheetsAPIBase}
 	if strings.TrimSpace(cfg.KeyJSON) == "" {
 		c.state, c.err = credMissing, errors.New("GDRIVE_SA_KEY_JSON is not set")
 		return c
@@ -142,7 +143,7 @@ func (c *credential) verify(ctx context.Context) error {
 		return c.stored()
 	}
 	user, state, drive, err := c.probe(ctx)
-	sheets := probeAPI(ctx, c.sheetsHTTP, c.apiBase+"/v4/spreadsheets/!", "Sheets")
+	sheets := probeAPI(ctx, c.sheetsHTTP, c.sheetsAPIBase+"/v4/spreadsheets/!", "Sheets")
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.state, c.err = state, err
