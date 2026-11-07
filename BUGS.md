@@ -32,7 +32,6 @@
   without re-adding rows an operator removed?
 - `L597` — choose whether human conversation takes priority over CI in bounded observed context.
 - `L677` — decide the cross-process event path for the 6/46 single progress producer.
-- `L679` — chanlib's typing-TTL test still expects the 30-minute run default.
 - `L678` — no door writes group `effort`; dashd lists only 4.x models (in the per-group harness spec).
 
 
@@ -476,18 +475,6 @@ that version. A change to which rows reach live data is an auth change.
 
 - **Status:** open — needs sign-off.
 
-
-## L679 — chanlib's typing-TTL test still expects the 30-minute run default (2026-11-07, open)
-
-Measured at `e1ddadfbc`: `go test -short ./chanlib` fails
-`TestDefaultTypingMaxTTLTracksTheDefaultWall` with "DefaultTypingMaxTTL = 54m0s,
-want 27m0s". `core.RunTimeout()` defaults to 60 minutes since `14424db18`
-(`core/config.go:311`), and `chanlib/typing_test.go:228` still computes the
-expectation from `30 * time.Minute`. The code is right; the test is stale.
-
-- **Severity:** low (a red package hides any new chanlib failure)
-- **Test:** the failing test itself.
-- **Fix:** compute the expectation from the 60-minute default.
 
 ## L678 — no operator door writes a group's `effort`, and dashd lists only 4.x models (2026-11-07, open — folded into the per-group harness spec)
 
