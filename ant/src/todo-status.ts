@@ -49,7 +49,7 @@ export function todoStatus(
 ): (ev: ToolEvent) => Promise<Verdict> {
   return async (ev: ToolEvent) => {
     try {
-      if (ev.tool_name !== 'TodoWrite' || !turnID) return ALLOW;
+      if (ev.agent_id || ev.tool_name !== 'TodoWrite' || !turnID) return ALLOW;
       const todos = extractTodos(ev.tool_input);
       // Only a genuinely multi-step list earns a live checklist; a 1-item list is
       // noise (progress skill: "three milestones beat ten micro-updates").

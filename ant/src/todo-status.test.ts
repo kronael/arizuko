@@ -52,3 +52,12 @@ test('the policy ignores a single-item list (not multi-step)', async () => {
   );
   expect(sent).toHaveLength(0);
 });
+
+test('the policy ignores child checklists', async () => {
+  const sent: unknown[] = [];
+  await todoStatus('turn-1', async p => { sent.push(p); })({
+    ...todoInput([{ content: 'a', status: 'pending' }, { content: 'b', status: 'pending' }]),
+    agent_id: 'child',
+  });
+  expect(sent).toEqual([]);
+});
