@@ -20,9 +20,8 @@ Repository events reach groups through ordinary routes. gitd receives signed web
 and posts replies as comments. Repository state changes use the GitHub MCP connector.
 App webhook ingress exists; App replies, installation-token tooling, and complete
 conversation isolation do not. Automatic PR workspaces and group archival are unbuilt.
-The proposals below need owner approval before implementation, including their public
-contracts and retention policy. This partial status describes the existing adapter;
-it does not approve the proposed lifecycle or claim a deployment.
+The App completion below is approved and unbuilt. The repository workspace proposal
+still needs owner approval, including its public contracts and retention policy.
 
 ## Channel messages and repository tools
 
@@ -517,7 +516,12 @@ likewise combines webhook wakeups with reconciliation against open PRs. The appl
 pattern is current-state reconciliation; its application deletion policy does not
 define this system's conversation retention.
 
-## App completion proposal — unapproved
+## App completion — approved 2026-11-07, unbuilt
+
+The owner approved this section on 2026-11-07 and wants both ways kept. The
+operator chooses per source: a `repo/` or `org/` source replies and calls tools
+with the PAT in `GITHUB_TOKEN`; an `app/<slug>` source uses App installation
+tokens for both. No setting outside the source registration selects between them.
 
 One App belongs to one instance. Personal accounts and organizations install that App
 on selected repositories. Its webhook uses the existing `app/<slug>` source directly.
