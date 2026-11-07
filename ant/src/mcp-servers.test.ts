@@ -16,7 +16,7 @@ test('injectMcpEnv: arizuko core server is alwaysLoad (eager)', () => {
 });
 
 test('injectMcpEnv: secrets fold into the arizuko server env', () => {
-  const out = injectMcpEnv({ SLACK_TOKEN: 'xoxb-secret', SKIP: undefined });
+  const out = injectMcpEnv({ SLACK_TOKEN: 'xoxb-secret' });
   expect(out.arizuko.env).toEqual({ SLACK_TOKEN: 'xoxb-secret' });
 });
 

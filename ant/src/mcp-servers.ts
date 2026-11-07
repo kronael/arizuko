@@ -28,17 +28,13 @@ const GATED_SOCKET = '/run/ipc/gated.sock';
 // it is per-server, so the management and connector tools ride along eagerly
 // too — deferring those needs a routd-side server split.
 export function injectMcpEnv(
-  secrets: Record<string, string | undefined>,
+  secrets: Record<string, string>,
 ): Record<string, McpServerConfig> {
-  const definedSecrets: Record<string, string> = {};
-  for (const [k, v] of Object.entries(secrets)) {
-    if (v !== undefined) definedSecrets[k] = v;
-  }
   return {
     arizuko: {
       command: 'socat',
       args: ['STDIO', `UNIX-CONNECT:${GATED_SOCKET}`],
-      env: definedSecrets,
+      env: { ...secrets },
       alwaysLoad: true,
     },
   };
