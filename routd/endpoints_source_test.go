@@ -223,6 +223,7 @@ func TestOpenAPI_EveryAdvertisedPathIsMounted(t *testing.T) {
 		"GET /v1/tasks",
 		"GET /v1/tasks/{taskId}",
 		"GET /v1/web_routes",
+		"PATCH /v1/groups/{folder}",
 		"PATCH /v1/tasks/{taskId}",
 		"POST /v1/acl",
 		"POST /v1/dead_letters/{id}/replay",
