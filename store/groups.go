@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"regexp"
 	"slices"
 	"strconv"
 	"time"
@@ -103,6 +104,77 @@ func (s *Store) GroupConfig(folder string) (json.RawMessage, map[string]any, err
 		return nil, nil, fmt.Errorf("group %q invalid settings JSON", folder)
 	}
 	return settings["harness"], cfg, nil
+}
+
+var agentName = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.-]*$`)
+
+func parseGroupAgent(value json.RawMessage) (string, error) {
+	if len(value) == 0 {
+		return "", nil
+	}
+	var number float64
+	if json.Unmarshal(value, &number) == nil && string(value) != "null" {
+		if number == 1 {
+			return "", nil
+		}
+		if number == 0 {
+			return "", errors.New("groups without agents are not built yet")
+		}
+	}
+	var name string
+	if json.Unmarshal(value, &name) != nil || !agentName.MatchString(name) {
+		return "", fmt.Errorf("invalid group agent: %s", value)
+	}
+	return name, nil
+}
+
+func (s *Store) GroupAgent(folder string) (string, error) {
+	it, ok, err := s.groupItem(context.Background(), folder)
+	if err != nil {
+		return "", err
+	}
+	if !ok {
+		return "", fmt.Errorf("group %q not found", folder)
+	}
+	var settings map[string]json.RawMessage
+	if raw := it.Attrs[attrGrpConfig]; raw != "" {
+		if err := json.Unmarshal([]byte(raw), &settings); err != nil || settings == nil {
+			return "", fmt.Errorf("group %q invalid settings JSON", folder)
+		}
+	}
+	name, err := parseGroupAgent(settings["agent"])
+	if err != nil {
+		return "", fmt.Errorf("group %q: %w", folder, err)
+	}
+	return name, nil
+}
+
+func (s *Store) SetGroupAgent(folder string, value json.RawMessage) error {
+	if _, err := parseGroupAgent(value); err != nil {
+		return err
+	}
+	if len(value) == 0 {
+		return errors.New("agent value required")
+	}
+	it, ok, err := s.groupItem(context.Background(), folder)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("group %q not found", folder)
+	}
+	settings := map[string]json.RawMessage{}
+	if raw := it.Attrs[attrGrpConfig]; raw != "" {
+		if err := json.Unmarshal([]byte(raw), &settings); err != nil || settings == nil {
+			return fmt.Errorf("group %q invalid settings JSON", folder)
+		}
+	}
+	settings["agent"] = value
+	raw, err := json.Marshal(settings)
+	if err != nil {
+		return err
+	}
+	return s.WriteEntities(context.Background(), nil, objstore.Write{Op: objstore.Update, Entity: Groups, Key: it.Key, Attrs: map[string]string{attrGrpConfig: string(raw)}})
 }
 
 // settingNum reads one numeric setting. A key holding JSON null is the same

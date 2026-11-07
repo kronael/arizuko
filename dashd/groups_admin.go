@@ -282,6 +282,7 @@ func (d *dash) handleGroupSettings(w http.ResponseWriter, r *http.Request) {
 	disabled := d.skillsDisabled(folder)
 
 	_, _ = fmt.Fprintf(w, `<form method="post" action="/dash/groups/%s/settings">`, folderPath(folder))
+	_, _ = fmt.Fprint(w, htmlFormRow("Agent", fmt.Sprintf(`<input name="agent" value="%s" placeholder="ant">`, esc(g.Agent))))
 	_, _ = fmt.Fprint(w, htmlFormRow("Harness JSON", fmt.Sprintf(`<textarea name="harness">%s</textarea>`, esc(string(g.Harness)))))
 	_, _ = fmt.Fprintf(w, `<p><label><input type="checkbox" name="open" value="1"%s> open <span class="dim">— sibling groups can see messages sent here</span></label></p>`, openChecked)
 	_, _ = fmt.Fprint(w, htmlFormRow("Messages a nearby group can peek at",
@@ -344,6 +345,15 @@ func (d *dash) handleGroupSettingsSave(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
+	agent := r.FormValue("agent")
+	var agentValue json.RawMessage = []byte("1")
+	if agent != "" {
+		agentValue, _ = json.Marshal(agent)
+	}
+	if err := d.routdStore().SetGroupAgent(folder, agentValue); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	open := r.FormValue("open") == "1"

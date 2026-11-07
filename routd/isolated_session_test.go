@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/kronael/arizuko/core"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 )
 
@@ -38,6 +39,9 @@ func newCaptureLoop(t *testing.T) (*DB, *Loop, *captureRunner) {
 func TestDispatchRun_IsolatedTaskGetsNoSession(t *testing.T) {
 	db, loop, runner := newCaptureLoop(t)
 	folder := "main/trading"
+	if err := db.PutGroup(core.Group{Folder: folder}); err != nil {
+		t.Fatal(err)
+	}
 	if err := db.PutSession(folder, "", "a2fb6376-30aa-498c-be8c-c13d58312ab1"); err != nil {
 		t.Fatalf("put session: %v", err)
 	}
@@ -61,6 +65,9 @@ func TestDispatchRun_IsolatedTaskGetsNoSession(t *testing.T) {
 func TestDispatchRun_GroupTaskResumesSession(t *testing.T) {
 	db, loop, runner := newCaptureLoop(t)
 	folder := "main/trading"
+	if err := db.PutGroup(core.Group{Folder: folder}); err != nil {
+		t.Fatal(err)
+	}
 	const sid = "a2fb6376-30aa-498c-be8c-c13d58312ab1"
 	if err := db.PutSession(folder, "", sid); err != nil {
 		t.Fatalf("put session: %v", err)

@@ -843,6 +843,10 @@ func (l *Loop) dispatchRun(ctx context.Context, folder, topic, chatJID, turnID, 
 			}
 		}
 	}
+	agent, err := l.db.store().GroupAgent(folder)
+	if err != nil {
+		return runedv1.RunOutcome{}, err
+	}
 	harness, containerCfg, err := l.db.store().GroupConfig(folder)
 	if err != nil {
 		return runedv1.RunOutcome{}, err
@@ -880,6 +884,7 @@ func (l *Loop) dispatchRun(ctx context.Context, folder, topic, chatJID, turnID, 
 		return runedv1.RunOutcome{}, err
 	}
 	return l.runner.Run(ctx, runedv1.RunRequest{
+		Agent:        agent,
 		Packages:     packages,
 		ManagedFiles: managed,
 		Folder:       types.Folder(folder),

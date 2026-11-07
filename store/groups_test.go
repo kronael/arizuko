@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -390,5 +391,43 @@ func TestGroupHarnessAuditBatch(t *testing.T) {
 	}
 	if len(probe.writes) < 2 || probe.writes[0].Entity != Groups || probe.writes[1].Entity != audit.Entity {
 		t.Fatalf("writes = %+v", probe.writes)
+	}
+}
+
+func TestGroupAgent(t *testing.T) {
+	s, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	putBareGroup(t, s, "demo")
+	if got, err := s.GroupAgent("demo"); err != nil || got != "" {
+		t.Fatalf("default: %q %v", got, err)
+	}
+	if err := s.SetGroupOpen("demo", false); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		value string
+		valid bool
+	}{{`1`, true}, {`"fake"`, true}, {`0`, false}, {`"../bad"`, false}, {`null`, false}, {`true`, false}, {`2`, false}} {
+		err := s.SetGroupAgent("demo", json.RawMessage(test.value))
+		if (err == nil) != test.valid {
+			t.Errorf("set %s: %v", test.value, err)
+		}
+	}
+	if got, err := s.GroupAgent("demo"); err != nil || got != "fake" {
+		t.Fatalf("agent: %q %v", got, err)
+	}
+	if s.IsGroupOpen("demo") {
+		t.Fatal("agent write changed open")
+	}
+	for _, raw := range []string{`{"agent":0}`, `{"agent":"../bad"}`, `{"agent":null}`} {
+		if err := s.WriteEntities(context.Background(), nil, objstore.Write{Op: objstore.Merge, Entity: Groups, Key: objstore.Key{Partition: OwnerRoutd, Sort: "demo"}, Attrs: map[string]string{"config": raw}}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.GroupAgent("demo"); err == nil {
+			t.Errorf("read accepted %s", raw)
+		}
 	}
 }

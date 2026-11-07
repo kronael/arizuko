@@ -66,6 +66,7 @@ func TestHarnessCarry(t *testing.T) {
 	manager := runed.NewManager(runDB, runtime, runed.ManagerConfig{Instance: "test", Cfg: cfg, Folders: &groupfolder.Resolver{GroupsDir: cfg.GroupsDir, IpcDir: cfg.IpcDir}})
 	handler := runed.NewServer(manager, runDB, nil).Handler()
 	var sentConfig map[string]any
+	var sentAgent string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
@@ -76,6 +77,7 @@ func TestHarnessCarry(t *testing.T) {
 			t.Error(err)
 		}
 		sentConfig = request.ContainerConfig
+		sentAgent = request.Agent
 		r.Body = io.NopCloser(bytes.NewReader(body))
 		handler.ServeHTTP(w, r)
 	}))
@@ -97,7 +99,13 @@ func TestHarnessCarry(t *testing.T) {
 			t.Fatalf("harness = %q, want %q", got, want.String())
 		}
 	}
+	if err := db.store().SetGroupAgent("demo", json.RawMessage(`"fake"`)); err != nil {
+		t.Fatal(err)
+	}
 	check()
+	if sentAgent != "fake" {
+		t.Fatalf("agent = %q", sentAgent)
+	}
 	if sentConfig["MaxChildren"] != float64(16) {
 		t.Fatalf("dispatched container config = %v", sentConfig)
 	}
