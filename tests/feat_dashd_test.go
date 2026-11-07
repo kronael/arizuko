@@ -8,7 +8,6 @@ import (
 
 	"github.com/kronael/arizuko/core"
 	routdv1 "github.com/kronael/arizuko/routd/api/v1"
-	"github.com/kronael/arizuko/store"
 )
 
 func TestFeature_DashdAdminPlane(t *testing.T) {
@@ -55,9 +54,6 @@ func TestFeature_DashdAdminPlane(t *testing.T) {
 	// Grant add persists and is visible via ListACL.
 	t.Run("grants-crud", func(t *testing.T) {
 		f := bootFederation(t)
-		if err := store.NewOver(f.routdDB.Obj()).AddMembership("service:dashd", "role:operator", "test"); err != nil {
-			t.Fatal(err)
-		}
 		tok := f.authd.mintService(t, "service:dashd", "acl:write")
 		body := map[string]string{"principal": "alice@x", "scope": "world/sub", "action": "admin", "effect": "allow"}
 		if rec := postBearer(t, f.routdTS.URL, "POST", "/v1/acl", tok, "", body); rec.StatusCode != 200 {
