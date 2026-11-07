@@ -612,54 +612,17 @@ func (l *Loop) resolveTarget(chatJID string, msg core.Message, selfFolder string
 	return ""
 }
 
-// escOriginRe extracts the escalation origin (folder + jid) from a delegated
-// prompt's <escalation_origin/> tag; the child's reply routes back to it.
-var escOriginRe = regexp.MustCompile(`<escalation_origin\s[^/]*folder="([^"]+)"[^/]*jid="([^"]+)"[^/]*/>`)
-
-// escalationWorker returns the escalation-origin folder carried in a delegated
-// prompt, or "" for a plain delegation.
-func escalationWorker(prompt string) string {
-	m := escOriginRe.FindStringSubmatch(prompt)
-	if m == nil {
-		return ""
-	}
-	return m[1]
-}
-
-// delegate writes a delegation message to the target group's folder JID. A
-// missing target is reported back into the originating chat — routing consumes
-// the message, so a silent drop would swallow it.
 func (l *Loop) delegate(targetFolder, prompt, originJID string) {
-	if err := l.delegateViaMessage(targetFolder, prompt, originJID); err != nil {
-		slog.Warn("delegate failed", "target", targetFolder, "err", err)
-		l.ack(originJID, err.Error())
-	}
-}
-
-// delegateViaMessage writes the delegation row and triggers the target's
-// queue. ForwardedFrom is the return address (the escalation worker jid when
-// the prompt carries an <escalation_origin/> tag). Groups are never created
-// here: an unknown target is an error naming the tool that creates it.
-func (l *Loop) delegateViaMessage(targetFolder, prompt, originJID string) error {
-	fwdFrom := originJID
-	if worker := escalationWorker(prompt); worker != "" {
-		fwdFrom = worker
-	}
-
 	if !l.db.GroupExists(targetFolder) {
-		return fmt.Errorf("no group %q — create it first with register_group(folder=%q, jid=<chat jid>), then retry", targetFolder, targetFolder)
+		l.ack(originJID, fmt.Sprintf("no group %q — create it first with register_group(folder=%q, jid=<chat jid>), then retry", targetFolder, targetFolder))
+		return
 	}
-
-	_ = l.db.PutMessage(core.Message{
-		ID:            core.MsgID("delegate"),
-		ChatJID:       targetFolder,
-		Sender:        store.DelegateSender,
-		Content:       prompt,
-		Timestamp:     time.Now().UTC(),
-		ForwardedFrom: fwdFrom,
-	})
+	if _, err := store.PostGroup(l.db.PutMessage, targetFolder, prompt, originJID); err != nil {
+		slog.Warn("group post failed", "target", targetFolder, "err", err)
+		l.ack(originJID, err.Error())
+		return
+	}
 	l.Enqueue(targetFolder)
-	return nil
 }
 
 // cmdResolveHold records a human's verdict on a held tool call (spec 5/19).

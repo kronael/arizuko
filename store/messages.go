@@ -379,19 +379,23 @@ const ProactiveSelfSender = "timed-proactive"
 
 // The senders arizuko writes on its own behalf. A person's sender is always
 // platform-qualified; these are the platform addressing itself.
-const (
-	// SystemSender writes the turns that the platform starts on its own.
-	SystemSender = "system"
-	// EscalateSender and DelegateSender write the agent-to-agent hand-offs.
-	EscalateSender = "escalate"
-	DelegateSender = "delegate"
-)
+const SystemSender = "system"
+const DelegateSender = "delegate"
 
 // SyntheticSenders is the whole set, declared once beside the writer. The
 // answering read (routd/answering.go) is its reader: a migration storm's 55
 // `system` prompts would otherwise be 55 people waiting.
 var SyntheticSenders = []string{
-	ProactiveSelfSender, SystemSender, EscalateSender, DelegateSender,
+	ProactiveSelfSender, SystemSender, "escalate", DelegateSender,
+}
+
+func PostGroup(putMessage func(core.Message) error, folder, text, origin string) (string, error) {
+	id := core.MsgID("send")
+	err := putMessage(core.Message{
+		ID: id, ChatJID: folder, Sender: DelegateSender,
+		Content: text, Timestamp: time.Now().UTC(), ForwardedFrom: origin,
+	})
+	return id, err
 }
 
 // isRealInbound reports whether a message is traffic a person sent.

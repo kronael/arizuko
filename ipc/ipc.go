@@ -1319,38 +1319,33 @@ func buildMCPServer(routd RoutdFns, db StoreFns, folder string, isRoot bool, cal
 			if jid == issuesDest {
 				return sendIssueNotice(req.GetString("text", ""))
 			}
-			if core.JidPlatform(jid) == "" {
+			group := core.JidPlatform(jid) == ""
+			if group {
 				if jid == "" {
 					return toolErr("send: missing group folder")
 				}
 				if err := authzStructural("send", jid); err != nil {
 					return toolErr(err.Error())
 				}
-				text := req.GetString("text", "")
-				if err := refuseText(text, false); err != nil {
-					return toolErr(err.Error())
-				}
+			} else if err := gateJID("send", jid); err != nil {
+				return toolErr(err.Error())
+			}
+			text := req.GetString("text", "")
+			if err := refuseText(text, false); err != nil {
+				return toolErr(err.Error())
+			}
+			if group {
 				if db.PutMessage == nil {
 					return toolErr("send not configured: no PutMessage")
 				}
-				id := core.MsgID("delegate")
-				if err := db.PutMessage(core.Message{
-					ID: id, ChatJID: jid, Sender: store.DelegateSender,
-					Content: text, Timestamp: time.Now(), ForwardedFrom: folder,
-				}); err != nil {
+				id, err := store.PostGroup(db.PutMessage, jid, text, folder)
+				if err != nil {
 					return toolErr(err.Error())
 				}
 				if routd.EnqueueMessageCheck != nil {
 					routd.EnqueueMessageCheck(jid)
 				}
 				return toolJSON(map[string]any{"ok": true, "id": id})
-			}
-			if err := gateJID("send", jid); err != nil {
-				return toolErr(err.Error())
-			}
-			text := req.GetString("text", "")
-			if err := refuseText(text, false); err != nil {
-				return toolErr(err.Error())
 			}
 			snippet := text
 			if len(snippet) > 60 {
