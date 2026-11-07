@@ -53,6 +53,26 @@ func TestACLAddEndpoint(t *testing.T) {
 	}
 }
 
+func TestOperatorDeniedScopes(t *testing.T) {
+	db, _ := authSrv(t, fakeVerifier{})
+	if err := db.store().AddMembership("op", "role:operator", "test"); err != nil {
+		t.Fatal(err)
+	}
+	if !db.IsOperator("op") {
+		t.Fatal("operator membership must grant admin")
+	}
+	if err := db.store().AddACLRow(core.ACLRow{Principal: "op", Action: "admin", Scope: "**", Effect: "deny"}, ""); err != nil {
+		t.Fatal(err)
+	}
+	if db.IsOperator("op") {
+		t.Error("admin deny must remove operator verdict")
+	}
+	scopes, err := db.UserScopes("op")
+	if err != nil || len(scopes) != 0 {
+		t.Fatalf("UserScopes = %v, %v; want empty", scopes, err)
+	}
+}
+
 // TestACLAddOperatorEndpoint: scope "**" maps to role:operator membership (the
 // same semantic the CLI uses), reachable via the closure walk.
 func TestACLAddOperatorEndpoint(t *testing.T) {

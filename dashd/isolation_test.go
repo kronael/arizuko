@@ -372,35 +372,71 @@ func TestIso_PortalCounts_Scoped(t *testing.T) {
 		}
 	}
 
-	alice := []string{folderEngTree}
+	alice := testPolicy(t, inst.Store.Obj(), "alice@x")
+	op := testPolicy(t, inst.Store.Obj(), "op@x")
 	// alice: corp/eng + corp/eng/sre groups (NOT corp, corp/sales).
-	if n := d.countVisibleGroups(alice, false); n != 2 {
+	if n := d.countVisibleGroups(alice); n != 2 {
 		t.Errorf("countVisibleGroups(alice) = %d, want 2 (eng+sre)", n)
 	}
 	// alice: eng + sre errored chats; sales + orphan excluded.
-	if n := d.countVisibleErroredChats(alice, false); n != 2 {
+	if n := d.countVisibleErroredChats(alice); n != 2 {
 		t.Errorf("countVisibleErroredChats(alice) = %d, want 2 (eng+sre)", n)
 	}
 	// alice: eng + sre failed tasks; sales excluded.
-	if n := d.countVisibleFailedTasks(alice, false); n != 2 {
+	if n := d.countVisibleFailedTasks(alice); n != 2 {
 		t.Errorf("countVisibleFailedTasks(alice) = %d, want 2 (eng+sre)", n)
 	}
 
 	// Operator: raw totals across all tenants (incl. the orphan errored chat).
-	if n := d.countVisibleGroups(nil, true); n != 4 {
+	if n := d.countVisibleGroups(op); n != 4 {
 		t.Errorf("countVisibleGroups(op) = %d, want 4 (corp+eng+sre+sales)", n)
 	}
-	if n := d.countVisibleErroredChats(nil, true); n != 4 {
-		t.Errorf("countVisibleErroredChats(op) = %d, want 4", n)
+	if n := d.countVisibleErroredChats(op); n != 3 {
+		t.Errorf("countVisibleErroredChats(op) = %d, want 3", n)
 	}
-	if n := d.countVisibleFailedTasks(nil, true); n != 3 {
+	if n := d.countVisibleFailedTasks(op); n != 3 {
 		t.Errorf("countVisibleFailedTasks(op) = %d, want 3", n)
+	}
+}
+
+func TestIso_InteractDenyHidesPageRowAndCount(t *testing.T) {
+	mux, inst := isoEnv(t)
+	d := &dash{routd: inst.Store.Obj()}
+	if err := inst.Store.AddACLRow(core.ACLRow{
+		Principal: "reader@x", Action: "interact", Scope: folderEngTree, Effect: "allow",
+	}, ""); err != nil {
+		t.Fatal(err)
+	}
+	for _, sub := range []string{"reader@x", "op@x"} {
+		if err := inst.Store.AddACLRow(core.ACLRow{
+			Principal: sub, Action: "interact", Scope: folderSre, Effect: "deny",
+		}, ""); err != nil {
+			t.Fatal(err)
+		}
+		r := as(httptest.NewRequest("GET", "/dash/", nil), sub)
+		w := httptest.NewRecorder()
+		if d.requireVisible(w, r, folderSre) || w.Code != http.StatusForbidden {
+			t.Errorf("%s: denied page status = %d", sub, w.Code)
+		}
+		p := testPolicy(t, inst.Store.Obj(), sub)
+		want := 1
+		if sub == "op@x" {
+			want = 3
+		}
+		if n := d.countVisibleGroups(p); n != want {
+			t.Errorf("%s: group count = %d, want %d", sub, n, want)
+		}
+		code, body := get(t, mux, as(httptest.NewRequest("GET", "/dash/groups/", nil), sub))
+		if code != http.StatusOK || strings.Contains(body, folderSre) {
+			t.Errorf("%s: denied group row visible, status %d", sub, code)
+		}
 	}
 }
 
 // visible() unit coverage: containment comes from the grant's glob, never from
 // a prefix walk in dashd. Independent of HTTP wiring.
 func TestIso_VisiblePredicate(t *testing.T) {
+	db := routdDB(t)
 	cases := []struct {
 		name    string
 		allowed []string
@@ -427,13 +463,16 @@ func TestIso_VisiblePredicate(t *testing.T) {
 		{"no grants", nil, folderEng, false},
 	}
 	for _, c := range cases {
-		if got := visible(c.allowed, false, c.folder); got != c.want {
+		for _, scope := range c.allowed {
+			seedGrant(t, db, core.ACLRow{Principal: c.name, Action: "interact", Scope: scope, Effect: "allow"})
+		}
+		if got := visible(testPolicy(t, db, c.name), c.folder); got != c.want {
 			t.Errorf("%s: visible(%v, false, %q) = %v, want %v",
 				c.name, c.allowed, c.folder, got, c.want)
 		}
 	}
 	// Operator sees everything regardless of allowed set.
-	if !visible(nil, true, folderSales) {
+	if !visible(testPolicy(t, db, "op@x"), folderSales) {
 		t.Error("operator must see any folder")
 	}
 }

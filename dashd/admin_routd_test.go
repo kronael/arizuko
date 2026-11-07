@@ -372,7 +372,7 @@ func TestErroredCount_ReadsRoutdDB(t *testing.T) {
 	if _, err := store.NewOver(routd).MarkChatErrored("web:liveerr"); err != nil {
 		t.Fatal(err)
 	}
-	if n := d.countVisibleErroredChats(nil, true); n != 1 {
+	if n := d.countVisibleErroredChats(testPolicy(t, routd, "alice@x")); n != 1 {
 		t.Errorf("errored chats = %d, want 1 (routd.db only, not the stale messages.db twin)", n)
 	}
 }

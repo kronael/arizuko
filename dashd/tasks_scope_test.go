@@ -36,8 +36,9 @@ func TestTaskRows_WindowAppliesAfterTheVisibilityFilter(t *testing.T) {
 	})
 
 	d := &dash{routd: db, routdURL: stubRoutd(t, db)}
+	seedGrant(t, db, core.ACLRow{Principal: "alice", Action: "interact", Scope: "zzz-mine", Effect: "allow"})
 	var w strings.Builder
-	d.writeTaskRows(t.Context(), &stringResponse{&w}, []string{"zzz-mine"}, false)
+	d.writeTaskRows(t.Context(), &stringResponse{&w}, testPolicy(t, db, "alice"))
 
 	if !strings.Contains(w.String(), "zzz-mine") {
 		t.Error("the caller's own task was dropped: the fetch must stay uncapped " +
@@ -60,7 +61,7 @@ func TestTaskRows_RenderThroughRoutd(t *testing.T) {
 	})
 	d := &dash{routd: db, routdURL: stubRoutd(t, db)}
 	var w strings.Builder
-	d.writeTaskRows(t.Context(), &stringResponse{&w}, nil, true)
+	d.writeTaskRows(t.Context(), &stringResponse{&w}, testPolicy(t, db, "op@x"))
 
 	for _, want := range []string{"t1", "alpha", "water the plants"} {
 		if !strings.Contains(w.String(), want) {

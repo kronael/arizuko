@@ -54,7 +54,7 @@ func (d *dash) handleRoutes(w http.ResponseWriter, r *http.Request) {
 	for _, rt := range routes {
 		id, seq, match, target := rt.ID, rt.Seq, rt.Match, rt.Target
 		owm, owc := rt.ObserveWindowMessages, rt.ObserveWindowChars
-		if !visible(allowed, operator, core.ParseRouteTarget(target).Folder) {
+		if !visible(allowed, core.ParseRouteTarget(target).Folder) {
 			continue
 		}
 		del := fmt.Sprintf(

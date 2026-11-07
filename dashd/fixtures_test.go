@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/objstore/dynstore/dyntest"
@@ -12,6 +13,15 @@ import (
 )
 
 func TestMain(m *testing.M) { dyntest.Main(m) }
+
+func testPolicy(t *testing.T, h objstore.Store, sub string) auth.Policy {
+	t.Helper()
+	p, _, err := auth.ReadPolicy(store.NewOver(h), auth.Caller{Principal: sub})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
 
 // Test fixtures for the two owner stores dashd reads. They go through the
 // DAEMONS' OWN openers — a fixture built from routd.OpenMem/runed.OpenMem

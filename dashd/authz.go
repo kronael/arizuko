@@ -4,7 +4,6 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
-	"slices"
 	"strings"
 
 	"github.com/kronael/arizuko/auth"
@@ -12,60 +11,25 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
-// callerGroups parses the proxyd-signed X-User-Groups header into the list of
-// folders the caller holds an allow-grant on (auth.UserScopes output). JSON
-// array is canonical; a comma-separated fallback covers non-JSON encoders.
-
-// callerScope returns the caller's allowed folders and whether the caller is an
-// operator (`**` in the set). Source of truth is the same the write gate trusts: the
-// proxyd-signed X-User-Groups header, with an auth.UserScopes(sub) fallback when it is
-// absent. ALL read handlers route their scope decision through this one helper.
-func (d *dash) callerScope(r *http.Request) (allowed []string, operator bool) {
-	allowed = auth.CallerGroups(r)
-	if len(allowed) == 0 {
-		if sub := strings.TrimSpace(r.Header.Get("X-User-Sub")); sub != "" && d.routdStore() != nil {
-			scopes, err := auth.UserScopes(d.routdStore(), strings.TrimPrefix(sub, "user:"))
-			if err != nil {
-				// Fail closed — but say so. An unreadable policy and a user with no
-				// grants both render as an empty dashboard (BUGS A4).
-				slog.Error("dashd: caller scope read failed; treating as no access",
-					"sub", sub, "err", err)
-				return nil, false
-			}
-			allowed = scopes
-		}
+func (d *dash) callerScope(r *http.Request) (auth.Policy, bool) {
+	if p, ok := r.Context().Value(policyCtxKey{}).(auth.Policy); ok {
+		return p, p.Allows("admin", "**", nil)
 	}
-	if !slices.Contains(allowed, auth.OperatorGroup) {
-		return allowed, false
+	if d.routdStore() == nil || reviewerSub(r) == "" {
+		return auth.Policy{}, false
 	}
-	// The listing nominates; the evaluator decides. A deny the listing cannot
-	// represent still holds (BUGS L659). With no routd.db there is no policy to
-	// consult, and the listing proxyd signed stands.
-	if d.routdStore() == nil {
-		return allowed, true
+	p, _, err := auth.ReadPolicy(d.routdStore(), auth.Caller{Principal: reviewerSub(r)})
+	if err != nil {
+		slog.Error("dashd: caller policy read failed", "err", err)
+		return auth.Policy{}, false
 	}
-	return allowed, d.adminOn(r, auth.OperatorGroup)
+	return p, p.Allows("admin", "**", nil)
 }
 
-// visible reports whether a non-operator caller may see `folder`. Operators see
-// everything; everyone else needs a scope covering the folder, decided by the one
-// containment rule (auth.MatchGroups). Subtree reach is the grant's job. dashd used to
-// walk folder prefixes here, which handed the dashboard a wider rule than
-// auth.Authorize gives every other surface.
-func visible(allowed []string, operator bool, folder string) bool {
-	if operator {
-		return true
-	}
-	if folder == "" {
-		return false
-	}
-	return auth.MatchGroups(allowed, folder)
+func visible(p auth.Policy, folder string) bool {
+	return folder != "" && p.Allows("interact", folder, nil)
 }
 
-// requireVisible gates a per-folder GET to a non-operator caller. Operators
-// pass; others must hold a grant covering `folder` (direct or subtree) or get
-// 403 — never render another tenant's data. Returns false if the handler
-// should abort (after writing the 403).
 func (d *dash) requireVisible(w http.ResponseWriter, r *http.Request, folder string) bool {
 	if _, ok := requireUser(w, r); !ok {
 		return false
@@ -74,8 +38,8 @@ func (d *dash) requireVisible(w http.ResponseWriter, r *http.Request, folder str
 		http.Error(w, "backend unavailable", http.StatusServiceUnavailable)
 		return false
 	}
-	allowed, operator := d.callerScope(r)
-	if !visible(allowed, operator, folder) {
+	p, _ := d.callerScope(r)
+	if !visible(p, folder) {
 		auth.Forbidden(w, "dashd", "You do not have access to "+folder+".")
 		return false
 	}
@@ -127,23 +91,10 @@ func (d *dash) jidFolder(jid string) string {
 	return d.routdStore().DefaultFolderForJID(jid)
 }
 
-// countVisible is the one scope-filtered counter behind the portal/status
-// numbers: an operator gets the store's raw total; a scoped caller gets the
-// folder-bearing column mapped through toFolder and filtered through `visible`.
-// Three counts, one shape — the per-count copies drifted before. Both halves
-// come from dashstore as a pair, so a number and its scoped form are the same
-// question asked twice rather than two questions.
-func (d *dash) countVisible(name string, allowed []string, operator bool,
-	total func() (int, error), each func() ([]string, error), toFolder func(string) string) int {
+func (d *dash) countVisible(name string, p auth.Policy,
+	each func() ([]string, error), toFolder func(string) string) int {
 	if d.ds() == nil {
 		return 0
-	}
-	if operator {
-		n, err := total()
-		if err != nil {
-			slog.Warn("scope: count", "count", name, "err", err)
-		}
-		return n
 	}
 	vals, err := each()
 	if err != nil {
@@ -151,7 +102,7 @@ func (d *dash) countVisible(name string, allowed []string, operator bool,
 	}
 	n := 0
 	for _, v := range vals {
-		if visible(allowed, operator, toFolder(v)) {
+		if visible(p, toFolder(v)) {
 			n++
 		}
 	}
@@ -161,26 +112,23 @@ func (d *dash) countVisible(name string, allowed []string, operator bool,
 func folderIdentity(f string) string { return f }
 
 // countVisibleGroups counts groups the caller may see.
-func (d *dash) countVisibleGroups(allowed []string, operator bool) int {
+func (d *dash) countVisibleGroups(p auth.Policy) int {
 	st := d.ds()
-	return d.countVisible("groups", allowed, operator,
-		st.GroupCount, st.GroupFolders, folderIdentity)
+	return d.countVisible("groups", p, st.GroupFolders, folderIdentity)
 }
 
 // countVisibleErroredChats counts distinct errored chat_jids whose
 // routing-target folder the caller may see.
-func (d *dash) countVisibleErroredChats(allowed []string, operator bool) int {
+func (d *dash) countVisibleErroredChats(p auth.Policy) int {
 	st := d.ds()
-	return d.countVisible("errored-chats", allowed, operator,
-		st.ErroredChatCount, st.ErroredChatJIDs, d.jidFolder)
+	return d.countVisible("errored-chats", p, st.ErroredChatJIDs, d.jidFolder)
 }
 
 // countVisibleFailedTasks counts task runs that errored in the last day whose
 // owning group folder the caller may see.
-func (d *dash) countVisibleFailedTasks(allowed []string, operator bool) int {
+func (d *dash) countVisibleFailedTasks(p auth.Policy) int {
 	st := d.ds()
-	return d.countVisible("failed-tasks", allowed, operator,
-		st.FailedTaskRunCount, st.FailedTaskOwners, folderIdentity)
+	return d.countVisible("failed-tasks", p, st.FailedTaskOwners, folderIdentity)
 }
 
 // reviewerSub is the proxyd-verified human behind this request, in the spelling
@@ -190,16 +138,11 @@ func reviewerSub(r *http.Request) string {
 	return strings.TrimPrefix(strings.TrimSpace(r.Header.Get("X-User-Sub")), "user:")
 }
 
-// adminOn reports whether the caller holds `admin` over scope (a folder, or "**"
-// for global) — the ONE authority question dashd asks, so a page that only
-// COUNTS what a caller may act on asks it the same way the write gate does.
-// X-User-Groups folds in as Extra principals so an operator with `**` admin on a
-// parent folder authorizes a child write. No routd.db, no answer: false.
 func (d *dash) adminOn(r *http.Request, scope string) bool {
 	if d.routdStore() == nil {
 		return false
 	}
-	caller := auth.Caller{Principal: reviewerSub(r), Extra: auth.CallerGroups(r)}
+	caller := auth.Caller{Principal: reviewerSub(r)}
 	return auth.Authorize(d.routdStore(), caller, "admin", scope, nil)
 }
 

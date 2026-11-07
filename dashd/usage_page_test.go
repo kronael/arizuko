@@ -40,11 +40,11 @@ func usageGet(t *testing.T, d *dash) (int, string) {
 // TestUsageNilRoutd: a nil routd handle renders the store-unavailable banner.
 func TestUsageNilRoutd(t *testing.T) {
 	code, body := usageGet(t, &dash{routd: nil, routdURL: stubRoutd(t, nil)})
-	if code != 200 {
+	if code != http.StatusForbidden {
 		t.Fatalf("status = %d", code)
 	}
-	if !strings.Contains(body, "store unavailable") {
-		t.Errorf("a nil routd handle should banner store unavailable: %s", body)
+	if !strings.Contains(body, "Operator access required") {
+		t.Errorf("a nil routd handle must refuse operator access: %s", body)
 	}
 }
 

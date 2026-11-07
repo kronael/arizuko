@@ -64,8 +64,8 @@ func (d *dash) handleTaskDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	// Gate on the task's owning folder: a non-operator must not read another
 	// tenant's task prompt / run history.
-	allowed, operator := d.callerScope(r)
-	if !visible(allowed, operator, owner) {
+	allowed, _ := d.callerScope(r)
+	if !visible(allowed, owner) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}

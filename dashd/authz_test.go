@@ -135,8 +135,8 @@ func TestRequireAdmin_GroupHeader(t *testing.T) {
 	r.Header.Set("X-User-Sub", "user@x")
 	r.Header.Set("X-User-Groups", `["ops","other"]`)
 	w := httptest.NewRecorder()
-	if _, ok := d.requireAdmin(w, r, "grp"); !ok {
-		t.Errorf("user in ops group should be admitted, got %d", w.Code)
+	if _, ok := d.requireAdmin(w, r, "grp"); ok {
+		t.Error("scope header must not supply a principal")
 	}
 }
 

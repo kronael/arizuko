@@ -470,6 +470,7 @@ func (d *dash) secretStore() *store.Store {
 // reading the stamped header alone is what served an operator BY GRANT the
 // pages and then showed no links to them (BUGS L324).
 type operatorCtxKey struct{}
+type policyCtxKey struct{}
 
 // operatorFromCtx reports the verdict the guard decided, and whether it decided
 // one. A handler mounted outside the guard has none, and says so rather than
@@ -501,8 +502,9 @@ func (d *dash) guard(next http.HandlerFunc) http.HandlerFunc {
 			http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
 			return
 		}
-		_, operator := d.callerScope(r)
-		next(w, r.WithContext(context.WithValue(r.Context(), operatorCtxKey{}, operator)))
+		p, operator := d.callerScope(r)
+		ctx := context.WithValue(r.Context(), policyCtxKey{}, p)
+		next(w, r.WithContext(context.WithValue(ctx, operatorCtxKey{}, operator)))
 	}
 }
 
@@ -652,13 +654,7 @@ var navLinks = []struct {
 // from the signed X-User-Groups).
 func dashNavFor(r *http.Request) string {
 	urlPath := r.URL.Path
-	// The guard decided this once, from the same source callerScope trusts —
-	// the stamped header, or an ACL read when it is absent. Falling back to the
-	// header alone here is what hid every operator-by-grant's links (BUGS L324).
-	operator, decided := operatorFromCtx(r.Context())
-	if !decided {
-		operator = auth.IsOperator(r)
-	}
+	operator, _ := operatorFromCtx(r.Context())
 	name := r.Header.Get("X-User-Name")
 	if name == "" {
 		sub := r.Header.Get("X-User-Sub")
@@ -743,9 +739,9 @@ func (d *dash) handlePortal(w http.ResponseWriter, r *http.Request) {
 	}
 	allowed, operator := d.callerScope(r)
 
-	groupCount := d.countVisibleGroups(allowed, operator)
-	erroredCount := d.countVisibleErroredChats(allowed, operator)
-	failedTasks := d.countVisibleFailedTasks(allowed, operator)
+	groupCount := d.countVisibleGroups(allowed)
+	erroredCount := d.countVisibleErroredChats(allowed)
+	failedTasks := d.countVisibleFailedTasks(allowed)
 
 	// The nudge counts only the calls this caller may answer, which is what the
 	// page it links to shows (spec 5/19): a verdict needs `admin` on the held
@@ -838,8 +834,8 @@ func (d *dash) handleStatus(w http.ResponseWriter, r *http.Request) {
 	allowed, operator := d.callerScope(r)
 	pageTopFor(w, r, "Status")
 
-	groupCount := d.countVisibleGroups(allowed, operator)
-	erroredCount := d.countVisibleErroredChats(allowed, operator)
+	groupCount := d.countVisibleGroups(allowed)
+	erroredCount := d.countVisibleErroredChats(allowed)
 
 	bannerClass := "ok"
 	if erroredCount > 0 {
@@ -895,13 +891,13 @@ func pluralS(n int) string {
 }
 
 func (d *dash) handleTasks(w http.ResponseWriter, r *http.Request) {
-	allowed, operator := d.callerScope(r)
+	allowed, _ := d.callerScope(r)
 	pageTopFor(w, r, "Tasks")
 	_, _ = fmt.Fprint(w, `<p class="dim">Scheduled jobs. Auto-refreshes every 10s.</p>`)
 	_, _ = fmt.Fprint(w, `<table hx-get="/dash/tasks/x/list" hx-trigger="every 10s" hx-target="tbody" hx-swap="innerHTML">`+
 		`<thead><tr><th>ID</th><th>Group</th><th>Prompt</th><th>Cron</th><th>Status</th><th>Created</th><th>Next Run</th></tr></thead>`+
 		`<tbody>`)
-	d.writeTaskRows(r.Context(), w, allowed, operator)
+	d.writeTaskRows(r.Context(), w, allowed)
 	_, _ = fmt.Fprint(w, `</tbody></table>`)
 
 	_, _ = fmt.Fprint(w, htmlSection("Create task",
@@ -918,12 +914,12 @@ func (d *dash) handleTasks(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d *dash) handleTasksPartial(w http.ResponseWriter, r *http.Request) {
-	allowed, operator := d.callerScope(r)
+	allowed, _ := d.callerScope(r)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	d.writeTaskRows(r.Context(), w, allowed, operator)
+	d.writeTaskRows(r.Context(), w, allowed)
 }
 
-func (d *dash) writeTaskRows(ctx context.Context, w http.ResponseWriter, allowed []string, operator bool) {
+func (d *dash) writeTaskRows(ctx context.Context, w http.ResponseWriter, allowed auth.Policy) {
 	// routd owns scheduled_tasks; the page asks rather than reads its file
 	// (6/28). dashd's service token carries an empty folder claim, which routd
 	// reads as list-all and does not cap — so the visibility filter and the
@@ -939,7 +935,7 @@ func (d *dash) writeTaskRows(ctx context.Context, w http.ResponseWriter, allowed
 	}
 	var n int
 	for _, t := range tasks {
-		if !visible(allowed, operator, t.Owner) {
+		if !visible(allowed, t.Owner) {
 			continue
 		}
 		if n >= taskPageSize {
@@ -1013,7 +1009,7 @@ func (d *dash) handleActivityPartial(w http.ResponseWriter, r *http.Request) {
 // writeActivityRows renders up to activityPageSize rows older than the before
 // cursor (a raw timestamp string; empty = newest). It returns the cursor for
 // the next "older" page, or "" when there is nothing further back.
-func (d *dash) writeActivityRows(ctx context.Context, w http.ResponseWriter, allowed []string, operator bool, before string) string {
+func (d *dash) writeActivityRows(ctx context.Context, w http.ResponseWriter, allowed auth.Policy, operator bool, before string) string {
 	if d.routdStore() == nil {
 		_, _ = fmt.Fprint(w, `<tr><td colspan=6 class="empty">backend unavailable</td></tr>`)
 		return ""
@@ -1050,7 +1046,7 @@ func (d *dash) writeActivityRows(ctx context.Context, w http.ResponseWriter, all
 			folder = d.jidFolder(chatJID)
 			folderOf[chatJID] = folder
 		}
-		if !operator && !visible(allowed, operator, folder) {
+		if !visible(allowed, folder) {
 			continue
 		}
 		chatCell := `<code>` + esc(chatJID) + `</code>`
@@ -1125,7 +1121,7 @@ func groupFromPath(r *http.Request, suffix string) string {
 }
 
 func (d *dash) handleGroups(w http.ResponseWriter, r *http.Request) {
-	allowed, operator := d.callerScope(r)
+	allowed, _ := d.callerScope(r)
 	pageTopFor(w, r, "Groups")
 	_, _ = fmt.Fprint(w, `<p class="dim">Group hierarchy. Expand a row to see routing rules and links.</p>`+
 		`<p><a href="/dash/groups/new">+ New group</a></p>`)
@@ -1144,7 +1140,7 @@ func (d *dash) handleGroups(w http.ResponseWriter, r *http.Request) {
 	}
 	var folders []string
 	for _, folder := range all {
-		if !visible(allowed, operator, folder) {
+		if !visible(allowed, folder) {
 			continue
 		}
 		folders = append(folders, folder)
@@ -1388,12 +1384,12 @@ func (d *dash) handleMemoryDelete(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d *dash) handleMemory(w http.ResponseWriter, r *http.Request) {
-	allowed, operator := d.callerScope(r)
+	allowed, _ := d.callerScope(r)
 	selectedGroup := r.URL.Query().Get("group")
 
 	// Refuse to render another tenant's files: a non-operator who hand-crafts
 	// ?group=foreign gets 403 before any file read.
-	if selectedGroup != "" && !visible(allowed, operator, selectedGroup) {
+	if selectedGroup != "" && !visible(allowed, selectedGroup) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
@@ -1416,7 +1412,7 @@ func (d *dash) handleMemory(w http.ResponseWriter, r *http.Request) {
 <select id="group" name="group" onchange="this.form.submit()">
 <option value="">— select a group —</option>`)
 		for _, folder := range folders {
-			if !visible(allowed, operator, folder) {
+			if !visible(allowed, folder) {
 				continue
 			}
 			sel := ""

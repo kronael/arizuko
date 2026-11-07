@@ -2,7 +2,6 @@ package routd
 
 import (
 	"context"
-	"slices"
 	"time"
 
 	"github.com/kronael/arizuko/auth"
@@ -259,21 +258,9 @@ func (d *DB) CheckHold(sub, folder, tool string, params map[string]string) (bool
 	return auth.CheckHold(d.store(), auth.Caller{Principal: sub}, tool, folder, params)
 }
 
-// IsOperator reports whether sub carries the operator `**` grant: transitive
-// membership in role:operator, or a direct `admin` on `**`. Operators are
-// emergent from grants, never a role flag. The gate for /root elevation.
+// IsOperator reports whether sub may administer the global scope.
 func (d *DB) IsOperator(sub string) bool {
-	if sub == "" {
-		return false
-	}
-	anc, err := d.store().Ancestors(sub)
-	if err != nil {
-		return false
-	}
-	if slices.Contains(anc, "role:operator") {
-		return true
-	}
-	return auth.Authorize(d.store(), auth.Caller{Principal: sub}, "admin", "**", nil)
+	return sub != "" && auth.Authorize(d.store(), auth.Caller{Principal: sub}, "admin", "**", nil)
 }
 
 // GetTask reads one scheduled_tasks row by id; no row → (zero, false).

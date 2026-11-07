@@ -22,6 +22,7 @@ import (
 func newDashServer(t *testing.T) (*httptest.Server, *testutils.Inst, string) {
 	t.Helper()
 	inst := testutils.NewRoutdInstance(t)
+	seedOperators(t, inst.Store.Obj())
 	groupsDir := filepath.Join(inst.Tmp, "groups")
 	if err := os.MkdirAll(groupsDir, 0o755); err != nil {
 		t.Fatal(err)

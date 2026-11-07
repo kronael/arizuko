@@ -51,12 +51,9 @@ func newRoutdUpstream(t *testing.T) *routdUpstream {
 	return u
 }
 
-// engagementDash wires a dash pointed at the fake routd. The handle is left NIL on
-// purpose: this page must not touch the store, and a nil handle turns any direct
-// read into a panic the test would catch.
 func engagementDash(t *testing.T, u *routdUpstream) *http.ServeMux {
 	t.Helper()
-	d := &dash{}
+	d := &dash{routd: routdDB(t)}
 	if u != nil {
 		d.routdURL = u.srv.URL
 	}
@@ -174,26 +171,22 @@ func TestEngagementPage_NoRouterURLSaysSo(t *testing.T) {
 	}
 }
 
-// dashd reads this page through routd's API, never through its own handle — the
-// direct-store read is the recorded defect class. The handle is nil in every test
-// above, so a direct read would panic; this asserts the rows still render, which
-// is what makes that nil meaningful rather than incidental.
 func TestEngagementPage_ReadsRoutdNotTheDB(t *testing.T) {
 	u := newRoutdUpstream(t)
 	u.respond = fmt.Sprintf(`{"engaged":[
 		{"jid":"web:x","topic":"","folder":"x","engaged_until":%q}]}`, future(5*time.Minute))
+	p := testPolicy(t, routdDB(t), "op@x")
 	d := &dash{routdURL: u.srv.URL}
-	if d.routd != nil {
-		t.Fatal("this test is only meaningful with a nil handle")
-	}
 	w := httptest.NewRecorder()
-	newMux(d).ServeHTTP(w, asOperator(httptest.NewRequest("GET", "/dash/engagement/", nil)))
+	r := asOperator(httptest.NewRequest("GET", "/dash/engagement/", nil))
+	r = r.WithContext(context.WithValue(r.Context(), policyCtxKey{}, p))
+	d.handleEngagement(w, r)
 
 	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200 — the page touched the nil DB handle", w.Code)
+		t.Fatalf("status = %d, want 200", w.Code)
 	}
 	if !strings.Contains(w.Body.String(), "web:x") {
-		t.Error("page rendered no window without a DB handle")
+		t.Error("page rendered no window")
 	}
 }
 
@@ -203,6 +196,7 @@ func TestEngagementPage_ReadsRoutdNotTheDB(t *testing.T) {
 func TestEngagementPage_PresentsBearerAndNotUserHeaders(t *testing.T) {
 	u := newRoutdUpstream(t)
 	d := &dash{
+		routd:    routdDB(t),
 		routdURL: u.srv.URL,
 		svc:      func(context.Context) (string, error) { return "service-dashd-token", nil },
 	}
@@ -308,23 +302,20 @@ func TestEngagementPage_OffersDisengageBehindConfirm(t *testing.T) {
 	}
 }
 
-// The control writes through routd's /v1, never dashd's own handle on routd's
-// tables — routd owns the columns, applies the containment, and lands the audit
-// row in the mutation's transaction. The handle is nil here, so a direct write
-// panics.
 func TestEngagementDisengage_WritesThroughRoutdWithTTLZero(t *testing.T) {
 	u := newRoutdUpstream(t)
 	u.respond = `{"ok":true}`
+	p := testPolicy(t, routdDB(t), "op@x")
 	d := &dash{
 		routdURL: u.srv.URL,
 		svc:      func(context.Context) (string, error) { return "service-dashd-token", nil },
 	}
-	if d.routd != nil {
-		t.Fatal("this test is only meaningful with a nil handle")
-	}
-	w := postDisengage(t, newMux(d), url.Values{
-		"jid": {"slack:C123"}, "topic": {"1712.55"}, "folder": {"corp/eng"},
-	})
+	form := url.Values{"jid": {"slack:C123"}, "topic": {"1712.55"}, "folder": {"corp/eng"}}
+	r := asOperator(httptest.NewRequest("POST", "/dash/engagement/disengage", strings.NewReader(form.Encode())))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	r = r.WithContext(context.WithValue(r.Context(), policyCtxKey{}, p))
+	w := httptest.NewRecorder()
+	d.handleEngagementDisengage(w, r)
 
 	if u.calls != 1 {
 		t.Fatalf("routd calls = %d, want 1", u.calls)
@@ -366,7 +357,7 @@ func TestEngagementDisengage_RequiresOperator(t *testing.T) {
 	req.Header.Set("X-User-Sub", "member@x")
 	req.Header.Set("X-User-Groups", `["corp/eng"]`)
 	w := httptest.NewRecorder()
-	newMux(&dash{routdURL: u.srv.URL}).ServeHTTP(w, req)
+	newMux(&dash{routd: routdDB(t), routdURL: u.srv.URL}).ServeHTTP(w, req)
 
 	if w.Code != http.StatusForbidden {
 		t.Errorf("status = %d, want 403 for a folder-scoped viewer", w.Code)

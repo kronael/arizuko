@@ -276,7 +276,8 @@ func UserScopes(s *store.Store, sub string) ([]string, error) {
 	seen := map[string]bool{}
 	var out []string
 	for _, r := range rows {
-		if r.Effect == "deny" || r.Scope == "" || seen[r.Scope] {
+		if r.Effect == "deny" || r.Scope == "" || seen[r.Scope] ||
+			(r.Scope == "**" && !p.Allows("admin", "**", nil)) {
 			continue
 		}
 		seen[r.Scope] = true

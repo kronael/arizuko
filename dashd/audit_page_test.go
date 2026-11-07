@@ -84,7 +84,7 @@ func auditSourceOf(t *testing.T, db objstore.Store) *httptest.Server {
 // onboarding profile is off" and drops the source rather than reporting it dead.
 func auditDash(t *testing.T, routd, runed, authd, onbod string) *dash {
 	t.Helper()
-	d := &dash{routdURL: routd, runedURL: runed, authdURL: authd, onbodURL: onbod}
+	d := &dash{routd: routdDB(t), routdURL: routd, runedURL: runed, authdURL: authd, onbodURL: onbod}
 	if onbod != "" {
 		d.onbod = auditDB(t)
 	}

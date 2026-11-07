@@ -5,8 +5,6 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-
-	"github.com/kronael/arizuko/auth"
 )
 
 // TestOperatorGate_RefusesWithTheThemedBanner — spec 6/28 requires a deep-page
@@ -50,14 +48,10 @@ func TestOperatorGate_RefusesWithTheThemedBanner(t *testing.T) {
 func TestOperatorGate_ReadsTheSharedGroupSource(t *testing.T) {
 	d := &dash{}
 	r := httptest.NewRequest("GET", "/dash/", nil)
-	r.Header.Set("X-User-Groups", `["`+auth.OperatorGroup+`"]`)
+	r.Header.Set("X-User-Groups", `["**"]`)
 
-	allowed, operator := d.callerScope(r)
-	if !operator {
-		t.Fatalf("auth.OperatorGroup in the header must read as operator, got %v", allowed)
-	}
-	if len(allowed) != len(auth.CallerGroups(r)) {
-		t.Errorf("callerScope = %v, auth.CallerGroups = %v — one reader, not two",
-			allowed, auth.CallerGroups(r))
+	_, operator := d.callerScope(r)
+	if operator {
+		t.Fatal("a header without a policy must not grant operator access")
 	}
 }

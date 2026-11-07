@@ -69,6 +69,7 @@ func TestTasksPartialXSS(t *testing.T) {
 
 func TestActivityFullPage(t *testing.T) {
 	db := routdDB(t)
+	seedRoute(t, db, core.Route{Seq: 1, Match: "c1", Target: "c1"})
 	seedRoutdMessage(t, db, core.Message{
 		ID: "m1", ChatJID: "c1", Sender: "s1", Content: "hi there",
 		Timestamp: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), Source: "tel", Verb: "say",
@@ -95,6 +96,7 @@ func TestActivityFullPage(t *testing.T) {
 // auto-refresh hx-trigger, so it doesn't get polled back to the newest page).
 func TestActivityPagination(t *testing.T) {
 	db := routdDB(t)
+	seedRoute(t, db, core.Route{Seq: 1, Match: "c1", Target: "c1"})
 	const total = activityPageSize + 5
 	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	for i := range total {
@@ -147,6 +149,7 @@ func TestActivityPagination(t *testing.T) {
 
 func TestActivityPartialRows(t *testing.T) {
 	db := routdDB(t)
+	seedRoute(t, db, core.Route{Seq: 1, Match: "c", Target: "c"})
 	// long content to exercise substr LIMIT
 	long := strings.Repeat("a", 200)
 	seedRoutdMessage(t, db, core.Message{
