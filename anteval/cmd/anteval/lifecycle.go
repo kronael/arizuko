@@ -287,11 +287,11 @@ func doLifecycle(ctx context.Context, cli lifecycleCLI, opts lifecycleOptions) (
 			err = errors.Join(err, fmt.Errorf("remove instance %s in %s: %w", name, private, removeErr))
 		}
 	}()
-	args := []string{"create"}
+	var productArgs []string
 	if opts.product != "" {
-		args = append(args, "--product", opts.product)
+		productArgs = []string{"--product", opts.product}
 	}
-	if _, err = command(ctx, args...); err != nil {
+	if _, err = command(ctx, append([]string{"create"}, productArgs...)...); err != nil {
 		return err
 	}
 	apiPort, webPort, err := freePorts()
@@ -349,11 +349,7 @@ func doLifecycle(ctx context.Context, cli lifecycleCLI, opts lifecycleOptions) (
 	if err = start(append(services, "litellm", "litellm_db")); err != nil {
 		return err
 	}
-	groupArgs := []string{"group", "add", "web:eval", "eval"}
-	if opts.product != "" {
-		groupArgs = append(groupArgs, "--product", opts.product)
-	}
-	if _, err = command(ctx, groupArgs...); err != nil {
+	if _, err = command(ctx, append([]string{"group", "add", "web:eval", "eval"}, productArgs...)...); err != nil {
 		return err
 	}
 	if _, err = command(ctx, "package", "sync"); err != nil {
@@ -406,8 +402,7 @@ func doLifecycle(ctx context.Context, cli lifecycleCLI, opts lifecycleOptions) (
 	api := "http://127.0.0.1:" + strconv.Itoa(apiPort)
 	web := "http://127.0.0.1:" + strconv.Itoa(webPort)
 	target := &run.HTTPTarget{API: api, MCPURL: web + "/chat/" + chatToken + "/mcp", Token: bearer, Folder: "eval"}
-	guestWeb := "http://" + net.JoinHostPort(sink.Hostname(), strconv.Itoa(webPort))
-	results, driveErr := cli.Drive(run.Config{Context: ctx, Target: target, Cases: opts.cases, Nonce: opts.nonce, TargetBase: guestWeb, Chat: "web:eval", Folder: "eval", SinkBind: opts.sinkBind, SinkURL: opts.sinkURL})
+	results, driveErr := cli.Drive(run.Config{Context: ctx, Target: target, Cases: opts.cases, Nonce: opts.nonce, TargetBase: cfg["WEB_HOST"], Chat: "web:eval", Folder: "eval", SinkBind: opts.sinkBind, SinkURL: opts.sinkURL})
 	md := report.Markdown(results)
 	fmt.Print(md)
 	if driveErr != nil {
