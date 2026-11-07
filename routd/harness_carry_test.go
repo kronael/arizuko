@@ -44,8 +44,12 @@ func TestHarnessCarry(t *testing.T) {
 		t.Fatal(err)
 	}
 	const harness = `{ "z" : {"unknown": [9007199254740993, "\\u0061"]}, "backend" : "codex" }`
-	if err := db.store().WriteEntities(ctx, nil, objstore.Write{Op: objstore.Merge, Entity: store.Groups, Key: objstore.Key{Partition: store.OwnerRoutd, Sort: "demo"}, Attrs: map[string]string{"config": `{"harness":` + harness + `}`}}); err != nil {
+	if err := db.store().WriteEntities(ctx, nil, objstore.Write{Op: objstore.Merge, Entity: store.Groups, Key: objstore.Key{Partition: store.OwnerRoutd, Sort: "demo"}, Attrs: map[string]string{"config": `{"harness":` + harness + `}`, "container_config": `{"MaxChildren":16}`}}); err != nil {
 		t.Fatal(err)
+	}
+	_, containerCfg, err := db.store().GroupConfig("demo")
+	if err != nil || containerCfg["MaxChildren"] != float64(16) {
+		t.Fatalf("container config = %v, %v", containerCfg, err)
 	}
 	runDB, err := runed.OpenMem()
 	if err != nil {
@@ -100,4 +104,10 @@ func TestHarnessCarry(t *testing.T) {
 		t.Fatal(err)
 	}
 	check()
+	if err := db.store().WriteEntities(ctx, nil, objstore.Write{Op: objstore.Merge, Entity: store.Groups, Key: objstore.Key{Partition: store.OwnerRoutd, Sort: "demo"}, Attrs: map[string]string{"config": `{`}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loop.dispatchRun(ctx, "demo", "topic", "web:demo", "turn", "timed-isolated:test", "hello", false, false, ""); err == nil {
+		t.Fatal("malformed settings accepted")
+	}
 }

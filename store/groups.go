@@ -83,20 +83,26 @@ func settingsOf(it objstore.Item) map[string]any {
 	return out
 }
 
-func (s *Store) GroupHarness(folder string) (json.RawMessage, error) {
+func (s *Store) GroupConfig(folder string) (json.RawMessage, map[string]any, error) {
 	it, ok, err := s.groupItem(context.Background(), folder)
 	if err != nil || !ok {
-		return nil, err
+		return nil, nil, err
+	}
+	var cfg map[string]any
+	if raw := it.Attrs[attrGrpContainerConfig]; raw != "" && raw != "{}" {
+		if json.Unmarshal([]byte(raw), &cfg) != nil {
+			cfg = nil
+		}
 	}
 	raw := it.Attrs[attrGrpConfig]
 	if raw == "" {
-		return nil, nil
+		return nil, cfg, nil
 	}
 	var settings map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(raw), &settings); err != nil || settings == nil {
-		return nil, fmt.Errorf("group %q invalid settings JSON", folder)
+		return nil, nil, fmt.Errorf("group %q invalid settings JSON", folder)
 	}
-	return settings["harness"], nil
+	return settings["harness"], cfg, nil
 }
 
 // settingNum reads one numeric setting. A key holding JSON null is the same
@@ -583,21 +589,6 @@ func costCapOf(it objstore.Item) int {
 		return 0
 	}
 	return n
-}
-
-// GroupConfig returns the opaque container configuration.
-func (s *Store) GroupConfig(folder string) map[string]any {
-	it, ok, err := s.groupItem(context.Background(), folder)
-	if err != nil || !ok {
-		return nil
-	}
-	var cfg map[string]any
-	if raw := it.Attrs[attrGrpContainerConfig]; raw != "" && raw != "{}" {
-		if json.Unmarshal([]byte(raw), &cfg) != nil {
-			return nil
-		}
-	}
-	return cfg
 }
 
 // FolderCap returns the folder's per-day spend cap in cents. Zero means

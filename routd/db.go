@@ -150,12 +150,6 @@ func (d *DB) DeleteGroupRow(folder string) error {
 	return d.store().DeleteGroupRow(folder)
 }
 
-// GroupConfig returns the per-group model override + the opaque container_config
-// for runed; empty/nil when unknown or unset → runed uses the instance defaults.
-func (d *DB) GroupConfig(folder string) map[string]any {
-	return d.store().GroupConfig(folder)
-}
-
 // AllGroups returns every registered group keyed by folder. A read failure
 // answers nil — the caller fails closed.
 func (d *DB) AllGroups() map[string]core.Group {

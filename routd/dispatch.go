@@ -843,11 +843,10 @@ func (l *Loop) dispatchRun(ctx context.Context, folder, topic, chatJID, turnID, 
 			}
 		}
 	}
-	harness, err := l.db.store().GroupHarness(folder)
+	harness, containerCfg, err := l.db.store().GroupConfig(folder)
 	if err != nil {
 		return runedv1.RunOutcome{}, err
 	}
-	containerCfg := l.db.GroupConfig(folder)
 	// routd is the authz plane; runed has neither store. nil allowlist on error
 	// is fine — runed treats empty as no extra constraint.
 	allowlist, _ := l.db.ResolveAllowlist(folder)
