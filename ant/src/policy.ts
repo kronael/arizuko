@@ -8,10 +8,9 @@
 import { bashScrub, bashSkillRescan, ghWriteGate } from './guards.js';
 import { skillGuard } from './skillguard.js';
 import { toolLogPost, toolLogPre } from './tool-log.js';
-import { todoStatus } from './todo-status.js';
 import { submitStatus } from './mcp.js';
 import { replyOwed } from './reply-owed.js';
-import { STEER_SPOOL, drainLines } from './spool.js';
+import { STEER_SPOOL, drainLines, nudgeProgress } from './spool.js';
 
 // ToolEvent is the shape claude and codex already agree on — measured against
 // codex 0.147.0: its hook stdin carries these exact keys. pi names the same
@@ -66,10 +65,9 @@ export interface PolicyContext {
 // bindings IS the table: every capability the agent runs under, on every harness.
 export function bindings(ctx: PolicyContext, send: typeof submitStatus = submitStatus): Binding[] {
   const rescan = bashSkillRescan(ctx.home);
-  const todo = todoStatus(ctx.turnID, ctx.source ?? 'claude', send);
   const completion = async (ev: ToolEvent) => {
     try {
-      await todo(ev);
+      if (ctx.turnID && (await send({ turn_id: ctx.turnID, source: ctx.source ?? 'claude', snapshot: ev })).remind) nudgeProgress();
     } catch (err) {
       console.error(`[ant] policy todo-status threw, allowing: ${err instanceof Error ? err.message : String(err)}`);
     }
