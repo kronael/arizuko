@@ -220,6 +220,7 @@ func (s *Server) routesPostBuild(folder, callerSub string, authorize authorizeFn
 	// scoped to cover it; /root elevates via authorize's allow-all.
 	contain := func(_ resreg.Caller, a resreg.Action, target string) error {
 		name := routesMCPNames[a]
+		target = core.ParseRouteTarget(target).Folder
 		if !authorize(target, "mcp:"+name, nil) {
 			return resreg.Errorf(http.StatusForbidden, "%s on %s: not permitted", name, target)
 		}
