@@ -88,23 +88,6 @@ type HTTPChannel struct {
 	client *http.Client
 }
 
-// outMsg carries one outbound request from Send/SendFile into trySend. The
-// channel keeps no copy of it: routd owns the durable record and the retry.
-type outMsg struct {
-	JID            string
-	Content        string
-	ReplyTo        string
-	ThreadID       string
-	ThreadRoot     string
-	IdempotencyKey string
-	Options        []chanlib.Option
-	IsFile         bool
-	Path           string
-	Name           string
-	Caption        string
-	FileReplyTo    string
-}
-
 // NewHTTPChannel builds the routd-side egress client for an adapter. bearer
 // yields the service:routd token presented on every call. A nil bearer means
 // "no auth header" (local dev with no AUTHD_URL, or single-process tests).
@@ -152,56 +135,21 @@ func (h *HTTPChannel) SendOptionsCtx(ctx context.Context, jid, text string, opti
 	if !h.entry.HasCap("buttons") {
 		text, options = foldOptions(text, options), nil
 	}
-	m := outMsg{JID: jid, Content: text, Options: options, ReplyTo: replyTo,
-		ThreadID: threadID, ThreadRoot: threadRoot, IdempotencyKey: idempotencyKey}
-	return h.trySend(ctx, m)
-}
-
-// foldOptions appends one line per answer: what the reader types, then its label.
-func foldOptions(text string, options []chanlib.Option) string {
-	for _, o := range options {
-		text += "\n" + o.Send() + "   — " + o.Label
+	body := map[string]any{"chat_jid": jid, "content": text}
+	if len(options) > 0 {
+		body["options"] = options
 	}
-	return text
-}
-
-// trySend makes ONE delivery attempt for m and returns the result to the caller.
-// The channel holds no queue: routd writes the bot row `pending` before the
-// attempt, and its 30s sweep re-sends a row that stays `pending`. A retry here
-// would be a second writer beside that sweep.
-func (h *HTTPChannel) trySend(ctx context.Context, m outMsg) (string, error) {
-	if m.IsFile {
-		if !h.entry.HasCap("send_file") {
-			return "", fmt.Errorf("channel %s: send_file not supported", h.entry.Name)
-		}
-		resp, err := h.uploadMultipart(ctx, "/send-file", m.JID, m.Path, m.Name, m.Caption, m.FileReplyTo, m.ThreadID, m.IdempotencyKey, m.ThreadRoot)
-		if err == nil {
-			defer func() { _ = resp.Body.Close() }()
-			if resp.StatusCode == http.StatusOK {
-				return decodeSentID(resp.Body, h.entry.Name, "send-file"), nil
-			}
-			err = adapterErr(resp)
-		}
-		return "", fmt.Errorf("channel %s send-file: %w", h.entry.Name, err)
+	if replyTo != "" {
+		body["reply_to"] = replyTo
 	}
-	if !h.entry.HasCap("send_text") {
-		return "", fmt.Errorf("channel %s: send_text not supported", h.entry.Name)
+	if threadID != "" {
+		body["thread_id"] = threadID
 	}
-	body := map[string]any{"chat_jid": m.JID, "content": m.Content}
-	if len(m.Options) > 0 {
-		body["options"] = m.Options
+	if threadRoot != "" {
+		body["thread_root"] = threadRoot
 	}
-	if m.ReplyTo != "" {
-		body["reply_to"] = m.ReplyTo
-	}
-	if m.ThreadID != "" {
-		body["thread_id"] = m.ThreadID
-	}
-	if m.ThreadRoot != "" {
-		body["thread_root"] = m.ThreadRoot
-	}
-	if m.IdempotencyKey != "" {
-		body["idempotency_key"] = m.IdempotencyKey
+	if idempotencyKey != "" {
+		body["idempotency_key"] = idempotencyKey
 	}
 	b, _ := json.Marshal(body)
 	httpResp, err := h.post(ctx, "/send", b)
@@ -215,6 +163,14 @@ func (h *HTTPChannel) trySend(ctx context.Context, m outMsg) (string, error) {
 	return "", fmt.Errorf("channel %s send: %w", h.entry.Name, err)
 }
 
+// foldOptions appends one line per answer: what the reader types, then its label.
+func foldOptions(text string, options []chanlib.Option) string {
+	for _, o := range options {
+		text += "\n" + o.Send() + "   — " + o.Label
+	}
+	return text
+}
+
 func (h *HTTPChannel) SendFile(jid, path, name, caption, replyTo, threadID, idempotencyKey, threadRoot string) (string, error) {
 	return h.SendFileCtx(context.Background(), jid, path, name, caption, replyTo, threadID, idempotencyKey, threadRoot)
 }
@@ -223,8 +179,15 @@ func (h *HTTPChannel) SendFileCtx(ctx context.Context, jid, path, name, caption,
 	if !h.entry.HasCap("send_file") {
 		return "", fmt.Errorf("channel %s: send_file not supported", h.entry.Name)
 	}
-	m := outMsg{JID: jid, IsFile: true, Path: path, Name: name, Caption: caption, FileReplyTo: replyTo, ThreadID: threadID, IdempotencyKey: idempotencyKey, ThreadRoot: threadRoot}
-	return h.trySend(ctx, m)
+	resp, err := h.uploadMultipart(ctx, "/send-file", jid, path, name, caption, replyTo, threadID, idempotencyKey, threadRoot)
+	if err == nil {
+		defer func() { _ = resp.Body.Close() }()
+		if resp.StatusCode == http.StatusOK {
+			return decodeSentID(resp.Body, h.entry.Name, "send-file"), nil
+		}
+		err = adapterErr(resp)
+	}
+	return "", fmt.Errorf("channel %s send-file: %w", h.entry.Name, err)
 }
 
 func (h *HTTPChannel) SendVoice(jid, audioPath, caption, threadID, threadRoot string) (string, error) {
