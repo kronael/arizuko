@@ -154,13 +154,8 @@ func groupFrom(it objstore.Item) core.Group {
 	return g
 }
 
-// groupItem reads one group's item, or reports that there is none.
+// groupItem reads one group's item by its folder.
 func (s *Store) groupItem(ctx context.Context, folder string) (objstore.Item, bool, error) {
-	return s.groupItemVia(ctx, folder)
-}
-
-// groupItemVia reads one group's item by its folder.
-func (s *Store) groupItemVia(ctx context.Context, folder string) (objstore.Item, bool, error) {
 	key, err := groupKey(folder)
 	if err != nil {
 		return objstore.Item{}, false, err
