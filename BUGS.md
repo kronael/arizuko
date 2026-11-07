@@ -25,8 +25,6 @@
 - `L688` — defer folding onbod into routd until measured net savings justify the boundary change; needs sign-off.
 - `L689` — defer folding dashd until measured net savings and reused code justify it; needs sign-off.
 
-- `L679` — routd's OpenAPI expectation omits the mounted group PATCH; test-only correction pending.
-
 - `L676` — decide whether dashboard group creation must check the creator's new subtree grant.
 - `L675` — the guest's Python is under `/root` (700); fix at the next rootfs build.
 - `L674` — `compose down` fails on a deleted fragment despite `required: false`; proposal.
@@ -631,23 +629,6 @@ The fixture values and case comments do not describe the current deployment.
 - **Fix:** align fixture backend and service expectations with proxyd static serving and routd scheduling.
 - **Test:** run the affected Playwright suites with the fixture update; TypeScript and TOML edits are outside this documentation pass.
 - **Status:** ✅ FIXED — fixtures and case comments use current services.
-
-## L679 — routd's OpenAPI expected list omits the mounted group PATCH (2026-11-07, open — record only)
-
-`TestOpenAPI_EveryAdvertisedPathIsMounted` in
-`routd/endpoints_source_test.go:192` fails because the expected operations at
-`:201` omit `PATCH /v1/groups/{folder}`. `resreg/resources/groups.go:32`
-declares that mounted operation. The advertised output includes it.
-The supplied baseline verification also reproduces the failure at
-`8a6c1c72cbc44f3caee3016a714b4aa92a57b86e`.
-
-- **Severity:** low — the routd package test fails against its mounted surface.
-- **Scope:** OpenAPI test expectation.
-- **Affected:** `routd/endpoints_source_test.go`.
-- **Measured:** `go test ./routd -short -run '^TestOpenAPI_EveryAdvertisedPathIsMounted$' -count=1`
-  fails with the advertised group PATCH absent from the expected list.
-- **Fix:** add the mounted operation to the expected list.
-- **Status:** open — record only; this documentation pass excludes Go edits.
 
 ## L678 — no operator door writes a group's `effort`, and dashd lists only 4.x models (2026-11-07, open — folded into the per-group harness spec)
 
