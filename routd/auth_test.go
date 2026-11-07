@@ -65,3 +65,11 @@ func TestIngressRequiresWriteScope(t *testing.T) {
 		t.Fatalf("ingress without messages:write = %d want 403", rec.Code)
 	}
 }
+
+func TestRESTRouteTokensRejectCrossFolder(t *testing.T) {
+	_, h := authSrv(t, fakeVerifier{sub: "user:u", scope: []string{"routes:read"}, folder: "alice"})
+	r := doGet(t, h, "/v1/route_tokens?owner_folder=bob")
+	if r.Code != http.StatusForbidden {
+		t.Fatalf("cross-folder route tokens = %d, want 403: %s", r.Code, r.Body.String())
+	}
+}

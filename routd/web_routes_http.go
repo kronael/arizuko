@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
-	"strings"
 
 	"github.com/kronael/arizuko/resreg"
 )
@@ -59,21 +58,7 @@ func peekBodyFolder(r *http.Request) string {
 // webRoutesRESTGate applies REST scopes and JWT-folder containment. An empty
 // JWT folder is unrestricted.
 func (s *Server) webRoutesRESTGate(x resreg.Execution, _ string, _ map[string]string) error {
-	if s.verify == nil {
-		return nil
-	}
-	held := x.Caller.Scopes()
-	want := []string{"routes:read", "routes:read:own_group"}
-	if x.Action.Mutates() {
-		want = []string{"routes:write", "routes:write:own_group"}
-	}
-	if !hasAnyScope(held, want) {
-		return resreg.Errorf(http.StatusForbidden, "missing scope %s", strings.Join(want, " or "))
-	}
-	if !ownsFolder(x.Caller.Claims["jwt_folder"], x.Caller.Folder) {
-		return resreg.Errorf(http.StatusForbidden, "folder outside caller subtree: %s", x.Caller.Folder)
-	}
-	return nil
+	return s.scopedRESTGate(x, "routes", "folder")
 }
 
 // handleWebRouteOwner reports the folder owning an exact path prefix.

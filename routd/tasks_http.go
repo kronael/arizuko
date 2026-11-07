@@ -47,19 +47,23 @@ func tasksTarget(r *http.Request, jwtFolder string) string {
 // tasksRESTGate applies REST scopes and JWT-folder containment. Per-task owner
 // containment remains in the shared handler.
 func (s *Server) tasksRESTGate(x resreg.Execution, _ string, _ map[string]string) error {
+	return s.scopedRESTGate(x, "tasks", "folder")
+}
+
+func (s *Server) scopedRESTGate(x resreg.Execution, resource, label string) error {
 	if s.verify == nil {
 		return nil
 	}
 	held := x.Caller.Scopes()
-	want := []string{"tasks:read", "tasks:read:own_group"}
+	want := []string{resource + ":read", resource + ":read:own_group"}
 	if x.Action.Mutates() {
-		want = []string{"tasks:write", "tasks:write:own_group"}
+		want = []string{resource + ":write", resource + ":write:own_group"}
 	}
 	if !hasAnyScope(held, want) {
 		return resreg.Errorf(http.StatusForbidden, "missing scope %s", strings.Join(want, " or "))
 	}
 	if !ownsFolder(x.Caller.Claims["jwt_folder"], x.Caller.Folder) {
-		return resreg.Errorf(http.StatusForbidden, "folder outside caller subtree: %s", x.Caller.Folder)
+		return resreg.Errorf(http.StatusForbidden, "%s outside caller subtree: %s", label, x.Caller.Folder)
 	}
 	return nil
 }
