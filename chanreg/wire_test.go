@@ -563,14 +563,14 @@ func TestSendOmitsEmptyThreadingFields(t *testing.T) {
 	srv := stubAdapter(t, &got)
 	h := chanWithCaps(t, srv.URL, "send_text")
 
-	if _, err := h.SendCtx(context.Background(), "x:1", "hello", "", "", "", ""); err != nil {
+	if _, err := h.SendOptionsCtx(context.Background(), "x:1", "hello", nil, "", "", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	if want := (map[string]any{"chat_jid": "x:1", "content": "hello"}); !reflect.DeepEqual(got.body, want) {
 		t.Errorf("bare send body\n got %#v\nwant %#v", got.body, want)
 	}
 
-	if _, err := h.SendCtx(context.Background(), "x:1", "hello", "m0", "thr", "root", "idem-7"); err != nil {
+	if _, err := h.SendOptionsCtx(context.Background(), "x:1", "hello", nil, "m0", "thr", "root", "idem-7"); err != nil {
 		t.Fatal(err)
 	}
 	want := map[string]any{

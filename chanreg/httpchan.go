@@ -116,14 +116,6 @@ func (h *HTTPChannel) authHeader(ctx context.Context, req *http.Request) {
 	}
 }
 
-func (h *HTTPChannel) Send(jid, text, replyTo, threadID, threadRoot, idempotencyKey string) (string, error) {
-	return h.SendCtx(context.Background(), jid, text, replyTo, threadID, threadRoot, idempotencyKey)
-}
-
-func (h *HTTPChannel) SendCtx(ctx context.Context, jid, text, replyTo, threadID, threadRoot, idempotencyKey string) (string, error) {
-	return h.SendOptionsCtx(ctx, jid, text, nil, replyTo, threadID, threadRoot, idempotencyKey)
-}
-
 // SendOptionsCtx is Send carrying pickable answers (spec 5/19). It is the ONE
 // fold: an adapter without `buttons` never receives options, it receives the
 // answers written into the text as what the reader types.

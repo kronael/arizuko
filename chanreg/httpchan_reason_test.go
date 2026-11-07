@@ -25,7 +25,7 @@ func TestHTTPChannelSendCarriesTheAdapterReason(t *testing.T) {
 		Capabilities: map[string]bool{"send_text": true}}
 	ch := NewHTTPChannel(e, staticBearer("secret"))
 
-	_, err := ch.Send("discord:g/c", "x", "", "", "", "")
+	_, err := ch.SendOptionsCtx(context.Background(), "discord:g/c", "x", nil, "", "", "", "")
 	if !errors.Is(err, ErrPermanent) {
 		t.Fatalf("err = %v, want ErrPermanent", err)
 	}
