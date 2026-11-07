@@ -32,6 +32,7 @@
 - `L473` — how does a newer seeded acl floor reach an existing instance
   without re-adding rows an operator removed?
 - `L597` — choose whether human conversation takes priority over CI in bounded observed context.
+- `L677` — decide the cross-process event path for the 6/46 single progress producer.
 
 
 
@@ -474,6 +475,25 @@ that version. A change to which rows reach live data is an auth change.
 
 - **Status:** open — needs sign-off.
 
+
+## L677 — the 6/46 single progress producer needs a cross-process event path (2026-11-07, open — needs sign-off)
+
+Measured at `ea44be946aeefc2ee8578fab153564b5d06f3d96` over three Terra runs at
+high effort. The addressed-publication gate shipped (`routd/mcp.go`,
+`ea44be946`). The remaining 6/46 keystone — "one parent-scoped producer across
+Claude and Codex" — cannot be an in-process reducer: a Codex turn runs its plan
+hooks in a process separate from the `ant` harness that owns the Claude
+checklist, so no single process sees both sources. The spec's § "The declaration"
+assumes one reducer and one sender; it does not name the path that joins the two
+processes. Contracts 2–4 (bounded rendering, the one-shot reminder, browser
+deletion and active replay) depend on this producer, so they stay unbuilt too.
+
+- **Severity:** medium, design — a new cross-process contract, not a refactor.
+- **Test:** none; the shape needs sign-off first.
+- **Options:** (a) both harnesses write through the existing `submit_status`
+  method on the MCP socket, which `routd` already serializes, and the reducer
+  moves to `routd`; (b) a per-turn status file the two processes append and one
+  sender reads; (c) keep two senders and make `routd` the de-duplicating sink.
 
 ## L676 — dashboard group creation grants more scope than its gate checks (2026-11-07, open — needs sign-off)
 
