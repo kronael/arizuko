@@ -21,7 +21,7 @@ spec:
   {{- end }}
   rules:
     # All public traffic enters through proxyd, which auth-gates and fans out
-    # to webd / vited / dashd internally.
+    # to webd / dashd internally.
     - host: {{ $host | quote }}
       http:
         paths:

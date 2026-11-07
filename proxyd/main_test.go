@@ -189,9 +189,9 @@ func testServerWithUpstream(t *testing.T) (*server, *httptest.Server) {
 		t.Fatal(err)
 	}
 	s := &server{
-		cfg:       config{authSecret: "testsecret"},
-		viteProxy: httputil.NewSingleHostReverseProxy(u),
-		rr:        newRoutesResource(nil, nil),
+		cfg:   config{authSecret: "testsecret"},
+		files: httputil.NewSingleHostReverseProxy(u),
+		rr:    newRoutesResource(nil, nil),
 	}
 	return s, up
 }
@@ -319,8 +319,7 @@ func TestProxydPubWebRouteLongestPrefix(t *testing.T) {
 	}
 }
 
-// No matching web_route → falls through to the vited proxy (existing
-// behaviour preserved).
+// No matching web_route falls through to the static handler.
 func TestProxydPubWebRouteNoMatchProxies(t *testing.T) {
 	s, up := testServerWithUpstream(t)
 	defer up.Close()
@@ -631,10 +630,10 @@ func testRouteServer(t *testing.T, st *store.Store, secret string) (*server, *ht
 	slinkRoute := Route{Path: "/slink/", Backend: up.URL, Auth: "public"}
 	meRoute := Route{Path: "/me/", Backend: up.URL, Auth: "user"}
 	s := &server{
-		cfg:       config{authSecret: secret},
-		stRoutd:   st, // tests use single in-memory DB with all tables
-		viteProxy: httputil.NewSingleHostReverseProxy(u),
-		rr:        newRoutesResource(nil, []Route{chatRoute, panelRoute, slinkRoute, meRoute}),
+		cfg:     config{authSecret: secret},
+		stRoutd: st, // tests use single in-memory DB with all tables
+		files:   httputil.NewSingleHostReverseProxy(u),
+		rr:      newRoutesResource(nil, []Route{chatRoute, panelRoute, slinkRoute, meRoute}),
 	}
 	return s, up
 }
@@ -1723,10 +1722,10 @@ func testDavFullServer(t *testing.T, st *store.Store, secret string) (*server, *
 	u, _ := url.Parse(up.URL)
 	davRoute := Route{Path: "/dav/", Backend: up.URL, Auth: "user", StripPrefix: true}
 	s := &server{
-		cfg:       config{authSecret: secret},
-		stRoutd:   st, // tests use single in-memory DB
-		viteProxy: httputil.NewSingleHostReverseProxy(u),
-		rr:        newRoutesResource(nil, []Route{davRoute}),
+		cfg:     config{authSecret: secret},
+		stRoutd: st, // tests use single in-memory DB
+		files:   httputil.NewSingleHostReverseProxy(u),
+		rr:      newRoutesResource(nil, []Route{davRoute}),
 	}
 	return s, up
 }

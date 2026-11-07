@@ -35,11 +35,11 @@ func optionalServer(t *testing.T, ks *auth.KeySet, svc *auth.TokenSource) (*serv
 		t.Fatal(err)
 	}
 	s := &server{
-		cfg:       config{authSecret: "testsecret"},
-		ks:        ks,
-		svc:       svc,
-		viteProxy: httputil.NewSingleHostReverseProxy(u),
-		rr:        newRoutesResource(nil, []Route{{Path: "/chat/", Backend: up.URL, Auth: "optional"}}),
+		cfg:   config{authSecret: "testsecret"},
+		ks:    ks,
+		svc:   svc,
+		files: httputil.NewSingleHostReverseProxy(u),
+		rr:    newRoutesResource(nil, []Route{{Path: "/chat/", Backend: up.URL, Auth: "optional"}}),
 	}
 	return s, up
 }
@@ -149,9 +149,9 @@ func TestOptionalAuth_SSEStreamsThrough(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := &server{
-		cfg:       config{authSecret: "testsecret"},
-		viteProxy: httputil.NewSingleHostReverseProxy(u),
-		rr:        newRoutesResource(nil, []Route{{Path: "/chat/", Backend: up.URL, Auth: "optional"}}),
+		cfg:   config{authSecret: "testsecret"},
+		files: httputil.NewSingleHostReverseProxy(u),
+		rr:    newRoutesResource(nil, []Route{{Path: "/chat/", Backend: up.URL, Auth: "optional"}}),
 	}
 	front := httptest.NewServer(http.HandlerFunc(s.route))
 	defer front.Close()

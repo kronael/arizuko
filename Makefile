@@ -305,7 +305,6 @@ images: check-skills
 	$(DOCKER_BUILD) -t arizuko-davd -f davd/Dockerfile .
 	$(DOCKER_BUILD) -t arizuko-ttsd -f ttsd/Dockerfile .
 	make -C ant image DOCKER="$(DOCKER)"
-	make vite-image
 	make rootfs
 
 # rootfs exports the agent image's filesystem as a directory tree, which is what
@@ -432,10 +431,7 @@ bench-boot:
 	    echo "bench-boot: $$samples samples, want $$((2 * $(BENCH_PAIRS)))" >&2; exit 1; fi; \
 	  grep -E 'BENCH_SAMPLE|BENCH_SUMMARY' $(BENCH_ARTIFACT_DIR)/bench-boot.log
 
-vite-image:
-	$(DOCKER_BUILD) -f ant/Dockerfile.vite -t arizuko-vite:latest .
-
 agent:
 	make -C ant image DOCKER="$(DOCKER)"
 
-.PHONY: build lint test clean check-skills images agent vite-image rootfs bench-boot
+.PHONY: build lint test clean check-skills images agent rootfs bench-boot
