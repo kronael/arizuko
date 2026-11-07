@@ -57,7 +57,7 @@ helm install arizuko deploy/helm/arizuko \
       <p>Kubernetes gives you two things. The secrets live in etcd or in an external secret store, not in a mode-0600 <code>.env</code>. And the daemons that hold no file can run on more than one node. Kubernetes does not give you an agent runtime over several nodes. The turn path stays on one machine.</p>
 
       <h2>The rows live on the store server, off the node</h2>
-      <p>Every daemon keeps its tables on one DynamoDB-protocol server. With <code>DYNAMODB_URL</code> set, a daemon opens its tables at that endpoint and opens no file. The chart runs no store. The endpoint can be the <code>extenddb</code> pair from <code>template/services/extenddb/extenddb.yml</code>, a PostgreSQL that you run, or Amazon DynamoDB. The daemons speak one protocol and do not know which server answers.</p>
+      <p>Every daemon keeps its tables on one DynamoDB-protocol server. With <code>DYNAMODB_URL</code> set, a daemon opens its tables at that endpoint and opens no file. The chart runs no store. The endpoint is an external shared ExtendDB server over PostgreSQL or Amazon DynamoDB. Follow the <a href="https://github.com/kronael/arizuko/blob/main/INSTALL.md#share-one-store-server-between-instances">[shared-store setup]</a>. The daemons speak one protocol and do not know which server answers.</p>
       <p>A daemon needs five values to reach the store, and it refuses a partial set at start:</p>
       <table>
         <thead><tr><th>variable</th><th>meaning</th></tr></thead>
@@ -92,7 +92,6 @@ helm install arizuko deploy/helm/arizuko \
           <tr><td><code>authd</code></td><td>no disk; its own tables on the store, the OAuth env and the service keys</td><td>many</td></tr>
           <tr><td><code>proxyd</code></td><td>no disk; its route table is the <code>proxyd_routes</code> rows, which it reads for each request</td><td>many</td></tr>
           <tr><td><code>webd</code></td><td>no disk, but its SSE hub is a map in the process, <code>webd/hub.go</code>. <code>routd</code> posts each reply to <code>webd</code>. With two replicas, the post can reach the replica that the browser does not stream from.</td><td>one</td></tr>
-          <tr><td><code>timed</code></td><td>no disk and no data mount; it calls the HTTP API of <code>routd</code>. Two replicas start every schedule twice.</td><td>one</td></tr>
           <tr><td><code>onbod</code></td><td>files: <code>container.SetupGroup</code> makes <code>groups/&lt;folder&gt;/</code> and the <code>web/pub</code> and <code>web/priv</code> folders of the group, so it needs the volume of <code>routd</code>, writable</td><td>one</td></tr>
           <tr><td><code>dashd</code></td><td>files: it reads and writes skills, <code>CLAUDE.md</code> and uploads under <code>groups/</code>, and reads provider files from <code>surrogate/</code></td><td>one</td></tr>
         </tbody>
@@ -192,7 +191,7 @@ kubectl -n arizuko logs deploy/arizuko-runed</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/howto/kubernetes.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-21">2026-10-21</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-28">2026-10-28</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

@@ -8,7 +8,7 @@ HTML page a Go daemon serves.
 arizuko serves HTML from several Go daemons that all need to look the
 same: the login and OAuth pages in `auth`, onbod's onboarding flow, dashd's
 console, and the `/dash/<daemon>/` page of `authd`, `onbod`, `proxyd`,
-`routd`, `runed`, `timed`, `ttsd`, `webd` and every Go channel adapter
+`routd`, `runed`, `ttsd`, `webd` and every Go channel adapter
 through `chanlib`. Rather than ship a template engine, all of
 them pull a single CSS blob + a one-shot page wrapper from this
 package. Dark/light theming, layout primitives (`page-center`,
@@ -58,8 +58,7 @@ renders its state as tables, with at most a strip of count tiles at the
 top, through `Page`. The daemon pages open with the crumb
 `<div class="crumb"><a href="/dash/services/">arizuko hub</a> › <daemon></div>`,
 so every page leads back to the hub. `routd`, `runed`, `authd`, `proxyd`,
-`webd`, `ttsd` and the `chanlib` adapter page render it; `onbod` and
-`timed` do not. The stylesheet defines `.crumbs`, the class dashd's own
+`webd`, `ttsd` and the `chanlib` adapter page render it; `onbod` does not. The stylesheet defines `.crumbs`, the class dashd's own
 pages use, and no rule for `.crumb`.
 
 ## Dependencies

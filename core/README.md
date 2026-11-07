@@ -57,8 +57,7 @@ unloadable.
 Only the store writes `scheduled_tasks.next_run` from it: `DueTasks` for a cron
 task's first run and `RescheduleTask` for the run after each fire. The task
 surfaces call it at write time only to refuse a cron that could never run. A
-seeder that instead wrote `now` left five tasks due the moment a group was
-created, so timed's next sweep fired all five (BUGS `L312`).
+seeder must use the cron to avoid firing every task on group creation.
 
 ## Public API
 

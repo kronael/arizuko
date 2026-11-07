@@ -99,7 +99,6 @@ Identity badge always right-aligned in nav: `{name} ◆` (operator) or
 External pages reached from the dashboard (not served by dashd):
 
 - `/dash/onbod/` — onboarding queue (onbod daemon)
-- `/dash/timed/` — scheduled message queue (timed daemon)
 - `/me/chats` — the conversation list and `+ new chat` (webd daemon). The
   cockpit's `chat` tile and every folder link point here. dashd had its own
   chat portal until it was deleted (BUGS `V2`): it duplicated this page and
@@ -230,7 +229,7 @@ Per daemon (probed concurrently, 500ms timeout):
   `unknown` (DNS failure = container not deployed or local dev)
 - Link to `/dash/{daemon}/` only when `Built=true` AND status is not `unknown`
 
-Current daemon list: `routd`, `runed`, `authd`, `proxyd`, `onbod`, `timed`,
+Current daemon list: `routd`, `runed`, `authd`, `proxyd`, `onbod`,
 `webd`, `davd`. New daemons are added by editing `services.go`.
 
 #### Actions
@@ -252,7 +251,7 @@ Current daemon list: `routd`, `runed`, `authd`, `proxyd`, `onbod`, `timed`,
 #### Built tiles vs. the rest
 
 `/dash/routd/`, `/dash/runed/`, `/dash/authd/` and `/dash/proxyd/` are built;
-onbod, timed, webd and davd are not. A tile with `Built=false` must NOT render
+onbod, webd and davd are not. A tile with `Built=false` must NOT render
 a dead link — it shows the name as plain text plus "(coming soon)".
 
 The flag and the route are maintained in different files, so
@@ -598,8 +597,12 @@ container.SetupGroup; admin is granted to the creator.
 
 #### Purpose
 
-View and edit group configuration: model, open flag, observe window,
+View and edit group configuration: agent handler, model, open flag, observe window,
 skills, danger zone.
+
+The Agent field writes the group's `config.agent`. An absent value or numeric
+`1` selects `ant`; a handler name selects `/usr/local/bin/<name>`.
+Numeric `0` is unsupported. See [EXTENDING.md](EXTENDING.md#swapping-the-agent-harness).
 
 #### User stories
 
@@ -619,6 +622,7 @@ h1: Settings — {folder}
 p.dim: Group {folder} · product {product}
 
 <form method=post action=/dash/groups/{folder}/settings>
+  Agent:                  [text: ant or installed handler name]
   Model:                  [select: instance default | Claude Opus 4.7 | Claude Sonnet 4.6 | Claude Haiku 4.5]
   open:                   [checkbox] open — sibling groups can see messages sent here
   observe_window_messages: [number input] max messages a sibling sees (0 = default 50)

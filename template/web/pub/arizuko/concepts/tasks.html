@@ -66,10 +66,10 @@
     <h2>A task is one row with a prompt and a trigger</h2>
     <p>One row in the <code>scheduled_tasks</code> table is one recurring or one-time agent run. The body is a prompt string. The trigger is a cron expression, an interval in milliseconds, or one future timestamp.</p>
 
-    <h2>timed posts the prompt as a message</h2>
-    <p>The <code>timed</code> daemon ticks every 60 seconds. It opens no database. On each tick, it calls <code>GET /v1/tasks/due</code> on <code>routd</code>. <code>routd</code> claims every row where <code>status='active'</code> and <code>next_run &le; now</code>, sets each one to <code>'firing'</code> and returns them. For each row, <code>timed</code> posts the prompt to <code>POST /v1/messages</code> with the <code>chat_jid</code> of the task. The sender is <code>timed</code>, or <code>timed-isolated:&lt;id&gt;</code> for an isolated task.</p>
-    <p><code>routd</code> reads the new row in the same way as every other inbound message, routes it by <code>chat_jid</code> and starts a turn. The agent cannot tell that the prompt came from a clock and not from a person, because the code path is the same.</p>
-    <p>After the post, <code>timed</code> asks <code>routd</code> to set the next <code>next_run</code>, from the cron expression or the interval. If the task has no schedule, <code>routd</code> marks the row <code>'completed'</code>. <code>next_run</code> always comes from the <code>cron</code> value, and <code>schedule_task</code> takes no <code>next_run</code>. The one exception is the run-now action of the operator, a <code>PATCH</code> on the task over REST. Every run writes one row to <code>task_run_logs</code> with the duration and the status.</p>
+    <h2>routd posts the prompt as a message</h2>
+    <p>The task ticker runs once at startup and every 60 seconds inside <code>routd</code>. It claims due active rows through <code>DueTasks</code>, which marks them <code>firing</code>. It sends each prompt through the normal message ingress in the same process. The destination is the task's owner folder. <code>forwarded_from</code> records the task's chat JID.</p>
+    <p>The sender is <code>timed</code>, or <code>timed-isolated:&lt;id&gt;</code> for an isolated task. The message ID contains the task ID and scheduled time, so a repeated fire has the same identity.</p>
+    <p>routd records the enqueue result in <code>task_run_logs</code> and advances the schedule. A successful one-time task becomes <code>completed</code>. A failed one-time enqueue retains its scheduled time for the next tick.</p>
 
     <h2>The trigger has one of three shapes</h2>
     <p>The <code>cron</code> column holds one of three shapes:</p>
@@ -87,7 +87,7 @@
 
     <h2>Agents manage tasks, and operators use REST</h2>
     <p>An agent with the scheduling grants gets MCP tools to create, list, pause, resume and cancel tasks. <code>schedule_task</code> creates a task and removes duplicates on the prompt, chat and schedule, so a repeated call returns the existing ID. <code>inspect_tasks</code> joins <code>task_run_logs</code> to show when each task last ran and whether it succeeded. <a href="../reference/mcp.html">reference / mcp</a> has the full signatures.</p>
-    <p>The REST endpoints live on <code>routd</code> at <code>/v1/tasks</code>, not <code>/v1/scheduled_tasks</code>, because <code>timed</code> uses that prefix too:</p>
+    <p>The REST endpoints live on <code>routd</code> at <code>/v1/tasks</code>:</p>
     <dl>
       <dt><code>GET /v1/tasks</code></dt><dd>Lists tasks.</dd>
       <dt><code>GET /v1/tasks/{id}</code></dt><dd>Reads one task.</dd>
@@ -99,12 +99,12 @@
     <p>Every group starts with five tasks: <code>/compact-memories</code> for episodes by day, week and month, and for the diary by week and month. They run isolated, so a compaction never summarises its own work. <a href="../concepts/ant.html">the ant</a> shows what they compact.</p>
 
     <h2>A failed turn does not stop the schedule</h2>
-    <p>If the insert of the synthetic message fails, <code>timed</code> writes an error row to <code>task_run_logs</code>. It sets the task back to <code>active</code> without a new <code>next_run</code>. The next tick tries again.</p>
-    <p>If the insert succeeds but the agent run fails later, <code>timed</code> does not know. For the scheduler, the run succeeded. <code>next_run</code> advances as usual, and the task runs again at its next time. Nothing retries the failed turn automatically. The error is in the logs of <code>routd</code> and in the chat history of the folder. An operator, or the agent on its next run, decides what to do.</p>
+    <p>If the insert of the synthetic message fails, <code>routd</code> writes an error row to <code>task_run_logs</code>. It restores a one-time task to <code>active</code> with the same <code>next_run</code>. Recurring tasks advance to their next scheduled time.</p>
+    <p>If the insert succeeds but the agent run fails later, the task ticker does not know. For the scheduler, the run succeeded. <code>next_run</code> advances as usual, and the task runs again at its next time. The task ticker does not retry the failed agent turn. Normal turn retry rules still apply. The error is in the logs of <code>routd</code> and in the chat history of the folder. An operator, or the agent on its next run, decides what to do.</p>
     <p>A failure never changes the status to <code>paused</code>. A failing recurring task keeps running until someone pauses it or fixes the problem.</p>
 
-    <h2>timed has its own page</h2>
-    <p><a href="https://github.com/kronael/arizuko/blob/main/timed/README.md">[timed/README.md]</a> and <a href="../components/timed.html">components/timed</a> describe the daemon. <a href="../concepts/routing.html">routing</a> shows how the routed JID becomes a folder.</p>
+    <h2>routd owns scheduling</h2>
+    <p><a href="https://github.com/kronael/arizuko/blob/main/routd/README.md#routd-fires-scheduled-tasks">[routd/README.md]</a> describes the ticker. <a href="../concepts/routing.html">Routing</a> shows how messages reach a folder.</p>
 
       <nav class="docs-pager" aria-label="Pager">
         <a rel="prev" href="skills.html">&larr; Skills</a>
@@ -112,7 +112,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/concepts/tasks.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-21">2026-10-21</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-28">2026-10-28</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

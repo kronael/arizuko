@@ -31,7 +31,7 @@ Every `/dash/` surface dashd mounts. One spec per surface:
 | `davd.spec.ts`           | the `/dav/{folder}/` links                                                                  |
 | `auth.spec.ts`           | unauth 401, signed non-admin 403, signed admin 200/303                                      |
 
-Not covered, and deliberately: `/dash/onbod|timed|webd/` have no handler
+Not covered, and deliberately: `/dash/onbod|webd/` have no handler
 (`Built=false` in `dashd/services.go`) — `services.spec.ts` asserts they render
 as text, not links.
 

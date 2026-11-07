@@ -9,10 +9,11 @@ A handler can be a static Go program that calls no model.
 
 ## Today
 
-Go guest init always starts `/app/entrypoint.sh`
-(`kernel/guest-init/main.go:122`). That script compiles TypeScript on each
-spawn and runs Node (`ant/entrypoint.sh:7`). A group cannot select another
-program.
+Guest init selects `/usr/local/bin/ant` by default. The executable links to
+`ant/src/index.ts` and runs under Bun. Named handler selection is implemented.
+Numeric `agent: 0` is rejected. Real-guest acceptance remains unverified;
+missing or non-executable handlers return exit 71, which runed permits to retry.
+The no-agent lifecycle and terminal handler failure are unbuilt contracts.
 
 ## The change
 
@@ -21,7 +22,7 @@ The group setting `agent` from
 §"The binding is one key in the settings document" names the handler:
 
 - absent or `1`: `ant`
-- `0`: no turn, as 8/40 says
+- `0`: proposed no-turn behavior under 8/40; unsupported by the current parser
 - a name matching `[A-Za-z0-9_][A-Za-z0-9_.-]*`: `/usr/local/bin/<name>`
 
 routd carries the name in the run request, runed puts it in the turn
@@ -31,8 +32,8 @@ environment, and guest init executes `/usr/local/bin/<name>` directly
 (`runed/mounts.go:72`). An invalid name or a missing executable fails the
 turn with an error that names the handler. There is no fallback.
 
-`ant` runs under Bun: `ant/src/index.ts` gets a `#!/usr/local/bin/bun` line,
-and `/usr/local/bin/ant` links to it. `ant/entrypoint.sh` is deleted.
+`ant` runs under Bun: `ant/src/index.ts` starts with `#!/usr/local/bin/bun`,
+and `/usr/local/bin/ant` links to it.
 
 ## The handler contract
 

@@ -13,6 +13,11 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+- Align operator and package documentation with proxyd static serving, routd's
+  task ticker, Bun ant launch and group handler selection. Remove the retired
+  component pages and private-store bootstrap. Record deferred process folds,
+  contract proposals and existing test failures in the bug queue.
+
 - Agents message other groups with `send(chatJid="<folder>", text="...")`,
   checked against `mcp:send` on the target. `send` and routing hand-offs share
   `store.PostGroup`. Removed `delegate_group`, `escalate_group` and the

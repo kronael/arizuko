@@ -42,6 +42,24 @@ A progress row confers a reply obligation. Final delivery and last-answer tracki
 
 `Typing(on)` fires at dispatch. `Typing(off)` fires when the turn ends in `finishTurn`, the one writer of `done`. `finishTurn` deletes the progress line, marks the row `✓` or `✗` without a platform edit and does nothing at a second end. A line whose first send never landed is dead-lettered so the outbound sweep never posts it. A refused delete is logged and leaves the row as it was. A run that returns without ending its turn clears `Typing` and leaves the line at `⏳`.
 
+## routd fires scheduled tasks
+
+```text
+startup / 60-second tick ──► DueTasks ──► ingress ──► run log / reschedule
+```
+
+The task ticker runs once at startup and every 60 seconds in `schedule.go`.
+It calls `DueTasks`, then uses normal message ingress to enqueue each prompt
+at the task's owner folder. `forwarded_from` records the task's chat JID.
+It records the enqueue result and reschedules through the owning store.
+The ID `sched-<taskID>@<scheduled-time>` keeps repeated fires identical.
+A failed one-time enqueue retains its scheduled time for retry.
+
+The router cancellation context stops the loop, and shutdown joins the loop
+before closing the store. The router dashboard shows the last tick, firing
+count and error. `TestScheduleTasks` and `TestScheduleRetryKeepsMessageIdentity`
+in `schedule_test.go` cover firing and retry behavior.
+
 ## The turn in routd
 
 `ARCHITECTURE.md` section "Message Flow" shows the whole turn. These rules describe routd's half.
@@ -186,7 +204,7 @@ routd reads no table of another owner. Data of other daemons arrives over HTTP: 
 
 - `secrets` has write-only endpoints, create and key-delete, and no read. So `enc_value` cannot leak through a `GET`.
 - `installed_packages` serves only its two `GET` endpoints. `arizuko package add`, `rm` and `sync` write the rows.
-- `scheduled_tasks` is the one resource whose REST path is not `/v1/<name>`. It serves `/v1/tasks`, because timed calls that prefix across the container boundary.
+- `scheduled_tasks` is the one resource whose REST path is not `/v1/<name>`. It serves `/v1/tasks`.
 - An agent-only action is declared `MCPOnly` on the single `Endpoints` slice of its resource. Mounting and emission read the same list, so the document cannot advertise an endpoint that routd does not serve. The `MCPOnly` actions are `schedule`, `pause` and `resume` of `scheduled_tasks`, `issue_pair` of `route_tokens`, `list` of `acl` with the tool `list_acl`, and `register` of `groups` with the tool `register_group`. Group creation stays in `SetupGroup` of dashd.
 - `network_rules` has no REST face, because all three of its actions are `MCPOnly`.
 - `acl_membership` has one pair of faces, `unpair` over MCP and `DELETE /v1/acl_membership` over REST. Both limit the change to rows with `added_by='pairing'`. No endpoint writes the edge. It appears only when a human confirms a pairing link in a browser.
@@ -236,9 +254,8 @@ Held calls:
 Tasks:
 
 - `GET /v1/tasks` lists scheduled tasks. `GET`, `PATCH` and `DELETE` on `/v1/tasks/{taskId}` read, change and cancel one. The agent task tools share the handler [`tasks:read`, `tasks:write`]. `schedule_task(targetJid=...)` accepts a registered folder for internal work or a routed external chat. Silent memory reducers target their owner folder.
-- `GET /v1/tasks/due` claims due tasks [`tasks:read`].
 - `POST /v1/tasks/runlog` and `POST /v1/tasks/{id}/reschedule` record logs and reschedule [`tasks:write`]. Reschedule with no `next_run` reads the task's own cron: the next instant (`active`), `completed` for a one-shot, `error` for a cron that will not parse. `next_run` in the body retries the same fire.
-- `reschedule_task(taskId, next_run)` is the agent face of `PATCH /v1/tasks/{taskId}`: it sets the next run to an RFC3339 time, under the same owner containment as `pause_task`. timed re-arms a task when it enqueues the prompt, so a job that calls it in its own turn writes last and its time stands.
+- `reschedule_task(taskId, next_run)` is the agent face of `PATCH /v1/tasks/{taskId}`: it sets the next run to an RFC3339 time, under the same owner containment as `pause_task`. routd re-arms a task when it enqueues the prompt, so a job that calls it in its own turn writes last and its time stands.
 - `GET /v1/tasks/runs` and `GET /v1/tasks/{id}/runs` read run logs [`tasks:read`].
 
 Dead letters and cost:

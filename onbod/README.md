@@ -294,7 +294,7 @@ signer; onbod never holds a signing key.
   `X-User-Sub`. Unproven identity headers are stripped.
 - **Admin verifier.** `/v1/*` endpoints check bearer scope
   (`invites:read`, `invites:write`, `gates:read`, `gates:write`) via
-  `auth.HasScope` — identical pattern to routd and timed.
+  `auth.HasScope` — identical pattern to routd.
 - **CSRF protection.** POST /onboard actions require double-submit token
   (cookie `onbod_csrf` + form field `csrf`) to prevent cross-site
   exploitation of the auth proxy cookie.

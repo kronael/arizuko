@@ -1,13 +1,12 @@
 # template
 
-Instance seed files, bundled adapter packages and Vite web scaffold.
+Instance seed files, bundled adapter packages and static web tree.
 
 ## Purpose
 
 Files copied into a new instance's data dir by `arizuko create` and by
 `compose.Generate`. `services/` holds bundled adapter packages that
-`arizuko package add` selects. `web/` is a minimal Vite
-scaffold that `vited` serves in dev.
+`arizuko package add` selects. `web/` is the static tree that `proxyd` serves.
 
 ## Contents
 
@@ -22,8 +21,7 @@ scaffold that `vited` serves in dev.
   TTS on for runed). `litellm` is the model gateway: a
   third-party image whose config is inline in the fragment and whose
   credential is interpolated from `.env`
-- `web/` — Vite project (`pub/`, `priv/`, `secret/` path regions,
-  `vite.config.ts`, `package.json`)
+- `web/` — static HTML and assets under `pub/` and `priv/`.
 
 ## Usage
 

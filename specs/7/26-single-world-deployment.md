@@ -273,26 +273,6 @@ Show last tick, errors and firing counts in routd's existing dashboard.
 Remove timed's service key, container, binary, route and tile.
 This does not prescribe routd's internal organization; that is a separate review.
 
-## Open questions
-
-1. **Fold onbod into routd?** onbod opens its own store and routd's store at
-   `onbod/main.go:79` and `onbod/main.go:90`; admission tables and audits belong
-   to onbod (`onbod/db.go:21`). routd already handles unrouted chats and calls
-   onbod (`routd/cmd/routd/main.go:238`).
-   Recommendation: evaluate an in-process admission module in routd, retaining
-   the onbod table owner and gates. Pages can move to webd only if that reuses
-   its existing surface without a new cross-daemon API. Approve the boundary
-   after measuring net memory and the exact reused code. A table migration or
-   a new webd protocol would be a separate design, not a free process fold.
-2. **Fold dashd or other small daemons?** dashd imports platform code
-   (`dashd/services.go:16`),
-   and onbod/dashd each belong to the measured small-daemon group. Import coupling
-   does not establish saved work or net memory (`dashd/main.go:296`).
-   Recommendation: defer further folds until a comparison identifies both.
-   Keep useful standalone services and platform-adapter processes. Keep runed's
-   execution isolation under [6/41-qemu-substrate](../6/41-qemu-substrate.md).
-   The 12.5 MiB average is not an individual or net saving for any candidate.
-
 ## Contract
 
 The owner measurements above are the baseline, not an achieved saving.
@@ -318,5 +298,5 @@ Acceptance checks:
    Consolidation changes neither table authority nor package discovery.
 6. Remove Vite and timed documentation, image hooks and stale links in the same
    implementation. Run build, lint, short tests, spec-reference and webdoc checks.
-   Report net memory per fold; leave onbod/dashd unmerged until their questions
-   have measured answers.
+   Report net memory per fold; leave onbod/dashd separate pending the deferred
+   proposals in BUGS L688 and L689.

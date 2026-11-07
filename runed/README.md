@@ -157,6 +157,12 @@ Both rows name the caller. `actor` is the JWT sub of the bearer, and `actor_sub`
 
 ## The turn envelope
 
+The run request's `agent` field names the handler. `turnEnv` passes a nonempty
+name as `ARIZUKO_AGENT`. Guest init executes `/usr/local/bin/<name>`;
+an absent value selects `/usr/local/bin/ant`, the Bun executable.
+The group's `agent` setting selects this name; see
+[EXTENDING.md](../EXTENDING.md#swapping-the-agent-harness).
+
 The stdin frame of the guest carries model credentials only. They come from two sources. The first is the operator anchors in the host `.env`, the keys of `store.EnvProfileKeys`: `ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_OAUTH_TOKEN`, `OPENAI_API_KEY` and `CODEX_API_KEY`. The second is the own rows of the triggering user for the same keys, which let a user bring an own account (`routd.DB.EnvProfileSecrets`). The user rows overlay the anchors.
 
 When `MODEL_GATEWAY_URL` configures a model gateway, `spawnSecrets` withholds those keys from both sources. The guest then holds only `MODEL_GATEWAY_KEY`, the virtual key of the gateway. runed resolves capability credentials, scoped to a folder or a user, on the host at tool-call time through the broker, and they never enter the guest.

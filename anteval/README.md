@@ -166,7 +166,7 @@ isolated means no `--resume` by definition). Run it by hand like any case:
 Two continuity properties stay UNMEASURED live, deliberately:
 
 - **Transcript resume across turns (layer 1).** A scheduled fire carries no
-  topic (`timed/split.go`), so a group-context follow-up resumes the ROOT
+  topic (`routd/schedule.go`), so a group-context follow-up resumes the ROOT
   session while every case runs in its own topic; injecting a case into the
   root topic would contaminate the baseline the driver just established. The
   one-inject case model cannot express "learn in turn 1, recall in turn 2 of

@@ -22,8 +22,8 @@ request
 │ hard-wired paths ├──►/                mapped host? 302 /pub/W/
 │                  │                    else 302 /pub/
 │                  │   /pub/*           web_routes longest prefix:
-│                  │                    redirect, deny, auth or vited
-│                  │   /priv/*          requireAuth, MatchSlot, vited
+│                  │                    redirect, deny, auth or local files
+│                  │   /priv/*          requireAuth, MatchSlot, local files
 └────────┬─────────┘
          ▼ one snapshot of proxyd_routes per request
 ┌──────────────────┐   /dav/*           requireAuth, davAllow, davd
@@ -58,7 +58,7 @@ The figure shows the order in `server.route` (`proxyd/main.go`). Each stage exis
 
 - **proxyd's own mux** answers the paths that proxyd serves itself. These paths never reach `route`, so `/dash/proxyd/` carries its own `requireAuth`. Without it, the route table and its write forms would serve an anonymous caller. `/auth/forward` sits before the `/auth/*` proxy, so proxyd answers it and authd never sees it. An `/auth/*` path that no mux entry serves falls through to `route`. `route` treats it as a private surface and gates it with `requireAuth`, so it bounces to `/auth/login` and not to the public `/pub/` redirect.
 - **The header strip** runs once, before any decision. No identity header that a client supplies survives ingress, so nobody outside can feed one to a backend that reads it.
-- **The hard-wired paths** stay in Go because a row cannot express them. `/pub/*` probes `PUB_REDIRECT_URL` and passes websocket upgrades to vited. `/priv/*` checks the scopes of the caller against the folder that owns the slot. `/` front-doors a mapped host.
+- **The hard-wired paths** stay in Go because a row cannot express them. `/pub/*` probes `PUB_REDIRECT_URL` and serves local files for websocket upgrades. `/priv/*` checks the scopes of the caller against the folder that owns the slot. `/` front-doors a mapped host.
 - **One snapshot** of `proxyd_routes` serves the whole request. The matched route and its backend come from the same read, so a concurrent edit cannot pair the `auth` of one row with the backend of another row.
 - **The final catch-all** turns any unmatched path into a public URL. Every reserved prefix is dispatched above it, so the host redirect here cannot shadow `/dash`, `/chat` or any other surface on any host.
 
@@ -81,7 +81,7 @@ The redirect runs at bare `/` and at the final catch-all, and nowhere else. The 
 
 1. The host redirect of proxyd maps `W.<HOSTING_DOMAIN>` to `/pub/W/`.
 2. proxyd matches the longest `web_routes` prefix of the path.
-3. vited serves the file from `<data>/web/pub/`.
+3. proxyd serves the file from `<data>/web/pub/`.
 
 The path prefix is the coordinate of the row. The attributes are:
 
@@ -91,7 +91,7 @@ The path prefix is the coordinate of the row. The attributes are:
 | `redirect_to` | used when `access` is `redirect`                            |
 | `folder`      | the owning group, which is the caller and never an argument |
 
-`public` and no match forward to vited. `auth` runs `requireAuth` of proxyd first. `deny` answers 403. `redirect` answers 302 with the matched prefix replaced by `redirect_to`.
+`public` and no match serve local files. `auth` runs `requireAuth` of proxyd first. `deny` answers 403. `redirect` answers 302 with the matched prefix replaced by `redirect_to`.
 
 Agents add and remove rows with the MCP tools `set_web_route`, `del_web_route` and `list_web_routes` (`routd/web_routes_resource.go`). routd makes every write. proxyd reads the whole inventory on every request (`store.AllWebRoutes`) and matches it in Go (`matchWebRoute`).
 
@@ -187,6 +187,20 @@ When no `/dav/` row exists, because WebDAV is not enabled, proxyd answers 404 `W
 
 Bare `/dav` redirects to the first group of the caller in sorted order that is not `**`, or to `root` when there is none. A blocked request logs `"dav blocked"`, or `"dav destination blocked"` or `"dav destination forbidden"` for the header, and gets `403 Forbidden`.
 
+## proxyd serves the web tree
+
+proxyd serves files from `<DATA_DIR>/web` through `http.FileServer` in `static.go`.
+Compose mounts the web tree read-only. Directory requests serve `index.html`;
+a directory without a trailing slash returns 301 and keeps the query.
+Paths outside `/pub/` and `/priv/` resolve under `/pub/`.
+Missing files and directories without an index return 404.
+
+The handler denies `.env`, `.env.*`, `*.db` and `.git` at every depth,
+including symlink targets. Links must stay inside the authorized public or
+private tree. Private files retain the folder checks described above.
+Files update on the next request. There is no watcher, injected client or
+browser reload service.
+
 ## Entry points
 
 The binary is `proxyd/main.go`. It listens on `$PROXYD_LISTEN`, default `8080`.
@@ -194,8 +208,8 @@ The binary is `proxyd/main.go`. It listens on `$PROXYD_LISTEN`, default `8080`.
 - `/health` is the healthcheck.
 - `/auth/*` is proxied to authd, so the browser sees only the public host.
 - `/auth/forward` is the subrequest surface for a fronting proxy.
-- `/pub/*` serves public files, from vited or through the `PUB_REDIRECT_URL` redirect.
-- `/priv/*` serves private files behind auth, from vited.
+- `/pub/*` serves public files, from the web tree or through the `PUB_REDIRECT_URL` redirect.
+- `/priv/*` serves private files behind auth, from the web tree.
 - `/dav/*` is WebDAV, behind auth, scoped to the group and write-blocked.
 - `/v1/proxyd_routes` is the operator REST and MCP resource.
 - `/openapi.json` serves the OpenAPI document and is public.
@@ -209,7 +223,7 @@ The binary is `proxyd/main.go`. It listens on `$PROXYD_LISTEN`, default `8080`.
 ## Configuration
 
 - `PROXYD_LISTEN` is the listen port. The default is `8080`.
-- `VITE_ADDR` is the backend for `/pub/*` and `/priv/*`. The default is `http://vited:8080`.
+- `DATA_DIR` selects the instance directory. proxyd serves its `web/` subtree, which Compose mounts read-only.
 - `AUTH_SECRET` keys the OAuth CSRF state. When it is unset, `requireAuth` answers 404, because the login flow cannot complete.
 - `AUTHD_URL` is the authd endpoint for the ES256 JWKS, for `/v1/refresh` and for the `/auth/*` proxy.
 - `AUTHD_SERVICE_KEY` is the service key of proxyd for the minting of its ES256 bearer.
@@ -217,7 +231,7 @@ The binary is `proxyd/main.go`. It listens on `$PROXYD_LISTEN`, default `8080`.
 - `TRUSTED_PROXIES` is a comma-separated list of CIDRs. A bare IP gets `/32` or `/128`. proxyd keeps `X-Forwarded-For` only from a peer in the list.
 - `HOSTING_DOMAIN` derives the world hosts from `<world>.<HOSTING_DOMAIN>`.
 - `WEB_VHOST_ALIASES` lists host-to-world entries that proxyd reads before the derivation.
-- `PUB_REDIRECT_URL` is optional. When it is set and the probe succeeds, `/pub/*` returns `302` to `<url>/<rest>` and keeps the path and the query. Websocket upgrades and probe failures fall back to vited. The HEAD probe has a timeout of 2 s, and proxyd caches the result for 30 s.
+- `PUB_REDIRECT_URL` is optional. When it is set and the probe succeeds, `/pub/*` returns `302` to `<url>/<rest>` and keeps the path and the query. Websocket upgrades and probe failures fall back to local files. The HEAD probe has a timeout of 2 s, and proxyd caches the result for 30 s.
 - `DYNAMODB_URL` and the store credentials name the store server that holds the tables that proxyd reads and writes (`objstore/README.md`).
 
 ## Health signal

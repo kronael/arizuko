@@ -242,8 +242,9 @@ make image      # docker build → arizuko-ant:latest (TS runtime)
 ```
 
 The image uses `node:22-slim` and copies the `ant/` build context to `/app`.
-The build checks the TypeScript and removes `dist`. The `/app/entrypoint.sh`
-entrypoint compiles to `/tmp/dist` for each turn and runs `index.js`.
+The build checks TypeScript and removes `dist`. `/usr/local/bin/ant` links
+to `/app/src/index.ts`, whose shebang runs Bun. Guest init starts that executable
+when the group selects the default handler.
 `runed` mounts installed packages and selected skills read-only into the guest.
 
 `ant/Dockerfile` is the one inventory of what else the agent can reach —
