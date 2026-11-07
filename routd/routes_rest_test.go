@@ -304,3 +304,19 @@ func TestRouteByIDAmbiguity_IsAConflictAndNotAnArbitraryRow(t *testing.T) {
 		}
 	}
 }
+
+func TestRESTRoutesRejectInvalidTargets(t *testing.T) {
+	db, h := authSrv(t, fakeVerifier{sub: "user:u", scope: []string{"routes:write:own_group"}, folder: "hq"})
+	if err := db.PutGroup(core.Group{Folder: "hq"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, target := range []string{"hq?unknown", "hq#{unknown}"} {
+		r := doJSON(t, h, "POST", "/v1/routes", "", map[string]any{"route": apiv1.Route{Seq: 1, Match: "platform=slack", Target: target}})
+		if r.Code < 400 {
+			t.Errorf("accepted %q: %d", target, r.Code)
+		}
+	}
+	if rows, err := db.Routes(); err != nil || len(rows) != 0 {
+		t.Fatalf("routes = %+v, %v", rows, err)
+	}
+}

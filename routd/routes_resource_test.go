@@ -25,6 +25,7 @@ package routd
 // descendants — the cross-folder arms target a sibling/parent OUTSIDE that scope).
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -601,5 +602,26 @@ func TestRoutesMCP_WebJIDRuleIsRefusedOnBothWriters(t *testing.T) {
 	}
 	if got, _ := db.Routes(); len(got) != 0 {
 		t.Fatalf("a refused web-JID rule was still written: %+v", got)
+	}
+}
+
+func TestRoutesMCPRejectInvalidTargets(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	if err := db.PutGroup(core.Group{Folder: "hq"}); err != nil {
+		t.Fatal(err)
+	}
+	grantMCPTools(t, db, "hq", routeToolNames...)
+	sock := serveRoutesMCPElevated(t, db, "hq")
+	for _, route := range []string{`{"seq":1,"match":"platform=slack","target":"hq?unknown"}`, `{"seq":1,"match":"platform=slack","target":"hq#{unknown}"}`} {
+		if _, msg := callToolOverSock(t, sock, "add_route", map[string]any{"route": route}); msg == "" || !strings.Contains(msg, "invalid route mode") && !strings.Contains(msg, "unknown placeholder") {
+			t.Errorf("route %s: %s", route, msg)
+		}
+	}
+	if rows, err := db.Routes(); err != nil || len(rows) != 0 {
+		t.Fatalf("routes = %+v, %v", rows, err)
 	}
 }
