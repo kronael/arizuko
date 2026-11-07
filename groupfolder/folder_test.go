@@ -13,7 +13,7 @@ func TestIsValidFolder(t *testing.T) {
 		"atlas/tg-123456",
 	}
 	for _, f := range valid {
-		if !isValidFolder(f) {
+		if !IsValidFolder(f) {
 			t.Errorf("expected valid: %q", f)
 		}
 	}
@@ -26,7 +26,7 @@ func TestIsValidFolder(t *testing.T) {
 		"a/",
 	}
 	for _, f := range invalid {
-		if isValidFolder(f) {
+		if IsValidFolder(f) {
 			t.Errorf("expected invalid: %q", f)
 		}
 	}
