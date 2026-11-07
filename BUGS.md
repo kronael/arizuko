@@ -23,7 +23,6 @@
 - `L655` — products as full packages (`catalog:<name>`) and persona layering (`PERSONA.local.md`); proposal, needs sign-off.
 - `L650` — an `extenddb` reached 10 GB and was OOM-killed; the host reset 8 times on 11-03; cause unmeasured.
 - `L647` — weekly memory rollups missing on alternate Mondays (W40, W42 in every active krons group); cause unmeasured, spawn rows gone.
-- `L644` — krons token hit its monthly spend limit; choose a token with budget.
 - `L639` — refuse a platformless JID in `send_file`, `send_voice` and `post` after the return swap; fix queued.
 - `L620` — reconcile run-stop service authorization with the stated contract.
 - `L540` — dashd's grant form and `POST /v1/acl` write rows without
@@ -33,6 +32,7 @@
   without re-adding rows an operator removed?
 - `L597` — choose whether human conversation takes priority over CI in bounded observed context.
 - `L677` — decide the cross-process event path for the 6/46 single progress producer.
+- `L678` — no door writes group `effort`; dashd lists only 4.x models (in the per-group harness spec).
 
 
 
@@ -475,6 +475,20 @@ that version. A change to which rows reach live data is an auth change.
 
 - **Status:** open — needs sign-off.
 
+
+## L678 — no operator door writes a group's `effort`, and dashd lists only 4.x models (2026-11-07, open — folded into the per-group harness spec)
+
+Measured at `3e8d7bf2a`. `store/groups.go:592` reads `effort` from the group
+settings document, and nothing writes it: `cfgEffort` appears only at `:50` and
+`:592`, the `arizuko group` CLI has no set verb (`cmd/arizuko/main.go:411`), and
+the groups resreg resource has no update action. dashd's model select
+(`dashd/groups_admin.go:285-290`) offers only Opus 4.7, Sonnet 4.6 and Haiku
+4.5. The only working door is `arizuko apply` of a groups rows file with a
+hand-written `config` JSON; `rhias/trip` was set to Fable high that way.
+
+- **Severity:** medium (an operator cannot set effort or a current model without hand-written JSON)
+- **Test:** none yet; the per-group harness spec names it.
+- **Fix:** one write door for the group harness (backend, model, effort), in the spec Astra drafts in `.astra-backend`.
 
 ## L677 — the 6/46 single progress producer needs a cross-process event path (2026-11-07, open — needs sign-off)
 
@@ -998,7 +1012,7 @@ gap), "make it simpler; if the agent can do it, don't do it through runed".
 - **Fix:** the core package ships a UserPromptSubmit hook that nudges /solve on
   a session's first prompt and after an idle gap; runed stops writing `[solve]`.
 
-## L644 — krons answers nothing since 2026-11-01: its OAuth token hit the monthly spend limit (2026-11-02, open — operator)
+## L644 — krons answers nothing since 2026-11-01: its OAuth token hit the monthly spend limit (2026-11-02, ✅ RESOLVED 2026-11-07 — operator)
 
 MEASURED 2026-11-02. `journalctl -u arizuko_krons` since 00:00: 28 runs, 28
 `Guest exited with code 78`; the eval read "You've hit your org's monthly
@@ -1008,7 +1022,7 @@ spend limit" in the group logs. Last successful krons run 2026-11-01T07:38
 
 - **Severity:** high (krons serves no turn)
 - **Scope:** `/srv/data/arizuko_krons/.env`
-- **Status:** open — operator: choose a token with budget
+- **Status:** ✅ RESOLVED 2026-11-07: krons `.env` now carries the sloth token (sha256 d81e2c8c); a Fable turn on `rhias/trip` exited 0 at 12:39.
 - **Fix:** set a token with budget, restart `arizuko_krons`
 
 ## L639 — the platform-prefix refusal sits before the delegation return swap (2026-11-02, open)
