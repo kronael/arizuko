@@ -88,7 +88,7 @@ func TestSpawnSecrets_GatewayWithholdsModelCredential(t *testing.T) {
 	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "operator-oauth")
 	t.Setenv("ANTHROPIC_API_KEY", "")
 	cfg := &core.Config{Timezone: "UTC", ModelGatewayURL: "http://gw:4000"}
-	user := map[string]string{"ANTHROPIC_API_KEY": "user-byoa", "GITHUB_TOKEN": "ghp-shell-env"}
+	user := map[string]string{"ANTHROPIC_API_KEY": "user-byoa", "OPENAI_API_KEY": "user-openai", "GITHUB_TOKEN": "ghp-shell-env"}
 
 	got := spawnSecrets(cfg, user)
 
@@ -97,6 +97,9 @@ func TestSpawnSecrets_GatewayWithholdsModelCredential(t *testing.T) {
 	}
 	if v, ok := got["ANTHROPIC_API_KEY"]; ok {
 		t.Errorf("user-scope ANTHROPIC_API_KEY=%q reached the spawn with a gateway configured", v)
+	}
+	if _, ok := got["OPENAI_API_KEY"]; ok {
+		t.Error("gateway exposes user OPENAI_API_KEY")
 	}
 	if got["GITHUB_TOKEN"] != "ghp-shell-env" {
 		t.Errorf("shell:env key dropped by the gateway filter: %v", got)
@@ -113,7 +116,7 @@ func TestSpawnSecrets_NoGatewayKeepsBothSources(t *testing.T) {
 	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "operator-oauth")
 	t.Setenv("ANTHROPIC_API_KEY", "operator-anchor")
 	cfg := &core.Config{Timezone: "UTC"}
-	user := map[string]string{"ANTHROPIC_API_KEY": "user-byoa", "GITHUB_TOKEN": "ghp-shell-env"}
+	user := map[string]string{"ANTHROPIC_API_KEY": "user-byoa", "OPENAI_API_KEY": "user-openai", "GITHUB_TOKEN": "ghp-shell-env"}
 
 	got := spawnSecrets(cfg, user)
 	want := mergeSecrets(readSecrets(), user)
@@ -125,6 +128,9 @@ func TestSpawnSecrets_NoGatewayKeepsBothSources(t *testing.T) {
 		if got[k] != v {
 			t.Errorf("%s = %q, want %q", k, got[k], v)
 		}
+	}
+	if got["OPENAI_API_KEY"] != "user-openai" {
+		t.Error("direct mode lost caller OPENAI_API_KEY")
 	}
 	if got["CLAUDE_CODE_OAUTH_TOKEN"] != "operator-oauth" || got["ANTHROPIC_API_KEY"] != "user-byoa" {
 		t.Errorf("unset gateway must change nothing: %v", got)

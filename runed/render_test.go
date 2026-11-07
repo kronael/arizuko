@@ -104,7 +104,7 @@ func TestRenderTurnGolden(t *testing.T) {
 		ContainerConfig: map[string]any{
 			"Mounts": []any{map[string]any{"Host": filepath.Join(root, "extra"), "Container": "extra", "RO": false}},
 		},
-		ShareReadOnly: true, Egress: true, WebPublish: true, GHWrite: true, Codex: true, Progress: true,
+		ShareReadOnly: true, Egress: true, WebPublish: true, GHWrite: true, Progress: true,
 		EgressAllowlist: []string{"github.com"},
 		Secrets:         map[string]string{"ANTHROPIC_API_KEY": "sk-user"}}, "arizuko-krons-atlas-support-1700000000000", 20*time.Minute)
 	if err != nil {
@@ -271,7 +271,7 @@ func TestRenderTurnGoldenElevated(t *testing.T) {
 	folders := resolverFor(cfg)
 
 	turn, err := renderTurn(cfg, folders, runedv1.RunRequest{Packages: []string{"core"}, Folder: "main", ChatJID: "telegram:user/42", Channel: "telegram",
-		MessageBatch: "do the thing", TurnID: "turn-9", Elevated: true, Codex: true,
+		MessageBatch: "do the thing", TurnID: "turn-9", Elevated: true,
 		Secrets:         map[string]string{"ANTHROPIC_API_KEY": "sk-user", "GH_TOKEN": "ghp"},
 		ModelGatewayKey: "sk-virtual-turn"}, "arizuko-krons-main-1700000000000", 0)
 	if err != nil {

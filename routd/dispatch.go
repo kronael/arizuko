@@ -872,14 +872,13 @@ func (l *Loop) dispatchRun(ctx context.Context, folder, topic, chatJID, turnID, 
 	egress := elevated || l.db.Authorize(sub, folder, "egress", nil)
 	webPublish := elevated || l.db.Authorize(sub, folder, "web:publish", nil)
 	ghWrite := elevated || l.db.Authorize(sub, folder, "gh:write", nil)
-	codex := elevated || l.db.Authorize(sub, folder, "codex", nil)
 	// This line IS the signal for a denied capability: web:publish=false makes
 	// the runner skip the web mounts and the agent reports a broken mount;
 	// without it the host has nothing to grep.
 	slog.Info("dispatch capabilities resolved",
 		"folder", folder, "turn_id", turnID, "elevated", elevated,
 		"egress", egress, "share_readonly", shareRO, "web_publish", webPublish,
-		"gh_write", ghWrite, "codex", codex,
+		"gh_write", ghWrite,
 		"shell_env", slices.Sorted(maps.Keys(shellEnv)))
 	packages, managed, err := l.db.SelectedPackages(folder)
 	if err != nil {
@@ -912,7 +911,6 @@ func (l *Loop) dispatchRun(ctx context.Context, folder, topic, chatJID, turnID, 
 		Egress:          egress,
 		WebPublish:      webPublish,
 		GHWrite:         ghWrite,
-		Codex:           codex,
 		EgressAllowlist: allowlist,
 		Secrets:         secrets,
 		// routd holds what mints it; runed injects what it is given.

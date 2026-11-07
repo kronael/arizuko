@@ -267,7 +267,7 @@ func TestBuildMountsOwnsTheGroupCodexDirBeforeDockerSeesIt(t *testing.T) {
 	cfg, folders := fhsConfig(t)
 	cfg.HostCodexDir = t.TempDir()
 
-	req := runedv1.RunRequest{Packages: []string{"core"}, Folder: "atlas/support", Codex: true}
+	req := runedv1.RunRequest{Packages: []string{"core"}, Folder: "atlas/support"}
 	groupDir := filepath.Join(cfg.GroupsDir, string(req.Folder))
 	os.MkdirAll(groupDir, 0o755)
 
@@ -348,11 +348,7 @@ func TestBuildMounts_DocsSubtreeWithoutWebPublish(t *testing.T) {
 	}
 }
 
-// The group's .codex dir carries the rollouts `codex exec resume` reads, so it
-// mounts for every folder. The credential overmounts are the `codex` grant's:
-// they exist only when the request carries it, and the writable group dir must
-// come FIRST (bind mounts apply in list order).
-func TestBuildMountsCodexCredsFollowTheGrant(t *testing.T) {
+func TestBuildMountsCodexCredentials(t *testing.T) {
 	cfg, folders := fhsConfig(t)
 	cfg.HostCodexDir = t.TempDir()
 	for _, n := range container.CodexROMounts {
@@ -366,20 +362,10 @@ func TestBuildMountsCodexCredsFollowTheGrant(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// HostCodexDir set, no grant: the group dir mounts, the overmounts do not.
 	mounts := mustBuildMounts(t, cfg, folders, req, core.GroupConfig{}, groupDir)
 	if m := findMount(mounts, "/home/node/.codex"); m == nil || m.RO {
-		t.Fatalf("group .codex mount missing or read-only (%+v) — rollouts would die with the guest", m)
+		t.Fatalf("group mount = %+v", m)
 	}
-	for _, n := range container.CodexROMounts {
-		if findMount(mounts, "/home/node/.codex/"+n) != nil {
-			t.Errorf("credential %s mounted without the codex grant", n)
-		}
-	}
-
-	// Granted: both overmount RO, after the group dir, as a copy the run uid owns.
-	req.Codex = true
-	mounts = mustBuildMounts(t, cfg, folders, req, core.GroupConfig{}, groupDir)
 	dir := indexOfMount(mounts, "/home/node/.codex")
 	uid, _ := container.RunUID()
 	for _, n := range container.CodexROMounts {
@@ -405,6 +391,17 @@ func TestBuildMountsCodexCredsFollowTheGrant(t *testing.T) {
 		}
 		if dir > i {
 			t.Errorf("the group .codex dir (%d) must precede the %s overmount (%d)", dir, n, i)
+		}
+	}
+
+	cfg.ModelGatewayURL = "http://gateway"
+	gatewayMounts := mustBuildMounts(t, cfg, folders, req, core.GroupConfig{}, groupDir)
+	if findMount(gatewayMounts, "/home/node/.codex") == nil {
+		t.Fatal("gateway lost rollouts")
+	}
+	for _, n := range container.CodexROMounts {
+		if findMount(gatewayMounts, "/home/node/.codex/"+n) != nil {
+			t.Fatalf("gateway exposes %s", n)
 		}
 	}
 

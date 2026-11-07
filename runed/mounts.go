@@ -171,7 +171,7 @@ func buildMounts(
 	mkMountSource(groupCodex)
 	m = append(m, core.Mount{Host: groupCodex, Container: core.ContainerHome + "/.codex"})
 	// The host login is lent only to a folder holding the `codex` grant.
-	if cfg.HostCodexDir != "" && req.Codex {
+	if cfg.HostCodexDir != "" && cfg.ModelGatewayURL == "" {
 		container.SeedCodexMountTargets(groupCodex)
 		m = append(m, stageCodexCreds(cfg.HostCodexDir, ipcDir)...)
 	}

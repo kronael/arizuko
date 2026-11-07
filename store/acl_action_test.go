@@ -50,7 +50,7 @@ func TestACLActionEveryWriteDoor(t *testing.T) {
 
 func TestACLActionVocabulary(t *testing.T) {
 	for _, action := range []string{
-		"*", "admin", "interact", "egress", "web:publish", "gh:write", "codex", "mcp:*",
+		"*", "admin", "interact", "egress", "web:publish", "gh:write", "mcp:*",
 		"mcp:send", "shell:env:GITHUB_TOKEN", "shell:env:*",
 		"ext:cloudflare:dns:read", "hold:mcp:send", "hold:mcp:*",
 		"groups.list", "installed_packages:list", "installed_packages:get",
@@ -63,5 +63,11 @@ func TestACLActionVocabulary(t *testing.T) {
 				t.Fatal(err)
 			}
 		})
+	}
+}
+
+func TestCodexIsNotAnACLAction(t *testing.T) {
+	if err := ValidateACLAction("codex"); err == nil {
+		t.Fatal("codex is a model credential, not a grant")
 	}
 }
