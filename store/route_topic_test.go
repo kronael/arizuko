@@ -12,6 +12,7 @@ func TestRouteTopicUsesNativeThreadBeforeSticky(t *testing.T) {
 		{"team", "", "sticky"},
 		{"team", "native", "native"},
 		{"team#{thread}", "native", "native"},
+		{"team#{thread}", "", ""},
 		{"team#prefix-{thread}", "native", "prefix-native"},
 		{"team#prefix-{thread}", "", "prefix-"},
 		{"team#{jid}", "native", "slack:channel"},

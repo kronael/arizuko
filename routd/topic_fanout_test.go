@@ -196,6 +196,11 @@ func TestRouteTopicControlsEngagementAndObservation(t *testing.T) {
 				if got.Observe != "desk" {
 					t.Fatalf("resolution = %+v", got)
 				}
+				loop.routeMiss(jid, []core.Message{m}, got)
+				observed := db.ObservedSince("desk", "", 10, 10000)
+				if len(observed) != 1 || observed[0].Topic != jid {
+					t.Fatalf("observed = %+v", observed)
+				}
 			} else if !got.ok || got.Folder != "desk" {
 				t.Fatalf("resolution = %+v", got)
 			}
