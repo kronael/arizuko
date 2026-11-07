@@ -6,7 +6,7 @@
 import fs from 'fs';
 import path from 'path';
 import { ALLOW, ToolEvent, Verdict } from './policy.js';
-import { blockingVerdict, isGuardedPath } from './skillguard.js';
+import { blockingVerdict } from './skillguard.js';
 
 // SECRET_ENV_VARS are unset in front of every Bash command on claude.
 //
@@ -199,5 +199,3 @@ export function bashSkillRescan(home: string): (ev: ToolEvent) => Verdict {
     return ALLOW;
   };
 }
-
-export { isGuardedPath };
