@@ -206,7 +206,7 @@ func TestWebhook_TwoReposOneSecret(t *testing.T) {
 	}
 	got := e.routd.messages()
 	if len(got) != 2 || got[0].ChatJID != "github:kronael/arizuko/pr/12" || got[1].ChatJID != "github:kronael/crackbox/issue/7" ||
-		got[0].Topic != "pr/12" || got[1].Topic != "issue/7" {
+		got[0].Topic != "" || got[1].Topic != "" {
 		t.Fatalf("messages = %+v", got)
 	}
 }
@@ -279,7 +279,7 @@ func TestWebhook_ReviewRequestFromBotIsMention(t *testing.T) {
 		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
 	}
 	got := e.routd.messages()
-	if len(got) != 1 || got[0].Verb != "mention" || got[0].Topic != "pr/5" {
+	if len(got) != 1 || got[0].Verb != "mention" || got[0].Topic != "" {
 		t.Fatalf("routd got %+v", got)
 	}
 }

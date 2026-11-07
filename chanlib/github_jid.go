@@ -68,13 +68,3 @@ func FormatGitHubJID(owner, repo, kind string, number int) string {
 func (j GitHubJID) String() string {
 	return FormatGitHubJID(j.Owner, j.Repo, j.Kind, j.Number)
 }
-
-// Topic is the InboundMsg.Topic for this JID: `pr/<n>` or `issue/<n>`, empty
-// at repo and owner level. sessions is keyed (folder, topic), so this field is
-// what gives two PRs in one folder two sessions.
-func (j GitHubJID) Topic() string {
-	if j.Kind == "" {
-		return ""
-	}
-	return j.Kind + "/" + strconv.Itoa(j.Number)
-}

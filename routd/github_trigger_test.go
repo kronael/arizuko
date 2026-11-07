@@ -24,7 +24,8 @@ func TestGitHubIngressPromotesOnlyAReplyToTheBot(t *testing.T) {
 	loop := NewLoop(db, nil, LoopConfig{})
 	defer loop.StopQueue()
 	for _, kind := range []string{"pr", "issue"} {
-		jid, topic := "github:kronael/arizuko/"+kind+"/5", kind+"/5"
+		jid := "github:kronael/arizuko/" + kind + "/5"
+		topic := jid
 		if err := db.PutMessage(core.Message{ID: "gh-rc42", ChatJID: jid, Topic: topic, BotMsg: true, Timestamp: time.Now()}); err != nil {
 			t.Fatal(err)
 		}

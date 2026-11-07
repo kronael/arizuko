@@ -126,7 +126,7 @@ func TestBatchResolve_ReadsEachChatFactOnce(t *testing.T) {
 			if i%2 == 1 {
 				verb = "check_run"
 			}
-			msgs[i] = core.Message{ChatJID: jid, Topic: "pr/9", Verb: verb, Sender: "u"}
+			msgs[i] = core.Message{ChatJID: jid, Topic: jid, Verb: verb, Sender: "u"}
 		}
 		return msgs
 	}

@@ -201,7 +201,6 @@ The `target` column is a relative URI parsed with `net/url`:
 `<folder>[?<mode>][#<topic-template>]`. The path names the folder, one bare query
 flag selects the mode, and the fragment selects only the topic.
 `sloth/morha?observe#{jid}` observes each chat under its full JID as the topic.
-These URI and template changes are approved but unbuilt.
 
 | Query       | Effect                                                                                                                          |
 | ----------- | ------------------------------------------------------------------------------------------------------------------------------- |
@@ -226,7 +225,7 @@ variable values cannot change the folder, query or fragment boundaries.
 
 One routd startup migration moves existing mode fragments to query flags:
 `#observe`, `#engaged`, `#announce` and `#issues`. Other `#<topic>` targets
-retain their meaning.
+retain their meaning. GitHub routes with no topic fragment gain `#{jid}`.
 
 An explicit `verb=` predicate and `seq` decide whether a message fires a turn.
 A weighted score never decides. With a score, nobody can answer "will this

@@ -119,12 +119,11 @@ github:<owner>/<repo>/issue/<n>
 ```
 
 Topic selection follows [`34-channel-protocol.md`](../5/34-channel-protocol.md)
-§"Route targets". The approved change is unbuilt. `gitd/event.go:537` and
-`gitd/ci.go:104` stop setting `Topic`; `GitHubJID.Topic` and its callers go.
+§"Route targets". gitd leaves `Topic` empty.
 `store.GitHubSourceRoutes` seeds `<folder>#{jid}` for mention triggers and
 `<folder>?observe#{jid}` for fallbacks at every chat level. The same targets
-must apply to existing source-seeded routes at upgrade; explicit topic pins
-retain their meaning.
+apply to existing GitHub routes at upgrade when their target has no fragment;
+explicit topic pins retain their meaning.
 
 `store/sessions.go` keys conversations by folder and topic. The full JID
 separates two repositories' PR 12 even when both route to one group.
@@ -620,7 +619,7 @@ The workspace proposal additionally requires these observable results:
   history through REST/MCP. Explicit mentions, review requests and assignments to the
   bot, direct bot replies and human conversation on bot-authored PRs or issues form
   the trigger boundary. A human comment on an engaged chat starts a turn. A CI or
-  review-state row starts none unless a route carries `#engaged`.
+  review-state row starts none unless a route carries `?engaged`.
 
 These require fault-injection and concurrency tests at the owner boundaries, plus a
 credentialed disposable-repository exercise of real thread replies and lifecycle events.

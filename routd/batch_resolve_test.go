@@ -40,7 +40,7 @@ func githubBatchLoop(t *testing.T, runner Runner) (*DB, *Loop) {
 
 func putPRRow(t *testing.T, db *DB, id, sender, verb, content string, at time.Time) core.Message {
 	t.Helper()
-	m := core.Message{ID: id, ChatJID: prJID, Sender: sender, Topic: "pr/311",
+	m := core.Message{ID: id, ChatJID: prJID, Sender: sender, Topic: prJID,
 		Content: content, Timestamp: at, Verb: verb}
 	if err := db.PutMessage(m); err != nil {
 		t.Fatal(err)
@@ -244,7 +244,7 @@ func TestBatchResolve_ARowAtTheObservedWatermarkReachesTheTurn(t *testing.T) {
 	rr := &recRunner{}
 	db, loop := githubBatchLoop(t, rr)
 	at := time.Now().UTC().Truncate(time.Second)
-	if err := db.AdvanceObservedCursor("eng", "pr/311", core.TS(at)); err != nil {
+	if err := db.AdvanceObservedCursor("eng", prJID, core.TS(at)); err != nil {
 		t.Fatal(err)
 	}
 	putPRRow(t, db, "gh-r1", "github:user/alice", "pull_request_review", "review submitted", at)
@@ -276,7 +276,7 @@ func TestBatchResolve_ABusyReFeedDoesNotRerunAFinishedTurn(t *testing.T) {
 			return runedv1.RunOutcome{Busy: true}, nil
 		}
 		batches = append(batches, req.MessageBatch)
-		if err := db.SetEngagement(prJID, "pr/311", "eng", time.Hour); err != nil {
+		if err := db.SetEngagement(prJID, prJID, "eng", time.Hour); err != nil {
 			t.Error(err)
 		}
 		return runedv1.RunOutcome{RunID: "r", Outcome: runedv1.OutcomeOK}, nil

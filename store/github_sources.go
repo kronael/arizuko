@@ -139,14 +139,14 @@ func GitHubSourceRoutes(key, folder string) ([]core.Route, error) {
 	case GitHubSourceApp:
 		repo, owner, seq = "github:*/*", "github:*", 30
 	}
-	observe := folder + "?observe"
+	observe := folder + "?observe#{jid}"
 	chats := []string{repo + "/pr/*", repo + "/issue/*", repo}
 	if owner != "" {
 		chats = append(chats, owner)
 	}
 	rows := make([]core.Route, 0, 2*len(chats))
 	for _, chat := range chats {
-		rows = append(rows, core.Route{Seq: seq, Match: "chat_jid=" + chat + " verb=mention", Target: folder})
+		rows = append(rows, core.Route{Seq: seq, Match: "chat_jid=" + chat + " verb=mention", Target: folder + "#{jid}"})
 	}
 	for _, chat := range chats {
 		rows = append(rows, core.Route{Seq: seq * 10, Match: "chat_jid=" + chat, Target: observe})

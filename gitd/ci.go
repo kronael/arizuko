@@ -101,7 +101,7 @@ func eventMessages(event string, body []byte, base chanlib.InboundMsg) ([]chanli
 		msg.ID += "-pr" + strconv.Itoa(number)
 		loc, body := p.ciParts(event, run)
 		msg.Content = loc.render(msg.ID, body)
-		msg.ChatJID, msg.ChatName, msg.Topic = j.String(), strings.TrimPrefix(j.String(), "github:"), j.Topic()
+		msg.ChatJID, msg.ChatName = j.String(), strings.TrimPrefix(j.String(), "github:")
 		messages = append(messages, msg)
 	}
 	return messages, nil

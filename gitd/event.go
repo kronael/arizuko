@@ -534,7 +534,6 @@ func mapEvent(kind, name, event, delivery string, body []byte, now time.Time, bo
 		msg.Verb = event
 	}
 	msg.ChatJID = jid.String()
-	msg.Topic = jid.Topic()
 	msg.ChatName = strings.TrimPrefix(msg.ChatJID, "github:")
 	msg.Content = loc.render(msg.ID, msg.Content)
 	return msg, "", nil

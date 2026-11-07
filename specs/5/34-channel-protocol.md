@@ -246,8 +246,6 @@ lookup. Retired in v0.28.0 (dropped in migration 0065) — the in-memory
 
 ## Route targets
 
-Approved 2026-11-07; the URI and template changes are unbuilt.
-
 A route target is a relative URI parsed with Go's net/url package:
 `<folder>[?<mode>][#<topic-template>]`. For example, `sloth/morha?observe#{jid}`.
 The path names the folder. One bare query flag selects `observe`, `engaged`,

@@ -54,21 +54,3 @@ func TestFormatGitHubJID(t *testing.T) {
 		}
 	}
 }
-
-func TestGitHubJIDTopic(t *testing.T) {
-	cases := map[string]string{
-		"github:kronael":                 "",
-		"github:kronael/arizuko":         "",
-		"github:kronael/arizuko/pr/12":   "pr/12",
-		"github:kronael/arizuko/issue/3": "issue/3",
-	}
-	for jid, want := range cases {
-		j, ok := ParseGitHubJID(jid)
-		if !ok {
-			t.Fatalf("parse %q", jid)
-		}
-		if got := j.Topic(); got != want {
-			t.Errorf("Topic(%q) = %q, want %q", jid, got, want)
-		}
-	}
-}

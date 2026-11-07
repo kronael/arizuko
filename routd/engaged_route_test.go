@@ -18,21 +18,21 @@ func engagedCIRoutes(t *testing.T) []core.Route {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return append([]core.Route{{Seq: 50, Match: "chat_jid=github:kronael/arizuko/pr/* verb=check_run", Target: "eng?engaged"}}, routes...)
+	return append([]core.Route{{Seq: 50, Match: "chat_jid=github:kronael/arizuko/pr/* verb=check_run", Target: "eng?engaged#{jid}"}}, routes...)
 }
 
 func TestEngagedRoute_ACIRowOnAnEngagedPRFiresAndIsNotAddressed(t *testing.T) {
 	db, loop := newEngagementLoop(t, engagedCIRoutes(t))
 	jid := "github:kronael/arizuko/pr/5"
-	if err := db.SetEngagement(jid, "pr/5", "held", time.Hour); err != nil {
+	if err := db.SetEngagement(jid, jid, "held", time.Hour); err != nil {
 		t.Fatal(err)
 	}
-	got := loop.resolve(jid, core.Message{ChatJID: jid, Topic: "pr/5", Verb: "check_run"})
+	got := loop.resolve(jid, core.Message{ChatJID: jid, Topic: jid, Verb: "check_run"})
 	if !got.ok || got.Folder != "held" || got.Addressed || got.Observe != "" {
 		t.Fatalf("check_run on an engaged PR: %+v want folder=held, not addressed", got)
 	}
 	// The default still holds: a review row has no #engaged row and is observed.
-	got = loop.resolve(jid, core.Message{ChatJID: jid, Topic: "pr/5", Verb: "pull_request_review"})
+	got = loop.resolve(jid, core.Message{ChatJID: jid, Topic: jid, Verb: "pull_request_review"})
 	if got.ok || got.Observe != "eng" {
 		t.Fatalf("pull_request_review on an engaged PR: %+v want observe=eng", got)
 	}
@@ -41,7 +41,7 @@ func TestEngagedRoute_ACIRowOnAnEngagedPRFiresAndIsNotAddressed(t *testing.T) {
 func TestEngagedRoute_TheSameRowWithoutEngagementIsStoredObserved(t *testing.T) {
 	_, loop := newEngagementLoop(t, engagedCIRoutes(t))
 	jid := "github:kronael/arizuko/pr/6"
-	got := loop.resolve(jid, core.Message{ChatJID: jid, Topic: "pr/6", Verb: "check_run"})
+	got := loop.resolve(jid, core.Message{ChatJID: jid, Topic: jid, Verb: "check_run"})
 	if got.ok || got.Observe != "eng" {
 		t.Fatalf("check_run on an unengaged PR: %+v want observe=eng", got)
 	}
@@ -54,7 +54,7 @@ func TestEngagedRoute_ARootWindowCoversThePRTopic(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The root-topic window covers the PR topic until the thread disengages.
-	got := loop.resolve(jid, core.Message{ChatJID: jid, Topic: "pr/7", Verb: "check_run"})
+	got := loop.resolve(jid, core.Message{ChatJID: jid, Topic: jid, Verb: "check_run"})
 	if !got.ok || got.Folder != "held" {
 		t.Fatalf("root window must cover the topic: %+v", got)
 	}
@@ -65,13 +65,13 @@ func TestEngagedRoute_ARootWindowCoversThePRTopic(t *testing.T) {
 func TestEngagedRoute_AMixedBatchAddressesOnlyTheMentionAndBothRowsDispatch(t *testing.T) {
 	db, loop := newEngagementLoop(t, engagedCIRoutes(t))
 	jid := "github:kronael/arizuko/pr/8"
-	if err := db.SetEngagement(jid, "pr/8", "eng", time.Hour); err != nil {
+	if err := db.SetEngagement(jid, jid, "eng", time.Hour); err != nil {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC()
 	b := loop.resolveBatch(jid, []core.Message{
-		{ID: "gh-rc1", ChatJID: jid, Topic: "pr/8", Sender: "github:user/alice", Verb: "mention", Timestamp: now},
-		{ID: "gh-ci1", ChatJID: jid, Topic: "pr/8", Sender: "github:user/ci", Verb: "check_run", Timestamp: now.Add(time.Millisecond)},
+		{ID: "gh-rc1", ChatJID: jid, Topic: jid, Sender: "github:user/alice", Verb: "mention", Timestamp: now},
+		{ID: "gh-ci1", ChatJID: jid, Topic: jid, Sender: "github:user/ci", Verb: "check_run", Timestamp: now.Add(time.Millisecond)},
 	})
 	if !b.ok || b.Folder != "eng" {
 		t.Fatalf("batch: %+v want folder=eng", b.resolution)
@@ -87,8 +87,8 @@ func TestEngagedRoute_AMixedBatchWithoutEngagementObservesTheCIRow(t *testing.T)
 	jid := "github:kronael/arizuko/pr/9"
 	now := time.Now().UTC()
 	b := loop.resolveBatch(jid, []core.Message{
-		{ID: "gh-rc1", ChatJID: jid, Topic: "pr/9", Sender: "github:user/alice", Verb: "mention", Timestamp: now},
-		{ID: "gh-ci1", ChatJID: jid, Topic: "pr/9", Sender: "github:user/ci", Verb: "check_run", Timestamp: now.Add(time.Millisecond)},
+		{ID: "gh-rc1", ChatJID: jid, Topic: jid, Sender: "github:user/alice", Verb: "mention", Timestamp: now},
+		{ID: "gh-ci1", ChatJID: jid, Topic: jid, Sender: "github:user/ci", Verb: "check_run", Timestamp: now.Add(time.Millisecond)},
 	})
 	if !b.ok || b.Folder != "eng" || !b.Addressed {
 		t.Fatalf("batch: %+v want folder=eng addressed", b.resolution)
@@ -120,7 +120,7 @@ func TestEngagedRoute_TheWorkerFiresOnlyWhileEngaged(t *testing.T) {
 			loop := NewLoop(db, rr, LoopConfig{ObserveWindowMessages: 20, ObserveWindowChars: 1000})
 			t.Cleanup(loop.StopQueue)
 			if c.engaged {
-				if err := db.SetEngagement(prJID, "pr/311", "eng", time.Hour); err != nil {
+				if err := db.SetEngagement(prJID, prJID, "eng", time.Hour); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -156,7 +156,7 @@ func TestEngagedRoute_TheCITurnOfAMixedBatchIsNotAddressed(t *testing.T) {
 	rr := &recRunner{}
 	loop := NewLoop(db, rr, LoopConfig{ObserveWindowMessages: 20, ObserveWindowChars: 1000})
 	t.Cleanup(loop.StopQueue)
-	if err := db.SetEngagement(prJID, "pr/311", "eng", time.Hour); err != nil {
+	if err := db.SetEngagement(prJID, prJID, "eng", time.Hour); err != nil {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC()

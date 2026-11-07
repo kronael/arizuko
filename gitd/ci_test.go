@@ -48,7 +48,7 @@ func TestCIFanoutAcknowledgesMixedDeliveryOutcomes(t *testing.T) {
 			e := newTestEnv(t, secretMap{"repo/kronael/arizuko": "fixture-secret"})
 			e.srv.bot.login.Store(botLogin)
 			e.routd.statusFor = func(m chanlib.InboundMsg) int {
-				if m.Topic == "pr/5" {
+				if m.ChatJID == "github:kronael/arizuko/pr/5" {
 					return scenario.pr
 				}
 				return scenario.base
@@ -59,6 +59,9 @@ func TestCIFanoutAcknowledgesMixedDeliveryOutcomes(t *testing.T) {
 			got := e.deliver(t, "/github/repo/kronael/arizuko", "fixture-secret", "check_run", "mixed", ciBody(t, "check_run", "completed", "completed", []int{5}))
 			ids := map[string]bool{}
 			for _, message := range e.routd.messages() {
+				if message.Topic != "" {
+					t.Errorf("CI message carries topic %q", message.Topic)
+				}
 				ids[message.ID] = true
 			}
 			if got.Code != scenario.want || len(ids) != 2 {

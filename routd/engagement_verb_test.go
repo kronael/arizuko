@@ -32,7 +32,7 @@ func TestEngagementVerb_GitHubPRRidesOnlyAPersonsMessage(t *testing.T) {
 	}
 	db, loop := newEngagementLoop(t, routes)
 	jid := "github:kronael/arizuko/pr/5"
-	if err := db.SetEngagement(jid, "pr/5", "held", time.Hour); err != nil {
+	if err := db.SetEngagement(jid, jid, "held", time.Hour); err != nil {
 		t.Fatal(err)
 	}
 	for _, c := range []struct{ verb, folder, observe string }{
@@ -43,7 +43,7 @@ func TestEngagementVerb_GitHubPRRidesOnlyAPersonsMessage(t *testing.T) {
 		{"pull_request_review", "", "eng"},
 		{"pull_request", "", "eng"},
 	} {
-		got := loop.resolve(jid, core.Message{ChatJID: jid, Topic: "pr/5", Verb: c.verb})
+		got := loop.resolve(jid, core.Message{ChatJID: jid, Topic: jid, Verb: c.verb})
 		if got.Folder != c.folder || got.Observe != c.observe {
 			t.Errorf("verb=%q: got %+v want folder=%q observe=%q", c.verb, got, c.folder, c.observe)
 		}
@@ -94,7 +94,8 @@ func TestEngagementVerb_AReplyToABotRowOnAPRIsStillAMention(t *testing.T) {
 	}
 	db, _ := newEngagementLoop(t, routes)
 	srv := NewServer(db, nil, nil, nil, time.Hour, "")
-	jid, topic := "github:kronael/arizuko/pr/5", "pr/5"
+	jid := "github:kronael/arizuko/pr/5"
+	topic := jid
 	if err := db.PutMessage(core.Message{ID: "gh-rc42", ChatJID: jid, Topic: topic, BotMsg: true, Timestamp: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
