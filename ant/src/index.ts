@@ -163,22 +163,15 @@ export function statusBlocks(text: string): string[] {
   return out;
 }
 
-// streamStatuses forwards <status> blocks to routd as interim notices. seen
-// dedups across the turn so a status that also lands in the final result is not
-// double-delivered. send is injected because this pipeline broke silently once
-// already, so it needs a test that drives it.
 async function streamStatuses(
   turnID: string,
   text: string,
-  seen: Set<string>,
   send: typeof submitStatus = submitStatus,
 ): Promise<void> {
   if (!turnID) return;
   for (const s of statusBlocks(text)) {
-    if (seen.has(s)) continue;
     try {
       await send({ turn_id: turnID, text: s });
-      seen.add(s);
     } catch (err) {
       log(`submit_status failed: ${err instanceof Error ? err.message : String(err)}`);
     }
@@ -320,7 +313,6 @@ async function runAttempt(
   const out: TurnResult = { closedDuringQuery: false, retryFresh: false };
   let frameCount = 0;
   let resultCount = 0;
-  const seenStatuses = new Set<string>();
 
   try {
     for await (const frame of harness.run(turn)) {
@@ -332,7 +324,7 @@ async function runAttempt(
         if (!out.sessionId) log(`Session initialized: ${frame.sessionId}`);
         out.sessionId = frame.sessionId;
       } else if (frame.kind === 'status') {
-        await streamStatuses(turnID, frame.text, seenStatuses, sendStatus);
+        await streamStatuses(turnID, frame.text, sendStatus);
       } else {
         resultCount++;
         log(`Result #${resultCount}: ok=${frame.ok}${frame.retryFresh ? ' retryFresh' : ''}${frame.text ? ` text=${frame.text.slice(0, 200)}` : ''}${frame.usage ? ` models=${Object.keys(frame.usage).join(',')}` : ''}`);

@@ -129,19 +129,19 @@ test('checkIpcMessage: a stale progress nudge never starts a turn', () => {
 
 // The <status> pipeline failed silently once already: the pre-seam runtime
 // parsed claude's raw message shape, so codex streamed no interim status.
-test('runTurn: a status frame reaches submit_status once, and repeats are dropped', async () => {
+test('runTurn: repeated statuses reach the reducer in order', async () => {
   const d = spy();
   const st = statusSpy();
   await runTurn(
     scripted([
       { kind: 'status', text: 'thinking\n<status>reading files</status>' },
       { kind: 'status', text: '<status>reading files</status><status>writing</status>' },
+      { kind: 'status', text: '<status>reading files</status>' },
       { kind: 'result', ok: true, text: 'done' },
     ]),
     'p', undefined, INPUT, {}, 't1', d.deliver, st.send,
   );
-  // Deduped across frames: the repeated block is sent once, in order.
-  expect(st.sent).toEqual(['reading files', 'writing']);
+  expect(st.sent).toEqual(['reading files', 'reading files', 'writing', 'reading files']);
   expect(d.deliveries).toHaveLength(1);
 });
 
