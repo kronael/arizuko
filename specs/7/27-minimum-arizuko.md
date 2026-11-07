@@ -1,38 +1,34 @@
 ---
 status: draft
 relates-to:
-  [../8/36-publish-plan, 26-single-world-deployment, ../5/33-paths-roles]
+  [
+    ../6/59-local-daemons,
+    57-group-handler,
+    58-group-posts,
+    26-single-world-deployment,
+  ]
 ---
 
 # specs/7/27 — minimum arizuko
 
-The minimum defines what an agent receives. It does not prescribe how many
-processes supply those capabilities.
+Arizuko is a tool to set up and host agents in the runtime. The minimum is
+what a fresh instance with only the core packages must do. Each item cites the
+spec that owns its mechanism.
 
-## Functional floor
+## Acceptance
 
-1. A writable workspace, reachable as files by the agent and the operator.
-2. Messaging that supports replies, delegation, and escalation within granted scope.
-3. Skills that the agent can discover and extend inside its workspace.
-
-`davd/` exposes workspace files through WebDAV. `ipc/` supplies messaging
-and delegation tools. `ant/skills/` supplies bundled skills, while a group's
-own skills take precedence. These are existing capabilities.
+1. An agent writes a file in its workspace, and the operator reads that file
+   over `/dav/` (`davd/`).
+2. An agent sends to a granted group with `send`, and that group's handler
+   runs ([58-group-posts](58-group-posts.md), [57-group-handler](57-group-handler.md)).
+   A send to an ungranted group fails.
+3. An agent adds a skill in its workspace, and its next turn uses that skill
+   (`ant/skills/`, group skills take precedence).
+4. An operator adds a package by its `run` command, and routd finds it by its
+   socket ([6/59-local-daemons](../6/59-local-daemons.md)).
 
 ## Boundaries
 
-One operator can own many agents and groups. Each group keeps its own files,
-identity, and grants. A single owner still needs authorization for public
-endpoints and isolation for untrusted agent execution.
-
-The minimum is a functional acceptance boundary, not permission to bypass
-those controls. A package cannot satisfy it by sharing credentials or exposing
-another group's workspace.
-
-## Relationship to the other specs
-
-Routing and delivery remain owned by routd.
-[Packages](../8/36-publish-plan.md) install capabilities and expose skills.
-[Single-world deployment](26-single-world-deployment.md) composes the core
-modules into one process. This spec defines the capabilities that composition
-must preserve.
+Each group keeps its own files, identity and grants. The minimum does not
+permit shared credentials, another group's workspace, or agent code inside a
+core process.
