@@ -11,7 +11,7 @@ ten často sedí na obecním rybníku/komunikaci), pak její přímé sousedy a 
 
 Vstup: GPS nemovitosti + obec + okres + k.ú. (z inzerátu/LV). PSČ nejbližšího města.
 
-## 1) Trh — Bazoš reality (curl, bez captchy, rychlé)
+## 1) Trh — Bazoš reality (curl, rychlé)
 
 Endpoint (SSR, dá se číst curlem):
 ```

@@ -1,7 +1,7 @@
 # Workflow: sousední parcely + druh/ÚP/úřední cena (free mapa)
 
-Zdroj: `katastrnemovitosti.cz` — bezplatná SPA mapa nad daty ČÚZK. BEZ captchy,
-BEZ placení. Dává vše kromě JMÉNA vlastníka (jen typ vlastníka). Detail viz
+Zdroj: `katastrnemovitosti.cz` — bezplatná SPA mapa nad daty ČÚZK.
+Dává vše kromě JMÉNA vlastníka (jen typ vlastníka). Detail viz
 `facts/katastrnemovitosti-cz.md`.
 
 Použij pro: druh pozemku, výměra, ÚP (zastavitelnost), BPEJ + **úřední cena půdy**
@@ -36,10 +36,10 @@ Ulož do reportu nemovitosti (`~/nemo/valuations/<ID>-...md`): tabulka cílová 
 sousední parcely se sloupci parcela | druh | výměra | typ vlastníka | ÚP | kategorie | poznámka.
 Úřední cenu předej do ocenění jako land-rate kotvu (ne jako tržní cenu).
 
-## RYCHLÁ CESTA: ČÚZK RUIAN ArcGIS REST (parcely+druh+výměra, BEZ captchy)
+## RYCHLÁ CESTA: ČÚZK RUIAN ArcGIS REST (parcely+druh+výměra)
 
-Ověřeno 20.10.2026. Programový zdroj parcel — číslo, výměra, druh, k.ú. — bez captchy,
-JSON. NEDÁ jméno vlastníka (to jen přes guest `katastr.py` — viz `SKILL.md` §Vlastníci).
+Ověřeno 20.10.2026. Programový zdroj parcel — číslo, výměra, druh, k.ú. — JSON.
+NEDÁ jméno vlastníka (to jen přes guest `katastr.py` — viz `SKILL.md` §Vlastníci).
 
 Služba: `https://ags.cuzk.gov.cz/arcgis/rest/services/RUIAN/MapServer`
 vrstva **5 = Parcela** (polygony), 0 = ParcelaDefinicniBod.

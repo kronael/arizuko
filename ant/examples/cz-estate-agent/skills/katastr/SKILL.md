@@ -53,7 +53,7 @@ NEVER treat the montage as proof of success; ALWAYS confirm that the requested c
 ## Methods
 
 ALWAYS read a method file only at the step that needs it:
-- `navazujici-parcely-wfs.md`: the exact parcel, its direct neighbours and the land type from ČÚZK WFS and RUIAN, with no CAPTCHA.
+- `navazujici-parcely-wfs.md`: the exact parcel, its direct neighbours and the land type from ČÚZK WFS and RUIAN.
 - `sousedni-parcely.md`: land type, zoning plan, official price and neighbours from the free katastrnemovitosti.cz map.
 - `okolni-pozemky-scan.md`: nearby land for sale or lease from Bazoš and SPÚ.
 - `per-parcel-db.md`: the method for one record per parcel, cadastre against zoning plan.
