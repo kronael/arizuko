@@ -73,11 +73,19 @@ func TestSpentAndRevokedTokensAreReportedRatherThanHidden(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	won, err := st.ClaimRefreshToken(raw)
+	r, ok := st.RefreshTokenBySecret(raw)
+	if !ok {
+		t.Fatal("fresh token missing")
+	}
+	_, won, err := st.ClaimAndRotateRefresh(raw, r.Family, r.Sub, nil, "", time.Hour)
 	if err != nil || !won {
 		t.Fatalf("the first claim of an unspent token must win: won=%v err=%v", won, err)
 	}
-	r, ok := st.RefreshTokenBySecret(raw)
+	_, won, err = st.ClaimAndRotateRefresh(raw, r.Family, r.Sub, nil, "", time.Hour)
+	if err != nil || won {
+		t.Fatalf("second claim of a spent token: won=%v err=%v", won, err)
+	}
+	r, ok = st.RefreshTokenBySecret(raw)
 	if !ok {
 		t.Fatal("a spent token must still be findable; hiding it deletes the evidence of reuse")
 	}
@@ -103,6 +111,10 @@ func TestClaimElectsOneWinnerUnderConcurrency(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	r, ok := st.RefreshTokenBySecret(raw)
+	if !ok {
+		t.Fatal("fresh token missing")
+	}
 	const n = 8
 	var (
 		wg   sync.WaitGroup
@@ -113,7 +125,7 @@ func TestClaimElectsOneWinnerUnderConcurrency(t *testing.T) {
 	for range n {
 		go func() {
 			defer wg.Done()
-			won, err := st.ClaimRefreshToken(raw)
+			_, won, err := st.ClaimAndRotateRefresh(raw, r.Family, r.Sub, nil, "", time.Hour)
 			mu.Lock()
 			defer mu.Unlock()
 			if err != nil {
@@ -144,13 +156,6 @@ func TestClaimRefusesATokenWhoseFamilyIsAlreadyDead(t *testing.T) {
 	killed, err := st.RevokeFamily(r.Family)
 	if err != nil || !killed {
 		t.Fatalf("the first revoke of a live family must kill it: killed=%v err=%v", killed, err)
-	}
-	won, err := st.ClaimRefreshToken(raw)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if won {
-		t.Fatal("a token in a killed family was claimed; the family conjunct is not holding")
 	}
 	newRaw, won, err := st.ClaimAndRotateRefresh(raw, r.Family, r.Sub, nil, "", time.Hour)
 	if err != nil {

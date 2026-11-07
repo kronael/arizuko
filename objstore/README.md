@@ -67,7 +67,7 @@ That is the whole interface. What arizuko needs beyond it is a protocol: a packa
 | `ReadConsistent`        | `consistent.go` | `resreg.ExportSnapshot`, N reads that have to describe one state                                    |
 | `AddEdge` / `Reachable` | `reach.go`      | the membership cycle check in `store/membership.go`                                                 |
 
-`committed == false` with a nil error is a refused batch: a condition did not hold. That is a normal outcome and never an error. `authd` already gives it as `won=false` in `ClaimRefreshToken`.
+`committed == false` with a nil error is a refused batch: a condition did not hold. That is a normal outcome and never an error. `authd` gives it as `won=false` in `ClaimAndRotateRefresh`.
 
 **The guarded transition is the pattern that the two primitives exist for.** Read the row and decide. Then write under a condition on the row that the decision came from. Invite redemption conditions on the `used_count` that it read, and a hold resolution conditions on `status`. The shape is a guarded batch: one condition plus a bounded set of writes. So the write that acts on the decision and the writes that it implies land together or not at all.
 

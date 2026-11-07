@@ -89,7 +89,7 @@ func familyRows(t *testing.T, db *dynstore.Store, fam string) (total, live int) 
 //
 // The forced ordering, pre-fix, is the exact sequence BUGS F36 describes:
 //
-//	redeem A: lookup -> ClaimRefreshToken WINS -> [parked in FetchGrants]
+//	redeem A: lookup -> claim WINS -> [parked in FetchGrants]
 //	redeem B: lookup sees used_at set -> RevokeFamily -> errReuse
 //	redeem A: unparked -> rotateRefresh INSERTs the successor, revoked_at NULL
 //

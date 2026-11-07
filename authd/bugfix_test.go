@@ -145,16 +145,15 @@ func TestRefreshRotationRaceSingleWinner(t *testing.T) {
 	}
 }
 
-// ClaimRefreshToken is the atomic primitive behind the race fix: N concurrent
-// claims of one token, exactly one wins (rows-affected == 1). This is
-// deterministic regardless of goroutine scheduling — the SQL `used_at IS NULL`
-// guard makes it so. A regression to an unconditional UPDATE would let every
-// caller "win".
 func TestMarkRefreshUsedAtomicSingleWinner(t *testing.T) {
 	db := testDB(t)
 	raw, err := newTestStore(db).StartRefreshFamily("user:1", []string{"a:read"}, "", time.Hour)
 	if err != nil {
 		t.Fatal(err)
+	}
+	r, ok := newTestStore(db).RefreshTokenBySecret(raw)
+	if !ok {
+		t.Fatal("fresh token missing")
 	}
 
 	const n = 16
@@ -165,7 +164,7 @@ func TestMarkRefreshUsedAtomicSingleWinner(t *testing.T) {
 	for range n {
 		go func() {
 			defer wg.Done()
-			won, err := newTestStore(db).ClaimRefreshToken(raw)
+			_, won, err := newTestStore(db).ClaimAndRotateRefresh(raw, r.Family, r.Sub, nil, "", time.Hour)
 			if err != nil {
 				return
 			}

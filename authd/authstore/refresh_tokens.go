@@ -121,22 +121,6 @@ func (s *Store) RefreshTokenBySecret(raw string) (RefreshToken, bool) {
 	return r, true
 }
 
-// ClaimRefreshToken atomically claims a refresh token: exactly one of N
-// concurrent redeems wins. Losers see won=false and must NOT rotate. The guard
-// has TWO conjuncts (BUGS F36): `used_at` Absent on the TOKEN picks the single
-// winner, and `revoked_at` Absent on the FAMILY refuses a token whose family
-// died between the caller's lookup and this write.
-func (s *Store) ClaimRefreshToken(raw string) (won bool, err error) {
-	hash := HashToken(raw)
-	it, ok, err := s.point(RefreshTokens, hash, "family_id")
-	if err != nil || !ok {
-		return false, err
-	}
-	return s.s.GuardedBatch(ctx(),
-		[]objstore.Check{familyLive(it.Attrs["family_id"])},
-		[]objstore.Write{claimWrite(hash)})
-}
-
 // ClaimAndRotateRefresh claims raw and, on a win, writes its successor and the
 // family's new counters in the SAME batch (BUGS F36): a revoke that landed
 // first refuses the whole batch, so the successor is never written rather
@@ -259,17 +243,6 @@ func (s *Store) familyRotations(fam string) (int, error) {
 		return 0, errBadRotations
 	}
 	return n, nil
-}
-
-// familyLive is the condition "this family has not been killed", stated on an
-// item the batch does not modify.
-func familyLive(fam string) objstore.Check {
-	return objstore.Check{
-		Entity: RefreshFamilies, Key: key(fam),
-		Cond: objstore.Cond{Item: objstore.ItemPresent, Where: []objstore.Cmp{
-			{Attr: "revoked_at", Op: objstore.Absent},
-		}},
-	}
 }
 
 // claimWrite is the compare-and-set that spends one token: set used_at, but

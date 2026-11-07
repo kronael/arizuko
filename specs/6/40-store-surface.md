@@ -287,15 +287,6 @@ and `SigningKeyMetadata` scan one small table with a projection.
 `StartRefreshFamily` is one put. `LinkOAuthIdentity` is two puts in one batch,
 because there must be no identity row without its user row.
 
-**`ClaimRefreshToken` is the guarded transition, exactly.** `UPDATE
-refresh_tokens SET used_at = ? WHERE token_hash = ? AND used_at IS NULL AND
-revoked_at IS NULL`, and the winner is the caller that changed one row. Both
-conjuncts are load-bearing (`F36`): the first picks one winner out of N
-concurrent redeems, the second refuses a token whose family died between the
-caller's lookup and the write. On DynamoDB that is one `ConditionExpression`
-with two `attribute_not_exists` terms, and the loser gets
-`ConditionalCheckFailed`. It ports with no redesign.
-
 **`ClaimAndRotateRefresh` is `GuardedBatch` at its intended size** — claim the
 presented token and insert its successor together, or neither. Two rows, one
 account, one region, well inside `TransactWriteItems`' hundred. It ports.
