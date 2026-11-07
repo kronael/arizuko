@@ -97,6 +97,9 @@ func renderTurn(
 // settings.json (BUGS L60, spec 6/23).
 func turnEnv(cfg *core.Config, req runedv1.RunRequest, queryTimeout int64) map[string]string {
 	env := map[string]string{"TZ": cfg.Timezone}
+	if len(req.Harness) > 0 {
+		env["ARIZUKO_HARNESS"] = string(req.Harness)
+	}
 	if req.Model != "" {
 		env["ARIZUKO_MODEL"] = req.Model
 	}

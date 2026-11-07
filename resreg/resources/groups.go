@@ -97,7 +97,6 @@ func init() {
 				}
 				// Canonical key order, for deterministic emit.
 				r.ContainerConfig = canonJSON(r.ContainerConfig)
-				r.Config = canonJSON(r.Config)
 				return nil
 			},
 		},

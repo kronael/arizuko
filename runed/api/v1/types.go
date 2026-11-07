@@ -6,7 +6,11 @@
 // site is a contract break.
 package v1
 
-import "github.com/kronael/arizuko/types"
+import (
+	"encoding/json"
+
+	"github.com/kronael/arizuko/types"
+)
 
 // RunRequest is the body of POST /v1/runs: routd decided a batch routes
 // to Folder and rendered the prompt; runed runs it. message_batch is the
@@ -29,9 +33,10 @@ type RunRequest struct {
 	Model         string        `json:"model"`             // group override; empty = instance default
 	// Effort is the reasoning depth the harness CLI is asked for
 	// (low|medium|high|xhigh|max); empty leaves the CLI's own default.
-	Effort          string         `json:"effort,omitempty"`
-	ContainerConfig map[string]any `json:"container_config"` // opaque GroupConfig forwarded from groups.container_config
-	Isolated        bool           `json:"isolated"`         // timed-isolated:* runs: one-off container, no session persist
+	Effort          string          `json:"effort,omitempty"`
+	Harness         json.RawMessage `json:"harness,omitempty"`
+	ContainerConfig map[string]any  `json:"container_config"` // opaque GroupConfig forwarded from groups.container_config
+	Isolated        bool            `json:"isolated"`         // timed-isolated:* runs: one-off container, no session persist
 	// Kind selects the post-claim executor ('agent' | 'hold' | ..., spec
 	// 5/8 "Filesystem restore claims the folder's run slot"). Empty = 'agent'
 	// (the column default), so every existing caller is unaffected. A

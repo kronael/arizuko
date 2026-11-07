@@ -69,7 +69,7 @@ func call[T any](ctx context.Context, c *Client, method, path string, body any, 
 	var out T
 	var reader io.Reader
 	if body != nil {
-		raw, err := json.Marshal(body)
+		raw, err := encodeRequest(body)
 		if err != nil {
 			return out, err
 		}
@@ -108,6 +108,25 @@ func call[T any](ctx context.Context, c *Client, method, path string, body any, 
 		return out, fmt.Errorf("decode %s: %w", decodeAs, err)
 	}
 	return out, nil
+}
+
+func encodeRequest(body any) ([]byte, error) {
+	req, ok := body.(RunRequest)
+	if !ok || len(req.Harness) == 0 {
+		return json.Marshal(body)
+	}
+	if !json.Valid(req.Harness) {
+		return nil, fmt.Errorf("invalid harness JSON")
+	}
+	harness := req.Harness
+	req.Harness = nil
+	raw, err := json.Marshal(req)
+	if err != nil {
+		return nil, err
+	}
+	raw = append(raw[:len(raw)-1], `,"harness":`...)
+	raw = append(raw, harness...)
+	return append(raw, '}'), nil
 }
 
 // Run posts a RunRequest to POST /v1/runs and blocks until the run

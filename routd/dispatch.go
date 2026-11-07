@@ -841,6 +841,10 @@ func (l *Loop) dispatchRun(ctx context.Context, folder, topic, chatJID, turnID, 
 			}
 		}
 	}
+	harness, err := l.db.store().GroupHarness(folder)
+	if err != nil {
+		return runedv1.RunOutcome{}, err
+	}
 	model, effort, containerCfg := l.db.GroupConfig(folder)
 	if model == "" {
 		model = l.defaultModel
@@ -900,6 +904,7 @@ func (l *Loop) dispatchRun(ctx context.Context, folder, topic, chatJID, turnID, 
 		// The group's, else the instance's; empty leaves the harness default (high).
 		Effort:          effort,
 		ContainerConfig: containerCfg,
+		Harness:         harness,
 		Isolated:        isolated,
 		Elevated:        elevated,
 		Progress:        progress,
