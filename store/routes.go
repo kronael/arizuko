@@ -66,6 +66,9 @@ const routeSeqWidth = 10
 // REFUSED rather than padded: "-1" sorts before "0" and then before "-2". A
 // value carrying the separator is refused: two rules would address one item.
 func routeKey(r core.Route) (objstore.Key, error) {
+	if err := core.ValidateRouteTarget(r.Target); err != nil {
+		return objstore.Key{}, err
+	}
 	seq, err := padSeq(r.Seq)
 	if err != nil {
 		return objstore.Key{}, err
