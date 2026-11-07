@@ -28,7 +28,7 @@ func TestCaddyfile_LongestPrefixFirst(t *testing.T) {
 	out := render(t, []store.ProxydRoute{
 		{Path: "/dash/", Backend: "dashd:8080", Auth: "public"},
 		{Path: "/dash/approvals/", Backend: "dashd:8080", Auth: "public"},
-		{Path: "/", Backend: "vited:8080", Auth: "public"},
+		{Path: "/", Backend: "webd:8080", Auth: "public"},
 	}, Options{})
 
 	iApprovals := strings.Index(out, "/dash/approvals/")

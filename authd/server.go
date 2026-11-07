@@ -149,7 +149,7 @@ func (a *Authd) activeKey() (*auth.SigningKey, error) {
 
 // MintForSubject signs an authoritative access token for sub, scope bounded by
 // the target's grants snapshot. sub is passed already prefixed ("user:123",
-// "service:timed"); typ is the JWT `typ` claim.
+// "service:routd"); typ is the JWT `typ` claim.
 func (a *Authd) MintForSubject(sub, typ string, requested, targetGrants []string, aud string) (string, error) {
 	k, err := a.activeKey()
 	if err != nil {

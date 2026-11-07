@@ -692,7 +692,7 @@ type taskRunLogBody struct {
 	DurationMS int64  `json:"duration_ms"`
 }
 
-// handleTaskRunLog appends one task_run_logs row — the write half of timed's
+// handleTaskRunLog appends one task_run_logs row — the write half of the scheduler
 // fire loop.
 func (s *Server) handleTaskRunLog(w http.ResponseWriter, r *http.Request) {
 	if !s.authed(w, r, "tasks:write") {

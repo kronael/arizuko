@@ -25,7 +25,7 @@ func (r *replyRunner) Run(_ context.Context, req runedv1.RunRequest) (runedv1.Ru
 	return runedv1.RunOutcome{RunID: "r", Outcome: runedv1.OutcomeOK}, nil
 }
 
-// BUGS L596: timed's fire for owner a/b into a chat whose only rule is
+// BUGS L596: a scheduled task for owner a/b into a chat whose only rule is
 // #observe. The row addresses the owner folder and carries the task chat as its
 // return address, so the turn runs in a/b and answers in the chat.
 func TestScheduledFireRunsInOwnerAndAnswersInTaskChat(t *testing.T) {

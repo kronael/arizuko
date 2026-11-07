@@ -1,6 +1,6 @@
 // Health endpoint tests: importable daemons (routd, runed) are booted via
 // bootFederation and their /health probed. Package-main daemons (authd,
-// dashd, timed) have their own *_test.go; smoke tests check all live.
+// dashd) have their own *_test.go; smoke tests check all live.
 package tests
 
 import (

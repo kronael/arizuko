@@ -6,7 +6,7 @@ package routd
 // it, not the Gate — the owner resolution is a read the handler already
 // performs. Both faces read ONE resources.ScheduledTasksEndpoints, mounted
 // verbatim (BUGS F21); the fire-loop endpoints stay hand-rolled in
-// tasks_http.go: timed's control plane, not resource CRUD.
+// tasks_http.go: scheduler control plane, not resource CRUD.
 
 import (
 	"context"
@@ -169,7 +169,7 @@ func (s *Server) scheduledTasksHandler(ctx context.Context, x resreg.Execution, 
 
 	case tasksActionPatch:
 		// PATCH and reschedule_task: {status} pause/resume + {next_run} override,
-		// one or both; the same contain seam as pause/resume/cancel. timed
+		// one or both; the same contain seam as pause/resume/cancel. The scheduler
 		// re-arms a task when it enqueues the prompt, so a next_run written
 		// from the job's own turn lands after it and stands.
 		taskID := argString(x.Args, "taskId")
@@ -195,7 +195,7 @@ func (s *Server) scheduledTasksHandler(ctx context.Context, x resreg.Execution, 
 			err = s.db.store().ResumeTaskInto(x.Writes, task, gone)
 		default:
 			// A new next_run on a completed one-shot re-arms it; on a firing task
-			// it takes the task out of 'firing', so timed's re-arm, conditional on
+			// it takes the task out of 'firing', so the scheduler re-arm, conditional on
 			// 'firing', cannot overwrite it.
 			if status == "" && nextRun != "" &&
 				(task.Status == core.TaskCompleted || task.Status == store.TaskStatusFiring) {

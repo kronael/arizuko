@@ -793,7 +793,7 @@ func turnCallerSub(trigger string) string {
 // a person. The ONE predicate: turnCallerSub and the turn's addressed fact
 // (spec 6/47 §"Addressed") both read it.
 func isSystemTrigger(trigger string) bool {
-	// timed/split.go sends a plain "timed" for a group-context task, which does
+	// The scheduler sends a plain "timed" for a group-context task, which does
 	// not carry the "timed-" prefix.
 	return trigger == "" || trigger == "timed" || strings.HasPrefix(trigger, "timed-") || strings.HasPrefix(trigger, "system")
 }

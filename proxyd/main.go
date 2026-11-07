@@ -1132,7 +1132,7 @@ func main() {
 	// HMAC retire step 2: proxyd presents its own service:proxyd ES256 token to
 	// backends (Authorization: Bearer) as the channel proof for the X-User-*
 	// headers it stamps — replacing the X-User-Sig HMAC. Exchanged lazily from
-	// AUTHD_SERVICE_KEY at AUTHD_URL (same pattern as timed/onbod). Unset (local
+	// AUTHD_SERVICE_KEY at AUTHD_URL (same pattern as onbod). Unset (local
 	// dev) → svc nil, identity forwarded unsigned exactly as an anon request.
 	var svc *auth.TokenSource
 	if serviceKey := os.Getenv("AUTHD_SERVICE_KEY"); cfg.authdURL != "" && serviceKey != "" {

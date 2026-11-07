@@ -39,7 +39,7 @@ func openSharedDB(t *testing.T) (*store.Store, objstore.Store) {
 }
 
 // The fire loop's READ is store.DueTasks, which routd serves at
-// GET /v1/tasks/due and timed polls — timed opens no database of its own. A task
+// the scheduler claims due tasks. A task
 // written through store must come back from it carrying the cron the fire is
 // scheduled by.
 func TestTimedFireReadClaimsADueTask(t *testing.T) {
@@ -89,7 +89,7 @@ func TestTimedInsertReadableByStore(t *testing.T) {
 	}
 }
 
-// timed sets sender='timed'. What decides whether a row is the agent's own
+// The scheduler sets sender='timed'. What decides whether a row is the agent's own
 // output is the is_bot_message FLAG and nothing else — no name is inspected —
 // so a scheduler row whose sender merely LOOKS like a bot name is still a
 // trigger the dispatch batch keeps.
@@ -171,8 +171,8 @@ func TestTaskNextRunUpdate(t *testing.T) {
 	}
 }
 
-// TestCronFiresMessage exercises the timed → gated contract: insert an
-// active scheduled_task with next_run in the past, simulate timed's
+// TestCronFiresMessage exercises the scheduler contract: insert an
+// active scheduled_task with next_run in the past, simulate the scheduler
 // atomic claim + message insert, and verify gated's store sees the row
 // appear in the messages table carrying the task's prompt.
 func TestCronFiresMessage(t *testing.T) {
@@ -189,7 +189,7 @@ func TestCronFiresMessage(t *testing.T) {
 		t.Fatal("CreateTask:", err)
 	}
 
-	// Replicate timed's fire: claim the due tasks through the read routd serves
+	// Replicate the scheduler fire by claiming due tasks
 	// at GET /v1/tasks/due, then insert a message per claimed task. The messages
 	// loop consumes the inserted rows.
 	claimed, err := s.DueTasks(time.Now())

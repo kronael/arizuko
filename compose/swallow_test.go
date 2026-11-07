@@ -56,8 +56,8 @@ func TestNoServiceReadsTheSharedEnv(t *testing.T) {
 	}
 
 	// A service with its own file is fine, and one with NO env_file is fine too:
-	// vited serves a read-only volume and reads nothing.
-	ok := "services:\n  routd:\n    env_file:\n      - env/routd.env\n  vited:\n    image: y\n"
+	// proxyd serves a read-only volume and reads nothing.
+	ok := "services:\n  routd:\n    env_file:\n      - env/routd.env\n  proxyd:\n    image: y\n"
 	if err := checkNoServiceReadsTheSharedEnv(ok); err != nil {
 		t.Errorf("a scoped file and an absent one are both legal: %v", err)
 	}

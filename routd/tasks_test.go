@@ -22,7 +22,7 @@ func doGet(t *testing.T, h http.Handler, path string) *httptest.ResponseRecorder
 }
 
 func TestTaskRunLogEndpoint(t *testing.T) {
-	db, h := authSrv(t, fakeVerifier{sub: "service:timed", scope: []string{"tasks:write"}})
+	db, h := authSrv(t, fakeVerifier{sub: "service:routd", scope: []string{"tasks:write"}})
 	seedTask(t, db, "rl-1", "main", "web:main", "do it")
 
 	rec := doJSON(t, h, "POST", "/v1/tasks/runlog", "", taskRunLogBody{
@@ -40,7 +40,7 @@ func TestTaskRunLogEndpoint(t *testing.T) {
 // with a non-empty next_run stores it and flips the task back to active — the
 // retry of the same fire.
 func TestTaskRescheduleRecurring(t *testing.T) {
-	db, h := authSrv(t, fakeVerifier{sub: "service:timed", scope: []string{"tasks:write"}})
+	db, h := authSrv(t, fakeVerifier{sub: "service:routd", scope: []string{"tasks:write"}})
 	// Seed a 'firing' task (the state after GET /v1/tasks/due claimed it).
 	s := store.NewOver(db.Obj())
 	now := time.Now()
@@ -69,7 +69,7 @@ func TestTaskRescheduleRecurring(t *testing.T) {
 // TestTaskRescheduleOneShot: an empty next_run on a task with no cron clears
 // next_run (NULL) and marks the one-shot task completed.
 func TestTaskRescheduleOneShot(t *testing.T) {
-	db, h := authSrv(t, fakeVerifier{sub: "service:timed", scope: []string{"tasks:write"}})
+	db, h := authSrv(t, fakeVerifier{sub: "service:routd", scope: []string{"tasks:write"}})
 	s := store.NewOver(db.Obj())
 	now := time.Now()
 	if err := s.CreateTask(core.Task{
@@ -107,7 +107,7 @@ func TestTaskRescheduleRequiresWriteScope(t *testing.T) {
 // next instant its cron names, computed by routd; a cron that will not parse
 // moves the task to error and leaves no next_run.
 func TestTaskRescheduleReadsTheCron(t *testing.T) {
-	db, h := authSrv(t, fakeVerifier{sub: "service:timed", scope: []string{"tasks:write"}})
+	db, h := authSrv(t, fakeVerifier{sub: "service:routd", scope: []string{"tasks:write"}})
 	s := store.NewOver(db.Obj())
 	now := time.Now()
 	for id, cron := range map[string]string{"rs-cron": "0 9 * * *", "rs-bad": "not a cron"} {

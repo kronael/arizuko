@@ -38,7 +38,7 @@ func Timezone() string {
 // just run, and the two operator surfaces that accept a cron from a human all
 // call it, so a task's first run obeys the same expression as its every later
 // run. A seeder that instead wrote `now` made every new group fire all five of
-// its compaction tasks on timed's next sweep (BUGS L312).
+// its compaction tasks on the next scheduler sweep (BUGS L312).
 //
 // The parse error is returned as the parser gave it: it already names the
 // offending expression, and each caller adds the context it alone has.

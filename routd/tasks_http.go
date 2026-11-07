@@ -75,7 +75,7 @@ func (s *Server) handleTaskRunLogs(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleAllRunLogs serves GET /v1/tasks/runs?limit= (tasks:read).
-// Cross-task recent run feed for the timed dashboard /runs page.
+// Cross-task recent run feed for the dashboard /runs page.
 func (s *Server) handleAllRunLogs(w http.ResponseWriter, r *http.Request) {
 	if !s.authed(w, r, "tasks:read") {
 		return

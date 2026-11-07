@@ -1,6 +1,6 @@
 // Scheduled task feature tests: create, state machine (pause/resume/cancel),
 // reschedule guard (next_run must never go NULL — regression .diary/20260618),
-// crash recovery, and cron fire end-to-end via the real timed→routd wire.
+// crash recovery, and cron fire end-to-end via the scheduler.
 package tests
 
 import (
@@ -80,7 +80,7 @@ func TestFeature_Tasks(t *testing.T) {
 	})
 
 	// A task stuck in 'firing' (crash mid-turn) is recovered back to 'active'
-	// on the next timed boot — crash-safe restart.
+	// on the next scheduler start — crash-safe restart.
 	t.Run("firing-recovery", func(t *testing.T) {
 		s, _ := openSharedDB(t)
 		now := time.Now()
@@ -99,8 +99,8 @@ func TestFeature_Tasks(t *testing.T) {
 	})
 
 	// One-shot task (cron="") transitions to 'completed' after firing, not
-	// rescheduled — verified end-to-end via the real timed fire loop.
-	// Full cron-fire end-to-end (timed→routd) is in microservice_test.go::TestCronFiresMessage.
+	// rescheduled — verified end-to-end via the scheduler fire loop.
+	// Cron-fire coverage is in microservice_test.go::TestCronFiresMessage.
 	t.Run("one-shot-completes", func(t *testing.T) {
 		s, _ := openSharedDB(t)
 		now := time.Now()

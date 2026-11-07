@@ -1198,7 +1198,7 @@ func TestWhapdFlatAttachmentFolded(t *testing.T) {
 }
 
 // L66: a deleted group used to strand its 5 seeded `<folder>-mem-N` tasks.
-// They stayed `active` and timed kept firing them at a folder that no longer
+// They stayed `active` and the scheduler kept firing them at a folder that no longer
 // existed — sloth ran Coach-mem-0..4 nightly for months, none of them ever
 // executing. A child folder's tasks are its own and must survive, exactly as
 // its routes do.

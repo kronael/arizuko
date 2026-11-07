@@ -66,7 +66,7 @@ func TestSeedDefaultTasks(t *testing.T) {
 
 // A seeded task carries no next_run; the first poll fills it with the first
 // instant its OWN cron names, so a new group is not already due the moment it
-// is created. Seeding `now` made timed's next sweep fire all five compaction
+// is created. Seeding `now` made the next scheduler sweep fire all five compaction
 // tasks at once, on the group's root topic, and the root session each of those
 // turns persisted then aborted the next capability eval (BUGS L312).
 //
