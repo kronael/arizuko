@@ -42,6 +42,12 @@ and a separately allocated web port. IP literals are refused.
 The runner generates `anteval-<unix-ms>` or uses the fresh name supplied by
 `--target`. An existing data directory, systemd unit or Compose project is
 refused before creation. `--product` selects a product for the eval group.
+Before creation, the runner checks the KVM devices, kernel and rootfs artifacts,
+and locally cached daemon, web and gateway images. The gateway image names come
+from the litellm Compose fragment under `HOST_APP_DIR`.
+The runner checks the declared CID, vsock ports, tap subnet and proxy bind
+against host inventory. These checks are point-in-time; another process can
+occupy a resource after the checks.
 Each run uses a private data base under `ARIZUKO_DATA_DIR`, or `/srv/data`.
 The CLI lifecycle creates the instance, enrolls its store account, starts its
 services, installs the model gateway, and sets up the group, grants and tokens.

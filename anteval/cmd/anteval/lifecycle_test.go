@@ -30,9 +30,16 @@ type fakeLifecycle struct {
 	drive     run.Config
 	ready     [][]string
 	interrupt bool
+	host      preflightHost
 }
 type fakeProcess struct{ cli *fakeLifecycle }
 
+func (f *fakeLifecycle) Preflight(ctx context.Context, cfg map[string]string) error {
+	if f.host != nil {
+		return preflight(ctx, f.host, cfg)
+	}
+	return nil
+}
 func (p fakeProcess) Stop() error { p.cli.calls = append(p.cli.calls, "stop"); return nil }
 func (f *fakeLifecycle) UnitExists(_ context.Context, name string) (bool, error) {
 	f.name = name

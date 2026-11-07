@@ -29,6 +29,7 @@ type lifecycleOptions struct {
 
 type lifecycleProcess interface{ Stop() error }
 type lifecycleCLI interface {
+	Preflight(context.Context, map[string]string) error
 	Command(context.Context, []string, []string) (string, error)
 	Start(context.Context, []string, []string) (lifecycleProcess, error)
 	UnitExists(context.Context, string) (bool, error)
@@ -262,6 +263,9 @@ func doLifecycle(ctx context.Context, cli lifecycleCLI, opts lifecycleOptions) (
 	}
 	if exists {
 		return fmt.Errorf("compose project for %s exists", name)
+	}
+	if err := cli.Preflight(ctx, cfg); err != nil {
+		return err
 	}
 	private, err := os.MkdirTemp(base, ".anteval-")
 	if err != nil {

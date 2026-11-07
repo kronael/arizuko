@@ -19,12 +19,12 @@ runs its cases against that instance, and removes the instance when the run
 ends. It never reaches an instance that serves users.
 
 The CLI lifecycle and fake-based tests are implemented.
-The required startup checks and live acceptance are incomplete.
+The device, artifact, image and allocation checks run before creation. Capacity
+checks and live acceptance are incomplete.
 
 ## Remaining
 
-- Refuse startup before creation without KVM, release images and sufficient memory for services, gateway and one guest (`anteval/cmd/anteval/lifecycle.go`, `anteval/cmd/anteval/lifecycle_test.go`).
-- Validate declared vsock, tap and proxy allocations against occupied resources before startup (`anteval/cmd/anteval/lifecycle.go`, `anteval/cmd/anteval/lifecycle_test.go`).
+- Refuse startup without sufficient memory for services, gateway and one guest. The spec and Compose do not declare a service and gateway memory budget.
 - Prove guest callback reachability and disposable smoke/product runs on an isolated external test store, including cleanup after success, failure, partial startup and interruption (`anteval/cmd/anteval/lifecycle_test.go`, `anteval/cases/anteval.toml`; L379).
 
 ## Problem — measured on krons 2026-10-21
@@ -87,6 +87,7 @@ anteval run (changed)
 
 `anteval/cmd/anteval/main.go` selects cases and handles signals.
 `anteval/cmd/anteval/lifecycle.go` composes the existing CLI commands.
+`anteval/cmd/anteval/host_preflight.go` checks devices, artifacts, cached images and host allocations. The allocation checks are point-in-time.
 `create` seeds files; `store enroll` enrolls the new account; foreground `run`
 generates Compose and starts services. After the first boot creates the owners'
 tables, `package add catalog:litellm` installs the gateway. The runner restarts
