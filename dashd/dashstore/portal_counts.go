@@ -28,12 +28,6 @@ func (s *Store) GroupFolders() ([]string, error) {
 	return s.st().GroupFolders(500)
 }
 
-// ErroredChatCount is the number of chats flagged errored.
-func (s *Store) ErroredChatCount() (int, error) {
-	jids, err := s.ErroredChatJIDs()
-	return len(jids), err
-}
-
 // ErroredChatJIDs lists those chats' JIDs. The caller resolves each JID to the
 // folder it routes into, because a JID does not name its own folder.
 //
@@ -52,12 +46,6 @@ const failedRunWindow = 24 * time.Hour
 // failedRunCeiling is the dot's own limit: past it the number is "at least this
 // many" and the page still renders.
 const failedRunCeiling = 1000
-
-// FailedTaskRunCount is the number of task runs that errored in the last day.
-func (s *Store) FailedTaskRunCount() (int, error) {
-	runs, err := s.failedRuns()
-	return len(runs), err
-}
 
 // FailedTaskOwners lists the owning folder of each of those runs, one row per
 // run rather than per task: the count above counts runs too, and a pair that
