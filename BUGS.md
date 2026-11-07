@@ -9291,7 +9291,7 @@ policy forbids.
   adapter needing a service principal; each core daemon's routes move to its
   own manifest and the reserved set derives from the catalog. Then
   `TestFragmentEnvFilesAreGenerated` asserts against the catalog, not the
-  map. Spec: `specs/8/36-publish-plan.md` §"What the contract needs";
+  map. Spec: `specs/6/59-local-daemons.md` §"One declaration, one lifecycle";
   whether the declaration is a resreg row (`5/8`'s shape) or a compose-side key in `<name>.yaml` is the
   decision to sign. Redesign — sign-off before code.
 - **Fix:** `f8b82a90` (the `/dash/ttsd/` row); the rest is the redesign below
@@ -9333,7 +9333,7 @@ one; two of the facts are gone and one table was missed.
   "mount of another owner's database" coupling,
   not adapter wiring. The honest cost of "become an adapter" today is two
   compose rows, one authd row and an image. The package acceptance boundary in
-  `specs/8/36-publish-plan.md` requires no core map edit; this wiring needs three.
+  `specs/6/59-local-daemons.md` requires no core map edit; this wiring needs three.
 - `dashd/services.go` now lists all nine adapters as tiles; the fact holds
   (a third-party `/dash/<name>/` route works and the hub does not show it)
   over a wider table.

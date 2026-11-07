@@ -127,11 +127,11 @@ spec and are the credible "drop in front of your stack" story.
 Sibling dirs / libs consumed with no arizuko process (the component
 contract, above).
 
-| Component | Contract                                                  | Surface        | Gate                                                                                                  |
-| --------- | --------------------------------------------------------- | -------------- | ----------------------------------------------------------------------------------------------------- |
-| `mcpfw`   | Gate an agent's MCP tool calls against a ruleset (`6/12`) | CLI + ruleset  | none — a binary, a README, stub-driven acceptance tests; first in [packages](../8/36-publish-plan.md) |
-| `egress`  | Resolve, then check the address, then dial (`6/24`)       | CLI + HTTP     | none — a binary runed starts per spawn; `tests/components` pins the set                               |
-| `obs`     | Opt-in `audit_log`+journald+OTLP for any Go daemon        | `import` + env | none — has a README; publish on request ([packages](../8/36-publish-plan.md))                         |
+| Component | Contract                                                  | Surface        | Gate                                                                                              |
+| --------- | --------------------------------------------------------- | -------------- | ------------------------------------------------------------------------------------------------- |
+| `mcpfw`   | Gate an agent's MCP tool calls against a ruleset (`6/12`) | CLI + ruleset  | none — a binary, a README, stub-driven acceptance tests; first in [packages](59-local-daemons.md) |
+| `egress`  | Resolve, then check the address, then dial (`6/24`)       | CLI + HTTP     | none — a binary runed starts per spawn; `tests/components` pins the set                           |
+| `obs`     | Opt-in `audit_log`+journald+OTLP for any Go daemon        | `import` + env | none — has a README; publish on request ([packages](59-local-daemons.md))                         |
 
 ### Channel + effect/event daemons (correct granularity as daemons)
 
@@ -159,17 +159,17 @@ Direct non-test arizuko imports, measured 2026-09-05 (`grep` of
 `github.com/kronael/arizuko/` per package; `tests/components` pins the
 shippable set):
 
-| Package                  | internal deps                                                                         | readiness                                                                         | what it is                                                                                               |
-| ------------------------ | ------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `mcpfw`, `egress`, `obs` | 0                                                                                     | **ship now** ([publication units](../8/36-publish-plan.md#publishing-boundaries)) | MCP gate, egress proxy, observability                                                                    |
-| `substrate`              | 0                                                                                     | **ship now**                                                                      | the capability declaration (`Profile`)                                                                   |
-| `groupfolder`            | 0                                                                                     | not published — 73 callers                                                        | the containment predicate                                                                                |
-| `router`                 | 1 (`core`)                                                                            | near — lift `core` types                                                          | routing-table DSL                                                                                        |
-| `resreg`                 | 5 (`audit`, `auth`, `core`, `objstore`, `store`)                                      | roadmap = two-face lib                                                            | two-face API engine (`5/17`)                                                                             |
-| `chanlib`                | 7 (`auth`, `chanlib/chanstore`, `core`, `objstore/dynstore`, `obs`, `store`, `theme`) | far — the store is the cost, not the envelope                                     | the channel layer (`5/34`)                                                                               |
-| `auth`                   | 4 (`core`, `groupfolder`, `store`, `theme`)                                           | **don't extract**                                                                 | the grant evaluator reads `acl` via `store`                                                              |
-| `container`              | 3 (`chanlib`, `core`, `groupfolder`)                                                  | **don't extract**                                                                 | group setup + the egress rule translation; the Docker substrate it was named for is gone (`6/41` step 4) |
-| store, ipc, compose      | 3–9                                                                                   | **don't extract**                                                                 | these _are_ the platform                                                                                 |
+| Package                  | internal deps                                                                         | readiness                                                                     | what it is                                                                                               |
+| ------------------------ | ------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `mcpfw`, `egress`, `obs` | 0                                                                                     | **ship now** ([publication units](59-local-daemons.md#publishing-boundaries)) | MCP gate, egress proxy, observability                                                                    |
+| `substrate`              | 0                                                                                     | **ship now**                                                                  | the capability declaration (`Profile`)                                                                   |
+| `groupfolder`            | 0                                                                                     | not published — 73 callers                                                    | the containment predicate                                                                                |
+| `router`                 | 1 (`core`)                                                                            | near — lift `core` types                                                      | routing-table DSL                                                                                        |
+| `resreg`                 | 5 (`audit`, `auth`, `core`, `objstore`, `store`)                                      | roadmap = two-face lib                                                        | two-face API engine (`5/17`)                                                                             |
+| `chanlib`                | 7 (`auth`, `chanlib/chanstore`, `core`, `objstore/dynstore`, `obs`, `store`, `theme`) | far — the store is the cost, not the envelope                                 | the channel layer (`5/34`)                                                                               |
+| `auth`                   | 4 (`core`, `groupfolder`, `store`, `theme`)                                           | **don't extract**                                                             | the grant evaluator reads `acl` via `store`                                                              |
+| `container`              | 3 (`chanlib`, `core`, `groupfolder`)                                                  | **don't extract**                                                             | group setup + the egress rule translation; the Docker substrate it was named for is gone (`6/41` step 4) |
+| store, ipc, compose      | 3–9                                                                                   | **don't extract**                                                             | these _are_ the platform                                                                                 |
 
 The Docker substrate is `container/` and its declaration is
 `runed.qemuProfile`; the KVM substrate is unexported code inside `runed/`
@@ -230,7 +230,7 @@ core — the DSL is agent-agnostic, the daemon is not.
 - **Ship one, not seven.** `USELESS.md`'s sharpest finding is that arizuko is
   over-built for its proven audience, and "one stranger running one instance is
   worth more than the next five daemons". Carving every boundary in this
-  catalogue on spec repeats that in a new register. Ship `mcpfw` ([packages](../8/36-publish-plan.md)),
+  catalogue on spec repeats that in a new register. Ship `mcpfw` ([packages](59-local-daemons.md)),
   get a stranger to run it, and let what they hit choose the next seam.
 
 ## Use-case clusters — resolidify by the deployer's job
@@ -313,7 +313,7 @@ it.
 Ship on two shelves, not one list:
 
 1. **Components (import)** — `mcpfw`, then `egress`, then `obs` on
-   request ([publication units](../8/36-publish-plan.md#publishing-boundaries)); the `resreg` two-face lib only after its three
+   request ([publication units](59-local-daemons.md#publishing-boundaries)); the `resreg` two-face lib only after its three
    imports are cut.
 2. **Daemons (deploy)** — `authd` + `proxyd` as the "auth gateway you
    drop in front of any stack" pair; `vited`/`davd` fold in as generic

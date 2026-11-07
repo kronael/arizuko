@@ -57,7 +57,7 @@ as a contract. A part nobody can watch has not shipped.
 | [54-agent-machine.md](54-agent-machine.md) | draft | A customizable persistent machine and runtime, reached as a Unix user through SSH; private disk, installed software and explicit reset. |
 | [55-identity-held-credentials.md](55-identity-held-credentials.md) | draft | A user's credential pays for that user's turn; delivery, enrollment and internal funding await owner decisions. |
 | [56-identity-held-tools.md](56-identity-held-tools.md) | queued | Tools carried by an OAuth identity and whose account a call acts as; the agent's own login stays the default and acting as a human stays a grant. |
-| [59-local-daemons.md](59-local-daemons.md) | draft | A package runs one command; daemons are found by their socket in /run/arizuko and read their own tables. |
+| [59-local-daemons.md](59-local-daemons.md) | draft | One package lifecycle for core and outside daemons; Compose, socket discovery, scoped auth and store enrollment. |
 
 `7` owns the contracts; `1` owns the strategy; `16` owns the map (layers,
 axes, matrices); `28` owns the cockpit and every one of `29`–`33` points back
