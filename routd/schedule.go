@@ -39,14 +39,8 @@ func (s *Server) fireTasks() {
 	}
 	for _, task := range tasks {
 		start := time.Now()
-		next := ""
-		if task.NextRun != nil {
-			next = task.NextRun.UTC().Format(time.RFC3339)
-		}
-		id := core.MsgID("sched-" + task.ID)
-		if next != "" {
-			id = "sched-" + task.ID + "@" + next
-		}
+		next := task.NextRun.UTC().Format(time.RFC3339)
+		id := core.MsgID("sched-" + task.ID + "@" + next)
 		sender := core.ScheduledSender
 		if task.ContextMode == "isolated" {
 			sender = core.IsolatedSenderPrefix + task.ID
@@ -60,9 +54,6 @@ func (s *Server) fireTasks() {
 			slog.Error("enqueue task message", "task", task.ID, "jid", task.ChatJID, "err", errorText)
 			if task.Cron == "" {
 				retry = next
-				if retry == "" {
-					retry = time.Now().UTC().Add(time.Minute).Format(time.RFC3339)
-				}
 			}
 		}
 		if status == "error" {

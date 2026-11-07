@@ -204,7 +204,7 @@ func (s *Server) recordTurnResult(turnID string, req apiv1.TurnResult) (ipc.Turn
 			}
 		}
 		// Isolated turns never replace the chat's session lineage (BUGS L54).
-		if req.SessionID != "" && !strings.HasPrefix(tc.Trigger, "timed-isolated:") {
+		if req.SessionID != "" && !strings.HasPrefix(tc.Trigger, core.IsolatedSenderPrefix) {
 			if err := s.db.PutSession(tc.Folder, tc.Topic, req.SessionID); err != nil {
 				slog.Error("recordTurnResult: PutSession failed; next turn in this topic loses session continuity", "folder", tc.Folder, "turn_id", turnID, "err", err)
 			}
