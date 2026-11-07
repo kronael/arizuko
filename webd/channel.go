@@ -17,10 +17,11 @@ var webCaps = map[string]bool{"send_text": true, "edit": true, "delete": true}
 // routd is the sole message appender — we only publish to hub, no local PutMessage.
 func (s *server) handleSend(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		ChatJID string `json:"chat_jid"`
-		Content string `json:"content"`
-		ReplyTo string `json:"reply_to"`
-		TurnID  string `json:"turn_id"`
+		ChatJID        string `json:"chat_jid"`
+		Content        string `json:"content"`
+		ReplyTo        string `json:"reply_to"`
+		TurnID         string `json:"turn_id"`
+		IdempotencyKey string `json:"idempotency_key"`
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxJSONBody)
 	if json.NewDecoder(r.Body).Decode(&req) != nil || req.ChatJID == "" || req.Content == "" {
@@ -33,13 +34,18 @@ func (s *server) handleSend(w http.ResponseWriter, r *http.Request) {
 
 	id := core.MsgID("bot")
 	ts := time.Now()
+	kind, turnID := "message", req.TurnID
+	if m, ok := s.stRoutd.MessageByID(req.ChatJID, req.IdempotencyKey); ok && m.BotMsg && m.Verb == verbStatus {
+		id, topic, ts, kind, turnID = m.ID, m.Topic, m.Timestamp, frameKind(m), m.TurnID
+	}
 
 	payload, _ := json.Marshal(map[string]any{
 		"id":         id,
 		"role":       "assistant",
 		"content":    req.Content,
 		"created_at": ts.Format(time.RFC3339),
-		"turn_id":    req.TurnID,
+		"turn_id":    turnID,
+		"kind":       kind,
 	})
 	s.hub.publish(req.ChatJID, topic, "message", string(payload))
 

@@ -344,7 +344,7 @@ func (s *server) handleMeSSE(w http.ResponseWriter, r *http.Request) {
 	// that); the hub key is the chat JID verbatim.
 	ch, unsub := s.hub.subscribe(groupfolder.WebJID(folder), topic)
 	defer unsub()
-	serveSSE(w, r, ch)
+	serveSSE(w, r, ch, nil)
 }
 
 // GET /me/chats/new

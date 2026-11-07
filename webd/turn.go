@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -36,8 +37,12 @@ func frameKind(m core.Message) string {
 func messageFrames(msgs []core.Message) []frame {
 	out := make([]frame, 0, len(msgs))
 	for _, m := range msgs {
+		id := m.ID
+		if m.Verb == verbStatus && m.PlatformID != "" {
+			id = m.PlatformID
+		}
 		out = append(out, frame{
-			ID:        m.ID,
+			ID:        id,
 			Content:   m.Content,
 			CreatedAt: m.Timestamp.Format(time.RFC3339),
 			Kind:      frameKind(m),
@@ -45,6 +50,114 @@ func messageFrames(msgs []core.Message) []frame {
 		})
 	}
 	return out
+}
+
+func mergeProgress(msgs, active []core.Message) []core.Message {
+	all := append(append([]core.Message{}, msgs...), active...)
+	sort.SliceStable(all, func(i, j int) bool {
+		if all[i].Timestamp.Equal(all[j].Timestamp) {
+			return all[i].ID < all[j].ID
+		}
+		return all[i].Timestamp.Before(all[j].Timestamp)
+	})
+	seen := make(map[string]bool)
+	out := all[:0]
+	for _, m := range all {
+		id := messageFrames([]core.Message{m})[0].ID
+		if !seen[id] {
+			seen[id] = true
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+func bufferedProgress(ch <-chan string, active []frame) ([]string, []frame) {
+	var queued []string
+	for {
+		select {
+		case msg, ok := <-ch:
+			if !ok {
+				return queued, active
+			}
+			queued = append(queued, msg)
+			event, data := splitSSEFrame(msg)
+			if event != "delete" && event != "round_done" {
+				continue
+			}
+			var p struct {
+				ID     string `json:"id"`
+				TurnID string `json:"turn_id"`
+			}
+			if json.Unmarshal([]byte(data), &p) != nil {
+				continue
+			}
+			kept := active[:0]
+			for _, f := range active {
+				if (event != "delete" || f.ID != p.ID || f.TurnID != p.TurnID) && (event != "round_done" || f.TurnID != p.TurnID) {
+					kept = append(kept, f)
+				}
+			}
+			active = kept
+		default:
+			return queued, active
+		}
+	}
+}
+
+func progressEvent(frames []frame) string {
+	if frames == nil {
+		frames = []frame{}
+	}
+	data, _ := json.Marshal(map[string]any{"frames": frames})
+	return "event: progress\ndata: " + string(data) + "\n\n"
+}
+
+func (s *server) currentProgress(chatJID, topic, turnID string, frames []frame) ([]frame, error) {
+	rows, err := s.stRoutd.ActiveProgress(chatJID, topic, turnID)
+	if err != nil {
+		return nil, err
+	}
+	current := make(map[string]frame)
+	for _, f := range messageFrames(rows) {
+		current[f.ID] = f
+	}
+	kept := frames[:0]
+	for _, f := range frames {
+		if latest, ok := current[f.ID]; ok {
+			kept = append(kept, latest)
+		}
+	}
+	return kept, nil
+}
+
+func (s *server) activeProgressEvent(chatJID, topic, msg string) bool {
+	event, payload := splitSSEFrame(msg)
+	if event != "message" && event != "status" {
+		return true
+	}
+	var p struct {
+		ID     string `json:"id"`
+		TurnID string `json:"turn_id"`
+		Kind   string `json:"kind"`
+	}
+	if json.Unmarshal([]byte(payload), &p) != nil {
+		return false
+	}
+	if p.Kind != "status" && event != "status" {
+		return true
+	}
+	rows, err := s.stRoutd.ActiveProgress(chatJID, topic, p.TurnID)
+	if err != nil {
+		slog.Error("live progress query", "err", err)
+		return false
+	}
+	for _, f := range messageFrames(rows) {
+		if f.ID == p.ID && f.TurnID == p.TurnID {
+			return true
+		}
+	}
+	return false
 }
 
 // route_tokens + messages live in routd.db (stRoutd) — split ownership
@@ -89,6 +202,12 @@ func (s *server) handleTurnSnapshot(w http.ResponseWriter, r *http.Request) {
 	if len(frames) > 0 {
 		last = frames[len(frames)-1].ID
 	}
+	active, err := s.stRoutd.ActiveProgress(chatJID, "", turnID)
+	if err != nil {
+		chanlib.WriteErr(w, http.StatusInternalServerError, "query failed")
+		return
+	}
+	frames = messageFrames(mergeProgress(msgs, active))
 	chanlib.WriteJSON(w, map[string]any{
 		"turn_id":       turnID,
 		"status":        info.Status,
@@ -171,6 +290,26 @@ func (s *server) handleTurnSSE(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	active, err := s.stRoutd.ActiveProgress(chatJID, topic, turnID)
+	if err != nil {
+		slog.Error("turn SSE: active progress query", "err", err)
+		return
+	}
+	queued, activeFrames := bufferedProgress(ch, messageFrames(active))
+	activeFrames, err = s.currentProgress(chatJID, topic, turnID, activeFrames)
+	if err != nil {
+		slog.Error("turn SSE: recheck progress", "err", err)
+		return
+	}
+	for _, fr := range activeFrames {
+		data, _ := json.Marshal(fr)
+		if writeSSE(w, flusher, "event: status\ndata: "+string(data)+"\n\n") != nil {
+			return
+		}
+	}
+	if writeSSE(w, flusher, progressEvent(activeFrames)) != nil {
+		return
+	}
 
 	// A read failure must not read as a finished round. GetTurnResult maps only
 	// sql.ErrNoRows to "pending"; a real error returns the zero TurnInfo, whose
@@ -201,24 +340,20 @@ func (s *server) handleTurnSSE(w http.ResponseWriter, r *http.Request) {
 	defer tick.Stop()
 
 	for {
+		if len(queued) > 0 {
+			msg := queued[0]
+			queued = queued[1:]
+			if !s.writeTurnEvent(w, flusher, chatJID, turnID, msg) {
+				return
+			}
+			continue
+		}
 		select {
 		case msg, ok := <-ch:
 			if !ok {
 				return
 			}
-			ev, payload := splitSSEFrame(msg)
-			if ev == "message" || ev == "round_done" {
-				var p struct {
-					TurnID string `json:"turn_id"`
-				}
-				if json.Unmarshal([]byte(payload), &p) == nil && p.TurnID != turnID {
-					continue
-				}
-			}
-			if writeSSE(w, flusher, msg) != nil {
-				return
-			}
-			if ev == "round_done" {
+			if !s.writeTurnEvent(w, flusher, chatJID, turnID, msg) {
 				return
 			}
 		case <-tick.C:
@@ -229,6 +364,27 @@ func (s *server) handleTurnSSE(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+}
+
+func (s *server) writeTurnEvent(w http.ResponseWriter, flusher http.Flusher, chatJID, turnID, msg string) bool {
+	event, payload := splitSSEFrame(msg)
+	if event == "message" || event == "status" || event == "delete" || event == "round_done" {
+		var p struct {
+			ID     string `json:"id"`
+			TurnID string `json:"turn_id"`
+			Kind   string `json:"kind"`
+		}
+		if json.Unmarshal([]byte(payload), &p) != nil || p.TurnID != turnID {
+			return true
+		}
+		if p.Kind == "status" || event == "status" {
+			if !s.activeProgressEvent(chatJID, "", msg) {
+				return true
+			}
+			msg = "event: status\ndata: " + payload + "\n\n"
+		}
+	}
+	return writeSSE(w, flusher, msg) == nil && event != "round_done"
 }
 
 func writeSSE(w http.ResponseWriter, f http.Flusher, s string) error {

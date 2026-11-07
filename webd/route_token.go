@@ -128,6 +128,8 @@ func (s *server) handleChatTokenHistory(w http.ResponseWriter, r *http.Request) 
 		Role    string `json:"role"`
 		Content string `json:"content"`
 		TS      string `json:"ts"`
+		Kind    string `json:"kind"`
+		TurnID  string `json:"turn_id"`
 	}
 	out := []msgOut{}
 	if topic != "" {
@@ -137,10 +139,16 @@ func (s *server) handleChatTokenHistory(w http.ResponseWriter, r *http.Request) 
 			http.Error(w, "store failed", http.StatusInternalServerError)
 			return
 		}
-		// MessagesByThread returns newest→oldest; reverse to oldest→newest.
-		out = make([]msgOut, len(msgs))
-		for i, m := range msgs {
-			out[len(msgs)-1-i] = msgOut{m.ID, messageRole(m), m.Content, m.Timestamp.Format(time.RFC3339)}
+		active, err := s.stRoutd.ActiveProgress(row.JID, topic, "")
+		if err != nil {
+			http.Error(w, "store failed", http.StatusInternalServerError)
+			return
+		}
+		msgs = mergeProgress(msgs, active)
+		out = make([]msgOut, 0, len(msgs))
+		for _, m := range msgs {
+			fr := messageFrames([]core.Message{m})[0]
+			out = append(out, msgOut{fr.ID, messageRole(m), m.Content, m.Timestamp.Format(time.RFC3339), fr.Kind, fr.TurnID})
 		}
 	}
 	chanlib.WriteJSON(w, out)
@@ -224,7 +232,7 @@ func (s *server) handleChatTokenPost(w http.ResponseWriter, r *http.Request) {
 
 	switch {
 	case wantSSE:
-		serveSSE(w, r, ch)
+		serveSSE(w, r, ch, nil)
 	case wantHTML:
 		w.Header().Set("Content-Type", "text/html")
 		escaped := strings.ReplaceAll(htmlEscape(content), "\n", "<br>")
@@ -438,11 +446,14 @@ func (s *server) handleRouteTokenStream(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	ch, unsub := s.hub.subscribe(row.JID, topic)
+	defer unsub()
+	sseHeaders(w)
+	flusher, _ := w.(http.Flusher)
 	// messages lives in routd.db (stRoutd) — split ownership
 	if lastID := r.Header.Get("Last-Event-Id"); lastID != "" {
 		if t, ok := s.stRoutd.MessageTimestampByID(lastID, row.JID); ok {
 			msgs, _ := s.stRoutd.MessagesSinceTopic(row.JID, topic, t, 50)
-			flusher, _ := w.(http.Flusher)
 			for _, m := range msgs {
 				data, _ := json.Marshal(map[string]any{
 					"id": m.ID, "role": messageRole(m), "content": m.Content,
@@ -456,9 +467,25 @@ func (s *server) handleRouteTokenStream(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
-	ch, unsub := s.hub.subscribe(row.JID, topic)
-	defer unsub()
-	serveSSE(w, r, ch)
+	active, err := s.stRoutd.ActiveProgress(row.JID, topic, "")
+	if err != nil {
+		return
+	}
+	queued, frames := bufferedProgress(ch, messageFrames(active))
+	frames, err = s.currentProgress(row.JID, topic, "", frames)
+	if err != nil {
+		slog.Error("topic SSE: recheck progress", "err", err)
+		return
+	}
+	if writeSSE(w, flusher, progressEvent(frames)) != nil {
+		return
+	}
+	for _, msg := range queued {
+		if s.activeProgressEvent(row.JID, topic, msg) && writeSSE(w, flusher, msg) != nil {
+			return
+		}
+	}
+	serveSSE(w, r, ch, func(msg string) bool { return s.activeProgressEvent(row.JID, topic, msg) })
 }
 
 func waitForAssistant(ctx context.Context, ch <-chan string) (map[string]any, bool) {
@@ -633,21 +660,24 @@ function newThread(){
 }
 
 async function openThread(t){
+  clearTimeout(reconnectTimer);if(es){es.close();es=null}
   cur=t;t.updated=Date.now();upsertThread(t);renderThreads();
   var thread=document.getElementById('thread');thread.innerHTML='';
   try{
     var resp=await fetch('/chat/'+token+'/'+encodeURIComponent(t.topic)+'/messages');
-    if(resp.ok){(await resp.json()).forEach(function(m){addMsg(m.role||'assistant',m.content,m.id)})}
+    if(resp.ok){var messages=await resp.json();if(cur!==t)return;messages.forEach(function(m){addMsg(m.role||'assistant',m.content,m.id,m.kind,m.turn_id)})}
   }catch(x){}
+  if(cur!==t)return;
   connect(t.topic);
 }
 
-function addMsg(role,content,id){
+function addMsg(role,content,id,kind,turnID){
   var html=esc(content).replace(/\n/g,'<br>');
   var old=id&&document.getElementById('msg-'+id);
-  if(old){old.innerHTML=html;return}
+  if(old){old.innerHTML=html;if(kind==='status'){old.dataset.status='1';old.dataset.turn=turnID||''}return}
   var d=document.createElement('div');d.className='msg '+role;
   if(id)d.id='msg-'+id;
+  if(kind==='status'){d.dataset.status='1';d.dataset.turn=turnID||''}
   d.innerHTML=html;
   document.getElementById('thread').appendChild(d);
   d.scrollIntoView({behavior:'smooth'});
@@ -660,15 +690,19 @@ function showTyping(){
 function connect(topic){
   clearTimeout(reconnectTimer);if(es)es.close();
   es=new EventSource('/chat/stream?token='+encodeURIComponent(token)+'&group='+encodeURIComponent(folder)+'&topic='+encodeURIComponent(topic));
-  es.addEventListener('message',function(e){
-    if(!cur||cur.topic!==topic)return;
+  var stream=es;
+  stream.addEventListener('message',function(e){
+    if(es!==stream||!cur||cur.topic!==topic)return;
     try{
       var m=JSON.parse(e.data);
       var el=document.querySelector('.typing');if(el)el.remove();
-      addMsg(m.role||'assistant',m.content,m.id);
+      addMsg(m.role||'assistant',m.content,m.id,m.kind,m.turn_id);
     }catch(x){}
   });
-  es.onerror=function(){es.close();reconnectTimer=setTimeout(function(){connect(topic)},3000)};
+  stream.addEventListener('delete',function(e){if(es!==stream||!cur||cur.topic!==topic)return;try{var m=JSON.parse(e.data),n=document.getElementById('msg-'+m.id);if(n)n.remove()}catch(x){}});
+  stream.addEventListener('progress',function(e){if(es!==stream||!cur||cur.topic!==topic)return;try{var a=JSON.parse(e.data).frames,ids=new Set(a.map(function(m){return m.id}));document.querySelectorAll('[data-status="1"]').forEach(function(n){if(!ids.has(n.id.slice(4)))n.remove()});a.forEach(function(m){addMsg('assistant',m.content,m.id,'status',m.turn_id)})}catch(x){}});
+  stream.addEventListener('round_done',function(e){if(es!==stream||!cur||cur.topic!==topic)return;try{var m=JSON.parse(e.data);document.querySelectorAll('[data-status="1"]').forEach(function(n){if(n.dataset.turn===m.turn_id)n.remove()})}catch(x){}});
+  stream.onerror=function(){if(es!==stream)return;stream.close();reconnectTimer=setTimeout(function(){if(es===stream)connect(topic)},3000)};
 }
 
 async function send(e){

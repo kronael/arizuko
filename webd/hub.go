@@ -83,7 +83,7 @@ func sseHeaders(w http.ResponseWriter) {
 	w.Header().Set("X-Accel-Buffering", "no")
 }
 
-func serveSSE(w http.ResponseWriter, r *http.Request, ch <-chan string) {
+func serveSSE(w http.ResponseWriter, r *http.Request, ch <-chan string, filter func(string) bool) {
 	sseHeaders(w)
 	flusher, _ := w.(http.Flusher)
 	rc := http.NewResponseController(w)
@@ -111,6 +111,9 @@ func serveSSE(w http.ResponseWriter, r *http.Request, ch <-chan string) {
 		case msg, ok := <-ch:
 			if !ok {
 				return
+			}
+			if filter != nil && !filter(msg) {
+				continue
 			}
 			if writeWithDeadline(msg) != nil {
 				return

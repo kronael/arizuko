@@ -159,3 +159,18 @@ func TestProgress_ReminderTimeAndCallRace(t *testing.T) {
 		t.Fatalf("reminders = %d", count)
 	}
 }
+
+func TestProgress_ExpiredTurnDropsStatusAndReminder(t *testing.T) {
+	dl := &recDeliverer{}
+	db, srv := newProgressTurn(t, dl, "")
+	if err := db.SetTurnState("t1", store.TurnExpired); err != nil {
+		t.Fatal(err)
+	}
+	ack, err := srv.submitStatus(ipc.TurnStatus{TurnID: "t1", Text: "late"})
+	if err != nil || ack.Remind || len(dl.sends) != 0 {
+		t.Fatalf("expired callback: %+v %v sends=%+v", ack, err, dl.sends)
+	}
+	if _, ok := db.progress.Load("t1"); ok {
+		t.Fatal("expired callback created state")
+	}
+}

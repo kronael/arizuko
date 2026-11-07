@@ -9,6 +9,10 @@ typed accessors over them. `served.go` is the only place that dials the
 instance's store server, and every other file here reads and writes through the
 handle it answers.
 
+`ActiveProgress` reads the latest status of running or pending-retry turns.
+Normal history and replay queries exclude status rows before applying their
+limits. Web readers add active snapshots independently of those cursors.
+
 ## Every table is an entity
 
 `entities.go` names every table this package holds as an objstore entity,

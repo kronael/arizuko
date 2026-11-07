@@ -32,6 +32,7 @@ the local `acl` rows.
 - A channel that lacks either gets no progress line. gitd advertises no `edit`, so GitHub shows the `👀` mark and no progress comment.
 - The agent writes no opener, and no progress message starts a thread.
 - Persisted message rows keep the edits across a restart.
+- The first status row is persisted before Send. Its existing idempotency key lets webd classify the first frame; the retry sweep shares the turn lock with updates and End.
 - `placement.go` sends progress, text, files, voice, terminal notices and retries to the same destination.
 - A real edit failure goes back to the caller. routd never posts it again as a new message.
 - Complete progress text stays below 2,000 UTF-8 bytes. The current task survives overflow with an omitted count. The existing polling loop publishes the latest pending update at most once per five seconds; End cancels it.

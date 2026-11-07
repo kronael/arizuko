@@ -69,7 +69,7 @@ no vhost config.
 
 Shipped today (see `server.go`):
 
-- `POST /send`, `POST /edit`, `POST /typing`, `POST /v1/round_done` — channel adapter
+- `POST /send`, `POST /edit`, `POST /delete`, `POST /typing`, `POST /v1/round_done` — channel adapter
   inbound from routd, verified via `chanlib.Auth` (ES256 `service:routd` token
   when `AUTHD_URL` set, open in local dev).
   `round_done` carries the CHAT JID verbatim, never the routing target and
@@ -107,6 +107,13 @@ Shipped today (see `server.go`):
 - `GET /openapi.json` — engine-generated OpenAPI doc (public, pre-auth).
 - `GET /static/*`, `GET /assets/*` — embedded static assets (permissive CORS on `/assets/*`).
 - `GET /health`.
+
+Turn and topic streams replay active progress independently of message cursors.
+Turn streams emit `status` for the SDK's `onStatus` callback without advancing
+the normal cursor. A `progress` event carries the authoritative `frames` array,
+including an empty array. The built-in widget reconciles those nodes and removes
+them on `delete` or `round_done`. History includes active progress and excludes
+ended rows even when platform deletion failed.
 
 ## Token contract
 

@@ -188,7 +188,7 @@ func (s *Server) flushProgress(now time.Time) {
 			return true
 		}
 		tc, ok := s.db.GetTurnContext(turnID)
-		if !ok || tc.State == store.TurnDone || s.callbackClosed(tc) {
+		if !ok || !store.IsActiveTurnState(tc.State) || s.callbackClosed(tc) {
 			return true
 		}
 		if err := s.publishProgress(tc, progress, now, false); err != nil {
@@ -273,7 +273,7 @@ func (s *Server) updateProgress(tc TurnContext, jid, text string) error {
 	if text == "" {
 		return nil
 	}
-	if tc.State == store.TurnDone {
+	if !store.IsActiveTurnState(tc.State) {
 		slog.Debug("progress update dropped: the turn already ended",
 			"turn_id", tc.TurnID, "jid", jid)
 		return nil
@@ -287,8 +287,23 @@ func (s *Server) updateProgress(tc TurnContext, jid, text string) error {
 		if err != nil {
 			return err
 		}
+		row.ChatJID, row.Topic = place.jid, place.topic()
+		if err := s.db.PutOutbound(row, core.MessageStatusPending); err != nil {
+			return err
+		}
+		row, ok = s.db.store().MessageByID(row.ChatJID, row.ID)
+		if !ok {
+			return fmt.Errorf("progress row not found after append")
+		}
 		status := s.deliverRow(tc, place.jid, &row, place.threadRoot, place.threadID)
-		return s.db.PutOutbound(row, status)
+		switch status {
+		case core.MessageStatusSent:
+			return s.db.MarkDelivered(row, row.PlatformID)
+		case core.MessageStatusFailed:
+			return s.db.DeadLetter(row, 0)
+		default:
+			return nil
+		}
 	}
 	if row.Content == content {
 		return nil
@@ -354,6 +369,35 @@ func finishTurnLocked(db *DB, dl Deliverer, turnID string, end turnEnd) {
 		slog.Error("finishTurn: SetTurnState(done) failed; turn may appear stuck in-progress and be re-dispatched, duplicating output",
 			"turn_id", turnID, "err", err)
 	}
+}
+
+func (l *Loop) retryProgress(now time.Time, pending store.PendingMessage) bool {
+	if pending.Verb != verbStatus {
+		return false
+	}
+	unlock := lockTurn(pending.TurnID)
+	defer unlock()
+	row, ok := l.db.store().MessageByID(pending.ChatJID, pending.ID)
+	if !ok || row.PlatformID != "" {
+		return true
+	}
+	active, err := l.db.store().ActiveProgress(row.ChatJID, row.Topic, row.TurnID)
+	if err != nil {
+		slog.Error("retry progress: read active turn", "id", row.ID, "err", err)
+		return true
+	}
+	if len(active) == 0 {
+		if err := l.db.DeadLetter(row, 0); err != nil {
+			slog.Error("retry progress: dead-letter", "id", row.ID, "err", err)
+		}
+		return true
+	}
+	if _, ok := l.db.GetTurnContext(row.TurnID); !ok {
+		return true
+	}
+	pending.Message = row
+	l.retryOutbound(now, pending)
+	return true
 }
 
 // endProgress clears presence on every chat the turn's run owns and deletes the

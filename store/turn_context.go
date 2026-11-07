@@ -49,6 +49,10 @@ const (
 	AttrTurnStartedAt = "started_at"
 )
 
+func IsActiveTurnState(state string) bool {
+	return state == TurnRunning || state == TurnPendingRetry
+}
+
 // The lifecycle states a turn passes through. `done` and `expired` are the two
 // terminal ones, and they are DISTINCT: expiring a stale turn must not trip the
 // done-guard against a legitimate re-dispatch.

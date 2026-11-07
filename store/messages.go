@@ -484,7 +484,7 @@ func (s *Store) MessagesByThread(jid, topic string, before time.Time,
 	items, err := s.Obj().Query(context.Background(), objstore.Query{
 		Entity: Messages, Partition: jid,
 		Key:        objstore.KeyPredicate{Op: objstore.LtKey, Value: msgStampAt(before)},
-		Where:      []objstore.Cmp{{Attr: attrMsgTopic, Op: objstore.Eq, Value: topic}},
+		Where:      []objstore.Cmp{{Attr: attrMsgTopic, Op: objstore.Eq, Value: topic}, {Attr: attrMsgVerb, Op: objstore.Ne, Value: verbStatus}},
 		Descending: true, Limit: limit,
 	})
 	if err != nil {
@@ -512,13 +512,49 @@ func (s *Store) MessagesSinceTopic(jid, topic string, after time.Time,
 	items, err := s.Obj().Query(context.Background(), objstore.Query{
 		Entity: Messages, Partition: jid,
 		Key:   objstore.KeyPredicate{Op: objstore.GeKey, Value: msgStampPast(after)},
-		Where: []objstore.Cmp{{Attr: attrMsgTopic, Op: objstore.Eq, Value: topic}},
+		Where: []objstore.Cmp{{Attr: attrMsgTopic, Op: objstore.Eq, Value: topic}, {Attr: attrMsgVerb, Op: objstore.Ne, Value: verbStatus}},
 		Limit: limit,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("read %s#%s since %s: %w", jid, topic, core.TS(after), err)
 	}
 	return messagesFrom(items), nil
+}
+
+func (s *Store) ActiveProgress(chatJID, topic, turnID string) ([]core.Message, error) {
+	if chatJID == "" {
+		return nil, nil
+	}
+	where := []objstore.Cmp{{Attr: attrMsgBot, Op: objstore.Present}, {Attr: attrMsgVerb, Op: objstore.Eq, Value: verbStatus}}
+	if turnID != "" {
+		where = append(where, objstore.Cmp{Attr: attrMsgTurnID, Op: objstore.Eq, Value: turnID})
+	} else {
+		where = append(where, objstore.Cmp{Attr: attrMsgTopic, Op: objstore.Eq, Value: topic})
+	}
+	items, err := s.Obj().Query(context.Background(), objstore.Query{Entity: Messages, Partition: chatJID, Where: where, Descending: true})
+	if err != nil {
+		return nil, err
+	}
+	var out []core.Message
+	seen := make(map[string]bool)
+	for _, msg := range messagesFrom(items) {
+		if msg.TurnID == "" || seen[msg.TurnID] {
+			continue
+		}
+		seen[msg.TurnID] = true
+		key, err := turnKey(msg.TurnID)
+		if err != nil {
+			return nil, err
+		}
+		item, ok, err := s.itemAt(context.Background(), TurnContexts, key)
+		if err != nil {
+			return nil, err
+		}
+		if ok && IsActiveTurnState(item.Attrs[attrTurnState]) {
+			out = append(out, msg)
+		}
+	}
+	return out, nil
 }
 
 // BotRepliesSince answers the agent's outbound rows on a chat after an instant,

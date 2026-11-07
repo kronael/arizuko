@@ -379,47 +379,54 @@ func (l *Loop) maybeRetryOutbound(now time.Time) {
 		return
 	}
 	for _, p := range rows {
-		m := p.Message
-		// PendingOutbound's fixed 30s floor only bounds the youngest rows.
-		if now.Sub(m.Timestamp) < backoffDelay(p.Attempts) {
+		if l.retryProgress(now, p) {
 			continue
 		}
-		place := deliveryPlace{jid: m.ChatJID, threadID: m.Topic}
-		if tc, ok := l.db.GetTurnContext(m.TurnID); ok {
-			if m.Verb == "reply" && m.ChatJID == tc.ChatJID {
-				place.jid = returnTarget(tc, m.ChatJID)
-			}
-			if m.Topic != "" && tc.Topic == "" &&
-				(m.ChatJID == tc.ChatJID || m.ChatJID == returnTarget(tc, tc.ChatJID)) {
-				place.threadID, place.threadRoot = "", m.Topic
-			}
+		l.retryOutbound(now, p)
+	}
+}
+
+func (l *Loop) retryOutbound(now time.Time, p store.PendingMessage) {
+	m := p.Message
+	// PendingOutbound's fixed 30s floor only bounds the youngest rows.
+	if now.Sub(m.Timestamp) < backoffDelay(p.Attempts) {
+		return
+	}
+	place := deliveryPlace{jid: m.ChatJID, threadID: m.Topic}
+	if tc, ok := l.db.GetTurnContext(m.TurnID); ok {
+		if m.Verb == "reply" && m.ChatJID == tc.ChatJID {
+			place.jid = returnTarget(tc, m.ChatJID)
 		}
-		pid, derr := l.deliver.Send(place.jid, m.Content, m.ReplyToID, place.threadID, place.threadRoot, m.ID)
-		switch {
-		case derr == nil:
-			if err := l.db.MarkDelivered(m, pid); err != nil {
-				slog.Error("retry outbound: mark sent", "id", m.ID, "err", err)
-			}
-		case errors.Is(derr, chanlib.ErrPermanent):
-			if err := l.db.DeadLetter(m, 0); err != nil {
-				slog.Error("retry outbound: dead-letter", "id", m.ID, "err", err)
-			}
-			slog.Error("outbound dead-lettered: platform refused the message",
-				"id", m.ID, "jid", m.ChatJID, "err", derr)
-		default:
-			attempts, dead, err := l.db.RecordDeliveryFailure(m, l.maxOutboundRetry)
-			if err != nil {
-				slog.Error("retry outbound: count attempt", "id", m.ID, "err", err)
-				continue
-			}
-			if dead {
-				slog.Error("outbound dead-lettered: retries exhausted",
-					"id", m.ID, "jid", m.ChatJID, "attempts", attempts, "err", derr)
-			} else {
-				slog.Warn("retry outbound: delivery failed",
-					"id", m.ID, "jid", m.ChatJID, "attempts", attempts,
-					"max", l.maxOutboundRetry, "err", derr)
-			}
+		if m.Topic != "" && tc.Topic == "" &&
+			(m.ChatJID == tc.ChatJID || m.ChatJID == returnTarget(tc, tc.ChatJID)) {
+			place.threadID, place.threadRoot = "", m.Topic
+		}
+	}
+	pid, derr := l.deliver.Send(place.jid, m.Content, m.ReplyToID, place.threadID, place.threadRoot, m.ID)
+	switch {
+	case derr == nil:
+		if err := l.db.MarkDelivered(m, pid); err != nil {
+			slog.Error("retry outbound: mark sent", "id", m.ID, "err", err)
+		}
+	case errors.Is(derr, chanlib.ErrPermanent):
+		if err := l.db.DeadLetter(m, 0); err != nil {
+			slog.Error("retry outbound: dead-letter", "id", m.ID, "err", err)
+		}
+		slog.Error("outbound dead-lettered: platform refused the message",
+			"id", m.ID, "jid", m.ChatJID, "err", derr)
+	default:
+		attempts, dead, err := l.db.RecordDeliveryFailure(m, l.maxOutboundRetry)
+		if err != nil {
+			slog.Error("retry outbound: count attempt", "id", m.ID, "err", err)
+			return
+		}
+		if dead {
+			slog.Error("outbound dead-lettered: retries exhausted",
+				"id", m.ID, "jid", m.ChatJID, "attempts", attempts, "err", derr)
+		} else {
+			slog.Warn("retry outbound: delivery failed",
+				"id", m.ID, "jid", m.ChatJID, "attempts", attempts,
+				"max", l.maxOutboundRetry, "err", derr)
 		}
 	}
 }

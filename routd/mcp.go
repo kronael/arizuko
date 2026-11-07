@@ -402,7 +402,7 @@ func (s *Server) submitStatus(status ipc.TurnStatus) (ipc.TurnStatusAck, error) 
 	if !ok {
 		return ipc.TurnStatusAck{}, fmt.Errorf("no turn context for turn_id")
 	}
-	if s.callbackClosed(tc) || tc.State == store.TurnDone {
+	if s.callbackClosed(tc) || !store.IsActiveTurnState(tc.State) {
 		return ipc.TurnStatusAck{}, nil
 	}
 	value, hadProgress := s.db.progress.Load(status.TurnID)

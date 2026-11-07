@@ -17,8 +17,9 @@ A task checklist shows the remaining work and the checked results of one turn.
 A supported chat shows one message where the answer will go.
 `End` removes that message. Native typing and acknowledgement marks remain separate from the text.
 
-This spec is `partial`. The message lifecycle, shared producer, bounded rendering and checklist reminder exist;
-browser deletion and active replay require code and tests.
+This spec is `partial`. The shared producer, bounded rendering, checklist reminder,
+message lifecycle, browser deletion and active replay have code and tests.
+Image and krons acceptance remain unmeasured.
 The skill and manual rules are present. Their presence does not prove adoption.
 D1, D2 and D3 remain the owner decisions below.
 
@@ -119,6 +120,7 @@ ant checklist renderer and independent text suppression (removed)
       updateProgress,
       endProgress,
       finishTurn,
+      retryProgress,
     ]
   never: renders a second checklist or fails an answer because deletion failed
 - path: routd/progress_reducer.go (new)
@@ -126,17 +128,29 @@ ant checklist renderer and independent text suppression (removed)
   names: [turnProgress, progressItem, progressEvent, reduceProgress, reminder]
   never: publishes directly or accepts child checklist changes
 - path: routd/loop.go (changed)
-  job: flushes due progress through the existing polling ticker
-  names: [Run]
+  job: flushes due progress and serializes its retry sweep with End
+  names: [Run, maybeRetryOutbound, retryOutbound]
   never: starts a second progress scheduler
 - path: store/messages.go (changed)
-  job: returns active progress snapshots for replay and excludes ended progress
-  names: [TurnFrames, MessagesSinceTopic, MessagesByThread, LastStatusRow]
+  job: reads active progress independently of normal history and replay cursors
+  names: [ActiveProgress, MessagesSinceTopic, MessagesByThread, LastStatusRow]
   never: uses the message timestamp alone to decide whether progress changed
+- path: store/turn_context.go (changed)
+  job: declares the active turn states for progress publication and replay
+  names: [IsActiveTurnState]
+  never: treats an expired turn as active
 - path: webd/turn.go (changed)
   job: replays the latest active progress snapshot on turn reconnect
   names: [frameKind]
   never: restores progress for an ended turn
+- path: webd/channel.go (changed)
+  job: classifies the first progress frame from its persisted idempotency key
+  names: [handleSend]
+  never: infers progress kind from message text
+- path: webd/hub.go (changed)
+  job: filters stale progress through the existing SSE loop
+  names: [serveSSE]
+  never: starts a second event loop
 - path: webd/route_token.go (changed)
   job: filters history to active progress and reconciles browser nodes on reconnect and delete
   names: [handleChatTokenHistory, handleRouteTokenStream]
@@ -169,7 +183,7 @@ The receiver gate is checked at `dda72103a266faaff0a2ae19a1b192907bf164b3`.
 | Presence, persisted ID, equal-text suppression, edit and End deletion | built        | `routd/progress.go`                                                         |
 | Shared acknowledgement mark and GitHub exception                      | built        | `chanlib/mark.go`, `gitd/main.go`                                           |
 | Web edit/delete server and widget SDK callback                        | built        | `webd/channel.go`, `webd/assets/arizuko-client.js`                          |
-| Built-in browser deletion and active reconnect replay                 | not built    | `webd/route_token.go`, `webd/turn.go`, `store/messages.go`                  |
+| Built-in browser deletion and active reconnect replay                 | built        | `webd/progress_test.go`, `store/turns_containment_test.go`                  |
 | One parent-scoped producer across Claude and Codex                    | built        | `routd/progress_reducer_test.go` merges raw snapshots through submit_status |
 | Bounded rendering, list clearing, coalescing, retry state             | built        | `routd/progress_coalesce_test.go`                                           |
 | Addressed publication gate at receiver                                | built        | `routd/mcp.go` checks addressed, closure, mute and capabilities             |
@@ -323,8 +337,8 @@ and the message says so until it is not.
 All supported sinks receive the same bounded plain text. Telegram converts the
 first send through its Markdown-to-HTML helper; edits use plain text.
 The rendering tests must check that labels stay plain and safe on both paths.
-The web server and widget SDK support deletion. Built-in browser deletion and
-active replay remain unbuilt, as recorded in §"Build state".
+The web server, built-in browser and widget SDK support deletion.
+Active replay uses the turn lifecycle independently of message cursors.
 GitHub keeps the D1 exception. pi remains disabled until its MCP bridge ships.
 
 An adapter's capability map says what it renders. routd reads it; it never
@@ -544,9 +558,8 @@ plumbing in the adapter store, not a managed entity.
 
 ## Acceptance
 
-The existing tests cover parts of the routd lifecycle and adapter capabilities.
-They do not prove the shared producer or adoption. Keep the spec `partial`
-until the required code, tests, image build, and krons measurements pass.
+The tests cover the shared producer, rendering, reminders, lifecycle and replay.
+Keep the spec `partial` until image build and krons measurements pass.
 A lint result does not satisfy these requirements.
 
 | Area                 | Required result                                                                                                                                                                                                                                                                                                                                                                                                                                                              |

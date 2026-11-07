@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/kronael/arizuko/core"
-	"github.com/kronael/arizuko/ipc"
 	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/store"
 )
@@ -71,7 +70,7 @@ func TestChatThreadRepliesReadFailureAndExistingTopic(t *testing.T) {
 		if _, err := placeTurnDelivery(db, tc, progressJID, "", true); err == nil {
 			t.Fatal("unreadable preference accepted")
 		}
-		if _, err := srv.submitStatus(ipc.TurnStatus{TurnID: "t1", Text: "progress"}); err == nil {
+		if err := srv.mcpSubmitStatus("t1", "progress"); err == nil {
 			t.Fatal("progress accepted unreadable preference")
 		}
 		existing := tc
