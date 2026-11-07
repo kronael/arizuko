@@ -264,7 +264,7 @@ func (d *dash) handleGroupSettings(w http.ResponseWriter, r *http.Request) {
 	// g.Config (container_config) is not rendered on this page; the old code
 	// unmarshalled it into a variable nothing read, which only compiled because
 	// Unmarshal took its address.
-	product, groupModel := g.Product, g.Model
+	product := g.Product
 	open := g.Open
 	owMsgs, owChars := g.ObserveWindowMessages, g.ObserveWindowChars
 
@@ -281,26 +281,8 @@ func (d *dash) handleGroupSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	disabled := d.skillsDisabled(folder)
 
-	type modelOption struct{ ID, Label string }
-	modelOptions := []modelOption{
-		{"", "instance default"},
-		{"claude-opus-4-7", "Claude Opus 4.7"},
-		{"claude-sonnet-4-6", "Claude Sonnet 4.6"},
-		{"claude-haiku-4-5-20251001", "Claude Haiku 4.5"},
-	}
-	var modelSelect strings.Builder
-	modelSelect.WriteString(`<select name="model">`)
-	for _, opt := range modelOptions {
-		sel := ""
-		if opt.ID == groupModel {
-			sel = " selected"
-		}
-		fmt.Fprintf(&modelSelect, `<option value="%s"%s>%s</option>`, esc(opt.ID), sel, esc(opt.Label))
-	}
-	modelSelect.WriteString(`</select>`)
-
 	_, _ = fmt.Fprintf(w, `<form method="post" action="/dash/groups/%s/settings">`, folderPath(folder))
-	_, _ = fmt.Fprint(w, htmlFormRow("Model", modelSelect.String()))
+	_, _ = fmt.Fprint(w, htmlFormRow("Harness JSON", fmt.Sprintf(`<textarea name="harness">%s</textarea>`, esc(string(g.Harness)))))
 	_, _ = fmt.Fprintf(w, `<p><label><input type="checkbox" name="open" value="1"%s> open <span class="dim">— sibling groups can see messages sent here</span></label></p>`, openChecked)
 	_, _ = fmt.Fprint(w, htmlFormRow("Messages a nearby group can peek at",
 		fmt.Sprintf(`<input type="number" name="observe_window_messages" value="%s" min="0"> <span class="dim">max messages a sibling sees (blank = default 50)</span>`, numOrBlank(owMsgs))))
@@ -356,7 +338,8 @@ func (d *dash) handleGroupSettingsSave(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad folder", http.StatusBadRequest)
 		return
 	}
-	if _, ok := d.requireAdmin(w, r, folder); !ok {
+	sub, ok := d.requireAdmin(w, r, folder)
+	if !ok {
 		return
 	}
 	if err := r.ParseForm(); err != nil {
@@ -368,7 +351,7 @@ func (d *dash) handleGroupSettingsSave(w http.ResponseWriter, r *http.Request) {
 	// an empty/zero submission to -1 instead of persisting 0 as a real override.
 	owMsgs := clearableNum(r.FormValue("observe_window_messages"))
 	owChars := clearableNum(r.FormValue("observe_window_chars"))
-	model := r.FormValue("model")
+	harness := strings.TrimSpace(r.FormValue("harness"))
 	s := d.routdStore()
 	if err := s.SetGroupOpen(folder, open); err != nil {
 		slog.Warn("group settings save: open", "folder", folder, "err", err)
@@ -380,8 +363,12 @@ func (d *dash) handleGroupSettingsSave(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "write failed", http.StatusInternalServerError)
 		return
 	}
-	if err := s.SetGroupModel(folder, model); err != nil {
-		slog.Warn("group settings save: model", "folder", folder, "err", err)
+	var document json.RawMessage
+	if harness != "" {
+		document = json.RawMessage(harness)
+	}
+	if err := s.AsUser(sub).SetGroupHarness(folder, document); err != nil {
+		slog.Warn("group settings save: harness", "folder", folder, "err", err)
 		http.Error(w, "write failed", http.StatusInternalServerError)
 		return
 	}

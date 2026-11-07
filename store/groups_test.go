@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/objstore"
 )
@@ -355,5 +356,63 @@ func TestGroupConfigEffort(t *testing.T) {
 	}
 	if _, effort, _ := s.GroupConfig("main/a"); effort != "" {
 		t.Fatalf("unknown effort = %q, want unset", effort)
+	}
+}
+
+func TestGroupHarnessWrite(t *testing.T) {
+	s, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	putBareGroup(t, s, "team")
+	if err := s.SetGroupOpen("team", false); err != nil {
+		t.Fatal(err)
+	}
+	value := `{"backend":"codex","extra":9007199254740993}`
+	if err := s.AsUser("alice").SetGroupHarness("team", []byte(value)); err != nil {
+		t.Fatal(err)
+	}
+	g, ok := s.GroupByFolder("team")
+	if !ok || string(g.Harness) != value || g.Open {
+		t.Fatalf("group = %+v", g)
+	}
+	for _, invalid := range []string{`null`, `[]`, `1`, `{"bad"`} {
+		if s.SetGroupHarness("team", []byte(invalid)) == nil {
+			t.Fatalf("accepted %s", invalid)
+		}
+	}
+	if err := s.SetGroupHarness("team", nil); err != nil {
+		t.Fatal(err)
+	}
+	g, _ = s.GroupByFolder("team")
+	if len(g.Harness) != 0 || g.Open {
+		t.Fatalf("cleared group = %+v", g)
+	}
+}
+
+type harnessBatchProbe struct {
+	objstore.Store
+	writes []objstore.Write
+}
+
+func (p *harnessBatchProbe) GuardedBatch(ctx context.Context, checks []objstore.Check, writes []objstore.Write) (bool, error) {
+	p.writes = writes
+	return p.Store.GuardedBatch(ctx, checks, writes)
+}
+
+func TestGroupHarnessAuditBatch(t *testing.T) {
+	s, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	putBareGroup(t, s, "team")
+	probe := &harnessBatchProbe{Store: s.Obj()}
+	if err := NewOver(probe).AsUser("alice").SetGroupHarness("team", []byte(`{}`)); err != nil {
+		t.Fatal(err)
+	}
+	if len(probe.writes) < 2 || probe.writes[0].Entity != Groups || probe.writes[1].Entity != audit.Entity {
+		t.Fatalf("writes = %+v", probe.writes)
 	}
 }

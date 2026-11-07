@@ -109,3 +109,32 @@ func TestChatSettingsDashboardAuthorizationAndRoundTrip(t *testing.T) {
 		t.Fatalf("upstream denial = %d %s", w.Code, w.Body.String())
 	}
 }
+
+func TestGroupHarnessDashboard(t *testing.T) {
+	db := routdDB(t)
+	seedFolder(t, db, "team")
+	seedAdmin(t, db, "alice", "team")
+	appDir := t.TempDir()
+	coreDir := filepath.Join(appDir, "packages", "core")
+	if err := os.MkdirAll(coreDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(coreDir, "arizuko.yml"), []byte("name: core\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := routd.OpenOver(db).PutInstalledPackage(routd.InstalledPackage{Name: "core", Manifest: map[string][]string{"skill": {}}}); err != nil {
+		t.Fatal(err)
+	}
+	d := &dash{routd: db, routdURL: stubRoutd(t, db), groupsDir: filepath.Join(appDir, "groups")}
+	mux := newMux(d)
+	form := url.Values{"harness": {`{"backend":"codex"}`}}.Encode()
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, adminReq("POST", "/dash/groups/team/settings", form, "alice"))
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("save: %d %s", w.Code, w.Body.String())
+	}
+	g, ok := store.NewOver(db).GroupByFolder("team")
+	if !ok || string(g.Harness) != `{"backend":"codex"}` {
+		t.Fatalf("group: %+v", g)
+	}
+}

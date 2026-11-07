@@ -133,6 +133,9 @@ func groupFrom(it objstore.Item) core.Group {
 		}
 	}
 	cfg := settingsOf(it)
+	if harness, ok := cfg["harness"].(json.RawMessage); ok {
+		g.Harness = harness
+	}
 	if model, ok := cfg[cfgModel].(string); ok {
 		g.Model = model
 	}
@@ -545,6 +548,42 @@ func (s *Store) SetGroupObserveWindow(folder string, msgs, chars int) error {
 		Attrs: map[string]string{attrGrpConfig: string(raw)},
 	})
 	return err
+}
+
+// SetGroupHarness replaces the harness document. A nil value clears it.
+func (s *Store) SetGroupHarness(folder string, value json.RawMessage) error {
+	if value != nil {
+		var object map[string]json.RawMessage
+		if err := json.Unmarshal(value, &object); err != nil || object == nil {
+			return errors.New("harness must be a JSON object")
+		}
+	}
+	return s.writeAudited(func() ([]objstore.Write, audit.Event, error) {
+		it, ok, err := s.groupItem(context.Background(), folder)
+		if err != nil {
+			return nil, audit.Event{}, err
+		}
+		if !ok {
+			return nil, audit.Event{}, fmt.Errorf("group %q not found", folder)
+		}
+		cfg := map[string]json.RawMessage{}
+		if raw := it.Attrs[attrGrpConfig]; raw != "" {
+			if err := json.Unmarshal([]byte(raw), &cfg); err != nil || cfg == nil {
+				return nil, audit.Event{}, fmt.Errorf("group %q invalid settings JSON", folder)
+			}
+		}
+		if value == nil {
+			delete(cfg, "harness")
+		} else {
+			cfg["harness"] = value
+		}
+		raw, err := json.Marshal(cfg)
+		if err != nil {
+			return nil, audit.Event{}, err
+		}
+		actor, sub, surface := s.auditIdentity()
+		return []objstore.Write{{Op: objstore.Update, Entity: Groups, Key: it.Key, Attrs: map[string]string{attrGrpConfig: string(raw)}}}, audit.Event{Category: audit.CategoryMutation, Action: "group.harness", Actor: actor, ActorSub: sub, Surface: surface, Resource: "groups/" + folder, Folder: folder, Outcome: audit.OutcomeOK}, nil
+	})
 }
 
 // SetGroupModel sets the per-group model override. Empty string clears it.

@@ -9,6 +9,7 @@ package routd
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -61,6 +62,25 @@ func (s *Server) groupsHandler(_ context.Context, x resreg.Execution) (any, erro
 		group, ok := s.db.store().GroupByFolder(folder)
 		if !ok {
 			return nil, resreg.Errorf(http.StatusNotFound, "no group %s", folder)
+		}
+		return group, nil
+
+	case resreg.ActionUpdate:
+		var settings map[string]json.RawMessage
+		if err := json.Unmarshal([]byte(x.Args.Str("config")), &settings); err != nil || settings == nil {
+			return nil, resreg.Errorf(http.StatusBadRequest, "config must be a JSON object")
+		}
+		if value, exists := settings["harness"]; exists {
+			if string(value) == "null" {
+				value = nil
+			}
+			if err := s.db.store().AsUser(x.Caller.Sub).SetGroupHarness(x.Args.Str("folder"), value); err != nil {
+				return nil, resreg.Errorf(http.StatusBadRequest, "%v", err)
+			}
+		}
+		group, ok := s.db.store().GroupByFolder(x.Args.Str("folder"))
+		if !ok {
+			return nil, resreg.Errorf(http.StatusNotFound, "group not found")
 		}
 		return group, nil
 
@@ -119,7 +139,7 @@ func (s *Server) emitGroupRegisterAudit(c resreg.Caller, childFolder, jid string
 // socket exactly.
 func (s *Server) groupsPostBuild(folder, callerSub string, authorize authorizeFn, visible func(string) bool, callerID auth.Identity) func(*mcpserver.MCPServer) {
 	authz := func(_ resreg.Caller, a resreg.Action, args resreg.Args) (string, map[string]string, error) {
-		if a == resreg.ActionGet {
+		if a == resreg.ActionGet || a == resreg.ActionUpdate {
 			target := args.Str("folder")
 			if !groupfolder.IsValidFolder(target) {
 				return "", nil, resreg.Errorf(http.StatusBadRequest, "invalid folder")

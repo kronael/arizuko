@@ -3,6 +3,7 @@ package core
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
@@ -83,7 +84,8 @@ type Group struct {
 	AddedAt time.Time
 	Config  GroupConfig
 	Product string
-	Model   string // per-group model override; empty = instance default
+	Model   string          // per-group model override; empty = instance default
+	Harness json.RawMessage `json:"harness,omitempty"`
 
 	// Open, ObserveWindowMessages and ObserveWindowChars are read-only
 	// projections of the `config` column, exactly as Model already is. They

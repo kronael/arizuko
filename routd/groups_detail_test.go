@@ -96,3 +96,34 @@ func TestGroupDetailMetadata(t *testing.T) {
 		t.Fatal("detail missing from OpenAPI")
 	}
 }
+
+func TestGroupHarnessUpdateScope(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	for _, folder := range []string{"team/child", "other"} {
+		if err := db.PutGroup(core.Group{Folder: folder}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h := NewServer(db, nil, nil, fakeVerifier{sub: "alice", scope: []string{"routes:write"}, folder: "team"}, 0, "").Handler()
+	patch := func(folder, config string) int {
+		return doJSON(t, h, http.MethodPatch, "/v1/groups/"+url.PathEscape(folder), "", map[string]string{"config": config}).Code
+	}
+	if got := patch("team/child", `{"harness":{"backend":"codex"}}`); got != 200 {
+		t.Fatalf("child = %d", got)
+	}
+	if got := patch("other", `{"harness":{}}`); got != 403 {
+		t.Fatalf("other = %d", got)
+	}
+	grantMCPTools(t, db, "team", "update_group")
+	sock := serveGroupsMCP(t, db, "team", "folder:team", t.TempDir())
+	if _, msg := callToolOverSock(t, sock, "update_group", map[string]any{"folder": "team/child", "config": `{"harness":{"backend":"claude"}}`}); msg != "" {
+		t.Fatalf("MCP update: %s", msg)
+	}
+	if _, msg := callToolOverSock(t, sock, "update_group", map[string]any{"folder": "other", "config": `{"harness":{}}`}); msg == "" {
+		t.Fatal("foreign MCP update allowed")
+	}
+}
