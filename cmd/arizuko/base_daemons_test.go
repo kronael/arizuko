@@ -28,7 +28,7 @@ func TestBaseDaemonsAreServicesComposeEmits(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, ".env"),
-		[]byte("APP=arizuko\nFLAVOR=test\nONBOARDING_ENABLED=1\n"), 0o600); err != nil {
+		[]byte("APP=arizuko\nFLAVOR=test\nONBOARDING_ENABLED=1\nAWS_REGION=us-east-1\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	out, _, err := compose.Generate(dir, "test")

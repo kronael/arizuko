@@ -40,7 +40,7 @@ func seedSyncInstance(t *testing.T, name string, catalog, installed map[string]s
 			}
 		}
 	}
-	env := "HOST_APP_DIR=" + filepath.Join(base, "app") + "\n"
+	env := "HOST_APP_DIR=" + filepath.Join(base, "app") + "\nAWS_REGION=us-east-1\n"
 	if err := os.WriteFile(filepath.Join(dataDir, ".env"), []byte(env), 0o600); err != nil {
 		t.Fatal(err)
 	}
