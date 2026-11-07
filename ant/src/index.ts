@@ -3,7 +3,6 @@
 // submit_turn, the inner turn loop. The harness half lives behind backend.ts.
 
 import fs from 'fs';
-import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { submitTurn, submitStatus, type TurnAck } from './mcp.js';
@@ -419,17 +418,8 @@ export async function runTurn(
 async function main(): Promise<void> {
   let containerInput!: ContainerInput;
 
-  let privateTmpDir: string | null = null;
-  try {
-    privateTmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'arizuko-'));
-    try { fs.chmodSync(privateTmpDir, 0o700); } catch { /* ignore */ }
-  } catch { /* ignore */ }
-
   const cleanupSecrets = () => {
     try { fs.unlinkSync('/tmp/input.json'); } catch { /* may not exist */ }
-    if (privateTmpDir) {
-      try { fs.rmSync(privateTmpDir, { recursive: true, force: true }); } catch { /* ignore */ }
-    }
   };
 
   try {
