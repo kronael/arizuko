@@ -40,7 +40,7 @@ func (s *Server) fireTasks() {
 	for _, task := range tasks {
 		start := time.Now()
 		next := task.NextRun.UTC().Format(time.RFC3339)
-		id := core.MsgID("sched-" + task.ID + "@" + next)
+		id := "sched-" + task.ID + "@" + next
 		sender := core.ScheduledSender
 		if task.ContextMode == "isolated" {
 			sender = core.IsolatedSenderPrefix + task.ID
