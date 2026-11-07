@@ -63,25 +63,33 @@ func groupKey(folder string) (objstore.Key, error) {
 // settingsOf parses one item's settings document. An absent or unparseable one
 // is the EMPTY document; every reader has its own default for a missing key.
 func settingsOf(it objstore.Item) map[string]any {
+	out, err := decodeSettings(it)
+	if err != nil {
+		return map[string]any{}
+	}
+	return out
+}
+
+func decodeSettings(it objstore.Item) (map[string]any, error) {
 	out := map[string]any{}
 	if raw := it.Attrs[attrGrpConfig]; raw != "" {
 		var fields map[string]json.RawMessage
-		if err := json.Unmarshal([]byte(raw), &fields); err != nil {
-			return map[string]any{}
+		if err := json.Unmarshal([]byte(raw), &fields); err != nil || fields == nil {
+			return nil, fmt.Errorf("group %q invalid settings JSON", it.Key.Sort)
 		}
 		for key, value := range fields {
-			if key == "harness" {
+			if key == "harness" || key == "agent" {
 				out[key] = value
 				continue
 			}
 			var decoded any
 			if err := json.Unmarshal(value, &decoded); err != nil {
-				return map[string]any{}
+				return nil, fmt.Errorf("group %q invalid settings JSON", it.Key.Sort)
 			}
 			out[key] = decoded
 		}
 	}
-	return out
+	return out, nil
 }
 
 func (s *Store) GroupConfig(folder string) (json.RawMessage, json.RawMessage, map[string]any, error) {
@@ -128,55 +136,6 @@ func ParseGroupAgent(value json.RawMessage) (string, error) {
 	return name, nil
 }
 
-func (s *Store) GroupAgent(folder string) (string, error) {
-	it, ok, err := s.groupItem(context.Background(), folder)
-	if err != nil {
-		return "", err
-	}
-	if !ok {
-		return "", fmt.Errorf("group %q not found", folder)
-	}
-	var settings map[string]json.RawMessage
-	if raw := it.Attrs[attrGrpConfig]; raw != "" {
-		if err := json.Unmarshal([]byte(raw), &settings); err != nil || settings == nil {
-			return "", fmt.Errorf("group %q invalid settings JSON", folder)
-		}
-	}
-	name, err := ParseGroupAgent(settings["agent"])
-	if err != nil {
-		return "", fmt.Errorf("group %q: %w", folder, err)
-	}
-	return name, nil
-}
-
-func (s *Store) SetGroupAgent(folder string, value json.RawMessage) error {
-	if _, err := ParseGroupAgent(value); err != nil {
-		return err
-	}
-	if len(value) == 0 {
-		return errors.New("agent value required")
-	}
-	it, ok, err := s.groupItem(context.Background(), folder)
-	if err != nil {
-		return err
-	}
-	if !ok {
-		return fmt.Errorf("group %q not found", folder)
-	}
-	settings := map[string]json.RawMessage{}
-	if raw := it.Attrs[attrGrpConfig]; raw != "" {
-		if err := json.Unmarshal([]byte(raw), &settings); err != nil || settings == nil {
-			return fmt.Errorf("group %q invalid settings JSON", folder)
-		}
-	}
-	settings["agent"] = value
-	raw, err := json.Marshal(settings)
-	if err != nil {
-		return err
-	}
-	return s.WriteEntities(context.Background(), nil, objstore.Write{Op: objstore.Update, Entity: Groups, Key: it.Key, Attrs: map[string]string{attrGrpConfig: string(raw)}})
-}
-
 // settingNum reads one numeric setting. A key holding JSON null is the same
 // answer as a missing key, which is what SetGroupObserveWindow writes to clear.
 func settingNum(cfg map[string]any, key string) (int, bool) {
@@ -197,7 +156,7 @@ func settingNum(cfg map[string]any, key string) (int, bool) {
 }
 
 // groupFrom builds one group from one item.
-func groupFrom(it objstore.Item) core.Group {
+func groupFrom(it objstore.Item) (core.Group, error) {
 	g := core.Group{Folder: it.Key.Sort, Product: it.Attrs[attrGrpProduct]}
 	g.AddedAt, _ = time.Parse(core.TSLayout, it.Attrs[attrGrpAddedAt])
 	if raw := it.Attrs[attrGrpContainerConfig]; raw != "" {
@@ -208,7 +167,13 @@ func groupFrom(it objstore.Item) core.Group {
 				"folder", it.Key.Sort, "err", err)
 		}
 	}
-	cfg := settingsOf(it)
+	cfg, err := decodeSettings(it)
+	if agent, ok := cfg["agent"].(json.RawMessage); ok {
+		g.Agent, err = ParseGroupAgent(agent)
+		if err != nil {
+			err = fmt.Errorf("group %q: %w", it.Key.Sort, err)
+		}
+	}
 	if harness, ok := cfg["harness"].(json.RawMessage); ok {
 		g.Harness = harness
 	}
@@ -223,7 +188,7 @@ func groupFrom(it objstore.Item) core.Group {
 	if n, ok := settingNum(cfg, cfgObserveWinChar); ok {
 		g.ObserveWindowChars = n
 	}
-	return g
+	return g, err
 }
 
 // groupItem reads one group's item, or reports that there is none.
@@ -464,7 +429,7 @@ func (s *Store) AllGroups() map[string]core.Group {
 	}
 	out := make(map[string]core.Group, len(items))
 	for _, it := range items {
-		g := groupFrom(it)
+		g, _ := groupFrom(it)
 		out[g.Folder] = g
 	}
 	return out
@@ -477,11 +442,17 @@ func (s *Store) DefaultFolderForJID(jid string) string {
 }
 
 func (s *Store) GroupByFolder(folder string) (core.Group, bool) {
+	g, ok, _ := s.GroupByFolderChecked(folder)
+	return g, ok
+}
+
+func (s *Store) GroupByFolderChecked(folder string) (core.Group, bool, error) {
 	it, ok, err := s.groupItem(context.Background(), folder)
 	if err != nil || !ok {
-		return core.Group{}, false
+		return core.Group{}, ok, err
 	}
-	return groupFrom(it), true
+	g, err := groupFrom(it)
+	return g, true, err
 }
 
 // IsGroupOpen reports the folder's `open` flag. A missing group defaults to
@@ -581,13 +552,24 @@ func (s *Store) SetGroupObserveWindow(folder string, msgs, chars int) error {
 	return err
 }
 
-// SetGroupHarness replaces the harness document. A nil value clears it.
-func (s *Store) SetGroupHarness(folder string, value json.RawMessage) error {
-	if value != nil {
+// SetGroupSettings writes the requested group settings in one audited mutation.
+func (s *Store) SetGroupSettings(folder string, settings map[string]json.RawMessage) error {
+	if value, ok := settings["agent"]; ok {
+		if len(value) == 0 {
+			return errors.New("agent value required")
+		}
+		if _, err := ParseGroupAgent(value); err != nil {
+			return err
+		}
+	}
+	if value, ok := settings["harness"]; ok && value != nil {
 		var object map[string]json.RawMessage
 		if err := json.Unmarshal(value, &object); err != nil || object == nil {
 			return errors.New("harness must be a JSON object")
 		}
+	}
+	if len(settings) == 0 {
+		return nil
 	}
 	return s.writeAudited(func() ([]objstore.Write, audit.Event, error) {
 		it, ok, err := s.groupItem(context.Background(), folder)
@@ -603,17 +585,19 @@ func (s *Store) SetGroupHarness(folder string, value json.RawMessage) error {
 				return nil, audit.Event{}, fmt.Errorf("group %q invalid settings JSON", folder)
 			}
 		}
-		if value == nil {
-			delete(cfg, "harness")
-		} else {
-			cfg["harness"] = value
+		for key, value := range settings {
+			if key == "harness" && value == nil {
+				delete(cfg, key)
+			} else {
+				cfg[key] = value
+			}
 		}
 		raw, err := json.Marshal(cfg)
 		if err != nil {
 			return nil, audit.Event{}, err
 		}
 		actor, sub, surface := s.auditIdentity()
-		return []objstore.Write{{Op: objstore.Update, Entity: Groups, Key: it.Key, Attrs: map[string]string{attrGrpConfig: string(raw)}}}, audit.Event{Category: audit.CategoryMutation, Action: "group.harness", Actor: actor, ActorSub: sub, Surface: surface, Resource: "groups/" + folder, Folder: folder, Outcome: audit.OutcomeOK}, nil
+		return []objstore.Write{{Op: objstore.Update, Entity: Groups, Key: it.Key, Attrs: map[string]string{attrGrpConfig: string(raw)}}}, audit.Event{Category: audit.CategoryMutation, Action: "group.settings", Actor: actor, ActorSub: sub, Surface: surface, Resource: "groups/" + folder, Folder: folder, Outcome: audit.OutcomeOK}, nil
 	})
 }
 

@@ -352,34 +352,22 @@ func (d *dash) handleGroupSettingsSave(w http.ResponseWriter, r *http.Request) {
 	if agent != "" {
 		agentValue, _ = json.Marshal(agent)
 	}
-	if err := d.routdStore().SetGroupAgent(folder, agentValue); err != nil {
+	open, _ := json.Marshal(r.FormValue("open") == "1")
+	msgs, _ := json.Marshal(clearableNum(r.FormValue("observe_window_messages")))
+	chars, _ := json.Marshal(clearableNum(r.FormValue("observe_window_chars")))
+	if string(msgs) == "-1" {
+		msgs = []byte("null")
+	}
+	if string(chars) == "-1" {
+		chars = []byte("null")
+	}
+	var harness json.RawMessage
+	if value := strings.TrimSpace(r.FormValue("harness")); value != "" {
+		harness = json.RawMessage(value)
+	}
+	settings := map[string]json.RawMessage{"agent": agentValue, "harness": harness, "open": open, "observe_window_messages": msgs, "observe_window_chars": chars}
+	if err := d.routdStore().AsUser(sub).SetGroupSettings(folder, settings); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	open := r.FormValue("open") == "1"
-	// Blank or 0 = clear to default. SetGroupObserveWindow clears on <0, so map
-	// an empty/zero submission to -1 instead of persisting 0 as a real override.
-	owMsgs := clearableNum(r.FormValue("observe_window_messages"))
-	owChars := clearableNum(r.FormValue("observe_window_chars"))
-	harness := strings.TrimSpace(r.FormValue("harness"))
-	s := d.routdStore()
-	if err := s.SetGroupOpen(folder, open); err != nil {
-		slog.Warn("group settings save: open", "folder", folder, "err", err)
-		http.Error(w, "write failed", http.StatusInternalServerError)
-		return
-	}
-	if err := s.SetGroupObserveWindow(folder, owMsgs, owChars); err != nil {
-		slog.Warn("group settings save: observe", "folder", folder, "err", err)
-		http.Error(w, "write failed", http.StatusInternalServerError)
-		return
-	}
-	var document json.RawMessage
-	if harness != "" {
-		document = json.RawMessage(harness)
-	}
-	if err := s.AsUser(sub).SetGroupHarness(folder, document); err != nil {
-		slog.Warn("group settings save: harness", "folder", folder, "err", err)
-		http.Error(w, "write failed", http.StatusInternalServerError)
 		return
 	}
 	// Skills: checked values are enabled; unchecked skills (all stock minus checked) get .disabled.

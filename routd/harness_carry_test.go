@@ -99,7 +99,7 @@ func TestHarnessCarry(t *testing.T) {
 			t.Fatalf("harness = %q, want %q", got, want.String())
 		}
 	}
-	if err := db.store().SetGroupAgent("demo", json.RawMessage(`"fake"`)); err != nil {
+	if err := db.store().SetGroupSettings("demo", map[string]json.RawMessage{"agent": json.RawMessage(`"fake"`)}); err != nil {
 		t.Fatal(err)
 	}
 	check()

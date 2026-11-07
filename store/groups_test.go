@@ -347,7 +347,7 @@ func TestGroupHarnessWrite(t *testing.T) {
 		t.Fatal(err)
 	}
 	value := `{"backend":"codex","extra":9007199254740993}`
-	if err := s.AsUser("alice").SetGroupHarness("team", []byte(value)); err != nil {
+	if err := s.AsUser("alice").SetGroupSettings("team", map[string]json.RawMessage{"harness": []byte(value)}); err != nil {
 		t.Fatal(err)
 	}
 	g, ok := s.GroupByFolder("team")
@@ -355,11 +355,11 @@ func TestGroupHarnessWrite(t *testing.T) {
 		t.Fatalf("group = %+v", g)
 	}
 	for _, invalid := range []string{`null`, `[]`, `1`, `{"bad"`} {
-		if s.SetGroupHarness("team", []byte(invalid)) == nil {
+		if s.SetGroupSettings("team", map[string]json.RawMessage{"harness": []byte(invalid)}) == nil {
 			t.Fatalf("accepted %s", invalid)
 		}
 	}
-	if err := s.SetGroupHarness("team", nil); err != nil {
+	if err := s.SetGroupSettings("team", map[string]json.RawMessage{"harness": nil}); err != nil {
 		t.Fatal(err)
 	}
 	g, _ = s.GroupByFolder("team")
@@ -386,7 +386,7 @@ func TestGroupHarnessAuditBatch(t *testing.T) {
 	defer s.Close()
 	putBareGroup(t, s, "team")
 	probe := &harnessBatchProbe{Store: s.Obj()}
-	if err := NewOver(probe).AsUser("alice").SetGroupHarness("team", []byte(`{}`)); err != nil {
+	if err := NewOver(probe).AsUser("alice").SetGroupSettings("team", map[string]json.RawMessage{"harness": []byte(`{}`)}); err != nil {
 		t.Fatal(err)
 	}
 	if len(probe.writes) < 2 || probe.writes[0].Entity != Groups || probe.writes[1].Entity != audit.Entity {
@@ -401,7 +401,7 @@ func TestGroupAgent(t *testing.T) {
 	}
 	defer s.Close()
 	putBareGroup(t, s, "demo")
-	if got, err := s.GroupAgent("demo"); err != nil || got != "" {
+	if got, err := groupAgentForTest(s, "demo"); err != nil || got != "" {
 		t.Fatalf("default: %q %v", got, err)
 	}
 	if err := s.SetGroupOpen("demo", false); err != nil {
@@ -411,12 +411,12 @@ func TestGroupAgent(t *testing.T) {
 		value string
 		valid bool
 	}{{`1`, true}, {`"fake"`, true}, {`0`, false}, {`"../bad"`, false}, {`null`, false}, {`true`, false}, {`2`, false}} {
-		err := s.SetGroupAgent("demo", json.RawMessage(test.value))
+		err := s.SetGroupSettings("demo", map[string]json.RawMessage{"agent": json.RawMessage(test.value)})
 		if (err == nil) != test.valid {
 			t.Errorf("set %s: %v", test.value, err)
 		}
 	}
-	if got, err := s.GroupAgent("demo"); err != nil || got != "fake" {
+	if got, err := groupAgentForTest(s, "demo"); err != nil || got != "fake" {
 		t.Fatalf("agent: %q %v", got, err)
 	}
 	if s.IsGroupOpen("demo") {
@@ -426,8 +426,13 @@ func TestGroupAgent(t *testing.T) {
 		if err := s.WriteEntities(context.Background(), nil, objstore.Write{Op: objstore.Merge, Entity: Groups, Key: objstore.Key{Partition: OwnerRoutd, Sort: "demo"}, Attrs: map[string]string{"config": raw}}); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := s.GroupAgent("demo"); err == nil {
+		if _, err := groupAgentForTest(s, "demo"); err == nil {
 			t.Errorf("read accepted %s", raw)
 		}
 	}
+}
+
+func groupAgentForTest(s *Store, folder string) (string, error) {
+	g, _, err := s.GroupByFolderChecked(folder)
+	return g.Agent, err
 }
