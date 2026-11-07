@@ -18,11 +18,7 @@ hook starts it.
 runs its cases against that instance, and removes the instance when the run
 ends. It never reaches an instance that serves users.
 
-The owner's ruling, 2026-10-21: "anteval should not even touch live
-instances; it should spawn its own setup in a disposable qemu or so … or at
-least like testcontainers be ephemeral. it's a test." This spec chooses the
-shape. The direction is ruled; the shape needs sign-off, so the status is
-`draft`.
+The owner approved this shape. `planned` means approved but unbuilt.
 
 ## Problem — measured on krons 2026-10-21
 
@@ -60,117 +56,107 @@ release. The same build scored 5/9 during a migration storm and 8/9 after it
 (`.claude/skills/eval/gates.md` § "Post-deploy gates"), because the eval
 cases waited behind every other folder's turns.
 
-## Decision — a full instance, made by the operator's own commands
+## Decision — anteval run uses the arizuko CLI lifecycle
 
-`anteval run` creates the instance with the commands an operator uses:
-`arizuko create`, `arizuko generate`, `docker compose up`, then `arizuko
-group add`, `grant`, `network allow` and `token issue bearer` for the eval
-folder. anteval executes the `arizuko` binary and `docker`; it imports no
-arizuko package, so it stays the black-box prober of `5/9-agent-capability-eval`. At exit it runs
-`docker compose down --volumes` for the project and deletes the data
-directory it made.
+`anteval run` is the one eval entry point. It invokes the `arizuko` binary
+for instance lifecycle and setup, then calls its existing `run.Drive` cases.
+This adds fewer names than an `arizuko eval` subcommand: `anteval run`
+already owns case selection and reports. The lifecycle is also used by the
+arizuko CLI for ordinary instances; anteval owns no second Compose generator,
+startup path or removal implementation.
 
-Why this shape: anteval is the only check that drives a real model through
-the shipped image — compose generation, proxyd, webd, routd, the KVM
-substrate and the guest rootfs together. Only an instance made by the
-release's own declaration (`compose/compose.go`) tests that. The cost is the
-caveat below, and it is the one that would change the decision.
+```text
+anteval run (changed)
+    │
+    ├─► arizuko create ─► isolated instance (changed)
+    ├─► arizuko store enroll ─► isolated store account
+    ├─► arizuko run ────► generate + Compose startup
+    ├─► arizuko group / network / token ─► eval setup
+    ├─► run.Drive ──────► public HTTP / REST / MCP cases
+    └─► arizuko rm (new) ─► instance removal at exit
+```
 
-**Caveat — the host budget.** One instance holds 1.7 to 3.0 GB with no guest
-running (measured 2026-10-21: krons, 17 containers, 2460 MiB, of which runed
-held 720 MiB with two guests up; sloth, 17 containers, 3042 MiB, no guest),
-plus one guest at `RUNED_GUEST_MEM`, 2 GB by default. hel1v5 has 15 GB and 2
-vCPUs, and had 3 GB available with krons and sloth up. So the run does not
-fit on hel1v5 beside two live instances. The run refuses to start
-when `MemAvailable` is below the instance's measured footprint plus one
-guest, and says the number. The run host is any host with `/dev/kvm` and the
-release images.
+### Existing commands and missing lifecycle work
 
-### What the instance is made of (proposed)
+Measured at `dda72103a266faaff0a2ae19a1b192907bf164b3`:
 
-| Part              | Decision                                                                                                                                                                                                           | Why                                                                                                                                                                                                                                                                            |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Data directory    | `ARIZUKO_DATA_DIR=<run base>`, name `anteval-<run id>` (`cmd/arizuko/main.go:216-229`)                                                                                                                             | the CLI already takes the base; the name sets the compose project, containers and networks, never derived (root `CLAUDE.md`, "Identity is configured")                                                                                                                         |
-| Services          | the core fleet that `generate` writes with no adapter fragment, plus the store and the gateway below                                                                                                               | the catalog's cases use web chats, webhooks and `/pub`; no case needs an adapter                                                                                                                                                                                               |
-| Store             | ExtendDB's development build (`objstore/dynstore/dyntest/dyntest.go:32`) as a catalog fragment beside `template/services/extenddb.yml`, every daemon on the dev credential (`objstore/dynstore/dynstore.go:31-32`) | the deployment store needs a person to mint keys (`BUGS L319`); the dev build needs none. A green on it proves nothing about the PostgreSQL engine, and anteval does not certify the engine: `objstore/conformance` does                                                       |
-| Model gateway     | the `litellm` package (`template/services/litellm.yml`, spec `6/23-llm-gateway`)                                                                                                                                   | `settle` (`anteval/pkg/run/run.go:159-174`) and `max_tokens` read the gateway's meter; without it every case waits the full 180 s bound. The gateway's memory is not measured on any host (no live instance runs it, `BUGS L131`), so its footprint is part of the start check |
-| Model credential  | given to the run explicitly and written into the new `.env`; never read from another instance                                                                                                                      | a run must not copy a serving instance's secret; the backend under test (`ARIZUKO_BACKEND`) chooses which credential                                                                                                                                                           |
-| vsock window      | `RUNED_VSOCK_CID_BASE` and `RUNED_VSOCK_PORT_BASE` set to a window reserved for anteval                                                                                                                            | the CID and port space is the host's (`BUGS L378`); nothing detects an overlap, so the window is declared, not found                                                                                                                                                           |
-| Guest taps        | no setting                                                                                                                                                                                                         | measured 2026-10-21 with two guests running: zero tap or tun links in the host namespace; they live in runed's container                                                                                                                                                       |
-| Rootfs and kernel | the trees the release already exported, read-only                                                                                                                                                                  | `compose/compose.go:1232-1237` already shares one tree per image across instances; a second 8 GB export buys nothing                                                                                                                                                           |
-| Host ports        | a free port for each host port the fleet publishes                                                                                                                                                                 | two instances cannot share one; `BUGS L392` names the ports and the one that is a code default rather than a `.env` key                                                                                                                                                        |
-| Run slots         | `MAX_CONCURRENT_CONTAINERS=1`                                                                                                                                                                                      | the cases run one at a time on one folder (`anteval/README.md` § Run)                                                                                                                                                                                                          |
-| Eval folder       | the grants of `.claude/skills/eval/gates.md` § "Bringing `anteval` up", plus `web:publish` on `eval/**` with the grant option (`BUGS L308`)                                                                        | the instance holds nothing else, so the grants measure the agent and not a grant table                                                                                                                                                                                         |
+- `cmd/arizuko/README.md` and `cmd/arizuko/main.go:267` define `create`:
+  it seeds files and `.env`, not a running instance or store rows.
+- `cmd/arizuko/main.go:146` defines foreground `run`: it calls `generate`
+  and then `docker compose up --remove-orphans`. anteval owns that child
+  process and waits for readiness. It does not repeat either operation.
+- The command registry in `cmd/arizuko/main.go:51` has no whole-instance
+  removal command. `group rm` removes groups, not the instance.
+  Add `arizuko rm -i NAME` as the CLI's one instance removal operation.
+  It stops that project's services and guests, removes its enrolled store
+  account, volumes and networks, then removes its data directory.
+  Failure must remain visible.
+- `anteval/cmd/anteval/main.go:60` accepts a supplied target and token;
+  `anteval/pkg/run/run.go:70` closes its callback server but removes no instance.
+  Lifecycle composition and exit cleanup remain unbuilt.
 
-### What the run owns, and where it goes at exit
+The CLI must supply missing lifecycle operations before anteval can use them.
+There is no temporary anteval-only cleanup path. Cleanup runs on success,
+case failure, setup failure after creation, and handled interruption.
+It completes before the entry point exits, including paths that call `os.Exit`.
 
-Everything the run makes is under its compose project and its data
-directory, so one `down` and one delete remove all of it — groups, tokens,
-sessions, pages, skills and networks included. A run that crashes leaves both
-behind; the next run finds them by the project label and removes them before
-it starts, as `dyntest` reaps a dead process's store
-(`objstore/dynstore/dyntest/dyntest.go:257`). The data directory is
-root-owned after a turn, so the delete runs with the privilege the run
-already needs for `docker`.
+### One release, one isolated instance
 
-### What changes elsewhere when this ships
+The CLI creates from the selected release image and its packaged assets.
+`APP_SRC_DEV` stays off. Every CLI call supplies the new instance name
+explicitly and uses the run's private `ARIZUKO_DATA_DIR` base.
+Inherited instance defaults, endpoints and credentials cannot select a target.
+The run refuses an existing data directory or Compose project.
 
-- `5/9-agent-capability-eval` §"WHY a shipped component": the check runs
-  against the release image, not "a live deployed instance". The `<target>`,
-  `--api`, `--token`, `--chat` and `--folder` arguments become outputs of the
-  bring-up.
-- Product cases (`5/9-agent-capability-eval` §"A product carries its own cases") run against an
-  instance made with `arizuko create --product <name>`, never a live group.
-- `.claude/skills/eval/gates.md` gate 5 stops needing the drain wait, the
-  bearer mint and the sink-gateway lookup on the live instance.
-- No port changes. `runed.Runtime` stays `Run` + `Kill` (spec `6/41-qemu-substrate`
-  §"The seam"); this spec adds no method and no `Turn` field.
+| Part              | Contract                                                                                                                                                                                                                                                                               |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Identity and data | `anteval-<run id>` is the explicit instance name. The CLI resolves its data directory under `ARIZUKO_DATA_DIR` and declares the Compose project and network identities.                                                                                                                |
+| Services          | Use the release's normal package installation and Compose generation.                                                                                                                                                                                                                  |
+| Store             | Use one isolated account on an explicitly configured external test store, through `arizuko store enroll`. The account owns all eval tables and credentials. The server serves no user instance and follows `43-shared-store-server.md`; no private store package or dev-store variant. |
+| Configuration     | Write the new instance's `.env` using existing CLI configuration keys. Allocate separate host ports and a declared, nonoverlapping `RUNED_VSOCK_CID_BASE` / `RUNED_VSOCK_PORT_BASE` window. Add no eval-specific copies of these keys.                                                 |
+| Release assets    | Rootfs and kernel assets from the release are read-only. Mutable guest state belongs to the new instance.                                                                                                                                                                              |
+| Model and gateway | Supply the model credential explicitly. Install the normal gateway package for case cost and settle checks. Never copy another instance's credential.                                                                                                                                  |
+| Eval setup        | Use `group add`, `group grant`, `network allow` and `token issue bearer` on the new instance. Give the selected cases their grants and a reachable callback sink.                                                                                                                      |
+| Capacity          | Set `MAX_CONCURRENT_CONTAINERS=1`. Refuse startup without KVM, the release images, or memory for the instance, gateway and one guest.                                                                                                                                                  |
 
-**What is given up.** A run on krons once found a krons-only fault: the
-`/hook/` route was never seeded there (`5/9-agent-capability-eval` §"What the first live run
-proved"). A disposable instance cannot find a fault in another instance's
-data. That class belongs to gates 1-4 and the `/eval` checks
-(`.claude/skills/eval/checks.md`), which read the live instance and write
-nothing to it.
+Store enrollment and removal belong to the ordinary CLI lifecycle.
+They must work without anteval's cases. anteval invokes those commands and
+passes the resulting public addresses, folder and token to `run.Drive`.
+The current target, `--api`, `--mcp`, `--token`, `--chat` and `--folder`
+inputs become setup outputs. No option accepts an existing instance.
+Case selectors, sink settings and report outputs remain anteval's interface.
 
-## Why not the other shapes
+### Cases stay black-box
 
-**runed's substrate as a library inside anteval.** The substrate starts a
-guest from a `Turn` that runed's renderer makes from a run request (spec
-`6/41-qemu-substrate` §"The seam"). The guest's tools are served by routd over the turn's
-MCP socket, and its pages by webd and proxyd. With the substrate alone, no
-case in the catalog can run: each one calls a platform tool. To run them,
-anteval has to rebuild routd, webd and proxyd around the guest, which is the
-shape below. It also makes anteval import runed, which `5/9-agent-capability-eval` §"Approach"
-refuses, and it puts pressure on the port to export the renderer.
+`anteval/README.md` defines cases as observations over public surfaces.
+`anteval/pkg/run/target.go` and `mcpread.go` carry those HTTP, REST and MCP calls.
+Cases neither read instance files nor import daemon or storage packages.
+Only lifecycle setup invokes the operator CLI.
 
-**An in-process Go assembly, testcontainers style.** `tests/split_federation_test.go`
-already wires authd, routd and runed in one process with `FakeRuntime`;
-putting the real QEMU runtime, webd and proxyd into it gives a full turn
-without compose. It is a second declaration of the fleet: the daemons'
-wiring, env and mounts are declared once, in `compose/compose.go`, and the
-assembly would state them again and drift from them (root `CLAUDE.md`, "One
-declaration, many readers"). It also tests the Go source and not the shipped
-images. The testcontainers property — disposable, reaped by label, removed at
-exit — is taken into the decision above without the second declaration.
+The README's zero-internal-import claim is not yet true:
+`anteval/pkg/run/mcpread.go:14` imports `groupfolder` to derive a folder from a JID.
+Use the folder already supplied by setup for the MCP read.
+Remove that import without copying the JID parser into anteval.
 
-**A disposable VM that holds the whole instance.** hel1v5 is a KVM guest
-(`systemd-detect-virt` answers `kvm`) and already nests one level for turn
-guests (`kvm_amd nested=1`). An instance inside a VM puts each turn guest a
-third level down. The boot time of a turn guest is measured with one level of
-nesting (`BUGS L448`) and not with two.
+Product cases use `arizuko create --product`; the same lifecycle runs them.
+The manual-only rule remains: no deploy gate, timer, hook or CI starts an eval.
+The run never reads, mutates, drains or removes a serving instance.
+A disposable run certifies the release, not another instance's data.
 
-## What the existing tests already give, and what they do not
+### Removal has one owner
 
-| Test                                               | Gives                                                                    | Does not give                  |
-| -------------------------------------------------- | ------------------------------------------------------------------------ | ------------------------------ |
-| `dyntest` (`objstore/dynstore/dyntest/dyntest.go`) | a store per test binary, removed at exit, reaped by pid label            | anything above the store       |
-| `tests/split_federation_test.go`                   | authd, routd and runed over real HTTP and the pinned run contract        | a model, a guest, webd, proxyd |
-| `runed/qemu_turn_boot_test.go`                     | a real guest booted from a test rootfs, the MCP socket, the egress proxy | routd's tools, a model         |
-| `make test-e2e` (`Makefile:236-244`)               | webd's route-token surface                                               | a turn                         |
+All mutable state belongs to the created project, data directory and store account.
+`arizuko rm` removes that exact instance, including partially created state.
+It removes only that instance's store account, never the external server.
+It never sweeps instances by an `anteval` name prefix.
+A hard crash can leave resources behind; the operator uses the same CLI
+removal command for that recorded instance before retrying.
+Reports live outside the disposable directory.
 
-None of them drives a real model through the release image. That is the one
-fact anteval measures, and it is why anteval needs a real instance at all.
+Acceptance must exercise success, case failure, partial startup and interruption.
+Each path must leave no owned services, guests, store account, volumes, networks or data directory.
+Tests must also prove that existing targets are refused and unrelated instances
+remain untouched. No live eval or lifecycle implementation is claimed here.
 
 ## Ties
 

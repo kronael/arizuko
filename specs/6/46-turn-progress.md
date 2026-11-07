@@ -13,7 +13,7 @@ depends:
 # Turn progress uses one checklist and one temporary message
 
 A task checklist shows the remaining work and the checked results of one turn.
-`ant` owns the checklist text. `routd` owns presence and the temporary message.
+`routd` owns the checklist reducer, rendered text, presence and temporary message.
 A supported chat shows one message where the answer will go.
 `End` removes that message. Native typing and acknowledgement marks remain separate from the text.
 
@@ -47,36 +47,30 @@ and reconcile displayed progress.
 ## Where it fits
 
 ```text
-Native successful parent checklist changes (changed) ─┐
-Parent <status> fallback (changed) ──────────────────┼─► ant progress state (changed)
-Completed parent tool calls (new) ───────────────────┘      │              │
-                                                  text (changed)   reminder (changed)
-                                                          │              ▼
-                                                   submit_status    nudgeProgress
-                                                          │              │
-                                                          ▼         STEER_SPOOL
-                                               routd/progress.go         │
-                                                  one message       steering hook
-                                                          │              │
-                                                          ▼              ▼
-                                              supported reply chat     agent
+Claude checklist in ant (changed) ─┐
+Codex plan hook process (changed) ─┼─► submit_status ─► routd reducer (new)
+Parent status and calls (changed) ─┘                   under lockTurn
+                                                         │       │
+                                              bounded text       reminder decision
+                                                         │       │ RPC response
+                                                         ▼       ▼
+                                              routd/progress.go  nudgeProgress
+                                                  one message   STEER_SPOOL
+                                                         │       │
+                                                         ▼       ▼
+                                              supported chat    steering hook
 
-Direct TodoWrite sender (removed)
-Independent streamStatuses sender and repeating status request (removed)
+ant checklist renderer and independent text suppression (removed)
 ```
 
 ## Module map
 
 ```yaml
 - path: ant/src/todo-status.ts (changed)
-  job: owns turn-scoped checklist state, bounded rendering, and the only submitStatus sender
-  names: [Todo, renderTodos, todoStatus]
-  never: publishes child plans or leaves stale text after an empty update
-  remove: direct policy sender and the minimum-two-items filter
-- path: ant/src/backend.ts (changed)
-  job: carries normalized parent tool completions and checklist changes in Frame
-  names: [Frame, Turn]
-  never: adds a progress method to Harness or enables pi without its MCP bridge
+  job: sends normalized successful parent checklist events through submit_status
+  names: [Todo, todoStatus]
+  never: owns checklist state or renders progress text
+  remove: renderTodos and the minimum-two-items filter
 - path: ant/src/claude.ts (changed)
   job: normalizes parent task results and delivers the current reminder while waiting on background agents
   names: [claudeHarness, claudeHooks]
@@ -84,28 +78,39 @@ Independent streamStatuses sender and repeating status request (removed)
 - path: ant/src/policy.ts (changed)
   job: observes parent tool completions and preserves the existing steering delivery
   names: [ToolEvent, bindings]
-  never: sends progress independently or counts child calls
+  never: owns progress state or counts child calls
   remove: the Claude-only TodoWrite matcher
 - path: ant/src/index.ts (changed)
-  job: owns progress state across attempts of one turn and feeds both inputs into it
+  job: sends fallback statuses and the one-shot time trigger through submit_status
   names: [runTurn, statusBlocks, PROGRESS_INTERVAL_MS]
-  never: resets progress on an attempt retry or shares it with another turn
-  remove: streamStatuses sender, whole-turn text-set deduplication, and repeating status timer
+  never: owns checklist or reminder state
+  remove: whole-turn text-set deduplication and repeating status timer
 - path: ant/src/spool.ts (changed)
   job: carries the single checklist reminder through the existing steering spool
   names: [NUDGE_TEXT, STEER_SPOOL, drainSteering]
   never: starts a turn from a stale reminder
   remove: the request for a standalone status
 - path: ant/src/codex.ts (changed)
-  job: normalizes successful Codex plans and parent tool completions in its reducer
-  names: [CodexTurn]
-  never: parses Codex events in the shared renderer
+  job: binds Codex plan and tool-completion hooks to the existing policy command
+  names: [codexHooksConfig]
+  never: requires the hook process to share ant memory
+- path: ant/src/policy-cli.ts (changed)
+  job: sends normalized Codex events through submit_status from each hook process
+  never: keeps progress state between calls
+- path: ant/src/mcp.ts (changed)
+  job: carries reducer inputs and reminder decisions on the existing status RPC
+  names: [submitStatus, SubmitStatusPayload]
+  never: adds another status transport
+- path: ipc/ipc.go (changed)
+  job: declares the submit_status contract shared with ant
+  names: [TurnStatus]
+  never: adds a second status method
 - path: routd/mcp.go (changed)
-  job: gates public status updates on the bound addressed turn and reply destination
+  job: reduces submit_status inputs under lockTurn and gates public snapshots
   names: [submitStatus]
   never: trusts checklist labels as authorization
 - path: routd/progress.go (changed)
-  job: preserves one persisted message lifecycle with the bounded shared text
+  job: owns parent checklist state, bounded rendering, reminder decisions and message lifecycle
   names: [updateProgress, endProgress, finishTurn]
   never: renders a second checklist or fails an answer because deletion failed
 - path: store/messages.go (changed)
@@ -141,35 +146,49 @@ widget SDK's `onDelete` interface remain in place.
 
 The following state is checked against `b869bd16a5ee985a07d377b1e680666bfbf1c427`.
 The skill and manual rows describe this spec amendment.
+The receiver gate is checked at `dda72103a266faaff0a2ae19a1b192907bf164b3`.
 
-| Contract                                                              | State        | Evidence or remaining work                                 |
-| --------------------------------------------------------------------- | ------------ | ---------------------------------------------------------- |
-| Presence, persisted ID, equal-text suppression, edit and End deletion | built        | `routd/progress.go`                                        |
-| Shared acknowledgement mark and GitHub exception                      | built        | `chanlib/mark.go`, `gitd/main.go`                          |
-| Web edit/delete server and widget SDK callback                        | built        | `webd/channel.go`, `webd/assets/arizuko-client.js`         |
-| Built-in browser deletion and active reconnect replay                 | not built    | `webd/route_token.go`, `webd/turn.go`, `store/messages.go` |
-| One parent-scoped producer across Claude and Codex                    | not built    | replace both ant senders                                   |
-| Bounded rendering, list clearing, coalescing, retry state             | not built    | shared producer and lifecycle tests required               |
-| Addressed publication gate at receiver                                | not built    | `routd/mcp.go` checks closure, mute and capabilities only  |
-| One reminder at eight calls or 180 seconds                            | not built    | replace the repeating timer and NUDGE_TEXT                 |
-| Progress skill, manual sentence and solve routing                     | present      | adoption requires measurement                              |
-| D3 Typing port change                                                 | declined     | no port change                                             |
-| Drive edit/delete                                                     | not built    | §"Unverified"                                              |
-| pi checklist                                                          | unavailable  | backend selection rejects pi until its MCP bridge ships    |
-| Cross-harness acceptance and krons adoption                           | not measured | §"Acceptance"                                              |
+| Contract                                                              | State        | Evidence or remaining work                                      |
+| --------------------------------------------------------------------- | ------------ | --------------------------------------------------------------- |
+| Presence, persisted ID, equal-text suppression, edit and End deletion | built        | `routd/progress.go`                                             |
+| Shared acknowledgement mark and GitHub exception                      | built        | `chanlib/mark.go`, `gitd/main.go`                               |
+| Web edit/delete server and widget SDK callback                        | built        | `webd/channel.go`, `webd/assets/arizuko-client.js`              |
+| Built-in browser deletion and active reconnect replay                 | not built    | `webd/route_token.go`, `webd/turn.go`, `store/messages.go`      |
+| One parent-scoped producer across Claude and Codex                    | not built    | routd reducer over both harnesses' submit_status calls          |
+| Bounded rendering, list clearing, coalescing, retry state             | not built    | shared producer and lifecycle tests required                    |
+| Addressed publication gate at receiver                                | built        | `routd/mcp.go` checks addressed, closure, mute and capabilities |
+| One reminder at eight calls or 180 seconds                            | not built    | replace the repeating timer and NUDGE_TEXT                      |
+| Progress skill, manual sentence and solve routing                     | present      | adoption requires measurement                                   |
+| D3 Typing port change                                                 | declined     | no port change                                                  |
+| Drive edit/delete                                                     | not built    | §"Unverified"                                                   |
+| pi checklist                                                          | unavailable  | backend selection rejects pi until its MCP bridge ships         |
+| Cross-harness acceptance and krons adoption                           | not measured | §"Acceptance"                                                   |
 
 ## The declaration
 
-`ant` is the single producer of progress text. One reducer owns the native
-checklist, and `renderTodos` produces one plain-text snapshot for every sink.
-One sender calls the hidden `submit_status({turn_id, text})` method.
-`routd/progress.go` owns the message lifecycle and presence.
+`routd` is the single producer of progress text, per BUGS L677 option (a).
+Claude's checklist runs in `ant`; Codex's plan hooks run in separate processes
+through `ant/src/policy-cli.ts`. Both send normalized parent events through
+the existing `submit_status` method on routd's MCP socket.
+The parent-scoped reducer runs under `lockTurn` in `routd/turns.go`.
+It owns checklist state and renders one snapshot for every sink.
 
-| Event                | Source                   | Carries                      |
-| -------------------- | ------------------------ | ---------------------------- |
-| `Begin(turn)`        | dispatch, before the run | reply chat and presence      |
-| `Update(turn, text)` | the shared ant producer  | the latest rendered snapshot |
-| `End(turn, outcome)` | `finishTurn`             | `done` or `failed`           |
+`todoStatus` in `ant/src/todo-status.ts` becomes a plain event sender.
+Its `renderTodos` moves to routd. `streamStatuses` in `ant/src/index.ts`
+becomes a plain fallback sender without its whole-turn text set.
+The existing RPC carries checklist operations, native call IDs and parent scope,
+fallback text, and reminder triggers. It returns any reminder decision through
+the same call. No status file, second method or shared harness memory is needed.
+
+Contracts 2–4 build on this reducer: bounded rendering and coalescing,
+the one-shot reminder, and browser deletion with active replay.
+They share its turn state and feed the existing message lifecycle.
+
+| Event                | Source                        | Carries                      |
+| -------------------- | ----------------------------- | ---------------------------- |
+| `Begin(turn)`        | dispatch, before the run      | reply chat and presence      |
+| `Update(turn, text)` | routd's submit_status reducer | the latest rendered snapshot |
+| `End(turn, outcome)` | `finishTurn`                  | `done` or `failed`           |
 
 Any nonempty native list activates the checklist.
 Successful parent checklist changes are authoritative:
@@ -194,21 +213,7 @@ Once a checklist exists, standalone status blocks cannot replace it.
 An explicit clear keeps checklist ownership for the rest of the turn.
 It cannot reactivate fallback statuses or leave the old list visible.
 
-Current direct policy send, `ant/src/todo-status.ts:57`:
-
-```typescript
-await send({ turn_id: turnID, text: renderTodos(todos) });
-```
-
-Current independent text send, `ant/src/index.ts:166`:
-
-```typescript
-await send({ turn_id: turnID, text: s });
-```
-
-Proposed: both inputs change the same progress state. Only its sender calls
-`submitStatus`. Delete the direct policy send and the sender in `streamStatuses`.
-Delete the Claude-only matcher and the whole-turn set of seen texts.
+Delete the Claude-only matcher.
 Compare the latest rendered snapshot for equal-text suppression.
 A sequence `A,B,A` must restore `A`.
 
@@ -225,7 +230,7 @@ group or direct-message default.
 chat's main channel. Retries keep the recorded thread placement and use the
 turn's return address for delegated replies.
 
-The agent does not write an opener. `submit_status` carries text only.
+The agent does not write an opener.
 
 **Presence** is `Typing(on)` from the moment an addressed message waits for its
 turn until `End`, on the chat that receives the reply and, at `End`, on every chat
@@ -247,9 +252,10 @@ message stays `⏳`. What the sink does with it is the sink's declaration
 - The first `Update` creates the message. `Begin` creates presence only.
   A turn that reports nothing posts nothing.
 - Public updates require an addressed turn and a reply channel with both
-  `edit` and `delete`. `ant` checks `ARIZUKO_PROGRESS`; the receiver also checks
-  `tc.Addressed`, closure, mute state, and the resolved reply capabilities.
-  The bound callback validates the turn ID. Other updates create no row or message.
+  `edit` and `delete`. `ARIZUKO_PROGRESS` controls display, not event submission.
+  The bound callback validates the turn ID and drops closed turns before reduction.
+  Publication then checks `tc.Addressed`, mute state and the resolved reply capabilities.
+  Other updates create no row or message.
 - The renderer uses `☑` for completed, `⏳` for current, and `☐` for pending.
   It uses `activeForm` for the current label when present.
   It omits descriptions and metadata and neutralizes mentions and formatting controls.
@@ -371,7 +377,8 @@ const nudgeTimer =
     : undefined;
 ```
 
-Proposed: the same reminder state accepts the call-count and time triggers.
+The routd reducer accepts call-count and time triggers through `submit_status`.
+The sender delivers its reminder decision through `nudgeProgress` and the spool.
 It queues at most one reminder while the turn has no checklist.
 It does not depend on public display. GitHub and silent tasks can still use
 native checklists internally. Unavailable checklist tools do not cause repeated reminders.
