@@ -15,7 +15,6 @@
 
 ## What needs you
 
-- `L683` — the shutdown source guard requires signal setup in anteval's listener file; record only.
 - `L684` — the DynamoDB boot test expects an operator grant that the local ACL rows do not contain; record only.
 - `L685` — routd retains one mutex per turn for the process lifetime.
 - `L686` — decide whether to retire the four duplicated top-level creative skill names; proposal, needs sign-off.
@@ -476,21 +475,6 @@ that version. A change to which rows reach live data is an auth change.
 
 - **Status:** open — needs sign-off.
 
-
-## L683 — the shutdown source guard cannot see anteval's signal setup (2026-11-07, open — record only)
-
-`tests/shutdown/shutdown_test.go` discovers listeners in
-`anteval/cmd/anteval/lifecycle.go:180`. That file contains no `signal.Notify`.
-`anteval/cmd/anteval/main.go:96` installs `signal.NotifyContext` before calling
-the lifecycle. A file-local source check does not establish a runtime signal window.
-The supplied baseline verification reproduces the failure at `8a6c1c72cbc44f3caee3016a714b4aa92a57b86e`.
-
-- **Severity:** low — the shutdown guard fails on cross-file lifecycle setup.
-- **Scope:** listener discovery and signal-order test.
-- **Affected:** `tests/shutdown/shutdown_test.go`, `anteval/cmd/anteval/lifecycle.go`.
-- **Measured:** `go test ./tests/shutdown -short -count=1 -run '^TestSignalHandlerIsArmedBeforeTheListener$'`.
-- **Fix:** verify call order across the entrypoint and lifecycle without weakening checks for other listeners.
-- **Status:** open — record only; Go edits are outside this documentation pass.
 
 ## L684 — the DynamoDB boot test expects an operator row in the local ACL (2026-11-07, open — record only)
 

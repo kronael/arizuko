@@ -115,6 +115,10 @@ func TestSignalHandlerIsArmedBeforeTheListener(t *testing.T) {
 	}
 
 	for _, d := range found {
+		if d == "anteval/cmd/anteval/lifecycle.go" {
+			checkAnteval(t)
+			continue
+		}
 		b, err := os.ReadFile(filepath.Join(root, d))
 		if err != nil {
 			t.Errorf("%s: %v", d, err)
@@ -131,6 +135,42 @@ func TestSignalHandlerIsArmedBeforeTheListener(t *testing.T) {
 		case notify > listen:
 			t.Errorf("%s: signal.Notify at line %d comes AFTER the listener at line %d; "+
 				"a SIGTERM in that window skips Shutdown", d, notify, listen)
+		}
+	}
+}
+
+func checkAnteval(t *testing.T) {
+	t.Helper()
+	main, err := os.ReadFile(filepath.Join(root, "anteval/cmd/anteval/main.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lifecycle, err := os.ReadFile(filepath.Join(root, "anteval/cmd/anteval/lifecycle.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	function := func(source, name string) string {
+		_, body, ok := strings.Cut(source, "func "+name+"(")
+		if !ok {
+			t.Fatalf("anteval: missing %s", name)
+		}
+		body, _, _ = strings.Cut(body, "\nfunc ")
+		return body
+	}
+	run := function(string(main), "doRun")
+	notify := strings.Index(run, "ctx, stop := signal.NotifyContext(")
+	call := strings.Index(run, "doLifecycle(ctx,")
+	if notify < 0 || call < 0 || notify > call {
+		t.Error("anteval: doRun must arm signals before passing its context to doLifecycle")
+	}
+	ports := function(string(lifecycle), "freePorts")
+	if !strings.Contains(function(string(lifecycle), "doLifecycle"), "freePorts()") ||
+		!strings.Contains(ports, "net.Listen(") {
+		t.Error("anteval: doLifecycle must call freePorts, which opens the listeners")
+	}
+	for _, listener := range listeners {
+		if strings.Count(string(lifecycle), listener) != strings.Count(ports, listener) {
+			t.Errorf("anteval: listener %s outside freePorts requires a shutdown check", listener)
 		}
 	}
 }
