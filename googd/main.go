@@ -36,9 +36,9 @@ func main() {
 		Start: func(ctx context.Context, rc *chanlib.RouterClient) (http.Handler, func(), error) {
 			if err != nil {
 				slog.Error("service account credential unusable", "err", err)
-				if b.cred.isRetryable() {
-					go reacquire(ctx, b, rc, credentialRetryEvery)
-				}
+			}
+			if b.cred.isRetryable() {
+				go reacquire(ctx, b, rc, credentialRetryEvery)
 			}
 			as, openErr := chanlib.OpenAdapterStore("googd")
 			if openErr != nil {
@@ -94,6 +94,9 @@ func verifyCredential(ctx context.Context, b *bot, rc capSetter, every time.Dura
 	err := b.start(ctx)
 	if err == nil {
 		slog.Info("service account verified", "account", b.cred.account())
+		if b.cred.isRetryable() {
+			go reacquire(ctx, b, rc, every)
+		}
 		return
 	}
 	slog.Error("service account credential unusable; googd runs without send_text and reads nothing until it is fixed",
@@ -108,19 +111,29 @@ func verifyCredential(ctx context.Context, b *bot, rc capSetter, every time.Dura
 func reacquire(ctx context.Context, b *bot, rc capSetter, every time.Duration) {
 	t := time.NewTicker(every)
 	defer t.Stop()
+	registered := b.cred.usable()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-t.C:
 			if err := b.cred.verify(ctx); err != nil {
+				if registered {
+					setCaps(rc, capsFor(false))
+					registered = false
+				}
 				slog.Warn("service account still unusable; send_text stays withdrawn", "err", err)
 				continue
 			}
-			slog.Info("service account verified; send_text is back on the registration",
-				"account", b.cred.account())
-			setCaps(rc, capsFor(true))
-			return
+			if !registered {
+				slog.Info("service account verified; send_text is back on the registration",
+					"account", b.cred.account())
+				setCaps(rc, capsFor(true))
+				registered = true
+			}
+			if !b.cred.isRetryable() {
+				return
+			}
 		}
 	}
 }

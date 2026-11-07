@@ -54,7 +54,7 @@ func newPollTest(t *testing.T, handler http.HandlerFunc, files ...string) (*poll
 	t.Helper()
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
-	b := &bot{cred: &credential{apiBase: server.URL, http: server.Client(), user: driveUser{EmailAddress: "agent@example.com"}}}
+	b := &bot{cred: &credential{apiBase: server.URL, http: server.Client(), state: credOK, user: driveUser{EmailAddress: "agent@example.com"}}}
 	bindings := pollBindings{}
 	for _, id := range files {
 		bindings = append(bindings, store.GDriveFile{FileID: id})
@@ -114,6 +114,7 @@ func TestPollRefusedDeliveryKeepsCursor(t *testing.T) {
 		t.Fatal(db.rows, router.messages)
 	}
 }
+
 func TestPollLaterPageFailureKeepsCursor(t *testing.T) {
 	var starts []string
 	fail := true
@@ -148,6 +149,21 @@ func TestPollLaterPageFailureKeepsCursor(t *testing.T) {
 	}
 }
 
+func TestPollWithoutAccount(t *testing.T) {
+	p, db, router := newPollTest(t, func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/comments") {
+			fmt.Fprintf(w, `{"comments":[%s]}`, thread)
+			return
+		}
+		fmt.Fprint(w, `{}`)
+	}, "file")
+	p.b.cred.user = driveUser{}
+	p.b.cred.state = credOK
+	p.sweep(t.Context(), time.Now())
+	if len(router.messages) != 2 || router.messages[0].Verb != "message" || db.rows["file"]["cursor"] == "" {
+		t.Fatalf("messages = %+v, rows = %v", router.messages, db.rows)
+	}
+}
 func TestPollBackoffAndFileIsolation(t *testing.T) {
 	count := map[string]int{}
 	status := 429

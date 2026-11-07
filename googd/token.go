@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
@@ -45,10 +46,11 @@ type driveUser struct {
 type credential struct {
 	apiBase string
 
-	mu    sync.Mutex
-	state credState
-	err   error
-	user  driveUser
+	mu             sync.Mutex
+	state          credState
+	err            error
+	user           driveUser
+	missingAccount sync.Once
 
 	src  oauth2.TokenSource
 	http *http.Client
@@ -138,6 +140,11 @@ func (c *credential) verify(ctx context.Context) error {
 	c.state, c.err = state, err
 	if err == nil {
 		c.user = user
+		if user.EmailAddress == "" {
+			c.missingAccount.Do(func() {
+				slog.Warn("Drive account email unavailable; mention detection disabled")
+			})
+		}
 	}
 	return err
 }
@@ -188,7 +195,14 @@ func (c *credential) stored() error {
 func (c *credential) isRetryable() bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.state == credRefused || c.state == credUnreachable
+	return c.state == credRefused || c.state == credUnreachable ||
+		(c.state == credOK && c.user.EmailAddress == "")
+}
+
+func (c *credential) usable() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.state == credOK
 }
 
 // status is the credential's line on the dashboard.
@@ -197,6 +211,9 @@ func (c *credential) status() string {
 	defer c.mu.Unlock()
 	switch c.state {
 	case credOK:
+		if c.user.EmailAddress == "" {
+			return "ok; account email unavailable, mention detection disabled"
+		}
 		return "ok"
 	case credMissing:
 		return "no key: " + c.err.Error() + "; googd reads nothing and replies to nothing"

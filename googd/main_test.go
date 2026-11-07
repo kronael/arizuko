@@ -348,6 +348,31 @@ func TestCredential_GoodKeyKeepsRegistration(t *testing.T) {
 	}
 }
 
+func TestCredential_MissingAccountRetries(t *testing.T) {
+	g := newFakeGoogle(t)
+	g.aboutStatus.Store(http.StatusInternalServerError)
+	b := newBot(t.Context(), g.config(t))
+	rc := &capRecorder{}
+	verifyCredential(t.Context(), b, rc, time.Millisecond)
+	if !b.cred.usable() || b.cred.account() != "" ||
+		!strings.Contains(b.cred.status(), "mention detection disabled") {
+		t.Fatalf("status = %q, account = %q", b.cred.status(), b.cred.account())
+	}
+	g.aboutStatus.Store(http.StatusOK)
+	deadline := time.After(10 * time.Second)
+	for b.cred.account() == "" {
+		select {
+		case <-deadline:
+			t.Fatal("account was not recovered")
+		default:
+			time.Sleep(time.Millisecond)
+		}
+	}
+	if b.cred.isRetryable() || b.cred.status() != "ok" {
+		t.Fatalf("status = %q", b.cred.status())
+	}
+}
+
 func TestCredential_ImpersonateSetsSubject(t *testing.T) {
 	g := newFakeGoogle(t)
 	cfg := g.config(t)

@@ -55,7 +55,7 @@ func (p *poller) pollLoop(ctx context.Context) {
 	}
 }
 func (p *poller) sweep(ctx context.Context, now time.Time) {
-	if p.b.cred.account() == "" {
+	if !p.b.cred.usable() {
 		return
 	}
 	files, err := p.bindings.ListGDriveFiles("")
