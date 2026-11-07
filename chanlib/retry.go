@@ -32,11 +32,6 @@ const (
 	RetryRateLimitOnly
 )
 
-// DoWithRetry retries transient failures. See DoWithPolicy.
-func DoWithRetry(client *http.Client, req *http.Request) (*http.Response, error) {
-	return DoWithPolicy(client, req, RetryTransient)
-}
-
 // DoWithPolicy retries per policy with jittered backoff. On 429 it honours
 // Retry-After (seconds or HTTP-date) when <= retryMaxRetryAfter. Returns the
 // final response or error; the caller still closes Body.

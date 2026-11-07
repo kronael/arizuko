@@ -38,7 +38,7 @@ func TestDoWithRetry_503ThenOK(t *testing.T) {
 	defer srv.Close()
 
 	req, _ := http.NewRequest("GET", srv.URL, nil)
-	resp, err := DoWithRetry(srv.Client(), req)
+	resp, err := DoWithPolicy(srv.Client(), req, RetryTransient)
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
@@ -69,7 +69,7 @@ func TestDoWithRetry_429WithRetryAfter(t *testing.T) {
 	defer srv.Close()
 
 	req, _ := http.NewRequest("GET", srv.URL, nil)
-	resp, err := DoWithRetry(srv.Client(), req)
+	resp, err := DoWithPolicy(srv.Client(), req, RetryTransient)
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
@@ -92,7 +92,7 @@ func TestDoWithRetry_500Exhausted(t *testing.T) {
 	defer srv.Close()
 
 	req, _ := http.NewRequest("GET", srv.URL, nil)
-	resp, err := DoWithRetry(srv.Client(), req)
+	resp, err := DoWithPolicy(srv.Client(), req, RetryTransient)
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
@@ -115,7 +115,7 @@ func TestDoWithRetry_400NoRetry(t *testing.T) {
 	defer srv.Close()
 
 	req, _ := http.NewRequest("GET", srv.URL, nil)
-	resp, err := DoWithRetry(srv.Client(), req)
+	resp, err := DoWithPolicy(srv.Client(), req, RetryTransient)
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
@@ -146,7 +146,7 @@ func TestDoWithRetry_NetworkErrorRetried(t *testing.T) {
 	defer srv.Close()
 
 	req, _ := http.NewRequest("GET", srv.URL, nil)
-	resp, err := DoWithRetry(srv.Client(), req)
+	resp, err := DoWithPolicy(srv.Client(), req, RetryTransient)
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
@@ -177,7 +177,7 @@ func TestDoWithRetry_BodyRewound(t *testing.T) {
 	defer srv.Close()
 
 	req, _ := http.NewRequest("POST", srv.URL, bytes.NewReader([]byte("hello")))
-	resp, err := DoWithRetry(srv.Client(), req)
+	resp, err := DoWithPolicy(srv.Client(), req, RetryTransient)
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
@@ -202,7 +202,7 @@ func TestDoWithRetry_429Exhausted_NoExtraRequest(t *testing.T) {
 	defer srv.Close()
 
 	req, _ := http.NewRequest("GET", srv.URL, nil)
-	resp, err := DoWithRetry(srv.Client(), req)
+	resp, err := DoWithPolicy(srv.Client(), req, RetryTransient)
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
@@ -225,7 +225,7 @@ func TestDoWithRetry_StringsBody(t *testing.T) {
 	}))
 	defer srv.Close()
 	req, _ := http.NewRequest("POST", srv.URL, strings.NewReader("x"))
-	resp, err := DoWithRetry(srv.Client(), req)
+	resp, err := DoWithPolicy(srv.Client(), req, RetryTransient)
 	if err != nil {
 		t.Fatal(err)
 	}
