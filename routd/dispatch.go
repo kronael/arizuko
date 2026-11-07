@@ -17,6 +17,7 @@ import (
 	"github.com/kronael/arizuko/obs"
 	"github.com/kronael/arizuko/queue"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
+	"github.com/kronael/arizuko/store"
 	"github.com/kronael/arizuko/types"
 )
 
@@ -843,13 +844,14 @@ func (l *Loop) dispatchRun(ctx context.Context, folder, topic, chatJID, turnID, 
 			}
 		}
 	}
-	agent, err := l.db.store().GroupAgent(folder)
+	harness, agentValue, containerCfg, err := l.db.store().GroupConfig(folder)
 	if err != nil {
 		return runedv1.RunOutcome{}, err
 	}
-	harness, containerCfg, err := l.db.store().GroupConfig(folder)
+	agent, err := store.ParseGroupAgent(agentValue)
 	if err != nil {
-		return runedv1.RunOutcome{}, err
+		return runedv1.RunOutcome{Outcome: runedv1.OutcomeError, Terminal: true,
+			Error: fmt.Sprintf("group %q agent %s: %v", folder, agentValue, err)}, nil
 	}
 	// routd is the authz plane; runed has neither store. nil allowlist on error
 	// is fine — runed treats empty as no extra constraint.

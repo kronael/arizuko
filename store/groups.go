@@ -84,10 +84,10 @@ func settingsOf(it objstore.Item) map[string]any {
 	return out
 }
 
-func (s *Store) GroupConfig(folder string) (json.RawMessage, map[string]any, error) {
+func (s *Store) GroupConfig(folder string) (json.RawMessage, json.RawMessage, map[string]any, error) {
 	it, ok, err := s.groupItem(context.Background(), folder)
 	if err != nil || !ok {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	var cfg map[string]any
 	if raw := it.Attrs[attrGrpContainerConfig]; raw != "" && raw != "{}" {
@@ -97,18 +97,18 @@ func (s *Store) GroupConfig(folder string) (json.RawMessage, map[string]any, err
 	}
 	raw := it.Attrs[attrGrpConfig]
 	if raw == "" {
-		return nil, cfg, nil
+		return nil, nil, cfg, nil
 	}
 	var settings map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(raw), &settings); err != nil || settings == nil {
-		return nil, nil, fmt.Errorf("group %q invalid settings JSON", folder)
+		return nil, nil, nil, fmt.Errorf("group %q invalid settings JSON", folder)
 	}
-	return settings["harness"], cfg, nil
+	return settings["harness"], settings["agent"], cfg, nil
 }
 
 var agentName = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.-]*$`)
 
-func parseGroupAgent(value json.RawMessage) (string, error) {
+func ParseGroupAgent(value json.RawMessage) (string, error) {
 	if len(value) == 0 {
 		return "", nil
 	}
@@ -142,7 +142,7 @@ func (s *Store) GroupAgent(folder string) (string, error) {
 			return "", fmt.Errorf("group %q invalid settings JSON", folder)
 		}
 	}
-	name, err := parseGroupAgent(settings["agent"])
+	name, err := ParseGroupAgent(settings["agent"])
 	if err != nil {
 		return "", fmt.Errorf("group %q: %w", folder, err)
 	}
@@ -150,7 +150,7 @@ func (s *Store) GroupAgent(folder string) (string, error) {
 }
 
 func (s *Store) SetGroupAgent(folder string, value json.RawMessage) error {
-	if _, err := parseGroupAgent(value); err != nil {
+	if _, err := ParseGroupAgent(value); err != nil {
 		return err
 	}
 	if len(value) == 0 {

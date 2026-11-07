@@ -49,7 +49,7 @@ func TestHarnessCarry(t *testing.T) {
 	if err := db.store().WriteEntities(ctx, nil, objstore.Write{Op: objstore.Merge, Entity: store.Groups, Key: objstore.Key{Partition: store.OwnerRoutd, Sort: "demo"}, Attrs: map[string]string{"config": `{"harness":` + harness + `}`, "container_config": `{"MaxChildren":16}`}}); err != nil {
 		t.Fatal(err)
 	}
-	_, containerCfg, err := db.store().GroupConfig("demo")
+	_, _, containerCfg, err := db.store().GroupConfig("demo")
 	if err != nil || containerCfg["MaxChildren"] != float64(16) {
 		t.Fatalf("container config = %v, %v", containerCfg, err)
 	}
