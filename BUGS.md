@@ -26,6 +26,11 @@
 - `L644` — krons token hit its monthly spend limit; choose a token with budget.
 - `L639` — refuse a platformless JID in `send_file`, `send_voice` and `post` after the return swap; fix queued.
 - `L620` — reconcile run-stop service authorization with the stated contract.
+- `L540` — dashd's grant form and `POST /v1/acl` write rows without
+  `auth.Delegate`: run it there, or let a folder admin grant any row inside
+  its subtree?
+- `L473` — how does a newer seeded acl floor reach an existing instance
+  without re-adding rows an operator removed?
 - `L597` — choose whether human conversation takes priority over CI in bounded observed context.
 
 
@@ -424,6 +429,51 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
   `CheckGrant` with the issuer's policy (`routd/agent_gate.go:26`,
   `routd/acl_resource.go:152`). `isolateElevated` confines the elevated batch
   to the issuer's message (`routd/dispatch.go`).
+
+## L540 — dashd's grant form and `POST /v1/acl` write rows without `auth.Delegate` (2026-10-23, open — needs sign-off)
+
+READ at `491204eb`: `add_acl` runs `auth.Delegate` for a writer that is not
+root (`routd/acl_resource.go:149-160`), so an agent grants only rows it holds
+WITH GRANT OPTION. dashd's add (`dashd/grants_admin.go:179-252`) checks only
+that the writer holds `admin` on the folder (`dashd/authz.go:189-195`) and that
+the scope lies inside it. The REST gate (`routd/acl_resource.go:55-66`)
+checks only the `acl:write` scope and that the row's scope lies in the
+caller's folder. Neither asks whether the writer holds the row. onbod gives
+every person it onboards `admin` on their world (`onbod/main.go:895`), so that
+person can grant their world `egress`, `shell:env:*` or `*` from the web.
+`specs/5/33-paths-roles.md` decision 3 says a principal grants onward only rows
+it holds WITH GRANT OPTION. Exposure: no onboarded world on krons (listing of
+2026-10-20).
+
+- **Severity:** medium — authority widens past what the writer holds wherever
+  onboarding creates worlds.
+- **Options:** (a) both doors run `auth.Delegate` for a writer that is not
+  root, as `add_acl` does; (b) `5/33` states that a folder `admin` may grant
+  any row inside its subtree, and both doors stay.
+- **Default if nothing is decided:** both doors stay as they are.
+- **Status:** open — needs sign-off (an auth change).
+
+## L473 — a change to the seeded acl floor never reaches a running instance (2026-10-20, open — needs sign-off)
+
+FOUND 2026-10-20 on krons and sloth while debugging Rhias's approvals.
+`store.SeedRoutdFloor` (`store/seed.go`) writes the floor only when the acl
+entity is empty. The skip-approval floor (`skipApprovalFloor`, the
+`hold:mcp:<verb>` deny rows for every member verb and the always-mounted reads)
+was added 2026-09-12, after both instances already had grants. So both carried
+only `hold:mcp:disengage`, and every reaction, edit, delete, reply and read
+waited for a human wherever a folder holds `hold:mcp:*`. Rhias received about
+seven long approval notices this way.
+
+The parent added the 22 missing rows by hand on both instances (owner-approved
+operator action, 2026-10-20); each now carries the seed's 23.
+
+Proposal: a floor row that is newer than the instance's acl reaches it once —
+for example a floor version recorded in the store and a start-up step that
+writes the rows added since, never re-adding a row an operator removed after
+that version. A change to which rows reach live data is an auth change.
+
+- **Status:** open — needs sign-off.
+
 
 ## L676 — dashboard group creation grants more scope than its gate checks (2026-11-07, open — needs sign-off)
 
