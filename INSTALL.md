@@ -351,6 +351,7 @@ test names the policy to rewrite.
 | `discd`       | `discd.*`                       |
 | `emaid`       | `emaid.*`                       |
 | `gitd`        | `routd.*`, `gitd.*`             |
+| `googd`       | `routd.*`, `googd.*`            |
 | `onbod`       | `onbod.*`, `routd.*`            |
 | `proxyd`      | `routd.*`                       |
 | `routd`       | `routd.*`                       |
@@ -363,7 +364,7 @@ test names the policy to rewrite.
 
 Three rows need care:
 
-- `gitd` and `slakd` open the tables of routd directly, see `gitd/main.go` and `slakd/main.go`. A policy with only their own prefix lets them
+- `gitd`, `googd` and `slakd` open the tables of routd directly, see `gitd/main.go`, `googd/main.go` and `slakd/main.go`. A policy with only their own prefix lets them
   authenticate and then read nothing.
 - `timed` needs no key. It writes through the HTTP interface of the owner with
   a service token. `ttsd` opens no store.
