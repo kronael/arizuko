@@ -359,18 +359,16 @@ func (s *Server) mcpCheckTurn(turnID string) (ipc.TurnCheck, error) {
 
 // checkTurn's caller holds lockTurn until it has acted on the decision.
 func (s *Server) checkTurn(tc TurnContext) (ipc.TurnCheck, error) {
-	jid := returnTarget(tc, tc.ChatJID)
-	_, statusRow := s.db.LastStatusRow(jid, tc.TurnID)
 	delivered, err := s.turnDelivered(tc)
 	if err != nil {
 		return ipc.TurnCheck{}, err
 	}
 	check := ipc.TurnCheck{
 		Delivered: delivered,
-		Owed:      tc.Addressed || statusRow,
+		Owed:      tc.Addressed,
 	}
 	if !check.Delivered && check.Owed && tc.Nudged == 0 && tc.State == "running" && !tc.RunReturned {
-		check.Nudge = turnNudge(tc, statusRow)
+		check.Nudge = deliverNudge
 		if err := s.db.IncrementNudged(tc.TurnID); err != nil {
 			return ipc.TurnCheck{}, err
 		}

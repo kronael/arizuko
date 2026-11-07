@@ -21,7 +21,6 @@ func TestCheckTurnDeliveryDecision(t *testing.T) {
 		addressed, owed, delivered bool
 	}{
 		{name: "addressed", addressed: true, owed: true, sentence: "You were addressed"},
-		{name: "status", verb: "status", owed: true, sentence: "You posted a status"},
 		{name: "ambient"},
 		{name: "reply", addressed: true, verb: "reply", owed: true, delivered: true},
 	} {
@@ -210,7 +209,6 @@ func TestSubmitTurnCompletionOutcomes(t *testing.T) {
 		addressed, progress, stopCheck, timedOut bool
 	}{
 		{name: "addressed silent", status: "success", addressed: true, stopCheck: true, notice: silentTurnNotice},
-		{name: "status silent", status: "success", progress: true, stopCheck: true, notice: silentTurnNotice},
 		{name: "ambient", status: "success"},
 		{name: "isolated", status: "success", trigger: "timed-isolated:cron"},
 		{name: "error", status: "error", addressed: true, progress: true},

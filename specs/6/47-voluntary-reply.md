@@ -49,7 +49,7 @@ Four terms, each a fact routd already records or derives from one it records.
 | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
 | **delivered** | a bot row stamped with the turn id whose verb is not `status`, or an existing successful `message.*` social-action audit record for that exact turn and folder; social mutations deliberately append no chat message | `routd/turns.go` `turnDelivered`; `store/messages.go` `TurnHasBotReply`; `audit/audit_log.go` `HasSuccessfulTurnAction` |
 | **addressed** | the turn fired because a person spoke to this folder (§"Addressed")                                                                                                                                                  | proposed: `resolution.Addressed` in `routd/loop.go` `resolve`, stored on the turn                                       |
-| **owed**      | addressed, or the turn delivered a `verb=status` row (`ant/CLAUDE.md:134`: a status promises an answer)                                                                                                              | `routd/db.go:631` `LastStatusRow`                                                                                       |
+| **owed**      | addressed; a status row exists only on an addressed turn, because `submitStatus` drops it otherwise                                                                                                                  | `routd/mcp.go` `checkTurn`                                                                                              |
 | **thinking**  | every assistant text frame the harness yields; kept in the harness transcript, never on the wire                                                                                                                     | `ant/src/backend.ts:46` `Frame` `status`; `groups/<folder>/.claude/projects/-home-node/<session>.jsonl`                 |
 
 The agent's only outward surfaces are the delivery tools above and the
@@ -154,10 +154,9 @@ One renderer, `turnNudge` in `routd/turns.go` (proposed), composed from the
 turn's recorded facts and nothing else. Minimal means one sentence, and the
 sentence varies only on which fact made the reply owed:
 
-| Fact                      | Text                                                                                  |
-| ------------------------- | ------------------------------------------------------------------------------------- |
-| addressed                 | `[deliver] You were addressed and delivered nothing. Call reply now (a like counts).` |
-| status row, not addressed | `[deliver] You posted a status and delivered nothing. Call reply with the answer.`    |
+| Fact      | Text                                                                                  |
+| --------- | ------------------------------------------------------------------------------------- |
+| addressed | `[deliver] You were addressed and delivered nothing. Call reply now (a like counts).` |
 
 The `[deliver]` tag is the nudge's identity, in the family of `[solve]` and
 `[pending migration]` (`44-delivery-contract.md` §"The nudge: a wire object

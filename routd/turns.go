@@ -27,16 +27,8 @@ func lockTurn(turnID string) func() {
 	return mu.Unlock
 }
 
-// turnNudge is the one renderer shared by Stop hooks and turn submission.
-func turnNudge(tc TurnContext, statusRow bool) string {
-	if tc.Addressed {
-		return "[deliver] You were addressed and delivered nothing. Call reply now (a like counts)."
-	}
-	if statusRow {
-		return "[deliver] You posted a status and delivered nothing. Call reply with the answer."
-	}
-	return ""
-}
+// deliverNudge is the one nudge text, shared by Stop hooks and turn submission.
+const deliverNudge = "[deliver] You were addressed and delivered nothing. Call reply now (a like counts)."
 
 func (s *Server) turnDelivered(tc TurnContext) (bool, error) {
 	if s.db.TurnHasBotReply(returnTarget(tc, tc.ChatJID), tc.TurnID) {
