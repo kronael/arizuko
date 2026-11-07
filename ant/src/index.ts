@@ -103,10 +103,6 @@ async function readStdin(): Promise<string> {
 }
 
 async function deliverTurn(turnID: string, output: ContainerOutput) {
-  if (!turnID) {
-    log(`deliverTurn skipped: no turn_id (status=${output.status})`);
-    return;
-  }
   try {
     return await submitTurn({
       turn_id: turnID,
@@ -160,7 +156,6 @@ async function streamStatuses(
   text: string,
   send: typeof submitStatus = submitStatus,
 ): Promise<void> {
-  if (!turnID) return;
   for (const s of statusBlocks(text)) {
     try {
       if ((await send({ turn_id: turnID, text: s })).remind) nudgeProgress();
