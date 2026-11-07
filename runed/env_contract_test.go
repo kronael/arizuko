@@ -98,7 +98,7 @@ func TestSpawnEnvCarriesEveryKeyAntReads(t *testing.T) {
 		AgentBackend:    "codex",
 		ModelGatewayURL: "http://litellm:4000",
 	}
-	req := runedv1.RunRequest{Model: "opus", Effort: "xhigh", ModelGatewayKey: "sk-virtual"}
+	req := runedv1.RunRequest{Model: "opus", Effort: "xhigh", Harness: []byte(`{"backend":"codex"}`), ModelGatewayKey: "sk-virtual"}
 	env := turnEnv(cfg, req, 900000)
 
 	for _, key := range antEnvReads(t) {
@@ -126,7 +126,6 @@ func TestSpawnEnvEmitsNothingAntIgnores(t *testing.T) {
 		"NODE_OPTIONS":    "node itself, to load proxy-shim",
 		"HOME":            "node, the harness CLIs, and the shell",
 		"ARIZUKO_IS_ROOT": "ant/skills, read from the shell not from ant/src",
-		"ARIZUKO_MODEL":   "ant/src via the seam's model field",
 	}
 	reads := map[string]bool{}
 	for _, k := range antEnvReads(t) {
@@ -136,7 +135,7 @@ func TestSpawnEnvEmitsNothingAntIgnores(t *testing.T) {
 		Timezone: "UTC", AgentBackend: "codex",
 		ModelGatewayURL: "http://litellm:4000",
 	}
-	req := runedv1.RunRequest{Model: "opus", ModelGatewayKey: "sk-virtual"}
+	req := runedv1.RunRequest{Model: "opus", Harness: []byte(`{"backend":"codex"}`), ModelGatewayKey: "sk-virtual"}
 	for key := range turnEnv(cfg, req, 900000) {
 		if reads[key] || consumedByOthers[key] != "" {
 			continue

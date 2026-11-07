@@ -123,3 +123,15 @@ test('driveCli: a child still running at the deadline yields the timed-out frame
   expect(frames).toEqual([{ kind: 'result', ok: true, timedOut: true }]);
   expect(Date.now() - t0).toBeLessThan(2000);
 });
+
+test('harness documents replace defaults and reject invalid fields', async () => {
+  const { parseHarness } = await import('./backend.js');
+  const defaults = { ARIZUKO_BACKEND: 'claude', ARIZUKO_MODEL: 'default', ARIZUKO_EFFORT: 'high' };
+  expect(parseHarness(defaults)).toEqual({ backend: 'claude', model: 'default', effort: 'high' });
+  for (const backend of ['claude', 'codex']) {
+    expect(parseHarness({ ...defaults, ARIZUKO_HARNESS: JSON.stringify({ backend }) })).toEqual({ backend, model: undefined, effort: undefined });
+  }
+  for (const doc of ['', 'null', '[]', '{}', '{"backend":"unknown"}', '{"backend":1}', '{"backend":"claude","effort":"invalid"}', '{"backend":"claude","extra":1}']) {
+    expect(() => parseHarness({ ARIZUKO_HARNESS: doc })).toThrow();
+  }
+});

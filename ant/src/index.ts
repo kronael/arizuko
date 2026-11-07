@@ -8,7 +8,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { submitTurn, submitStatus, type TurnAck } from './mcp.js';
 import { injectMcpEnv } from './mcp-servers.js';
-import { Harness, HarnessProfile, Turn, selectHarness } from './backend.js';
+import { Harness, HarnessProfile, Turn, HarnessConfigError, parseHarness, selectHarness } from './backend.js';
 import { NUDGE_TEXT, STEER_SPOOL, appendLines, drainSteering } from './spool.js';
 
 interface ContainerInput {
@@ -479,7 +479,12 @@ async function main(): Promise<void> {
     try {
       // Selected inside the delivering try: an unknown ARIZUKO_BACKEND fails this turn
       // loudly to the user, never a silent exit.
-      const harness = selectHarness(process.env.ARIZUKO_BACKEND);
+      const selection = parseHarness(env);
+      const harness = selectHarness(selection.backend);
+      if (env.ARIZUKO_HARNESS !== undefined) {
+        if (selection.model === undefined) delete env.ARIZUKO_MODEL; else env.ARIZUKO_MODEL = selection.model;
+        if (selection.effort === undefined) delete env.ARIZUKO_EFFORT; else env.ARIZUKO_EFFORT = selection.effort;
+      }
       log(`backend: ${harness.name}`);
       while (true) {
         log(`Starting turn (continuity: ${continuity || 'fresh'})...`);
@@ -535,7 +540,7 @@ async function main(): Promise<void> {
         newSessionId: lastSessionId,
         error: errorMessage,
       });
-      process.exit(1);
+      process.exit(err instanceof HarnessConfigError ? EXIT_TERMINAL : 1);
     }
   } finally {
     cleanupSecrets();

@@ -119,6 +119,29 @@ export function selectHarness(name: string | undefined): Harness {
   }
 }
 
+export class HarnessConfigError extends Error {}
+
+export function parseHarness(env: Record<string, string>): { backend?: string; model?: string; effort?: string } {
+  if (env.ARIZUKO_HARNESS === undefined) return {
+    backend: env.ARIZUKO_BACKEND || undefined,
+    model: env.ARIZUKO_MODEL || undefined,
+    effort: env.ARIZUKO_EFFORT || undefined,
+  };
+  let value: unknown;
+  try { value = JSON.parse(env.ARIZUKO_HARNESS); } catch { throw new HarnessConfigError('invalid harness JSON'); }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new HarnessConfigError('harness must be an object');
+  const doc = value as Record<string, unknown>;
+  if (Object.keys(doc).some(key => !['backend', 'model', 'effort'].includes(key))) throw new HarnessConfigError('unknown harness field');
+  for (const key of ['backend', 'model', 'effort']) {
+    if ((key === 'backend' || key in doc) && (typeof doc[key] !== 'string' || !(doc[key] as string).trim())) throw new HarnessConfigError(`invalid harness ${key}`);
+  }
+  const backend = doc.backend as string;
+  if (!['claude', 'codex', 'pi'].includes(backend)) throw new HarnessConfigError(`unknown harness backend ${backend}`);
+  const levels = backend === 'codex' ? ['minimal', 'low', 'medium', 'high', 'xhigh'] : ['low', 'medium', 'high', 'xhigh', 'max'];
+  if (doc.effort !== undefined && !levels.includes(doc.effort as string)) throw new HarnessConfigError('invalid harness effort');
+  return { backend, model: doc.model as string | undefined, effort: doc.effort as string | undefined };
+}
+
 // jsonLines yields one parsed JSON object per stdout line. Unparseable lines are
 // skipped (banners, partial flushes).
 export async function* jsonLines(stream: Readable): AsyncGenerator<Record<string, unknown>> {

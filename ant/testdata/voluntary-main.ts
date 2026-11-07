@@ -35,6 +35,8 @@ mock.module('net', () => ({ ...fixtureNet, default: fixtureNet }));
 
 let runs = 0;
 mock.module(path.join(source, 'backend.ts'), () => ({
+  HarnessConfigError: class extends Error {},
+  parseHarness: () => ({}),
   selectHarness: () => ({
     name: 'fixture',
     profile: { continuity: 'native', tools: 'mcp', guard: 'none', steering: 'between-turn', manual: 'rendered', status: 'streaming' },
