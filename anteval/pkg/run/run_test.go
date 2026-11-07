@@ -439,3 +439,14 @@ func TestTimeoutReasonNamesTheDefaultWall(t *testing.T) {
 		t.Fatalf("default budget = %s, want 1m30s; the reason would print the wrong wall", got)
 	}
 }
+
+func TestExpanderRefusesUnknownAndKeepsValuesLiteral(t *testing.T) {
+	render := newExpander(map[string]string{"nonce": "{target}", "target": "host"}, newSink(), "n")
+	got, err := render("{nonce}/{target}")
+	if err != nil || got != "{target}/host" {
+		t.Fatalf("render = %q, %v", got, err)
+	}
+	if _, err := render("{missing}"); err == nil {
+		t.Fatal("unknown placeholder accepted")
+	}
+}

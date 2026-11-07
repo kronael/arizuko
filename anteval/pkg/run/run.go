@@ -17,6 +17,7 @@ import (
 	"github.com/kronael/arizuko/anteval/pkg/check"
 	"github.com/kronael/arizuko/anteval/pkg/report"
 	"github.com/kronael/arizuko/anteval/pkg/spec"
+	"github.com/kronael/arizuko/expand"
 )
 
 // Target is the live instance under test, reached only through public
@@ -189,7 +190,12 @@ func runCase(cfg Config, s *sink, c spec.Case) report.Result {
 	//
 	// The topic goes in the message FIELD, not as a leading `#topic` line: steer
 	// treats `#name` as a sticky command only when it is the WHOLE message.
-	turn, err := cfg.Target.Inject(cfg.Chat, nonce, expand(c.Prompt))
+	prompt, err := expand(c.Prompt)
+	if err != nil {
+		r.Reason = "expand prompt: " + err.Error()
+		return r
+	}
+	turn, err := cfg.Target.Inject(cfg.Chat, nonce, prompt)
 	if err != nil {
 		r.Reason = "inject: " + err.Error()
 		r.LatencyMs = msSince(start)
@@ -248,29 +254,18 @@ func msSince(t time.Time) int64 { return time.Since(t).Milliseconds() }
 
 // newExpander substitutes {key} vars and {cb.<key>} (a query param the agent
 // handed back through the sink, e.g. a freshly minted chat-link token).
-func newExpander(vars map[string]string, s *sink, nonce string) func(string) string {
-	return func(in string) string {
-		out := in
-		for k, v := range vars {
-			out = strings.ReplaceAll(out, "{"+k+"}", v)
+func newExpander(vars map[string]string, s *sink, nonce string) func(string) (string, error) {
+	return func(in string) (string, error) {
+		values := make(map[string]string, len(vars))
+		for key, value := range vars {
+			values[key] = value
 		}
-		for {
-			i := strings.Index(out, "{cb.")
-			if i < 0 {
-				break
+		if hits := s.Hits(nonce); len(hits) > 0 {
+			for key, value := range hits[len(hits)-1].Query {
+				values["cb."+key] = value
 			}
-			j := strings.Index(out[i:], "}")
-			if j < 0 {
-				break
-			}
-			key := out[i+4 : i+j]
-			val := ""
-			if hits := s.Hits(nonce); len(hits) > 0 {
-				val = hits[len(hits)-1].Query[key]
-			}
-			out = out[:i] + val + out[i+j+1:]
 		}
-		return out
+		return expand.Expand(in, values)
 	}
 }
 

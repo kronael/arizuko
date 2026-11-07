@@ -18,14 +18,14 @@ type fakeReader struct{ rest, mcp []Msg }
 func (f fakeReader) RestMessages(string) ([]Msg, error)        { return f.rest, nil }
 func (f fakeReader) McpMessages(string, string) ([]Msg, error) { return f.mcp, nil }
 
-func exp(s string) string { return strings.ReplaceAll(s, "{nonce}", "N1") }
+func exp(s string) (string, error) { return strings.ReplaceAll(s, "{nonce}", "N1"), nil }
 
 func TestHTTPStatus(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer srv.Close()
-	ctx := Ctx{HTTP: http.DefaultClient, Expand: func(string) string { return srv.URL }}
+	ctx := Ctx{HTTP: http.DefaultClient, Expand: func(string) (string, error) { return srv.URL, nil }}
 	if ok, _ := Run(ctx, spec.Check{Kind: "http_status", URL: "{target}", Want: 200}); !ok {
 		t.Fatal("want pass on 200")
 	}

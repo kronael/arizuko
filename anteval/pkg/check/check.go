@@ -49,20 +49,26 @@ type Ctx struct {
 	// Topic is the per-case topic — the nonce the runner injected under. The
 	// MCP read needs it; the REST read does not.
 	Topic  string
-	Expand func(string) string
+	Expand func(string) (string, error)
 }
 
 // Run evaluates one check and returns pass plus a human-readable reason.
 func Run(ctx Ctx, c spec.Check) (bool, string) {
 	switch c.Kind {
 	case "callback":
-		n := ctx.Expand("{nonce}")
+		n, err := ctx.Expand("{nonce}")
+		if err != nil {
+			return false, err.Error()
+		}
 		if len(ctx.Sink.Hits(n)) > 0 {
 			return true, "callback received for " + n
 		}
 		return false, "no callback for " + n
 	case "http_status":
-		url := ctx.Expand(c.URL)
+		url, err := ctx.Expand(c.URL)
+		if err != nil {
+			return false, err.Error()
+		}
 		resp, err := ctx.HTTP.Get(url)
 		if err != nil {
 			return false, "GET " + url + ": " + err.Error()
@@ -84,7 +90,7 @@ func Run(ctx Ctx, c spec.Check) (bool, string) {
 	return false, "unknown check kind " + c.Kind
 }
 
-func wantText(ctx Ctx, c spec.Check) string {
+func wantText(ctx Ctx, c spec.Check) (string, error) {
 	t := c.Text
 	if t == "" {
 		t = "{nonce}"
@@ -93,10 +99,15 @@ func wantText(ctx Ctx, c spec.Check) string {
 }
 
 func findText(ctx Ctx, c spec.Check, mcp, botOnly bool) (bool, string) {
-	chat := ctx.Expand(c.Chat)
-	want := wantText(ctx, c)
+	chat, err := ctx.Expand(c.Chat)
+	if err != nil {
+		return false, err.Error()
+	}
+	want, err := wantText(ctx, c)
+	if err != nil {
+		return false, err.Error()
+	}
 	var msgs []Msg
-	var err error
 	if mcp {
 		msgs, err = ctx.Reader.McpMessages(chat, ctx.Topic)
 	} else {
@@ -112,8 +123,14 @@ func findText(ctx Ctx, c spec.Check, mcp, botOnly bool) (bool, string) {
 }
 
 func parity(ctx Ctx, c spec.Check) (bool, string) {
-	chat := ctx.Expand(c.Chat)
-	want := wantText(ctx, c)
+	chat, err := ctx.Expand(c.Chat)
+	if err != nil {
+		return false, err.Error()
+	}
+	want, err := wantText(ctx, c)
+	if err != nil {
+		return false, err.Error()
+	}
 	rest, err := ctx.Reader.RestMessages(chat)
 	if err != nil {
 		return false, "rest read: " + err.Error()
