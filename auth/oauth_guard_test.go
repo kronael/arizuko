@@ -16,7 +16,7 @@ import (
 	"time"
 )
 
-// matchEmailAllowlist — who is allowed to sign in at all.
+// MatchEmailAllowlist — who is allowed to sign in at all.
 
 func TestMatchEmailAllowlistFailsClosed(t *testing.T) {
 	cases := []struct {
@@ -46,8 +46,8 @@ func TestMatchEmailAllowlistFailsClosed(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if got := matchEmailAllowlist(c.email, c.allowlist); got != c.want {
-				t.Errorf("matchEmailAllowlist(%q, %q) = %v, want %v", c.email, c.allowlist, got, c.want)
+			if got := MatchEmailAllowlist(c.email, c.allowlist); got != c.want {
+				t.Errorf("MatchEmailAllowlist(%q, %q) = %v, want %v", c.email, c.allowlist, got, c.want)
 			}
 		})
 	}
@@ -57,10 +57,10 @@ func TestMatchEmailAllowlistFailsClosed(t *testing.T) {
 // must be a choice — it is asserted here so nobody "simplifies" a blank
 // allowlist into the same thing.
 func TestMatchEmailAllowlistStarAdmitsEveryone(t *testing.T) {
-	if !matchEmailAllowlist("anyone@anywhere.example", "*") {
+	if !MatchEmailAllowlist("anyone@anywhere.example", "*") {
 		t.Error(`"*" must admit every address`)
 	}
-	if matchEmailAllowlist("anyone@anywhere.example", "") {
+	if MatchEmailAllowlist("anyone@anywhere.example", "") {
 		t.Error(`"" must admit nobody; it is not a synonym for "*"`)
 	}
 }
@@ -149,7 +149,7 @@ func TestCheckGitHubOrgMemberSendsTheToken(t *testing.T) {
 	}
 }
 
-// SignState / verifyState — the OAuth round-trip CSRF token.
+// SignState / VerifyState — the OAuth round-trip CSRF token.
 
 func callbackReq(state, cookie string) *http.Request {
 	r := httptest.NewRequest("GET", "https://host/auth/callback?code=abc&state="+url.QueryEscape(state), nil)
@@ -162,8 +162,8 @@ func callbackReq(state, cookie string) *http.Request {
 func TestStateRoundTripsWithAndWithoutAPayload(t *testing.T) {
 	secret := []byte("csrf-secret")
 
-	plain := signStateP(secret, stateIntent{})
-	if got, ok := verifyState(secret, callbackReq(plain, plain)); !ok {
+	plain := SignState(secret, stateIntent{})
+	if got, ok := VerifyState(secret, callbackReq(plain, plain)); !ok {
 		t.Fatal("a freshly signed state failed verification; every login would fail")
 	} else if got.Intent != "" || got.LinkFrom != "" || got.Return != "" {
 		t.Errorf("a payload-free state produced %+v, want the zero intent", got)
@@ -182,7 +182,7 @@ func TestStateRoundTripsWithAndWithoutAPayload(t *testing.T) {
 
 func TestVerifyStateRejectsEveryTamperedForm(t *testing.T) {
 	secret := []byte("csrf-secret")
-	good := signStateP(secret, NewLinkIntent("google:123", "/dash/"))
+	good := SignState(secret, NewLinkIntent("google:123", "/dash/"))
 	parts := strings.Split(good, ".")
 
 	tamper := func(i int, v string) string {
@@ -204,13 +204,13 @@ func TestVerifyStateRejectsEveryTamperedForm(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if _, ok := verifyState(secret, callbackReq(c.state, c.state)); ok {
-				t.Errorf("verifyState accepted %s", c.name)
+			if _, ok := VerifyState(secret, callbackReq(c.state, c.state)); ok {
+				t.Errorf("VerifyState accepted %s", c.name)
 			}
 		})
 	}
 
-	if _, ok := verifyState([]byte("a-different-secret"), callbackReq(good, good)); ok {
+	if _, ok := VerifyState([]byte("a-different-secret"), callbackReq(good, good)); ok {
 		t.Error("a state signed under another secret verified")
 	}
 }
@@ -220,16 +220,16 @@ func TestVerifyStateRejectsEveryTamperedForm(t *testing.T) {
 // cannot write the victim's cookie for our origin.
 func TestVerifyStateRequiresTheCookieToMatchTheQuery(t *testing.T) {
 	secret := []byte("csrf-secret")
-	mine := signStateP(secret, stateIntent{})
-	attackers := signStateP(secret, stateIntent{})
+	mine := SignState(secret, stateIntent{})
+	attackers := SignState(secret, stateIntent{})
 
-	if _, ok := verifyState(secret, callbackReq(attackers, mine)); ok {
+	if _, ok := VerifyState(secret, callbackReq(attackers, mine)); ok {
 		t.Error("a validly-signed state from another session was accepted against my cookie")
 	}
-	if _, ok := verifyState(secret, callbackReq(mine, "")); ok {
+	if _, ok := VerifyState(secret, callbackReq(mine, "")); ok {
 		t.Error("a callback with no oauth_state cookie was accepted")
 	}
-	if _, ok := verifyState(secret, callbackReq("", mine)); ok {
+	if _, ok := VerifyState(secret, callbackReq("", mine)); ok {
 		t.Error("a callback with no state query parameter was accepted")
 	}
 }
@@ -246,17 +246,17 @@ func TestVerifyStateRejectsStaleAndFutureTimestamps(t *testing.T) {
 	}
 
 	fresh := forge(time.Now())
-	if _, ok := verifyState(secret, callbackReq(fresh, fresh)); !ok {
+	if _, ok := VerifyState(secret, callbackReq(fresh, fresh)); !ok {
 		t.Fatal("the hand-built control state failed; the rest of this test proves nothing")
 	}
 
 	stale := forge(time.Now().Add(-stateTTL - time.Minute))
-	if _, ok := verifyState(secret, callbackReq(stale, stale)); ok {
+	if _, ok := VerifyState(secret, callbackReq(stale, stale)); ok {
 		t.Errorf("a state older than stateTTL (%s) was accepted", stateTTL)
 	}
 
 	future := forge(time.Now().Add(time.Hour))
-	if _, ok := verifyState(secret, callbackReq(future, future)); ok {
+	if _, ok := VerifyState(secret, callbackReq(future, future)); ok {
 		t.Error("a state timestamped in the future was accepted; it would outlive stateTTL")
 	}
 }
@@ -265,9 +265,9 @@ func TestSignStateIsUnpredictable(t *testing.T) {
 	secret := []byte("csrf-secret")
 	seen := map[string]bool{}
 	for i := 0; i < 32; i++ {
-		s := signStateP(secret, stateIntent{})
+		s := SignState(secret, stateIntent{})
 		if seen[s] {
-			t.Fatalf("signStateP repeated %q; two sessions would share a CSRF token", s)
+			t.Fatalf("SignState repeated %q; two sessions would share a CSRF token", s)
 		}
 		seen[s] = true
 	}

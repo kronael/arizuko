@@ -26,11 +26,11 @@ func fakeAuthd(t *testing.T, key *SigningKey, ttl time.Duration, calls *int32) *
 			Daemon string `json:"daemon"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&body)
-		if body.Daemon != "timed" {
+		if body.Daemon != "routd" {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
-		tok, _ := key.Sign(TokenClaims{Sub: "service:timed", Typ: "service", Scope: []string{"tasks:read"}}, ttl)
+		tok, _ := key.Sign(TokenClaims{Sub: "service:routd", Typ: "service", Scope: []string{"tasks:read"}}, ttl)
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"token":      tok,
 			"expires_at": time.Now().Add(ttl).UTC().Format(time.RFC3339),
@@ -39,14 +39,14 @@ func fakeAuthd(t *testing.T, key *SigningKey, ttl time.Duration, calls *int32) *
 }
 
 // The helper exchanges the bootstrap secret for a service JWT and that token
-// verifies as service:timed.
+// verifies as service:routd.
 func TestServiceTokenExchangeVerifies(t *testing.T) {
 	key, _ := NewSigningKey("k1")
 	var calls int32
 	ts := fakeAuthd(t, key, time.Hour, &calls)
 	defer ts.Close()
 
-	src, err := ServiceToken(ts.URL, "timed", "good-secret")
+	src, err := ServiceToken(ts.URL, "routd", "good-secret")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +58,7 @@ func TestServiceTokenExchangeVerifies(t *testing.T) {
 	if err != nil {
 		t.Fatalf("service token invalid: %v", err)
 	}
-	if sub.Sub != "service:timed" || !HasScope(sub.Scope, "tasks", "read") {
+	if sub.Sub != "service:routd" || !HasScope(sub.Scope, "tasks", "read") {
 		t.Fatalf("bad service subject: %+v", sub)
 	}
 }
@@ -75,7 +75,7 @@ func TestServiceTokenCachesUntilNearExpiry(t *testing.T) {
 	ts := fakeAuthd(t, key, time.Hour, &calls)
 	defer ts.Close()
 
-	src, _ := ServiceToken(ts.URL, "timed", "good-secret")
+	src, _ := ServiceToken(ts.URL, "routd", "good-secret")
 	for range 5 {
 		if _, err := src.Token(context.Background()); err != nil {
 			t.Fatal(err)
@@ -95,7 +95,7 @@ func TestServiceTokenRefreshesBeforeExpiry(t *testing.T) {
 	ts := fakeAuthd(t, key, 90*time.Second, &calls)
 	defer ts.Close()
 
-	src, _ := ServiceToken(ts.URL, "timed", "good-secret")
+	src, _ := ServiceToken(ts.URL, "routd", "good-secret")
 	base := time.Now()
 	src.now = func() time.Time { return base }
 	if _, err := src.Token(context.Background()); err != nil {
@@ -118,20 +118,20 @@ func TestServiceTokenBadSecretErrors(t *testing.T) {
 	ts := fakeAuthd(t, key, time.Hour, &calls)
 	defer ts.Close()
 
-	src, _ := ServiceToken(ts.URL, "timed", "wrong-secret")
+	src, _ := ServiceToken(ts.URL, "routd", "wrong-secret")
 	if _, err := src.Token(context.Background()); err == nil {
 		t.Fatal("a bad bootstrap secret must error")
 	}
 }
 
 func TestServiceTokenRequiresAllArgs(t *testing.T) {
-	if _, err := ServiceToken("", "timed", "k"); err == nil {
+	if _, err := ServiceToken("", "routd", "k"); err == nil {
 		t.Fatal("empty authdURL must error")
 	}
 	if _, err := ServiceToken("http://x", "", "k"); err == nil {
 		t.Fatal("empty daemon must error")
 	}
-	if _, err := ServiceToken("http://x", "timed", ""); err == nil {
+	if _, err := ServiceToken("http://x", "routd", ""); err == nil {
 		t.Fatal("empty key must error")
 	}
 }

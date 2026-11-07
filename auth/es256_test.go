@@ -208,7 +208,7 @@ func TestTypClaimPerMintMode(t *testing.T) {
 	}
 
 	svc, err := k.MintForSubject([]string{"tasks:read"},
-		TokenClaims{Sub: "service:timed", Typ: "service", Scope: []string{"tasks:read"}}, time.Minute)
+		TokenClaims{Sub: "service:routd", Typ: "service", Scope: []string{"tasks:read"}}, time.Minute)
 	if err != nil {
 		t.Fatal(err)
 	}

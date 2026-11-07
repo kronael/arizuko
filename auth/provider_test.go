@@ -66,7 +66,7 @@ func providerCfg() *core.Config {
 
 // The provider compares redirect_uri against what it has registered, byte for
 // byte. A trailing slash left on AUTH_BASE_URL produces "…//auth/google/callback"
-// and every login fails with redirect_uri_mismatch — which is why authBaseURL
+// and every login fails with redirect_uri_mismatch — which is why AuthBaseURL
 // trims and why it is asserted rather than assumed.
 func TestAuthBaseURLTrimsTrailingSlashes(t *testing.T) {
 	cases := map[string]string{
@@ -76,8 +76,8 @@ func TestAuthBaseURLTrimsTrailingSlashes(t *testing.T) {
 		"":                "",
 	}
 	for in, want := range cases {
-		if got := authBaseURL(&core.Config{AuthBaseURL: in}); got != want {
-			t.Errorf("authBaseURL(%q) = %q, want %q", in, got, want)
+		if got := AuthBaseURL(&core.Config{AuthBaseURL: in}); got != want {
+			t.Errorf("AuthBaseURL(%q) = %q, want %q", in, got, want)
 		}
 	}
 }
@@ -374,9 +374,6 @@ func TestParseECPrivateKeyPEMRoundTripsAndRefusesTheRest(t *testing.T) {
 // stops matching its implementation is invisible until an authorization
 // decision goes the wrong way.
 func TestOAuthWrappersDelegate(t *testing.T) {
-	if MatchEmailAllowlist("a@b.c", "*@b.c") != matchEmailAllowlist("a@b.c", "*@b.c") {
-		t.Error("MatchEmailAllowlist does not match matchEmailAllowlist")
-	}
 	if got := AuthBaseURL(&core.Config{AuthBaseURL: "https://h/"}); got != "https://h" {
 		t.Errorf("AuthBaseURL = %q", got)
 	}

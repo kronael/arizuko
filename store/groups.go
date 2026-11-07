@@ -193,11 +193,6 @@ func groupFrom(it objstore.Item) (core.Group, error) {
 
 // groupItem reads one group's item, or reports that there is none.
 func (s *Store) groupItem(ctx context.Context, folder string) (objstore.Item, bool, error) {
-	return s.groupItemVia(ctx, folder)
-}
-
-// groupItemVia reads one group's item by its folder.
-func (s *Store) groupItemVia(ctx context.Context, folder string) (objstore.Item, bool, error) {
 	key, err := groupKey(folder)
 	if err != nil {
 		return objstore.Item{}, false, err
@@ -329,7 +324,7 @@ func (s *Store) DeleteGroupRow(folder string) error {
 // routes into it: the ONE purge, behind `arizuko group rm`, with the scope
 // declared once in folder_scope.go.
 //
-// The purge has to be total. A bare delete of the groups item left tasks timed
+// The purge has to be total. A bare delete of the groups item left tasks the scheduler
 // fired forever, each firing read by onbod as a new account to onboard (BUGS
 // L66, L67), and an acl row under the path administering the next tenant
 // (BUGS L198). The subtree, not the row: a child left behind is an orphan

@@ -67,7 +67,7 @@ func consumePKCE(w http.ResponseWriter, r *http.Request, secure bool) string {
 }
 
 func ExchangeGoogle(ctx context.Context, cfg *core.Config, code, verifier string) (string, error) {
-	cb := authBaseURL(cfg) + "/auth/google/callback"
+	cb := AuthBaseURL(cfg) + "/auth/google/callback"
 	form := url.Values{
 		"code":          {code},
 		"client_id":     {cfg.GoogleClientID},
@@ -121,7 +121,7 @@ func FetchGoogleUser(ctx context.Context, token string) (sub, name, email string
 	return u.Sub, u.Name, u.Email, u.EmailVerified, nil
 }
 
-func matchEmailAllowlist(email, allowlist string) bool {
+func MatchEmailAllowlist(email, allowlist string) bool {
 	for pat := range strings.SplitSeq(allowlist, ",") {
 		pat = strings.TrimSpace(pat)
 		if pat == "" {
@@ -155,7 +155,7 @@ type stateIntent struct {
 	Return   string `json:"r,omitempty"`
 }
 
-func signStateP(secret []byte, p stateIntent) string {
+func SignState(secret []byte, p stateIntent) string {
 	ts := strconv.FormatInt(time.Now().Unix(), 10)
 	nonceB := make([]byte, 16)
 	_, _ = rand.Read(nonceB)
@@ -171,7 +171,7 @@ func signStateP(secret []byte, p stateIntent) string {
 	return signed + "." + sig
 }
 
-func verifyState(secret []byte, r *http.Request) (stateIntent, bool) {
+func VerifyState(secret []byte, r *http.Request) (stateIntent, bool) {
 	var empty stateIntent
 	cookie, err := r.Cookie("oauth_state")
 	if err != nil {
@@ -225,7 +225,7 @@ func verifyState(secret []byte, r *http.Request) (stateIntent, bool) {
 	return empty, true
 }
 
-func authBaseURL(cfg *core.Config) string {
+func AuthBaseURL(cfg *core.Config) string {
 	return strings.TrimRight(cfg.AuthBaseURL, "/")
 }
 
@@ -293,7 +293,7 @@ func FetchGitHubUser(ctx context.Context, token string) (string, string, error) 
 }
 
 func ExchangeDiscord(ctx context.Context, cfg *core.Config, code, verifier string) (string, error) {
-	cb := authBaseURL(cfg) + "/auth/discord/callback"
+	cb := AuthBaseURL(cfg) + "/auth/discord/callback"
 	data := url.Values{
 		"client_id":     {cfg.DiscordClientID},
 		"client_secret": {cfg.DiscordSecret},
@@ -355,17 +355,9 @@ func FetchDiscordUser(ctx context.Context, token string) (string, string, error)
 	return u.ID, name, nil
 }
 
-func MatchEmailAllowlist(email, allowlist string) bool { return matchEmailAllowlist(email, allowlist) }
-
 func CheckGitHubOrgMember(ctx context.Context, token, org, username string) bool {
 	return checkGitHubOrgMember(ctx, token, org, username)
 }
-
-func AuthBaseURL(cfg *core.Config) string { return authBaseURL(cfg) }
-
-func SafeReturn(v string) (string, bool) { return safeReturn(v) }
-
-func JSSafe(b []byte) string { return jsSafe(b) }
 
 // SignState / VerifyState expose the signed-cookie CSRF+PKCE state used by the
 // provider redirect/callback. authd reuses them for its /auth/* flow with a
@@ -373,10 +365,6 @@ func JSSafe(b []byte) string { return jsSafe(b) }
 // stays symmetric — specs/5/1 collide-token rule). intent carries link-intent
 // + return path across the redirect.
 type StateIntent = stateIntent
-
-func SignState(secret []byte, intent StateIntent) string { return signStateP(secret, intent) }
-
-func VerifyState(secret []byte, r *http.Request) (StateIntent, bool) { return verifyState(secret, r) }
 
 // NewLinkIntent builds a link-intent state payload for ?intent=link flows.
 func NewLinkIntent(linkFrom, returnTo string) StateIntent {
