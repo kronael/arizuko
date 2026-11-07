@@ -1,6 +1,6 @@
 ---
 name: parcel-open-data
-description: Find a Czech parcel, its neighbours and land type from open CUZK services without a captcha. NOT for owner names or liens (use katastr).
+description: Find a Czech parcel, its neighbours and land type from open CUZK services. NOT for owner names or liens (use katastr).
 when_to_use: 'parcela, sousední parcely, druh pozemku, RUIAN, WFS, územní plán, zastavitelnost, k.ú.'
 ---
 

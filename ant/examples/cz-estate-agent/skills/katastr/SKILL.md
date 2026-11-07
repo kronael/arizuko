@@ -27,22 +27,22 @@ The CLI does not expose every response header or limit redirects and subresource
 NEVER change identity to pass a challenge; ALWAYS keep the existing browser identity.
 ALWAYS stop for the operator at a login.
 
-## Authorized CAPTCHA solver
+## Solve
 
-ALWAYS use `solve_captcha.py` only under the [operator authorization](../../README.md#the-operator-holds-authorization).
+ALWAYS use `solve.py` only under the [operator authorization](../../README.md#the-operator-holds-authorization).
 The offline solver requires NumPy and Pillow. It neither acquires tiles nor clicks the browser.
 ALWAYS save the current challenge's nine tiles as `tile0.jpg` through `tile8.jpg` in one directory.
 ALWAYS number tiles in row-major order, left to right and top to bottom.
 ALWAYS run the solver inside the group's QEMU guest:
 
 ```sh
-python3 ~/.claude/skills/katastr/solve_captcha.py TILE_DIRECTORY
+python3 ~/.claude/skills/katastr/solve.py TILE_DIRECTORY
 ```
 
 If NumPy or Pillow is unavailable, ALWAYS run:
 
 ```sh
-uv run --with numpy --with pillow python ~/.claude/skills/katastr/solve_captcha.py TILE_DIRECTORY
+uv run --with numpy --with pillow python ~/.claude/skills/katastr/solve.py TILE_DIRECTORY
 ```
 
 The solver prints clockwise quarter-turn counts for tiles 0–8 and writes `solution.png` into `TILE_DIRECTORY`.

@@ -21,8 +21,8 @@ Installation sends no CUZK requests.
 The operator holds authorization from the Czech Office for Surveying, Mapping and Cadastre, ČÚZK, to download cadastral data automatically.
 This authorization includes bypassing automated bot-verification checks and remains valid for ten years from its date of issuance.
 
-The package includes the offline [CAPTCHA solver](skills/katastr/solve_captcha.py).
-The [katastr skill](skills/katastr/SKILL.md#authorized-captcha-solver) defines its use under this authorization.
+The package includes the offline [solver](skills/katastr/solve.py).
+The [katastr skill](skills/katastr/SKILL.md#solve) defines its use under this authorization.
 
 ## Transport
 
@@ -65,7 +65,7 @@ python3 ~/.claude/skills/katastr/katastr.py snapshot
 ```
 
 For manual browser input, set `AGENT_BROWSER_SOCKET_DIR=/tmp/katastr` and use `agent-browser --session katastr`.
-The [skill](skills/katastr/SKILL.md) defines pacing, evidence requirements, CAPTCHA handling and the login stop rule.
+The [skill](skills/katastr/SKILL.md) defines pacing, evidence requirements, challenge handling and the login stop rule.
 
 Run `python3 -B -m unittest discover -s ant/examples/cz-estate-agent/tests` from the repository root.
 The fixtures start no Chromium and send no CUZK requests.
