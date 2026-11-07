@@ -55,6 +55,8 @@ as a contract. A part nobody can watch has not shipped.
 | [52-acl-layers.md](52-acl-layers.md) | shipped | Local ACL rows override release defaults through one evaluator. Delegated rule mutations check authority and prove the policy version. |
 | [53-per-group-harness.md](53-per-group-harness.md) | draft | One opaque harness document per group; ant owns selection and validation, groups update serves dashd and MCP, and model credentials share one authorization policy. |
 | [54-agent-machine.md](54-agent-machine.md) | draft | A customizable persistent machine and runtime, reached as a Unix user through SSH; private disk, installed software and explicit reset. |
+| [55-identity-held-credentials.md](55-identity-held-credentials.md) | draft | A user's credential pays for that user's turn; delivery, enrollment and internal funding await owner decisions. |
+| [56-identity-held-tools.md](56-identity-held-tools.md) | queued | Tools carried by an OAuth identity and whose account a call acts as; the agent's own login stays the default and acting as a human stays a grant. |
 
 `7` owns the contracts; `1` owns the strategy; `16` owns the map (layers,
 axes, matrices); `28` owns the cockpit and every one of `29`–`33` points back

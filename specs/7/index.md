@@ -2,12 +2,11 @@
 status: queued
 ---
 
-# specs/7 — identity credentials and tools
+# specs/7 — single-world deployment
 
-Phase 7 contains only model credential ownership and tool account ownership.
-Model credentials and tool accounts have separate authorization rules.
+One operator runs one world: the core modules share one binary and one process.
 
-| Spec                                                               | Status | Summary                                                                                                                                           |
-| ------------------------------------------------------------------ | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [28-identity-held-credentials.md](28-identity-held-credentials.md) | draft  | A user's credential pays for that user's turn; delivery, enrollment and internal funding await owner decisions.                                   |
-| [29-identity-held-tools.md](29-identity-held-tools.md)             | queued | Tools carried by an OAuth identity and whose account a call acts as; the agent's own login stays the default and acting as a human stays a grant. |
+| Spec                                                           | Status | Summary                                                                       |
+| -------------------------------------------------------------- | ------ | ----------------------------------------------------------------------------- |
+| [26-single-world-deployment.md](26-single-world-deployment.md) | draft  | One core process with Dynamo-compatible storage and isolated agent execution. |
+| [27-minimum-arizuko.md](27-minimum-arizuko.md)                 | draft  | Writable files, messaging and skills define the functional minimum.           |

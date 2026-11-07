@@ -160,8 +160,8 @@ The fragment, resource, env and grant handlers retain their authorization.
 
 [Per-group harness](53-per-group-harness.md) owns the opaque document and ant's validation.
 That document selects the harness, not the machine's OS or installed software.
-[Identity-held credentials](../7/28-identity-held-credentials.md) owns model credential selection.
-[Identity-held tools](../7/29-identity-held-tools.md) owns tool account selection and consent.
+[Identity-held credentials](55-identity-held-credentials.md) owns model credential selection.
+[Identity-held tools](56-identity-held-tools.md) owns tool account selection and consent.
 Persistent storage does not change those credential rules.
 
 ## Owner question

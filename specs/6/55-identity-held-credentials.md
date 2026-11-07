@@ -5,7 +5,7 @@ status: draft
 # A user's model subscription pays for that user's turn
 
 An identity-held model credential pays for the turn its owner initiates.
-Tool accounts and tool authority belong to [identity-held tools](29-identity-held-tools.md).
+Tool accounts and tool authority belong to [identity-held tools](56-identity-held-tools.md).
 
 ## A sender must resolve to the account that owns the credential
 
@@ -64,13 +64,13 @@ contracts differ from the filing in these places:
   overlays a raw caller's tool secrets, and `routd/mcp.go:594` refreshes them.
   Thus the filing's account of explicit surrogate grants is not proof that
   every use of a personal tool login needs separate consent. This draft must
-  not feed its canonical model subject into that path. 7/29 owns that review.
+  not feed its canonical model subject into that path. 6/56 owns that review.
 - Pi refuses execution at `ant/src/backend.ts:116` because it cannot deliver
   through MCP. Vendor quota behavior is not its only blocker.
   The filing's dated gateway probes do not establish current provider support.
 - Ant selects the adapter at `ant/src/index.ts:482` through
   `ant/src/backend.ts:112`. Credential selection follows whichever harness
-  selection path applies. [Per-group harness](../6/53-per-group-harness.md)
+  selection path applies. [Per-group harness](53-per-group-harness.md)
   is not a prerequisite; coordinate only its host-login mount condition.
   A future identity consumer reads the join below;
   it must not create another principal map.
@@ -371,7 +371,7 @@ remain. No sender spelling, display name, email match, folder ancestry, or
 transitive ACL expansion establishes ownership. JWT subjects use the existing
 `auth.BareSub` boundary once; stored sender principals pass unchanged.
 
-`ResolveInitiator` is the one join available to 7/29 and any other identity consumer.
+`ResolveInitiator` is the one join available to 6/56 and any other identity consumer.
 No consumer may read `oauth_identities` directly from routd or invent
 another membership table. The join returns ownership, not an authorization
 verdict. ACL evaluation continues through `auth.Authorize` and the turn gate.

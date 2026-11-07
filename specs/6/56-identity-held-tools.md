@@ -2,7 +2,7 @@
 status: queued
 depends:
   [
-    28-identity-held-credentials,
+    55-identity-held-credentials,
     ../5/15-surrogate-oauth,
     ../5/14-credentials,
     ../5/13-ext-mcp,
@@ -11,10 +11,9 @@ depends:
   ]
 ---
 
-# specs/7/29 — tools bound to an identity, and whose account they act as
+# specs/6/56 — tools bound to an identity, and whose account they act as
 
-`status: queued`: FILED, NOT STARTED. Held for the owner's word, after phase
-6 finishes. Separate from `28-identity-held-credentials.md` on the owner's
+`status: queued`: FILED, NOT STARTED. Held for the owner's word. Separate from `55-identity-held-credentials.md` on the owner's
 instruction, not for tidiness.
 
 ## The default is the agent's own login, and it stays the default
@@ -52,7 +51,7 @@ of them deliberately today:
 3. the call is refused unless a grant names which of the two applies.
 
 Outcome 2 is the dangerous one, and it is what a naive join of
-`28-identity-held-credentials.md` to the connector would produce. A user who
+`55-identity-held-credentials.md` to the connector would produce. A user who
 connected GitHub so that THEY could be acted for in one folder would find
 their token spending authority in every folder that reaches the same tool.
 
@@ -88,6 +87,6 @@ folder's subtree.
 
 ## Order
 
-After `28-identity-held-credentials.md`, and after phase 6. The two share a
+After `55-identity-held-credentials.md`. The two share a
 join — platform principal to identity — and nothing else. Build that join once,
-in `7/28`, and read it here.
+in `6/55`, and read it here.

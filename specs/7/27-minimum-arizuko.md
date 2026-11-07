@@ -1,9 +1,10 @@
 ---
 status: draft
-relates-to: [36-publish-plan, 37-single-world-deployment, ../5/33-paths-roles]
+relates-to:
+  [../8/36-publish-plan, 26-single-world-deployment, ../5/33-paths-roles]
 ---
 
-# specs/8/38 — minimum arizuko
+# specs/7/27 — minimum arizuko
 
 The minimum defines what an agent receives. It does not prescribe how many
 processes supply those capabilities.
@@ -31,7 +32,7 @@ another group's workspace.
 ## Relationship to the other specs
 
 Routing and delivery remain owned by routd.
-[Packages](36-publish-plan.md) install capabilities and expose skills.
-[Single-world deployment](37-single-world-deployment.md) composes the core
+[Packages](../8/36-publish-plan.md) install capabilities and expose skills.
+[Single-world deployment](26-single-world-deployment.md) composes the core
 modules into one process. This spec defines the capabilities that composition
 must preserve.

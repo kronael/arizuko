@@ -2,7 +2,7 @@
 status: partial
 defects: [L200]
 depends: [../5/27-compose-native-packaging, ../5/8-yaml-manifests]
-relates-to: [37-single-world-deployment]
+relates-to: [../7/26-single-world-deployment]
 ---
 
 # specs/8/36 — packages and skill discovery
