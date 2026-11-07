@@ -1,9 +1,5 @@
 ---
-status: defected
-# defects: an OPEN BUGS entry contradicts this spec —
-# L318: §7 says `arizuko create` mints the account, users, policies and keys; the CLI has
-# zero such calls and the minting is a hand procedure in INSTALL.md
-defects: [L318]
+status: shipped
 depends:
   [
     37-store-model,
@@ -550,20 +546,19 @@ part of the port that is design rather than substitution.
    `audit_log` and `signing_keys`, mounts its own `Handler`; the column path
    goes with the SQL that fed it.
 
-**Who may reach which table.** Today a daemon reaches a file only if compose
-mounted it, and that mount set is part of the isolation `SECURITY.md` §Model
-rests on. A network server has no mount, so the equivalent is a credential per
-daemon scoped to table ARNs: one ExtendDB account per instance, one IAM user
-per daemon, one policy whose `Resource` is
-`arn:aws:dynamodb:<region>:<account>:table/<owner>.*` for exactly the owners
-that daemon mounts today — `routd` on `routd.*`; `dashd` on `routd.*`,
-`onbod.*`, `runed.*`; `gitd` and `slakd` on their own prefix and `routd.*`; an
-adapter that opens no owner file on its own prefix only. `arizuko create`
-mints the account, users, policies and keys through the `/management` API and
-writes each key into that daemon's `env/` file — one declaration, many readers
-— and the certificate ExtendDB generates at init is exported into the instance
-directory as every daemon's `AWS_CA_BUNDLE`. Narrowing those policies to "only
-the owner writes" is the `5/16` federation debt and is not taken here.
+**Who may reach which table.** `store/owner_reach.go` `StoreReach` declares
+the prefixes each daemon opens. `arizuko store enroll` makes one ExtendDB
+account per instance and one IAM user per nonempty row. `cmd/arizuko/store.go`
+`policy` grants `dynamodb:*` on exactly
+`arn:aws:dynamodb:*:*:table/<prefix>.*` for those prefixes. `enroll` writes
+the policy named `tables` for every user, including users whose key it keeps,
+and writes each minted pair into that daemon's `env/` file. The operator pair
+lives in `env/operator.env`. `STORE_CA` carries the base64 PEM certificate.
+`TestPolicyDocument` asserts the bounded document, and
+`TestEnrollMintsEveryRowAndConverges` checks the stored policies.
+L318 closes for a clean enrolled deployment; additional user/group policies
+and live enforcement require a separate audit. Narrowing access to only the
+owner's HTTP API remains the federation work.
 
 **The compose fragment.** `template/services/extenddb.yml` declares
 `extenddb` (`extenddb/extenddb-postgres`, `control_plane_delay_seconds 0`),

@@ -176,8 +176,6 @@ ones no measurement can settle.
 (`L334` is closed and carries one too: the third party's `**` on sloth is not
 revoked — see its entry.)
 
-- `L318` — the 19 per-daemon store keys. The resource list is declared and
-  checked; the ROLLOUT is the live-key rotation.
 - `L406` — `gitd` holds no store key, so enabling it restart-loops the instance.
   gitd holds a key and runs on sloth; what is left is the refusal that should
   stop an enable without a key, and the mint is `L319`.
@@ -4830,161 +4828,25 @@ each of the two guard conditions fails it when mutated.
 - **Status:** fixed — `arizuko store enroll -i NAME [SNAPSHOT]` mints the account and one key per daemon, writes `env/<daemon>.env`, and with a snapshot copies every table (spec `6/43` §6). L318 closes per instance after its move.
 - **Fix:**
 
-## L318 — every daemon's store key carries `dynamodb:* on *`, so 19 per-daemon keys give attribution and not isolation (2026-09-20, open)
+## L318 — daemon store policies grant `dynamodb:*` on `*` (2026-09-20, closed for enrolled deployments)
 
-MEASURED on sloth 2026-09-20. The instance mints one IAM user and one access
-key per daemon — 19 of them, each in its own scoped env file (`routd.env`,
-`teled.env`, …) and none in `.env`, so a daemon reads only its own key. The
-separation stops there. Every one of those users carries the same `tables`
-policy:
+MEASURED 2026-11-07 at `bb3c3f39a37291bc86413a4cba1619ea8223fcb7`:
+`cmd/arizuko/store.go` `policy` builds one resource per `store.StoreReach`
+prefix: `arn:aws:dynamodb:*:*:table/<prefix>.*`. `enroll` calls
+`manager.putPolicy` with that document for each nonempty row, including users
+whose access key it keeps. `dynstore.Prefix` adds the dot before the wildcard.
+The document grants `dynamodb:*` within those prefixes, never `Resource: "*"`.
+The map has 15 rows and needs 13 pairs; `timed` and `ttsd` need none.
 
-```json
-{"Version":"2012-10-17","Statement":[
- {"Action":"dynamodb:*","Effect":"Allow","Resource":"*"}]}
-```
-
-So `ttsd`'s key can read `routd.messages`, and `teled`'s can drop
-`routd.audit_log`. The key answers "who wrote this row", never "may you". The
-account boundary is real — `tables` is keyed `(account_id, table_name)` and a
-request authenticates into one account — but inside an account there is no
-boundary at all.
-
-This costs little today, where every daemon is ours and the blast radius is one
-instance. It costs more under a SHARED store server, because the account then
-becomes the only isolation left: the per-instance PostgreSQL role, which today
-is a superuser owning that instance's own server, no longer exists.
-
-- **Severity:** medium — an adapter compromise reaches every owner's tables in that instance
-- **Scope:** `extenddb init`'s per-daemon `put-user-policy`; `INSTALL.md` § The store server
-- **Affected:** sloth is the drift, krons is the template. Re-measured by the
-  operator 2026-09-20: sloth holds 19 `tables` policies with ONE distinct
-  document, `{"Action":"dynamodb:*","Resource":"*"}`; krons holds 9 `owners`
-  policies genuinely bounded to `routd.*`, `onbod.*`, `teled.*` and so on. The
-  original "Affected: krons" was backwards. marinade unverified. (Live-instance
-  figures are the operator's measurement, not this repo's.)
-- **Source:** `iam_policies` on sloth, 38 rows: one `SelfServicePolicy` and one `tables` policy per user, the latter identical for all 19
-**The owner map exists — this entry first claimed it did not.** `store/owners.go`
-registers four owners (`authd`, `onbod`, `routd`, `runed`), `dynstore.Prefix`
-puts the owner in front of every entity name, and `chanlib/dedup.go` gives each
-adapter a `<service>` prefix of its own. sloth's catalog agrees: `routd.*` 33
-tables, `authd.*` 7, `onbod.*` 6, `runed.*` 4, `discd.*` 2, `teled.*` 2. So a
-policy CAN name what a daemon may reach; nothing had to be invented.
-
-Measured from the call sites, not from the `OpenOwner` comment above them:
-
-| daemon | owners it opens |
-| --- | --- |
-| `routd` / `runed` / `authd` | its own, only |
-| `onbod` | `onbod`, `routd` |
-| `dashd` | `onbod`, `routd` |
-| `webd` / `proxyd` / `gitd` / `slakd` | `routd` |
-| the operator CLI | `authd`, `onbod`, `routd` |
-| every adapter | its own `<service>` dedup prefix |
-
-`timed` opens none: it writes through the owner's HTTP API, which is the split
-write-discipline working.
-
-**The code half is DONE 2026-09-20; the rollout is not.** Nothing in the repo
-generated, documented or checked these policies — the only mention was one
-sentence in `INSTALL.md` § The store server, and it had already drifted: it gave
-`dashd` a policy on `runed.*`, which dashd has never opened. A shape that lives
-in prose beside no check is a shape that is already wrong.
-
-Now declared and checked:
-
-- `store/owner_reach.go` `StoreReach` declares daemon → owner prefixes, beside
-  the owner registry that the prefix comes from.
-- `store/owner_reach_test.go` `TestStoreReachMatchesTheCallSites` walks the
-  module for the store doors and fails on either direction — a daemon that opens
-  an owner the map omits, and a daemon declared for an owner it never opens. The
-  measured map matched the declaration on the first run, which independently
-  confirms the table this entry already carried.
-- `TestInstallDocumentsTheReach` asserts `INSTALL.md` carries the same rows, and
-  prints the rows to paste when it does not. One declaration, two readers: the
-  test and the operator.
-- `INSTALL.md` § The store server now carries the table, the bounded policy
-  document, and the `create-user` / `put-user-policy` / `create-access-key`
-  commands, replacing the sentence that described them.
-
-**The two the rollout must not get wrong**, and the reason the table beats
-"adapters get their own prefix": `gitd` and `slakd` open `routd` directly
-(`gitd/main.go`, `slakd/main.go`) ON TOP of their own adapter prefix, so an
-adapter-prefix-only policy leaves them authenticated and unable to read
-anything. `timed` and `ttsd` need no key at all. A too-narrow policy does not
-fail at deploy — it fails the first time the daemon touches the table, which is
-why the rollout is one daemon at a time and watched.
-
-Each assertion was mutation-checked: declaring `runed.*` for dashd, dropping
-`routd.*` from gitd, removing slakd from the map, giving ttsd a key it does not
-use, and drifting the INSTALL.md row each turn the matching test red.
-
-**RE-VERIFIED 2026-09-21 at `f5851f94`.** The code half holds: `StoreReach`
-(`store/owner_reach.go:32`) declares 18 daemons, and both tests pass —
-
-```
-=== RUN   TestStoreReachMatchesTheCallSites
---- PASS: TestStoreReachMatchesTheCallSites (0.09s)
-=== RUN   TestInstallDocumentsTheReach
---- PASS: TestInstallDocumentsTheReach (0.00s)
-```
-
-The test binds in THREE directions, not two: a daemon that opens an owner the
-map omits also fails (`owner_reach_test.go:173`), so `whapd` and
-`kokoro` being absent from the map is verified — they open no store — rather
-than forgotten.
-
-**Nothing here is bounded as code.** No Go code builds or applies the policy
-document; the JSON body exists only as literal text in `INSTALL.md`. So the
-remaining work is an operator rollout, in full, and the commands belong here
-rather than in a fix.
-
-**The Status line below used to say "`gitd` first, which reads `routd` and
-nothing else". That is WRONG, and it contradicts this entry's own body four
-paragraphs up.** `gitd` opens TWO prefixes: `store.OpenOwner(store.OwnerRoutd)`
-at `gitd/main.go:34` AND `chanlib.OpenAdapterStore("gitd")` at `gitd/main.go:45`
-— which is exactly what `StoreReach` declares, `"gitd": {OwnerRoutd, "gitd"}`.
-An operator who copied that sentence would write a policy one resource short,
-and `gitd` would authenticate and then fail on its own dedup table — the
-too-narrow failure this entry already warns does not surface at deploy.
-
-**The rollout, per daemon** (`gitd` shown, and it is still the right one to go
-first — two resources, no other daemon reads its tables). `STORE_ACCOUNT_ID` and
-`STORE_ADMIN_PASSWORD` come from the instance `.env`:
-
-```bash
-sudo docker exec -e EXTENDDB_PASSWORD=$STORE_ADMIN_PASSWORD arizuko_extenddb_<name> \
-  extenddb manage -c /var/lib/extenddb/extenddb.toml --user admin \
-  create-user --account $STORE_ACCOUNT_ID --name gitd
-
-sudo docker exec -e EXTENDDB_PASSWORD=$STORE_ADMIN_PASSWORD arizuko_extenddb_<name> \
-  extenddb manage -c /var/lib/extenddb/extenddb.toml --user admin \
-  put-user-policy --account $STORE_ACCOUNT_ID --name gitd --policy-name tables \
-  --policy '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"dynamodb:*","Resource":["arn:aws:dynamodb:*:*:table/routd.*","arn:aws:dynamodb:*:*:table/gitd.*"]}]}'
-
-sudo docker exec -e EXTENDDB_PASSWORD=$STORE_ADMIN_PASSWORD arizuko_extenddb_<name> \
-  extenddb manage -c /var/lib/extenddb/extenddb.toml --user admin \
-  create-access-key --account $STORE_ACCOUNT_ID --name gitd
-```
-
-Write the printed pair into `env/gitd.env` as `AWS_ACCESS_KEY_ID` /
-`AWS_SECRET_ACCESS_KEY` — the only place `generate` will read it back from
-(`compose/compose.go:882-901`). Then restart that one daemon and watch it before
-the next. The resource array for every other daemon is `StoreReach`'s row for it,
-one `arn:aws:dynamodb:*:*:table/<prefix>.*` per entry.
-
-**Headcount: the repo's design says 16 keys, not 19.** `StoreReach` has 18
-entries, of which `timed` and `ttsd` are empty — 15 daemons plus the operator
-CLI need one. The "19" in this entry's title and body is the operator's LIVE
-measurement on sloth and is not derivable from this repo; do not use it as a
-rollout headcount.
-
-- **Status:** open — the ROLLOUT only; the resource list is declared and checked,
-  so the work is not the design, and no code change is pending. It rewrites live
-  IAM policies on a running fleet, so it ships one daemon at a time against krons
-  — `gitd` first, whose policy carries BOTH `routd.*` and `gitd.*` — each proven
-  before the next. `slakd` is the same two-prefix shape; `timed` and `ttsd` get
-  no key at all.
-- **Fix:**
+- **Test:** `cmd/arizuko/store_test.go` `TestPolicyDocument` asserts the literal
+  bounded policy. `TestEnrollMintsEveryRowAndConverges` reads every policy
+  back from the server and checks it against `policy(StoreReach[row])`.
+- **Status:** closed for a clean enrolled deployment. The owner reports sloth
+  and krons moved with `arizuko store enroll` on 2026-11-06. No live data or
+  policies were inspected for this measurement.
+- **Limit:** enrollment replaces only the policy named `tables`. Additional
+  user or group policies can widen access. Their presence and the live
+  server's enforcement remain unmeasured here; enrollment is not a policy audit.
 
 ## L317 — `/stop` no longer cancels a question typed just before it (2026-09-20, open — needs a decision; re-measured 2026-09-21 after `L336`)
 
