@@ -539,6 +539,11 @@ func MatchesWebJID(match string) bool {
 	return false
 }
 
+// routeInSubtree reports whether a route target's folder is folder or below it.
+func routeInSubtree(folder, target string) bool {
+	return groupfolder.ContainsSep(folder, core.ParseRouteTarget(target).Folder, "/")
+}
+
 // ListRoutes returns the rules whose target is inside folder's subtree, or
 // every rule for a root caller. The target is the SECOND field of the
 // coordinate, so containment is a filter: a folder matches itself, its
@@ -553,8 +558,7 @@ func (s *Store) ListRoutes(folder string, isRoot bool) []core.Route {
 	}
 	out := make([]core.Route, 0, len(all))
 	for _, r := range all {
-		if groupfolder.ContainsSep(folder, r.Target, "/") ||
-			groupfolder.ContainsSep(folder, r.Target, "#") {
+		if routeInSubtree(folder, r.Target) {
 			out = append(out, r)
 		}
 	}
@@ -670,8 +674,7 @@ func (s *Store) ReplaceFolderRoutesInto(ctx context.Context, ws *WriteSet, folde
 				return err
 			}
 			// The same containment ListRoutes reads with.
-			if !groupfolder.ContainsSep(folder, r.Target, "/") &&
-				!groupfolder.ContainsSep(folder, r.Target, "#") {
+			if !routeInSubtree(folder, r.Target) {
 				continue
 			}
 		}

@@ -18,6 +18,7 @@ package store
 
 import (
 	"context"
+	"github.com/kronael/arizuko/core"
 	"slices"
 	"strings"
 
@@ -74,14 +75,13 @@ var entityScopePurge = []entityScope{
 		return folder, ok
 	}},
 
-	// Routes in. A target carries a topic, so it is the one scope whose folder
-	// may be followed by "#" as well as "/".
-	{entity: Routes, seps: []string{"/", "#"}, folderOf: func(it objstore.Item) (string, bool) {
+	// Routes in: the folder is the target URI's path.
+	{entity: Routes, seps: []string{"/"}, folderOf: func(it objstore.Item) (string, bool) {
 		parts := strings.SplitN(it.Key.Sort, KeySep, 3)
 		if len(parts) != 3 {
 			return "", false
 		}
-		return parts[1], true // target
+		return core.ParseRouteTarget(parts[1]).Folder, true
 	}},
 	{entity: ScheduledTasks, seps: []string{"/"}, folderOf: attrScope(attrTaskOwner)},
 	{entity: PendingActions, seps: []string{"/"}, folderOf: attrScope(AttrPendGroupFolder)},

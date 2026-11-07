@@ -2,6 +2,7 @@ package dashstore
 
 import (
 	"context"
+	"github.com/kronael/arizuko/core"
 
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/objstore"
@@ -125,7 +126,7 @@ func (s *Store) RoutesIntoFolder(folder string) ([]GroupRoute, error) {
 	}
 	out := make([]GroupRoute, 0, len(all))
 	for _, r := range all {
-		if !groupfolder.ContainsSep(folder, r.Target, "/") {
+		if !groupfolder.ContainsSep(folder, core.ParseRouteTarget(r.Target).Folder, "/") {
 			continue
 		}
 		out = append(out, GroupRoute{Seq: r.Seq, Match: r.Match, Target: r.Target})

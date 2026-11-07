@@ -473,7 +473,7 @@ func scopeRoutes(all func() ([]core.Route, error)) func(folder string, isRoot bo
 		}
 		out := make([]core.Route, 0, len(routes))
 		for _, r := range routes {
-			if r.Target == folder || strings.HasPrefix(r.Target, folder+"#") || strings.HasPrefix(r.Target, folder+"/") {
+			if groupfolder.ContainsSep(folder, core.ParseRouteTarget(r.Target).Folder, "/") {
 				out = append(out, r)
 			}
 		}
