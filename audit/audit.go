@@ -13,25 +13,9 @@ import (
 	"sync"
 	"time"
 	"uuid"
+
+	"github.com/kronael/arizuko/core"
 )
-
-// envOr / envInt are audit's own env readers: importing chanlib for them makes
-// an auth→audit→chanlib import cycle (spec 5/1).
-func envOr(k, fallback string) string {
-	if v := os.Getenv(k); v != "" {
-		return v
-	}
-	return fallback
-}
-
-func envInt(k string, fallback int) int {
-	if v := os.Getenv(k); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			return n
-		}
-	}
-	return fallback
-}
 
 // Config holds all audit configuration loaded from environment.
 type Config struct {
@@ -48,15 +32,15 @@ type Config struct {
 
 func LoadConfig(dataDir, instance string) Config {
 	return Config{
-		Enabled:          envOr("AUDIT_ENABLED", "false") == "true",
+		Enabled:          core.EnvOr("AUDIT_ENABLED", "false") == "true",
 		DataDir:          dataDir,
 		Instance:         instance,
-		MaxBytes:         int64(envInt("AUDIT_MAX_BYTES", 100*1024*1024)),
-		RotateHours:      envInt("AUDIT_ROTATE_HOURS", 24),
-		WebhookURL:       envOr("AUDIT_WEBHOOK_URL", ""),
-		WebhookURLSystem: envOr("AUDIT_WEBHOOK_URL_SYSTEM", ""),
-		WebhookURLWeb:    envOr("AUDIT_WEBHOOK_URL_WEB", ""),
-		WebhookSecret:    envOr("AUDIT_WEBHOOK_SECRET", ""),
+		MaxBytes:         int64(core.EnvInt("AUDIT_MAX_BYTES", 100*1024*1024)),
+		RotateHours:      core.EnvInt("AUDIT_ROTATE_HOURS", 24),
+		WebhookURL:       core.EnvOr("AUDIT_WEBHOOK_URL", ""),
+		WebhookURLSystem: core.EnvOr("AUDIT_WEBHOOK_URL_SYSTEM", ""),
+		WebhookURLWeb:    core.EnvOr("AUDIT_WEBHOOK_URL_WEB", ""),
+		WebhookSecret:    core.EnvOr("AUDIT_WEBHOOK_SECRET", ""),
 	}
 }
 
