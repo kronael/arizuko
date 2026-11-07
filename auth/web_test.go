@@ -27,7 +27,7 @@ func TestSafeReturnRejectsEveryOffSiteForm(t *testing.T) {
 	}
 	for _, c := range bad {
 		t.Run(c.name, func(t *testing.T) {
-			got, ok := safeReturn(c.in)
+			got, ok := SafeReturn(c.in)
 			if ok {
 				t.Errorf("safeReturn(%q) accepted it as %q — a logged-in user lands off-site", c.in, got)
 			}
@@ -48,7 +48,7 @@ func TestSafeReturnAcceptsAnOwnSitePath(t *testing.T) {
 		"/invite/abc123",
 	}
 	for _, in := range good {
-		got, ok := safeReturn(in)
+		got, ok := SafeReturn(in)
 		if !ok {
 			t.Errorf("safeReturn(%q) rejected an own-site path; the user is bounced to the root after login", in)
 			continue
@@ -71,7 +71,7 @@ func TestJSSafeClosesTheScriptEscapeHatches(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got := jsSafe([]byte(c.in))
+			got := JSSafe([]byte(c.in))
 			if strings.Contains(got, c.wantAbsent) {
 				t.Errorf("jsSafe left %q in the output: %s", c.wantAbsent, got)
 			}
@@ -89,26 +89,10 @@ func TestJSSafeStaysValidJSON(t *testing.T) {
 		t.Fatal(err)
 	}
 	var back map[string]string
-	if err := json.Unmarshal([]byte(jsSafe(raw)), &back); err != nil {
+	if err := json.Unmarshal([]byte(JSSafe(raw)), &back); err != nil {
 		t.Fatalf("jsSafe output is no longer parseable JSON: %v", err)
 	}
 	if back["name"] != original["name"] {
 		t.Errorf("round trip changed the value:\n got %q\nwant %q", back["name"], original["name"])
-	}
-}
-
-// The exported wrappers are what other packages call; they must not drift from
-// the unexported implementations.
-func TestExportedWrappersMatchTheirImplementations(t *testing.T) {
-	for _, in := range []string{"/dash/", "//evil.example/", "http://evil.example/", ""} {
-		gotV, gotOK := SafeReturn(in)
-		wantV, wantOK := safeReturn(in)
-		if gotV != wantV || gotOK != wantOK {
-			t.Errorf("SafeReturn(%q) = (%q,%v), safeReturn = (%q,%v)", in, gotV, gotOK, wantV, wantOK)
-		}
-	}
-	in := []byte(`{"n":"</script>"}`)
-	if JSSafe(in) != jsSafe(in) {
-		t.Error("JSSafe and jsSafe disagree")
 	}
 }

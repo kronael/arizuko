@@ -42,12 +42,6 @@ func scopeMatches(held, want string) bool {
 // scope in `parent` — the downscope/issuer-mint subset check. A "tasks:*"
 // parent covers "tasks:read". authd calls this to bound a minted token.
 func HasScopeCoveredBy(parent []string, want string) bool {
-	return scopeCoveredBy(parent, want)
-}
-
-// scopeCoveredBy reports whether want is granted by some scope in parent —
-// used to enforce downscope subset. A "tasks:*" parent covers "tasks:read".
-func scopeCoveredBy(parent []string, want string) bool {
 	for _, p := range parent {
 		if scopeMatches(p, want) {
 			return true
@@ -65,7 +59,7 @@ func intersectScopes(requested, grants []string) []string {
 		if _, dup := seen[r]; dup {
 			continue
 		}
-		if scopeCoveredBy(grants, r) {
+		if HasScopeCoveredBy(grants, r) {
 			out = append(out, r)
 			seen[r] = struct{}{}
 		}

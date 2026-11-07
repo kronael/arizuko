@@ -46,7 +46,7 @@ func TestMatchEmailAllowlistFailsClosed(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if got := matchEmailAllowlist(c.email, c.allowlist); got != c.want {
+			if got := MatchEmailAllowlist(c.email, c.allowlist); got != c.want {
 				t.Errorf("matchEmailAllowlist(%q, %q) = %v, want %v", c.email, c.allowlist, got, c.want)
 			}
 		})
@@ -57,10 +57,10 @@ func TestMatchEmailAllowlistFailsClosed(t *testing.T) {
 // must be a choice — it is asserted here so nobody "simplifies" a blank
 // allowlist into the same thing.
 func TestMatchEmailAllowlistStarAdmitsEveryone(t *testing.T) {
-	if !matchEmailAllowlist("anyone@anywhere.example", "*") {
+	if !MatchEmailAllowlist("anyone@anywhere.example", "*") {
 		t.Error(`"*" must admit every address`)
 	}
-	if matchEmailAllowlist("anyone@anywhere.example", "") {
+	if MatchEmailAllowlist("anyone@anywhere.example", "") {
 		t.Error(`"" must admit nobody; it is not a synonym for "*"`)
 	}
 }
@@ -94,7 +94,7 @@ func TestCheckGitHubOrgMemberAcceptsOnly204(t *testing.T) {
 		withHTTPClient(t, func(*http.Request) (*http.Response, error) {
 			return statusResponse(code), nil
 		})
-		got := checkGitHubOrgMember(context.Background(), "tok", "acme", "octocat")
+		got := CheckGitHubOrgMember(context.Background(), "tok", "acme", "octocat")
 		if want := code == 204; got != want {
 			t.Errorf("status %d: membership = %v, want %v", code, got, want)
 		}
@@ -105,7 +105,7 @@ func TestCheckGitHubOrgMemberFailsClosedOnATransportError(t *testing.T) {
 	withHTTPClient(t, func(*http.Request) (*http.Response, error) {
 		return nil, io.ErrUnexpectedEOF
 	})
-	if checkGitHubOrgMember(context.Background(), "tok", "acme", "octocat") {
+	if CheckGitHubOrgMember(context.Background(), "tok", "acme", "octocat") {
 		t.Error("a failed org check must read as 'not a member', never as a pass")
 	}
 }
@@ -119,7 +119,7 @@ func TestCheckGitHubOrgMemberEscapesThePathSegments(t *testing.T) {
 		got = r.URL.String()
 		return statusResponse(404), nil
 	})
-	checkGitHubOrgMember(context.Background(), "tok", "acme/../..", "octocat/../../user")
+	CheckGitHubOrgMember(context.Background(), "tok", "acme/../..", "octocat/../../user")
 
 	if strings.Contains(got, "..") && !strings.Contains(got, "%2F") {
 		t.Errorf("path traversal reached the URL unescaped: %s", got)
@@ -140,7 +140,7 @@ func TestCheckGitHubOrgMemberSendsTheToken(t *testing.T) {
 		auth, accept = r.Header.Get("Authorization"), r.Header.Get("Accept")
 		return statusResponse(204), nil
 	})
-	checkGitHubOrgMember(context.Background(), "gho_secret", "acme", "octocat")
+	CheckGitHubOrgMember(context.Background(), "gho_secret", "acme", "octocat")
 	if auth != "Bearer gho_secret" {
 		t.Errorf("Authorization = %q; an unauthenticated probe 404s for every private org", auth)
 	}
@@ -162,8 +162,8 @@ func callbackReq(state, cookie string) *http.Request {
 func TestStateRoundTripsWithAndWithoutAPayload(t *testing.T) {
 	secret := []byte("csrf-secret")
 
-	plain := signStateP(secret, stateIntent{})
-	if got, ok := verifyState(secret, callbackReq(plain, plain)); !ok {
+	plain := SignState(secret, StateIntent{})
+	if got, ok := VerifyState(secret, callbackReq(plain, plain)); !ok {
 		t.Fatal("a freshly signed state failed verification; every login would fail")
 	} else if got.Intent != "" || got.LinkFrom != "" || got.Return != "" {
 		t.Errorf("a payload-free state produced %+v, want the zero intent", got)
@@ -182,7 +182,7 @@ func TestStateRoundTripsWithAndWithoutAPayload(t *testing.T) {
 
 func TestVerifyStateRejectsEveryTamperedForm(t *testing.T) {
 	secret := []byte("csrf-secret")
-	good := signStateP(secret, NewLinkIntent("google:123", "/dash/"))
+	good := SignState(secret, NewLinkIntent("google:123", "/dash/"))
 	parts := strings.Split(good, ".")
 
 	tamper := func(i int, v string) string {
@@ -204,13 +204,13 @@ func TestVerifyStateRejectsEveryTamperedForm(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if _, ok := verifyState(secret, callbackReq(c.state, c.state)); ok {
+			if _, ok := VerifyState(secret, callbackReq(c.state, c.state)); ok {
 				t.Errorf("verifyState accepted %s", c.name)
 			}
 		})
 	}
 
-	if _, ok := verifyState([]byte("a-different-secret"), callbackReq(good, good)); ok {
+	if _, ok := VerifyState([]byte("a-different-secret"), callbackReq(good, good)); ok {
 		t.Error("a state signed under another secret verified")
 	}
 }
@@ -220,16 +220,16 @@ func TestVerifyStateRejectsEveryTamperedForm(t *testing.T) {
 // cannot write the victim's cookie for our origin.
 func TestVerifyStateRequiresTheCookieToMatchTheQuery(t *testing.T) {
 	secret := []byte("csrf-secret")
-	mine := signStateP(secret, stateIntent{})
-	attackers := signStateP(secret, stateIntent{})
+	mine := SignState(secret, StateIntent{})
+	attackers := SignState(secret, StateIntent{})
 
-	if _, ok := verifyState(secret, callbackReq(attackers, mine)); ok {
+	if _, ok := VerifyState(secret, callbackReq(attackers, mine)); ok {
 		t.Error("a validly-signed state from another session was accepted against my cookie")
 	}
-	if _, ok := verifyState(secret, callbackReq(mine, "")); ok {
+	if _, ok := VerifyState(secret, callbackReq(mine, "")); ok {
 		t.Error("a callback with no oauth_state cookie was accepted")
 	}
-	if _, ok := verifyState(secret, callbackReq("", mine)); ok {
+	if _, ok := VerifyState(secret, callbackReq("", mine)); ok {
 		t.Error("a callback with no state query parameter was accepted")
 	}
 }
@@ -246,17 +246,17 @@ func TestVerifyStateRejectsStaleAndFutureTimestamps(t *testing.T) {
 	}
 
 	fresh := forge(time.Now())
-	if _, ok := verifyState(secret, callbackReq(fresh, fresh)); !ok {
+	if _, ok := VerifyState(secret, callbackReq(fresh, fresh)); !ok {
 		t.Fatal("the hand-built control state failed; the rest of this test proves nothing")
 	}
 
 	stale := forge(time.Now().Add(-stateTTL - time.Minute))
-	if _, ok := verifyState(secret, callbackReq(stale, stale)); ok {
+	if _, ok := VerifyState(secret, callbackReq(stale, stale)); ok {
 		t.Errorf("a state older than stateTTL (%s) was accepted", stateTTL)
 	}
 
 	future := forge(time.Now().Add(time.Hour))
-	if _, ok := verifyState(secret, callbackReq(future, future)); ok {
+	if _, ok := VerifyState(secret, callbackReq(future, future)); ok {
 		t.Error("a state timestamped in the future was accepted; it would outlive stateTTL")
 	}
 }
@@ -265,7 +265,7 @@ func TestSignStateIsUnpredictable(t *testing.T) {
 	secret := []byte("csrf-secret")
 	seen := map[string]bool{}
 	for i := 0; i < 32; i++ {
-		s := signStateP(secret, stateIntent{})
+		s := SignState(secret, StateIntent{})
 		if seen[s] {
 			t.Fatalf("signStateP repeated %q; two sessions would share a CSRF token", s)
 		}
@@ -303,7 +303,7 @@ func TestConsumePKCEReturnsTheVerifierAndClearsIt(t *testing.T) {
 	r := httptest.NewRequest("GET", "https://host/auth/callback", nil)
 	r.AddCookie(&http.Cookie{Name: "oauth_pkce", Value: "the-verifier"})
 
-	if got := consumePKCE(w, r, true); got != "the-verifier" {
+	if got := ConsumePKCE(w, r, true); got != "the-verifier" {
 		t.Fatalf("consumePKCE = %q, want the stored verifier", got)
 	}
 	cookies := w.Result().Cookies()
@@ -318,14 +318,14 @@ func TestConsumePKCEReturnsTheVerifierAndClearsIt(t *testing.T) {
 func TestConsumePKCEIsEmptyWithNoCookie(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("GET", "https://host/auth/callback", nil)
-	if got := consumePKCE(w, r, true); got != "" {
+	if got := ConsumePKCE(w, r, true); got != "" {
 		t.Errorf("consumePKCE with no cookie = %q, want empty", got)
 	}
 
 	w2 := httptest.NewRecorder()
 	r2 := httptest.NewRequest("GET", "https://host/auth/callback", nil)
 	r2.AddCookie(&http.Cookie{Name: "oauth_pkce", Value: ""})
-	if got := consumePKCE(w2, r2, true); got != "" {
+	if got := ConsumePKCE(w2, r2, true); got != "" {
 		t.Errorf("consumePKCE with an empty cookie = %q, want empty", got)
 	}
 }

@@ -45,7 +45,7 @@ func PostForm(ctx context.Context, endpoint string, data url.Values, accept stri
 	return httpClient.Do(req)
 }
 
-func consumePKCE(w http.ResponseWriter, r *http.Request, secure bool) string {
+func ConsumePKCE(w http.ResponseWriter, r *http.Request, secure bool) string {
 	c, err := r.Cookie("oauth_pkce")
 	if err != nil || c.Value == "" {
 		return ""
@@ -58,7 +58,7 @@ func consumePKCE(w http.ResponseWriter, r *http.Request, secure bool) string {
 }
 
 func ExchangeGoogle(ctx context.Context, cfg *core.Config, code, verifier string) (string, error) {
-	cb := authBaseURL(cfg) + "/auth/google/callback"
+	cb := AuthBaseURL(cfg) + "/auth/google/callback"
 	form := url.Values{
 		"code":          {code},
 		"client_id":     {cfg.GoogleClientID},
@@ -112,7 +112,7 @@ func FetchGoogleUser(ctx context.Context, token string) (sub, name, email string
 	return u.Sub, u.Name, u.Email, u.EmailVerified, nil
 }
 
-func matchEmailAllowlist(email, allowlist string) bool {
+func MatchEmailAllowlist(email, allowlist string) bool {
 	for pat := range strings.SplitSeq(allowlist, ",") {
 		pat = strings.TrimSpace(pat)
 		if pat == "" {
@@ -125,7 +125,7 @@ func matchEmailAllowlist(email, allowlist string) bool {
 	return false
 }
 
-func checkGitHubOrgMember(ctx context.Context, token, org, username string) bool {
+func CheckGitHubOrgMember(ctx context.Context, token, org, username string) bool {
 	u := fmt.Sprintf("https://api.github.com/orgs/%s/members/%s",
 		url.PathEscape(org), url.PathEscape(username))
 	req, _ := http.NewRequestWithContext(ctx, "GET", u, nil)
@@ -140,13 +140,13 @@ func checkGitHubOrgMember(ctx context.Context, token, org, username string) bool
 	return resp.StatusCode == http.StatusNoContent
 }
 
-type stateIntent struct {
+type StateIntent struct {
 	Intent   string `json:"i,omitempty"`
 	LinkFrom string `json:"f,omitempty"`
 	Return   string `json:"r,omitempty"`
 }
 
-func signStateP(secret []byte, p stateIntent) string {
+func SignState(secret []byte, p StateIntent) string {
 	ts := strconv.FormatInt(time.Now().Unix(), 10)
 	nonceB := make([]byte, 16)
 	_, _ = rand.Read(nonceB)
@@ -162,8 +162,8 @@ func signStateP(secret []byte, p stateIntent) string {
 	return signed + "." + sig
 }
 
-func verifyState(secret []byte, r *http.Request) (stateIntent, bool) {
-	var empty stateIntent
+func VerifyState(secret []byte, r *http.Request) (StateIntent, bool) {
+	var empty StateIntent
 	cookie, err := r.Cookie("oauth_state")
 	if err != nil {
 		return empty, false
@@ -207,7 +207,7 @@ func verifyState(secret []byte, r *http.Request) (stateIntent, bool) {
 		if err != nil {
 			return empty, false
 		}
-		var p stateIntent
+		var p StateIntent
 		if err := json.Unmarshal(raw, &p); err != nil {
 			return empty, false
 		}
@@ -216,7 +216,7 @@ func verifyState(secret []byte, r *http.Request) (stateIntent, bool) {
 	return empty, true
 }
 
-func authBaseURL(cfg *core.Config) string {
+func AuthBaseURL(cfg *core.Config) string {
 	return strings.TrimRight(cfg.AuthBaseURL, "/")
 }
 
@@ -284,7 +284,7 @@ func FetchGitHubUser(ctx context.Context, token string) (string, string, error) 
 }
 
 func ExchangeDiscord(ctx context.Context, cfg *core.Config, code, verifier string) (string, error) {
-	cb := authBaseURL(cfg) + "/auth/discord/callback"
+	cb := AuthBaseURL(cfg) + "/auth/discord/callback"
 	data := url.Values{
 		"client_id":     {cfg.DiscordClientID},
 		"client_secret": {cfg.DiscordSecret},
@@ -346,37 +346,9 @@ func FetchDiscordUser(ctx context.Context, token string) (string, string, error)
 	return u.ID, name, nil
 }
 
-func MatchEmailAllowlist(email, allowlist string) bool { return matchEmailAllowlist(email, allowlist) }
-
-func CheckGitHubOrgMember(ctx context.Context, token, org, username string) bool {
-	return checkGitHubOrgMember(ctx, token, org, username)
-}
-
-func AuthBaseURL(cfg *core.Config) string { return authBaseURL(cfg) }
-
-func SafeReturn(v string) (string, bool) { return safeReturn(v) }
-
-func JSSafe(b []byte) string { return jsSafe(b) }
-
-// SignState / VerifyState expose the signed-cookie CSRF+PKCE state used by the
-// provider redirect/callback. authd reuses them for its /auth/* flow with a
-// CSRF-only HMAC key (the state is a CSRF token, not an identity token, so it
-// stays symmetric — specs/5/1 collide-token rule). intent carries link-intent
-// + return path across the redirect.
-type StateIntent = stateIntent
-
-func SignState(secret []byte, intent StateIntent) string { return signStateP(secret, intent) }
-
-func VerifyState(secret []byte, r *http.Request) (StateIntent, bool) { return verifyState(secret, r) }
-
 // NewLinkIntent builds a link-intent state payload for ?intent=link flows.
 func NewLinkIntent(linkFrom, returnTo string) StateIntent {
-	return stateIntent{Intent: "link", LinkFrom: linkFrom, Return: returnTo}
-}
-
-// ConsumePKCE reads + clears the PKCE verifier cookie (callback side).
-func ConsumePKCE(w http.ResponseWriter, r *http.Request, secure bool) string {
-	return consumePKCE(w, r, secure)
+	return StateIntent{Intent: "link", LinkFrom: linkFrom, Return: returnTo}
 }
 
 // WritePKCE generates a PKCE verifier, stores it in an HttpOnly cookie, and
