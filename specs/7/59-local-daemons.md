@@ -39,6 +39,16 @@ routes: [/wa/]
 
 There is no D-Bus and no second supervisor. Compose supervises.
 
+## What arizuko provides
+
+- **Store:** the package talks to the store directly through the DynamoDB API.
+  `store enroll` gives it a key whose policy allows only `table/<name>.*`
+  (`cmd/arizuko/store.go:125-137`), as for every core daemon.
+- **Other daemons:** messages, groups and the rest go through the owning
+  daemon's socket, never through its tables.
+- **Configuration:** the `env` keys, the store URL and its key reach the
+  daemon in its env file.
+
 ## Discovery
 
 Each daemon already serves `GET /openapi.json` from `resreg.OpenAPIHandler`
