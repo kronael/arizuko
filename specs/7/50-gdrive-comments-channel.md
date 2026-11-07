@@ -22,8 +22,8 @@ credential.
 
 `status: partial`: the credential (`googd/token.go`), the JID
 (`chanlib/gdrive_jid.go`), the `gdrive_files` binding and its resource, routd
-handler and CLI are built. The mapper and `Send` are built; the poll loop is
-not connected. The compose fragment starts googd as a container.
+handler and CLI are built. The mapper, `Send` and poll loop are built. The
+compose fragment starts googd as a container.
 The Drive API is off on the only project that holds a key, so the channel
 advertises no verb (§"Capabilities follow the enabled APIs, never the key's presence"). The
 owner's framing — a document is a group, a comment thread is a topic — holds
@@ -89,7 +89,7 @@ declined:
 - **Drive Activity** is a second restricted scope and still a poll, and it
   returns no comment id, so the list call follows anyway.
 
-### The poll (proposed)
+### The poll (built)
 
 One request per bound file per interval:
 

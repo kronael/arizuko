@@ -1,9 +1,8 @@
 # googd
 
-googd is the Google Drive comments channel adapter, prefix `gdrive:`. Today it
-registers, checks its service-account credential and posts thread replies.
-The comment mapper exists, but no poll loop delivers comments yet. The protocol it
-speaks is [`chanlib/README.md`](../chanlib/README.md).
+googd is the Google Drive comments channel adapter, prefix `gdrive:`. It
+checks its service-account credential, polls bound files and posts thread
+replies. The protocol it speaks is [`chanlib/README.md`](../chanlib/README.md).
 
 ## What runs today
 
@@ -15,7 +14,8 @@ speaks is [`chanlib/README.md`](../chanlib/README.md).
 - **It never exits on a bad key**: a daemon that exits at boot restarts the
   whole compose project.
 - **Thread replies.** `send_text` posts a reply to the thread named by its JID.
-- **No inbound.** No poll loop runs, so `/health` never turns `stale`.
+- **Inbound.** The poll delivers comment threads from bound files to routd.
+  It stores each file cursor only after routd accepts the page.
 - **Dashboard.** A **Service account** section shows the credential state and
   the address to share a document with.
 - **The binding is on routd.** `gdrive_files` pairs a Drive file id with a
@@ -26,11 +26,11 @@ The bundled `googd` package starts the adapter and exposes its dashboard.
 
 ## Not built
 
-- The comment poll. Resolving, reopening and editing a comment are connector
-  tools, not channel verbs.
+- Resolving, reopening and editing a comment are connector tools, not channel verbs.
 - Push wake-ups. The poll stays the correctness path: per Google's
   documentation as read on 2026-10-16, `files.watch` and Workspace Events
   deliver no comment content, only that something changed.
 
 Configuration: `CHANNEL_NAME` (default `gdrive`), `GDRIVE_SA_KEY_JSON`,
-`GDRIVE_IMPERSONATE`, `GDRIVE_API_URL`, `ROUTER_URL`, `LISTEN_ADDR`, `LISTEN_URL`.
+`GDRIVE_IMPERSONATE`, `GDRIVE_API_URL`, `GDRIVE_POLL_INTERVAL` (default 30s,
+minimum 10s), `ROUTER_URL`, `LISTEN_ADDR`, `LISTEN_URL`.

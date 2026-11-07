@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/chanlib"
+	"github.com/kronael/arizuko/store"
 )
 
 // capsFor advertises send_text only while the service-account key can post the
@@ -43,8 +44,22 @@ func main() {
 			if openErr != nil {
 				return nil, nil, openErr
 			}
+			st, openErr := store.OpenOwner(store.OwnerRoutd)
+			if openErr != nil {
+				_ = as.Close()
+				return nil, nil, openErr
+			}
+			if openErr = as.Driver.CreateEntity(ctx, pollEntity); openErr != nil {
+				_ = st.Close()
+				_ = as.Close()
+				return nil, nil, openErr
+			}
+			pollCtx, cancel := context.WithCancel(ctx)
+			done := make(chan struct{})
+			p := &poller{b: b, bindings: st, db: as.Driver, router: rc, name: cfg.Name, interval: pollInterval(), files: make(map[string]*filePoll)}
+			go func() { defer close(done); p.pollLoop(pollCtx) }()
 			mux := chanlib.NewAdapterMux(cfg.Name, []string{"gdrive:"}, b, b.isConnected, b.LastInboundAt, as.Chan)
-			return mux, func() { b.stop(); _ = as.Close() }, nil
+			return mux, func() { cancel(); <-done; b.stop(); _ = st.Close(); _ = as.Close() }, nil
 		},
 	})
 }
