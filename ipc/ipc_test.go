@@ -133,7 +133,7 @@ func TestRecordOutboundStampsTurnID(t *testing.T) {
 	var got core.Message
 	db := StoreFns{
 		PutOutbound:   func(m core.Message, _ string) error { got = m; return nil },
-		CurrentTurnID: func(string) string { return "turn-xyz" },
+		CurrentTurnID: "turn-xyz",
 	}
 	recordOutbound(RoutdFns{}, db, "slack:T/C/U", "hi", "pid-1", "demo", "")
 	if got.TurnID != "turn-xyz" {
@@ -625,7 +625,6 @@ func TestServeMCP_Engagement_FreshChatAuthz(t *testing.T) {
 // broadcasts must not extend engagement).
 func TestRecordOutbound_TimedSkipsEngagement(t *testing.T) {
 	var lastReplyWrites, bumps int
-	var triggerLookup string
 	mkDB := func(triggerSender string) StoreFns {
 		return StoreFns{
 			SetLastReply: func(jid, topic, replyID, folder string) error {
@@ -636,10 +635,7 @@ func TestRecordOutbound_TimedSkipsEngagement(t *testing.T) {
 				bumps++
 				return nil
 			},
-			CurrentTriggerSender: func(folder string) string {
-				triggerLookup = folder
-				return triggerSender
-			},
+			CurrentTriggerSender: triggerSender,
 		}
 	}
 	routd := RoutdFns{EngagementTTL: 10 * time.Minute}
@@ -650,12 +646,9 @@ func TestRecordOutbound_TimedSkipsEngagement(t *testing.T) {
 	if lastReplyWrites != 1 || bumps != 1 {
 		t.Fatalf("user turn: writes=%d bumps=%d, want 1/1", lastReplyWrites, bumps)
 	}
-	if triggerLookup != "world" {
-		t.Fatalf("CurrentTriggerSender called with %q, want world", triggerLookup)
-	}
 
 	// Timed-triggered turn: bump skipped, last_reply still written.
-	lastReplyWrites, bumps, triggerLookup = 0, 0, ""
+	lastReplyWrites, bumps = 0, 0
 	db = mkDB("timed-isolated-abc")
 	recordOutbound(routd, db, "tg:1", "hi", "plat-2", "world", "")
 	if lastReplyWrites != 1 {
@@ -695,12 +688,7 @@ func TestServeMCP_Reply_ThreadsViaActiveTopic(t *testing.T) {
 			return "" // empty-topic lookup misses → would post to root
 		},
 		// The active turn for "world" is running in wantTopic.
-		CurrentTopic: func(folder string) string {
-			if folder == "world" {
-				return wantTopic
-			}
-			return ""
-		},
+		CurrentTopic:        wantTopic,
 		SetLastReply:        func(jid, topic, replyID, folder string) error { return nil },
 		PutMessage:          func(m core.Message) error { return nil },
 		DefaultFolderForJID: func(jid string) string { return "world" }, // route exists → authz passes
@@ -840,12 +828,7 @@ func TestServeMCP_SendFile_ThreadsViaActiveTopic(t *testing.T) {
 	var sentThreadID string
 	var recordedPlatformID string
 	db := StoreFns{
-		CurrentTopic: func(folder string) string {
-			if folder == "world" {
-				return wantTopic
-			}
-			return ""
-		},
+		CurrentTopic:        wantTopic,
 		SetLastReply:        func(jid, topic, replyID, folder string) error { return nil },
 		PutOutbound:         func(m core.Message, _ string) error { recordedPlatformID = m.PlatformID; return nil },
 		DefaultFolderForJID: func(jid string) string { return "world" },
@@ -891,12 +874,7 @@ func TestServeMCP_SendVoice_ThreadsViaActiveTopic(t *testing.T) {
 
 	var sentThreadID string
 	db := StoreFns{
-		CurrentTopic: func(folder string) string {
-			if folder == "world" {
-				return wantTopic
-			}
-			return ""
-		},
+		CurrentTopic:        wantTopic,
 		SetLastReply:        func(jid, topic, replyID, folder string) error { return nil },
 		PutMessage:          func(m core.Message) error { return nil },
 		DefaultFolderForJID: func(jid string) string { return "world" },
@@ -969,7 +947,7 @@ func TestServeMCP_FeedVerbs_RecordOutbound(t *testing.T) {
 
 	var lastReplyIDs, putIDs []string
 	db := StoreFns{
-		CurrentTopic:        func(folder string) string { return "" },
+		CurrentTopic:        "",
 		DefaultFolderForJID: func(jid string) string { return "world" }, // route exists → authz passes
 		SetLastReply: func(jid, topic, replyID, folder string) error {
 			lastReplyIDs = append(lastReplyIDs, replyID)

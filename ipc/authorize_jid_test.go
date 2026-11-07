@@ -154,7 +154,7 @@ func TestRecordOutboundReply_RecordsTheResolvedDestinationTopic(t *testing.T) {
 	var got core.Message
 	db := StoreFns{
 		PutOutbound:  func(m core.Message, _ string) error { got = m; return nil },
-		CurrentTopic: func(folder string) string { return "turn-topic" },
+		CurrentTopic: "turn-topic",
 	}
 
 	for _, topic := range []string{"", "destination-topic"} {

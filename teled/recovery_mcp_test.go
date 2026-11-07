@@ -61,7 +61,7 @@ func TestNativeTelegramMissingTargetReachesMCPAndAllowsRecovery(t *testing.T) {
 			}
 			statuses := make(chan string, 2)
 			fns := ipc.StoreFns{
-				CurrentTurnID: func(string) string { return "turn" },
+				CurrentTurnID: "turn",
 				PutOutbound: func(row core.Message, status string) error {
 					if row.ChatJID != "telegram:1/user/555" || row.TurnID != "turn" {
 						t.Error("MCP changed delivery context", row)

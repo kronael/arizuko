@@ -552,9 +552,9 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 			return s.db.store().RenewEngagement(t.turnID, jid, topic, folder, until)
 		},
 		EngagedFolder:        func(jid, topic string) string { f, _ := s.db.Engaged(jid, topic); return f },
-		CurrentTriggerSender: func(_ string) string { return t.trigger },
-		CurrentTopic:         func(_ string) string { return t.topic },
-		CurrentTurnID:        func(_ string) string { return t.turnID },
+		CurrentTriggerSender: t.trigger,
+		CurrentTopic:         t.topic,
+		CurrentTurnID:        t.turnID,
 		// ResolveConnectorSecrets narrows to the connector's declared secrets=
 		// list, so CallConnectorTool both injects them AND scrubs their values
 		// from the result (a nil resolver leaves it unscrubbed).

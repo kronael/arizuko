@@ -225,24 +225,14 @@ type StoreFns struct {
 	SetEngagement func(jid, topic, folder string, until time.Time) error
 	EngagedFolder func(jid, topic string) string
 
-	// CurrentTriggerSender returns the sender of the inbound that
-	// triggered the active turn for `folder`, or "" if none. MCP
-	// recordOutbound consults this to honour the spec 5/G-engagement timed-* skip
-	// for agent-side send/reply outbounds — same policy as the
-	// gateway-side bump sites.
-	CurrentTriggerSender func(folder string) string
+	// CurrentTriggerSender is the sender that triggered the active turn.
+	CurrentTriggerSender string
 
-	// CurrentTopic returns the effective topic of the active turn for
-	// `folder`, or "" if none. The reply/send fallback reads it so an
-	// explicit reply with no replyToId resolves GetLastReplyID under the
-	// active topic (the key the gateway seeds via SetLastReply), threading
-	// in-thread replies instead of posting to the channel root.
-	CurrentTopic func(folder string) string
+	// CurrentTopic is the effective topic of the active turn.
+	CurrentTopic string
 
-	// CurrentTurnID returns the active turn's id for `folder`, or "" if none.
-	// recordOutbound stamps it on the bot row so TurnHasBotReply counts the
-	// reply as delivered (the turn is not nudged or noticed as silent).
-	CurrentTurnID func(folder string) string
+	// CurrentTurnID identifies the active turn.
+	CurrentTurnID string
 
 	// Connectors is the configured MCP HTTP connector set. buildMCPServer
 	// discovers each one's catalog with this folder's broker-resolved
@@ -750,19 +740,9 @@ func numArg(args map[string]any, key string) (int, bool) {
 	return int(f), true
 }
 
-// activeTopic returns the effective topic of the turn currently running
-// for folder, or "" when unknown. Used by the reply fallback to seed
-// GetLastReplyID under the same (jid, topic) key the gateway wrote.
-func activeTopic(db StoreFns, folder string) string {
-	if db.CurrentTopic == nil {
-		return ""
-	}
-	return db.CurrentTopic(folder)
-}
-
 // recordOutbound appends the durable row for a DELIVERED outbound message.
 func recordOutbound(routd RoutdFns, db StoreFns, jid, text, platformID, folder, msgID string) {
-	putOutboundRow(routd, db, jid, text, platformID, folder, "", activeTopic(db, folder), msgID, core.MessageStatusSent, "")
+	putOutboundRow(routd, db, jid, text, platformID, folder, "", db.CurrentTopic, msgID, core.MessageStatusSent, "")
 }
 
 // recordOutboundReply records the thread resolved by the delivery path.
@@ -812,7 +792,7 @@ func putOutboundRow(routd RoutdFns, db StoreFns, jid, text, platformID, folder, 
 	// Key last-reply + engagement under the active turn's topic — same
 	// key the gateway seeds (SetLastReply at turn start). "" would chain
 	// the next in-thread reply off the wrong (root) key.
-	turnTopic := activeTopic(db, folder)
+	turnTopic := db.CurrentTopic
 	topic := threadRoot
 	if platformID != "" && db.SetLastReply != nil {
 		_ = db.SetLastReply(jid, topic, platformID, folder)
@@ -822,17 +802,9 @@ func putOutboundRow(routd RoutdFns, db StoreFns, jid, text, platformID, folder, 
 	// exposed via StoreFns.CurrentTriggerSender so MCP honours the same skip
 	// without plumbing per-call context through the socket.
 	if platformID != "" && db.BumpEngagement != nil && routd.EngagementTTL > 0 {
-		triggerSender := ""
-		if db.CurrentTriggerSender != nil {
-			triggerSender = db.CurrentTriggerSender(folder)
-		}
-		if !strings.HasPrefix(triggerSender, "timed-") {
+		if !strings.HasPrefix(db.CurrentTriggerSender, "timed-") {
 			_ = db.BumpEngagement(jid, turnTopic, folder, time.Now().Add(routd.EngagementTTL))
 		}
-	}
-	turnID := ""
-	if db.CurrentTurnID != nil {
-		turnID = db.CurrentTurnID(folder)
 	}
 	if msgID == "" {
 		msgID = core.MsgID("mcp")
@@ -846,7 +818,7 @@ func putOutboundRow(routd RoutdFns, db StoreFns, jid, text, platformID, folder, 
 			Timestamp: time.Now(),
 			FromMe:    true,
 			BotMsg:    true,
-			TurnID:    turnID,
+			TurnID:    db.CurrentTurnID,
 			Verb:      verb,
 			// An undelivered row carries the reply target so the sweep re-sends
 			// it into the same thread. A delivered row leaves it empty: its own
@@ -1353,7 +1325,7 @@ func buildMCPServer(routd RoutdFns, db StoreFns, folder string, isRoot bool, cal
 				// Resolve under the active turn's topic — the same key the
 				// gateway seeds via SetLastReply. "" would miss the seed for
 				// in-thread turns (topic = thread_ts) and post to root.
-				replyToID = db.GetLastReplyID(jid, activeTopic(db, folder))
+				replyToID = db.GetLastReplyID(jid, db.CurrentTopic)
 			}
 			msgID := core.MsgID("mcp")
 			platformID, threadRoot, err := routd.SendReply(jid, text, replyToID, msgID)
@@ -1388,7 +1360,7 @@ func buildMCPServer(routd RoutdFns, db StoreFns, folder string, isRoot bool, cal
 			// Fall back to the active turn's topic so a file sent inside a
 			// thread lands in that thread, not the channel root. Same key
 			// the gateway seeds via SetLastReply (mirrors the `reply` fix).
-			threadID := activeTopic(db, folder)
+			threadID := db.CurrentTopic
 			rel, err := workspaceRel(fp)
 			if err != nil {
 				return toolErr(err.Error())
@@ -1437,7 +1409,7 @@ func buildMCPServer(routd RoutdFns, db StoreFns, folder string, isRoot bool, cal
 			slog.Info("send_voice", "folder", folder, "jid", jid, "voice", voice, "text", snippet)
 			// Thread the voice reply to the active turn's topic so it lands
 			// in the originating thread, not the channel root (bug-1 mirror).
-			platformID, thread, err := routd.SendVoice(jid, text, voice, folder, activeTopic(db, folder))
+			platformID, thread, err := routd.SendVoice(jid, text, voice, folder, db.CurrentTopic)
 			if err != nil {
 				return toolMaybeUnsupported(err)
 			}
@@ -2067,7 +2039,7 @@ func buildMCPServer(routd RoutdFns, db StoreFns, folder string, isRoot bool, cal
 				// embeds the thread's reply-id (parent's reply-back threads),
 				// not the channel-root id. Same fix family as the reply
 				// fallback. "" would miss the gateway's (jid, topic) seed.
-				replyTo = db.GetLastReplyID(chatJid, activeTopic(db, folder))
+				replyTo = db.GetLastReplyID(chatJid, db.CurrentTopic)
 			}
 			slog.Info("escalating to parent", "sourceGroup", folder, "parent", parent, "depth", depth, "replyTo", replyTo)
 			wrapped := fmt.Sprintf("<escalation_origin folder=%q jid=%q reply_to=%q/>\n%s", folder, chatJid, replyTo, prompt)
