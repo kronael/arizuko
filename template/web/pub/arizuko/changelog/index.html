@@ -431,7 +431,7 @@
         <li><strong>Grants viewer</strong> &mdash; add/revoke ACL rows per group from <code>/dash/groups/{folder}/grants</code>.</li>
         <li><strong>Workspace links</strong> &mdash; settings page links to <code>/dav/{folder}/</code> for file editing (<code>CLAUDE.md</code>, <code>PERSONA.md</code>, <code>MEMORY.md</code>).</li>
         <li><strong>Secrets encrypted AES-256-GCM</strong> &mdash; <code>SECRETS_KEY</code> separate from <code>AUTH_SECRET</code>. Plaintext rows rejected on startup.</li>
-        <li><strong>Security fixes</strong> &mdash; <code>list_acl</code> MCP tool now works; <code>inject_message</code> and <code>escalate_group</code> tier gates now enforced; tier-2 web mount scoped to own group dir; egress wildcard restricted to tier &le; 1.</li>
+        <li><strong>Security fixes</strong> &mdash; <code>list_acl</code> MCP tool now works; <code>inject_message</code> checks its grant; tier-2 web mount scoped to own group dir; egress wildcard restricted to tier &le; 1.</li>
       </ul>
       <p class="note">Full notes: <a href="https://github.com/kronael/arizuko/blob/main/CHANGELOG.md#v0420--2026-05-19">CHANGELOG &sect; v0.42.0</a></p>
 
@@ -469,7 +469,6 @@
       <p>Quiet bugfix release. Closes a cross-world spam vector revealed by v0.32.0&rsquo;s own release broadcast: tier-1 world agents could send to chats that route to other worlds, producing the same notice 2&ndash;4&times; per chat.</p>
       <ul>
         <li><strong>Outbound MCP authorization</strong> &mdash; every send-shaped tool (<code>send</code>, <code>send_file</code>, <code>reply</code>, <code>post</code>, <code>like</code>, <code>dislike</code>, <code>delete</code>, <code>edit</code>, <code>forward</code>, <code>quote</code>, <code>repost</code>) resolves the JID&rsquo;s owning folder and checks subtree containment. No tier bypass; even the instance root cannot direct-send across worlds.</li>
-        <li><strong>Inter-world communication</strong> goes through <code>delegate_group</code>/<code>escalate_group</code> instead. Unrouted JIDs are denied for every caller.</li>
       </ul>
       <p class="note">Full notes: <a href="https://github.com/kronael/arizuko/blob/main/CHANGELOG.md#v0321--2026-04-30">CHANGELOG &sect; v0.32.1</a></p>
 
@@ -490,7 +489,7 @@
 
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/changelog/index.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-24">2026-10-24</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-28">2026-10-28</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

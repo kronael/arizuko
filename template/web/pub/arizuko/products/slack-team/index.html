@@ -87,7 +87,7 @@
 
       <h2>One workspace can hold an agent for each department</h2>
       <p>Folders nest, for example <code>acme/eng</code>, <code>acme/sales</code> and <code>acme/support</code>, and each Slack channel routes to the folder of its department. Each department then shapes its own agent: its persona, its skills and its knowledge, edited by the people who own that work. Eng changes the agent of eng, and sales sees no change.</p>
-      <p>The agents reach each other through the tree. A department agent that gets a question outside its work escalates to the parent. The parent can delegate work to another child. The platform checks the grant of each call. The tools carry a depth limit of 1, but the caller supplies the depth value, so grants bound the chain and the limit does not.</p>
+      <p>Agents message each other with <code>send</code> and the full target folder as <code>chatJid</code>. A department can ask a parent or another department for help. The platform checks <code>mcp:send</code> on the target folder.</p>
       <pre><code>#sales &middot; routed to acme/sales
 
   dana   @bot can we promise SSO for the Klein deal by Q3?

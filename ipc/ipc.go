@@ -1309,7 +1309,7 @@ func buildMCPServer(routd RoutdFns, db StoreFns, folder string, isRoot bool, cal
 		return toolJSON(map[string]any{"ok": true, "delivered": n})
 	}
 
-	registerRaw("send", "Send a notification or a message to an explicit chat. Use `reply` for answers and `send_file` for files. Sends target the specified chat's main channel. `chatJid` `#issues` queues the text to the operator's issue-notice chats (no grant to them needed) and returns `delivered`, 0 when none is set. Returns the sent message's `id`. Use `<status>` and `TodoWrite` for live progress.",
+	registerRaw("send", "Send a notification or a message to an explicit chat or group folder. Use `reply` for answers and `send_file` for files. Sends target the specified chat's main channel. `chatJid` `#issues` queues the text to the operator's issue-notice chats (no grant to them needed) and returns `delivered`, 0 when none is set. Returns the sent message's `id`. Use `<status>` and `TodoWrite` for live progress.",
 		[]mcp.ToolOption{
 			mcp.WithString("chatJid", mcp.Required()),
 			mcp.WithString("text", mcp.Required()),
@@ -1319,15 +1319,33 @@ func buildMCPServer(routd RoutdFns, db StoreFns, folder string, isRoot bool, cal
 			if jid == issuesDest {
 				return sendIssueNotice(req.GetString("text", ""))
 			}
-			if err := gateJID("send", jid); err != nil {
+			group := core.JidPlatform(jid) == ""
+			if group {
+				if jid == "" {
+					return toolErr("send: missing group folder")
+				}
+				if err := authzStructural("send", jid); err != nil {
+					return toolErr(err.Error())
+				}
+			} else if err := gateJID("send", jid); err != nil {
 				return toolErr(err.Error())
-			}
-			if core.JidPlatform(jid) == "" {
-				return toolErr(fmt.Sprintf("send: jid %q has no platform prefix", jid))
 			}
 			text := req.GetString("text", "")
 			if err := refuseText(text, false); err != nil {
 				return toolErr(err.Error())
+			}
+			if group {
+				if db.PutMessage == nil {
+					return toolErr("send not configured: no PutMessage")
+				}
+				id, err := store.PostGroup(db.PutMessage, jid, text, folder)
+				if err != nil {
+					return toolErr(err.Error())
+				}
+				if routd.EnqueueMessageCheck != nil {
+					routd.EnqueueMessageCheck(jid)
+				}
+				return toolJSON(map[string]any{"ok": true, "id": id})
 			}
 			snippet := text
 			if len(snippet) > 60 {
@@ -2046,100 +2064,6 @@ func buildMCPServer(routd RoutdFns, db StoreFns, folder string, isRoot bool, cal
 	// this server via the ServeMCP postBuild seam. register_group is a FORWARDER
 	// (its group-row + route + git-init FS side-effects via s.registerGroup can't
 	// ride a resreg tx), so its auth + audit live in routd/groups_resource.go.
-
-	granted("escalate_group", "Hand a prompt up to this group's parent folder; the parent responds back through this child. Use when the request exceeds this group's authority or needs operator review. Not for peer/child handoff (delegate_group) or creating a new group (register_group). Depth capped at 1.",
-		[]mcp.ToolOption{
-			mcp.WithString("prompt", mcp.Required()),
-			mcp.WithString("chatJid", mcp.Required()),
-			mcp.WithNumber("depth"),
-		},
-		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			// EnqueueMessageCheck is OPTIONAL. routd does not set it — its loop polls
-			// new messages by timestamp. Demanding it here made escalate_group and
-			// delegate_group return "not configured" on EVERY call in the split routd:
-			// registered, listed, and dead (BUGS L65). PutMessage is the real
-			// dependency; the enqueue is a latency optimisation.
-			if db.PutMessage == nil {
-				return toolErr("escalate_group not configured: no PutMessage")
-			}
-			if err := authzStructural("escalate_group", folder); err != nil {
-				return toolErr(err.Error())
-			}
-			prompt := req.GetString("prompt", "")
-			chatJid := req.GetString("chatJid", "")
-			depth := req.GetInt("depth", 0)
-			if depth >= 1 {
-				return toolErr(fmt.Sprintf("delegation depth %d exceeds limit 1", depth))
-			}
-			parent, _, found := strings.CutLast(folder, "/")
-			if !found {
-				return toolErr("unauthorized: no parent group")
-			}
-			var replyTo string
-			if db.GetLastReplyID != nil {
-				// Active-topic key so an escalation from inside a thread
-				// embeds the thread's reply-id (parent's reply-back threads),
-				// not the channel-root id. Same fix family as the reply
-				// fallback. "" would miss the gateway's (jid, topic) seed.
-				replyTo = db.GetLastReplyID(chatJid, activeTopic(db, folder))
-			}
-			slog.Info("escalating to parent", "sourceGroup", folder, "parent", parent, "depth", depth, "replyTo", replyTo)
-			wrapped := fmt.Sprintf("<escalation_origin folder=%q jid=%q reply_to=%q/>\n%s", folder, chatJid, replyTo, prompt)
-			fwdFrom := folder
-			if err := db.PutMessage(core.Message{
-				ID:            core.MsgID("escalate"),
-				ChatJID:       parent,
-				Sender:        store.EscalateSender,
-				Content:       wrapped,
-				Timestamp:     time.Now(),
-				ForwardedFrom: fwdFrom,
-			}); err != nil {
-				return toolErr(err.Error())
-			}
-			if routd.EnqueueMessageCheck != nil {
-				routd.EnqueueMessageCheck(parent)
-			}
-			return toolJSON(map[string]any{"queued": true, "parent": parent})
-		})
-
-	granted("delegate_group", "Hand a prompt down to a specific child group for async execution; the child runs in its own session and workspace. Use to offload specialist work to an existing child without blocking this chat. Not for parent handoff (escalate_group) or creating the child (register_group). Depth capped at 1.",
-		[]mcp.ToolOption{
-			mcp.WithString("group", mcp.Required()),
-			mcp.WithString("prompt", mcp.Required()),
-			mcp.WithString("chatJid", mcp.Required()),
-			mcp.WithNumber("depth"),
-		},
-		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			target := req.GetString("group", "")
-			if err := authzStructural("delegate_group", target); err != nil {
-				return toolErr(err.Error())
-			}
-			if db.PutMessage == nil {
-				return toolErr("delegate_group not configured: no PutMessage")
-			}
-			prompt := req.GetString("prompt", "")
-			chatJid := req.GetString("chatJid", "")
-			depth := req.GetInt("depth", 0)
-			if depth >= 1 {
-				return toolErr(fmt.Sprintf("delegation depth %d exceeds limit 1", depth))
-			}
-
-			slog.Info("delegating to child", "sourceGroup", folder, "child", target, "depth", depth)
-			if err := db.PutMessage(core.Message{
-				ID:            core.MsgID("delegate"),
-				ChatJID:       target,
-				Sender:        store.DelegateSender,
-				Content:       prompt,
-				Timestamp:     time.Now(),
-				ForwardedFrom: chatJid,
-			}); err != nil {
-				return toolErr(err.Error())
-			}
-			if routd.EnqueueMessageCheck != nil {
-				routd.EnqueueMessageCheck(target)
-			}
-			return toolJSON(map[string]any{"queued": true})
-		})
 
 	// add_route/set_routes/list_routes/delete_route moved to the routes resreg
 	// seam (spec 5/16); inspect_routing (inspect.go) still reads db.ListRoutes.

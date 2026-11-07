@@ -114,18 +114,15 @@ turn holds `mcp:<tool>` at any scope. Each call then runs
 `db.AuthorizeTurn(sender, turn-folder, target, "mcp:"+tool, params)`, the
 gate routd injects. There is no second check inside a handler.
 
-A chat verb (`send`, `reply`, `post`, `like` and the rest) passes a second
-gate, JID containment (`ipc/ipc.go` `authorizeJID`):
+A chat verb targeting a platform JID (`send`, `reply`, `post`, `like` and the
+rest) passes JID containment (`ipc/ipc.go` `authorizeJID`):
 
 - The target chat resolves to a folder: its route row, else the folder its
   route token was minted for, else the folder in a `web:` JID.
 - The call passes when that folder is the turn's folder or a descendant, or
   when the turn's folder is a route target for the JID under any verb.
-- A JID with no route is denied ("has no route in this instance").
-  Agents once sent to chats they remembered from past
-  conversations and spammed chats that no route gave them. The route table,
-  not the agent's memory, decides reach. Cross-folder work goes through
-  `delegate_group` or `escalate_group`, which leave an auditable hop.
+- A platform JID with no route is denied ("has no route in this instance").
+  The route table decides which platform chats the agent can reach.
 - An elevated `/root` turn passes this gate for every JID.
 - The gate runs at the verb, not at the adapter, so the agent gets a denial
   it can read and correct in the same turn. A check at the adapter would
@@ -136,6 +133,11 @@ runs before both checks, and only for a tool the socket registered and the
 turn can see, so a raw caller cannot mint approval rows for tools it could
 never run.
 
+`send` also accepts a bare group folder as `chatJid`. It checks `mcp:send` on
+that target and writes an inbound message through `store.PostGroup`. routd's
+routing hand-off uses the same writer. `ForwardedFrom` carries the calling
+folder for `send`, or the originating chat for a routing hand-off.
+
 ## Tool surface
 
 Social verbs, served through `chanreg`: `send`, `reply`, `post`, `like`,
@@ -145,14 +147,12 @@ decides whose message an agent may edit or delete. An adapter without the
 primitive returns a typed `chanlib.UnsupportedError` whose hint names an
 alternative, for example `like(emoji='👎')` for `dislike`.
 
-`send` and `send_file` are two tools over one `internalSend`, so their
-persistence and routing cannot diverge. A failed send returns the error to
-the agent and still records the undelivered row, `pending` or `failed`
+Platform `send` and `send_file` use one `internalSend` for persistence and
+routing. A failed platform send returns the error to the agent and still records the undelivered row, `pending` or `failed`
 (`routd/README.md` § The turn in routd).
 
-Groups: `register_group`, `escalate_group`, `delegate_group`,
-`inject_message`, `fork_topic`, `reset_session`, `observe_group`,
-`unobserve_group`, `set_observe_window`, `set_group_open`, `engage`,
+Groups: `register_group`, `inject_message`, `fork_topic`, `reset_session`,
+`observe_group`, `unobserve_group`, `set_observe_window`, `set_group_open`, `engage`,
 `disengage`. `role:member` includes `disengage`; a final answer cannot
 reopen a window that the agent cleared during that turn.
 

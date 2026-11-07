@@ -340,8 +340,13 @@ func TestServeMCP_SubmitTurnHiddenFromToolsList(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read response: %v", err)
 	}
-	if strings.Contains(string(resp), "submit_turn") {
-		t.Fatalf("tools/list leaked submit_turn:\n%s", resp)
+	if !strings.Contains(string(resp), `"name":"send"`) {
+		t.Fatalf("tools/list missing send:\n%s", resp)
+	}
+	for _, name := range []string{"submit_turn", "delegate_group", "escalate_group"} {
+		if strings.Contains(string(resp), `"name":"`+name+`"`) {
+			t.Errorf("tools/list leaked %s:\n%s", name, resp)
+		}
 	}
 }
 
@@ -1020,73 +1025,5 @@ func TestServeMCP_FeedVerbs_RecordOutbound(t *testing.T) {
 	}
 	if !reflect.DeepEqual(putIDs, wantRecorded) {
 		t.Fatalf("outbound platform ids = %v, want %v (forward must not record)", putIDs, wantRecorded)
-	}
-}
-
-// L65: escalate_group and delegate_group guarded on routd.EnqueueMessageCheck
-// being non-nil. routd never sets it — its loop polls new messages by timestamp
-// (routd/mcp.go:121 says exactly that for InjectMessage) — so both tools were
-// registered, listed to the agent, and returned "not configured" on EVERY call
-// in the split routd. anteval's child-delegate caught it once a grant fix made
-// the tool visible at all. PutMessage is the real dependency; the enqueue is a
-// latency optimisation and must stay optional.
-func TestDelegateGroupWorksWithoutEnqueueHook(t *testing.T) {
-	sock := filepath.Join(t.TempDir(), "s.sock")
-	var wrote []core.Message
-	db := StoreFns{
-		PutMessage:        func(m core.Message) error { wrote = append(wrote, m); return nil },
-		JIDRoutedToFolder: func(jid, folder string) bool { return true },
-	}
-	// RoutdFns{} leaves EnqueueMessageCheck nil, exactly as routd does.
-	stop, err := ServeMCP(sock, RoutdFns{}, db, "world", true, 0, "")
-	if err != nil {
-		t.Fatalf("ServeMCP: %v", err)
-	}
-	defer stop()
-
-	payload, errText := callTool(t, sock, "delegate_group", map[string]any{
-		"group":   "world/child",
-		"prompt":  "run the thing",
-		"chatJid": "tg:1",
-	})
-	if errText != "" {
-		t.Fatalf("delegate_group returned an error with no enqueue hook: %s", errText)
-	}
-	if payload["queued"] != true {
-		t.Errorf("payload = %v, want queued:true", payload)
-	}
-	if len(wrote) != 1 || wrote[0].ChatJID != "world/child" {
-		t.Fatalf("the child message was not written: %+v", wrote)
-	}
-}
-
-// L65, escalate half: the same EnqueueMessageCheck guard killed escalate_group.
-// The fix touched both tools, so both need the nil-hook case pinned.
-func TestEscalateGroupWorksWithoutEnqueueHook(t *testing.T) {
-	sock := filepath.Join(t.TempDir(), "s.sock")
-	var wrote []core.Message
-	db := StoreFns{
-		PutMessage:        func(m core.Message) error { wrote = append(wrote, m); return nil },
-		JIDRoutedToFolder: func(jid, folder string) bool { return true },
-	}
-	// RoutdFns{} leaves EnqueueMessageCheck nil, exactly as routd does.
-	stop, err := ServeMCP(sock, RoutdFns{}, db, "world/child", true, 0, "")
-	if err != nil {
-		t.Fatalf("ServeMCP: %v", err)
-	}
-	defer stop()
-
-	payload, errText := callTool(t, sock, "escalate_group", map[string]any{
-		"prompt":  "needs operator review",
-		"chatJid": "tg:1",
-	})
-	if errText != "" {
-		t.Fatalf("escalate_group returned an error with no enqueue hook: %s", errText)
-	}
-	if payload["queued"] != true || payload["parent"] != "world" {
-		t.Errorf("payload = %v, want queued:true parent:world", payload)
-	}
-	if len(wrote) != 1 || wrote[0].ChatJID != "world" {
-		t.Fatalf("the escalation was not written to the parent: %+v", wrote)
 	}
 }

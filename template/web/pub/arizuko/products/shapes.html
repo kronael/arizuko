@@ -189,7 +189,7 @@ arizuko group -i acme add discord:123456789/987654321 main
         <dt>Many input sources</dt>
         <dd>Slack messages, inbound email through <code>emaid</code>, webhook POSTs from GitHub, Sentry, Linear or PagerDuty, and WebDAV file drops all arrive as events in a team inbox.</dd>
         <dt>Escalation and delegation</dt>
-        <dd>The SRE agent calls <code>escalate_group</code> to reach <code>corp/eng</code>. A triage agent calls <code>delegate_group</code> to give work to the responsible team.</dd>
+        <dd>The SRE agent calls <code>send</code> with <code>chatJid="corp/eng"</code>. A triage agent sends to the responsible team's folder. Each call checks <code>mcp:send</code> on the target.</dd>
         <dt>Observed channels</dt>
         <dd>A Slack channel can route to <code>corp/eng#observe</code>. The agent stores the messages, starts no turn, and finds them later with <code>find_messages</code>.</dd>
         <dt>ACL for each folder</dt>
@@ -289,7 +289,7 @@ arizuko token -i &lt;instance&gt; issue chat &lt;folder&gt;    # the public chat
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/shapes.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-11-04">2026-11-04</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-06">2026-11-06</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

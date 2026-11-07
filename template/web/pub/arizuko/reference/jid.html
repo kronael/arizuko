@@ -41,7 +41,9 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">reference</a> &rsaquo; JID format</p>
 <h1>jid</h1>
 
-    <p class="lede">Every chat and every sender is a JID of the form <code>&lt;platform&gt;:&lt;rest&gt;</code>. Each adapter defines the path segments in <code>&lt;rest&gt;</code>. JIDs are plain strings; routing matches them with <code>path.Match</code> glob semantics across all routing keys.</p>
+    <p class="lede">Every platform chat and sender uses a JID of the form <code>&lt;platform&gt;:&lt;rest&gt;</code>. Each adapter defines the path segments in <code>&lt;rest&gt;</code>. JIDs are plain strings; routing matches them with <code>path.Match</code> glob semantics across all routing keys.</p>
+
+    <p>The agent tool <code>send</code> also accepts a bare group folder as <code>chatJid</code>. That destination posts to the group after checking <code>mcp:send</code> on the target. See <a href="../reference/mcp.html#send">send</a> for the parameters.</p>
 
     <h2>A JID is a platform and a rest</h2>
 
@@ -182,7 +184,7 @@ match='chat_jid=telegram:group/*'  # route: only telegram groups (path.Match: * 
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/reference/jid.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-21">2026-10-21</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-24">2026-10-24</time>
       </div>
     </main>
 

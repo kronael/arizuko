@@ -84,7 +84,7 @@ OPENAI_API_KEY=REPLACE_ME   # optional: the oracle skill</code></pre>
       <h2>Unanswered questions go to an escalation folder</h2>
       <p>The unanswered questions are the real output of the product. Send them to a second folder, where a person or another agent owns the queue:</p>
       <pre><code>arizuko group -i &lt;instance&gt; add telegram:group/100999 support/escalations</code></pre>
-      <p>Delegation to that folder needs the <code>delegate_group</code> grant on the support folder, because <code>role:member</code> does not hold it. Until an operator grants it, the agent says that it cannot escalate. That is the correct failure. <a href="../../concepts/grants.html">Grants</a> explains the rows.</p>
+      <p>Configure the support agent's escalation instructions to call <code>send</code> with <code>chatJid="support/escalations"</code> and the unanswered question as <code>text</code>. The call checks <code>mcp:send</code> on that folder. The default member role includes <code>send</code>; local ACL rows can restrict access. <a href="../../concepts/grants.html">Grants</a> explains the rows.</p>
 
       <h2>Three changes tune the desk</h2>
       <dl>

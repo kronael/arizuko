@@ -55,7 +55,7 @@
 
       <h2>The rules in CLAUDE.md make the agent escalate billing</h2>
       <p>A message arrives on the channel that you connected. The <code>triage</code> skill puts it in one class: billing, technical or account. The <code>CLAUDE.md</code> rules tell the agent to quote the ticket ID in every reply, to escalate billing and account-deletion questions, and never to promise a refund. The agent answers the other questions from <code>facts/</code>.</p>
-      <p>An escalation to a person is a message. An escalation to another agent is a delegation, and the agent needs a grant for it. <a href="setup.html">Setup</a> shows both.</p>
+      <p>The agent calls <code>send</code> with a platform chat JID or the responsible group folder as <code>chatJid</code>. The default member role includes <code>send</code>; local ACL rows can restrict access. <a href="setup.html">Setup</a> shows how to select the target.</p>
 
       <h2>A sample exchange</h2>
       <pre><code>user   I was charged twice for March, ticket 4417.

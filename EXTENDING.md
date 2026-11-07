@@ -950,7 +950,8 @@ confers, and the attested sender adds inside the subtree of that folder. See
 [`auth/README.md`](auth/README.md#authorization-is-one-row-and-one-question).
 A new action is therefore grantable to a folder, to a person or to both.
 
-`escalate_group` sends a message to the parent and grants no permission.
+`send` with a group folder as `chatJid` posts a message there after checking
+`mcp:send` on the target. The message grants no permission.
 [`auth/README.md`](auth/README.md) and [GRANTS.md](GRANTS.md) describe the
 model, the row and the evaluator. The page `reference/grants.html` describes
 the grammar of `params`.
