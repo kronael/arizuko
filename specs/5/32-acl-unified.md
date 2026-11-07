@@ -134,22 +134,17 @@ Postgres/IAM mapping is 1:1 — `GRANT role TO user` is an `acl_membership` row,
 `GRANT perm TO role` is an `acl` row, an IAM group is `role:<name>`, an IAM
 binding is the `acl` row itself.
 
-**Seeded roles** are `role:operator` (`*` on `**`, WITH GRANT OPTION) and
-`role:member` (the messaging floor) — both in `routd/migrations/` (`0022`,
-`0023`). There are no per-depth bundles.
+`auth/defaults.go` declares the default policy. Membership determines which
+role defaults a principal receives. Folder depth grants nothing.
 
 ## Evaluation — `auth.Authorize` (`auth/authorize.go:25`)
 
-Expand the caller's principals transitively; load exact-match rows plus wildcard
-rows that match the expanded set; for each, check action-covers, scope-glob,
-predicate against claims, and params against call args; **deny wins**; no match
-= deny.
-
-**There is no fallback.** An unmatched `mcp:*` used to fall back to
-depth-derived defaults; `5/33` deleted that, so a missing grant denies loud
-instead of silently defaulting (`auth/authorize_test.go:211`). `interact` and
-`admin` were never depth-defaulted — they have always been explicit rows or a
-route binding.
+`ReadPolicy` reads the caller's transitive memberships and matching local
+rows in one consistent read. It adds the defaults from `auth/defaults.go`.
+`Policy.Allows` checks action, scope, predicate and params in each layer.
+Matching local rows decide first. Defaults decide only when no local row
+matches. Deny wins within the selected layer. No matching allow means refusal.
+A failed policy read refuses the request. Folder depth grants nothing.
 
 Route binding for channel bots: a `routes` row binds `J → F`, the inbound
 caller's set expands to include the room JID, and one `acl(room_jid, interact,
@@ -178,12 +173,11 @@ view for `tools/list` — does the caller hold this action at ANY scope. Deny ro
 are scope-specific and do not hide a tool; the per-call `Authorize` still
 enforces them.
 
-`auth.UserScopes` is the other projection: the distinct allow-scope patterns a
-sub holds, stamped into `X-User-Groups` and into authd's login-time snapshot.
-Both projections load the same rows `Authorize` does — expanded principals plus
-wildcard-principal rows — so none of the three can disagree about which rows
-exist. `UserScopes` lived in `store/` as its own `principal IN (...)` query
-until 2026-08-05 and silently missed every `google:*`-style grant.
+`auth.UserScopes` lists distinct allow scopes from both policy layers.
+It includes `**` only when `Policy.Allows("admin", "**", nil)` is true.
+authd uses the list for the login snapshot. proxyd stamps the current list
+into `X-User-Groups` on each request.
+Both projections use `ReadPolicy`, as `Authorize` does.
 
 **A projection is never a verdict.** A `[]string` carries no action and cannot
 express a deny, so a scope in that list means only "some allow row grants it, at
@@ -194,18 +188,19 @@ tests pin that a scope with both an allow and a deny row still lists, and that
 
 ## Bootstrap
 
-`arizuko create` idempotently inserts the `role:operator` grant row and an
-`acl_membership` edge binding the operator's OAuth sub to it. `OPERATOR_SUB` is
-read at create time only — never at runtime. Corrections go through the
-membership tools; the escape hatch is a direct DB edit.
+`auth/defaults.go` declares the default policy. `arizuko create` writes the
+instance files without opening a store. The host CLI uses its own authority.
+`arizuko group grant <sub> '**'` adds the principal to `role:operator`.
+`arizuko group ungrant <sub> '**'` removes that membership.
+These shortcuts require an omitted action, empty params and predicate,
+and an allow effect. An explicit action writes or removes an `acl` row.
 
 ## No caching, deliberately
 
-`Authorize` reads `acl`/`acl_membership` on every call. The `acl_version`
-watermark this spec once specified exists nowhere in Go or SQL, and the live
-read is _stronger_ than the cache design would have been: revocation takes
-effect on the **next tool call within a live turn**, not merely the next
-message. `routd/revocation_live_test.go` pins that.
+`Authorize` reads the current policy on every call. Revocation takes effect
+on the next ordinary non-elevated tool call within a live turn.
+Elevated turns bypass ordinary tool gates. Rule mutations still pass
+`CheckGrant` against the current policy.
 
 This is also why a brokered turn token must never carry an affirmative scope —
 baked authority would outlive a revoked grant until token expiry, reintroducing
@@ -242,8 +237,8 @@ principal effectively hold" (`5/33` decision 11).
    one conjunction per row, multiple rows for disjunction.
 2. **Membership freshness.** Discord/GitHub claims have TTL. Lean: trust the JWT
    until expiry; 1h renewal is fast enough.
-3. **`acl` write scope.** Who may write `acl`? Today: root, plus any principal
-   passing `auth.Delegate` (subset of held, WITH GRANT OPTION).
+3. **`acl` write scope.** Agent and REST mutations pass `auth.CheckGrant`.
+   The host CLI and manifest writes use their own authority.
 
 Closed and recorded elsewhere: `folder:` principal trust and the
 anonymous-to-OAuth upgrade — decided by [`5/33`](33-paths-roles.md) (the agent

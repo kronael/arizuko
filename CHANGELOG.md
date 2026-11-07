@@ -13,6 +13,17 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+- ACL policy reads local rows before release defaults from `auth/defaults.go`.
+  A local hold can override a default skip. Failed policy reads block access.
+- ACL changes, unpair, approvals and invitations check the writer's authority
+  through `CheckGrant`. Rule writes prove the checked policy version.
+  Invitation redemption checks the recorded issuer's current authority.
+- Dashboard pages, rows and counts require `interact` on each folder.
+  Operator status requires an `admin` verdict on `**`.
+- The CLI selects operator membership only when the action is omitted at `**`.
+  Explicit `admin` writes an ACL row. Grant listings show stored rows and
+  memberships without release defaults.
+
 ## [v0.75.3] — 2026-11-06
 
 > arizuko v0.75.3 — one Discord token, safer installs, closed grant holes

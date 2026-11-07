@@ -100,13 +100,15 @@ pass (`handleAddRoute`, `onbod/main.go`):
 - The target folder matches a scope of an `allow` row the caller holds
   (`auth.MatchGroups` over `userFolders`).
 - The match is `room=<id>`, and `<id>` is the room of a JID paired to the
-  caller (`userOwnsMatch`). A caller with the `**` operator row skips this
+  caller (`userOwnsMatch`). A caller whose policy allows admin on `**` skips this
   check. Every match still passes `matchRe`, which allows no space and no
   wildcard.
 
 The picker offers only folders where the caller holds `admin`
-(`adminFolders`). The write check is wider: any `allow` scope on the target
-passes it.
+(`adminFolders`). The write checks `auth.MatchGroups` over `auth.UserScopes`.
+That list includes allow scopes from both policy layers. It includes `**`
+only when the policy allows admin on `**`. Other listed scopes do not express
+per-target denies, so this write check is wider than an authorization verdict.
 
 `insertRoute` is onbod's only `routes` writer. It stamps `added_by` with the
 caller's sub and `added_via` with the act: `picker` when the person chose,
@@ -140,9 +142,16 @@ token. `target_glob` decides the mode (`store.MintInvite`,
   top-level world.
 - **`**` is refused\*\*, because it is not a valid folder.
 
-When the `admin` row write fails, `RestoreInvite` gives the use back, so a
-failed redemption does not spend the invite. `handleCreateWorld` creates the
-folder with `container.SetupGroup` and writes its rows.
+onbod checks the issuer's current authority before consuming an invite.
+It checks again before an invited folder writes its grants. These checks use
+`CheckGrant`; the rule write proves the returned policy version.
+The issuers `cli`, `onbod` and `routd` use trusted authority without that check.
+
+When the `admin` row write fails, onbod calls `RestoreInvite` to return the use.
+If restoration fails, the invite stays spent and onbod logs the error.
+`handleCreateWorld` creates the folder with `container.SetupGroup` and writes
+its rows. A refusal after spending a subgroup redemption can leave that
+redemption spent without a world.
 
 ## Responsibilities
 
@@ -163,10 +172,10 @@ folder with `container.SetupGroup` and writes its rows.
   identity, so the gate is what keeps world creation invite-only by default;
   configuring one is the operator's opt-in to self-serve signup.
 
-**onbod writes no `acl_membership` edge.** Identity pairing owns that write,
-in routd's transaction,
-stamped `added_by='pairing'` — so every edge, greeting-sourced or agent-minted,
-is reachable by `unpair`. onbod mints the link and observes the result; it is
+**onbod writes role edges for each world.** Browser pairing writes identity
+edges with `added_by='pairing'` in routd's transaction. `unpair` can remove
+those identity edges after its authority check. onbod mints the pairing link
+and observes the result; it is
 not in the redemption path.
 
 **Greeting cadence.** A row is greeted when `prompted_at IS NULL`. The re-arm

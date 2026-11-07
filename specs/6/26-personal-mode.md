@@ -228,17 +228,17 @@ learns the standing answer from the OUTCOME of its next call.
 | **no** (`/reject`)     | `rejected`                             | —                                                           | held again             |
 | **always** (`/always`) | `approved`, exactly as `yes`           | skip-approval: `hold:mcp:<tool>(<params>)`, `effect='deny'` | runs inline, no notice |
 
-`always` is live on both resolution faces: chat `/always <id> [note]`, and
-`standing=true` on `POST /v1/pending_actions/{id}/approve` (an ARGUMENT of
-approve, never a fourth endpoint — there is no third status to name), which is
-what the approvals page's third button posts.
+`always` uses chat `/always <id> [note]` or `standing=true` on
+`POST /v1/pending_actions/{id}/approve`. A tool must declare keys for the
+standing rule. The held call must supply a scalar value for each key.
+The approvals page offers the third button only when the rule is valid.
 
 **`always` is `yes` plus a rule — never a third verdict on the row.**
 `pending_actions` keeps its states and `resolvePendingAction` keeps
 rejecting unknown verdicts (`TestResolvePendingAction_RejectsUnknownVerdict`);
 the standing answer lives in `acl`, where every other standing answer already
 lives. The verdict and its acl row commit in the SAME transaction as the
-resolution message, the way `routd.resolveHoldTx` already commits the verdict
+resolution message, as `routd.resolveHoldInto` commits the verdict
 and its trigger together — otherwise a crash leaves a call approved with no
 standing rule, or a rule with no approved call.
 
@@ -251,35 +251,27 @@ keeps `deny`; every surface says **skip approval**.
 
 ### The mechanics behind `always`
 
-1. **`CheckHold` expresses an exception.** It shares `namespacedAllows` with
-   `ShellEnvKeys` — one deny-wins two-pass loop, so a matching `effect='deny'`
-   row means DO NOT HOLD. Deny-wins is order-independent, so a broad
-   `hold:mcp:*` plus a narrow skip-approval row behaves correctly, and it is
-   absolute: any inherited matching deny beats every hold rule regardless of
-   specificity, and a later, narrower hold cannot restore the approval.
-   **Revocation is removing the skip-approval row**, which is why `/always`
-   answers with the exact `remove_acl` call that undoes it, and why the
-   approvals page says the same. Pinned by
-   `auth/checkhold_test.go` — the exception, the broad-rule case, both insert
-   orders, the inherited skip, and `TestCheckHold_OperatorStarDoesNotHoldEverything`
-   still green.
-2. **`add_acl` writes a shaped row, and its delegation check is not
-   bypassable.** `grantACLTx` and `revokeACLTx` take the `core.ACLRow`, and
-   the Gate builds its `auth.Delegate` candidate with the SAME
-   `aclArgsRow`+`aclDefaults` pair the write uses, so the row judged is the row
-   stored — `Delegate` would otherwise read an empty `params` as no constraint
-   (`auth.paramsCover`) and let a caller holding only `mcp:t(repo=mine/*)`
-   write the unnarrowed `mcp:t`. `revokeACLTx` matches `params` exactly, so a
-   row this face can write is a row it can remove (a hardcoded `''` there
-   re-creates BUGS `L79` the day `params` becomes writable).
-   `auth.ValidateParams` refuses a spec `paramsMatch` reads differently from
-   how it is stored — the stored string is also the revoke key.
-3. **A shaped deny cannot work, so no surface offers one.** The hold path
+1. **`CheckHold` uses `Policy.Allows`.** Matching local rows decide first.
+   The defaults in `auth/defaults.go` decide only when no local row matches.
+   Deny wins within the selected layer. A matching deny means skip approval.
+   A local hold can therefore override a default skip. Removing a local
+   skip exposes the remaining policy. `actionCovers` accepts an exact hold
+   action or its namespace wildcard; other actions do not cover holds.
+2. **`CheckGrant` checks the row that the ACL handler writes.** The handler
+   builds the mutation from `aclArgsRow` and `store.GrantDefaults`.
+   Added allows and removals outside `hold:` require covering authority with
+   the grant option. Hold mutations require admin authority without that
+   option. Adding a non-hold deny narrows access. Scope, params and predicate
+   restrictions apply through `auth/grant.go`. The write proves the policy
+   version from the check. This check also applies to elevated turns.
+   Revocation addresses the exact params string in the row's key.
+   `auth.ValidateParams` checks the argument matcher before an add.
+3. **The generic tool gate cannot match a shaped deny.** The hold path
    passes arguments (`stringArgs(args)`), but the authz path does not:
    `authorizeCall(name, nil)` (`ipc/ipc.go`) hands `Authorize` a nil params
-   map, and `paramsMatch` requires each named key to be PRESENT, so a deny row
-   shaped `mcp:<tool>(repo=x/*)` matches nothing and denies nothing. `always`
-   may be shaped; a tool deny is tool-wide only.
+   map. `paramsMatch` requires each named key to be present. A deny shaped
+   `mcp:<tool>(repo=x/*)` therefore matches nothing at this gate.
+   `always` uses the held call's arguments and can match a shaped row.
    `routd/hold_shaped_never_test.go` pins the REASON, not just the rule: the
    same shaped deny is inert under nil params and decisive once arguments
    travel, and the hold path is shown carrying them. Removing the restriction
@@ -298,48 +290,30 @@ indistinguishable.
 
 ### The predicate is part of the verdict
 
-A held call carries concrete arguments; `always` over ALL arguments is a large
-widening from one sample. The notice states the row it will write — principal,
-action, scope, and the exact parameter matcher — and writes exactly that:
+`/always` pins only the tool's declared keys. For `like`, the standing rule
+pins `reaction` and leaves the target message unconstrained:
 
+```text
+principal: folder:solo
+action: hold:mcp:like
+scope: solo
+params: reaction=👀
+effect: deny
 ```
-/always ab12 → skip approval for
-  github_create_pull_request(repo=kronael/arizuko)  in folder solo
-  (arguments it does not name are unconstrained)
-  (no rule can constrain files)
-  (skips approval only; the mcp: grant still has to allow the call)
-```
 
-Two properties of the matcher must be in that text, because both widen it
-beyond what an operator assumes: a rule constrains only the parameters it
-NAMES, so unnamed arguments are unconstrained, and non-scalar arguments are
-skipped entirely by `stringArgs` and can never be matched. An `always` whose
-full effective match was not shown and accepted is a grant nobody agreed to,
-and the surface refuses to write it.
+`pinnedSpec` requires a scalar value for each declared key. `auth.ParamsSpec`
+refuses values with commas, stars or surrounding spaces. An operator can write
+a broader rule through `add_acl` after its grant check.
 
-**The matcher is EXACT VALUES, never a glob**: widening one sample into a
-pattern is an operator judgement, and a verdict button cannot make it. So the
-rendered rule quotes the call's own scalar arguments, and a value carrying `,`
-(which would split the rule), `*` (which would glob it) or surrounding
-whitespace (which the reader strips) cannot be stated at all — `always` is
-REFUSED there and the surface says why instead of showing a button. An
-operator who wants a glob writes the row themselves with `add_acl`, where the
-widening is a thing they typed. Implementation: `auth.ParamsSpec`.
-
-**One renderer, three sinks.** `routd.withMatcher` derives `matcher` /
-`unmatchable` / `matcher_error` from the held row and is the only place they are
-computed; the chat notice, the `/v1/pending_actions` row and
-`resolveHoldTx`'s writer all read them from there. The writer takes
-`p.Matcher` and never builds one, so "refuses to write a rule it did not
-display" is structural rather than a habit — and dashd renders routd's matcher
-rather than re-deriving one from `args`, which is exactly how a page ends up
-showing one grant and writing another.
+`routd.withMatcher` derives `ask`, `matcher`, `rule_text` and `matcher_error`.
+The chat notice, REST row, approvals page and writer read those fields.
+The writer uses `p.Matcher` without rebuilding the rule.
 
 ## Decision 6 — approval delivery: one decision, three sinks
 
 `5/19` owns the decision and both resolution paths (`/approve <id>` in chat,
 `POST /v1/pending_actions/{id}/approve|reject`, both funnelling through
-`routd.resolveHoldTx` in one transaction). The DELIVERY the operator sees has
+`routd.resolveHoldInto` in one transaction). The DELIVERY the operator sees has
 three sinks.
 
 **In a browser (2026-08-24).** The held notice carries
@@ -381,25 +355,18 @@ Three verdicts fit every one of these: 3 ≤ Discord's 5 buttons per row and
 Slack's 25 per actions block, and a verdict plus an 8-char id is far under
 Telegram's 64 B.
 
-## Decision 7 — the reviewer is the operator
+## Decision 7 — the reviewer needs admin on the folder
 
-`5/19` gates resolution on `db.IsOperator`. Personal mode is the case where
-reviewer, operator and the only human coincide, so that suffices by
-construction.
+`resolveHoldInto` asks `CheckGrant` for the reviewer's `admin` authority on the
+held call's folder. A standing answer also checks its hold mutation.
+The write proves the returned policy version.
+The agent socket exposes no `pending_actions` resource.
 
-The agent-socket MCP face of `pending_actions` stays unmounted — the held
-agent approving its own call is not a gate.
+## A failed policy read blocks the call
 
-## A second bound: the hold gate fails OPEN on an unreadable `acl`
-
-`CheckHold` logs and returns `false` when the acl read fails
-(`auth/authorize.go:392`) — nothing is held, and every gated tool runs. That is
-the opposite of `5/19`'s other failure branch, where a hold that cannot be
-RECORDED blocks the call anyway rather than silently defeating the gate the
-operator asked for. Reversing it is not free: an acl read error would then
-block every held-eligible tool call, which is an availability decision, not a
-patch. Recorded as BUGS `L92`; the verdicts inherit this bound and do not
-widen it.
+`CheckHold` returns policy read errors. `holdGate` blocks the call and notifies
+the chat. A failure to record a pending action also blocks the call.
+`routd/hold_read_failure_test.go` checks ACL and membership read failures.
 
 ## Residual hole this does not close
 
@@ -425,10 +392,10 @@ Shipped 2026-08-29/30 — `always` (`auth/checkhold_test.go`,
 - A `hold:mcp:<tool>` row plus a same-action row with `effect='deny'` and a
   narrowing: the matching shape runs inline, every other shape is still held,
   a broad `hold:mcp:*` does not resurrect the exception, insert order does not
-  matter, an inherited skip beats a directly-held hold, and
+  matter within one layer, an inherited local skip beats a directly-held hold, and
   `TestCheckHold_OperatorStarDoesNotHoldEverything` stays green.
 - `add_acl` writes a row carrying params and `remove_acl` drops that same row
-  by naming the narrowing exactly; `auth.Delegate`'s subset check runs on the
+  by naming the narrowing exactly; `auth.CheckGrant`'s containment check runs on the
   SHAPED row, so a caller who may grant `mcp:t(repo=mine/*)` cannot write
   `mcp:t`; a narrowed row at scope `**` is an ordinary row and never operator
   membership; a spec the evaluator would read differently from how it is stored

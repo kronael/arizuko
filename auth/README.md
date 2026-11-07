@@ -5,59 +5,57 @@ Identity, ES256 tokens, JWKS, OAuth, authorization policy, HTTP middleware.
 ## Authorization is one row and one question
 
 Every check asks: may principal P do action A on scope S, with these
-arguments? One `acl` row type answers it, and three readers read the same
-rows. The operator's REST face and the agent's MCP socket differ only in
-where the caller comes from.
+arguments? One row type describes local permissions and the defaults in
+`auth/defaults.go`. `Policy.Allows` decides each request. The REST and MCP
+faces supply different callers and target bounds.
 
 <!-- twin:grants -->
 
 ```
-┌─────────────────────────────────┐   ┌───────────────────────────────────┐
-│ caller                          │   │ acl row                           │
-│ operator REST: the JWT sub      │   │ principal, action, scope,         │
-│ agent socket: the turn's sender │   │ params, predicate, effect,        │
-│ and folder:<turn folder>        │   │ grant_option                      │
-└────────────────┬────────────────┘   └─────────────────┬─────────────────┘
-                 │ expanded through acl_membership,     │
-                 │ transitive: role:member,             │
-                 │ role:operator, roles, the account a  │
-                 │ paired JID acts as                   │
-                 ▼                                      ▼
-┌───────────────────────────────────────────────────────────────────────────┐
-│ the rows that reach the expanded principal set, read on every call        │
-└──────┬─────────────────────────┬─────────────────────────────┬────────────┘
-       ▼                         ▼                             ▼
-┌──────────────────────┐ ┌──────────────────────┐ ┌───────────────────────┐
-│ Authorize            │ │ EffectiveActions     │ │ Delegate              │
-│ the per-call gate:   │ │ tools/list: the      │ │ add_acl: each new row │
-│ scope glob, params,  │ │ action held at any   │ │ a subset of the rows  │
-│ predicate; deny      │ │ scope; a deny row    │ │ held WITH GRANT       │
-│ wins, no row = deny  │ │ hides no tool        │ │ OPTION; never a deny, │
-└──────────────────────┘ └──────────────────────┘ │ never a wildcard      │
-                                                  │ principal             │
-                                                  └───────────────────────┘
-┌───────────────────────────────────────────────────────────────────────────┐
-│ AuthorizeTurn, the agent socket's two axes. Route: folder:<turn folder>   │
-│ and its roles confer in full. Identity: the sender and its roles add an   │
-│ allow only inside the turn folder's subtree, on the exact action, with no │
-│ lattice. A deny counts on both axes, everywhere.                          │
-└───────────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────┐
+│ caller: REST uses the JWT sub; MCP uses the sender and turn folder      │
+│ acl_membership expands each principal through accounts and roles        │
+└─────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│ Consistent policy read: memberships and local acl rows.                 │
+│ auth/defaults.go supplies the default layer.                            │
+└─────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│ Authorize → Policy.Allows: matching local rows decide first.            │
+│ Defaults decide only when no local row matches.                         │
+│ Deny wins in that layer. No matching allow means refusal.               │
+│                                                                         │
+│ EffectiveActions lists allowed tool actions from both layers.           │
+│ CheckGrant checks the rule mutation and returns its policy version.     │
+└─────────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────┐
+│ MCP route axis: the turn folder and its roles confer in full.           │
+│ Identity axis: sender allows require a target inside the turn subtree.  │
+│ Identity allows match the exact action or its namespace wildcard.       │
+│ Deny rows count on both axes, within the selected policy layer.         │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
 <!-- /twin -->
 
-- **No row is a deny.** Deny wins; an action with no matching allow row is
-  refused, loudly. A path carries zero authorization: it is a routing
-  target, a JID prefix, a home and a vhost, and its depth means nothing.
+- **Matching local rows decide first.** `ReadPolicy` reads membership and
+  local rows consistently, then adds the defaults from `auth/defaults.go`.
+  `Policy.Allows` uses defaults only when no local row matches the call.
+  Deny wins within the selected layer. No matching allow means refusal.
+  A failed policy read refuses the request. Folder depth grants nothing.
 - **Containment is the scope glob.** Guest capabilities (`share_mount`,
   `egress`, `web:publish`, `gh:write`, `codex`) resolve from `acl` at dispatch into
   typed booleans on the run request. A capability derived from folder depth
   reaches every folder at that depth, whatever the operator granted, so no
   code derives one. `ARIZUKO_TIER` is not emitted: the agent's identity is
   its world, path and grants, never a rank.
-- **No cache.** Every call reads the rows, so a revoke takes effect on the
-  next tool call inside a live turn. The turn holds no token at all: the
-  socket is its credential, so no baked scope outlives a revoked grant.
+- **No cache.** Each ordinary non-elevated tool gate reads the current policy.
+  A revoke therefore takes effect on the next checked call inside a live turn.
+  The turn socket supplies the credential without a token.
 - **Membership is one graph.** `acl_membership` carries roles, role
   hierarchy and the pairing edges that let a channel JID act as an account.
   The caller expands to its sender JID and room JID, transitively. A write
@@ -67,7 +65,7 @@ where the caller comes from.
   `folder:<turn folder>`, confers in full. The sender adds an allow only
   inside the turn folder's subtree, on the exact action or its namespace
   `*`, with no lattice; a glob target is inside no subtree. A deny counts on
-  both axes. So outside the turn's subtree the verdict does not depend on
+  both axes within the selected layer. So outside the turn's subtree the verdict does not depend on
   who spoke, and a shared chat is not a place to borrow authority.
   `EffectiveActions` applies the same rule to `tools/list`.
 - **One principal pair per turn.** `routd.turnAuthorize` closes over the
@@ -76,10 +74,9 @@ where the caller comes from.
 - **Three reads stay single-axis:** the dispatch capabilities,
   `ShellEnvKeys` and `CheckHold`. The sandbox must not be a function of the
   conversation.
-- **Two readers match the action exactly.** `CheckHold` and `ShellEnvKeys`
-  skip the action lattice, because through it the operator's `(*, **)` row
-  would hold every tool and hand every folder secret to every operator
-  turn.
+- **Hold and shell actions use isolated namespaces.** `CheckHold` and
+  `ShellEnvKeys` call `Policy.Allows`. `actionCovers` accepts the exact action
+  or its namespace wildcard. Other action grants do not cover these namespaces.
 - **Visibility is not the gate.** `EffectiveActions` lists a tool when the
   caller holds its action at any scope; a lattice row (`*`, `admin`,
   `mcp:*`) lists every `mcp:` tool. A deny row is scope-specific, so it hides
@@ -87,8 +84,23 @@ where the caller comes from.
 - **A bearer's scope is not a grant.** `HasScope` checks what a token
   carries; `Authorize` checks what a principal holds. The two are never
   merged, because a leaked token must carry less than its owner.
-- **Elevation is explicit.** `/root` is the one path outside the subtree:
-  gated on `IsOperator`, one-shot, and an elevated turn passes every gate.
+- **Elevation is explicit.** `IsOperator` checks admin on `**` before `/root`.
+  An elevated turn bypasses ordinary tool gates for one turn. Rule mutations
+  still pass `CheckGrant` with the issuer's authority.
+- **Rule mutations use `CheckGrant`.** Added allows and removals outside
+  `hold:` require covering authority with `grant_option`. Hold mutations
+  require admin authority without the grant option. Adding a non-hold deny
+  narrows access. A covering allow must have no predicate. Its scope must cover
+  the requested scope. Its params must be empty or identical to the requested
+  params. For containment, a local row with an overlapping action and scope
+  selects the local layer. Otherwise defaults decide. A deny in the selected
+  layer refuses the authority check. Identity-only allows cannot supply covering authority.
+  An added allow cannot name a wildcard principal.
+  Edge additions check the parent's allows and hold rules in both layers.
+  Edge removals check the parent's denies, hold rules and local allows.
+  The check returns a policy version for the write to prove.
+  Host CLI and manifest writes, consent pairing and folder bootstrap use
+  their own authority.
 - **The magnitude gate passes no arguments** for tools registered through
   `ipc` `granted()`, so a row with `params` matches nothing there: a deny on
   such a tool is tool-wide only. The messaging tools pass `jid`, so a `jid=`
@@ -103,10 +115,9 @@ Shared auth primitives used across daemons. Four concerns:
 
 1. **The canonical platform-token format.** authd signs, every backend
    verifies through this library. No daemon implements its own JWT format.
-2. **One authorization evaluator.** `Authorize` matches ACL rows over the
-   caller's expanded principal set, deny-wins, and returns false when nothing
-   matches. Both the operator REST face and the agent socket reach it; what
-   differs is the identity source and the target bound, never the decision.
+2. **One authorization evaluator.** `Authorize` reads a policy over the
+   caller's expanded principal set and calls `Policy.Allows`. REST and MCP
+   supply the identity and target bound.
 3. **Identity resolution.** `Identity` is a folder's non-elevated authz
    coordinate. The path carries ZERO authorization — only its own name and the
    root predicate.
@@ -171,12 +182,14 @@ hand-rolled JWT code.
   every path below a prefix a scope covers, because slot trees nest on disk:
   folder `atlas`'s `~/private_html` holds `atlas/search`'s slot. That is
   filesystem containment for web slots only, never a folder decision.
-- Authorization: `Authorize(store, caller, action, scope, params) bool` —
-  deny-wins row grants, no fallback. `EffectiveActions` is the `tools/list`
-  visibility view over the same rows, so the listing and the gate agree.
-  `UserScopes` projects a sub's scopes (it ignores the action, so the gate
-  must not). `Delegate` bounds re-delegation to a subset of rows held WITH
-  GRANT OPTION. `ShellEnvKeys` answers which `shell:env:<KEY>` secrets a
+- Authorization: `ReadPolicy` reads the local and default layers consistently.
+  `Policy.Allows` evaluates a request; `Authorize` reads and evaluates it.
+  `EffectiveActions` lists tool actions with an allow at any scope in either
+  layer. The per-call gate still enforces denies and target bounds.
+  `UserScopes` lists allow scopes from both layers. It includes `**` only
+  when the policy allows admin on `**`. A scope list is not a verdict.
+  `CheckGrant` checks rule mutations and returns their policy version.
+  `ShellEnvKeys` answers which `shell:env:<KEY>` secrets a
   folder may take into its shell. `CheckHold` decides whether a call is held
   for human approval. `ValidateParams` / `ParamsSpec` are
   the param-glob half.
@@ -232,7 +245,8 @@ if !auth.HasScope(sub.Scope, "tasks", "write") { return 403 }
 - `identity.go` — `Identity` and `Resolve`: a folder's own name plus the root predicate, and nothing else
 - `acl.go` — `MatchGroups`, scope-glob matching
 - `authorize.go` — `Authorize`, `EffectiveActions` (ACL row-grant gate, `Caller`)
-- `delegate.go` — `Delegate` (subset-of-held, WITH GRANT OPTION)
+- `defaults.go` — the default policy
+- `grant.go` — `CheckGrant`, rule containment and policy versions
 - `es256.go` — `TokenClaims`, `Subject`, `SigningKey`, `Sign`/`MintForSubject`
 - `jwks.go` — `KeySet`, `VerifyToken`, `VerifyHTTP`, `PublicJWKS`, `FetchKeys`
 - `scope.go` — `HasScope` and the coverage helpers

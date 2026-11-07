@@ -41,9 +41,9 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">reference</a> &rsaquo; Grants</p>
 <h1>grants</h1>
 
-    <p class="lede">One <code>auth.Authorize</code> call answers every authorization question: may principal P perform action A on scope S? It reads two tables, <code>acl</code> for permission rows and <code>acl_membership</code> for roles and identity links. A folder path carries no authority of its own. This page is the syntax and semantics reference for the row, the evaluator, and delegation.</p>
+    <p class="lede">One policy evaluator checks whether a principal may perform an action on a scope. Matching local ACL rows decide before the release defaults. A folder path grants no authority.</p>
 
-    <p>See <a href="../concepts/grants.html">concepts &rsaquo; authorization</a> for the mental model, <a href="https://github.com/kronael/arizuko/blob/main/GRANTS.md"><code>GRANTS.md</code></a> for the maintainer walkthrough, and <a href="https://github.com/kronael/arizuko/blob/main/auth/README.md"><code>auth/README.md</code></a> for the figure and every rule behind the evaluator. Code: <a href="https://github.com/kronael/arizuko/blob/main/auth/authorize.go"><code>auth/authorize.go</code></a> (the evaluator), <a href="https://github.com/kronael/arizuko/blob/main/auth/delegate.go"><code>auth/delegate.go</code></a> (delegation), <a href="https://github.com/kronael/arizuko/blob/main/auth/acl.go"><code>auth/acl.go</code></a> (scope matcher), <a href="https://github.com/kronael/arizuko/blob/main/store/acl.go"><code>store/acl.go</code></a> (reader / writer).</p>
+    <p>See <a href="../concepts/grants.html">concepts &rsaquo; authorization</a> for the mental model, <a href="https://github.com/kronael/arizuko/blob/main/GRANTS.md"><code>GRANTS.md</code></a> for the maintainer walkthrough, and <a href="https://github.com/kronael/arizuko/blob/main/auth/README.md"><code>auth/README.md</code></a> for the figure and every rule behind the evaluator. Code: <a href="https://github.com/kronael/arizuko/blob/main/auth/authorize.go"><code>auth/authorize.go</code></a> (the evaluator), <a href="https://github.com/kronael/arizuko/blob/main/auth/grant.go"><code>auth/grant.go</code></a> (delegation), <a href="https://github.com/kronael/arizuko/blob/main/auth/acl.go"><code>auth/acl.go</code></a> (scope matcher), <a href="https://github.com/kronael/arizuko/blob/main/store/acl.go"><code>store/acl.go</code></a> (reader / writer).</p>
 
     <h2>One acl row is one rule</h2>
 
@@ -59,7 +59,7 @@
       <tr><td><code>scope</code></td><td>Folder path or glob. <code>**</code> crosses <code>/</code>, <code>*</code> does not.</td></tr>
       <tr><td><code>params</code></td><td>Optional predicates over the call's arguments (<code>jid=telegram:*</code>).</td></tr>
       <tr><td><code>predicate</code></td><td>Optional condition on the caller's JWT claims (<code>discord:guild=G123</code>). Empty = none.</td></tr>
-      <tr><td><code>effect</code></td><td><code>allow</code> or <code>deny</code>. Deny wins.</td></tr>
+      <tr><td><code>effect</code></td><td><code>allow</code> or <code>deny</code>. Deny wins within the selected layer.</td></tr>
       <tr><td><code>grant_option</code></td><td><code>0</code> or <code>1</code>. <code>1</code> means the holder may re-delegate this row or a subset of it.</td></tr>
     </table>
 
@@ -81,17 +81,19 @@ params    = host=*.prod.example.com</code></pre>
       <li><strong>The hold runs before the authorization check, and never replaces it.</strong> An approved call still meets <code>Authorize</code>. An elevated <code>/root</code> turn has no hold gate.</li>
       <li><strong>A hold that cannot be recorded still holds.</strong> If the <code>pending_actions</code> row cannot be written, the call is blocked and the agent gets an error, because there is no id anybody could approve.</li>
       <li><strong><code>/always</code> is <code>/approve</code> plus one skip-approval row.</strong> The row is <code>effect = deny</code> on the <code>hold:</code> action &mdash; deny on a hold means &ldquo;do not hold&rdquo; &mdash; and it is written in the same batch as the verdict. There is no third verdict on <code>pending_actions</code>. To revoke, remove that row with <code>remove_acl</code> or <code>arizuko group &hellip; ungrant</code>.</li>
-      <li><strong><code>/always</code> writes exactly the matcher the notice showed.</strong> Every scalar argument becomes an exact value, never a glob, so one sample cannot widen into a pattern. A value carrying <code>,</code>, <code>*</code> or surrounding spaces cannot be stated exactly, so <code>/always</code> is refused for it. Non-scalar arguments are skipped. One renderer feeds the notice, the REST row and the writer, so no surface shows one rule and stores another.</li>
+      <li><strong><code>/always</code> requires declared keys.</strong> The tool declares which arguments a standing rule pins. Only <code>like</code> declares a key, <code>reaction</code>. A missing scalar value or a value that cannot form an exact matcher refuses the rule. The notice, REST row and writer use the same rendered rule. Tools without keys offer no Always button and refuse <code>/always</code>.</li>
     </ul>
 
-    <div class="callout"><strong>Why a separate action:</strong> a hold is never an <code>effect</code> on an ordinary <code>mcp:&lt;tool&gt;</code> row. The evaluator treats every non-<code>deny</code> effect as allow, so such a row would silently <em>grant</em> the tool it meant to gate. The <code>hold:</code> namespace keeps hold rules invisible to the allow/deny evaluator, and holds are matched on the exact action &mdash; otherwise an operator's <code>(*, **)</code> row would hold every tool they touch.</div>
+    <p>Hold actions use the same evaluator as ordinary permissions. <code>actionCovers</code> accepts an exact hold action or <code>hold:mcp:*</code>. Other action grants do not cover holds. Matching local rows decide first. Defaults from <code>auth/defaults.go</code> decide only when no local row matches. Deny wins within the selected layer. A local hold can therefore override a default skip.</p>
+
+    <p>If the policy read fails, the hold gate blocks the call. Approval still requires the tool's authorization check. <code>CheckGrant</code> checks the reviewer and standing rule before their batch proves the policy version.</p>
 
     <p>Nothing in the row is derived. A path is a routing target, a JID prefix, a home shared into the guest, and a web vhost &mdash; it is never an authority level, and how deep it sits means nothing here.</p>
 
-    <h2>Two tables hold the rules</h2>
+    <h2>Two tables hold local policy data</h2>
 
     <ul>
-      <li><strong><code>acl</code></strong> &mdash; <code>(principal, action, scope, effect, params, predicate, granted_by, granted_at, grant_option)</code>. The whole permission graph, one entity in routd&rsquo;s store.</li>
+      <li><strong><code>acl</code></strong> &mdash; <code>(principal, action, scope, effect, params, predicate, granted_by, granted_at, grant_option)</code>. Local permission rules in routd's store. The release defaults are code in <code>auth/defaults.go</code>.</li>
       <li><strong><code>acl_membership</code></strong> &mdash; <code>(child, parent, added_by, added_at)</code> edges. Walked transitively at authorization time to expand a principal into every role it carries and every identity it has been linked to. A write that would make a principal its own ancestor is refused.</li>
     </ul>
 
@@ -140,55 +142,55 @@ predicate: discord:guild=G123       # only when the caller's token carries that 
 
     <h2>auth.Authorize evaluates every request</h2>
 
-    <p><a href="https://github.com/kronael/arizuko/blob/main/auth/authorize.go"><code>auth.Authorize</code></a> is the sole runtime evaluator. Operator REST calls and the agent's MCP socket both land here, over the same rows &mdash; one mechanism, two callers, not two systems.</p>
+    <p><a href="https://github.com/kronael/arizuko/blob/main/auth/authorize.go"><code>auth.Authorize</code></a> reads the policy and calls <code>Policy.Allows</code>. Operator REST and agent MCP calls use this evaluator with their own caller and target bounds.</p>
 
-    <pre><code>1. Expand the caller's principals through acl_membership.
-2. Load exact and wildcard rows for those principals.
-3. Check scope, predicate and parameters. Matching denies apply on either axis.
-4. Route grants use their full scope and action coverage.
-5. Sender-only grants allow targets inside the turn folder's subtree, with an
-   exact action or that action namespace's wildcard.
-6. Any matching deny wins; otherwise a matching allow wins; else deny.</code></pre>
+    <pre><code>1. Read memberships and local rows in one consistent policy read.
+2. Add the applicable defaults from auth/defaults.go.
+3. Match each layer against the action, scope, predicate and params.
+4. Use matching local rows when any match; otherwise use matching defaults.
+5. Within that layer, refuse on any deny; otherwise allow on an allow.
+6. Refuse when neither layer supplies a matching allow.</code></pre>
 
-    <p><strong>There is no fallback.</strong> An action with no matching allow row is refused, loudly. Nothing is computed from the folder's shape when the table comes up empty.</p>
+    <p>Route grants use their full scope and action coverage. Sender-only allows require a target inside the turn folder's subtree. Sender actions match exactly or through their namespace wildcard. Denies count on both axes within the selected layer.</p>
 
-    <p>Rows are read on every call &mdash; no cache. Revoking a grant takes effect on the caller's <em>next tool call</em>, even mid-turn.</p>
+    <p>A failed policy read refuses access. Each ordinary non-elevated tool gate reads the current policy, so a revoke applies on the next checked call. Elevated turns bypass ordinary tool gates. Rule mutations still pass <code>CheckGrant</code>.</p>
 
-    <p>Tool visibility is a separate view over the same rows: <code>auth.EffectiveActions</code> asks whether the caller holds an action at <em>any</em> scope, and that answer drives <code>tools/list</code>. Because the list and the per-call gate read one table, they agree by construction. Deny rows are scope-specific, so they do not hide a tool from the list &mdash; <code>Authorize</code> still refuses the call.</p>
+    <p><code>auth.EffectiveActions</code> lists allowed tool actions at any scope from both layers. Denies do not hide a tool from the list. The per-call gate still checks the target and denies.</p>
 
-    <h2>Two roles exist at the start</h2>
+    <h2 id="defaults">Default policy comes from one file</h2>
 
-    <p><strong><code>role:member</code></strong> is the floor. Every folder is bound to it the moment it is created (<code>store.SeedMemberRole</code>, <a href="https://github.com/kronael/arizuko/blob/main/store/membership.go"><code>store/membership.go</code></a>), and it carries the twelve messaging verbs plus <code>disengage</code>:</p>
+    <p><a href="https://github.com/kronael/arizuko/blob/main/auth/defaults.go"><code>[auth/defaults.go]</code></a> declares the release defaults. Membership selects which role defaults a principal receives. Folder creation adds the <code>role:member</code> edge. World creation also adds <code>role:world</code>.</p>
 
-    <pre><code>reply, send, send_file, send_voice,
-post, forward, quote, repost,
-like, dislike, edit, delete, disengage</code></pre>
+    <p>The binary supplies the defaults at each deploy. Startup writes no default ACL rows. Local rows survive restarts. A stored copy remains a local override until an operator removes it after an audit. <code>arizuko group grants</code> lists stored rows and memberships without the release defaults.</p>
 
-    <p>Read tools and <code>set_work</code> are always on and need no grant. Everything else &mdash; <code>register_group</code>, the route tools, <code>network_*</code>, <code>schedule_*</code>, <code>observe_*</code>, <code>invite_*</code>, token minting, writing <code>acl</code> itself &mdash; is an explicit row somebody delegated. The floor is seeded with <code>grant_option = 0</code>: it is not re-delegable, because every new folder is born a member directly. routd writes the role&rsquo;s rows into an empty store at first boot (<code>store.SeedRoutdFloor</code>).</p>
+    <p>Making someone an operator adds one membership edge:</p>
 
-    <p><strong><code>role:operator</code></strong> is the root of every delegation chain: one row, <code>*</code> on <code>**</code>, <code>allow</code>, WITH GRANT OPTION, seeded by the same first boot. Root is a grant somebody holds, not a place in the tree. The operator invokes it with <code>/root</code>; there is no root folder, and a top-level folder is just a world &mdash; an ordinary tenant with ordinary grants.</p>
+    <pre><code>arizuko group -i krons grant google:114alice '**'</code></pre>
 
-    <p>Making someone an operator is one membership edge. The permissions row is shared, so a second operator costs one row:</p>
-
-    <pre><code># Make alice an operator: one acl_membership edge to role:operator.
-arizuko group -i krons grant google:114alice '**'</code></pre>
-
-    <p>Any other pattern writes an ordinary <code>acl</code> row instead &mdash; see <a href="cli.html#group-grant"><code>arizuko group &hellip; grant</code></a>.</p>
+    <p>The operator shortcut requires an omitted action, empty params and predicate, and an allow effect. An explicit <code>admin</code> or <code>*</code> writes an ordinary ACL row. The host CLI uses its own authority.</p>
 
     <h2>A holder delegates only what it holds</h2>
 
-    <p>Authority moves by delegation, and the bound is <strong>subset-of-held</strong>: a principal may grant onward only rows it already holds, and only those it holds with <code>grant_option = 1</code>. This is Postgres's <code>GRANT &hellip; WITH GRANT OPTION</code>, and it means authority strictly decreases down every chain without anyone counting path segments.</p>
+    <p><code>auth.CheckGrant</code> checks the door's ACL question and the proposed mutation in one consistent read. It returns the policy version that the write must prove. A changed version refuses the batch with HTTP 409.</p>
 
-    <p><a href="https://github.com/kronael/arizuko/blob/main/auth/delegate.go"><code>auth.Delegate</code></a> is a pure precondition &mdash; it writes nothing, and the caller writes the rows only after it returns clean. It refuses:</p>
+    <table>
+      <tr><th>Mutation</th><th>Required authority</th></tr>
+      <tr><td>Add an allow or remove a row outside <code>hold:</code></td><td>Covering authority with the grant option.</td></tr>
+      <tr><td>Add a deny outside <code>hold:</code></td><td>The door's authorization check.</td></tr>
+      <tr><td>Add or remove a hold rule</td><td><code>admin</code> on the rule's scope, without the grant option.</td></tr>
+      <tr><td>Add a membership edge</td><td>Authority for the parent's allows and hold rules in both layers.</td></tr>
+      <tr><td>Remove a membership edge</td><td>Authority for the parent's denies, hold rules and local allows.</td></tr>
+    </table>
 
-    <ul>
-      <li>a row the granter does not hold with grant option;</li>
-      <li>a <code>deny</code> row &mdash; a restriction is not a subset of what you hold;</li>
-      <li>a wildcard principal as the target, which would hand the grant to every matching sub;</li>
-      <li>anything the granter's own <code>deny</code> rows cover &mdash; you cannot re-grant your way past a block on yourself.</li>
-    </ul>
+    <p>For containment, any local row with an overlapping action and scope selects the local layer. Otherwise defaults decide. A deny in that layer refuses the authority check. A covering allow must have no predicate. Its scope must cover the request. Its params must be empty or identical. Sender-only allows cannot supply a turn's grant authority. An added allow cannot target a wildcard principal.</p>
 
-    <p>A new group starts with whatever its creating group or a lineage ancestor delegates to it, on top of the <code>role:member</code> floor. A child can never exceed its granter.</p>
+    <p>ACL writes, unpair, dashboard grants and approval resolution use this check. Elevated rule mutations use the issuer's current authority. Host CLI and manifest writes, consent pairing and folder bootstrap use their own authority.</p>
+
+    <p>An invite grants <code>admin</code>, so its issuer needs covering authority with the grant option. The check runs at issue, at redemption and before an invited world writes its grants. A world's default agent grants do not meet that requirement. The recorded issuers <code>cli</code>, <code>onbod</code> and <code>routd</code> use trusted authority.</p>
+
+    <p>Unpair also checks the authority carried by the parent. A parent deny or a local allow without sufficient grant authority can prevent self-unpair. The REST caller must also be the parent. An operator can perform the authorized agent operation.</p>
+
+    <p>A group purge can remove denies that affect other folders. Only the host CLI purges groups. Dashboard deletion removes nothing and names <code>arizuko group -i &lt;instance&gt; rm &lt;folder&gt;</code>.</p>
 
     <h2>The scope glob contains the folder</h2>
 
@@ -204,7 +206,7 @@ arizuko group -i krons grant google:114alice '**'</code></pre>
 
     <p>Turn capabilities work the same way. At dispatch, routd resolves five booleans from <code>acl</code> and sends them typed on the run request (<a href="https://github.com/kronael/arizuko/blob/main/routd/dispatch.go"><code>routd/dispatch.go</code></a>): <code>share_mount(readonly=true)</code> makes the shared mount read-only, <code>egress</code> appends <code>*</code> to the folder's allowlist so the turn's proxy runs in allow-all, <code>web:publish</code> opens the web surface, and <code>gh:write</code> lets the agent make the GitHub writes that the <code>gh</code> gate of the agent refuses by default, such as a merge or a release, and <code>codex</code> lends the operator's Codex login (<code>HOST_CODEX_DIR</code>) to the turn. A plain folder holds none of them and runs with a writable share, an allowlist of exactly what its own rows name, and no web surface until an operator delegates. The proxy itself is never optional &mdash; every turn gets one, and the guest's tap drops anything that tries to go around it.</p>
 
-    <p>One grant carries a value rather than a boolean. A capability credential normally reaches a <em>tool</em> and nothing else, through the broker, per call. A CLI the agent drives itself — <code>gh</code>, <code>buildkite</code> — is a <code>Bash</code> call, so there is no tool name to resolve a secret for; it can only authenticate from the shell environment. A <code>shell:env:&lt;KEY&gt;</code> row names one secret that may cross, and with no row nothing crosses. The action is matched exactly, so an operator's <code>(*, **)</code> row does <em>not</em> confer it: widening the shell is always an explicit act. <code>shell:env:*</code> is the explicit all-keys row. The five model keys never cross this way, even under <code>shell:env:*</code> &mdash; they already reach the guest by their own door, and the store keeps them off folder scope.</p>
+    <p>One grant carries a value rather than a boolean. A capability credential normally reaches a <em>tool</em> and nothing else, through the broker, per call. A CLI the agent drives itself — <code>gh</code>, <code>buildkite</code> — is a <code>Bash</code> call, so there is no tool name to resolve a secret for; it can only authenticate from the shell environment. A <code>shell:env:&lt;KEY&gt;</code> row names one secret that may cross, and with no row nothing crosses. The action matches exactly or through <code>shell:env:*</code>, so an operator's <code>(*, **)</code> row does <em>not</em> confer it: widening the shell is always an explicit act. <code>shell:env:*</code> is the explicit all-keys row. The five model keys never cross this way, even under <code>shell:env:*</code> &mdash; they already reach the guest by their own door, and the store keeps them off folder scope.</p>
 
     <p>That grant cannot bound what the token buys. Once the credential is in the shell the agent spends it with <code>curl</code> as easily as with <code>gh</code>, and no <code>acl</code> row sees the difference. Scope the token at the issuing service — a PAT minted without <code>pull_requests: write</code> cannot approve a pull request however it is called.</p>
 
@@ -216,7 +218,7 @@ action:    mcp:send
 scope:     atlas/support
 params:    jid=telegram:group/*
 
-# Ban one user from an otherwise-open channel. Deny wins.
+# Ban one user in this folder. The local deny decides.
 principal: telegram:user/123456
 action:    interact
 scope:     atlas/support
@@ -235,16 +237,16 @@ action:    admin
 scope:     acme/eng/**
 grant_option: 0</code></pre>
 
-    <p>Prefer deleting an allow row or a membership edge over inserting a deny. Denies are for true exceptions &mdash; one banned user in an open room &mdash; and because deny wins everywhere, a forgotten one is hard to find later.</p>
+    <p>Prefer deleting an allow row or a membership edge over inserting a deny. Denies are for true exceptions &mdash; one banned user in an open room &mdash; a deny in the selected layer refuses matching calls.</p>
 
     <h2>Ten pages and files give the details</h2>
     <ul>
       <li><a href="../concepts/grants.html">concepts: authorization</a> &mdash; mental model + worked patterns</li>
       <li><a href="../concepts/scopes.html">concepts: scopes</a> &mdash; how a scope glob reads</li>
-      <li><a href="https://github.com/kronael/arizuko/blob/main/auth/README.md"><code>auth/README.md</code></a> &mdash; the row, the three readers, the two axes</li>
+      <li><a href="https://github.com/kronael/arizuko/blob/main/auth/README.md"><code>auth/README.md</code></a> &mdash; the row, the policy layers, the two axes</li>
       <li><a href="https://github.com/kronael/arizuko/blob/main/GRANTS.md"><code>GRANTS.md</code></a> &mdash; maintainer reference</li>
       <li><a href="https://github.com/kronael/arizuko/blob/main/auth/authorize.go"><code>auth/authorize.go</code></a> &mdash; <code>Authorize</code>, <code>EffectiveActions</code></li>
-      <li><a href="https://github.com/kronael/arizuko/blob/main/auth/delegate.go"><code>auth/delegate.go</code></a> &mdash; <code>Delegate</code> (subset-of-held)</li>
+      <li><a href="https://github.com/kronael/arizuko/blob/main/auth/grant.go"><code>auth/grant.go</code></a> &mdash; <code>CheckGrant</code>, rule containment</li>
       <li><a href="https://github.com/kronael/arizuko/blob/main/auth/acl.go"><code>auth/acl.go</code></a> &mdash; <code>MatchGroups</code> (pure scope matcher)</li>
       <li><a href="https://github.com/kronael/arizuko/blob/main/store/acl.go"><code>store/acl.go</code></a> &mdash; row reader / writer</li>
       <li><a href="schema.html#acl">schema: acl, acl_membership</a></li>
@@ -257,7 +259,7 @@ grant_option: 0</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/reference/grants.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-28">2026-10-28</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-04">2026-11-04</time>
       </div>
     </main>
 

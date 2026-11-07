@@ -110,3 +110,9 @@ A component boundary does not require a deployment boundary.
 | [7/26-single-world-deployment.md](7/26-single-world-deployment.md) | draft   | One core process with Dynamo-compatible storage                                                     |
 | [7/27-minimum-arizuko.md](7/27-minimum-arizuko.md)                 | draft   | Writable files, messaging, and skills                                                               |
 | [7/47-source-pins.md](7/47-source-pins.md)                         | partial | Native guest layers, system provisioning and installed-package record retirement remain unfinished. |
+
+## ACL layers use one evaluator
+
+| Spec                                     | Status  | Summary                                                                                                                                |
+| ---------------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| [6/52-acl-layers.md](6/52-acl-layers.md) | shipped | Local ACL rows override release defaults through one evaluator. Delegated rule mutations check authority and prove the policy version. |

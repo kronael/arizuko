@@ -2143,7 +2143,7 @@ func buildMCPServer(routd RoutdFns, db StoreFns, folder string, isRoot bool, cal
 	// injected. See routd/acl_resource.go.
 
 	registerRaw("invite_create",
-		"Issue an invite token granting access to a path glob. The recipient accepts the token via /invite/<token> and gets an `acl` row granting admin on target_glob. The token comes back ONLY here, once — deliver it now; invite_list later shows just the `ref`. Use to onboard new collaborators to a world or sub-folder you own. The issuer must hold admin with the grant option over the access the invite grants.",
+		"Issue an invite token for a path glob. A join grants admin on target_glob. A trailing slash permits a new folder below that path. The recipient accepts at /invite/<token>. Deliver the token now. invite_list returns only its ref. The issuer needs admin with the grant option over the access the invite grants. The issuer's authority is checked at creation and redemption.",
 		[]mcp.ToolOption{
 			mcp.WithString("target_glob", mcp.Required()),
 			mcp.WithNumber("max_uses"),

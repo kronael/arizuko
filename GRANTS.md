@@ -10,36 +10,31 @@ Authorization in arizuko is one row, one question:
 (principal, action, scope, params, predicate, effect, grant_option) → allow | deny
 ```
 
-Two tables — `acl` (permissions) and `acl_membership` (identity
-indirection) — and one function, `auth.Authorize`. Deny wins; an action
-with no matching allow row is denied. There is no fallback and no
-default derived from where a folder sits.
+`auth.Policy.Allows` evaluates permissions from two layers: local `acl` rows
+and the defaults in `auth/defaults.go`. Matching local rows decide first.
+Defaults decide only when no local row matches. Deny wins within the
+selected layer. No matching allow means refusal. Folder depth grants nothing.
 
-Default power is a seeded role, not a position: every folder is bound to
-`role:member` at create, carrying the messaging verbs and `disengage`. Everything else —
-`register_group`, `routes`, `network_*`, `schedule_*`, `observe_*`,
-`invite_*`, token mint, `acl` itself — is an explicit `acl` row.
-`role:operator` holds `*` on `**` WITH GRANT OPTION and roots every
-delegation chain; root is a grant the operator invokes with `/root`, not
-a folder anyone occupies.
+`acl_membership` links principals to roles and accounts. The operator invokes
+root authority with `/root`. Ordinary tool gates accept an elevated turn.
+Rule mutations still pass `auth.CheckGrant` with the issuer's authority.
 
-A grant carries `grant_option`. Holding a row WITH GRANT OPTION is what
-lets a principal delegate onward, and only a subset of what it already
-holds — so authority strictly decreases down every chain
-(`auth.Delegate`).
+`CheckGrant` checks added allows and removals outside `hold:` against covering
+authority with `grant_option`. Hold mutations require admin authority.
+Adding a non-hold deny narrows access. Scope, params and predicate restrictions
+also apply. `auth/README.md` states the containment rules.
 
-A channel identity (`telegram:user/123`) never appears in `acl`. It
-acquires authority only by becoming a member of an account that has
-some — the `acl_membership` edge — and the only way to write that edge
-is identity pairing, where the account owner confirms in a browser
-(threat model in `SECURITY.md` § Pairing: consent is the boundary).
+A channel identity such as `telegram:user/123` can hold its own ACL rows.
+Pairing links the identity to an account through `acl_membership`, so the
+identity also receives the account's policy. The account owner confirms the
+pairing in a browser. `SECURITY.md` states the consent boundary.
 
 ## Where each fact lives
 
 - **The model, the figure and every rule**:
   [`auth/README.md` § Authorization is one row and one
   question](auth/README.md#authorization-is-one-row-and-one-question) —
-  the row, the three readers, the agent socket's two axes, exact-match
+  the row, the policy layers, the agent socket's two axes, isolated action
   readers, the magnitude gate.
 - **The trust model**: [`SECURITY.md` § The sender cannot lend the agent
   authority](SECURITY.md#the-sender-cannot-lend-the-agent-authority) and
@@ -49,7 +44,6 @@ is identity pairing, where the account owner confirms in a browser
   predicates, holds and `/always`, delegation, worked examples.
 - **Operator concepts**: `template/web/pub/arizuko/concepts/grants.html` —
   patterns (user-bot, channel-bot, hybrid) and anti-patterns.
-- **Code**: `auth/authorize.go` (the single entry point),
-  `auth/delegate.go` (`Delegate`, subset-of-held), `auth/acl.go`,
-  `store/acl.go`, `store/membership.go`, and `store/seed.go`
-  (`SeedRoutdFloor`, the seeded `role:member` and `role:operator` rows).
+- **Code**: `auth/authorize.go` — the policy evaluator;
+  `auth/defaults.go` — the default policy; `auth/grant.go` — `CheckGrant`;
+  `auth/acl.go`, `store/acl.go` and `store/membership.go`.

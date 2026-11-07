@@ -3,9 +3,7 @@ status: defected
 # defects: OPEN BUGS entries contradict this spec —
 # L538: § "Where the axis deliberately does NOT reach" says the container
 # capabilities refuse the action lattice; routd reads them through it
-# L540: decision 3 says grants flow only by subset-of-held; dashd and REST
-# write acl rows without auth.Delegate
-defects: [L538, L540]
+defects: [L538]
 depends:
   [
     5/32-acl-unified,
@@ -48,11 +46,17 @@ the tier axis was net cost.
    target, JID prefix, container home, and web vhost. Depth means nothing to
    authz.
 
-3. **Grants flow by delegation, bounded by subset-of-held.** A principal may
-   grant onward only rows it holds, and only those it holds WITH GRANT OPTION
-   (`auth/delegate.go:28` `Delegate`, wired at `routd/acl_resource.go:212`).
-   Authority strictly decreases down every chain without a depth number. A new
-   group gets what its creating group or a lineage ancestor delegates.
+3. **`CheckGrant` bounds rule mutations.** Added allows and removals outside
+   `hold:` require covering authority with the grant option. Hold mutations
+   require admin authority without the grant option. Adding a non-hold deny
+   narrows access. A covering allow must have no predicate. Its scope must
+   cover the requested scope. Its params must be empty or identical.
+   For containment, a local row with an overlapping action and scope selects
+   the local layer. Otherwise defaults decide. A deny in the selected layer
+   refuses the authority check. Identity-only allows cannot supply covering authority.
+   `auth/grant.go` checks the mutation and returns a policy version for the
+   write to prove. Host CLI and manifest writes, consent pairing and folder
+   bootstrap use their own authority.
 
 4. **Lineage is canonical; the filesystem path is a projection** of it. Groups
    know about each other and may message/send files across the tree, gated by
@@ -69,17 +73,10 @@ the tier axis was net cost.
    with global skills operator-only — no skill-write tool exists yet, so there
    is nothing to gate.
 
-7. **One default role: `role:member`, a functional floor.** The four per-depth
-   bundles (`role:tier0..3`) collapsed to a single seeded role carrying the
-   messaging verbs and `disengage` (`store/seed.go`); every folder is
-   bound to it at create (`routd/seed_grants.go:16` `assignDefaultRole`). Read
-   tools and `set_work` are always-on, no grant. Everything else — `register_group`,
-   `routes`, `network_*`, `schedule_*`, `observe_*`, `invite_*`, token mint, `acl`
-   — is explicit delegation. `role:operator` (`routd/migrations/0022`) is the
-   root of every chain, seeded WITH GRANT OPTION.
-
-   The migration is a deliberate demotion: a folder that sat above the floor by
-   depth drops to `role:member`, and the operator re-delegates what it needs.
+7. **Default authority comes from `auth/defaults.go`.** Membership determines
+   which role defaults a principal receives. Matching local `acl` rows decide
+   first. Defaults decide only when no local row matches. Deny wins within
+   the selected layer. Folder depth grants nothing.
 
 8. **Containment is the grant's scope glob, not a code prefix-walk.** Holding
    `mcp:register_group` scoped `acme/**` lets you register under `acme` and
@@ -149,10 +146,10 @@ both required:
    elevate the turn that answered it. Elevation by identity already has a
    mechanism — `/root`, gated on `IsOperator`, one-shot, explicit
    (`routd.cmdRoot`) — and this must not become an implicit second one. It is
-   the same refusal `auth.namespacedAllows` makes for holds and shell env, for
-   the same reason (`5/19` Hazard 2).
+   the namespace isolation `auth.actionCovers` applies to holds and shell env
+   (`5/19` Hazard 2).
 
-**Deny is never bounded, on either axis.** A person's deny row refuses the turn
+**Deny is never bounded by the axes.** Within the selected layer, a person's deny refuses the turn
 they triggered wherever it reaches. That is the only NARROWING a union of grant
 rows can express, and it is the per-person containment `L146` asked for.
 

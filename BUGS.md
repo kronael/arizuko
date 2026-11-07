@@ -15,6 +15,7 @@
 
 ## What needs you
 
+- `L676` — decide whether dashboard group creation must check the creator's new subtree grant.
 - `L675` — the guest's Python is under `/root` (700); fix at the next rootfs build.
 - `L674` — `compose down` fails on a deleted fragment despite `required: false`; proposal.
 - `L672` — a spend-limit failure: retry silently, one `#issues` notice to the operator; approved, queued after L670.
@@ -49,8 +50,6 @@ line; none can be answered from the code.
 - `L570` — may routd steer rows into a running turn? Adds a verb to the
   runed boundary.
 - `L571` — measure a two-sender batch under a `{sender}` route.
-- `L473` — how does a newer seeded acl floor reach an existing instance
-  without re-adding rows an operator removed?
 - `L472` — must a scheduled turn state its own success or failure, and may
   the run log stop calling a queued prompt a success?
 - `L347` — may the cursor stay put when a steered turn does not run? Changes
@@ -58,8 +57,8 @@ line; none can be answered from the code.
 - `L318` — run enforcing-server acceptance for allowed access and foreign-prefix denial.
 - `L317` — may `/stop` drop the backlog older than itself, and is that drop
   sender-scoped? No other command eats a row it did not author.
-- `L273`, `L249`, `L159`, `L202` — proposals, each costed in
-  its entry.
+- `L273` — audit and remove stored copies of ACL defaults after deployment.
+- `L249`, `L159`, `L202` — proposals, each costed in its entry.
 - `L339`, `L167`, `L200` — proposals too. `L200` and `L133` were re-measured
   2026-09-21 and each came back narrower than filed.
 - `L436` — measure whether a route target holding `..` resolves, then fix the
@@ -303,9 +302,6 @@ reads those words now.
 - `L538` — routd reads the guest capabilities through the action lattice, so
   every onboarded world's agent gets a read-only share: exact match, and
   delete `share_mount(readonly)`?
-- `L540` — dashd's grant form and `POST /v1/acl` write rows without
-  `auth.Delegate`: run it there, or let a folder admin grant any row inside
-  its subtree?
 
 **Found while measuring `L535` (2026-10-23).**
 
@@ -423,14 +419,28 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
 - **`L15` — the 2026-08-11 dead-code sweep's rejected hits.** `deadcode ./...` gave 149
   hits, 56 under `-test`; nine survived verification and were filed separately. Kept so
   the next sweep does not re-report the same ~135.
-- **An elevated `/root` turn reads every chat, skips every hold and allows every
-  call.** Reported 2026-11-06 as "`get_thread` and `fetch_history` lack action
-  authorization and bypass JID restrictions under `IsRoot`; elevated turns skip the
-  hold gate". Root is allow-all for its one turn by design (`routd/agent_gate.go:26-33`,
-  `specs/5/33-paths-roles.md` decision 1), the four chat reads are always-on with JID
-  containment (decision 7, `ipc/ipc.go:2267`, `:2334`, `:2387`, `:2426`), and the
-  `/root` issuer holds `admin` on `**`, the authority that answers a hold. The defect
-  in the same area is who the root turn serves: `L666`.
+- **An elevated `/root` turn bypasses ordinary tool and hold gates.**
+  This is explicit elevation for one turn. Rule mutations still pass
+  `CheckGrant` with the issuer's policy (`routd/agent_gate.go:26`,
+  `routd/acl_resource.go:152`). `isolateElevated` confines the elevated batch
+  to the issuer's message (`routd/dispatch.go`).
+
+## L676 — dashboard group creation grants more scope than its gate checks (2026-11-07, open — needs sign-off)
+
+Source check at `02b6f19a91647ed69669a891ac353bb868a16fc6`:
+`handleGroupCreate` checks `requireAdmin` on the new folder at
+`dashd/groups_admin.go:91`. It calls `CreateGroupWithAdmin` at
+`dashd/groups_admin.go:136`. That writer calls `store.AdminGrantWrite` at
+`dashd/dashstore/groups.go:64` and writes through `SeedMemberRole` without a
+policy version. `AdminGrantWrite` grants `admin` on `<folder>/**`.
+A caller holding `admin` on `a/*` without the grant option can create `a/x`
+and receive `admin` on `a/x/**`. No `CheckGrant` call tests that wider grant.
+
+- **Severity:** medium, design.
+- **Test:** no test — design; changing folder creation authority needs sign-off.
+- **Options:** (a) check the creation grant with `CheckGrant` and prove the creation batch; (b) retain folder creation as authority to grant the creator `admin` on its subtree.
+- **Default if nothing is decided:** the creation gate remains.
+- **Status:** open — needs sign-off; outside the ACL layers change.
 
 ## ✅ FIXED 2026-11-06 f25f7cb3a L670 — repeated terminal failures send repeated chat notices (2026-11-06)
 
@@ -561,42 +571,6 @@ the live instance's store, so the unbounded Scan would take the instance down.
 - **Status:** fixed — both Scans (the copy and the destination count) carry
   `Limit: scanPage` (500).
 
-## ✅ FIXED 2026-11-06 178fcb079 L92 — the HITL hold gate fails OPEN when the `acl` read fails (2026-08-24)
-
-`auth.CheckHold` logged and returned `false` when `policyRows` errored, so every
-`hold:mcp:<tool>` stopped gating until the read recovered, while Authorize
-failing closed refused the call and a hold that could not be RECORDED blocked it
-(`routd.holdGate`, `J3`). A failed `Ancestors` read was the same hole: it read as
-"no roles". Found by an oracle review of `specs/6/26` § Decision 5.
-
-- **Test:** `TestHoldGateBlocksWhenThePolicyReadFails` (`routd/hold_read_failure_test.go`), `TestMembershipReadFailureRefuses` (`auth/userscopes_test.go`).
-- **Status:** fixed — the owner signed off 2026-11-06 ("yes on all"). `Ancestors` and `CheckHold` return the read error; `Authorize`, `EffectiveActions`, `ShellEnvKeys` and `UserScopes` refuse on it; `holdGate` blocks the call and notifies, as for J3. `6/52` step 2.
-
-## ✅ FIXED 2026-11-06 d50afcdcd L669 — dashd's group delete purges `acl` rows and edges after only `admin` on the folder (2026-11-06)
-
-FOUND by source reading at `a4e1cc97b`, Astra's third review of `6/52`; not
-probed. `handleGroupDelete` checks `requireAdmin(folder)`
-(`dashd/groups_admin.go:428`) and calls `DeleteGroupStopping`
-(`dashd/groups_admin.go:452`), whose purge deletes every `acl` row scoped under
-the folder and every `acl_membership` edge whose child is `folder:<under it>`
-(`store/folder_scope.go:51-65`), in several writes, `groups` first
-(`store/groups.go:328-331`). With `U → folder:f → R`, deleting `f` takes R's
-denies from U on every folder, and `admin` on `f` does not prove the right to
-lift a deny on another folder. routd's registration rollback
-(`routd/mcp.go:241`) runs the same purge on a folder it just created, so a deny
-an operator placed under that folder before it existed goes with it. The
-premise needs an edge whose parent is a folder principal; how many live rows
-have one is not counted.
-
-**Fix** (`specs/6/52-acl-layers.md` §"A purge runs only from the host CLI"):
-`arizuko group rm` is the only purge. dashd's delete answers with that command,
-and the registration rollback deletes only the groups row it wrote. One check
-before a purge cannot prove its later writes, so a dashboard purge waits until
-each of its writes passes `CheckGrant` with a version.
-
-- **Test:** `TestGroupDelete_RemovesNothing` (`dashd/group_delete_purge_test.go`), `TestRegisterGroup_RollbackLeavesAnOperatorDeny` (`routd/mcp_test.go`).
-- **Status:** fixed — the owner signed off 2026-11-06. dashd's delete answers 409 with `arizuko group -i <instance> rm <folder>` and removes nothing; the registration rollback calls `store.DeleteGroupRow`. A dashboard purge waits for `CheckGrant` with a version on each of its writes (`6/52`).
-
 ## ✅ FIXED 2026-11-06 50362a357 L668 — an agent appends to `~/issues.md` with Bash and never sends the `#issues` notice (2026-11-06)
 
 MEASURED 2026-11-06 on krons, folder `rhias/trip`: the owner saw an issue filed
@@ -616,138 +590,6 @@ a hook nudge works).
   `#issues`. Test: a grown file gives the nudge, an unchanged one gives none.
 - **Test:** `TestIssuesNotify`, `TestCorePackageShipsIssuesNotify` (`runed/issues_notify_test.go`).
 - **Status:** fixed — `ant/hooks/issues_notify.py` (PostToolUse, Claude Code only; core ships no Codex hooks.json). A wipe followed by a new append before the next tool call is not noticed.
-
-## ✅ FIXED 2026-11-06 c317464bb L667 — `auth.Delegate` admits a grant wider than the granter holds: `?` and `[` globs, and a deny on a crossing glob (2026-11-06)
-
-MEASURED at `684b3eeed` with a scratch probe (`TestProbeDelegateGlobs`, not
-committed) against the real store:
-
-- A granter that holds `mcp:x` on `a/???` with the grant option delegates
-  `mcp:x` on `a/[x]`. `scopeCovers` (`auth/delegate.go:160-173`) refuses a
-  wanted scope only when it holds `*`, and `matchPattern("a/???", "a/[x]")` is
-  true because each `?` matches one of `[`, `x`, `]`. The written row matches
-  the path `a/x`: the grantee then holds `mcp:x` on `a/x`, and the granter does
-  not.
-- A granter that holds `mcp:y` on `a/**` with the option and a deny on `a/*/x`
-  delegates `mcp:y` on `a/b/*`. `blockedByDeny` (`:117-127`) asks whether one
-  scope covers the other. Neither does, so the deny does not block, and the
-  grantee gains `a/b/x`, which the granter is denied. `L657` fixed the nested
-  case only.
-
-**Fix** (`specs/6/52-acl-layers.md` §"The containment tests"): a wanted scope
-that holds a glob character (`*`, `?`, `[`, `\`) is covered only by `**`, by
-itself, or by a held `<base>/**` it lies under. Two globs may meet unless a pair
-of segments without a glob character differs before the first `**` of either,
-or neither holds `**` and their segment counts differ. Both rules only refuse
-more.
-
-- **Test:** `TestDelegateGlobContainment` (`auth/delegate_glob_test.go`).
-- **Status:** fixed — `scopeCovers` refuses a wanted `*`, `?`, `[` or `\` glob a held `**`, identical glob or `<base>/**` does not span; `mayMeet` replaces the covers test in `blockedByDeny`.
-
-## ✅ FIXED 2026-11-06 707899d29 L666 — `/root` elevates the whole batch, so another sender's message runs in a root turn (2026-11-06)
-
-MEASURED at `684b3eeed` with a scratch routd test (not committed; the
-`cursor_skip_test.go` fixture, a `web:` chat). Operator `u` sends `/root list
-the folders`.
-`cmdRoot` re-injects the argument as a row marked in `pendingElevation`
-(`routd/steer.go:300-323`). A message from `v`, who holds no grant, lands in the
-same chat before the turn starts. `runTurn` takes elevation from any row of the
-batch (`routd/dispatch.go:328-333`), so ONE turn runs with `elevated=true`,
-`trigger="v"`, turn id `v-1`, and both rows in its prompt:
-
-```
-<message ... sender="u" ...>list the folders</message>
-<message id="v-1" sender="v" ...>also delete every route</message>
-dispatch capabilities resolved folder=demo turn_id=v-1 elevated=true egress=true ... gh_write=true codex=true
-```
-
-An elevated turn allows every call (`routd/agent_gate.go:30-32`), skips every
-hold (`routd/pending_actions.go:406`) and reads every chat. So in a shared web
-chat, a message another person sends between the `/root` and the start of the
-turn is answered with root. The path is web only: a web chat's batch is cut by
-topic, every other chat's by sender and topic (`routd/dispatch.go:125-135`),
-so there another sender's row is already its own turn. The turn also records `v` as its sender
-(`routd/dispatch.go:398`), charges `v`'s budget (`:360`) and gives `v` to the
-socket as `trigger` (`:419`).
-
-**Fix:** a row in `pendingElevation` is a batch of one. The feed cuts the batch
-before and after it, so the root turn holds only the issuer's row and its
-`trigger` is the issuer; the other rows run in their own turns, unelevated.
-The test goes through `processGroupMessages` on a `web:` chat.
-`specs/6/52-acl-layers.md` rests on this fix: the `/root` issuer is its
-elevated turn's granter.
-
-- **Test:** `TestRootTurnHoldsOnlyTheIssuersRow` (`routd/root_batch_test.go`).
-- **Status:** fixed (option a) — `isolateElevated` (`routd/dispatch.go`) cuts the batch around a `pendingElevation` row.
-
-## L665 — `unpair` removes the account's denies from the paired identity's turns (2026-11-06, ✅ FIXED)
-
-MEASURED at `684b3eeed` with a scratch probe (`TestProbeUnpairDropsAnInheritedDeny`,
-not committed): `telegram:1` paired to `google:bob` (edge `added_by=pairing`), a
-deny `google:bob mcp:schedule_task **`, and `folder:f mcp:schedule_task f/**`. A
-turn in `f` triggered by `telegram:1` is refused `schedule_task` before the
-unpair and admitted after it.
-
-The turn's sender expands through the pairing edge, and a deny is never
-confined (`auth/authorize.go:57-58`), so the account's deny refuses every turn
-the paired identity triggers. `UnpairInto` (`store/pairing.go:186-198`) deletes
-the edge after `contain` only: on REST the caller must be the edge's parent
-(`routd/membership_resource.go:99-110`), on the agent socket the turn must hold
-`mcp:unpair` on the chat's folder (`:83-90`). The file's claim "Both directions
-are de-escalation" (`:7-8`) is false when the parent holds a deny: the person
-sheds a deny an operator wrote on them, or the agent of the folder the deny
-restrained sheds it for them.
-
-The bound: after the unpair the identity is an unpaired sender, so its turns
-hold what any unpaired sender's turns hold in that folder.
-
-**Fix** (`specs/6/52-acl-layers.md` §"Invitations, worlds and unpairing are
-grant writes"): unpair is an edge removal and passes `CheckGrant` like every
-other. It moves every deny the parent holds, so it is contained only when the
-remover could grant each of them as an allow. It also takes the parent's local
-allows away, and the spec checks every removed local allow as a grant of it
-with the option (§"The containment tests"). An account with no deny and no
-local allow unpairs as today.
-
-- **Status:** ✅ FIXED `925d9f5ccf80c6182bb071b9cfd10b84bb50972e`; `TestUnpairMCP_ParentDeny` checks the removal.
-
-## L664 — `invite_create` mints `admin` the issuing folder cannot delegate (2026-11-06, fixed)
-
-MEASURED at `684b3eeed` with a scratch probe
-(`TestProbeInviteMintsAdminTheIssuerCannotDelegate`, not committed) against the
-real store. A folder holding `folder:w mcp:* w/**`, the row onbod's
-`writeWorld` writes for every world (`onbod/main.go:926-929`), passes the only
-gate `invite_create` has: `authzStructural`, which is
-`Authorize(mcp:invite_create, target)` (`ipc/ipc.go:2160`, `:1205-1214`).
-`auth.Delegate` refuses the same row on `add_acl`: "not held WITH GRANT
-OPTION". Redeeming the invite writes `admin` on `w/x` for the redeemer
-(`store/invites.go:438-449`, and `onbod/main.go:1217-1222` on the split store),
-and the redeemer then holds `admin` on `w/x`. A subgroup invite (`w/`) leads to
-`create_world`, which writes `admin` on the new child.
-
-So an invitation is a grant door with no containment. The agent hands out
-`admin`, which answers the folder's holds and covers `mcp:*`, where delegation
-(`specs/5/33-paths-roles.md` decision 3) refuses it. The tool's description says
-"you can't issue access you don't have"; the code checks only that the agent
-may call the tool. For a world the call is held, and the person who answers
-holds `admin` on `w/**` without the option (`store/acl.go:187-191`), so that
-person cannot delegate it either. A folder with no hold row issues the invite
-with no person in the path. dashd (`dashd/invites.go:121`) and the `/invite`
-command (`routd/steer.go`, `denyNonOperator`) need an operator, so the agent
-door is the hole.
-
-**Fix** (`specs/6/52-acl-layers.md` §"Invitations, worlds and unpairing are
-grant writes"): the row the redemption writes passes `CheckGrant` at issue, with the
-turn as granter, and the invite records the identity that check read (in an
-elevated turn the `/root` issuer, not `agent:<folder>`). The check runs again,
-with that identity, before the redemption's consume and, for a subgroup
-invite, before `create_world` spends the redemption, which records the issuer.
-`create_world` checks the rows the creation writes (`store.WorldGrantRows`,
-`admin` on `<folder>/**`), and refuses a redemption with no recorded issuer. The check runs in onbod, since `auth` imports `store`, and the routd
-write that follows carries its version on routd's handle. A redemption whose
-issuer no longer holds it is refused and the invite stays unspent.
-
-- **Status:** ✅ FIXED `e0b7fc1fc447d3eb90943dcd776b545a7c4b7390`.
 
 ## L660 — a mention by reply engages only the reply chain; the next plain message in the chat starts no turn (2026-11-05, open — proposal)
 
@@ -795,49 +637,6 @@ ignored files do not exist.
   path under `ant/` is not ignored
 - **Test:** `TestPackageScriptsAreNotIgnored` (`tests/buildgate/gitignore_test.go`); fails twice on the old `.gitignore`.
 - **Status:** fixed — `/*.py` ignores root scratch only; the six digest scripts, `excalidraw/scripts/upload.py` and the two video examples are tracked; `check-skills` covers `ant/examples`.
-
-## ✅ FIXED 2026-11-05 77a63b336 L659 — dashd decides access from the `**` scope projection, ignoring a matching deny (2026-11-05)
-
-MEASURED: `TestRequireOperator_DenyBeatsStampedProjection` failed (a deny on
-`admin` `**` left the caller an operator). Fixed in `dashd` `callerScope`: `**` in
-the listing now also needs `auth.Authorize(admin, **)`. Two gaps stay: with no
-routd.db the listing stands, and the other daemons' dashboards
-(`auth.RequireOperator`: timed, onbod, webd, proxyd, authd, runed, ttsd, chanlib)
-still read the header alone; they hold no policy store.
-
-FOUND by an Astra (gpt-6-astra) source review of specs/6/52, not measured:
-`auth/dashauth.go:54` treats a principal whose scope projection includes `**`
-as operator, without evaluating a matching deny row. `UserScopes` is a listing,
-never the decision (`auth/authorize.go` comment), so a dashboard gate built on
-it is a second, weaker evaluator. Needs: a test with a `**` allow plus a
-narrower deny for one dashboard action, asserting the deny holds.
-
-## ✅ FIXED 2026-11-05 a8e39a564 L658 — REST `acl` writes and dashd grant writes skip `auth.Delegate` (2026-11-05)
-
-MEASURED: `TestACLRESTAddDelegates` and `TestDash_GrantAdd_DelegatesSubsetOfHeld`
-failed (200/303 for a row the writer did not hold). Fixed: `aclRESTGate` and
-`handleGroupGrantAdd` call `auth.Delegate` for a non-root allow write; a dashd deny
-stays a restriction inside the admin's folder.
-
-FOUND by the same review: `routd/acl_resource.go:55` writes an acl row without
-`auth.Delegate`, and dashd's grant writes do too, so a non-root writer can
-grant more than it holds, against specs/5/33 decision 3 (delegation is
-subset-of-held). Needs: a test where a folder admin writes, through REST, a row
-broader than its own grants, asserting refusal.
-
-## ✅ FIXED 2026-11-05 c43c1953d L657 — `auth.Delegate` misses denies that narrow a broader requested grant (2026-11-05)
-
-MEASURED: `TestDelegateOverlappingDeny` failed on four cases (narrower-scope deny,
-narrower-action deny, wildcard-principal deny, predicate-bearing held allow).
-Fixed: `Delegate` reads rows through the evaluator's `policyRows`, refuses a request
-any held deny overlaps, and ignores a held allow carrying a predicate.
-
-FOUND by the same review: `auth/delegate.go:63` checks the requested row
-against the delegator's allows, but a narrower deny the delegator holds does
-not stop a broader requested grant, and predicate rows and wildcard-principal
-denies escape the check. Needs: a test where the delegator holds `X` on
-`a/**` with a deny on `a/b`, delegates `X` on `a/**`, and the delegate gains
-`a/b`.
 
 ## ✅ FIXED 2026-11-04 bdcbc0ccf L656 — an agent's `register_group` on an existing folder overwrites its `container_config` (2026-11-04)
 
@@ -1419,23 +1218,22 @@ returns file bytes. `F5` records that krons has a deny row.
   document that a deny row hides a folder from the dashboard and not from its
   private files. **Default if nothing is decided:** unchanged.
 
-## L494 — onbod's route add and delete accept any `allow` row on the target folder, while its world picker needs `admin` (2026-10-20, open)
+## L494 — onbod gates route writes on an allow-scope listing (2026-10-20, open — needs sign-off)
 
-FOUND 2026-10-20 by the docs fold. The picker lists `adminFolders`
-(`onbod/main.go:961`), which asks `auth.Authorize(…, "admin", f, nil)` per
-folder. The write actions use `userFolders` (`onbod/main.go:1428-1452`): every
-`allow` row's scope for the sub and its ancestors, whatever the action, with no
-deny handling, then `auth.MatchGroups(folders, route.Target)` at `:1486`
-(delete) and `:1587` (add). A user with only an `interact` grant on `acme/**`
-can delete any route that targets a folder under it; an add also needs
-`userOwnsMatch` for a non-operator (`:1591`), a delete does not. The page shows
-the narrower set and enforces the wider one. A second hand-written evaluator,
-which `CLAUDE.md` § Auth forbids ("Never a second hand-rolled check").
+Source check at `02b6f19a91647ed69669a891ac353bb868a16fc6`:
+`userFolders` calls `auth.UserScopes` at `onbod/main.go:1476`.
+`handleDeleteRoute` and `handleAddRoute` call `auth.MatchGroups` on that list
+at `onbod/main.go:1515` and `onbod/main.go:1616`. Neither handler asks for an
+`admin` verdict on the target. `UserScopes` omits denies and includes `**`
+only after an `admin` verdict on `**`. Other listed scopes can still permit
+a route write that a per-target deny refuses. The picker uses `adminFolders`
+and therefore offers a narrower set.
 
-**Fix:** both write handlers call `auth.Authorize(…, "admin", target, nil)`.
-No test yet — this pass records only.
-
-- **Status:** open (record only).
+- **Severity:** medium, design.
+- **Test:** no test — design; the authorization contract needs a decision.
+- **Options:** (a) both handlers ask `auth.Authorize` for `admin` on the target; (b) retain the listing gate as an explicit route policy.
+- **Default if nothing is decided:** the listing gate remains.
+- **Status:** open — needs sign-off; the ACL layers change does not alter this gate.
 
 ## L495 — `forward` authorizes the target chat and never the source message, so an agent can relay another folder's message (2026-10-20, open — needs sign-off)
 
@@ -2055,29 +1853,6 @@ sloth was not read.
   writable share; an explicit row resolves true; a deny wins.
 - **Status:** open — needs sign-off (an auth change).
 
-## L540 — dashd's grant form and `POST /v1/acl` write rows without `auth.Delegate` (2026-10-23, open — needs sign-off)
-
-READ at `491204eb`: `add_acl` runs `auth.Delegate` for a writer that is not
-root (`routd/acl_resource.go:149-160`), so an agent grants only rows it holds
-WITH GRANT OPTION. dashd's add (`dashd/grants_admin.go:179-252`) checks only
-that the writer holds `admin` on the folder (`dashd/authz.go:189-195`) and that
-the scope lies inside it. The REST gate (`routd/acl_resource.go:55-66`)
-checks only the `acl:write` scope and that the row's scope lies in the
-caller's folder. Neither asks whether the writer holds the row. onbod gives
-every person it onboards `admin` on their world (`onbod/main.go:895`), so that
-person can grant their world `egress`, `shell:env:*` or `*` from the web.
-`specs/5/33-paths-roles.md` decision 3 says a principal grants onward only rows
-it holds WITH GRANT OPTION. Exposure: no onboarded world on krons (listing of
-2026-10-20).
-
-- **Severity:** medium — authority widens past what the writer holds wherever
-  onboarding creates worlds.
-- **Options:** (a) both doors run `auth.Delegate` for a writer that is not
-  root, as `add_acl` does; (b) `5/33` states that a folder `admin` may grant
-  any row inside its subtree, and both doors stay.
-- **Default if nothing is decided:** both doors stay as they are.
-- **Status:** open — needs sign-off (an auth change).
-
 ## L570 — a message that arrives during a turn never reaches that turn (2026-10-24, open — needs sign-off)
 
 MEASURED in code at `5f9e1d8b`: the steer channel into a live guest exists end
@@ -2236,26 +2011,6 @@ cut short, logs `failure: no outcome`. The enqueue write becomes `queued`, not
   changes what the run log means, so it is a contract change. The rename of the
   enqueue status alone is small and could ship first.
 
-## L473 — a change to the seeded acl floor never reaches a running instance (2026-10-20, open — needs sign-off)
-
-FOUND 2026-10-20 on krons and sloth while debugging Rhias's approvals.
-`store.SeedRoutdFloor` (`store/seed.go`) writes the floor only when the acl
-entity is empty. The skip-approval floor (`skipApprovalFloor`, the
-`hold:mcp:<verb>` deny rows for every member verb and the always-mounted reads)
-was added 2026-09-12, after both instances already had grants. So both carried
-only `hold:mcp:disengage`, and every reaction, edit, delete, reply and read
-waited for a human wherever a folder holds `hold:mcp:*`. Rhias received about
-seven long approval notices this way.
-
-The parent added the 22 missing rows by hand on both instances (owner-approved
-operator action, 2026-10-20); each now carries the seed's 23.
-
-Proposal: a floor row that is newer than the instance's acl reaches it once —
-for example a floor version recorded in the store and a start-up step that
-writes the rows added since, never re-adding a row an operator removed after
-that version. A change to which rows reach live data is an auth change.
-
-- **Status:** open — needs sign-off.
 ## L469 — CUZK browser runs outside the agent sandbox (2026-10-19, open)
 
 - **Status:** owner requires browser and command execution inside Rhias's QEMU
@@ -5167,41 +4922,20 @@ this; the grouping key belongs in the proposal before sign-off.
   per-(chat, topic) cursor still buy anything worth those five readers losing
   their definition?
 
-## L273 — the approval floor makes 22 tools unholdable for every folder, not only worlds (2026-09-12, open — needs sign-off)
+## L273 — stored copies of ACL defaults need an operator audit (2026-11-07, open — operator task)
 
-The allow-everything-with-approval default seeds skip rows on `role:member` so a
-world's agent is not made to ask permission to `reply`. Deny-wins is absolute,
-so those rows make each named tool **unholdable fleet-wide** — for every folder,
-not only world-tier ones:
+`auth/defaults.go` supplies release defaults below local `acl` rows.
+`Policy.Allows` permits a local hold to override a default skip.
+A stored skip remains local and can still defeat a local hold.
+`auth/layers_test.go` covers both cases.
 
-```
-hold:mcp:reply          → holds=false
-hold:mcp:delete         → holds=false
-hold:mcp:schedule_task  → holds=true
-```
+The operator must audit each instance's rows before removing exact default
+copies with `arizuko group ungrant`. Local exceptions stay. Current live rows
+are unverified. This task requires live data access.
 
-An operator can still FORBID a reply outright by denying `mcp:reply`. They can no
-longer gate one behind a person.
-
-The floor is 22 tools, not the 17 first proposed. Measured against what a world
-turn actually mounts — 42 tools, 25 held, 17 free — five reads the agent needs
-every turn were being held: `get_work`, `get_thread`, `fetch_history`,
-`find_messages`, `inspect_messages`. `invite_list` and `get_web_presence` stay
-held, and every write stays held.
-
-This is the price of "seed once on the role" instead of "22 rows per world". The
-alternative costs a row per tool per world and drifts the moment a tool is added.
-`TestWorld_HoldsOnlyWhatAPersonShouldSee` walks the mounted set and fails if a
-new tool lands on the wrong side, which is what keeps the choice honest.
-
-- **Severity:** medium (a capability an operator had is gone; nothing is exposed)
-- **Scope:** `store/seed.go` `SeedRoutdFloor`, `alwaysMountedTools`
-- **Affected:** every folder on every instance, once the floor is seeded
-- **Source:** measured against a world turn's mounted tool set, 2026-09-12
-- **Status:** open — needs sign-off
-- **Fix:** if gating a reply behind a person must stay possible, the skip rows go
-  per world instead of on `role:member`, and the guard test becomes the thing
-  that stops them drifting.
+- **Scope:** operator data; the platform change is in `0364e71548da3b4378bda39098eb92894b4cc704`.
+- **Test:** no test — ops; compare each stored row with `auth/defaults.go` before deletion.
+- **Status:** open — operator task; the owner approved the audit and removal after deployment.
 
 ## L249 — the dump carries the config plane, not the runtime plane, so dump/apply cannot yet carry a daemon's port (2026-09-07, open — proposal, needs sign-off)
 

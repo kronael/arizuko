@@ -163,10 +163,11 @@ itself (`holdGate`, `routd/pending_actions.go:430`).
 
 ## Decision 5 — the skip list reaches a running instance with the binary
 
-The skip list is a default the release carries in code, never `acl` rows:
-the evaluator reads it when no local row matches a call, and any local row
-that matches decides instead (`52-acl-layers.md`). A tool added to the list
-reaches every instance at the next deploy, and the seed writes no skip row.
+`auth/defaults.go` declares the skip list as default policy. `Policy.Allows`
+reads matching local rows first. Defaults decide only when no local row
+matches. The binary supplies the defaults at each deploy.
+`SeedRoutdFloor` writes no ACL rows. Stored copies remain local overrides
+until the operator removes them after an audit.
 
 ## Decision 6 — a reaction, an edit and a delete never wait
 

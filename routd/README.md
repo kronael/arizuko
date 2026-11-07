@@ -18,6 +18,12 @@ routd does these jobs:
 
 routd injects the agent's authorization gate into the socket: `db.AuthorizeTurn(sender, turn-folder, target, "mcp:"+tool, params)`. It limits tool visibility with `auth.EffectiveActions`. The resreg resources that routd serves reuse the same injected gate instead of the default operator gate.
 
+ACL mutations, unpair and invite creation also pass `auth.CheckGrant`.
+ACL mutations and unpair prove the returned policy version when they write.
+An elevated turn bypasses ordinary tool gates. These mutation checks still use
+the issuer's authority. `auth/defaults.go` declares the default policy under
+the local `acl` rows.
+
 ### Progress has one writer
 
 `progress.go` is the only code that calls `Typing` or creates or edits a `verb="status"` row. The hidden method `submit_status` receives the progress text. `placement.go` gives every delivery of the turn one destination.
@@ -214,7 +220,7 @@ Tokens and access:
 - `POST /v1/route_tokens/{chat,hook}` mints a chat token or a hook token. The optional `context` holds the processing instructions for that link.
 - `GET /v1/route_tokens` lists tokens and `DELETE /v1/route_tokens/{jid}` revokes one. Token delivery has no REST face: webd and proxyd read the tables of routd directly and resolve the URL token in their own process.
 - The MCP tool `issue_pairing_link(jid, sender)` takes a chat JID that routes within the caller's folder and an explicit sender. One bounded read must find an inbound message from that sender in that chat. Its `kind='pair'` token binds only that sender. It has no REST twin.
-- `DELETE /v1/acl_membership` unpairs the supplied `child` and `parent`. The caller sub must be the `parent`. The agent twin `unpair(jid, sender, parent)` uses the mint's chat containment and inbound sender check. Missing senders and senders without an inbound message in the named chat return 400 naming the chat and sender on both tools.
+- `DELETE /v1/acl_membership` unpairs the supplied `child` and `parent`. The caller sub must be the `parent`. The agent twin `unpair(jid, sender, parent)` checks `mcp:unpair` on the chat's routing folder and requires an inbound message from the sender. Both faces check the authority carried by the parent through `CheckGrant`. A parent deny or insufficient grant authority can refuse removal. The agent pairing tools return 400 when the sender is missing or has no inbound message in the named chat.
 - `POST /v1/acl` and `DELETE /v1/acl` grant and revoke [`acl:write`].
 - `POST /v1/secrets` and `DELETE /v1/secrets/{key}` write and delete secrets [`secrets:write`].
 - `GET /v1/users/{sub}/scopes` returns the scope snapshot at login [`grants:read`].
