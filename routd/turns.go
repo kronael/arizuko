@@ -18,13 +18,35 @@ import (
 // The turn's outbound lifecycle: explicit delivery tools and progress updates.
 
 // turnLocks serializes progress, completion and nudge decisions per turn.
-var turnLocks sync.Map // turn_id -> *sync.Mutex
+var turnLocks = struct {
+	sync.Mutex
+	entries map[string]*turnLock
+}{entries: make(map[string]*turnLock)}
+
+type turnLock struct {
+	sync.Mutex
+	refs int
+}
 
 func lockTurn(turnID string) func() {
-	m, _ := turnLocks.LoadOrStore(turnID, &sync.Mutex{})
-	mu := m.(*sync.Mutex)
-	mu.Lock()
-	return mu.Unlock
+	turnLocks.Lock()
+	lock := turnLocks.entries[turnID]
+	if lock == nil {
+		lock = &turnLock{}
+		turnLocks.entries[turnID] = lock
+	}
+	lock.refs++
+	turnLocks.Unlock()
+	lock.Lock()
+	return func() {
+		turnLocks.Lock()
+		lock.Unlock()
+		lock.refs--
+		if lock.refs == 0 {
+			delete(turnLocks.entries, turnID)
+		}
+		turnLocks.Unlock()
+	}
 }
 
 // deliverNudge is the one nudge text, shared by Stop hooks and turn submission.

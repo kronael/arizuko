@@ -15,7 +15,6 @@
 
 ## What needs you
 
-- `L685` — routd retains one mutex per turn for the process lifetime.
 - `L686` — decide whether to retire the four duplicated top-level creative skill names; proposal, needs sign-off.
 - `L687` — decide whether to retire the scheduler's two external write endpoints; proposal, needs sign-off.
 - `L688` — defer folding onbod into routd until measured net savings justify the boundary change; needs sign-off.
@@ -474,21 +473,6 @@ that version. A change to which rows reach live data is an auth change.
 
 - **Status:** open — needs sign-off.
 
-
-## L685 — turn mutexes remain allocated for the lifetime of routd (2026-11-07, open)
-
-`routd/turns.go:21` declares `turnLocks`, a process-wide `sync.Map`.
-`lockTurn` uses `LoadOrStore` and returns only `mu.Unlock`. No path removes
-entries. Each distinct turn reaching progress, completion or nudge handling
-retains one mutex and its turn ID.
-
-- **Severity:** medium — retained memory grows with the number of turns.
-- **Scope:** turn synchronization lifetime.
-- **Affected:** `routd/turns.go`, `routd/mcp.go`, `routd/progress.go`.
-- **Measured:** `rg -n 'turnLocks|lockTurn\(' routd` finds the declaration, insertion and callers, with no reclamation path. Bytes per turn and live RSS are unmeasured.
-- **Fix:** define bounded synchronization or lifecycle reclamation that preserves waiter exclusion. Deleting after unlock can create two mutexes for one turn.
-- **Test:** a concurrency regression must prove reclamation and waiter exclusion; new Go tests are outside this documentation pass.
-- **Status:** open — record only.
 
 ## L686 — four exposed creative skill names duplicate the create payload (2026-11-07, open — proposal, needs sign-off)
 
