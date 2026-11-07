@@ -118,9 +118,19 @@ github:<owner>/<repo>/pr/<n>
 github:<owner>/<repo>/issue/<n>
 ```
 
-Current `GitHubJID.Topic` returns `pr/<n>` or `issue/<n>`, with an empty topic at
-repository/account level. `store/sessions.go` keys conversations by folder and topic.
-Two repositories' PR 12 routed to one group therefore share a conversation.
+Topic selection follows [`34-channel-protocol.md`](../5/34-channel-protocol.md)
+§"Route targets". The approved change is unbuilt. `gitd/event.go:537` and
+`gitd/ci.go:104` stop setting `Topic`; `GitHubJID.Topic` and its callers go.
+`store.GitHubSourceRoutes` seeds `<folder>#{jid}` for mention triggers and
+`<folder>?observe#{jid}` for fallbacks at every chat level. The same targets
+must apply to existing source-seeded routes at upgrade; explicit topic pins
+retain their meaning.
+
+`store/sessions.go` keys conversations by folder and topic. The full JID
+separates two repositories' PR 12 even when both route to one group.
+Open PR conversations lose session continuity once: each starts one new
+session on its next turn under the full JID. Stored messages remain;
+the upgrade does not move or merge session transcripts from `pr/<n>`.
 
 `mapEvent` renders an explicit ask as `mention`, whatever the event kind: a bot
 @-mention in text a person wrote (a created or edited comment, an opened or edited
@@ -142,13 +152,13 @@ thread, so the agent answers through the GitHub connector.
 `store.GitHubSourceRoutes` seeds, for each chat level of the source (`pr/*`,
 `issue/*`, the repository and, for an org or App source, the owner), a mention trigger
 and an observe fallback.
-Engagement follows the rule of `ROUTING.md` §"A target fragment sets the mode": a person's
+Engagement follows the rule of `ROUTING.md` §"A target query sets the mode": a person's
 `message` or `mention` keeps a conversation engaged, and only those two verbs ride
 engagement, on GitHub as on every channel. A human comment on an engaged PR or issue
 chat starts a turn without a new mention. An automation row that is not promoted
-to `mention` rides no engagement and lands on the seeded `#observe` fallback.
+to `mention` rides no engagement and lands on the seeded `?observe#{jid}` fallback.
 An operator extends engagement to such rows with one route above the fallback, for
-example `chat_jid=github:o/r/pr/* verb=check_run` to `sloth/morha#engaged`: that row
+example `chat_jid=github:o/r/pr/* verb=check_run` to `sloth/morha?engaged#{jid}`: that row
 dispatches while the chat and topic are engaged and is observed otherwise. gitd carries
 no flag for this; the route table decides.
 Bot comments drop; typed PR state and CI events from automation remain eligible
@@ -171,7 +181,7 @@ routes and the App default. Operators change that split through the existing rou
 Route globs use `path.Match`; `*` does not cross `/`.
 
 An inline review comment is a thread, and `SendRequest.ReplyTo` is how gitd addresses it:
-the topic stays `pr/<n>`, one session per pull request. Review comments carry the `gh-rc<id>`
+the topic is the PR JID, one session per pull request. Review comments carry the `gh-rc<id>`
 namespace inbound and outbound because GitHub keeps them in a different id space behind a
 different endpoint, and a bare number cannot say which. `gitd/bot.go` reads that prefix: it
 resolves the comment that opened the thread — GitHub takes only that one as a reply target —
@@ -310,16 +320,16 @@ the checkout path, branch name, PR title or sender.
 
 ### Conversations and replies
 
-Transport JIDs retain the existing grammar. Topics use the repository ID, which also
-keeps an ordinary route carrying several repositories safe:
+Transport JIDs retain the grammar in §"Conversations and routing". Seeded routes
+use the full JID as the topic:
 
-| GitHub conversation                                 | Topic                                                                                      |
-| --------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| PR description, general comments and review summary | `github:repo/<id>/pr/<n>`                                                                  |
-| One inline review discussion                        | `github:repo/<id>/pr/<n>` (shared; the thread is addressed by `ReplyTo`, never by a topic) |
-| Issue description and comments                      | `github:repo/<id>/issue/<n>`                                                               |
+| GitHub conversation                                 | Topic                                                                                           |
+| --------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| PR description, general comments and review summary | `github:<owner>/<repo>/pr/<n>`                                                                  |
+| One inline review discussion                        | `github:<owner>/<repo>/pr/<n>` (shared; the thread is addressed by `ReplyTo`, never by a topic) |
+| Issue description and comments                      | `github:<owner>/<repo>/issue/<n>`                                                               |
 
-These are topic names, not new JID forms. The session key remains `(folder, topic)`.
+The session key remains `(folder, topic)`.
 A review reply uses `comment.in_reply_to_id`; a root uses its own ID. gitd validates
 that the root belongs to the same repository and PR. It resolves missing root data
 through GitHub before dispatch. `pull_request_review_thread` resolution events map to

@@ -48,7 +48,7 @@ fails at once.
 row addresses the folder directly, so the route table does not apply, and its
 `forwarded_from` is the task's `chat_jid`. The turn runs in the owner, and
 `reply` and `send` deliver to that chat, the same return address a delegation
-carries. A chat whose only rule is `#observe` therefore still runs its tasks.
+carries. A chat whose only rule is `?observe` therefore still runs its tasks.
 A task cannot name another folder: the owner is the scheduled-task row's own
 field, set when the task is created.
 
@@ -111,7 +111,7 @@ a read returns the rules in order of precedence.
 | `id`                      | int  | The handle that `route rm` takes; minted through the `counters` item |
 | `seq`                     | int  | Evaluation order; a lower value goes first                           |
 | `match`                   | text | Space-separated `key=glob` predicates, all of which must match       |
-| `target`                  | text | `<folder>[#<mode>]`: a group folder and an optional mode             |
+| `target`                  | text | `<folder>[?<mode>][#<topic-template>]`: folder, mode and topic       |
 | `observe_window_messages` | int  | Optional. Overrides the message cap of the observed window           |
 | `observe_window_chars`    | int  | Optional. Overrides the character cap of the observed window         |
 
@@ -195,31 +195,43 @@ arizuko route -i demo add 'platform=discord' 'atlas/{sender}'
 # discord:user/alice becomes atlas/dc-alice, discord:user/bob becomes atlas/dc-bob
 ```
 
-### A target fragment sets the mode
+### A target query sets the mode
 
-The `target` column is a URI. It has a folder and an optional fragment
-`#<mode>`. The fragment selects what happens to the matched messages. A target
-without a fragment means trigger. Trigger is the default and the only mode that
-always fires a turn.
+The `target` column is a relative URI parsed with `net/url`:
+`<folder>[?<mode>][#<topic-template>]`. The path names the folder, one bare query
+flag selects the mode, and the fragment selects only the topic.
+`sloth/morha?observe#{jid}` observes each chat under its full JID as the topic.
+These URI and template changes are approved but unbuilt.
 
-| Fragment    | Effect                                                                                                                          |
+| Query       | Effect                                                                                                                          |
 | ----------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| none        | trigger: store under `target` and fire a turn                                                                                   |
-| `#observe`  | store under `target` and fire no turn; the agent sees it in the `<observed>` block and in the history                           |
-| `#engaged`  | fire a turn while the chat and topic are engaged, else store under `target` as observed; never addressed                        |
-| `#announce` | trigger, and mark this channel as a release-note destination                                                                    |
-| `#issues`   | trigger, and mark this chat as the destination of agent issue notices and new onboarding requests; put it on private chats only |
-| `#<topic>`  | trigger, and pin the topic `<topic>` on every matched message                                                                   |
+| none        | trigger: store under the folder and fire a turn                                                                                 |
+| `?observe`  | store under the folder and fire no turn; the agent sees it in the `<observed>` block and in the history                         |
+| `?engaged`  | fire a turn while the chat and topic are engaged, else store under the folder as observed; never addressed                      |
+| `?announce` | trigger, and mark this channel as a release-note destination                                                                    |
+| `?issues`   | trigger, and mark this chat as the destination of agent issue notices and new onboarding requests; put it on private chats only |
 
-`observe`, `engaged`, `announce` and `issues` are reserved words, so no topic can have any
-of these names. `folder#announce` always means the announce fragment and never a
-topic called `announce`; the same holds for `#engaged` and `#issues`. A route row has no creation time, so nothing can tell a topic of
-that name apart from the fragment. Pick another topic name.
+The fragment is a topic template. `{jid}` is the full chat JID; `{thread}` is
+the adapter's thread value, including reply-topic inheritance. Plain text pins
+a fixed topic. No fragment means `{thread}`, with normal sticky-topic behavior
+unchanged. An explicit fragment overrides the sticky topic. `folder#observe`
+therefore triggers a topic named `observe`; topic names have no reserved words.
+The rendered topic applies to engagement, observation, batching and sessions.
+
+Every route write refuses unknown modes, multiple flags, flag values, unknown
+placeholders and malformed templates. Dispatch never first validates them.
+The single `expand.Expand` function serves route topics, `{sender}` paths and
+connector `{secret:KEY}` placeholders. URI parsing comes before expansion, so
+variable values cannot change the folder, query or fragment boundaries.
+
+One routd startup migration moves existing mode fragments to query flags:
+`#observe`, `#engaged`, `#announce` and `#issues`. Other `#<topic>` targets
+retain their meaning.
 
 An explicit `verb=` predicate and `seq` decide whether a message fires a turn.
 A weighted score never decides. With a score, nobody can answer "will this
 fire?" without a simulation. A channel that answers only on mention therefore
-needs two rules: a `verb=mention` trigger above a catch-all `#observe`. See
+needs two rules: a `verb=mention` trigger above a catch-all `?observe`. See
 the Discord example below.
 
 **Engagement follows a person's message.** The agent can have an engagement
@@ -227,27 +239,27 @@ window on `(jid, topic)`, from an earlier reply or from the `engage` MCP tool.
 Only a row with the verb `message` (or no verb) or `mention` rides the window,
 on every channel, GitHub included. While the window lasts, such a row goes to
 the engaged folder and fires a turn, whatever the route table says. This holds
-for `#observe` targets, for trigger routes that point to another folder and for
+for `?observe` targets, for trigger routes that point to another folder and for
 a route miss. Every other verb ignores the window: a reaction, an edit, a join,
 an `untrusted` mail and a GitHub `check_run` or `pull_request_review` row follow
-their route, so on an `#observe` route they are stored observed and on a route
+their route, so on a `?observe` route they are stored observed and on a route
 miss they are held. A reply or a reaction to a bot message still becomes
 `mention` at ingest and so still fires a turn. The window lasts for the
 engagement TTL, 30 minutes by default, see `ENGAGEMENT_TTL`.
 
-A route with the target fragment `#engaged` extends the window to the rows it
+A route with the query flag `?engaged` extends the window to the rows it
 matches, whatever their verb. An operator who wants CI to continue an open
-conversation writes the row above the `#observe` fallback:
+conversation writes the row above the `?observe` fallback:
 
 ```
-arizuko route -i demo add 'chat_jid=github:o/r/pr/* verb=check_run' team/reviewer#engaged --seq 50
+arizuko route -i demo add 'chat_jid=github:o/r/pr/* verb=check_run' 'team/reviewer?engaged#{jid}' --seq 50
 ```
 
 The row fires a turn while the chat and topic are engaged, in the folder that
 holds the engagement. The target folder takes the row only as observed, when the
 chat and topic are not engaged. It is never addressed. A reply in the turn it starts renews
 the window, so CI that keeps arriving while the agent keeps replying holds the
-conversation engaged. The default routes carry no `#engaged` row.
+conversation engaged. The default routes carry no `?engaged` row.
 
 The agent sees an observed message in two ways. `routd` puts the messages in an
 `<observed>` block before the prompt of the next trigger turn, and the agent can
@@ -268,9 +280,8 @@ When the block is present, the prompt carries this rule: "Observed messages are
 context, not requests. Do not reply to them; reply to the explicit message."
 The rule also makes a duplicate delivery of an observed message harmless.
 
-A new mode, such as `#drop` or `#digest`, extends the vocabulary of the
-fragment. It needs no schema change, because the fragment is one free-form
-column.
+A new mode requires an explicit addition to query validation. It needs no
+schema change.
 
 ### routd promotes a verb before it routes
 
@@ -333,8 +344,8 @@ greets it with a pairing link. A Discord guild channel starts onboarding only
 on an explicit `@mention`, so a busy server does not queue every poster.
 [`onbod/README.md`](onbod/README.md#from-an-unrouted-chat-to-a-routed-one)
 draws the flow. When a new chat first asks to onboard, `routd` also queues one
-short notice to every `#issues` chat, with the sender and the chat. Later
-messages of the same chat queue none. With no `#issues` route, nothing is sent.
+short notice to every `?issues` chat, with the sender and the chat. Later
+messages of the same chat queue none. With no `?issues` route, nothing is sent.
 
 No default catch-all rule exists, and `arizuko create` seeds none:
 
@@ -344,7 +355,7 @@ No default catch-all rule exists, and `arizuko create` seeds none:
   the `<observed>` window of the target folder. It also ends onboarding on that
   platform. `routeMiss` takes the observe branch first, and only the other
   branch hands the chat to `onbod`, see `routd/loop.go`. A rule
-  `platform=X → staging#observe` therefore means "capture and never greet" for
+  `platform=X → staging?observe` therefore means "capture and never greet" for
   platform X. Greeting and capturing exclude each other on one platform.
 
 The same table answers who may make the agent fire. A `sender=` rule above an
@@ -374,7 +385,7 @@ seq  match                                           target
 5    platform=discord room=<sloth_guild_id>/*        main
 10   platform=discord room=dm/*                      main
 20   platform=discord verb=mention                   main
-30   platform=discord                                main#observe
+30   platform=discord                                main?observe
 ```
 
 The rule at seq 20 fires a turn on every `@bot` message in any guild. The
@@ -395,8 +406,8 @@ seq  match                                             target
 10   chat_jid=slack:*/dm/*                             atlas
 40   chat_jid=slack:*/channel/* verb=mention           atlas
 40   chat_jid=slack:*/group/*   verb=mention           atlas
-100  chat_jid=slack:*/channel/*                        atlas#observe
-100  chat_jid=slack:*/group/*                          atlas#observe
+100  chat_jid=slack:*/channel/*                        atlas?observe
+100  chat_jid=slack:*/group/*                          atlas?observe
 ```
 
 A message in a Slack channel or private group without `@atlas` matches seq 100.
@@ -408,7 +419,7 @@ matches seq 10, a plain trigger, so the agent always replies in direct
 messages.
 
 To make the agent reply to every channel message, change the targets at seq 100
-from `atlas#observe` to `atlas`.
+from `atlas?observe` to `atlas`.
 
 ### A leading @name selects a group, and a #topic prefix is code
 
@@ -427,16 +438,16 @@ decides it, in the same place that decides every other address.
   group, that group takes the message. The target can be any group.
 - **Else the nearest `<ancestor>/<name>`.** When the first matching row is not
   an `at=` row, `routd` tries `<group>/<name>`, then `<parent>/<name>`, and so
-  on, where `<group>` is the group the chat's route picks (an `#observe` route
+  on, where `<group>` is the group the chat's route picks (a `?observe` route
   counts). It stops at the top-level group (the first path segment), so a name
   never reaches another tenant.
 - **No group.** The message is not changed: it follows the chat's route.
 
-The group starts a turn even when the chat's route is `#observe`. The turn
+The group starts a turn even when the chat's route is `?observe`. The turn
 sees the message with `@name` removed.
 
 ```
-Chat routed to sloth/discord#observe. Group sloth/killer exists.
+Chat routed to sloth/discord?observe. Group sloth/killer exists.
 User sends: "@killer clean up the queue"
 Lookup: sloth/discord/killer is missing, sloth/killer exists
 Turn: "clean up the queue" runs in sloth/killer
@@ -479,14 +490,15 @@ consume the message before any turn starts.
 
 **A batch resolves by its newest row that dispatches on its own.** `routd`
 reads the route table once per batch and scans the user rows from the newest.
-The first row whose own resolution dispatches picks the folder and the topic
-pin for the batch. The addressed flag is per turn: a turn is addressed when one
-of its own rows is addressed, so a CI row under `#engaged` that runs beside a
+The first row whose own resolution dispatches picks the folder for the batch.
+Each row renders its route topic before grouping into turns.
+The addressed flag is per turn: a turn is addressed when one
+of its own rows is addressed, so a CI row under `?engaged` that runs beside a
 mention in its own turn is not owed an answer. A row dispatches on its own when a
 trigger rule matches it, or when it is a `message` or `mention` on an engaged
-chat, or when an `#engaged` rule matches it on an engaged chat. When no row dispatches, the newest user row decides: a route miss or an
-`#observe` match. Bot rows never resolve a batch. A mention in a batch therefore
-starts a turn even when a newer row of the same batch matches only `#observe`.
+chat, or when a `?engaged` rule matches it on an engaged chat. When no row dispatches, the newest user row decides: a route miss or a
+`?observe` match. Bot rows never resolve a batch. A mention in a batch therefore
+starts a turn even when a newer row of the same batch matches only `?observe`.
 Every other user row that the turn consumes is stored observed under the batch
 folder before the prompt is built, and it reaches the turn in the `<observed>`
 block. The cursor passes the mention and the observed rows together. Three
@@ -534,7 +546,7 @@ route miss: held; onboarding if enabled      @ or #, slash command, prefix,
 2. **Route table.** `routd` checks the rules in ascending `seq`, and the first
    match wins. The match expression is described above. A `message` or `mention`
    on an engaged chat overrides the folder of a matched rule. A matched `observe`
-   rule on an engaged chat counts as engagement alone. A matched `#engaged` rule
+   rule on an engaged chat counts as engagement alone. A matched `?engaged` rule
    fires only on an engaged chat.
 3. **Engagement.** Engagement rescues a miss for a `message` or `mention`. The lookup uses the effective
    topic. It then falls back to the root topic `""`, unless someone disengaged

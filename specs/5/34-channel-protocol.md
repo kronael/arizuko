@@ -1,5 +1,5 @@
 ---
-status: shipped
+status: partial
 ---
 
 # Channel adapter protocol
@@ -246,13 +246,102 @@ lookup. Retired in v0.28.0 (dropped in migration 0065) — the in-memory
 
 ## Route targets
 
-A route target is `folder[#fragment]` (`core.ParseRouteTarget`,
-`core/types.go:107`). The fragment selects mode: `#observe`
-(`ROUTING.md` § A target fragment sets the mode), `#announce` (release notes), `#issues` (agent issue notices, the `send` destination `#issues`),
-or anything else as a topic pin. There are no `folder:`, `daemon:` or
-`builtin:` target prefixes. Slash-commands are dispatched directly by
-`routd/steer.go` and never flow through routes. Resolution itself is
+Approved 2026-11-07; the URI and template changes are unbuilt.
+
+A route target is a relative URI parsed with Go's net/url package:
+`<folder>[?<mode>][#<topic-template>]`. For example, `sloth/morha?observe#{jid}`.
+The path names the folder. One bare query flag selects `observe`, `engaged`,
+`announce` or `issues`; no query means trigger. Unknown flags, multiple flags
+and flag values are invalid. The fragment only selects a topic, so `#observe`
+is a topic named `observe`. Topic names have no reserved words.
+
+```text
+route write ──► net/url and Expand (changed) ──► routes
+adapter ──► route match ──► Expand (new) ──► topic and mode ──► routd
+connector secrets ──► Expand (changed) ──► headers, query, body
+```
+
+`{jid}` expands to the full chat JID. `{thread}` expands to the native thread
+value in `Message.Topic`, including existing reply-topic inheritance, before
+route or sticky overrides. Plain text pins a fixed topic. No fragment means
+`{thread}` and preserves normal chats, including sticky topics and the empty
+main topic. An explicit fragment overrides the sticky topic. The rendered
+topic applies per message to engagement, observation, batching and session
+selection; `routd/loop.go:741` and `routd/dispatch.go:112` must use the same value.
+
+Parse the URI before expansion. Expand its decoded path and fragment separately,
+so a variable's `/`, `?` or `#` cannot become URI syntax. The path keeps its
+existing `{sender}` expansion to the short sender ID. Topic templates accept
+only `{jid}` and `{thread}`; paths accept only `{sender}`. There are no new
+message fields or adapter-specific topic rules.
+
+All route creates and updates validate the URI, mode and templates before
+persistence, through the shared route write path. Template validation calls
+`Expand` with the allowed names present, even when their values are empty.
+Malformed templates and unknown placeholders or modes are refused at route
+write, never first discovered at dispatch. CLI, REST, MCP and seeded routes
+have the same validation. Route containment and destination readers use the
+parsed folder and query flags, including release and issue destinations.
+All mode target producers, including non-GitHub seeds, emit query flags.
+The `send` destination `#issues` is unchanged.
+
+### One function expands every placeholder
+
+The tiny new package `expand` exports exactly one function:
+
+```go
+func Expand(s string, vars map[string]string) (string, error)
+```
+
+The package has no routing, credential or I/O dependencies. Both routing and
+connector code can import it without depending on each other. `Expand` replaces
+each `{name}` once with the map value. A missing key or malformed braces returns
+an error. Empty values are valid. Replacement values are literal and never
+expanded again. There is no escaping syntax, expression language or registry.
+
+`ipc/connector.go:182`'s `expandSecret` goes. `RenderSecrets` supplies
+`secret:KEY` map keys and retains its policy of dropping entries with missing
+or empty credentials. Expansion errors replace the unresolved-token scan.
+`router/router.go:205`'s `{sender}` replacement also calls `Expand`.
+The other first-party substitutions use it too: REST paths in `ipc/extcall.go`,
+hold text in `routd/pending_actions.go`, revoke URLs in `auth/surrogate/engine.go`
+and probe variables in `anteval/pkg/run/run.go`. Callers collect values and
+handle errors; only `Expand` recognizes and replaces placeholders.
+
+### routd migrates mode fragments once
+
+Before routing starts, one routd migration rewrites targets ending in
+`#observe`, `#engaged`, `#announce` or `#issues` to their query forms.
+Every other `#<topic>` retains its topic meaning. Route IDs, order, predicates,
+window settings and audit attributes stay intact. The target is part of the
+store key, so the migration moves the row to its new coordinate. Rerunning
+the migration makes no further changes. Runtime parsing accepts only the URI
+contract above; there is no legacy parser.
+
+GitHub's seeded targets and the session transition belong to
+[`27-git-channel.md`](../6/27-git-channel.md) §"Conversations and routing".
+Slash commands remain in `routd/steer.go`; resolution remains in
 [`E-routd.md`](E-routd.md).
+
+### Build tests prove the contract
+
+- `Expand` renders `{jid}`, `{thread}`, `{sender}` and `{secret:KEY}`, including
+  repeated placeholders, empty values and literal replacement values. It
+  refuses unknown names and malformed braces.
+- Route writes refuse unknown placeholders, malformed templates and unknown
+  or malformed modes on create and update through CLI, REST, MCP and seeding.
+- URI tests separate path, query and fragment. Fixed topics, including mode
+  words, work with every mode. Normal chats without fragments preserve native
+  threads, inherited topics, sticky topics and main sessions.
+- Two repositories' PR 12 routed to one group use distinct `{jid}` topics and
+  sessions. Trigger, observe and engaged routes agree on the topic.
+- Migration tests cover all four mode rewrites, unchanged fixed topics,
+  preserved row metadata and a second run with no changes. GitHub seed upgrades
+  add `#{jid}` without changing explicit topic pins.
+
+No grep-style renderer test: source spelling cannot prove that only one
+renderer exists. Review removes the measured substitutions above; caller tests
+exercise the shared function and each caller's error policy.
 
 ## The agent is an implicit channel
 
