@@ -289,8 +289,6 @@ func TestRenderTurnGoldenElevated(t *testing.T) {
 		root + "/groups/share -> /var/lib/share",
 		root + "/ipc/main -> /run/ipc",
 		root + "/groups/main/.codex -> /home/node/.codex",
-		root + "/ipc/main/codex-cred-auth.json -> /home/node/.codex/auth.json ro",
-		root + "/ipc/main/codex-cred-config.toml -> /home/node/.codex/config.toml ro",
 		root + "/web/pub/arizuko -> /var/lib/www/arizuko ro",
 		root + "/groups -> /var/lib/groups",
 	}
@@ -301,6 +299,8 @@ func TestRenderTurnGoldenElevated(t *testing.T) {
 	wantEnv := map[string]string{
 		"TZ":                "Europe/Prague",
 		"ARIZUKO_BACKEND":   "claude",
+		"ARIZUKO_MODEL":     "opus",
+		"ARIZUKO_EFFORT":    "xhigh",
 		"MODEL_GATEWAY_URL": "http://litellm:4000",
 		"MODEL_GATEWAY_KEY": "sk-virtual-turn",
 		"ARIZUKO_IS_ROOT":   "1",
