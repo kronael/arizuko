@@ -44,10 +44,10 @@ func (s *Store) migrateRouteTargets(ctx context.Context, name string, target fun
 		if err != nil {
 			return err
 		}
-		ok, err := s.obj.GuardedBatch(ctx, nil, []objstore.Write{
+		ok, err := s.TryWriteEntities(ctx, nil, []objstore.Write{
 			{Op: objstore.Delete, Entity: Routes, Key: item.Key, Cond: objstore.Cond{Item: objstore.ItemPresent}},
 			{Op: objstore.Put, Entity: Routes, Key: key, Attrs: item.Attrs, Cond: objstore.Cond{Item: objstore.ItemAbsent}},
-		})
+		}...)
 		if err != nil {
 			return err
 		}
@@ -55,7 +55,7 @@ func (s *Store) migrateRouteTargets(ctx context.Context, name string, target fun
 			return fmt.Errorf("route migration conflict: %s", route.Target)
 		}
 	}
-	ok, err := s.obj.GuardedBatch(ctx, nil, []objstore.Write{{Op: objstore.Put, Entity: Counters, Key: marker, Attrs: map[string]string{"done": "1"}, Cond: objstore.Cond{Item: objstore.ItemAbsent}}})
+	ok, err := s.TryWriteEntities(ctx, nil, []objstore.Write{{Op: objstore.Put, Entity: Counters, Key: marker, Attrs: map[string]string{"done": "1"}, Cond: objstore.Cond{Item: objstore.ItemAbsent}}}...)
 	if err != nil {
 		return err
 	}
