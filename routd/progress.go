@@ -165,6 +165,7 @@ func finishTurn(db *DB, dl Deliverer, turnID string, end turnEnd) {
 }
 
 func finishTurnLocked(db *DB, dl Deliverer, turnID string, end turnEnd) {
+	db.progress.Delete(turnID)
 	if end != endSteered && dl != nil {
 		endProgress(db, dl, turnID, end)
 	}

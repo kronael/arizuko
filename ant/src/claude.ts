@@ -567,7 +567,7 @@ export async function* runClaude(turn: Turn, run: QueryFn = query): AsyncGenerat
         // comes from policy.ts's one table.
         hooks: {
           PreCompact: [{ hooks: [createPreCompactHook(assistantNameFromSettings())] }],
-          ...claudeHooks(bindings({ home: os.homedir(), turnID: turn.turnID })),
+          ...claudeHooks(bindings({ home: os.homedir(), turnID: turn.turnID, source: 'claude' })),
         },
       },
     })) {

@@ -31,7 +31,9 @@ export interface SubmitTurnPayload {
 // SubmitStatusPayload updates the turn's progress line.
 export interface SubmitStatusPayload {
   turn_id: string;
-  text: string;
+  text?: string;
+  source?: 'claude' | 'codex';
+  snapshot?: import('./policy.js').ToolEvent;
 }
 
 let nextId = 1;

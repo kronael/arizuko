@@ -7,6 +7,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/kronael/arizuko/audit"
@@ -21,7 +22,8 @@ import (
 // lifecycle + route tokens. routd is the SOLE appender of messages. Times are
 // core.TSLayout UTC, computed in Go.
 type DB struct {
-	obj objstore.Store
+	obj      objstore.Store
+	progress sync.Map
 
 	// SECRETS_KEY material, raw. Empty → reads stay ciphertext and writes
 	// store plaintext.

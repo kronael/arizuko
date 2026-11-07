@@ -59,12 +59,13 @@ export interface Binding {
 export interface PolicyContext {
   home: string;
   turnID: string;
+  source?: 'claude' | 'codex';
 }
 
 // bindings IS the table: every capability the agent runs under, on every harness.
 export function bindings(ctx: PolicyContext): Binding[] {
   const rescan = bashSkillRescan(ctx.home);
-  const todo = todoStatus(ctx.turnID);
+  const todo = todoStatus(ctx.turnID, ctx.source ?? 'claude');
   return [
     { id: 'reply-owed', event: 'Stop', returns: ['deny'], run: replyOwed(ctx.turnID) },
     // A skill the agent writes today runs in its NEXT session. Scans the file the
@@ -87,9 +88,7 @@ export function bindings(ctx: PolicyContext): Binding[] {
     { id: 'skill-rescan', event: 'PostToolUse', returns: [], run: async (ev) => rescan(ev) },
     { id: 'tool-log-post', event: 'PostToolUse', returns: [], run: async (ev) => toolLogPost(ev) },
     { id: 'steering', event: 'PostToolUse', returns: ['inject'], run: async (ev) => steering(ev) },
-    // TodoWrite is a claude tool name; codex plans with update_plan and pi has no
-    // equivalent, so the matcher never fires there.
-    { id: 'todo-status', event: 'PostToolUse', matcher: 'TodoWrite', returns: [], run: (ev) => todo(ev) },
+    { id: 'todo-status', event: 'PostToolUse', matcher: 'TodoWrite|TaskCreate|TaskUpdate|TaskList|TaskGet|update_plan', returns: [], run: (ev) => todo(ev) },
   ];
 }
 

@@ -26,7 +26,7 @@ the local `acl` rows.
 
 ### Progress has one writer
 
-`progress.go` is the only code that calls `Typing` or creates or edits a `verb="status"` row. The hidden method `submit_status` receives the progress text. `placement.go` gives every delivery of the turn one destination.
+`progress.go` is the only code that calls `Typing` or creates or edits a `verb="status"` row. The hidden method `submit_status` receives raw harness snapshots and fallback text. `progress_reducer.go` merges parent checklists under the turn lock; an active checklist owns the text until End. `placement.go` gives every delivery of the turn one destination.
 
 - A channel that advertises `edit` and `delete` gets one `⏳` progress line where the reply will go. An existing thread wins; without one, the reply's own rule applies.
 - A channel that lacks either gets no progress line. gitd advertises no `edit`, so GitHub shows the `👀` mark and no progress comment.

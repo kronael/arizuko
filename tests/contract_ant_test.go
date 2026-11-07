@@ -19,6 +19,33 @@ import (
 	"github.com/kronael/arizuko/ipc"
 )
 
+func TestSubmitStatusPayloadFieldsMatchAcrossLanguages(t *testing.T) {
+	src := antSource(t, "mcp.ts")
+	start := strings.Index(src, "export interface SubmitStatusPayload {")
+	if start < 0 {
+		t.Fatal("missing SubmitStatusPayload")
+	}
+	end := strings.Index(src[start:], "\n}")
+	if end < 0 {
+		t.Fatal("missing SubmitStatusPayload end")
+	}
+	field := regexp.MustCompile(`(?m)^\s{2}([a-z_][a-z0-9_]*)\??:`)
+	var ant []string
+	for _, match := range field.FindAllStringSubmatch(src[start:start+end], -1) {
+		ant = append(ant, match[1])
+	}
+	var goFields []string
+	typeOf := reflect.TypeOf(ipc.TurnStatus{})
+	for i := 0; i < typeOf.NumField(); i++ {
+		goFields = append(goFields, strings.Split(typeOf.Field(i).Tag.Get("json"), ",")[0])
+	}
+	sort.Strings(ant)
+	sort.Strings(goFields)
+	if !reflect.DeepEqual(ant, goFields) {
+		t.Fatalf("ant fields %v; Go fields %v", ant, goFields)
+	}
+}
+
 // antSource reads one ant/src file, failing loudly rather than skipping — a
 // contract test that skips when it cannot find the other side is a test that
 // reports green on a deleted seam.

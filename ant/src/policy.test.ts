@@ -21,7 +21,7 @@ describe('the binding table is the whole capability surface', () => {
       ['skill-rescan', 'PostToolUse', '*', ''],
       ['tool-log-post', 'PostToolUse', '*', ''],
       ['steering', 'PostToolUse', '*', 'inject'],
-      ['todo-status', 'PostToolUse', 'TodoWrite', ''],
+      ['todo-status', 'PostToolUse', 'TodoWrite|TaskCreate|TaskUpdate|TaskList|TaskGet|update_plan', ''],
     ]);
   });
 

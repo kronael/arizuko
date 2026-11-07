@@ -652,8 +652,10 @@ func handleSubmitTurn(raw []byte, id any, routd RoutdFns, folder string, write f
 }
 
 type TurnStatus struct {
-	TurnID string `json:"turn_id"`
-	Text   string `json:"text"`
+	TurnID   string          `json:"turn_id"`
+	Text     string          `json:"text"`
+	Source   string          `json:"source"`
+	Snapshot json.RawMessage `json:"snapshot"`
 }
 
 // handleSubmitStatus is hidden from tools/list, like submit_turn.

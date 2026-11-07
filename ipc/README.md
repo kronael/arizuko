@@ -100,8 +100,9 @@ tool calls. The guest's stdout is discarded.
 - **Why a method and not stdout.** A method call makes silence explicit. A
   marker on stdout cannot tell "no output" from "the agent crashed".
 
-`submit_status` carries the mid-turn progress text to the turn's progress row
-and does not end the turn.
+`submit_status` carries fallback `text` or a `source` and unchanged native tool
+`snapshot`. routd merges parent checklists and renders the turn's progress row.
+The call does not end the turn.
 
 ## Who may call what
 

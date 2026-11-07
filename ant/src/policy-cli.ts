@@ -27,7 +27,7 @@ async function main(): Promise<void> {
   spoolStderr();
   const [event, turnID] = process.argv.slice(2);
   const ev = JSON.parse(await readStdin()) as ToolEvent;
-  const rows = codexRows(bindings({ home: os.homedir(), turnID: turnID ?? '' }));
+  const rows = codexRows(bindings({ home: os.homedir(), turnID: turnID ?? '', source: 'codex' }));
   const verdict = await runRows(rows, event as PolicyEvent, ev);
   process.stdout.write(verdictToCodexJson(verdict, event as PolicyEvent));
 }

@@ -402,7 +402,11 @@ func (s *Server) submitStatus(status ipc.TurnStatus) error {
 	if !ok {
 		return fmt.Errorf("no turn context for turn_id")
 	}
-	if s.callbackClosed(tc) || !tc.Addressed {
+	if s.callbackClosed(tc) || tc.State == store.TurnDone {
+		return nil
+	}
+	text, publish := s.db.reduceProgress(status)
+	if !publish || !tc.Addressed {
 		return nil
 	}
 	jid := returnTarget(tc, tc.ChatJID)
@@ -411,7 +415,7 @@ func (s *Server) submitStatus(status ipc.TurnStatus) error {
 			"turn_id", tc.TurnID, "jid", jid)
 		return nil
 	}
-	return s.updateProgress(tc, jid, status.Text)
+	return s.updateProgress(tc, jid, text)
 }
 
 // fetchPlatformHistory backs the fetch_history MCP tool: proxy to the owning
