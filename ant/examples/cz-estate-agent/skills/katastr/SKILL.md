@@ -50,6 +50,14 @@ ALWAYS apply the printed click counts to the corresponding tiles in the existing
 ALWAYS verify the real page result after submitting the challenge.
 NEVER treat the montage as proof of success; ALWAYS confirm that the requested cadastral details are visible.
 
+## Methods
+
+ALWAYS read a method file only at the step that needs it:
+- `navazujici-parcely-wfs.md`: the exact parcel, its direct neighbours and the land type from ČÚZK WFS and RUIAN, with no CAPTCHA.
+- `sousedni-parcely.md`: land type, zoning plan, official price and neighbours from the free katastrnemovitosti.cz map.
+- `okolni-pozemky-scan.md`: nearby land for sale or lease from Bazoš and SPÚ.
+- `per-parcel-db.md`: the method for one record per parcel, cadastre against zoning plan.
+
 ## Property evidence
 
 ALWAYS select Parcela or Podle LV and verify the territory and parcel number on the detail page.
