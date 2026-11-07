@@ -210,8 +210,7 @@ type holdShape struct {
   the tool name, then its scalar arguments as `name=value`, each value cut at
   40 characters on one line, and no key.
 - A placeholder names a scalar argument of the call; one the call does not
-  carry stays visible as `{name}`. A test that renders every held tool of a
-  world turn and fails on an unfilled placeholder is not built.
+  carry stays visible as `{name}`. `TestWorldHeldToolAsksFillPlaceholders` checks every held world tool against its input schema.
 
 The pending row carries four derived fields, filled by the renderer and never
 stored: `ask`, `matcher` (the params spec the row would carry), `rule_text`

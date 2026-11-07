@@ -1,6 +1,7 @@
 package routd
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -155,5 +156,53 @@ func TestWorld_HoldsOnlyWhatAPersonShouldSee(t *testing.T) {
 		case !free[name] && !held:
 			t.Errorf("%s runs unwatched; a world's writes are what the blanket hold is for", name)
 		}
+	}
+}
+
+func TestWorldHeldToolAsksFillPlaceholders(t *testing.T) {
+	d := memDB(t)
+	worldFolder(t, d, "atlas")
+	for name := range holdShapes {
+		if err := addACLRow(d, core.ACLRow{Principal: "folder:atlas", Action: auth.HoldPrefix + name, Scope: "atlas", Effect: store.EffectAllow}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	count := 0
+	for _, tool := range ipc.ListTools("atlas", nil) {
+		held, err := d.CheckHold("folder:atlas", "atlas", tool.Name, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !held {
+			continue
+		}
+		raw, err := json.Marshal(tool)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var wire struct {
+			InputSchema struct {
+				Properties map[string]struct {
+					Type string `json:"type"`
+				} `json:"properties"`
+			} `json:"inputSchema"`
+		}
+		if err := json.Unmarshal(raw, &wire); err != nil {
+			t.Fatal(err)
+		}
+		args := map[string]string{}
+		for key, prop := range wire.InputSchema.Properties {
+			if prop.Type == "string" || prop.Type == "number" || prop.Type == "integer" || prop.Type == "boolean" {
+				args[key] = "value"
+			}
+		}
+		ask := askText(tool.Name, args)
+		if strings.ContainsAny(ask, "{}") {
+			t.Errorf("%s: unfilled placeholder in %q", tool.Name, ask)
+		}
+		count++
+	}
+	if count == 0 {
+		t.Fatal("no held tools tested")
 	}
 }
