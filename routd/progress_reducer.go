@@ -31,7 +31,6 @@ type turnProgress struct {
 	sources       map[string][]progressItem
 	seen          map[string]bool
 	calls         map[string]bool
-	callCount     int
 	reminded      bool
 	lastPublished time.Time
 	lastAttempt   time.Time
@@ -44,7 +43,7 @@ func (progress *turnProgress) reminder(startedAt, now time.Time) ipc.TurnStatusA
 		return ack
 	}
 	remaining := startedAt.Add(180 * time.Second).Sub(now)
-	if progress.callCount >= 8 || remaining <= 0 {
+	if len(progress.calls) >= 8 || remaining <= 0 {
 		progress.reminded = true
 		ack.Remind = true
 	} else {
@@ -88,10 +87,7 @@ func (progress *turnProgress) reduceProgress(status ipc.TurnStatus) (string, boo
 		return "", false
 	}
 	key := status.Source + "\x00" + event.Session + "\x00" + event.Call
-	if !progress.calls[key] {
-		progress.calls[key] = true
-		progress.callCount++
-	}
+	progress.calls[key] = true
 	if event.Event == "PostToolUseFailure" {
 		return "", false
 	}

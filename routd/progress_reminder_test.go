@@ -54,11 +54,11 @@ func TestProgress_ReminderTimeAndChecklist(t *testing.T) {
 	if !progress.reminder(start, start.Add(180*time.Second)).Remind {
 		t.Fatal("time did not remind")
 	}
-	progress.callCount = 8
+	progress.calls = map[string]bool{"1": true, "2": true, "3": true, "4": true, "5": true, "6": true, "7": true, "8": true}
 	if progress.reminder(start, start.Add(181*time.Second)).Remind {
 		t.Fatal("second trigger reminded")
 	}
-	progress = &turnProgress{active: true, callCount: 8}
+	progress = &turnProgress{active: true, calls: progress.calls}
 	if progress.reminder(start, start.Add(time.Hour)).Remind {
 		t.Fatal("checklist reminded")
 	}
@@ -132,7 +132,7 @@ func TestProgress_ReminderTimeAndCallRace(t *testing.T) {
 		t.Fatal(err)
 	}
 	srv := NewServer(db, nil, &recDeliverer{}, nil, 0, "")
-	db.progress.Store("t1", &turnProgress{callCount: 7, sources: make(map[string][]progressItem), seen: make(map[string]bool)})
+	db.progress.Store("t1", &turnProgress{calls: map[string]bool{"1": true, "2": true, "3": true, "4": true, "5": true, "6": true, "7": true}, sources: make(map[string][]progressItem), seen: make(map[string]bool)})
 	raw := `{"hook_event_name":"PostToolUse","tool_name":"Read","session_id":"s","tool_use_id":"8","tool_input":{}}`
 	results := make(chan ipc.TurnStatusAck, 2)
 	var group sync.WaitGroup
