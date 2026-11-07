@@ -2,24 +2,17 @@
 status: queued
 ---
 
-# specs/7 — single-world deployment
+# specs/7 — identity credentials and tools
 
-One operator runs one world. The core modules share one binary and one
-process, with explicit boundaries for state, permissions, and execution.
-A world can contain many groups and agents.
+Model credentials and tool accounts have separate ownership and authorization rules.
+The core agent and habitat model lives in [phase 6](../6/54-agent-habitat.md).
 
-These specs describe the target composition. The current deployment uses
-separate daemons. Enterprise hardening remains in [phase 8](../8/index.md).
+Package import adapters in spec 25 and composition drafts 26 and 27 remain deferred to phase 8.
 
-| Spec                                                               | Status  | Covers                                                                                                                                                |
-| ------------------------------------------------------------------ | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [23-agent-habitat.md](23-agent-habitat.md)                         | draft   | Shared message, routing, permission, and turn model                                                                                                   |
-| [25-publish-plan.md](25-publish-plan.md)                           | partial | Native packages, package import adapters, and skill discovery; defect L200                                                                            |
-| [26-single-world-deployment.md](26-single-world-deployment.md)     | draft   | One core process with Dynamo-compatible storage and isolated agent execution                                                                          |
-| [27-minimum-arizuko.md](27-minimum-arizuko.md)                     | draft   | Functional minimum: writable files, messaging, and skills                                                                                             |
-| [28-identity-held-credentials.md](28-identity-held-credentials.md) | draft   | A user's credential pays for that user's turn; delivery, enrollment and internal funding await owner decisions                                        |
-| [29-identity-held-tools.md](29-identity-held-tools.md)             | queued  | Tools carried by an OAuth identity and whose account a call acts as; the agent's own login stays the default and acting as a human stays a grant      |
-| [30-permanent-vms.md](30-permanent-vms.md)                         | queued  | A zstd-packed read-only rootfs on virtio-blk instead of a per-instance directory tree, and a disk-backed overlay upper cleaned at the end of the turn |
-| [47-source-pins.md](47-source-pins.md)                             | partial | Native guest layers, system provisioning and installed-package record retirement remain unfinished.                                                   |
-| [48-programmable-turns.md](48-programmable-turns.md)               | draft   | Workflows of turns: a package declares steps as data, routd runs each turn and carries its result to the next                                         |
-| [49-groups-without-agents.md](49-groups-without-agents.md)         | draft   | A group binds an agent or none; routd stores rows for a group with no agent and runs no turn; outside agents use the existing bearer and grant        |
+| Spec                                                               | Status  | Covers                                                                                                                                           |
+| ------------------------------------------------------------------ | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| [25-publish-plan.md](25-publish-plan.md)                           | partial | Native packages, package import adapters, and skill discovery; defect L200                                                                       |
+| [26-single-world-deployment.md](26-single-world-deployment.md)     | draft   | One core process with Dynamo-compatible storage and isolated agent execution                                                                     |
+| [27-minimum-arizuko.md](27-minimum-arizuko.md)                     | draft   | Functional minimum: writable files, messaging, and skills                                                                                        |
+| [28-identity-held-credentials.md](28-identity-held-credentials.md) | draft   | A user's credential pays for that user's turn; delivery, enrollment and internal funding await owner decisions                                   |
+| [29-identity-held-tools.md](29-identity-held-tools.md)             | queued  | Tools carried by an OAuth identity and whose account a call acts as; the agent's own login stays the default and acting as a human stays a grant |

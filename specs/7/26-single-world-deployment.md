@@ -3,7 +3,7 @@ status: draft
 depends: [../6/42-dynamo-over-postgres, ../6/43-shared-store-server]
 relates-to:
   [
-    23-agent-habitat,
+    ../6/54-agent-habitat,
     25-publish-plan,
     27-minimum-arizuko,
     ../6/41-qemu-substrate,

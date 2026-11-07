@@ -2201,7 +2201,7 @@ rather than the design.
 ## L447 — squashfs is the wrong compressed rootfs for a random-read boot, and this kernel builds it in its slowest mode (2026-10-19, open — needs sign-off)
 
 FOUND 2026-10-19 while costing a packed read-only rootfs
-(`specs/7/30-permanent-vms.md`). squashfs is reachable today and EROFS is not,
+(`specs/6/54-agent-habitat.md`). squashfs is reachable today and EROFS is not,
 so squashfs is the right FIRST step; this entry records that it is not the
 right last one.
 

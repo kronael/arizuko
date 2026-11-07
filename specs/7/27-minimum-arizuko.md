@@ -2,7 +2,7 @@
 status: draft
 relates-to:
   [
-    23-agent-habitat,
+    ../6/54-agent-habitat,
     25-publish-plan,
     26-single-world-deployment,
     ../5/33-paths-roles,
@@ -36,7 +36,7 @@ another group's workspace.
 
 ## Relationship to the other specs
 
-[The habitat](23-agent-habitat.md) defines the shared conversation and turn model.
+[The habitat](../6/54-agent-habitat.md) defines the shared conversation and turn model.
 [Packages](25-publish-plan.md) install capabilities and expose skills.
 [Single-world deployment](26-single-world-deployment.md) composes the core
 modules into one process. This spec defines the capabilities that composition

@@ -40,11 +40,10 @@ arizuko's self-learning pointed outward. Since 2026-08-27 it also
 carries the operator cockpit (`6/28`–`6/33`): a daemon nobody can watch
 alone has not shipped alone.
 
-**Phase 7** defines single-world deployment: the agent habitat, native packages
-and package import adapters, shared skill discovery, and the functional minimum.
-The core modules share one binary and process while retaining their boundaries.
-Persistence uses the Dynamo-compatible storage contract. This is a target
-composition; the current installation uses separate daemons.
+Phase 6 also defines the local agent and its persistent VM habitat.
+**Phase 7** defines identity-held model credentials and tool accounts.
+Package import adapters in spec 7/25 and composition drafts 7/26 and 7/27
+remain deferred to phase 8.
 
 **Phase 8** layers enterprise hardening: encryption at rest, audit
 stream, per-daemon secrets, SSO/SAML, tool-level secret broker,
@@ -72,7 +71,7 @@ combination is the platform thesis arizuko ships toward.
 | [4/](4/)   | dashboards, memory, scheduler, personas — core architecture (channel protocol → `5/34`, ACL → `5/32`·`5/33`)                                                                                                                          | shipped    |
 | [5/](5/)   | platform core — surfaces, identity, routing, tenancy, runtime                                                                                                                                                                         | shipped    |
 | [6/](6/)   | split arizuko into parts — the environment contracts, the ship-in-parts catalogue (`6/16`), crackbox, the operator cockpit (`6/28`–`6/33`), the store model (`6/37`) , the QEMU substrate (`6/41`), DynamoDB over PostgreSQL (`6/42`) | **active** |
-| [7/](7/)   | single-world deployment — habitat, packages and skill discovery, one core process, and the functional minimum                                                                                                                         | queued     |
+| [7/](7/)   | identity-held model credentials and tool accounts                                                                                                                                                                                     | queued     |
 | [8/](8/)   | enterprise hardening — encryption, audit, SSO, secret broker                                                                                                                                                                          | queued     |
 | [9/](9/)   | the data model — cold / warm / hot tier separation, and operator-extensible `<autocalls>`; git-as-truth is declined (`5/8`) and MCP+REST unification ships in `5/16`·`5/17`                                                           | drafting   |
 | [10/](10/) | self-healing — Aeon mechanism incorporation                                                                                                                                                                                           | queued     |
@@ -97,19 +96,22 @@ order at all. `queued` is committed and waiting its turn; `drafting` is still
 being designed; `planned` is a placeholder with no specs written. Phase 5
 closed 2026-08-15; phase 6 took `active` the same day.
 
-**Composition boundaries.** Phase 6 defines independently usable components.
-Phase 7 composes the core modules into one process for a single world.
-A component boundary does not require a deployment boundary.
+**Composition boundaries.** Phase 6 defines independently usable components and the agent/habitat boundary.
+One-process composition remains deferred to phase 8.
 
-## Single-world specs
+## Package and composition drafts remain deferred to phase 8
 
-| Spec                                                               | Status  | Summary                                                                                             |
-| ------------------------------------------------------------------ | ------- | --------------------------------------------------------------------------------------------------- |
-| [7/23-agent-habitat.md](7/23-agent-habitat.md)                     | draft   | Shared message, routing, permission, and turn model                                                 |
-| [7/25-publish-plan.md](7/25-publish-plan.md)                       | partial | Packages, package import adapters, and skill discovery; defect L200                                 |
-| [7/26-single-world-deployment.md](7/26-single-world-deployment.md) | draft   | One core process with Dynamo-compatible storage                                                     |
-| [7/27-minimum-arizuko.md](7/27-minimum-arizuko.md)                 | draft   | Writable files, messaging, and skills                                                               |
-| [7/47-source-pins.md](7/47-source-pins.md)                         | partial | Native guest layers, system provisioning and installed-package record retirement remain unfinished. |
+| Spec                                                               | Status  | Summary                                                             |
+| ------------------------------------------------------------------ | ------- | ------------------------------------------------------------------- |
+| [7/25-publish-plan.md](7/25-publish-plan.md)                       | partial | Packages, package import adapters, and skill discovery; defect L200 |
+| [7/26-single-world-deployment.md](7/26-single-world-deployment.md) | draft   | One core process with Dynamo-compatible storage                     |
+| [7/27-minimum-arizuko.md](7/27-minimum-arizuko.md)                 | draft   | Writable files, messaging, and skills                               |
+
+## The local agent owns a habitat
+
+| Spec                                           | Status | Summary                                                                                          |
+| ---------------------------------------------- | ------ | ------------------------------------------------------------------------------------------------ |
+| [6/54-agent-habitat.md](6/54-agent-habitat.md) | draft  | Local model loop and credentials, persistent VM content, optional agent binding and guest tools. |
 
 ## ACL layers use one evaluator
 
