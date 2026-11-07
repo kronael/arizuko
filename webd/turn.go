@@ -60,16 +60,7 @@ func mergeProgress(msgs, active []core.Message) []core.Message {
 		}
 		return all[i].Timestamp.Before(all[j].Timestamp)
 	})
-	seen := make(map[string]bool)
-	out := all[:0]
-	for _, m := range all {
-		id := messageFrames([]core.Message{m})[0].ID
-		if !seen[id] {
-			seen[id] = true
-			out = append(out, m)
-		}
-	}
-	return out
+	return all
 }
 
 func bufferedProgress(ch <-chan string, active []frame) ([]string, []frame) {
@@ -106,9 +97,6 @@ func bufferedProgress(ch <-chan string, active []frame) ([]string, []frame) {
 }
 
 func progressEvent(frames []frame) string {
-	if frames == nil {
-		frames = []frame{}
-	}
 	data, _ := json.Marshal(map[string]any{"frames": frames})
 	return "event: progress\ndata: " + string(data) + "\n\n"
 }
