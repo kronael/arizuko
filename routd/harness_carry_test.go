@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -62,7 +64,21 @@ func TestHarnessCarry(t *testing.T) {
 		return runed.RunResult{Outcome: runedv1.OutcomeOK}
 	}}
 	manager := runed.NewManager(runDB, runtime, runed.ManagerConfig{Instance: "test", Cfg: cfg, Folders: &groupfolder.Resolver{GroupsDir: cfg.GroupsDir, IpcDir: cfg.IpcDir}})
-	server := httptest.NewServer(runed.NewServer(manager, runDB, nil).Handler())
+	handler := runed.NewServer(manager, runDB, nil).Handler()
+	var sentConfig map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Error(err)
+		}
+		var request runedv1.RunRequest
+		if err := json.Unmarshal(body, &request); err != nil {
+			t.Error(err)
+		}
+		sentConfig = request.ContainerConfig
+		r.Body = io.NopCloser(bytes.NewReader(body))
+		handler.ServeHTTP(w, r)
+	}))
 	defer server.Close()
 	loop := NewLoop(db, runedv1.NewClient(server.URL, "", 0), LoopConfig{})
 	loop.StopQueue()
@@ -82,6 +98,9 @@ func TestHarnessCarry(t *testing.T) {
 		}
 	}
 	check()
+	if sentConfig["MaxChildren"] != float64(16) {
+		t.Fatalf("dispatched container config = %v", sentConfig)
+	}
 	if err := db.store().SetGroupOpen("demo", false); err != nil {
 		t.Fatal(err)
 	}
