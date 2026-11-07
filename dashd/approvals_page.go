@@ -10,34 +10,17 @@ import (
 	"time"
 )
 
-// handleApprovals renders GET /dash/approvals/ — spec 5/19's review queue:
-// every tool call a hold rule has suspended, with the approve/reject verdicts.
-// Until this page, a held call was visible only in the chat notice; an operator
-// who missed it had no queue to come back to.
-//
-// It reads AND resolves over routd's /v1/pending_actions with the service:dashd
-// bearer, never in SQL: routd owns the resolution lifecycle — the verdict must
-// commit together with the agent's answer (routd resolveHoldTx), and a
-// direct-DB verdict from here would decide a call no agent is ever told about.
-//
-// The page is open to any signed-in caller and shows NOTHING by default: dashd
-// forwards the proxyd-verified sub as `reviewer`, and routd returns only the
-// rows that human holds `admin` on — the same question its verdict gate asks.
-// A queue filtered by one rule and answered by another is how a reader gets a
-// row they can only be refused on.
 func (d *dash) handleApprovals(w http.ResponseWriter, r *http.Request) {
 	if _, ok := requireUser(w, r); !ok {
 		return
 	}
 	pageTopFor(w, r, "approvals")
 
-	_, _ = fmt.Fprint(w, `<p class="dim">A hold rule pauses a risky tool call until a human says go. `+
-		`The agent is waiting on it right now. Review the arguments, then approve `+
-		`&mdash; it runs immediately, with exactly these arguments &mdash; or reject, `+
-		`and the agent is told so and never runs it.</p>`)
+	_, _ = fmt.Fprint(w, `<p class="dim">A hold rule pauses a tool call for human approval. `+
+		`Approve to let the gate execute the original call, or reject to refuse it.</p>`)
 
 	writeFlash(w, r, map[string]flash{
-		"approved": {"ok", "approved — the waiting agent runs the call now"},
+		"approved": {"ok", "approved — the gate executes the original call"},
 		"rejected": {"ok", "rejected — the call will not run"},
 		"always": {"ok", "approved, and this shape now skips approval — the rule is an acl row " +
 			"on the group's grants page, and removing it is the only way back"},
@@ -47,18 +30,10 @@ func (d *dash) handleApprovals(w http.ResponseWriter, r *http.Request) {
 	pageClose(w, r)
 }
 
-// pendingRow mirrors routd's PendingAction JSON — the fields this page shows.
-//
-// ask/rule_text/matcher_error are routd's, DERIVED there: the call in words and
-// the rule an `always` would write, and this page must display exactly what the
-// writer will store. Rendering them here from `args` would be a second renderer
-// of one fact, which is how a surface ends up showing one grant and writing
-// another (specs/6/49-approval-ask.md).
 type pendingRow struct {
 	ID           string `json:"id"`
 	GroupFolder  string `json:"group_folder"`
 	Tool         string `json:"tool"`
-	Args         string `json:"args"`
 	Status       string `json:"status"`
 	ChatJID      string `json:"chat_jid"`
 	CreatedAt    string `json:"created_at"`
@@ -131,13 +106,12 @@ func (d *dash) renderApprovals(w http.ResponseWriter, r *http.Request) {
 		heldRows = append(heldRows, []string{
 			group,
 			`<code>` + esc(p.Tool) + `</code><div class="dim">` + esc(p.Ask) + `</div>`,
-			approvalArgsCell(p.Args),
 			d.chatJIDCell(p.ChatJID),
 			abbrTS(p.CreatedAt),
 			approvalVerdictCell(p),
 		})
 	}
-	_, _ = fmt.Fprint(w, htmlTable([]string{"Group", "Tool", "Arguments", "Chat", "Held", ""}, heldRows,
+	_, _ = fmt.Fprint(w, htmlTable([]string{"Group", "Tool", "Chat", "Held", ""}, heldRows,
 		"Nothing is waiting. Held calls appear here the moment a hold rule fires."))
 
 	if len(resolved) == 0 {
@@ -165,20 +139,6 @@ func (d *dash) renderApprovals(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	_, _ = fmt.Fprint(w, htmlTable([]string{"Group", "Tool", "Outcome", "By", "When", "Note"}, resolvedRows))
-}
-
-// approvalArgsCell shows the call's arguments — the material under review, so
-// they are never hidden behind a hover: full JSON inside a collapsed details.
-func approvalArgsCell(args string) string {
-	if args == "" {
-		return `<span class="dim">none</span>`
-	}
-	short := args
-	if len(short) > 60 {
-		short = short[:60] + "…"
-	}
-	return fmt.Sprintf(`<details><summary><code>%s</code></summary><pre>%s</pre></details>`,
-		esc(short), esc(args))
 }
 
 // approvalVerdictCell is one form, three submit buttons: the optional note rides

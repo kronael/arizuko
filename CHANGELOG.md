@@ -13,6 +13,8 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+- Approval pages show routd's rendered request and standing rule. The agent
+  waits for the original call's result and never reissues an approved call.
 - ACL policy reads local rows before release defaults from `auth/defaults.go`.
   A local hold can override a default skip. Failed policy reads block access.
 - ACL changes, unpair, approvals and invitations check the writer's authority

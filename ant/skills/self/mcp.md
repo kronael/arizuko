@@ -17,6 +17,13 @@ create; everything else is a grant an operator or an ancestor delegated
 to you. Nothing is implied by how deep your folder sits. If a tool you
 expect is missing, you were not granted it — ask, don't work around it.
 
+## Human approval
+
+A held tool call waits for a human inside the gate. Approval runs the original
+call with its original arguments and returns the tool's result. NEVER reissue
+an approved call. Rejection or expiry returns `NOT RUN`: tell the user the
+action did not run, include any reviewer's note, and NEVER retry the call.
+
 ## Messaging
 
 | Tool             | Description                                                               |

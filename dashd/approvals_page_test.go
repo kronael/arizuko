@@ -29,7 +29,7 @@ func TestApprovalsPage_RendersHeldQueue(t *testing.T) {
 	u := newRoutdUpstream(t)
 	u.respond = `{"pending":[
 		{"id":"ab12","group_folder":"corp/eng","tool":"send_file","args":"{\"path\":\"/etc/x\"}",
-		 "status":"held","chat_jid":"tg:9","created_at":"2026-08-08T06:00:00Z"},
+		 "ask":"corp/eng wants to send /etc/x","status":"held","chat_jid":"tg:9","created_at":"2026-08-08T06:00:00Z"},
 		{"id":"cd34","group_folder":"solo","tool":"post","status":"rejected",
 		 "reviewed_by":"google:op@x","reviewed_at":"2026-08-07T10:00:00Z","reviewer_note":"too wide",
 		 "created_at":"2026-08-07T09:00:00Z"}]}`
@@ -335,7 +335,7 @@ func TestApprovalResolve_AlwaysSendsStandingOnApprove(t *testing.T) {
 func TestApprovalsPage_ShowsTheStringsRoutdRendered(t *testing.T) {
 	u := newRoutdUpstream(t)
 	u.respond = `{"pending":[
-		{"id":"ab12","group_folder":"solo","tool":"like","args":"{}","status":"held",
+		{"id":"ab12","group_folder":"solo","tool":"like","args":"RAW_ARGUMENT_MUST_NOT_RENDER<not-json>","status":"held",
 		 "ask":"solo wants to react 👀 to message 156",
 		 "rule_text":"Always: every like call with reaction=👀 in solo runs without asking.",
 		 "created_at":"2026-08-08T06:00:00Z"}]}`
@@ -354,6 +354,11 @@ func TestApprovalsPage_ShowsTheStringsRoutdRendered(t *testing.T) {
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("the page must print %q:\n%s", want, body)
+		}
+	}
+	for _, unwanted := range []string{"RAW_ARGUMENT_MUST_NOT_RENDER", "<th>Arguments</th>"} {
+		if strings.Contains(body, unwanted) {
+			t.Errorf("the page rendered arguments independently: %s", unwanted)
 		}
 	}
 }

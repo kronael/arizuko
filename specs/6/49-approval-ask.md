@@ -9,8 +9,7 @@ depends:
 An approval is one chat line that asks a human for one tool call, with three
 buttons, and a standing answer that stops the question for that kind of call.
 This spec fixes the text of the line, what `/always` writes, the one renderer
-that owns both, and how the seeded approval floor reaches an instance that
-already runs.
+that owns both, and how release defaults reach a running instance.
 
 The hold renderer, declared always keys, notices, verdicts, REST fields and
 binary defaults have tests in `routd/hold_always_test.go`,
@@ -18,54 +17,22 @@ binary defaults have tests in `routd/hold_always_test.go`,
 
 ## Remaining
 
-- Satisfy the acceptance rule that dashd consumes rendered strings without its own argument renderer (`dashd/approvals_page.go`, `dashd/approvals_page_test.go`).
-- Teach the agent that the gate executes an approved call and that it must not reissue the call (`ant/skills/self/mcp.md`).
 - Audit stored skip-default copies and obsolete async/targetId rules on each instance; preserve local exceptions (`auth/defaults.go`, `cmd/arizuko/README.md`; operator data, L273).
 - Resolve the own-message delete restriction and approval visibility in tool listings (`ipc/ipc.go`, `routd/mcp.go`; owner decisions).
-- Reconcile the async-effect documentation with the accepted allow/deny effects (`specs/5/19-hitl-firewall.md`, `CHANGELOG.md`).
 
-## Problem — nine holds, four dead rules, seventy lines
+## Approval text and standing rules describe one call
 
-Measured on krons 2026-10-20 at `71fe79d5`, with `arizuko get krons
-pending_actions` and `arizuko group krons grants` built from that tree.
+A standing rule for `like` must pin `reaction` and leave `targetId` free.
+Pinning the message id covers only that message. The notice must state the
+rule the verdict writes. Every surface must use that same text.
 
-- `pending_actions` holds 10 rows. 9 belong to the folder rhias/nemo, and
-  every one is a `like` call. Seven are from 2026-10-20, between 19:38:24 and
-  19:42:55; the owner answered each in 2 to 41 seconds, with `/always` on the
-  first, the second and the sixth. One row from 2026-10-14 is `expired`:
-  nobody answered, the agent's turn waited the full `HITL_WAIT` of 10 minutes,
-  and only then could it tell the user "NOT RUN (id 854967a6)". That text is
-  still in the agent's session three sessions later.
-- One row holds every one of them: `folder:rhias/nemo hold:mcp:like rhias/nemo`
-  with effect `async`, written 2026-08-25. The folder is not a world and holds
-  no `hold:mcp:*`. `store.EffectAllowed` (`store/acl.go:112`) accepts `allow`
-  and `deny` only, and `auth.namespacedAllows` (`auth/authorize.go:639`) reads
-  every effect but `deny` as a hold, so the row holds and cannot be rewritten
-  as it is.
-- `/always` wrote four rows, each `chatJid=<chat>,reaction=👀,targetId=<n>`.
-  `routd.withMatcher` (`routd/pending_actions.go:511`) pins every scalar
-  argument, and `targetId` names one message, so each rule matched that one
-  message and no later call. The owner stopped pressing `/always` after the
-  third.
-- One notice is 8 lines, about 400 characters, plus 3 buttons (`notifyHeld`,
-  `routd/pending_actions.go:558`; `alwaysOffer`, `:592`). An `/always` answer
-  adds 3 lines that quote a `remove_acl` call with five fields
-  (`standingWritten`, `routd/steer.go:632`). Seven holds and their answers put
-  about 70 lines into one chat in five minutes.
-- The skip-approval floor (`store.skipApprovalFloor`, `store/seed.go:54`)
-  already names `like`, `dislike`, `edit` and `delete`. krons never received
-  it: `SeedRoutdFloor` (`store/seed.go:74`) writes into an empty `acl` only,
-  and krons has carried rows since May. The 22 missing rows went in by hand on
-  2026-10-20 (BUGS `L473`).
-
-Three defects follow. The notice is long because it explains the rule it would
-write. The rule is dead because it names the message. The floor that makes a
-reaction free never reaches a running instance.
+Release defaults must reach running instances without stored copies that hide
+later policy changes. Local exceptions remain the operator's data.
 
 ## Decision 1 — the gate asks, in the agent's words
 
 The gate asks, not the agent. The call is suspended at the socket
-(`5/19-hitl-firewall §"Blocking is the default (2026-09-02)"`), so the agent
+(`5/19-hitl-firewall §"Blocking is the default"`), so the agent
 cannot speak until the verdict. A question the agent asked before the call
 would be answered twice: once to the agent, once on the gate's notice. A chat
 answer to the agent is not a verdict: a verdict needs an `admin` grant on the
@@ -78,8 +45,7 @@ writes the folder, that text, and the id:
 
     ⏸ rhias/nemo wants to react 👀 to message 156 — ok? (647ec18e)
 
-The agent still reports a refusal in one sentence (`verdictRefusal`,
-`routd/pending_actions.go:486`); nothing changes there.
+The agent reports a refusal from `verdictRefusal` in `routd/pending_actions.go`.
 
 ## Decision 2 — `/always` pins the kind of call, not the call
 
@@ -92,20 +58,17 @@ later 👀 reaction in that folder runs. `/always` exists only for a tool that
 declares its always keys. A tool that declares none gets no `Always` button,
 and the second line says so: `Always is not offered: schedule_task declares
 no standing rule; an operator writes one.` The operator writes that rule with
-`arizuko group grant` or on the grants page (owner, 2026-11-05).
+`arizuko group grant` or on the grants page.
 
-A value stays exact, never a glob. A value with `,`, `*` or outer spaces still
+A value stays exact, never a glob. A value with `,`, `*` or outer spaces
 refuses `/always` (`auth.ParamsSpec`, `auth/authorize.go:515`), and a
 non-scalar argument is never pinned. A key the call carries no scalar value
 for refuses `/always`. The row passes `auth.CheckGrant` like every other
-write to the rules (`52-acl-layers.md`). The row, its `deny` effect, its batch
-with the verdict and its revocation do not change
+write to the rules (`52-acl-layers.md`). The row uses `deny` and commits with
+the verdict
 (`6/26-personal-mode §"The mechanics behind `always`"`).
 
-`/always` is offered on every hold of a tool that declares keys, not after N
-holds. The owner pressed it on
-the first hold and on the second. The rule's shape failed, not its timing, and
-a counter is state nobody asked for.
+`/always` is offered on every hold of a tool that declares keys.
 
 Keys for the tools with a measured case; the full set lives in the
 declarations:
@@ -123,11 +86,9 @@ A tool with `none` gets no `/always`.
 ## Decision 3 — two lines and three buttons
 
 The notice is the ask line, one line that says what `/always` means, and the
-three verdicts as buttons. The reaction hint and the dashboard link leave the
-chat: a green or red reaction still resolves the row
-(`5/19-hitl-firewall §"Reactions — the universal answer (2026-09-03)"`), and
+three verdicts as buttons. A green or red reaction resolves the row
+(`5/19-hitl-firewall §"Reactions — the universal answer"`), and
 `/dash/approvals/` lists every held row with the portal banner counting them.
-All nine measured holds were answered, or expired, in the chat.
 
     ⏸ rhias/nemo wants to react 👀 to message 156 — ok? (647ec18e)
     Always: every like call with reaction=👀 in rhias/nemo runs without asking.
@@ -144,7 +105,6 @@ Each verdict is acknowledged in one line:
     ⛔ rejected (647ec18e).
     ✅ ok (647ec18e). Always: every like call with reaction=👀 in rhias/nemo runs without asking. Undo: revoke the hold:mcp:like skip row on the grants page.
 
-The `remove_acl` call with its five quoted fields leaves the acknowledgement.
 The grants page (`dashd/grants_admin.go:86`) and `arizuko group -i <inst> grants`
 show the row with its coordinate and a revoke control.
 
@@ -154,19 +114,17 @@ Three artifacts own the approval, each in one place:
 
 - **Hold policy** stays in `acl` rows read by `auth.CheckHold`
   (`auth/authorize.go:589`) and in the release defaults, one file
-  `auth/defaults.go` (`52-acl-layers.md`). This spec changes neither.
+  `auth/defaults.go` (`52-acl-layers.md`).
 - **The hold shape** — how a call reads, and which arguments `/always` pins —
   is declared once, in `holdShapes` beside the renderer
   (§"The hold shape").
 - **The renderer** is one function in routd that fills the derived fields of
   the pending row: `ask`, `matcher`, `rule_text` and `matcher_error`.
-  `withMatcher` is that function; `alwaysOffer`, `approvalURL` and
-  `standingWritten` are gone.
+  `withMatcher` is that function. Ask placeholders use `expand.Expand`.
 
 Every sink shows the renderer's strings and derives nothing: the chat notice,
 the acknowledgement, the `/v1/pending_actions` row, and the approvals page,
-which drops its own copies `alwaysRuleText` and `alwaysCaveat`
-(`dashd/approvals_page.go:214,223`). The agent's refusal text is unchanged.
+which reads `ask` and `rule_text` from routd.
 
 The agent-side text belongs in `ant/skills/self/mcp.md`. The gate runs the
 approved call itself (`holdGate`, `routd/pending_actions.go`).
@@ -181,7 +139,7 @@ until the operator removes them after an audit.
 
 ## Decision 6 — a reaction, an edit and a delete never wait
 
-The floor already lists `like`, `dislike`, `edit` and `delete`
+The floor lists `like`, `dislike`, `edit` and `delete`
 (`auth/defaults.go`), and Decision 5 delivers it. A folder that must hold one
 of them writes its own `hold:mcp:<verb>` row at `allow`; a local row decides
 before the skip list (`52-acl-layers.md`). BUGS `L273` closes on an instance
@@ -224,8 +182,7 @@ type holdShape struct {
 
 The pending row carries four derived fields, filled by the renderer and never
 stored: `ask`, `matcher` (the params spec the row would carry), `rule_text`
-(the second line) and `matcher_error`. The field keeps its name `matcher`;
-`unmatchable` is gone, since the rule pins the declared keys and no others.
+(the second line) and `matcher_error`. The matcher pins the declared keys only.
 
 ## Pointers
 
