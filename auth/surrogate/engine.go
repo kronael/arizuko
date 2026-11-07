@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/auth"
+	"github.com/kronael/arizuko/expand"
 )
 
 // ErrReconnect signals a DEFINITIVE refresh rejection (revoked/expired
@@ -253,7 +254,10 @@ func (e *Engine) Revoke(ctx context.Context, provider, token string) error {
 	if p.RevokeURL == "" {
 		return nil
 	}
-	endpoint := strings.ReplaceAll(p.RevokeURL, "{client_id}", c.ID)
+	endpoint, err := expand.Expand(p.RevokeURL, map[string]string{"client_id": c.ID})
+	if err != nil {
+		return err
+	}
 	form := url.Values{"access_token": {token}, "token": {token}}
 	resp, err := auth.PostForm(ctx, endpoint, form, "application/json")
 	if err != nil {

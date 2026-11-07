@@ -9,10 +9,11 @@ import (
 	"maps"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
+
+	"github.com/kronael/arizuko/expand"
 )
 
 // ExtTool is a REST-backed MCP tool loaded from [[ext]] TOML blocks.
@@ -41,8 +42,6 @@ type ExtTool struct {
 	Body    map[string]string
 }
 
-var pathParam = regexp.MustCompile(`\{([^}]+)\}`)
-
 // CallExtTool executes one REST-descriptor call and returns the HTTP response
 // body as text. Secret values are scrubbed from the response before return.
 //
@@ -67,15 +66,17 @@ func CallExtTool(
 	remaining := make(map[string]any, len(args))
 	maps.Copy(remaining, args)
 
-	// Render path params.
-	path := pathParam.ReplaceAllStringFunc(tool.Path, func(m string) string {
-		key := m[1 : len(m)-1]
-		if v, ok := remaining[key]; ok {
+	vars := make(map[string]string, len(args))
+	for key, value := range args {
+		vars[key] = fmt.Sprint(value)
+		if strings.Contains(tool.Path, "{"+key+"}") {
 			delete(remaining, key)
-			return fmt.Sprintf("%v", v)
 		}
-		return m
-	})
+	}
+	path, err := expand.Expand(tool.Path, vars)
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
 
 	status, text, fail := extAttempt(ctx, tool, tool.BaseURL+path, remaining, secrets)
 	if fail != nil {

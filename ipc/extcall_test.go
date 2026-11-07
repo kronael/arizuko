@@ -224,18 +224,13 @@ func TestCallExtToolConsumesPathParams(t *testing.T) {
 	}
 }
 
-// An unfilled placeholder must stay literal rather than collapse the path. A
-// silently shortened path can hit a different, broader endpoint.
-func TestCallExtToolLeavesAnUnfilledPathParamLiteral(t *testing.T) {
+func TestCallExtToolRefusesAnUnfilledPathParam(t *testing.T) {
 	var got extRequest
 	srv := extServer(t, &got, status200(), `{}`)
-	tool := ExtTool{BaseURL: srv.URL, Method: "GET", Path: "/repos/{owner}/issues", Secrets: []string{"TOK"}, Headers: map[string]string{"Authorization": "Bearer {secret:TOK}"}}
-
-	if _, err := CallExtTool(context.Background(), tool, nil, map[string]string{"TOK": "t"}, nil); err != nil {
-		t.Fatal(err)
-	}
-	if got.path != "/repos/{owner}/issues" {
-		t.Errorf("path = %q, want the placeholder left in place", got.path)
+	tool := ExtTool{BaseURL: srv.URL, Method: "GET", Path: "/repos/{owner}/issues"}
+	result, err := CallExtTool(context.Background(), tool, nil, nil, nil)
+	if err != nil || !result.IsError || got.path != "" {
+		t.Fatalf("result = %+v, error = %v, path = %q", result, err, got.path)
 	}
 }
 
