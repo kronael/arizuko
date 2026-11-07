@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/kronael/arizuko/core"
 )
 
 // TestServeMCP_FindMessages_HappyPath confirms the tool is wired:
@@ -17,7 +19,7 @@ func TestServeMCP_FindMessages_HappyPath(t *testing.T) {
 	now := time.Now()
 	called := 0
 	db := StoreFns{
-		FindMessages: func(q, scope, sender, since string, limit int) ([]FoundMessage, error) {
+		FindMessages: func(q, scope, sender, since string, limit int) ([]core.FoundMessage, error) {
 			called++
 			if q != "budget" {
 				t.Errorf("query=%q, want budget", q)
@@ -25,7 +27,7 @@ func TestServeMCP_FindMessages_HappyPath(t *testing.T) {
 			if limit != 20 {
 				t.Errorf("limit=%d, want 20", limit)
 			}
-			return []FoundMessage{
+			return []core.FoundMessage{
 				{ChatJID: "tg:1", Sender: "alice", Timestamp: now,
 					Content: "Q3 «budget» meeting", Rank: -1.5},
 			}, nil
@@ -61,7 +63,7 @@ func TestServeMCP_FindMessages_QueryRequired(t *testing.T) {
 	sock := dir + "/gated.sock"
 	called := 0
 	db := StoreFns{
-		FindMessages: func(q, scope, sender, since string, limit int) ([]FoundMessage, error) {
+		FindMessages: func(q, scope, sender, since string, limit int) ([]core.FoundMessage, error) {
 			called++
 			return nil, nil
 		},
@@ -92,8 +94,8 @@ func TestServeMCP_FindMessages_ACLDropsForeignRows(t *testing.T) {
 	sock := dir + "/gated.sock"
 	now := time.Now()
 	db := StoreFns{
-		FindMessages: func(q, scope, sender, since string, limit int) ([]FoundMessage, error) {
-			return []FoundMessage{
+		FindMessages: func(q, scope, sender, since string, limit int) ([]core.FoundMessage, error) {
+			return []core.FoundMessage{
 				{ChatJID: "tg:own", Sender: "u", Timestamp: now, Content: "x", Rank: -1.0},
 				{ChatJID: "tg:other", Sender: "u", Timestamp: now, Content: "y", Rank: -0.5},
 				{ChatJID: "tg:foreign", Sender: "u", Timestamp: now, Content: "z", Rank: -0.4},
@@ -130,8 +132,8 @@ func TestServeMCP_FindMessages_OperatorBypassesACL(t *testing.T) {
 	sock := dir + "/gated.sock"
 	now := time.Now()
 	db := StoreFns{
-		FindMessages: func(q, scope, sender, since string, limit int) ([]FoundMessage, error) {
-			return []FoundMessage{
+		FindMessages: func(q, scope, sender, since string, limit int) ([]core.FoundMessage, error) {
+			return []core.FoundMessage{
 				{ChatJID: "tg:a", Sender: "u", Timestamp: now, Content: "x", Rank: -1.0},
 				{ChatJID: "tg:b", Sender: "u", Timestamp: now, Content: "y", Rank: -0.5},
 			}, nil
@@ -183,7 +185,7 @@ func TestServeMCP_FindMessages_ToolRegistered_WithStoreFn(t *testing.T) {
 	dir := t.TempDir()
 	sock := dir + "/gated.sock"
 	db := StoreFns{
-		FindMessages: func(q, scope, sender, since string, limit int) ([]FoundMessage, error) {
+		FindMessages: func(q, scope, sender, since string, limit int) ([]core.FoundMessage, error) {
 			return nil, nil
 		},
 	}

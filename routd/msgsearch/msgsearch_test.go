@@ -76,7 +76,7 @@ func built(t *testing.T, rows ...store.IndexedMessage) *Index {
 
 // hitIDs is what a caller can tell two hits apart by here: the chat, since one
 // message per chat is what most bodies below write.
-func hitIDs(hits []FoundMessage) []string {
+func hitIDs(hits []core.FoundMessage) []string {
 	out := make([]string, len(hits))
 	for i, h := range hits {
 		out[i] = h.ChatJID

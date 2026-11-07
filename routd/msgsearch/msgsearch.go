@@ -33,22 +33,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/store"
 )
-
-// FoundMessage is one hit. Content is the snippet — the matched fragment of the
-// message with «» around each hit — and not the whole body. Rank is BM25, and
-// lower is the better match.
-type FoundMessage struct {
-	ChatJID      string    `json:"chat_jid"`
-	Sender       string    `json:"sender"`
-	Timestamp    time.Time `json:"timestamp"`
-	IsFromMe     bool      `json:"is_from_me"`
-	IsBotMessage bool      `json:"is_bot_message"`
-	Content      string    `json:"content"`
-	Rank         float64   `json:"rank"`
-}
 
 // ErrWarming is the refusal a search gets while the boot walk is still reading
 // the store. It is a refusal the caller can show, and it is not an empty result.
@@ -308,7 +296,7 @@ func (ix *Index) drop(id int32) {
 // `_` or a capital, and all three widen a SQL LIKE — one tenant named `%` reads
 // every other tenant's messages (BUGS L122). groupfolder.Contains is the one
 // containment predicate and it has no metacharacters.
-func (ix *Index) Search(query, scope, sender, since string, limit int) ([]FoundMessage, error) {
+func (ix *Index) Search(query, scope, sender, since string, limit int) ([]core.FoundMessage, error) {
 	ix.mu.RLock()
 	defer ix.mu.RUnlock()
 	if ix.failed != nil {
@@ -329,7 +317,7 @@ func (ix *Index) Search(query, scope, sender, since string, limit int) ([]FoundM
 		limit = DefaultLimit
 	}
 	if ix.live == 0 {
-		return nil, nil
+		return []core.FoundMessage{}, nil
 	}
 
 	// Every clause's own matches, positives first: the positives are AND-ed and
@@ -410,9 +398,9 @@ func (ix *Index) Search(query, scope, sender, since string, limit int) ([]FoundM
 		hits = hits[:limit]
 	}
 	want := wanted(items)
-	out := make([]FoundMessage, len(hits))
+	out := make([]core.FoundMessage, len(hits))
 	for i, h := range hits {
-		out[i] = FoundMessage{
+		out[i] = core.FoundMessage{
 			ChatJID:      h.d.chat,
 			Sender:       h.d.sender,
 			Timestamp:    h.d.ts,

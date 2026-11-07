@@ -209,7 +209,7 @@ type StoreFns struct {
 	BumpEngagement      func(jid, topic, folder string, until time.Time) error
 	MessagesBefore      func(jid string, before time.Time, limit int) ([]core.Message, error)
 	MessagesByThread    func(jid, topic string, before time.Time, limit int) ([]core.Message, error)
-	FindMessages        func(query, scope, sender, since string, limit int) ([]FoundMessage, error)
+	FindMessages        func(query, scope, sender, since string, limit int) ([]core.FoundMessage, error)
 	JIDRoutedToFolder   func(jid, folder string) bool
 	JIDRoutableToFolder func(jid, folder string) bool
 	ErroredChats        func(folder string, isRoot bool) []ErroredChat
@@ -311,20 +311,6 @@ type StoreFns struct {
 	// ipc_audit table is retired and unwritten; a comment claiming otherwise cost
 	// a review (BUGS F34). Nil = no-op.
 	LogIPCAudit func(folder, sub, tool, params, outcome string) error
-}
-
-// FoundMessage mirrors the ranked index's hit for the ipc layer (ipc must not
-// import store). One hit from `find_messages`. Content is the snippet — the
-// matched fragment with «» around each hit — not the full message body. Rank is
-// BM25, and lower is the better match.
-type FoundMessage struct {
-	ChatJID      string    `json:"chat_jid"`
-	Sender       string    `json:"sender"`
-	Timestamp    time.Time `json:"timestamp"`
-	IsFromMe     bool      `json:"is_from_me"`
-	IsBotMessage bool      `json:"is_bot_message"`
-	Content      string    `json:"content"`
-	Rank         float64   `json:"rank"`
 }
 
 // WebRoute mirrors store.WebRoute for the ipc layer.

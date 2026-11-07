@@ -14,13 +14,14 @@ import (
 	"errors"
 	"log/slog"
 
+	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/routd/msgsearch"
 )
 
 // FoundMessage is one find_messages hit: the «»-marked snippet, the message's
 // own metadata and a BM25 rank where lower is better. An alias: a second
 // declaration of the same seven fields is a second thing to keep in step.
-type FoundMessage = msgsearch.FoundMessage
+type FoundMessage = core.FoundMessage
 
 // StartSearch opens the index and walks the store into it in the background.
 // Only the process that ANSWERS searches calls it (routd's main): an opener

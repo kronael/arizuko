@@ -122,7 +122,7 @@ func newFullMCPHarness(t *testing.T, folder string) *fullMCPHarness {
 		ListTasks:           s.ListTasks,
 		MessagesBefore:      s.MessagesBefore,
 		MessagesByThread:    s.MessagesByThread,
-		FindMessages: func(q, scope, sender, since string, limit int) ([]ipc.FoundMessage, error) {
+		FindMessages: func(q, scope, sender, since string, limit int) ([]core.FoundMessage, error) {
 			// The ranked index is derived from the store, so the harness builds
 			// one per search: a test seeds its messages after the wiring, and a
 			// single index built at wiring time would answer every search about
@@ -131,19 +131,7 @@ func newFullMCPHarness(t *testing.T, folder string) *fullMCPHarness {
 			if err := ix.Build(context.Background(), s); err != nil {
 				return nil, err
 			}
-			rows, err := ix.Search(q, scope, sender, since, limit)
-			if err != nil {
-				return nil, err
-			}
-			out := make([]ipc.FoundMessage, len(rows))
-			for i, r := range rows {
-				out[i] = ipc.FoundMessage{
-					ChatJID: r.ChatJID, Sender: r.Sender, Timestamp: r.Timestamp,
-					IsFromMe: r.IsFromMe, IsBotMessage: r.IsBotMessage,
-					Content: r.Content, Rank: r.Rank,
-				}
-			}
-			return out, nil
+			return ix.Search(q, scope, sender, since, limit)
 		},
 	}
 
@@ -310,6 +298,14 @@ func TestMCP_InviteTools(t *testing.T) {
 			t.Fatalf("invite still present after revoke: %+v", invs)
 		}
 	})
+}
+
+func TestMCP_FindMessagesEmpty(t *testing.T) {
+	h := newFullMCPHarness(t, "hq")
+	res := h.call(t, "find_messages", map[string]any{"query": "absent"})
+	if res.IsError || !contentContains(res, `"messages":[]`) {
+		t.Fatalf("empty search result: %v", res.Content)
+	}
 }
 
 func TestMCP_MessageInspection(t *testing.T) {

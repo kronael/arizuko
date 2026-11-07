@@ -531,21 +531,7 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 		MessagesByThread: func(jid, topic string, before time.Time, limit int) ([]core.Message, error) {
 			return s.db.MessagesByThread(jid, topic, beforeStr(before), limit)
 		},
-		FindMessages: func(q, scope, sender, since string, limit int) ([]ipc.FoundMessage, error) {
-			rows, err := s.db.FindMessages(q, scope, sender, since, limit)
-			if err != nil {
-				return nil, err
-			}
-			out := make([]ipc.FoundMessage, len(rows))
-			for i, r := range rows {
-				out[i] = ipc.FoundMessage{
-					ChatJID: r.ChatJID, Sender: r.Sender, Timestamp: r.Timestamp,
-					IsFromMe: r.IsFromMe, IsBotMessage: r.IsBotMessage,
-					Content: r.Content, Rank: r.Rank,
-				}
-			}
-			return out, nil
-		},
+		FindMessages: s.db.FindMessages,
 		ErroredChats: func(folder string, isRoot bool) []ipc.ErroredChat {
 			rows, err := s.db.ErroredChats(folder, isRoot)
 			if err != nil {

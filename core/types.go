@@ -41,6 +41,16 @@ type Message struct {
 	LinkContext   string // route-token context snapshotted at ingest (spec 5/W); rendered as <link-context> in the prompt
 }
 
+type FoundMessage struct {
+	ChatJID      string    `json:"chat_jid"`
+	Sender       string    `json:"sender"`
+	Timestamp    time.Time `json:"timestamp"`
+	IsFromMe     bool      `json:"is_from_me"`
+	IsBotMessage bool      `json:"is_bot_message"`
+	Content      string    `json:"content"`
+	Rank         float64   `json:"rank"`
+}
+
 // AddressesBot reports whether the bot wrote the message or it mentions the bot.
 func (m Message) AddressesBot() bool { return m.BotMsg || m.Verb == "mention" }
 
