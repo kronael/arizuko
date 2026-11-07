@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -125,16 +126,62 @@ func TestGroupHarnessDashboard(t *testing.T) {
 	if err := routd.OpenOver(db).PutInstalledPackage(routd.InstalledPackage{Name: "core", Manifest: map[string][]string{"skill": {}}}); err != nil {
 		t.Fatal(err)
 	}
-	d := &dash{routd: db, routdURL: stubRoutd(t, db), groupsDir: filepath.Join(appDir, "groups")}
+	backend := routd.NewServer(routd.OpenOver(db), nil, nil, nil, 0, "").Handler()
+	var patches atomic.Int32
+	refuse := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPatch {
+			patches.Add(1)
+			if refuse {
+				http.Error(w, "forbidden", http.StatusForbidden)
+				return
+			}
+		}
+		backend.ServeHTTP(w, r)
+	}))
+	t.Cleanup(server.Close)
+	d := &dash{routd: db, routdURL: server.URL, groupsDir: filepath.Join(appDir, "groups")}
 	mux := newMux(d)
-	form := url.Values{"harness": {`{"backend":"codex"}`}}.Encode()
+	form := url.Values{"backend": {"codex"}, "model": {"future-model"}, "effort": {"high"}}.Encode()
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, adminReq("POST", "/dash/groups/team/settings", form, "alice"))
-	if w.Code != http.StatusSeeOther {
+	if w.Code != http.StatusSeeOther || patches.Load() != 1 {
 		t.Fatalf("save: %d %s", w.Code, w.Body.String())
 	}
 	g, ok := store.NewOver(db).GroupByFolder("team")
-	if !ok || string(g.Harness) != `{"backend":"codex"}` {
+	var harness map[string]string
+	if !ok || json.Unmarshal(g.Harness, &harness) != nil || harness["backend"] != "codex" || harness["model"] != "future-model" || harness["effort"] != "high" {
 		t.Fatalf("group: %+v", g)
+	}
+	w = httptest.NewRecorder()
+	mux.ServeHTTP(w, adminReq("GET", "/dash/groups/team/settings", "", "alice"))
+	for _, want := range []string{`name="backend" value="codex"`, `name="model" value="future-model"`, `name="effort" value="high"`, `Use instance defaults`} {
+		if !strings.Contains(w.Body.String(), want) {
+			t.Fatalf("missing field %s: %s", want, w.Body.String())
+		}
+	}
+	if strings.Contains(w.Body.String(), `<textarea name="harness">`) {
+		t.Fatal("raw harness editor remains")
+	}
+	for _, form := range []url.Values{{"backend": {"claude"}}, {"instance_defaults": {"1"}, "backend": {"codex"}}} {
+		w = httptest.NewRecorder()
+		mux.ServeHTTP(w, adminReq("POST", "/dash/groups/team/settings", form.Encode(), "alice"))
+		g, _ = store.NewOver(db).GroupByFolder("team")
+		if w.Code != 303 || (form.Get("instance_defaults") == "1" && len(g.Harness) != 0) || (form.Get("backend") == "claude" && string(g.Harness) != `{"backend":"claude"}`) {
+			t.Fatalf("replacement/reset: %d %+v", w.Code, g)
+		}
+	}
+	before := patches.Load()
+	w = httptest.NewRecorder()
+	mux.ServeHTTP(w, adminReq("POST", "/dash/groups/team/settings", form, "stranger"))
+	if w.Code != 403 || patches.Load() != before {
+		t.Fatalf("unauthorized save: %d", w.Code)
+	}
+	refuse = true
+	w = httptest.NewRecorder()
+	mux.ServeHTTP(w, adminReq("POST", "/dash/groups/team/settings", form, "alice"))
+	g, _ = store.NewOver(db).GroupByFolder("team")
+	if w.Code != 502 || len(g.Harness) != 0 {
+		t.Fatalf("upstream refusal: %d %+v", w.Code, g)
 	}
 }

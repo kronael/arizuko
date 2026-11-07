@@ -13,9 +13,6 @@ Codex effort and model-credential delivery have implementation tests in
 
 ## Remaining
 
-- Replace dashd's JSON textarea and direct store write with free-text backend/model/effort fields, an instance-defaults control and the authorized groups PATCH (`dashd/groups_admin.go`, `dashd/chat_settings_test.go`).
-- Document the harness document, replacement semantics and credential policy in the owning manuals (`ant/README.md`, `runed/README.md`, `routd/README.md`).
-- Document group harness settings and their dashboard controls for operators (`template/web/pub/arizuko/reference/env.html`, `template/web/pub/arizuko/reference/mcp.html`).
 - Review flat overrides and Codex grant/deny rows before rollout (`cmd/arizuko/README.md`; operator data).
 - Build the packaged agent image and prove Claude and Codex replies on one disposable instance with explicit egress (`Makefile`, `anteval/cases/anteval.toml`).
 

@@ -15,6 +15,7 @@ import (
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/resreg/resources"
+	"github.com/kronael/arizuko/routd"
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
 	"github.com/kronael/arizuko/router"
 	"github.com/kronael/arizuko/store"
@@ -36,6 +37,7 @@ import (
 func stubRoutd(t *testing.T, db objstore.Store) string {
 	t.Helper()
 	mux := http.NewServeMux()
+	mux.Handle("PATCH /v1/groups/{folder}", routd.NewServer(routd.OpenOver(db), nil, nil, nil, 0, "").Handler())
 
 	// routd serves the group list as [{"folder":…}] — the shape the live
 	// /v1/groups answers, which is what dashd's pages now read instead of the

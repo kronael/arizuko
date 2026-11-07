@@ -20,6 +20,14 @@ The shipping runtime uses `@anthropic-ai/claude-agent-sdk` 0.3.278
 
 ### The harness
 
+`ARIZUKO_HARNESS` contains the group's complete harness document:
+`{"backend":"codex","model":"gpt-6-astra","effort":"high"}`.
+Ant validates the document before starting the adapter. Backend is required;
+model and effort are optional. A present document replaces instance defaults
+as a whole. Omitted optional fields use the adapter's native defaults.
+Without the document, ant reads `ARIZUKO_BACKEND`, `ARIZUKO_MODEL` and
+`ARIZUKO_EFFORT`. Pi refuses turns until it supports MCP delivery.
+
 ant does not implement an agent loop; it wraps one. `src/claude.ts`
 drives Claude Code via `@anthropic-ai/claude-agent-sdk` — spawn the
 harness, reduce its message stream to frames (`ClaudeTurn`), report the

@@ -28,6 +28,14 @@ Instance:
 
 Groups and access:
 
+Before a harness rollout, inspect exported group configs for flat `model` and
+`effort` overrides. Write an explicit `harness` document through the group
+settings page or groups PATCH; Go does not infer a backend. Review stored
+`codex` allow and deny rows: model login follows the model-credential policy,
+and these rows confer no authority. End active runs and use `/new` before
+changing a backend. These checks concern operator data; generation does not
+rewrite it.
+
 - `arizuko group [-i NAME] list | add <jid> <folder> [-p|--product <name>] | rm <folder> | grant | ungrant | grants | rename`. `add` also writes the first route for the JID. With `-p`, `add` writes one `installed_packages` selection row for the folder with the source `ant/examples/<name>`. The files arrive on the next `arizuko package sync`. A Discord guild channel gets a `verb=mention` rule and a catch-all `#observe` rule, so that messages without a mention only add context.
 - `arizuko chat [-i NAME] thread-replies <jid> [on|off|default]` reads or changes the chat's thread reply setting. Reset enables threads for group chats and disables them for direct messages.
 - `arizuko group [-i NAME] rm [-f|--force] <folder>` removes the group and every group under it, then stops the live run of each removed folder at runed (`POST /v1/runs/stop`). After every stop succeeds, it deletes their `groups/`, `web/pub/` and `web/priv/` directories and prints each deleted path. It refuses invalid paths and symlinks that escape these roots before it removes any row or file. It reads `RUNED_URL` (default `http://runed:8080`) and `RUNED_TOKEN` from the instance `.env`, as `apply` of a dump does, and probes `GET /health` before it removes anything. When runed is unreachable, the command removes nothing and exits non-zero. `-f` removes the rows and directories without stopping any run, and without contacting runed: use it only when no run is live. This is the only purge: the dashboard delete page removes nothing and shows this command.

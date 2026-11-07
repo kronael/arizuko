@@ -4,6 +4,16 @@ runed implements the execution plane of an arizuko instance, and routd calls it 
 
 ## What runed does
 
+runed carries the opaque group harness document as `ARIZUKO_HARNESS`.
+Instance defaults arrive through `Config.AgentEnv`; ant owns their selection
+and validation. Settings affect the next run. Before switching backends, end
+active runs and use `/new` on affected topics.
+
+Model API keys use the env-profile policy. Direct mode also stages the
+operator's `HOST_CODEX_DIR` login read-only for each turn, without a capability
+grant. Gateway mode withholds both real model keys and the host login.
+Backend selection confers no network access; configure egress separately.
+
 runed never appends a message, because routd is the only appender. runed never signs or brokers a token. The credential of a turn is the vsock CID of its guest, which the host kernel stamps on every packet. routd hosts the per-turn MCP socket in its own process, and runed only bridges the guest to that socket. The section "The peer credential" describes the bridge.
 
 runed does these jobs:

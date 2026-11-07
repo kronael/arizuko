@@ -439,6 +439,14 @@
     <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/resreg/resources/groups.go#L48"><code>resreg/resources/groups.go:48</code></a> &middot; Registration gated on holding <code>mcp:refresh_groups</code>.</p>
     <p class="returns"><strong>Params:</strong> none. <strong>Returns:</strong> JSON array of <code>{folder}</code>.</p>
 
+    <h3 id="get_group"><code>get_group</code></h3>
+    <p>Read a group's saved settings. Requires <code>folder</code> and authority for <code>mcp:get_group</code> on that folder.</p>
+
+    <h3 id="update_group"><code>update_group</code></h3>
+    <p>Replace the group's harness document through the cold-tier groups resource. Requires <code>folder</code>, a JSON-text <code>config</code> string and authority for <code>mcp:update_group</code> on that folder.</p>
+    <pre><code>mcpc call update_group '{"folder":"team","config":"{\"harness\":{\"backend\":\"codex\",\"effort\":\"high\"}}"}'</code></pre>
+    <p>An omitted harness leaves it unchanged. <code>{"harness":null}</code> restores instance defaults. Other settings survive. The dashboard's group settings use the same handler through <code>PATCH /v1/groups/{folder}</code>. See <a href="env.html#ARIZUKO_BACKEND">harness defaults</a> for backend changes and credentials.</p>
+
     <h3 id="register_group"><code>register_group</code></h3>
     <p>Create a child agent group and route a JID to it. The agent makes a group only with this tool. <code>arizuko group add</code>, the dashboard and onboarding are the operator paths.</p>
     <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/resreg/resources/groups.go#L47"><code>resreg/resources/groups.go:47</code></a> &middot; Grant action: <code>register_group</code> (delegated, not a default) &middot; Holding the grant, scoped to cover the child folder, is the whole authority to create.</p>
@@ -957,7 +965,7 @@ headers   = { Authorization = "Bearer {secret:CF_API_TOKEN}" }
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/reference/mcp.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-11-03">2026-11-03</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-04">2026-11-04</time>
       </div>
     </main>
 

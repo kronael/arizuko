@@ -4,6 +4,16 @@ routd implements the conversation plane of an arizuko instance, and channel adap
 
 ## What routd owns
 
+The cold-tier groups resource exposes `PATCH /v1/groups/{folder}` and the
+derived `update_group` MCP tool. Its `config` string contains JSON settings:
+`{"harness":{"backend":"codex"}}`. The harness replaces the whole stored
+document; an omitted harness leaves it unchanged, and `null` clears it.
+Other settings survive. Store writes audit the replacement atomically.
+routd carries the value to runed without interpreting backend, model or effort.
+The dashboard's group settings use this PATCH after checking the user's admin
+authority. REST requires write scope and folder containment; MCP authorizes
+`mcp:update_group` on the target folder.
+
 routd is the only code that appends messages. It verifies tokens and never signs them, because authd signs. It owns the `routd` tables, resolves routing rules, and calls runed (`POST /v1/runs`) to execute each turn. runed starts no MCP server. Its bridge carries the guest's tool calls to the per-turn socket that routd hosts in its own process (`ServeTurnMCP`, `mcp.go`). The bridge is described in `runed/README.md` under "The peer credential".
 
 routd does these jobs:
