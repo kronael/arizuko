@@ -719,7 +719,7 @@ func (l *Loop) resolveFolder(reads *chatReads, last core.Message, routes []core.
 	name, _, hasAt := leadingAt(last.Content)
 	hasAt = hasAt && !last.BotMsg && !isSystemTrigger(last.Sender)
 	atRow := router.HasAt(row)
-	if hasAt && atRow && rt.Folder != "" && rt.Mode == "" {
+	if hasAt && atRow && rt.Folder != "" && rt.Mode != "observe" && rt.Mode != "engaged" {
 		return resolution{Folder: rt.Folder, Topic: last.Topic, TopicPinned: rt.HasTopic, ok: true, Addressed: true, AtName: true}
 	}
 	res := l.routedFolder(reads, last, rt)

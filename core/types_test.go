@@ -5,17 +5,16 @@ import "testing"
 func TestParseRouteTarget(t *testing.T) {
 	for _, tc := range []struct {
 		in, folder, mode, topic string
-		announce, issues        bool
 	}{
-		{"rhias/nemo", "rhias/nemo", "", "", false, false},
-		{"rhias/nemo?observe#engaged", "rhias/nemo", "observe", "engaged", false, false},
-		{"sloth/morha?engaged#topic", "sloth/morha", "engaged", "topic", false, false},
-		{"corp/eng?announce", "corp/eng", "", "", true, false},
-		{"me/dm?issues", "me/dm", "", "", false, true},
-		{"atlas#observe", "atlas", "", "observe", false, false},
+		{"rhias/nemo", "rhias/nemo", "", ""},
+		{"rhias/nemo?observe#engaged", "rhias/nemo", "observe", "engaged"},
+		{"sloth/morha?engaged#topic", "sloth/morha", "engaged", "topic"},
+		{"corp/eng?announce", "corp/eng", "announce", ""},
+		{"me/dm?issues", "me/dm", "issues", ""},
+		{"atlas#observe", "atlas", "", "observe"},
 	} {
 		got := ParseRouteTarget(tc.in)
-		if got.Folder != tc.folder || got.Mode != tc.mode || got.Topic != tc.topic || got.Announce != tc.announce || got.Issues != tc.issues || got.String() != tc.in {
+		if got.Folder != tc.folder || got.Mode != tc.mode || got.Topic != tc.topic || got.String() != tc.in {
 			t.Errorf("ParseRouteTarget(%q) = %+v (%q)", tc.in, got, got.String())
 		}
 	}

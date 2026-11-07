@@ -56,11 +56,11 @@ func Describe(routes []core.Route) []RouteView {
 		if rt.Topic != "" {
 			v.Explain += " (pins topic #" + rt.Topic + ")"
 		}
-		if rt.Announce {
+		if rt.Mode == "announce" {
 			v.Announce = true
 			v.Explain += " [release-announce target]"
 		}
-		if rt.Issues {
+		if rt.Mode == "issues" {
 			v.Issues = true
 			v.Explain += " [issue-notice target]"
 		}

@@ -141,36 +141,18 @@ type RouteTarget struct {
 	Topic    string
 	HasTopic bool
 	Mode     string
-	Announce bool
-	Issues   bool
 }
 
 func ParseRouteTarget(s string) RouteTarget {
 	u, err := url.Parse(s)
-	if err != nil {
+	if err != nil || u.IsAbs() || u.Host != "" || u.Path == "" || u.ForceQuery {
 		return RouteTarget{}
 	}
-	rt := RouteTarget{Folder: u.Path, Topic: u.Fragment, HasTopic: strings.Contains(s, "#")}
-	switch u.RawQuery {
-	case "observe", "engaged":
-		rt.Mode = u.RawQuery
-	case "announce":
-		rt.Announce = true
-	case "issues":
-		rt.Issues = true
-	}
-	return rt
+	return RouteTarget{Folder: u.Path, Topic: u.Fragment, HasTopic: strings.Contains(s, "#"), Mode: u.RawQuery}
 }
 
 func (rt RouteTarget) String() string {
-	mode := rt.Mode
-	if rt.Announce {
-		mode = "announce"
-	}
-	if rt.Issues {
-		mode = "issues"
-	}
-	u := url.URL{Path: rt.Folder, RawQuery: mode, Fragment: rt.Topic}
+	u := url.URL{Path: rt.Folder, RawQuery: rt.Mode, Fragment: rt.Topic}
 	text := u.String()
 	if rt.HasTopic && rt.Topic == "" {
 		text += "#"

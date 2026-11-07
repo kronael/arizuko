@@ -94,6 +94,23 @@ func TestAtRoute_StartsATurnWhereTheChatOnlyObserves(t *testing.T) {
 	}
 }
 
+func TestAtRoute_NoticeModesAddressDestination(t *testing.T) {
+	for _, mode := range []string{"announce", "issues"} {
+		t.Run(mode, func(t *testing.T) {
+			db, loop, rr := atLoopRec(t, "elsewhere", "sloth/discord")
+			doSetRoutes(t, db, []core.Route{{Match: "at=killer", Target: "elsewhere?" + mode}, {Match: "platform=slack", Target: "sloth/discord?observe"}})
+			atSend(t, db, loop, "a", "@killer take this", "th1")
+			if len(ranIn(rr, "elsewhere")) != 1 {
+				t.Fatalf("runs = %+v", rr.runs)
+			}
+			r := loop.resolve(atChat, core.Message{ChatJID: atChat, Sender: "u", Content: "@killer x", Verb: "message"})
+			if !r.ok || !r.Addressed || !r.AtName || r.Folder != "elsewhere" {
+				t.Fatalf("resolution = %+v", r)
+			}
+		})
+	}
+}
+
 func TestAtName_RelativeStartsATurnWhereTheChatOnlyObserves(t *testing.T) {
 	db, loop, rr := atLoopRec(t, "sloth", "sloth/discord", "sloth/killer")
 	doSetRoutes(t, db, []core.Route{{Match: "platform=slack", Target: "sloth/discord?observe"}})

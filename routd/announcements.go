@@ -15,7 +15,7 @@ import (
 )
 
 func (d *DB) QueueReleaseAnnouncements(changelogPath string) error {
-	tagged, err := d.taggedRoutes(func(rt core.RouteTarget) bool { return rt.Announce })
+	tagged, err := d.taggedRoutes(func(rt core.RouteTarget) bool { return rt.Mode == "announce" })
 	if err != nil {
 		return err
 	}
@@ -82,7 +82,7 @@ func (d *DB) taggedRoutes(pick func(core.RouteTarget) bool) ([]core.Route, error
 // chat a `#issues` route names. The outbound queue delivers it; no turn
 // starts. It returns how many chats were queued, 0 when no route is tagged.
 func (d *DB) QueueIssueNotice(text string) (int, error) {
-	tagged, err := d.taggedRoutes(func(rt core.RouteTarget) bool { return rt.Issues })
+	tagged, err := d.taggedRoutes(func(rt core.RouteTarget) bool { return rt.Mode == "issues" })
 	if err != nil {
 		return 0, err
 	}
