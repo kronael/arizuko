@@ -5,12 +5,23 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/objstore"
 )
 
 // MigrateRouteModes moves legacy mode fragments to URI query flags once.
 func (s *Store) MigrateRouteModes(ctx context.Context) error {
-	marker := objstore.Key{Partition: OwnerRoutd, Sort: "route-target-uri"}
+	return s.migrateRouteTargets(ctx, "route-target-uri", func(route core.Route) string {
+		folder, mode, found := strings.Cut(route.Target, "#")
+		if found && (mode == "observe" || mode == "engaged" || mode == "announce" || mode == "issues") {
+			return folder + "?" + mode
+		}
+		return route.Target
+	})
+}
+
+func (s *Store) migrateRouteTargets(ctx context.Context, name string, target func(core.Route) string) error {
+	marker := objstore.Key{Partition: OwnerRoutd, Sort: name}
 	items, err := s.obj.Query(ctx, objstore.Query{Entity: Counters, Partition: OwnerRoutd, Key: objstore.KeyPredicate{Op: objstore.ExactKey, Value: marker.Sort}})
 	if err != nil || len(items) != 0 {
 		return err
@@ -24,11 +35,11 @@ func (s *Store) MigrateRouteModes(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		folder, mode, found := strings.Cut(route.Target, "#")
-		if !found || (mode != "observe" && mode != "engaged" && mode != "announce" && mode != "issues") {
+		next := target(route)
+		if next == route.Target {
 			continue
 		}
-		route.Target = folder + "?" + mode
+		route.Target = next
 		key, err := routeKey(route)
 		if err != nil {
 			return err
