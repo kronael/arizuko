@@ -315,10 +315,13 @@ func main() {
 		}
 	}()
 	go loop.Run(ctx)
+	scheduleDone := make(chan struct{})
+	go func() { defer close(scheduleDone); srv.ScheduleLoop(ctx) }()
 
 	<-stop
 	slog.Info("routd stopping")
 	cancel()
+	<-scheduleDone
 	sctx, scancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer scancel()
 	_ = httpd.Shutdown(sctx)

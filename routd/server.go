@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/kronael/arizuko/audit"
@@ -77,6 +78,8 @@ type Verifier interface {
 // Server is routd's HTTP face: ingress + route/web-route/route-token CRUD +
 // outbound passthrough. It hosts the per-turn agent MCP socket (mcp.go).
 type Server struct {
+	scheduleMu  sync.Mutex
+	schedule    scheduleState
 	db          *DB
 	loop        *Loop
 	deliver     Deliverer
@@ -402,16 +405,18 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	// The minted id's adapter name is the verified caller (service:<adapter>);
-	// "adapter" when unverified.
-	adapter := strings.TrimPrefix(sub, "service:")
-	if adapter == "" {
-		adapter = "adapter"
-	}
 	var m apiv1.Message
 	if err := json.NewDecoder(r.Body).Decode(&m); err != nil {
 		writeErr(w, 400, "bad_request", err.Error())
 		return
+	}
+	s.ingestMessage(w, m, sub, r.Header.Get("X-Idempotency-Key"))
+}
+
+func (s *Server) ingestMessage(w http.ResponseWriter, m apiv1.Message, sub, idemKey string) {
+	adapter := strings.TrimPrefix(sub, "service:")
+	if adapter == "" {
+		adapter = "adapter"
 	}
 	if m.ChatJID == "" || m.Content == "" {
 		writeErr(w, 400, "missing_field", "chat_jid and content required")
@@ -451,7 +456,6 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 	}
 	// X-Idempotency-Key is honored ONLY when id is absent: routd mints
 	// id=<adapter>-<key> so the two keys collapse. Both together is ambiguous.
-	idemKey := r.Header.Get("X-Idempotency-Key")
 	switch {
 	case m.ID != "" && idemKey != "":
 		writeErr(w, 400, "ambiguous_idempotency", "send either a stable id or X-Idempotency-Key, not both")
