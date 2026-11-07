@@ -237,63 +237,6 @@ func CopySession(groupDir, srcUUID, dstUUID string) (bool, error) {
 	return true, nil
 }
 
-func cpDirOverwrite(src, dst string) { cpDirImpl(src, dst, false) }
-
-func cpDirImpl(src, dst string, skipExisting bool) {
-	// ERROR, the level seedSettings uses for the same symptom: a destination
-	// the run uid cannot create is the "typing but no reply" outage — the agent
-	// spawns without the files this copy was meant to place, and answers nothing.
-	if err := os.MkdirAll(dst, 0o755); err != nil {
-		slog.Error("cpDir: mkdir failed — the group home is not writable by the run uid, "+
-			"so the agent starts without these files; chown the home to the run uid",
-			"path", dst, "err", err)
-		return
-	}
-	entries, err := os.ReadDir(src)
-	if err != nil {
-		slog.Warn("cpDir: readdir failed", "path", src, "err", err)
-		return
-	}
-	for _, e := range entries {
-		sp := filepath.Join(src, e.Name())
-		dp := filepath.Join(dst, e.Name())
-		// Lstat: copying symlink targets would leak arbitrary host files.
-		fi, err := os.Lstat(sp)
-		if err != nil {
-			slog.Warn("cpDir: lstat failed", "path", sp, "err", err)
-			continue
-		}
-		if fi.Mode()&os.ModeSymlink != 0 {
-			slog.Warn("cpDir: skipping symlink", "path", sp)
-			continue
-		}
-		if fi.IsDir() {
-			cpDirImpl(sp, dp, skipExisting)
-			continue
-		}
-		if skipExisting {
-			if _, err := os.Stat(dp); err == nil {
-				continue
-			}
-		}
-		if data, err := os.ReadFile(sp); err != nil {
-			slog.Warn("cpDir: read failed", "path", sp, "err", err)
-		} else {
-			// Unlink an existing dst before writing: a prior root-owned copy
-			// (from a past sudo op) can't be truncate-opened by the uid-1000
-			// daemon, but the uid-1000-owned dir lets us unlink + recreate it.
-			// Without this, cpDirOverwrite silently fails on root-owned files
-			// and the styles stay frozen — the staleness it was meant to cure.
-			_ = os.Remove(dp)
-			if err := os.WriteFile(dp, data, 0o644); err != nil {
-				slog.Error("cpDir: write failed — the agent starts without this file; "+
-					"chown the group home to the run uid",
-					"path", dp, "err", err)
-			}
-		}
-	}
-}
-
 func writeSnapshot(folders *groupfolder.Resolver, folder, filename string, v any) {
 	ipcDir, err := folders.IpcPath(folder)
 	if err != nil {
