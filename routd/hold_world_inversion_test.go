@@ -206,3 +206,17 @@ func TestWorldHeldToolAsksFillPlaceholders(t *testing.T) {
 		t.Fatal("no held tools tested")
 	}
 }
+
+func TestAskTextRendersLiteralValues(t *testing.T) {
+	got := askText("like", map[string]string{"reaction": "{targetId}", "targetId": "123"})
+	if got != "react {targetId} to message 123" {
+		t.Fatalf("ask = %q", got)
+	}
+}
+
+func TestAskTextFallsBackForMissingValue(t *testing.T) {
+	got := askText("like", map[string]string{"reaction": "ok"})
+	if got != "run like reaction=ok" {
+		t.Fatalf("ask = %q", got)
+	}
+}

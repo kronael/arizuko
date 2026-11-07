@@ -26,6 +26,7 @@ import (
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/expand"
 	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/store"
 )
@@ -588,11 +589,14 @@ func pinnedSpec(tool string, scalars map[string]string) (string, error) {
 func askText(tool string, scalars map[string]string) string {
 	names := slices.Sorted(maps.Keys(scalars))
 	if shape := holdShapes[tool]; shape.ask != "" {
-		pairs := make([]string, 0, 2*len(names))
+		vars := make(map[string]string, len(scalars))
 		for _, k := range names {
-			pairs = append(pairs, "{"+k+"}", shortValue(scalars[k]))
+			vars[k] = shortValue(scalars[k])
 		}
-		return strings.NewReplacer(pairs...).Replace(shape.ask)
+		if text, err := expand.Expand(shape.ask, vars); err == nil {
+			return text
+		}
+
 	}
 	out := "run " + tool
 	for _, k := range names {
