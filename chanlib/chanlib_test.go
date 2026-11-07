@@ -9,6 +9,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+
+	"github.com/kronael/arizuko/core"
 )
 
 func TestChunk(t *testing.T) {
@@ -45,18 +47,18 @@ func TestEnvOr(t *testing.T) {
 	k := "CHANLIB_TEST_ENVOR_KEY"
 
 	os.Unsetenv(k)
-	if got := EnvOr(k, "fallback"); got != "fallback" {
+	if got := core.EnvOr(k, "fallback"); got != "fallback" {
 		t.Fatalf("unset: got %q, want fallback", got)
 	}
 
 	os.Setenv(k, "val")
 	defer os.Unsetenv(k)
-	if got := EnvOr(k, "fallback"); got != "val" {
+	if got := core.EnvOr(k, "fallback"); got != "val" {
 		t.Fatalf("set: got %q, want val", got)
 	}
 
 	os.Setenv(k, "")
-	if got := EnvOr(k, "fallback"); got != "fallback" {
+	if got := core.EnvOr(k, "fallback"); got != "fallback" {
 		t.Fatalf("empty: got %q, want fallback", got)
 	}
 }

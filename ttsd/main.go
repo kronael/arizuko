@@ -26,14 +26,15 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/chanlib"
+	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/obs"
 )
 
 func main() {
 	defer obs.Setup("ttsd", os.Getenv("ARIZUKO_INSTANCE"))()
 
-	addr := chanlib.EnvOr("TTSD_ADDR", ":8880")
-	backend := chanlib.EnvOr("TTS_BACKEND_URL", "http://kokoro:8880")
+	addr := core.EnvOr("TTSD_ADDR", ":8880")
+	backend := core.EnvOr("TTS_BACKEND_URL", "http://kokoro:8880")
 
 	beURL, err := url.Parse(backend)
 	if err != nil {

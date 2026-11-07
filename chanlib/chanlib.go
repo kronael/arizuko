@@ -394,25 +394,6 @@ func Chunk(s string, max int) []string {
 	return out
 }
 
-func EnvOr(k, v string) string {
-	if e := os.Getenv(k); e != "" {
-		return e
-	}
-	return v
-}
-
-func EnvInt(k string, fallback int) int {
-	s := os.Getenv(k)
-	if s == "" {
-		return fallback
-	}
-	n, err := strconv.Atoi(s)
-	if err != nil {
-		return fallback
-	}
-	return n
-}
-
 // ShortHash returns 4-byte hex of sha256(s) for logging sensitive strings.
 // Empty input returns "" so callers can skip the log field.
 func ShortHash(s string) string {

@@ -8,6 +8,7 @@ import (
 	"os"
 
 	"github.com/kronael/arizuko/chanlib"
+	"github.com/kronael/arizuko/core"
 )
 
 // caps advertises the gated verbs emaid implements. Email is immutable and
@@ -67,17 +68,17 @@ type config struct {
 
 func loadConfig() config {
 	c := config{
-		Name:          chanlib.EnvOr("CHANNEL_NAME", "email"),
+		Name:          core.EnvOr("CHANNEL_NAME", "email"),
 		IMAPHost:      chanlib.MustEnv("EMAIL_IMAP_HOST"),
 		SMTPHost:      chanlib.MustEnv("EMAIL_SMTP_HOST"),
 		Account:       chanlib.MustEnv("EMAIL_ACCOUNT"),
 		Password:      os.Getenv("EMAIL_PASSWORD"),
 		AccessToken:   os.Getenv("EMAIL_ACCESS_TOKEN"),
-		IMAPPort:      chanlib.EnvOr("EMAIL_IMAP_PORT", "993"),
-		SMTPPort:      chanlib.EnvOr("EMAIL_SMTP_PORT", "587"),
+		IMAPPort:      core.EnvOr("EMAIL_IMAP_PORT", "993"),
+		SMTPPort:      core.EnvOr("EMAIL_SMTP_PORT", "587"),
 		RouterURL:     chanlib.MustEnv("ROUTER_URL"),
-		ListenAddr:    chanlib.EnvOr("LISTEN_ADDR", ":9003"),
-		ListenURL:     chanlib.EnvOr("LISTEN_URL", "http://email:9003"),
+		ListenAddr:    core.EnvOr("LISTEN_ADDR", ":9003"),
+		ListenURL:     core.EnvOr("LISTEN_URL", "http://email:9003"),
 		MaxAttachment: chanlib.EnvBytes("MEDIA_MAX_FILE_BYTES", 20*1024*1024),
 		Auth:          LoadAuthConfig(os.Getenv),
 	}

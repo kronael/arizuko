@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/auth"
+	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/obs"
 )
 
@@ -46,7 +47,7 @@ func Run(opts RunOpts) {
 		slog.Error("AUTHD_URL + AUTHD_SERVICE_KEY required", "daemon", opts.Name)
 		os.Exit(1)
 	}
-	svcName := EnvOr("AUTHD_SERVICE_NAME", opts.Name)
+	svcName := core.EnvOr("AUTHD_SERVICE_NAME", opts.Name)
 	src, err := auth.ServiceToken(authdURL, svcName, svcKey)
 	if err != nil {
 		slog.Error("service-token source", "daemon", svcName, "err", err)

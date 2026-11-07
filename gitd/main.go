@@ -151,12 +151,12 @@ type config struct {
 
 func loadConfig() config {
 	return config{
-		Name:       chanlib.EnvOr("CHANNEL_NAME", "github"),
-		Token:      chanlib.EnvOr("GITHUB_TOKEN", ""),
-		APIBase:    chanlib.EnvOr("GITHUB_API_URL", "https://api.github.com"),
+		Name:       core.EnvOr("CHANNEL_NAME", "github"),
+		Token:      core.EnvOr("GITHUB_TOKEN", ""),
+		APIBase:    core.EnvOr("GITHUB_API_URL", "https://api.github.com"),
 		RouterURL:  chanlib.MustEnv("ROUTER_URL"),
-		ListenAddr: chanlib.EnvOr("LISTEN_ADDR", ":8080"),
-		ListenURL:  chanlib.EnvOr("LISTEN_URL", "http://gitd:8080"),
-		SecretsKey: chanlib.EnvOr("SECRETS_KEY", ""),
+		ListenAddr: core.EnvOr("LISTEN_ADDR", ":8080"),
+		ListenURL:  core.EnvOr("LISTEN_URL", "http://gitd:8080"),
+		SecretsKey: core.EnvOr("SECRETS_KEY", ""),
 	}
 }

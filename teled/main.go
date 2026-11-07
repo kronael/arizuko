@@ -8,6 +8,7 @@ import (
 	"os"
 
 	"github.com/kronael/arizuko/chanlib"
+	"github.com/kronael/arizuko/core"
 )
 
 // caps advertises the gated verbs teled implements. quote/repost/dislike are
@@ -92,15 +93,15 @@ type config struct {
 }
 
 func loadConfig() config {
-	dataDir := chanlib.EnvOr("DATA_DIR", teledStateDir)
-	name := chanlib.EnvOr("CHANNEL_NAME", "telegram")
+	dataDir := core.EnvOr("DATA_DIR", teledStateDir)
+	name := core.EnvOr("CHANNEL_NAME", "telegram")
 	return config{
 		Name:          name,
 		TelegramToken: chanlib.MustEnv("TELEGRAM_BOT_TOKEN"),
 		RouterURL:     chanlib.MustEnv("ROUTER_URL"),
-		ListenAddr:    chanlib.EnvOr("LISTEN_ADDR", ":9001"),
-		ListenURL:     chanlib.EnvOr("LISTEN_URL", "http://telegram:9001"),
-		AssistantName: chanlib.EnvOr("ASSISTANT_NAME", ""),
+		ListenAddr:    core.EnvOr("LISTEN_ADDR", ":9001"),
+		ListenURL:     core.EnvOr("LISTEN_URL", "http://telegram:9001"),
+		AssistantName: core.EnvOr("ASSISTANT_NAME", ""),
 		StateFile:     dataDir + "/teled-offset-" + name,
 		DataDir:       dataDir,
 		MediaMaxBytes: chanlib.EnvBytes("MEDIA_MAX_FILE_BYTES", 20*1024*1024),

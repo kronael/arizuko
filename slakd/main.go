@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/chanlib"
+	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -96,18 +97,18 @@ type config struct {
 
 func loadConfig() config {
 	return config{
-		Name:           chanlib.EnvOr("CHANNEL_NAME", "slack"),
+		Name:           core.EnvOr("CHANNEL_NAME", "slack"),
 		BotToken:       chanlib.MustEnv("SLACK_BOT_TOKEN"),
 		SigningSecret:  chanlib.MustEnv("SLACK_SIGNING_SECRET"),
 		RouterURL:      chanlib.MustEnv("ROUTER_URL"),
-		ListenAddr:     chanlib.EnvOr("LISTEN_ADDR", ":8080"),
-		ListenURL:      chanlib.EnvOr("LISTEN_URL", "http://slakd:8080"),
-		DataDir:        chanlib.EnvOr("DATA_DIR", "/srv/app/home/store/slakd"),
-		AssistantName:  chanlib.EnvOr("ASSISTANT_NAME", ""),
+		ListenAddr:     core.EnvOr("LISTEN_ADDR", ":8080"),
+		ListenURL:      core.EnvOr("LISTEN_URL", "http://slakd:8080"),
+		DataDir:        core.EnvOr("DATA_DIR", "/srv/app/home/store/slakd"),
+		AssistantName:  core.EnvOr("ASSISTANT_NAME", ""),
 		MediaMaxBytes:  chanlib.EnvBytes("MEDIA_MAX_FILE_BYTES", 20*1024*1024),
-		CacheTTL:       time.Duration(chanlib.EnvInt("SLAKD_USERS_CACHE_TTL", 900)) * time.Second,
-		StaleSeconds:   int64(chanlib.EnvInt("SLAKD_STALE_SECONDS", 300)),
-		WatchdogEvery:  time.Duration(chanlib.EnvInt("SLAKD_WATCHDOG_SECONDS", 60)) * time.Second,
-		StaleFailLimit: chanlib.EnvInt("SLAKD_STALE_FAIL_LIMIT", 5),
+		CacheTTL:       time.Duration(core.EnvInt("SLAKD_USERS_CACHE_TTL", 900)) * time.Second,
+		StaleSeconds:   int64(core.EnvInt("SLAKD_STALE_SECONDS", 300)),
+		WatchdogEvery:  time.Duration(core.EnvInt("SLAKD_WATCHDOG_SECONDS", 60)) * time.Second,
+		StaleFailLimit: core.EnvInt("SLAKD_STALE_FAIL_LIMIT", 5),
 	}
 }

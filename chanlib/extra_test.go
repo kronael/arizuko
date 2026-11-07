@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/kronael/arizuko/core"
 )
 
 // EnvInt / EnvBytes / ShortHash
@@ -18,16 +20,16 @@ import (
 func TestEnvInt(t *testing.T) {
 	k := "CHANLIB_TEST_INT"
 	os.Unsetenv(k)
-	if got := EnvInt(k, 42); got != 42 {
+	if got := core.EnvInt(k, 42); got != 42 {
 		t.Errorf("unset: got %d, want 42", got)
 	}
 	os.Setenv(k, "7")
 	defer os.Unsetenv(k)
-	if got := EnvInt(k, 42); got != 7 {
+	if got := core.EnvInt(k, 42); got != 7 {
 		t.Errorf("set: got %d, want 7", got)
 	}
 	os.Setenv(k, "abc")
-	if got := EnvInt(k, 42); got != 42 {
+	if got := core.EnvInt(k, 42); got != 42 {
 		t.Errorf("invalid: got %d, want fallback 42", got)
 	}
 }

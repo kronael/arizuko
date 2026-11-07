@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/chanlib"
+	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -125,7 +126,7 @@ var errSourceMismatch = errors.New("payload repository outside the registered so
 // The secret still has to verify, so the sender holds the credential, but the
 // delivery is no longer bound to an installation the App owns: any repository
 // holding that secret can speak on the source's path. Spec 6/27 and BUGS L409.
-var appAcceptsRepo = chanlib.EnvOr("GITHUB_APP_ACCEPTS_REPO", "") == "1"
+var appAcceptsRepo = core.EnvOr("GITHUB_APP_ACCEPTS_REPO", "") == "1"
 
 // checkSource binds the payload to the registered source the path named: a
 // repo hook may only speak for its repo, an org hook for its org's repos, and

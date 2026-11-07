@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/chanlib/chanstore"
+	"github.com/kronael/arizuko/core"
 )
 
 type SendRequest struct {
@@ -316,7 +317,7 @@ func NewAdapterMux(name string, prefixes []string, bot BotHandler, isConnected f
 	// publishes /dash/teled/ while `name` is the platform, so the path is read
 	// from AUTHD_SERVICE_NAME, never derived — deriving it made every adapter
 	// dashboard 404 at its own URL.
-	mux.HandleFunc("GET /dash/"+EnvOr("AUTHD_SERVICE_NAME", name)+"/",
+	mux.HandleFunc("GET /dash/"+core.EnvOr("AUTHD_SERVICE_NAME", name)+"/",
 		handleAdapterDash(name, prefixes, bot, isConnected, lastInboundAt, AuthdKeys()))
 	if hp, ok := bot.(HistoryProvider); ok {
 		mux.HandleFunc("GET /v1/history", Auth(handleHistory(hp)))

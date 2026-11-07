@@ -41,17 +41,17 @@ type config struct {
 }
 
 func loadConfig() config {
-	port := chanlib.EnvOr("PROXYD_LISTEN", "8080")
+	port := core.EnvOr("PROXYD_LISTEN", "8080")
 	if !strings.HasPrefix(port, ":") {
 		port = ":" + port
 	}
 	return config{
 		port:           port,
-		viteAddr:       chanlib.EnvOr("VITE_ADDR", "http://vited:8080"),
-		pubRedirectURL: strings.TrimRight(chanlib.EnvOr("PUB_REDIRECT_URL", ""), "/"),
+		viteAddr:       core.EnvOr("VITE_ADDR", "http://vited:8080"),
+		pubRedirectURL: strings.TrimRight(core.EnvOr("PUB_REDIRECT_URL", ""), "/"),
 		authdURL:       strings.TrimRight(os.Getenv("AUTHD_URL"), "/"),
 		trustedProxies: parseTrustedProxies(os.Getenv("TRUSTED_PROXIES")),
-		hostingDomain:  strings.ToLower(strings.TrimSuffix(chanlib.EnvOr("HOSTING_DOMAIN", ""), ".")),
+		hostingDomain:  strings.ToLower(strings.TrimSuffix(core.EnvOr("HOSTING_DOMAIN", ""), ".")),
 		vhostAliases:   groupfolder.ParseVhostAliases(os.Getenv("WEB_VHOST_ALIASES")),
 	}
 }
@@ -1148,7 +1148,7 @@ func main() {
 	// dev) → svc nil, identity forwarded unsigned exactly as an anon request.
 	var svc *auth.TokenSource
 	if serviceKey := os.Getenv("AUTHD_SERVICE_KEY"); cfg.authdURL != "" && serviceKey != "" {
-		name := chanlib.EnvOr("AUTHD_SERVICE_NAME", "proxyd")
+		name := core.EnvOr("AUTHD_SERVICE_NAME", "proxyd")
 		if svc, err = auth.ServiceToken(cfg.authdURL, name, serviceKey); err != nil {
 			slog.Error("build proxyd service token", "err", err)
 			os.Exit(1)

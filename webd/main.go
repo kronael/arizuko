@@ -38,16 +38,16 @@ func loadConfig() config {
 		os.Exit(1)
 	}
 	return config{
-		listenAddr:     chanlib.EnvOr("WEBD_LISTEN", ":8080"),
-		listenURL:      chanlib.EnvOr("WEBD_URL", "http://webd:8080"),
-		routerURL:      chanlib.EnvOr("ROUTER_URL", "http://routd:8080"),
-		proxydURL:      chanlib.EnvOr("PROXYD_URL", "http://proxyd:8080"),
+		listenAddr:     core.EnvOr("WEBD_LISTEN", ":8080"),
+		listenURL:      core.EnvOr("WEBD_URL", "http://webd:8080"),
+		routerURL:      core.EnvOr("ROUTER_URL", "http://routd:8080"),
+		proxydURL:      core.EnvOr("PROXYD_URL", "http://proxyd:8080"),
 		storeDir:       coreCfg.StoreDir,
-		assistantName:  chanlib.EnvOr("ASSISTANT_NAME", "assistant"),
+		assistantName:  core.EnvOr("ASSISTANT_NAME", "assistant"),
 		authdURL:       strings.TrimRight(os.Getenv("AUTHD_URL"), "/"),
-		rateHookPerMin: chanlib.EnvInt("WEBHOOK_RATE_HOOK", 60),
-		rateWebPerMin:  chanlib.EnvInt("WEBHOOK_RATE_WEB", 20),
-		anonDosRPM:     chanlib.EnvInt("CHAT_ANON_DOS_RPM", 10),
+		rateHookPerMin: core.EnvInt("WEBHOOK_RATE_HOOK", 60),
+		rateWebPerMin:  core.EnvInt("WEBHOOK_RATE_WEB", 20),
+		anonDosRPM:     core.EnvInt("CHAT_ANON_DOS_RPM", 10),
 	}
 }
 
@@ -111,7 +111,7 @@ func main() {
 	// proxyd/routd's no-JWKS gates are open.
 	var svc *auth.TokenSource
 	if serviceKey := os.Getenv("AUTHD_SERVICE_KEY"); cfg.authdURL != "" && serviceKey != "" {
-		name := chanlib.EnvOr("AUTHD_SERVICE_NAME", "webd")
+		name := core.EnvOr("AUTHD_SERVICE_NAME", "webd")
 		var serr error
 		if svc, serr = auth.ServiceToken(cfg.authdURL, name, serviceKey); serr != nil {
 			slog.Error("build webd service token", "err", serr)

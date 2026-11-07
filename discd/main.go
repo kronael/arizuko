@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/kronael/arizuko/chanlib"
+	"github.com/kronael/arizuko/core"
 )
 
 // caps advertises the gated verbs discd actually implements. Forward/Quote*/
@@ -90,12 +91,12 @@ func loadConfig() config {
 		os.Exit(1)
 	}
 	return config{
-		Name:          chanlib.EnvOr("CHANNEL_NAME", "discord"),
+		Name:          core.EnvOr("CHANNEL_NAME", "discord"),
 		DiscordToken:  token,
 		RouterURL:     chanlib.MustEnv("ROUTER_URL"),
-		ListenAddr:    chanlib.EnvOr("LISTEN_ADDR", ":9002"),
-		ListenURL:     chanlib.EnvOr("LISTEN_URL", "http://discord:9002"),
-		AssistantName: chanlib.EnvOr("ASSISTANT_NAME", ""),
+		ListenAddr:    core.EnvOr("LISTEN_ADDR", ":9002"),
+		ListenURL:     core.EnvOr("LISTEN_URL", "http://discord:9002"),
+		AssistantName: core.EnvOr("ASSISTANT_NAME", ""),
 		MediaMaxBytes: chanlib.EnvBytes("MEDIA_MAX_FILE_BYTES", 20*1024*1024),
 		UserMode:      userMode,
 	}

@@ -223,7 +223,7 @@ func main() {
 			os.Exit(1)
 		}
 		if svcKey := os.Getenv("AUTHD_SERVICE_KEY"); svcKey != "" {
-			name := chanlib.EnvOr("AUTHD_SERVICE_NAME", "dashd")
+			name := core.EnvOr("AUTHD_SERVICE_NAME", "dashd")
 			ts, terr := auth.ServiceToken(authdURL, name, svcKey)
 			if terr != nil {
 				slog.Error("build dashd service token", "err", terr)
@@ -321,7 +321,7 @@ func main() {
 // — compose emits neither PROXYD_URL nor RUNED_URL, and without the default the
 // kill button answered 503 in every deploy (BUGS F23). One renderer for both.
 func backendURL(envKey, service string) string {
-	return strings.TrimRight(chanlib.EnvOr(envKey, "http://"+service+":8080"), "/")
+	return strings.TrimRight(core.EnvOr(envKey, "http://"+service+":8080"), "/")
 }
 
 // upstreamMessage pulls the operator-readable half out of a sibling daemon's error

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/chanlib"
+	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -240,14 +241,14 @@ type config struct {
 
 func loadConfig() config {
 	return config{
-		Name:           chanlib.EnvOr("CHANNEL_NAME", "gdrive"),
-		KeyJSON:        chanlib.EnvOr("GDRIVE_SA_KEY_JSON", ""),
-		Subject:        chanlib.EnvOr("GDRIVE_IMPERSONATE", ""),
-		APIBase:        chanlib.EnvOr("GDRIVE_API_URL", "https://www.googleapis.com"),
-		SheetsAPIBase:  chanlib.EnvOr("SHEETS_API_URL", "https://sheets.googleapis.com"),
-		ConnectorToken: chanlib.EnvOr("GOOGD_CONNECTOR_TOKEN", ""),
+		Name:           core.EnvOr("CHANNEL_NAME", "gdrive"),
+		KeyJSON:        core.EnvOr("GDRIVE_SA_KEY_JSON", ""),
+		Subject:        core.EnvOr("GDRIVE_IMPERSONATE", ""),
+		APIBase:        core.EnvOr("GDRIVE_API_URL", "https://www.googleapis.com"),
+		SheetsAPIBase:  core.EnvOr("SHEETS_API_URL", "https://sheets.googleapis.com"),
+		ConnectorToken: core.EnvOr("GOOGD_CONNECTOR_TOKEN", ""),
 		RouterURL:      chanlib.MustEnv("ROUTER_URL"),
-		ListenAddr:     chanlib.EnvOr("LISTEN_ADDR", ":8080"),
-		ListenURL:      chanlib.EnvOr("LISTEN_URL", "http://googd:8080"),
+		ListenAddr:     core.EnvOr("LISTEN_ADDR", ":8080"),
+		ListenURL:      core.EnvOr("LISTEN_URL", "http://googd:8080"),
 	}
 }
