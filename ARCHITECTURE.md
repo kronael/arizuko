@@ -47,6 +47,7 @@ teled/ discd/ slakd/ emaid/ whapd/ gitd/
 googd/              channel adapters, one daemon per platform
 egress/ substrate/ mcpfw/  shippable components, no arizuko imports
 ttsd/ sidecar/      speech synthesis; the whisper-cpp image
+webdata/           standalone Python page extraction service; webdata/README.md
 ant/ anteval/       the agent harness and skills; the capability gate
 template/ tests/    fragments, manifests, web docs; cross-package tests
 deploy/             the Helm chart

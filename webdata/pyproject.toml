@@ -1,0 +1,24 @@
+[project]
+name = "webdata"
+version = "0.1.0"
+requires-python = ">=3.13"
+dependencies = ["fastapi", "playwright==1.64.1", "uvicorn"]
+
+[dependency-groups]
+dev = ["aiohttp", "basedpyright", "httpx", "pytest", "pytest-asyncio", "ruff"]
+
+[tool.basedpyright]
+typeCheckingMode = "strict"
+reportAny = true
+reportExplicitAny = true
+
+[tool.ruff]
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "DTZ003", "DTZ004"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+markers = ["smoke: real browser smoke test"]
