@@ -79,7 +79,7 @@ test.describe('daemon control planes', () => {
     await page.goto('/dash/proxyd/');
     const body = page.locator('body');
     await expect(body).toContainText('/dash/');
-    await expect(body).toContainText('/pub/');
+    await expect(body).toContainText('/me/');
   });
 
   test('the stub is the upstream these pages read', async ({ context }) => {

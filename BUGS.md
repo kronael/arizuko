@@ -24,7 +24,6 @@
 - `L687` — decide whether to retire the scheduler's two external write endpoints; proposal, needs sign-off.
 - `L688` — defer folding onbod into routd until measured net savings justify the boundary change; needs sign-off.
 - `L689` — defer folding dashd until measured net savings and reused code justify it; needs sign-off.
-- `L690` — source fixtures and case comments still name retired services; record only.
 
 - `L679` — routd's OpenAPI expectation omits the mounted group PATCH; test-only correction pending.
 
@@ -617,7 +616,7 @@ footprint nor a net saving for this proposal.
 - **Test:** no test — design; measurements are pending.
 - **Status:** open — deferred, needs owner sign-off; outside the built slices of `specs/7/26-single-world-deployment.md`.
 
-## L690 — source fixtures and case comments name retired services (2026-11-07, open — record only)
+## L690 — source fixtures and case comments name retired services (2026-11-07, ✅ FIXED)
 
 `tests/dashd-playwright/stub-upstream.ts:192` contains a
 `http://vited:8080` backend. `tests/dashd-playwright/tests/services.spec.ts:15`
@@ -631,7 +630,7 @@ The fixture values and case comments do not describe the current deployment.
 - **Measured:** the requested non-Go `rg -n 'vited|timed'` scan finds these four lines; deployment generation contains neither service.
 - **Fix:** align fixture backend and service expectations with proxyd static serving and routd scheduling.
 - **Test:** run the affected Playwright suites with the fixture update; TypeScript and TOML edits are outside this documentation pass.
-- **Status:** open — record only.
+- **Status:** ✅ FIXED — fixtures and case comments use current services.
 
 ## L679 — routd's OpenAPI expected list omits the mounted group PATCH (2026-11-07, open — record only)
 

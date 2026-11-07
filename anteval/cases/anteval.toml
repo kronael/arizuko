@@ -44,7 +44,7 @@ kind = "callback"
 
 # Doc: ant/CLAUDE.md Storage — containers are ephemeral per turn; anything
 # outside /home/node/ (~) is lost. The agent persists the marker under ~ and
-# schedules a self-message ~60s out (the `timed` primitive is the trigger, as
+# schedules a self-message ~60s out (routd scheduling is the trigger, as
 # webhook-in uses a webhook). The scheduled turn runs in a FRESH container; a
 # callback proves ~ survived across containers. If the agent wrote outside ~
 # (e.g. /tmp), the fresh container finds nothing and no callback fires.
@@ -394,7 +394,7 @@ kind = "callback"
 # fact in the scheduled prompt or fabricates an answer false-passes; the sink
 # judges reporting, the LLM judges itself.
 # NOT measurable here: layer-1 resume across turns. A scheduled fire carries
-# no topic (timed/split.go), so a group-context follow-up resumes the ROOT
+# no topic (routd/schedule.go), so a group-context follow-up resumes the ROOT
 # session while every case runs in its own topic — the fork/resume contract
 # is pinned at the integration tier instead (tests/feat_continuity_test.go).
 [[case]]

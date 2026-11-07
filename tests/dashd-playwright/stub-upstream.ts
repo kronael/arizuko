@@ -188,9 +188,9 @@ export async function startStubUpstream(): Promise<{
             owner: 'arizuko',
           },
           {
-            path: '/pub/',
-            backend: 'http://vited:8080',
-            auth: 'public',
+            path: '/me/',
+            backend: 'http://webd:8080',
+            auth: 'user',
             owner: 'arizuko',
           },
         ],
