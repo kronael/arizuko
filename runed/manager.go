@@ -293,7 +293,7 @@ func (m *Manager) spawn(ctx context.Context, req runedv1.RunRequest, runID, sess
 	// ctx.Deadline(). dockerRuntime's armCancel kills on ctx.Done() whatever
 	// the cause.
 	runCtx := ctx
-	ttl := m.turnTTL(req)
+	ttl := m.runTTL
 	if ttl > 0 {
 		var cancel context.CancelFunc
 		runCtx, cancel = context.WithTimeout(ctx, ttl)
@@ -384,10 +384,6 @@ func (m *Manager) execute(
 	turn.RegisterSteer = func(steer func(batch string) bool) { m.SetSteer(runID, steer) }
 	return exec.Run(ctx, turn)
 }
-
-// turnTTL is the one deadline: the run ceiling, RUNED_RUN_TIMEOUT. A group's
-// container_config carries no timeout (specs/9/20-group-machine-size.md).
-func (m *Manager) turnTTL(runedv1.RunRequest) time.Duration { return m.runTTL }
 
 // endRun clears the steer callback and updates the breaker counter. Returns
 // true when this exit trips the breaker. Breaker accounting is scoped to

@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kronael/arizuko/core"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 	"github.com/kronael/arizuko/types"
 )
@@ -217,23 +216,12 @@ func TestRunTTLBecomesTheCtxDeadline(t *testing.T) {
 		Cfg: cfg, Folders: folders,
 	})
 
-	mgr.Run(context.Background(), runedv1.RunRequest{Packages: []string{"core"}, Folder: "demo", MessageBatch: "m"})
-
-	got := time.Duration(gotTTL.Load())
-	if got <= 0 || got > 20*time.Millisecond {
-		t.Fatalf("ctx deadline left %s, want just under the 20ms ceiling", got)
-	}
-}
-
-// TestTurnTTLIsTheRunTimeout pins the one deadline: RUNED_RUN_TIMEOUT. A
-// container_config Timeout, left in a group's row by an older release, does not
-// move it (specs/9/20-group-machine-size.md).
-func TestTurnTTLIsTheRunTimeout(t *testing.T) {
-	m := &Manager{runTTL: 20 * time.Minute, cfg: &core.Config{}}
 	for _, cc := range []map[string]any{nil, {"Timeout": int64(5 * time.Minute)}, {"Timeout": int64(3 * time.Hour)}} {
-		req := runedv1.RunRequest{Packages: []string{"core"}, Folder: "demo", ContainerConfig: cc}
-		if got := m.turnTTL(req); got != 20*time.Minute {
-			t.Fatalf("turnTTL(%v)=%s want 20m", cc, got)
+		gotTTL.Store(0)
+		mgr.Run(context.Background(), runedv1.RunRequest{Packages: []string{"core"}, Folder: "demo", MessageBatch: "m", ContainerConfig: cc})
+		got := time.Duration(gotTTL.Load())
+		if got <= 0 || got > 20*time.Millisecond {
+			t.Fatalf("ctx deadline left %s for %v, want just under the 20ms ceiling", got, cc)
 		}
 	}
 }
