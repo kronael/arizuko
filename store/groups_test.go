@@ -20,17 +20,6 @@ func putBareGroup(t *testing.T, s *Store, folder string) {
 	}
 }
 
-func TestIsGroupOpen_DefaultTrueOnMissing(t *testing.T) {
-	s, err := OpenMem()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
-	if !s.IsGroupOpen("nope/missing") {
-		t.Fatal("missing row should default to open=true")
-	}
-}
-
 func TestSetGroupOpen_Flip(t *testing.T) {
 	s, err := OpenMem()
 	if err != nil {
@@ -38,19 +27,22 @@ func TestSetGroupOpen_Flip(t *testing.T) {
 	}
 	defer s.Close()
 	putBareGroup(t, s, "main/a")
-	if !s.IsGroupOpen("main/a") {
+	group, ok := s.GroupByFolder("main/a")
+	if !ok || !group.Open {
 		t.Fatal("fresh row should be open")
 	}
 	if err := s.SetGroupOpen("main/a", false); err != nil {
 		t.Fatal(err)
 	}
-	if s.IsGroupOpen("main/a") {
+	group, ok = s.GroupByFolder("main/a")
+	if !ok || group.Open {
 		t.Fatal("after SetGroupOpen(false) should be closed")
 	}
 	if err := s.SetGroupOpen("main/a", true); err != nil {
 		t.Fatal(err)
 	}
-	if !s.IsGroupOpen("main/a") {
+	group, ok = s.GroupByFolder("main/a")
+	if !ok || !group.Open {
 		t.Fatal("after SetGroupOpen(true) should be open")
 	}
 }
@@ -256,9 +248,9 @@ func TestGroupRowProjectsConfigDefaultsLikeTheAccessors(t *testing.T) {
 	if !ok {
 		t.Fatal("group not found")
 	}
-	// A group with no `open` key is OPEN — same as IsGroupOpen.
-	if !g.Open || !s.IsGroupOpen("acme") {
-		t.Errorf("Open = %v, IsGroupOpen = %v; a group with no key is open", g.Open, s.IsGroupOpen("acme"))
+	// A group with no `open` key is OPEN.
+	if !g.Open {
+		t.Errorf("Open = %v; a group with no key is open", g.Open)
 	}
 	// An unset window is -1 (no cap), never 0 (a cap of nothing).
 	wantM, wantC := s.GroupObserveWindow("acme")

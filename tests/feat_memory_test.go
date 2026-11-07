@@ -17,19 +17,19 @@ func TestFeature_MemoryGroupState(t *testing.T) {
 		if err := s.PutGroup(core.Group{Folder: "g"}); err != nil {
 			t.Fatal(err)
 		}
-		if !s.IsGroupOpen("g") {
+		if !groupOpen(t, s, "g") {
 			t.Fatal("new group should default open")
 		}
 		if err := s.SetGroupOpen("g", false); err != nil {
 			t.Fatal(err)
 		}
-		if s.IsGroupOpen("g") {
+		if groupOpen(t, s, "g") {
 			t.Fatal("group should be closed after SetGroupOpen(false)")
 		}
 		if err := s.SetGroupOpen("g", true); err != nil {
 			t.Fatal(err)
 		}
-		if !s.IsGroupOpen("g") {
+		if !groupOpen(t, s, "g") {
 			t.Fatal("group should be open after SetGroupOpen(true)")
 		}
 	})
@@ -92,4 +92,15 @@ func TestFeature_MemoryGroupState(t *testing.T) {
 			t.Fatalf("model = %q ok=%v, want claude-haiku-4-5", g.Harness, ok)
 		}
 	})
+}
+
+func groupOpen(t *testing.T, s interface {
+	GroupByFolder(string) (core.Group, bool)
+}, folder string) bool {
+	t.Helper()
+	group, ok := s.GroupByFolder(folder)
+	if !ok {
+		t.Fatalf("group %q not found", folder)
+	}
+	return group.Open
 }

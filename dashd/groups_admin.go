@@ -421,7 +421,7 @@ func (d *dash) handleGroupDelete(w http.ResponseWriter, r *http.Request) {
 //
 // The row decodes into core.Group — the same struct routd serves — so the page
 // cannot render a field the API lacks, and its `open` / observe-window
-// projections default exactly as IsGroupOpen and GroupObserveWindow do: a
+// projections use the group defaults: a
 // group with no key is OPEN and an unset window is -1, never 0.
 func (d *dash) getGroup(ctx context.Context, folder string) (core.Group, error) {
 	body, status, err := d.bearerCall(ctx, d.routdURL, http.MethodGet,

@@ -140,7 +140,7 @@ func groupFrom(it objstore.Item) core.Group {
 	if harness, ok := cfg["harness"].(json.RawMessage); ok {
 		g.Harness = harness
 	}
-	// Defaults match IsGroupOpen and GroupObserveWindow exactly: absent `open`
+	// Defaults match GroupObserveWindow: absent `open`
 	// means OPEN, and an unset window is -1, not 0 (a cap of nothing).
 	open, ok := settingNum(cfg, cfgOpen)
 	g.Open = !ok || open != 0
@@ -405,18 +405,6 @@ func (s *Store) GroupByFolder(folder string) (core.Group, bool) {
 		return core.Group{}, false
 	}
 	return groupFrom(it), true
-}
-
-// IsGroupOpen reports the folder's `open` flag. A missing group defaults to
-// true so a freshly-created one stays visible to its siblings until an operator
-// explicitly closes it. Spec 5/F-topic-lineage.
-func (s *Store) IsGroupOpen(folder string) bool {
-	it, ok, err := s.groupItem(context.Background(), folder)
-	if err != nil || !ok {
-		return true
-	}
-	open, set := settingNum(settingsOf(it), cfgOpen)
-	return !set || open != 0
 }
 
 // setSetting rewrites one key of the settings document, leaving the rest

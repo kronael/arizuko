@@ -215,7 +215,7 @@ func TestSetGroupOpen_MCP_FlipsAndContains(t *testing.T) {
 	if res.IsError {
 		t.Fatalf("own folder: %+v", res.Content)
 	}
-	if h.S.IsGroupOpen("world/sub") {
+	if groupOpen(t, h.S, "world/sub") {
 		t.Errorf("open still true after set_group_open(false)")
 	}
 
@@ -251,10 +251,10 @@ func TestSetGroupOpen_MCP_CrossFolder_DescendantAllowed(t *testing.T) {
 	if res.IsError {
 		t.Fatalf("parent → descendant: %+v", res.Content)
 	}
-	if h.S.IsGroupOpen("world/parent/child") {
+	if groupOpen(t, h.S, "world/parent/child") {
 		t.Errorf("descendant still open after parent's set_group_open(false)")
 	}
-	if !h.S.IsGroupOpen("world/parent") {
+	if !groupOpen(t, h.S, "world/parent") {
 		t.Errorf("caller's own folder flipped — should not have been touched")
 	}
 }
@@ -278,7 +278,7 @@ func TestSetGroupOpen_MCP_CrossFolder_OutsideSubtreeDenied(t *testing.T) {
 	if !contentContains(res, "outside") {
 		t.Errorf("error msg missing 'unauthorized': %v", res.Content)
 	}
-	if !h.S.IsGroupOpen("world/b") {
+	if !groupOpen(t, h.S, "world/b") {
 		t.Errorf("sibling was modified despite denial")
 	}
 }
