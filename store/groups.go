@@ -46,8 +46,6 @@ const (
 // The keys inside the settings document: the operator-facing names
 // `arizuko group set` and the dashboard write.
 const (
-	cfgModel          = "model"
-	cfgEffort         = "effort"
 	cfgOpen           = "open"
 	cfgObserveWinMsgs = "observe_window_messages"
 	cfgObserveWinChar = "observe_window_chars"
@@ -136,9 +134,6 @@ func groupFrom(it objstore.Item) core.Group {
 	if harness, ok := cfg["harness"].(json.RawMessage); ok {
 		g.Harness = harness
 	}
-	if model, ok := cfg[cfgModel].(string); ok {
-		g.Model = model
-	}
 	// Defaults match IsGroupOpen and GroupObserveWindow exactly: absent `open`
 	// means OPEN, and an unset window is -1, not 0 (a cap of nothing).
 	open, ok := settingNum(cfg, cfgOpen)
@@ -177,11 +172,8 @@ func (s *Store) groupItemVia(ctx context.Context, folder string) (objstore.Item,
 	return items[0], true, nil
 }
 
-// groupAttrs renders what an upsert STATES about a group: the three fields it
-// owns, and the settings document when the caller named a model. The model is
-// folded INTO the settings, because `config` is ONE document. An EMPTY model
-// states nothing and clears nothing: SetGroupModel("") is the explicit clear.
-func groupAttrs(g core.Group, settings map[string]any) (map[string]string, error) {
+// groupAttrs renders the fields an upsert owns.
+func groupAttrs(g core.Group) (map[string]string, error) {
 	cfgJSON, err := json.Marshal(g.Config)
 	if err != nil {
 		return nil, fmt.Errorf("group %q container config: %w", g.Folder, err)
@@ -195,18 +187,6 @@ func groupAttrs(g core.Group, settings map[string]any) (map[string]string, error
 		attrGrpProduct:         product,
 		attrGrpUpdatedAt:       core.NowTS(),
 	}
-	if g.Model == "" {
-		return attrs, nil
-	}
-	if settings == nil {
-		settings = map[string]any{}
-	}
-	settings[cfgModel] = g.Model
-	raw, err := json.Marshal(settings)
-	if err != nil {
-		return nil, fmt.Errorf("group %q settings: %w", g.Folder, err)
-	}
-	attrs[attrGrpConfig] = string(raw)
 	return attrs, nil
 }
 
@@ -217,7 +197,7 @@ func groupCreate(g core.Group) (objstore.Write, error) {
 	if err != nil {
 		return objstore.Write{}, err
 	}
-	attrs, err := groupAttrs(g, nil)
+	attrs, err := groupAttrs(g)
 	if err != nil {
 		return objstore.Write{}, err
 	}
@@ -231,12 +211,12 @@ func groupCreate(g core.Group) (objstore.Write, error) {
 // groupUpsert renders the ONE write an upsert is. `added_at` is Init because it
 // is the instant the folder APPEARED, and every caller but the CLI's
 // `group add` passes time.Now().
-func groupUpsert(g core.Group, settings map[string]any) (objstore.Write, error) {
+func groupUpsert(g core.Group) (objstore.Write, error) {
 	key, err := groupKey(g.Folder)
 	if err != nil {
 		return objstore.Write{}, err
 	}
-	attrs, err := groupAttrs(g, settings)
+	attrs, err := groupAttrs(g)
 	if err != nil {
 		return objstore.Write{}, err
 	}
@@ -246,30 +226,13 @@ func groupUpsert(g core.Group, settings map[string]any) (objstore.Write, error) 
 	}, nil
 }
 
-// groupUpsertWrite reads what the upsert needs and renders it. The read happens
-// only when the caller named a model: the settings document is what the
-// override is folded into.
-func (s *Store) groupUpsertWrite(ctx context.Context, g core.Group) (objstore.Write, error) {
-	var settings map[string]any
-	if g.Model != "" {
-		it, ok, err := s.groupItemVia(ctx, g.Folder)
-		if err != nil {
-			return objstore.Write{}, err
-		}
-		if ok {
-			settings = settingsOf(it)
-		}
-	}
-	return groupUpsert(g, settings)
-}
-
 func (s *Store) PutGroup(g core.Group) error {
 	product := g.Product
 	if product == "" {
 		product = core.DefaultProduct
 	}
 	return s.writeAudited(func() ([]objstore.Write, audit.Event, error) {
-		w, err := s.groupUpsertWrite(context.Background(), g)
+		w, err := groupUpsert(g)
 		if err != nil {
 			return nil, audit.Event{}, err
 		}
@@ -294,17 +257,7 @@ func (s *Store) PutGroup(g core.Group) error {
 // up with no messaging tools at all.
 func (s *Store) PutGroupRow(g core.Group) error {
 	ctx := context.Background()
-	var settings map[string]any
-	if g.Model != "" {
-		it, ok, err := s.groupItem(ctx, g.Folder)
-		if err != nil {
-			return err
-		}
-		if ok {
-			settings = settingsOf(it)
-		}
-	}
-	row, err := groupUpsert(g, settings)
+	row, err := groupUpsert(g)
 	if err != nil {
 		return err
 	}
@@ -586,14 +539,6 @@ func (s *Store) SetGroupHarness(folder string, value json.RawMessage) error {
 	})
 }
 
-// SetGroupModel sets the per-group model override. Empty string clears it.
-func (s *Store) SetGroupModel(folder, model string) error {
-	if model == "" {
-		return s.setSetting(folder, cfgModel, nil, true)
-	}
-	return s.setSetting(folder, cfgModel, model, false)
-}
-
 // SiblingFolders returns folders that share folder's immediate parent,
 // excluding folder itself and any closed sibling. Root folders have no
 // siblings. Spec 5/F-topic-lineage ambient join.
@@ -640,34 +585,20 @@ func costCapOf(it objstore.Item) int {
 	return n
 }
 
-// GroupConfig answers the two fields a spawn forwards to runed: the per-group
-// model override, and `container_config` as the opaque document it is on the
-// wire. A map rather than core.GroupConfig, because runed round-trips it
-// verbatim and a struct would silently drop a key it does not declare. An
-// unknown group answers ("", nil): the instance defaults.
-// GroupConfig answers the group's model and effort ("" when unset; an effort
-// outside the harness's levels counts as unset) and its container config.
-func (s *Store) GroupConfig(folder string) (model, effort string, cfg map[string]any) {
+// GroupConfig returns the opaque container configuration.
+func (s *Store) GroupConfig(folder string) map[string]any {
 	it, ok, err := s.groupItem(context.Background(), folder)
 	if err != nil || !ok {
-		return "", "", nil
+		return nil
 	}
-	settings := settingsOf(it)
-	if m, isStr := settings[cfgModel].(string); isStr {
-		model = m
-	}
-	if e, isStr := settings[cfgEffort].(string); isStr && slices.Contains(efforts, e) {
-		effort = e
-	}
+	var cfg map[string]any
 	if raw := it.Attrs[attrGrpContainerConfig]; raw != "" && raw != "{}" {
-		if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
-			return model, effort, nil
+		if json.Unmarshal([]byte(raw), &cfg) != nil {
+			return nil
 		}
 	}
-	return model, effort, cfg
+	return cfg
 }
-
-var efforts = []string{"low", "medium", "high", "xhigh", "max"}
 
 // FolderCap returns the folder's per-day spend cap in cents. Zero means
 // uncapped, also for an unknown group: inventing a cap would stop turns nobody

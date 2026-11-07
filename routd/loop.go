@@ -104,9 +104,6 @@ type Loop struct {
 	onboardingEnabled   bool
 	onboardingPlatforms []string
 
-	defaultModel  string
-	defaultEffort string
-
 	maxTurnRetry int
 
 	maxOutboundRetry int
@@ -159,13 +156,6 @@ type LoopConfig struct {
 	// empty platforms = all.
 	OnboardingEnabled   bool
 	OnboardingPlatforms []string
-
-	// DefaultModel (ARIZUKO_DEFAULT_MODEL) applies when a group has no model;
-	// empty leaves the container's ant SDK default.
-	DefaultModel string
-	// DefaultEffort (ARIZUKO_DEFAULT_EFFORT): low|medium|high|xhigh|max; empty
-	// leaves the harness CLI's own default.
-	DefaultEffort string
 
 	// EngagementTTL (ENGAGEMENT_TTL) is the window an @name delegation opens for
 	// its target; zero opens none.
@@ -224,8 +214,6 @@ func NewLoop(db *DB, runner Runner, cfg LoopConfig) *Loop {
 
 		onboardingEnabled:   cfg.OnboardingEnabled,
 		onboardingPlatforms: cfg.OnboardingPlatforms,
-		defaultModel:        cfg.DefaultModel,
-		defaultEffort:       cfg.DefaultEffort,
 		maxTurnRetry:        maxRetry,
 		engagementTTL:       cfg.EngagementTTL,
 		maxOutboundRetry:    maxOutRetry,

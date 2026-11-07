@@ -96,9 +96,6 @@ func TestAnUpsertLeavesTheInstantTheFolderAppeared(t *testing.T) {
 	}
 }
 
-// TestAnUpsertKeepsTheSettingsItDoesNotState is the other half of putGroup's
-// one write: `config` holds ONE settings document, so a model override is folded
-// into what the group already has rather than replacing it.
 func TestAnUpsertKeepsTheSettingsItDoesNotState(t *testing.T) {
 	s := openEntities(t)
 	if err := s.PutGroup(core.Group{Folder: "atlas", AddedAt: time.Now()}); err != nil {
@@ -108,21 +105,16 @@ func TestAnUpsertKeepsTheSettingsItDoesNotState(t *testing.T) {
 		t.Fatalf("close the group: %v", err)
 	}
 	if err := s.PutGroup(core.Group{
-		Folder: "atlas", AddedAt: time.Now(), Model: "opus",
+		Folder: "atlas", AddedAt: time.Now(),
 	}); err != nil {
-		t.Fatalf("upsert with a model: %v", err)
+		t.Fatalf("upsert: %v", err)
 	}
 	g, ok := s.GroupByFolder("atlas")
 	if !ok {
 		t.Fatal("the group is gone")
 	}
-	if g.Model != "opus" {
-		t.Errorf("model is %q, want opus", g.Model)
-	}
 	if g.Open {
-		t.Error("the group reads OPEN after an upsert that only named a model: the open flag " +
-			"and the model live in ONE settings document, so the model is folded in rather " +
-			"than written over it")
+		t.Error("the upsert changed the open setting")
 	}
 }
 

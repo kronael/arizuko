@@ -52,14 +52,10 @@ type Config struct {
 	// real model credential, meters and logs; ModelGatewayKey is the virtual
 	// credential the container presents to it. One declaration, translated
 	// per harness in ant/src/gateway.ts. Empty = the harness's own
-	// credential, unchanged. Static infra config, like AgentBackend.
-	ModelGatewayURL string
-	ModelGatewayKey string
-	// AgentBackend selects the container occupant (spec 6/16 — the harness
-	// seam): claude (default, empty), codex, pi. Static infra config — a
-	// backend exists only if its CLI is baked into the agent image — so it lives in the
-	// instance .env, never the DB.
-	AgentBackend        string
+	// credential, unchanged.
+	ModelGatewayURL     string
+	ModelGatewayKey     string
+	AgentEnv            map[string]string
 	MaxContainers       int
 	Timezone            string
 	AuthSecret          string
@@ -204,8 +200,12 @@ func LoadConfig() (*Config, error) {
 	name := EnvOr("ASSISTANT_NAME", DefaultAssistantName)
 
 	c := &Config{
-		Name:                name,
-		AgentBackend:        EnvOr("ARIZUKO_BACKEND", ""),
+		Name: name,
+		AgentEnv: map[string]string{
+			"ARIZUKO_BACKEND": os.Getenv("ARIZUKO_BACKEND"),
+			"ARIZUKO_MODEL":   os.Getenv("ARIZUKO_DEFAULT_MODEL"),
+			"ARIZUKO_EFFORT":  os.Getenv("ARIZUKO_DEFAULT_EFFORT"),
+		},
 		ModelGatewayURL:     EnvOr("MODEL_GATEWAY_URL", ""),
 		ModelGatewayKey:     EnvOr("MODEL_GATEWAY_KEY", ""),
 		MaxContainers:       EnvInt("MAX_CONCURRENT_CONTAINERS", 5),

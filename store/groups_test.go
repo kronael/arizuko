@@ -335,30 +335,6 @@ func tasksOwnedBy(t *testing.T, s *Store, folder string) int {
 
 // A group's config can set the turn effort beside the model; a value outside
 // the harness's levels counts as unset, so the instance default applies.
-func TestGroupConfigEffort(t *testing.T) {
-	s, err := OpenMem()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
-	putBareGroup(t, s, "main/a")
-	if _, effort, _ := s.GroupConfig("main/a"); effort != "" {
-		t.Fatalf("unset effort = %q", effort)
-	}
-	if err := s.setSetting("main/a", cfgEffort, "xhigh", false); err != nil {
-		t.Fatal(err)
-	}
-	if _, effort, _ := s.GroupConfig("main/a"); effort != "xhigh" {
-		t.Fatalf("effort = %q, want xhigh", effort)
-	}
-	if err := s.setSetting("main/a", cfgEffort, "turbo", false); err != nil {
-		t.Fatal(err)
-	}
-	if _, effort, _ := s.GroupConfig("main/a"); effort != "" {
-		t.Fatalf("unknown effort = %q, want unset", effort)
-	}
-}
-
 func TestGroupHarnessWrite(t *testing.T) {
 	s, err := OpenMem()
 	if err != nil {

@@ -31,7 +31,7 @@ func TestFolderCap_ClearedCapLeavesTheSettingsAlone(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	if err := db.PutGroup(core.Group{Folder: "acme", Model: "claude-opus"}); err != nil {
+	if err := db.PutGroup(core.Group{Folder: "acme"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.SetFolderCap("acme", 250); err != nil {
@@ -45,10 +45,6 @@ func TestFolderCap_ClearedCapLeavesTheSettingsAlone(t *testing.T) {
 	}
 	if got, err := db.FolderCap("acme"); err != nil || got != 0 {
 		t.Fatalf("FolderCap after the clear = (%d, %v), want uncapped", got, err)
-	}
-	if m, _, _ := db.GroupConfig("acme"); m != "claude-opus" {
-		t.Errorf("model = %q after two cap writes, want claude-opus: the cap and the "+
-			"settings are two attributes of one item and neither write owns the other", m)
 	}
 	items, err := db.Obj().Query(context.Background(), objstore.Query{
 		Entity: store.Groups, Partition: store.OwnerRoutd,

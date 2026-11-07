@@ -387,3 +387,18 @@ func TestLoadConfigAlwaysSetsAppSrcDir(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadConfigHarnessDefaults(t *testing.T) {
+	t.Setenv("ARIZUKO_BACKEND", "codex")
+	t.Setenv("ARIZUKO_DEFAULT_MODEL", "model-id")
+	t.Setenv("ARIZUKO_DEFAULT_EFFORT", "high")
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for key, want := range map[string]string{"ARIZUKO_BACKEND": "codex", "ARIZUKO_MODEL": "model-id", "ARIZUKO_EFFORT": "high"} {
+		if cfg.AgentEnv[key] != want {
+			t.Errorf("%s = %q, want %q", key, cfg.AgentEnv[key], want)
+		}
+	}
+}

@@ -95,10 +95,10 @@ func antEnvReads(t *testing.T) []string {
 func TestSpawnEnvCarriesEveryKeyAntReads(t *testing.T) {
 	cfg := &core.Config{
 		Timezone:        "UTC",
-		AgentBackend:    "codex",
+		AgentEnv:        map[string]string{"ARIZUKO_BACKEND": "codex", "ARIZUKO_MODEL": "opus", "ARIZUKO_EFFORT": "xhigh"},
 		ModelGatewayURL: "http://litellm:4000",
 	}
-	req := runedv1.RunRequest{Model: "opus", Effort: "xhigh", Harness: []byte(`{"backend":"codex"}`), ModelGatewayKey: "sk-virtual"}
+	req := runedv1.RunRequest{Harness: []byte(`{"backend":"codex"}`), ModelGatewayKey: "sk-virtual"}
 	env := turnEnv(cfg, req, 900000)
 
 	for _, key := range antEnvReads(t) {
@@ -132,10 +132,10 @@ func TestSpawnEnvEmitsNothingAntIgnores(t *testing.T) {
 		reads[k] = true
 	}
 	cfg := &core.Config{
-		Timezone: "UTC", AgentBackend: "codex",
+		Timezone: "UTC", AgentEnv: map[string]string{"ARIZUKO_BACKEND": "codex", "ARIZUKO_MODEL": "opus", "ARIZUKO_EFFORT": "xhigh"},
 		ModelGatewayURL: "http://litellm:4000",
 	}
-	req := runedv1.RunRequest{Model: "opus", Harness: []byte(`{"backend":"codex"}`), ModelGatewayKey: "sk-virtual"}
+	req := runedv1.RunRequest{Harness: []byte(`{"backend":"codex"}`), ModelGatewayKey: "sk-virtual"}
 	for key := range turnEnv(cfg, req, 900000) {
 		if reads[key] || consumedByOthers[key] != "" {
 			continue

@@ -123,8 +123,6 @@ var daemonKeys = map[string][]string{
 		"HOSTING_DOMAIN", "WEB_VHOST_ALIASES",
 		// routd OWNS secrets, so it needs the key to decrypt them.
 		"SECRETS_KEY",
-		// Instance-wide fallback model when a group has no per-group model.
-		"ARIZUKO_DEFAULT_MODEL", "ARIZUKO_DEFAULT_EFFORT",
 		// The product `arizuko create` was given; routd carries it onto the
 		// default group's row at boot.
 		"ARIZUKO_DEFAULT_PRODUCT",
@@ -169,9 +167,7 @@ var daemonKeys = map[string][]string{
 		"VOICE_TRANSCRIPTION_ENABLED", "VIDEO_TRANSCRIPTION_ENABLED", "WHISPER_MODEL",
 		"TTS_ENABLED", "TTS_BASE_URL", "TTS_VOICE", "TTS_MODEL", "TTS_TIMEOUT",
 		"HOST_CODEX_DIR",
-		// Picks the harness (claude|codex|pi); absent here the .env value never
-		// reaches runed, and a restart silently kept spawning claude.
-		"ARIZUKO_BACKEND",
+		"ARIZUKO_BACKEND", "ARIZUKO_DEFAULT_MODEL", "ARIZUKO_DEFAULT_EFFORT",
 		// runed re-emits it as container env and allows the host through the
 		// spawn's egress proxy. NOT the master key: routd mints each turn's key
 		// and runed injects only the one it is handed (spec 6/23), so the daemon

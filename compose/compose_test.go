@@ -1252,3 +1252,18 @@ func TestGoogdReceivesItsCredential(t *testing.T) {
 		t.Error("googd must not receive SECRETS_KEY")
 	}
 }
+
+func TestHarnessDefaultsReachRuned(t *testing.T) {
+	dir := seed(t, "ARIZUKO_BACKEND=codex\nARIZUKO_DEFAULT_MODEL=model-id\nARIZUKO_DEFAULT_EFFORT=high\n")
+	gen(t, dir)
+	runed := read(t, dir, "env/runed.env")
+	for _, line := range []string{"ARIZUKO_BACKEND=codex", "ARIZUKO_DEFAULT_MODEL=model-id", "ARIZUKO_DEFAULT_EFFORT=high"} {
+		if !strings.Contains(runed, line) {
+			t.Errorf("runed missing %s", line)
+		}
+	}
+	routd := read(t, dir, "env/routd.env")
+	if strings.Contains(routd, "ARIZUKO_DEFAULT_MODEL=") || strings.Contains(routd, "ARIZUKO_DEFAULT_EFFORT=") {
+		t.Fatal("routd received harness defaults")
+	}
+}

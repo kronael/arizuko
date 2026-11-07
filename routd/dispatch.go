@@ -845,13 +845,7 @@ func (l *Loop) dispatchRun(ctx context.Context, folder, topic, chatJID, turnID, 
 	if err != nil {
 		return runedv1.RunOutcome{}, err
 	}
-	model, effort, containerCfg := l.db.GroupConfig(folder)
-	if model == "" {
-		model = l.defaultModel
-	}
-	if effort == "" {
-		effort = l.defaultEffort
-	}
+	containerCfg := l.db.GroupConfig(folder)
 	// routd is the authz plane; runed has neither store. nil allowlist on error
 	// is fine — runed treats empty as no extra constraint.
 	allowlist, _ := l.db.ResolveAllowlist(folder)
@@ -893,15 +887,12 @@ func (l *Loop) dispatchRun(ctx context.Context, folder, topic, chatJID, turnID, 
 		// The JID scheme picks the per-surface output style; a scheme-less JID
 		// yields "" → default. SplitN would hand back the folder path as a
 		// style name, so jidScheme.
-		Channel:       jidScheme(chatJID),
-		SessionID:     sessionID,
-		MessageBatch:  batch,
-		TriggerSender: trigger,
-		CallerSub:     caller,
-		TurnID:        turnID,
-		Model:         model,
-		// The group's, else the instance's; empty leaves the harness default (high).
-		Effort:          effort,
+		Channel:         jidScheme(chatJID),
+		SessionID:       sessionID,
+		MessageBatch:    batch,
+		TriggerSender:   trigger,
+		CallerSub:       caller,
+		TurnID:          turnID,
 		ContainerConfig: containerCfg,
 		Harness:         harness,
 		Isolated:        isolated,

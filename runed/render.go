@@ -100,17 +100,13 @@ func turnEnv(cfg *core.Config, req runedv1.RunRequest, queryTimeout int64) map[s
 	if len(req.Harness) > 0 {
 		env["ARIZUKO_HARNESS"] = string(req.Harness)
 	}
-	if req.Model != "" {
-		env["ARIZUKO_MODEL"] = req.Model
-	}
-	if req.Effort != "" {
-		env["ARIZUKO_EFFORT"] = req.Effort
+	for key, value := range cfg.AgentEnv {
+		if value != "" {
+			env[key] = value
+		}
 	}
 	if queryTimeout > 0 {
 		env["ARIZUKO_QUERY_TIMEOUT_MS"] = strconv.FormatInt(queryTimeout, 10)
-	}
-	if cfg.AgentBackend != "" {
-		env["ARIZUKO_BACKEND"] = cfg.AgentBackend
 	}
 	// The URL is instance config; the key is this ONE turn's, minted by routd
 	// and dead when the turn ends (spec 6/23), so it arrives with the request

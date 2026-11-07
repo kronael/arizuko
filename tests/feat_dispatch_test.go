@@ -30,12 +30,12 @@ func TestFeature_AgentDispatch(t *testing.T) {
 		if err := s.PutGroup(core.Group{Folder: "corp/eng"}); err != nil {
 			t.Fatal(err)
 		}
-		if err := s.SetGroupModel("corp/eng", "claude-haiku"); err != nil {
+		if err := s.SetGroupHarness("corp/eng", []byte(`{"backend":"claude","model":"claude-haiku"}`)); err != nil {
 			t.Fatal(err)
 		}
 		g, ok := s.GroupByFolder("corp/eng")
-		if !ok || g.Model != "claude-haiku" {
-			t.Fatalf("group model = %q (ok=%v), want claude-haiku", g.Model, ok)
+		if !ok || string(g.Harness) != `{"backend":"claude","model":"claude-haiku"}` {
+			t.Fatalf("group model = %q (ok=%v), want claude-haiku", g.Harness, ok)
 		}
 	})
 

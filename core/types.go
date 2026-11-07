@@ -84,11 +84,10 @@ type Group struct {
 	AddedAt time.Time
 	Config  GroupConfig
 	Product string
-	Model   string          // per-group model override; empty = instance default
 	Harness json.RawMessage `json:"harness,omitempty"`
 
 	// Open, ObserveWindowMessages and ObserveWindowChars are read-only
-	// projections of the `config` column, exactly as Model already is. They
+	// projections of the `config` column. They
 	// exist so ONE read answers the whole group settings page instead of the
 	// page reaching into another daemon's DB for them (spec 6/28 read-path).
 	//

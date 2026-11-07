@@ -32,7 +32,7 @@ func goldenCfg(t *testing.T, root string) *core.Config {
 	}
 	cfg := &core.Config{
 		Name:              "krons",
-		AgentBackend:      "claude",
+		AgentEnv:          map[string]string{"ARIZUKO_BACKEND": "claude", "ARIZUKO_MODEL": "opus", "ARIZUKO_EFFORT": "xhigh"},
 		Timezone:          "Europe/Prague",
 		WebHost:           "krons.fiu.wtf",
 		ProjectRoot:       root,
@@ -100,7 +100,7 @@ func TestRenderTurnGolden(t *testing.T) {
 	turn, err := renderTurn(cfg, folders, runedv1.RunRequest{Packages: []string{"core"}, Folder: "atlas/support", Topic: "t-42", ChatJID: "slack:T1/channel/C9",
 		Channel: "slack", SessionID: "11111111-2222-3333-4444-555555555555",
 		MessageBatch: "hello world", TriggerSender: "u1", CallerSub: "user:caller",
-		TurnID: "turn-7", Model: "opus", Effort: "xhigh",
+		TurnID: "turn-7",
 		ContainerConfig: map[string]any{
 			"Mounts": []any{map[string]any{"Host": filepath.Join(root, "extra"), "Container": "extra", "RO": false}},
 		},
@@ -435,9 +435,9 @@ func TestReadOptional(t *testing.T) {
 // silently (BUGS L60, spec 6/23).
 func TestTurnEnvEmissions(t *testing.T) {
 	full := &core.Config{
-		Timezone: "UTC", AgentBackend: "codex", ModelGatewayURL: "http://gw:4000",
+		Timezone: "UTC", AgentEnv: map[string]string{"ARIZUKO_BACKEND": "codex", "ARIZUKO_MODEL": "opus", "ARIZUKO_EFFORT": "xhigh"}, ModelGatewayURL: "http://gw:4000",
 	}
-	got := turnEnv(full, runedv1.RunRequest{Packages: []string{"core"}, Model: "opus", Effort: "xhigh", ModelGatewayKey: "sk-virtual",
+	got := turnEnv(full, runedv1.RunRequest{Packages: []string{"core"}, ModelGatewayKey: "sk-virtual",
 		Elevated: true, GHWrite: true, Progress: true}, 900000)
 	want := map[string]string{
 		"TZ":                       "UTC",

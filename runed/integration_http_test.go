@@ -52,7 +52,6 @@ func TestHTTPRunThreadsFullTurn(t *testing.T) {
 	got := doRun(t, h, runedv1.RunRequest{Packages: []string{"core"}, Folder: "acme/eng", Topic: "incident", ChatJID: "telegram:42",
 		Channel: "telegram", SessionID: "resume-me", MessageBatch: "rendered",
 		TriggerSender: "user:trig", CallerSub: "user:caller", TurnID: "wamid.Z",
-		Model:           "claude-opus-4-8",
 		ContainerConfig: map[string]any{"MaxChildren": 4},
 		ShareReadOnly:   true,
 		Egress:          true,
@@ -103,9 +102,6 @@ func TestHTTPRunThreadsFullTurn(t *testing.T) {
 
 	// The process environment: the model override, and the query timeout derived
 	// from the one deadline (60m default run ceiling − 30s, in ms).
-	if turn.Env["ARIZUKO_MODEL"] != "claude-opus-4-8" {
-		t.Errorf("Env[ARIZUKO_MODEL]=%q want claude-opus-4-8", turn.Env["ARIZUKO_MODEL"])
-	}
 	if turn.Env["ARIZUKO_QUERY_TIMEOUT_MS"] != "3570000" {
 		t.Errorf("Env[ARIZUKO_QUERY_TIMEOUT_MS]=%q want 3570000", turn.Env["ARIZUKO_QUERY_TIMEOUT_MS"])
 	}

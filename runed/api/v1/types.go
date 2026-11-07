@@ -20,20 +20,16 @@ type RunRequest struct {
 	Packages []string `json:"packages"`
 	// ManagedFiles are the group-home paths package sync rewrites; the
 	// renderer denies the agent's file tools on them (advisory, not a boundary).
-	ManagedFiles  []string      `json:"managed_files,omitempty"`
-	Folder        types.Folder  `json:"folder"`
-	Topic         string        `json:"topic"`
-	ChatJID       string        `json:"chat_jid"`
-	Channel       string        `json:"channel,omitempty"` // JID scheme (telegram|slack|discord|web).
-	SessionID     string        `json:"session_id"`        // empty = fresh; runed resumes if non-empty
-	MessageBatch  string        `json:"message_batch"`     // rendered prompt STRING
-	TriggerSender string        `json:"trigger_sender"`    // engagement-skip policy only; NOT token identity
-	CallerSub     types.UserSub `json:"caller_sub"`        // token SUBJECT for the brokered agent token; never ""
-	TurnID        string        `json:"turn_id"`           // triggering inbound id; echoed on callbacks
-	Model         string        `json:"model"`             // group override; empty = instance default
-	// Effort is the reasoning depth the harness CLI is asked for
-	// (low|medium|high|xhigh|max); empty leaves the CLI's own default.
-	Effort          string          `json:"effort,omitempty"`
+	ManagedFiles    []string        `json:"managed_files,omitempty"`
+	Folder          types.Folder    `json:"folder"`
+	Topic           string          `json:"topic"`
+	ChatJID         string          `json:"chat_jid"`
+	Channel         string          `json:"channel,omitempty"` // JID scheme (telegram|slack|discord|web).
+	SessionID       string          `json:"session_id"`        // empty = fresh; runed resumes if non-empty
+	MessageBatch    string          `json:"message_batch"`     // rendered prompt STRING
+	TriggerSender   string          `json:"trigger_sender"`    // engagement-skip policy only; NOT token identity
+	CallerSub       types.UserSub   `json:"caller_sub"`        // token SUBJECT for the brokered agent token; never ""
+	TurnID          string          `json:"turn_id"`           // triggering inbound id; echoed on callbacks
 	Harness         json.RawMessage `json:"harness,omitempty"`
 	ContainerConfig map[string]any  `json:"container_config"` // opaque GroupConfig forwarded from groups.container_config
 	Isolated        bool            `json:"isolated"`         // timed-isolated:* runs: one-off container, no session persist

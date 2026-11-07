@@ -84,12 +84,12 @@ func TestFeature_MemoryGroupState(t *testing.T) {
 		if err := s.PutGroup(core.Group{Folder: "m"}); err != nil {
 			t.Fatal(err)
 		}
-		if err := s.SetGroupModel("m", "claude-haiku-4-5"); err != nil {
+		if err := s.SetGroupHarness("m", []byte(`{"backend":"claude","model":"claude-haiku-4-5"}`)); err != nil {
 			t.Fatal(err)
 		}
 		g, ok := s.GroupByFolder("m")
-		if !ok || g.Model != "claude-haiku-4-5" {
-			t.Fatalf("model = %q ok=%v, want claude-haiku-4-5", g.Model, ok)
+		if !ok || string(g.Harness) != `{"backend":"claude","model":"claude-haiku-4-5"}` {
+			t.Fatalf("model = %q ok=%v, want claude-haiku-4-5", g.Harness, ok)
 		}
 	})
 }

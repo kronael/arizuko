@@ -852,9 +852,9 @@ out-of-band and use HTTP.
 
 One capability ships today:
 
-| Capability | Binary  | Skill                        | Auth                                                                                                                                                     |
-| ---------- | ------- | ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `oracle`   | `codex` | `ant/skills/oracle/SKILL.md` | `HOST_CODEX_DIR` login on a folder holding the `codex` grant **OR** `CODEX_API_KEY` / `OPENAI_API_KEY` from the host `.env` or the user's `/dash/me/env` |
+| Capability | Binary  | Skill                        | Auth                                                                                                                           |
+| ---------- | ------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `oracle`   | `codex` | `ant/skills/oracle/SKILL.md` | `HOST_CODEX_DIR` login in direct mode, or `CODEX_API_KEY` / `OPENAI_API_KEY` from the host `.env` or the user's `/dash/me/env` |
 
 To add one:
 

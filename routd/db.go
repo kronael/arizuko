@@ -144,7 +144,7 @@ func (d *DB) DeleteGroupRow(folder string) error {
 
 // GroupConfig returns the per-group model override + the opaque container_config
 // for runed; empty/nil when unknown or unset → runed uses the instance defaults.
-func (d *DB) GroupConfig(folder string) (model, effort string, cfg map[string]any) {
+func (d *DB) GroupConfig(folder string) map[string]any {
 	return d.store().GroupConfig(folder)
 }
 

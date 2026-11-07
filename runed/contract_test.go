@@ -45,7 +45,6 @@ func TestContractRun(t *testing.T) {
 
 	rec := doRun(t, h, runedv1.RunRequest{Packages: []string{"core"}, Folder: "demo", ChatJID: "slack:T/C/U", TurnID: "wamid.X",
 		MessageBatch: "rendered prompt", CallerSub: "user:u1",
-		Model:           "claude-opus-4-8",
 		ContainerConfig: map[string]any{"MaxChildren": 2}})
 	if rec.Code != 200 {
 		t.Fatalf("run status=%d body=%s", rec.Code, rec.Body.String())
@@ -66,9 +65,6 @@ func TestContractRun(t *testing.T) {
 	prompt, _ := frame["prompt"].(string)
 	if prompt != "rendered prompt" || frame["chatJid"] != "slack:T/C/U" {
 		t.Fatalf("stdin frame not rendered from RunRequest: %+v", frame)
-	}
-	if sawTurn.Env["ARIZUKO_MODEL"] != "claude-opus-4-8" {
-		t.Fatalf("Env[ARIZUKO_MODEL]=%q want claude-opus-4-8 (dropped)", sawTurn.Env["ARIZUKO_MODEL"])
 	}
 	if sawTurn.Handle == "" || len(sawTurn.Mounts) == 0 {
 		t.Fatalf("turn has no handle or no mounts: %+v", sawTurn)

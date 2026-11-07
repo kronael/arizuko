@@ -215,14 +215,6 @@ func main() {
 		// A route miss federates an onboarding insert to onbod when enabled.
 		OnboardingEnabled:   core.EnvOr("ONBOARDING_ENABLED", "false") == "true",
 		OnboardingPlatforms: core.ParseCSV(os.Getenv("ONBOARDING_PLATFORMS")),
-		// Instance-wide default model: a group with no per-group model falls
-		// back to this. No vendor default. The seam says model is a BACKEND-NATIVE id and
-		// that absent means the harness picks its own (ant/src/backend.ts:29).
-		// A hardcoded claude id made "absent" unexpressible, so switching
-		// ARIZUKO_BACKEND to codex sent it a claude model and every turn 400d
-		// (BUGS L129). Empty reaches ant as falsy, and each CLI defaults itself.
-		DefaultModel:  core.EnvOr("ARIZUKO_DEFAULT_MODEL", ""),
-		DefaultEffort: core.EnvOr("ARIZUKO_DEFAULT_EFFORT", ""),
 		// Turn retry on SIGKILL/OOM/timeout (spec 5/12). Default 3.
 		MaxTurnRetry: core.EnvInt("MAX_TURN_RETRY", 3),
 		// Transient delivery failures a pending bot row absorbs before the

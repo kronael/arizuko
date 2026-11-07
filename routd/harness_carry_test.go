@@ -86,7 +86,7 @@ func TestHarnessCarry(t *testing.T) {
 		t.Fatal(err)
 	}
 	check()
-	if err := db.PutGroup(core.Group{Folder: "demo", Model: "example"}); err != nil {
+	if err := db.PutGroup(core.Group{Folder: "demo"}); err != nil {
 		t.Fatal(err)
 	}
 	check()
