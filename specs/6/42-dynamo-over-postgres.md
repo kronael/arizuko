@@ -669,11 +669,14 @@ stays FTS5 on a SQLite deployment" — because there is no SQLite deployment.
 
 ## 9. Acceptance
 
-- `TestEnrolledPoliciesEnforceStoreReach`, required acceptance test, not yet
-  implemented: enroll a clean account on an isolated enforcing server. Each
-  daemon key must read and write its allowed prefixes and receive an
-  authorization denial for reads and writes outside `StoreReach`.
-  Policy-document and readback tests alone do not close L318 or ship this spec.
+- `TestEnrolledPoliciesEnforceStoreReach` in `cmd/arizuko/store_test.go`
+  enrolls a clean account on an isolated enforcing server. Each daemon key
+  reads and writes its allowed prefixes and receives `AccessDeniedException`
+  for foreign-prefix reads and writes. Re-enrollment narrows deliberately
+  widened policies while preserving the keys. Set `ARIZUKO_TEST_DYNAMO_ENDPOINT`
+  and the certificate, region and management credentials described in
+  `tests/README.md`. Run
+  `go test ./cmd/arizuko -count=1 -short -race -run TestEnrolledPoliciesEnforceStoreReach`.
 - `go test ./objstore/...` green with `dynstore` against ExtendDB on
   `postgres:17-alpine`, AND against `amazon/dynamodb-local`, AND with `-race`
   on the three concurrent bodies. The second run is what proves the driver is
@@ -806,11 +809,11 @@ a)` concurrently, a thousand times: the answer must be one commit and one
 The DynamoDB driver, object-store protocols, BM25 message index and owner-file
 deletions are in code. `objstore/dynstore/dynstore_test.go` runs the shared
 conformance suite. `cmd/arizuko/store_test.go` covers enrollment, policy
-readback and snapshot copying. Policy enforcement is a separate acceptance gate.
+readback, snapshot copying and enrolled policy enforcement on PostgreSQL-backed
+ExtendDB.
 
 ### Remaining
 
-- Add `TestEnrolledPoliciesEnforceStoreReach` on an isolated enforcing server: every enrolled daemon key must permit its prefixes and deny foreign-prefix reads and writes (`cmd/arizuko/store_test.go`; L318).
 - Run driver conformance on PostgreSQL-backed ExtendDB and DynamoDB Local, including the concurrent bodies with `-race` (`objstore/dynstore/dynstore_test.go`).
 - Prove disposable guest-observable smoke on the PostgreSQL store after callback reachability works (`anteval/cases/anteval.toml`; L379).
 - Record the required twenty-query search comparison and deployment soak evidence (`routd/README.md`, `CHANGELOG.md`).

@@ -32,7 +32,9 @@ go test ./routd/...
   PostgreSQL deployment or Amazon's own service. `AWS_ACCESS_KEY_ID`,
   `AWS_SECRET_ACCESS_KEY` and `AWS_REGION` then come from the environment.
   `ARIZUKO_TEST_DYNAMO_CA` names the certificate of an endpoint that signed its
-  own.
+  own. The enrollment policy acceptance test also needs an isolated enforcing
+  ExtendDB server and its `EXTENDDB_PASSWORD`; the default development fixture
+  does not enforce IAM.
 - A test without an endpoint fails. It does not skip, because a skip shows a
   suite that proved nothing as green.
 

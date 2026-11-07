@@ -3,7 +3,9 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -14,6 +16,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -23,6 +26,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	"github.com/aws/smithy-go"
 	"github.com/joho/godotenv"
 
 	"github.com/kronael/arizuko/objstore/dynstore"
@@ -54,8 +58,14 @@ func newInstance(t *testing.T) (instance, dir string) {
 	t.Setenv("DATA_DIR", "")
 	instance = uniq("enr")
 	dir = filepath.Join(base, "arizuko_"+instance)
-	writeFile(t, filepath.Join(dir, ".env"), dynstore.EnvURL+"="+cfg.Endpoint+"\n"+dynstore.EnvRegion+"=us-east-1\n")
+	writeFile(t, filepath.Join(dir, ".env"), storeConfigEnv(cfg))
 	return instance, dir
+}
+
+func storeConfigEnv(cfg dynstore.Config) string {
+	return dynstore.EnvURL + "=" + cfg.Endpoint + "\n" +
+		dynstore.EnvRegion + "=" + os.Getenv(dynstore.EnvRegion) + "\n" +
+		dynstore.EnvCA + "=" + base64.StdEncoding.EncodeToString(cfg.CA) + "\n"
 }
 
 func enrollRun(t *testing.T, instance string, extra ...string) (string, error) {
@@ -71,7 +81,8 @@ func enrollRun(t *testing.T, instance string, extra ...string) (string, error) {
 
 func testManager(t *testing.T) *manager {
 	t.Helper()
-	m, err := newManager(map[string]string{dynstore.EnvURL: dyntest.Config(t).Endpoint})
+	cfg := dyntest.Config(t)
+	m, err := newManager(map[string]string{dynstore.EnvURL: cfg.Endpoint, dynstore.EnvCA: base64.StdEncoding.EncodeToString(cfg.CA)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -264,7 +275,9 @@ func account(t *testing.T, name string) *dynamodb.Client {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c, err := dynstore.Client(dynstore.Config{Endpoint: dyntest.Config(t).Endpoint, KeyID: keyID, Secret: secret})
+	cfg := dyntest.Config(t)
+	cfg.KeyID, cfg.Secret = keyID, secret
+	c, err := dynstore.Client(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -285,7 +298,7 @@ func snapshot(t *testing.T, source string) string {
 		t.Fatal(err)
 	}
 	dir := t.TempDir()
-	writeFile(t, filepath.Join(dir, ".env"), dynstore.EnvURL+"="+dyntest.Config(t).Endpoint+"\n")
+	writeFile(t, filepath.Join(dir, ".env"), storeConfigEnv(dyntest.Config(t)))
 	writeFile(t, filepath.Join(dir, "env", "operator.env"),
 		dynstore.EnvKeyID+"="+keyID+"\n"+dynstore.EnvSecret+"="+secret+"\n")
 	return dir
@@ -342,7 +355,9 @@ func scan(t *testing.T, c *dynamodb.Client, name string) []map[string]types.Attr
 func dstClient(t *testing.T, dir string) *dynamodb.Client {
 	t.Helper()
 	pair := pairOf(t, dir, "operator.env")
-	c, err := dynstore.Client(dynstore.Config{Endpoint: dyntest.Config(t).Endpoint, KeyID: pair[dynstore.EnvKeyID], Secret: pair[dynstore.EnvSecret]})
+	cfg := dyntest.Config(t)
+	cfg.KeyID, cfg.Secret = pair[dynstore.EnvKeyID], pair[dynstore.EnvSecret]
+	c, err := dynstore.Client(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -605,4 +620,142 @@ func TestGenerateRefusesBeforeRelink(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, "web")); !os.IsNotExist(err) {
 		t.Fatal("web output created")
 	}
+}
+
+func TestEnrolledPoliciesEnforceStoreReach(t *testing.T) {
+	if testing.Short() && os.Getenv(dyntest.EnvEndpoint) == "" {
+		t.Skip("set ARIZUKO_TEST_DYNAMO_ENDPOINT to an isolated policy-enforcing ExtendDB server")
+	}
+	instance, dir := newInstance(t)
+	m := testManager(t)
+	if out, err := enrollRun(t, instance); err != nil {
+		t.Fatalf("enroll: %v\n%s", err, out)
+	}
+	accounts, err := m.accounts()
+	if err != nil {
+		t.Fatal(err)
+	}
+	accountID := accounts["arizuko_"+instance]
+	if accountID == "" {
+		t.Fatal("enrolled account is missing")
+	}
+	t.Cleanup(func() {
+		if err := m.deleteAccount("arizuko_" + instance); err != nil {
+			t.Errorf("delete account: %v", err)
+		}
+	})
+	const fullPolicy = `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"dynamodb:*","Resource":"*"}]}`
+	const fixtureUser = "policy_fixture"
+	if err := m.user(accountID, fixtureUser); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.putPolicy(accountID, fixtureUser, fullPolicy); err != nil {
+		t.Fatal(err)
+	}
+	id, secret, err := m.mint(accountID, fixtureUser)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := dyntest.Config(t)
+	cfg.KeyID, cfg.Secret = id, secret
+	admin, err := dynstore.Client(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entity := uniq("policy")
+	prefixes := map[string]bool{"unrelated": true}
+	for _, owners := range store.StoreReach {
+		for _, owner := range owners {
+			prefixes[owner] = true
+		}
+	}
+	for owner := range prefixes {
+		table := dynstore.Prefix(owner) + entity
+		ownerCfg := cfg
+		if owner != "unrelated" {
+			for daemon, owners := range store.StoreReach {
+				if slices.Contains(owners, owner) {
+					_, file := enrollee(daemon)
+					pair := pairOf(t, dir, file)
+					ownerCfg.KeyID, ownerCfg.Secret = pair[dynstore.EnvKeyID], pair[dynstore.EnvSecret]
+					break
+				}
+			}
+		}
+		ownerCfg.Prefix = dynstore.Prefix(owner)
+		ownerStore, err := dynstore.Dial(ownerCfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := ownerStore.CreateEntity(context.Background(), entity); err != nil {
+			t.Fatalf("create %s: %v", table, err)
+		}
+		t.Cleanup(func() {
+			if _, err := admin.DeleteTable(context.Background(), &dynamodb.DeleteTableInput{TableName: aws.String(table)}); err != nil {
+				t.Errorf("delete %s: %v", table, err)
+			}
+		})
+	}
+	check := func(t *testing.T, err error, allowed bool) {
+		t.Helper()
+		if allowed {
+			if err != nil {
+				t.Fatalf("allowed operation failed: %v", err)
+			}
+			return
+		}
+		var apiErr smithy.APIError
+		if !errors.As(err, &apiErr) || apiErr.ErrorCode() != "AccessDeniedException" {
+			t.Fatalf("expected AccessDeniedException, got %v", err)
+		}
+	}
+	checkReach := func(t *testing.T) {
+		for daemon, owners := range store.StoreReach {
+			if len(owners) == 0 {
+				continue
+			}
+			_, file := enrollee(daemon)
+			pair := pairOf(t, dir, file)
+			userCfg := dyntest.Config(t)
+			userCfg.KeyID, userCfg.Secret = pair[dynstore.EnvKeyID], pair[dynstore.EnvSecret]
+			client, err := dynstore.Client(userCfg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for owner := range prefixes {
+				t.Run(daemon+"/"+owner, func(t *testing.T) {
+					table := dynstore.Prefix(owner) + entity
+					key := map[string]types.AttributeValue{"part": s(daemon), "sort": s("one")}
+					_, err := client.PutItem(context.Background(), &dynamodb.PutItemInput{TableName: aws.String(table), Item: key})
+					check(t, err, slices.Contains(owners, owner))
+					got, err := client.GetItem(context.Background(), &dynamodb.GetItemInput{TableName: aws.String(table), Key: key, ConsistentRead: aws.Bool(true)})
+					check(t, err, slices.Contains(owners, owner))
+					if slices.Contains(owners, owner) && !reflect.DeepEqual(got.Item, key) {
+						t.Fatalf("read = %v, want %v", got.Item, key)
+					}
+				})
+			}
+		}
+	}
+	t.Run("minted", checkReach)
+	before := map[string]string{}
+	for daemon, owners := range store.StoreReach {
+		if len(owners) > 0 {
+			user, file := enrollee(daemon)
+			before[daemon] = pairOf(t, dir, file)[dynstore.EnvKeyID]
+			if err := m.putPolicy(accountID, user, fullPolicy); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if out, err := enrollRun(t, instance); err != nil {
+		t.Fatalf("re-enroll: %v\n%s", err, out)
+	}
+	for daemon, id := range before {
+		_, file := enrollee(daemon)
+		if pairOf(t, dir, file)[dynstore.EnvKeyID] != id {
+			t.Errorf("%s key changed", daemon)
+		}
+	}
+	t.Run("kept", checkReach)
 }
