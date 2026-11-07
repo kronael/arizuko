@@ -36,6 +36,7 @@ import (
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/objstore"
+	"github.com/kronael/arizuko/router"
 )
 
 // The attributes a message item carries. The chat, the instant and the id are
@@ -260,8 +261,20 @@ func (s *Store) putMessage(ctx context.Context, m core.Message, status string,
 	if err != nil {
 		return m, err
 	}
+	nativeTopic := m.Topic
 	if m.Topic == "" {
 		m.Topic = chat.Attrs[AttrChatStickyTopic]
+	}
+	if !m.BotMsg {
+		routes, err := s.RouteTable()
+		if err != nil {
+			return m, err
+		}
+		probe := m
+		probe.Topic = nativeTopic
+		if target := router.ResolveRouteTarget(probe, routes); target.HasTopic {
+			m.Topic = target.Topic
+		}
 	}
 	chatKey, err := chatKey(m.ChatJID)
 	if err != nil {

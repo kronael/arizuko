@@ -87,6 +87,7 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 	// the prompt is built, so this turn renders it as context.
 	var trigger, ambient []core.Message
 	addressed := map[string]bool{}
+	pinned := map[string]bool{}
 	for i, m := range msgs {
 		switch {
 		case m.BotMsg:
@@ -96,6 +97,7 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 			}
 			trigger = append(trigger, m)
 			addressed[m.ID] = b.rows[i].Addressed
+			pinned[m.ID] = b.rows[i].TopicPinned
 		default:
 			ambient = append(ambient, m)
 		}
@@ -112,10 +114,10 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 	// function below runs per row and pollBatch is 200.
 	web := strings.HasPrefix(chatJID, "web:")
 	_, pin := l.db.StickyState(chatJID)
-	if !web && r.Topic != "" {
-		pin = r.Topic
-	}
 	turnTopic := func(m core.Message) string {
+		if pinned[m.ID] {
+			return m.Topic
+		}
 		if pin != "" {
 			return pin
 		}

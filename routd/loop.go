@@ -594,9 +594,10 @@ const onboardingFailedNotice = "⚠️ Couldn't register this chat for setup —
 // ok=true → dispatch to Folder; Observe non-empty → silent ingest, no turn;
 // neither → route miss.
 type resolution struct {
-	Folder  string
-	Topic   string // route-pinned topic (rt.Topic), "" leaves the message's own
-	Observe string // observe-mode folder; messages get is_observed=1, no turn
+	Folder      string
+	Topic       string // route-pinned topic (rt.Topic), "" leaves the message's own
+	TopicPinned bool
+	Observe     string // observe-mode folder; messages get is_observed=1, no turn
 	// Addressed: a person put a question to this folder and is owed an answer
 	// (spec 6/47 §"Addressed"). Declared here once and stored on the turn.
 	Addressed bool
@@ -711,7 +712,7 @@ func (l *Loop) resolveFolder(reads *chatReads, last core.Message, routes []core.
 	hasAt = hasAt && !last.BotMsg && !isSystemTrigger(last.Sender)
 	atRow := router.HasAt(row)
 	if hasAt && atRow && rt.Folder != "" && rt.Mode == "" {
-		return resolution{Folder: rt.Folder, Topic: rt.Topic, ok: true, Addressed: true, AtName: true}
+		return resolution{Folder: rt.Folder, Topic: last.Topic, TopicPinned: rt.HasTopic, ok: true, Addressed: true, AtName: true}
 	}
 	res := l.routedFolder(reads, last, rt)
 	if hasAt && !atRow {
@@ -732,25 +733,28 @@ func (l *Loop) routedFolder(reads *chatReads, last core.Message, rt core.RouteTa
 	// 2. Route table.
 	if rt.Folder != "" {
 		engTopic := reads.effectiveTopic(last.Topic)
+		if rt.HasTopic {
+			engTopic = last.Topic
+		}
 		// #engaged extends engagement to the rows the rule matches, whatever
 		// their verb: it fires in the engaged folder while the chat and topic
 		// are engaged and is observed under the target otherwise. Never addressed.
 		if rt.Mode == "engaged" {
 			if folder, ok := reads.engagedFolder(engTopic); ok {
-				return resolution{Folder: folder, ok: true}
+				return resolution{Folder: folder, Topic: last.Topic, TopicPinned: rt.HasTopic, ok: true}
 			}
-			return resolution{Observe: rt.Folder}
+			return resolution{Observe: rt.Folder, Topic: last.Topic, TopicPinned: rt.HasTopic}
 		}
 		// A trigger rule addresses the folder whether or not the chat is also
 		// engaged; an observe rule on an engaged chat is engagement alone.
 		addressed := rt.Mode != "observe"
 		if folder, ok := reads.engaged(engTopic, last); ok {
-			return resolution{Folder: folder, ok: true, Addressed: addressed}
+			return resolution{Folder: folder, Topic: last.Topic, TopicPinned: rt.HasTopic, ok: true, Addressed: addressed}
 		}
 		if rt.Mode == "observe" {
-			return resolution{Observe: rt.Folder}
+			return resolution{Observe: rt.Folder, Topic: last.Topic, TopicPinned: rt.HasTopic}
 		}
-		return resolution{Folder: rt.Folder, Topic: rt.Topic, ok: true, Addressed: true}
+		return resolution{Folder: rt.Folder, Topic: last.Topic, TopicPinned: rt.HasTopic, ok: true, Addressed: true}
 	}
 	// 3. Engagement fallback on a route miss (topic-root normalized).
 	engTopic := reads.effectiveTopic(last.Topic)

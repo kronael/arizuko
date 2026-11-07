@@ -133,3 +133,72 @@ func TestDispatch_ACommandBeforeAMentionStillRoutes(t *testing.T) {
 			"dispatch after a command in front of it: %+v", len(rr.runs), rr.runs)
 	}
 }
+
+func TestDispatch_GitHubRepositoriesHaveDistinctSessions(t *testing.T) {
+	db, loop, rr := recLoop(t)
+	if err := db.PutGroup(core.Group{Folder: "desk"}); err != nil {
+		t.Fatal(err)
+	}
+	doSetRoutes(t, db, []core.Route{{Match: "platform=github verb=mention", Target: "desk#{jid}"}})
+	jids := []string{"github:org/first/pr/12", "github:org/second/pr/12"}
+	for i, jid := range jids {
+		if err := db.SetStickyTopic(jid, "sticky"); err != nil {
+			t.Fatal(err)
+		}
+		if err := db.PutMessage(core.Message{ID: jid, ChatJID: jid, Sender: "user", Verb: "mention", Content: "review", Timestamp: time.Now().Add(time.Duration(i) * time.Second)}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := loop.processGroupMessages(jid); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(rr.runs) != 2 || rr.runs[0].topic != jids[0] || rr.runs[1].topic != jids[1] {
+		t.Fatalf("runs = %+v", rr.runs)
+	}
+	a, okA := db.GetSession("desk", jids[0])
+	b, okB := db.GetSession("desk", jids[1])
+	if !okA || !okB || a == "" || b == "" || a == b {
+		t.Fatalf("sessions = %q/%v, %q/%v", a, okA, b, okB)
+	}
+}
+
+func TestRouteTopicControlsEngagementAndObservation(t *testing.T) {
+	for _, tc := range []struct {
+		mode, verb string
+		engaged    bool
+	}{
+		{"", "mention", false}, {"?observe", "message", false}, {"?engaged", "check_run", true},
+	} {
+		t.Run(tc.mode, func(t *testing.T) {
+			db, loop, _ := recLoop(t)
+			if err := db.PutGroup(core.Group{Folder: "desk"}); err != nil {
+				t.Fatal(err)
+			}
+			doSetRoutes(t, db, []core.Route{{Match: "platform=github", Target: "desk" + tc.mode + "#{jid}"}})
+			jid := "github:org/repo/pr/12"
+			if err := db.SetStickyTopic(jid, "sticky"); err != nil {
+				t.Fatal(err)
+			}
+			if tc.engaged {
+				if err := db.SetEngagement(jid, jid, "desk", time.Hour); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := db.PutMessage(core.Message{ID: "row", ChatJID: jid, Sender: "user", Verb: tc.verb, Content: "event", Timestamp: time.Now()}); err != nil {
+				t.Fatal(err)
+			}
+			m, ok := db.MessageByID(jid, "row")
+			if !ok || m.Topic != jid {
+				t.Fatalf("stored = %+v, %v", m, ok)
+			}
+			got := loop.resolve(jid, m)
+			if tc.mode == "?observe" {
+				if got.Observe != "desk" {
+					t.Fatalf("resolution = %+v", got)
+				}
+			} else if !got.ok || got.Folder != "desk" {
+				t.Fatalf("resolution = %+v", got)
+			}
+		})
+	}
+}
