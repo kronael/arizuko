@@ -68,12 +68,11 @@ contracts differ from the filing in these places:
 - Pi refuses execution at `ant/src/backend.ts:116` because it cannot deliver
   through MCP. Vendor quota behavior is not its only blocker.
   The filing's dated gateway probes do not establish current provider support.
-- [Per-group harness](../6/53-per-group-harness.md) is a draft dependency,
-  not the implementation at this baseline. Go still resolves model and effort
-  at `routd/dispatch.go:844`; runed emits the instance backend at
-  `runed/render.go:109`. Ant selects the adapter at `ant/src/index.ts:482`.
-  7/28 must use 6/53's opaque document and ant-owned selection, not add a Go
-  backend resolver. [Permanent VMs](30-permanent-vms.md) declares this dependency
+- Ant selects the adapter at `ant/src/index.ts:482` through
+  `ant/src/backend.ts:112`. Credential selection follows whichever harness
+  selection path applies. [Per-group harness](../6/53-per-group-harness.md)
+  is not a prerequisite; coordinate only its host-login mount condition.
+  [Permanent VMs](30-permanent-vms.md) declares this dependency
   but defines no identity consumer. A future consumer reads the join below;
   it must not create another principal map.
 
@@ -104,7 +103,7 @@ OAuth login ────────────────────┤
                     runed renderer (changed)
                                │ stdin secrets; payer env (new)
                                ▼
-                  ant harness selection from 6/53
+                  ant harness selection
                                │ selected model credential (new)
                                ▼
                      Claude / Codex / OpenRouter
@@ -156,10 +155,6 @@ assertions in the acceptance section.
   job: read only the canonical user's model credentials with errors
   names: ['DB.EnvProfileSecrets(sub) (map[string]string, error)']
   never: read folder model keys or return empty on read failure
-- path: routd/surrogate_refresh.go (changed)
-  job: share OAuth refresh and guarded persistence between model and connector readers
-  names: ['DB.EnvProfileSecrets', DB.ConnectorSecrets]
-  never: resurrect a deleted connection or apply connector fallback to a model
 - path: routd/dispatch.go (changed)
   job: isolate batches by sender and bind the payer before credential reads
   names: [Loop, RunRequest.ModelUserSub, dispatchRun]
@@ -173,24 +168,16 @@ assertions in the acceptance section.
   names: [PutTurnContext, GetTurnContext]
   never: maintain another identity table
 - path: store/secrets.go (changed)
-  job: extend the one env-profile declaration with native Codex and OpenRouter credentials
-  names: [EnvProfileKeys]
-  never: permit these keys at folder scope
-- path: store/secrets_oauth.go (changed)
-  job: guard refresh writes and rejection deletes against credential replacement
-  names: [UpdateOAuthSecret, DeleteSecretRow]
-  never: upsert a refresh result over a changed connection
-- path: auth/surrogate/registry.go (changed)
-  job: declare OpenRouter's exchange protocol in the existing provider registry
-  names: [Provider]
-  never: define a second credential catalogue
+  job: declare model keys and share native-cache validation and sealing across writes
+  names: [EnvProfileKeys, SetSecret, PutSecretRow]
+  never: store a native refresh token or accept model keys at folder scope
 - path: auth/surrogate/engine.go (changed)
   job: support the OpenRouter PKCE exchange beside the existing confidential flow
   names: [Engine.AuthorizeURL, Engine.Exchange, Engine.HasCreds]
   never: require a fictitious OpenRouter client secret or change GitHub and Google wire forms
 - path: auth/surrogate/providers/openrouter.toml (new)
   job: declare OpenRouter endpoints and the OPENROUTER_API_KEY sink once
-  names: [secret_key, protocol]
+  names: [secret_key]
   never: carry a live credential
 - path: dashd/me_connections.go (changed)
   job: connect OpenRouter and describe model billing separately from tool accounts
@@ -202,8 +189,12 @@ assertions in the acceptance section.
   never: label an absent personal key as an active operator fallback
 - path: runed/api/v1/types.go (changed)
   job: carry the canonical payer beside the existing secret map
-  names: [RunRequest.ModelUserSub]
+  names: [RunRequest.ModelUserSub, RunRequest.TriggerSender]
   never: interpret the harness document or widen runed.Turn
+- path: runed/server.go (changed)
+  job: validate payer and trigger against the authenticated caller before rendering
+  names: ['POST /v1/runs']
+  never: treat a missing payer or a scope alone as internal billing authority
 - path: runed/secrets.go (changed)
   job: select personal-only or operator-only model credentials in one renderer
   names: [spawnSecrets]
@@ -221,11 +212,11 @@ assertions in the acceptance section.
   names: [runTurn]
   never: start an adapter after missing or ambiguous personal authentication
 - path: ant/src/claude.ts (changed)
-  job: translate the selected personal Claude or OpenRouter credential into SDK env
+  job: make the selected authentication and endpoint authoritative across SDK configuration
   names: [claudeHarness]
   never: send a Claude subscription token to OpenRouter
 - path: ant/src/codex.ts (changed)
-  job: present only the initiating user's native Codex login to the CLI
+  job: stage the user's native login and classify known auth and quota failures as terminal
   names: [codexHarness]
   never: persist personal auth.json in the shared group home
 - path: ant/src/guards.ts (changed)
@@ -261,13 +252,17 @@ assertions in the acceptance section.
   names: [TestHTTPIdentity_Resolves]
   never: treat a role edge as a credential owner
 - path: routd/model_credentials_test.go (new)
-  job: prove batching, payer binding, refresh failures and tool-account isolation
+  job: prove payer binding, checked reads, acquisition ordering and tool-account isolation
   names: [TestModelCredentialDispatch]
   never: verify only the resolver in isolation
-- path: store/secrets_oauth_test.go (changed)
-  job: prove refresh cannot overwrite deletion or a newer connection
-  names: [TestUpdateOAuthSecret_Reseals]
-  never: use sequential writes as proof against a race
+- path: store/secrets_test.go (changed)
+  job: prove both write operations reject invalid native caches and strip refresh tokens
+  names: [SetSecret, PutSecretRow]
+  never: rely on dashboard validation
+- path: runed/server_test.go (changed)
+  job: prove omitted payers and inconsistent triggers refuse before rendering
+  names: ['POST /v1/runs']
+  never: accept an internal-looking label from an untrusted caller
 - path: runed/secrets_test.go (changed)
   job: prove personal turns contain no operator model keys
   names: [TestSpawnSecrets_Personal]
@@ -279,17 +274,17 @@ assertions in the acceptance section.
 - path: runed/mounts_test.go (changed)
   job: prove personal turns receive no host Codex login
   names: [TestPersonalCodexMounts]
-  never: depend on the removed codex grant from 6/53
+  never: require 6/53 or lend host authentication to a personal turn
 - path: runed/env_contract_test.go (changed)
   job: pin the Go producer and ant consumer of the payer env
   names: [ARIZUKO_MODEL_USER_SUB]
   never: exempt the new key from the source scanner
 - path: ant/src/claude.test.ts (changed)
-  job: observe selected credentials and endpoint in a fake SDK request
+  job: observe actual SDK requests with competing shared-home settings and helpers
   names: [claudeHarness]
   never: test selection without observing the outgoing credential
 - path: ant/src/codex.test.ts (changed)
-  job: observe isolated auth, resume and missing-token refusal with a fake CLI
+  job: observe isolated auth, resume and terminal revoked-token, expiry and quota failures
   names: [codexHarness]
   never: leave a credential in a persistent rollout directory
 - path: ant/src/index.test.ts (changed)
@@ -300,6 +295,14 @@ assertions in the acceptance section.
   job: prove native imports validate and remain private to the signed-in subject
   names: ['/dash/me/env']
   never: store a native refresh token
+- path: routd/secrets_test.go (changed)
+  job: prove REST and derived MCP writes apply the native-cache storage contract
+  names: ['POST /v1/secrets']
+  never: accept API-key mode or persist imported refresh tokens
+- path: cmd/arizuko/secret_test.go (changed)
+  job: prove CLI imports apply the same native-cache storage contract
+  names: [runSecretSet]
+  never: bypass validation through SetSecret
 - path: auth/surrogate/engine_test.go (changed)
   job: pin both OAuth protocols and existing provider behavior
   names: [Engine]
@@ -310,10 +313,9 @@ assertions in the acceptance section.
   never: expose returned tokens in HTML or JSON reads
 ```
 
-Implementation depends on 6/53's opaque carry, ant parser, and approved
-Codex credential policy. Do not reimplement those changes in 7/28. The runtime
-port stays `Run` and `Kill`; `Turn.Env`, `Turn.Stdin` and `Turn.Mounts` carry
-all new data. No objstore method or managed entity is added. Existing secrets,
+Harness transport and removal of the `codex` grant are outside this change.
+The runtime port stays `Run` and `Kill`; the existing env, stdin and mounts
+carry all new data. No objstore method or managed entity is added. Existing secrets,
 connections and turn resources retain their handlers and authorization gates.
 
 ## The join reads identity without granting authority
@@ -445,8 +447,12 @@ secrets, err := l.db.EnvProfileSecrets(modelSub)
 
 The internal-turn branch skips the personal reader. Move the turn binding
 before credential resolution. Keep gateway budget and mint operations only
-on the internal-turn branch. runed repeats the gateway refusal as a request
-validation boundary; a malformed request cannot restore the operator fallback.
+on the internal-turn branch. runed validates caller, trigger and payer before
+rendering, then repeats the gateway refusal. At `runed/server.go:105`, retain
+the verified bearer subject. An empty payer requires `service:routd` and a declared internal
+`TriggerSender`. A missing verifier is not trusted. Reject an absent trigger,
+a human trigger without a payer, or an internal trigger with a payer.
+A `runs:run` scope or request `CallerSub` alone cannot authorize operator billing.
 
 `model_user_sub` is the bare canonical account subject. Add it to the existing
 `TurnContext` and `RunRequest`; it is nonsecret attribution, not another
@@ -508,23 +514,32 @@ func spawnSecrets(cfg *core.Config, req runedv1.RunRequest) (map[string]string, 
         }
         return maps.Clone(req.Secrets), nil
     }
-    // Keep the existing operator/gateway rendering for system turns.
+    // Admission already requires service:routd and a declared internal trigger.
+    // Keep the existing operator/gateway rendering for that admitted turn.
 }
 ```
 
 routd includes only that account's env-profile model rows in the personal
 model set. Existing explicitly granted shell keys retain their existing path.
 runed must not add host model env or `HOST_CODEX_DIR` to a personal request.
-At `runed/mounts.go:174`, add the `ModelUserSub == ""` condition to 6/53's
-approved host-login rule. runed knows no backend names.
+At `runed/mounts.go:174`, require an admitted internal turn before lending
+host login files. Combine this condition with 6/53's mount rule if it lands.
+runed knows no backend names.
 
 The renderer always emits `ARIZUKO_MODEL_USER_SUB` as the request's
 nonsecret payer, with an empty value for an internal turn.
-Ant validates credentials after 6/53 selects the harness, inside the delivering
-error boundary. It clears inherited model auth and model endpoint overrides
-before constructing the selected adapter's env. That includes competing API
-keys, native cached logins and gateway values. An empty or incompatible
-personal credential produces a terminal error submission before a model call.
+Ant validates credentials after the existing harness selection, inside the
+delivering error boundary. Per-run authentication and endpoints are authoritative
+across inherited env, native caches, and every loaded settings source.
+Claude's project, local, user and managed settings must not restore competing
+authentication, `apiKeyHelper`, or endpoint overrides after SDK env construction.
+The [settings reference](https://code.claude.com/docs/en/settings-reference#env)
+defines settings env and credential helpers. `runed/settings.go:25` preserves
+settings env. `ant/src/claude.ts:555` enables project and user sources.
+Use per-run configuration to exclude or neutralize those competing fields
+without writing the personal credential into persistent settings. If the SDK
+cannot enforce this precedence, refuse before a model call.
+An empty or incompatible personal credential produces a terminal error submission.
 No API-key fallback may consume paid credits when a subscription is missing.
 Direct Codex and OpenRouter require explicit rules for their vendor hosts
 through the existing network resource. A connection or harness selection
@@ -533,9 +548,10 @@ grants no egress. The seed at `store/seed.go:20` covers Anthropic hosts only.
 Model secrets remain env-profile credentials under 5/14. The real credential
 crosses the trusted routd-to-runed hop and reaches the guest through the
 existing stdin secret map. It is readable by the guest's user. This design
-does not promise that shell tools or a malicious model cannot read or copy it;
-`runed/secrets.go:65-71` states that boundary. Approval of direct delivery is
-therefore a real owner decision, not a claim that env scrubbing isolates keys.
+does not promise confidentiality between group members. `runed/mounts.go:56`
+mounts a shared, writable group home. A prior turn can leave code that captures
+a later user's token. `runed/secrets.go:65-71` states that guest code can read
+credentials. Separate processes and env scrubbing do not close that boundary.
 
 Gateway virtual keys remain operator credentials for system turns.
 `user_id` metadata alone never satisfies personal billing. Do not mint a key,
@@ -593,6 +609,10 @@ versions as the release contract.
 Extend `EnvProfileKeys` once with `CODEX_AUTH_JSON` and `OPENROUTER_API_KEY`.
 The former contains a native ChatGPT auth cache, not an arizuko wrapper. Reject
 API-key mode, empty access tokens, and malformed native tokens on import.
+`store/secrets.go` owns one shared write preparation operation used by
+`SetSecret` and `PutSecretRow` before sealing. It validates `CODEX_AUTH_JSON`
+and removes its refresh token. Dashboard, REST, derived MCP and CLI writes
+all use that operation; dashboard validation alone is insufficient.
 Keep the existing secret-size limit unless a measured native cache exceeds it.
 Do not add a model credential table or a provider association table.
 
@@ -607,8 +627,9 @@ Claude accepts exactly one of its two compatible credentials. If both are
 connected, refuse with instructions to disconnect one. Codex ignores Claude
 and OpenRouter credentials. Ant removes unselected model values before adapter
 invocation. No new provider selector, backend, model catalogue or Go harness
-schema is needed. Model and effort still come only from 6/53. A model that the
-selected provider rejects fails visibly; the platform never rewrites the model.
+schema is needed. Model and effort follow the existing harness configuration.
+A model that the selected provider rejects fails visibly. The platform never
+rewrites the model.
 
 Codex uses a fresh directory under the guest's temporary filesystem as
 `CODEX_HOME`, with auth mode 0600. Retain the existing group rollout storage
@@ -616,33 +637,16 @@ through a link to the persistent rollouts directory. Stage the existing
 Codex hooks there too. Never read the group's saved `auth.json` or operator
 `config.toml` as personal authentication. Remove the private directory in a
 `finally` path. Guest termination removes it after a crash.
-For native-cache imports, strip the refresh token before storing the cache
-and again before staging the guest copy. Ant checks the native access-token
-expiry and refuses expired access on the next spawn. An opaque Claude token
+Validate stored native caches and strip refresh tokens before guest staging.
+Ant checks the native access-token expiry and refuses expired access on spawn. An opaque Claude token
 with no expiry metadata must rely on a visible vendor rejection.
-Do not let the CLI rotate a refresh token that the authoritative user row
-cannot receive. Automatic native-token
-renewal is outside the first release; the user reconnects through native OAuth.
+Native tokens require manual reconnection after expiry. The guest cannot
+rotate a refresh token.
 
-Current provider fields, `auth/surrogate/registry.go:27-32`:
-
-```go
-type Provider struct {
-    AuthURL   string   `toml:"auth_url"`
-    TokenURL  string   `toml:"token_url"`
-    RevokeURL string   `toml:"revoke_url"`
-    Scopes    []string `toml:"scopes"`
-    SecretKey string   `toml:"secret_key"`
-```
-
-Proposed addition to that same declaration:
-
-```go
-Protocol string `toml:"protocol"` // absent: existing confidential OAuth; openrouter: PKCE JSON exchange
-```
-
-The OpenRouter provider file owns `protocol=openrouter`, the documented URLs,
-and `secret_key=OPENROUTER_API_KEY`. The engine owns that protocol's wire form.
+The engine selects OpenRouter's wire behavior using its existing provider name
+from `auth/surrogate/registry.go:146`, passed to `Engine.AuthorizeURL` and
+`Engine.Exchange` at `auth/surrogate/engine.go:139` and `auth/surrogate/engine.go:170`.
+The provider file owns the documented URLs and `secret_key=OPENROUTER_API_KEY`.
 It requires S256 PKCE and state, not `SURROGATE_OPENROUTER_CLIENT_SECRET`.
 Preserve the existing GitHub and Google protocol. OpenRouter supplies no refresh
 credential in the documented exchange; store an empty refresh and zero expiry.
@@ -679,65 +683,34 @@ return values in connection lists. The env import form uses the existing
 write-only secrets operation and user boundary; a successful import creates
 no grant and no connection to another account.
 
-## A connection change affects the next process
+## Credential acquisition fixes the attempt's snapshot
 
 ```text
-credential read (changed) ── refresh if supported (changed) ──► guarded row update
-         │                                                      │
-         └──────── immutable process snapshot (new) ◄────────────┘
-disconnect ── delete row ──► next process refuses (new)
+credential acquisition (changed) ──► immutable attempt snapshot (new) ──► process start
+disconnect ── delete row ──► subsequent acquisition refuses (new)
 ```
 
 `DB.EnvProfileSecrets` gains an error result. A model read or decrypt failure
-cannot become an empty set. For OAuth rows with supported refresh metadata,
-reuse the existing refresh engine before spawn. Within 60 seconds of expiry,
-require a successful refresh. A permanent rejection removes the rejected
-model row under the same credential guard and requires reconnection. Do not retain a rejected value
-as a valid native import; `ClearOAuthSecret` leaves the value at
-`store/secrets_oauth.go:80` and does not establish that guarantee.
-A transport or 5xx failure retains the stored credential but refuses this
-attempt as a dependency outage. No stale-token model fallback applies.
-Native imported credentials have no automatic refresh in this release.
+cannot become an empty set. A successful credential acquisition fixes the
+attempt's snapshot. Disconnect blocks acquisitions after deletion, but an
+already admitted attempt may still start. Checked reads must observe a completed
+delete. Retries acquire fresh credentials. A guarantee tied to actual process
+start requires additional coordination and is outside this contract.
 
-Current refresh persistence, `routd/surrogate_refresh.go:60-63`:
+No first-release model credential supports refresh. Keep checked reads and
+explicit reconnection; connector refresh remains outside this change.
+Local deletion cannot recall a copied bearer or stop an active guest's spending.
+The vendor may reject the token sooner. This delivery boundary is question 1.
 
-```go
-if uerr := d.secretStore().UpdateOAuthSecret(userSub, oa.Key, tok.Access, tok.Refresh, tok.ExpiresAt, tok.Scope); uerr != nil {
-    slog.Warn("surrogate: write refreshed row", "sub", userSub, "key", oa.Key, "err", uerr)
-}
-out[oa.Key] = tok.Access
-```
-
-Proposed model-path contract:
-
-```go
-// UpdateOAuthSecret compares the original sealed credential attributes.
-// A changed or deleted row refuses the write; a write failure refuses the run.
-// Only a committed update supplies the process snapshot.
-```
-
-Share the refresh operation; do not add another model refresh daemon or cache.
-Preserve the connector reader's separate failure policy. Serialize refresh
-for the same user/key within routd, then use a guarded batch against the read
-credential. A disconnect or reconnect wins over an in-flight refresh. A
-rejected refresh write supplies no credential to a new process. Do not print
-provider response bodies that might contain tokens.
-
-The proposed revocation guarantee is a process snapshot. Disconnect prevents
-new runs and retries. It does not recall an access token from a running guest.
-The vendor can reject that token sooner. Never describe local deletion as
-immediate cessation of spending. Immediate request-level revocation requires
-an upstream mediation design and remains question 3.
-
-| Failure                                                         | Visible result                                       | Queue behavior                                                        |
-| --------------------------------------------------------------- | ---------------------------------------------------- | --------------------------------------------------------------------- |
-| Unpaired, anonymous, conflicting or stale identity              | Authenticate/pair or repair the association          | Consume once; do not spawn or trip the folder breaker.                |
-| authd, membership, secret read, decrypt or refresh outage       | Credential service unavailable                       | Preserve the batch through `queue.ErrDependencyDown`; no model call.  |
-| Missing, expired, ambiguous or incompatible personal credential | Connect or reconnect the named model credential      | One terminal refusal; no operator fallback or retry loop.             |
-| Personal request with configured model gateway                  | Personal billing unavailable through this gateway    | One refusal before budget/mint/spawn.                                 |
-| Vendor permission or adapter support absent                     | Provider unavailable, with the required prerequisite | No enrollment presented as usable and no model request.               |
-| Vendor quota exhaustion or rejected token during execution      | Existing delivered adapter error                     | No account switch; preserve the existing terminal classification.     |
-| Disconnect during execution                                     | Connection removed; active run retains its snapshot  | Next run or retry refuses; no promise of immediate vendor revocation. |
+| Failure                                                         | Visible result                                       | Queue behavior                                                               |
+| --------------------------------------------------------------- | ---------------------------------------------------- | ---------------------------------------------------------------------------- |
+| Unpaired, anonymous, conflicting or stale identity              | Authenticate/pair or repair the association          | Consume once; do not spawn or trip the folder breaker.                       |
+| authd, membership, secret read or decrypt outage                | Credential service unavailable                       | Preserve the batch through `queue.ErrDependencyDown`; no model call.         |
+| Missing, expired, ambiguous or incompatible personal credential | Connect or reconnect the named model credential      | One terminal refusal; no operator fallback or retry loop.                    |
+| Personal request with configured model gateway                  | Personal billing unavailable through this gateway    | One refusal before budget/mint/spawn.                                        |
+| Vendor permission or adapter support absent                     | Provider unavailable, with the required prerequisite | No enrollment presented as usable and no model request.                      |
+| Known vendor authentication or quota failure during execution   | Delivered terminal adapter error                     | Codex sets the existing result `terminal` field; no retry or account switch. |
+| Disconnect after credential acquisition                         | Connection removed; admitted attempt keeps snapshot  | Subsequent acquisitions refuse; the admitted attempt may still start.        |
 
 Logs and the turn row may contain the trigger, canonical payer, turn ID and
 credential key name. They must never contain access tokens, refresh values,
@@ -763,30 +736,43 @@ Each behavior test must fail when its named boundary is removed.
   Removing the web sender split or replacing `modelSub` with raw `caller`
   must fail the tests. Prove existing tool-secret calls still receive the raw
   caller and never the new canonical payer.
-- Secret tests inject read, decrypt, exchange and persistence failures. No
-  model request follows. Race refresh against disconnect and reconnect with
-  controlled barriers; no refresh result can recreate or overwrite either row.
-  Remove the guarded comparison and require the race test to fail. A native
-  import cannot rotate a refresh token inside the guest.
+- Secret tests inject read and decrypt failures; no model request follows.
+  With barriers, acquire a credential, delete it, then start the admitted
+  attempt; its snapshot remains valid. Delete before acquisition and require
+  refusal, including retries. A native import cannot rotate a refresh token
+  inside the guest.
 - Renderer tests start with populated operator Claude, OpenAI and Codex keys,
   host Codex login files, a personal model set and granted shell credentials.
   Assert all operator model material is absent from a personal turn's env,
-  stdin and mounts. Test system turns separately. A gateway personal request
-  must fail before `/key/generate`; its `user_id` cannot make the test pass.
+  stdin and mounts. Admission tests omit the payer on a human request and
+  mismatch payer/trigger fields. Internal-looking labels from untrusted callers,
+  and a missing verifier, refuse before rendering. Test trusted internal turns
+  separately. A gateway personal request must fail before `/key/generate`;
+  its `user_id` cannot make the test pass.
   The existing Go/TS env scanner must detect a missing payer env emission.
   Extend the existing secret-scrub partition test for both new keys and the
   SDK-derived `ANTHROPIC_AUTH_TOKEN` alias without adding that alias to storage.
 - Adapter tests observe requests with fake credentials, rather than asserting
   selection helpers alone. Claude and OpenRouter must hit the correct endpoint
-  with the selected user's token. Competing credentials refuse. Codex exec and
-  resume must use the private native cache, retain rollouts and hooks, and leave
+  with the selected user's token through the actual release SDK. Populate
+  shared-home user, project and local settings with competing credentials,
+  `apiKeyHelper` and endpoint overrides; cover managed settings too.
+  Assert the helper never runs and no competing endpoint receives a request.
+  Competing connected credentials refuse. Codex exec and resume must use the
+  private native cache, retain rollouts and hooks, and leave
   no personal cache in the group home. Missing credentials submit a visible
-  error and terminal exit before SDK or CLI invocation. Pi retains its refusal.
+  error and terminal exit before SDK or CLI invocation. Codex's known auth and
+  quota errors set `terminal` on both failed events and CLI-exit results,
+  including revoked tokens and mid-run expiry; dispatch must not retry them.
+  `ant/src/codex.ts:151` and `ant/src/codex.ts:172` currently omit that field.
+  Pi retains its refusal.
 - Enrollment tests exercise the existing connections and secrets surfaces.
   Verify OpenRouter's JSON exchange, S256, subject-bound state, account-switch
   rejection, local disconnect and token-free lists. Native imports reject an
-  API-key Codex cache. Folder-scoped model keys remain invalid. Existing
-  GitHub and Google connection tests must still pass.
+  API-key Codex cache, malformed tokens and empty access tokens through dashboard,
+  REST, derived MCP and CLI writes. Inspect stored values to prove every door
+  strips refresh tokens; stage pre-existing invalid rows and require refusal.
+  Folder-scoped model keys remain invalid. GitHub and Google tests must pass.
 
 A disposable smoke runs two accounts against distinct controlled upstreams on
 one instance. Capture which account each upstream receives, then verify each
@@ -822,23 +808,27 @@ from a passing Markdown or spec-reference check.
 
 ## Open questions
 
-1. Approve direct personal credential delivery with explicit gateway refusal
-   for the first release? `runed/secrets.go:38` supplies the existing direct
-   path, and `routd/gateway.go:84` cannot bind a user's upstream token.
-   Recommend approval to reuse that path. The guest can read the token, and
-   gateway instances cannot run personal turns. Requiring host-held tokens
-   instead needs a separate, verified extension of the existing gateway before
-   this spec becomes planned.
-2. Approve native OAuth enrollment with private credential import for Claude
-   and Codex, plus embedded OpenRouter PKCE, for the first release?
-   `auth/surrogate/engine.go:129` supplies no public native-client login.
-   Recommend approval because it avoids inventing vendor clients. Native
-   imports require reconnection after expiry. Claude remains unavailable until
-   a permitted vendor arrangement covers collection; approval cannot waive
-   that prerequisite. Requiring an embedded native login delays that provider
-   until its authorized client and refresh contract are established.
-3. Approve revocation at the next process boundary? `dashd/me_connections.go:291`
-   deletes the row, while `runed/render.go:75` copies credentials into a running
-   guest. Recommend the snapshot guarantee because direct delivery cannot
-   recall that copy. Requiring immediate cessation of requests needs gateway
-   mediation and changes the delivery decision in question 1.
+1. Approve direct delivery to a guest with a shared, writable group home, or
+   extend the existing gateway so the guest never holds the token?
+   `runed/mounts.go:56` persists group state; `runed/secrets.go:65` permits guest
+   code to read credentials. A prior turn's code can capture a later user's
+   token. Direct delivery also requires gateway refusal and unmetered execution.
+   Disconnect blocks later acquisitions, but an admitted attempt may still start;
+   local deletion cannot recall a copied bearer or stop its spending.
+   **Recommend extending the existing gateway** to retain host-held credentials
+   and the requested proxy security and auditing. **Caveat:** personal execution
+   must wait for verified upstream credential binding and revocation behavior.
+2. Approve native credential import with manual reconnection for Claude and
+   Codex, plus embedded OpenRouter PKCE, or require embedded native enrollment?
+   `auth/surrogate/engine.go:129` provides no public native-client login.
+   **Recommend native import and OpenRouter PKCE** because these use the vendors'
+   existing enrollment paths. **Caveat:** native imports need manual reconnection
+   after expiry. Provider permission remains an external prerequisite; owner
+   approval cannot authorize collection. Provider scope and separation from tool
+   authority are already settled.
+3. Approve operator-paid timers, system turns and delegation, with anonymous
+   and hook execution refused? `routd/steer.go:656` emits `store.DelegateSender`;
+   `webd/route_token.go:300` accepts a hook source label, not a human payer.
+   **Recommend this funding and ingress policy** because internal automation
+   has no initiating human subscription. **Caveat:** the operator pays internal
+   usage, and anonymous links and hooks cannot start model execution.
