@@ -28,15 +28,6 @@ var googleUserinfoURL = "https://www.googleapis.com/oauth2/v3/userinfo"
 
 var httpClient = &http.Client{Timeout: 15 * time.Second}
 
-func postForm(ctx context.Context, url string, data url.Values) (*http.Response, error) {
-	req, err := http.NewRequestWithContext(ctx, "POST", url, strings.NewReader(data.Encode()))
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	return httpClient.Do(req)
-}
-
 // PostForm exposes the low-level form POST (shared 15s httpClient) for the
 // surrogate engine's token/refresh/revoke calls (auth/surrogate, spec 5/15).
 // accept sets the Accept header — surrogate wants "application/json" so GitHub
@@ -78,7 +69,7 @@ func ExchangeGoogle(ctx context.Context, cfg *core.Config, code, verifier string
 	if verifier != "" {
 		form.Set("code_verifier", verifier)
 	}
-	resp, err := postForm(ctx, googleTokenURL, form)
+	resp, err := PostForm(ctx, googleTokenURL, form, "")
 	if err != nil {
 		return "", err
 	}
@@ -304,7 +295,7 @@ func ExchangeDiscord(ctx context.Context, cfg *core.Config, code, verifier strin
 	if verifier != "" {
 		data.Set("code_verifier", verifier)
 	}
-	resp, err := postForm(ctx, "https://discord.com/api/oauth2/token", data)
+	resp, err := PostForm(ctx, "https://discord.com/api/oauth2/token", data, "")
 	if err != nil {
 		return "", err
 	}
