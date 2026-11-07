@@ -39,7 +39,24 @@ func newProgressTurn(t *testing.T, dl *recDeliverer, returnTo string) (*DB, *Ser
 	if _, err := db.PutTurnContext("t1", "demo", "", progressJID, "u1", returnTo); err != nil {
 		t.Fatal(err)
 	}
+	if err := db.SetTurnAddressed("t1", true); err != nil {
+		t.Fatal(err)
+	}
 	return db, srv
+}
+
+func TestProgress_UnaddressedTurnDoesNotPublish(t *testing.T) {
+	dl := &recDeliverer{}
+	db, srv := newProgressTurn(t, dl, "")
+	if err := db.SetTurnAddressed("t1", false); err != nil {
+		t.Fatal(err)
+	}
+	if err := srv.mcpSubmitStatus("t1", "working"); err != nil {
+		t.Fatal(err)
+	}
+	if len(dl.sends) != 0 || len(statusRows(t, db, progressJID)) != 0 {
+		t.Fatalf("unaddressed turn published: sends=%+v", dl.sends)
+	}
 }
 
 func statusRows(t *testing.T, db *DB, jid string) []core.Message {
@@ -141,6 +158,9 @@ func TestProgress_ThreadContextReachesUpdatesAndCompletion(t *testing.T) {
 	dl := &recDeliverer{}
 	db, srv := newProgressTurn(t, dl, "")
 	if _, err := db.PutTurnContext("threaded", "demo", "th-7", progressJID, "u1", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetTurnAddressed("threaded", true); err != nil {
 		t.Fatal(err)
 	}
 	for _, text := range []string{"first", "second"} {
@@ -540,6 +560,9 @@ func TestProgress_RecoveredTurnEditsItsRowWhenItCompletes(t *testing.T) {
 	if _, err := db.PutTurnContext("t1", "demo", "", progressJID, "u1", ""); err != nil {
 		t.Fatal(err)
 	}
+	if err := db.SetTurnAddressed("t1", true); err != nil {
+		t.Fatal(err)
+	}
 	if err := NewServer(db, nil, before, nil, 0, "").mcpSubmitStatus("t1", "working"); err != nil {
 		t.Fatal(err)
 	}
@@ -611,6 +634,9 @@ func TestProgress_EndDeleteCarriesTheStatusThread(t *testing.T) {
 	dl := &recDeliverer{}
 	db, srv := newProgressTurn(t, dl, "")
 	if _, err := db.PutTurnContext("threaded", "demo", "th-7", progressJID, "u1", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetTurnAddressed("threaded", true); err != nil {
 		t.Fatal(err)
 	}
 	if err := srv.mcpSubmitStatus("threaded", "working"); err != nil {

@@ -404,7 +404,7 @@ func (s *Server) submitStatus(status ipc.TurnStatus) error {
 	if !ok {
 		return fmt.Errorf("no turn context for turn_id")
 	}
-	if s.callbackClosed(tc) {
+	if s.callbackClosed(tc) || !tc.Addressed {
 		return nil
 	}
 	jid := returnTarget(tc, tc.ChatJID)

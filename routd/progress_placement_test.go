@@ -17,6 +17,9 @@ func TestProgress_FirstStatusJoinsTheTurnsTopicWithoutAnOpener(t *testing.T) {
 	if _, err := db.PutTurnContext("threaded", "demo", "th-7", progressJID, "u1", ""); err != nil {
 		t.Fatal(err)
 	}
+	if err := db.SetTurnAddressed("threaded", true); err != nil {
+		t.Fatal(err)
+	}
 	for _, text := range []string{"adding the delta", "checking the digest"} {
 		if err := srv.mcpSubmitStatus("threaded", text); err != nil {
 			t.Fatal(err)

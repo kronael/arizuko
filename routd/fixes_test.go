@@ -218,6 +218,9 @@ func TestSubmitStatusDeliversInterimWithoutEndingTurn(t *testing.T) {
 	dl := &recDeliverer{}
 	srv := NewServer(db, nil, dl, nil, 0, "")
 	db.PutTurnContext("t1", "demo", "", "slack:T/C/U", "u1", "")
+	if err := db.SetTurnAddressed("t1", true); err != nil {
+		t.Fatal(err)
+	}
 
 	if err := srv.mcpSubmitStatus("t1", "reading 12 files"); err != nil {
 		t.Fatalf("submit_status: %v", err)
@@ -255,6 +258,9 @@ func TestSubmitStatusEditsLiveMessageInPlace(t *testing.T) {
 	dl := &recDeliverer{}
 	srv := NewServer(db, nil, dl, nil, 0, "")
 	db.PutTurnContext("t1", "demo", "", "slack:T/C/U", "u1", "")
+	if err := db.SetTurnAddressed("t1", true); err != nil {
+		t.Fatal(err)
+	}
 
 	for _, s := range []string{"step 1", "step 2", "step 3"} {
 		if err := srv.mcpSubmitStatus("t1", s); err != nil {
@@ -283,6 +289,9 @@ func TestSubmitStatusHardEditErrorSurfaces(t *testing.T) {
 	dl := &recDeliverer{editErr: errSend}
 	srv := NewServer(db, nil, dl, nil, 0, "")
 	db.PutTurnContext("t1", "demo", "", "slack:T/C/U", "u1", "")
+	if err := db.SetTurnAddressed("t1", true); err != nil {
+		t.Fatal(err)
+	}
 
 	if err := srv.mcpSubmitStatus("t1", "a"); err != nil {
 		t.Fatal(err)
@@ -308,6 +317,9 @@ func TestStatusRowDoesNotSuppressReply(t *testing.T) {
 	dl := &recDeliverer{}
 	srv := NewServer(db, nil, dl, nil, 0, "")
 	db.PutTurnContext("t1", "demo", "", "slack:T/C/U", "u1", "")
+	if err := db.SetTurnAddressed("t1", true); err != nil {
+		t.Fatal(err)
+	}
 
 	if err := srv.mcpSubmitStatus("t1", "working"); err != nil {
 		t.Fatal(err)
