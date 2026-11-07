@@ -458,3 +458,47 @@ func TestPrepareBotProbesBeforeRegistration(t *testing.T) {
 		t.Fatalf("enabled API: %v", err)
 	}
 }
+
+func TestDriveProbeAcceptsOtherResponses(t *testing.T) {
+	for _, status := range []int{http.StatusNotFound, http.StatusTooManyRequests, http.StatusInternalServerError} {
+		t.Run(strconv.Itoa(status), func(t *testing.T) {
+			g := newFakeGoogle(t)
+			g.aboutStatus.Store(int64(status))
+			b := newBot(t.Context(), g.config(t))
+			if err := b.start(t.Context()); err != nil {
+				t.Fatalf("HTTP %d: %v", status, err)
+			}
+		})
+	}
+}
+
+func TestServiceDisabledReason(t *testing.T) {
+	for _, tc := range []struct {
+		body string
+		want bool
+	}{
+		{`{"error":{"errors":[{"reason":"SERVICE_DISABLED"}]}}`, true},
+		{`{"error":{"details":[{"reason":"SERVICE_DISABLED"}]}}`, true},
+		{`{"error":{"errors":[{"reason":"forbidden"}]}}`, false},
+		{`SERVICE_DISABLED`, false},
+	} {
+		if got := serviceDisabled([]byte(tc.body)); got != tc.want {
+			t.Errorf("%s: %v", tc.body, got)
+		}
+	}
+}
+
+func TestDriveProbeForbiddenWithoutDisabledReason(t *testing.T) {
+	g := newFakeGoogle(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"error":{"errors":[{"reason":"forbidden"}]}}`))
+	}))
+	defer srv.Close()
+	cfg := g.config(t)
+	cfg.APIBase = srv.URL
+	b := newBot(t.Context(), cfg)
+	if err := b.start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+}

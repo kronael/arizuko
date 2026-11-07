@@ -161,15 +161,18 @@ func (c *credential) probe(ctx context.Context) (driveUser, credState, error) {
 	// body read below
 	defer resp.Body.Close() //nolint:errcheck
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode == http.StatusForbidden && serviceDisabled(raw) {
 		return driveUser{}, credRefused, fmt.Errorf("google refused the key: Drive about.get %s: %s",
 			resp.Status, strings.TrimSpace(string(raw)))
+	}
+	if resp.StatusCode != http.StatusOK {
+		return driveUser{}, credOK, nil
 	}
 	var about struct {
 		User driveUser `json:"user"`
 	}
 	if err := json.Unmarshal(raw, &about); err != nil {
-		return driveUser{}, credRefused, fmt.Errorf("drive about.get answered with unreadable JSON: %w", err)
+		return driveUser{}, credOK, nil
 	}
 	return about.User, credOK, nil
 }
@@ -211,4 +214,32 @@ func (c *credential) account() string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.user.EmailAddress
+}
+
+// serviceDisabled reads Google's structured error reason.
+func serviceDisabled(raw []byte) bool {
+	var body struct {
+		Error struct {
+			Errors []struct {
+				Reason string `json:"reason"`
+			} `json:"errors"`
+			Details []struct {
+				Reason string `json:"reason"`
+			} `json:"details"`
+		} `json:"error"`
+	}
+	if json.Unmarshal(raw, &body) != nil {
+		return false
+	}
+	for _, e := range body.Error.Errors {
+		if e.Reason == "SERVICE_DISABLED" {
+			return true
+		}
+	}
+	for _, e := range body.Error.Details {
+		if e.Reason == "SERVICE_DISABLED" {
+			return true
+		}
+	}
+	return false
 }
