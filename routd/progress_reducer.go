@@ -65,8 +65,7 @@ func validProgressFields(raw json.RawMessage, fields ...string) bool {
 	}
 	for _, field := range fields {
 		if value, ok := object[field]; ok {
-			var text string
-			if string(value) == "null" || json.Unmarshal(value, &text) != nil {
+			if string(value) == "null" {
 				return false
 			}
 		}
