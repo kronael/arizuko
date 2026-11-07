@@ -1,18 +1,28 @@
 ---
-status: defected
-# defects: an OPEN BUGS entry contradicts this spec —
-# guard 1 names five sections that must stay in `ant/CLAUDE.md` until a case exists;
-# all five are gone and none of anteval's 23 cases covers them
+status: partial
 defects: [L188]
 depends: [../8/A-hierarchical-skills]
 ---
 
 # specs/6/34 — the resident budget: what an always-loaded file may carry
 
+The resident manual, on-demand pointers and static carve-out checks exist in
+`ant/CLAUDE.md`, `ant/skills/self/` and `tests/resident/resident_test.go`.
+L188 remains open because static pointers do not prove agent conformance.
+
+## Remaining
+
+- Add conformance for greetings, model economy and persona selection (`anteval/cases/anteval.toml`; L188).
+- Add conformance for inspection/search tools, session recovery and the missing-register-group refusal (`anteval/cases/anteval.toml`; L188).
+- Verify the host-mount/operator procedure and manual ownership boundary (`EXTENDING.md`, `anteval/cases/anteval.toml`; L188).
+- Complete web-routing/login/dashboard guidance and gateway-command conformance (`anteval/cases/anteval.toml`; L188).
+- Add conformance for unknown addressees, runtime selection and attachment transcript preference (`anteval/cases/anteval.toml`; L188).
+- Add conformance for social-action IDs/edit windows, unsupported reactions, Slack/Discord threading, reaction mirroring/DM behavior and Telegram group reactions (`anteval/cases/anteval.toml`; L188).
+- Run these cases only through the disposable lifecycle, with guest callback reachability (`anteval/cmd/anteval/lifecycle_test.go`; L379).
+
 ## Problem
 
-The measurements below describe the earlier seeded-manual design. Current turns
-mount the selected package manuals and skills; the migration skill was removed.
+Turns mount the selected package manuals and skills.
 
 Two files load without being asked for, on every turn, for a reader who
 never chose them:

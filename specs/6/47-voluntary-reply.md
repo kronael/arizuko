@@ -26,6 +26,12 @@ ends, then use their own turn identity and MCP binding. Only the live fleet
 acceptance run remains.
 `44-delivery-contract` holds the analysis and is `reference`.
 
+## Remaining
+
+- Measure unaddressed GitHub silence, an addressed reply and one correction after a printed answer on sloth without a live-instance anteval run (`routd/turns.go`, `routd/README.md`; operator acceptance).
+- Prove a Codex smoke turn reaches `reply` through its MCP configuration (`anteval/cases/anteval.toml`, `ant/src/codex.ts`).
+- Measure the silent outcome rate after a nudge over the specified week (`obs/metrics.go`, `obs/README.md`).
+
 ## Problem
 
 Three declarations of "how text reaches the user" disagree

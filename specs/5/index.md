@@ -1,5 +1,5 @@
 ---
-status: active
+status: partial
 ---
 
 # specs/5 — platform core: surfaces, identity, routing, tenancy, runtime
@@ -7,10 +7,12 @@ status: active
 The capabilities layer: cross-cutting platform specs that aren't tied to a
 single channel adapter.
 
-## Phase status (2026-08-07)
+## Phase status
 
-**Phase 5 is closed: 38 shipped, 2 defected, 0 partial, 0 draft.** Three files carry
+**Phase 5 is partial: 32 shipped, 3 defected, 2 partial.** Three files carry
 `reference` — analysis with no lifecycle to finish (`25`, `26`, `35`).
+The channel protocol still needs matching eval inputs and operator docs;
+native checklist publication still needs image and adoption acceptance.
 
 Not every "shipped" here is code. Two specs ship a **decision not to build**,
 with the reasoning recorded so nobody re-derives it: `5/5` (the tier framework,
@@ -63,7 +65,7 @@ data entities defined here, and `5/8` moves the cold tier into git.
 | [L-mention-promotion.md](L-mention-promotion.md)           | shipped | Reply or reaction to the bot promotes to `verb=mention` at routd ingest.; facts in `ROUTING.md` § Verb promotion                                                                                                                                                                                                |
 | [F-topic-lineage.md](F-topic-lineage.md)                   | shipped | Topics carry `parent_topic`, `forked_at`, and a per-topic observed cursor; `fork_topic` copies the parent session.; facts in `ROUTING.md` § Topic Routing, `container/README.md` § Public API                                                                                                                   |
 | [W-webhook-routes.md](W-webhook-routes.md)                 | shipped | One `route_tokens` table, two prefixes: `/chat/<token>/` and `/hook/<token>`. Owns token auth and URL shape.; facts in `reference/tokens.html`, `ROUTING.md` § Route-token surfaces                                                                                                                             |
-| [34-channel-protocol.md](34-channel-protocol.md)           | partial | The adapter contract: self-registration, send (at-most-once per `idempotency_key`, adapter-classified failures), health and service JWTs; approved URI route targets and one shared placeholder renderer remain unbuilt                                                                                         |
+| [34-channel-protocol.md](34-channel-protocol.md)           | partial | Adapter protocol, URI route targets, shared placeholder expansion, validation and migrations are built and tested. The observation eval and operator examples still require URI mode flags.                                                                                                                     |
 | [R-multi-account.md](R-multi-account.md)                   | shipped | Several accounts per adapter = several compose fragments, distinguished by `CHANNEL_NAME`.; return-adapter order in `ROUTING.md` § Reply Routing, facts in `compose/README.md` § Several accounts on one platform                                                                                               |
 | [Z-message-actions.md](Z-message-actions.md)               | shipped | Agent-initiated edit, delete, pin, unpin on messages it sent.; facts in `EXTENDING.md` § Verb support matrix, `concepts/audit.html`                                                                                                                                                                             |
 | [6-proactive-interjection.md](6-proactive-interjection.md) | shipped | Lurk mode: silence-driven turns behind a cooldown and a quiet-turn veto; the agent may emit nothing. Ships off — `PROACTIVE_ENABLED` defaults false.; facts in `concepts/proactive.html`, `routd/README.md`                                                                                                     |
@@ -75,7 +77,7 @@ data entities defined here, and `5/8` moves the cold tier into git.
 | -------------------------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------- |
 | [P-runed.md](P-runed.md) | shipped | **The execution plane.** Container lifecycle and run federation. The turn is credentialed by the SO_PEERCRED socket, never a token.; facts in `runed/README.md` § Admission is claim or reject |
 | [A-primitives-framing.md](A-primitives-framing.md) | shipped | Framing only, no behaviour: the pipeline primitives in route-first order, identity as coordinate system. | ; facts in `concepts/routing.html`, `template/web/CLAUDE.md` § Voice |
-| [24-live-tasklist-status.md](24-live-tasklist-status.md) | partial | Message lifecycle built; shared native checklist producer unbuilt; contract in `6/46-turn-progress` |
+| [24-live-tasklist-status.md](24-live-tasklist-status.md) | partial | Native checklist and message lifecycle have code; image and adoption acceptance remain in `6/46-turn-progress`. |
 | [I-tool-call-logging.md](I-tool-call-logging.md) | shipped | Per-tool-call logging on both surfaces; the `audit_log` table is the source of truth. Each owner serves it at `GET /v1/audit` (read-only resreg resource) and `/dash/audit/` federates them.; facts in `components/dashd.html`, `audit/README.md` § The row and its closed enums, `resreg/README.md` § Adding a resource |
 | [O-observability.md](O-observability.md) | shipped | Three opt-in substrates: slog+OTLP logs, spans, and 15 Prometheus metric families.; facts in `obs/README.md` |
 | [9-agent-capability-eval.md](9-agent-capability-eval.md) | defected | `anteval` — a black-box capability gate driving real tasks through the public surfaces. **DEFECTED `L72`**: § "Approach" says teardown is best-effort, and the driver has no teardown; facts in `anteval/README.md`, `howto/build-a-product.html` |

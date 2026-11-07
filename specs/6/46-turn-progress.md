@@ -21,7 +21,14 @@ This spec is `partial`. The shared producer, bounded rendering, checklist remind
 message lifecycle, browser deletion and active replay have code and tests.
 Image and krons acceptance remain unmeasured.
 The skill and manual rules are present. Their presence does not prove adoption.
-D1, D2 and D3 remain the owner decisions below.
+D1 and D2 define rendering; D3 is declined.
+
+## Remaining
+
+- Update the operator description for Claude tasks, Codex plans, the shared reducer and the planless-turn reminder (`template/web/pub/arizuko/concepts/progress.html`).
+- Build the agent image containing the progress skill and native hooks (`Makefile`, `ant/Dockerfile`).
+- Measure addressed Claude and Codex turns on krons through Telegram, Discord and web, including platform IDs, coalescing, deletion and reconnect; check GitHub and silent tasks separately (`anteval/cases/anteval.toml`).
+- Measure checklist adoption on the declared closed-parent-turn sample, including reminder delivery and explained omissions (`ant/skills/progress/SKILL.md`).
 
 ## Problem
 

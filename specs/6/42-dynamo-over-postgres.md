@@ -801,59 +801,19 @@ a)` concurrently, a thousand times: the answer must be one commit and one
    it and ExtendDB honours it (§3); `ValidateBatch` admits it; no production
    caller asks for it. It gets a conformance body when one does.
 
-## 13. What shipped, and what is left
+## 13. Built and remaining
 
-**v0.68.0 is step 6, the deletion release, shipped 2026-09-14 with step 5
-outstanding.** That is the order this section states is allowed.
+The DynamoDB driver, object-store protocols, BM25 message index and owner-file
+deletions are in code. `objstore/dynstore/dynstore_test.go` runs the shared
+conformance suite. `cmd/arizuko/store_test.go` covers enrollment, policy
+readback and snapshot copying. Policy enforcement is a separate acceptance gate.
 
-**Step 5 closed 2026-09-25, and one of its two instances closed by REMOVAL
-rather than by migration.** Measured that day:
+### Remaining
 
-- **sloth is moved.** `arizuko_extenddb_sloth` and `arizuko_extenddb_db_sloth`
-  are healthy and three days up, `DYNAMODB_URL=https://extenddb:18443` is set on
-  its routd, and it runs `arizuko:latest` — the same image as krons, not the
-  pinned pre-deletion tag this section expected. Its `store/` directory still
-  holds `routd.db` and the per-owner dirs; those are the FROZEN leftovers, and a
-  query against one answers what was true before the flip (BUGS `L284`).
-- **marinade is gone.** Its store was consolidated into sloth's ExtendDB around
-  2026-09-18 (BUGS `L335`), its service went down 2026-09-18T20:20:48 and never
-  returned, and on 2026-09-25 its 26 GB tree and its systemd unit moved to
-  `/srv/data/tmp_removed_marinade_20260925` for later removal. So it never ran
-  the entity migration this section required of it — the data reached the object
-  model through sloth's store instead.
-- **The consolidation was marinade → sloth, never marinade → krons.** krons
-  serves neither the `atlas` folders nor its bot, and never did.
-
-So nothing is left gated on step 5. What the merge DID leave is two recorded
-items that are not storage: the merged Telegram cursor and colliding platform
-ids of `L335`, and `L363` — sloth advertises five `atlas` Telegram routes and
-can serve one, because the bot the others talk to is served by nothing.
-
-Deleted as §7 names them: `objstore/sqlstore`, `db_utils` and `db_utils/dbtest`,
-`store/migrations` and `routd/migrations`, the owner files and `seedOwnerDBs`,
-the sibling bind mounts and `DATABASE`/`DB_PATH`/`ROUTD_DB_PATH`/`ONBOD_DB_PATH`,
-`modernc.org/sqlite` in `go.mod`, and the six interactive-transaction sites —
-including §7 item 6, the column-backed row reader, which took `Querier`,
-`filterSQL`, `whereFilter`, `orderBy` and `scanTargets` with it.
-
-**The import guard of §9, measured:** `go list -deps ./...` reaches
-`database/sql` from nothing and `modernc.org/sqlite` from nothing. It still
-shows `database/sql/driver` and `database/sql/internal`, reached by
-`google/uuid` for its `driver.Valuer` — a third party's interface, not a pool
-this repo opens.
-
-**One thing §7 did not anticipate.** `arizuko create` seeded the default group
-by opening routd, and a new instance has no endpoint to open until the store
-server is up — which `INSTALL.md` cannot do before `create` makes the directory.
-The split is by owner: `create` makes the instance's FILES and declares the
-`--product` choice as `ARIZUKO_DEFAULT_PRODUCT`; routd's own boot writes the
-`main` row and its default tasks beside the floors it already seeds
-(`store.SeedDefaultGroup`, BUGS `L300`).
-
-**Left: step 5.** marinade and sloth keep their owners in files and cannot run
-this release — their daemons exit at boot naming the missing `DYNAMODB_URL`.
-Moving them needs the entity migration first, and the `migrate-*` subcommands
-are deleted, so it is the operator's own copy (§7).
+- Add `TestEnrolledPoliciesEnforceStoreReach` on an isolated enforcing server: every enrolled daemon key must permit its prefixes and deny foreign-prefix reads and writes (`cmd/arizuko/store_test.go`; L318).
+- Run driver conformance on PostgreSQL-backed ExtendDB and DynamoDB Local, including the concurrent bodies with `-race` (`objstore/dynstore/dynstore_test.go`).
+- Prove disposable guest-observable smoke on the PostgreSQL store after callback reachability works (`anteval/cases/anteval.toml`; L379).
+- Record the required twenty-query search comparison and deployment soak evidence (`routd/README.md`, `CHANGELOG.md`).
 
 ## Ties
 

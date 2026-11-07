@@ -12,6 +12,18 @@ This spec fixes the text of the line, what `/always` writes, the one renderer
 that owns both, and how the seeded approval floor reaches an instance that
 already runs.
 
+The hold renderer, declared always keys, notices, verdicts, REST fields and
+binary defaults have tests in `routd/hold_always_test.go`,
+`routd/hold_e2e_test.go`, `dashd/approvals_page_test.go` and `auth/layers_test.go`.
+
+## Remaining
+
+- Satisfy the acceptance rule that dashd consumes rendered strings without its own argument renderer (`dashd/approvals_page.go`, `dashd/approvals_page_test.go`).
+- Teach the agent that the gate executes an approved call and that it must not reissue the call (`ant/skills/self/mcp.md`).
+- Audit stored skip-default copies and obsolete async/targetId rules on each instance; preserve local exceptions (`auth/defaults.go`, `cmd/arizuko/README.md`; operator data, L273).
+- Resolve the own-message delete restriction and approval visibility in tool listings (`ipc/ipc.go`, `routd/mcp.go`; owner decisions).
+- Reconcile the async-effect documentation with the accepted allow/deny effects (`specs/5/19-hitl-firewall.md`, `CHANGELOG.md`).
+
 ## Problem — nine holds, four dead rules, seventy lines
 
 Measured on krons 2026-10-20 at `71fe79d5`, with `arizuko get krons
@@ -156,10 +168,8 @@ the acknowledgement, the `/v1/pending_actions` row, and the approvals page,
 which drops its own copies `alwaysRuleText` and `alwaysCaveat`
 (`dashd/approvals_page.go:214,223`). The agent's refusal text is unchanged.
 
-The agent-side text ships with the change as a new migration under
-`ant/skills/self/migrations/`. The current one, `197-hitl-firewall.md`, tells
-the agent to re-issue an approved call; the gate runs the approved call
-itself (`holdGate`, `routd/pending_actions.go:430`).
+The agent-side text belongs in `ant/skills/self/mcp.md`. The gate runs the
+approved call itself (`holdGate`, `routd/pending_actions.go`).
 
 ## Decision 5 — the skip list reaches a running instance with the binary
 
@@ -226,8 +236,7 @@ stored: `ask`, `matcher` (the params spec the row would carry), `rule_text`
 - `auth/defaults.go` — the skip list (`52-acl-layers.md`).
 - `template/web/pub/arizuko/reference/grants.html` §"Holding a call for a
   human" and `routd/README.md` — the operator text.
-- `ant/skills/self/migrations/` — the agent text, with the
-  `MIGRATION_VERSION` bump.
+- `ant/skills/self/mcp.md` — the agent text delivered by the core package.
 
 ## Acceptance
 
@@ -243,22 +252,11 @@ stored: `ask`, `matcher` (the params spec the row would carry), `rule_text`
   list (`6/52-acl-layers §"Acceptance"`).
 - `TestWorld_HoldsOnlyWhatAPersonShouldSee` stays green.
 - `make build && make lint && go test ./... -short` green, tests in the
-  shipping commit, and the migration file with the version bump.
+  shipping commit, and the agent text in the packaged manual.
 
-## Open questions
+## Owner decisions
 
-1. A tool with no keys gets no `/always`; the operator writes the standing
-   rule. Decided by the owner, 2026-11-05.
-2. Must routd bind `delete` to the agent's own messages, by the `BotMsg` flag
-   of the `messages` row the platform id names? The cost is one store read per
-   delete, and a message routd never recorded cannot be deleted.
-3. The dashboard link leaves the chat line. Decided: it leaves on every
-   adapter; `/dash/approvals/` stays the operator's list.
-4. `5/19-hitl-firewall §"Blocking is the default (2026-09-02)"` documents an
-   `async` effect that `store.EffectAllowed` refuses and routd does not read.
-   The paragraph and the CHANGELOG entry need a BUGS entry and a rewrite.
-5. Live rows on krons, the operator's: the `async` row on rhias/nemo and the
-   four `targetId` rules match nothing useful and can go.
-6. Should the tool listing tell the agent which tools wait for a human, so the
-   agent can say so before a long action? The cost is one `CheckHold` per
-   tool per listing.
+1. Must routd bind `delete` to the agent's own messages through the stored
+   `BotMsg` flag? This adds one store read and refuses unrecorded messages.
+2. Should tool listings disclose which calls wait for approval? This adds
+   one `CheckHold` per tool per listing.

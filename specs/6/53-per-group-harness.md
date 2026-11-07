@@ -1,21 +1,30 @@
 ---
-status: draft
+status: partial
 ---
 
 # Each group carries one harness document
 
 A harness document selects the backend, model and effort inside ant.
 
+Opaque storage, HTTP carry, ant validation, whole-document replacement,
+Codex effort and model-credential delivery have implementation tests in
+`routd/harness_carry_test.go`, `ant/src/harness-main.test.ts`,
+`routd/groups_detail_test.go`, `store/groups_test.go` and `runed/mounts_test.go`.
+
+## Remaining
+
+- Replace dashd's JSON textarea and direct store write with free-text backend/model/effort fields, an instance-defaults control and the authorized groups PATCH (`dashd/groups_admin.go`, `dashd/chat_settings_test.go`).
+- Document the harness document, replacement semantics and credential policy in the owning manuals (`ant/README.md`, `runed/README.md`, `routd/README.md`).
+- Document group harness settings and their dashboard controls for operators (`template/web/pub/arizuko/reference/env.html`, `template/web/pub/arizuko/reference/mcp.html`).
+- Review flat overrides and Codex grant/deny rows before rollout (`cmd/arizuko/README.md`; operator data).
+- Build the packaged agent image and prove Claude and Codex replies on one disposable instance with explicit egress (`Makefile`, `anteval/cases/anteval.toml`).
+
 ## The platform must carry the document without interpreting it
 
-`routd/dispatch.go:844` resolves model and effort against instance defaults.
-`runed/render.go:109` emits one instance backend for every group.
-These separate choices can send a Claude model to Codex, the L129 failure
-recorded at `routd/cmd/routd/main.go:221`.
-
-The backend switch belongs inside ant's process, in `ant/src/backend.ts:112`.
-Its adapters are `claude.ts`, `codex.ts` and `pi.ts`; they are not peer daemons.
-Only ant interprets backend names, model IDs and effort levels.
+`store/groups.go` stores the document; `routd/dispatch.go` copies it into
+`RunRequest.Harness`; `runed/render.go` emits `ARIZUKO_HARNESS`.
+The backend switch belongs in `ant/src/backend.ts`, with validation before
+adapter startup. Go does not interpret backend names, models or effort.
 
 ## One opaque value reaches ant
 
@@ -149,14 +158,7 @@ unknown backends, wrong types and unsupported effort values. Model IDs pass
 verbatim without a model list. The adapter reports vendor rejection visibly.
 Pi keeps its explicit MCP-delivery refusal at `ant/src/backend.ts:116`.
 
-Current fields, `runed/api/v1/types.go:29-32`:
-
-```go
-Model string `json:"model"`
-Effort string `json:"effort,omitempty"`
-```
-
-Proposed replacement:
+`runed/api/v1/types.go` carries the opaque value:
 
 ```go
 Harness json.RawMessage `json:"harness,omitempty"`
@@ -190,19 +192,8 @@ at `runed/env_contract_test.go:58` detects them and the new env key.
 Update its fixtures, not its exclusions. Remove the redundant model exemption
 at `runed/env_contract_test.go:129`.
 
-Current selection, `ant/src/index.ts:482`:
-
-```ts
-const harness = selectHarness(process.env.ARIZUKO_BACKEND);
-```
-
-Proposed selection, within the same error boundary:
-
-```ts
-const selection = parseHarness(env);
-const harness = selectHarness(selection.backend);
-// runTurn receives selection.model and selection.effort, not default env reads.
-```
+Ant parses the document inside the error boundary in `ant/src/index.ts`
+before selecting an adapter. The selected model and effort reach `runTurn`.
 
 `parseHarness` lives in `ant/src/backend.ts`; its input remains untyped until
 validation succeeds. Adapter-owned validation keeps effort vocabularies in ant.
@@ -240,14 +231,7 @@ write scope and target folder at registration. REST uses the shared
 authorization evaluator; MCP uses the existing turn authorization callback.
 Neither the list branch nor the current read scopes authorize this write.
 
-Current endpoints, `resreg/resources/groups.go:30-31`:
-
-```go
-{Verb: "GET", Path: "/v1/groups", Action: resreg.ActionList},
-{Verb: "GET", Path: "/v1/groups/{folder}", Action: resreg.ActionGet},
-```
-
-Proposed addition to that declaration:
+`resreg/resources/groups.go` declares the shared update endpoint:
 
 ```go
 {Verb: "PATCH", Path: "/v1/groups/{folder}", Action: resreg.ActionUpdate},
@@ -298,22 +282,16 @@ Retain `HOST_CODEX_DIR` as the file-form operator login source and retain its
 staging, permissions and cleanup. In direct mode, configured login files
 reach every turn, just as configured operator model env keys do.
 In gateway mode, neither the host login mount nor real model env keys reach
-the guest. This changes credential authorization; owner sign-off is required.
+the guest. Model credentials use the approved shared authorization policy.
 
-Current condition, `runed/mounts.go:174`:
-
-```go
-if cfg.HostCodexDir != "" && req.Codex {
-```
-
-Proposed condition:
+`runed/mounts.go` stages the host login only in direct mode:
 
 ```go
 if cfg.HostCodexDir != "" && cfg.ModelGatewayURL == "" {
 ```
 
-The `codex` action and `RunRequest.Codex` are removed after approval.
-Existing grant and deny rows for that action then have no enforcement effect;
+The `codex` action and `RunRequest.Codex` are absent.
+Existing grant and deny rows for that action have no enforcement effect;
 an operator must review them before rollout. The spec authorizes no live edits.
 Other capability grants, folder containment and caller-secret ownership stay intact.
 
@@ -322,64 +300,12 @@ model requests use, or the existing unrestricted `egress` grant.
 `store/seed.go:20` seeds only Anthropic hosts. A selected backend adds no
 network rules; a configured gateway retains its existing egress allowance.
 
-## Remove the superseded declarations
-
-Deletion anchors refer to `dbbf61ef2e53fa5551f5aac50984de4a94f5f310`.
-
-- Remove routd's group-else-default branches at `routd/dispatch.go:844-850`
-  and flat request assignments at `routd/dispatch.go:899-901`.
-  Remove default state at `routd/loop.go:107-108`, config at
-  `routd/loop.go:163-168`, and initialization at `routd/loop.go:227-228`.
-  Remove env readers and their fallback commentary at
-  `routd/cmd/routd/main.go:218-225`; remove routd's env-key entries at
-  `compose/compose.go:126-127`, moving the keys to runed.
-- Remove `RunRequest.Model` and `Effort` at `runed/api/v1/types.go:29-32`,
-  their env rendering at `runed/render.go:100-105`, and the typed return
-  fields at `routd/db.go:145-148` and `store/groups.go:576-600`.
-  Remove the effort filter at `store/groups.go:592` and vocabulary at
-  `store/groups.go:603`. Do not add a shared harness struct or a Go backend enum.
-- Remove flat group keys at `store/groups.go:49-50`, model projection at
-  `store/groups.go:108-110`, and `core.Group.Model` at `core/types.go:86`.
-  Remove the model-only upsert paths at `store/groups.go:149-178`,
-  `store/groups.go:218-231` and `store/groups.go:266-275`, and
-  `SetGroupModel` at `store/groups.go:522-528`. Replace the direct call at
-  `dashd/groups_admin.go:383` and delete its model menu at
-  `dashd/groups_admin.go:285-303`.
-- Remove `Config.AgentBackend` and its semantic comments at
-  `core/config.go:58-62`, its initializer at `core/config.go:208`, and its
-  renderer branch at `runed/render.go:109-111`. The generic instance env
-  map replaces them. Remove whole-config normalization at
-  `resreg/resources/groups.go:100`; preserve the raw harness value in the
-  settings writers at `store/groups.go:441` and `store/groups.go:493`.
-  Remove the obsolete env-test exemption at `runed/env_contract_test.go:129`.
-- After auth approval, remove the grant check, log field and assignment at
-  `routd/dispatch.go:871`, `routd/dispatch.go:878` and
-  `routd/dispatch.go:910`; remove the wire flag at
-  `runed/api/v1/types.go:64-66`, accepted action at `store/acl.go:118`,
-  and grant condition at `runed/mounts.go:174`. Replace their tests at
-  `routd/capability_log_test.go:113`, `runed/mounts_test.go:355` and
-  `store/acl_action_test.go:53` with the approved credential contract.
-
-The three instance knobs retain readers through ant's default path.
-`HOST_CODEX_DIR` retains readers at `core/config.go:237`,
-`compose/compose.go:171`, `compose/compose.go:1224` and `runed/mounts.go:174`.
-It is not dead configuration. No parallel flat group model or effort reader
-survives. Before rollout, the operator rewrites existing flat overrides into
-whole documents with the intended backend. Go must not guess their backend.
-
-## Open questions
-
-1. Approve removal of the `codex` authorization gate? A direct-mode group
-   without that grant can then receive the configured host login, including
-   groups with an explicit `codex` deny. Recommend approval because model
-   credentials already follow that policy; require operator review before rollout.
+The flat group model/effort fields, Go effort vocabulary and Codex grant
+flag are absent. Instance defaults and `HOST_CODEX_DIR` keep their readers.
+Before rollout, operators must review flat overrides and Codex ACL rows;
+Go must not infer an override's backend.
 
 ## Contract
-
-Source baseline at `dbbf61ef2e53fa5551f5aac50984de4a94f5f310`: two flat wire
-fields, one Go effort vocabulary, one codex authorization read, and one
-consumer of its wire flag. The deletions above remove all listed declarations
-or decisions. Existing instance defaults and login sources remain functional.
 
 - A Go integration test starts with a stored group document, passes it through
   routd and the real HTTP client/server, and compares guest `Turn.Env` with the
@@ -407,20 +333,3 @@ or decisions. Existing instance defaults and login sources remain functional.
   smoke proves Claude and Codex replies on one instance with explicit network
   prerequisites. Shipping also requires `specs/CLAUDE.md`'s documentation,
   dashboard, image and verification gates; no live-instance anteval run.
-
-## Steps
-
-1. **Opaque carry and ant parse.** Add the raw setting, wire value, env emission
-   and ant validation with whole-document replacement. Forward Codex effort.
-   Verify value preservation through HTTP, visible invalid-document failure,
-   default replacement, env coverage and Pi refusal.
-2. **Write door and dashd.** Add the groups update action and derived MCP,
-   then connect the free-text form. Verify save/reload/clear, audit atomicity,
-   folder authorization and preservation across unrelated writes and import.
-3. **Credential door.** After owner sign-off, remove the codex grant and apply
-   the model-credential policy to the host login. Verify direct credentials
-   without the grant, gateway withholding, persistent rollouts and egress denial.
-4. **Delete superfluous config.** Complete every anchored deletion and replace
-   obsolete tests and documentation. Verify no production readers of flat
-   group model/effort or the codex flag remain. Run build, lint, short Go and
-   ant suites, then the disposable mixed-backend smoke before shipping.

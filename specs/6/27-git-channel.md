@@ -1,6 +1,5 @@
 ---
 status: partial
-defects: [GITHUB-TOPIC-REPOSITORY]
 depends:
   [
     ../5/34-channel-protocol,
@@ -18,10 +17,24 @@ depends:
 
 Repository events reach groups through ordinary routes. gitd receives signed webhooks
 and posts replies as comments. Repository state changes use the GitHub MCP connector.
-App webhook ingress exists; App replies, installation-token tooling, and complete
-conversation isolation do not. Automatic PR workspaces and group archival are unbuilt.
+App webhook ingress and repository-qualified route topics have implementation tests.
+`routd/topic_fanout_test.go` proves separate sessions for two repositories' PR 12.
+App replies and installation-token tooling are absent. Automatic PR workspaces
+and group archival are unbuilt.
 The App completion below is approved and unbuilt. The repository workspace proposal
 still needs owner approval, including its public contracts and retention policy.
+
+## Remaining
+
+- Add a shared host App client with repository-limited installation tokens, refresh and per-source PAT/App reply selection (`gitd/bot.go`, `gitd/main.go`).
+- Bind derived installation credentials to the trusted turn repository, with no PAT fallback or user-secret overlay (`routd/mcp.go`, `ipc/connector.go`, `template/connectors/github.toml`).
+- Fence revoked source/install/repository access and invalidate cached tokens before new replies, discovery or calls (`gitd/server.go`, `routd/github_sources_resource.go`, `routd/mcp.go`).
+- Add source dashboard view/control and App setup documentation (`dashd/main.go`, `dashd/routes_admin.go`, `gitd/README.md`, `template/web/pub/arizuko/components/gitd.html`).
+- Prove App bot loop suppression, token renewal, repository bounds, grant/hold behavior and real hosted MCP discovery/calls in a disposable repository (`gitd/bot_test.go`, `gitd/server_test.go`, `anteval/cases/anteval.toml`).
+- Obtain approval for repository bindings, PR group provisioning, lifecycle fences, overlapping-writer exclusion and generated-asset retention (`specs/6/27-git-channel.md`).
+- Build approved binding/group management, CLI and dashboard surfaces with scoped authorization (`resreg/resources/groups.go`, `routd/groups_resource.go`, `store/groups.go`, `cmd/arizuko/github.go`, `dashd/groups_admin.go`).
+- Build qualified review-thread replies, hydration, guarded comment revisions and deletion tombstones (`gitd/event.go`, `gitd/bot.go`, `store/messages.go`).
+- Build durable lifecycle envelopes, access reconciliation and safe checkout/archive/reap with fault and concurrency tests (`gitd/server.go`, `chanlib/inbound.go`, `runed/manager.go`, `runed/mounts.go`).
 
 ## Channel messages and repository tools
 
@@ -127,9 +140,8 @@ explicit topic pins retain their meaning.
 
 `store/sessions.go` keys conversations by folder and topic. The full JID
 separates two repositories' PR 12 even when both route to one group.
-Open PR conversations lose session continuity once: each starts one new
-session on its next turn under the full JID. Stored messages remain;
-the upgrade does not move or merge session transcripts from `pr/<n>`.
+Each full JID selects its own session. The routing migration does not move
+or merge session transcripts under another topic.
 
 `mapEvent` renders an explicit ask as `mention`, whatever the event kind: a bot
 @-mention in text a person wrote (a created or edited comment, an opened or edited
@@ -525,10 +537,9 @@ likewise combines webhook wakeups with reconciliation against open PRs. The appl
 pattern is current-state reconciliation; its application deletion policy does not
 define this system's conversation retention.
 
-## App completion — approved 2026-11-07, unbuilt
+## App completion — approved, unbuilt
 
-The owner approved this section on 2026-11-07 and wants both ways kept. The
-operator chooses per source: a `repo/` or `org/` source replies and calls tools
+Both credential modes are required. The operator chooses per source: a `repo/` or `org/` source replies and calls tools
 with the PAT in `GITHUB_TOKEN`; an `app/<slug>` source uses App installation
 tokens for both. No setting outside the source registration selects between them.
 

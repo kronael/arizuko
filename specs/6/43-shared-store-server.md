@@ -18,12 +18,25 @@ The server runs outside every instance's Compose project and systemd unit, inclu
 
 ## Private provisioning duplicates the shared server
 
-At `bb3c3f39a37291bc86413a4cba1619ea8223fcb7`, `store enroll` provisions the shared account, policies and keys.
-`INSTALL.md:186-207` also builds a private PostgreSQL pair, certificate and account for each instance.
-`template/services/extenddb/arizuko.yml:17-27` supplies the private URL and published port.
-These paths make the shared server optional.
-Delete private provisioning and require enrollment before the first `run` or `generate`.
-Keep `status: partial` until those deletions and setup checks ship.
+External enrollment supplies each instance's account, policies and keys.
+Generation must require enrollment before it writes runtime output.
+Private service manifests, host-port synthesis and the split-address branch
+are absent. `compose/compose_test.go` covers the explicit region requirement;
+`cmd/arizuko/store_test.go` covers enrollment and snapshot copying.
+Generation still permits missing endpoint/CA/keys, and operator overrides
+can select a different endpoint.
+
+## Remaining
+
+- Refuse generation before runtime output without a valid HTTPS URL, CA and complete installed-daemon/operator key pairs (`compose/compose.go`, `compose/store_env_test.go`).
+- Refuse differing endpoint or CA overrides in the operator credential file (`core/config.go`, `core/config_test.go`).
+- Replace private bootstrap, systemd, backup and restore instructions with configure/enroll/run against the external server (`INSTALL.md`).
+- Correct create/generate/run guidance and the store-port example (`cmd/arizuko/README.md`, `CLAUDE.md`, `template/env.example`).
+- Describe external ownership and enrollment in the architecture and operator store pages (`ARCHITECTURE.md`, `template/web/pub/arizuko/concepts/store.html`, `template/web/pub/arizuko/howto/index.html`, `template/web/pub/arizuko/index.html`).
+- Remove private defaults and manual-key setup from environment, operations and component pages (`template/web/pub/arizuko/reference/env.html`, `template/web/pub/arizuko/howto/operate.html`, `template/web/pub/arizuko/components/index.html`, `template/web/pub/arizuko/components/authd.html`, `template/web/pub/arizuko/components/gitd.html`, `template/web/pub/arizuko/components/slakd.html`).
+- Document external enrollment for Kubernetes (`template/web/pub/arizuko/howto/kubernetes.html`, `deploy/helm/arizuko/README.md`, `deploy/helm/arizuko/values.yaml`, `deploy/helm/arizuko/templates/_helpers.tpl`, `deploy/helm/arizuko/templates/NOTES.txt`).
+- Exercise owner-readable enrollment, a second enrollment without new keys, snapshot copy and stopped-source startup on an isolated external server (`cmd/arizuko/store_test.go`, `cmd/arizuko/create_target_test.go`).
+- Prove enrolled daemon policy enforcement before closing the shared L318 gate (`cmd/arizuko/store_test.go`, `specs/6/42-dynamo-over-postgres.md`).
 
 ## One endpoint serves the host and containers
 

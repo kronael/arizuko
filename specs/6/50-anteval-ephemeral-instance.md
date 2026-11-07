@@ -18,8 +18,14 @@ hook starts it.
 runs its cases against that instance, and removes the instance when the run
 ends. It never reaches an instance that serves users.
 
-The CLI lifecycle and fake-based tests are implemented. Guest reachability and
-live capacity acceptance remain unmeasured.
+The CLI lifecycle and fake-based tests are implemented.
+The required startup checks and live acceptance are incomplete.
+
+## Remaining
+
+- Refuse startup before creation without KVM, release images and sufficient memory for services, gateway and one guest (`anteval/cmd/anteval/lifecycle.go`, `anteval/cmd/anteval/lifecycle_test.go`).
+- Validate declared vsock, tap and proxy allocations against occupied resources before startup (`anteval/cmd/anteval/lifecycle.go`, `anteval/cmd/anteval/lifecycle_test.go`).
+- Prove guest callback reachability and disposable smoke/product runs on an isolated external test store, including cleanup after success, failure, partial startup and interruption (`anteval/cmd/anteval/lifecycle_test.go`, `anteval/cases/anteval.toml`; L379).
 
 ## Problem — measured on krons 2026-10-21
 

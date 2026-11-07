@@ -70,7 +70,7 @@ combination is the platform thesis arizuko ships toward.
 | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
 | [3/](3/)   | permissions, cleanup, gaps                                                                                                                                                                                                            | shipped    |
 | [4/](4/)   | dashboards, memory, scheduler, personas — core architecture (channel protocol → `5/34`, ACL → `5/32`·`5/33`)                                                                                                                          | shipped    |
-| [5/](5/)   | platform core — surfaces, identity, routing, tenancy, runtime                                                                                                                                                                         | shipped    |
+| [5/](5/)   | platform core — surfaces, identity, routing, tenancy, runtime                                                                                                                                                                         | partial    |
 | [6/](6/)   | split arizuko into parts — the environment contracts, the ship-in-parts catalogue (`6/16`), crackbox, the operator cockpit (`6/28`–`6/33`), the store model (`6/37`) , the QEMU substrate (`6/41`), DynamoDB over PostgreSQL (`6/42`) | **active** |
 | [7/](7/)   | single-world deployment — one core process and the functional minimum                                                                                                                                                                 | queued     |
 | [8/](8/)   | enterprise hardening, packages, workflows and groups without agents                                                                                                                                                                   | queued     |
@@ -94,8 +94,8 @@ that every backtick spec ID names a file.
 **Status vocabulary.** `active` is the phase being built, and exactly ONE phase
 holds it — the table said `active` on six phases at once, which expressed no
 order at all. `queued` is committed and waiting its turn; `drafting` is still
-being designed; `planned` is a placeholder with no specs written. Phase 5
-closed 2026-08-15; phase 6 took `active` the same day.
+being designed; `planned` is a placeholder with no specs written. `partial`
+marks a phase with unfinished implementation or acceptance. Phase 6 is active.
 
 **Composition boundaries.** Phase 6 defines independently usable components and the agent's persistent machine.
 
@@ -116,3 +116,21 @@ programmable turns and groups without agents.
 | Spec                                     | Status  | Summary                                                                                                                                |
 | ---------------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------- |
 | [6/52-acl-layers.md](6/52-acl-layers.md) | shipped | Local ACL rows override release defaults through one evaluator. Delegated rule mutations check authority and prove the policy version. |
+
+## Implementation closeout
+
+The linked specs name each remaining item and the files it needs.
+
+| Spec                                                                     | Status  | Summary                                                                                                                                                                                                                 |
+| ------------------------------------------------------------------------ | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [6/53-per-group-harness.md](6/53-per-group-harness.md)                   | partial | Opaque carry, ant validation, defaults replacement, Codex effort and credential policy are tested. Dashboard fields/PATCH, manuals, operator docs, override/ACL audit, image and disposable mixed-backend smoke remain. |
+| [6/46-turn-progress.md](6/46-turn-progress.md)                           | partial | Shared reducer, native snapshots, bounded progress, one reminder and browser replay/deletion are tested. Operator docs, image build, channel acceptance and adoption measurement remain.                                |
+| [6/50-anteval-ephemeral-instance.md](6/50-anteval-ephemeral-instance.md) | partial | Disposable CLI lifecycle and cleanup have fake-based tests. Startup capacity and resource-allocation checks, guest callback reachability and real smoke/product/cleanup acceptance remain.                              |
+| [5/34-channel-protocol.md](5/34-channel-protocol.md)                     | partial | Adapter protocol, URI route targets, shared placeholder expansion, validation and migrations are built and tested. The observation eval and operator examples still require URI mode flags.                             |
+| [6/27-git-channel.md](6/27-git-channel.md)                               | partial | Repository-qualified topics and sessions are tested. App replies, installation-token tools, revocation, source dashboard and live acceptance remain; repository workspaces/lifecycle need approval and implementation.  |
+| [6/47-voluntary-reply.md](6/47-voluntary-reply.md)                       | partial | Addressed delivery, one shared nudge, hooks and fresh follow-up identity are tested. Sloth silence/reply/correction acceptance, disposable Codex smoke and the weekly nudge outcome measurement remain.                 |
+| [6/49-approval-ask.md](6/49-approval-ask.md)                             | partial | Hold renderer, declared always keys, chat/REST/dashboard strings and binary defaults are tested. Dashboard argument rendering, agent guidance, live row audit, async docs and two owner decisions remain.               |
+| [6/42-dynamo-over-postgres.md](6/42-dynamo-over-postgres.md)             | partial | Driver, object protocols, BM25 and SQL deletion are built. Enforcing-server policy tests (L318), dual-server conformance, disposable smoke and search/soak acceptance remain.                                           |
+| [6/43-shared-store-server.md](6/43-shared-store-server.md)               | partial | Private services and address synthesis are absent; enrollment and region checks are tested. Strict URL/CA/key and operator-override refusal, setup docs, isolated move acceptance and L318 enforcement remain.          |
+| [6/34-resident-prompt.md](6/34-resident-prompt.md)                       | partial | Resident manual and pointer guards exist; L188 conformance backfill and disposable guest-observable acceptance remain.                                                                                                  |
+| [6/41-qemu-substrate.md](6/41-qemu-substrate.md)                         | partial | Native boot and turn tests cover MCP, proxy policy, steering and cleanup. Guest smoke (L379), two-VM isolation, abrupt-crash sweep, two-release retention and deployment/memory acceptance remain.                      |

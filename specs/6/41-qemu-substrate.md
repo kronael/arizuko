@@ -1,5 +1,5 @@
 ---
-status: defected
+status: partial
 defects: [L379]
 depends:
   [
@@ -35,6 +35,19 @@ stateless, the folder and the database carry every fact across turns, and the
 container mount table in `runed/README.md` § Mounts is the
 contract the agent sees — the same left column, delivered by a different
 right-hand side. `ant/` changes by zero lines.
+
+Native boot and turn tests cover the UID clamp, read-only exports, MCP,
+proxy policy, steering, normal poweroff, Kill and cancellation in
+`runed/qemu_boot_test.go` and `runed/qemu_turn_boot_test.go`.
+The isolated vsock fixture in `runed/vmctl_test.go` does not prove two-guest isolation.
+
+## Remaining
+
+- Prove guest-observable smoke through the disposable eval lifecycle, including tools that resolve names locally (`anteval/cases/anteval.toml`; L379).
+- Prove that a second real VM cannot dial the first VM's CID-pinned MCP bridge (`runed/vmctl_test.go`, `runed/qemu_turn_boot_test.go`).
+- Kill runed with SIGKILL mid-turn and prove startup sweep removes every owned process, tap, mount and staging tree (`runed/qemu.go`, `runed/vmrecord_test.go`).
+- Implement and test the specified two-release rootfs retention policy; the image command currently prunes every unused tree (`cmd/arizuko/images.go`, `cmd/arizuko/images_test.go`, `Makefile`).
+- Complete release-image rollout and the declared peak-memory sample before claiming the host budget on deployment (`runed/README.md`, `runed/guestpeak_test.go`).
 
 ## What the design must answer — measured 2026-09-12 on hel1v5 (the krons host)
 
