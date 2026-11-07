@@ -15,6 +15,17 @@
 
 ## What needs you
 
+- `L681` — the dashboard grant CRUD test receives 403 where it expects 200; record only.
+- `L682` — the MCP invite integration test cannot find the created invite under its expected issuer; record only.
+- `L683` — the shutdown source guard requires signal setup in anteval's listener file; record only.
+- `L684` — the DynamoDB boot test expects an operator grant that the local ACL rows do not contain; record only.
+- `L685` — routd retains one mutex per turn for the process lifetime.
+- `L686` — decide whether to retire the four duplicated top-level creative skill names; proposal, needs sign-off.
+- `L687` — decide whether to retire the scheduler's two external write endpoints; proposal, needs sign-off.
+- `L688` — defer folding onbod into routd until measured net savings justify the boundary change; needs sign-off.
+- `L689` — defer folding dashd until measured net savings and reused code justify it; needs sign-off.
+- `L690` — source fixtures and case comments still name retired services; record only.
+
 - `L679` — routd's OpenAPI expectation omits the mounted group PATCH; test-only correction pending.
 
 - `L676` — decide whether dashboard group creation must check the creator's new subtree grant.
@@ -217,7 +228,7 @@ reads those words now.
 - `L151` — an adapter with a dead credential restart-loops and nothing pushes the fact
   anywhere a person sees.
 - `L2` — a platform-chat `send` writes bot output and does not start another agent's turn; caller feedback needs a decision.
-- `L13`, `L31`, `L41`, `L134` — a write-only `secret_use_log` with no read surface;
+- `L13`, `L31`, `L41`, `L134` — secret-use persistence and related secret surfaces;
   four of six product payload kinds seed-once so a product never updates; compose
   fragments frozen once they differ by a byte; a `shell:env:` grant that cannot be
   conditioned on the channel.
@@ -471,14 +482,165 @@ that version. A change to which rows reach live data is an auth change.
 - **Status:** open — needs sign-off.
 
 
+## L681 — dashboard grant CRUD expects 200 and receives 403 (2026-11-07, open — record only)
+
+`tests/feat_dashd_test.go:55` posts an ACL row as `service:dashd`.
+The handler returns 403 and the test reports `grant add = 403, want 200`.
+The supplied baseline verification reproduces the failure at `8a6c1c72cbc44f3caee3016a714b4aa92a57b86e`.
+
+- **Severity:** medium — the grant mutation integration expectation fails.
+- **Scope:** dashboard grant mutation integration fixture and authorization.
+- **Affected:** `tests/feat_dashd_test.go`, routd ACL handler.
+- **Measured:** `go test ./tests -short -count=1 -run '^TestFeature_DashdAdminPlane/grants-crud$'`.
+- **Fix:** verify the fixture authority against the ACL mutation gate before correcting its setup or expectation.
+- **Status:** open — record only; Go edits are outside this documentation pass.
+
+## L682 — the invite integration test cannot find the created invite (2026-11-07, open — record only)
+
+`tests/integration_mcp_test.go:268` creates an invite, then queries
+`ListInvites("agent:hq")`. The persistence assertion finds no invite.
+The supplied baseline verification reproduces the failure at `8a6c1c72cbc44f3caee3016a714b4aa92a57b86e`.
+
+- **Severity:** medium — invite integration coverage fails.
+- **Scope:** invite issuer expectations and persisted identity.
+- **Affected:** `tests/integration_mcp_test.go`.
+- **Measured:** `go test ./tests -short -count=1 -run '^TestMCP_InviteTools$'`.
+- **Fix:** compare the recorded issuer with the test's principal before correcting the expectation or writer.
+- **Status:** open — record only; Go edits are outside this documentation pass.
+
+## L683 — the shutdown source guard cannot see anteval's signal setup (2026-11-07, open — record only)
+
+`tests/shutdown/shutdown_test.go` discovers listeners in
+`anteval/cmd/anteval/lifecycle.go:180`. That file contains no `signal.Notify`.
+`anteval/cmd/anteval/main.go:96` installs `signal.NotifyContext` before calling
+the lifecycle. A file-local source check does not establish a runtime signal window.
+The supplied baseline verification reproduces the failure at `8a6c1c72cbc44f3caee3016a714b4aa92a57b86e`.
+
+- **Severity:** low — the shutdown guard fails on cross-file lifecycle setup.
+- **Scope:** listener discovery and signal-order test.
+- **Affected:** `tests/shutdown/shutdown_test.go`, `anteval/cmd/anteval/lifecycle.go`.
+- **Measured:** `go test ./tests/shutdown -short -count=1 -run '^TestSignalHandlerIsArmedBeforeTheListener$'`.
+- **Fix:** verify call order across the entrypoint and lifecycle without weakening checks for other listeners.
+- **Status:** open — record only; Go edits are outside this documentation pass.
+
+## L684 — the DynamoDB boot test expects an operator row in the local ACL (2026-11-07, open — record only)
+
+`tests/dynamo/env_test.go:99` reads `ACLRowsFor(role:operator)` after
+`routd.Open` and fails with `no operator grant`. It inspects local rows,
+while release policy defaults live in `auth/defaults.go`.
+The supplied baseline verification reproduces the failure at `8a6c1c72cbc44f3caee3016a714b4aa92a57b86e`.
+
+- **Severity:** low — the store boot assertion fails; this alone does not prove requests are denied.
+- **Scope:** operator floor expectation in the DynamoDB boot fixture.
+- **Affected:** `tests/dynamo/env_test.go`.
+- **Measured:** `go test ./tests/dynamo -short -count=1 -run '^TestRoutdBootsFromTheEnvironment$'`.
+- **Fix:** test effective operator authorization against the declared policy source.
+- **Status:** open — record only; Go edits are outside this documentation pass.
+
+## L685 — turn mutexes remain allocated for the lifetime of routd (2026-11-07, open)
+
+`routd/turns.go:21` declares `turnLocks`, a process-wide `sync.Map`.
+`lockTurn` uses `LoadOrStore` and returns only `mu.Unlock`. No path removes
+entries. Each distinct turn reaching progress, completion or nudge handling
+retains one mutex and its turn ID.
+
+- **Severity:** medium — retained memory grows with the number of turns.
+- **Scope:** turn synchronization lifetime.
+- **Affected:** `routd/turns.go`, `routd/mcp.go`, `routd/progress.go`.
+- **Measured:** `rg -n 'turnLocks|lockTurn\(' routd` finds the declaration, insertion and callers, with no reclamation path. Bytes per turn and live RSS are unmeasured.
+- **Fix:** define bounded synchronization or lifecycle reclamation that preserves waiter exclusion. Deleting after unlock can create two mutexes for one turn.
+- **Test:** a concurrency regression must prove reclamation and waiter exclusion; new Go tests are outside this documentation pass.
+- **Status:** open — record only.
+
+## L686 — four exposed creative skill names duplicate the create payload (2026-11-07, open — proposal, needs sign-off)
+
+The tracked `ascii-video`, `excalidraw`, `manim-video` and `p5js` trees contain
+42 byte-identical counterparts under `ant/skills/create/`, totaling 16,270 lines.
+`container/packages.go:23` enumerates package-root skills and
+`ant/src/skills-scan.ts:26` scans top-level descriptors. Both selection surfaces
+are active. Retiring names changes selection, `.disabled` behavior and possible
+installed references.
+
+- **Severity:** low — duplicate assets require duplicate maintenance.
+- **Scope:** creative skill names and canonical assets.
+- **Affected:** `ant/skills/create/` and the four top-level creative skill trees.
+- **Measured:** tracked-file byte comparison: ascii-video 8 files / 7,695 lines; excalidraw 4 / 384; manim-video 15 / 2,773; p5js 15 / 5,418.
+- **Options:** (a) retire the four names and keep one create asset tree after checking source ownership, sync and attribution; (b) retain the exposed names and duplicate assets.
+- **Default if nothing is decided:** retain both surfaces.
+- **Test:** no test — design; the duplicate payload measurement does not prove names are unused.
+- **Status:** open — needs owner sign-off.
+
+## L687 — scheduler write endpoints have no in-repository production client (2026-11-07, open — proposal, needs sign-off)
+
+`routd/server.go:277` registers `POST /v1/tasks/runlog` and
+`POST /v1/tasks/{id}/reschedule`. The task ticker calls `RecordTaskRun` and
+`RescheduleTask` directly in `routd/schedule.go`. Repository HTTP callers are
+tests and documentation. The registered external contract can still have outside clients.
+
+- **Severity:** low — supported endpoints retain handlers and tests without an internal client.
+- **Scope:** scheduler REST write contract.
+- **Affected:** `routd/server.go` and endpoint-specific tests.
+- **Measured:** search `handleTaskRunLog`, `handleTaskReschedule`, `RecordTaskRun`, `RescheduleTask`, `runlog` and `reschedule` across routd, cmd, ipc and ant, including constructed URLs.
+- **Options:** (a) retire both writes after confirming the supported outside API; (b) keep both endpoints and their gates.
+- **Default if nothing is decided:** keep both registered writes. Keep task management, MCP `reschedule_task` and run-log reads under either option.
+- **Test:** no test — design; caller reachability does not authorize an external API deletion.
+- **Status:** open — needs owner sign-off.
+
+## L688 — folding onbod into routd needs measured savings (2026-11-07, open — deferred proposal, needs sign-off)
+
+onbod owns admission tables and audits in `onbod/db.go`. It opens onbod and
+routd stores in `onbod/main.go`; routd calls it for admission. No matched-workload
+comparison establishes net savings from an in-process admission module.
+
+- **Severity:** low — no demonstrated defect; a deferred process-boundary decision.
+- **Scope:** onbod process and table authority.
+- **Affected:** onbod, routd and any proposed webd page move.
+- **Options:** (a) fold admission into routd while preserving onbod table ownership and gates, after measuring net savings and reused code; (b) keep onbod separate.
+- **Default if nothing is decided:** keep onbod separate, as recommended by the Astra audit. A table migration or new webd protocol needs its own design.
+- **Trigger:** a matched-workload comparison demonstrates net memory savings and exact code reuse.
+- **Test:** no test — design; measurements are pending.
+- **Status:** open — deferred, needs owner sign-off; outside the built slices of `specs/7/26-single-world-deployment.md`.
+
+## L689 — folding dashd needs measured savings and code reuse (2026-11-07, open — deferred proposal, needs sign-off)
+
+dashd imports platform code in `dashd/services.go`. Import coupling does not
+establish reusable work or net memory savings from a process fold.
+The measured 12.5 MiB average across nine daemons is neither dashd's individual
+footprint nor a net saving for this proposal.
+
+- **Severity:** low — no demonstrated defect; a deferred process-boundary decision.
+- **Scope:** dashboard process boundary.
+- **Affected:** dashd and a prospective owning daemon.
+- **Options:** (a) fold dashd after measuring net savings and identifying reused code; (b) keep dashd separate.
+- **Default if nothing is decided:** keep dashd separate, as recommended by the Astra audit. Preserve useful standalone services, platform-adapter processes and runed's execution isolation.
+- **Trigger:** matched-workload measurements and a specific reuse case justify the fold.
+- **Test:** no test — design; measurements are pending.
+- **Status:** open — deferred, needs owner sign-off; outside the built slices of `specs/7/26-single-world-deployment.md`.
+
+## L690 — source fixtures and case comments name retired services (2026-11-07, open — record only)
+
+`tests/dashd-playwright/stub-upstream.ts:192` contains a
+`http://vited:8080` backend. `tests/dashd-playwright/tests/services.spec.ts:15`
+includes `timed` in `UNBUILT`. `anteval/cases/anteval.toml:47` calls the
+scheduler the `timed` primitive; line 397 cites the absent `timed/split.go`.
+The fixture values and case comments do not describe the current deployment.
+
+- **Severity:** low — stale test fixtures misdescribe service topology.
+- **Scope:** dashboard Playwright fixtures and anteval case comments.
+- **Affected:** the two TypeScript files and TOML case file above.
+- **Measured:** the requested non-Go `rg -n 'vited|timed'` scan finds these four lines; deployment generation contains neither service.
+- **Fix:** align fixture backend and service expectations with proxyd static serving and routd scheduling.
+- **Test:** run the affected Playwright suites with the fixture update; TypeScript and TOML edits are outside this documentation pass.
+- **Status:** open — record only.
+
 ## L679 — routd's OpenAPI expected list omits the mounted group PATCH (2026-11-07, open — record only)
 
 `TestOpenAPI_EveryAdvertisedPathIsMounted` in
 `routd/endpoints_source_test.go:192` fails because the expected operations at
 `:201` omit `PATCH /v1/groups/{folder}`. `resreg/resources/groups.go:32`
 declares that mounted operation. The advertised output includes it.
-The same expected-list omission exists at base
-`c544d80a0e62a73b2a2dd7d40c3608c1affa9acb`.
+The supplied baseline verification also reproduces the failure at
+`8a6c1c72cbc44f3caee3016a714b4aa92a57b86e`.
 
 - **Severity:** low — the routd package test fails against its mounted surface.
 - **Scope:** OpenAPI test expectation.
@@ -7077,116 +7239,23 @@ it is a one-time copy.
   (`container/blend.go:289-300`, BUGS `L34`). Answering one does not answer the
   other; they should stay two entries.
 
-## L13 — `secret_use_log` is write-only: no read surface on any face (2026-08-11, proposed 2026-08-15 — RE-MEASURED 2026-09-21: the ENTITY has no reader, the FACT has two. Do NOT build the proposal below)
+## L13 — secret-use facts have two persistent representations (2026-11-07, open — proposal, needs sign-off)
 
-The table (routd/migrations/0008-secrets.sql) is written on every resolved
-secret (`routd/mcp.go:503`, `store/secret_use_log.go:38`) and read by nothing:
-no resreg resource, no REST/MCP face, no dashd page, no CLI verb — only the
-side `audit_log` row each write also emits is reachable. This repeats the exact
-class BUGS `F29`/`F35` closed for the four `audit_log` owners ("audit rows
-reachable only with sqlite3"), and it outlived `F68` (2026-08-09), which fixed
-this table's writer fields without giving it a reader. Cost: the per-key
-forensic detail (key, tool, scope_kind) the writer was just fixed to record
-answers "who used which secret" only to an operator with sqlite3 on the host.
+`store/secret_use_log.go:115` writes a dedicated `secret_use_log` entity and
+an audit event in one guarded batch. The audit event carries caller, secret
+identity and scope, tool, spawn, outcome, error and duration. The broker calls
+`LogSecretUse` in `routd/mcp.go`. The entity's other consumers handle schema,
+retention, import and group history; no business query reads the dedicated rows.
+The audit representation is readable through REST and MCP.
 
-- **Severity:** low
-- **Scope:** secret-use forensic log read surface
-- **Affected:** routd, store
-- **Source:** `store/secret_use_log.go:38`, `routd/migrations/0008-secrets.sql`
-- **Status:** PROPOSED, not built — the premise is CONFIRMED at 28d20228
-  (readers are four test files and nothing else; no `Table:` declaration, no
-  REST handler, no dashd page, no CLI verb), but the fix is a new wire contract,
-  which this pass does not ship unreviewed.
-  Why it is not a mechanical registration: in this codebase a resource's name IS
-  its wire identity, and `5/17` derives the MCP tool from the same declaration
-  that serves REST. Registering `secret_use_log` therefore publishes a new
-  `/v1/secret_use_log` path AND a new agent-visible tool in one move, and the
-  question "may an AGENT read which secrets were used, by whom, with which
-  tool?" is a security decision the operator owns, not a detail of the wiring.
-  Recommended shape, for approval:
-  - Owner routd (it owns the table, routd migration `0008`), read-only: `list`
-    with folder containment, no create/update/delete — the writer stays
-    `store/secret_use_log.go`, the single one.
-  - RowType mirroring the columns already written (`key`, `scope`,
-    `scope_kind`, `tool`, `caller_sub`, `spawn_id`, `ts`), so the doc and the
-    handler read one struct.
-  - Gate: operator scope on REST. On the agent MCP face, either omit it
-    entirely (operator-only forensics, the safer default and my
-    recommendation) or bind it to the caller's own folder — never a plain
-    `mcp:` grant with the default target resolver.
-  - `F35`'s onbod `audit_log` resource is the precedent to copy for the
-    read-only shape.
-- **Evidence:** table writer/reader sweep over all migrations
-  (`INSERT INTO|UPDATE` vs `FROM <table>` vs `Table:` resreg decls) →
-  `secret_use_log writers=1 readers=0 resreg=0`. `grep -rn secret_use_log`
-  → writer paths + migrate-split copy + docs only.
-- **RE-MEASURED at 17459f6a 2026-09-21. The defect is half real and the
-  prescribed fix is now the WRONG one — building it would manufacture the
-  duplication root `CLAUDE.md` forbids.**
-
-  **The entity still has no reader.** Confirmed, and the source says so itself:
-  `store/secret_use_log.go:15` — "NO READ DECIDED IT, because there is no
-  reader: nothing in the tree calls this file for anything but the write, on
-  any instance." No resreg declaration, no handler, no dashd page, no CLI verb.
-
-  **But the FACT is fully readable, on both faces, and has been.** `LogSecretUse`
-  writes the item and an `audit_log` row in ONE batch
-  (`store/secret_use_log.go:141-183`), and that row is a COMPLETE projection of
-  `SecretUseRow` — all nine fields, nothing dropped:
-
-  | `SecretUseRow` | where it lands in the `audit_log` row |
-  | --- | --- |
-  | `TS` | the row id / `created_at` |
-  | `CallerSub` | `actor` + `actor_sub` |
-  | `Key`, `Scope` | `resource` = `secrets/<scope>/<folder>/<key>` |
-  | `Scope` | `scope` |
-  | `Folder` | `folder` |
-  | `Tool`, `SpawnID` | `params_summary` |
-  | `Status` | `outcome` + `error_msg` |
-  | `LatencyMS` | `duration_ms` |
-
-  `audit_log` IS a registered resreg resource (`resreg/resources/audit.go`),
-  mounted by routd (`routd/audit_resource.go`), which is the daemon that owns
-  this table. So "who used which secret, from where, with which tool" is already
-  answerable two ways, neither needing a shell on the host:
-
-  - REST `GET /v1/audit?category=secret` behind the `audit:read` scope;
-  - MCP `query_audit` with `category=secret`, bound to the caller's own folder.
-
-  `action=secret.read` is written by exactly one site in the tree
-  (`store/secret_use_log.go:154`), so it isolates secret USES from
-  `secret.set` / `secret.delete` cleanly.
-
-  **Therefore the entry's own security question is already answered, and not in
-  the direction it assumed.** It asks the operator to decide "may an AGENT read
-  which secrets were used, by whom, with which tool?" — an agent holding
-  `mcp:query_audit` can read exactly that today, folder-bound. Registering
-  `secret_use_log` would not open a new door; it would cut a second door into
-  the same room, publishing `/v1/secret_use_log` and a second agent tool over a
-  fact `/v1/audit` already serves. That is a second FORMAT for one declaration,
-  the rule in root `CLAUDE.md` §"One declaration, many readers", and
-  `resreg/resources/audit.go` is emphatic that an append-only log gets one
-  read-only face, not several.
-
-  **The recorded direction is the opposite one: retire the entity.**
-  `audit/PLAN.md:319-322` already says so — "`secret_use_log` — replaced by
-  `secret.read` rows in `audit_log` once the audit table lands (… consolidates
-  in round 3 if hot-path volume permits)". The audit table landed. The item is
-  the leftover half of a consolidation that stopped at the write.
-
-  **What it costs to leave alone: almost nothing.** The entity is EMPTY on the
-  whole fleet — `store/secret_use_log.go:28` records zero rows on all three live
-  snapshots at 2026-09-07, because the broker writes only when a container tool
-  resolves a secret and the fleet has one secret. A reader would page nothing.
-
-  **Status: the proposal above is WITHDRAWN, not pending.** Do not build it. The
-  live question is whether to finish `audit/PLAN.md`'s round 3 and delete the
-  entity, leaving `audit_log` as the single record. That is a spec-level
-  deletion touching `specs/5/13` §Audit, which mandates the row, so it is a
-  sign-off rather than a refinement — but a much smaller and better-shaped one
-  than the new wire contract this entry originally asked for. Until it happens
-  the duplicate write is harmless: one empty item collection, written in the
-  same batch, costing one item per secret read.
+- **Severity:** low — duplicated persistence without a business reader for one representation.
+- **Scope:** secret-use persistence and history.
+- **Affected:** `store/secret_use_log.go`, entity declarations and history handling.
+- **Measured:** production Go searches for `secret_use_log`, `SecretUseLog` and `LogSecretUse`, followed through the audit resource and history consumers.
+- **Options:** (a) retain the audit event and retire the parallel entity/write/serialization after deciding history and external-reader handling; (b) retain both representations.
+- **Default if nothing is decided:** retain both representations and existing history. Do not add a second read resource to justify duplicate storage.
+- **Test:** no test — design; persistent schema and outside readers require a contract decision. Live data migration is an operator action.
+- **Status:** open — needs owner sign-off.
 
 ## L2 — a platform-chat send does not start another agent's turn (2026-08-08, open — needs sign-off)
 
