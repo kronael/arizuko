@@ -30,7 +30,7 @@ import (
 
 const mainUsage = `arizuko <command> [-i|--instance name] [arguments]
   package  sync | add <source> | rm <name>  [-g|--group folder] [-f|--force]
-  create [-i instance] [-p product] | run | generate | status
+	  create [-i instance] [-p product] | run | rm | generate | status
   group | gate | invite | network | images | route | token
   chat | send | pair | secret | user-secret | budget | store
   talk     [@name] [-g <folder>] [-t <token>] [--thread <name>] [--prompt [text]]  — REPL against a live instance; no DB, config in ~/.config/arizuko/talk.toml
@@ -48,6 +48,7 @@ func main() {
 
 	cmds := map[string]func([]string){
 		"run":          cmdRun,
+		"rm":           cmdRm,
 		"generate":     cmdGenerate,
 		"proxy-config": cmdProxyConfig,
 		"create":       cmdCreate,
@@ -82,6 +83,9 @@ func main() {
 	fn, ok := cmds[os.Args[1]]
 	if !ok {
 		die("unknown command: %s", os.Args[1])
+	}
+	if os.Args[1] == "rm" && !hasInstanceFlag(os.Args[2:]) {
+		die("rm requires -i NAME")
 	}
 	args, err := instanceArgs(os.Args[2:])
 	if err != nil {
