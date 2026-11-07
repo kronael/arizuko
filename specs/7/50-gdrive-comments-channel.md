@@ -24,9 +24,9 @@ credential.
 (`chanlib/gdrive_jid.go`), the `gdrive_files` binding and its resource, routd
 handler and CLI are built. The mapper, `Send` and poll loop are built. The
 compose fragment starts googd as a container.
-The Drive API is off on the only project that holds a key, so the channel
-advertises no verb (§"Capabilities follow the enabled APIs, never the key's presence"). The
-owner's framing — a document is a group, a comment thread is a topic — holds
+Drive and Sheets probes run before registration and on the credential retry
+tick. The dashboard shows API states and bound-file poll state. The Sheets
+passthrough is not built. The owner's framing — a document is a group, a comment thread is a topic — holds
 only in part (§"The owner's framing, tested"), and nine facts the design rests
 on are marked unverified until a probe against a real file measures them
 (§"Unverified").

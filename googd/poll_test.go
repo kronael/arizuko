@@ -239,3 +239,45 @@ func TestPollRestoresCursor(t *testing.T) {
 		t.Fatalf("startModifiedTime = %q", cursor)
 	}
 }
+
+func TestDashboardDisplaysPersistedPollState(t *testing.T) {
+	p, _, _ := newPollTest(t, func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/comments") {
+			fmt.Fprintf(w, `{"comments":[%s]}`, thread)
+			return
+		}
+		fmt.Fprint(w, `{"name":"Document"}`)
+	}, "file")
+	now := time.Date(2026, 11, 7, 12, 0, 0, 0, time.UTC)
+	p.sweep(t.Context(), now)
+	p.b.poll = p
+	p.b.cred.driveAPI = apiState{state: "on"}
+	p.b.cred.sheetsAPI = apiState{state: "off", reason: "Enable Sheets"}
+	mux := chanlib.NewAdapterMux("googd", []string{"gdrive:"}, p.b, p.b.isConnected, p.b.LastInboundAt, nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/dash/googd/", nil))
+	for _, want := range []string{"Drive", "Sheets", "Enable Sheets", "sheets.googleapis.com", "drive.googleapis.com", "file", "Document", "2026-11-07T12:00:00Z", "status: ok", "2026-01-02T00:00:00Z", "agent@example.com"} {
+		if !strings.Contains(w.Body.String(), want) {
+			t.Errorf("dashboard missing %q", want)
+		}
+	}
+}
+
+func TestDashboardShowsFailedPollStatuses(t *testing.T) {
+	for _, status := range []int{403, 404, 429} {
+		t.Run(fmt.Sprint(status), func(t *testing.T) {
+			p, _, _ := newPollTest(t, func(w http.ResponseWriter, r *http.Request) {
+				if strings.HasSuffix(r.URL.Path, "/comments") {
+					w.WriteHeader(status)
+					return
+				}
+				fmt.Fprint(w, `{"name":"Document"}`)
+			}, "file")
+			p.sweep(t.Context(), time.Date(2026, 11, 7, 12, 0, 0, 0, time.UTC))
+			section := p.dashSection()
+			if len(section.Rows) != 1 || !strings.Contains(section.Rows[0][1], fmt.Sprintf("status: %d", status)) {
+				t.Fatalf("%+v", section)
+			}
+		})
+	}
+}

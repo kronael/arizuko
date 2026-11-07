@@ -20,9 +20,9 @@ const pollEntity = "file_poll"
 const commentFields = "nextPageToken,comments(id,createdTime,modifiedTime,resolved,deleted,author(displayName,me),content,quotedFileContent(value),mentionedEmailAddresses,assigneeEmailAddress,replies(id,createdTime,modifiedTime,deleted,action,author(displayName,me),content,mentionedEmailAddresses,assigneeEmailAddress))"
 
 type filePoll struct {
-	cursor, status string
-	next           time.Time
-	delay          time.Duration
+	cursor, status, name, lastPoll string
+	next                           time.Time
+	delay                          time.Duration
 }
 type poller struct {
 	b        *bot
@@ -77,6 +77,8 @@ func (p *poller) sweep(ctx context.Context, now time.Time) {
 			if len(rows) > 0 {
 				state.cursor = rows[0].Attrs["cursor"]
 				state.status = rows[0].Attrs["status"]
+				state.name = rows[0].Attrs["name"]
+				state.lastPoll = rows[0].Attrs["last_poll"]
 			}
 			p.files[file.FileID] = state
 		}
@@ -89,6 +91,7 @@ func (p *poller) sweep(ctx context.Context, now time.Time) {
 			slog.Warn("poll Drive file", "file", file.FileID, "err", err)
 		}
 		state.status = status
+		state.lastPoll = now.UTC().Format(time.RFC3339Nano)
 		if retry {
 			if state.delay == 0 {
 				state.delay = 30 * time.Second
@@ -112,7 +115,7 @@ func (p *poller) sweep(ctx context.Context, now time.Time) {
 	}
 }
 func (p *poller) save(ctx context.Context, id string, state *filePoll) error {
-	_, err := p.db.GuardedBatch(ctx, nil, []objstore.Write{{Op: objstore.Put, Entity: pollEntity, Key: objstore.Key{Partition: p.name, Sort: id}, Attrs: map[string]string{"cursor": state.cursor, "status": state.status}}})
+	_, err := p.db.GuardedBatch(ctx, nil, []objstore.Write{{Op: objstore.Put, Entity: pollEntity, Key: objstore.Key{Partition: p.name, Sort: id}, Attrs: map[string]string{"cursor": state.cursor, "status": state.status, "name": state.name, "last_poll": state.lastPoll}}})
 	return err
 }
 func (p *poller) pollFile(ctx context.Context, id string, state *filePoll) (string, bool, error) {
@@ -135,6 +138,7 @@ func (p *poller) pollFile(ctx context.Context, id string, state *filePoll) (stri
 		}
 	}
 	_ = resp.Body.Close()
+	state.name = name
 	cursor := state.cursor
 	maxTime := time.Time{}
 	if cursor != "" {
@@ -212,4 +216,26 @@ func (p *poller) pollFile(ctx context.Context, id string, state *filePoll) (stri
 			return "ok", false, nil
 		}
 	}
+}
+
+func (p *poller) dashSection() chanlib.DashSection {
+	section := chanlib.DashSection{Title: "Bound files"}
+	files, err := p.bindings.ListGDriveFiles("")
+	if err != nil {
+		section.Rows = append(section.Rows, [2]string{"error", err.Error()})
+		return section
+	}
+	for _, file := range files {
+		rows, err := p.db.Query(context.Background(), objstore.Query{Entity: pollEntity, Partition: p.name, Key: objstore.KeyPredicate{Op: objstore.ExactKey, Value: file.FileID}})
+		if err != nil {
+			section.Rows = append(section.Rows, [2]string{file.FileID, "error: " + err.Error()})
+			continue
+		}
+		attrs := map[string]string{}
+		if len(rows) > 0 {
+			attrs = rows[0].Attrs
+		}
+		section.Rows = append(section.Rows, [2]string{file.FileID, fmt.Sprintf("name: %s; last poll: %s; status: %s; cursor: %s", attrs["name"], attrs["last_poll"], attrs["status"], attrs["cursor"])})
+	}
+	return section
 }

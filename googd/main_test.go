@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
@@ -84,15 +85,18 @@ func keyJSON(t *testing.T, tokenURI string) string {
 // fakeGoogle answers the token exchange and about.get. tokenStatus and
 // aboutStatus are read per request so a test can repair the fake mid-run.
 type fakeGoogle struct {
-	srv         *httptest.Server
-	tokenStatus atomic.Int64
-	aboutStatus atomic.Int64
-	tokenCalls  atomic.Int64
-	aboutCalls  atomic.Int64
+	srv          *httptest.Server
+	tokenStatus  atomic.Int64
+	aboutStatus  atomic.Int64
+	tokenCalls   atomic.Int64
+	aboutCalls   atomic.Int64
+	sheetsStatus atomic.Int64
+	sheetsCalls  atomic.Int64
 
-	mu         sync.Mutex
-	assertion  map[string]any
-	aboutToken string
+	mu              sync.Mutex
+	assertion       map[string]any
+	aboutToken      string
+	sheetsAssertion map[string]any
 }
 
 func newFakeGoogle(t *testing.T) *fakeGoogle {
@@ -100,6 +104,7 @@ func newFakeGoogle(t *testing.T) *fakeGoogle {
 	g := &fakeGoogle{}
 	g.tokenStatus.Store(http.StatusOK)
 	g.aboutStatus.Store(http.StatusOK)
+	g.sheetsStatus.Store(http.StatusNotFound)
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /token", func(w http.ResponseWriter, r *http.Request) {
 		g.tokenCalls.Add(1)
@@ -107,7 +112,12 @@ func newFakeGoogle(t *testing.T) *fakeGoogle {
 			t.Error(err)
 		}
 		g.mu.Lock()
-		g.assertion = jwtClaims(t, r.PostForm.Get("assertion"))
+		claims := jwtClaims(t, r.PostForm.Get("assertion"))
+		if claims["scope"] == sheetsScope {
+			g.sheetsAssertion = claims
+		} else {
+			g.assertion = claims
+		}
 		g.mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 		if st := int(g.tokenStatus.Load()); st != http.StatusOK {
@@ -132,6 +142,13 @@ func newFakeGoogle(t *testing.T) *fakeGoogle {
 			return
 		}
 		_, _ = w.Write([]byte(`{"user":{"emailAddress":"rhias@example.iam.gserviceaccount.com","permissionId":"123","me":true}}`))
+	})
+	mux.HandleFunc("GET /v4/spreadsheets/!", func(w http.ResponseWriter, r *http.Request) {
+		g.sheetsCalls.Add(1)
+		w.WriteHeader(int(g.sheetsStatus.Load()))
+		if g.sheetsStatus.Load() == http.StatusForbidden {
+			_, _ = w.Write([]byte(`{"error":{"message":"Enable Sheets","details":[{"reason":"SERVICE_DISABLED"}]}}`))
+		}
 	})
 	g.srv = httptest.NewServer(mux)
 	t.Cleanup(g.srv.Close)
@@ -526,4 +543,96 @@ func TestDriveProbeForbiddenWithoutDisabledReason(t *testing.T) {
 	if err := b.start(t.Context()); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestSheetsProbeAndRetry(t *testing.T) {
+	g := newFakeGoogle(t)
+	g.sheetsStatus.Store(http.StatusForbidden)
+	b := newBot(t.Context(), g.config(t))
+	rc := &capRecorder{}
+	verifyCredential(t.Context(), b, rc, time.Hour)
+	if b.cred.sheetsAPI.state != "off" || b.cred.sheetsAPI.reason != "SERVICE_DISABLED: Enable Sheets" || !b.cred.usable() {
+		t.Fatalf("sheets=%+v drive=%v", b.cred.sheetsAPI, b.cred.usable())
+	}
+	g.mu.Lock()
+	scope := g.sheetsAssertion["scope"]
+	g.mu.Unlock()
+	if scope != sheetsScope {
+		t.Fatalf("scope=%v", scope)
+	}
+	g.sheetsStatus.Store(http.StatusNotFound)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	go reacquire(ctx, b, rc, time.Millisecond)
+	deadline := time.After(5 * time.Second)
+	for {
+		b.cred.mu.Lock()
+		state := b.cred.sheetsAPI.state
+		b.cred.mu.Unlock()
+		if state == "on" && g.aboutCalls.Load() >= 2 {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatal("probes did not repeat")
+		default:
+			time.Sleep(time.Millisecond)
+		}
+	}
+	if len(capsFor(true)) != 1 {
+		t.Fatal("Sheets advertised a capability")
+	}
+}
+
+func TestSheetsProbeResponses(t *testing.T) {
+	for _, tc := range []struct {
+		status     int
+		body, want string
+	}{
+		{403, `{"error":{"errors":[{"reason":"SERVICE_DISABLED"}]}}`, "off"},
+		{403, `{"error":{"errors":[{"reason":"forbidden"}]}}`, "on"},
+		{404, ``, "on"}, {429, ``, "on"}, {500, ``, "on"},
+	} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(tc.status)
+			_, _ = w.Write([]byte(tc.body))
+		}))
+		got := probeAPI(t.Context(), srv.Client(), srv.URL+"/v4/spreadsheets/!", "Sheets")
+		srv.Close()
+		if got.state != tc.want {
+			t.Errorf("%d %s: %+v", tc.status, tc.body, got)
+		}
+	}
+}
+
+func TestRetryWithdrawsAndRestoresDrive(t *testing.T) {
+	g := newFakeGoogle(t)
+	b := newBot(t.Context(), g.config(t))
+	if err := b.start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	rc := &capRecorder{}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	go reacquire(ctx, b, rc, time.Millisecond)
+	wait := func(wantCalls int, want bool) {
+		t.Helper()
+		deadline := time.After(5 * time.Second)
+		for {
+			calls, cap := rc.read()
+			if calls >= wantCalls && cap == want {
+				return
+			}
+			select {
+			case <-deadline:
+				t.Fatalf("caps calls=%d send_text=%v", calls, cap)
+			default:
+				time.Sleep(time.Millisecond)
+			}
+		}
+	}
+	g.aboutStatus.Store(http.StatusForbidden)
+	wait(1, false)
+	g.aboutStatus.Store(http.StatusOK)
+	wait(2, true)
 }

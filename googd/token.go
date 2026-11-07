@@ -21,6 +21,7 @@ import (
 // driveScope is the one scope that can both read and reply on a shared file:
 // drive.readonly cannot reply and drive.file sees only Picker-opened files.
 const driveScope = "https://www.googleapis.com/auth/drive"
+const sheetsScope = "https://www.googleapis.com/auth/spreadsheets.readonly"
 
 const googleTimeout = 15 * time.Second
 
@@ -46,14 +47,16 @@ type driveUser struct {
 type credential struct {
 	apiBase string
 
-	mu             sync.Mutex
-	state          credState
-	err            error
-	user           driveUser
-	missingAccount sync.Once
+	mu                  sync.Mutex
+	state               credState
+	err                 error
+	user                driveUser
+	missingAccount      sync.Once
+	driveAPI, sheetsAPI apiState
 
-	src  oauth2.TokenSource
-	http *http.Client
+	sheetsHTTP *http.Client
+	src        oauth2.TokenSource
+	http       *http.Client
 }
 
 // newCredential reads the key once. A key that is absent or will not parse
@@ -73,6 +76,10 @@ func newCredential(ctx context.Context, cfg config) *credential {
 	c.src = oauth2.ReuseTokenSource(nil, jc.TokenSource(ctx))
 	c.http = oauth2.NewClient(ctx, c.src)
 	c.http.Timeout = googleTimeout
+	sheetsConfig := *jc
+	sheetsConfig.Scopes = []string{sheetsScope}
+	c.sheetsHTTP = oauth2.NewClient(ctx, oauth2.ReuseTokenSource(nil, sheetsConfig.TokenSource(ctx)))
+	c.sheetsHTTP.Timeout = googleTimeout
 	return c
 }
 
@@ -134,10 +141,12 @@ func (c *credential) verify(ctx context.Context) error {
 	if c.src == nil {
 		return c.stored()
 	}
-	user, state, err := c.probe(ctx)
+	user, state, drive, err := c.probe(ctx)
+	sheets := probeAPI(ctx, c.sheetsHTTP, c.apiBase+"/v4/spreadsheets/!", "Sheets")
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.state, c.err = state, err
+	c.driveAPI, c.sheetsAPI = drive, sheets
 	if err == nil {
 		c.user = user
 		if user.EmailAddress == "" {
@@ -149,39 +158,40 @@ func (c *credential) verify(ctx context.Context) error {
 	return err
 }
 
-func (c *credential) probe(ctx context.Context) (driveUser, credState, error) {
+func (c *credential) probe(ctx context.Context) (driveUser, credState, apiState, error) {
 	if _, err := c.src.Token(); err != nil {
 		var refusal *oauth2.RetrieveError
 		if errors.As(err, &refusal) {
-			return driveUser{}, credRefused, fmt.Errorf("google refused the key: %w", err)
+			return driveUser{}, credRefused, apiState{}, fmt.Errorf("google refused the key: %w", err)
 		}
-		return driveUser{}, credUnreachable, fmt.Errorf("google token endpoint did not answer: %w", err)
+		return driveUser{}, credUnreachable, apiState{}, fmt.Errorf("google token endpoint did not answer: %w", err)
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.apiBase+"/drive/v3/about?fields=user", nil)
 	if err != nil {
-		return driveUser{}, credUnreachable, err
+		return driveUser{}, credUnreachable, apiState{}, err
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return driveUser{}, credUnreachable, fmt.Errorf("drive about.get did not answer: %w", err)
+		return driveUser{}, credUnreachable, apiState{}, fmt.Errorf("drive about.get did not answer: %w", err)
 	}
 	// body read below
 	defer resp.Body.Close() //nolint:errcheck
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if resp.StatusCode == http.StatusForbidden && serviceDisabled(raw) {
-		return driveUser{}, credRefused, fmt.Errorf("google refused the key: Drive about.get %s: %s",
+	api := responseState(resp.StatusCode, raw)
+	if api.state == "off" {
+		return driveUser{}, credRefused, api, fmt.Errorf("google refused the key: Drive about.get %s: %s",
 			resp.Status, strings.TrimSpace(string(raw)))
 	}
 	if resp.StatusCode != http.StatusOK {
-		return driveUser{}, credOK, nil
+		return driveUser{}, credOK, api, nil
 	}
 	var about struct {
 		User driveUser `json:"user"`
 	}
 	if err := json.Unmarshal(raw, &about); err != nil {
-		return driveUser{}, credOK, nil
+		return driveUser{}, credOK, api, nil
 	}
-	return about.User, credOK, nil
+	return about.User, credOK, api, nil
 }
 
 func (c *credential) stored() error {
@@ -259,4 +269,61 @@ func serviceDisabled(raw []byte) bool {
 		}
 	}
 	return false
+}
+
+// apiState records the result of an API probe independently of the key.
+type apiState struct{ state, reason string }
+
+func responseState(status int, raw []byte) apiState {
+	state := apiState{state: "on"}
+	var body struct {
+		Error struct {
+			Message string `json:"message"`
+			Errors  []struct {
+				Reason string `json:"reason"`
+			} `json:"errors"`
+			Details []struct {
+				Reason string `json:"reason"`
+			} `json:"details"`
+		} `json:"error"`
+	}
+	if json.Unmarshal(raw, &body) == nil {
+		state.reason = body.Error.Message
+		reason := ""
+		if len(body.Error.Errors) > 0 {
+			reason = body.Error.Errors[0].Reason
+		}
+		if len(body.Error.Details) > 0 {
+			reason = body.Error.Details[0].Reason
+		}
+		if reason != "" && state.reason != "" {
+			state.reason = reason + ": " + state.reason
+		} else if reason != "" {
+			state.reason = reason
+		}
+	}
+	if status == http.StatusForbidden && serviceDisabled(raw) {
+		state.state = "off"
+	}
+	return state
+}
+
+func probeAPI(ctx context.Context, client *http.Client, url, name string) apiState {
+	if client == nil {
+		return apiState{}
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return apiState{reason: err.Error()}
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return apiState{reason: name + " probe: " + err.Error()}
+	}
+	defer resp.Body.Close() //nolint:errcheck
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return apiState{reason: err.Error()}
+	}
+	return responseState(resp.StatusCode, raw)
 }

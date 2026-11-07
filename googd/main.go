@@ -37,7 +37,7 @@ func main() {
 			if err != nil {
 				slog.Error("service account credential unusable", "err", err)
 			}
-			if b.cred.isRetryable() {
+			if b.cred.src != nil {
 				go reacquire(ctx, b, rc, credentialRetryEvery)
 			}
 			as, openErr := chanlib.OpenAdapterStore("googd")
@@ -57,6 +57,7 @@ func main() {
 			pollCtx, cancel := context.WithCancel(ctx)
 			done := make(chan struct{})
 			p := &poller{b: b, bindings: st, db: as.Driver, router: rc, name: cfg.Name, interval: pollInterval(), files: make(map[string]*filePoll)}
+			b.poll = p
 			go func() { defer close(done); p.pollLoop(pollCtx) }()
 			mux := chanlib.NewAdapterMux(cfg.Name, []string{"gdrive:"}, b, b.isConnected, b.LastInboundAt, as.Chan)
 			return mux, func() { cancel(); <-done; b.stop(); _ = st.Close(); _ = as.Close() }, nil
@@ -94,7 +95,7 @@ func verifyCredential(ctx context.Context, b *bot, rc capSetter, every time.Dura
 	err := b.start(ctx)
 	if err == nil {
 		slog.Info("service account verified", "account", b.cred.account())
-		if b.cred.isRetryable() {
+		if b.cred.src != nil {
 			go reacquire(ctx, b, rc, every)
 		}
 		return
@@ -107,7 +108,7 @@ func verifyCredential(ctx context.Context, b *bot, rc capSetter, every time.Dura
 	}
 }
 
-// reacquire verifies the key until Google accepts it, then puts send_text back.
+// reacquire refreshes API state and updates the Drive capability.
 func reacquire(ctx context.Context, b *bot, rc capSetter, every time.Duration) {
 	t := time.NewTicker(every)
 	defer t.Stop()
@@ -131,9 +132,6 @@ func reacquire(ctx context.Context, b *bot, rc capSetter, every time.Duration) {
 				setCaps(rc, capsFor(true))
 				registered = true
 			}
-			if !b.cred.isRetryable() {
-				return
-			}
 		}
 	}
 }
@@ -151,6 +149,7 @@ type bot struct {
 	chanlib.NoVoiceSender
 
 	cred          *credential
+	poll          *poller
 	connected     atomic.Bool
 	lastInboundAt atomic.Int64
 }
@@ -227,13 +226,31 @@ func (b *bot) DashSections() []chanlib.DashSection {
 	if account == "" {
 		account = "unknown until the key is accepted"
 	}
-	return []chanlib.DashSection{{
+	b.cred.mu.Lock()
+	drive, sheets := b.cred.driveAPI, b.cred.sheetsAPI
+	b.cred.mu.Unlock()
+	sections := []chanlib.DashSection{{
 		Title: "Service account",
 		Rows: [][2]string{
 			{"credential", b.cred.status()},
 			{"share documents with", account},
 		},
 	}}
+	sections = append(sections, chanlib.DashSection{Title: "APIs", Rows: [][2]string{
+		{"Drive", apiLine(drive, "drive.googleapis.com")},
+		{"Sheets", apiLine(sheets, "sheets.googleapis.com")},
+	}})
+	if b.poll != nil {
+		sections = append(sections, b.poll.dashSection())
+	}
+	return sections
+}
+
+func apiLine(state apiState, service string) string {
+	if state.state == "" {
+		state.state = "unknown"
+	}
+	return state.state + "; " + state.reason + "; https://console.cloud.google.com/apis/library/" + service
 }
 
 type config struct {
