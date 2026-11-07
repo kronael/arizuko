@@ -234,6 +234,15 @@ func TestMapEvent_SourceContainment(t *testing.T) {
 	}
 }
 
+func TestMapEvent_AppInstallationID(t *testing.T) {
+	for _, id := range []string{"0", "-1"} {
+		body := []byte(`{"installation":{"id":` + id + `},"sender":{"login":"a","type":"User"}}`)
+		if _, _, err := mapEvent(store.GitHubSourceApp, "x", "release", "d", body, fixedNow, ""); err == nil {
+			t.Errorf("installation id %s accepted", id)
+		}
+	}
+}
+
 func TestMapEvent_DropsBots(t *testing.T) {
 	_, drop, err := mapEvent(store.GitHubSourceApp, "x", "issue_comment", "d", fixture(t, "issue_comment_bot"), fixedNow, "")
 	if err != nil || drop != "bot" {

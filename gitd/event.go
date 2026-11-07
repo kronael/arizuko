@@ -160,6 +160,9 @@ func checkSource(kind, name, event string, p *payload) error {
 		if p.Installation == nil && event != "ping" && !appAcceptsRepo {
 			return errors.New("not an App delivery: no installation in payload")
 		}
+		if p.Installation != nil && p.Installation.ID <= 0 {
+			return errors.New("not an App delivery: invalid installation ID")
+		}
 	default:
 		return fmt.Errorf("unknown source kind %q", kind)
 	}
