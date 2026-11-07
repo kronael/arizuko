@@ -1257,7 +1257,7 @@ func TestEnsureTopicLineage_InheritsParentObservedCursor(t *testing.T) {
 	if err := db.PutSession("main/trading", "", "root-uuid"); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AdvanceObservedCursor("main/trading", "", parentCursor); err != nil {
+	if err := db.store().AdvanceObservedCursor("main/trading", "", parentCursor); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1265,7 +1265,7 @@ func TestEnsureTopicLineage_InheritsParentObservedCursor(t *testing.T) {
 	if err != nil || !inserted {
 		t.Fatalf("EnsureTopicLineage: inserted=%v err=%v", inserted, err)
 	}
-	line, ok := db.TopicLineage("main/trading", "thread-1")
+	line, ok := db.store().TopicLineage("main/trading", "thread-1")
 	if !ok {
 		t.Fatal("no lineage row for the forked topic")
 	}
@@ -1279,7 +1279,7 @@ func TestEnsureTopicLineage_InheritsParentObservedCursor(t *testing.T) {
 	if _, err := db.EnsureTopicLineage("main/other", "thread-2", "", "child2"); err != nil {
 		t.Fatal(err)
 	}
-	line2, ok := db.TopicLineage("main/other", "thread-2")
+	line2, ok := db.store().TopicLineage("main/other", "thread-2")
 	if !ok {
 		t.Fatal("no lineage row for the cold-parent fork")
 	}

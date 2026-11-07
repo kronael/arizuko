@@ -112,7 +112,7 @@ func (s *Server) buildRoutdFns(t turnMCP) ipc.RoutdFns {
 		},
 		SetGroupOpen:          s.db.SetGroupOpen,
 		SetGroupObserveWindow: s.db.SetGroupObserveWindow,
-		GroupObserveWindow:    s.db.GroupObserveWindow,
+		GroupObserveWindow:    s.db.store().GroupObserveWindow,
 		AddGroupWatcher:       s.db.AddGroupWatcher,
 		RemoveGroupWatcher:    s.db.RemoveGroupWatcher,
 		InjectMessage: func(jid, content, sender, senderName string) (string, error) {

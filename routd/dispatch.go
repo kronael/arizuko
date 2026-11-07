@@ -210,7 +210,7 @@ func (l *Loop) advanceFinished(chatJID, folder string, msgs []core.Message, firs
 // context the failed attempt saw (BUGS L58).
 func (l *Loop) advanceObserved(folder string, marks []observedAdvance) {
 	for _, m := range marks {
-		if err := l.db.AdvanceObservedCursor(folder, m.topic, m.ts); err != nil {
+		if err := l.db.store().AdvanceObservedCursor(folder, m.topic, m.ts); err != nil {
 			slog.Error("observed cursor advance failed — the topic re-sees this window next turn",
 				"folder", folder, "topic", m.topic, "ts", m.ts, "err", err)
 		}
@@ -693,7 +693,7 @@ func (l *Loop) inheritParentSession(folder, parent, childTopic, childUUID string
 	if l.copyParentSession(folder, parent, childUUID) {
 		return
 	}
-	if err := l.db.ClearObservedCursor(folder, childTopic); err != nil {
+	if err := l.db.store().ClearObservedCursor(folder, childTopic); err != nil {
 		slog.Warn("inheritParentSession: clearing the observed cursor failed — the child topic starts with no context",
 			"folder", folder, "topic", childTopic, "err", err)
 	}

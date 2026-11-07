@@ -137,7 +137,7 @@ func TestEnsureTopicWithFork_NoParentSessionKeepsObservedWindow(t *testing.T) {
 
 	loop.ensureTopicWithFork(folder, "#deploy", "")
 
-	line, ok := db.TopicLineage(folder, "#deploy")
+	line, ok := db.store().TopicLineage(folder, "#deploy")
 	if !ok {
 		t.Fatal("child lineage row missing")
 	}
@@ -159,13 +159,13 @@ func TestEnsureTopicWithFork_CopiedSessionKeepsParentCursor(t *testing.T) {
 
 	seedParentSession(t, loop, db, folder, "", "main-uuid", []byte("parent\n"))
 	parentCursor := core.TS(time.Date(2026, 8, 24, 6, 0, 0, 0, time.UTC))
-	if err := db.AdvanceObservedCursor(folder, "", parentCursor); err != nil {
+	if err := db.store().AdvanceObservedCursor(folder, "", parentCursor); err != nil {
 		t.Fatalf("seed parent cursor: %v", err)
 	}
 
 	loop.ensureTopicWithFork(folder, "#deploy", "")
 
-	line, ok := db.TopicLineage(folder, "#deploy")
+	line, ok := db.store().TopicLineage(folder, "#deploy")
 	if !ok {
 		t.Fatal("child lineage row missing")
 	}
@@ -186,7 +186,7 @@ func TestEnsureTopicWithFork_CursorlessParentHandsDownNothing(t *testing.T) {
 	seedParentSession(t, loop, db, folder, "", "main-uuid", []byte("parent\n"))
 	loop.ensureTopicWithFork(folder, "#deploy", "")
 
-	line, ok := db.TopicLineage(folder, "#deploy")
+	line, ok := db.store().TopicLineage(folder, "#deploy")
 	if !ok {
 		t.Fatal("child lineage row missing")
 	}
@@ -208,7 +208,7 @@ func TestInheritParentSession_ExplicitForkWithNoParentKeepsObservedWindow(t *tes
 	}
 	loop.inheritParentSession(folder, "", "#deploy", childUUID)
 
-	line, ok := db.TopicLineage(folder, "#deploy")
+	line, ok := db.store().TopicLineage(folder, "#deploy")
 	if !ok {
 		t.Fatal("child lineage row missing")
 	}

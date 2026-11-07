@@ -28,7 +28,7 @@ func (l *Loop) buildAgentPrompt(folder, topic string, trigger, ambient []core.Me
 	maxN, maxC := l.observeWindow(folder)
 
 	var cursor string
-	if line, ok := l.db.TopicLineage(folder, topic); ok {
+	if line, ok := l.db.store().TopicLineage(folder, topic); ok {
 		cursor = line.ObservedCursor
 	}
 	observed := l.db.ObservedSince(folder, cursor, maxN, maxC)
@@ -211,7 +211,7 @@ func renderAutocalls(ctx autocallCtx) string {
 func (l *Loop) observeWindow(folder string) (int, int) {
 	maxN := l.observeMessages
 	maxC := l.observeChars
-	if gn, gc := l.db.GroupObserveWindow(folder); gn >= 0 || gc >= 0 {
+	if gn, gc := l.db.store().GroupObserveWindow(folder); gn >= 0 || gc >= 0 {
 		if gn >= 0 {
 			maxN = gn
 		}
@@ -249,14 +249,14 @@ func (l *Loop) emitSystemEvents(folder, chatJID string) {
 		// The cursor is a message key, so the day is read off its lead.
 		if t, ok := store.CursorInstant(cur); ok &&
 			t.Format("2006-01-02") != today {
-			_ = l.db.EnqueueSysMsg(folder, "gateway", "new_day",
+			_ = l.db.store().EnqueueSystemMessage(folder, "gateway", "new_day",
 				fmt.Sprintf("Date changed to %s", today))
 		}
 	}
 
 	if l.db.SessionID(folder, "") == "" {
 		body := previousSessionXML(l.recentSessions(folder, 1))
-		_ = l.db.EnqueueSysMsg(folder, "gateway", "new_session", body)
+		_ = l.db.store().EnqueueSystemMessage(folder, "gateway", "new_session", body)
 	}
 }
 

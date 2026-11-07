@@ -244,7 +244,7 @@ func TestBatchResolve_ARowAtTheObservedWatermarkReachesTheTurn(t *testing.T) {
 	rr := &recRunner{}
 	db, loop := githubBatchLoop(t, rr)
 	at := time.Now().UTC().Truncate(time.Second)
-	if err := db.AdvanceObservedCursor("eng", prJID, core.TS(at)); err != nil {
+	if err := db.store().AdvanceObservedCursor("eng", prJID, core.TS(at)); err != nil {
 		t.Fatal(err)
 	}
 	putPRRow(t, db, "gh-r1", "github:user/alice", "pull_request_review", "review submitted", at)
