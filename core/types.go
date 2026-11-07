@@ -86,6 +86,7 @@ type Group struct {
 	Config  GroupConfig
 	Product string
 	Harness json.RawMessage `json:"harness,omitempty"`
+	Agent   string          `json:"agent"`
 
 	// Open, ObserveWindowMessages and ObserveWindowChars are read-only
 	// projections of the `config` column. They

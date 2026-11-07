@@ -438,9 +438,10 @@ func TestTurnEnvEmissions(t *testing.T) {
 		Timezone: "UTC", AgentEnv: map[string]string{"ARIZUKO_BACKEND": "codex", "ARIZUKO_MODEL": "opus", "ARIZUKO_EFFORT": "xhigh"}, ModelGatewayURL: "http://gw:4000",
 	}
 	got := turnEnv(full, runedv1.RunRequest{Packages: []string{"core"}, ModelGatewayKey: "sk-virtual",
-		Elevated: true, GHWrite: true, Progress: true}, 900000)
+		Elevated: true, GHWrite: true, Progress: true, Agent: "echo"}, 900000)
 	want := map[string]string{
 		"TZ":                       "UTC",
+		"ARIZUKO_AGENT":            "echo",
 		"ARIZUKO_MODEL":            "opus",
 		"ARIZUKO_EFFORT":           "xhigh",
 		"ARIZUKO_QUERY_TIMEOUT_MS": "900000",

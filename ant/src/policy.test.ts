@@ -91,8 +91,8 @@ describe('the codex renderer refuses what codex cannot honour', () => {
     // per row per tool call, four where two do the same work.
     expect(cfg.hooks.PreToolUse).toHaveLength(1);
     expect(cfg.hooks.PreToolUse[0].hooks[0].type).toBe('command');
-    expect(cfg.hooks.PreToolUse[0].hooks[0].command).toBe('node /tmp/dist/policy-cli.js PreToolUse turn-9');
-    expect(cfg.hooks.PostToolUse[0].hooks[0].command).toBe('node /tmp/dist/policy-cli.js PostToolUse turn-9');
+    expect(cfg.hooks.PreToolUse[0].hooks[0].command).toBe('/usr/local/bin/bun /app/src/policy-cli.ts PreToolUse turn-9');
+    expect(cfg.hooks.PostToolUse[0].hooks[0].command).toBe('/usr/local/bin/bun /app/src/policy-cli.ts PostToolUse turn-9');
   });
 });
 
@@ -109,7 +109,7 @@ describe('the system layer is written before codex starts', () => {
 
     const written = JSON.parse(fs.readFileSync(file, 'utf-8'));
     expect(written.hooks.PreToolUse.length).toBeGreaterThan(0);
-    expect(JSON.stringify(written)).toContain('policy-cli.js PreToolUse turn-3');
+    expect(JSON.stringify(written)).toContain('policy-cli.ts PreToolUse turn-3');
   });
 
   // codex looks where CODEX_HOME says. Writing to <home>/.codex regardless

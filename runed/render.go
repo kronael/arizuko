@@ -105,6 +105,9 @@ func turnEnv(cfg *core.Config, req runedv1.RunRequest, queryTimeout int64) map[s
 			env[key] = value
 		}
 	}
+	if req.Agent != "" {
+		env["ARIZUKO_AGENT"] = req.Agent
+	}
 	if queryTimeout > 0 {
 		env["ARIZUKO_QUERY_TIMEOUT_MS"] = strconv.FormatInt(queryTimeout, 10)
 	}

@@ -63,12 +63,22 @@ func (s *Server) groupsHandler(_ context.Context, x resreg.Execution) (any, erro
 		if !ok {
 			return nil, resreg.Errorf(http.StatusNotFound, "no group %s", folder)
 		}
+		agent, err := s.db.store().GroupAgent(folder)
+		group.Agent = agent
+		if err != nil {
+			return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
+		}
 		return group, nil
 
 	case resreg.ActionUpdate:
 		var settings map[string]json.RawMessage
 		if err := json.Unmarshal([]byte(x.Args.Str("config")), &settings); err != nil || settings == nil {
 			return nil, resreg.Errorf(http.StatusBadRequest, "config must be a JSON object")
+		}
+		if value, exists := settings["agent"]; exists {
+			if err := s.db.store().SetGroupAgent(x.Args.Str("folder"), value); err != nil {
+				return nil, resreg.Errorf(http.StatusBadRequest, "%v", err)
+			}
 		}
 		if value, exists := settings["harness"]; exists {
 			if string(value) == "null" {
@@ -82,6 +92,11 @@ func (s *Server) groupsHandler(_ context.Context, x resreg.Execution) (any, erro
 		if !ok {
 			return nil, resreg.Errorf(http.StatusNotFound, "group not found")
 		}
+		agent, err := s.db.store().GroupAgent(x.Args.Str("folder"))
+		if err != nil {
+			return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
+		}
+		group.Agent = agent
 		return group, nil
 
 	case groupsActionRegister:

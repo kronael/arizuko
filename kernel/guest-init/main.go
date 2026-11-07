@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"slices"
 	"strconv"
@@ -119,7 +120,7 @@ const (
 	agentUID = 1000
 	agentGID = 1000
 	// agentBin is the release image's ENTRYPOINT (ant/Dockerfile).
-	agentBin = "/app/entrypoint.sh"
+	agentBin = "/usr/local/bin/ant"
 	// socatBin is where the release image's apt install puts socat
 	// (ant/Dockerfile).
 	socatBin = "/usr/bin/socat"
@@ -830,7 +831,15 @@ func startBridge(c *ctl, mcp uint32) error {
 // the assembled root, as uid 1000, with the turn's environment and its payload
 // on stdin (spec §"The turn" step 7).
 func agentCmd(env map[string]string, stdin []byte) *exec.Cmd {
-	cmd := exec.Command(agentBin)
+	name, set := env["ARIZUKO_AGENT"]
+	path := agentBin
+	if set && regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.-]*$`).MatchString(name) {
+		path = "/usr/local/bin/" + name
+	}
+	cmd := exec.Command(path)
+	if set && path == agentBin && name != "ant" {
+		cmd.Err = fmt.Errorf("invalid handler %q", name)
+	}
 	// Non-nil even when it is empty, because a nil Env hands the child THIS
 	// process's environment — which holds the kernel command line's own keys.
 	cmd.Env = envList(env)
