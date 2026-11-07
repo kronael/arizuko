@@ -8,6 +8,7 @@ import (
 
 	"github.com/kronael/arizuko/core"
 	routdv1 "github.com/kronael/arizuko/routd/api/v1"
+	"github.com/kronael/arizuko/store"
 )
 
 func TestFeature_DashdAdminPlane(t *testing.T) {
@@ -56,6 +57,14 @@ func TestFeature_DashdAdminPlane(t *testing.T) {
 		f := bootFederation(t)
 		tok := f.authd.mintService(t, "service:dashd", "acl:write")
 		body := map[string]string{"principal": "alice@x", "scope": "world/sub", "action": "admin", "effect": "allow"}
+		if rec := postBearer(t, f.routdTS.URL, "POST", "/v1/acl", tok, "", body); rec.StatusCode != 403 {
+			t.Fatalf("grant without authority = %d, want 403", rec.StatusCode)
+		}
+		if err := store.NewOver(f.routdDB.Obj()).PutACLRow(core.ACLRow{
+			Principal: "service:dashd", Scope: "world/sub", Action: "admin", Effect: "allow", GrantOption: true,
+		}); err != nil {
+			t.Fatal(err)
+		}
 		if rec := postBearer(t, f.routdTS.URL, "POST", "/v1/acl", tok, "", body); rec.StatusCode != 200 {
 			t.Fatalf("grant add = %d, want 200", rec.StatusCode)
 		}
