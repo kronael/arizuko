@@ -18,7 +18,7 @@
 - `L675` — the guest's Python is under `/root` (700); fix at the next rootfs build.
 - `L674` — `compose down` fails on a deleted fragment despite `required: false`; proposal.
 - `L672` — a spend-limit failure: retry silently, one `#issues` notice to the operator; approved, queued after L670.
-- `L664` — `invite_create` mints `admin` the issuing folder cannot delegate; needs sign-off.
+- `L664` — `invite_create` mints `admin` the issuing folder cannot delegate; ✅ FIXED `e0b7fc1fc447d3eb90943dcd776b545a7c4b7390`.
 - `L660` — a mention by reply engages only the reply chain, not the chat root; proposal, needs sign-off.
 - `L655` — products as full packages (`catalog:<name>`) and persona layering (`PERSONA.local.md`); proposal, needs sign-off.
 - `L650` — an `extenddb` reached 10 GB and was OOM-killed; the host reset 8 times on 11-03; cause unmeasured.
@@ -713,7 +713,7 @@ local allow unpairs as today.
 
 - **Status:** ✅ FIXED `925d9f5ccf80c6182bb071b9cfd10b84bb50972e`; `TestUnpairMCP_ParentDeny` checks the removal.
 
-## L664 — `invite_create` mints `admin` the issuing folder cannot delegate (2026-11-06, open — needs sign-off)
+## L664 — `invite_create` mints `admin` the issuing folder cannot delegate (2026-11-06, fixed)
 
 MEASURED at `684b3eeed` with a scratch probe
 (`TestProbeInviteMintsAdminTheIssuerCannotDelegate`, not committed) against the
@@ -749,13 +749,7 @@ invite, before `create_world` spends the redemption, which records the issuer.
 write that follows carries its version on routd's handle. A redemption whose
 issuer no longer holds it is refused and the invite stays unspent.
 
-- **Status:** open — needs sign-off (auth change). **Options:** (a) the fix: a
-  world's agent no longer issues invites, because neither the folder nor its
-  creator holds `admin` with the option; an operator issues them, or grants a
-  folder `admin` with the option; (b) `invite_create` also asks `admin` on the
-  target: it stops a folder that holds only `mcp:*`, and an `admin` holder
-  without the option still hands out `admin`. **Default if nothing is
-  decided:** unchanged.
+- **Status:** ✅ FIXED `e0b7fc1fc447d3eb90943dcd776b545a7c4b7390`.
 
 ## L660 — a mention by reply engages only the reply chain; the next plain message in the chat starts no turn (2026-11-05, open — proposal)
 
