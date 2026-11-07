@@ -46,7 +46,6 @@ var services = []service{
 	{"authd", "authd", "/dash/authd/", "signing keys and who is signed in", ""},
 	{"proxyd", "proxyd", "/dash/proxyd/", "auth-gated reverse proxy", ""},
 	{"onbod", "onbod", "/dash/onbod/", "onboarding queue, gates, invites", ""},
-	{"timed", "timed", "/dash/timed/", "scheduled tasks and ticks", ""},
 	{"webd", "webd", "/dash/webd/", "web chat widget and routes", ""},
 	{"davd", "davd", "/dash/davd/", "WebDAV workspace access", "/"},
 	{"ttsd", "ttsd", "/dash/ttsd/", "text-to-speech proxy", ""},

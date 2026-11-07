@@ -115,8 +115,7 @@ secrets:
   # Per daemon. serviceKey is its AUTHD_SERVICE_KEY (openssl rand -hex 32;
   # authd learns the whole set from these same values). storeKeyId and
   # storeSecret are its own AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY from
-  # `extenddb init`. timed holds no store key: it writes through routd's HTTP
-  # API. Add an entry for every adapter you enable.
+  # `extenddb init`. Add an entry for every adapter you enable.
   daemons:
     authd:
       storeKeyId: ''
@@ -129,8 +128,6 @@ secrets:
       serviceKey: ''
       storeKeyId: ''
       storeSecret: ''
-    timed:
-      serviceKey: ''
     onbod:
       serviceKey: ''
       storeKeyId: ''
@@ -200,8 +197,6 @@ ingress:
   #      - arizuko.example.com
 
 # Optional core daemons (compose profiles). authd, routd and runed always run.
-timed:
-  enabled: true # scheduled messages
 dashd:
   enabled: true # operator dashboard (/dash)
 onbod:

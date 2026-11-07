@@ -13,9 +13,6 @@ Daemons deployed (component label):
 {{- if and .Values.web.enabled .Values.web.vited.enabled }}
   - vited            static web tree (/pub, /priv)
 {{- end }}
-{{- if .Values.timed.enabled }}
-  - timed            scheduled messages
-{{- end }}
 {{- if .Values.dashd.enabled }}
   - dashd            operator dashboard (/dash)
 {{- end }}

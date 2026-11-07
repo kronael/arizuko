@@ -2,7 +2,7 @@ apiVersion: v2
 name: arizuko
 description: |
   Multitenant Claude agent router on Kubernetes: authd, routd and runed, the
-  web plane (proxyd/webd/vited), the operator daemons (dashd/onbod/timed/davd)
+  web plane (proxyd/webd/vited), the operator daemons (dashd/onbod/davd)
   and a values-driven set of channel adapters — one Deployment + Service +
   Secret each, mirroring compose/compose.go. The store is a DynamoDB-protocol
   server you run (DYNAMODB_URL); the data volume holds the group folders; runed

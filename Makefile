@@ -1,4 +1,4 @@
-DAEMONS = authd routd runed onbod dashd proxyd webd timed teled discd emaid slakd gitd googd ttsd
+DAEMONS = authd routd runed onbod dashd proxyd webd teled discd emaid slakd gitd googd ttsd
 # COMPONENTS are sibling pieces with their own Makefile and README. They live
 # in this monorepo but are orthogonal: their code does not import
 # arizuko-internal packages. egress is what runed starts per spawn (spec 6/24).
@@ -226,7 +226,7 @@ test-all: test integration play
 # 11.0s, dyntest 1.0s, 0 races. The list stays bounded by COST, not derived,
 # because -race over the whole tree is not a gate anyone would run.
 test-race:
-	go test -race -count=1 -timeout 30m ./runed/... ./timed/... ./routd/... ./store/... ./authd/... ./objstore/...
+	go test -race -count=1 -timeout 30m ./runed/... ./routd/... ./store/... ./authd/... ./objstore/...
 .PHONY: test-race
 
 # test-e2e: release-only webd route-token E2E tests (TestE2E*, slow, ≤5 min).

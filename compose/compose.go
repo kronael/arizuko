@@ -97,8 +97,6 @@ var commonKeys = []string{
 
 // daemonKeys: per-daemon secrets + config. Unlisted keys never reach the daemon.
 var daemonKeys = map[string][]string{
-	// timed federates the fire loop over routd with a service:timed token.
-	"timed": {"AUTHD_URL", "AUTHD_SERVICE_KEY", "ROUTER_URL"},
 	// authd: auth.db only; no message DB, no docker, no egress. Seeded with the
 	// service keys (hashed at compare time) + OAuth provider config.
 	"authd": {
@@ -564,7 +562,6 @@ var coreProxydRoutes = []ProxydRoute{
 	// consulted; the row reserves the path and lets the hub link it.
 	{Path: "/dash/proxyd/", Backend: "http://proxyd:8080", Auth: "user"},
 	{Path: "/dash/runed/", Backend: "http://runed:8080", Auth: "user"},
-	{Path: "/dash/timed/", Backend: "http://timed:8080", Auth: "user"},
 	{Path: "/dash/webd/", Backend: "http://webd:8080", Auth: "user"},
 	// /dash/ catch-all → dashd (hub + cross-cutting pages).
 	{Path: "/dash/", Backend: "http://dashd:8080", Auth: "user"},
@@ -728,7 +725,6 @@ func activeProfiles(env map[string]string) []string {
 			p = append(p, "davd")
 		}
 	}
-	p = append(p, "timed")
 	if envOr(env, "ONBOARDING_ENABLED", "false") == "true" {
 		p = append(p, "onbod")
 	}
@@ -838,7 +834,6 @@ func Generate(dataDir, instance string) (string, []ProxydRoute, error) {
 	}
 	wireServiceKey("routd")
 	wireServiceKey("runed")
-	wireServiceKey("timed")
 	wireServiceKey("onbod")
 	wireServiceKey("proxyd")
 	wireServiceKey("webd")
@@ -940,7 +935,6 @@ func Generate(dataDir, instance string) (string, []ProxydRoute, error) {
 	b.WriteString(proxydService(app, instance, env))
 	b.WriteString(vitedService(app, instance, dataDir))
 	b.WriteString(dashdService(app, instance, dataDir, env))
-	b.WriteString(timedService(app, instance, env))
 	b.WriteString(onbodService(app, instance, dataDir))
 	b.WriteString(davdService(app, instance, dataDir, env))
 	// No egress proxy service: runed starts one `egress` PROCESS per turn on the host
@@ -1289,21 +1283,6 @@ func runedService(app, flavor, dataDir string, env map[string]string) string {
 	b.WriteString(healthBlock)
 	b.WriteString("    restart: on-failure\n")
 	return b.String()
-}
-
-// timedService emits the scheduler. NO data-dir mount: timed federates its
-// fire loop over routd HTTP and reads no file.
-func timedService(app, flavor string, env map[string]string) string {
-	return writeSvc(svcDef{
-		name:       "timed",
-		app:        app,
-		flavor:     flavor,
-		entrypoint: "timed",
-		profile:    "timed",
-		environment: map[string]string{
-			"ROUTER_URL": routdURL,
-		},
-	})
 }
 
 func onbodService(app, flavor, dataDir string) string {

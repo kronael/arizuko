@@ -12,7 +12,7 @@ package store
 //
 // An ADAPTER's prefix is its own service name (chanlib.OpenAdapterStore); gitd
 // and slakd also read routd's tables directly. An EMPTY list opens no store and
-// needs no key: timed writes through the owner's HTTP API instead.
+// needs no key when it writes through the owner's HTTP API.
 var StoreReach = map[string][]string{
 	"authd":  {OwnerAuthd},
 	"routd":  {OwnerRoutd},
@@ -27,7 +27,6 @@ var StoreReach = map[string][]string{
 	"teled":  {"teled"},
 	"discd":  {"discd"},
 	"emaid":  {"emaid"},
-	"timed":  {},
 	"ttsd":   {},
 	// The operator CLI: routd for groups, grants, routes and secrets; onbod for
 	// invites and gates; authd for the signing keys `token issue bearer` reads.

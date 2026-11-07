@@ -70,7 +70,7 @@ func TestGenerateWritesProxydRoutes(t *testing.T) {
 	rows := instanceRoutes(t, dataDir)
 	// The seven krons never received, plus the /dash/ catch-all beside them.
 	for _, path := range []string{
-		"/dash/onbod/", "/dash/timed/", "/invite/", "/me", "/me/", "/pair/", "/panel/", "/dash/",
+		"/dash/onbod/", "/invite/", "/me", "/me/", "/pair/", "/panel/", "/dash/",
 	} {
 		r, ok := rows[path]
 		if !ok {

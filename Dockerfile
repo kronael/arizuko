@@ -35,7 +35,6 @@ COPY --from=build /egress /usr/local/bin/egress
 COPY --from=build /authd /usr/local/bin/authd
 COPY --from=build /routd /usr/local/bin/routd
 COPY --from=build /runed /usr/local/bin/runed
-COPY --from=build /timed /usr/local/bin/timed
 COPY --from=build /teled /usr/local/bin/teled
 COPY --from=build /discd /usr/local/bin/discd
 COPY --from=build /onbod /usr/local/bin/onbod

@@ -29,8 +29,6 @@ secrets:
       serviceKey: lint-runed-service-key
       storeKeyId: lint-runed-key
       storeSecret: lint-runed-secret
-    timed:
-      serviceKey: lint-timed-service-key
     onbod:
       serviceKey: lint-onbod-service-key
       storeKeyId: lint-onbod-key

@@ -146,7 +146,7 @@ func TestOptionalDaemonsCarryProfiles(t *testing.T) {
 
 	want := map[string]string{
 		"webd": "web", "proxyd": "web", "vited": "web", "dashd": "web",
-		"timed": "timed", "onbod": "onbod", "davd": "davd",
+		"onbod": "onbod", "davd": "davd",
 	}
 	for svc, profile := range want {
 		blk := serviceBlock(out, svc)
@@ -173,11 +173,11 @@ func TestManagedEnvBlock(t *testing.T) {
 		env      string
 		profiles string
 	}{
-		{"bare", "API_PORT=8080\n", "timed"},
-		{"web", "WEB_PORT=8095\n", "davd,timed,web"},
-		{"web no dav", "WEB_PORT=8095\nWEBDAV_ENABLED=false\n", "timed,web"},
-		{"onboarding", "WEB_PORT=8095\nONBOARDING_ENABLED=true\n", "davd,onbod,timed,web"},
-		{"egress", "EGRESS_IMAGE=arizuko-egress:latest\n", "timed"},
+		{"bare", "API_PORT=8080\n", ""},
+		{"web", "WEB_PORT=8095\n", "davd,web"},
+		{"web no dav", "WEB_PORT=8095\nWEBDAV_ENABLED=false\n", "web"},
+		{"onboarding", "WEB_PORT=8095\nONBOARDING_ENABLED=true\n", "davd,onbod,web"},
+		{"egress", "EGRESS_IMAGE=arizuko-egress:latest\n", ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -521,7 +521,7 @@ func TestServiceKeyWiring(t *testing.T) {
 		}
 	}
 	authd := read(t, dir, "env/authd.env")
-	for _, want := range []string{"service:slakd=", "service:onbod=", "service:routd=", "service:runed=", "service:timed="} {
+	for _, want := range []string{"service:slakd=", "service:onbod=", "service:routd=", "service:runed="} {
 		if !strings.Contains(authd, want) {
 			t.Errorf("AUTHD_SERVICE_KEYS must register %q; got:\n%s", want, authd)
 		}
@@ -542,7 +542,7 @@ func TestServiceKeysDistinctAndStable(t *testing.T) {
 	dir := seed(t, "AUTH_SECRET=s\nWEB_PORT=8095\nONBOARDING_ENABLED=true\n")
 	gen(t, dir)
 	seen := map[string]string{}
-	for _, d := range []string{"routd", "runed", "timed", "proxyd", "webd", "onbod"} {
+	for _, d := range []string{"routd", "runed", "proxyd", "webd", "onbod"} {
 		env := read(t, dir, "env/"+d+".env")
 		if !strings.Contains(env, "AUTHD_URL=http://authd:8080") {
 			t.Errorf("%s env missing AUTHD_URL", d)
@@ -563,32 +563,16 @@ func TestServiceKeysDistinctAndStable(t *testing.T) {
 	}
 }
 
-// timed federates its fire loop over routd HTTP (no messages.db).
-func TestTimedWiring(t *testing.T) {
-	dir := seed(t, "AUTH_SECRET=s\nTZ=Europe/Prague\n")
+func TestRouterWiring(t *testing.T) {
+	dir := seed(t, "AUTH_SECRET=s\n")
 	out := gen(t, dir)
-	timed := serviceBlock(out, "timed")
-	if !strings.Contains(timed, `ROUTER_URL: "http://routd:8080"`) {
-		t.Errorf("timed wiring wrong; got:\n%s", timed)
-	}
-	// timed opens no DB and reads no file — a data-dir mount would hand the
-	// scheduler every other daemon's database for nothing.
-	if strings.Contains(timed, "volumes:") || strings.Contains(timed, "DATA_DIR") {
-		t.Errorf("timed must have no data-dir mount; got:\n%s", timed)
-	}
-	if !strings.Contains(serviceBlock(out, "onbod"), `ROUTER_URL: "http://routd:8080"`) {
-		t.Error("onbod ROUTER_URL must be routd")
-	}
-	if !strings.Contains(serviceBlock(out, "webd"), `ROUTER_URL: "http://routd:8080"`) {
-		t.Error("webd ROUTER_URL must be routd")
+	for _, daemon := range []string{"onbod", "webd"} {
+		if !strings.Contains(serviceBlock(out, daemon), `ROUTER_URL: "http://routd:8080"`) {
+			t.Errorf("%s ROUTER_URL must be routd", daemon)
+		}
 	}
 }
 
-// Egress isolation needs no switch any more: the guest's tap accepts the proxy
-// and drops everything else, and runed refuses to start without the proxy binary
-// (spec 6/41 §"Egress by name, sealed below the kernel"). Compose declares no
-// networks and the daemon env files carry no docker-substrate egress variable,
-// because the proxy is one process per turn and dies with it.
 func TestEgressDeclaresNoNetworks(t *testing.T) {
 	dir := seed(t, "")
 	out := gen(t, dir)

@@ -37,7 +37,7 @@ func openSecondDB(t *testing.T) (*dynstore.Store, error) {
 
 func newServer(t *testing.T, a *Authd) (*server, *httptest.Server) {
 	t.Helper()
-	srv := &server{a: a, serviceSecrets: map[string]string{"boot-timed": "service:timed"}}
+	srv := &server{a: a, serviceSecrets: map[string]string{"boot-routd": "service:routd"}}
 	ts := httptest.NewServer(srv.mux(nil))
 	t.Cleanup(ts.Close)
 	return srv, ts
@@ -303,7 +303,7 @@ func TestHTTPServiceTokenBoundToDeclaredGrants(t *testing.T) {
 	a := newTestAuthd(t, db)
 	_, ts := newServer(t, a)
 
-	resp, out := postServiceToken(t, ts.URL+"/v1/service-token", "timed", "boot-timed")
+	resp, out := postServiceToken(t, ts.URL+"/v1/service-token", "routd", "boot-routd")
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("service-token status %d", resp.StatusCode)
 	}
@@ -313,16 +313,15 @@ func TestHTTPServiceTokenBoundToDeclaredGrants(t *testing.T) {
 	if err != nil {
 		t.Fatalf("service token invalid: %v", err)
 	}
-	// timed's declared grants are {messages:write, tasks:read, tasks:write}
-	// (tasks:write added for the split fire-loop reschedule call).
-	if !auth.HasScope(sub.Scope, "messages", "write") || !auth.HasScope(sub.Scope, "tasks", "read") {
-		t.Fatalf("service:timed must hold its declared grants, got %v", sub.Scope)
+	// routd receives its declared run and identity grants.
+	if !auth.HasScope(sub.Scope, "runs", "run") || !auth.HasScope(sub.Scope, "identity", "read") {
+		t.Fatalf("service:routd must hold its declared grants, got %v", sub.Scope)
 	}
 	// It must NOT hold another principal's scope (e.g. onbod's groups:write).
 	if auth.HasScope(sub.Scope, "groups", "write") {
-		t.Fatalf("service:timed must not gain onbod's groups:write, got %v", sub.Scope)
+		t.Fatalf("service:routd must not gain onbod's groups:write, got %v", sub.Scope)
 	}
-	if sub.Sub != "service:timed" {
+	if sub.Sub != "service:routd" {
 		t.Fatalf("service token sub = %q", sub.Sub)
 	}
 }

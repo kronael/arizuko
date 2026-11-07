@@ -344,7 +344,7 @@ func TestKidSchemeSortableByCreation(t *testing.T) {
 func TestServiceTokenRejectsOversizedBody(t *testing.T) {
 	db := testDB(t)
 	a := newTestAuthd(t, db)
-	srv := &server{a: a, serviceSecrets: map[string]string{"boot": "service:timed"}}
+	srv := &server{a: a, serviceSecrets: map[string]string{"boot": "service:routd"}}
 	ts := httptest.NewServer(srv.mux(nil))
 	defer ts.Close()
 
