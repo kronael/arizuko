@@ -16,10 +16,8 @@ package main
 // that audited itself would append rows on every operator page-load.
 
 import (
-	"context"
 	"net/http"
 
-	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/resreg/resources"
@@ -37,7 +35,7 @@ func (a *admin) mountAudit(mux *http.ServeMux) {
 func (a *admin) auditResource() resreg.Resource {
 	r := resreg.Mount(resources.AuditName)
 	r.Gate = a.auditRESTGate
-	r.Handler = a.auditHandler
+	r.Handler = resources.AuditHandler(a.st.Obj())
 	r.Store = a.st
 	return r
 }
@@ -76,33 +74,4 @@ func (a *admin) auditRESTGate(x resreg.Execution, _ string, _ map[string]string)
 		return resreg.Errorf(http.StatusForbidden, "missing scope audit:read")
 	}
 	return nil
-}
-
-// auditHandler serves the read off onbod.db through audit.Query — the same renderer
-// the other three owners serve theirs through.
-//
-// CONTAINMENT is resolved here rather than in the Gate because it bounds the ROWS, not
-// the call: a token carrying a folder claim is pinned to that subtree and its `folder`
-// argument cannot widen it. The converse — no claim means instance-wide — is safe only
-// because the Gate already proved audit:read, which no human bearer can hold. An empty
-// folder claim is NOT evidence of operator authority in general.
-func (a *admin) auditHandler(ctx context.Context, x resreg.Execution) (any, error) {
-	if x.Action != resreg.ActionList {
-		return nil, resreg.Errorf(http.StatusBadRequest, "unknown action %q", x.Action)
-	}
-	f := audit.Filter{
-		Folder:   x.Args.Str("folder"),
-		Category: x.Args.Str("category"),
-		Actor:    x.Args.Str("actor"),
-		Before:   x.Args.Str("before_id"),
-		Limit:    int(x.Args.Int("limit")),
-	}
-	if x.Caller.Folder != "" {
-		f.Folder = x.Caller.Folder
-	}
-	rows, err := audit.Query(ctx, a.st.Obj(), f)
-	if err != nil {
-		return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
-	}
-	return rows, nil
 }

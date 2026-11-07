@@ -6,10 +6,8 @@ package runed
 // forever.
 
 import (
-	"context"
 	"net/http"
 
-	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/resreg/resources"
@@ -27,7 +25,7 @@ const auditScope = "audit:read"
 func (s *Server) auditResource() resreg.Resource {
 	r := resreg.Mount(resources.AuditName)
 	r.Gate = s.auditGate
-	r.Handler = s.auditHandler
+	r.Handler = resources.AuditHandler(s.db.Obj())
 	r.Store = store.NewOver(s.db.Obj())
 	return r
 }
@@ -60,31 +58,4 @@ func (s *Server) auditGate(x resreg.Execution, _ string, _ map[string]string) er
 		return resreg.Errorf(http.StatusForbidden, "missing scope "+auditScope)
 	}
 	return nil
-}
-
-// auditHandler serves the read through audit.Query. CONTAINMENT is resolved
-// here, not in the Gate, because it is a bound on the rows: a token carrying
-// a folder claim is pinned to that subtree and its `folder` argument cannot
-// widen it. That is safe ONLY because the Gate already proved audit:read; an
-// empty folder claim is NOT evidence of operator authority (the recorded
-// cross-tenant leak).
-func (s *Server) auditHandler(ctx context.Context, x resreg.Execution) (any, error) {
-	if x.Action != resreg.ActionList {
-		return nil, resreg.Errorf(http.StatusBadRequest, "unknown action %q", x.Action)
-	}
-	f := audit.Filter{
-		Folder:   x.Args.Str("folder"),
-		Category: x.Args.Str("category"),
-		Actor:    x.Args.Str("actor"),
-		Before:   x.Args.Str("before_id"),
-		Limit:    int(x.Args.Int("limit")),
-	}
-	if x.Caller.Folder != "" {
-		f.Folder = x.Caller.Folder
-	}
-	rows, err := audit.Query(ctx, s.db.Obj(), f)
-	if err != nil {
-		return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
-	}
-	return rows, nil
 }

@@ -1,12 +1,34 @@
 package resources
 
 import (
+	"context"
 	"net/http"
 	"reflect"
 
 	"github.com/kronael/arizuko/audit"
+	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/resreg"
 )
+
+func AuditHandler(obj objstore.Store) resreg.Handler {
+	return func(ctx context.Context, x resreg.Execution) (any, error) {
+		if x.Action != resreg.ActionList {
+			return nil, resreg.Errorf(http.StatusBadRequest, "unknown action %q", x.Action)
+		}
+		f := audit.Filter{
+			Folder: x.Args.Str("folder"), Category: x.Args.Str("category"),
+			Actor: x.Args.Str("actor"), Before: x.Args.Str("before_id"), Limit: int(x.Args.Int("limit")),
+		}
+		if x.Caller.Folder != "" {
+			f.Folder = x.Caller.Folder
+		}
+		rows, err := audit.Query(ctx, obj, f)
+		if err != nil {
+			return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
+		}
+		return rows, nil
+	}
+}
 
 // AuditEndpoints is the single owner of the audit-log read surface on every
 // daemon that owns an audit_log. READ-ONLY BY DESIGN: a write face would let

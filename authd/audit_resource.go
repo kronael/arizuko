@@ -6,10 +6,8 @@ package main
 // handler here touches a signing key, refresh token or service secret.
 
 import (
-	"context"
 	"net/http"
 
-	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/resreg/resources"
@@ -24,7 +22,7 @@ func (s *server) auditResource() resreg.Resource {
 		return "", nil, nil
 	}
 	r.Gate = scopeGate("audit", "read")
-	r.Handler = s.auditHandler
+	r.Handler = resources.AuditHandler(s.a.obj)
 	r.Store = s.auditStore()
 	return r
 }
@@ -84,31 +82,4 @@ func instanceWideGate(resource, verb string) func(resreg.Execution, string, map[
 		}
 		return nil
 	}
-}
-
-// auditHandler serves the read through audit.Query, the same renderer routd
-// and runed use. A token carrying a folder claim is pinned to that subtree and
-// its `folder` argument cannot widen it. No claim means instance-wide ONLY
-// because the Gate already proved audit:read; an absent folder claim is not
-// evidence of operator authority, since a two-grant tenant is equally
-// claimless (the recorded cross-tenant leak).
-func (s *server) auditHandler(ctx context.Context, x resreg.Execution) (any, error) {
-	if x.Action != resreg.ActionList {
-		return nil, resreg.Errorf(http.StatusBadRequest, "unknown action %q", x.Action)
-	}
-	f := audit.Filter{
-		Folder:   x.Args.Str("folder"),
-		Category: x.Args.Str("category"),
-		Actor:    x.Args.Str("actor"),
-		Before:   x.Args.Str("before_id"),
-		Limit:    int(x.Args.Int("limit")),
-	}
-	if x.Caller.Folder != "" {
-		f.Folder = x.Caller.Folder
-	}
-	rows, err := audit.Query(ctx, s.a.obj, f)
-	if err != nil {
-		return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
-	}
-	return rows, nil
 }

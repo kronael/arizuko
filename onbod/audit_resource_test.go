@@ -108,7 +108,7 @@ func TestOnbodAuditFolderClaimCannotWiden(t *testing.T) {
 		[2]string{"onboarding.approve", "other"},
 	)
 
-	rows, err := a.auditHandler(t.Context(), resreg.Execution{
+	rows, err := a.auditResource().Handler(t.Context(), resreg.Execution{
 		Action: resreg.ActionList,
 		Caller: resreg.Caller{Folder: "acme"},
 		Args:   resreg.Args{"folder": ""},
