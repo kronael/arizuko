@@ -405,11 +405,10 @@ func (s *Server) submitStatus(status ipc.TurnStatus) (ipc.TurnStatusAck, error) 
 	if s.callbackClosed(tc) || !store.IsActiveTurnState(tc.State) {
 		return ipc.TurnStatusAck{}, nil
 	}
-	value, hadProgress := s.db.progress.Load(status.TurnID)
-	wasActive := hadProgress && value.(*turnProgress).active
-	text, publish := s.db.reduceProgress(status)
-	value, _ = s.db.progress.LoadOrStore(status.TurnID, &turnProgress{sources: make(map[string][]progressItem), seen: make(map[string]bool)})
+	value, _ := s.db.progress.LoadOrStore(status.TurnID, &turnProgress{sources: make(map[string][]progressItem), seen: make(map[string]bool), calls: make(map[string]bool)})
 	progress := value.(*turnProgress)
+	wasActive := progress.active
+	text, publish := progress.reduceProgress(status)
 	now := time.Now()
 	ack := ipc.TurnStatusAck{}
 	if len(status.Snapshot) > 0 || status.Text == "" {

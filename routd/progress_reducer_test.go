@@ -37,9 +37,11 @@ func TestProgress_MergedSnapshots(t *testing.T) {
 
 func TestProgress_ReducerLifecycle(t *testing.T) {
 	db, _ := newProgressTurn(t, &recDeliverer{}, "")
+	progress := &turnProgress{sources: make(map[string][]progressItem), seen: make(map[string]bool), calls: make(map[string]bool)}
+	db.progress.Store("t1", progress)
 	apply := func(source, raw string) (string, bool) {
 		t.Helper()
-		return db.reduceProgress(ipc.TurnStatus{TurnID: "t1", Source: source, Snapshot: json.RawMessage(raw)})
+		return progress.reduceProgress(ipc.TurnStatus{TurnID: "t1", Source: source, Snapshot: json.RawMessage(raw)})
 	}
 	claude := `{"hook_event_name":"PostToolUse","tool_name":"TaskCreate","session_id":"s","tool_use_id":"1","tool_input":{"subject":"Build","activeForm":"Building"},"tool_response":{"task":{"id":"1","subject":"Build"}}}`
 	if text, ok := apply("claude", claude); !ok || text != "☐ Build" {
@@ -76,7 +78,7 @@ func TestProgress_ReducerLifecycle(t *testing.T) {
 	if _, ok := apply("claude", child); ok {
 		t.Fatal("child snapshot published")
 	}
-	if _, ok := db.reduceProgress(ipc.TurnStatus{TurnID: "t1", Text: "fallback"}); ok {
+	if _, ok := progress.reduceProgress(ipc.TurnStatus{TurnID: "t1", Text: "fallback"}); ok {
 		t.Fatal("fallback replaced checklist")
 	}
 	clear := `{"hook_event_name":"PostToolUse","tool_name":"TodoWrite","session_id":"s","tool_use_id":"6","tool_input":{"todos":[]}}`

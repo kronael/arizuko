@@ -73,10 +73,9 @@ func validProgressFields(raw json.RawMessage, fields ...string) bool {
 	return true
 }
 
-func (db *DB) reduceProgress(status ipc.TurnStatus) (string, bool) {
-	value, exists := db.progress.Load(status.TurnID)
+func (progress *turnProgress) reduceProgress(status ipc.TurnStatus) (string, bool) {
 	if len(status.Snapshot) == 0 || string(status.Snapshot) == "null" {
-		if exists && value.(*turnProgress).active {
+		if progress.active {
 			return "", false
 		}
 		return status.Text, status.Text != ""
@@ -88,15 +87,7 @@ func (db *DB) reduceProgress(status ipc.TurnStatus) (string, bool) {
 	if json.Unmarshal(status.Snapshot, &event) != nil || (event.Event != "PostToolUse" && event.Event != "PostToolUseFailure") || event.Agent != "" || event.Session == "" || event.Call == "" {
 		return "", false
 	}
-	if !exists {
-		value = &turnProgress{sources: make(map[string][]progressItem), seen: make(map[string]bool)}
-		db.progress.Store(status.TurnID, value)
-	}
-	progress := value.(*turnProgress)
 	key := status.Source + "\x00" + event.Session + "\x00" + event.Call
-	if progress.calls == nil {
-		progress.calls = make(map[string]bool)
-	}
 	if !progress.calls[key] {
 		progress.calls[key] = true
 		progress.callCount++
