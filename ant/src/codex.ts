@@ -37,7 +37,7 @@ export function tomlValue(v: string | string[] | Record<string, string>): string
 // codexArgs builds one turn's argv. The prompt travels on stdin (`-`), never
 // argv — an envelope with episodes + diary can exceed the per-arg kernel cap.
 // The continuity token IS codex's thread id.
-export function codexArgs(turn: Pick<Turn, 'cwd' | 'model' | 'continuity' | 'tools' | 'env'>): string[] {
+export function codexArgs(turn: Pick<Turn, 'cwd' | 'model' | 'effort' | 'continuity' | 'tools' | 'env'>): string[] {
   const args = turn.continuity ? ['exec', 'resume'] : ['exec'];
   args.push(
     // The container is the perimeter (KVM guest + egress proxy + MCP socket); codex's
@@ -55,6 +55,7 @@ export function codexArgs(turn: Pick<Turn, 'cwd' | 'model' | 'continuity' | 'too
     '-c', `project_doc_fallback_filenames=${tomlValue(['CLAUDE.md'])}`,
   );
   if (turn.model) args.push('-m', turn.model);
+  if (turn.effort) args.push('-c', `model_reasoning_effort=${tomlValue(turn.effort)}`);
   for (const [name, s] of Object.entries(turn.tools ?? {})) {
     args.push('-c', `mcp_servers.${name}.command=${tomlValue(s.command)}`);
     args.push('-c', `mcp_servers.${name}.args=${tomlValue(s.args ?? [])}`);

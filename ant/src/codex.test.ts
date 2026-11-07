@@ -163,6 +163,16 @@ test('codexArgs: model passes through verbatim only when set', () => {
   expect(codexArgs({ cwd: '/home/node', env: {} })).not.toContain('-m');
 });
 
+test('codexArgs: forwards effort for fresh and resumed runs', () => {
+  for (const continuity of [undefined, 'session']) {
+    const args = codexArgs({ cwd: '/home/node', env: {}, continuity, effort: 'high' });
+    const index = args.indexOf('model_reasoning_effort="high"');
+    expect(index).toBeGreaterThan(0);
+    expect(args[index - 1]).toBe('-c');
+  }
+  expect(codexArgs({ cwd: '/home/node', env: {} }).join(' ')).not.toContain('model_reasoning_effort');
+});
+
 test('codexPrompt: system text and skills index precede the untouched envelope', () => {
   expect(codexPrompt({ prompt: '<messages>…</messages>', systemPrompt: 'SYSTEM' }, '<skills>idx</skills>'))
     .toBe('SYSTEM\n\n<skills>idx</skills>\n\n<messages>…</messages>');
