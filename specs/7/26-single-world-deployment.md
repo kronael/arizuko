@@ -1,7 +1,8 @@
 ---
 status: draft
 depends: [../6/42-dynamo-over-postgres, ../6/43-shared-store-server]
-relates-to: [../8/36-publish-plan, 27-minimum-arizuko, ../6/41-qemu-substrate]
+relates-to:
+  [../8/36-publish-plan, ../8/60-minimum-arizuko, ../6/41-qemu-substrate]
 ---
 
 # specs/7/26 — single-world deployment
@@ -42,7 +43,7 @@ application can run inside a function runtime.
 
 ## Acceptance boundaries
 
-A minimal deployment supplies [27-minimum-arizuko](27-minimum-arizuko.md).
+A minimal deployment supplies [8/60-minimum-arizuko](../8/60-minimum-arizuko.md).
 Package installation uses [36-publish-plan](../8/36-publish-plan.md).
 Existing permission, delivery, execution, and workspace isolation checks apply
 to the combined process. Shutdown must stop modules and their owned work.

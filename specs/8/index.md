@@ -17,6 +17,7 @@ this phase.
 | [X-sso-saml.md](X-sso-saml.md)                             | draft   | Enterprise SSO: SAML 2.0 SP-initiated + OIDC Authorization Code on top of existing OAuth. JIT provisioning + optional SCIM deprovisioning.                                                   |
 | [36-publish-plan.md](36-publish-plan.md)                   | partial | Packages, package import adapters and skill discovery; defect L200.                                                                                                                          |
 | [40-groups-without-agents.md](40-groups-without-agents.md) | draft   | Optional agent binding; primary posts and external access without dispatch.                                                                                                                  |
+| [60-minimum-arizuko.md](60-minimum-arizuko.md)             | draft   | What a core-only instance must do: four acceptance checks, each owned by another spec.                                                                                                       |
 
 ## Scope note
 
