@@ -69,13 +69,18 @@ func CallExtTool(
 	vars := make(map[string]string, len(args))
 	for key, value := range args {
 		vars[key] = fmt.Sprint(value)
-		if strings.Contains(tool.Path, "{"+key+"}") {
-			delete(remaining, key)
-		}
 	}
 	path, err := expand.Expand(tool.Path, vars)
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
+	}
+	for key := range args {
+		value := vars[key]
+		delete(vars, key)
+		if _, err := expand.Expand(tool.Path, vars); err != nil {
+			delete(remaining, key)
+		}
+		vars[key] = value
 	}
 
 	status, text, fail := extAttempt(ctx, tool, tool.BaseURL+path, remaining, secrets)
