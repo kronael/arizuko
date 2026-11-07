@@ -206,9 +206,6 @@ func IsAuthorizedRoutingTarget(source, target string) bool {
 
 func expandTarget(target string, msg core.Message) string {
 	rt := core.ParseRouteTarget(target)
-	if strings.Contains(rt.Folder, "{sender}") && msg.Sender == "" {
-		return ""
-	}
 	folder, err := expand.Expand(rt.Folder, map[string]string{"sender": senderToUserFileID(msg.Sender)})
 	if err != nil {
 		return ""

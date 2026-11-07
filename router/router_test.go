@@ -140,10 +140,10 @@ func TestExpandTarget(t *testing.T) {
 		}
 	}
 
-	// No sender → returns ""
+	// An empty sender renders as an empty value.
 	got := expandTarget("atlas/{sender}", core.Message{})
-	if got != "" {
-		t.Fatalf("expected empty for no sender, got %q", got)
+	if got != "atlas/" {
+		t.Fatalf("empty sender: got %q", got)
 	}
 }
 
