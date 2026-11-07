@@ -77,9 +77,9 @@ No Go type declares the document's backend, model or effort fields.
   names: [RunRequest.Harness]
   never: declare backend fields
 - path: runed/api/v1/client.go (changed)
-  job: preserve document bytes through HTTP encoding
+  job: encode the request with json.Marshal
   names: [Client.Run]
-  never: normalize the raw value
+  never: decode the raw value
 - path: core/config.go (changed)
   job: load the instance defaults as an environment map
   names: [Config.AgentEnv, LoadConfig]
@@ -169,11 +169,9 @@ delivering error boundary at `ant/src/index.ts:479`, before any adapter starts.
 Invalid configuration produces an error submission and terminal failure;
 it must not enter the transient retry loop or silently choose Claude.
 
-Byte preservation includes whitespace inside the value, key order, escapes
-and numeric spelling. `json.RawMessage` alone does not establish this:
-`runed/api/v1/client.go:72` calls `json.Marshal`, which compacts raw values.
-The request encoder must write the raw value without another marshal pass.
-Keep one request encoder; do not create a second HTTP client or JSON schema.
+The value is preserved, not its whitespace: `json.RawMessage` keeps key order,
+escapes, unknown fields and numeric spelling, and `json.Marshal` only compacts
+it. One request encoder stays; no hand-written splice and no second schema.
 Settings writes and import must preserve that same raw value, including when
 another setting changes. Remove the harness's route through `map[string]any`
 and whole-config canonicalization. Malformed stored settings produce a visible
@@ -351,7 +349,7 @@ Deletion anchors refer to `dbbf61ef2e53fa5551f5aac50984de4a94f5f310`.
   `core/config.go:58-62`, its initializer at `core/config.go:208`, and its
   renderer branch at `runed/render.go:109-111`. The generic instance env
   map replaces them. Remove whole-config normalization at
-  `resreg/resources/groups.go:100`; preserve raw harness bytes in the
+  `resreg/resources/groups.go:100`; preserve the raw harness value in the
   settings writers at `store/groups.go:441` and `store/groups.go:493`.
   Remove the obsolete env-test exemption at `runed/env_contract_test.go:129`.
 - After auth approval, remove the grant check, log field and assignment at
@@ -384,11 +382,11 @@ consumer of its wire flag. The deletions above remove all listed declarations
 or decisions. Existing instance defaults and login sources remain functional.
 
 - A Go integration test starts with a stored group document, passes it through
-  routd and the real HTTP client/server, and compares guest `Turn.Env` bytes.
-  Include whitespace, reordered keys, escapes, nested unknown fields and a
-  number exceeding float64 precision. Go must carry even ant-invalid values.
-  Repeat after an unrelated settings write and bulk import. Reintroducing
-  ordinary `json.Marshal` at the raw boundary must fail the test.
+  routd and the real HTTP client/server, and compares guest `Turn.Env` with the
+  compacted document. Include reordered keys, escapes, nested unknown fields and
+  a number exceeding float64 precision. Go must carry even ant-invalid values.
+  Repeat after an unrelated settings write and bulk import. Decoding the value
+  into `map[string]any` anywhere on the path must fail the test.
 - An ant test supplies invalid JSON, null, arrays, missing backend, unknown
   backend, wrong field types and invalid effort. Each must submit a visible
   error and exit with terminal failure before adapter invocation. A parser
@@ -414,7 +412,7 @@ or decisions. Existing instance defaults and login sources remain functional.
 
 1. **Opaque carry and ant parse.** Add the raw setting, wire value, env emission
    and ant validation with whole-document replacement. Forward Codex effort.
-   Verify byte preservation through HTTP, visible invalid-document failure,
+   Verify value preservation through HTTP, visible invalid-document failure,
    default replacement, env coverage and Pi refusal.
 2. **Write door and dashd.** Add the groups update action and derived MCP,
    then connect the free-text form. Verify save/reload/clear, audit atomicity,
