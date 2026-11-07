@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/core"
+
+	"github.com/kronael/arizuko/expand"
 )
 
 var xmlEscaper = strings.NewReplacer(
@@ -203,14 +205,20 @@ func IsAuthorizedRoutingTarget(source, target string) bool {
 }
 
 func expandTarget(target string, msg core.Message) string {
-	if !strings.Contains(target, "{") {
-		return target
-	}
-	id := senderToUserFileID(msg.Sender)
-	if id == "" {
+	rt := core.ParseRouteTarget(target)
+	if strings.Contains(rt.Folder, "{sender}") && msg.Sender == "" {
 		return ""
 	}
-	return strings.ReplaceAll(target, "{sender}", id)
+	folder, err := expand.Expand(rt.Folder, map[string]string{"sender": senderToUserFileID(msg.Sender)})
+	if err != nil {
+		return ""
+	}
+	topic, err := expand.Expand(rt.Topic, map[string]string{"jid": msg.ChatJID, "thread": msg.Topic})
+	if err != nil {
+		return ""
+	}
+	rt.Folder, rt.Topic = folder, topic
+	return rt.String()
 }
 
 // msgField returns the message value for a match key. Unknown keys yield

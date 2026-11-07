@@ -116,7 +116,7 @@ func TestAnswering_ObserveIsAVerdictNotAFault(t *testing.T) {
 		t.Fatal(err)
 	}
 	doJSON(t, h, "PUT", "/v1/routes", "", map[string]any{"routes": []apiv1.Route{
-		{Match: "platform=telegram", Target: "staging#observe"},
+		{Match: "platform=telegram", Target: "staging?observe"},
 	}})
 	if err := db.PutMessage(core.Message{ID: "o1", ChatJID: "telegram:user/3",
 		Sender: "telegram:user/3", Content: "hi", Timestamp: time.Now().UTC(),

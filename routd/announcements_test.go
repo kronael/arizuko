@@ -32,15 +32,15 @@ func TestReleaseAnnouncements(t *testing.T) {
 		t.Fatalf("pending=%v runs=%v err=%v", rows, runner.runs, err)
 	}
 	routes := []core.Route{
-		{Match: "chat_jid=telegram:group/1", Target: "demo#announce"},
-		{Match: "chat_jid=telegram:group/1", Target: "other#announce"},
-		{Match: "platform=slack room=T/channel/A", Target: "demo#announce"},
-		{Match: "chat_jid=slack:T/channel/B", Target: "demo#announce"},
-		{Match: "chat_jid=discord:G/A", Target: "demo#announce"},
-		{Match: "chat_jid=discord:G/B", Target: "demo#announce"},
-		{Match: "chat_jid=discord:dm/A", Target: "demo#announce"},
-		{Match: "chat_jid=discord:dm/B", Target: "demo#announce"},
-		{Match: "chat_jid=telegram:*", Target: "demo#announce"},
+		{Match: "chat_jid=telegram:group/1", Target: "demo?announce"},
+		{Match: "chat_jid=telegram:group/1", Target: "other?announce"},
+		{Match: "platform=slack room=T/channel/A", Target: "demo?announce"},
+		{Match: "chat_jid=slack:T/channel/B", Target: "demo?announce"},
+		{Match: "chat_jid=discord:G/A", Target: "demo?announce"},
+		{Match: "chat_jid=discord:G/B", Target: "demo?announce"},
+		{Match: "chat_jid=discord:dm/A", Target: "demo?announce"},
+		{Match: "chat_jid=discord:dm/B", Target: "demo?announce"},
+		{Match: "chat_jid=telegram:*", Target: "demo?announce"},
 	}
 	doSetRoutes(t, db, routes)
 	for i := 0; i < 270; i++ {
@@ -105,7 +105,7 @@ func TestReleaseAnnouncements(t *testing.T) {
 
 func TestAnnouncementDestinationInvalid(t *testing.T) {
 	for _, match := range []string{"chat_jid=slack:bad", "chat_jid=discord:bad", "chat_jid=telegram:group/1 platform=slack"} {
-		if _, _, err := announcementDestination(core.Route{Match: match, Target: "demo#announce"}); err == nil {
+		if _, _, err := announcementDestination(core.Route{Match: match, Target: "demo?announce"}); err == nil {
 			t.Errorf("%q accepted", match)
 		}
 	}
@@ -113,7 +113,7 @@ func TestAnnouncementDestinationInvalid(t *testing.T) {
 
 func TestReleaseAnnouncementAdapterRegistersAfterStartup(t *testing.T) {
 	db, _, runner := recLoop(t)
-	doSetRoutes(t, db, []core.Route{{Match: "chat_jid=telegram:group/123", Target: "demo#announce"}})
+	doSetRoutes(t, db, []core.Route{{Match: "chat_jid=telegram:group/123", Target: "demo?announce"}})
 	path := announcementFile(t, "v2.0.0")
 	if err := db.QueueReleaseAnnouncements(path); err != nil {
 		t.Fatal(err)
@@ -150,18 +150,18 @@ func TestQueueIssueNotice(t *testing.T) {
 		t.Fatalf("no route: n=%d err=%v", n, err)
 	}
 	doSetRoutes(t, db, []core.Route{
-		{Match: "chat_jid=telegram:group/1", Target: "demo#announce"},
+		{Match: "chat_jid=telegram:group/1", Target: "demo?announce"},
 		{Match: "chat_jid=telegram:group/2", Target: "demo"},
-		{Match: "chat_jid=telegram:*", Target: "demo#issues"},
+		{Match: "chat_jid=telegram:*", Target: "demo?issues"},
 	})
 	if n, err = db.QueueIssueNotice("none"); err != nil || n != 0 {
 		t.Fatalf("wildcard-only route: n=%d err=%v", n, err)
 	}
 	doSetRoutes(t, db, []core.Route{
-		{Match: "chat_jid=telegram:group/1", Target: "demo#announce"},
+		{Match: "chat_jid=telegram:group/1", Target: "demo?announce"},
 		{Match: "chat_jid=telegram:group/2", Target: "demo"},
-		{Match: "chat_jid=telegram:me", Target: "demo#issues"},
-		{Match: "chat_jid=telegram:me verb=mention", Target: "demo#issues"},
+		{Match: "chat_jid=telegram:me", Target: "demo?issues"},
+		{Match: "chat_jid=telegram:me verb=mention", Target: "demo?issues"},
 	})
 	n, err = db.QueueIssueNotice("[x/y/20260101/slug] broken")
 	if err != nil || n != 1 {

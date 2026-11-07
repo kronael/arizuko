@@ -75,7 +75,7 @@ func TestAtRoute_StartsATurnWhereTheChatOnlyObserves(t *testing.T) {
 	db, loop, rr := atLoopRec(t, "sloth", "sloth/discord", "elsewhere")
 	doSetRoutes(t, db, []core.Route{
 		{Match: "at=killer", Target: "elsewhere"},
-		{Match: "platform=slack", Target: "sloth/discord#observe"},
+		{Match: "platform=slack", Target: "sloth/discord?observe"},
 	})
 	atSend(t, db, loop, "a", "@killer take this", "th1")
 	runs := ranIn(rr, "elsewhere")
@@ -96,7 +96,7 @@ func TestAtRoute_StartsATurnWhereTheChatOnlyObserves(t *testing.T) {
 
 func TestAtName_RelativeStartsATurnWhereTheChatOnlyObserves(t *testing.T) {
 	db, loop, rr := atLoopRec(t, "sloth", "sloth/discord", "sloth/killer")
-	doSetRoutes(t, db, []core.Route{{Match: "platform=slack", Target: "sloth/discord#observe"}})
+	doSetRoutes(t, db, []core.Route{{Match: "platform=slack", Target: "sloth/discord?observe"}})
 	atSend(t, db, loop, "a", "@killer take this", "th1")
 	runs := ranIn(rr, "sloth/killer")
 	if len(runs) != 1 || !strings.Contains(runs[0].batch, "take this") || strings.Contains(runs[0].batch, "@killer") {
@@ -118,7 +118,7 @@ func TestAtName_RelativeStartsATurnWhereTheChatOnlyObserves(t *testing.T) {
 
 func TestAtName_UnresolvedStaysObserved(t *testing.T) {
 	db, loop, rr := atLoopRec(t, "sloth", "sloth/discord")
-	doSetRoutes(t, db, []core.Route{{Match: "platform=slack", Target: "sloth/discord#observe"}})
+	doSetRoutes(t, db, []core.Route{{Match: "platform=slack", Target: "sloth/discord?observe"}})
 	atSend(t, db, loop, "a", "@nobody take this", "")
 	if len(rr.runs) != 0 {
 		t.Fatalf("an unresolved @name started a turn: %+v", rr.runs)
@@ -177,7 +177,7 @@ func TestAtRoute_ScopedRowFallsBackToRelative(t *testing.T) {
 func TestAtRoute_ReadInSeqOrderWithOtherRows(t *testing.T) {
 	db, loop := atLoop(t, "sloth", "sloth/discord", "elsewhere")
 	doSetRoutes(t, db, []core.Route{
-		{Match: "platform=slack", Target: "sloth/discord#observe"},
+		{Match: "platform=slack", Target: "sloth/discord?observe"},
 		{Match: "at=killer", Target: "elsewhere"},
 	})
 	got := loop.resolve(atChat, core.Message{ChatJID: atChat, Sender: "u", Content: "@killer hi", Verb: "message"})
@@ -202,7 +202,7 @@ func TestAtRoute_NeverMatchesWithoutALeadingName(t *testing.T) {
 
 func TestAtName_EnvelopeDoesNotHideThePrefix(t *testing.T) {
 	db, loop, rr := atLoopRec(t, "sloth", "sloth/discord", "sloth/killer")
-	doSetRoutes(t, db, []core.Route{{Match: "platform=slack", Target: "sloth/discord#observe"}})
+	doSetRoutes(t, db, []core.Route{{Match: "platform=slack", Target: "sloth/discord?observe"}})
 	atSend(t, db, loop, "a", "[github o/r#1 comment] \n\n@killer look", "")
 	runs := ranIn(rr, "sloth/killer")
 	if len(runs) != 1 || !strings.Contains(runs[0].batch, "[github o/r#1 comment]") || !strings.Contains(runs[0].batch, "look") ||

@@ -39,7 +39,7 @@ func TestGroupRenameOriginalCoordinates(t *testing.T) {
 	mapping := renameTestMap(t)
 	for before, want := range map[string]string{
 		"main": "sloth", "main/main": "sloth/discord", "main/main/dev": "sloth/discord/dev",
-		"main/trading": "sloth/trading", "main/main#observe": "sloth/discord#observe",
+		"main/trading": "sloth/trading", "main/main?observe": "sloth/discord?observe",
 		"mainland": "mainland", "domain/main": "domain/main", "mainland/main": "mainland/main",
 	} {
 		if got := mapping.folder(before); got != want {
@@ -70,7 +70,7 @@ func TestGroupRenameClassifiedRows(t *testing.T) {
 		{"routd", store.Groups, "routd", "main/main", "routd", "sloth/discord", map[string]string{"added_at": "unchanged", "config": `{"model":"main-model"}`}, nil},
 		{"routd", store.ACL, "routd", strings.Join([]string{"main", "mcp:*", "main/*", "", "", "allow"}, sep), "routd", strings.Join([]string{"main", "mcp:*", "sloth/*", "", "", "allow"}, sep), map[string]string{"granted_by": "agent:main", "grant_option": "1"}, nil},
 		{"routd", store.ACLMembership, "routd", "discord:12" + sep + "main/main", "routd", "discord:12" + sep + "main/main", nil, nil},
-		{"routd", store.Routes, "routd", "0000000001" + sep + "main/main#observe" + sep + "chat_jid=web:main/main verb=mention", "routd", "0000000001" + sep + "sloth/discord#observe" + sep + "chat_jid=web:sloth/discord verb=mention", map[string]string{"id": "33", "added_by": "main"}, nil},
+		{"routd", store.Routes, "routd", "0000000001" + sep + "main/main?observe" + sep + "chat_jid=web:main/main verb=mention", "routd", "0000000001" + sep + "sloth/discord?observe" + sep + "chat_jid=web:sloth/discord verb=mention", map[string]string{"id": "33", "added_by": "main"}, nil},
 		{"routd", store.Secrets, "routd", "folder" + sep + "main/*" + sep + "TOKEN", "routd", "folder" + sep + "sloth/*" + sep + "TOKEN", map[string]string{"value": "sealed-main-secret", "refresh_val": "sealed-refresh-main", "provider": "github", "scope_list": "repo"}, nil},
 		{"routd", store.NetworkRules, "routd", "main/trading" + sep + "api.example.com", "routd", "sloth/trading" + sep + "api.example.com", nil, nil},
 		{"routd", store.InstalledPackages, "routd", "main" + sep + "main-package", "routd", "sloth" + sep + "main-package", map[string]string{"revision": "main"}, nil},

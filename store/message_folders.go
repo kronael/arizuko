@@ -158,7 +158,7 @@ func (s *Store) FolderLastMessageAt(ctx context.Context, folder string) (string,
 }
 
 // MarkMessagesObserved records messages as ambient context for a folder; the
-// poll loop calls it when the resolved route target is `folder#observe`. It
+// poll loop calls it when the resolved route target is `folder?observe`. It
 // stamps the message AND the feed, in one batch per message. A message already
 // routed somewhere else moves: its old feed entry goes and the old folder's
 // count comes down, so a folder never counts a message it no longer holds.
@@ -292,7 +292,7 @@ func (s *Store) ObservedSince(ctx context.Context, folder, cursor string, maxMsg
 	if cursor != "" {
 		key = objstore.KeyPredicate{Op: objstore.GeKey, Value: cursor + string(KeySep[0]+1)}
 	}
-	// The observer's own folder contributes the rows sent to `folder#observe`
+	// The observer's own folder contributes the rows sent to `folder?observe`
 	// and, whatever their flag, its own replies, so a topic's turn sees what a
 	// sibling topic already answered; a watched source contributes its PRIMARY
 	// deliveries (the observe_group ambient join), which is why the two

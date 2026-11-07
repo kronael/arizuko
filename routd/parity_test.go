@@ -280,7 +280,7 @@ func TestTopicPrefix(t *testing.T) {
 func TestObserveMarksMessages(t *testing.T) {
 	db, loop, rr := recLoop(t)
 	_ = db.PutGroup(core.Group{Folder: "demo"})
-	doSetRoutes(t, db, []core.Route{{Match: "platform=slack", Target: "demo#observe"}})
+	doSetRoutes(t, db, []core.Route{{Match: "platform=slack", Target: "demo?observe"}})
 	_ = db.PutMessage(core.Message{ID: "a", ChatJID: "slack:T/C/X", Sender: "u",
 		Content: "ambient", Timestamp: time.Now().UTC(), Verb: "message"})
 

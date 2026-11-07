@@ -275,9 +275,10 @@ func argJSONString(args resreg.Args, key string) string {
 // routeTargetWithin reports whether a route's target folder is the caller's
 // own folder or a descendant. A target legally carries a `#observe`/`#announce`
 // FRAGMENT, and it comes off before the comparison: with it on, `main/trading`
-// could not manage its own `main/trading#observe` route (BUGS L82).
+// could not manage its own `main/trading?observe` route (BUGS L82).
 func routeTargetWithin(target, owner string) bool {
-	return groupfolder.Contains(owner, core.ParseRouteTarget(target).Folder)
+	folder := core.ParseRouteTarget(target).Folder
+	return folder != "" && groupfolder.Contains(owner, folder)
 }
 
 // isSelfDefault reports whether r is a folder's seq-0 default route — the one

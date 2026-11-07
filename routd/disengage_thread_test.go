@@ -66,7 +66,7 @@ func TestDisengagedThreadDoesNotInheritRootEngagement(t *testing.T) {
 				t.Fatal(err)
 			}
 			if route == "observe" {
-				doSetRoutes(t, db, []core.Route{{Match: "chat_jid=" + jid, Target: "eng#observe"}})
+				doSetRoutes(t, db, []core.Route{{Match: "chat_jid=" + jid, Target: "eng?observe"}})
 			}
 			if err := db.SetEngagement(jid, "", "eng", time.Hour); err != nil {
 				t.Fatal(err)

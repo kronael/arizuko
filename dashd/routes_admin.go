@@ -84,13 +84,13 @@ func (d *dash) handleRoutes(w http.ResponseWriter, r *http.Request) {
 		`<form method="post" action="/dash/routes/">`+
 			htmlFormRow("Seq", `<input type="number" name="seq" value="0" required>`)+
 			htmlFormRow("Match", `<input type="text" name="match" placeholder="room=12345@g.us" required size="60">`)+
-			htmlFormRow("Target", `<input type="text" name="target" placeholder="solo/inbox or solo/inbox#observe" required size="60">`)+
+			htmlFormRow("Target", `<input type="text" name="target" placeholder="solo/inbox or solo/inbox?observe" required size="60">`)+
 			htmlFormRow("Observe msgs", `<input type="number" name="observe_window_messages" value="0">`)+
 			htmlFormRow("Observe chars", `<input type="number" name="observe_window_chars" value="0">`)+
 			`<p><button type="submit">add</button></p>`+
 			`</form>`+
 			`<p class="dim">Match syntax: <code>room=&lt;jid-room&gt;</code> exact, or <code>verb=mention</code> filter.`+
-			` Target <code>folder</code> trigger, <code>folder#observe</code> silent ingest, <code>folder#engaged</code> fires a turn in the folder that holds the engagement, and <code>folder</code> takes the row only as silent ingest when the chat is not engaged, <code>folder#&lt;topic&gt;</code> topic pin.</p>`))
+			` Target <code>folder</code> trigger, <code>folder?observe</code> silent ingest, <code>folder?engaged</code> fires a turn in the folder that holds the engagement, and <code>folder</code> takes the row only as silent ingest when the chat is not engaged, <code>folder#&lt;topic&gt;</code> topic pin.</p>`))
 
 	pageClose(w, r)
 }

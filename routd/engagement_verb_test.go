@@ -53,7 +53,7 @@ func TestEngagementVerb_GitHubPRRidesOnlyAPersonsMessage(t *testing.T) {
 func TestEngagementVerb_ChatReactionAndEditFollowTheirRoute(t *testing.T) {
 	db, loop := newEngagementLoop(t, []core.Route{
 		{Seq: 1, Match: "chat_jid=telegram:7 verb=mention", Target: "route"},
-		{Seq: 2, Match: "chat_jid=telegram:7", Target: "route#observe"},
+		{Seq: 2, Match: "chat_jid=telegram:7", Target: "route?observe"},
 	})
 	jid := "telegram:7"
 	if err := db.SetEngagement(jid, "", "held", time.Hour); err != nil {

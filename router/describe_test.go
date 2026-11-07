@@ -21,7 +21,7 @@ func find(views []RouteView, id int64) *RouteView {
 func TestDescribe_ModeAndTrigger(t *testing.T) {
 	views := Describe([]core.Route{
 		{ID: 1, Seq: 0, Match: "chat_jid=slack:w/channel/A verb=mention", Target: "atlas/support"},
-		{ID: 2, Seq: 1, Match: "chat_jid=slack:w/channel/A", Target: "atlas/support#observe"},
+		{ID: 2, Seq: 1, Match: "chat_jid=slack:w/channel/A", Target: "atlas/support?observe"},
 		{ID: 3, Seq: 2, Match: "chat_jid=slack:w/channel/B", Target: "atlas/general"},
 	})
 
@@ -44,7 +44,7 @@ func TestDescribe_ModeAndTrigger(t *testing.T) {
 // trigger that always fires.
 func TestDescribe_Engaged(t *testing.T) {
 	views := Describe([]core.Route{
-		{ID: 1, Seq: 0, Match: "chat_jid=github:o/r/pr/* verb=check_run", Target: "sloth/morha#engaged"},
+		{ID: 1, Seq: 0, Match: "chat_jid=github:o/r/pr/* verb=check_run", Target: "sloth/morha?engaged"},
 	})
 	v := find(views, 1)
 	if v.Mode != "engaged" || v.FiresTurn || v.TriggersOn != "verb=check_run" {
@@ -60,7 +60,7 @@ func TestDescribe_Engaged(t *testing.T) {
 // so the migrate skill opts it in.
 func TestDescribe_Announce(t *testing.T) {
 	views := Describe([]core.Route{
-		{ID: 1, Seq: 0, Match: "chat_jid=discord:G/C_random", Target: "corp/eng#announce"},
+		{ID: 1, Seq: 0, Match: "chat_jid=discord:G/C_random", Target: "corp/eng?announce"},
 		{ID: 2, Seq: 1, Match: "chat_jid=discord:G/C_dev", Target: "corp/eng"},
 	})
 
@@ -82,7 +82,7 @@ func TestDescribe_ShadowDeadRows(t *testing.T) {
 	views := Describe([]core.Route{
 		{ID: 29, Seq: 0, Match: "room=w/channel/S", Target: "atlas/search"},
 		{ID: 30, Seq: 9, Match: "chat_jid=slack:w/channel/S verb=mention", Target: "atlas/search"},
-		{ID: 31, Seq: 100, Match: "chat_jid=slack:w/channel/S", Target: "atlas/search#observe"},
+		{ID: 31, Seq: 100, Match: "chat_jid=slack:w/channel/S", Target: "atlas/search?observe"},
 	})
 
 	if v := find(views, 29); v.ShadowedBy != 0 {
@@ -103,7 +103,7 @@ func TestDescribe_SpecificDoesNotShadowCatchall(t *testing.T) {
 	views := Describe([]core.Route{
 		{ID: 26, Seq: 9, Match: "chat_jid=slack:w/channel/G", Target: "atlas/general"},
 		{ID: 20, Seq: 40, Match: "chat_jid=slack:*/channel/* verb=mention", Target: "atlas"},
-		{ID: 14, Seq: 100, Match: "chat_jid=slack:*/channel/*", Target: "atlas#observe"},
+		{ID: 14, Seq: 100, Match: "chat_jid=slack:*/channel/*", Target: "atlas?observe"},
 	})
 
 	if v := find(views, 14); v.ShadowedBy != 0 {

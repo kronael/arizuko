@@ -18,8 +18,8 @@ func TestGDriveFileRoutes_Shape(t *testing.T) {
 	}{
 		{10, "chat_jid=gdrive:1AbC_d-e/c/* verb=message", "eng"},
 		{10, "chat_jid=gdrive:1AbC_d-e/c/* verb=mention", "eng"},
-		{100, "chat_jid=gdrive:1AbC_d-e/c/*", "eng#observe"},
-		{100, "chat_jid=gdrive:1AbC_d-e", "eng#observe"},
+		{100, "chat_jid=gdrive:1AbC_d-e/c/*", "eng?observe"},
+		{100, "chat_jid=gdrive:1AbC_d-e", "eng?observe"},
 	}
 	if len(rows) != len(want) {
 		t.Fatalf("rows = %d, want %d: %+v", len(rows), len(want), rows)

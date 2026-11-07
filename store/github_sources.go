@@ -139,7 +139,7 @@ func GitHubSourceRoutes(key, folder string) ([]core.Route, error) {
 	case GitHubSourceApp:
 		repo, owner, seq = "github:*/*", "github:*", 30
 	}
-	observe := folder + "#observe"
+	observe := folder + "?observe"
 	chats := []string{repo + "/pr/*", repo + "/issue/*", repo}
 	if owner != "" {
 		chats = append(chats, owner)

@@ -78,6 +78,9 @@ func Open() (*DB, error) {
 		return nil, err
 	}
 	d := OpenOver(h)
+	if err := d.store().MigrateRouteModes(ctx); err != nil {
+		return nil, err
+	}
 	if seeded && product != "" {
 		if err := d.PutInstalledPackage(InstalledPackage{Folder: store.DefaultFolder, Name: product,
 			Source: "ant/examples/" + product, InstalledAt: core.TS(time.Now())}); err != nil {

@@ -95,7 +95,8 @@ func (s *Server) routesRESTGate(x resreg.Execution, _ string, _ map[string]strin
 // The `#observe`/`#announce`/`#issues` fragment comes off first; comparing the raw
 // string hid a folder's own `<folder>#observe` rows from it (BUGS L82).
 func routeTargetOwned(jwtFolder, target string) bool {
-	return ownsFolder(jwtFolder, core.ParseRouteTarget(target).Folder)
+	folder := core.ParseRouteTarget(target).Folder
+	return jwtFolder == "" || (folder != "" && ownsFolder(jwtFolder, folder))
 }
 
 // handleRouteGet is the thin get-one read (GET /v1/routes/{id}); a scoped

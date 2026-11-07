@@ -281,7 +281,7 @@ func TestRouteByIDAmbiguity_IsAConflictAndNotAnArbitraryRow(t *testing.T) {
 	_ = db.PutGroup(core.Group{Folder: "hq"})
 	for _, r := range []core.Route{
 		{ID: 37, Seq: 1, Target: "hq", Match: "room=group/1"},
-		{ID: 37, Seq: 31, Target: "hq#observe", Match: "room=group/2"},
+		{ID: 37, Seq: 31, Target: "hq?observe", Match: "room=group/2"},
 	} {
 		if _, err := db.AddRoute(r); err != nil {
 			t.Fatalf("seed %q: %v", r.Target, err)

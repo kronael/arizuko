@@ -11,7 +11,7 @@ import (
 )
 
 // observe puts a message and records it as ambient context for a folder — the
-// pair the poll loop performs when a route resolves to `folder#observe`.
+// pair the poll loop performs when a route resolves to `folder?observe`.
 func observe(t *testing.T, s *Store, folder string, m core.Message) core.Message {
 	t.Helper()
 	if err := s.PutMessage(m); err != nil {

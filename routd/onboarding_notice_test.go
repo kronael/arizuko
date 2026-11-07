@@ -38,7 +38,7 @@ func TestRouteMissOnboardingNotice(t *testing.T) {
 	}
 
 	loop.SetOnbodClient(&fakeOnbod{})
-	doSetRoutes(t, db, []core.Route{{Match: "chat_jid=telegram:me", Target: "demo#issues"}})
+	doSetRoutes(t, db, []core.Route{{Match: "chat_jid=telegram:me", Target: "demo?issues"}})
 	miss("m1")
 	miss("m2")
 	miss("m3")

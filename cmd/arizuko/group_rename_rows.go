@@ -63,7 +63,7 @@ func renameContains(parent, child string) bool {
 func (mapping renameMap) folder(value string) string {
 	for _, entry := range mapping {
 		if value == entry.Source || strings.HasPrefix(value, entry.Source+"/") ||
-			strings.HasPrefix(value, entry.Source+"#") {
+			strings.HasPrefix(value, entry.Source+"#") || strings.HasPrefix(value, entry.Source+"?") {
 			return entry.Destination + strings.TrimPrefix(value, entry.Source)
 		}
 	}

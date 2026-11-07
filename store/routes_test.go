@@ -112,7 +112,7 @@ func TestRouteByID_RefusesADuplicateIDAndDeletesNothing(t *testing.T) {
 	// Two rules, one id. The lower seq sorts FIRST, which is the one the old code
 	// would have picked and destroyed.
 	early := core.Route{ID: 37, Seq: 0, Target: "main/main", Match: "room=group/5069669817 verb=mention"}
-	late := core.Route{ID: 37, Seq: 31, Target: "atlas/support#observe", Match: "room=group/1003805633088"}
+	late := core.Route{ID: 37, Seq: 31, Target: "atlas/support?observe", Match: "room=group/1003805633088"}
 	for _, r := range []core.Route{early, late} {
 		key, err := routeKey(r)
 		if err != nil {
@@ -153,7 +153,7 @@ func TestAddRoute_NeverMintsAnIDARuleAlreadyHolds(t *testing.T) {
 	s := openMem(t)
 	for _, r := range []core.Route{
 		{ID: 1, Seq: 0, Target: "main/main", Match: "room=group/1"},
-		{ID: 2, Seq: 0, Target: "main/main#observe", Match: "room=group/1"},
+		{ID: 2, Seq: 0, Target: "main/main?observe", Match: "room=group/1"},
 	} {
 		if _, err := s.PutRouteRow(r); err != nil {
 			t.Fatalf("seed %q: %v", r.Target, err)
@@ -187,7 +187,7 @@ func TestReplaceFolderRoutes_MintsAroundHeldIDs(t *testing.T) {
 	ws := &WriteSet{}
 	set := []core.Route{
 		{Seq: 0, Target: "main/main", Match: "room=group/1"},
-		{Seq: 0, Target: "main/main#observe", Match: "room=group/1"},
+		{Seq: 0, Target: "main/main?observe", Match: "room=group/1"},
 	}
 	if err := s.ReplaceFolderRoutesInto(t.Context(), ws, "main", set, "test", "test"); err != nil {
 		t.Fatal(err)

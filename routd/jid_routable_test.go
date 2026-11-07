@@ -19,7 +19,7 @@ func TestJIDRoutableToFolder_MentionOnlySubfolder(t *testing.T) {
 	if _, err := db.AddRoute(core.Route{Seq: 10, Match: "chat_jid=" + jid + " verb=mention", Target: "atlas/support"}); err != nil {
 		t.Fatalf("AddRoute mention: %v", err)
 	}
-	if _, err := db.AddRoute(core.Route{Seq: 100, Match: "chat_jid=slack:*/channel/*", Target: "atlas#observe"}); err != nil {
+	if _, err := db.AddRoute(core.Route{Seq: 100, Match: "chat_jid=slack:*/channel/*", Target: "atlas?observe"}); err != nil {
 		t.Fatalf("AddRoute wildcard: %v", err)
 	}
 

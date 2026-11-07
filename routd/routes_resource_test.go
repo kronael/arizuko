@@ -547,7 +547,7 @@ func TestRouteTargetOwned(t *testing.T) {
 
 // TestRouteContainment_OwnObserveFragment: a route target legally carries an
 // `#observe`/`#announce` fragment, and containment compared the RAW string — so
-// `main/trading` could not manage its own `main/trading#observe` row while the
+// `main/trading` could not manage its own `main/trading?observe` row while the
 // delete SQL and the tool description both treat it as that folder's. sloth and
 // marinade carry 10 such rows (BUGS L82).
 func TestRouteContainment_OwnObserveFragment(t *testing.T) {
@@ -555,12 +555,12 @@ func TestRouteContainment_OwnObserveFragment(t *testing.T) {
 		owner, target string
 		want          bool
 	}{
-		{"main/trading", "main/trading#observe", true},
-		{"main/trading", "main/trading#announce", true},
+		{"main/trading", "main/trading?observe", true},
+		{"main/trading", "main/trading?announce", true},
 		{"main/trading", "main/trading", true},
-		{"main/trading", "main/trading/sub#observe", true},
-		{"main/trading", "main/other#observe", false},
-		{"main/trading", "main#observe", false},
+		{"main/trading", "main/trading/sub?observe", true},
+		{"main/trading", "main/other?observe", false},
+		{"main/trading", "main?observe", false},
 		// A PREFIX is still not a folder — only the fragment comes off.
 		{"main/trading", "folder:main/trading", false},
 	} {

@@ -444,7 +444,7 @@ func TestResolveRouteTarget_BareTrigger(t *testing.T) {
 
 func TestResolveRouteTarget_ObserveFragment(t *testing.T) {
 	routes := []core.Route{
-		{Seq: 0, Match: "room=42", Target: "rhias/nemo#observe"},
+		{Seq: 0, Match: "room=42", Target: "rhias/nemo?observe"},
 	}
 	msg := core.Message{ChatJID: "telegram:42", Verb: "message"}
 	rt := ResolveRouteTarget(msg, routes)
@@ -460,7 +460,7 @@ func TestResolveRouteTarget_ObserveFragment(t *testing.T) {
 func TestResolveRouteTarget_SlothPattern(t *testing.T) {
 	routes := []core.Route{
 		{Seq: -1, Match: "room=42 verb=mention", Target: "main"},
-		{Seq: 0, Match: "room=42", Target: "main#observe"},
+		{Seq: 0, Match: "room=42", Target: "main?observe"},
 	}
 	mention := core.Message{ChatJID: "discord:42", Verb: "mention"}
 	if rt := ResolveRouteTarget(mention, routes); rt.Folder != "main" || rt.Mode != "" {
@@ -482,7 +482,7 @@ func TestResolveRouteTarget_SlothPattern(t *testing.T) {
 func TestResolveRouteTarget_ObserveAboveMentionShadowsIt(t *testing.T) {
 	// Written in the order the store hands them over: seq 1 before seq 2.
 	routes := []core.Route{
-		{Seq: 1, ID: 1, Match: "room=42", Target: "main#observe"},
+		{Seq: 1, ID: 1, Match: "room=42", Target: "main?observe"},
 		{Seq: 2, ID: 2, Match: "room=* verb=mention", Target: "main/main"},
 	}
 	rt := ResolveRouteTarget(core.Message{ChatJID: "discord:42", Verb: "mention"}, routes)
@@ -586,5 +586,17 @@ func TestAtRowSeqOrder(t *testing.T) {
 	after := []core.Route{before[1], before[0]}
 	if got := ResolveRoute(m, after); got != "w/killer" {
 		t.Fatalf("earlier at row lost: %q", got)
+	}
+}
+
+func TestRouteTargetExpandsAfterParsing(t *testing.T) {
+	msg := core.Message{ChatJID: "github:a/b/pr/12?x#y", Sender: "telegram:42", Topic: "native"}
+	rt := ResolveRouteTarget(msg, []core.Route{{Match: "platform=github", Target: "team/{sender}?observe#{jid}"}})
+	if rt.Folder != "team/tg-42" || rt.Mode != "observe" || rt.Topic != msg.ChatJID {
+		t.Fatalf("target = %+v", rt)
+	}
+	rt = ResolveRouteTarget(msg, []core.Route{{Match: "platform=github", Target: "team#{thread}"}})
+	if rt.Topic != "native" {
+		t.Fatalf("thread = %+v", rt)
 	}
 }

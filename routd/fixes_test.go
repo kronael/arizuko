@@ -690,9 +690,9 @@ func TestDeleteGroup_CascadesRoutes(t *testing.T) {
 	_ = db.PutGroup(core.Group{Folder: "atlaswhatever"})
 	doSetRoutes(t, db, []core.Route{
 		{Seq: 0, Match: "room=1", Target: "atlas"},
-		{Seq: 1, Match: "room=2", Target: "atlas#observe"},
+		{Seq: 1, Match: "room=2", Target: "atlas?observe"},
 		{Seq: 2, Match: "room=3", Target: "atlas/support"},
-		{Seq: 3, Match: "room=4", Target: "atlas/support#observe"},
+		{Seq: 3, Match: "room=4", Target: "atlas/support?observe"},
 		{Seq: 4, Match: "room=5", Target: "atlaswhatever"},
 	})
 

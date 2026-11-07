@@ -107,7 +107,7 @@ func GDriveFileRoutes(fileID, folder string) ([]core.Route, error) {
 		return nil, errors.New("folder required")
 	}
 	file := "gdrive:" + fileID
-	observe := folder + "#observe"
+	observe := folder + "?observe"
 	return []core.Route{
 		{Seq: 10, Match: "chat_jid=" + file + "/c/* verb=message", Target: folder},
 		{Seq: 10, Match: "chat_jid=" + file + "/c/* verb=mention", Target: folder},

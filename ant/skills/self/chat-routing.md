@@ -23,13 +23,13 @@ absent; omit the key to not filter on it. Empty `match` matches everything.
 
 ## Modes — this is what decides whether you speak
 
-The `#<mode>` fragment on `target` selects ingestion mode:
+The `?<mode>` query on `target` selects ingestion mode:
 
 | target            | mode    | effect                                                       |
 | ----------------- | ------- | ------------------------------------------------------------ |
 | `atlas/general`   | trigger | stores under the folder **and fires a turn** (you reply)     |
-| `atlas/general#observe` | observe | stores under the folder, **no turn** — you see it as `<observed>` context only |
-| `atlas/general#engaged` | engaged | fires a turn **only while the chat and topic are engaged**, any verb; else stored as `<observed>`; never addressed |
+| `atlas/general?observe` | observe | stores under the folder, **no turn** — you see it as `<observed>` context only |
+| `atlas/general?engaged` | engaged | fires a turn **only while the chat and topic are engaged**, any verb; else stored as `<observed>`; never addressed |
 
 **A bare folder target fires a turn on EVERY matching message.** If you
 want a channel where you only reply when @-mentioned, you do NOT use a
@@ -48,7 +48,7 @@ for a busy channel:
 ```
 seq  match                                  target
 9    chat_jid=slack:W/channel/C verb=mention  atlas/general
-100  chat_jid=slack:W/channel/C               atlas/general#observe
+100  chat_jid=slack:W/channel/C               atlas/general?observe
 ```
 
 The low-seq mention rule wins for mentions and fires a turn; everything
@@ -56,12 +56,12 @@ else falls through to the observe catch-all. **Order matters:** if a bare
 `chat_jid=slack:W/channel/C → atlas/general` sat at a lower seq, it would
 match first and fire on everything, making both rules above dead. For a
 **fully silent** channel (no replies at all, even on mention), use a
-single `#observe` rule and drop the mention row.
+single `?observe` rule and drop the mention row.
 
 ## Read the table — the tools tell you the mode
 
 `list_routes` / `inspect_routing` annotate every row so you don't have to
-parse fragments yourself:
+parse targets yourself:
 
 - `mode`: `trigger` | `observe` | `engaged`
 - `fires_turn`: true/false
@@ -92,7 +92,7 @@ These resolve **before** the route table, in order — keep them in mind
 when a message doesn't land where the table predicts:
 
 1. **Engagement** — an active reply/`engage` window pins the chat to the
-   engaged folder and fires a turn, bypassing routes (even `#observe`), but
+   engaged folder and fires a turn, bypassing routes (even `?observe`), but
    only for a person's `message` or `mention`. A reaction, an edit or a CI
    event follows its route.
 2. **Reply chain** — a reply to your message routes back to the folder

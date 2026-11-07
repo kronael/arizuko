@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"regexp"
 	"strings"
 	"time"
@@ -134,56 +135,47 @@ type TopicLineage struct {
 	ObservedCursor string
 }
 
-// RouteTarget parses `folder`, `folder#observe`, `folder#engaged`, `folder#announce`, `folder#issues` or
-// `folder#<topic>` on routes.target. observe sets Mode (observe-only, no agent turn);
-// engaged sets Mode (a turn only while the chat and topic are engaged, observed
-// otherwise); announce is a no-op for inbound that flags the channel as a
-// release-announcement target for the migrate skill; issues is the same for
-// agent issue notices (the issues skill), meant for private chats. Any other fragment is a topic
-// name pinned for the routed message.
+// RouteTarget holds the parsed route URI.
 type RouteTarget struct {
 	Folder   string
-	Topic    string // when non-empty, route pins this topic on the message
-	Mode     string // "" trigger, "observe" silent ingest, "engaged" trigger only while engaged
-	Announce bool   // #announce: release-note target; inbound-neutral (trigger)
-	Issues   bool   // #issues: issue-notice target; inbound-neutral (trigger)
+	Topic    string
+	HasTopic bool
+	Mode     string
+	Announce bool
+	Issues   bool
 }
 
 func ParseRouteTarget(s string) RouteTarget {
-	before, after, ok := strings.Cut(s, "#")
-	if !ok {
-		return RouteTarget{Folder: s}
+	u, err := url.Parse(s)
+	if err != nil {
+		return RouteTarget{}
 	}
-	frag := after
-	rt := RouteTarget{Folder: before}
-	switch frag {
-	case "observe":
-		rt.Mode = frag
-	case "engaged":
-		rt.Mode = frag
+	rt := RouteTarget{Folder: u.Path, Topic: u.Fragment, HasTopic: strings.Contains(s, "#")}
+	switch u.RawQuery {
+	case "observe", "engaged":
+		rt.Mode = u.RawQuery
 	case "announce":
 		rt.Announce = true
 	case "issues":
 		rt.Issues = true
-	default:
-		rt.Topic = frag
 	}
 	return rt
 }
 
 func (rt RouteTarget) String() string {
-	switch {
-	case rt.Mode != "":
-		return rt.Folder + "#" + rt.Mode
-	case rt.Announce:
-		return rt.Folder + "#announce"
-	case rt.Issues:
-		return rt.Folder + "#issues"
-	case rt.Topic != "":
-		return rt.Folder + "#" + rt.Topic
-	default:
-		return rt.Folder
+	mode := rt.Mode
+	if rt.Announce {
+		mode = "announce"
 	}
+	if rt.Issues {
+		mode = "issues"
+	}
+	u := url.URL{Path: rt.Folder, RawQuery: mode, Fragment: rt.Topic}
+	text := u.String()
+	if rt.HasTopic && rt.Topic == "" {
+		text += "#"
+	}
+	return text
 }
 
 func JidRoom(jid string) string {

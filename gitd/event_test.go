@@ -151,19 +151,19 @@ func TestMapEvent_ObserveVersusTrigger(t *testing.T) {
 	}
 	push := mapFixture(t, store.GitHubSourceRepo, "kronael/arizuko", "push", "push")
 	if got := resolve(routes, push); got.Folder != "eng" || got.Mode != "observe" {
-		t.Errorf("push resolved to %+v, want eng#observe", got)
+		t.Errorf("push resolved to %+v, want eng?observe", got)
 	}
 	merged := mapFixture(t, store.GitHubSourceRepo, "kronael/arizuko", "pull_request", "pull_request_merged")
 	if got := resolve(routes, merged); got.Folder != "eng" || got.Mode != "observe" {
-		t.Errorf("merge resolved to %+v, want eng#observe", got)
+		t.Errorf("merge resolved to %+v, want eng?observe", got)
 	}
 	opened := mapFixture(t, store.GitHubSourceRepo, "kronael/arizuko", "pull_request", "pull_request_opened")
 	if got := resolve(routes, opened); got.Folder != "eng" || got.Mode != "observe" {
-		t.Errorf("unassigned PR opened resolved to %+v, want eng#observe", got)
+		t.Errorf("unassigned PR opened resolved to %+v, want eng?observe", got)
 	}
 	comment := mapFixture(t, store.GitHubSourceRepo, "kronael/arizuko", "issue_comment", "issue_comment_created")
 	if got := resolve(routes, comment); got.Folder != "eng" || got.Mode != "observe" {
-		t.Errorf("comment on an unassigned PR resolved to %+v, want eng#observe", got)
+		t.Errorf("comment on an unassigned PR resolved to %+v, want eng?observe", got)
 	}
 	assignedComment, drop, err := mapEvent(store.GitHubSourceRepo, "kronael/arizuko", "issue_comment", "d",
 		fixture(t, "issue_comment_created_assigned"), fixedNow, botLogin)
@@ -179,7 +179,7 @@ func TestMapEvent_ObserveVersusTrigger(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got := resolve(routes, assignedOpened); got.Folder != "eng" || got.Mode != "observe" {
-		t.Errorf("PR opened assigned to the bot resolved to %+v, want eng#observe", got)
+		t.Errorf("PR opened assigned to the bot resolved to %+v, want eng?observe", got)
 	}
 	named, _, err := mapEvent(store.GitHubSourceRepo, "kronael/arizuko", "issue_comment", "d",
 		body(`"action":"created","issue":{"number":9,"title":"t","pull_request":{}},"comment":{"id":1,"body":"@arizuko-bot look"}`), fixedNow, botLogin)
@@ -191,7 +191,7 @@ func TestMapEvent_ObserveVersusTrigger(t *testing.T) {
 	}
 	ping := mapFixture(t, store.GitHubSourceRepo, "kronael/arizuko", "ping", "ping")
 	if got := resolve(routes, ping); got.Folder != "eng" || got.Mode != "observe" {
-		t.Errorf("ping resolved to %+v, want eng#observe", got)
+		t.Errorf("ping resolved to %+v, want eng?observe", got)
 	}
 }
 

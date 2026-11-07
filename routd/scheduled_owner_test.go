@@ -39,7 +39,7 @@ func TestScheduledFireRunsInOwnerAndAnswersInTaskChat(t *testing.T) {
 	loop := NewLoop(db, rr, LoopConfig{})
 	t.Cleanup(loop.StopQueue)
 	_ = db.PutGroup(core.Group{Folder: "a/b"})
-	doSetRoutes(t, db, []core.Route{{Match: "platform=telegram", Target: "a/b#observe"}})
+	doSetRoutes(t, db, []core.Route{{Match: "platform=telegram", Target: "a/b?observe"}})
 
 	m := apiv1.Message{ID: "sched-t@1", ChatJID: "a/b", ForwardedFrom: nemoChat,
 		Sender: core.ScheduledSender, Content: "Run /nemo skill"}
@@ -66,7 +66,7 @@ func TestScheduledFireRunsInOwnerAndAnswersInTaskChat(t *testing.T) {
 func TestScheduledPromptInObserveChatStartsNoTurn(t *testing.T) {
 	db, loop, runner := newCaptureLoop(t)
 	_ = db.PutGroup(core.Group{Folder: "a/b"})
-	doSetRoutes(t, db, []core.Route{{Match: "platform=telegram", Target: "a/b#observe"}})
+	doSetRoutes(t, db, []core.Route{{Match: "platform=telegram", Target: "a/b?observe"}})
 	m := apiv1.Message{ID: "sched-t@1", ChatJID: nemoChat, Sender: core.ScheduledSender, Content: "Run /nemo skill"}
 	if err := db.PutMessage(buildMessageRow(m, time.Now().UTC(), "message")); err != nil {
 		t.Fatal(err)

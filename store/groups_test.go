@@ -196,7 +196,7 @@ func TestDeleteGroup_CascadesEveryPointerAtomically(t *testing.T) {
 	if _, err := s.PutRouteRow(core.Route{Seq: 0, Match: "room=x", Target: "doomed"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.PutRouteRow(core.Route{Seq: 1, Match: "room=y", Target: "doomed#observe"}); err != nil {
+	if _, err := s.PutRouteRow(core.Route{Seq: 1, Match: "room=y", Target: "doomed?observe"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.PutRouteRow(core.Route{Seq: 2, Match: "room=z", Target: "keeper"}); err != nil {

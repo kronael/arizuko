@@ -18,7 +18,7 @@ func engagedCIRoutes(t *testing.T) []core.Route {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return append([]core.Route{{Seq: 50, Match: "chat_jid=github:kronael/arizuko/pr/* verb=check_run", Target: "eng#engaged"}}, routes...)
+	return append([]core.Route{{Seq: 50, Match: "chat_jid=github:kronael/arizuko/pr/* verb=check_run", Target: "eng?engaged"}}, routes...)
 }
 
 func TestEngagedRoute_ACIRowOnAnEngagedPRFiresAndIsNotAddressed(t *testing.T) {

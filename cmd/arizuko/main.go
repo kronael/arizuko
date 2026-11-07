@@ -487,7 +487,7 @@ func cmdGroup(args []string) {
 			if _, err := s.PutRouteRow(core.Route{
 				Seq:    0,
 				Match:  "room=" + core.JidRoom(jid),
-				Target: folder + "#observe",
+				Target: folder + "?observe",
 			}); err != nil {
 				die("Failed: add route: %v", err)
 			}
