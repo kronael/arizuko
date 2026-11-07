@@ -107,7 +107,7 @@ func TestFeature_ForkContinuity(t *testing.T) {
 		// backlog at the moment a thread was created, so a new thread opened
 		// blind to everything said before it existed (BUGS L87).
 		parentCursor := core.TS(time.Date(2026, 8, 24, 6, 0, 0, 0, time.UTC))
-		if err := f.routdDB.AdvanceObservedCursor("demo", "", parentCursor); err != nil {
+		if err := store.NewOver(f.routdDB.Obj()).AdvanceObservedCursor("demo", "", parentCursor); err != nil {
 			t.Fatalf("seed parent cursor: %v", err)
 		}
 		projDir := transcriptDir(groupsDir, "demo")
@@ -151,7 +151,7 @@ func TestFeature_ForkContinuity(t *testing.T) {
 		if !strings.Contains(string(data), "heron") {
 			t.Fatal("child transcript lost the parent conversation's content")
 		}
-		line, ok := f.routdDB.TopicLineage("demo", "thread-1")
+		line, ok := store.NewOver(f.routdDB.Obj()).TopicLineage("demo", "thread-1")
 		if !ok {
 			t.Fatal("no lineage row for the forked topic")
 		}
@@ -187,7 +187,7 @@ func TestFeature_ForkContinuity(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(transcriptDir(groupsDir, "demo"), childSID+".jsonl")); err == nil {
 			t.Fatalf("a transcript exists for %s though main had no session — where did it come from?", childSID)
 		}
-		line, ok := f.routdDB.TopicLineage("demo", "thread-2")
+		line, ok := store.NewOver(f.routdDB.Obj()).TopicLineage("demo", "thread-2")
 		if !ok {
 			t.Fatal("no lineage row for the forked topic")
 		}
