@@ -44,7 +44,7 @@ fails at once.
 
 ### A scheduled task runs in its owner folder
 
-`timed` posts a task's prompt to the owner folder, not to the task's chat. The
+`routd` posts a task's prompt to the owner folder, not to the task's chat. The
 row addresses the folder directly, so the route table does not apply, and its
 `forwarded_from` is the task's `chat_jid`. The turn runs in the owner, and
 `reply` and `send` deliver to that chat, the same return address a delegation

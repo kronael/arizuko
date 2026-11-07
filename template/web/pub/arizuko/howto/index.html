@@ -63,9 +63,8 @@
 
     <h2 id="install">Create an instance and configure its store</h2>
     <p>Clone the repository. The daemon images, the guest kernel and the agent rootfs build from it. Nothing mounts the checkout at run time, because the image contains the agent code from <code>ant/</code>. <code>make images</code> and <code>make kernel</code> need <code>sudo</code>. <code>./arizuko</code> runs as you.</p>
-    <p>A new instance needs a store and initialized owner tables before the first <code>package add</code>. Run the following commands from the repository as the UID 1000 instance owner. Change <code>demo</code> if that instance exists. The commands refuse to overwrite its directory.</p>
-    <p>The commands build the daemon image and guest artifacts in the new instance. Enter the absolute artifact directories printed by the build when prompted. The bootstrap creates scoped keys and saves the store administrator password in <code>env/store-admin.env</code>. Keep the instance and temporary bootstrap directory private. If a command fails, inspect both directories before retrying.</p>
-    <p>A disposable test ran <code>package add</code> and <code>package sync</code> and restarted the seven services using a separate image and host ports. The test reused read-only guest artifacts. It did not test the release image build, <code>arizuko run</code>, or guest execution.</p>
+    <p>Set up an external shared store before installing packages. Follow the <a href="https://github.com/kronael/arizuko/blob/main/INSTALL.md#share-one-store-server-between-instances">[shared-store setup]</a>. Obtain its reachable HTTPS URL, base64 CA certificate and administrator password.</p>
+    <p>Run the commands as the UID 1000 instance owner. The host and containers must reach the same store URL. The commands enroll daemon keys and initialize owner tables. Image builds and guest execution need separate verification.</p>
     <pre id="twin-install"><code># Run from the repository as the instance owner, with UID 1000.
 set -Eeuo pipefail
 umask 077
@@ -96,7 +95,6 @@ go build -o ./arizuko ./cmd/arizuko
 go build -o "$proof/bin/authd" ./authd
 go build -o "$proof/bin/routd" ./routd/cmd/routd
 go build -o "$proof/bin/onbod" ./onbod
-port=$(freeport)
 env -i PATH=/usr/bin:/bin HOST_APP_DIR="$source_dir" ./arizuko create -i "$flavor" &gt; "$proof/create.log" 2&gt;&amp;1
 sudo make images DATA_DIR="$data"
 sudo make kernel DATA_DIR="$data"
@@ -104,28 +102,17 @@ read -r -p 'Guest kernel directory: ' kernel_dir
 read -r -p 'Guest rootfs directory: ' rootfs_dir
 sudo test -s "$kernel_dir/bzImage" &amp;&amp; sudo test -s "$kernel_dir/initrd.gz"
 [ -d "$rootfs_dir" ]
-store_db_password=$(openssl rand -hex 24); store_app_password=$(openssl rand -hex 24)
-printf 'HOST_APP_DIR=%s\nDYNAMODB_URL=https://extenddb:18443\nAWS_REGION=us-east-1\nSTORE_HOST_PORT=%s\nSTORE_DB_PASSWORD=%s\nSTORE_APP_PASSWORD=%s\n' "$source_dir" "$port" "$store_db_password" "$store_app_password" &gt;&gt; "$data/.env"
-printf 'APP=arizuko\nFLAVOR=%s\nDATA_DIR=%s\nSTORE_HOST_PORT=%s\nSTORE_DB_PASSWORD=%s\nSTORE_APP_PASSWORD=%s\n' "$flavor" "$data" "$port" "$store_db_password" "$store_app_password" &gt; "$proof/compose.env"
-mkdir -p "$data/store/extenddb" "$data/store/extenddb_db"
-sudo chown 1000:1000 "$data/store/extenddb" "$data/store/extenddb_db"
-chmod 711 "$data" "$data/store"
-sudo docker compose -p "$project" --env-file "$proof/compose.env" -f template/services/extenddb/extenddb.yml up -d --wait extenddb_db &gt; "$proof/store-db.log" 2&gt;&amp;1
-export EXTENDDB_PG_PASSWORD="$store_db_password" EXTENDDB_APP_PASSWORD="$store_app_password"
-# Init prints credentials; hold output in memory and write only a private env file.
-init_output=$(sudo --preserve-env=EXTENDDB_PG_PASSWORD,EXTENDDB_APP_PASSWORD docker compose -p "$project" --env-file "$proof/compose.env" -f template/services/extenddb/extenddb.yml run --rm --no-deps -e EXTENDDB_PG_PASSWORD -e EXTENDDB_APP_PASSWORD extenddb init --pg-host extenddb_db --pg-port 5432 --pg-user "arizuko_$flavor" --extenddb-user "arizuko_${flavor}_app" --bind-addr 0.0.0.0 --tls-san extenddb --config /var/lib/extenddb/extenddb.toml 2&gt;/dev/null)
-printf '%s' "$init_output" | python3 -c 'import re,sys; s=sys.stdin.read(); p=re.search(r"Password:\s*([^\s│]+)",s).group(1); a=re.search(r"Account ID:\s*(\d+)",s).group(1); print("EXTENDDB_PASSWORD="+p+"\nSTORE_ACCOUNT_ID="+a)' &gt; "$proof/admin.env"
-unset init_output
-sudo docker compose -p "$project" --env-file "$proof/compose.env" -f template/services/extenddb/extenddb.yml up -d --wait extenddb &gt; "$proof/store-server.log" 2&gt;&amp;1
-set -a; . "$proof/admin.env"; set +a
-container=$(sudo docker compose -p "$project" --env-file "$proof/compose.env" -f template/services/extenddb/extenddb.yml ps -q extenddb)
-sudo --preserve-env=EXTENDDB_PASSWORD docker exec -e EXTENDDB_PASSWORD "$container" extenddb settings -c /var/lib/extenddb/extenddb.toml set control_plane_delay_seconds 0 &gt;/dev/null 2&gt;&amp;1
-sudo cat "$data/store/extenddb/.extenddb/tls/cert.pem" | base64 -w0 &gt; "$proof/ca"
+read -r -p 'Shared store HTTPS URL: ' store_url
+read -r -p 'Shared store CA certificate, base64: ' store_ca
+read -r -s -p 'Shared store administrator password: ' EXTENDDB_PASSWORD
+printf '\n'
+export EXTENDDB_PASSWORD
+printf 'HOST_APP_DIR=%s\nDYNAMODB_URL=%s\nAWS_REGION=us-east-1\nSTORE_CA=%s\n' "$source_dir" "$store_url" "$store_ca" &gt;&gt; "$data/.env"
 printf 'AUTHD_SERVICE_KEY=%s\n' "$(openssl rand -hex 32)" &gt; "$proof/service.env"
-printf 'STORE_CA=%s\nRUNED_KERNEL_DIR=%s\nRUNED_ROOTFS_DIR=%s\n' "$(cat "$proof/ca")" "$kernel_dir" "$rootfs_dir" &gt;&gt; "$data/.env"
+printf 'RUNED_KERNEL_DIR=%s\nRUNED_ROOTFS_DIR=%s\n' "$kernel_dir" "$rootfs_dir" &gt;&gt; "$data/.env"
 mkdir -p "$data/env"
 ./arizuko store enroll -i "$flavor"
-common=(PATH=/usr/bin:/bin HOST_APP_DIR="$source_dir" DYNAMODB_URL="https://127.0.0.1:$port" AWS_REGION=us-east-1 STORE_CA="$(cat "$proof/ca")")
+common=(PATH=/usr/bin:/bin HOST_APP_DIR="$source_dir" DYNAMODB_URL="$store_url" AWS_REGION=us-east-1 STORE_CA="$store_ca")
 health() { local name=$1 hp=$2; for n in $(seq 1 60); do if curl -fsS "http://127.0.0.1:$hp/health" &gt;/dev/null 2&gt;&amp;1; then return 0; fi; kill -0 "$(cat "$proof/$name.pid")" 2&gt;/dev/null || return 1; sleep 1; done; return 1; }
 auth_port=$(freeport); rout_port=$(freeport); onbod_port=$(freeport)
 set -a; . "$data/env/authd.env"; . "$proof/service.env"; set +a
@@ -139,17 +126,16 @@ env -i "${common[@]}" DATA_DIR="$data" AWS_ACCESS_KEY_ID="$AWS_ACCESS_KEY_ID" AW
 health onbod "$onbod_port"
 for name in onbod routd authd; do kill "$(cat "$proof/$name.pid")"; wait "$(cat "$proof/$name.pid")" || true; rm "$proof/$name.pid"; done
 printf 'owner health passed\n'
-# Preserve the one-time admin credentials for later store management.
-cp "$proof/admin.env" "$data/env/store-admin.env"
-env -i PATH=/usr/bin:/bin ./arizuko package add -i "$flavor" catalog:extenddb
+unset EXTENDDB_PASSWORD
 env -i PATH=/usr/bin:/bin ./arizuko package sync -i "$flavor"
 # The instance is new; give its runtime files to the daemon user.
 sudo chown -R 1000:1000 "$data/packages" "$data/groups" "$data/app-src" "$data/surrogate" "$data/web"
 sudo docker compose -p "$project" --project-directory "$data" --env-file "$data/.env" \
-  -f "$data/docker-compose.yml" --profile onbod --profile timed up -d --wait --wait-timeout 120
+  -f "$data/docker-compose.yml" --profile onbod up -d --wait --wait-timeout 120
 sudo docker compose -p "$project" --project-directory "$data" --env-file "$data/.env" \
-  -f "$data/docker-compose.yml" --profile onbod --profile timed ps
-printf 'Private bootstrap files remain in %s; protect or remove them after saving the admin credentials.\n' "$proof"</code></pre>
+  -f "$data/docker-compose.yml" --profile onbod ps
+printf 'Private bootstrap files remain in %s; protect or remove them after inspecting the logs.\n' "$proof"
+</code></pre>
     <p><code>go install github.com/kronael/arizuko/cmd/arizuko@latest</code> installs only the CLI. A full deploy still needs the repository for the images.</p>
     <p><code>make images</code> is the longest step, several minutes on the first run. It builds the daemon images and <code>arizuko-ant:latest</code>, the agent image. Then it exports the guest rootfs into <code>DATA_DIR</code>. <code>make kernel</code> builds the guest kernel once. Without <code>DATA_DIR</code>, <code>make kernel</code> does not start, and <code>make images</code> builds every image and then fails at the rootfs export. <code>arizuko run</code> starts the stack for initial setup. For later deployments, restart the systemd service. For Kubernetes, read <a href="kubernetes.html">Kubernetes</a>.</p>
 
@@ -281,7 +267,7 @@ arizuko apply -i demo rows.yml          # write only the rows in the file</code>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/howto/index.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-11-05">2026-11-05</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-06">2026-11-06</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

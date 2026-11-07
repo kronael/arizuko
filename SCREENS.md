@@ -99,7 +99,6 @@ Identity badge always right-aligned in nav: `{name} ◆` (operator) or
 External pages reached from the dashboard (not served by dashd):
 
 - `/dash/onbod/` — onboarding queue (onbod daemon)
-- `/dash/timed/` — scheduled message queue (timed daemon)
 - `/me/chats` — the conversation list and `+ new chat` (webd daemon). The
   cockpit's `chat` tile and every folder link point here. dashd had its own
   chat portal until it was deleted (BUGS `V2`): it duplicated this page and
@@ -230,7 +229,7 @@ Per daemon (probed concurrently, 500ms timeout):
   `unknown` (DNS failure = container not deployed or local dev)
 - Link to `/dash/{daemon}/` only when `Built=true` AND status is not `unknown`
 
-Current daemon list: `routd`, `runed`, `authd`, `proxyd`, `onbod`, `timed`,
+Current daemon list: `routd`, `runed`, `authd`, `proxyd`, `onbod`,
 `webd`, `davd`. New daemons are added by editing `services.go`.
 
 #### Actions
@@ -252,7 +251,7 @@ Current daemon list: `routd`, `runed`, `authd`, `proxyd`, `onbod`, `timed`,
 #### Built tiles vs. the rest
 
 `/dash/routd/`, `/dash/runed/`, `/dash/authd/` and `/dash/proxyd/` are built;
-onbod, timed, webd and davd are not. A tile with `Built=false` must NOT render
+onbod, webd and davd are not. A tile with `Built=false` must NOT render
 a dead link — it shows the name as plain text plus "(coming soon)".
 
 The flag and the route are maintained in different files, so

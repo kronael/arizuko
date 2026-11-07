@@ -6,7 +6,7 @@ An extension point lets you add an integration. Examples are a channel
 adapter, a speech backend, an oracle skill, a mount for one folder, an
 autocall, a scheduled task and a network egress rule. An extension point does
 not change the system core. The core is routd, runed, authd, store, ipc, auth,
-the grants, proxyd, webd, dashd, timed, onbod, the container runner and
+the grants, proxyd, webd, dashd, onbod, the container runner and
 chanlib/chanreg. The core changes as a unit, through specs and not through
 these points. [ARCHITECTURE.md](ARCHITECTURE.md#core-vs-integrations) explains
 the split, and [its repository map](ARCHITECTURE.md#where-a-change-lands) shows
@@ -25,7 +25,7 @@ where a change lands.
 | Routing rules | `router/`                              | Agent          | MCP tools; `target=<folder>[#mode]` fragment           |
 | Mounts        | `container/`                           | Agent          | Container config                                       |
 | Skills        | `ant/skills/`                          | Agent          | File-based                                             |
-| Tasks         | `timed/`                               | Agent          | IPC actions                                            |
+| Tasks         | `routd/schedule.go`                    | Agent          | IPC actions                                            |
 | Diary         | `diary/`                               | Agent          | File-based                                             |
 | Network rules | `store/network.go`                     | Operator       | CLI + DB rows                                          |
 | Web routes    | `store/web_routes.go`                  | Agent          | MCP tools (`set_web_route` / `del_web_route`)          |
@@ -503,7 +503,7 @@ The route table of `proxyd` comes from two sources. The first is the
 `generate` reads at compose-generate time. The second is a static slice of core
 routes in `compose/compose.go`, see `coreProxydRoutes`. The slice holds the
 surfaces of webd, onbod, davd and dashd, and the `/dash/<daemon>/` page of
-routd, runed, authd, proxyd, onbod, timed and webd. Routes cannot live in the
+routd, runed, authd, proxyd, onbod and webd. Routes cannot live in the
 compose fragment, because `proxyd` is their consumer and Docker is not. A new
 inbound web path is one manifest block and needs no Go edit:
 

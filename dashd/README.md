@@ -103,7 +103,7 @@ wants to open.
 group the ones with behaviour worth stating.
 
 The per-daemon pages are NOT among them: `/dash/routd/`, `/dash/runed/`,
-`/dash/authd/`, `/dash/proxyd/`, `/dash/onbod/`, `/dash/timed/`,
+`/dash/authd/`, `/dash/proxyd/`, `/dash/onbod/`,
 `/dash/webd/`, `/dash/ttsd/` and each channel adapter's page are served by
 their owners. `davd` serves none, `davd/README.md`.
 

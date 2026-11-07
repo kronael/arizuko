@@ -122,25 +122,14 @@ virtualization. A guest without nesting has no `/dev/kvm`.
 git clone https://github.com/kronael/arizuko && cd arizuko
 ```
 
-## Bootstrap a fresh store
+## Connect a fresh instance to a shared store
 
-This procedure creates a new instance and a dedicated store. It requires a
-UID 1000 operator with sudo, Python 3, OpenSSL, curl, Go and Docker Compose.
-Run it from the repository in a Bash shell. Choose a name other than `demo`
-if that instance exists. The command refuses to overwrite its directory.
-
-The commands build the daemon image and guest artifacts in the new instance.
-Enter the two absolute artifact directories printed by the build when prompted. The instance uses
-the image `arizuko:latest`. `arizuko store enroll` creates one scoped store user
-for each daemon that reaches the store, also for a daemon that is not installed,
-and keeps their keys in `env/`. The admin password is in `env/store-admin.env`.
-Keep the instance and the temporary bootstrap directory private. If a command
-fails, inspect the instance and the temporary directory before retrying.
-
-A disposable test initialized the store, ran `package add` and `package sync`, and restarted the
-seven services. The test used a separate image and host ports. It reused
-read-only guest artifacts. It did not test the release image build, `arizuko
-run`, or guest execution.
+Run the external [shared-store setup](#share-one-store-server-between-instances)
+first. Obtain its reachable HTTPS URL, base64 CA certificate and
+administrator password. The host and containers must reach the same URL.
+The commands below enroll scoped daemon keys and initialize owner tables.
+Run them as the UID 1000 instance owner with sudo, Python 3, curl, Go and Docker Compose.
+The image build and guest execution need separate verification.
 
 <!-- twin:install -->
 
@@ -175,7 +164,6 @@ go build -o ./arizuko ./cmd/arizuko
 go build -o "$proof/bin/authd" ./authd
 go build -o "$proof/bin/routd" ./routd/cmd/routd
 go build -o "$proof/bin/onbod" ./onbod
-port=$(freeport)
 env -i PATH=/usr/bin:/bin HOST_APP_DIR="$source_dir" ./arizuko create -i "$flavor" > "$proof/create.log" 2>&1
 sudo make images DATA_DIR="$data"
 sudo make kernel DATA_DIR="$data"
@@ -183,28 +171,17 @@ read -r -p 'Guest kernel directory: ' kernel_dir
 read -r -p 'Guest rootfs directory: ' rootfs_dir
 sudo test -s "$kernel_dir/bzImage" && sudo test -s "$kernel_dir/initrd.gz"
 [ -d "$rootfs_dir" ]
-store_db_password=$(openssl rand -hex 24); store_app_password=$(openssl rand -hex 24)
-printf 'HOST_APP_DIR=%s\nDYNAMODB_URL=https://extenddb:18443\nAWS_REGION=us-east-1\nSTORE_HOST_PORT=%s\nSTORE_DB_PASSWORD=%s\nSTORE_APP_PASSWORD=%s\n' "$source_dir" "$port" "$store_db_password" "$store_app_password" >> "$data/.env"
-printf 'APP=arizuko\nFLAVOR=%s\nDATA_DIR=%s\nSTORE_HOST_PORT=%s\nSTORE_DB_PASSWORD=%s\nSTORE_APP_PASSWORD=%s\n' "$flavor" "$data" "$port" "$store_db_password" "$store_app_password" > "$proof/compose.env"
-mkdir -p "$data/store/extenddb" "$data/store/extenddb_db"
-sudo chown 1000:1000 "$data/store/extenddb" "$data/store/extenddb_db"
-chmod 711 "$data" "$data/store"
-sudo docker compose -p "$project" --env-file "$proof/compose.env" -f template/services/extenddb/extenddb.yml up -d --wait extenddb_db > "$proof/store-db.log" 2>&1
-export EXTENDDB_PG_PASSWORD="$store_db_password" EXTENDDB_APP_PASSWORD="$store_app_password"
-# Init prints credentials; hold output in memory and write only a private env file.
-init_output=$(sudo --preserve-env=EXTENDDB_PG_PASSWORD,EXTENDDB_APP_PASSWORD docker compose -p "$project" --env-file "$proof/compose.env" -f template/services/extenddb/extenddb.yml run --rm --no-deps -e EXTENDDB_PG_PASSWORD -e EXTENDDB_APP_PASSWORD extenddb init --pg-host extenddb_db --pg-port 5432 --pg-user "arizuko_$flavor" --extenddb-user "arizuko_${flavor}_app" --bind-addr 0.0.0.0 --tls-san extenddb --config /var/lib/extenddb/extenddb.toml 2>/dev/null)
-printf '%s' "$init_output" | python3 -c 'import re,sys; s=sys.stdin.read(); p=re.search(r"Password:\s*([^\s│]+)",s).group(1); a=re.search(r"Account ID:\s*(\d+)",s).group(1); print("EXTENDDB_PASSWORD="+p+"\nSTORE_ACCOUNT_ID="+a)' > "$proof/admin.env"
-unset init_output
-sudo docker compose -p "$project" --env-file "$proof/compose.env" -f template/services/extenddb/extenddb.yml up -d --wait extenddb > "$proof/store-server.log" 2>&1
-set -a; . "$proof/admin.env"; set +a
-container=$(sudo docker compose -p "$project" --env-file "$proof/compose.env" -f template/services/extenddb/extenddb.yml ps -q extenddb)
-sudo --preserve-env=EXTENDDB_PASSWORD docker exec -e EXTENDDB_PASSWORD "$container" extenddb settings -c /var/lib/extenddb/extenddb.toml set control_plane_delay_seconds 0 >/dev/null 2>&1
-sudo cat "$data/store/extenddb/.extenddb/tls/cert.pem" | base64 -w0 > "$proof/ca"
+read -r -p 'Shared store HTTPS URL: ' store_url
+read -r -p 'Shared store CA certificate, base64: ' store_ca
+read -r -s -p 'Shared store administrator password: ' EXTENDDB_PASSWORD
+printf '\n'
+export EXTENDDB_PASSWORD
+printf 'HOST_APP_DIR=%s\nDYNAMODB_URL=%s\nAWS_REGION=us-east-1\nSTORE_CA=%s\n' "$source_dir" "$store_url" "$store_ca" >> "$data/.env"
 printf 'AUTHD_SERVICE_KEY=%s\n' "$(openssl rand -hex 32)" > "$proof/service.env"
-printf 'STORE_CA=%s\nRUNED_KERNEL_DIR=%s\nRUNED_ROOTFS_DIR=%s\n' "$(cat "$proof/ca")" "$kernel_dir" "$rootfs_dir" >> "$data/.env"
+printf 'RUNED_KERNEL_DIR=%s\nRUNED_ROOTFS_DIR=%s\n' "$kernel_dir" "$rootfs_dir" >> "$data/.env"
 mkdir -p "$data/env"
 ./arizuko store enroll -i "$flavor"
-common=(PATH=/usr/bin:/bin HOST_APP_DIR="$source_dir" DYNAMODB_URL="https://127.0.0.1:$port" AWS_REGION=us-east-1 STORE_CA="$(cat "$proof/ca")")
+common=(PATH=/usr/bin:/bin HOST_APP_DIR="$source_dir" DYNAMODB_URL="$store_url" AWS_REGION=us-east-1 STORE_CA="$store_ca")
 health() { local name=$1 hp=$2; for n in $(seq 1 60); do if curl -fsS "http://127.0.0.1:$hp/health" >/dev/null 2>&1; then return 0; fi; kill -0 "$(cat "$proof/$name.pid")" 2>/dev/null || return 1; sleep 1; done; return 1; }
 auth_port=$(freeport); rout_port=$(freeport); onbod_port=$(freeport)
 set -a; . "$data/env/authd.env"; . "$proof/service.env"; set +a
@@ -218,17 +195,15 @@ env -i "${common[@]}" DATA_DIR="$data" AWS_ACCESS_KEY_ID="$AWS_ACCESS_KEY_ID" AW
 health onbod "$onbod_port"
 for name in onbod routd authd; do kill "$(cat "$proof/$name.pid")"; wait "$(cat "$proof/$name.pid")" || true; rm "$proof/$name.pid"; done
 printf 'owner health passed\n'
-# Preserve the one-time admin credentials for later store management.
-cp "$proof/admin.env" "$data/env/store-admin.env"
-env -i PATH=/usr/bin:/bin ./arizuko package add -i "$flavor" catalog:extenddb
+unset EXTENDDB_PASSWORD
 env -i PATH=/usr/bin:/bin ./arizuko package sync -i "$flavor"
 # The instance is new; give its runtime files to the daemon user.
 sudo chown -R 1000:1000 "$data/packages" "$data/groups" "$data/app-src" "$data/surrogate" "$data/web"
 sudo docker compose -p "$project" --project-directory "$data" --env-file "$data/.env" \
-  -f "$data/docker-compose.yml" --profile onbod --profile timed up -d --wait --wait-timeout 120
+  -f "$data/docker-compose.yml" --profile onbod up -d --wait --wait-timeout 120
 sudo docker compose -p "$project" --project-directory "$data" --env-file "$data/.env" \
-  -f "$data/docker-compose.yml" --profile onbod --profile timed ps
-printf 'Private bootstrap files remain in %s; protect or remove them after saving the admin credentials.\n' "$proof"
+  -f "$data/docker-compose.yml" --profile onbod ps
+printf 'Private bootstrap files remain in %s; protect or remove them after inspecting the logs.\n' "$proof"
 ```
 
 <!-- /twin -->
@@ -358,7 +333,6 @@ test names the policy to rewrite.
 | `runed`       | `runed.*`                       |
 | `slakd`       | `routd.*`, `slakd.*`            |
 | `teled`       | `teled.*`                       |
-| `timed`       | none                            |
 | `ttsd`        | none                            |
 | `webd`        | `routd.*`                       |
 
@@ -366,8 +340,7 @@ Three rows need care:
 
 - `gitd`, `googd` and `slakd` open the tables of routd directly, see `gitd/main.go`, `googd/main.go` and `slakd/main.go`. A policy with only their own prefix lets them
   authenticate and then read nothing.
-- `timed` needs no key. It writes through the HTTP interface of the owner with
-  a service token. `ttsd` opens no store.
+- `ttsd` opens no store.
 - `cmd/arizuko` is the operator command on the host. Its key goes in
   `env/operator.env`, not in the file of a daemon.
 
@@ -453,33 +426,16 @@ stayed on `activating`, see BUGS `L406`.
 `arizuko generate` logs an ERROR line for every such daemon before you deploy:
 `store enrolment is partial: these daemons reach the store and hold no key`.
 Then it continues and writes the compose file. Read that line before you
-restart. Every daemon in the table except `timed` and `ttsd` needs a key.
+restart. Every daemon in the table except `ttsd` needs a key.
 
-The server requires TLS and refuses to start without it. Every daemon therefore
-needs the certificate that the `init` run made:
-
-```bash
-echo "STORE_CA=$(sudo base64 -w0 store/extenddb/.extenddb/tls/cert.pem)" | sudo tee -a .env
-echo 'DYNAMODB_URL=https://extenddb:18443' | sudo tee -a .env
-./arizuko generate -i <name>
-```
-
-`DYNAMODB_URL` names the server that every daemon opens its tables on. A daemon
-without it refuses to start and says so.
-
-`generate` also writes the address of the server as the host sees it into
-`env/operator.env`. The `arizuko` command on the host reads that address,
-because the service name `extenddb` resolves only inside the instance network.
-The published port is 18443 by default, and two instances cannot share it. A
-second instance on the same host must set `STORE_HOST_PORT` in its `.env`
-first. Never edit `template/services/extenddb.yml`. `generate` never updates an
-edited fragment again, so the fragment stops taking store changes.
+The server requires TLS. Set `DYNAMODB_URL` to the external server's HTTPS
+address and `STORE_CA` to its base64 CA certificate. Both the host CLI and
+containers must reach that address. See the shared-store setup below.
 
 ### Share one store server between instances
 
-One server and one PostgreSQL pair for each instance wastes resources when a
-host runs more than two instances. The account is already the tenant boundary,
-so a shared server costs no isolation.
+Instances use an external shared store. Each account is a tenant boundary.
+The instance deployment does not provision the server.
 
 A shared PostgreSQL usually withholds `CREATEDB`. `init` needs that right only
 to create the two databases. `init` also refuses to run when the databases

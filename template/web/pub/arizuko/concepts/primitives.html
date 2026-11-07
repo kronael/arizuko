@@ -86,7 +86,7 @@
         <dd>The one inbox. A chat message, a webhook POST, an inbound email, a
           scheduled tick and a reaction each land as one row in
           <code>messages</code>. The channel adapters, <code>emaid</code>, the
-          webhooks and <code>timed</code> are event sources that write
+          webhooks and the routd task ticker are event sources that write
           rows.</dd>
         <dt>Routing</dt>
         <dd>Event to folder. One route table, where the first match wins, with
@@ -172,7 +172,7 @@
         <tbody>
           <tr><td>Primitives</td><td>concepts that do not change</td><td>Event, Routing, Agent, Authorization, Turn, State, and Identity as the coordinate system</td></tr>
           <tr><td>Components</td><td>Go packages</td><td><code>store</code>, <code>router</code>, <code>auth</code>, <code>ipc</code>, <code>runed</code>, <code>groupfolder</code></td></tr>
-          <tr><td>Daemons</td><td>deployable processes</td><td>the core <code>authd</code>, <code>routd</code> and <code>runed</code>, and others such as <code>webd</code>, <code>timed</code> and <code>slakd</code></td></tr>
+          <tr><td>Daemons</td><td>deployable processes</td><td>the core <code>authd</code>, <code>routd</code> and <code>runed</code>, and others such as <code>webd</code> and <code>slakd</code></td></tr>
           <tr><td>Products</td><td>installable agents</td><td><a href="../products/slack-team/">Slack team agent</a>, <a href="../products/reality/">reality agent</a>, company brain</td></tr>
         </tbody>
       </table>

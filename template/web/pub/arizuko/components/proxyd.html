@@ -35,10 +35,8 @@
             <li><a href="runed.html">runed</a></li>
             <li><a href="slakd.html">slakd</a></li>
             <li><a href="teled.html">teled</a></li>
-            <li><a href="timed.html">timed</a></li>
             <li><a href="tokens.html">route tokens</a></li>
             <li><a href="ttsd.html">ttsd</a></li>
-            <li><a href="vited.html">vited</a></li>
             <li><a href="webd.html">webd</a></li>
             <li><a href="whapd.html">whapd</a></li>
           </ul>
@@ -84,8 +82,8 @@
 │ hard-wired paths ├──►/                mapped host? 302 /pub/W/
 │                  │                    else 302 /pub/
 │                  │   /pub/*           web_routes longest prefix:
-│                  │                    redirect, deny, auth or vited
-│                  │   /priv/*          requireAuth, MatchSlot, vited
+│                  │                    redirect, deny, auth or local files
+│                  │   /priv/*          requireAuth, MatchSlot, local files
 └────────┬─────────┘
          ▼ one snapshot of proxyd_routes per request
 ┌──────────────────┐   /dav/*           requireAuth, davAllow, davd
@@ -121,8 +119,13 @@ requireAuth
 
     <p><code>/chat/*</code> and <code>/hook/*</code> are plain rows with <code>auth: optional</code>. proxyd stamps your identity if your bearer is valid and forwards you anonymously if not. In both cases it attaches its own <code>service:proxyd</code> bearer. webd resolves the token and applies the rate limits. <code>/dav/*</code> requires auth, limits the path to a group you belong to, and blocks writes to <code>.env</code>, <code>*.pem</code>, <code>.git</code> and everything under <code>&lt;group&gt;/logs/</code>.</p>
 
-    <h2>Three web daemons follow one rule</h2>
-    <p>The web side is three unrelated programs. proxyd is the Go part. davd is <code>dufs</code> plus <code>wget</code> for its healthcheck, and vited serves files. Neither carries arizuko Go code, and you could replace either. You cannot replace the rule that all three follow. Every web URL is scoped by the same folder and the same <code>acl</code> rows as the agent. proxyd exists to enforce that rule.</p>
+    <h2>proxyd serves files from a read-only web tree</h2>
+    <p>The web tree is <code>&lt;DATA_DIR&gt;/web</code>. Compose mounts the tree read-only. Directory requests serve <code>index.html</code>; bare directory paths return 301 with the query preserved. Missing files return 404.</p>
+    <p>The file handler denies <code>.env</code>, <code>.env.*</code>, <code>*.db</code> and <code>.git</code> at every depth, including symlink targets. Links stay inside the authorized tree. Private files require the caller's folder grants.</p>
+    <p>A fresh request sees file changes. The server provides no watcher, injected client or automatic browser reload.</p>
+
+    <h2>Web serving follows the folder grants</h2>
+    <p>proxyd serves the static web tree. davd serves WebDAV through <code>dufs</code>. Every web URL is scoped by the same folder and the same <code>acl</code> rows as the agent. proxyd exists to enforce that rule.</p>
 
     <h2>proxyd runs alone with a store, an authd and one route</h2>
     <p>proxyd needs three things to run alone. It needs a store with the route table, <code>web_routes</code> and <code>acl</code>. It needs an <code>authd</code> to log users in and sign tokens. It needs at least one row in <code>proxyd_routes</code>, which <code>arizuko generate</code> writes or a post to <code>/v1/proxyd_routes</code> adds.</p>
@@ -172,7 +175,7 @@ export AUTHD_SERVICE_KEY=$(openssl rand -hex 32)
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/components/proxyd.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-28">2026-10-28</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-07">2026-11-07</time>
       </div>
     </main>
 

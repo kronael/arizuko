@@ -212,9 +212,9 @@ secret:
   secret.rotate          (future) — explicit rotation, separate from set
 
 scheduler:
-  task.fire              timed/main.go scheduled_tasks → 'firing'
-  task.complete          timed/main.go set status='completed' or 'active' (recurring)
-  task.error             timed/main.go set errored
+  task.fire              store.DueTasks scheduled_tasks → 'firing'
+  task.complete          store.RescheduleTask set status='completed' or 'active' (recurring)
+  task.error             routd.fireTasks enqueue error
 ```
 
 ## Master event list
@@ -282,9 +282,9 @@ will drift; the function name is the anchor).
 | secret    | secret.set          | `store.SetSecret`                                                                                 | `secrets/<scope>/<key>` | operator     | secret CRUD                                              |
 | secret    | secret.delete       | `store.DeleteSecret`                                                                              | `secrets/<scope>/<key>` | operator     | secret CRUD                                              |
 | secret    | secret.read         | routd broker resolve (`store.LogSecretUse`) / `dashd/me_secrets.go`                               | `secrets/<scope>/<key>` | agent/user   | high-frequency, high-value                               |
-| scheduler | task.fire           | `timed/main.go` SET status='firing'                                                               | `scheduled_tasks/<id>`  | cron         | per-fire row                                             |
-| scheduler | task.complete       | `timed/main.go` SET status IN ('active','completed')                                              | `scheduled_tasks/<id>`  | cron         | per-fire result                                          |
-| scheduler | task.error          | `timed/main.go` error path                                                                        | `scheduled_tasks/<id>`  | cron         | failed fires                                             |
+| scheduler | task.fire           | `store.DueTasks` claims due tasks                                                                 | `scheduled_tasks/<id>`  | cron         | per-fire row                                             |
+| scheduler | task.complete       | `store.RescheduleTask` advances task state                                                        | `scheduled_tasks/<id>`  | cron         | per-fire result                                          |
+| scheduler | task.error          | `routd.fireTasks` enqueue error path                                                              | `scheduled_tasks/<id>`  | cron         | failed fires                                             |
 
 **Count: 60 distinct events** (covers the ≥40 floor). Counted from the
 table above, which had drifted past the stated 53 before runed's rows

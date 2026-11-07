@@ -44,7 +44,7 @@ go test ./routd/...
 | `make test`                        | `go test ./... -count=1 -short -timeout 1800s`, the `kernel/guest-init` module, `tests/artifact_cache_test.sh`, `kernel/check-config_test.sh` | yes |
 | `make test-e2e`                    | `go test ./webd/... -run E2E`; fails when the selector matches no test                                                                        | yes |
 | `make integration`                 | `./tests/...`, `./objstore/dynstore/...`, `./tests/dynamo/...` without `-short`                                                               | no  |
-| `make test-race`                   | `-race` on runed, timed, routd, store, authd and objstore                                                                                     | no  |
+| `make test-race`                   | `-race` on runed, routd, store, authd and objstore                                                                                            | no  |
 | `make play`                        | the Playwright suite in `tests/dashd-playwright/`                                                                                             | no  |
 | `make smoke SMOKE_INSTANCE=<name>` | the `smoke` build tag against a deployed instance                                                                                             | no  |
 

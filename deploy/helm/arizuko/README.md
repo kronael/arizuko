@@ -1,8 +1,8 @@
 # arizuko Helm chart
 
 The topology `compose/compose.go` generates, on Kubernetes: `authd`, `routd`
-and `runed`, the web plane (`proxyd`, `webd`, `vited`), the operator daemons
-(`dashd`, `onbod`, `timed`, `davd`) and a values-driven set of channel
+and `runed`, the web plane (`proxyd`, `webd`), the operator daemons
+(`dashd`, `onbod`, `davd`) and a values-driven set of channel
 adapters — one Deployment + Service + Secret each. One release is one
 instance. Every daemon listens on `:8080` inside its container.
 
@@ -28,9 +28,7 @@ instance. Every daemon listens on `:8080` inside its container.
 | `routd.yaml`    | routd                         | Router: conversation state, group tree, one MCP socket per turn                          | whole                   | `routdService`              |
 | `runed.yaml`    | runed                         | Execution plane: one KVM guest per turn                                                  | whole + `/dev/*`        | `runedService`              |
 | `webd.yaml`     | webd                          | Chat widget, panel, `/api`, `/me`                                                        | none                    | `webdService`               |
-| `proxyd.yaml`   | proxyd                        | Public reverse proxy + auth gate; the Ingress target                                     | none                    | `proxydService`             |
-| `vited.yaml`    | vited                         | Static `/pub` + `/priv` tree                                                             | `web/`, read-only       | `vitedService`              |
-| `timed.yaml`    | timed                         | Scheduled messages                                                                       | none                    | `timedService`              |
+| `proxyd.yaml`   | proxyd                        | Public reverse proxy, auth gate and static files; the Ingress target                     | `web/`, read-only       | `proxydService`             |
 | `dashd.yaml`    | dashd                         | Operator dashboard (`/dash`)                                                             | `groups/`, `surrogate/` | `dashdService`              |
 | `onbod.yaml`    | onbod                         | Onboarding / admission queue (`/onboard`)                                                | `groups/`, `web/`       | `onbodService`              |
 | `davd.yaml`     | davd                          | WebDAV over `groups/` (`/dav`)                                                           | `groups/`               | `davdService`               |
@@ -44,9 +42,8 @@ reads it), `pvc.yaml`, `serviceaccount.yaml`, `ingress.yaml` (optional).
 
 Every daemon's owner tables live on one DynamoDB-protocol server, reached at
 `DYNAMODB_URL`; no daemon opens a database file. **The chart runs no store.**
-`store.url` names one you run: the `extenddb` pair from
-`template/services/extenddb.yml` (ExtendDB over PostgreSQL), a PostgreSQL in
-another cluster, or Amazon DynamoDB. The daemons speak one protocol and never
+`store.url` names an external server: shared ExtendDB over PostgreSQL or Amazon DynamoDB.
+See [INSTALL.md](../../../INSTALL.md#share-one-store-server-between-instances). The daemons speak one protocol and never
 learn which is behind it.
 
 Two things about it are one-time runs by hand, not chart steps:
@@ -58,8 +55,7 @@ Two things about it are one-time runs by hand, not chart steps:
   Each key pair goes into `secrets.daemons.<daemon>.storeKeyId` /
   `.storeSecret`, so every daemon signs as itself.
 - Which daemons hold a key is `store.StoreReach` (`store/owner_reach.go`):
-  every daemon the chart runs except `timed`, which writes through routd's
-  HTTP API, and `davd`/`vited`, which are not arizuko binaries.
+  only daemons listed there need a key. `davd` runs dufs and holds no store key.
 
 ## The data volume
 
@@ -73,7 +69,7 @@ files and media.
 It is one volume on one node because the per-turn socket under `ipc/` is an
 inode routd and runed must both see. That is why `routd` and `runed` run one
 replica each with `strategy: Recreate`, and why every pod that mounts the
-volume (routd, runed, onbod, dashd, davd, vited) follows the same `nodeName`
+volume (routd, runed, onbod, dashd, davd, proxyd) follows the same `nodeName`
 or `nodeSelector`. Seed it once with `arizuko create` before the first start;
 that is not a per-rollout step.
 
@@ -158,7 +154,7 @@ helm install arizuko deploy/helm/arizuko \
 
 `my-values.yaml` carries § Values you must set; `ci/lint-values.yaml` shows
 the shape with placeholders. The images (`make images`) must be reachable
-from the node: `arizuko`, `arizuko-vite`, and `arizuko-davd` if WebDAV is on.
+from the node: `arizuko` and `arizuko-davd` if WebDAV is on.
 The agent image is not pulled by any pod — `make rootfs` exports it into
 `runed.rootfsDir` on the volume.
 

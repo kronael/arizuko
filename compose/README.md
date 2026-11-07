@@ -15,7 +15,6 @@ proxyd's route table and the egress name derivations.
 .env feature flags                     activeProfiles, compose.go:736
 WEB_PORT set ────────────────────────► web
 WEB_PORT set, WEBDAV_ENABLED=true ───► davd, unset counts as true
-always ──────────────────────────────► timed
 ONBOARDING_ENABLED=true ─────────────► onbod
                     │
                     │ writeManagedEnv
@@ -29,8 +28,8 @@ ONBOARDING_ENABLED=true ─────────────► onbod
 ┌──────────────────────────────────────────────────────┐
 │ docker-compose.yml, every stanza always emitted      │
 │ authd routd runed        no profile: always up       │
-│ webd proxyd vited dashd  profile web                 │
-│ timed, onbod, davd       a profile of its own name   │
+│ webd proxyd dashd        profile web                 │
+│ onbod, davd              a profile of its own name   │
 │ include: ./services/<name>.yml, one per fragment     │
 │                          no profile: present = up    │
 └──────────────────────────┬───────────────────────────┘
@@ -42,9 +41,9 @@ containers <app>_<service>_<flavor>, e.g. arizuko_teled_krons
 `Generate` writes every core stanza on every run, and `profiles:` decides
 what docker starts (`writeSvc`, `compose.go:1135`). No Go conditional gates
 an optional daemon. `authd`, `routd` and `runed` carry no profile, because
-they are the three planes and always run. `webd`, `proxyd`, `vited` and
+they are the three planes and always run. `webd`, `proxyd` and
 `dashd` share the `web` profile, because compose rejects a `depends_on` into
-an inactive profile. `timed`, `onbod` and `davd` take their profile inline
+an inactive profile. `onbod` and `davd` take their profile inline
 from `compose.go`: they are core daemons, not includable packages.
 
 `COMPOSE_PROFILES` is the single gate. A feature is off because its daemon
@@ -95,7 +94,7 @@ lines untouched:
 APP=arizuko
 FLAVOR=krons
 DATA_DIR=/srv/data/arizuko_krons
-COMPOSE_PROFILES=davd,onbod,timed,web
+COMPOSE_PROFILES=davd,onbod,web
 # --- end compose-managed ---
 ```
 

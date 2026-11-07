@@ -46,7 +46,7 @@ https://krons.fiu.wtf/pub/arizuko/.
   of you across restarts.
 - One agent across several channels at once. Slack, Discord, email, WhatsApp
   and web chat all feed the same store.
-- Scheduled work. `timed` fires a turn on a cron schedule; no webhook needed.
+- Scheduled work. `routd` fires a turn on a cron schedule; no webhook needed.
 - An email or webhook agent. `emaid` reads IMAP and checks DMARC; any caller
   can POST to `/hook/<token>`.
 - Search over your own documents. Mount a tree over WebDAV (`davd`) and the
