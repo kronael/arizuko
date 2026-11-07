@@ -83,8 +83,10 @@
     </dl>
     <p>When the turn ends, arizuko deletes the line: Telegram, Discord, WhatsApp, Slack and the web chat all do so. Nothing of the progress stays above the answer. A channel that cannot both edit and delete shows no progress line.</p>
 
-    <h2>A hook posts the plan, not the model</h2>
-    <p>The agent plans with the <code>TodoWrite</code> tool. A hook of the harness renders each change of the list into the same editable checklist. A <code>&lt;status&gt;</code> block updates the line for work that has no task list. After a long run with no report, the agent gets one reminder to say what the user gets next, and only where a line can show.</p>
+    <h2>Claude tasks and Codex plans share one checklist</h2>
+    <p>Claude uses its task tools or <code>TodoWrite</code>; Codex uses <code>update_plan</code>. Hooks send the parent agent's native snapshots to <code>routd</code>, which keeps the checklist and renders its text. Child-agent calls do not change it. An active checklist owns the progress line; <code>&lt;status&gt;</code> text cannot overwrite it.</p>
+    <p>A turn without a checklist gets one planning reminder after eight parent tool completions or 180 seconds, whichever comes first. This also applies to silent tasks and channels without a progress display. Clearing a checklist shows &ldquo;No remaining tasks&rdquo; and suppresses the reminder for the rest of the turn.</p>
+    <p>Updates coalesce within five seconds. Each message stays below 2,000 UTF-8 bytes; a long checklist keeps the current task visible and reports how many tasks were omitted.</p>
 
     <h2>Later updates edit the first message</h2>
     <p>The first progress update sends the checklist, and every later update edits it. The stored message rows keep the identity of the checklist, so a restart of <code>routd</code> in the middle of a long turn does not lose it.</p>
@@ -100,15 +102,15 @@
     <h2>The checklist never counts as the answer</h2>
     <p>The checklist promises an answer, and it is not that answer. The agent delivers the answer with an explicit tool, such as <code>reply</code>. The terminal text of the agent stays in its transcript. If an addressed turn, or a turn that reported work, ends without a delivery, the agent gets one prompt. If the agent stays silent, a failure notice arrives in the same thread.</p>
 
-    <h2>Short plans and turns without a plan send no checklist</h2>
+    <h2>A checklist appears when the agent makes a plan</h2>
     <ul>
-      <li>A plan with one step sends no checklist, because a one-item list is noise. A plan with two or more items gets a live message.</li>
+      <li>A plan with one or more steps gets a live checklist on a channel that can edit and delete it.</li>
       <li>An agent that answers without a plan sends no checklist. Short turns do not need a plan and do not make one.</li>
     </ul>
     <p>A simple reply needs neither a summary nor a checklist.</p>
 
     <h2>The code that renders the checklist</h2>
-    <p>The hook that renders the list is in <a href="https://github.com/kronael/arizuko/blob/main/ant/src/todo-status.ts">[ant/src/todo-status.ts]</a>. The code that creates or edits the message, and the end-of-turn mark, are in <a href="https://github.com/kronael/arizuko/blob/main/routd/progress.go">[routd/progress.go]</a>. <a href="retries.html">retries</a> explains what happens when the turn stops before it finishes the list.</p>
+    <p>The shared checklist reducer is in <a href="https://github.com/kronael/arizuko/blob/main/routd/progress_reducer.go">[routd/progress_reducer.go]</a>. The renderer and message lifecycle are in <a href="https://github.com/kronael/arizuko/blob/main/routd/progress.go">[routd/progress.go]</a>. <a href="retries.html">retries</a> explains what happens when the turn stops before it finishes the list.</p>
 
       <nav class="docs-pager" aria-label="Pager">
         <a rel="prev" href="topics.html">&larr; Topics</a>
@@ -116,7 +118,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/concepts/progress.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-24">2026-10-24</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-03">2026-11-03</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

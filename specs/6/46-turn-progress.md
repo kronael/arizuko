@@ -25,7 +25,6 @@ D1 and D2 define rendering; D3 is declined.
 
 ## Remaining
 
-- Update the operator description for Claude tasks, Codex plans, the shared reducer and the planless-turn reminder (`template/web/pub/arizuko/concepts/progress.html`).
 - Build the agent image containing the progress skill and native hooks (`Makefile`, `ant/Dockerfile`).
 - Measure addressed Claude and Codex turns on krons through Telegram, Discord and web, including platform IDs, coalescing, deletion and reconnect; check GitHub and silent tasks separately (`anteval/cases/anteval.toml`).
 - Measure checklist adoption on the declared closed-parent-turn sample, including reminder delivery and explained omissions (`ant/skills/progress/SKILL.md`).
