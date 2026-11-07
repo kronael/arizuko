@@ -117,11 +117,7 @@ export function _resetStartTimes(): void {
 }
 
 function emit(line: ToolLogLine): void {
-  try {
-    console.error(`[ant] [tool] ${JSON.stringify(line)}`);
-  } catch {
-    // Never let logging crash a tool call.
-  }
+  console.error(`[ant] [tool] ${JSON.stringify(line)}`);
 }
 
 export function toolLogPre(ev: ToolEvent): Verdict {

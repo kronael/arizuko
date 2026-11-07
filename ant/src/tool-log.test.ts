@@ -8,9 +8,24 @@ import {
   summarizeArgs,
   recordStart,
   _resetStartTimes,
+  toolLogPre,
+  toolLogPost,
 } from './tool-log.js';
+import type { ToolEvent } from './policy.js';
 
 beforeEach(() => { _resetStartTimes(); });
+
+test('logging failure allows pre and post hooks', () => {
+  const ev: ToolEvent = { hook_event_name: 'PreToolUse', tool_name: 'Read', tool_input: {}, tool_use_id: 'id', session_id: 'session' };
+  const original = console.error;
+  console.error = () => { throw new Error('output failed'); };
+  try {
+    expect(toolLogPre(ev)).toEqual({ kind: 'allow' });
+    expect(toolLogPost(ev)).toEqual({ kind: 'allow' });
+  } finally {
+    console.error = original;
+  }
+});
 
 test('summarizeArgs: Bash truncates command to 200 chars', () => {
   const cmd = 'echo ' + 'A'.repeat(500);
