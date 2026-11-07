@@ -74,6 +74,21 @@ func TestProgress_ReducerLifecycle(t *testing.T) {
 	if _, ok := apply("claude", bad); ok {
 		t.Fatal("malformed snapshot published")
 	}
+	for _, tc := range []struct{ name, item string }{
+		{"missing label", `{"status":"pending"}`},
+		{"missing status", `{"content":"bad"}`},
+		{"invalid status", `{"content":"bad","status":"invalid"}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			before, _ := json.Marshal(progress.sources)
+			raw := `{"hook_event_name":"PostToolUse","tool_name":"TodoWrite","session_id":"s","tool_use_id":"` + tc.name + `","tool_input":{"todos":[` + tc.item + `]}}`
+			_, ok := apply("claude", raw)
+			after, _ := json.Marshal(progress.sources)
+			if ok || string(after) != string(before) {
+				t.Fatalf("malformed snapshot changed progress: %s", after)
+			}
+		})
+	}
 	child := `{"hook_event_name":"PostToolUse","tool_name":"TodoWrite","agent_id":"child","session_id":"s","tool_use_id":"5","tool_input":{"todos":[]}}`
 	if _, ok := apply("claude", child); ok {
 		t.Fatal("child snapshot published")
