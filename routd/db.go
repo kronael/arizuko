@@ -378,12 +378,6 @@ func (d *DB) SetChatIsGroup(chatJID string, isGroup bool) error {
 	return d.store().SetChatIsGroup(chatJID, isGroup)
 }
 
-// ChatIsGroup reads the multi-party flag for a chat; unknown chats are false.
-func (d *DB) ChatIsGroup(chatJID string) bool {
-	is, err := d.store().ChatIsGroup(chatJID)
-	return err == nil && is
-}
-
 // StickyState returns the @group / #topic navigation pins for a chat.
 func (d *DB) StickyState(chatJID string) (group, topic string) {
 	g, t, err := d.store().StickyPins(chatJID)

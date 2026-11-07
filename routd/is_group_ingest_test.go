@@ -35,13 +35,21 @@ func TestCronFireLeavesTheChatClassification(t *testing.T) {
 
 	post("adapter inbound", apiv1.Message{ID: "m1", ChatJID: jid,
 		Sender: "telegram:user/1", Content: "hi", IsGroup: stated(true)})
-	if !db.ChatIsGroup(jid) {
+	isGroup, err := db.store().ChatIsGroup(jid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !isGroup {
 		t.Fatal("the adapter said the chat is multi-party and the flag did not take")
 	}
 
 	post("cron fire", apiv1.Message{ID: "sched-demo-mem@2026-09-19T06:00:00Z", ChatJID: jid,
 		Sender: "timed", Content: "run the memory task", Timestamp: 1758261600})
-	if !db.ChatIsGroup(jid) {
+	isGroup, err = db.store().ChatIsGroup(jid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !isGroup {
 		t.Fatal("a cron fire unflagged a group chat: a caller that states no " +
 			"classification must not restate one")
 	}
@@ -50,7 +58,11 @@ func TestCronFireLeavesTheChatClassification(t *testing.T) {
 	// it is what takes a wrong `true` back off a chat routd saw misclassified.
 	post("adapter says DM", apiv1.Message{ID: "m2", ChatJID: jid,
 		Sender: "telegram:user/1", Content: "hi", IsGroup: stated(false)})
-	if db.ChatIsGroup(jid) {
+	isGroup, err = db.store().ChatIsGroup(jid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isGroup {
 		t.Fatal("the adapter said the chat is a DM and the flag was not cleared")
 	}
 }
@@ -85,7 +97,11 @@ func TestCronFireOpensAnUnclassifiedChat(t *testing.T) {
 		t.Fatalf("the chats partition is %v and does not name %s: a message sits in a "+
 			"chat nothing feeds and nothing exports", jids, jid)
 	}
-	if db.ChatIsGroup(jid) {
+	isGroup, err := db.store().ChatIsGroup(jid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isGroup {
 		t.Error("a chat nobody classified reads as multi-party")
 	}
 }

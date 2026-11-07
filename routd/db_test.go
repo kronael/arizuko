@@ -41,7 +41,11 @@ func TestChatUpsertsPreserveTheOtherColumns(t *testing.T) {
 	if got := db.GetAgentCursor(jid); got != store.MsgStamp("2026-01-01T00:00:00.000000000Z", "m1") {
 		t.Errorf("agent_cursor = %q, want the value set — a later upsert cleared it", got)
 	}
-	if !db.ChatIsGroup(jid) {
+	isGroup, err := db.store().ChatIsGroup(jid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !isGroup {
 		t.Error("is_group not persisted")
 	}
 }
