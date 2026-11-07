@@ -16,8 +16,10 @@ test('injectMcpEnv: arizuko core server is alwaysLoad (eager)', () => {
 });
 
 test('injectMcpEnv: secrets fold into the arizuko server env', () => {
-  const out = injectMcpEnv({ SLACK_TOKEN: 'xoxb-secret' });
+  const secrets = { SLACK_TOKEN: 'xoxb-secret' };
+  const out = injectMcpEnv(secrets);
   expect(out.arizuko.env).toEqual({ SLACK_TOKEN: 'xoxb-secret' });
+  expect(out.arizuko.env).not.toBe(secrets);
 });
 
 // BUGS J1/F76: a settings.json server was handed straight to the harness, so
