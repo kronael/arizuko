@@ -1309,7 +1309,7 @@ func buildMCPServer(routd RoutdFns, db StoreFns, folder string, isRoot bool, cal
 		return toolJSON(map[string]any{"ok": true, "delivered": n})
 	}
 
-	registerRaw("send", "Send a notification or a message to an explicit chat. Use `reply` for answers and `send_file` for files. Sends target the specified chat's main channel. `chatJid` `#issues` queues the text to the operator's issue-notice chats (no grant to them needed) and returns `delivered`, 0 when none is set. Returns the sent message's `id`. Use `<status>` and `TodoWrite` for live progress.",
+	registerRaw("send", "Send a notification or a message to an explicit chat or group folder. Use `reply` for answers and `send_file` for files. Sends target the specified chat's main channel. `chatJid` `#issues` queues the text to the operator's issue-notice chats (no grant to them needed) and returns `delivered`, 0 when none is set. Returns the sent message's `id`. Use `<status>` and `TodoWrite` for live progress.",
 		[]mcp.ToolOption{
 			mcp.WithString("chatJid", mcp.Required()),
 			mcp.WithString("text", mcp.Required()),
@@ -1319,11 +1319,34 @@ func buildMCPServer(routd RoutdFns, db StoreFns, folder string, isRoot bool, cal
 			if jid == issuesDest {
 				return sendIssueNotice(req.GetString("text", ""))
 			}
+			if core.JidPlatform(jid) == "" {
+				if jid == "" {
+					return toolErr("send: missing group folder")
+				}
+				if err := authzStructural("send", jid); err != nil {
+					return toolErr(err.Error())
+				}
+				text := req.GetString("text", "")
+				if err := refuseText(text, false); err != nil {
+					return toolErr(err.Error())
+				}
+				if db.PutMessage == nil {
+					return toolErr("send not configured: no PutMessage")
+				}
+				id := core.MsgID("delegate")
+				if err := db.PutMessage(core.Message{
+					ID: id, ChatJID: jid, Sender: store.DelegateSender,
+					Content: text, Timestamp: time.Now(), ForwardedFrom: folder,
+				}); err != nil {
+					return toolErr(err.Error())
+				}
+				if routd.EnqueueMessageCheck != nil {
+					routd.EnqueueMessageCheck(jid)
+				}
+				return toolJSON(map[string]any{"ok": true, "id": id})
+			}
 			if err := gateJID("send", jid); err != nil {
 				return toolErr(err.Error())
-			}
-			if core.JidPlatform(jid) == "" {
-				return toolErr(fmt.Sprintf("send: jid %q has no platform prefix", jid))
 			}
 			text := req.GetString("text", "")
 			if err := refuseText(text, false); err != nil {
