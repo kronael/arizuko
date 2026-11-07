@@ -264,7 +264,7 @@ func TestPackageSelectionIgnoresGroupFiles(t *testing.T) {
 }
 
 func TestPackageRefusals(t *testing.T) {
-	fragment := "services:\n  sample:\n    image: x\n  sample_db:\n    image: x\n"
+	fragment := "services:\n  sample:\n    image: x\n  sample_db:\n    image: x\n    volumes:\n      - '${DATA_DIR}/store/sample_db:/data'\n"
 	dataDir, db := seedPackageInstance(t, "guard", map[string]string{
 		"sample.yml":        fragment,
 		"routd.yml":         "services:\n  routd:\n    image: x\n",
@@ -328,7 +328,7 @@ func TestPackageRefusals(t *testing.T) {
 }
 
 func TestPackageServiceContainment(t *testing.T) {
-	fragment := "services:\n  sample:\n    image: x\n  sample_db:\n    image: x\n"
+	fragment := "services:\n  sample:\n    image: x\n  sample_db:\n    image: x\n    volumes:\n      - '${DATA_DIR}/store/sample_db:/data'\n"
 	dataDir, db := seedPackageInstance(t, "catalog", map[string]string{"sample.yml": fragment})
 	service := filepath.Join(dataDir, "services", "sample.yml")
 	mustWrite(t, service, "operator fragment")
