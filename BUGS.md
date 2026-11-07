@@ -15,7 +15,6 @@
 
 ## What needs you
 
-- `L682` — the MCP invite integration test cannot find the created invite under its expected issuer; record only.
 - `L683` — the shutdown source guard requires signal setup in anteval's listener file; record only.
 - `L684` — the DynamoDB boot test expects an operator grant that the local ACL rows do not contain; record only.
 - `L685` — routd retains one mutex per turn for the process lifetime.
@@ -477,19 +476,6 @@ that version. A change to which rows reach live data is an auth change.
 
 - **Status:** open — needs sign-off.
 
-
-## L682 — the invite integration test cannot find the created invite (2026-11-07, open — record only)
-
-`tests/integration_mcp_test.go:268` creates an invite, then queries
-`ListInvites("agent:hq")`. The persistence assertion finds no invite.
-The supplied baseline verification reproduces the failure at `8a6c1c72cbc44f3caee3016a714b4aa92a57b86e`.
-
-- **Severity:** medium — invite integration coverage fails.
-- **Scope:** invite issuer expectations and persisted identity.
-- **Affected:** `tests/integration_mcp_test.go`.
-- **Measured:** `go test ./tests -short -count=1 -run '^TestMCP_InviteTools$'`.
-- **Fix:** compare the recorded issuer with the test's principal before correcting the expectation or writer.
-- **Status:** open — record only; Go edits are outside this documentation pass.
 
 ## L683 — the shutdown source guard cannot see anteval's signal setup (2026-11-07, open — record only)
 

@@ -91,7 +91,7 @@ func newFullMCPHarness(t *testing.T, folder string) *fullMCPHarness {
 			return nil
 		},
 		CreateInvite: func(targetGlob string, maxUses int, expiresAt *time.Time) (ipc.InviteInfo, error) {
-			inv, rawToken, err := s.CreateInvite(targetGlob, "agent:root", maxUses, expiresAt)
+			inv, rawToken, err := s.CreateInvite(targetGlob, "agent:"+folder, maxUses, expiresAt)
 			if err != nil {
 				return ipc.InviteInfo{}, err
 			}
