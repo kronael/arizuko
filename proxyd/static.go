@@ -1,14 +1,11 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
-
-	"github.com/kronael/arizuko/auth"
 )
 
 func isDeniedPath(name string) bool {
@@ -19,6 +16,8 @@ func isDeniedPath(name string) bool {
 	}
 	return false
 }
+
+type staticAllowedKey struct{}
 
 type staticFile struct{ *os.File }
 
@@ -69,20 +68,9 @@ func staticFiles(dir string) http.Handler {
 		}
 		allowed := "pub"
 		if strings.HasPrefix(name, "priv/") {
-			var groups []string
-			if json.Unmarshal([]byte(r.Header.Get("X-User-Groups")), &groups) != nil {
-				http.NotFound(w, r)
-				return
-			}
-			parts := strings.Split(strings.TrimPrefix(name, "priv/"), "/")
-			allowed = ""
-			for i := range parts {
-				if auth.MatchGroups(groups, strings.Join(parts[:i+1], "/")) {
-					allowed = "priv/" + strings.Join(parts[:i+1], "/")
-					break
-				}
-			}
-			if allowed == "" {
+			var ok bool
+			allowed, ok = r.Context().Value(staticAllowedKey{}).(string)
+			if !ok || allowed == "" {
 				http.NotFound(w, r)
 				return
 			}

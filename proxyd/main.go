@@ -480,14 +480,8 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// /pub and /, and /pub/* are kept hand-wired: they involve external
-	// redirect probing and websocket-upgrade fall-through, not the static
-	// TOML-route forwarding pattern.
+	// /pub and /, and /pub/* use external redirect probing.
 	if r.URL.Path == "/" || r.URL.Path == "/pub" {
-		if strings.EqualFold(r.Header.Get("Upgrade"), "websocket") {
-			s.files.ServeHTTP(w, r)
-			return
-		}
 		// A mapped vhost front-doors to its public slot. `/pub` stays reserved
 		// in place — only bare `/` redirects, so the follow-up `/pub/W/` lands
 		// in the /pub/ branch below and the redirect can't loop.
@@ -506,7 +500,6 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 	}
 	if strings.HasPrefix(r.URL.Path, "/pub/") {
 		if s.pubRedir != nil &&
-			!strings.EqualFold(r.Header.Get("Upgrade"), "websocket") &&
 			s.pubRedir.reachable() {
 			rest := strings.TrimPrefix(r.URL.Path, "/pub")
 			if r.URL.RawQuery != "" {
@@ -550,12 +543,14 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 						return
 					}
 				}
-				if !auth.MatchSlot(gs, slotPath) {
+				prefix := auth.MatchSlotPrefix(gs, slotPath)
+				if prefix == "" {
 					slog.Warn("priv forbidden", "sub", r.Header.Get("X-User-Sub"),
 						"slot_path", slotPath, "path", r.URL.Path)
 					http.Error(w, "Forbidden", http.StatusForbidden)
 					return
 				}
+				r = r.WithContext(context.WithValue(r.Context(), staticAllowedKey{}, "priv/"+prefix))
 			}
 			s.files.ServeHTTP(w, r)
 		})(w, r)

@@ -1,11 +1,15 @@
 package main
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
+
+	"github.com/kronael/arizuko/auth"
 )
 
 func TestStaticFiles(t *testing.T) {
@@ -43,11 +47,13 @@ func TestStaticFiles(t *testing.T) {
 		{"/site/", "", 200, "index", ""}, {"/site?q=1", "", 301, "", "/site/?q=1"}, {"/pub/badindex/", "", 404, "", ""}, {"/pub/empty?q=1", "", 301, "", "/pub/empty/?q=1"}, {"/pub/empty/", "", 404, "", ""}, {"/file.txt", "", 200, "public", ""}, {"/root.txt", "", 404, "", ""}, {"/missing", "", 404, "", ""},
 		{"/pub/.env", "", 404, "", ""}, {"/pub/%2eenv", "", 404, "", ""}, {"/pub/nested/.env.local", "", 404, "", ""}, {"/pub/nested/%2eenv.local", "", 404, "", ""}, {"/pub/nested/data.db", "", 404, "", ""}, {"/pub/nested/data%2edb", "", 404, "", ""}, {"/pub/nested/.git/config", "", 404, "", ""}, {"/pub/nested/%2egit/config", "", 404, "", ""},
 		{"/pub/env-link", "", 404, "", ""}, {"/pub/env-local-link", "", 404, "", ""}, {"/pub/db-link", "", 404, "", ""}, {"/pub/outside", "", 404, "", ""}, {"/pub/git-link", "", 404, "", ""}, {"/pub/link", "", 404, "", ""}, {"/pub/%2e%2e/root.txt", "", 404, "", ""},
-		{"/priv/a/", `["a"]`, 200, "private", ""}, {"/priv/a/other", `["a","b"]`, 404, "", ""},
+		{"/priv/a/", `["a"]`, 200, "private", ""}, {"/priv/a/other", `["a"]`, 404, "", ""},
 	} {
 		t.Run(tc.url, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, tc.url, nil)
-			req.Header.Set("X-User-Groups", tc.groups)
+			if tc.groups != "" {
+				req = req.WithContext(context.WithValue(req.Context(), staticAllowedKey{}, "priv/a"))
+			}
 			w := httptest.NewRecorder()
 			handler.ServeHTTP(w, req)
 			if w.Code != tc.status || (tc.body != "" && w.Body.String() != tc.body) || (tc.location != "" && w.Header().Get("Location") != tc.location) {
@@ -75,6 +81,47 @@ func TestStaticFilesThroughRoutes(t *testing.T) {
 		s.route(w, httptest.NewRequest(http.MethodGet, tc.url, nil))
 		if w.Code != tc.status || (tc.body != "" && w.Body.String() != tc.body) {
 			t.Fatalf("%s: got %d %q", tc.url, w.Code, w.Body.String())
+		}
+	}
+}
+
+func TestPrivateSymlinkCannotCrossGrant(t *testing.T) {
+	dir := t.TempDir()
+	for _, folder := range []string{"a", "b"} {
+		if err := os.MkdirAll(filepath.Join(dir, "priv", folder), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, "priv", "a", "own.txt"), []byte("own"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "priv", "b", "secret.txt"), []byte("secret"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("../b/secret.txt", filepath.Join(dir, "priv", "a", "link")); err != nil {
+		t.Fatal(err)
+	}
+	key, keys := es256KeySet(t)
+	s := &server{cfg: config{authSecret: "testsecret", authdURL: "http://authd"}, ks: keys,
+		stRoutd: aclStore(t, "alice", []string{"a"}), files: staticFiles(dir)}
+	token, err := key.Sign(auth.TokenClaims{Sub: "user:alice", Typ: "user"}, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		path   string
+		status int
+	}{
+		{"/priv/a/own.txt", http.StatusOK},
+		{"/priv/a/link", http.StatusNotFound},
+		{"/priv/b/secret.txt", http.StatusForbidden},
+	} {
+		req := httptest.NewRequest(http.MethodGet, tc.path, nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		w := httptest.NewRecorder()
+		s.route(w, req)
+		if w.Code != tc.status {
+			t.Errorf("%s: got %d, want %d", tc.path, w.Code, tc.status)
 		}
 	}
 }

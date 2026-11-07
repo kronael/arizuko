@@ -360,8 +360,7 @@ func TestProxydPrivPathRequiresAuth(t *testing.T) {
 	}
 }
 
-// /priv/* with a valid JWT reaches the upstream (vite) — path is
-// preserved (no /pub rewrite) so vite resolves it to web/priv/.
+// /priv/* with a valid JWT preserves the private path.
 func TestProxydPrivPathWithJWTReachesUpstream(t *testing.T) {
 	s, up := testServerWithUpstream(t)
 	defer up.Close()
@@ -521,24 +520,6 @@ func TestPubRedirectRefreshesAfterTTL(t *testing.T) {
 	pr.reachable()
 	if sp.calls != 2 {
 		t.Errorf("probe calls = %d, want 2 (refreshed)", sp.calls)
-	}
-}
-
-// Websocket upgrades on /pub/ are not redirected (they need the local
-// reverse proxy with hop-by-hop handling).
-func TestProxydPubWebsocketBypassesRedirect(t *testing.T) {
-	s, up := testServerWithUpstream(t)
-	defer up.Close()
-	sp := &stubProbe{ok: true}
-	s.pubRedir = &pubRedirect{url: "https://docs.example.com", ttl: time.Minute, probe: sp.probe}
-
-	req := httptest.NewRequest("GET", "/pub/ws", nil)
-	req.Header.Set("Upgrade", "websocket")
-	w := httptest.NewRecorder()
-	s.route(w, req)
-
-	if w.Code != 200 {
-		t.Errorf("status = %d, want 200 (ws falls through to local proxy)", w.Code)
 	}
 }
 
