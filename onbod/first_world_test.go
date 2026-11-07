@@ -225,7 +225,7 @@ func TestALostRaceForAFolderLeavesTheCallerUnnamed(t *testing.T) {
 		t.Fatalf("seed the folder the caller loses: %v", err)
 	}
 
-	if err := writeWorld(db, "taken", "taken", "github:new"); err == nil {
+	if err := writeWorld(db, "taken", "taken", "github:new", ""); err == nil {
 		t.Fatal("creating a folder somebody else holds reported success")
 	}
 
@@ -249,7 +249,7 @@ func TestTheWinnerIsNamedAndHoldsWhatTheFolderImplies(t *testing.T) {
 	db := testDB(t)
 	seedStranger(t, db, "github:new", "approved")
 
-	if err := writeWorld(db, "newworld", "newworld", "github:new"); err != nil {
+	if err := writeWorld(db, "newworld", "newworld", "github:new", ""); err != nil {
 		t.Fatalf("create the world: %v", err)
 	}
 
@@ -274,7 +274,7 @@ func TestAWorldIsGrantedItsReachAndItsHold(t *testing.T) {
 	db := testDB(t)
 	seedStranger(t, db, "github:new", "approved")
 
-	if err := writeWorld(db, "newworld", "newworld", "github:new"); err != nil {
+	if err := writeWorld(db, "newworld", "newworld", "github:new", ""); err != nil {
 		t.Fatalf("create the world: %v", err)
 	}
 

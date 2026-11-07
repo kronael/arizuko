@@ -1154,7 +1154,7 @@ func TestInviteConsume(t *testing.T) {
 	seedFolder(t, db, "alice")
 	seedMembership(t, db, "telegram:99", "github:bob", "")
 
-	token := createInvite(t, db, "alice", "telegram:1", 1)
+	token := createInvite(t, db, "alice", "cli", 1)
 
 	req := httptest.NewRequest("GET", "/invite/"+token, nil)
 	req.SetPathValue("token", token)
@@ -1418,7 +1418,7 @@ func TestInviteAtomicConsume(t *testing.T) {
 		t.Fatalf("seed user_profiles: %v", err)
 	}
 	seedFolder(t, db, "alice")
-	tok := createInvite(t, db, "alice", "telegram:1", 1)
+	tok := createInvite(t, db, "alice", "cli", 1)
 
 	// First consume.
 	req := httptest.NewRequest("GET", "/invite/"+tok, nil)

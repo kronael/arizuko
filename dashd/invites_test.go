@@ -124,7 +124,7 @@ func TestHandleInviteCreateAndList(t *testing.T) {
 
 func TestHandleInviteCreateForbiddenWithoutAdminGrant(t *testing.T) {
 	db := testDBWithInvites(t)
-	// No acl row → requireAdmin denies.
+	seedGrant(t, db, core.ACLRow{Principal: "github:regular", Action: "admin", Scope: "**", Effect: "allow"})
 	d := &dash{routd: db, onbod: db, routdURL: stubRoutd(t, db), onbodURL: stubOnbod(t, db)}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)

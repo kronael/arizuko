@@ -147,7 +147,7 @@ func TestRedeemedSubgroupInviteCreatesUnderItsParent(t *testing.T) {
 	db := testDB(t)
 	seedProfile(t, db, "github:bob")
 	seedTenant(t, db, "acme", "github:acmeowner")
-	token := createInvite(t, db, "acme/", "github:acmeowner", 1)
+	token := createInvite(t, db, "acme/", "cli", 1)
 
 	redeemInvite(t, db, token, "github:bob")
 
@@ -183,7 +183,7 @@ func TestRecordedParentBeatsASimultaneousForgery(t *testing.T) {
 	seedProfile(t, db, "github:bob")
 	seedTenant(t, db, "acme", "github:acmeowner")
 	seedTenant(t, db, "elsewhere", "github:someone")
-	redeemInvite(t, db, createInvite(t, db, "acme/", "github:acmeowner", 1), "github:bob")
+	redeemInvite(t, db, createInvite(t, db, "acme/", "cli", 1), "github:bob")
 
 	t.Setenv("DATA_DIR", t.TempDir())
 	w := postCreateWorld(db, "github:bob", "bobsteam", "elsewhere/")
@@ -207,7 +207,7 @@ func TestSubgroupRedemptionIsSingleUse(t *testing.T) {
 	db := testDB(t)
 	seedProfile(t, db, "github:bob")
 	seedTenant(t, db, "acme", "github:acmeowner")
-	token := createInvite(t, db, "acme/", "github:acmeowner", 1)
+	token := createInvite(t, db, "acme/", "cli", 1)
 	redeemInvite(t, db, token, "github:bob")
 
 	t.Setenv("DATA_DIR", t.TempDir())
@@ -292,7 +292,7 @@ func redeemInvite(t *testing.T, db *store.Store, token, sub string) {
 // targetGlob "/" is the top-level invite (parent = "").
 func seedRedemption(t *testing.T, db *store.Store, sub, targetGlob string) {
 	t.Helper()
-	redeemInvite(t, db, createInvite(t, db, targetGlob, "operator", 1), sub)
+	redeemInvite(t, db, createInvite(t, db, targetGlob, "cli", 1), sub)
 	if n := redemptionCount(t, db, sub); n != 1 {
 		t.Fatalf("seeded %d redemptions for %s, want 1", n, sub)
 	}

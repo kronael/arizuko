@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
@@ -141,10 +142,17 @@ func (s *Server) buildRoutdFns(t turnMCP) ipc.RoutdFns {
 			}
 			return s.submitStatus(status)
 		},
-		CreateInvite: func(targetGlob, issuedBySub string, maxUses int, expiresAt *time.Time) (ipc.InviteInfo, error) {
+		CreateInvite: func(targetGlob string, maxUses int, expiresAt *time.Time) (ipc.InviteInfo, error) {
 			oc := s.onbodClient()
 			if oc == nil {
 				return ipc.InviteInfo{}, fmt.Errorf("invites unavailable: onbod not wired (ONBOD_URL unset)")
+			}
+			if _, err := auth.CheckGrant(s.db.store(), turnGranter(t), auth.Ask{}, auth.Mutation{Row: store.InviteGrantRow(targetGlob)}); err != nil {
+				return ipc.InviteInfo{}, err
+			}
+			issuedBySub := "agent:" + t.folder
+			if t.elevated {
+				issuedBySub = t.trigger
 			}
 			inv, err := oc.CreateInviteFull(targetGlob, issuedBySub, maxUses, expiresAt)
 			if err != nil {

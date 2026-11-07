@@ -332,19 +332,9 @@ func (s *Store) RevokeInviteByRef(ref string) error {
 	return nil
 }
 
-// ConsumeInvite claims one use (guarding max_uses and expiry) and inserts an
-// acl admin row in one batch; only the first max_uses callers succeed. It
-// requires invites + acl in ONE DB; the split topology (acl in routd.db,
-// invites in onbod.db) uses ConsumeInviteNoGrant plus a routd-side acl write.
-func (s *Store) ConsumeInvite(token, userSub string) (*Invite, error) {
-	return s.consumeInvite(token, userSub, true)
-}
-
-// ConsumeInviteNoGrant is the split twin: same claim + audit, but it does NOT
-// write the acl grant. acl is routd-OWNED, so the caller writes that row to
-// routd.db separately (AddACLRow).
+// ConsumeInviteNoGrant claims one use without writing an ACL row.
 func (s *Store) ConsumeInviteNoGrant(token, userSub string) (*Invite, error) {
-	return s.consumeInvite(token, userSub, false)
+	return s.consumeInvite(token, userSub)
 }
 
 // usedCountWrite is the compare-and-swap that moves an invite's counter, and
@@ -381,7 +371,7 @@ func (s *Store) RestoreInvite(token string) error {
 	return nil
 }
 
-func (s *Store) consumeInvite(token, userSub string, grantACL bool) (*Invite, error) {
+func (s *Store) consumeInvite(token, userSub string) (*Invite, error) {
 	if userSub == "" {
 		return nil, errors.New("user_sub required")
 	}
@@ -423,35 +413,19 @@ func (s *Store) consumeInvite(token, userSub string, grantACL bool) (*Invite, er
 	// folder does not exist until the username picker names it. What they DO
 	// record is the parent subtree, the authority handleCreateWorld derives
 	// the parent folder from; a `pending_target` cookie was forgeable (BUGS
-	// F50). It goes in regardless of grantACL: invite_redemptions is
-	// onbod-owned.
+	// F50). The redemption is onbod-owned.
 	if strings.HasSuffix(inv.TargetGlob, "/") {
 		at, err := redemptionNowStamp()
 		if err != nil {
 			return nil, err
 		}
-		w, err := redemptionWrite(userSub, at, inv.TargetGlob)
-		if err != nil {
-			return nil, err
-		}
-		ws.Add(w)
-	} else if grantACL {
-		// Rendered by `acl`'s own writer, create-if-absent: redeeming a second
-		// invite onto a glob the caller already holds must not restamp it. It
-		// rides THIS batch; the split topology cannot, so onbod calls
-		// ConsumeInviteNoGrant and writes the row through AddACLRow.
-		w, err := aclPut(aclDefaults(core.ACLRow{
-			Principal: userSub,
-			Action:    "admin",
-			Scope:     inv.TargetGlob,
-			Effect:    "allow",
-			GrantedBy: "invite",
-		}))
+		w, err := redemptionWrite(userSub, at, inv.TargetGlob, inv.IssuedBySub)
 		if err != nil {
 			return nil, err
 		}
 		ws.Add(w)
 	}
+
 	_, rec := audit.WriteFor(audit.Event{
 		Category: audit.CategoryAuthN,
 		Action:   "invite.consume",

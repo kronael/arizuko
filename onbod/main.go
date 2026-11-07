@@ -26,6 +26,7 @@ import (
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/container"
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/objstore/dynstore"
 	"github.com/kronael/arizuko/obs"
 	"github.com/kronael/arizuko/resreg"
@@ -748,6 +749,31 @@ func spendRedemption(obdb *store.Store, userSub string, r store.Redemption) (boo
 	return obdb.SpendRedemption(context.Background(), userSub, r)
 }
 
+const createWorldAttempts = 8
+
+func issuerGranter(issuedBy string) (auth.Caller, bool) {
+	switch issuedBy {
+	case "cli", "onbod", "routd":
+		return auth.Caller{}, false
+	}
+	if strings.HasPrefix(issuedBy, "agent:") {
+		return auth.Caller{Principal: "folder:" + strings.TrimPrefix(issuedBy, "agent:")}, true
+	}
+	return auth.Caller{Principal: issuedBy}, true
+}
+
+func checkIssuer(db *store.Store, issuer string, rows []core.ACLRow) (objstore.Version, error) {
+	caller, check := issuerGranter(issuer)
+	if !check {
+		return "", nil
+	}
+	mutations := make([]auth.Mutation, len(rows))
+	for i, row := range rows {
+		mutations[i] = auth.Mutation{Row: row}
+	}
+	return auth.CheckGrant(db, caller, auth.Ask{}, mutations...)
+}
+
 func handleCreateWorld(w http.ResponseWriter, r *http.Request, db, obdb *store.Store, cfg config, userSub string) {
 	// The parent folder is DERIVED from what the redemption recorded, never from
 	// the request. Until F50 it came from the `pending_target` cookie and was used
@@ -805,6 +831,20 @@ func handleCreateWorld(w http.ResponseWriter, r *http.Request, db, obdb *store.S
 		return
 	}
 
+	var version objstore.Version
+	if invited {
+		var err error
+		version, err = checkIssuer(db, redemption.IssuedBy, store.WorldGrantRows(userSub, folder))
+		if err != nil {
+			if !errors.Is(err, auth.ErrGrantRefused) {
+				http.Error(w, "grant check failed", http.StatusInternalServerError)
+				return
+			}
+			renderPage(w, "Invitation Expired", template.HTML("<p>The invitation no longer grants access.</p>"))
+			return
+		}
+	}
+
 	// Spend the authority before acting on it. The DELETE is the claim, so a
 	// replay of the same redemption — a resubmitted form, a second tab — finds
 	// nothing to derive a parent from and creates no second world.
@@ -844,7 +884,18 @@ func handleCreateWorld(w http.ResponseWriter, r *http.Request, db, obdb *store.S
 	// (messages.db in monolith, routd.db in the split) → one tx makes the
 	// world atomic. The race guard is INSERT OR IGNORE + RowsAffected on
 	// groups, not the TOCTOU check above (that's a fast-path UX hint only).
-	if err := writeWorld(db, folder, username, userSub); err != nil {
+	var writeErr error
+	for attempt := 0; attempt < createWorldAttempts; attempt++ {
+		writeErr = writeWorld(db, folder, username, userSub, version)
+		if !invited || !errors.Is(writeErr, objstore.ErrScopeMoved) || attempt == createWorldAttempts-1 {
+			break
+		}
+		version, writeErr = checkIssuer(db, redemption.IssuedBy, store.WorldGrantRows(userSub, folder))
+		if writeErr != nil {
+			break
+		}
+	}
+	if err := writeErr; err != nil {
 		slog.Error("create world: db tx", "folder", folder, "err", err)
 		http.Error(w, "create world failed", http.StatusInternalServerError)
 		return
@@ -900,7 +951,7 @@ func membershipJIDs(db, obdb *store.Store, userSub string) []string {
 // It writes NO routes (spec 5/18 step 7): it used to route every JID the sub had
 // ever paired at the new folder, which is a blast radius, not an act. The redirect
 // lands on /onboard, whose step-6 branch routes the ONE unrouted JID at hand.
-func writeWorld(db *store.Store, folder, username, userSub string) error {
+func writeWorld(db *store.Store, folder, username, userSub string, version objstore.Version) error {
 	ctx := context.Background()
 	row, err := store.GroupCreateWrite(core.Group{
 		Folder: folder, AddedAt: time.Now(), Product: core.DefaultProduct,
@@ -910,15 +961,12 @@ func writeWorld(db *store.Store, folder, username, userSub string) error {
 	}
 	// A groups row implies the member edge: without it the new world expands to
 	// nothing and comes up mute (BUGS L119).
-	grant, err := store.AdminGrantWrite(userSub, folder, "onbod")
+	rows := store.WorldGrantRows(userSub, folder)
+	grant, err := store.ACLGrantWrite(rows[0])
 	if err != nil {
 		return err
 	}
-	// auth/defaults.go defines the world hold and its exceptions.
-	reach, err := store.ACLGrantWrite(core.ACLRow{
-		Principal: "folder:" + folder, Action: "mcp:*", Scope: folder + "/**",
-		Effect: store.EffectAllow, GrantedBy: "onbod",
-	})
+	reach, err := store.ACLGrantWrite(rows[1])
 	if err != nil {
 		return err
 	}
@@ -926,7 +974,7 @@ func writeWorld(db *store.Store, folder, username, userSub string) error {
 	if err != nil {
 		return err
 	}
-	created, err := store.SeedMemberRole(ctx, db, folder, "", row, grant, reach, world)
+	created, err := store.SeedMemberRole(ctx, db, folder, version, row, grant, reach, world)
 	if err != nil {
 		return err
 	}
@@ -1161,14 +1209,6 @@ func handleInvite(w http.ResponseWriter, r *http.Request, db, obdb *store.Store)
 		return
 	}
 
-	// invites is onbod-OWNED → read/consume through obdb. The redemption's acl admin
-	// row is routd-OWNED, so ConsumeInviteNoGrant touches only onbod.db's invites and
-	// the acl grant is written separately to routd.db via the AUDITED AddACLRow.
-	// audit.Init pointing at obdb does not force the audit-free twin: AddACLRow
-	// appends the record to its own batch (audit.WriteFor), so the grant and the
-	// row that records it commit together on the store the grant is written to.
-	split := db != obdb
-
 	inv, err := obdb.GetInvite(token)
 	if err != nil {
 		slog.Warn("invite invalid", "reason", "not_found",
@@ -1185,11 +1225,18 @@ func handleInvite(w http.ResponseWriter, r *http.Request, db, obdb *store.Store)
 		return
 	}
 
-	consume := obdb.ConsumeInvite
-	if split {
-		consume = obdb.ConsumeInviteNoGrant
+	row := store.InviteGrantRow(inv.TargetGlob)
+	row.Principal = userSub
+	version, err := checkIssuer(db, inv.IssuedBySub, []core.ACLRow{row})
+	if err != nil {
+		if !errors.Is(err, auth.ErrGrantRefused) {
+			http.Error(w, "grant check failed", http.StatusInternalServerError)
+			return
+		}
+		renderPage(w, "Invitation Expired", template.HTML("<p>The invitation no longer grants access.</p>"))
+		return
 	}
-	consumed, err := consume(token, userSub)
+	consumed, err := obdb.ConsumeInviteNoGrant(token, userSub)
 	if err != nil {
 		slog.Warn("invite invalid", "reason", "exhausted",
 			"token_hash", chanlib.ShortHash(token), "user", userSub, "err", err)
@@ -1200,14 +1247,8 @@ func handleInvite(w http.ResponseWriter, r *http.Request, db, obdb *store.Store)
 
 	target := consumed.TargetGlob
 
-	// Split: write the redemption's acl grant to routd.db (db = xdb). Mirrors
-	// ConsumeInvite's in-tx insert — non-subgroup invites (no trailing slash)
-	// grant admin on the target folder; subgroup invites defer to create_world.
-	if split && !strings.HasSuffix(target, "/") {
-		if perr := db.AddACLRow(core.ACLRow{
-			Principal: userSub, Action: "admin", Scope: target,
-			Effect: "allow", GrantedBy: "invite",
-		}, ""); perr != nil {
+	if !strings.HasSuffix(target, "/") {
+		if perr := db.AddACLRow(row, version); perr != nil {
 			// The grant (routd.db) failed AFTER the consume (onbod.db) — separate
 			// DBs, no shared tx. Roll back the consume so the invite isn't burned
 			// without a grant (silent permanent lockout), and surface the failure

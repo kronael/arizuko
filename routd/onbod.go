@@ -16,7 +16,7 @@ import (
 // commands reach them over HTTP. nil (ONBOD_URL unset) → the commands report
 // the federation gap.
 type OnbodClient interface {
-	CreateInvite(targetGlob string, maxUses int) (token string, err error)
+	CreateInvite(targetGlob, issuedBySub string, maxUses int) (token string, err error)
 	CreateInviteFull(targetGlob, issuedBySub string, maxUses int, expiresAt *time.Time) (Invite, error)
 	ListInvites(issuedBy string) ([]Invite, error)
 	RevokeInviteByRef(ref string) error
@@ -107,12 +107,12 @@ func (o *httpOnbod) do(method, path string, body, out any) error {
 	return nil
 }
 
-func (o *httpOnbod) CreateInvite(targetGlob string, maxUses int) (string, error) {
+func (o *httpOnbod) CreateInvite(targetGlob, issuedBySub string, maxUses int) (string, error) {
 	var out struct {
 		Token string `json:"token"`
 	}
 	err := o.do(http.MethodPost, "/v1/invites",
-		map[string]any{"target_glob": targetGlob, "max_uses": maxUses, "issued_by_sub": "routd"}, &out)
+		map[string]any{"target_glob": targetGlob, "max_uses": maxUses, "issued_by_sub": issuedBySub}, &out)
 	return out.Token, err
 }
 

@@ -343,7 +343,11 @@ func (l *Loop) cmdInvite(chatJID, folder, arg, sender string) {
 		l.ack(chatJID, "Invites are managed by onbod; run `arizuko invite` (ONBOD_URL not wired).")
 		return
 	}
-	token, err := l.onbod.CreateInvite(folder+"/", maxUses)
+	if _, err := auth.CheckGrant(l.db.store(), auth.Caller{Principal: sender}, auth.Ask{}, auth.Mutation{Row: store.InviteGrantRow(folder + "/")}); err != nil {
+		l.ack(chatJID, "Failed to create invite.")
+		return
+	}
+	token, err := l.onbod.CreateInvite(folder+"/", sender, maxUses)
 	if err != nil {
 		slog.Warn("cmdInvite: onbod create failed", "jid", chatJID, "folder", folder, "err", err)
 		l.ack(chatJID, "Failed to create invite.")

@@ -12,13 +12,13 @@ func TestServeMCP_InviteWrite_Tier0(t *testing.T) {
 	dir := t.TempDir()
 	sock := dir + "/gated.sock"
 
-	var createdGlob, createdIssuer string
+	var createdGlob string
 	var revoked string
 	exp := time.Date(2030, 1, 2, 3, 4, 5, 0, time.UTC)
 	routd := RoutdFns{
-		CreateInvite: func(targetGlob, issuedBySub string, maxUses int, expiresAt *time.Time) (InviteInfo, error) {
-			createdGlob, createdIssuer = targetGlob, issuedBySub
-			return InviteInfo{Ref: "ref-1", Token: "tok-1", TargetGlob: targetGlob, IssuedBySub: issuedBySub, MaxUses: maxUses, ExpiresAt: expiresAt}, nil
+		CreateInvite: func(targetGlob string, maxUses int, expiresAt *time.Time) (InviteInfo, error) {
+			createdGlob = targetGlob
+			return InviteInfo{Ref: "ref-1", Token: "tok-1", TargetGlob: targetGlob, MaxUses: maxUses, ExpiresAt: expiresAt}, nil
 		},
 		// The list closure returns no Token — onbod's list face has no such
 		// field, so a live bearer cannot reach the agent here either.
@@ -49,9 +49,6 @@ func TestServeMCP_InviteWrite_Tier0(t *testing.T) {
 	}
 	if createdGlob != "root/" {
 		t.Fatalf("CreateInvite glob = %q, want root/", createdGlob)
-	}
-	if createdIssuer != "agent:root" {
-		t.Fatalf("CreateInvite issuer = %q, want agent:root", createdIssuer)
 	}
 
 	// list — folder-scoped, returns this folder's invites by ref, never the
@@ -90,7 +87,7 @@ func TestServeMCP_InviteWrite_Denied(t *testing.T) {
 
 	createCalls, revokeCalls := 0, 0
 	routd := RoutdFns{
-		CreateInvite: func(_, _ string, _ int, _ *time.Time) (InviteInfo, error) {
+		CreateInvite: func(_ string, _ int, _ *time.Time) (InviteInfo, error) {
 			createCalls++
 			return InviteInfo{}, nil
 		},

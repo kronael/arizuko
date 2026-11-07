@@ -16,7 +16,7 @@ func seedRedemption(t *testing.T, s *Store, userSub, glob string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	w, err := redemptionWrite(userSub, at, glob)
+	w, err := redemptionWrite(userSub, at, glob, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,5 +144,20 @@ func TestTheCarriedRedemptionsKeepTheirOrder(t *testing.T) {
 	if r.TargetGlob != "second/" {
 		t.Fatalf("the most recent carried redemption is %q, want second/: two rows of one "+
 			"second lost the order their ids gave them", r.TargetGlob)
+	}
+}
+
+func TestConsumedSubgroupInviteRecordsIssuer(t *testing.T) {
+	s := openEntities(t)
+	_, token, err := s.CreateInvite("acme/", "github:issuer", 1, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.ConsumeInviteNoGrant(token, "github:bob"); err != nil {
+		t.Fatal(err)
+	}
+	r, held, err := s.LatestRedemption(context.Background(), "github:bob")
+	if err != nil || !held || r.IssuedBy != "github:issuer" {
+		t.Fatalf("redemption=%+v held=%v err=%v", r, held, err)
 	}
 }

@@ -64,7 +64,7 @@ type RoutdFns struct {
 	InjectMessage        func(jid, content, sender, senderName string) (string, error)
 	EnqueueMessageCheck  func(jid string)
 	FetchPlatformHistory func(jid string, before time.Time, limit int) (PlatformHistory, error)
-	CreateInvite         func(targetGlob, issuedBySub string, maxUses int, expiresAt *time.Time) (InviteInfo, error)
+	CreateInvite         func(targetGlob string, maxUses int, expiresAt *time.Time) (InviteInfo, error)
 	ListInvites          func(issuedBy string) ([]InviteInfo, error)
 	RevokeInvite         func(ref string) error
 	SubmitTurn           func(folder string, t TurnResult) (TurnAck, error)
@@ -2143,7 +2143,7 @@ func buildMCPServer(routd RoutdFns, db StoreFns, folder string, isRoot bool, cal
 	// injected. See routd/acl_resource.go.
 
 	registerRaw("invite_create",
-		"Issue an invite token granting access to a path glob. The recipient accepts the token via /invite/<token> and gets an `acl` row granting admin on target_glob. The token comes back ONLY here, once — deliver it now; invite_list later shows just the `ref`. Use to onboard new collaborators to a world or sub-folder you own. The agent's authority must cover target_glob — you can't issue access you don't have.",
+		"Issue an invite token granting access to a path glob. The recipient accepts the token via /invite/<token> and gets an `acl` row granting admin on target_glob. The token comes back ONLY here, once — deliver it now; invite_list later shows just the `ref`. Use to onboard new collaborators to a world or sub-folder you own. The issuer must hold admin with the grant option over the access the invite grants.",
 		[]mcp.ToolOption{
 			mcp.WithString("target_glob", mcp.Required()),
 			mcp.WithNumber("max_uses"),
@@ -2169,7 +2169,7 @@ func buildMCPServer(routd RoutdFns, db StoreFns, folder string, isRoot bool, cal
 				}
 				expiresAt = &t
 			}
-			inv, err := routd.CreateInvite(targetGlob, "agent:"+folder, maxUses, expiresAt)
+			inv, err := routd.CreateInvite(targetGlob, maxUses, expiresAt)
 			if err != nil {
 				emitSys("invite_create", folder, callerSub,
 					map[string]any{"target_glob": targetGlob, "max_uses": maxUses}, err)

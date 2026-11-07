@@ -3,6 +3,8 @@ package routd
 import (
 	"testing"
 	"time"
+
+	"github.com/kronael/arizuko/core"
 )
 
 // buildRoutdFns.RevokeInvite enforces folder ownership: onbod's DELETE is
@@ -56,7 +58,16 @@ func TestBuildRoutdFns_InviteCreateList(t *testing.T) {
 	srv := NewServer(db, loop, nil, nil, 0, "")
 	fns := srv.buildRoutdFns(turnMCP{folder: "demo"})
 
-	inv, err := fns.CreateInvite("demo/sub", "agent:demo", 1, &exp)
+	if err := db.store().PutACLRow(core.ACLRow{Principal: "folder:demo", Action: "mcp:*", Scope: "demo/**", Effect: "allow"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fns.CreateInvite("demo/sub", 1, &exp); err == nil {
+		t.Fatal("invite without grant option succeeded")
+	}
+	if err := db.store().PutACLRow(core.ACLRow{Principal: "folder:demo", Action: "admin", Scope: "demo/**", Effect: "allow", GrantOption: true}); err != nil {
+		t.Fatal(err)
+	}
+	inv, err := fns.CreateInvite("demo/sub", 1, &exp)
 	if err != nil {
 		t.Fatalf("CreateInvite: %v", err)
 	}
@@ -89,7 +100,7 @@ func TestBuildRoutdFns_InviteNoOnbod(t *testing.T) {
 	srv := NewServer(db, NewLoop(db, &recRunner{}, LoopConfig{}), nil, nil, 0, "")
 	fns := srv.buildRoutdFns(turnMCP{folder: "demo"})
 
-	if _, err := fns.CreateInvite("demo/", "agent:demo", 1, nil); err == nil {
+	if _, err := fns.CreateInvite("demo/", 1, nil); err == nil {
 		t.Fatalf("CreateInvite with nil onbod should error")
 	}
 	if _, err := fns.ListInvites("agent:demo"); err == nil {
@@ -97,5 +108,32 @@ func TestBuildRoutdFns_InviteNoOnbod(t *testing.T) {
 	}
 	if err := fns.RevokeInvite("x"); err == nil {
 		t.Fatalf("RevokeInvite with nil onbod should error")
+	}
+}
+
+func TestInviteElevatedUsesSender(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	if err := db.store().AddMembership("github:op", "role:operator", "test"); err != nil {
+		t.Fatal(err)
+	}
+	fo := &fakeOnbod{}
+	loop := NewLoop(db, &recRunner{}, LoopConfig{})
+	loop.SetOnbodClient(fo)
+	srv := NewServer(db, loop, nil, nil, 0, "")
+	turn := turnMCP{folder: "demo", trigger: "github:op"}
+	if _, err := srv.buildRoutdFns(turn).CreateInvite("demo/", 1, nil); err == nil {
+		t.Fatal("unelevated invite succeeded")
+	}
+	turn.elevated = true
+	inv, err := srv.buildRoutdFns(turn).CreateInvite("demo/", 1, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inv.IssuedBySub != "github:op" {
+		t.Fatalf("issuer = %q", inv.IssuedBySub)
 	}
 }

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -158,6 +159,14 @@ func (d *dash) handleInviteCreate(w http.ResponseWriter, r *http.Request) {
 	s := d.onbodStore()
 	if s == nil {
 		http.Error(w, "invites store unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	if _, err := auth.CheckGrant(d.routdStore(), auth.Caller{Principal: sub}, auth.Ask{}, auth.Mutation{Row: store.InviteGrantRow(targetGlob)}); err != nil {
+		if errors.Is(err, auth.ErrGrantRefused) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+		} else {
+			http.Error(w, "grant check failed", http.StatusInternalServerError)
+		}
 		return
 	}
 	inv, rawToken, err := s.CreateInvite(targetGlob, sub, maxUses, expiresAt)

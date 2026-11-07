@@ -90,8 +90,8 @@ func newFullMCPHarness(t *testing.T, folder string) *fullMCPHarness {
 			h.EditCalls = append(h.EditCalls, socialCall{jid, target, content})
 			return nil
 		},
-		CreateInvite: func(targetGlob, issuedBySub string, maxUses int, expiresAt *time.Time) (ipc.InviteInfo, error) {
-			inv, rawToken, err := s.CreateInvite(targetGlob, issuedBySub, maxUses, expiresAt)
+		CreateInvite: func(targetGlob string, maxUses int, expiresAt *time.Time) (ipc.InviteInfo, error) {
+			inv, rawToken, err := s.CreateInvite(targetGlob, "agent:root", maxUses, expiresAt)
 			if err != nil {
 				return ipc.InviteInfo{}, err
 			}

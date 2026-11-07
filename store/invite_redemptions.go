@@ -45,6 +45,7 @@ const RedemptionStampWidth = tsWidth + 1 + redemptionSuffixHex
 // spend is the authority a world is created under.
 type Redemption struct {
 	TargetGlob string
+	IssuedBy   string
 	at         string
 }
 
@@ -96,6 +97,7 @@ func (s *Store) LatestRedemption(ctx context.Context, userSub string) (Redemptio
 	}
 	return Redemption{
 		TargetGlob: items[0].Attrs[attrRedemptionGlob],
+		IssuedBy:   items[0].Attrs["issued_by_sub"],
 		at:         items[0].Key.Sort,
 	}, true, nil
 }
@@ -142,18 +144,19 @@ func redemptionRowPut(r RedemptionRow) (objstore.Write, error) {
 			"and it is what keeps two redemptions of one second apart", r.RowID)
 	}
 	return redemptionWrite(r.UserSub, RedemptionStamp(at, fmt.Sprintf("%08x", r.RowID)),
-		r.TargetGlob)
+		r.TargetGlob, "")
 }
 
 // redemptionWrite renders the item a consumed subgroup invite records, so the
 // live path and the move build one shape.
-func redemptionWrite(userSub, at, targetGlob string) (objstore.Write, error) {
+func redemptionWrite(userSub, at, targetGlob, issuedBy string) (objstore.Write, error) {
 	key, err := redemptionKey(userSub, at)
 	if err != nil {
 		return objstore.Write{}, err
 	}
 	attrs := map[string]string{}
 	setAttr(attrs, attrRedemptionGlob, targetGlob)
+	setAttr(attrs, "issued_by_sub", issuedBy)
 	return objstore.Write{
 		Op: objstore.Put, Entity: InviteRedemptions, Key: key, Attrs: attrs,
 		Cond: objstore.Cond{Item: objstore.ItemAbsent},

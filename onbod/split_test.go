@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -61,7 +62,7 @@ func TestSplitInviteGrantLandsInRoutd(t *testing.T) {
 	seedFolder(t, xdb, "alice")
 	seedMembership(t, xdb, "telegram:99", "github:bob", "")
 
-	token := createInvite(t, obdb, "alice", "telegram:1", 1)
+	token := createInvite(t, obdb, "alice", "cli", 1)
 
 	req := httptest.NewRequest("GET", "/invite/"+token, nil)
 	req.SetPathValue("token", token)
@@ -163,7 +164,7 @@ func TestSplitInviteGrantAudited(t *testing.T) {
 	}
 	seedFolder(t, xdb, "alice")
 
-	token := createInvite(t, obdb, "alice", "telegram:1", 1)
+	token := createInvite(t, obdb, "alice", "cli", 1)
 
 	req := httptest.NewRequest("GET", "/invite/"+token, nil)
 	req.SetPathValue("token", token)
@@ -189,5 +190,90 @@ func TestSplitInviteGrantAudited(t *testing.T) {
 	// The audit row belongs with the grant, in routd.db — not onbod.db.
 	if inOnbod := auditRowsFor(t, obdb, "acl.add"); len(inOnbod) != 0 {
 		t.Errorf("acl.add audit row landed in onbod.db (%d rows); want it in routd.db", len(inOnbod))
+	}
+}
+
+func TestInviteIssuerLosesGrantBeforeRedemption(t *testing.T) {
+	xdb := testDB(t)
+	obdb := testDB(t)
+	token := createInvite(t, obdb, "alice", "github:issuer", 1)
+	req := httptest.NewRequest("GET", "/invite/"+token, nil)
+	req.SetPathValue("token", token)
+	req.Header.Set("X-User-Sub", "github:bob")
+	w := httptest.NewRecorder()
+	handleInvite(w, req, xdb, obdb)
+	if w.Code == http.StatusSeeOther {
+		t.Fatal("redemption succeeded without issuer authority")
+	}
+	if used := inviteUsed(t, obdb, store.TokenRef(token)); used != 0 {
+		t.Fatalf("invite spent: %d", used)
+	}
+	if rows := aclScopes(t, xdb, "github:bob"); len(rows) != 0 {
+		t.Fatalf("grant written: %v", rows)
+	}
+}
+
+func TestInviteOperatorIssuerRedeems(t *testing.T) {
+	xdb := testDB(t)
+	obdb := testDB(t)
+	seedMembership(t, xdb, "github:op", store.RoleOperator, "test")
+	token := createInvite(t, obdb, "alice", "github:op", 1)
+	req := httptest.NewRequest("GET", "/invite/"+token, nil)
+	req.SetPathValue("token", token)
+	req.Header.Set("X-User-Sub", "github:bob")
+	w := httptest.NewRecorder()
+	handleInvite(w, req, xdb, obdb)
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("redemption: %d %s", w.Code, w.Body.String())
+	}
+	if scopes := aclScopes(t, xdb, "github:bob"); len(scopes) != 1 || scopes[0] != "alice" {
+		t.Fatalf("grants = %v", scopes)
+	}
+}
+
+func TestWorldInviteIssuerNarrowedBeforeCreation(t *testing.T) {
+	db := testDB(t)
+	seedFolder(t, db, "acme")
+	seedMembership(t, db, "github:issuer", store.RoleOperator, "test")
+	token := createInvite(t, db, "acme/", "github:issuer", 1)
+	req := httptest.NewRequest("GET", "/invite/"+token, nil)
+	req.SetPathValue("token", token)
+	req.Header.Set("X-User-Sub", "github:bob")
+	w := httptest.NewRecorder()
+	handleInvite(w, req, db, db)
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("redeem: %d %s", w.Code, w.Body.String())
+	}
+	if err := db.RemoveMembership("github:issuer", store.RoleOperator); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.PutACLRow(core.ACLRow{Principal: "github:issuer", Action: "admin", Scope: "acme/bob", Effect: "allow", GrantOption: true}); err != nil {
+		t.Fatal(err)
+	}
+	w = postCreateWorld(db, "github:bob", "bob", "")
+	if w.Code == http.StatusSeeOther {
+		t.Fatal("world created after issuer was narrowed")
+	}
+	if n := redemptionCount(t, db, "github:bob"); n != 1 {
+		t.Fatalf("redemptions = %d", n)
+	}
+	if _, ok := db.GroupByFolder("acme/bob"); ok {
+		t.Fatal("world created")
+	}
+}
+
+func TestWorldInviteWithoutIssuerStaysUnspent(t *testing.T) {
+	db := testDB(t)
+	seedFolder(t, db, "acme")
+	_, err := db.ImportOnbod(t.Context(), store.OnbodSnapshot{Redemptions: []store.RedemptionRow{{RowID: 1, UserSub: "github:bob", TargetGlob: "acme/", RedeemedAt: "2026-01-01 00:00:00"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := postCreateWorld(db, "github:bob", "bob", "")
+	if w.Code == http.StatusSeeOther {
+		t.Fatal("world created without issuer")
+	}
+	if n := redemptionCount(t, db, "github:bob"); n != 1 {
+		t.Fatalf("redemptions = %d", n)
 	}
 }

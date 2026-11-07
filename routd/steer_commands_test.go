@@ -429,7 +429,7 @@ type fakeOnbod struct {
 	enCalls   []string // "gate=true|false"
 }
 
-func (f *fakeOnbod) CreateInvite(targetGlob string, maxUses int) (string, error) {
+func (f *fakeOnbod) CreateInvite(targetGlob, issuedBySub string, maxUses int) (string, error) {
 	f.created = append(f.created, targetGlob)
 	return "tok-123", nil
 }

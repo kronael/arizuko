@@ -179,16 +179,29 @@ func aclPut(r core.ACLRow) (objstore.Write, error) {
 // whole batch themselves, with the defaults every other door fills.
 func ACLGrantWrite(row core.ACLRow) (objstore.Write, error) { return aclPut(aclDefaults(row)) }
 
+func InviteGrantRow(targetGlob string) core.ACLRow {
+	if strings.HasSuffix(targetGlob, "/") {
+		targetGlob += "*/**"
+	}
+	return core.ACLRow{Action: "admin", Scope: targetGlob, Effect: EffectAllow, GrantedBy: "invite"}
+}
+
+func WorldGrantRows(owner, folder string) []core.ACLRow {
+	return []core.ACLRow{
+		{Principal: owner, Action: "admin", Scope: folder + "/**", Effect: EffectAllow, GrantedBy: "onbod"},
+		{Principal: "folder:" + folder, Action: "mcp:*", Scope: folder + "/**", Effect: EffectAllow, GrantedBy: "onbod"},
+	}
+}
+
 // AdminGrantWrite renders the grant that makes `principal` the admin of a
 // folder it has just created. The scope is `folder/**`: matchSegments
 // (auth/acl.go) ends on `len(in) == 0`, so a bare `eng` covers `eng` and
 // REFUSES `eng/sre`, which left a creator unable to administer a child of its
 // own folder (BUGS L206). One renderer, so no second shape drifts.
 func AdminGrantWrite(principal, folder, grantedBy string) (objstore.Write, error) {
-	return ACLGrantWrite(core.ACLRow{
-		Principal: principal, Action: "admin", Scope: folder + "/**",
-		Effect: EffectAllow, GrantedBy: grantedBy,
-	})
+	row := WorldGrantRows(principal, folder)[0]
+	row.GrantedBy = grantedBy
+	return ACLGrantWrite(row)
 }
 
 // aclDefaults fills what a caller may leave out: the effect and the instant.

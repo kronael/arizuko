@@ -96,37 +96,7 @@ func TestInviteCreateExpiresAt(t *testing.T) {
 	}
 }
 
-func TestConsumeInviteHappyPath(t *testing.T) {
-	s := openMem(t)
-	defer s.Close()
-
-	_, token, _ := s.CreateInvite("alice", "github:alice", 2, nil)
-	got, err := s.ConsumeInvite(token, "github:bob")
-	if err != nil {
-		t.Fatalf("ConsumeInvite: %v", err)
-	}
-	if got.UsedCount != 1 {
-		t.Errorf("used_count = %d, want 1", got.UsedCount)
-	}
-
-	rows, err := s.ListACL("github:bob")
-	if err != nil {
-		t.Fatalf("ListACL: %v", err)
-	}
-	n := 0
-	for _, r := range rows {
-		if r.Action == "admin" && r.Scope == "alice" {
-			n++
-		}
-	}
-	if n != 1 {
-		t.Errorf("acl rows for bob/alice = %d, want 1 (of %+v)", n, rows)
-	}
-}
-
-// ConsumeInviteNoGrant (the split twin) increments used_count + audits but does
-// NOT write the acl grant — acl is routd-OWNED, so onbod writes it to routd.db
-// separately.
+// ConsumeInviteNoGrant increments used_count and audits without writing an ACL grant.
 func TestConsumeInviteNoGrantSkipsACL(t *testing.T) {
 	s := openMem(t)
 	defer s.Close()
@@ -157,10 +127,10 @@ func TestConsumeInviteExhausted(t *testing.T) {
 	defer s.Close()
 
 	_, token, _ := s.CreateInvite("alice", "github:alice", 1, nil)
-	if _, err := s.ConsumeInvite(token, "github:bob"); err != nil {
+	if _, err := s.ConsumeInviteNoGrant(token, "github:bob"); err != nil {
 		t.Fatalf("first consume: %v", err)
 	}
-	_, err := s.ConsumeInvite(token, "github:eve")
+	_, err := s.ConsumeInviteNoGrant(token, "github:eve")
 	if !errors.Is(err, ErrInviteUnavailable) {
 		t.Errorf("second consume: want ErrInviteUnavailable, got %v", err)
 	}
@@ -172,7 +142,7 @@ func TestConsumeInviteExpired(t *testing.T) {
 
 	past := time.Now().Add(-time.Hour)
 	_, token, _ := s.CreateInvite("alice", "github:alice", 1, &past)
-	_, err := s.ConsumeInvite(token, "github:bob")
+	_, err := s.ConsumeInviteNoGrant(token, "github:bob")
 	if !errors.Is(err, ErrInviteUnavailable) {
 		t.Errorf("expired consume: want ErrInviteUnavailable, got %v", err)
 	}
@@ -182,7 +152,7 @@ func TestConsumeInviteUnknownToken(t *testing.T) {
 	s := openMem(t)
 	defer s.Close()
 
-	_, err := s.ConsumeInvite("doesnotexist", "github:bob")
+	_, err := s.ConsumeInviteNoGrant("doesnotexist", "github:bob")
 	if !errors.Is(err, ErrInviteUnavailable) {
 		t.Errorf("unknown token: want ErrInviteUnavailable, got %v", err)
 	}
@@ -210,7 +180,7 @@ func TestConsumeInviteAtomicConcurrent(t *testing.T) {
 			user := "user-" + string(rune('A'+i))
 			// A redemption that LOSES the race reports ErrInviteUnavailable
 			// rather than an error, so anything else here is a real fault.
-			_, err := s.ConsumeInvite(token, user)
+			_, err := s.ConsumeInviteNoGrant(token, user)
 			if err != nil && !errors.Is(err, ErrInviteUnavailable) {
 				t.Errorf("ConsumeInvite: %v", err)
 			}

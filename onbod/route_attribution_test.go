@@ -101,7 +101,7 @@ func TestInviteRedemptionRouteCarriesAttribution(t *testing.T) {
 	seedMembership(t, db, "telegram:77", "github:bob", "")
 	seedAdmission(t, db, store.ArchiveOnboardingRow{JID: "telegram:77", Status: "approved"})
 
-	token := createInvite(t, db, "alice", "telegram:1", 1)
+	token := createInvite(t, db, "alice", "cli", 1)
 	req := httptest.NewRequest("GET", "/invite/"+token, nil)
 	req.SetPathValue("token", token)
 	req.Header.Set("X-User-Sub", "github:bob")
@@ -187,7 +187,7 @@ func TestInviteRedemptionRoutesOnlyTheJIDItConcerns(t *testing.T) {
 	seedAdmission(t, db, store.ArchiveOnboardingRow{JID: "telegram:99", Status: "approved"})
 	seedAdmission(t, db, store.ArchiveOnboardingRow{JID: "telegram:77", Status: "approved"})
 
-	token := createInvite(t, db, "alice", "telegram:1", 1)
+	token := createInvite(t, db, "alice", "cli", 1)
 	req := httptest.NewRequest("GET", "/invite/"+token, nil)
 	req.SetPathValue("token", token)
 	req.Header.Set("X-User-Sub", "github:bob")
