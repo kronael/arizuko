@@ -381,6 +381,47 @@ func TestAgentCmdRunsTheImagesEntrypointAsTheAgent(t *testing.T) {
 	}
 }
 
+func TestAgentHandler(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		file  bool
+		mode  os.FileMode
+		valid bool
+	}{
+		{name: "echo", file: true, mode: 0755, valid: true},
+		{name: "../ant"},
+		{name: "missing"},
+		{name: "not-executable", file: true, mode: 0644},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := agentCmd(map[string]string{"ARIZUKO_AGENT": tc.name}, []byte("payload"))
+			if tc.valid && cmd.Path != "/usr/local/bin/"+tc.name {
+				t.Fatalf("handler path = %q", cmd.Path)
+			}
+			if tc.file || tc.name == "missing" {
+				path := filepath.Join(t.TempDir(), tc.name)
+				if tc.file {
+					if err := os.WriteFile(path, []byte("#!/bin/sh\ncat >/dev/null\n"), tc.mode); err != nil {
+						t.Fatal(err)
+					}
+				}
+				cmd.Path = path
+			}
+			cmd.SysProcAttr = nil
+			var wire bytes.Buffer
+			run(&turn{c: &ctl{w: &wire}}, cmd)
+			frames := decodeAll(t, bytes.NewReader(wire.Bytes()))
+			last := frames[len(frames)-1]
+			if last.Kind != kindExit || (tc.valid && last.Code != 0) || (!tc.valid && last.Code != initExit) {
+				t.Fatalf("frames = %+v", frames)
+			}
+			if !tc.valid && (len(frames) < 2 || !strings.Contains(frames[0].Line, tc.name)) {
+				t.Fatalf("handler missing from error: %+v", frames)
+			}
+		})
+	}
+}
+
 // decodeAll reads every frame off a stream through the production reader.
 func decodeAll(t *testing.T, r io.Reader) []frame {
 	t.Helper()
