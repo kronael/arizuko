@@ -28,18 +28,6 @@ func TestWriteOperatorEnvRefusesAnUnparseableStoreURL(t *testing.T) {
 	}
 }
 
-// An absent key is not a bad one: url.Parse takes "" cleanly, so the empty
-// case still means "this instance runs no store server" and writes nothing.
-func TestWriteOperatorEnvSkipsWhenNoStoreServer(t *testing.T) {
-	dir := t.TempDir()
-	if err := writeOperatorEnv(dir, map[string]string{}); err != nil {
-		t.Fatalf("no store server must be a skip, got %v", err)
-	}
-	if _, err := os.Stat(operatorEnvPath(dir)); !os.IsNotExist(err) {
-		t.Errorf("operator.env written with no store server: %v", err)
-	}
-}
-
 // TestNoServiceReadsTheSharedEnv pins BUGS `L200`'s one deletable line. `envFileName`
 // fell back to the instance's shared `.env` for any service with no `daemonKeys` entry.
 // That file holds every secret the instance has — `SECRETS_KEY`, every channel token,

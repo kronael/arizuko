@@ -3,7 +3,6 @@ package compose
 import (
 	"fmt"
 	"log/slog"
-	"net"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -429,15 +428,8 @@ func writeEnvFile(dataDir, name, daemon, label string, env map[string]string, pe
 	return os.WriteFile(filepath.Join(dataDir, file), []byte(b.String()), 0o600)
 }
 
-// storeService is the compose service name of the store server; a
-// DYNAMODB_URL naming it resolves inside the instance network and nowhere
-// else, so it is exactly the value the host CLI cannot use.
+// storeService identifies the old in-network address for cleanup.
 const storeService = "extenddb"
-
-// storeHostPortKey names the host half of the store server's published port
-// (template/services/extenddb.yaml): docker publishes on it and
-// writeOperatorEnv addresses the same port.
-const storeHostPortKey = "STORE_HOST_PORT"
 
 // operatorEnvPath is the host CLI's own env file, loaded over .env. It carries
 // the operator's store credential, which stays out of .env because .env
@@ -446,67 +438,16 @@ func operatorEnvPath(dataDir string) string {
 	return filepath.Join(dataDir, "env", "operator.env")
 }
 
-// writeOperatorEnv points the host CLI at the store port THIS instance
-// publishes: on the host the compose service name in DYNAMODB_URL resolves to
-// nothing (BUGS L311). The credential lines are minted by a by-hand `extenddb
-// init` and cannot be generated, so the file is never rewritten wholesale: one
-// URL line is edited, and only when it is absent, names the in-network
-// service, or is the loopback line a previous generate wrote — a moved
-// STORE_HOST_PORT has to reach it, or the host CLI keeps dialling the old
-// port. An address on any other host is the operator's own and is left alone,
-// and .env naming another host removes the line generate wrote.
+// writeOperatorEnv removes an address generated for the old private store.
 func writeOperatorEnv(dataDir string, env map[string]string) error {
-	inNetwork, err := url.Parse(env[dynstore.EnvURL])
+	endpoint, err := url.Parse(env[dynstore.EnvURL])
 	if err != nil {
-		// An unset key parses clean to an empty URL, so reaching here means the
-		// operator set a value and got it wrong. Skipping the file quietly would
-		// leave the host CLI pointed at nothing.
 		return fmt.Errorf("parse %s=%q: %w", dynstore.EnvURL, env[dynstore.EnvURL], err)
 	}
-	if inNetwork.Hostname() == "" {
+	if endpoint.Hostname() == "" {
 		return nil
 	}
-	if inNetwork.Hostname() != storeService {
-		// An address the operator gave: the loopback line an earlier generate
-		// wrote would overload it on the host, so that line goes.
-		return dropGeneratedStoreLine(dataDir)
-	}
-	port := env[storeHostPortKey]
-	if port == "" {
-		port = inNetwork.Port()
-	}
-	onHost := *inNetwork
-	onHost.Host = net.JoinHostPort("127.0.0.1", port)
-
-	path := operatorEnvPath(dataDir)
-	prev, rerr := os.ReadFile(path)
-	if rerr != nil && !os.IsNotExist(rerr) {
-		return fmt.Errorf("read %s: %w", path, rerr)
-	}
-	if os.IsNotExist(rerr) || strings.TrimSpace(string(prev)) == "" {
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			return err
-		}
-		body := fmt.Sprintf("# The host's address for the store server this instance publishes.\n"+
-			"# The operator's own access key belongs here too, beside it: `arizuko` on\n"+
-			"# the host reaches every owner's tables, so that key is not in .env, which\n"+
-			"# every service without a scoped env file reads.\n%s=%s\n",
-			dynstore.EnvURL, onHost.String())
-		return writeEnvAtomic(dataDir, path, body)
-	}
-	lines := strings.Split(strings.TrimRight(string(prev), "\n"), "\n")
-	at := storeLineAt(lines)
-	line := fmt.Sprintf("%s=%s", dynstore.EnvURL, onHost.String())
-	switch {
-	case at == -1:
-		lines = append(lines, line)
-	case !isGeneratedStoreLine(lines[at]):
-		// The operator's line; only the mode is still ours.
-		return chmodOperatorEnv(path)
-	default:
-		lines[at] = line
-	}
-	return writeEnvAtomic(dataDir, path, strings.Join(lines, "\n")+"\n")
+	return dropGeneratedStoreLine(dataDir)
 }
 
 // WriteOperatorEnv runs the operator.env step of Generate from the .env of

@@ -190,19 +190,7 @@ func LoadInstanceEnv(dir string) {
 			"and DATA_DIR still points at it",
 			"first", loadedInstanceDir, "now", dir)
 	}
-	// A process that already names the store is inside the instance's network
-	// and keeps what it was given; the operator's file is the HOST's view of the
-	// same server, and only fills in for a process that has none.
-	inNetwork := os.Getenv("DYNAMODB_URL") != ""
 	_ = godotenv.Load(filepath.Join(dir, ".env"))
-	if inNetwork {
-		// The credential still comes from the operator's own file — it is not in
-		// .env, which every service without a scoped env file reads.
-		url := os.Getenv("DYNAMODB_URL")
-		_ = godotenv.Overload(filepath.Join(dir, "env", "operator.env"))
-		_ = os.Setenv("DYNAMODB_URL", url)
-		return
-	}
 	_ = godotenv.Overload(filepath.Join(dir, "env", "operator.env"))
 }
 

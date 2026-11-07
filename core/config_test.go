@@ -286,7 +286,7 @@ func TestOperatorCredentialLoadsFromItsOwnFile(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	write(".env", "ASSISTANT_NAME=Test\nDYNAMODB_URL=https://extenddb:18443\n")
+	write(".env", "ASSISTANT_NAME=Test\nDYNAMODB_URL=https://store.example.com:18443\n")
 	write("env/operator.env", "AWS_ACCESS_KEY_ID=AKIAOPERATOR\nAWS_SECRET_ACCESS_KEY=shh\n")
 	for _, k := range []string{"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "DYNAMODB_URL", "DATA_DIR"} {
 		t.Setenv(k, "")
@@ -305,29 +305,28 @@ func TestOperatorCredentialLoadsFromItsOwnFile(t *testing.T) {
 	}
 }
 
-// A process inside the instance's network is handed the store's address and
-// keeps it: the operator's file names the same server from the host, where the
-// compose service name does not resolve.
-func TestTheNetworkAddressSurvivesTheOperatorFile(t *testing.T) {
+func TestSharedStoreAddressAndOperatorCredential(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dir, "env"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, ".env"),
-		[]byte("DYNAMODB_URL=https://extenddb:18443\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte("DYNAMODB_URL=https://store.example.com:18443\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "env", "operator.env"),
-		[]byte("DYNAMODB_URL=https://127.0.0.1:18443\nAWS_ACCESS_KEY_ID=AKIAOP\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "env", "operator.env"), []byte("AWS_ACCESS_KEY_ID=AKIAOP\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("DYNAMODB_URL", "https://extenddb:18443")
+	t.Setenv("DYNAMODB_URL", "")
+	if err := os.Unsetenv("DYNAMODB_URL"); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("AWS_ACCESS_KEY_ID", "")
 	LoadInstanceEnv(dir)
-	if got := os.Getenv("DYNAMODB_URL"); got != "https://extenddb:18443" {
-		t.Errorf("DYNAMODB_URL = %q, want the address the process was given", got)
+	if got := os.Getenv("DYNAMODB_URL"); got != "https://store.example.com:18443" {
+		t.Errorf("DYNAMODB_URL = %q", got)
 	}
 	if got := os.Getenv("AWS_ACCESS_KEY_ID"); got != "AKIAOP" {
-		t.Errorf("the operator's credential did not load: %q", got)
+		t.Errorf("operator credential = %q", got)
 	}
 }
 
