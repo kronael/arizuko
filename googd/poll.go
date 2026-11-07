@@ -83,6 +83,7 @@ func (p *poller) sweep(ctx context.Context, now time.Time) {
 		if now.Before(state.next) {
 			continue
 		}
+		cursor := state.cursor
 		status, retry, err := p.pollFile(ctx, file.FileID, state)
 		if err != nil {
 			slog.Warn("poll Drive file", "file", file.FileID, "err", err)
@@ -100,6 +101,7 @@ func (p *poller) sweep(ctx context.Context, now time.Time) {
 			state.next = time.Time{}
 		}
 		if err := p.save(ctx, file.FileID, state); err != nil {
+			state.cursor = cursor
 			slog.Error("save Drive status", "file", file.FileID, "err", err)
 		}
 	}
@@ -134,6 +136,14 @@ func (p *poller) pollFile(ctx context.Context, id string, state *filePoll) (stri
 	}
 	_ = resp.Body.Close()
 	cursor := state.cursor
+	maxTime := time.Time{}
+	if cursor != "" {
+		maxTime, err = time.Parse(time.RFC3339Nano, cursor)
+		if err != nil {
+			return "error", false, err
+		}
+	}
+	nextCursor := cursor
 	token := ""
 	for {
 		params := url.Values{"fields": {commentFields}, "pageSize": {"100"}}
@@ -180,14 +190,6 @@ func (p *poller) pollFile(ctx context.Context, id string, state *filePoll) (stri
 		if err := json.Unmarshal(raw, &page); err != nil {
 			return "error", false, err
 		}
-		maxTime := time.Time{}
-		if state.cursor != "" {
-			maxTime, err = time.Parse(time.RFC3339Nano, state.cursor)
-			if err != nil {
-				return "error", false, err
-			}
-		}
-		nextCursor := state.cursor
 		for _, comment := range page.Comments {
 			modified, err := time.Parse(time.RFC3339Nano, comment.ModifiedTime)
 			if err != nil {
@@ -204,16 +206,9 @@ func (p *poller) pollFile(ctx context.Context, id string, state *filePoll) (stri
 				nextCursor = comment.ModifiedTime
 			}
 		}
-		if nextCursor != state.cursor {
-			old := state.cursor
-			state.cursor = nextCursor
-			if err := p.save(ctx, id, state); err != nil {
-				state.cursor = old
-				return "error", false, err
-			}
-		}
 		token = page.Next
 		if token == "" {
+			state.cursor = nextCursor
 			return "ok", false, nil
 		}
 	}

@@ -114,6 +114,40 @@ func TestPollRefusedDeliveryKeepsCursor(t *testing.T) {
 		t.Fatal(db.rows, router.messages)
 	}
 }
+func TestPollLaterPageFailureKeepsCursor(t *testing.T) {
+	var starts []string
+	fail := true
+	p, db, router := newPollTest(t, func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/comments") {
+			fmt.Fprint(w, `{}`)
+			return
+		}
+		starts = append(starts, r.URL.Query().Get("startModifiedTime"))
+		if r.URL.Query().Get("pageToken") == "" {
+			fmt.Fprintf(w, `{"nextPageToken":"next","comments":[%s]}`, thread)
+			return
+		}
+		if fail {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		fmt.Fprint(w, `{"comments":[{"id":"older","createdTime":"2026-01-01T00:00:00Z","modifiedTime":"2026-01-01T12:00:00Z","content":"older"}]}`)
+	}, "file")
+	db.rows["file"] = map[string]string{"cursor": "2026-01-01T00:00:00Z"}
+	p.sweep(t.Context(), time.Now())
+	if got := db.rows["file"]["cursor"]; got != "2026-01-01T00:00:00Z" {
+		t.Fatalf("cursor after failure = %q", got)
+	}
+	fail = false
+	p.sweep(t.Context(), time.Now())
+	if len(starts) != 4 || starts[2] != "2026-01-01T00:00:00Z" || starts[3] != starts[2] {
+		t.Fatalf("start times = %v", starts)
+	}
+	if got := db.rows["file"]["cursor"]; got != "2026-01-02T00:00:00Z" || len(router.messages) != 5 {
+		t.Fatalf("cursor = %q, messages = %d", got, len(router.messages))
+	}
+}
+
 func TestPollBackoffAndFileIsolation(t *testing.T) {
 	count := map[string]int{}
 	status := 429
