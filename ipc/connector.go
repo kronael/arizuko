@@ -22,12 +22,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"strings"
 	"time"
 
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
+
+	"github.com/kronael/arizuko/expand"
 )
 
 // ConnectorSpec is one [[connector]] block with transport "mcp". Loaded from
@@ -168,31 +169,20 @@ func CallConnectorTool(
 // rather than sent blank: an `Authorization: Bearer ` with no token reads to the
 // upstream as a malformed credential instead of an absent one.
 func RenderSecrets(tmpl, secrets map[string]string) map[string]string {
-	out := make(map[string]string, len(tmpl))
-	for k, v := range tmpl {
-		rendered := expandSecret(v, secrets)
-		if rendered == "" || hasUnresolvedSecret(rendered) {
-			continue
+	vars := make(map[string]string, len(secrets))
+	for key, value := range secrets {
+		if value != "" {
+			vars["secret:"+key] = value
 		}
-		out[k] = rendered
+	}
+	out := make(map[string]string, len(tmpl))
+	for key, value := range tmpl {
+		rendered, err := expand.Expand(value, vars)
+		if err == nil && rendered != "" {
+			out[key] = rendered
+		}
 	}
 	return out
-}
-
-func expandSecret(s string, secrets map[string]string) string {
-	for key, val := range secrets {
-		if val == "" {
-			continue
-		}
-		s = strings.ReplaceAll(s, "{secret:"+key+"}", val)
-	}
-	return s
-}
-
-// hasUnresolvedSecret reports whether a rendered value still carries a
-// "{secret:" placeholder — the key was declared but the broker resolved nothing.
-func hasUnresolvedSecret(s string) bool {
-	return strings.Contains(s, "{secret:")
 }
 
 // scrubCallResult re-marshals the result, replaces any non-empty resolved secret

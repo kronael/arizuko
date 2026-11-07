@@ -41,7 +41,7 @@ func TestNumArg(t *testing.T) {
 	}
 }
 
-// --- renderHeaders / expandSecret / scrubSecrets ---
+// --- renderHeaders / scrubSecrets ---
 
 func TestRenderHeaders(t *testing.T) {
 	m := RenderSecrets(map[string]string{
@@ -57,10 +57,9 @@ func TestRenderHeaders(t *testing.T) {
 }
 
 func TestExpandSecret_MultiplePlaceholders(t *testing.T) {
-	s := "prefix-{secret:K1}-middle-{secret:K2}-suffix"
-	out := expandSecret(s, map[string]string{"K1": "aaa", "K2": "bbb"})
-	if out != "prefix-aaa-middle-bbb-suffix" {
-		t.Errorf("got %q", out)
+	got := RenderSecrets(map[string]string{"x": "prefix-{secret:K1}-middle-{secret:K2}-suffix"}, map[string]string{"K1": "aaa", "K2": "bbb"})
+	if got["x"] != "prefix-aaa-middle-bbb-suffix" {
+		t.Fatalf("got %q", got["x"])
 	}
 }
 
