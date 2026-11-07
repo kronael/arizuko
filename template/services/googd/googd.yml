@@ -1,0 +1,12 @@
+services:
+  googd:
+    container_name: ${APP}_googd_${FLAVOR}
+    image: arizuko:latest
+    entrypoint: ['googd']
+    env_file: ['../env/googd.env']
+    environment:
+      ROUTER_URL: 'http://routd:8080'
+      LISTEN_ADDR: ':8080'
+      LISTEN_URL: 'http://googd:8080'
+    depends_on: [routd]
+    restart: on-failure

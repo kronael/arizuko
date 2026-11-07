@@ -1,0 +1,5 @@
+name: googd
+proxyd_routes:
+  - path: /dash/googd/
+    backend: http://googd:8080
+    auth: user

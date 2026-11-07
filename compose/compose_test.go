@@ -1237,3 +1237,18 @@ func TestGenerateTakesIdentityFromTheName(t *testing.T) {
 		}
 	}
 }
+
+func TestGoogdReceivesItsCredential(t *testing.T) {
+	dir := seed(t, "GDRIVE_SA_KEY_JSON=key\nGDRIVE_IMPERSONATE=user\nGOOGD_CONNECTOR_TOKEN=token\n")
+	write(t, dir, "services/googd.yml", "services:\n  googd:\n    image: arizuko:latest\n")
+	gen(t, dir)
+	env := read(t, dir, "env/googd.env")
+	for _, line := range []string{"GDRIVE_SA_KEY_JSON=key", "GDRIVE_IMPERSONATE=user", "GOOGD_CONNECTOR_TOKEN=token"} {
+		if !strings.Contains(env, line) {
+			t.Errorf("googd environment lacks %s", line)
+		}
+	}
+	if strings.Contains(env, "SECRETS_KEY=") {
+		t.Error("googd must not receive SECRETS_KEY")
+	}
+}

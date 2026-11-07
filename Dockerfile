@@ -44,6 +44,7 @@ COPY --from=build /proxyd /usr/local/bin/proxyd
 COPY --from=build /webd /usr/local/bin/webd
 COPY --from=build /slakd /usr/local/bin/slakd
 COPY --from=build /gitd /usr/local/bin/gitd
+COPY --from=build /googd /usr/local/bin/googd
 COPY --from=build /emaid /usr/local/bin/emaid
 # /opt/arizuko is the DEFAULT source runed and routd read `ant/` from: skills,
 # CLAUDE.md, hooks ship in the image, so a
