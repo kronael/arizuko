@@ -24,7 +24,8 @@ token (`routd/channels.go:32`).
 
 ## The change
 
-A package's `arizuko.yml` declares how it runs:
+Every daemon is a package, core daemons included. Each one's `arizuko.yml`
+declares how it runs:
 
 ```yaml
 run: go run github.com/x/whatsapp-adapter@v1.4.0
@@ -72,3 +73,7 @@ daemon.
    core Go.
 2. Deleting its socket file removes it from routd and the dashboard.
 3. `POST /v1/channels/register` and the per-adapter service keys are gone.
+4. Core daemons start, are found and reach the store by the same path. The
+   core Go lists of daemons named in BUGS `L200` (`compose.adapterDaemons`,
+   `compose.daemonKeys`, `compose.coreProxydRoutes`, the `dashd/services.go`
+   core set, `baseDaemons`) are deleted.
