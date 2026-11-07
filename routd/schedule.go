@@ -2,10 +2,7 @@ package routd
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
-	"net/http"
-	"strings"
 	"time"
 
 	"github.com/kronael/arizuko/core"
@@ -18,15 +15,6 @@ type scheduleState struct {
 	Fired    int
 	Err      string
 }
-type ingressResult struct {
-	header http.Header
-	status int
-	body   strings.Builder
-}
-
-func (r *ingressResult) Header() http.Header         { return r.header }
-func (r *ingressResult) WriteHeader(status int)      { r.status = status }
-func (r *ingressResult) Write(p []byte) (int, error) { return r.body.Write(p) }
 
 func (s *Server) ScheduleLoop(ctx context.Context) {
 	ticker := time.NewTicker(time.Minute)
@@ -61,14 +49,13 @@ func (s *Server) fireTasks() {
 		}
 		sender := core.ScheduledSender
 		if task.ContextMode == "isolated" {
-			sender = "timed-isolated:" + task.ID
+			sender = core.IsolatedSenderPrefix + task.ID
 		}
-		result := &ingressResult{header: make(http.Header)}
-		s.ingestMessage(result, apiv1.Message{ID: id, ChatJID: task.Owner, ForwardedFrom: task.ChatJID, Sender: sender, Content: task.Prompt, Timestamp: start.Unix()}, "service:timed", "")
+		_, err := s.ingestMessage(apiv1.Message{ID: id, ChatJID: task.Owner, ForwardedFrom: task.ChatJID, Sender: sender, Content: task.Prompt, Timestamp: start.Unix()}, "service:routd", "")
 		status, errorText, retry := "success", "", ""
-		if result.status >= 400 {
+		if err != nil {
 			status = "error"
-			errorText = fmt.Sprintf("enqueue status %d: %s", result.status, result.body.String())
+			errorText = err.Error()
 			state.Err = errorText
 			slog.Error("enqueue task message", "task", task.ID, "jid", task.ChatJID, "err", errorText)
 			if task.Cron == "" {

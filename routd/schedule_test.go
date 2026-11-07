@@ -39,6 +39,14 @@ func TestScheduleTasks(t *testing.T) {
 	if cron.Status != core.TaskActive || cron.NextRun == nil || !cron.NextRun.After(time.Now()) {
 		t.Fatalf("cron = %+v", cron)
 	}
+	cronLogs := store.NewOver(db.Obj()).TaskRunLogs("cron", 10)
+	if len(cronLogs) != 1 || cronLogs[0].Status != "error" {
+		t.Fatalf("cron failure logs = %+v", cronLogs)
+	}
+	onceLogs := store.NewOver(db.Obj()).TaskRunLogs("once", 10)
+	if len(onceLogs) != 1 || onceLogs[0].Status != "success" {
+		t.Fatalf("one-shot logs = %+v", onceLogs)
+	}
 	logs := store.NewOver(db.Obj()).TaskRunLogs("retry", 10)
 	if len(logs) != 1 || logs[0].Status != "error" || logs[0].Error == "" {
 		t.Fatalf("logs = %+v", logs)
