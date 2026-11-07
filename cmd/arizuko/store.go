@@ -261,6 +261,31 @@ func signedCheck(c *dynamodb.Client, prefix string) error {
 	return nil
 }
 
+func deleteTables(ctx context.Context, c *dynamodb.Client, prefixes []string) error {
+	pages := dynamodb.NewListTablesPaginator(c, &dynamodb.ListTablesInput{})
+	var names []string
+	for pages.HasMorePages() {
+		page, err := pages.NextPage(ctx)
+		if err != nil {
+			return err
+		}
+		for _, name := range page.TableNames {
+			for _, prefix := range prefixes {
+				if strings.HasPrefix(name, dynstore.Prefix(prefix)) {
+					names = append(names, name)
+					break
+				}
+			}
+		}
+	}
+	for _, name := range names {
+		if _, err := c.DeleteTable(ctx, &dynamodb.DeleteTableInput{TableName: aws.String(name)}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func inventory(src *dynamodb.Client) ([]types.TableDescription, error) {
 	ctx := context.Background()
 	owners := map[string]bool{}
