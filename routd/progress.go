@@ -392,9 +392,6 @@ func (l *Loop) retryProgress(now time.Time, pending store.PendingMessage) bool {
 		}
 		return true
 	}
-	if _, ok := l.db.GetTurnContext(row.TurnID); !ok {
-		return true
-	}
 	pending.Message = row
 	l.retryOutbound(now, pending)
 	return true
