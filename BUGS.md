@@ -56,6 +56,7 @@ line; none can be answered from the code.
   the run log stop calling a queued prompt a success?
 - `L347` — may the cursor stay put when a steered turn does not run? Changes
   the consume contract (`L104`).
+- `L318` — run enforcing-server acceptance for allowed access and foreign-prefix denial.
 - `L317` — may `/stop` drop the backlog older than itself, and is that drop
   sender-scoped? No other command eats a row it did not author.
 - `L273`, `L249`, `L159`, `L202` — proposals, each costed in
@@ -4825,28 +4826,24 @@ each of the two guard conditions fails it when mutated.
 - **Affected:** any second instance on one store server; the 10.0.5.1 consolidation
 - **Source:** `objstore/dynstore/env.go:16-22`; `compose/compose.go:882-901`; `INSTALL.md:291-390`; `specs/6/43` §6 (which already carries `defects: [L319]`)
 - **Test:** `TestEnroll*` (`cmd/arizuko/store_test.go`), against dyntest.
-- **Status:** fixed — `arizuko store enroll -i NAME [SNAPSHOT]` mints the account and one key per daemon, writes `env/<daemon>.env`, and with a snapshot copies every table (spec `6/43` §6). L318 closes per instance after its move.
+- **Status:** fixed — `arizuko store enroll -i NAME [SNAPSHOT]` mints the account and one key per daemon, writes `env/<daemon>.env`, and with a snapshot copies every table (spec `6/43` §6). L318 still requires enforcement acceptance.
 - **Fix:**
 
-## L318 — daemon store policies grant `dynamodb:*` on `*` (2026-09-20, closed for enrolled deployments)
+## L318 — daemon policy enforcement lacks acceptance proof (2026-09-20, open)
 
-MEASURED 2026-11-07 at `bb3c3f39a37291bc86413a4cba1619ea8223fcb7`:
-`cmd/arizuko/store.go` `policy` builds one resource per `store.StoreReach`
-prefix: `arn:aws:dynamodb:*:*:table/<prefix>.*`. `enroll` calls
-`manager.putPolicy` with that document for each nonempty row, including users
-whose access key it keeps. `dynstore.Prefix` adds the dot before the wildcard.
-The document grants `dynamodb:*` within those prefixes, never `Resource: "*"`.
-The map has 15 rows and needs 13 pairs; `timed` and `ttsd` need none.
+MEASURED 2026-11-07 at `182c4eadd6d2c3340e70d670f85c7f7d99baed98`:
+`cmd/arizuko/store.go` `policy` builds bounded table ARNs from `StoreReach`.
+`enroll` writes the `tables` policy even when it keeps a user's key.
+Enrollment replaces only `tables`; additional user/group policies can widen access.
 
-- **Test:** `cmd/arizuko/store_test.go` `TestPolicyDocument` asserts the literal
-  bounded policy. `TestEnrollMintsEveryRowAndConverges` reads every policy
-  back from the server and checks it against `policy(StoreReach[row])`.
-- **Status:** closed for a clean enrolled deployment. The owner reports sloth
-  and krons moved with `arizuko store enroll` on 2026-11-06. No live data or
-  policies were inspected for this measurement.
-- **Limit:** enrollment replaces only the policy named `tables`. Additional
-  user or group policies can widen access. Their presence and the live
-  server's enforcement remain unmeasured here; enrollment is not a policy audit.
+- **Test:** `TestPolicyDocument` and `TestEnrollMintsEveryRowAndConverges`
+  in `cmd/arizuko/store_test.go` prove the document and policy readback only.
+- **Status:** open — policy provisioning is complete; enforcement remains unverified.
+- **Acceptance:** `TestEnrolledPoliciesEnforceStoreReach`, required but not yet
+  implemented, must sign requests with each enrolled daemon key on an isolated
+  enforcing server. Allowed-prefix reads and writes must succeed;
+  foreign-prefix reads and writes must return an authorization denial.
+  Keep `specs/6/42-dynamo-over-postgres.md` unshipped until this passes.
 
 ## L317 — `/stop` no longer cancels a question typed just before it (2026-09-20, open — needs a decision; re-measured 2026-09-21 after `L336`)
 

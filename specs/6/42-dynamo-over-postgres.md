@@ -1,5 +1,6 @@
 ---
-status: shipped
+status: partial
+defects: [L318]
 depends:
   [
     37-store-model,
@@ -556,9 +557,10 @@ and writes each minted pair into that daemon's `env/` file. The operator pair
 lives in `env/operator.env`. `STORE_CA` carries the base64 PEM certificate.
 `TestPolicyDocument` asserts the bounded document, and
 `TestEnrollMintsEveryRowAndConverges` checks the stored policies.
-L318 closes for a clean enrolled deployment; additional user/group policies
-and live enforcement require a separate audit. Narrowing access to only the
-owner's HTTP API remains the federation work.
+These tests prove policy provisioning, not server enforcement. L318 stays
+open until the acceptance check in §9 passes. Additional user/group policies
+can widen access. Narrowing access to only the owner's HTTP API remains the
+federation work.
 
 **The compose fragment.** `template/services/extenddb.yml` declares
 `extenddb` (`extenddb/extenddb-postgres`, `control_plane_delay_seconds 0`),
@@ -667,6 +669,11 @@ stays FTS5 on a SQLite deployment" — because there is no SQLite deployment.
 
 ## 9. Acceptance
 
+- `TestEnrolledPoliciesEnforceStoreReach`, required acceptance test, not yet
+  implemented: enroll a clean account on an isolated enforcing server. Each
+  daemon key must read and write its allowed prefixes and receive an
+  authorization denial for reads and writes outside `StoreReach`.
+  Policy-document and readback tests alone do not close L318 or ship this spec.
 - `go test ./objstore/...` green with `dynstore` against ExtendDB on
   `postgres:17-alpine`, AND against `amazon/dynamodb-local`, AND with `-race`
   on the three concurrent bodies. The second run is what proves the driver is
