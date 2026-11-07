@@ -714,12 +714,7 @@ func (s *Store) MessageTimestampByID(id, jid string) (time.Time, bool) {
 	if err != nil || !ok {
 		return time.Time{}, false
 	}
-	ts, _, split := MsgCoord(it.Key.Sort)
-	if !split {
-		return time.Time{}, false
-	}
-	t, err := time.Parse(time.RFC3339Nano, ts)
-	return t, err == nil
+	return CursorInstant(it.Key.Sort)
 }
 
 // RoutedToByMessageID answers the folder one message of a chat was routed to,

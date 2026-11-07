@@ -16,6 +16,23 @@ type redeliveryReadCounter struct {
 	queries int
 }
 
+func TestCursorInstant(t *testing.T) {
+	want := time.Date(2026, time.January, 2, 3, 4, 5, 0, time.UTC)
+	for _, tc := range []struct {
+		cursor string
+		ok     bool
+	}{
+		{MsgStamp(core.TS(want), "id"), true},
+		{"missing-separator", false},
+		{MsgStamp("invalid-time", "id"), false},
+	} {
+		got, ok := CursorInstant(tc.cursor)
+		if ok != tc.ok || (ok && !got.Equal(want)) {
+			t.Errorf("CursorInstant(%q) = %v, %v", tc.cursor, got, ok)
+		}
+	}
+}
+
 func (s *redeliveryReadCounter) Query(ctx context.Context, q objstore.Query) ([]objstore.Item, error) {
 	rows, err := s.Store.Query(ctx, q)
 	if q.Entity == Messages && q.Key.Op == objstore.GeKey {
