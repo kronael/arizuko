@@ -111,7 +111,7 @@ func cmdRun(args []string) {
 		fatal(err)
 	}
 
-	tgt := &run.HTTPTarget{API: *api, MCPURL: *mcp, Token: *token}
+	tgt := &run.HTTPTarget{API: *api, MCPURL: *mcp, Token: *token, Folder: *folder}
 	results, err := run.Drive(run.Config{
 		Target: tgt, Cases: cases, Nonce: *nonce, TargetBase: base, Chat: *chat,
 		Folder: *folder, SinkBind: *sinkAddr, SinkURL: *sink,

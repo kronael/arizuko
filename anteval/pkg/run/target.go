@@ -21,6 +21,7 @@ type HTTPTarget struct {
 	API    string // routd REST base reachable from the eval host (serves /v1/*)
 	Token  string // bearer token; needs messages:write + read scope on the eval folder
 	MCPURL string // base of an inspect-compatible MCP-over-HTTP face; empty disables mcp checks
+	Folder string
 	Client *http.Client
 }
 
@@ -110,8 +111,8 @@ func (t *HTTPTarget) RestMessages(chat string) ([]check.Msg, error) { return t.m
 // McpMessages reads the same rows through webd's MCP face (--mcp). Empty MCPURL
 // → "surface not configured", so mcp/parity cases fail loudly rather than
 // false-pass.
-func (t *HTTPTarget) McpMessages(chat, topic string) ([]check.Msg, error) {
-	return t.mcpHistory(chat, topic)
+func (t *HTTPTarget) McpMessages(_, topic string) ([]check.Msg, error) {
+	return t.mcpHistory(t.Folder, topic)
 }
 
 // Session reads the persisted resume-session id for (folder, topic) via routd

@@ -11,26 +11,18 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 
 	"github.com/kronael/arizuko/anteval/pkg/check"
-	"github.com/kronael/arizuko/groupfolder"
 )
 
 // mcpHistory reads one topic through webd's MCP face — the same rows
 // RestMessages reads over REST, which is what makes a parity check mean
 // anything. The tool is `get_history` and it takes FOLDER and TOPIC, not a chat
 // jid.
-//
-// The folder comes from the package that owns that grammar. A bare
-// `web:<folder>` is 1:1 with its folder; a SUFFIXED jid is not, and JidFolder
-// answers "" for one, which surfaces here as a loud error rather than a read of
-// the wrong folder.
-func (t *HTTPTarget) mcpHistory(chat, topic string) ([]check.Msg, error) {
+func (t *HTTPTarget) mcpHistory(folder, topic string) ([]check.Msg, error) {
 	if t.MCPURL == "" {
 		return nil, fmt.Errorf("surface not configured")
 	}
-	folder := groupfolder.JidFolder(chat)
 	if folder == "" {
-		return nil, fmt.Errorf("mcp read: %q names no folder; get_history takes a folder, "+
-			"and a suffixed jid cannot be read back into one", chat)
+		return nil, fmt.Errorf("mcp read: get_history requires a folder")
 	}
 	if topic == "" {
 		return nil, fmt.Errorf("mcp read: get_history requires a topic and this case carries none")

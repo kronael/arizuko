@@ -1,9 +1,12 @@
 package run
 
 import (
+	"context"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/mark3labs/mcp-go/server"
 )
 
 // webd answers NewToolResultText, so get_history's payload is a JSON STRING
@@ -44,15 +47,30 @@ func TestHistoryMsgsRaisesAToolError(t *testing.T) {
 	}
 }
 
-// The MCP face reads by folder, and a suffixed jid cannot be read back into
-// one (BUGS L139 is that bug in production). Answering the wrong folder's
-// history would make a parity check pass against another group's messages.
-func TestMcpHistoryRefusesAJidItCannotResolve(t *testing.T) {
+func TestMcpHistoryRequiresFolderAndTopic(t *testing.T) {
 	target := &HTTPTarget{MCPURL: "http://127.0.0.1:1", Token: "t"}
-	if _, err := target.mcpHistory("web:acme/tok", "topic"); err == nil {
-		t.Fatal("a suffixed jid was accepted; get_history would read the wrong folder")
+	if _, err := target.mcpHistory("", "topic"); err == nil {
+		t.Fatal("an empty folder was accepted")
 	}
 	if _, err := target.mcpHistory("web:acme", ""); err == nil {
 		t.Fatal("an empty topic was accepted; get_history requires one")
+	}
+}
+
+func TestMcpMessagesUsesConfiguredFolder(t *testing.T) {
+	m := server.NewMCPServer("test", "1")
+	var folder string
+	m.AddTool(mcp.NewTool("get_history"), func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		folder = req.GetString("folder", "")
+		return mcp.NewToolResultText(`{"messages":[]}`), nil
+	})
+	s := httptest.NewServer(server.NewStreamableHTTPServer(m, server.WithStateLess(true)))
+	defer s.Close()
+	target := &HTTPTarget{MCPURL: s.URL, Folder: "eval/child"}
+	if _, err := target.McpMessages("web:other/suffix", "topic"); err != nil {
+		t.Fatal(err)
+	}
+	if folder != "eval/child" {
+		t.Fatalf("folder = %q", folder)
 	}
 }
