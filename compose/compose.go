@@ -302,9 +302,6 @@ func envFileName(name string) string {
 // service the lot, and it looked like it worked. It now returns "" instead, and this
 // is the loud half: `env_file: - .env` in the output is the shape to catch, because it
 // is the one that ships (BUGS `L200`).
-//
-// A service with NO `env_file` is fine and not this check's business: `vited` serves a
-// read-only volume and reads nothing, and forcing a key list on it would invent one.
 func checkNoServiceReadsTheSharedEnv(composeYAML string) error {
 	var cur string
 	var bad []string
@@ -718,7 +715,7 @@ func readFragments(servicesDir string) ([]string, error) {
 func activeProfiles(env map[string]string) []string {
 	var p []string
 	if envOr(env, "WEB_PORT", "") != "" {
-		// One profile for webd/proxyd/vited/dashd: compose rejects a
+		// One profile for webd/proxyd/dashd: compose rejects a
 		// depends_on into an inactive profile.
 		p = append(p, "web")
 		if envOr(env, "WEBDAV_ENABLED", "true") == "true" {
@@ -932,8 +929,7 @@ func Generate(dataDir, instance string) (string, []ProxydRoute, error) {
 	b.WriteString(routdService(app, instance, dataDir, env))
 	b.WriteString(runedService(app, instance, dataDir, env))
 	b.WriteString(webdService(app, instance))
-	b.WriteString(proxydService(app, instance, env))
-	b.WriteString(vitedService(app, instance, dataDir))
+	b.WriteString(proxydService(app, instance, dataDir, env))
 	b.WriteString(dashdService(app, instance, dataDir, env))
 	b.WriteString(onbodService(app, instance, dataDir))
 	b.WriteString(davdService(app, instance, dataDir, env))
@@ -1337,7 +1333,7 @@ func dashdService(app, flavor, dataDir string, env map[string]string) string {
 
 // proxydService emits proxyd's compose block. It carries no route config: the
 // route table is rows this generate run writes, read live per request.
-func proxydService(app, flavor string, env map[string]string) string {
+func proxydService(app, flavor, dataDir string, env map[string]string) string {
 	webPort := envOr(env, "WEB_PORT", "8095")
 	ports := []string{webPort + ":8080"}
 	if aliases := envOr(env, "WEB_PORT_ALIASES", ""); aliases != "" {
@@ -1348,17 +1344,16 @@ func proxydService(app, flavor string, env map[string]string) string {
 			}
 		}
 	}
-	// dashd + webd share proxyd's `web` profile: compose rejects a depends_on
-	// into an inactive profile. No data mount: proxyd reads routd's tables on
-	// the store server and serves no file from the instance tree.
 	return writeSvc(svcDef{
-		name:       "proxyd",
-		app:        app,
-		flavor:     flavor,
-		entrypoint: "proxyd",
-		profile:    "web",
-		ports:      ports,
-		dependsOn:  "routd, dashd, webd",
+		name:        "proxyd",
+		app:         app,
+		flavor:      flavor,
+		entrypoint:  "proxyd",
+		profile:     "web",
+		ports:       ports,
+		dependsOn:   "routd, dashd, webd",
+		volumes:     []string{dataDir + "/web:" + ContainerDataMount + "/web:ro"},
+		environment: map[string]string{"DATA_DIR": ContainerDataMount},
 	})
 }
 
@@ -1393,22 +1388,6 @@ func webdService(app, flavor string) string {
 		profile:     "web",
 		environment: map[string]string{"ROUTER_URL": routdURL},
 	})
-}
-
-func vitedService(app, flavor, dataDir string) string {
-	var b strings.Builder
-	b.WriteString("  vited:\n")
-	fmt.Fprintf(&b, "    container_name: %s_vited_%s\n", app, flavor)
-	b.WriteString("    image: arizuko-vite:latest\n")
-	b.WriteString("    profiles: ['web']\n")
-	// Read-only: vite's dep cache lives at a container-local cacheDir.
-	fmt.Fprintf(&b, "    volumes:\n      - %s/web:/web:ro\n", dataDir)
-	// The vite dev server has no /health; /@vite/client is always 200 in dev.
-	b.WriteString("    healthcheck:\n")
-	b.WriteString("      test: ['CMD', 'wget', '-qO-', '--tries=1', '--timeout=3', 'http://127.0.0.1:8080/@vite/client']\n")
-	b.WriteString("      interval: 30s\n      timeout: 5s\n      retries: 3\n      start_period: 15s\n")
-	b.WriteString("    restart: on-failure\n")
-	return b.String()
 }
 
 // envOr reads a generation input from the INSTANCE's `.env` and nowhere else, falling

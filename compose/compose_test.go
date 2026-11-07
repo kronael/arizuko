@@ -145,7 +145,7 @@ func TestOptionalDaemonsCarryProfiles(t *testing.T) {
 	out := gen(t, dir)
 
 	want := map[string]string{
-		"webd": "web", "proxyd": "web", "vited": "web", "dashd": "web",
+		"webd": "web", "proxyd": "web", "dashd": "web",
 		"onbod": "onbod", "davd": "davd",
 	}
 	for svc, profile := range want {
@@ -799,6 +799,7 @@ func TestAppSrcDevMountsTheHostCheckout(t *testing.T) {
 // store/ is per-owner (spec 5/16 step 7): a daemon is bound to store/<owner>
 // for each database it opens, never to store/ itself.
 var wantDataMounts = map[string][]string{
+	"proxyd": {"/web:/srv/app/home/web:ro"},
 	"onbod": {
 		"/groups:/srv/app/home/groups",
 		"/web:/srv/app/home/web",
@@ -814,7 +815,7 @@ var wantDataMounts = map[string][]string{
 // noDataMount names the daemons that reach only the store server. A daemon that
 // reads no file of the instance has no reason to see the tree, and mounting one
 // hands it every other owner's data and every live MCP socket (BUGS F51, A1).
-var noDataMount = []string{"authd", "webd", "proxyd"}
+var noDataMount = []string{"authd", "webd"}
 
 func TestDataMountsAreScopedPerDaemon(t *testing.T) {
 	dir := seed(t, "API_PORT=8080\n")
@@ -919,11 +920,11 @@ func TestScopedDaemonsKeepDataDirEnv(t *testing.T) {
 	}
 }
 
-// vited only serves /web and writes nothing into it.
-func TestVitedWebMountIsReadOnly(t *testing.T) {
-	vited := serviceBlock(gen(t, seed(t, "API_PORT=8080\n")), "vited")
-	if !strings.Contains(vited, "/web:/web:ro\n") {
-		t.Errorf("vited must mount /web read-only (it never writes); got:\n%s", vited)
+func TestProxydWebMountIsReadOnly(t *testing.T) {
+	output := gen(t, seed(t, "API_PORT=8080\n"))
+	proxyd := serviceBlock(output, "proxyd")
+	if !strings.Contains(proxyd, "/web:/srv/app/home/web:ro\n") || strings.Contains(output, "  vited:\n") {
+		t.Errorf("proxyd must mount web read-only without vited; got:\n%s", proxyd)
 	}
 }
 

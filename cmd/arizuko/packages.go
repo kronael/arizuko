@@ -37,7 +37,7 @@ var pkgNameRE = regexp.MustCompile(container.PackageNamePattern)
 // itself an enabled package is an unsatisfied dependency (warned on add).
 var baseDaemons = map[string]bool{
 	"authd": true, "routd": true, "runed": true, "proxyd": true, "webd": true,
-	"vited": true, "onbod": true, "davd": true, "dashd": true,
+	"onbod": true, "davd": true, "dashd": true,
 }
 
 // mustPkgName rejects a package name that could escape services/.

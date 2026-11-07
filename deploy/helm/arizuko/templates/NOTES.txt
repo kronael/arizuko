@@ -10,9 +10,6 @@ Daemons deployed (component label):
 {{- if and .Values.web.enabled .Values.web.proxyd.enabled }}
   - proxyd           public reverse proxy + auth gate
 {{- end }}
-{{- if and .Values.web.enabled .Values.web.vited.enabled }}
-  - vited            static web tree (/pub, /priv)
-{{- end }}
 {{- if .Values.dashd.enabled }}
   - dashd            operator dashboard (/dash)
 {{- end }}
