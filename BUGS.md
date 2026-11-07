@@ -240,7 +240,7 @@ reads those words now.
   entry: the TS adapter's stale `/health` code, the RFC 3339 one-shot dashd
   refuses, onbod's route writes on any allow row, extra mounts with no blocklist.
 - `L488` — the standalone mcpfw image has no container build gate.
-- `L487`, `L489`, `L491`, `L498`, `L501`, `L502` — doc and
+- `L487`, `L489`, `L491`, `L501`, `L502` — doc and
   comment drift against the code, each naming the sentence to change.
 
 **Found by the product-docs pass (2026-10-21).**
@@ -1369,28 +1369,6 @@ change for every sibling set, or remove the setter, the tool and the form.
   (b) delete `open`, `set_group_open` and the form. **Default if nothing is
   decided:** the flag stays inert.
 
-## L498 — `specs/5/19` describes an `async` hold and a waiter that flips its row at `HITL_WAIT`, and neither exists (2026-10-20, open)
-
-FOUND 2026-10-20 by the docs fold. § "Blocking is the default"
-(`specs/5/19-hitl-firewall.md:239-267`) has a table of two hold effects, one of
-them `async` ("returns at once … the agent, re-issuing"), and says a waiter
-that reaches `HITL_WAIT` "flips its row to `async` before giving up" so that
-`resolveHoldTx` writes the re-issue trigger for a late approval. The code has
-one effect: `auth.EffectHoldBlock`, and the writer refuses every spelling but
-`allow` and `deny` (`auth/checkhold_test.go:240-243`). `awaitVerdict`
-(`routd/pending_actions.go:444-483`) expires the row at the deadline
-(`expirePendingAction`, `:380`) and answers `NOT RUN … nobody answered in time`;
-the row is closed as `expired`. The function the spec names is
-`resolveHoldInto` (`routd/pending_actions.go:337`); `resolveHoldTx` survives in
-`dashd/approvals_page.go:20`, `dashd/README.md:125` and `specs/5/19:223,237,256`.
-`specs/5/19` is `status: shipped`.
-
-**Fix:** rewrite the section to the one blocking effect and the expiry; per
-`specs/CLAUDE.md` the spec carries `status: defected` until then. No test —
-docs.
-
-- **Status:** open (record only).
-
 ## L499 — the claude harness replaces Claude Code's system prompt whenever a persona or output style exists, and three comments say the persona appends (2026-10-20, open — needs a decision)
 
 FOUND 2026-10-20 by the docs fold. `buildSystemPrompt`
@@ -1449,8 +1427,6 @@ FOUND 2026-10-20 by the docs fold. Each was read at `62d7233a`.
   "not the tool's `mcp:` name". `ipc/ipc.go:1197` authorizes the ext scope at
   registration and `granted(...)` (`:1087-1097`) authorizes `mcp:<name>` at the
   call, so a REST connector tool needs both grants.
-- `dashd/approvals_page.go:20` cites `resolveHoldTx`; the function is
-  `resolveHoldInto` (see `L498`).
 - `Makefile:186,192` call the `integration` target "red today — BUGS L349" and
   cite `L349` for a 124 s kill; `L349` is fixed and pruned (`afac6bfa`).
 - `tests/lab/product-lab.sh:10` says `arizuko create` and `products apply` are

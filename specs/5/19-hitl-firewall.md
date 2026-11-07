@@ -1,6 +1,5 @@
 ---
-status: defected
-defects: [L498]
+status: shipped
 shipped: 2026-08-07
 moved-from: specs/17/4-hitl-firewall.md
 ---

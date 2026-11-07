@@ -9,7 +9,7 @@ single channel adapter.
 
 ## Phase status
 
-**Phase 5 is partial: 33 shipped, 3 defected, 1 partial.** Three files carry
+**Phase 5 is partial: 34 shipped, 2 defected, 1 partial.** Three files carry
 `reference` — analysis with no lifecycle to finish (`25`, `26`, `35`).
 Native checklist publication still needs image and adoption acceptance.
 
@@ -39,7 +39,7 @@ data entities defined here, and `5/8` moves the cold tier into git.
 | [33-paths-roles.md](33-paths-roles.md) | defected | **The authorization model.** A path grants no authority. Role membership selects defaults. `auth.CheckGrant` checks rule mutations against the selected policy layer. **DEFECTED `L538`**: guest capabilities use the action lattice. | ; facts in `auth/README.md` § Authorization is one row and one question, `SECURITY.md` § The sender cannot lend the agent authority, `ARCHITECTURE.md` § Decided, and why |
 | [1-auth-standalone.md](1-auth-standalone.md) | shipped | authd is the sole ES256 minter; every other daemon offline-verifies through `auth/`. Absorbs the former `11-auth-api` wire surface. Admin API (key metadata, sessions, operator revoke) and the `/dash/authd/` cockpit it feeds both ship; fleet-wide logout stays out-of-band by design. | ; facts in `authd/README.md` § Keys, mints and logins, `auth/README.md` § The platform token, `SECURITY.md` § Audit trail and logging, `concepts/auth.html` |
 | [31-identity-pairing.md](31-identity-pairing.md) | shipped | **Channel identity → verified account.** A channel user is anonymous and holds no grants; the `acl_membership` edge is the only bridge, and only the account owner's consent at `/pair/<token>` writes one. A pairing is a `kind='pair'` route token, minted by one function for both callers. onbod's greeting sends a pairing link (owner_folder NULL), redemption continues to `/onboard` for the world choice, and a poll observer runs admission over the committed edge.; facts in `onbod/README.md` § From an unrouted chat to a routed one, `ROUTING.md` § Token kinds, `SECURITY.md` § Pairing |
-| [19-hitl-firewall.md](19-hitl-firewall.md) | defected | A `hold:mcp:<tool>` rule suspends a call for human approval. Hazard: `CheckHold` must read `hold:` rows directly — routing it through `auth.Authorize` would hold every tool for the operator. **DEFECTED `L498`**: § "Blocking is the default" describes an `async` hold and a `HITL_WAIT` flip, and the code has one blocking effect and an expiry. | ; facts in `reference/grants.html` § Holding a call for a human, `reference/env.html` § HITL_WAIT, `SECURITY.md` § Why a tool call beats a raw socket, `EXTENDING.md`, `routd/README.md` |
+| [19-hitl-firewall.md](19-hitl-firewall.md) | shipped | Hold rules accept allow/deny. Approval executes the original call; unanswered requests expire. Namespace-aware policy checks keep ordinary grants separate from holds. |
 
 ## Surfaces — MCP, REST, web, OpenAPI
 
