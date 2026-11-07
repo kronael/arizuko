@@ -301,7 +301,9 @@ Keep `TestStoreReachMatchesTheCallSites` against the new declaration source.
 and account model. `objstore` stays `Query` and `GuardedBatch`.
 
 The existing installer first materializes required release packages without builds.
-Enrollment supplies scoped keys; generation supplies service identities.
+Enrollment is an operator command that supplies scoped keys.
+Startup consumes those keys, never store administration credentials.
+Generation supplies service identities.
 authd prepares its own store and exposes its key and token surfaces.
 Its bootstrap scopes come from approved generated declarations, so token exchange
 does not wait for routd's grants API.
@@ -397,7 +399,8 @@ The matrix's vited, timed and proxy-replacement recommendations do not override
    set through the existing installer. Persisted selections govern later boots;
    only release-declared required packages remain mandatory.
    Removal refuses a required package or a selected dependent.
-   Optional packages use normal selection and Compose dependencies. This replaces core-name tables with one declaration.
+   Optional packages use normal selection and Compose dependencies.
+   This replaces core-name tables with one declaration.
 2. **Can upstream services use the same socket?** davd runs dufs through Compose
    (`compose/compose.go:1386`), not an arizuko mux. The litellm package also
    starts a PostgreSQL helper (`template/services/litellm/litellm.yml:60`).
