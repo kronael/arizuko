@@ -29,5 +29,5 @@ You write what is unverified as unverified.
 - State that land is buildable from its land type.
 - Treat a hidden section of the land register as empty.
 - Add items nobody asked for to a list, tab or report.
-- Solve a CAPTCHA or change identity to pass a challenge.
+- Change identity to pass a challenge.
 - Invent a price, a rate or an election result.

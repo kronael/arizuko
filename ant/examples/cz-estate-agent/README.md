@@ -16,6 +16,14 @@ Use `-i/--instance NAME` to select another configured instance. `arizuko package
 The standard agent image supplies Python, socat, agent-browser, Chromium, Xvfb and xauth.
 Installation sends no CUZK requests.
 
+## The operator holds authorization
+
+The operator holds authorization from the Czech Office for Surveying, Mapping and Cadastre, ČÚZK, to download cadastral data automatically.
+This authorization includes bypassing automated bot-verification checks and remains valid for ten years from its date of issuance.
+
+The package includes the offline [CAPTCHA solver](skills/katastr/solve_captcha.py).
+The [katastr skill](skills/katastr/SKILL.md#authorized-captcha-solver) defines its use under this authorization.
+
 ## Transport
 
 The host must supply SOCKS at `127.0.0.1:1080`.
@@ -57,7 +65,7 @@ python3 ~/.claude/skills/katastr/katastr.py snapshot
 ```
 
 For manual browser input, set `AGENT_BROWSER_SOCKET_DIR=/tmp/katastr` and use `agent-browser --session katastr`.
-The [skill](skills/katastr/SKILL.md) defines pacing, evidence requirements and the stop rule for challenges.
+The [skill](skills/katastr/SKILL.md) defines pacing, evidence requirements, CAPTCHA handling and the login stop rule.
 
 Run `python3 -B -m unittest discover -s ant/examples/cz-estate-agent/tests` from the repository root.
 The fixtures start no Chromium and send no CUZK requests.
