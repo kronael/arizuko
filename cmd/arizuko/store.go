@@ -286,6 +286,62 @@ func deleteTables(ctx context.Context, c *dynamodb.Client, prefixes []string) er
 	return nil
 }
 
+func deleteStore(dataDir, account string, m *manager) error {
+	accounts, err := m.accounts()
+	if err != nil {
+		return err
+	}
+	if _, ok := accounts[account]; !ok {
+		return nil
+	}
+	held, err := holders(m)
+	if err != nil {
+		return err
+	}
+	env, err := view(dataDir)
+	if err != nil {
+		return err
+	}
+	type owner struct {
+		client   *dynamodb.Client
+		prefixes []string
+	}
+	var owners []owner
+	for _, daemon := range slices.Sorted(maps.Keys(store.StoreReach)) {
+		prefixes := store.StoreReach[daemon]
+		if len(prefixes) == 0 {
+			continue
+		}
+		user, file := enrollee(daemon)
+		pair, err := godotenv.Read(filepath.Join(dataDir, "env", file))
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		id, secret := pair[dynstore.EnvKeyID], pair[dynstore.EnvSecret]
+		if id == "" && secret == "" {
+			continue
+		}
+		h, ok := held[id]
+		if !ok || h.acct != account || h.user != user || !h.active || secret == "" {
+			return fmt.Errorf("%s: key does not belong to %s in %s", file, user, account)
+		}
+		c, err := clientOf(env, id, secret)
+		if err != nil {
+			return err
+		}
+		owners = append(owners, owner{c, prefixes})
+	}
+	for _, owner := range owners {
+		if err := deleteTables(context.Background(), owner.client, owner.prefixes); err != nil {
+			return err
+		}
+	}
+	return m.deleteAccount(account)
+}
+
 func inventory(src *dynamodb.Client) ([]types.TableDescription, error) {
 	ctx := context.Background()
 	owners := map[string]bool{}
