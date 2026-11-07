@@ -113,12 +113,6 @@ export function ghWriteGate(ev: ToolEvent): Verdict {
   return ALLOW;
 }
 
-// guardedRoots are the trees a skill can be loaded from. Kept narrow on
-// purpose: everything else the agent writes is data.
-function guardedRoots(home: string): string[] {
-  return [path.join(home, '.claude', 'skills')];
-}
-
 // walkFiles lists every regular file under root. Missing root is not an error —
 // a group with no skills directory is the normal case.
 function walkFiles(root: string, out: string[] = []): string[] {
@@ -154,8 +148,7 @@ export function bashSkillRescan(home: string): (ev: ToolEvent) => Verdict {
     const since = lastScan;
     lastScan = Date.now();
     try {
-      for (const root of guardedRoots(home)) {
-        for (const file of walkFiles(root)) {
+      for (const file of walkFiles(path.join(home, '.claude', 'skills'))) {
           // A quarantined file is already out of discovery. Rescanning it renamed it
           // AGAIN on every sweep — and codex sweeps per tool call, one process each.
           if (file.endsWith('.quarantined')) continue;
@@ -189,7 +182,6 @@ export function bashSkillRescan(home: string): (ev: ToolEvent) => Verdict {
           } catch (err) {
             console.error(`skillguard: quarantine failed for ${file}: ${err}`);
           }
-        }
       }
     } catch (err) {
       // Fails OPEN, like the write gate: a guard that bricks the turn when it
