@@ -59,7 +59,6 @@ line; none can be answered from the code.
   the run log stop calling a queued prompt a success?
 - `L347` — may the cursor stay put when a steered turn does not run? Changes
   the consume contract (`L104`).
-- `L318` — run enforcing-server acceptance for allowed access and foreign-prefix denial.
 - `L317` — may `/stop` drop the backlog older than itself, and is that drop
   sender-scoped? No other command eats a row it did not author.
 - `L273` — audit and remove stored copies of ACL defaults after deployment.
@@ -4620,24 +4619,8 @@ each of the two guard conditions fails it when mutated.
 - **Affected:** any second instance on one store server; the 10.0.5.1 consolidation
 - **Source:** `objstore/dynstore/env.go:16-22`; `compose/compose.go:882-901`; `INSTALL.md:291-390`; `specs/6/43` §6 (which already carries `defects: [L319]`)
 - **Test:** `TestEnroll*` (`cmd/arizuko/store_test.go`), against dyntest.
-- **Status:** fixed — `arizuko store enroll -i NAME [SNAPSHOT]` mints the account and one key per daemon, writes `env/<daemon>.env`, and with a snapshot copies every table (spec `6/43` §6). L318 still requires enforcement acceptance.
+- **Status:** fixed — `arizuko store enroll -i NAME [SNAPSHOT]` mints the account and one key per daemon, writes `env/<daemon>.env`, and with a snapshot copies every table (spec `6/43` §6).
 - **Fix:**
-
-## L318 — daemon policy enforcement lacks acceptance proof (2026-09-20, open)
-
-MEASURED 2026-11-07 at `182c4eadd6d2c3340e70d670f85c7f7d99baed98`:
-`cmd/arizuko/store.go` `policy` builds bounded table ARNs from `StoreReach`.
-`enroll` writes the `tables` policy even when it keeps a user's key.
-Enrollment replaces only `tables`; additional user/group policies can widen access.
-
-- **Test:** `TestPolicyDocument` and `TestEnrollMintsEveryRowAndConverges`
-  in `cmd/arizuko/store_test.go` prove the document and policy readback only.
-- **Status:** open — policy provisioning is complete; enforcement remains unverified.
-- **Acceptance:** `TestEnrolledPoliciesEnforceStoreReach`, required but not yet
-  implemented, must sign requests with each enrolled daemon key on an isolated
-  enforcing server. Allowed-prefix reads and writes must succeed;
-  foreign-prefix reads and writes must return an authorization denial.
-  Keep `specs/6/42-dynamo-over-postgres.md` unshipped until this passes.
 
 ## L317 — `/stop` no longer cancels a question typed just before it (2026-09-20, open — needs a decision; re-measured 2026-09-21 after `L336`)
 

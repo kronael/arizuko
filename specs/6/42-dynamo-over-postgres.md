@@ -1,6 +1,5 @@
 ---
 status: partial
-defects: [L318]
 depends:
   [
     37-store-model,
@@ -557,9 +556,9 @@ and writes each minted pair into that daemon's `env/` file. The operator pair
 lives in `env/operator.env`. `STORE_CA` carries the base64 PEM certificate.
 `TestPolicyDocument` asserts the bounded document, and
 `TestEnrollMintsEveryRowAndConverges` checks the stored policies.
-These tests prove policy provisioning, not server enforcement. L318 stays
-open until the acceptance check in §9 passes. Additional user/group policies
-can widen access. Narrowing access to only the owner's HTTP API remains the
+`TestEnrolledPoliciesEnforceStoreReach` checks effective owned-prefix access
+and foreign-prefix denial on PostgreSQL-backed ExtendDB, including kept keys.
+Additional user/group policies can widen access. Narrowing access to only the owner's HTTP API remains the
 federation work.
 
 **The compose fragment.** `template/services/extenddb.yml` declares

@@ -29,8 +29,7 @@ Host and snapshot readers refuse differing operator endpoint or CA overrides.
 
 ## Remaining
 
-- Exercise owner-readable enrollment, a second enrollment without new keys, snapshot copy and stopped-source startup on an isolated external server (`cmd/arizuko/store_test.go`, `cmd/arizuko/create_target_test.go`).
-- Prove enrolled daemon policy enforcement before closing the shared L318 gate (`cmd/arizuko/store_test.go`, `specs/6/42-dynamo-over-postgres.md`).
+- Exercise owner-readable enrollment, snapshot copy and stopped-source startup on an isolated external server (`cmd/arizuko/store_test.go`, `cmd/arizuko/create_target_test.go`).
 
 ## One endpoint serves the host and containers
 
@@ -254,9 +253,10 @@ A dry run on an isolated copy must pass before an operator moves another deploym
 `policy` at `cmd/arizuko/store.go:125-137` writes `dynamodb:*` only on `arn:aws:dynamodb:*:*:table/<prefix>.*`.
 `enroll` at `cmd/arizuko/store.go:214-216` writes that policy through `manager.putPolicy` for each row, including kept keys.
 `TestPolicyDocument` checks the literal bounded document; `TestEnrollMintsEveryRowAndConverges` reads each stored policy back.
-These tests prove policy provisioning only.
+`TestEnrolledPoliciesEnforceStoreReach` verifies allowed-prefix reads and writes,
+foreign-prefix denial and re-enrollment without key rotation on an isolated
+PostgreSQL-backed ExtendDB server.
 Enrollment replaces only `tables`; unrelated user/group policies can still widen access.
-L318 stays open until the enforcement acceptance check below passes.
 
 Acceptance checks:
 
@@ -265,10 +265,10 @@ Acceptance checks:
 - Enroll as the fresh data directory owner: mode-0600 credential files remain readable by the UID-1000 bootstrap owners.
 - Enroll twice against an isolated external server: the second run mints nothing and every policy matches `StoreReach`.
 - Run the required `TestEnrolledPoliciesEnforceStoreReach` acceptance check in
-  [6/42 acceptance](42-dynamo-over-postgres.md#9-acceptance) before closing L318 or shipping `6/42`.
+  [6/42 acceptance](42-dynamo-over-postgres.md#9-acceptance) against an isolated enforcing server.
 - Copy from a snapshot, regenerate and start with the source stopped: counts match and source data stays untouched.
 - Delete the private URL/port tests, retain their shared credential assertions, and replace the ExtendDB package fixtures without weakening containment tests.
 
 Documentation checks run `go test ./tests/specrefs/ ./tests/webdocs/ -count=1`.
 Implementation also needs the affected compose, CLI and enrollment suites against an isolated endpoint.
-Enrollment convergence, stopped-source startup and L318 enforcement remain unmeasured on an isolated external server.
+Owner-readable bootstrap, snapshot copy and stopped-source startup remain unmeasured on an isolated external server.
