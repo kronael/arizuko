@@ -222,10 +222,8 @@ re-implemented in every adapter that grows one.
 The connector is declared in `connectors.toml` like
 `template/connectors/github.toml`. Google's hosted Docs and Drive MCP servers
 are Developer Preview and carry no comment tool today; any MCP server over the
-`batchUpdate` comment requests fits. The surrogate `GOOGLE_TOKEN` the dashboard
-writes fills its slot — its scope list is `drive.readonly` today
-(`auth/surrogate/providers/google.toml:11`), so a connector that edits needs a
-wider scope there; that change belongs to the connector, not to this spec.
+`batchUpdate` comment requests fits. Its credential is googd's key, through
+the passthrough below.
 
 ### The connector runs on googd's key, through googd
 
