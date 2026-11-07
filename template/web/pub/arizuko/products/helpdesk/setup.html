@@ -70,12 +70,12 @@ arizuko route -i &lt;instance&gt; list</code></pre>
       <pre><code>arizuko package add -i &lt;instance&gt; -g acme/support ant/examples/helpdesk
 arizuko package sync -i &lt;instance&gt;</code></pre>
 
-      <h2>An escalation to an agent is a delegation</h2>
-      <p>The product escalates billing and account questions. An escalation to a <em>person</em> is a message. An escalation to another <em>agent</em> is a delegation. Make the billing group first, because nothing makes it for you:</p>
+      <h2>Send an unanswered question to the billing group</h2>
+      <p>The product sends billing and account questions to the responsible group. Create the billing group first:</p>
       <pre><code>arizuko group -i &lt;instance&gt; add slack:T012ABCD/channel/C0BILLING acme/billing</code></pre>
-      <p>The support agent then calls <code>delegate_group</code> with the billing folder and the request. The billing agent runs its own turn, in its own guest, with its own grants and its own egress allowlist. It is a peer, not a subroutine.</p>
-      <div class="callout"><strong>The delegating agent needs a grant.</strong> <code>role:member</code> does not hold <code>delegate_group</code>, so an operator must grant it to the support folder, with a scope that covers <code>acme/billing</code>. Until then, the agent says that it cannot escalate. That is the correct failure.</div>
-      <p>A route selects one destination for each message. Use delegation to bring the billing agent into the same issue. <a href="../../concepts/routing.html">Routing</a> explains how routes are matched.</p>
+      <p>The support agent calls <code>send</code> with <code>chatJid="acme/billing"</code> and the question as <code>text</code>. The billing agent runs its own turn, guest and session, with its own grants and egress rules.</p>
+      <p>The call checks <code>mcp:send</code> on <code>acme/billing</code>. The default member role includes <code>send</code>; local ACL rows can restrict access.</p>
+      <p>A route selects one destination for each message. Use <code>send</code> to ask the billing agent about the issue. <a href="../../concepts/routing.html">Routing</a> explains how routes are matched.</p>
 
       <h2>One optional variable names the escalation target</h2>
       <p>The product declares one optional variable for the escalation target.</p>

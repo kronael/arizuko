@@ -14,6 +14,10 @@ user-invocable: true
 Wire form: `<platform>:<rest>` (RFC 3986 opaque-path URI). Each adapter
 defines the segments of `<rest>`.
 
+For a group post, ALWAYS call `send` with the full bare folder as `chatJid`
+and the message as `text`. The call checks `mcp:send` on the target folder.
+Use a platform JID for delivery to a platform chat.
+
 `core.JidPlatform(jid)` returns `<platform>`; `core.JidRoom(jid)`
 returns `<rest>`. Glob match uses `path.Match` semantics — `*` does
 not cross `/`.
@@ -54,6 +58,6 @@ The numeric bot id comes from `getMe`. Each bot has a separate DM chat
 with the same user. Senders and pairing identities use
 `telegram:user/<user_id>` across bot accounts.
 
-ALWAYS use the chat JID from the inbound message for replies and chat tools.
+For platform replies and chat tools, ALWAYS use the chat JID from the inbound message.
 Use `platform=telegram` to match all Telegram chats. The route glob
 `telegram:*/*` matches groups but cannot match DMs with three path segments.

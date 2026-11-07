@@ -98,24 +98,19 @@
         <dt><code>#</code></dt>
         <dd>Clears the topic pin.</dd>
       </dl>
-      <p>A message that starts with <code>@&lt;child&gt; &lt;text&gt;</code> on one line goes to the child folder once. <code>routd</code> sends that one message to <code>&lt;folder&gt;/&lt;child&gt;</code>, as one <code>delegate_group</code> call from the agent does.</p>
+      <p>A leading <code>@name &lt;text&gt;</code> selects a group through an <code>at=</code> route or the nearest matching folder. The agent can also post to a group with <code>send</code>, using the full target folder as <code>chatJid</code>. A routed message keeps the originating chat as its return address. An agent post records the calling folder.</p>
 
       <h2 id="crossing-agents">The agents use MCP tools to move work between folders</h2>
-      <p>The operator moves a conversation between agents with the same MCP tools that the agents use. Ask the agent in the chat, for example "delegate this to <code>research</code>". Or call the tool through the MCP socket of the chat. The <a href="../reference/mcp.html">MCP reference</a> lists the parameters.</p>
+      <p>Ask the agent to send work to another group with <code>send</code>. Name the full target folder. Or call the tool through the MCP socket of the chat. The <a href="../reference/mcp.html">MCP reference</a> lists the parameters.</p>
       <table>
         <thead>
           <tr><th>tool</th><th>direction</th><th>use it when</th></tr>
         </thead>
         <tbody>
           <tr>
-            <td><code>delegate_group</code></td>
-            <td>parent &rarr; child</td>
-            <td>The work belongs to a child agent. The child runs the turn, and the reply comes back here.</td>
-          </tr>
-          <tr>
-            <td><code>escalate_group</code></td>
-            <td>child &rarr; parent</td>
-            <td>The child agent needs a decision from the parent. The parent gets the message. No grant changes.</td>
+            <td><code>send</code></td>
+            <td>any granted target folder</td>
+            <td>Post a task or a response to another group. Pass its full folder as <code>chatJid</code> and the message as <code>text</code>.</td>
           </tr>
           <tr>
             <td><code>register_group</code></td>
@@ -134,7 +129,7 @@
           </tr>
         </tbody>
       </table>
-      <p>Each tool needs its own grant. The default member role does not hold <code>register_group</code>, <code>delegate_group</code> or <code>escalate_group</code>. An agent has them only where an admin granted them, and the scope glob of the grant sets the folders that the agent can name. <a href="../concepts/grants.html">Grants</a> explains the permission model.</p>
+      <p>Each call checks its action on the target. The default member role includes <code>send</code>; local ACL rows can restrict the target. Creating a group requires <code>mcp:register_group</code>. <a href="../concepts/grants.html">Grants</a> explains the permission model.</p>
 
       <h2>A JID names one chat on one platform</h2>
       <p>A <code>chat_jid</code> has the form <code>&lt;platform&gt;:&lt;rest&gt;</code>. <a href="../concepts/jid.html">JID</a> has the full table. To write a route rule, send <code>/chatid</code> in the target chat and copy the result.</p>
@@ -155,7 +150,7 @@ hook:&lt;folder&gt;/&lt;source&gt;     # webhook ingest at folder, through /hook
           <tr><td>Find the JID of this chat for a route rule</td><td><code>/chatid</code></td></tr>
           <tr><td>Send one message as a root turn</td><td><code>/root &lt;msg&gt;</code></td></tr>
           <tr><td>Send all next messages to <code>research</code></td><td><code>@research</code> alone in a message</td></tr>
-          <tr><td>Give one task to <code>research</code></td><td><code>@research &lt;task&gt;</code> in one message, or ask the agent to call <code>delegate_group</code></td></tr>
+          <tr><td>Give one task to <code>research</code></td><td><code>@research &lt;task&gt;</code> in one message, or ask the agent to call <code>send</code> with the full research folder as <code>chatJid</code></td></tr>
           <tr><td>Make a new child folder</td><td>Ask the agent to call <code>register_group</code></td></tr>
           <tr><td>Start a turn in a folder from a tool</td><td>Ask the agent to call <code>inject_message</code></td></tr>
           <tr><td>Bring in events from GitHub or Stripe</td><td>Connect a webhook, as <a href="webhooks.html">Webhooks</a> shows</td></tr>

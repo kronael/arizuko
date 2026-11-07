@@ -132,12 +132,11 @@ extenddb … server misbehaving`. Write the published port instead, and set mode
 sudo ./arizuko group -i $I add web:eval eval
 ```
 
-**3. Sixteen grants.** The `role:member` floor is messaging only, so without
+**3. Required grants.** The `role:member` floor is messaging only, so without
 them the run measures the grant table and not the agent:
 
 ```bash
 for spec in "eval egress" "eval web:publish" "eval/** mcp:add_acl" \
-  "eval mcp:delegate_group" "eval/** mcp:delegate_group" \
   "eval mcp:issue_chat_link" "eval/** mcp:issue_chat_link" \
   "eval mcp:issue_chat_token" "eval/** mcp:issue_chat_token" \
   "eval mcp:issue_webhook" "eval/** mcp:issue_webhook" \
@@ -149,7 +148,7 @@ sudo ./arizuko group -i $I grants folder:eval
 ```
 
 Read the grants back with the principal `folder:eval`. `grants eval` prints
-"no grants" for a folder that holds all sixteen.
+"no grants" for a folder that holds the required grants.
 
 **4. Egress `*`.** The egress proxy matches the allowlist by name and the sink is an
 IP, so only a folder `*` rule covers it:

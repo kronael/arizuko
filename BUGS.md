@@ -15,6 +15,8 @@
 
 ## What needs you
 
+- `L679` — routd's OpenAPI expectation omits the mounted group PATCH; test-only correction pending.
+
 - `L676` — decide whether dashboard group creation must check the creator's new subtree grant.
 - `L675` — the guest's Python is under `/root` (700); fix at the next rootfs build.
 - `L674` — `compose down` fails on a deleted fragment despite `required: false`; proposal.
@@ -214,7 +216,7 @@ reads those words now.
   dashd's admin writes over routd's `/v1` need a forwarder trust routd does not grant.
 - `L151` — an adapter with a dead credential restart-loops and nothing pushes the fact
   anywhere a person sees.
-- `L2` — a delegated child is never dispatched; a measured cause and an unsigned fix.
+- `L2` — a platform-chat `send` writes bot output and does not start another agent's turn; caller feedback needs a decision.
 - `L13`, `L31`, `L41`, `L134` — a write-only `secret_use_log` with no read surface;
   four of six product payload kinds seed-once so a product never updates; compose
   fragments frozen once they differ by a byte; a `shell:env:` grant that cannot be
@@ -242,12 +244,6 @@ reads those words now.
 - `L488` — the standalone mcpfw image has no container build gate.
 - `L487`, `L489`, `L491`, `L498`, `L501`, `L502` — doc and
   comment drift against the code, each naming the sentence to change.
-
-**Found by the product-docs pass (2026-10-21).**
-
-- `L503` — the "depth capped at 1" of `delegate_group` and `escalate_group`
-  checks an argument the caller sets: carry a hop count on the row, or drop
-  the claim from both tool descriptions.
 
 **Found by the v0.70.6 release review (2026-10-21).**
 
@@ -474,6 +470,23 @@ that version. A change to which rows reach live data is an auth change.
 
 - **Status:** open — needs sign-off.
 
+
+## L679 — routd's OpenAPI expected list omits the mounted group PATCH (2026-11-07, open — record only)
+
+`TestOpenAPI_EveryAdvertisedPathIsMounted` in
+`routd/endpoints_source_test.go:192` fails because the expected operations at
+`:201` omit `PATCH /v1/groups/{folder}`. `resreg/resources/groups.go:32`
+declares that mounted operation. The advertised output includes it.
+The same expected-list omission exists at base
+`c544d80a0e62a73b2a2dd7d40c3608c1affa9acb`.
+
+- **Severity:** low — the routd package test fails against its mounted surface.
+- **Scope:** OpenAPI test expectation.
+- **Affected:** `routd/endpoints_source_test.go`.
+- **Measured:** `go test ./routd -short -run '^TestOpenAPI_EveryAdvertisedPathIsMounted$' -count=1`
+  fails with the advertised group PATCH absent from the expected list.
+- **Fix:** add the mounted operation to the expected list.
+- **Status:** open — record only; this documentation pass excludes Go edits.
 
 ## L678 — no operator door writes a group's `effort`, and dashd lists only 4.x models (2026-11-07, open — folded into the per-group harness spec)
 
@@ -1007,15 +1020,15 @@ spend limit" in the group logs. Last successful krons run 2026-11-01T07:38
 
 ## L639 — the platform-prefix refusal sits before the delegation return swap (2026-11-02, open)
 
-MEASURED 2026-11-02. Moving L572's check from `send` into ipc `gateJID`
-failed `TestDelegatedReplyReturnsToOrigin`: `reply: jid "root/eng" has no
-platform prefix`. A delegated turn's chat JID is the bare child folder, and
-routd `placeTurnDelivery` (`routd/placement.go`) swaps it for `return_to`
-when the target is the turn's own chat. `reply` (`mcpDeliver` threaded), `mcpAppendDoc` and
-`mcpSendVoice` (`routd/mcp.go`) place through it; `send` (`mcp.go:51`,
-threaded=false) and `Post` do not, so L572's ipc check on `send` is correct.
-The gate change was reverted. At HEAD `send_file`, `send_voice` and `post`
-still accept `user/137865889`, the L572 shape.
+`send` accepts a bare group folder and posts an inbound message there.
+`send_file`, `send_voice` and `post` use platform delivery, but still accept
+`user/137865889` without a platform prefix. A delivery can fail after the
+outbound writer creates a pending row for the invalid destination.
+
+A routed turn's chat JID can be a bare folder. `placeTurnDelivery` in
+`routd/placement.go` maps that chat to its recorded return address for
+`reply`, `send_file` and `send_voice`. A platform-prefix check must follow
+that mapping. `post` does not use the mapping.
 
 - **Severity:** low (needs an agent to pass a wrong JID)
 - **Scope:** `routd/mcp.go`, `routd/placement.go`, the ipc failure path
@@ -1478,29 +1491,6 @@ stands; the sentence about the default describes the exception.
 `auth.Authorize` where none is set". No test — docs.
 
 - **Status:** open (record only).
-
-## L503 — `delegate_group` and `escalate_group` say "Depth capped at 1", and the cap reads an argument the caller sets (2026-10-21, open — needs sign-off)
-
-FOUND 2026-10-21 by the product-docs pass, read at `a3015fcf`. Both tool
-descriptions end "Depth capped at 1." (`ipc/ipc.go:1941`, `:1996`), and
-`reference/mcp.html` copies them. Each handler reads `depth :=
-req.GetInt("depth", 0)` and refuses `depth >= 1` (`:1961-1964`, `:2013-2016`).
-The delegation row carries only the prompt (`:2019-2025`), and
-`grep -rn '"depth"' --include=*.go --include=*.ts .` finds no other reader or
-writer. So a child turn starts with no depth, calls `delegate_group` with the
-default 0, and passes. A chain parent → child → grandchild runs as far as the
-grants of each folder reach, and a parent and a child that hold both tools
-can hand one prompt back and forth with no bound. `concepts/routing.html`
-said "Both tools refuse to go more than one level"; this pass corrected the
-page, and the tool descriptions are code.
-
-- **Severity:** low — grants still bound every hop; the stated limit is false.
-- **Scope:** agent hand-off tools.
-- **Affected:** ipc (`delegate_group`, `escalate_group`).
-- **Status:** open — needs sign-off. A real cap is a hop count carried on the
-  delegation row into the child turn, which changes the message contract (`L2`
-  names the same bound for `send`). The other fix drops the sentence from both
-  descriptions. No test — a test would pin the current gap.
 
 ## L505 — every reply, send, Stop hook and turn completion reads the whole chat to find one summary row (2026-10-21, open)
 
@@ -6242,7 +6232,8 @@ inline. `5/B` and `5/F` are the specs to amend.
 
 ## L72 — anteval leaks a group per case and every release pays an LLM turn for each (2026-08-23, open — needs sign-off on spec `6/50`)
 
-`anteval` cases create child groups (`register_group` / `delegate_group`) and
+`anteval` cases create child groups with `register_group` and post tasks with
+`send`, and
 nothing ever deletes them. 31 of krons' 43 groups are eval leftovers:
 
 ```
@@ -7197,129 +7188,27 @@ answers "who used which secret" only to an operator with sqlite3 on the host.
   the duplicate write is harmless: one empty item collection, written in the
   same batch, costing one item per secret read.
 
-## L2 — a delegated child is never dispatched: its only message is a bot row (2026-08-08, CAUSE ISOLATED 2026-08-15; SILENT HALF FIXED 2026-09-20, the fix needs sign-off, REPRODUCED 2026-08-16 on v0.64.0)
+## L2 — a platform-chat send does not start another agent's turn (2026-08-08, open — needs sign-off)
 
-Same live run, `child-delegate`. Unlike L1 this one is NOT root-caused, and it
-is recorded that way on purpose.
+`send` to a platform-qualified chat writes outbound bot output through
+`ipc.putOutboundRow`. An all-bot batch does not start a turn in
+`routd/dispatch.go`. When another folder writes the batch, routd logs
+"delegation woke nothing", but the calling agent gets a successful send.
+An agent that expects a response can wait for a turn that never starts.
 
-The v0.64.0 anteval run reproduces it unchanged (`no callback for
-etjty2l-child-delegate`). The harness prints "case needs `mcp:register_group`,
-`mcp:delegate_group`" on any timeout; that hint is generic and wrong here — the
-logs below show both calls succeeding.
+To request another agent's work, call `send` with its bare group folder as
+`chatJid`. That path uses `store.PostGroup` and writes an inbound non-bot row.
 
-What is verified from the logs: the parent registered the child
-(`"group registered" jid=web:eval/etjgjnv-child-delegate folder=eval/etjgjnv-child-delegate`)
-and delegated the task (`"send" folder=eval jid=web:eval/etjgjnv-child-delegate
-text="Task: run this exact command and report the result back here"`). So
-registration and delegation both work. The child never fired the callback.
-
-**CAUSE ISOLATED 2026-08-15 by the call path.** No probe was needed and no
-capability is involved. Agent-to-agent delegation over `send` cannot wake the
-target folder, by construction:
-
-1. The parent's `send` reaches `ipc.internalSend` → `gated.SendMessage` →
-   `routd.mcpDeliver`, which delivers, and `ipc.putOutboundRow`, which persists
-   the row. That writer stamps EVERY agent-authored row `FromMe: true,
-   BotMsg: true` (`ipc/ipc.go` putOutboundRow) — there is no separate shape for
-   "addressed to another folder".
-2. The poll DOES see it: `DB.NewMessages` filters on timestamp only, so the
-   child chat is picked up and `resolve` succeeds (the child folder was
-   registered), and it is enqueued.
-3. `processGroupMessages` then drops it (`routd/dispatch.go:52-62`):
-
-       // Strip bot rows from the trigger batch (don't feed the agent its own
-       // output) but keep them in the rendered context.
-       for _, m := range msgs { if !m.BotMsg { trigger = append(trigger, m) } }
-       if len(trigger) == 0 { l.advance(chatJID, last); return false, nil }
-
-   The child's chat holds nothing BUT bot rows, so `trigger` is empty. The
-   cursor advances and the function returns `(false, nil)` — the "silent no-op"
-   that is deliberately NOT a failure, so it does not even trip the breaker.
-   No container is ever spawned for the child.
-
-Both recorded candidates are answered:
-- The `egress` ACL vs `network_rules` question is MOOT. No container starts, so
-  no egress decision is ever reached. The two mechanisms never got to disagree.
-- "the child may never have been dispatched at all" is CORRECT, and now
-  explained: it was enqueued and then dropped at the bot-row strip.
-
-- **Severity:** medium — agent-to-agent delegation silently does nothing.
-- **Scope:** message model — what may trigger a turn
-- **Affected:** routd (dispatch), ipc (outbound writer)
-- **Status:** NOT FIXED — the fix is a redesign and needs sign-off.
-
-**PROPOSAL, for the user, not built.** The bot-row strip is correct and must
-stay: it is what stops an agent re-triggering itself on its own output. The
-missing distinction is that a row authored by folder A and addressed to folder
-B is B's INBOUND, not B's own output. A fix has to say so explicitly, and that
-is a new contract on the message model plus a loop-safety rule:
-
-- Make the trigger test `m.BotMsg && m.Sender != <this folder>` rather than
-  `m.BotMsg` alone, so a row a DIFFERENT folder wrote can trigger. `Sender` is
-  already the author folder at this writer, so no new column is needed.
-- Bound it, or two agents ping-pong forever: a hop budget carried on the row, a
-  depth cap on the delegation chain, or a rule that only a registered CHILD
-  folder may be woken by its parent. This is the part that decides the shape,
-  and it is a product call, not a code call.
-- Decide whether the woken turn is credentialed as the child (socket folder) —
-  it is, since the socket is per-folder — and whether the parent needs an ACL
-  action to wake another folder at all.
-
-Until then, delegation should either be refused loudly at the `send` gate when
-the target folder is not the caller's own chat, or documented as not supported.
-Silently storing a row nobody will ever act on is the worst of the three.
-
-- **The DROP HAS MOVED since this was filed, and it is still silent.** It is no
-  longer the bot-row strip: `processGroupMessages` now calls `newestUserIdx`
-  first and returns at `steerIdx < 0` — "An all-bot batch routes nothing"
-  (`routd/dispatch.go`). Same outcome, one screen earlier. The mechanism this
-  entry isolated is unchanged: every agent-authored row is stamped `BotMsg`, so
-  a delegated child's chat holds nothing else.
-- **The silence is fixed 2026-09-20.** An all-bot batch is normally a folder's
-  OWN output, correctly ignored. It is not when another folder wrote it, and
-  that case now says so, naming the chat, the author and the row count. The
-  distinction is `groupfolder.JidFolder(chatJID)` against the newest row's
-  `Sender`: a delegation carries the PARENT's folder, a self-reply carries the
-  chat's own.
-- **PROVEN BY MUTATION both ways:** drop the warning and the delegation test
-  fails; drop the `Sender != author` term and the twin fails, because a folder's
-  own output must stay quiet — a notice on every turn a folder takes would be
-  worse than silence.
-- **Still NOT FIXED, and it is the redesign:** the bot-row strip is correct and
-  must stay, because it is what stops an agent re-triggering itself. Making a
-  delegation wake its target needs a row shape that is neither "a person spoke"
-  nor "my own output" — a message-model change, which is the sign-off this
-  entry has been waiting for since August.
-- **The notice shipped 2026-09-20 read the chat's folder out of the JID, and on
-  two JID shapes that made it lie. FIXED 2026-09-21 (`2abe141f`).** It called
-  `groupfolder.JidFolder(chatJID)`, but the grammar is ambiguous by design —
-  `web:t/sfx` reads as folder `t/sfx` while its mint recorded `t`, and
-  `hook:a/b/c` reads as `a/b`. So on every route-token chat and every `hook:`
-  chat the comparison was `t/sfx != t`, and the folder's OWN reply logged
-  "delegation woke nothing" once per reply, forever.
-  `store.RouteTokenTargetByJID` is "the single reader every folder-from-JID path
-  goes through" (its own comment) and `routd/loop.go` `directFolder` is the call
-  site that already uses it; the notice now uses it too. The 2026-09-20 mutation
-  proof could not catch this because both its tests use a plain `web:<folder>`
-  JID, where the grammar happens to be right. Same bug class as `L4`/`L1`, in
-  the code written to report `L2`.
-  - PROVEN BY MUTATION: with the grammar reader,
-    `TestDispatch_ARouteTokenChatsOwnReplyIsNotADelegation` fails with
-    `chat_folder=acme/tok wrote_by=acme`; the two 2026-09-20 tests keep passing
-    either way, so a real cross-folder delegation still warns and a plain
-    folder chat still stays quiet.
-- **The warning is NOT enough to act on, and that is the bounded half of the
-  sign-off.** A `slog.Warn` in routd reaches an operator reading the census. It
-  does not reach the agent that called `send`, which still gets a success and
-  then waits for a callback that cannot come, and it does not reach the person
-  who asked for the delegation. `CLAUDE.md` §Fail loud requires an error on a
-  user-facing path to surface to the caller, not only to a log — and the entry
-  already named this option ("refused loudly at the `send` gate"). It is one
-  question, not a redesign: **should `send` refuse when the target chat's folder
-  is not the caller's own, given that posting a notification into another
-  folder's channel is a legitimate use of the same call?** The message-model
-  change (a row that is neither "a person spoke" nor "my own output", plus the
-  hop budget) stays the separate, larger sign-off; nothing here touches it.
+- **Severity:** medium — a successful platform delivery does not confirm an agent turn.
+- **Scope:** caller feedback for platform-chat sends.
+- **Affected:** ipc outbound writer, routd dispatch.
+- **Measured:** `routd/dispatch.go` all-bot handling and
+  `ipc/send_platformless_test.go` `TestSendGroupAndPlatform` distinguish the two paths.
+- **Status:** open — needs sign-off on caller feedback. No test — design.
+- **Options:** (a) keep platform sends as notifications; (b) warn the caller
+  when a platform send reaches another group's chat without starting a turn.
+- **Default if nothing is decided:** platform sends deliver bot output;
+  agents use bare-folder `send` to request work.
 
 ## F75 — three skill trees are triplicated and one pair has already drifted (2026-08-08, partly fixed 2026-09-21 — live drift closed, de-triplication still a redesign)
 

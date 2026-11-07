@@ -70,8 +70,8 @@ agent responses: one calls for a different verb, the other for a retry.
 Collapsing them into a generic error made agents retry verbs that could
 never succeed.
 
-## Explicitly not carried forward
+## Grant scope bounds each call
 
-Grant expiry/TTL, rule inheritance across worlds, and per-call grant
-narrowing on `delegate_group` (prototyped as `NarrowRules`, removed).
-Delegation narrowing is now the `grant_option` level in `5/33`.
+`send` to a group checks `mcp:send` on the target folder. Posting a message
+does not transfer grants. `grant_option` controls authority to grant ACL rows
+as specified in [paths and roles](../5/33-paths-roles.md).

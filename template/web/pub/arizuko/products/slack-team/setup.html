@@ -158,7 +158,7 @@ arizuko route -i acme add 'chat_jid=hook:main/eng/github' main/eng --seq -5
 # in github.com/&lt;repo&gt;/settings/hooks:
 # Payload URL: https://&lt;WEB_HOST&gt;/hook/&lt;token&gt;
 # Content-Type: application/json</code></pre>
-      <p>The events arrive in the <code>main/eng</code> folder with <code>chat_jid = hook:main/eng/github</code>. The <code>main/eng</code> agent sorts them, and it can call <code>escalate_group</code> to its parent when a person must act. Moves across channels and platforms use the same MCP tools, as <a href="../../howto/talking-to-agents.html#crossing-agents">talking to agents</a> shows.</p>
+      <p>The events arrive in the <code>main/eng</code> folder with <code>chat_jid = hook:main/eng/github</code>. The <code>main/eng</code> agent sorts them, and it can call <code>send</code> with its parent folder as <code>chatJid</code> when a person must act. Moves across channels and platforms use the same MCP tools, as <a href="../../howto/talking-to-agents.html#crossing-agents">talking to agents</a> shows.</p>
       <p>The hook forwards the request body, not its signature headers. The token in the URL is the bearer credential; rotate it with a new token. Use <a href="../../components/gitd.html">gitd</a> when GitHub signature verification is required. The <a href="../../howto/webhooks.html#security-model">webhooks security model</a> explains this.</p>
 
       <h3>Email uses the emaid adapter</h3>

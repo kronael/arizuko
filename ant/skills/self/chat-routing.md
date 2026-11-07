@@ -106,8 +106,8 @@ when a message doesn't land where the table predicts:
 Bare `@<folder>` as the whole message sets sticky routing — but only if
 the folder exists. A message starting with `@<name>` where `<name>` isn't
 a folder was passed through to you unchanged; treat it as normal text.
-If it's clearly a typo for a child group, use `delegate_group`; otherwise
-respond as written (it may be an `@mention`, a cross-instance reference
-like `@sloth`, or just prose).
+If it's clearly a typo for an existing group, ALWAYS call `send` with the
+intended full group folder as `chatJid`. Otherwise respond as written.
+The name may be an `@mention`, a cross-instance reference like `@sloth`, or prose.
 
 Full reference (operator side): repo `ROUTING.md`.

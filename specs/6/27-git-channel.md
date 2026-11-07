@@ -236,8 +236,7 @@ error text is:
 > answers in that code thread, gh-c<id> in the conversation)
 
 No other channel needs the argument; they keep the fallback to the topic's last reply.
-Only the `reply` handler applies that fallback to a send. `escalate_group` reads the same
-last reply id but embeds it in the escalation origin and sends nothing. routd's own notices
+Only the `reply` handler applies that fallback to a send. routd's own notices
 send without a reply target, so the rule cannot live in gitd.
 
 ## Repository workspace proposal — unapproved

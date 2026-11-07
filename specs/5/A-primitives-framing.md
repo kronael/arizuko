@@ -92,11 +92,10 @@ and coexistence safe:
   its own persona/skills/memory, run in per-turn ephemeral containers;
   with crackbox, egress is allowlist-only. Another folder's home is never
   mounted in (shared world dirs are an explicit operator choice).
-- **Hand-offs through the org tree, not a mesh.** Three named mechanisms,
-  each authorized by `auth.Authorize`: `delegate_group` parent→child
-  (`ipc/ipc.go:1828`), `escalate_group` child→parent (`ipc/ipc.go:1779`),
-  both depth-capped at 1, and read-only `observe_group` (`5/F`). Never
-  "any agent can message any agent."
+- **Agents message each other through grants and routing.** `send` accepts
+  a group folder as `chatJid` and checks `mcp:send` on that folder
+  (`ipc/ipc.go`). `observe_group` reads another folder's messages without
+  posting there (`5/F`).
 - **Users move between agents.** A standalone exact `@<folder>` pins the
   whole chat to that agent; bare `@` restores default routing
   (`routd/steer.go`).

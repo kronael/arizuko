@@ -13,6 +13,10 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+- Agents message other groups with `send(chatJid="<folder>", text="...")`,
+  checked against `mcp:send` on the target. `send` and routing hand-offs share
+  `store.PostGroup`. Removed `delegate_group`, `escalate_group` and the
+  `<escalation_origin/>` tag.
 - ACL policy reads local rows before release defaults from `auth/defaults.go`.
   A local hold can override a default skip. Failed policy reads block access.
 - ACL changes, unpair, approvals and invitations check the writer's authority
