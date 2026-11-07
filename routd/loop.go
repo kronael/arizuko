@@ -307,6 +307,7 @@ func (l *Loop) Run(ctx context.Context) {
 			l.q.Shutdown()
 			return
 		case <-t.C:
+			l.srv.flushProgress(time.Now())
 			l.pollOnce()
 			l.maybeScanProactive(time.Now())
 			l.maybeRetryOutbound(time.Now())

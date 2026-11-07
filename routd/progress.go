@@ -2,8 +2,12 @@ package routd
 
 import (
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
+	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/core"
@@ -11,11 +15,188 @@ import (
 )
 
 const (
-	verbStatus   = "status"
-	progressMark = "⏳ "
-	doneMark     = "✓ "
-	failedMark   = "✗ "
+	verbStatus       = "status"
+	progressMark     = "⏳ "
+	doneMark         = "✓ "
+	failedMark       = "✗ "
+	progressLimit    = 1999 - len(progressMark)
+	progressInterval = 5 * time.Second
 )
+
+func safeProgressText(text string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.Is(unicode.Cf, r) {
+			return -1
+		}
+		if unicode.IsControl(r) || unicode.IsSpace(r) {
+			return ' '
+		}
+		switch r {
+		case '@':
+			return '＠'
+		case '*':
+			return '∗'
+		case '_':
+			return '＿'
+		case '`':
+			return '｀'
+		case '~':
+			return '～'
+		case '[':
+			return '［'
+		case ']':
+			return '］'
+		case '(':
+			return '（'
+		case ')':
+			return '）'
+		case '<':
+			return '＜'
+		case '>':
+			return '＞'
+		case '#':
+			return '＃'
+		case '\\':
+			return '＼'
+		}
+		return r
+	}, text)
+}
+
+func cutProgress(text string, budget int) string {
+	if len(text) <= budget {
+		return text
+	}
+	if budget <= 0 {
+		return ""
+	}
+	for budget > 0 && !utf8.RuneStart(text[budget]) {
+		budget--
+	}
+	return text[:budget]
+}
+
+func boundProgress(text string) string { return cutProgress(text, progressLimit) }
+
+func renderChecklist(progress *turnProgress) string {
+	var lines []string
+	current := -1
+	for _, source := range []string{"claude", "codex"} {
+		for _, item := range progress.sources[source] {
+			mark, label := "☐", item.Content
+			if item.Status == "completed" {
+				mark = "☑"
+			}
+			if item.Status == "in_progress" {
+				mark = "⏳"
+				if current < 0 {
+					current = len(lines)
+				}
+				if item.ActiveForm != nil && *item.ActiveForm != "" {
+					label = *item.ActiveForm
+				}
+			}
+			lines = append(lines, mark+" "+safeProgressText(label))
+		}
+	}
+	if len(lines) == 0 {
+		return "No remaining tasks."
+	}
+	joined := strings.Join(lines, "\n")
+	if len(joined) <= progressLimit {
+		return joined
+	}
+	if current < 0 {
+		current = 0
+	}
+	reserve := len(fmt.Sprintf("\n… %d tasks omitted", len(lines)-1))
+	selected := make([]string, len(lines))
+	selected[current] = cutProgress(lines[current], progressLimit-reserve)
+	used := len(selected[current]) + reserve
+	count := 1
+	for i, line := range lines {
+		if i != current && used+1+len(line) <= progressLimit {
+			selected[i] = line
+			used += 1 + len(line)
+			count++
+		}
+	}
+	var kept []string
+	for _, line := range selected {
+		if line != "" {
+			kept = append(kept, line)
+		}
+	}
+	return strings.Join(kept, "\n") + fmt.Sprintf("\n… %d tasks omitted", len(lines)-count)
+}
+
+func (s *Server) publishProgress(tc TurnContext, progress *turnProgress, now time.Time, immediate bool) error {
+	if !tc.Addressed {
+		return nil
+	}
+	jid := returnTarget(tc, tc.ChatJID)
+	if s.mutedGroup(tc.Folder) || !canShowProgress(s.deliver, jid) {
+		slog.Debug("progress update dropped: no line can live here", "turn_id", tc.TurnID, "jid", jid)
+		return nil
+	}
+	row, exists := s.db.LastStatusRow(jid, tc.TurnID)
+	if exists && row.PlatformID != "" && row.Content == progressMark+progress.pendingText {
+		if progress.lastPublished.IsZero() {
+			progress.lastPublished = now
+		}
+		progress.pendingText = ""
+		return nil
+	}
+	if exists && row.PlatformID == "" {
+		return s.updateProgress(tc, jid, progress.pendingText)
+	}
+	if !immediate && !progress.lastPublished.IsZero() && now.Sub(progress.lastPublished) < progressInterval {
+		return nil
+	}
+	if !immediate && !progress.lastAttempt.IsZero() && now.Sub(progress.lastAttempt) < progressInterval {
+		return nil
+	}
+	progress.lastAttempt = now
+	if err := s.updateProgress(tc, jid, progress.pendingText); err != nil {
+		if errors.Is(err, chanlib.ErrPermanent) || errors.Is(err, chanlib.ErrInvalidRequest) || errors.Is(err, chanlib.ErrUnsupported) {
+			progress.pendingText = ""
+		}
+		return err
+	}
+	row, exists = s.db.LastStatusRow(jid, tc.TurnID)
+	if exists && row.PlatformID != "" && row.Content == progressMark+progress.pendingText {
+		progress.lastPublished = now
+		progress.pendingText = ""
+	}
+	return nil
+}
+
+func (s *Server) flushProgress(now time.Time) {
+	if s == nil || s.db == nil {
+		return
+	}
+	s.db.progress.Range(func(key, value any) bool {
+		turnID := key.(string)
+		unlock := lockTurn(turnID)
+		defer unlock()
+		current, ok := s.db.progress.Load(turnID)
+		if !ok || current != value {
+			return true
+		}
+		progress := value.(*turnProgress)
+		if progress.pendingText == "" {
+			return true
+		}
+		tc, ok := s.db.GetTurnContext(turnID)
+		if !ok || tc.State == store.TurnDone || s.callbackClosed(tc) {
+			return true
+		}
+		if err := s.publishProgress(tc, progress, now, false); err != nil {
+			slog.Warn("progress flush failed", "turn_id", turnID, "err", err)
+		}
+		return true
+	})
+}
 
 // turnEnd is how a turn ended, as its progress message must say it.
 type turnEnd int
@@ -125,7 +306,7 @@ func rewriteStatusRow(db *DB, dl Deliverer, turnID, jid string, row core.Message
 		if errors.Is(err, chanlib.ErrUnsupported) {
 			slog.Warn("progress edit refused although the channel advertises edit",
 				"turn_id", turnID, "jid", jid, "err", err)
-			return nil
+			return err
 		}
 		if err != nil {
 			return err

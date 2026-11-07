@@ -2,7 +2,7 @@ package routd
 
 import (
 	"encoding/json"
-	"strings"
+	"time"
 
 	"github.com/kronael/arizuko/ipc"
 )
@@ -27,9 +27,12 @@ type progressEvent struct {
 }
 
 type turnProgress struct {
-	active  bool
-	sources map[string][]progressItem
-	seen    map[string]bool
+	active        bool
+	sources       map[string][]progressItem
+	seen          map[string]bool
+	lastPublished time.Time
+	lastAttempt   time.Time
+	pendingText   string
 }
 
 func validProgressItem(item progressItem) bool {
@@ -234,25 +237,5 @@ func (db *DB) reduceProgress(status ipc.TurnStatus) (string, bool) {
 	if !progress.active {
 		return "", false
 	}
-	var lines []string
-	for _, source := range []string{"claude", "codex"} {
-		for _, item := range progress.sources[source] {
-			mark := "☐"
-			if item.Status == "completed" {
-				mark = "☑"
-			}
-			if item.Status == "in_progress" {
-				mark = "⏳"
-			}
-			label := item.Content
-			if item.Status == "in_progress" && item.ActiveForm != nil && *item.ActiveForm != "" {
-				label = *item.ActiveForm
-			}
-			lines = append(lines, mark+" "+label)
-		}
-	}
-	if len(lines) == 0 {
-		return "No remaining tasks.", true
-	}
-	return strings.Join(lines, "\n"), true
+	return renderChecklist(progress), true
 }

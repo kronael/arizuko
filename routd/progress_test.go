@@ -25,6 +25,12 @@ import (
 const progressJID = "slack:T/C/U"
 
 func (s *Server) mcpSubmitStatus(turnID, text string) error {
+	unlock := lockTurn(turnID)
+	if value, ok := s.db.progress.Load(turnID); ok {
+		value.(*turnProgress).lastPublished = time.Now().Add(-progressInterval)
+		value.(*turnProgress).lastAttempt = time.Now().Add(-progressInterval)
+	}
+	unlock()
 	return s.submitStatus(ipc.TurnStatus{TurnID: turnID, Text: text})
 }
 
@@ -183,10 +189,11 @@ func TestProgress_RefusedEditPostsNothing(t *testing.T) {
 	dl := &recDeliverer{editErr: chanlib.ErrUnsupported}
 	db, srv := newProgressTurn(t, dl, "")
 
-	for _, s := range []string{"a", "b"} {
-		if err := srv.mcpSubmitStatus("t1", s); err != nil {
-			t.Fatal(err)
-		}
+	if err := srv.mcpSubmitStatus("t1", "a"); err != nil {
+		t.Fatal(err)
+	}
+	if err := srv.mcpSubmitStatus("t1", "b"); !errors.Is(err, chanlib.ErrUnsupported) {
+		t.Fatalf("edit error = %v", err)
 	}
 	if len(dl.sends) != 1 {
 		t.Fatalf("ErrUnsupported fell back to a fresh send: %+v", dl.sends)

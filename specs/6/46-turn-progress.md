@@ -17,8 +17,8 @@ A task checklist shows the remaining work and the checked results of one turn.
 A supported chat shows one message where the answer will go.
 `End` removes that message. Native typing and acknowledgement marks remain separate from the text.
 
-This spec is `partial`. The message lifecycle and shared producer exist;
-bounded rendering, checklist reminders, browser deletion, and active replay require code and tests.
+This spec is `partial`. The message lifecycle, shared producer and bounded rendering exist;
+checklist reminders, browser deletion, and active replay require code and tests.
 The skill and manual rules are present. Their presence does not prove adoption.
 D1, D2 and D3 remain the owner decisions below.
 
@@ -111,12 +111,24 @@ ant checklist renderer and independent text suppression (removed)
   never: trusts checklist labels as authorization
 - path: routd/progress.go (changed)
   job: owns parent checklist state, bounded rendering, reminder decisions and message lifecycle
-  names: [updateProgress, endProgress, finishTurn]
+  names:
+    [
+      renderChecklist,
+      publishProgress,
+      flushProgress,
+      updateProgress,
+      endProgress,
+      finishTurn,
+    ]
   never: renders a second checklist or fails an answer because deletion failed
 - path: routd/progress_reducer.go (new)
   job: normalizes native snapshots and merges each source into the turn's parent checklist
   names: [turnProgress, progressItem, progressEvent, reduceProgress]
   never: publishes directly or accepts child checklist changes
+- path: routd/loop.go (changed)
+  job: flushes due progress through the existing polling ticker
+  names: [Run]
+  never: starts a second progress scheduler
 - path: store/messages.go (changed)
   job: returns active progress snapshots for replay and excludes ended progress
   names: [TurnFrames, MessagesSinceTopic, MessagesByThread, LastStatusRow]
@@ -159,7 +171,7 @@ The receiver gate is checked at `dda72103a266faaff0a2ae19a1b192907bf164b3`.
 | Web edit/delete server and widget SDK callback                        | built        | `webd/channel.go`, `webd/assets/arizuko-client.js`                          |
 | Built-in browser deletion and active reconnect replay                 | not built    | `webd/route_token.go`, `webd/turn.go`, `store/messages.go`                  |
 | One parent-scoped producer across Claude and Codex                    | built        | `routd/progress_reducer_test.go` merges raw snapshots through submit_status |
-| Bounded rendering, list clearing, coalescing, retry state             | not built    | shared producer and lifecycle tests required                                |
+| Bounded rendering, list clearing, coalescing, retry state             | built        | `routd/progress_coalesce_test.go`                                           |
 | Addressed publication gate at receiver                                | built        | `routd/mcp.go` checks addressed, closure, mute and capabilities             |
 | One reminder at eight calls or 180 seconds                            | not built    | replace the repeating timer and NUDGE_TEXT                                  |
 | Progress skill, manual sentence and solve routing                     | present      | adoption requires measurement                                               |

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kronael/arizuko/ipc"
 )
@@ -18,6 +19,7 @@ func TestProgress_MergedSnapshots(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	srv.flushProgress(time.Now().Add(progressInterval))
 	rows := statusRows(t, db, progressJID)
 	if len(dl.sends) != 1 || len(dl.edits) != 1 || len(rows) != 1 || dl.edits[0].platformID != rows[0].PlatformID || !strings.Contains(rows[0].Content, "☐ Build\n⏳ Test") {
 		t.Fatalf("sends=%+v edits=%+v rows=%+v", dl.sends, dl.edits, rows)
@@ -26,6 +28,7 @@ func TestProgress_MergedSnapshots(t *testing.T) {
 	if err := srv.submitStatus(ipc.TurnStatus{TurnID: "t1", Source: "claude", Snapshot: json.RawMessage(replacement)}); err != nil {
 		t.Fatal(err)
 	}
+	srv.flushProgress(time.Now().Add(2 * progressInterval))
 	rows = statusRows(t, db, progressJID)
 	if !strings.Contains(rows[0].Content, "☑ Ship\n⏳ Test") {
 		t.Fatalf("replacement: %+v", rows)

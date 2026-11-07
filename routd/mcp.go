@@ -405,17 +405,22 @@ func (s *Server) submitStatus(status ipc.TurnStatus) error {
 	if s.callbackClosed(tc) || tc.State == store.TurnDone {
 		return nil
 	}
+	value, hadProgress := s.db.progress.Load(status.TurnID)
+	wasActive := hadProgress && value.(*turnProgress).active
 	text, publish := s.db.reduceProgress(status)
-	if !publish || !tc.Addressed {
+	if !publish {
 		return nil
 	}
-	jid := returnTarget(tc, tc.ChatJID)
-	if s.mutedGroup(tc.Folder) || !canShowProgress(s.deliver, jid) {
-		slog.Debug("progress update dropped: no line can live here",
-			"turn_id", tc.TurnID, "jid", jid)
+	value, _ = s.db.progress.LoadOrStore(status.TurnID, &turnProgress{sources: make(map[string][]progressItem), seen: make(map[string]bool)})
+	progress := value.(*turnProgress)
+	if !progress.active {
+		text = safeProgressText(text)
+	}
+	progress.pendingText = strings.TrimSpace(boundProgress(text))
+	if progress.pendingText == "" {
 		return nil
 	}
-	return s.updateProgress(tc, jid, text)
+	return s.publishProgress(tc, progress, time.Now(), !wasActive && progress.active)
 }
 
 // fetchPlatformHistory backs the fetch_history MCP tool: proxy to the owning
