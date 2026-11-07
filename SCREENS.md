@@ -597,8 +597,12 @@ container.SetupGroup; admin is granted to the creator.
 
 #### Purpose
 
-View and edit group configuration: model, open flag, observe window,
+View and edit group configuration: agent handler, model, open flag, observe window,
 skills, danger zone.
+
+The Agent field writes the group's `config.agent`. An absent value or numeric
+`1` selects `ant`; a handler name selects `/usr/local/bin/<name>`.
+Numeric `0` is unsupported. See [EXTENDING.md](EXTENDING.md#swapping-the-agent-harness).
 
 #### User stories
 
@@ -618,6 +622,7 @@ h1: Settings — {folder}
 p.dim: Group {folder} · product {product}
 
 <form method=post action=/dash/groups/{folder}/settings>
+  Agent:                  [text: ant or installed handler name]
   Model:                  [select: instance default | Claude Opus 4.7 | Claude Sonnet 4.6 | Claude Haiku 4.5]
   open:                   [checkbox] open — sibling groups can see messages sent here
   observe_window_messages: [number input] max messages a sibling sees (0 = default 50)

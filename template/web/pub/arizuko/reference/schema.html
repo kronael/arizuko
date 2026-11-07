@@ -84,7 +84,7 @@
 
     <table>
       <tr><th>entity</th><th>addressed by</th><th>carries</th></tr>
-      <tr><td><code>groups</code></td><td>the folder</td><td>name, product, model, <code>container_config</code> (mounts), daily cost cap, open flag, observe window</td></tr>
+      <tr><td><code>groups</code></td><td>the folder</td><td>name, product, model, <code>config</code> (agent handler and harness), <code>container_config</code> (mounts), daily cost cap, open flag, observe window</td></tr>
       <tr><td><code>routes</code></td><td>sequence, target and match</td><td>the rule. The sequence is padded so a read comes back in precedence order; the <code>id</code> an operator deletes by is minted through <code>counters</code>.</td></tr>
       <tr><td><code>route_tokens</code></td><td>the sha256 of the token</td><td>jid, owning folder, context, <code>kind</code> (<code>route</code> delivery bearer or <code>pair</code> identity link). The digest is the key; the raw token is never stored.</td></tr>
       <tr><td><code>web_routes</code></td><td>the path prefix</td><td><code>access</code> (public / auth / deny / redirect), redirect target, owning folder</td></tr>
@@ -99,6 +99,16 @@
       <tr><td><code>github_sources</code></td><td>the source key</td><td>gitd's webhook delivery secret and the folder it delivers to</td></tr>
       <tr><td><code>gdrive_files</code></td><td>the Drive file id</td><td>the bound Drive file and the folder that its comments go to</td></tr>
     </table>
+
+    <h2 id="group-settings">Group settings select the turn handler</h2>
+    <p>The <code>groups.config</code> JSON document holds <code>agent</code> separately from the harness settings. The dashboard Agent field and <code>PATCH /v1/groups/{folder}</code> edit the handler.</p>
+    <table>
+      <tr><th><code>agent</code> value</th><th>Handler</th></tr>
+      <tr><td>absent or numeric <code>1</code></td><td><code>/usr/local/bin/ant</code>, running under Bun</td></tr>
+      <tr><td>a string matching <code>[A-Za-z0-9_][A-Za-z0-9_.-]*</code></td><td><code>/usr/local/bin/&lt;name&gt;</code>, supplied by a selected package's <code>bin/&lt;name&gt;</code></td></tr>
+      <tr><td>numeric <code>0</code> or another invalid value</td><td>rejected</td></tr>
+    </table>
+    <p><a href="packages.html">Packages</a> describes executable installation. <a href="../components/runed.html">runed</a> delivers the selected name to guest init as <code>ARIZUKO_AGENT</code>.</p>
 
     <h2>routd also owns the runtime state</h2>
 
@@ -156,7 +166,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/reference/schema.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-28">2026-10-28</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-04">2026-11-04</time>
       </div>
     </main>
 

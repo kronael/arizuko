@@ -267,7 +267,7 @@ A package can supply these assets:
 
 - `group/` supplies files for the group folder at the same relative paths. Package-root documentation stays with the source.
 - `skills/<name>/SKILL.md` mounts read-only at `~/.claude/skills/<name>/`.
-- `bin/<name>` mounts read-only at `/usr/local/bin/<name>`, already on the guest `PATH`.
+- `bin/<name>` mounts read-only at `/usr/local/bin/<name>`, already on the guest `PATH`. A package can supply a turn handler here.
 - `hooks/` supplies scripts at the read-only package path and `~/.claude/hooks/`.
 - `.claude/settings.json` and `.codex/hooks.json` supply native hook configuration.
 - Root `CLAUDE.md` supplies a manual; the renderer combines selected manuals once at `~/.claude/CLAUDE.md`.
@@ -875,6 +875,14 @@ To add one:
 `ant/skills/oracle/SKILL.md` is the reference for the shape of the skill body.
 
 ## Swapping the agent harness
+
+A handler is the program that runs a group's turns. The group's `agent`
+setting selects the executable. An absent value or numeric `1` selects `ant`,
+which runs under Bun at `/usr/local/bin/ant`. A string matching
+`[A-Za-z0-9_][A-Za-z0-9_.-]*` selects `/usr/local/bin/<name>`.
+Numeric `0` is unsupported. An installed package supplies the handler as
+`bin/<name>`. Set `agent` through the dashboard's Agent field or
+`PATCH /v1/groups/{folder}`. The setting is separate from ant's model backend.
 
 ant wraps an agentic harness and is never one. The extension point is the
 process boundary and not an interface inside ant. `routd` serves the MCP
