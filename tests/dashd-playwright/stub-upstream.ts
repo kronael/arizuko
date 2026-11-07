@@ -179,22 +179,20 @@ export async function startStubUpstream(): Promise<{
 
     // proxyd
     if (req.method === 'GET' && p === '/v1/proxyd_routes') {
-      return json(res, 200, {
-        routes: [
-          {
-            path: '/dash/',
-            backend: 'http://dashd:8080',
-            auth: 'user',
-            owner: 'arizuko',
-          },
-          {
-            path: '/me/',
-            backend: 'http://webd:8080',
-            auth: 'user',
-            owner: 'arizuko',
-          },
-        ],
-      });
+      return json(res, 200, [
+        {
+          path: '/dash/',
+          backend: 'http://dashd:8080',
+          auth: 'user',
+          owner: 'arizuko',
+        },
+        {
+          path: '/me/',
+          backend: 'http://webd:8080',
+          auth: 'user',
+          owner: 'arizuko',
+        },
+      ]);
     }
     if (req.method === 'DELETE' && p.startsWith('/v1/proxyd_routes/')) {
       return json(res, 200, { ok: true });
