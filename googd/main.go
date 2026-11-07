@@ -17,7 +17,7 @@ import (
 
 // capsFor advertises send_text only while the service-account key can post the
 // reply; every other verb is Unsupported. Resolving, reopening and editing go
-// through an MCP connector (specs/7/50-gdrive-comments-channel.md
+// through an MCP connector (specs/6/45-gdrive-comments-channel.md
 // §"Decision 3 — one verb, the thread reply").
 func capsFor(credentialed bool) map[string]bool {
 	return map[string]bool{"send_text": credentialed}

@@ -34,7 +34,7 @@ const (
 // segment; chanlib imports this package, so the rule is stated here too.
 var gdriveFileIDRE = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
-// GDriveFile is one Drive file bound to a folder (specs/7/50-gdrive-comments-channel.md).
+// GDriveFile is one Drive file bound to a folder (specs/6/45-gdrive-comments-channel.md).
 // TargetFolder is where its comments are routed; OwnerFolder bounds who may
 // revoke it.
 type GDriveFile struct {

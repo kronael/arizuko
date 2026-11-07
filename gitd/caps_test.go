@@ -19,7 +19,7 @@ func TestCapImplConsistency(t *testing.T) {
 	}
 	for cap := range capsFor("ghp_x") {
 		if cap != "send_text" && cap != "send_file" && cap != "typing" {
-			t.Errorf("gitd advertises %q; send_text, send_file and typing are all it has (specs/6/46-turn-progress.md \"What this changes in 6/27 and 7/50\")", cap)
+			t.Errorf("gitd advertises %q; send_text, send_file and typing are all it has (specs/6/46-turn-progress.md \"What this changes in 6/27 and 6/45\")", cap)
 		}
 	}
 }

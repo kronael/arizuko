@@ -3,7 +3,7 @@ status: partial
 depends:
   [
     27-git-channel,
-    ../7/50-gdrive-comments-channel,
+    45-gdrive-comments-channel,
     31-adapter-contract,
     ../5/24-live-tasklist-status,
     ../5/34-channel-protocol,
@@ -456,7 +456,7 @@ every channel. C is the answer for a channel where any extra post is unwanted;
 the owner ruled on 2026-10-24 that GitHub gets no progress comment. Its cost
 is that the agent's own `edit` tool, which ipc registers on every turn, returns
 unsupported there (`chanlib.NoSocial`). `specs/6/27-git-channel.md` and
-`specs/7/50-gdrive-comments-channel.md` accept this.
+`specs/6/45-gdrive-comments-channel.md` accept this.
 
 What this does not build: a per-folder switch (`progress_messages`, the shape
 of `thread_replies`). The capability map decides per channel; a folder that
@@ -495,14 +495,14 @@ The port stays `Typing(jid, on)` and the helper records the trigger candidate at
 passes (`RouterClient.postInbound`), which covers a message replayed from
 retention and keeps the two-messages-in-one-chat guess.
 
-## What this changes in 6/27 and 7/50
+## What this changes in 6/27 and 6/45
 
 The two channel specs disagree about what the channel may do to a thread.
 `specs/6/27-git-channel.md §"Channel messages and repository tools"` has gitd
-post AND react; `specs/7/50-gdrive-comments-channel.md §"Decision 3 — one
+post AND react; `specs/6/45-gdrive-comments-channel.md §"Decision 3 — one
 verb, the thread reply"` has googd post and nothing else, with `Typing` a
 no-op and a test that the capability map holds exactly one entry. Both get
-one line, and it is the same line (`6/27` carries it; `7/50` takes it when the Drive probe passes):
+one line, and it is the same line (`6/27` carries it; `6/45` takes it when the Drive probe passes):
 
 > The channel creates, edits and reacts to ITS OWN posts in the thread it was
 > addressed in. Every change to another party's state — resolve, reopen,
@@ -517,7 +517,7 @@ human's comment and `action=resolve` are not. Concretely:
   token, and no `edit`, so GitHub shows the `👀` mark and no progress comment.
   §"Typing indicator" there is the rendering (`👀` through the shared helper,
   the two reaction endpoints) and points here for the mechanism.
-- `7/50`, with Drive editing (not built): `capsFor` advertises `send_text` and, when the probe below passes,
+- `6/45`, with Drive editing (not built): `capsFor` advertises `send_text` and, when the probe below passes,
   `edit`; `Edit` is `replies.update` on a reply whose id googd minted
   (`gd-r<fileId>.<commentId>.<replyId>`), `{"content"}` only, and the
   one-verb test becomes "the serialized body of every call has no `action`

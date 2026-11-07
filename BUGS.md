@@ -2530,7 +2530,7 @@ remove path renders from the row.
   rendered `match` string
 - **Status:** open — the fix is to store the target on the row, as
   `gdrive_files` does, and migrate the existing items
-- **Related:** `L417` (the github seed's reach), `specs/7/50-gdrive-comments-channel.md`
+- **Related:** `L417` (the github seed's reach), `specs/6/45-gdrive-comments-channel.md`
 
 ## L434 — gitd calls every 5xx not-delivered, and its own spec calls 5xx ambiguous (2026-10-17, open — needs sign-off)
 
