@@ -5,8 +5,9 @@ relates-to: [../8/36-publish-plan, 26-single-world-deployment]
 
 # specs/7/59 — a package runs one command and listens on one socket
 
-A package that is not part of arizuko runs as a daemon of the deployment.
-It declares one command. Daemons find each other through one socket directory.
+An operator adds a microservice and arizuko hooks it into the runtime. The
+package declares one command. Daemons find each other through one socket
+directory.
 
 ## Today
 
@@ -38,15 +39,20 @@ routes: [/wa/]
 
 There is no D-Bus and no second supervisor. Compose supervises.
 
-## Open question
+## Discovery
 
-How does routd know that a socket is a channel adapter? Recommendation: routd
-asks each socket once for its channel description, so the adapter states it
-and no core table lists it.
+Each daemon already serves `GET /openapi.json` from `resreg.OpenAPIHandler`
+(`webd/server.go:91`). That document is its description: its `x-mcp-*`
+operations are its MCP tools, and the paths of
+[6/31-adapter-contract](../6/31-adapter-contract.md) make it a channel. routd
+reads the document when a socket appears and drops the daemon when the socket
+goes. Core daemons and packages use the same path, and no core table lists a
+daemon.
 
 ## Acceptance
 
 1. A package outside this repo with only `run`, `env` and `routes` becomes a
-   working channel adapter with no change to core Go.
+   working channel adapter, and another one adds MCP tools, with no change to
+   core Go.
 2. Deleting its socket file removes it from routd and the dashboard.
 3. `POST /v1/channels/register` and the per-adapter service keys are gone.
