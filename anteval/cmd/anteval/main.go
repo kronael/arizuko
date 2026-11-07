@@ -1,17 +1,18 @@
-// Command anteval runs the agent-capability eval (spec 5/9-agent-capability-eval) against a live
-// arizuko instance and reports pass/fail per capability. See README.
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
 	"strconv"
+	"syscall"
 	"time"
 
 	"github.com/kronael/arizuko/anteval/pkg/report"
-	"github.com/kronael/arizuko/anteval/pkg/run"
 	"github.com/kronael/arizuko/anteval/pkg/spec"
 )
 
@@ -32,7 +33,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: anteval run <target-base> [flags] | anteval validate [--cases dir] | anteval dash <report.json>")
+	fmt.Fprintln(os.Stderr, "usage: anteval run --env FILE --sink URL [flags] | anteval validate [--cases dir] | anteval dash <report.json>")
 	os.Exit(2)
 }
 
@@ -56,93 +57,49 @@ func cmdValidate(args []string) {
 }
 
 func cmdRun(args []string) {
-	fs := flag.NewFlagSet("run", flag.ExitOnError)
-	casesDir := fs.String("cases", "cases", "directory of *.toml case files")
-	api := fs.String("api", "", "routd REST base serving /v1 (default = <target>)")
-	mcp := fs.String("mcp", "", "inspect-compatible MCP-over-HTTP base (enables mcp/parity checks)")
-	token := fs.String("token", os.Getenv("AGENTEVAL_TOKEN"), "bearer token for the eval root folder")
-	chat := fs.String("chat", "", "eval agent chat JID to inject tasks into (e.g. web:eval)")
-	folder := fs.String("folder", "", "eval folder owning --chat (e.g. eval); the run resets its root session so no case inherits prior history")
-	sinkAddr := fs.String("sink-addr", "", "local bind for the callback sink (e.g. :9099; default 127.0.0.1:0)")
-	sink := fs.String("sink", "", "externally reachable sink base URL agents call back to (default local bind)")
-	nonce := fs.String("nonce", "", "run nonce (default timestamp)")
-	smoke := fs.Bool("smoke", false, "run only the smoke basis")
-	dim := fs.String("dimension", "", "run only one dimension")
-	only := fs.String("case", "", "run only one case id")
-	mdOut := fs.String("md", "", "also write the markdown report to this path")
-	jsonOut := fs.String("json", "", "also write the JSON report to this path")
-	// flexParse, not fs.Parse: the documented form is `run <target> --flags…`,
-	// and std flag stops at the first positional — every flag after <target>
-	// would be silently dropped (cost the first live run: no token, no chat).
-	if err := flexParse(fs, args); err != nil || fs.NArg() != 1 {
-		usage()
+	if err := doRun(args, realCLI{}); err != nil && !errors.Is(err, flag.ErrHelp) {
+		fatal(err)
 	}
-	base := fs.Arg(0)
-	if *api == "" {
-		*api = base
+}
+
+func doRun(args []string, cli lifecycleCLI) error {
+	fs := flag.NewFlagSet("run", flag.ContinueOnError)
+	casesDir := fs.String("cases", "cases", "directory of case files")
+	envFile := fs.String("env", "", "instance configuration file")
+	name := fs.String("target", "", "fresh instance name")
+	product := fs.String("product", "", "product template")
+	sinkBind := fs.String("sink-addr", "", "callback sink bind address")
+	sink := fs.String("sink", "", "guest-reachable callback URL")
+	nonce := fs.String("nonce", "", "run nonce")
+	smoke := fs.Bool("smoke", false, "run only smoke cases")
+	dim := fs.String("dimension", "", "run one dimension")
+	only := fs.String("case", "", "run one case")
+	md := fs.String("md", "", "markdown report path")
+	jsonPath := fs.String("json", "", "JSON report path")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 0 || *envFile == "" || *sink == "" {
+		return fmt.Errorf("--env and --sink are required; --target names a fresh instance")
+	}
+	cases, err := spec.Load(*casesDir)
+	if err != nil {
+		return err
+	}
+	cases = spec.Filter(cases, *smoke, *dim, *only)
+	if len(cases) == 0 {
+		return fmt.Errorf("no cases match selectors")
 	}
 	if *nonce == "" {
 		*nonce = "e" + strconv.FormatInt(time.Now().Unix(), 36)
 	}
-
-	// --folder is required: without it the root-session baseline reset cannot
-	// run, and every case topic forks the folder's main session (specs/5/F-topic-lineage) —
-	// the run would silently score the chat's history instead of the agent.
-	if *folder == "" {
-		fatal(fmt.Errorf("--folder is required (the eval folder owning --chat); it anchors the root-session reset that keeps cases from inheriting prior history"))
-	}
-
-	cases, err := spec.Load(*casesDir)
-	if err != nil {
-		fatal(err)
-	}
-	cases = spec.Filter(cases, *smoke, *dim, *only)
-	if len(cases) == 0 {
-		fatal(fmt.Errorf("no cases match selectors"))
-	}
-
-	// After selection, not before: the bearer must outlive the cases actually
-	// chosen, and --case/--dimension change that budget by an order of magnitude.
-	walls := make([]int, 0, len(cases))
-	for _, c := range cases {
-		walls = append(walls, c.MaxWallMs)
-	}
-	if err := checkToken(*token, time.Now(), worstCaseWall(walls, run.DefaultSettleWait)); err != nil {
-		fatal(err)
-	}
-
-	tgt := &run.HTTPTarget{API: *api, MCPURL: *mcp, Token: *token, Folder: *folder}
-	results, err := run.Drive(run.Config{
-		Target: tgt, Cases: cases, Nonce: *nonce, TargetBase: base, Chat: *chat,
-		Folder: *folder, SinkBind: *sinkAddr, SinkURL: *sink,
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	return doLifecycle(ctx, cli, lifecycleOptions{
+		envFile: *envFile, name: *name, product: *product, nonce: *nonce,
+		sinkBind: *sinkBind, sinkURL: *sink, md: *md, json: *jsonPath,
+		cases: cases,
 	})
-	if err != nil {
-		// Print what DID run before the abort — those results are valid.
-		fmt.Print(report.Markdown(results))
-		fatal(err)
-	}
-
-	md := report.Markdown(results)
-	fmt.Print(md)
-	// The artifact the operator asked for by flag: CI reads the file, not this
-	// stdout, so a write that failed silently leaves a green run with no report.
-	if *mdOut != "" {
-		if err := os.WriteFile(*mdOut, []byte(md), 0o644); err != nil {
-			fatal(err)
-		}
-	}
-	if *jsonOut != "" {
-		b, err := report.JSON(results)
-		if err != nil {
-			fatal(err)
-		}
-		if err := os.WriteFile(*jsonOut, b, 0o644); err != nil {
-			fatal(err)
-		}
-	}
-	if !report.AllPassed(results) {
-		os.Exit(1)
-	}
 }
 
 func cmdDash(args []string) {

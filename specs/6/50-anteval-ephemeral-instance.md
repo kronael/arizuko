@@ -1,5 +1,5 @@
 ---
-status: planned
+status: partial
 depends:
   [
     ../5/9-agent-capability-eval,
@@ -18,7 +18,8 @@ hook starts it.
 runs its cases against that instance, and removes the instance when the run
 ends. It never reaches an instance that serves users.
 
-The owner approved this shape. `planned` means approved but unbuilt.
+The CLI lifecycle and fake-based tests are implemented. Guest reachability and
+live capacity acceptance remain unmeasured.
 
 ## Problem — measured on krons 2026-10-21
 
@@ -68,35 +69,27 @@ startup path or removal implementation.
 ```text
 anteval run (changed)
     │
-    ├─► arizuko create ─► isolated instance (changed)
+    ├─► arizuko create ─► isolated instance
     ├─► arizuko store enroll ─► isolated store account
     ├─► arizuko run ────► generate + Compose startup
     ├─► arizuko group / network / token ─► eval setup
     ├─► run.Drive ──────► public HTTP / REST / MCP cases
-    └─► arizuko rm (new) ─► instance removal at exit
+    └─► arizuko rm ─► instance removal at exit
 ```
 
-### Existing commands and missing lifecycle work
+### CLI lifecycle and verification
 
-Measured at `dda72103a266faaff0a2ae19a1b192907bf164b3`:
+`anteval/cmd/anteval/main.go` selects cases and handles signals.
+`anteval/cmd/anteval/lifecycle.go` composes the existing CLI commands.
+`create` seeds files; `store enroll` enrolls the new account; foreground `run`
+generates Compose and starts services. After the first boot creates the owners'
+tables, `package add catalog:litellm` installs the gateway. The runner restarts
+its foreground child and waits for the required services' healthchecks.
+Setup uses `group`, `apply`, `network` and `token`, then calls `run.Drive`.
+The selected product is installed for the eval group through `package sync`.
 
-- `cmd/arizuko/README.md` and `cmd/arizuko/main.go:267` define `create`:
-  it seeds files and `.env`, not a running instance or store rows.
-- `cmd/arizuko/main.go:146` defines foreground `run`: it calls `generate`
-  and then `docker compose up --remove-orphans`. anteval owns that child
-  process and waits for readiness. It does not repeat either operation.
-- The command registry in `cmd/arizuko/main.go:51` has no whole-instance
-  removal command. `group rm` removes groups, not the instance.
-  Add `arizuko rm -i NAME` as the CLI's one instance removal operation.
-  It stops that project's services and guests, removes its enrolled store
-  account, volumes and networks, then removes its data directory.
-  Failure must remain visible.
-- `anteval/cmd/anteval/main.go:60` accepts a supplied target and token;
-  `anteval/pkg/run/run.go:70` closes its callback server but removes no instance.
-  Lifecycle composition and exit cleanup remain unbuilt.
-
-The CLI must supply missing lifecycle operations before anteval can use them.
-There is no temporary anteval-only cleanup path. Cleanup runs on success,
+`cmd/arizuko/rm.go` owns instance removal. Anteval stops and reaps its child
+before calling `rm` with an uncanceled cleanup context. Cleanup runs on success,
 case failure, setup failure after creation, and handled interruption.
 It completes before the entry point exits, including paths that call `os.Exit`.
 
@@ -133,10 +126,8 @@ Case selectors, sink settings and report outputs remain anteval's interface.
 Cases neither read instance files nor import daemon or storage packages.
 Only lifecycle setup invokes the operator CLI.
 
-The README's zero-internal-import claim is not yet true:
-`anteval/pkg/run/mcpread.go:14` imports `groupfolder` to derive a folder from a JID.
-Use the folder already supplied by setup for the MCP read.
-Remove that import without copying the JID parser into anteval.
+The MCP reader uses the folder supplied by setup. Anteval imports no daemon
+or storage package and carries no JID parser.
 
 Product cases use `arizuko create --product`; the same lifecycle runs them.
 The manual-only rule remains: no deploy gate, timer, hook or CI starts an eval.
@@ -156,7 +147,9 @@ Reports live outside the disposable directory.
 Acceptance must exercise success, case failure, partial startup and interruption.
 Each path must leave no owned services, guests, store account, volumes, networks or data directory.
 Tests must also prove that existing targets are refused and unrelated instances
-remain untouched. No live eval or lifecycle implementation is claimed here.
+remain untouched. `anteval/cmd/anteval/lifecycle_test.go` exercises these paths
+through fake CLI commands, including a real SIGINT and a fake foreground child.
+The tests start no instance and claim no live capability result.
 
 ## Ties
 

@@ -1,6 +1,8 @@
 package run
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
@@ -103,6 +105,34 @@ func (silentTarget) RestMessages(string) ([]check.Msg, error)        { return ni
 func (silentTarget) McpMessages(string, string) ([]check.Msg, error) { return nil, nil }
 func (silentTarget) Cost(string) (int, error)                        { return 0, nil }
 func (silentTarget) Session(string, string) (string, error)          { return "", nil }
+
+type interruptedTarget struct {
+	silentTarget
+	cancel context.CancelFunc
+	calls  int
+}
+
+func (target *interruptedTarget) Inject(_, _, _ string) (string, error) {
+	target.calls++
+	target.cancel()
+	return "interrupted", nil
+}
+
+func TestDriveCancellationStopsBeforeNextCase(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	target := &interruptedTarget{cancel: cancel}
+	c := spec.Case{ID: "cancel", Prompt: "noop",
+		Check: spec.Check{Kind: "callback"}}
+	results, err := Drive(Config{Context: ctx, Target: target,
+		Cases: []spec.Case{c, c}, Poll: time.Hour})
+	if !errors.Is(err, context.Canceled) || target.calls != 1 {
+		t.Fatalf("error = %v, injected = %d", err, target.calls)
+	}
+	if len(results) != 1 || results[0].Pass {
+		t.Fatalf("results = %+v", results)
+	}
+}
 
 func TestDriveTokenBudget(t *testing.T) {
 	c := spec.Case{ID: "b", Prompt: "curl {sink}/cb/{nonce}", MaxTokens: 5,

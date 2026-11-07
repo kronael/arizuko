@@ -5,6 +5,7 @@
 package run
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net"
@@ -36,6 +37,7 @@ type Target interface {
 
 // Config parameterizes a run.
 type Config struct {
+	Context    context.Context
 	Target     Target
 	Cases      []spec.Case
 	Nonce      string        // run nonce; per-case nonce is Nonce+"-"+case.ID
@@ -65,6 +67,12 @@ const DefaultSettleWait = 180 * time.Second
 // results so far come back with the error; everything after would have
 // measured inherited history, not the agent.
 func Drive(cfg Config) ([]report.Result, error) {
+	if cfg.Context == nil {
+		cfg.Context = context.Background()
+	}
+	if err := cfg.Context.Err(); err != nil {
+		return nil, err
+	}
 	if cfg.Poll <= 0 {
 		cfg.Poll = 2 * time.Second
 	}
@@ -89,10 +97,16 @@ func Drive(cfg Config) ([]report.Result, error) {
 	}
 	out := make([]report.Result, 0, len(cfg.Cases))
 	for _, c := range cfg.Cases {
+		if err := cfg.Context.Err(); err != nil {
+			return out, err
+		}
 		if err := ensurePristineRoot(cfg); err != nil {
 			return out, fmt.Errorf("case %s: %w", c.ID, err)
 		}
 		r := runCase(cfg, s, c)
+		if err := cfg.Context.Err(); err != nil {
+			return append(out, r), err
+		}
 		// The case's own turn may still be running — a checker passes the
 		// moment the observable effect lands, and a timeout gives up on the
 		// clock, not on the agent. routd dispatches ONE turn per folder, so
@@ -101,7 +115,21 @@ func Drive(cfg Config) ([]report.Result, error) {
 		r.Note = settle(cfg, r.TurnID)
 		out = append(out, r)
 	}
-	return out, nil
+	return out, cfg.Context.Err()
+}
+
+func wait(ctx context.Context, delay time.Duration) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 // ensurePristineRoot guarantees the eval folder's ROOT topic holds no session
@@ -129,7 +157,9 @@ func ensurePristineRoot(cfg Config) error {
 	}
 	deadline := time.Now().Add(cfg.baselineWait)
 	for {
-		time.Sleep(cfg.Poll)
+		if err := wait(cfg.Context, cfg.Poll); err != nil {
+			return err
+		}
 		sid, err = cfg.Target.Session(cfg.Folder, "")
 		if err != nil {
 			return fmt.Errorf("baseline: read root session: %w", err)
@@ -170,7 +200,9 @@ func settle(cfg Config, turnID string) string {
 			return fmt.Sprintf("turn %s never recorded a cost within %s; "+
 				"the next case may start behind it", turnID, cfg.settleWait)
 		}
-		time.Sleep(cfg.Poll)
+		if err := wait(cfg.Context, cfg.Poll); err != nil {
+			return err.Error()
+		}
 	}
 }
 
@@ -223,7 +255,10 @@ func runCase(cfg Config, s *sink, c spec.Case) report.Result {
 				budget(c).Round(time.Second), reason, requiresHint(c))
 			break
 		}
-		time.Sleep(cfg.Poll)
+		if err := wait(cfg.Context, cfg.Poll); err != nil {
+			r.Reason = err.Error()
+			break
+		}
 	}
 	r.Tokens, _ = cfg.Target.Cost(turn)
 	if r.Pass && c.MaxTokens > 0 && r.Tokens > c.MaxTokens {
@@ -240,6 +275,7 @@ func runCase(cfg Config, s *sink, c spec.Case) report.Result {
 // follower graded the login page's 200 instead (cost the first live priv-401
 // run, 2026-07-11). A status checker must see 3xx as 3xx.
 var noRedirectClient = &http.Client{
+	Timeout:       30 * time.Second,
 	CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 }
 

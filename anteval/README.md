@@ -16,32 +16,46 @@ external tool uses, so it can ship alone.
 
 ```bash
 make build
-# mint the injecting bearer (operator, on the instance host):
-arizuko token -i throwaway issue bearer eval --scope messages:write,messages:read,cost:read
-./anteval run https://<throwaway-host> \
-  --api   http://localhost:8081 \ # routd /v1 base reachable from the eval host
-  --token "$AGENTEVAL_TOKEN" \    # bearer minted above, for the eval folder
-  --chat  web:eval \              # chat JID tasks are injected into (folder must own it)
-  --folder eval \                # folder owning --chat; anchors the root-session reset
-  --sink-addr :9099 \            # local bind for the callback sink (routable iface)
-  --sink  http://<host>:9099 \     # URL the agent guests call back to; a KVM guest cannot reach a docker-gateway address (BUGS L379)
-  --smoke                         # gate subset (9 cases); omit for all 23
+./anteval run --env /private/anteval.env \
+  --sink http://eval-host.example:9099 --smoke \
+  --md report.md --json report.json
 # selectors: --dimension web | --case pub-200 ; output: --md report.md --json report.json
 ./anteval dash report.json      # re-render a saved report
 make validate                     # load+validate the case catalog (no target)
 ```
 
-Live preconditions: the eval folder exists
-(`arizuko group -i <inst> add web:eval eval`), it holds the grants the cases need,
-its egress allows the sink, and the sink URL answers from an agent guest.
-Mint the bearer with `--ttl 6h`: the default lifetime is one hour, and a full
-catalog run is longer. The cases run one at a time on one chat: routd
-dispatches one turn per folder, so after each case the driver waits until the
-model gateway meters that case's turn before it injects the next. Without a
-gateway there is no meter, and the wait runs to its bound.
-The operator recipe, with the commands and the two traps that abort a run, is
-`.claude/skills/eval/gates.md` § "Bringing `anteval` up on an instance that has
-never run it".
+Run on the instance host with `arizuko`, Docker, systemd and KVM available.
+The private configuration file supplies existing instance keys:
+`DYNAMODB_URL`, `STORE_CA`, `AWS_REGION`, `EXTENDDB_PASSWORD`, `HOST_APP_DIR`,
+`RUNED_KERNEL_DIR`, `RUNED_ROOTFS_DIR`, `RUNED_VSOCK_CID_BASE`,
+`RUNED_VSOCK_PORT_BASE`, `RUNED_TAP_SUBNET` and `RUNED_PROXY_PORT`.
+Use an external test store and a separate vsock, tap and proxy allocation.
+Supply `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` explicitly.
+`ARIZUKO_DEFAULT_MODEL` is optional. The runner never reads another instance's
+configuration or credentials.
+
+The sink hostname must reach this host from the guests. The runner binds its
+declared port and allows that hostname through the eval folder's egress rules.
+`--sink-addr` overrides the local bind. The public target uses the same hostname
+and a separately allocated web port. IP literals are refused.
+
+The runner generates `anteval-<unix-ms>` or uses the fresh name supplied by
+`--target`. An existing data directory, systemd unit or Compose project is
+refused before creation. `--product` selects a product for the eval group.
+Each run uses a private data base under `ARIZUKO_DATA_DIR`, or `/srv/data`.
+The CLI lifecycle creates the instance, enrolls its store account, starts its
+services, installs the model gateway, and sets up the group, grants and tokens.
+
+```text
+create → store enroll → run → package add → restart run
+       → group / grants / network / tokens → cases → stop child → rm
+```
+
+The runner always calls `arizuko rm -i NAME` after an attempted creation,
+including setup failure, case failure and SIGINT or SIGTERM. Removal errors
+fail the run and report the exact name and data base for a manual retry.
+Reports stay outside the disposable instance. Cases run sequentially and wait
+for gateway metering between turns.
 
 **Tiers** (2026-08-21; `cases/anteval.toml` notes in place the traps that
 rule a case out): `--smoke` is the shorter manual suite —
@@ -56,13 +70,13 @@ exposure per backend, of which three cases were guaranteed-fail on the
 documented setup. A catalog too expensive to run certifies nothing; a case
 earns its slot only by evidence no cheaper tier can produce.
 
-**anteval is a manual, operator-invoked tool.** It needs a running throwaway
-instance and a minted token, and it drives a real agent at real cost. Never wire it into CI,
+**anteval is a manual, operator-invoked tool.** It creates a throwaway
+instance and drives a real agent at real cost. Never wire it into CI,
 a git hook, a cron, a scheduled task, or any `make test*`/`make smoke` gate —
 `make validate` (catalog load + schema check, no target) is the only anteval
 step that belongs in an automated pipeline.
 
-**Session isolation** — why `--folder` is required: each case runs in its own
+**Session isolation**: each case runs in its own
 topic, and the first turn of any non-main topic forks the folder's MAIN
 session (`ROUTING.md` § Topic routing). A root session left by prior runs or operator chat
 would therefore sit in front of every case — the cross-case contamination the
@@ -80,23 +94,8 @@ operator conversation, no stray group-context crons) and re-run. A sticky
 `#topic` set on the eval chat also breaks isolation (it overrides every
 case's topic); leave the eval chat unpinned.
 
-**Grant the eval folder the tools its cases need, or half the run measures your
-grant table instead of the agent.** The `role:member` floor is messaging only
-(send/reply/react); `register_group`, `issue_webhook`, `issue_chat_token`,
-`add_acl` and `web_route_set` are all explicit delegations. On the 2026-08-08
-live run four of eight smoke cases failed purely because the eval folder held
-none of them — and the agent had correctly named the missing grant in chat
-while the harness reported a bare `timeout: no callback`.
-
-Each case now declares `requires = [...]`; a timeout quotes it back so the
-reader can tell an ungranted tool from a failed agent. To grant them:
-
-```bash
-for a in mcp:register_group mcp:delegate_group mcp:issue_webhook \
-         mcp:issue_chat_token mcp:add_acl mcp:web_route_set; do
-  arizuko group -i <inst> grant folder:eval 'eval/**' "$a"
-done
-```
+Each case declares `requires = [...]`. The runner grants its MCP actions to
+the eval folder before cases start. A timeout includes the declared requirements.
 
 Exit is non-zero if any case fails. `dash` renders a saved JSON report.
 
@@ -114,7 +113,7 @@ callback sink (e.g. a freshly minted chat-link token). Checkers:
 - `rest_reply` — a **bot-authored** message carrying `{nonce}` is readable in
   `{chat}` via REST (the user-injected prompt is excluded, so the marker the
   harness itself sent can't false-pass). `rest_observe` matches any author.
-- `mcp_roundtrip` — same over the MCP face (`--mcp`).
+- `mcp_roundtrip` — same over the MCP face.
 - `parity_sentinel` — `{nonce}` is identical via REST and MCP (uniform surface).
 
 The vocabulary is closed: a case with any other `kind` fails to load
@@ -124,34 +123,28 @@ agent: the prompt asks the agent to call back only the marker that matches
 what it found, so the harness compares a marker and never interprets.
 
 The run mints a nonce per case and embeds it in every name/URL/body, so runs are
-idempotent and never collide; teardown is best-effort.
+isolated. Instance removal is required for a successful exit.
 
 ## Wiring seam
 
 `pkg/run/target.go` (`HTTPTarget`) is the only place that knows the surface
 contract: it injects tasks via routd `POST /v1/messages` (ack `{ok,id}`) and
 reads chats via `GET /v1/messages/inspect?jid=` (rows carry `content` +
-`is_bot_message`). `--api` points at routd's reachable `/v1` base (the eval is
-an operator-host tool, like the `eval` skill reaching localhost ports); the
-target arg is proxyd's public base for `/pub` `/priv` `/chat` probes. The
-injecting token needs `messages:write` + read scope on the eval folder, and the
-`--chat` JID must be a real chat that folder owns.
+`is_bot_message`). Setup supplies routd's local API address, proxyd's public
+base and the `web:eval` chat. Setup mints the injecting token with
+`messages:write`, `messages:read` and `cost:read`.
 
 `Cost()` reads routd `GET /v1/cost?turn_id=` (token needs `cost:read`); a 404
 — no cost recorded yet, or a routd predating the endpoint — reads as 0, other
 failures surface.
 
-`--mcp` points at the platform's own MCP face. `McpMessages` speaks streamable
+Setup supplies a fresh chat token for the platform's MCP face. `McpMessages` speaks streamable
 HTTP to it and calls `get_history`, which webd serves on `POST /mcp` and on
 `POST /chat/{token}/mcp` from one builder, returning user frames as well as
 assistant ones — which is what a sentinel needs. The tool reads by FOLDER and
-TOPIC, so the reader takes the per-case topic (the run's nonce) and resolves the
-folder from the chat JID through `groupfolder.JidFolder`; a suffixed JID names
-no folder and is refused rather than read as some other group's history. Its
+TOPIC, so the reader takes the per-case topic and the folder supplied by setup. Its
 payload is a JSON string inside the MCP result envelope, so it is decoded twice,
-and `role` is the bot flag REST spells `is_bot_message`. Without `--mcp` the
-read answers "surface not configured" and an mcp or parity case fails loudly
-instead of passing on nothing.
+and `role` is the bot flag REST spells `is_bot_message`.
 
 The callback sink binds locally; the agent guests must be able to reach
 `--sink`, so the eval host has to be on the target folder's egress
@@ -166,8 +159,8 @@ conversation transcript (a `contextMode='isolated'` scheduled follow-up —
 isolated means no `--resume` by definition). Run it by hand like any case:
 
 ```bash
-./anteval run <target> --api ... --token ... --chat web:eval --folder eval \
-  --case knowledge-outlives-transcript --sink-addr :9099 --sink http://<gw>:9099
+./anteval run --env /private/anteval.env --sink http://eval-host.example:9099 \
+  --case knowledge-outlives-transcript
 ```
 
 Two continuity properties stay UNMEASURED live, deliberately:
@@ -203,7 +196,7 @@ every product's shipped `eval/*.toml` on each test run — a suite that stops
 parsing is a product whose behaviour nothing checks any more, silently, because
 the harness finds zero cases and reports a clean run.
 
-`cmdRun` and `main` are not covered and cannot be here: `cmdRun` drives a LIVE
-instance over HTTP (that is what the tool is), and `usage`/`fatal` are
-`os.Exit`. The `pkg/` packages that do the real work — `spec`, `check`, `run`,
-`report` — sit at 76–97%.
+The run command uses CLI and process fakes to test setup, existing-instance
+refusal, case failure, report failure, partial creation and SIGINT cleanup.
+These tests create no real instance. They do not certify guest reachability or
+live agent capabilities.
