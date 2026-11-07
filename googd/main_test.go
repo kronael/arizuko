@@ -444,3 +444,17 @@ func TestConfig_NeverCallsMustEnv(t *testing.T) {
 		t.Errorf("MustEnv is called for %v; only ROUTER_URL may exit the process", mustEnv)
 	}
 }
+
+func TestPrepareBotProbesBeforeRegistration(t *testing.T) {
+	g := newFakeGoogle(t)
+	g.aboutStatus.Store(http.StatusForbidden)
+	b, err := prepareBot(t.Context(), g.config(t))
+	if err == nil || capsFor(err == nil)["send_text"] || !b.isConnected() || g.aboutCalls.Load() != 1 {
+		t.Fatalf("disabled API: bot=%v err=%v calls=%d", b.isConnected(), err, g.aboutCalls.Load())
+	}
+	g.aboutStatus.Store(http.StatusOK)
+	_, err = prepareBot(t.Context(), g.config(t))
+	if err != nil || !capsFor(err == nil)["send_text"] {
+		t.Fatalf("enabled API: %v", err)
+	}
+}

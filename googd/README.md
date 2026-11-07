@@ -1,21 +1,20 @@
 # googd
 
 googd is the Google Drive comments channel adapter, prefix `gdrive:`. Today it
-registers, checks its service-account credential and shows that on its
-dashboard. It reads no comments and posts no replies yet. The protocol it
+registers, checks its service-account credential and posts thread replies.
+The comment mapper exists, but no poll loop delivers comments yet. The protocol it
 speaks is [`chanlib/README.md`](../chanlib/README.md).
 
 ## What runs today
 
 - **Registration.** googd registers `gdrive:` and advertises `send_text`
-  only while Google accepts its key (`capsFor`, `verifyCredential`). A
+  only when the Drive probe succeeds before registration (`capsFor`, `prepareBot`). A
   missing or unparseable `GDRIVE_SA_KEY_JSON` is final until the operator
   fixes it. A key Google refused, or a call it never answered, is asked again
   every 30 s, and the first good answer puts `send_text` back.
 - **It never exits on a bad key**: a daemon that exits at boot restarts the
   whole compose project.
-- **`Send` has no reply path.** It answers 400 "googd cannot post a reply",
-  even while `send_text` is advertised.
+- **Thread replies.** `send_text` posts a reply to the thread named by its JID.
 - **No inbound.** No poll loop runs, so `/health` never turns `stale`.
 - **Dashboard.** A **Service account** section shows the credential state and
   the address to share a document with.
@@ -28,8 +27,7 @@ from the bundled catalog. It has no components page.
 
 ## Not built
 
-- The comment poll and the thread reply, the one channel verb the adapter
-  is meant to have. Resolving, reopening and editing a comment are connector
+- The comment poll. Resolving, reopening and editing a comment are connector
   tools, not channel verbs.
 - Push wake-ups. The poll stays the correctness path: per Google's
   documentation as read on 2026-10-16, `files.watch` and Workspace Events

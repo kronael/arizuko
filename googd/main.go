@@ -1,8 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"sync/atomic"
@@ -21,20 +24,34 @@ func capsFor(credentialed bool) map[string]bool {
 
 func main() {
 	cfg := loadConfig()
+	b, err := prepareBot(context.Background(), cfg)
 	chanlib.Run(chanlib.RunOpts{
 		Name:       cfg.Name,
 		RouterURL:  cfg.RouterURL,
 		ListenAddr: cfg.ListenAddr,
 		ListenURL:  cfg.ListenURL,
 		Prefixes:   []string{"gdrive:"},
-		Caps:       capsFor(cfg.KeyJSON != ""),
+		Caps:       capsFor(err == nil),
 		Start: func(ctx context.Context, rc *chanlib.RouterClient) (http.Handler, func(), error) {
-			b := newBot(ctx, cfg)
-			verifyCredential(ctx, b, rc, credentialRetryEvery)
-			mux := chanlib.NewAdapterMux(cfg.Name, []string{"gdrive:"}, b, b.isConnected, b.LastInboundAt, nil)
-			return mux, b.stop, nil
+			if err != nil {
+				slog.Error("service account credential unusable", "err", err)
+				if b.cred.isRetryable() {
+					go reacquire(ctx, b, rc, credentialRetryEvery)
+				}
+			}
+			as, openErr := chanlib.OpenAdapterStore("googd")
+			if openErr != nil {
+				return nil, nil, openErr
+			}
+			mux := chanlib.NewAdapterMux(cfg.Name, []string{"gdrive:"}, b, b.isConnected, b.LastInboundAt, as.Chan)
+			return mux, func() { b.stop(); _ = as.Close() }, nil
 		},
 	})
+}
+
+func prepareBot(ctx context.Context, cfg config) (*bot, error) {
+	b := newBot(ctx, cfg)
+	return b, b.start(ctx)
 }
 
 // credentialRetryEvery paces the re-ask of a key Google refused or never
@@ -126,9 +143,51 @@ func (b *bot) start(ctx context.Context) error {
 
 func (b *bot) stop() { b.connected.Store(false) }
 
-// Send has no reply path yet.
-func (b *bot) Send(chanlib.SendRequest) (string, error) {
-	return "", fmt.Errorf("%w: googd cannot post a reply", chanlib.ErrInvalidRequest)
+// Send posts a reply to the thread named by the JID.
+func (b *bot) Send(msg chanlib.SendRequest) (string, error) {
+	jid, ok := chanlib.ParseGDriveJID(msg.ChatJID)
+	if !ok || jid.CommentID == "" {
+		return "", fmt.Errorf("%w: thread JID required", chanlib.ErrInvalidRequest)
+	}
+	if b.cred.http == nil {
+		return "", fmt.Errorf("%w: credential unavailable", chanlib.ErrNotDelivered)
+	}
+	body, err := json.Marshal(struct {
+		Content string `json:"content"`
+	}{msg.Content})
+	if err != nil {
+		return "", err
+	}
+	url := b.cred.apiBase + "/drive/v3/files/" + jid.FileID + "/comments/" + jid.CommentID + "/replies?fields=id"
+	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := b.cred.http.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("drive reply: %w", err)
+	}
+	defer resp.Body.Close() //nolint:errcheck
+	if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
+		return "", fmt.Errorf("%w: drive reply: %s", chanlib.ErrNotDelivered, resp.Status)
+	}
+	if resp.StatusCode >= 400 && resp.StatusCode < 500 {
+		return "", fmt.Errorf("%w: drive reply: %s", chanlib.ErrPermanent, resp.Status)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", fmt.Errorf("drive reply: %s", resp.Status)
+	}
+	var reply struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&reply); err != nil {
+		return "", fmt.Errorf("drive reply response: %w", err)
+	}
+	if reply.ID == "" {
+		return "", fmt.Errorf("drive reply response has no id")
+	}
+	return "gd-r" + jid.FileID + "." + jid.CommentID + "." + reply.ID, nil
 }
 
 func (b *bot) Typing(string, bool) {}

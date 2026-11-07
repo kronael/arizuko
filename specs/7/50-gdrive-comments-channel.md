@@ -22,11 +22,10 @@ credential.
 
 `status: partial`: the credential (`googd/token.go`), the JID
 (`chanlib/gdrive_jid.go`), the `gdrive_files` binding and its resource, routd
-handler and CLI are built. The poll loop, the mapper and `Send` are not, googd
-has no compose fragment and cannot start as a container, and the Drive API is
-off on the only project that holds a key — so the channel has nothing to
-deliver and must say so rather than advertise a verb
-(§"Capabilities follow the enabled APIs, never the key's presence"). The
+handler and CLI are built. The mapper and `Send` are built; the poll loop is
+not connected. googd has no compose fragment and cannot start as a container.
+The Drive API is off on the only project that holds a key, so the channel
+advertises no verb (§"Capabilities follow the enabled APIs, never the key's presence"). The
 owner's framing — a document is a group, a comment thread is a topic — holds
 only in part (§"The owner's framing, tested"), and nine facts the design rests
 on are marked unverified until a probe against a real file measures them
