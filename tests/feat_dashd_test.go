@@ -51,20 +51,22 @@ func TestFeature_DashdAdminPlane(t *testing.T) {
 		}
 	})
 
-	// Grant add persists and is visible via ListACL.
+	// dashd cannot write grants through routd, even with an asserted ACL scope.
 	t.Run("grants-crud", func(t *testing.T) {
 		f := bootFederation(t)
-		tok := f.authd.mintService(t, "service:dashd", "acl:write")
 		body := map[string]string{"principal": "alice@x", "scope": "world/sub", "action": "admin", "effect": "allow"}
-		if rec := postBearer(t, f.routdTS.URL, "POST", "/v1/acl", tok, "", body); rec.StatusCode != 200 {
-			t.Fatalf("grant add = %d, want 200", rec.StatusCode)
+		for _, scope := range []string{"routes:write", "acl:write"} {
+			tok := f.authd.mintService(t, "service:dashd", scope)
+			if rec := postBearer(t, f.routdTS.URL, "POST", "/v1/acl", tok, "", body); rec.StatusCode != 403 {
+				t.Fatalf("grant add with %s = %d, want 403", scope, rec.StatusCode)
+			}
 		}
 		rows, err := f.routdDB.ListACL("alice@x")
 		if err != nil {
 			t.Fatalf("ListACL: %v", err)
 		}
-		if len(rows) == 0 {
-			t.Fatal("grant not persisted")
+		if len(rows) != 0 {
+			t.Fatalf("refused grant persisted: %+v", rows)
 		}
 	})
 
