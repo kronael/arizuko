@@ -5,8 +5,9 @@ relates-to: [57-group-handler, ../8/40-groups-without-agents]
 
 # specs/7/58 — a group post is a message
 
-An agent hands work to another group by sending it a message. Delegation and
-escalation are a recipe in a skill, not tools.
+Agents message each other with `send`. ACL rows decide which group may post
+to which, and routing delivers the message. Delegation and escalation are
+not tools.
 
 ## The change
 
@@ -15,8 +16,6 @@ escalation are a recipe in a skill, not tools.
   platform prefix (`ipc/ipc.go:1325`).
 - `delegate_group` and `escalate_group` are deleted
   (`ipc/ipc.go:2105`, `ipc/ipc.go:2050`).
-- A skill in `ant/skills/self/` tells the agent to include its return address
-  in the text, so the other group can answer with `send`.
 
 ## Acceptance
 
