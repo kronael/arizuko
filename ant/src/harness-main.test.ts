@@ -28,3 +28,11 @@ test('harness document replaces all defaults at the adapter', async () => {
  const result = await run();
  expect(result.output).toContain('ADAPTER {"name":"claude","model":"default-model","effort":"high"}');
 });
+
+test('missing prompt fails before starting a turn', async () => {
+ const child = Bun.spawn(['bun', path.join(import.meta.dir, 'index.ts')], {stdin:'pipe', stdout:'pipe', stderr:'pipe'});
+ child.stdin.write('{}'); child.stdin.end();
+ const stderr = await new Response(child.stderr).text();
+ expect(await child.exited).toBe(1);
+ expect(stderr).toContain('prompt must be a string');
+});

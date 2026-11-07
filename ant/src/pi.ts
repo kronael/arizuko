@@ -18,10 +18,8 @@ import {
 import { scanSkills } from './skills-scan.js';
 import type { ModelUsage } from './mcp.js';
 
-// PI_EXTENSION mirrors codex.ts's POLICY_CLI: entrypoint.sh compiles ant to
-// /tmp/dist and makes it read-only, so the code behind the gates is not the
-// agent's to edit.
-const PI_EXTENSION = '/tmp/dist/pi-extension.js';
+// The image owns the extension, outside the agent's writable home.
+const PI_EXTENSION = '/app/src/pi-extension.ts';
 
 function log(message: string): void {
   console.error(`[ant:pi] ${message}`);

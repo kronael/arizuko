@@ -359,8 +359,8 @@ func TestTheExitFrameCarriesTheAgentsOwnCode(t *testing.T) {
 func TestAgentCmdRunsTheImagesEntrypointAsTheAgent(t *testing.T) {
 	t.Setenv("ARIZUKO_CTL", "5557")
 	cmd := agentCmd(map[string]string{"B": "2", "A": "1"}, []byte("payload"))
-	if cmd.Path != "/app/entrypoint.sh" {
-		t.Errorf("execs %q, want the image's entrypoint /app/entrypoint.sh", cmd.Path)
+	if cmd.Path != "/usr/local/bin/ant" {
+		t.Errorf("execs %q, want the image's entrypoint /usr/local/bin/ant", cmd.Path)
 	}
 	if !reflect.DeepEqual(cmd.Env, []string{"A=1", "B=2"}) {
 		t.Errorf("environment %v, want exactly the turn's, sorted", cmd.Env)

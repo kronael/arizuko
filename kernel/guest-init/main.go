@@ -119,7 +119,7 @@ const (
 	agentUID = 1000
 	agentGID = 1000
 	// agentBin is the release image's ENTRYPOINT (ant/Dockerfile).
-	agentBin = "/app/entrypoint.sh"
+	agentBin = "/usr/local/bin/ant"
 	// socatBin is where the release image's apt install puts socat
 	// (ant/Dockerfile).
 	socatBin = "/usr/bin/socat"

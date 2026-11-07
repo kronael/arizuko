@@ -1,6 +1,6 @@
 // policy-cli.ts — the codex renderer's other half. codex registers a hook as a
 // COMMAND, so a policy living in ant's process is unreachable from it. codex
-// runs `node /tmp/dist/policy-cli.js <event> <turn-id>`, hands the event on
+// runs `/usr/local/bin/bun /app/src/policy-cli.ts <event> <turn-id>`, hands the event on
 // stdin, and reads the merged verdict on stdout. One process per EVENT, not per
 // row.
 //

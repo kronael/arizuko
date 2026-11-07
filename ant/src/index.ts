@@ -1,3 +1,4 @@
+#!/usr/local/bin/bun
 // index.ts — the chassis runtime half every occupant shares: stdin envelope
 // parse, IPC steering + close sentinel, the <status> pipeline, idempotent
 // submit_turn, the inner turn loop. The harness half lives behind backend.ts.
@@ -426,7 +427,6 @@ async function main(): Promise<void> {
   } catch { /* ignore */ }
 
   const cleanupSecrets = () => {
-    try { fs.unlinkSync('/tmp/input.json'); } catch { /* may not exist */ }
     if (privateTmpDir) {
       try { fs.rmSync(privateTmpDir, { recursive: true, force: true }); } catch { /* ignore */ }
     }
@@ -436,6 +436,7 @@ async function main(): Promise<void> {
     try {
       const stdinData = await readStdin();
       containerInput = JSON.parse(stdinData);
+      if (typeof containerInput?.prompt !== 'string') throw new Error('prompt must be a string');
       log(`Received input for group: ${containerInput.groupFolder}`);
     } catch (err) {
       cleanupSecrets();

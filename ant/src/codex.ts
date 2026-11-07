@@ -217,9 +217,8 @@ async function* runCodex(turn: Turn): AsyncGenerator<Frame> {
   for (const line of drainLines(POLICY_LOG_SPOOL)) console.error(line);
 }
 
-// POLICY_CLI is where entrypoint.sh compiles ant to, then makes read-only. A
-// constant on purpose: the agent cannot edit the code behind its own gates.
-const POLICY_CLI = '/tmp/dist/policy-cli.js';
+// The image owns the policy code, outside the agent's writable home.
+const POLICY_CLI = '/app/src/policy-cli.ts';
 
 // verdictToCodexJson is the ONE place a Verdict becomes codex's wire shape.
 // codex reuses Claude Code's hook JSON verbatim for the two verdicts it supports.
@@ -265,7 +264,7 @@ export function codexHooksConfig(rows: Binding[], turnID: string): unknown {
   const events = [...new Set(codexRows(rows).map((b) => b.event))];
   const hooks: Record<string, unknown[]> = {};
   for (const event of events) {
-    hooks[event] = [{ hooks: [{ type: 'command', command: `node ${POLICY_CLI} ${event} ${turnID}`, timeout: 30 }] }];
+    hooks[event] = [{ hooks: [{ type: 'command', command: `/usr/local/bin/bun ${POLICY_CLI} ${event} ${turnID}`, timeout: 30 }] }];
   }
   return { description: 'arizuko policy (spec 6/16) — generated per turn, do not edit', hooks };
 }
