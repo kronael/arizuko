@@ -108,8 +108,10 @@ fetch. A reply bumps its head comment's `modifiedTime`, so the
 `startModifiedTime` filter returns the thread. The adapter delivers every post
 it has not delivered yet — routd's message key is the dedup: "A DUPLICATE ID
 IS A NO-OP" (`store/messages.go:234`) — and advances the file's cursor to the
-largest `modifiedTime` on the page only after routd accepted every post on
-it. That is the cursor discipline teled, reditd and emaid follow: "the platform
+largest `modifiedTime` across all pages of the sweep only after routd
+accepted every post on every page. Drive documents no order for
+`comments.list`, so a cursor saved after page 1 can skip an older comment on
+page 2 when page 2 fails. That is the cursor discipline teled, reditd and emaid follow: "the platform
 IS their queue — they must NOT wire" `RetainInbound` (`chanlib/inbound.go:7`).
 A routd outage costs nothing but delay.
 
