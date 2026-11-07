@@ -42,24 +42,29 @@ reads it), `pvc.yaml`, `serviceaccount.yaml`, `ingress.yaml` (optional).
 
 ## The store
 
-Every daemon's owner tables live on one DynamoDB-protocol server, reached at
-`DYNAMODB_URL`; no daemon opens a database file. **The chart runs no store.**
-`store.url` names one you run: the `extenddb` pair from
-`template/services/extenddb.yml` (ExtendDB over PostgreSQL), a PostgreSQL in
-another cluster, or Amazon DynamoDB. The daemons speak one protocol and never
-learn which is behind it.
+Each instance uses one account on an external ExtendDB server over PostgreSQL.
+The chart runs no store. The server owns its databases, catalog, TLS files and
+administrator credential. [INSTALL.md](../../../INSTALL.md#share-one-store-server-between-instances)
+gives the server procedure.
 
-Two things about it are one-time runs by hand, not chart steps:
+Create the instance on the data volume, configure `DYNAMODB_URL`, `STORE_CA`
+and `AWS_REGION`, then run `arizuko store enroll` as the instance owner.
+Supply `EXTENDDB_PASSWORD` only to enrollment.
+Keep the administrator credential outside the instance and Kubernetes Secrets.
+Boot the owners before package operations, as the installation guide describes.
 
-- `extenddb init` creates the databases, generates the server's self-signed
-  certificate and mints one access key per daemon
-  (`INSTALL.md` § The store server). The certificate goes into `store.ca` as
-  base64 (`STORE_CA`): a daemon reads its environment and mounts no file.
-  Each key pair goes into `secrets.daemons.<daemon>.storeKeyId` /
-  `.storeSecret`, so every daemon signs as itself.
-- Which daemons hold a key is `store.StoreReach` (`store/owner_reach.go`):
-  every daemon the chart runs except `timed`, which writes through routd's
-  HTTP API, and `davd`/`vited`, which are not arizuko binaries.
+Copy the enrolled values into the chart:
+
+| Source                      | Chart value                                              |
+| --------------------------- | -------------------------------------------------------- |
+| `.env` `DYNAMODB_URL`       | `store.url`, the same HTTPS URL for host and pods        |
+| `.env` `STORE_CA`           | `store.ca`, the base64 PEM certificate                   |
+| `.env` `AWS_REGION`         | `store.region`, the explicit signing region              |
+| `env/<daemon>.env` key pair | `secrets.daemons.<daemon>.storeKeyId` and `.storeSecret` |
+
+`store.StoreReach` in `store/owner_reach.go` declares each daemon's table scope.
+Keep the operator pair in `env/operator.env` for host commands.
+Back up the external server independently of the data volume.
 
 ## The data volume
 
@@ -141,7 +146,7 @@ the error names it.
 | `secrets.secretsKey`                                                 | `SECRETS_KEY`                                 | routd refuses to start without it                       |
 | `secrets.claudeCodeOauthToken` **or** `secrets.anthropicApiKey`      | the model credential                          | runed hands it to every turn                            |
 | `secrets.daemons.<d>.serviceKey`, for every enabled daemon but authd | `AUTHD_SERVICE_KEY`                           | the daemon exits without one                            |
-| `secrets.daemons.<d>.storeKeyId` / `.storeSecret`, per `StoreReach`  | `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | from `extenddb init`                                    |
+| `secrets.daemons.<d>.storeKeyId` / `.storeSecret`, per `StoreReach`  | `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | from `arizuko store enroll`                             |
 | every `secrets.*` an enabled adapter's `secretEnv` lists             | that env var                                  | the adapter's platform credential                       |
 
 Under `secrets.external: true` only the first three rows apply.
@@ -149,8 +154,8 @@ Under `secrets.external: true` only the first three rows apply.
 ## Install
 
 ```bash
-# One-time, by hand, before the first start: `extenddb init` against your
-# store (INSTALL.md § The store server) and `arizuko create` on the data volume.
+# Configure the external store, create the instance on the data volume,
+# configure its URL/CA/region, enroll and boot the owners before installing.
 helm install arizuko deploy/helm/arizuko \
   --namespace arizuko --create-namespace \
   -f my-values.yaml

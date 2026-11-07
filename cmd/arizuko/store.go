@@ -18,8 +18,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/joho/godotenv"
-
 	"github.com/kronael/arizuko/compose"
+	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/objstore/dynstore"
 	"github.com/kronael/arizuko/store"
 )
@@ -52,9 +52,6 @@ func storeEnroll(args []string, w io.Writer) error {
 	}
 	dataDir, err := instanceDir(instance)
 	if err != nil {
-		return err
-	}
-	if err := compose.WriteOperatorEnv(dataDir); err != nil {
 		return err
 	}
 	dst, err := view(dataDir)
@@ -90,16 +87,7 @@ func storeEnroll(args []string, w io.Writer) error {
 }
 
 func view(dir string) (map[string]string, error) {
-	env, err := godotenv.Read(filepath.Join(dir, ".env"))
-	if err != nil {
-		return nil, err
-	}
-	operator, err := godotenv.Read(filepath.Join(dir, "env", "operator.env"))
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return nil, err
-	}
-	maps.Copy(env, operator)
-	return env, nil
+	return core.ReadInstanceEnv(dir)
 }
 
 func clientOf(view map[string]string, keyID, secret string) (*dynamodb.Client, error) {

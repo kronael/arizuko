@@ -100,13 +100,15 @@
     <p>Every daemon talks to the store through <code>objstore.Store</code>, which has exactly two methods. <code>Query</code> reads by key. <code>GuardedBatch</code> writes a set of items, all or none, and only if every condition holds. A refused batch is an answer, not an error: another writer changed the items first. Counters, the replacement of a whole scope and the cycle check on group membership use the two methods. They are never added as new methods.</p>
 
     <h2>Each instance is one account on the server</h2>
-    <p>The server is ExtendDB. ExtendDB speaks the DynamoDB wire protocol and keeps the data in PostgreSQL. An arizuko instance is one <em>account</em> on that server, so one server can hold every instance on a host and still keep the instances apart. The account is the boundary, not a PostgreSQL role. If you point the same driver at Amazon&rsquo;s own DynamoDB, nothing above the driver changes.</p>
+    <p>The external ExtendDB server speaks the DynamoDB protocol over PostgreSQL. Each instance uses one account. The account separates instances on the shared server.</p>
+
+    <p>The server runs outside every instance's Compose project and systemd unit. The server owns PostgreSQL, its catalog, TLS files and administrator credential. <code>arizuko store enroll</code> creates the account and scoped keys. The host and containers use the same URL and CA.</p>
 
     <h2>Each daemon signs with its own key</h2>
     <p>Each daemon signs in as its own IAM user with its own access key. The policy of that user names the owners the daemon opens. A table name has the form <code>&lt;owner&gt;.&lt;entity&gt;</code>, for example <code>routd.acl</code>, so one line of policy covers all the tables of <code>routd</code>. <code>store/owner_reach.go</code> lists which daemon opens which owner, and a test fails when the code reaches an owner that the list does not name. A daemon that has the server address and no key refuses to start. <code>timed</code> and <code>ttsd</code> hold no key: they call the <code>/v1</code> API of an owner.</p>
 
-    <h2>A backup is a tar of the stopped instance</h2>
-    <p>Stop the instance, then tar its data directory. The PostgreSQL files are under <code>store/extenddb_db/</code>, next to the group folders, so one tar holds both. A tar of a running instance is not a backup, because PostgreSQL still writes the files while you copy them.</p>
+    <h2>Back up the files and the server separately</h2>
+    <p>An instance archive holds group files, adapter files and credentials. It holds no server rows. Stop the instance before copying its files. Leave the external server running. Back up the server catalog, data database, TLS files and configuration separately. The catalog backup must include its <code>encryption_key</code> setting.</p>
 
     <h2>The details live in three places</h2>
     <ul>

@@ -266,8 +266,7 @@ round that finds nothing commits nothing.
   fragments sat frozen for months and each had lost `RUNED_RUN_TIMEOUT`, which
   drops the typing indicator before a long turn's reply lands (BUGS `L41`).
   Change the template and relink; where an instance genuinely differs,
-  parameterise through `.env` — `STORE_HOST_PORT` exists so a second instance
-  takes its own store port without an edit (`L311`).
+  parameterise through `.env`.
 - **A second account on one platform is its own fragment**,
   `template/services/<kind>-<label>.yml` with a distinct `CHANNEL_NAME`, never
   an edit to the base fragment. The variant reads `env/<kind>-<label>.env`, and

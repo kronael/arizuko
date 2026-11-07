@@ -94,9 +94,12 @@ Each plane is one daemon that owns its own tables. The planes talk over HTTP
 ## Data ownership
 
 Every table is an objstore entity at a `(partition, sort)` coordinate. One
-DynamoDB-protocol server, named by `DYNAMODB_URL`, holds every owner's tables
-as `<owner>.<entity>`. The layers from a daemon down to PostgreSQL, and why
-the store has that shape: [`objstore/README.md`](objstore/README.md).
+external ExtendDB server over PostgreSQL, named by `DYNAMODB_URL`, holds each
+instance in its own account, with tables named `<owner>.<entity>`.
+The server owns its databases, catalog, TLS files and administrator credential.
+`arizuko store enroll` provisions the account and scoped daemon/operator keys.
+Host commands and containers use the same URL and CA.
+The storage layers and their purpose: [`objstore/README.md`](objstore/README.md).
 
 An owner is a daemon and the tables it alone creates. Each daemon signs with
 its own key, and `store/owner_reach.go` `StoreReach` lists the owners each
@@ -121,7 +124,7 @@ list disagree.
 └──────────────┘
 ```
 
-timed, ttsd, googd and whapd hold no store key. timed calls an owner's `/v1`.
+timed, ttsd and whapd hold no store key. timed calls an owner's `/v1`.
 
 | Owner                                      | Entities                                                                                                   | Declared in                            | Column detail                                |
 | ------------------------------------------ | ---------------------------------------------------------------------------------------------------------- | -------------------------------------- | -------------------------------------------- |

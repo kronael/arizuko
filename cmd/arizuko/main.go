@@ -178,6 +178,9 @@ func installWebDocs(dataDir string) {
 }
 
 func generateCompose(dataDir, instance string) string {
+	if err := compose.ValidateStore(dataDir); err != nil {
+		die("Failed: %v", err)
+	}
 	// Installed fragments that are still identical copies of the bundled
 	// catalog become symlinks here, so a shipped fix (adapter state mounts, a
 	// retired env var) reaches this instance on every generate/deploy — no
@@ -234,8 +237,7 @@ func mustInstanceDir(name string) string {
 // environment opened the file on an instance whose daemons read the server.
 func instanceDir(name string) (string, error) {
 	if dir := os.Getenv("DATA_DIR"); name == "" && dir != "" {
-		core.LoadInstanceEnv(dir)
-		return dir, nil
+		return dir, core.LoadInstanceEnv(dir)
 	}
 	clean, err := core.SanitizeInstance(name)
 	if err != nil {
@@ -247,8 +249,7 @@ func instanceDir(name string) (string, error) {
 	} else if prefix := os.Getenv("PREFIX"); prefix != "" {
 		dir = filepath.Join(prefix, "data", "arizuko_"+clean)
 	}
-	core.LoadInstanceEnv(dir)
-	return dir, nil
+	return dir, core.LoadInstanceEnv(dir)
 }
 
 // parseCreateFlags parses `create` args via flexParse so --product (-p) works in
@@ -385,7 +386,9 @@ func cmdCreate(args []string) {
 			}
 			fmt.Println()
 		}
-		fmt.Printf("\nnext: populate %s/groups/main/facts/ then: arizuko run -i %s\n", dataDir, name)
+		fmt.Printf("\nnext: set DYNAMODB_URL, STORE_CA and AWS_REGION in %s/.env.\n"+
+			"run arizuko store -i %s enroll.\n"+
+			"start the owner daemons as INSTALL.md describes.\n", dataDir, name)
 	}
 }
 

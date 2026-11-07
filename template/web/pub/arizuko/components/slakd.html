@@ -95,6 +95,8 @@
     <h2>slakd runs alone with routd, a Slack app and a public URL</h2>
     <p>slakd is a plain Go binary. It needs a reachable routd, a Slack app with a bot token, and a public URL that forwards <code>/slack/events</code> to it.</p>
 
+    <p>Run <code>arizuko store enroll</code> first. The commands read the external store settings from <code>.env</code> and the scoped pair from <code>env/slakd.env</code>.</p>
+
     <pre><code>export ROUTER_URL=http://routd:8080
 export AUTHD_URL=http://authd:8080
 export AUTHD_SERVICE_KEY=$(grep ^AUTHD_SERVICE_KEY .env | cut -d= -f2)
@@ -102,8 +104,10 @@ export LISTEN_ADDR=:8080
 export SLACK_BOT_TOKEN=&lt;xoxb bot token&gt;
 export SLACK_SIGNING_SECRET=&lt;signing secret&gt;
 export ASSISTANT_NAME=arizuko
-export DYNAMODB_URL=https://extenddb:18443       # the instance's store server
-export AWS_ACCESS_KEY_ID=&lt;key id&gt; AWS_SECRET_ACCESS_KEY=&lt;secret&gt; AWS_REGION=us-east-1
+set -a
+. ./.env
+. ./env/slakd.env
+set +a
 ./slakd</code></pre>
 
     <p>On the Slack side, create a Slack app and enable the Events API with a request URL that points at <code>/slack/events</code>. Subscribe to <code>message.channels</code>, <code>message.im</code>, <code>message.groups</code> and <code>reaction_added</code>, and, for the pane, to <code>assistant_thread_started</code> and <code>assistant_thread_context_changed</code>. Do <strong>not</strong> subscribe to <code>app_mention</code>. slakd detects mentions from <code>&lt;@bot_user_id&gt;</code> in the message text, and an <code>app_mention</code> subscription as well causes double processing. The scopes are <code>chat:write</code>, <code>files:write</code>, <code>reactions:write</code>, <code>im:history</code>, <code>channels:history</code>, <code>groups:history</code> and <code>assistant:write</code>.</p>
@@ -123,7 +127,7 @@ export AWS_ACCESS_KEY_ID=&lt;key id&gt; AWS_SECRET_ACCESS_KEY=&lt;secret&gt; AWS
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/components/slakd.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-28">2026-10-28</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-07">2026-11-07</time>
       </div>
     </main>
 

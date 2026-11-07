@@ -100,10 +100,14 @@
     <h2>authd runs alone</h2>
     <p>authd is the most independent of the split daemons. It owns its tables and its signing key, and it needs no other daemon to create and verify tokens. Its one soft link is <code>GRANTS_URL</code>: without routd, authd still issues tokens, but their scope ceiling is empty.</p>
 
+    <p>Run <code>arizuko store enroll</code> first. The commands read the external store settings from <code>.env</code> and the scoped pair from <code>env/authd.env</code>.</p>
+
     <pre><code>cd /srv/data/myinstance
 export DATA_DIR=/srv/data/myinstance
-export DYNAMODB_URL=https://extenddb:18443       # the instance's store server
-export AWS_ACCESS_KEY_ID=&lt;key id&gt; AWS_SECRET_ACCESS_KEY=&lt;secret&gt; AWS_REGION=us-east-1
+set -a
+. ./.env
+. ./env/authd.env
+set +a
 export LISTEN_ADDR=:8080
 export AUTHD_SERVICE_KEY=$(grep ^AUTHD_SERVICE_KEY .env | cut -d= -f2)
 export AUTHD_SERVICE_KEYS='routd=&lt;key&gt;,runed=&lt;key&gt;,webd=&lt;key&gt;,proxyd=&lt;key&gt;'
@@ -156,7 +160,7 @@ export AUTH_BASE_URL=https://example.com
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/components/authd.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-23">2026-10-23</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-07">2026-11-07</time>
       </div>
     </main>
 

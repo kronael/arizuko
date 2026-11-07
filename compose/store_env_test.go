@@ -1,250 +1,192 @@
 package compose
 
 import (
-	"bytes"
-	"log/slog"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/joho/godotenv"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/objstore/dynstore"
-	"github.com/kronael/arizuko/store"
 )
 
-// The endpoint and its trust bundle reach every daemon, because every daemon
-// reads its owner's tables from the same server (spec 6/42-dynamo-over-postgres §7).
+func TestStoreRefusal(t *testing.T) {
+	for _, tc := range []struct{ name, file, key, value string }{
+		{"url missing", ".env", dynstore.EnvURL, ""},
+		{"url invalid", ".env", dynstore.EnvURL, "http://store"},
+		{"url malformed", ".env", dynstore.EnvURL, "https://[::1"},
+		{"url host missing", ".env", dynstore.EnvURL, "https://:443"},
+		{"region missing", ".env", dynstore.EnvRegion, ""},
+		{"ca missing", ".env", dynstore.EnvCA, ""},
+		{"ca base64", ".env", dynstore.EnvCA, "%%%"},
+		{"ca pem", ".env", dynstore.EnvCA, "Zm9v"},
+		{"daemon id", "env/routd.env", dynstore.EnvKeyID, ""},
+		{"daemon secret", "env/routd.env", dynstore.EnvSecret, ""},
+		{"operator id", "env/operator.env", dynstore.EnvKeyID, ""},
+		{"operator secret", "env/operator.env", dynstore.EnvSecret, ""},
+		{"daemon quoted empty", "env/routd.env", dynstore.EnvSecret, `""`},
+		{"operator quoted empty", "env/operator.env", dynstore.EnvSecret, `""`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := seed(t, "")
+			body := read(t, dir, tc.file)
+			if tc.file != ".env" {
+				body = dynstore.EnvKeyID + "=key\n"
+				if tc.key == dynstore.EnvKeyID {
+					body = dynstore.EnvSecret + "=secret\n"
+				}
+			}
+			write(t, dir, tc.file, body+tc.key+"="+tc.value+"\n")
+			write(t, dir, "services/pkg.yml", "services: {}\n")
+			before := tree(t, dir)
+			if _, _, err := Generate(dir, "test"); err == nil || !strings.Contains(err.Error(), tc.key) {
+				t.Fatalf("expected %s refusal, got %v", tc.key, err)
+			}
+			if after := tree(t, dir); !reflect.DeepEqual(before, after) {
+				t.Fatal("files changed on refusal")
+			}
+		})
+	}
+}
+
+func tree(t *testing.T, dir string) map[string]string {
+	t.Helper()
+	files := map[string]string{}
+	err := filepath.WalkDir(dir, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			files[path] = "directory"
+			return nil
+		}
+		body, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		files[path] = string(body)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return files
+}
+
+func TestInstalledAdapterRequiresCredential(t *testing.T) {
+	dir := seed(t, "")
+	if err := os.Remove(filepath.Join(dir, "env", "slakd.env")); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := Generate(dir, "test"); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{dynstore.EnvKeyID, dynstore.EnvSecret} {
+		write(t, dir, "env/slakd.env", key+"=partial\n")
+		before := tree(t, dir)
+		if _, _, err := Generate(dir, "test"); err == nil || !strings.Contains(err.Error(), "slakd.env") {
+			t.Fatalf("uninstalled partial credential: %v", err)
+		}
+		if !reflect.DeepEqual(tree(t, dir), before) {
+			t.Fatal("partial credential changed on refusal")
+		}
+	}
+	if err := os.Remove(filepath.Join(dir, "env", "slakd.env")); err != nil {
+		t.Fatal(err)
+	}
+	write(t, dir, "services/slakd.yml", "services: {}\n")
+	if _, _, err := Generate(dir, "test"); err == nil || !strings.Contains(err.Error(), "slakd.env") {
+		t.Fatalf("expected slakd refusal: %v", err)
+	}
+}
+
+func TestSeededAssistantNameIsTheSharedDefault(t *testing.T) {
+	env := map[string]string{}
+	seedSharedDefaults(env)
+	if env["ASSISTANT_NAME"] != core.DefaultAssistantName {
+		t.Fatal(env)
+	}
+}
+
+func TestNoOnboardSubtreeRouteWithoutASubtreeHandler(t *testing.T) {
+	var bare bool
+	for _, r := range coreProxydRoutes {
+		if r.Path == "/onboard" {
+			bare = true
+		}
+		if r.Path == "/onboard/" {
+			t.Fatal("unexpected subtree route")
+		}
+	}
+	if !bare {
+		t.Fatal("missing onboard route")
+	}
+}
+
+func TestEachDaemonKeepsItsOwnStoreKey(t *testing.T) {
+	dir := seed(t, "")
+	write(t, dir, "env/routd.env", dynstore.EnvKeyID+"=routd\n"+dynstore.EnvSecret+"=routdsecret\n")
+	write(t, dir, "env/authd.env", dynstore.EnvKeyID+"=authd\n"+dynstore.EnvSecret+"=authdsecret\n")
+	gen(t, dir)
+	for _, daemon := range []string{"routd", "authd"} {
+		body := read(t, dir, "env/"+daemon+".env")
+		if !strings.Contains(body, dynstore.EnvKeyID+"="+daemon+"\n") || !strings.Contains(body, dynstore.EnvSecret+"="+daemon+"secret\n") {
+			t.Fatalf("%s credentials changed: %s", daemon, body)
+		}
+	}
+	if strings.Contains(read(t, dir, ".env"), dynstore.EnvKeyID) {
+		t.Fatal("shared env contains credentials")
+	}
+}
+
 func TestStoreEndpointReachesEveryDaemon(t *testing.T) {
-	dir := seed(t, "APP=arizuko\nFLAVOR=test\n"+
-		dynstore.EnvURL+"=https://store.example.com:18443\n"+
-		dynstore.EnvRegion+"=us-east-1\n"+
-		dynstore.EnvCA+"=Zm9vCg==\n")
+	dir := seed(t, "")
+	env, err := godotenv.Read(filepath.Join(dir, ".env"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	gen(t, dir)
 	for _, daemon := range []string{"routd", "runed", "authd", "onbod", "dashd", "webd"} {
-		body := read(t, dir, filepath.Join("env", daemon+".env"))
-		for _, want := range []string{
-			dynstore.EnvURL + "=https://store.example.com:18443",
-			dynstore.EnvRegion + "=us-east-1",
-			dynstore.EnvCA + "=Zm9vCg==",
-		} {
-			if !strings.Contains(body, want) {
-				t.Errorf("env/%s.env carries no %q", daemon, want)
+		body, err := godotenv.Read(filepath.Join(dir, "env", daemon+".env"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, key := range []string{dynstore.EnvURL, dynstore.EnvRegion, dynstore.EnvCA} {
+			if body[key] != env[key] {
+				t.Errorf("%s: %s changed", daemon, key)
 			}
 		}
 	}
 }
 
-// A daemon's access key is ITS OWN. It stays out of the shared .env, and a
-// regenerate carries forward what the server minted for that daemon — a key
-// that changed under a daemon signs every request wrong.
-func TestEachDaemonKeepsItsOwnStoreKey(t *testing.T) {
-	dir := seed(t, "APP=arizuko\nFLAVOR=test\n"+dynstore.EnvURL+"=https://store.example.com:18443\n")
-	if err := os.MkdirAll(filepath.Join(dir, "env"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	write(t, dir, filepath.Join("env", "routd.env"),
-		dynstore.EnvKeyID+"=AKIAROUTD\n"+dynstore.EnvSecret+"=routdsecret\n")
-	write(t, dir, filepath.Join("env", "authd.env"),
-		dynstore.EnvKeyID+"=AKIAAUTHD\n"+dynstore.EnvSecret+"=authdsecret\n")
-	gen(t, dir)
-
-	routd := read(t, dir, filepath.Join("env", "routd.env"))
-	if !strings.Contains(routd, dynstore.EnvKeyID+"=AKIAROUTD") {
-		t.Errorf("routd lost its own key:\n%s", routd)
-	}
-	if strings.Contains(routd, "AKIAAUTHD") {
-		t.Errorf("routd reads authd's key:\n%s", routd)
-	}
-	authd := read(t, dir, filepath.Join("env", "authd.env"))
-	if !strings.Contains(authd, dynstore.EnvKeyID+"=AKIAAUTHD") {
-		t.Errorf("authd lost its own key:\n%s", authd)
-	}
-	if body := read(t, dir, ".env"); strings.Contains(body, dynstore.EnvKeyID) {
-		t.Errorf(".env carries an access key:\n%s", body)
+func TestGenerateRejectsOperatorStoreOverride(t *testing.T) {
+	for _, key := range []string{dynstore.EnvURL, dynstore.EnvCA} {
+		t.Run(key, func(t *testing.T) {
+			dir := seed(t, "")
+			path := "env/operator.env"
+			write(t, dir, path, read(t, dir, path)+key+"=different\n")
+			before := tree(t, dir)
+			if _, _, err := Generate(dir, "test"); err == nil || !strings.Contains(err.Error(), key) {
+				t.Fatalf("expected %s refusal: %v", key, err)
+			}
+			if !reflect.DeepEqual(before, tree(t, dir)) {
+				t.Fatal("files changed on refusal")
+			}
+		})
 	}
 }
 
-// An endpoint the operator pointed somewhere else is already the host's view,
-// and its port is not this instance's to guess.
-func TestOperatorEnvLeavesAForeignEndpoint(t *testing.T) {
-	dir := seed(t, "APP=arizuko\nFLAVOR=krons\n"+
-		dynstore.EnvURL+"=https://dynamodb.us-east-1.amazonaws.com\n")
-	gen(t, dir)
-	if _, err := os.Stat(filepath.Join(dir, "env", "operator.env")); !os.IsNotExist(err) {
-		t.Errorf("operator.env written for a foreign endpoint: %v", err)
+func TestGenerateRejectsMalformedCredentialFile(t *testing.T) {
+	dir := seed(t, "")
+	write(t, dir, "env/routd.env", "not a valid env line!\n")
+	before := tree(t, dir)
+	if _, _, err := Generate(dir, "test"); err == nil || !strings.Contains(err.Error(), "routd.env") {
+		t.Fatalf("expected malformed env refusal: %v", err)
 	}
-}
-
-// A moved server is the same case as a moved port: the loopback line generate
-// wrote would overload .env's address on the host, so it goes and the key pair
-// stays.
-func TestOperatorEnvDropsTheGeneratedLineForAnotherServer(t *testing.T) {
-	dir := seed(t, "APP=arizuko\nFLAVOR=krons\n"+
-		dynstore.EnvURL+"=https://store.example.com:18443\n")
-	if err := os.MkdirAll(filepath.Join(dir, "env"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	write(t, dir, filepath.Join("env", "operator.env"),
-		dynstore.EnvKeyID+"=AKIAOPERATOR\n"+
-			dynstore.EnvSecret+"=operatorsecret\n"+
-			dynstore.EnvCA+"=Zm9vCg==\n"+
-			dynstore.EnvURL+"=https://127.0.0.1:18443\n")
-	gen(t, dir)
-
-	body := read(t, dir, filepath.Join("env", "operator.env"))
-	if strings.Contains(body, dynstore.EnvURL) {
-		t.Errorf("operator.env still carries the old server's line:\n%s", body)
-	}
-	for _, keep := range []string{
-		dynstore.EnvKeyID + "=AKIAOPERATOR",
-		dynstore.EnvSecret + "=operatorsecret",
-		dynstore.EnvCA + "=Zm9vCg==",
-	} {
-		if !strings.Contains(body, keep) {
-			t.Errorf("operator.env lost %q:\n%s", keep, body)
-		}
-	}
-	mustBe0600(t, dir)
-}
-
-func mustBe0600(t *testing.T, dir string) {
-	t.Helper()
-	st, err := os.Stat(filepath.Join(dir, "env", "operator.env"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if st.Mode().Perm() != 0o600 {
-		t.Errorf("operator.env mode = %o, want 600 — it holds the store key", st.Mode().Perm())
-	}
-}
-
-// A daemon with NEITHER store credential is normal — it has no identity yet.
-// A daemon with exactly ONE is a half-written file, and skipping it silently
-// turns a config fault into a runtime auth error on that daemon's first store
-// call, far from the file that caused it.
-func TestHalfWrittenStoreCredentialIsLoud(t *testing.T) {
-	logs := captureComposeErrors(t)
-	dir := t.TempDir()
-	envDir := filepath.Join(dir, "env")
-	if err := os.MkdirAll(envDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	// routd gets an id and no secret; authd gets neither.
-	if err := os.WriteFile(filepath.Join(envDir, "routd.env"),
-		[]byte(dynstore.EnvKeyID+"=AKIAEXAMPLE\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(envDir, "authd.env"), []byte("\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	mergeStoreCredentials(dir, map[string]map[string]string{})
-
-	got := logs.String()
-	if !strings.Contains(got, "half written") || !strings.Contains(got, "routd") {
-		t.Fatalf("a half-written credential logged no error naming the daemon: %q", got)
-	}
-	if strings.Contains(got, "authd") {
-		t.Errorf("a daemon with NO credential was reported as a fault: %q", got)
-	}
-}
-
-func captureComposeErrors(t *testing.T) *bytes.Buffer {
-	t.Helper()
-	var buf bytes.Buffer
-	prev := slog.Default()
-	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelError})))
-	t.Cleanup(func() { slog.SetDefault(prev) })
-	return &buf
-}
-
-// The seeded default and the constant are ONE declaration with two readers.
-// They drifted — core said "Andy", this seeded "arizuko", and since
-// ASSISTANT_NAME is in commonKeys the seeded value reached every daemon's
-// scoped env file. So the constant only ever surfaced outside compose, which
-// is the case L194 was closed to make impossible (BUGS L340).
-func TestSeededAssistantNameIsTheSharedDefault(t *testing.T) {
-	env := map[string]string{}
-	seedSharedDefaults(env)
-
-	if got := env["ASSISTANT_NAME"]; got != core.DefaultAssistantName {
-		t.Fatalf("seeded ASSISTANT_NAME = %q, want core.DefaultAssistantName %q — "+
-			"a second literal here is the drift the constant exists to prevent",
-			got, core.DefaultAssistantName)
-	}
-}
-
-// A trailing-slash route row matches the whole SUBTREE (proxyd.MatchRoute), and
-// onbod serves no path under /onboard — only the exact GET and POST. The
-// "/onboard/" row therefore forwarded every /onboard/... to a 404 while the
-// route table advertised the subtree as served (BUGS L331). A row that can only
-// produce a 404 is worse than no row: it reads as handled.
-func TestNoOnboardSubtreeRouteWithoutASubtreeHandler(t *testing.T) {
-	var bare, subtree bool
-	for _, r := range coreProxydRoutes {
-		switch r.Path {
-		case "/onboard":
-			bare = true
-		case "/onboard/":
-			subtree = true
-		}
-	}
-	if !bare {
-		t.Error("the exact /onboard row is gone; the onboarding page is unreachable")
-	}
-	if subtree {
-		t.Error("a /onboard/ row is back; it matches the subtree, and onbod serves none of it")
-	}
-}
-
-// An enrolment that stopped half way leaves daemons with no key: each exits at
-// boot and the instance restart-loops (BUGS L406). NONE enrolled is a fresh
-// `arizuko create` and must stay silent, or the warning fires on every new
-// instance and nobody reads it again (BUGS L319).
-func TestPartialStoreEnrolmentIsLoudAndAFreshInstanceIsNot(t *testing.T) {
-	// The "complete" case needs the whole set, so it is derived. The membership
-	// this test actually depends on is NAMED, so a change to that predicate
-	// fails here instead of moving the test with it.
-	for _, daemon := range []string{"routd", "authd", "onbod", "dashd"} {
-		if len(store.StoreReach[daemon]) == 0 {
-			t.Fatalf("StoreReach says %s needs no store key; this test assumes it does", daemon)
-		}
-	}
-	for _, daemon := range []string{"timed", "ttsd"} {
-		if len(store.StoreReach[daemon]) != 0 {
-			t.Fatalf("StoreReach now gives %s a store key; the assertion below assumes none", daemon)
-		}
-	}
-	var need []string
-	for daemon, owners := range store.StoreReach {
-		if len(owners) > 0 {
-			need = append(need, daemon)
-		}
-	}
-
-	logs := captureComposeErrors(t)
-	warnPartialEnrolment(nil)
-	if got := logs.String(); got != "" {
-		t.Errorf("a fresh instance warned: %q", got)
-	}
-
-	logs = captureComposeErrors(t)
-	warnPartialEnrolment(need)
-	if got := logs.String(); got != "" {
-		t.Errorf("a complete enrolment warned: %q", got)
-	}
-
-	logs = captureComposeErrors(t)
-	warnPartialEnrolment(need[:1])
-	got := logs.String()
-	if !strings.Contains(got, "partial") {
-		t.Fatalf("a half-finished enrolment was silent: %q", got)
-	}
-	if !strings.Contains(got, need[1]) {
-		t.Errorf("the error does not name a daemon that is missing its key: %q", got)
-	}
-	if strings.Contains(got, "timed") || strings.Contains(got, "ttsd") {
-		t.Errorf("the error names a daemon that needs NO store key: %q", got)
+	if !reflect.DeepEqual(before, tree(t, dir)) {
+		t.Fatal("files changed on refusal")
 	}
 }

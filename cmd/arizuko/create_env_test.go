@@ -80,3 +80,20 @@ func TestCreateEnvNamesNoAgentImage(t *testing.T) {
 			"RUNED_ROOTFS_DIR (spec 6/41):\n%s", b)
 	}
 }
+
+func TestCreateProductShowsStoreSetup(t *testing.T) {
+	t.Cleanup(func() { dropInstance(t) })
+	base := t.TempDir()
+	app := filepath.Join(base, "release")
+	t.Setenv("ARIZUKO_DATA_DIR", base)
+	t.Setenv("DATA_DIR", "")
+	t.Setenv("HOST_APP_DIR", app)
+	seedCoreSource(t, app)
+	mustWrite(t, filepath.Join(app, "ant", "examples", "sample", "arizuko.yml"), "name: sample\n")
+	output := captureStdout(t, func() { cmdCreate([]string{"-p", "sample", "new"}) })
+	for _, want := range []string{"DYNAMODB_URL", "STORE_CA", "AWS_REGION", "arizuko store -i new enroll", "INSTALL.md"} {
+		if !strings.Contains(output, want) {
+			t.Errorf("missing %q in %s", want, output)
+		}
+	}
+}

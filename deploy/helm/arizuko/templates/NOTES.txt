@@ -46,9 +46,10 @@ precondition is unmet — it names every one in its first log lines:
 
   kubectl -n {{ .Release.Namespace }} logs deploy/{{ include "arizuko.fullname" . }}-runed
 
-The store at {{ .Values.store.url }} must already hold the owner tables (one-time
-`extenddb init`, INSTALL.md § The store server), and the data volume must be seeded
-once with `arizuko create`.
+The external store at {{ .Values.store.url }} must hold the enrolled instance
+account and owner tables. Seed the data volume with `arizuko create`, configure
+the URL/CA/region, run `arizuko store enroll` and boot the owners before startup.
+Copy the enrolled daemon pairs into secrets.daemons. See INSTALL.md.
 
 {{- if not .Values.ingress.enabled }}
 

@@ -102,7 +102,7 @@ One half of a daemon's store credential from secrets.daemons.<daemon>, demanded.
 Call with (dict "ctx" . "daemon" "<name>" "field" "storeKeyId"|"storeSecret").
 */}}
 {{- define "arizuko.storeKey" -}}
-{{- $msg := printf "secrets.daemons.%s.%s must be set: %s signs every store call with its own access key, minted by `extenddb init` (INSTALL.md § The store server)" .daemon .field .daemon -}}
+{{- $msg := printf "secrets.daemons.%s.%s must be set: %s signs every store call with its own access key, written by `arizuko store enroll` (INSTALL.md § The per-daemon store keys)" .daemon .field .daemon -}}
 {{- required $msg (dig .daemon .field "" .ctx.Values.secrets.daemons) -}}
 {{- end -}}
 

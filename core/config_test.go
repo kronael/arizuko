@@ -321,7 +321,9 @@ func TestSharedStoreAddressAndOperatorCredential(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("AWS_ACCESS_KEY_ID", "")
-	LoadInstanceEnv(dir)
+	if err := LoadInstanceEnv(dir); err != nil {
+		t.Fatal(err)
+	}
 	if got := os.Getenv("DYNAMODB_URL"); got != "https://store.example.com:18443" {
 		t.Errorf("DYNAMODB_URL = %q", got)
 	}

@@ -23,18 +23,12 @@ Generation must require enrollment before it writes runtime output.
 Private service manifests, host-port synthesis and the split-address branch
 are absent. `compose/compose_test.go` covers the explicit region requirement;
 `cmd/arizuko/store_test.go` covers enrollment and snapshot copying.
-Generation still permits missing endpoint/CA/keys, and operator overrides
-can select a different endpoint.
+Setup, systemd, backup and Kubernetes instructions use the external server
+and scoped enrollment. Generation refuses invalid configuration before output.
+Host and snapshot readers refuse differing operator endpoint or CA overrides.
 
 ## Remaining
 
-- Refuse generation before runtime output without a valid HTTPS URL, CA and complete installed-daemon/operator key pairs (`compose/compose.go`, `compose/store_env_test.go`).
-- Refuse differing endpoint or CA overrides in the operator credential file (`core/config.go`, `core/config_test.go`).
-- Replace private bootstrap, systemd, backup and restore instructions with configure/enroll/run against the external server (`INSTALL.md`).
-- Correct create/generate/run guidance and the store-port example (`cmd/arizuko/README.md`, `CLAUDE.md`, `template/env.example`).
-- Describe external ownership and enrollment in the architecture and operator store pages (`ARCHITECTURE.md`, `template/web/pub/arizuko/concepts/store.html`, `template/web/pub/arizuko/howto/index.html`, `template/web/pub/arizuko/index.html`).
-- Remove private defaults and manual-key setup from environment, operations and component pages (`template/web/pub/arizuko/reference/env.html`, `template/web/pub/arizuko/howto/operate.html`, `template/web/pub/arizuko/components/index.html`, `template/web/pub/arizuko/components/authd.html`, `template/web/pub/arizuko/components/gitd.html`, `template/web/pub/arizuko/components/slakd.html`).
-- Document external enrollment for Kubernetes (`template/web/pub/arizuko/howto/kubernetes.html`, `deploy/helm/arizuko/README.md`, `deploy/helm/arizuko/values.yaml`, `deploy/helm/arizuko/templates/_helpers.tpl`, `deploy/helm/arizuko/templates/NOTES.txt`).
 - Exercise owner-readable enrollment, a second enrollment without new keys, snapshot copy and stopped-source startup on an isolated external server (`cmd/arizuko/store_test.go`, `cmd/arizuko/create_target_test.go`).
 - Prove enrolled daemon policy enforcement before closing the shared L318 gate (`cmd/arizuko/store_test.go`, `specs/6/42-dynamo-over-postgres.md`).
 
@@ -77,6 +71,7 @@ The following map names the deletion boundary.
   names:
     [
       Generate,
+      ValidateStore,
       writeOperatorEnv,
       storeHostPortKey,
       WriteOperatorEnv,
@@ -84,34 +79,40 @@ The following map names the deletion boundary.
       warnPartialEnrolment,
     ]
 - path: compose/store_env_test.go (changed)
-  job: replace private URL and port tests; retain key preservation and shared-endpoint cleanup tests
+  job: replace private URL and port tests; retain scoped key preservation and configuration refusal tests
   names:
     [
-      TestOperatorEnvFollowsAMovedStorePort,
-      TestOperatorEnvReplacesTheInNetworkName,
-      TestOperatorEnvFollowsThePublishedPort,
-      TestStoreFragmentPublishesTheDeclaredPort,
+      TestStoreRefusal,
+      TestInstalledAdapterRequiresCredential,
+      TestStoreEndpointReachesEveryDaemon,
+      TestEachDaemonKeepsItsOwnStoreKey,
     ]
 - path: compose/swallow_test.go (changed)
-  job: replace the absent-store success assertion with configuration refusal
-  names: [TestWriteOperatorEnvSkipsWhenNoStoreServer]
+  job: remove private operator-address cleanup tests
+  names: [TestWriteOperatorEnvRefusesAnUnparseableStoreURL]
 - path: core/config.go (changed)
-  job: delete the private split-address branch at lines 193-205; keep scoped operator credential loading
-  names: [LoadInstanceEnv]
+  job: validate operator endpoint overrides before merging scoped credentials from instance files
+  names: [LoadInstanceEnv, ReadInstanceEnv]
 - path: core/config_test.go (changed)
-  job: replace the split-address test with shared-endpoint validation; retain scoped credential assertions
+  job: check the shared endpoint and scoped operator credential
   names:
     [
-      TestTheNetworkAddressSurvivesTheOperatorFile,
+      TestSharedStoreAddressAndOperatorCredential,
       TestOperatorCredentialLoadsFromItsOwnFile,
     ]
+- path: core/instance_env_test.go (changed)
+  job: refuse differing operator URL and CA before changing the process environment
+  names: [TestOperatorCannotRedirectStore]
 - path: tests/webdocs/components_test.go (changed)
   job: delete the extenddb exception at line 25 when the private package goes
   names: [TestEveryServiceKindHasAComponentPage]
 - path: specs/6/42-dynamo-over-postgres.md (changed)
   job: replace the private-compose and instance-database backup claims in section 7 with the external topology
+- path: cmd/arizuko/store.go (changed)
+  job: read the merged instance configuration through core.ReadInstanceEnv
+  names: [view]
 - path: cmd/arizuko/main.go (changed)
-  job: require enrollment for run and generate; replace create's next-command hint
+  job: validate enrollment before relink, docs and runtime output; replace create's next-command hint
   names: [cmdCreate, cmdRun, generateCompose]
 - path: cmd/arizuko/create_target_test.go (changed)
   job: keep file creation and owner-boot assertions; correct the private-volume explanation
@@ -174,13 +175,13 @@ The following map names the deletion boundary.
 
 Keep `cmd/arizuko/store.go` and `cmd/arizuko/extenddb.go`, including `storeEnroll`, `policy`, `newManager` and the snapshot copy.
 Keep `store.StoreReach` as the only policy declaration.
-Keep `compose.WriteStoreKey`, `mergeStoreCredentials` and `operatorEnvPath` for scoped credentials.
-Keep `WriteOperatorEnv`, `dropGeneratedStoreLine`, `storeLineAt`, `isGeneratedStoreLine` and `chmodOperatorEnv` for stale-address cleanup during a move.
-`storeService` remains only as the old address recognized by that cleanup.
-Delete `storeHostPortKey` and the in-network branch of `writeOperatorEnv` that constructs and writes `onHost`.
+Keep `compose.WriteStoreKey` and `mergeStoreCredentials` for scoped credentials.
+Delete `WriteOperatorEnv`, `dropGeneratedStoreLine`, `storeLineAt`, `isGeneratedStoreLine`, `chmodOperatorEnv` and `storeService`.
+Delete `storeHostPortKey` and private address synthesis.
+The generator never repairs or strips operator address settings silently.
 The host and containers read the same URL and CA from `.env`.
 Refuse other differing URL or CA overrides in `env/operator.env`; name the file for operator correction.
-The move procedure removes any stale `STORE_CA` override from `env/operator.env` explicitly.
+The operator removes differing URL and CA overrides from `env/operator.env` explicitly.
 
 Keep `cmdCreate`'s `store/` directory, `chownStore` and their ownership test.
 `template/services/teled/teled.yml:11`, `template/services/slakd/slakd.yml:12` and `template/services/whapd/whapd.yml:12-13` use that tree for adapter files.
@@ -205,16 +206,20 @@ Run enrollment as the data directory owner, UID 1000 for the fresh bootstrap in 
 `compose/manifest.go:159-183` writes mode-0600 files owned by the enrollment process.
 Use elevated enrollment only for root-owned deployments.
 
-Proposed fresh setup after `arizuko create -i <name>`:
+Fresh setup after `arizuko create -i <name>`:
 
 ```bash
 EXTENDDB_PASSWORD='<admin-password>' ./arizuko store enroll -i <name>
 ```
 
-Keep the existing owner boot before the first package operation: `generateCompose` calls `syncProxydRoutes`, which needs the owner's tables.
+Boot the owners before the first package operation: `generateCompose` calls `syncProxydRoutes`, which needs the owner's tables.
 Use the external URL and CA for those owner processes too.
 Then install packages, generate and run using the same enrolled credentials.
 `Generate` must refuse a missing or invalid HTTPS URL, missing or invalid CA, missing `AWS_REGION`, or incomplete required key pairs before runtime output.
+`compose.ValidateStore` checks the endpoint, region and required scoped pairs.
+Both `Generate` and CLI `generateCompose` call it before output, including relink and web docs.
+`core.ReadInstanceEnv` validates operator endpoint overrides before merging current instance files.
+Enrollment and snapshot views use that same reader.
 Check keys for installed store users and the operator through `StoreReach`, without minting keys in the generator.
 Replace `warnPartialEnrolment`'s warning-only success for those users with that refusal.
 `DecodeCA` accepts an empty value today; retain that general driver behavior and require the CA at the deployment boundary.
@@ -224,7 +229,7 @@ Kubernetes consumes the same URL, CA and enrolled pairs through the chart's exis
 
 ### The unit of an instance on the shared store server
 
-Proposed unit:
+The instance unit:
 
 ```ini
 ExecStartPre=docker compose ... down --remove-orphans
@@ -234,7 +239,7 @@ ExecStartPre=docker run ... arizuko generate -i <name>
 Keep the release image, data and Docker socket mounts, foreground Compose start, stop and restart policy.
 Delete the private-store start line and the generator's `--network` and `-e DYNAMODB_URL` options.
 The generator reads the enrolled configuration without an instance network.
-Delete the shared-store exception paragraph at `INSTALL.md:968-971`: that unit is the only unit.
+The unit applies to every instance.
 Backup and stopped-apply instructions must leave the external server running.
 
 ### The move onto the shared store server
@@ -253,10 +258,6 @@ These tests prove policy provisioning only.
 Enrollment replaces only `tables`; unrelated user/group policies can still widen access.
 L318 stays open until the enforcement acceptance check below passes.
 
-L674 does **not** disappear as a general defect.
-Removing the private package removes its trigger from fresh setups, but another deleted fragment can still break a stale Compose include.
-The move's explicit regeneration handles the store removal; generic include handling stays outside this deletion.
-
 Acceptance checks:
 
 - Remove the private catalog directory: package listing and fresh setup still work without any store service or published store port.
@@ -268,5 +269,6 @@ Acceptance checks:
 - Copy from a snapshot, regenerate and start with the source stopped: counts match and source data stays untouched.
 - Delete the private URL/port tests, retain their shared credential assertions, and replace the ExtendDB package fixtures without weakening containment tests.
 
-The spec-only change runs `go test ./tests/specrefs/... ./tests/bugsindex/... -count=1` and `make lint`.
+Documentation checks run `go test ./tests/specrefs/ ./tests/webdocs/ -count=1`.
 Implementation also needs the affected compose, CLI and enrollment suites against an isolated endpoint.
+Enrollment convergence, stopped-source startup and L318 enforcement remain unmeasured on an isolated external server.

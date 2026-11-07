@@ -4,29 +4,7 @@ import (
 	"os"
 	"strings"
 	"testing"
-
-	"github.com/kronael/arizuko/objstore/dynstore"
 )
-
-// Two generate-time reads used to answer "no store server" and "no manifest"
-// for EVERY failure, including the ones that mean the opposite. Both now test
-// the condition they meant instead of testing err.
-
-// A store URL the operator set and got wrong is a refusal, not a skip: leaving
-// operator.env unwritten points the host CLI at nothing (BUGS L311).
-func TestWriteOperatorEnvRefusesAnUnparseableStoreURL(t *testing.T) {
-	dir := t.TempDir()
-	err := writeOperatorEnv(dir, map[string]string{dynstore.EnvURL: "http://[::1"})
-	if err == nil {
-		t.Fatal("an unparseable store URL was accepted")
-	}
-	if !strings.Contains(err.Error(), dynstore.EnvURL) {
-		t.Errorf("error does not name the key: %v", err)
-	}
-	if _, serr := os.Stat(operatorEnvPath(dir)); !os.IsNotExist(serr) {
-		t.Errorf("operator.env written for an unparseable URL: %v", serr)
-	}
-}
 
 // TestNoServiceReadsTheSharedEnv pins BUGS `L200`'s one deletable line. `envFileName`
 // fell back to the instance's shared `.env` for any service with no `daemonKeys` entry.

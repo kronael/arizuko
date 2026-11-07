@@ -37,10 +37,11 @@
         message. <code>runed</code> runs each turn in its own KVM guest, a
         small virtual machine that exists for that one turn. A turn is one
         run of an agent. <code>authd</code> signs identity tokens. One
-        directory on your server holds the folders and the store. You change
+        directory on your server holds the folders and scoped credentials.
+        An external store account holds the rows. You change
         an agent in chat, then read the result in its files.
       </p>
-      <p>The <a href="howto/">setup guide</a> builds the images, creates an instance, initializes the store and starts the instance. To select a product, add <code>--product slack-team</code> to the guide's <code>create</code> command. <code>routd</code> selects the product for the <code>main</code> group at its first boot. After that, <code>arizuko package sync</code> installs the product files.</p>
+      <p>The <a href="howto/">setup guide</a> builds the images, creates an instance, enrolls it on an external store and starts the instance. To select a product, add <code>--product slack-team</code> to the guide's <code>create</code> command. <code>routd</code> selects the product for the <code>main</code> group at its first boot. After that, <code>arizuko package sync</code> installs the product files.</p>
       <p>
         The setup guide also covers the chat connection. See
         <a href="products/">all products</a> and the
@@ -169,9 +170,7 @@
       <p>An instance is one directory. Everything the system is lives in it:</p>
       <pre><code>/srv/data/arizuko_demo/
 &#9500;&#9472;&#9472; .env                 tokens and config
-&#9500;&#9472;&#9472; store/               every row, on the store server of the instance
-&#9474;   &#9500;&#9472;&#9472; extenddb/        the server&rsquo;s config and certificate
-&#9474;   &#9492;&#9472;&#9472; extenddb_db/     its PostgreSQL data
+&#9500;&#9472;&#9472; store/               adapter files
 &#9500;&#9472;&#9472; groups/
 &#9474;   &#9500;&#9472;&#9472; main/            one agent
 &#9474;   &#9474;   &#9500;&#9472;&#9472; PERSONA.md   who it is
@@ -205,7 +204,7 @@
           channels, not consumer traffic. The
           <a href="https://github.com/kronael/arizuko/blob/main/README.md#what-arizuko-does-not-include">[README]</a>
           lists what it does not include.</li>
-        <li>The store server runs ExtendDB, a database server for the DynamoDB
+        <li>The external store server runs ExtendDB, a database server for the DynamoDB
           protocol that keeps its data in PostgreSQL. A daemon without
           a store key exits, and <code>runed</code> does not start without
           <code>/dev/kvm</code>. A minimal deploy is the store server,

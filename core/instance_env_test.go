@@ -3,6 +3,8 @@ package core
 import (
 	"bytes"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -19,13 +21,17 @@ func TestLoadInstanceEnvWarnsOnASecondInstanceInOneProcess(t *testing.T) {
 	t.Cleanup(func() { loadedInstanceDir = restore })
 
 	loadedInstanceDir = ""
-	LoadInstanceEnv(t.TempDir())
+	if err := LoadInstanceEnv(t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
 	if got := logs.String(); got != "" {
 		t.Fatalf("the first instance must be silent, logged: %s", got)
 	}
 
 	second := t.TempDir()
-	LoadInstanceEnv(second)
+	if err := LoadInstanceEnv(second); err != nil {
+		t.Fatal(err)
+	}
 	got := logs.String()
 	if !strings.Contains(got, "second instance") {
 		t.Fatalf("no warning for a second instance, logged: %q", got)
@@ -45,8 +51,12 @@ func TestLoadInstanceEnvIsSilentForTheSameInstanceTwice(t *testing.T) {
 
 	loadedInstanceDir = ""
 	dir := t.TempDir()
-	LoadInstanceEnv(dir)
-	LoadInstanceEnv(dir)
+	if err := LoadInstanceEnv(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := LoadInstanceEnv(dir); err != nil {
+		t.Fatal(err)
+	}
 	if got := logs.String(); got != "" {
 		t.Fatalf("one instance loaded twice must be silent, logged: %s", got)
 	}
@@ -60,4 +70,36 @@ func captureWarnings(t *testing.T) *bytes.Buffer {
 	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
 	t.Cleanup(func() { slog.SetDefault(prev) })
 	return &buf
+}
+
+func TestOperatorCannotRedirectStore(t *testing.T) {
+	for _, key := range []string{"DYNAMODB_URL", "STORE_CA"} {
+		t.Run(key, func(t *testing.T) {
+			dir := t.TempDir()
+			if err := os.MkdirAll(filepath.Join(dir, "env"), 0755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, ".env"), []byte(key+"=same\n"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(dir, "env", "operator.env")
+			if err := os.WriteFile(path, []byte(key+"=same\nAWS_ACCESS_KEY_ID=operator\n"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			got, err := ReadInstanceEnv(dir)
+			if err != nil || got["AWS_ACCESS_KEY_ID"] != "operator" {
+				t.Fatalf("matching values: %v %v", got, err)
+			}
+			if err := os.WriteFile(path, []byte(key+"=different\n"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv(key, "original")
+			if err := LoadInstanceEnv(dir); err == nil {
+				t.Fatal("accepted override")
+			}
+			if got := os.Getenv(key); got != "original" {
+				t.Fatalf("environment mutated: %s", got)
+			}
+		})
+	}
 }

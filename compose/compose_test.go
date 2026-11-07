@@ -1,7 +1,11 @@
 package compose
 
 import (
+	"encoding/base64"
+	"encoding/pem"
 	"io/fs"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -10,6 +14,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kronael/arizuko/objstore/dynstore"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -20,8 +25,21 @@ func seed(t *testing.T, env string) string {
 	if err := os.MkdirAll(filepath.Join(dir, "services"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte("AWS_REGION=us-east-1\n"+env), 0o600); err != nil {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	defer server.Close()
+	ca := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw})
+	defaults := "AWS_REGION=us-east-1\nDYNAMODB_URL=https://store.example.com\nSTORE_CA=" + base64.StdEncoding.EncodeToString(ca) + "\n"
+	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte(defaults+env), 0o600); err != nil {
 		t.Fatal(err)
+	}
+	for daemon, owners := range store.StoreReach {
+		if len(owners) == 0 {
+			continue
+		}
+		if daemon == "cmd/arizuko" {
+			daemon = "operator"
+		}
+		write(t, dir, "env/"+daemon+".env", dynstore.EnvKeyID+"=key\n"+dynstore.EnvSecret+"=secret\n")
 	}
 	return dir
 }
@@ -82,7 +100,7 @@ func TestGenerateRequiresStoreRegion(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "AWS_REGION") {
 		t.Fatalf("missing region: got %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "env")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(dir, "app-src")); !os.IsNotExist(err) {
 		t.Fatalf("generation wrote runtime files: %v", err)
 	}
 }
@@ -704,15 +722,15 @@ func TestPackageEnvRequiredRefusesLoud(t *testing.T) {
 	dir := seed(t, "API_PORT=8080\n")
 	write(t, dir, "services/tok.yml", "services:\n  tok:\n    image: x\n")
 	write(t, dir, "packages/tok/arizuko.yml", "env:\n  TOK_TOKEN: {required: true}\n")
+	before := tree(t, dir)
 	_, _, err := Generate(dir, "test")
 	if err == nil || !strings.Contains(err.Error(), "TOK_TOKEN") || !strings.Contains(err.Error(), ".env") {
 		t.Fatalf("Generate = %v, want a refusal naming TOK_TOKEN and .env", err)
 	}
-	if _, serr := os.Stat(filepath.Join(dir, "env", "runed.env")); serr == nil {
-		t.Error("a refused generate must write no env file")
+	if !reflect.DeepEqual(tree(t, dir), before) {
+		t.Fatal("files changed on package refusal")
 	}
-
-	write(t, dir, ".env", "AWS_REGION=us-east-1\nTOK_TOKEN=abc\n")
+	write(t, dir, ".env", read(t, dir, ".env")+"TOK_TOKEN=abc\n")
 	gen(t, dir)
 
 	empty := seed(t, "MODEL_GATEWAY_KEY=\n")
@@ -1206,11 +1224,11 @@ func TestRoutdAndRunedReadOneRunCap(t *testing.T) {
 }
 
 func TestGenerateTakesIdentityFromTheName(t *testing.T) {
+	source := seed(t, "ASSISTANT_NAME=test\n")
 	dir := filepath.Join(t.TempDir(), "zzapp_zzflavor")
-	if err := os.MkdirAll(filepath.Join(dir, "services"), 0o755); err != nil {
+	if err := os.Rename(source, dir); err != nil {
 		t.Fatal(err)
 	}
-	mustWrite(t, filepath.Join(dir, ".env"), "AWS_REGION=us-east-1\nASSISTANT_NAME=test\n")
 	out, _, err := Generate(dir, "right")
 	if err != nil {
 		t.Fatal(err)

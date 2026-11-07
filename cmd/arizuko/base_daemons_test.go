@@ -31,6 +31,7 @@ func TestBaseDaemonsAreServicesComposeEmits(t *testing.T) {
 		[]byte("APP=arizuko\nFLAVOR=test\nONBOARDING_ENABLED=1\nAWS_REGION=us-east-1\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	seedStoreEnv(t, dir)
 	out, _, err := compose.Generate(dir, "test")
 	if err != nil {
 		t.Fatalf("generate: %v", err)

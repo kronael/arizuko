@@ -49,26 +49,26 @@
 
       <h2>The chart renders, and no cluster has run it</h2>
       <p><code>helm lint</code> with <code>ci/lint-values.yaml</code> passes, and <code>helm template</code> renders every template: Deployments, Services, Secrets, the ConfigMap and the PVC. The image, entrypoint, env, mounts and privileges of each daemon come from <code>compose/compose.go</code>. No pod has started from the chart. <a href="https://github.com/kronael/arizuko/blob/main/deploy/helm/arizuko/README.md">[chart README]</a> lists the values that you must set and the open questions.</p>
-      <pre><code># one-time, by hand, before the first start: extenddb init against your
-# store, and arizuko create on the data volume
+      <pre><code># Configure the external store, create the instance on the data volume,
+# configure its URL/CA/region, enroll and boot the owners before installing.
 helm install arizuko deploy/helm/arizuko \
   --namespace arizuko --create-namespace \
   -f my-values.yaml</code></pre>
       <p>Kubernetes gives you two things. The secrets live in etcd or in an external secret store, not in a mode-0600 <code>.env</code>. And the daemons that hold no file can run on more than one node. Kubernetes does not give you an agent runtime over several nodes. The turn path stays on one machine.</p>
 
       <h2>The rows live on the store server, off the node</h2>
-      <p>Every daemon keeps its tables on one DynamoDB-protocol server. With <code>DYNAMODB_URL</code> set, a daemon opens its tables at that endpoint and opens no file. The chart runs no store. The endpoint can be the <code>extenddb</code> pair from <code>template/services/extenddb/extenddb.yml</code>, a PostgreSQL that you run, or Amazon DynamoDB. The daemons speak one protocol and do not know which server answers.</p>
-      <p>A daemon needs five values to reach the store, and it refuses a partial set at start:</p>
+      <p>Each instance uses one account on an external ExtendDB server over PostgreSQL. The chart runs no store. The server owns its databases, catalog, TLS files and administrator credential. Back up the server independently of the data volume.</p>
+      <p>Copy the enrolled configuration into the chart values and daemon Secrets:</p>
       <table>
         <thead><tr><th>variable</th><th>meaning</th></tr></thead>
         <tbody>
-          <tr><td><code>DYNAMODB_URL</code></td><td>the endpoint, for example <code>https://extenddb:18443</code></td></tr>
-          <tr><td><code>AWS_REGION</code></td><td>the signing region; default <code>us-east-1</code></td></tr>
+          <tr><td><code>DYNAMODB_URL</code></td><td>the endpoint, for example <code>https://store.example.com:18443</code></td></tr>
+          <tr><td><code>AWS_REGION</code></td><td>the explicit signing region from the instance configuration</td></tr>
           <tr><td><code>AWS_ACCESS_KEY_ID</code>, <code>AWS_SECRET_ACCESS_KEY</code></td><td>one pair for each daemon, so each daemon signs as itself and a policy limits its tables</td></tr>
           <tr><td><code>STORE_CA</code></td><td>the endpoint certificate in base64; TLS is required, and the value is an env var because a daemon mounts no file for it</td></tr>
         </tbody>
       </table>
-      <p>You run the <code>init</code> of the server once by hand. It prints an admin password and the account ID. <a href="https://github.com/kronael/arizuko/blob/main/INSTALL.md">[INSTALL.md]</a> &sect; The store server has the steps, and Kubernetes changes none of them.</p>
+      <p>Run <code>arizuko store enroll</code> as the instance owner after configuring the URL, CA and region. Copy each <code>env/&lt;daemon&gt;.env</code> pair into <code>secrets.daemons.&lt;daemon&gt;.storeKeyId</code> and <code>.storeSecret</code>. Keep the server administrator credential outside the instance and Kubernetes Secrets. <a href="https://github.com/kronael/arizuko/blob/main/INSTALL.md#share-one-store-server-between-instances">[INSTALL.md]</a> gives the external server procedure and owner bootstrap.</p>
 
       <h2>routd and runed stay on one node</h2>
       <p><code>routd</code> and <code>runed</code> run one replica each, on one node, with one shared volume. Four reasons hold them there, and none of them is the database:</p>
@@ -192,7 +192,7 @@ kubectl -n arizuko logs deploy/arizuko-runed</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/howto/kubernetes.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-21">2026-10-21</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-28">2026-10-28</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

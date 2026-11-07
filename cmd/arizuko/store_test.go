@@ -11,6 +11,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"sort"
@@ -29,8 +30,6 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
-const closedPort = "http://127.0.0.1:1"
-
 func writeFile(t *testing.T, path, body string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -43,8 +42,7 @@ func writeFile(t *testing.T, path, body string) {
 
 func uniq(prefix string) string { return fmt.Sprintf("%s%d", prefix, time.Now().UnixNano()) }
 
-// newInstance makes a data directory whose operator.env holds a loopback line
-// to a closed port, the line an earlier generate wrote.
+// newInstance makes a data directory for enrollment.
 func newInstance(t *testing.T) (instance, dir string) {
 	t.Helper()
 	cfg := dyntest.Config(t)
@@ -57,7 +55,6 @@ func newInstance(t *testing.T) (instance, dir string) {
 	instance = uniq("enr")
 	dir = filepath.Join(base, "arizuko_"+instance)
 	writeFile(t, filepath.Join(dir, ".env"), dynstore.EnvURL+"="+cfg.Endpoint+"\n"+dynstore.EnvRegion+"=us-east-1\n")
-	writeFile(t, filepath.Join(dir, "env", "operator.env"), dynstore.EnvURL+"="+closedPort+"\n")
 	return instance, dir
 }
 
@@ -110,9 +107,6 @@ func TestEnrollMintsEveryRowAndConverges(t *testing.T) {
 	}
 	if got := strings.Count(out, " minted"); got != rowCount() || strings.Contains(out, " kept") {
 		t.Fatalf("first run minted %d of %d rows:\n%s", got, rowCount(), out)
-	}
-	if body, _ := os.ReadFile(filepath.Join(dir, "env", "operator.env")); strings.Contains(string(body), closedPort) {
-		t.Errorf("operator.env still holds the closed port:\n%s", body)
 	}
 	for _, f := range []string{"timed.env", "ttsd.env"} {
 		if _, err := os.Stat(filepath.Join(dir, "env", f)); err == nil {
@@ -552,5 +546,63 @@ func TestEnrollCopyFailsOnAnotherKeySchema(t *testing.T) {
 	_, err := enrollRun(t, instance, snap)
 	if err == nil || !strings.Contains(err.Error(), "key schema") {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestViewRejectsStoreOverride(t *testing.T) {
+	for _, key := range []string{dynstore.EnvURL, dynstore.EnvCA} {
+		t.Run(key, func(t *testing.T) {
+			dir := t.TempDir()
+			writeFile(t, filepath.Join(dir, ".env"), key+"=same\n")
+			path := filepath.Join(dir, "env", "operator.env")
+			writeFile(t, path, key+"=same\n"+dynstore.EnvKeyID+"=operator\n")
+			got, err := view(dir)
+			if err != nil || got[dynstore.EnvKeyID] != "operator" {
+				t.Fatalf("matching values: %v %v", got, err)
+			}
+			writeFile(t, path, key+"=different\n")
+			if _, err := view(dir); err == nil {
+				t.Fatal("accepted override")
+			}
+		})
+	}
+}
+
+func TestInstanceDirRejectsStoreOverride(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("DATA_DIR", dir)
+	writeFile(t, filepath.Join(dir, ".env"), dynstore.EnvURL+"=https://store\n")
+	writeFile(t, filepath.Join(dir, "env", "operator.env"), dynstore.EnvURL+"=https://other\n")
+	if _, err := instanceDir(""); err == nil {
+		t.Fatal("accepted override")
+	}
+}
+
+func TestGenerateRefusesBeforeRelink(t *testing.T) {
+	if dir := os.Getenv("ARIZUKO_REFUSAL_CHILD"); dir != "" {
+		generateCompose(dir, "test")
+		return
+	}
+	dir := seedSyncInstance(t, "refusal", map[string]string{"sample.yml": "services: {}\n"}, map[string]string{"sample.yml": "services: {}\n"})
+	writeFile(t, filepath.Join(dir, ".env"), "AWS_REGION=us-east-1\nHOST_APP_DIR="+os.Getenv("HOST_APP_DIR")+"\n")
+	path := filepath.Join(dir, "services", "sample.yml")
+	before, err := os.Lstat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(os.Args[0], "-test.run=^TestGenerateRefusesBeforeRelink$")
+	cmd.Env = append(os.Environ(), "ARIZUKO_REFUSAL_CHILD="+dir)
+	if output, err := cmd.CombinedOutput(); err == nil {
+		t.Fatalf("accepted invalid store: %s", output)
+	}
+	after, err := os.Lstat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before.Mode() != after.Mode() || after.Mode()&os.ModeSymlink != 0 {
+		t.Fatal("fragment changed before refusal")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "web")); !os.IsNotExist(err) {
+		t.Fatal("web output created")
 	}
 }

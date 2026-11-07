@@ -2,12 +2,10 @@ package compose
 
 import (
 	"fmt"
-	"log/slog"
 	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"sort"
 	"strings"
 
@@ -426,39 +424,6 @@ func writeEnvFile(dataDir, name, daemon, label string, env map[string]string, pe
 	return os.WriteFile(filepath.Join(dataDir, file), []byte(b.String()), 0o600)
 }
 
-// storeService identifies the old in-network address for cleanup.
-const storeService = "extenddb"
-
-// operatorEnvPath is the host CLI's own env file, loaded over .env. It carries
-// the operator's store credential, which stays out of .env because .env
-// reaches every service without a scoped env file.
-func operatorEnvPath(dataDir string) string {
-	return filepath.Join(dataDir, "env", "operator.env")
-}
-
-// writeOperatorEnv removes an address generated for the old private store.
-func writeOperatorEnv(dataDir string, env map[string]string) error {
-	endpoint, err := url.Parse(env[dynstore.EnvURL])
-	if err != nil {
-		return fmt.Errorf("parse %s=%q: %w", dynstore.EnvURL, env[dynstore.EnvURL], err)
-	}
-	if endpoint.Hostname() == "" {
-		return nil
-	}
-	return dropGeneratedStoreLine(dataDir)
-}
-
-// WriteOperatorEnv runs the operator.env step of Generate from the .env of
-// dataDir, so a command that reads the host's view of the store takes it after
-// the URL step.
-func WriteOperatorEnv(dataDir string) error {
-	env, err := godotenv.Read(filepath.Join(dataDir, ".env"))
-	if err != nil {
-		return err
-	}
-	return writeOperatorEnv(dataDir, env)
-}
-
 // WriteStoreKey replaces the two store key lines of an env file and keeps every
 // other line, in the format mergeStoreCredentials reads.
 func WriteStoreKey(dataDir, path, keyID, secret string) error {
@@ -478,57 +443,6 @@ func WriteStoreKey(dataDir, path, keyID, secret string) error {
 		return err
 	}
 	return writeEnvAtomic(dataDir, path, strings.Join(lines, "\n")+"\n")
-}
-
-// storeLineAt is the index of the URL line in an env file's lines, or -1.
-// Last wins, the way godotenv reads the file.
-func storeLineAt(lines []string) int {
-	at := -1
-	for i, line := range lines {
-		if k, _, ok := strings.Cut(line, "="); ok && strings.TrimSpace(k) == dynstore.EnvURL {
-			at = i
-		}
-	}
-	return at
-}
-
-// dropGeneratedStoreLine removes the URL line from operator.env when generate
-// wrote it, so .env's address reaches the host CLI. Every other line stays.
-func dropGeneratedStoreLine(dataDir string) error {
-	path := operatorEnvPath(dataDir)
-	prev, err := os.ReadFile(path)
-	if os.IsNotExist(err) {
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("read %s: %w", path, err)
-	}
-	lines := strings.Split(strings.TrimRight(string(prev), "\n"), "\n")
-	at := storeLineAt(lines)
-	if at == -1 || !isGeneratedStoreLine(lines[at]) {
-		return chmodOperatorEnv(path)
-	}
-	lines = append(lines[:at], lines[at+1:]...)
-	return writeEnvAtomic(dataDir, path, strings.Join(lines, "\n")+"\n")
-}
-
-// namesStoreService reports whether a KEY=VALUE line's URL addresses the store
-// server by its compose service name; an unparseable value counts, it reaches
-// nothing either way.
-func isGeneratedStoreLine(line string) bool {
-	_, value, _ := strings.Cut(line, "=")
-	have, err := url.Parse(strings.TrimSpace(value))
-	return err != nil || have.Hostname() == storeService || have.Hostname() == "127.0.0.1"
-}
-
-// chmodOperatorEnv takes the file back to 0600 without touching a byte: sloth
-// shipped it at 0644 holding the account key that reaches every owner's
-// tables (BUGS L311). Best-effort for the same reason mkdirOwned's chown is.
-func chmodOperatorEnv(path string) error {
-	if err := os.Chmod(path, 0o600); err != nil && os.Geteuid() == 0 {
-		return fmt.Errorf("chmod %s: %w", path, err)
-	}
-	return nil
 }
 
 // healthBlock: every Go daemon exposes /health on :8080 internally.
@@ -792,22 +706,43 @@ func writeManagedEnv(dataDir, app, flavor string, profiles []string) error {
 	return writeEnvAtomic(dataDir, path, b.String())
 }
 
-// Generate renders the instance's docker-compose.yml and returns it with the
-// proxyd route table the same run decided on. The routes are rows the caller
-// writes into routd's store, NOT config on the compose file: an env var
-// seeded proxyd_routes once and was then ignored forever (BUGS L45).
-// instance is the configured name (`-i`); no identity is read from dataDir.
+// ValidateStore checks the store configuration before runtime files change.
+func ValidateStore(dataDir string) error {
+	if _, err := core.ReadInstanceEnv(dataDir); err != nil {
+		return err
+	}
+	env, _ := godotenv.Read(filepath.Join(dataDir, ".env"))
+	endpoint, err := url.Parse(env[dynstore.EnvURL])
+	if err != nil || endpoint.Scheme != "https" || endpoint.Hostname() == "" {
+		return fmt.Errorf("%s must be an HTTPS URL", dynstore.EnvURL)
+	}
+	ca, err := dynstore.DecodeCA(env[dynstore.EnvCA])
+	if err != nil || len(ca) == 0 {
+		return fmt.Errorf("%s must be a base64 PEM certificate", dynstore.EnvCA)
+	}
+	if _, err := dynstore.HTTPClient(ca); err != nil {
+		return fmt.Errorf("%s: %w", dynstore.EnvCA, err)
+	}
+	if strings.TrimSpace(env[dynstore.EnvRegion]) == "" {
+		return fmt.Errorf("%s is required in .env", dynstore.EnvRegion)
+	}
+	services, err := readFragments(filepath.Join(dataDir, "services"))
+	if err != nil {
+		return err
+	}
+	return mergeStoreCredentials(dataDir, map[string]map[string]string{}, services)
+}
+
+// Generate renders the compose file and returns the proxyd routes.
 func Generate(dataDir, instance string) (string, []ProxydRoute, error) {
+	if err := ValidateStore(dataDir); err != nil {
+		return "", nil, err
+	}
 	env, _ := godotenv.Read(filepath.Join(dataDir, ".env"))
 	if env == nil {
 		env = map[string]string{}
 	}
 	seedSharedDefaults(env)
-
-	if strings.TrimSpace(env[dynstore.EnvRegion]) == "" {
-		return "", nil, fmt.Errorf("%s is required in .env", dynstore.EnvRegion)
-	}
-
 	if !identRE.MatchString(instance) {
 		return "", nil, fmt.Errorf("invalid instance name %q (pass -i <name>)", instance)
 	}
@@ -875,7 +810,9 @@ func Generate(dataDir, instance string) (string, []ProxydRoute, error) {
 	// It stays OUT of the shared .env. This runs after the service keys so it
 	// merges into their maps rather than standing where wireServiceKey tests
 	// for its own work.
-	mergeStoreCredentials(dataDir, perDaemon)
+	if err := mergeStoreCredentials(dataDir, perDaemon, services); err != nil {
+		return "", nil, err
+	}
 
 	// What each package needs from .env, resolved before any env file is
 	// written, so a minted key reaches the daemons that read it and a package
@@ -895,11 +832,6 @@ func Generate(dataDir, instance string) (string, []ProxydRoute, error) {
 	// env file goes stale — the `/login` outage class (BUGS C11).
 	if werr := writeEnvFiles(dataDir, env, perDaemon, services); werr != nil {
 		return "", nil, fmt.Errorf("write per-daemon env files: %w", werr)
-	}
-	// Same shape one door along: silence leaves every `arizuko <cmd> <inst>`
-	// dialling a name only a container resolves (BUGS L311).
-	if werr := writeOperatorEnv(dataDir, env); werr != nil {
-		return "", nil, fmt.Errorf("write the operator env file: %w", werr)
 	}
 
 	// app-src/ holds the release's ant/, staged by runed. Generation creates
@@ -1024,24 +956,29 @@ func writeEnv(b *strings.Builder, env map[string]string) {
 	}
 }
 
-// mergeStoreCredentials folds each daemon's own store key out of its scoped
-// env file into perDaemon. Neither key present is NORMAL — no store identity
-// yet. Exactly one is a fault: skipping it silently turns a config error here
-// into an auth failure on that daemon's first store call.
-func mergeStoreCredentials(dataDir string, perDaemon map[string]map[string]string) {
-	var enrolled []string
+// mergeStoreCredentials requires scoped keys for installed store users.
+func mergeStoreCredentials(dataDir string, perDaemon map[string]map[string]string, services []string) error {
+	installed := map[string]bool{}
+	for _, name := range services {
+		base, _, _ := strings.Cut(name, "-")
+		installed[base] = true
+	}
 	for daemon := range daemonKeys {
 		file := filepath.Join(dataDir, "env", daemon+".env")
-		keyID := readEnvFileKey(file, dynstore.EnvKeyID)
-		secret := readEnvFileKey(file, dynstore.EnvSecret)
-		if (keyID == "") != (secret == "") {
-			have, missing := dynstore.EnvKeyID, dynstore.EnvSecret
-			if keyID == "" {
-				have, missing = dynstore.EnvSecret, dynstore.EnvKeyID
+		credentials, err := godotenv.Read(file)
+		if err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("read %s: %w", file, err)
+		}
+		keyID := credentials[dynstore.EnvKeyID]
+		secret := credentials[dynstore.EnvSecret]
+		required := len(store.StoreReach[daemon]) > 0 && (!adapterDaemons[daemon] || installed[daemon])
+		if required || keyID != "" || secret != "" {
+			if strings.TrimSpace(keyID) == "" {
+				return fmt.Errorf("%s is required in %s", dynstore.EnvKeyID, file)
 			}
-			slog.Error("store credential is half written; the daemon will fail to "+
-				"authenticate at its first store call, not here",
-				"daemon", daemon, "file", file, "has", have, "missing", missing)
+			if strings.TrimSpace(secret) == "" {
+				return fmt.Errorf("%s is required in %s", dynstore.EnvSecret, file)
+			}
 		}
 		if keyID == "" || secret == "" {
 			continue
@@ -1051,36 +988,18 @@ func mergeStoreCredentials(dataDir string, perDaemon map[string]map[string]strin
 		}
 		perDaemon[daemon][dynstore.EnvKeyID] = keyID
 		perDaemon[daemon][dynstore.EnvSecret] = secret
-		enrolled = append(enrolled, daemon)
 	}
-	warnPartialEnrolment(enrolled)
-}
-
-// warnPartialEnrolment reports an enrolment that stopped half way.
-// store.StoreReach declares which daemons need a key, so this is a second
-// reader, not a list to drift (BUGS L319). NONE enrolled is silent (a fresh
-// `arizuko create`), ALL enrolled is done; only the middle is a fault — the
-// L45 class, a generated value that silently stops applying.
-func warnPartialEnrolment(enrolled []string) {
-	var need []string
-	for daemon, owners := range store.StoreReach {
-		if len(owners) > 0 {
-			need = append(need, daemon)
+	file := filepath.Join(dataDir, "env", "operator.env")
+	credentials, err := godotenv.Read(file)
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("read %s: %w", file, err)
+	}
+	for _, key := range []string{dynstore.EnvKeyID, dynstore.EnvSecret} {
+		if strings.TrimSpace(credentials[key]) == "" {
+			return fmt.Errorf("%s is required in %s", key, file)
 		}
 	}
-	var missing []string
-	for _, daemon := range need {
-		if !slices.Contains(enrolled, daemon) {
-			missing = append(missing, daemon)
-		}
-	}
-	if len(missing) == 0 || len(missing) == len(need) {
-		return
-	}
-	slices.Sort(missing)
-	slog.Error("store enrolment is partial: these daemons reach the store and hold "+
-		"no key, so each exits at its first store open and the instance restart-loops (BUGS L406)",
-		"missing", missing, "enrolled", len(enrolled), "need", len(need))
+	return nil
 }
 
 // seedSharedDefaults fills the env keys whose default is DECLARED in core.

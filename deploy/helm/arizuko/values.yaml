@@ -36,18 +36,16 @@ serviceAccount:
   annotations: {}
 
 # ---------------------------------------------------------------------------
-# The store. Every daemon's owner tables live on one DynamoDB-protocol server;
-# no daemon opens a file. The chart runs no store: point url at the extenddb
-# pair from template/services/extenddb.yml, a PostgreSQL you run, or Amazon
-# DynamoDB. `extenddb init` (INSTALL.md § The store server) is a one-time run
-# by hand; it mints the per-daemon access keys under secrets.daemons.
+# External shared ExtendDB server over PostgreSQL. The chart runs no store.
+# Configure the instance URL, CA and region, then run `arizuko store enroll`.
+# Copy its scoped daemon pairs into secrets.daemons. INSTALL.md gives the
+# external server and owner-bootstrap procedures.
 # ---------------------------------------------------------------------------
 store:
   url: '' # DYNAMODB_URL (required), e.g. https://extenddb.store.svc:18443
   region: us-east-1 # AWS_REGION — the signing region
   # STORE_CA — the endpoint certificate, base64 (`base64 -w0 cert.pem`).
-  # extenddb refuses to serve without TLS and its certificate is self-signed;
-  # leave empty for an endpoint whose certificate the system trusts.
+  # Copy the enrolled instance's nonempty STORE_CA value.
   ca: ''
 
 # ---------------------------------------------------------------------------
@@ -115,7 +113,7 @@ secrets:
   # Per daemon. serviceKey is its AUTHD_SERVICE_KEY (openssl rand -hex 32;
   # authd learns the whole set from these same values). storeKeyId and
   # storeSecret are its own AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY from
-  # `extenddb init`. timed holds no store key: it writes through routd's HTTP
+  # `arizuko store enroll`. timed holds no store key: it writes through routd's HTTP
   # API. Add an entry for every adapter you enable.
   daemons:
     authd:

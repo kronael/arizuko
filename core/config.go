@@ -151,7 +151,9 @@ func RequireSecretKeyring(raw string) ([][]byte, error) {
 // the operator's cwd and `arizuko create`/`group add` wrote the groups/
 // skeleton into whatever directory the command ran from (2026-07-11).
 func LoadConfigFrom(dir string) (*Config, error) {
-	LoadInstanceEnv(dir)
+	if err := LoadInstanceEnv(dir); err != nil {
+		return nil, err
+	}
 	if os.Getenv("DATA_DIR") == "" {
 		if err := os.Setenv("DATA_DIR", dir); err != nil {
 			return nil, err
@@ -162,6 +164,31 @@ func LoadConfigFrom(dir string) (*Config, error) {
 
 // loadedInstanceDir is the dir of the first LoadInstanceEnv call in this process.
 var loadedInstanceDir string
+
+// ReadInstanceEnv reads and validates the instance and operator files.
+func ReadInstanceEnv(dir string) (map[string]string, error) {
+	env, err := godotenv.Read(filepath.Join(dir, ".env"))
+	if err != nil && !os.IsNotExist(err) {
+		return nil, err
+	}
+	if env == nil {
+		env = map[string]string{}
+	}
+	path := filepath.Join(dir, "env", "operator.env")
+	operator, err := godotenv.Read(path)
+	if err != nil && !os.IsNotExist(err) {
+		return nil, err
+	}
+	for _, key := range []string{"DYNAMODB_URL", "STORE_CA"} {
+		if value, ok := operator[key]; ok && value != env[key] {
+			return nil, fmt.Errorf("%s differs in %s", key, path)
+		}
+	}
+	for key, value := range operator {
+		env[key] = value
+	}
+	return env, nil
+}
 
 // LoadInstanceEnv puts one instance's environment into this process: its .env,
 // and the operator's own store credential from its own file. That credential is
@@ -177,7 +204,10 @@ var loadedInstanceDir string
 // only when it is empty — so a second dir silently inherits the first one's
 // values. Nothing in the tree loops instances today; the warning names the
 // constraint for the day something does (BUGS L50).
-func LoadInstanceEnv(dir string) {
+func LoadInstanceEnv(dir string) error {
+	if _, err := ReadInstanceEnv(dir); err != nil {
+		return err
+	}
 	if loadedInstanceDir == "" {
 		loadedInstanceDir = dir
 	} else if loadedInstanceDir != dir {
@@ -188,6 +218,7 @@ func LoadInstanceEnv(dir string) {
 	}
 	_ = godotenv.Load(filepath.Join(dir, ".env"))
 	_ = godotenv.Overload(filepath.Join(dir, "env", "operator.env"))
+	return nil
 }
 
 func LoadConfig() (*Config, error) {

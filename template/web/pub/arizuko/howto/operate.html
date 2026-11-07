@@ -117,16 +117,16 @@ routd ──► adapter ──► platform reply</code></pre>
       <dd><code>core/config.go:140</code>, <code>routd/cmd/routd/main.go:69</code>, <code>store/store.go:63</code></dd>
     </dl>
 
-    <h3 id="store-key">A daemon without a store key restarts the whole instance</h3>
+    <h3 id="store-key">Generation requires enrolled store keys</h3>
     <dl>
       <dt>Read</dt>
-      <dd><code>systemctl is-active arizuko_&lt;name&gt;</code> prints <code>activating</code>. Two of fifteen containers run. The journal shows <code>dynstore: endpoint "https://extenddb:18443" takes an access key and a secret</code> from the enabled daemon. Before that, <code>arizuko generate</code> printed <code>store enrolment is partial</code>.</dd>
+      <dd><code>arizuko generate</code> refuses the configuration and names the missing setting or credential file.</dd>
       <dt>Cause</dt>
-      <dd>The daemon reads the store and has no key for it. The daemon exits at its first store access. Its exit stops <code>docker compose up</code>, and systemd starts the whole instance again. No arizuko command makes a store key. BUGS entries <code>L319</code> and <code>L406</code> record this gap.</dd>
+      <dd>The external URL, PEM CA or signing region is invalid or missing, or an installed store user or the operator lacks a complete pair.</dd>
       <dt>Fix</dt>
-      <dd>Make the key as <a href="https://github.com/kronael/arizuko/blob/main/INSTALL.md#the-per-daemon-store-keys">[INSTALL § The per-daemon store keys]</a> describes. Then restart the service with <code>sudo systemctl restart arizuko_&lt;name&gt;</code>.</dd>
+      <dd>Set <code>DYNAMODB_URL</code>, <code>STORE_CA</code> and <code>AWS_REGION</code> in <code>.env</code>. Run <code>arizuko store enroll -i &lt;name&gt;</code> as the instance owner with the server administrator password in <code>EXTENDDB_PASSWORD</code>. Then regenerate and restart. <a href="https://github.com/kronael/arizuko/blob/main/INSTALL.md#the-per-daemon-store-keys">[INSTALL]</a> gives the enrollment procedure.</dd>
       <dt>Source</dt>
-      <dd><code>objstore/dynstore/dynstore.go:69</code>, the warning at <code>compose/compose.go:1100</code></dd>
+      <dd><code>compose/compose.go</code>, <code>cmd/arizuko/store.go</code></dd>
     </dl>
 
     <h3 id="data-dir"><code>make images</code> and <code>make kernel</code> stop without DATA_DIR</h3>
@@ -196,7 +196,7 @@ routd ──► adapter ──► platform reply</code></pre>
       <dt>Cause</dt>
       <dd><code>arizuko generate</code> replaces an installed fragment with a link to the template only when the two files are identical. After a change by hand, also to a comment, generate keeps the file. The file then does not get a new mount, env var or timeout from the template.</dd>
       <dt>Fix</dt>
-      <dd>Move the difference into <code>.env</code>. <code>.env</code> holds <code>STORE_HOST_PORT</code> and the <code>&lt;KEY&gt;_&lt;LABEL&gt;</code> overrides. Copy the template over the changed file. The next <code>arizuko generate</code> replaces it with a link.</dd>
+      <dd>Move the difference into <code>.env</code>. <code>.env</code> holds the <code>&lt;KEY&gt;_&lt;LABEL&gt;</code> overrides. Copy the template over the changed file. The next <code>arizuko generate</code> replaces it with a link.</dd>
       <dt>Source</dt>
       <dd><code>compose/fragments.go:62</code> <code>RelinkCatalog</code>, <code>cmd/arizuko/packages.go</code></dd>
     </dl>
@@ -234,7 +234,7 @@ routd ──► adapter ──► platform reply</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/howto/operate.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-11-04">2026-11-04</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-07">2026-11-07</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

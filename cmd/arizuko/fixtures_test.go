@@ -25,7 +25,7 @@ import (
 // through os.Exit inside the test body. A Setup here would start an endpoint
 // that nothing ever shuts down: one container per refusal asserted.
 func TestMain(m *testing.M) {
-	if os.Getenv("ARIZUKO_PKG_ARGS") != "" {
+	if os.Getenv("ARIZUKO_PKG_ARGS") != "" || os.Getenv("ARIZUKO_REFUSAL_CHILD") != "" {
 		os.Exit(m.Run())
 	}
 	dyntest.Main(m)

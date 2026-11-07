@@ -33,6 +33,7 @@ func generateInstance(t *testing.T, env string) string {
 	if err := os.WriteFile(filepath.Join(dataDir, ".env"), []byte("AWS_REGION=us-east-1\n"+env), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	seedStoreEnv(t, dataDir)
 	rdb, err := routd.Open()
 	if err != nil {
 		t.Fatal(err)

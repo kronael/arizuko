@@ -134,10 +134,14 @@ github:&lt;owner&gt;/&lt;repo&gt;/issue/&lt;n&gt;   one issue</code></pre>
     <h2>gitd runs alone with routd and the store</h2>
     <p>gitd runs alone. It needs routd to deliver to and a store to read its sources from, and nothing more:</p>
 
+    <p>Run <code>arizuko store enroll</code> first. The commands read the external store settings from <code>.env</code> and the scoped pair from <code>env/gitd.env</code>.</p>
+
     <pre><code>export ROUTER_URL=http://routd:8080
 export SECRETS_KEY=$(grep ^SECRETS_KEY .env | cut -d= -f2)
-export DYNAMODB_URL=https://extenddb:18443
-export AWS_ACCESS_KEY_ID=&lt;key id&gt; AWS_SECRET_ACCESS_KEY=&lt;secret&gt; AWS_REGION=us-east-1
+set -a
+. ./.env
+. ./env/gitd.env
+set +a
 export GITHUB_TOKEN=&lt;token&gt;        # optional; enables send_text
 export LISTEN_ADDR=:8080
 ./gitd</code></pre>
