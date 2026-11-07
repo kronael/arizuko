@@ -15,7 +15,6 @@
 
 ## What needs you
 
-- `L681` — the dashboard grant CRUD test receives 403 where it expects 200; record only.
 - `L682` — the MCP invite integration test cannot find the created invite under its expected issuer; record only.
 - `L683` — the shutdown source guard requires signal setup in anteval's listener file; record only.
 - `L684` — the DynamoDB boot test expects an operator grant that the local ACL rows do not contain; record only.
@@ -478,19 +477,6 @@ that version. A change to which rows reach live data is an auth change.
 
 - **Status:** open — needs sign-off.
 
-
-## L681 — dashboard grant CRUD expects 200 and receives 403 (2026-11-07, open — record only)
-
-`tests/feat_dashd_test.go:55` posts an ACL row as `service:dashd`.
-The handler returns 403 and the test reports `grant add = 403, want 200`.
-The supplied baseline verification reproduces the failure at `8a6c1c72cbc44f3caee3016a714b4aa92a57b86e`.
-
-- **Severity:** medium — the grant mutation integration expectation fails.
-- **Scope:** dashboard grant mutation integration fixture and authorization.
-- **Affected:** `tests/feat_dashd_test.go`, routd ACL handler.
-- **Measured:** `go test ./tests -short -count=1 -run '^TestFeature_DashdAdminPlane/grants-crud$'`.
-- **Fix:** verify the fixture authority against the ACL mutation gate before correcting its setup or expectation.
-- **Status:** open — record only; Go edits are outside this documentation pass.
 
 ## L682 — the invite integration test cannot find the created invite (2026-11-07, open — record only)
 
