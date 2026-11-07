@@ -20,7 +20,7 @@ func seed(t *testing.T, env string) string {
 	if err := os.MkdirAll(filepath.Join(dir, "services"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte(env), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte("AWS_REGION=us-east-1\n"+env), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	return dir
@@ -74,6 +74,17 @@ func genRoutes(t *testing.T, dir string) []ProxydRoute {
 
 func hasRoute(routes []ProxydRoute, path string) bool {
 	return slices.ContainsFunc(routes, func(r ProxydRoute) bool { return r.Path == path })
+}
+
+func TestGenerateRequiresStoreRegion(t *testing.T) {
+	dir := seed(t, "DYNAMODB_URL=https://store.example.com\nAWS_REGION=\n")
+	_, _, err := Generate(dir, "test")
+	if err == nil || !strings.Contains(err.Error(), "AWS_REGION") {
+		t.Fatalf("missing region: got %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "env")); !os.IsNotExist(err) {
+		t.Fatalf("generation wrote runtime files: %v", err)
+	}
 }
 
 // The split plane (authd/routd/runed) is the only topology: emitted in every
@@ -701,7 +712,7 @@ func TestPackageEnvRequiredRefusesLoud(t *testing.T) {
 		t.Error("a refused generate must write no env file")
 	}
 
-	write(t, dir, ".env", "TOK_TOKEN=abc\n")
+	write(t, dir, ".env", "AWS_REGION=us-east-1\nTOK_TOKEN=abc\n")
 	gen(t, dir)
 
 	empty := seed(t, "MODEL_GATEWAY_KEY=\n")
@@ -1199,7 +1210,7 @@ func TestGenerateTakesIdentityFromTheName(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(dir, "services"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	mustWrite(t, filepath.Join(dir, ".env"), "ASSISTANT_NAME=test\n")
+	mustWrite(t, filepath.Join(dir, ".env"), "AWS_REGION=us-east-1\nASSISTANT_NAME=test\n")
 	out, _, err := Generate(dir, "right")
 	if err != nil {
 		t.Fatal(err)

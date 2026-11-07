@@ -865,6 +865,10 @@ func Generate(dataDir, instance string) (string, []ProxydRoute, error) {
 	}
 	seedSharedDefaults(env)
 
+	if strings.TrimSpace(env[dynstore.EnvRegion]) == "" {
+		return "", nil, fmt.Errorf("%s is required in .env", dynstore.EnvRegion)
+	}
+
 	if !identRE.MatchString(instance) {
 		return "", nil, fmt.Errorf("invalid instance name %q (pass -i <name>)", instance)
 	}
