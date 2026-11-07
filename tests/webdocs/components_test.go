@@ -22,8 +22,7 @@ import (
 const servicesDir = "../../template/services"
 
 var documentedElsewhere = map[string]string{
-	"extenddb": "concepts/store.html — the store server, not an arizuko daemon",
-	"kokoro":   "components/ttsd.html — the speech backend ttsd fronts",
+	"kokoro": "components/ttsd.html — the speech backend ttsd fronts",
 }
 
 func serviceKinds(t *testing.T) map[string]bool {
@@ -58,7 +57,7 @@ func TestEveryServiceKindHasAComponentPage(t *testing.T) {
 		t.Fatalf("read components index: %v", err)
 	}
 	kinds := serviceKinds(t)
-	if len(kinds) < 10 {
+	if len(kinds) < 9 {
 		t.Fatalf("only %d service kinds found in %s; the path is wrong", len(kinds), servicesDir)
 	}
 	checked := 0

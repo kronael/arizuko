@@ -264,12 +264,9 @@ func TestPackageSelectionIgnoresGroupFiles(t *testing.T) {
 }
 
 func TestPackageRefusals(t *testing.T) {
-	fragment, err := os.ReadFile("../../template/services/extenddb/extenddb.yml")
-	if err != nil {
-		t.Fatal(err)
-	}
+	fragment := "services:\n  sample:\n    image: x\n  sample_db:\n    image: x\n"
 	dataDir, db := seedPackageInstance(t, "guard", map[string]string{
-		"extenddb.yml":      string(fragment),
+		"sample.yml":        fragment,
 		"routd.yml":         "services:\n  routd:\n    image: x\n",
 		"guard.yml":         "services:\n  guard:\n    image: x\n",
 		"guard/arizuko.yml": "name: guard\nenv:\n  REQUIRED_SERVICESYNC_KEY: {required: true}\nnetwork_rules:\n  - folder: ''\n    target: service.example\n",
@@ -331,21 +328,18 @@ func TestPackageRefusals(t *testing.T) {
 }
 
 func TestPackageServiceContainment(t *testing.T) {
-	fragment, err := os.ReadFile("../../template/services/extenddb/extenddb.yml")
-	if err != nil {
-		t.Fatal(err)
-	}
-	dataDir, db := seedPackageInstance(t, "catalog", map[string]string{"extenddb.yml": string(fragment)})
-	service := filepath.Join(dataDir, "services", "extenddb.yml")
+	fragment := "services:\n  sample:\n    image: x\n  sample_db:\n    image: x\n"
+	dataDir, db := seedPackageInstance(t, "catalog", map[string]string{"sample.yml": fragment})
+	service := filepath.Join(dataDir, "services", "sample.yml")
 	mustWrite(t, service, "operator fragment")
-	if output := packageRefuses(t, "catalog", "add", "catalog:extenddb"); !strings.Contains(output, "already there") {
+	if output := packageRefuses(t, "catalog", "add", "catalog:sample"); !strings.Contains(output, "already there") {
 		t.Fatalf("catalog collision accepted: %s", output)
 	}
-	packageRuns(t, "catalog", "add", "-f", "catalog:extenddb")
-	if got, err := os.ReadFile(service); err != nil || string(got) != string(fragment) {
+	packageRuns(t, "catalog", "add", "-f", "catalog:sample")
+	if got, err := os.ReadFile(service); err != nil || string(got) != fragment {
 		t.Fatalf("-f did not replace the unmanaged fragment: %q, %v", got, err)
 	}
-	if _, found, err := db.InstalledPackage("", "extenddb"); err != nil || !found {
+	if _, found, err := db.InstalledPackage("", "sample"); err != nil || !found {
 		t.Fatalf("catalog receipt: found=%v, %v", found, err)
 	}
 	packageRuns(t, "catalog", "sync")
@@ -356,11 +350,11 @@ func TestPackageServiceContainment(t *testing.T) {
 	if output := packageRefuses(t, "catalog", "sync"); !strings.Contains(output, "locally edited") {
 		t.Fatalf("dirty catalog fragment accepted: %s", output)
 	}
-	mustWrite(t, service, string(fragment))
+	mustWrite(t, service, fragment)
 
 	external := filepath.Join(t.TempDir(), "external")
 	mustWrite(t, filepath.Join(external, "arizuko.yml"), "name: external\n")
-	mustWrite(t, filepath.Join(external, "external.yml"), strings.ReplaceAll(string(fragment), "extenddb", "external"))
+	mustWrite(t, filepath.Join(external, "external.yml"), strings.ReplaceAll(fragment, "sample", "external"))
 	if output := packageRefuses(t, "catalog", "add", external); !strings.Contains(output, "external_db") {
 		t.Fatalf("external fragment accepted: %s", output)
 	}
