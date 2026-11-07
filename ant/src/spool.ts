@@ -24,7 +24,11 @@ export const POLICY_LOG_SPOOL = '/tmp/arizuko-policy';
 // spool, so every nudge was consumed and dropped. A read that starts a turn drops
 // a stale nudge by exact text: it steers a RUNNING turn, never starts one.
 export const NUDGE_TEXT =
-  'Report progress to the user now. Use <status>what the user gets next</status>: say what the user gets next, not which tool, model or file.';
+  'This turn has no checklist. If meaningful work remains, invoke /progress\nand track the remaining milestones with the exposed native checklist.\nIf the answer is ready, deliver it.';
+
+export function nudgeProgress(): void {
+  appendLines(STEER_SPOOL, [NUDGE_TEXT]);
+}
 
 // encodeLines is THE batch format: one JSON string per line, so a message
 // containing a newline survives the round trip.

@@ -71,7 +71,7 @@ func TestChatThreadRepliesReadFailureAndExistingTopic(t *testing.T) {
 		if _, err := placeTurnDelivery(db, tc, progressJID, "", true); err == nil {
 			t.Fatal("unreadable preference accepted")
 		}
-		if err := srv.submitStatus(ipc.TurnStatus{TurnID: "t1", Text: "progress"}); err == nil {
+		if _, err := srv.submitStatus(ipc.TurnStatus{TurnID: "t1", Text: "progress"}); err == nil {
 			t.Fatal("progress accepted unreadable preference")
 		}
 		existing := tc

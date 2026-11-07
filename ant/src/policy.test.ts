@@ -20,8 +20,8 @@ describe('the binding table is the whole capability surface', () => {
       ['tool-log-pre', 'PreToolUse', '*', ''],
       ['skill-rescan', 'PostToolUse', '*', ''],
       ['tool-log-post', 'PostToolUse', '*', ''],
-      ['steering', 'PostToolUse', '*', 'inject'],
-      ['todo-status', 'PostToolUse', 'TodoWrite|TaskCreate|TaskUpdate|TaskList|TaskGet|update_plan', ''],
+      ['completion', 'PostToolUse', '*', 'inject'],
+      ['completion-failure', 'PostToolUseFailure', '*', 'inject'],
     ]);
   });
 
@@ -51,7 +51,7 @@ describe('matchers select on the canonical tool name', () => {
 
   test('a matcher excludes what it should', () => {
     expect(matches(row('skill-guard'), 'Bash')).toBe(false);
-    expect(matches(row('todo-status'), 'Read')).toBe(false);
+    expect(matches(row('completion'), 'Read')).toBe(true);
   });
 
   // codex writes with apply_patch, so the write-time matcher never fires there.
@@ -74,7 +74,7 @@ describe('the codex renderer refuses what codex cannot honour', () => {
     const ids = codexRows(bindings(ctx)).map((b) => b.id);
     expect(ids).not.toContain('bash-scrub');
     expect(ids).toContain('skill-guard');
-    expect(ids).toContain('steering');
+    expect(ids).toContain('completion');
   });
 
   test('hooks.json carries codex 0.147.0 schema and ONE command per event', () => {
@@ -192,7 +192,7 @@ describe('a verdict becomes codex wire JSON in exactly one place', () => {
 // Steering became a file precisely so codex's hook subprocess could reach it.
 describe('the steering queue survives a process boundary', () => {
   const post = { hook_event_name: 'PostToolUse', tool_name: 'Read', tool_input: {} } as never;
-  const rows = () => bindings(ctx).filter((b) => b.id === 'steering');
+  const rows = () => bindings({ ...ctx, turnID: '' }).filter((b) => b.id === 'completion');
 
   beforeEach(() => {
     drainLines(STEER_SPOOL); // empty whatever an earlier test queued

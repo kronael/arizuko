@@ -9,7 +9,7 @@ import { fileURLToPath } from 'url';
 import { submitTurn, submitStatus, type TurnAck } from './mcp.js';
 import { injectMcpEnv } from './mcp-servers.js';
 import { Harness, HarnessProfile, Turn, HarnessConfigError, parseHarness, selectHarness } from './backend.js';
-import { NUDGE_TEXT, STEER_SPOOL, appendLines, drainSteering } from './spool.js';
+import { STEER_SPOOL, appendLines, drainSteering, nudgeProgress } from './spool.js';
 
 interface ContainerInput {
   prompt: string;
@@ -39,8 +39,6 @@ const IPC_INPUT_DIR = '/run/ipc/input';
 const IPC_INPUT_CLOSE_SENTINEL = path.join(IPC_INPUT_DIR, '_close');
 const IPC_POLL_MS = 500;
 const MAX_STDIN_BYTES = 1024 * 1024;
-
-export const PROGRESS_INTERVAL_MS = 180_000;
 
 // runed hands the guest ARIZUKO_QUERY_TIMEOUT_MS under its own run ceiling. The
 // guest's clock starts with this process, so one deadline covers every harness
@@ -128,11 +126,6 @@ function log(message: string): void {
   console.error(`[ant] ${message}`);
 }
 
-function nudgeProgress(): void {
-  appendLines(STEER_SPOOL, [NUDGE_TEXT]);
-  log('Nudged agent for progress report');
-}
-
 // DEADLINE_TEXT warns the agent that the process deadline is close. Unlike
 // NUDGE_TEXT it is not dropped between turns: it may start a round, so a
 // session that had stopped gets one last chance to post.
@@ -171,7 +164,7 @@ async function streamStatuses(
   if (!turnID) return;
   for (const s of statusBlocks(text)) {
     try {
-      await send({ turn_id: turnID, text: s });
+      if ((await send({ turn_id: turnID, text: s })).remind) nudgeProgress();
     } catch (err) {
       log(`submit_status failed: ${err instanceof Error ? err.message : String(err)}`);
     }
@@ -303,10 +296,6 @@ async function runAttempt(
   };
   setTimeout(pollIpcDuringQuery, IPC_POLL_MS);
 
-  // The nudge asks the agent for a <status> report. Wall-clock, so a long
-  // tool-heavy stretch still nudges even when no frame arrives. routd sets
-  // ARIZUKO_PROGRESS only where a progress line can show.
-  const nudgeTimer = env.ARIZUKO_PROGRESS === '1' ? setInterval(nudgeProgress, PROGRESS_INTERVAL_MS) : undefined;
   const untilNote = deadline - DEADLINE_NOTE_LEAD_MS - Date.now();
   const noteTimer = untilNote > 0 ? setTimeout(noteDeadline, untilNote) : undefined;
 
@@ -324,7 +313,7 @@ async function runAttempt(
         if (!out.sessionId) log(`Session initialized: ${frame.sessionId}`);
         out.sessionId = frame.sessionId;
       } else if (frame.kind === 'status') {
-        await streamStatuses(turnID, frame.text, sendStatus);
+        if (env.ARIZUKO_PROGRESS === '1') await streamStatuses(turnID, frame.text, sendStatus);
       } else {
         resultCount++;
         log(`Result #${resultCount}: ok=${frame.ok}${frame.retryFresh ? ' retryFresh' : ''}${frame.text ? ` text=${frame.text.slice(0, 200)}` : ''}${frame.usage ? ` models=${Object.keys(frame.usage).join(',')}` : ''}`);
@@ -364,7 +353,6 @@ async function runAttempt(
   } finally {
     ipcPolling = false;
     wakeup = null;
-    clearInterval(nudgeTimer);
     clearTimeout(noteTimer);
   }
 
@@ -397,15 +385,34 @@ export async function runTurn(
   sendStatus: typeof submitStatus = submitStatus,
   deadline = PROCESS_DEADLINE,
 ) {
-  let sessionId: string | undefined;
-  while (true) {
-    const result = await runAttempt(harness, prompt, continuity, containerInput, env, turnID, deliver, sendStatus, deadline);
-    continuity = result.token ?? continuity;
-    sessionId = result.sessionId ?? sessionId;
-    if (!result.nudge || result.failed || result.closedDuringQuery || result.retryFresh) {
-      return { ...result, token: continuity, sessionId };
+  let nudgeTimer: ReturnType<typeof setTimeout> | undefined;
+  let active = true;
+  try {
+    const ack = await sendStatus({ turn_id: turnID });
+    if (ack.remind) nudgeProgress();
+    else if (ack.reminder_after_ms != null) {
+      nudgeTimer = setTimeout(() => {
+        void sendStatus({ turn_id: turnID }).then(result => { if (active && result.remind) nudgeProgress(); })
+          .catch(err => log(`submit_status failed: ${String(err)}`));
+      }, ack.reminder_after_ms);
     }
-    prompt = result.nudge;
+  } catch (err) {
+    log(`submit_status failed: ${String(err)}`);
+  }
+  let sessionId: string | undefined;
+  try {
+    while (true) {
+      const result = await runAttempt(harness, prompt, continuity, containerInput, env, turnID, deliver, sendStatus, deadline);
+      continuity = result.token ?? continuity;
+      sessionId = result.sessionId ?? sessionId;
+      if (!result.nudge || result.failed || result.closedDuringQuery || result.retryFresh) {
+        return { ...result, token: continuity, sessionId };
+      }
+      prompt = result.nudge;
+    }
+  } finally {
+    active = false;
+    clearTimeout(nudgeTimer);
   }
 }
 

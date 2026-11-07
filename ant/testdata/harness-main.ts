@@ -32,5 +32,5 @@ mock.module(path.join(source, 'claude.ts'), () => ({claudeHarness: adapter('clau
 mock.module(path.join(source, 'codex.ts'), () => ({codexHarness: adapter('codex')}));
 mock.module(path.join(source, 'mcp.ts'), () => ({
  submitTurn: async (payload: unknown) => { console.log('SUBMIT ' + JSON.stringify(payload)); return {nudge: ''}; },
- submitStatus: async () => {},
+ submitStatus: async () => ({ remind: false }),
 }));

@@ -20,7 +20,7 @@ type ResultHandler = (ev: { toolName: string; toolCallId: string; input: Record<
 function fakePi(): { onCall: CallHandler; onResult: ResultHandler } {
   const handlers: Record<string, unknown> = {};
   registerWith({ on: (event: string, fn: unknown) => { handlers[event] = fn; } } as never,
-    { home: SANDBOX_HOME, turnID: 'turn-1' });
+    { home: SANDBOX_HOME, turnID: '' });
   return { onCall: handlers.tool_call as CallHandler, onResult: handlers.tool_result as ResultHandler };
 }
 

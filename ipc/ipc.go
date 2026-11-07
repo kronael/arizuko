@@ -71,7 +71,7 @@ type RoutdFns struct {
 	CheckTurn            func(folder, turnID string) (TurnCheck, error)
 	// SubmitStatus updates the turn's progress line without ending the turn.
 	// Nil = method unconfigured.
-	SubmitStatus func(folder string, status TurnStatus) error
+	SubmitStatus func(folder string, status TurnStatus) (TurnStatusAck, error)
 	// Per-group ambient controls (spec 5/F-topic-lineage).
 	SetGroupOpen          func(folder string, open bool) error
 	SetGroupObserveWindow func(folder string, msgs, chars int) error
@@ -658,6 +658,11 @@ type TurnStatus struct {
 	Snapshot json.RawMessage `json:"snapshot"`
 }
 
+type TurnStatusAck struct {
+	Remind          bool   `json:"remind"`
+	ReminderAfterMS *int64 `json:"reminder_after_ms,omitempty"`
+}
+
 // handleSubmitStatus is hidden from tools/list, like submit_turn.
 func handleSubmitStatus(raw []byte, id any, routd RoutdFns, folder string, write func(any)) {
 	var req struct {
@@ -684,7 +689,8 @@ func handleSubmitStatus(raw []byte, id any, routd RoutdFns, folder string, write
 		})
 		return
 	}
-	if err := routd.SubmitStatus(folder, req.Params); err != nil {
+	ack, err := routd.SubmitStatus(folder, req.Params)
+	if err != nil {
 		write(map[string]any{
 			"jsonrpc": "2.0", "id": id,
 			"error": map[string]any{"code": -32603, "message": err.Error()},
@@ -693,7 +699,7 @@ func handleSubmitStatus(raw []byte, id any, routd RoutdFns, folder string, write
 	}
 	write(map[string]any{
 		"jsonrpc": "2.0", "id": id,
-		"result": map[string]any{"ok": true},
+		"result": ack,
 	})
 }
 

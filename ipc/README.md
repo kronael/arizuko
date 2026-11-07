@@ -103,6 +103,8 @@ tool calls. The guest's stdout is discarded.
 `submit_status` carries fallback `text` or a `source` and unchanged native tool
 `snapshot`. routd merges parent checklists and renders the turn's progress row.
 The call does not end the turn.
+Its acknowledgement returns `remind` and an optional `reminder_after_ms` delay.
+The reducer owns the decision; ant delivers it through the existing steering spool.
 
 ## Who may call what
 

@@ -26,7 +26,7 @@ func TestProgress_GitdCapsPostNoProgress(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := srv.submitStatus(ipc.TurnStatus{TurnID: "t1", Text: "working"}); err != nil {
+	if _, err := srv.submitStatus(ipc.TurnStatus{TurnID: "t1", Text: "working"}); err != nil {
 		t.Fatal(err)
 	}
 	if n := adapter.count(); n != 0 {

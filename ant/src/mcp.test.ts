@@ -3,7 +3,15 @@ import net from 'net';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { checkTurn, submitTurn, rpc } from './mcp.js';
+import { checkTurn, submitTurn, rpc, parseStatusAck } from './mcp.js';
+
+/** Malformed acknowledgements cannot create a timer or a reminder. */
+test('rejects malformed status acknowledgements', () => {
+  for (const value of [null, {}, { remind: 'yes' }, { remind: false, reminder_after_ms: 0 }, { remind: false, reminder_after_ms: Infinity }]) {
+    expect(() => parseStatusAck(value)).toThrow();
+  }
+  expect(parseStatusAck({ remind: false, reminder_after_ms: 1000 })).toEqual({ remind: false, reminder_after_ms: 1000 });
+});
 
 /** The real client reads daemon decisions and leaves assistant prose off the submission wire. */
 test('turn client returns the nudge over the actual socket implementation', async () => {

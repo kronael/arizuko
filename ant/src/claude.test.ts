@@ -6,8 +6,10 @@ import { test, expect } from 'bun:test';
 import fs from 'fs';
 import path from 'path';
 import type { Frame, Turn } from './backend.js';
+import type { PostToolUseHookInput, PostToolUseFailureHookInput } from '@anthropic-ai/claude-agent-sdk';
 import {
   ClaudeTurn,
+  claudeHooks,
   SessionEnd,
   runClaude,
   claudeEnv,
@@ -20,6 +22,7 @@ import {
   transcriptPath,
   unpackContinuity,
 } from './claude.js';
+import { bindings } from './policy.js';
 import { NUDGE_TEXT, STEER_SPOOL, appendLines, drainLines } from './spool.js';
 
 const UUID = 'b6c2b287-0000-4000-8000-000000000000';
@@ -95,6 +98,13 @@ test('ClaudeTurn: an assistant message packs the resume point and carries its te
     { kind: 'continuity', token: `${UUID}#${MSG_UUID}`, sessionId: UUID },
     { kind: 'status', text: '<status>working…</status>' },
   ]);
+});
+
+/** A child agent cannot replace the parent fallback status. */
+test('ClaudeTurn ignores child status text', () => {
+  const t = new ClaudeTurn();
+  const frames = t.push({ type: 'assistant', parent_tool_use_id: 'child', message: { content: [{ type: 'text', text: '<status>child</status>' }] } });
+  expect(frames.filter(frame => frame.kind === 'status')).toEqual([]);
 });
 
 test('ClaudeTurn: tool_result and unknown message types yield nothing', () => {
@@ -465,13 +475,13 @@ function waitingQuery(queueAt: 'running' | 'waiting', lines: string[]) {
 /**
  * A session waiting on a background task has no turn running, so no tool hook
  * fires: spool lines reach the model as a second prompt through the stream,
- * wrapped as <user-steering>, with the stale progress nudge dropped.
+ * wrapped as <user-steering>, including the current progress nudge.
  */
 test('runClaude: a waiting session takes the steer spool as a second prompt', async () => {
   drainLines(STEER_SPOOL);
   const { query, prompts } = waitingQuery('waiting', ['hello', NUDGE_TEXT]);
   await collect(runClaude(turn, query as never));
-  expect(prompts).toEqual(['review the PR', '<user-steering>\nhello\n</user-steering>']);
+  expect(prompts).toEqual(['review the PR', `<user-steering>\nhello\n${NUDGE_TEXT}\n</user-steering>`]);
 });
 
 /**
@@ -531,4 +541,33 @@ test('the bundled Claude Code CLI knows the session-state env key and event', ()
       expect(`${label} ${n > 0}`).toBe(`${label} true`);
     }
   }
+});
+
+/** Concurrent native callbacks deliver the reminder in the triggering completion. */
+test.each(['PostToolUse', 'PostToolUseFailure'] as const)('native %s awaits status before steering', async (event) => {
+  drainLines(STEER_SPOOL);
+  let release!: (value: { remind: boolean }) => void;
+  const ack = new Promise<{ remind: boolean }>(resolve => { release = resolve; });
+  const hooks = claudeHooks(bindings({ home: '/tmp', turnID: 'turn-1' }, async () => ack))[event];
+  const base = { tool_name: 'Read', tool_input: {}, tool_use_id: 'c', session_id: 's', transcript_path: '/tmp/test-transcript', cwd: '/tmp' };
+  const input: PostToolUseHookInput | PostToolUseFailureHookInput = event === 'PostToolUse'
+    ? { ...base, hook_event_name: event, tool_response: {} }
+    : { ...base, hook_event_name: event, error: 'failed' };
+  const callbacks = hooks.flatMap(row => row.hooks);
+  const results = Promise.all(callbacks.map(callback => callback(input, 'c', { signal: new AbortController().signal })));
+  release({ remind: true });
+  const outputs = await results;
+  expect(JSON.stringify(outputs).split(JSON.stringify(NUDGE_TEXT).slice(1, -1)).length - 1).toBe(1);
+  expect(drainLines(STEER_SPOOL)).toEqual([]);
+});
+
+/** A failed status submission still delivers queued user steering. */
+test('native completion delivers steering when status fails', async () => {
+  drainLines(STEER_SPOOL);
+  appendLines(STEER_SPOOL, ['user message']);
+  const hooks = claudeHooks(bindings({ home: '/tmp', turnID: 'turn-1' }, async () => { throw new Error('offline'); })).PostToolUse;
+  const input: PostToolUseHookInput = { hook_event_name: 'PostToolUse', tool_name: 'Read', tool_input: {}, tool_response: {}, tool_use_id: 'c', session_id: 's', transcript_path: '/tmp/test-transcript', cwd: '/tmp' };
+  const outputs = await Promise.all(hooks.flatMap(row => row.hooks).map(callback => callback(input, 'c', { signal: new AbortController().signal })));
+  expect(JSON.stringify(outputs).split('user message').length - 1).toBe(1);
+  expect(drainLines(STEER_SPOOL)).toEqual([]);
 });

@@ -30,9 +30,28 @@ type turnProgress struct {
 	active        bool
 	sources       map[string][]progressItem
 	seen          map[string]bool
+	calls         map[string]bool
+	callCount     int
+	reminded      bool
 	lastPublished time.Time
 	lastAttempt   time.Time
 	pendingText   string
+}
+
+func (progress *turnProgress) reminder(startedAt, now time.Time) ipc.TurnStatusAck {
+	ack := ipc.TurnStatusAck{}
+	if progress.active || progress.reminded {
+		return ack
+	}
+	remaining := startedAt.Add(180 * time.Second).Sub(now)
+	if progress.callCount >= 8 || remaining <= 0 {
+		progress.reminded = true
+		ack.Remind = true
+	} else {
+		delay := int64((remaining + time.Millisecond - 1) / time.Millisecond)
+		ack.ReminderAfterMS = &delay
+	}
+	return ack
 }
 
 func validProgressItem(item progressItem) bool {
@@ -67,7 +86,23 @@ func (db *DB) reduceProgress(status ipc.TurnStatus) (string, bool) {
 		return "", false
 	}
 	var event progressEvent
-	if json.Unmarshal(status.Snapshot, &event) != nil || event.Event != "PostToolUse" || event.Agent != "" || event.Session == "" || event.Call == "" {
+	if json.Unmarshal(status.Snapshot, &event) != nil || (event.Event != "PostToolUse" && event.Event != "PostToolUseFailure") || event.Agent != "" || event.Session == "" || event.Call == "" {
+		return "", false
+	}
+	if !exists {
+		value = &turnProgress{sources: make(map[string][]progressItem), seen: make(map[string]bool)}
+		db.progress.Store(status.TurnID, value)
+	}
+	progress := value.(*turnProgress)
+	key := status.Source + "\x00" + event.Session + "\x00" + event.Call
+	if progress.calls == nil {
+		progress.calls = make(map[string]bool)
+	}
+	if !progress.calls[key] {
+		progress.calls[key] = true
+		progress.callCount++
+	}
+	if event.Event == "PostToolUseFailure" {
 		return "", false
 	}
 	var response struct {
@@ -181,12 +216,6 @@ func (db *DB) reduceProgress(status ipc.TurnStatus) (string, bool) {
 			return "", false
 		}
 	}
-	if !exists {
-		value = &turnProgress{sources: make(map[string][]progressItem), seen: make(map[string]bool)}
-		db.progress.Store(status.TurnID, value)
-	}
-	progress := value.(*turnProgress)
-	key := status.Source + "\x00" + event.Session + "\x00" + event.Call
 	if progress.seen[key] {
 		return "", false
 	}

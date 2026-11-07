@@ -9,6 +9,7 @@ import { bashScrub, bashSkillRescan, ghWriteGate } from './guards.js';
 import { skillGuard } from './skillguard.js';
 import { toolLogPost, toolLogPre } from './tool-log.js';
 import { todoStatus } from './todo-status.js';
+import { submitStatus } from './mcp.js';
 import { replyOwed } from './reply-owed.js';
 import { STEER_SPOOL, drainLines } from './spool.js';
 
@@ -30,7 +31,7 @@ export interface ToolEvent {
   agent_id?: string;
 }
 
-export type PolicyEvent = 'PreToolUse' | 'PostToolUse' | 'Stop';
+export type PolicyEvent = 'PreToolUse' | 'PostToolUse' | 'PostToolUseFailure' | 'Stop';
 
 // Verdict is what a policy may answer. 'rewrite' is claude-only: codex's
 // PreToolUse decision is approve|block|allow and updatedInput lives on its
@@ -63,9 +64,17 @@ export interface PolicyContext {
 }
 
 // bindings IS the table: every capability the agent runs under, on every harness.
-export function bindings(ctx: PolicyContext): Binding[] {
+export function bindings(ctx: PolicyContext, send: typeof submitStatus = submitStatus): Binding[] {
   const rescan = bashSkillRescan(ctx.home);
-  const todo = todoStatus(ctx.turnID, ctx.source ?? 'claude');
+  const todo = todoStatus(ctx.turnID, ctx.source ?? 'claude', send);
+  const completion = async (ev: ToolEvent) => {
+    try {
+      await todo(ev);
+    } catch (err) {
+      console.error(`[ant] policy todo-status threw, allowing: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    return steering(ev);
+  };
   return [
     { id: 'reply-owed', event: 'Stop', returns: ['deny'], run: replyOwed(ctx.turnID) },
     // A skill the agent writes today runs in its NEXT session. Scans the file the
@@ -87,8 +96,8 @@ export function bindings(ctx: PolicyContext): Binding[] {
     // it rechecks the filesystem after every tool, mtime-gated.
     { id: 'skill-rescan', event: 'PostToolUse', returns: [], run: async (ev) => rescan(ev) },
     { id: 'tool-log-post', event: 'PostToolUse', returns: [], run: async (ev) => toolLogPost(ev) },
-    { id: 'steering', event: 'PostToolUse', returns: ['inject'], run: async (ev) => steering(ev) },
-    { id: 'todo-status', event: 'PostToolUse', matcher: 'TodoWrite|TaskCreate|TaskUpdate|TaskList|TaskGet|update_plan', returns: [], run: (ev) => todo(ev) },
+    { id: 'completion', event: 'PostToolUse', returns: ['inject'], run: completion },
+    { id: 'completion-failure', event: 'PostToolUseFailure', returns: ['inject'], run: completion },
   ];
 }
 

@@ -43,10 +43,10 @@ func TestProgress_BoundedSafeChecklist(t *testing.T) {
 func TestProgress_ChecklistSanitizesSendAndEdit(t *testing.T) {
 	dl := &recDeliverer{}
 	_, srv := newProgressTurn(t, dl, "")
-	if err := srv.submitStatus(snapshot("1", "@everyone *bold*\nnext")); err != nil {
+	if _, err := srv.submitStatus(snapshot("1", "@everyone *bold*\nnext")); err != nil {
 		t.Fatal(err)
 	}
-	if err := srv.submitStatus(snapshot("2", "@here _italic_ `code`")); err != nil {
+	if _, err := srv.submitStatus(snapshot("2", "@here _italic_ `code`")); err != nil {
 		t.Fatal(err)
 	}
 	srv.flushProgress(time.Now().Add(progressInterval))
@@ -64,7 +64,7 @@ func TestProgress_CoalescesLatestAndRetries(t *testing.T) {
 	dl := &recDeliverer{}
 	db, srv := newProgressTurn(t, dl, "")
 	for _, event := range []ipc.TurnStatus{snapshot("1", "A"), snapshot("2", "B"), snapshot("3", "A")} {
-		if err := srv.submitStatus(event); err != nil {
+		if _, err := srv.submitStatus(event); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -73,7 +73,7 @@ func TestProgress_CoalescesLatestAndRetries(t *testing.T) {
 		t.Fatalf("A B A: %+v %+v", dl.sends, dl.edits)
 	}
 	for _, event := range []ipc.TurnStatus{snapshot("4", "B"), snapshot("5", "C")} {
-		if err := srv.submitStatus(event); err != nil {
+		if _, err := srv.submitStatus(event); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -87,7 +87,7 @@ func TestProgress_CoalescesLatestAndRetries(t *testing.T) {
 	if rows := statusRows(t, db, progressJID); !strings.Contains(rows[0].Content, "C") || strings.Contains(rows[0].Content, "B") {
 		t.Fatalf("latest not delivered: %+v", rows)
 	}
-	if err := srv.submitStatus(snapshot("6")); err != nil {
+	if _, err := srv.submitStatus(snapshot("6")); err != nil {
 		t.Fatal(err)
 	}
 	srv.flushProgress(time.Now().Add(3 * progressInterval))
@@ -99,7 +99,7 @@ func TestProgress_CoalescesLatestAndRetries(t *testing.T) {
 func TestProgress_FailedEditWaitsBeforeRetry(t *testing.T) {
 	dl := &recDeliverer{}
 	db, srv := newProgressTurn(t, dl, "")
-	if err := srv.submitStatus(ipc.TurnStatus{TurnID: "t1", Text: "  @all *first*  "}); err != nil {
+	if _, err := srv.submitStatus(ipc.TurnStatus{TurnID: "t1", Text: "  @all *first*  "}); err != nil {
 		t.Fatal(err)
 	}
 	if strings.ContainsAny(dl.sends[0].text, "@*") {
@@ -110,7 +110,7 @@ func TestProgress_FailedEditWaitsBeforeRetry(t *testing.T) {
 	progress.lastPublished = time.Now().Add(-progressInterval)
 	progress.lastAttempt = progress.lastPublished
 	dl.editErr = errors.New("edit failed")
-	if err := srv.submitStatus(ipc.TurnStatus{TurnID: "t1", Text: "second"}); err == nil {
+	if _, err := srv.submitStatus(ipc.TurnStatus{TurnID: "t1", Text: "second"}); err == nil {
 		t.Fatal("edit error not returned")
 	}
 	attempt := progress.lastAttempt
@@ -128,10 +128,10 @@ func TestProgress_FailedEditWaitsBeforeRetry(t *testing.T) {
 func TestProgress_UnsentRowKeepsLatestText(t *testing.T) {
 	dl := &recDeliverer{failSend: true}
 	db, srv := newProgressTurn(t, dl, "")
-	if err := srv.submitStatus(snapshot("1", "old")); err != nil {
+	if _, err := srv.submitStatus(snapshot("1", "old")); err != nil {
 		t.Fatal(err)
 	}
-	if err := srv.submitStatus(snapshot("2", "new")); err != nil {
+	if _, err := srv.submitStatus(snapshot("2", "new")); err != nil {
 		t.Fatal(err)
 	}
 	rows := statusRows(t, db, progressJID)
@@ -147,10 +147,10 @@ func TestProgress_UnsentRowKeepsLatestText(t *testing.T) {
 func TestProgress_ChecklistActivationReplacesFallbackImmediately(t *testing.T) {
 	dl := &recDeliverer{}
 	_, srv := newProgressTurn(t, dl, "")
-	if err := srv.submitStatus(ipc.TurnStatus{TurnID: "t1", Text: "  preparing  "}); err != nil {
+	if _, err := srv.submitStatus(ipc.TurnStatus{TurnID: "t1", Text: "  preparing  "}); err != nil {
 		t.Fatal(err)
 	}
-	if err := srv.submitStatus(snapshot("1", "only task")); err != nil {
+	if _, err := srv.submitStatus(snapshot("1", "only task")); err != nil {
 		t.Fatal(err)
 	}
 	if len(dl.sends) != 1 || len(dl.edits) != 1 || !strings.Contains(dl.edits[0].content, "only task") {
@@ -179,10 +179,10 @@ func TestProgress_LoopFlushesAndEndCancels(t *testing.T) {
 	db, _ := newProgressTurn(t, base, "")
 	dl := &progressSignalDeliverer{recDeliverer: base, edited: make(chan struct{}, 1)}
 	srv := NewServer(db, nil, dl, nil, 0, "")
-	if err := srv.submitStatus(snapshot("1", "A")); err != nil {
+	if _, err := srv.submitStatus(snapshot("1", "A")); err != nil {
 		t.Fatal(err)
 	}
-	if err := srv.submitStatus(snapshot("2", "B")); err != nil {
+	if _, err := srv.submitStatus(snapshot("2", "B")); err != nil {
 		t.Fatal(err)
 	}
 	value, _ := db.progress.Load("t1")
@@ -201,7 +201,7 @@ func TestProgress_LoopFlushesAndEndCancels(t *testing.T) {
 	if !loop.Wait(5 * time.Second) {
 		t.Fatal("loop did not stop")
 	}
-	if err := srv.submitStatus(snapshot("3", "C")); err != nil {
+	if _, err := srv.submitStatus(snapshot("3", "C")); err != nil {
 		t.Fatal(err)
 	}
 	finishTurn(db, dl, "t1", endDone)
@@ -216,10 +216,10 @@ func TestProgress_EndWaitsForFlush(t *testing.T) {
 	db, _ := newProgressTurn(t, base, "")
 	dl := &progressSignalDeliverer{recDeliverer: base, edited: make(chan struct{}, 1), block: make(chan struct{})}
 	srv := NewServer(db, nil, dl, nil, 0, "")
-	if err := srv.submitStatus(snapshot("1", "A")); err != nil {
+	if _, err := srv.submitStatus(snapshot("1", "A")); err != nil {
 		t.Fatal(err)
 	}
-	if err := srv.submitStatus(snapshot("2", "B")); err != nil {
+	if _, err := srv.submitStatus(snapshot("2", "B")); err != nil {
 		t.Fatal(err)
 	}
 	flushed := make(chan struct{})

@@ -36,6 +36,23 @@ export interface SubmitStatusPayload {
   snapshot?: import('./policy.js').ToolEvent;
 }
 
+export interface TurnStatusAck {
+  remind: boolean;
+  reminder_after_ms?: number;
+}
+
+export function parseStatusAck(value: unknown): TurnStatusAck {
+  if (!value || typeof value !== 'object' || !('remind' in value) || typeof value.remind !== 'boolean')
+    throw new Error('submit_status: invalid reminder decision');
+  if ('reminder_after_ms' in value) {
+    const delay = value.reminder_after_ms;
+    if (typeof delay !== 'number' || !Number.isFinite(delay) || delay <= 0)
+      throw new Error('submit_status: invalid reminder delay');
+    return { remind: value.remind, reminder_after_ms: delay };
+  }
+  return { remind: value.remind };
+}
+
 let nextId = 1;
 
 // rpc fires one JSON-RPC request at routd's MCP socket and resolves when the
@@ -101,6 +118,6 @@ export async function checkTurn(turnID: string, socketPath = MCP_SOCK) {
   return { nudge: nudgeFrom(await rpc('check_turn', { turn_id: turnID }, socketPath)) };
 }
 
-export async function submitStatus(p: SubmitStatusPayload): Promise<void> {
-  await rpc('submit_status', p);
+export async function submitStatus(p: SubmitStatusPayload): Promise<TurnStatusAck> {
+  return parseStatusAck(await rpc('submit_status', p));
 }

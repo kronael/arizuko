@@ -136,9 +136,9 @@ func (s *Server) buildRoutdFns(t turnMCP) ipc.RoutdFns {
 			}
 			return s.mcpCheckTurn(turnID)
 		},
-		SubmitStatus: func(_ string, status ipc.TurnStatus) error {
+		SubmitStatus: func(_ string, status ipc.TurnStatus) (ipc.TurnStatusAck, error) {
 			if err := requireTurn(status.TurnID); err != nil {
-				return err
+				return ipc.TurnStatusAck{}, err
 			}
 			return s.submitStatus(status)
 		},
@@ -395,32 +395,37 @@ func (s *Server) mcpSubmitTurn(_ string, t ipc.TurnResult) (ipc.TurnAck, error) 
 // submitStatus hands a mid-turn declaration to the progress renderer
 // without ending the turn. Serialized per turn_id like the other turn writes;
 // a closed turn is a no-op.
-func (s *Server) submitStatus(status ipc.TurnStatus) error {
+func (s *Server) submitStatus(status ipc.TurnStatus) (ipc.TurnStatusAck, error) {
 	unlock := lockTurn(status.TurnID)
 	defer unlock()
 	tc, ok := s.db.GetTurnContext(status.TurnID)
 	if !ok {
-		return fmt.Errorf("no turn context for turn_id")
+		return ipc.TurnStatusAck{}, fmt.Errorf("no turn context for turn_id")
 	}
 	if s.callbackClosed(tc) || tc.State == store.TurnDone {
-		return nil
+		return ipc.TurnStatusAck{}, nil
 	}
 	value, hadProgress := s.db.progress.Load(status.TurnID)
 	wasActive := hadProgress && value.(*turnProgress).active
 	text, publish := s.db.reduceProgress(status)
-	if !publish {
-		return nil
-	}
 	value, _ = s.db.progress.LoadOrStore(status.TurnID, &turnProgress{sources: make(map[string][]progressItem), seen: make(map[string]bool)})
 	progress := value.(*turnProgress)
+	now := time.Now()
+	ack := ipc.TurnStatusAck{}
+	if len(status.Snapshot) > 0 || status.Text == "" {
+		ack = progress.reminder(tc.StartedAt, now)
+	}
+	if !publish {
+		return ack, nil
+	}
 	if !progress.active {
 		text = safeProgressText(text)
 	}
 	progress.pendingText = strings.TrimSpace(boundProgress(text))
 	if progress.pendingText == "" {
-		return nil
+		return ack, nil
 	}
-	return s.publishProgress(tc, progress, time.Now(), !wasActive && progress.active)
+	return ack, s.publishProgress(tc, progress, now, !wasActive && progress.active)
 }
 
 // fetchPlatformHistory backs the fetch_history MCP tool: proxy to the owning

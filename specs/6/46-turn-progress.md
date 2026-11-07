@@ -17,8 +17,8 @@ A task checklist shows the remaining work and the checked results of one turn.
 A supported chat shows one message where the answer will go.
 `End` removes that message. Native typing and acknowledgement marks remain separate from the text.
 
-This spec is `partial`. The message lifecycle, shared producer and bounded rendering exist;
-checklist reminders, browser deletion, and active replay require code and tests.
+This spec is `partial`. The message lifecycle, shared producer, bounded rendering and checklist reminder exist;
+browser deletion and active replay require code and tests.
 The skill and manual rules are present. Their presence does not prove adoption.
 D1, D2 and D3 remain the owner decisions below.
 
@@ -82,12 +82,12 @@ ant checklist renderer and independent text suppression (removed)
   remove: the Claude-only TodoWrite matcher
 - path: ant/src/index.ts (changed)
   job: sends fallback statuses and the one-shot time trigger through submit_status
-  names: [runTurn, statusBlocks, PROGRESS_INTERVAL_MS]
+  names: [runTurn, statusBlocks]
   never: owns checklist or reminder state
   remove: whole-turn text-set deduplication and repeating status timer
 - path: ant/src/spool.ts (changed)
   job: carries the single checklist reminder through the existing steering spool
-  names: [NUDGE_TEXT, STEER_SPOOL, drainSteering]
+  names: [NUDGE_TEXT, STEER_SPOOL, drainSteering, nudgeProgress]
   never: starts a turn from a stale reminder
   remove: the request for a standalone status
 - path: ant/src/codex.ts (changed)
@@ -99,11 +99,11 @@ ant checklist renderer and independent text suppression (removed)
   never: keeps progress state between calls
 - path: ant/src/mcp.ts (changed)
   job: carries reducer inputs and reminder decisions on the existing status RPC
-  names: [submitStatus, SubmitStatusPayload]
+  names: [submitStatus, SubmitStatusPayload, TurnStatusAck, parseStatusAck]
   never: adds another status transport
 - path: ipc/ipc.go (changed)
   job: declares the submit_status contract shared with ant
-  names: [TurnStatus]
+  names: [TurnStatus, TurnStatusAck]
   never: adds a second status method
 - path: routd/mcp.go (changed)
   job: reduces submit_status inputs under lockTurn and gates public snapshots
@@ -123,7 +123,7 @@ ant checklist renderer and independent text suppression (removed)
   never: renders a second checklist or fails an answer because deletion failed
 - path: routd/progress_reducer.go (new)
   job: normalizes native snapshots and merges each source into the turn's parent checklist
-  names: [turnProgress, progressItem, progressEvent, reduceProgress]
+  names: [turnProgress, progressItem, progressEvent, reduceProgress, reminder]
   never: publishes directly or accepts child checklist changes
 - path: routd/loop.go (changed)
   job: flushes due progress through the existing polling ticker
@@ -173,7 +173,7 @@ The receiver gate is checked at `dda72103a266faaff0a2ae19a1b192907bf164b3`.
 | One parent-scoped producer across Claude and Codex                    | built        | `routd/progress_reducer_test.go` merges raw snapshots through submit_status |
 | Bounded rendering, list clearing, coalescing, retry state             | built        | `routd/progress_coalesce_test.go`                                           |
 | Addressed publication gate at receiver                                | built        | `routd/mcp.go` checks addressed, closure, mute and capabilities             |
-| One reminder at eight calls or 180 seconds                            | not built    | replace the repeating timer and NUDGE_TEXT                                  |
+| One reminder at eight calls or 180 seconds                            | built        | `routd/progress_reminder_test.go`, `ant/src/claude.test.ts`                 |
 | Progress skill, manual sentence and solve routing                     | present      | adoption requires measurement                                               |
 | D3 Typing port change                                                 | declined     | no port change                                                              |
 | Drive edit/delete                                                     | not built    | §"Unverified"                                                               |
@@ -380,18 +380,12 @@ Python hook, blocking guard, or reminder path. Only between turns does
 `drainSteering` discard stale reminders. During live background-agent waiting,
 the existing poll delivers the current reminder through the same spool and
 `renderSteering`, even without another parent tool call.
-`ant/src/claude.ts:521` calls the stale filter during that wait;
-`ant/src/claude.test.ts:470` expects the reminder to disappear. Both must change.
+The live waiting poll reads `drainLines(STEER_SPOOL)` without the stale filter.
 `solve_nudge.py` remains the solve entry nudge.
 
-Current timer, `ant/src/index.ts:316`:
-
-```typescript
-const nudgeTimer =
-  env.ARIZUKO_PROGRESS === '1'
-    ? setInterval(nudgeProgress, PROGRESS_INTERVAL_MS)
-    : undefined;
-```
+At turn start, `runTurn` checks `submit_status` for a reminder or its remaining
+delay. One timeout spans all attempts. routd measures the delay from the turn's
+stored start time.
 
 The routd reducer accepts call-count and time triggers through `submit_status`.
 The sender delivers its reminder decision through `nudgeProgress` and the spool.
@@ -399,7 +393,7 @@ It queues at most one reminder while the turn has no checklist.
 It does not depend on public display. GitHub and silent tasks can still use
 native checklists internally. Unavailable checklist tools do not cause repeated reminders.
 
-Required replacement for `NUDGE_TEXT` in `ant/src/spool.ts`:
+`NUDGE_TEXT` in `ant/src/spool.ts`:
 
 ```text
 This turn has no checklist. If meaningful work remains, invoke /progress

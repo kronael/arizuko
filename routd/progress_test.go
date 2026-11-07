@@ -31,7 +31,8 @@ func (s *Server) mcpSubmitStatus(turnID, text string) error {
 		value.(*turnProgress).lastAttempt = time.Now().Add(-progressInterval)
 	}
 	unlock()
-	return s.submitStatus(ipc.TurnStatus{TurnID: turnID, Text: text})
+	_, err := s.submitStatus(ipc.TurnStatus{TurnID: turnID, Text: text})
+	return err
 }
 
 func newProgressTurn(t *testing.T, dl *recDeliverer, returnTo string) (*DB, *Server) {

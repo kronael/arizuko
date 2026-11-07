@@ -14,7 +14,7 @@ import {
   PreCompactHookInput,
 } from '@anthropic-ai/claude-agent-sdk';
 import { Binding, PolicyEvent, ToolEvent, bindings, renderSteering, runRow } from './policy.js';
-import { drainSteering } from './spool.js';
+import { STEER_SPOOL, drainLines } from './spool.js';
 import type { ModelUsage } from './mcp.js';
 import { timeoutFrame } from './backend.js';
 import type { Frame, Harness, Turn } from './backend.js';
@@ -285,7 +285,7 @@ export function claudeHooks(rows: Binding[]): Record<PolicyEvent, Array<{ matche
     rows
       .filter((b) => b.event === event)
       .map((b) => ({ ...(b.matcher ? { matcher: b.matcher } : {}), hooks: [asHookCallback(b)] }));
-  return { PreToolUse: forEvent('PreToolUse'), PostToolUse: forEvent('PostToolUse'), Stop: forEvent('Stop') };
+  return { PreToolUse: forEvent('PreToolUse'), PostToolUse: forEvent('PostToolUse'), PostToolUseFailure: forEvent('PostToolUseFailure'), Stop: forEvent('Stop') };
 }
 
 function asHookCallback(b: Binding): HookCallback {
@@ -309,6 +309,8 @@ function asHookCallback(b: Binding): HookCallback {
         };
       case 'inject':
         log(`policy ${b.id}: injecting context after a tool call`);
+        if (b.event === 'PostToolUseFailure')
+          return { hookSpecificOutput: { hookEventName: 'PostToolUseFailure', additionalContext: verdict.context } };
         return {
           hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: verdict.context },
         };
@@ -414,7 +416,7 @@ export class ClaudeTurn {
         });
       }
       const text = assistantText(raw);
-      if (text) frames.push({ kind: 'status', text });
+      if (text && !raw.parent_tool_use_id) frames.push({ kind: 'status', text });
       return frames;
     }
     if (m.type === 'rate_limit_event') {
@@ -520,7 +522,7 @@ export async function* runClaude(turn: Turn, run: QueryFn = query): AsyncGenerat
   // reading once the stream ends; unclaimed lines stay for the next read.
   const steerPoll = setInterval(() => {
     if (!end.waiting || stream.ended) return;
-    const lines = drainSteering();
+    const lines = drainLines(STEER_SPOOL);
     if (lines.length === 0) return;
     stream.push(renderSteering(lines));
     end.prompted();

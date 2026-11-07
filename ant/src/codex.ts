@@ -251,7 +251,7 @@ export function verdictToCodexJson(verdict: Verdict, event: PolicyEvent): string
 export const CODEX_HONOURS: Array<Verdict['kind']> = ['deny', 'inject'];
 
 export function codexRows(rows: Binding[]): Binding[] {
-  return runnableBy(rows, CODEX_HONOURS, log);
+  return runnableBy(rows.filter(row => row.event !== 'PostToolUseFailure'), CODEX_HONOURS, log);
 }
 
 // codexHooksConfig renders the binding table into codex's hooks.json: ONE

@@ -15,7 +15,7 @@ func TestProgress_MergedSnapshots(t *testing.T) {
 	claude := `{"hook_event_name":"PostToolUse","tool_name":"TodoWrite","session_id":"s1","tool_use_id":"c1","tool_input":{"todos":[{"content":"Build","status":"pending"}]}}`
 	codex := `{"hook_event_name":"PostToolUse","tool_name":"update_plan","session_id":"s2","tool_use_id":"c2","tool_input":{"plan":[{"step":"Test","status":"in_progress"}]},"tool_response":"Plan updated"}`
 	for _, status := range []ipc.TurnStatus{{TurnID: "t1", Source: "claude", Snapshot: json.RawMessage(claude)}, {TurnID: "t1", Source: "codex", Snapshot: json.RawMessage(codex)}} {
-		if err := srv.submitStatus(status); err != nil {
+		if _, err := srv.submitStatus(status); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -25,7 +25,7 @@ func TestProgress_MergedSnapshots(t *testing.T) {
 		t.Fatalf("sends=%+v edits=%+v rows=%+v", dl.sends, dl.edits, rows)
 	}
 	replacement := `{"hook_event_name":"PostToolUse","tool_name":"TodoWrite","session_id":"s1","tool_use_id":"c3","tool_input":{"todos":[{"content":"Ship","status":"completed"}]}}`
-	if err := srv.submitStatus(ipc.TurnStatus{TurnID: "t1", Source: "claude", Snapshot: json.RawMessage(replacement)}); err != nil {
+	if _, err := srv.submitStatus(ipc.TurnStatus{TurnID: "t1", Source: "claude", Snapshot: json.RawMessage(replacement)}); err != nil {
 		t.Fatal(err)
 	}
 	srv.flushProgress(time.Now().Add(2 * progressInterval))

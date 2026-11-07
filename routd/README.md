@@ -35,6 +35,7 @@ the local `acl` rows.
 - `placement.go` sends progress, text, files, voice, terminal notices and retries to the same destination.
 - A real edit failure goes back to the caller. routd never posts it again as a new message.
 - Complete progress text stays below 2,000 UTF-8 bytes. The current task survives overflow with an omitted count. The existing polling loop publishes the latest pending update at most once per five seconds; End cancels it.
+- Without a checklist, eight completed parent calls or 180 seconds produce one reminder through ant's steering spool. Checklist activation and explicit clearing suppress it. Internal reminders also work on silent turns and channels without progress display.
 
 A progress row confers a reply obligation. Final delivery and last-answer tracking skip it, because a progress row must never count as the agent's reply.
 

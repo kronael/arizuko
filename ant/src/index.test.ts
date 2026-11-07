@@ -2,7 +2,7 @@
 // harness only has to put its assistant text on the frame.
 
 import { describe, test, expect } from 'bun:test';
-import { DEADLINE_TEXT, PROGRESS_INTERVAL_MS, buildSystemPrompt, checkIpcMessage, runTurn, statusBlocks } from './index.js';
+import { DEADLINE_TEXT, buildSystemPrompt, checkIpcMessage, runTurn, statusBlocks } from './index.js';
 import type { Frame, Harness } from './backend.js';
 import type { SubmitStatusPayload } from './mcp.js';
 import { NUDGE_TEXT, STEER_SPOOL, appendLines, drainLines } from './spool.js';
@@ -43,9 +43,9 @@ interface Delivered {
 
 // statusSpy stands in for submit_status, the interim-⏳ half of the turn
 // contract (spec 5/24).
-function statusSpy(): { sent: string[]; send: (p: { turn_id: string; text: string }) => Promise<void> } {
+function statusSpy() {
   const sent: string[] = [];
-  return { sent, send: async (p) => { sent.push(p.text); } };
+  return { sent, send: async (p: SubmitStatusPayload) => { if (p.text) sent.push(p.text); return { remind: false }; } };
 }
 
 function spy(): { deliveries: Delivered[]; deliver: (turnID: string, out: Delivered) => Promise<void> } {
@@ -62,7 +62,7 @@ test('runTurn sends each model status as turn_id and text only', async () => {
     { kind: 'status', text: '<status>verify the release</status>' },
     { kind: 'status', text: '<status>running the tests</status>' },
     { kind: 'result', ok: true },
-  ]), 'p', undefined, INPUT, {}, 'turn-1', async () => {}, async p => { sent.push(p); });
+  ]), 'p', undefined, INPUT, { ARIZUKO_PROGRESS: '1' }, 'turn-1', async () => {}, async p => { if (p.text) sent.push(p); return { remind: false }; });
   expect(sent).toEqual([
     { turn_id: 'turn-1', text: 'verify the release' },
     { turn_id: 'turn-1', text: 'running the tests' },
@@ -72,7 +72,7 @@ test('runTurn sends each model status as turn_id and text only', async () => {
 test('runTurn: retryFresh on a resumed turn is not delivered — the caller retries', async () => {
   const { deliveries, deliver } = spy();
   const r = await runTurn(scripted([{ kind: 'result', ok: false, retryFresh: true }]),
-    'p', 'tok-1', INPUT, {}, 'turn-1', deliver);
+    'p', 'tok-1', INPUT, {}, 'turn-1', deliver, statusSpy().send);
   expect(r.retryFresh).toBe(true);
   expect(deliveries).toEqual([]);
 });
@@ -83,7 +83,7 @@ test('runTurn: retryFresh on a resumed turn is not delivered — the caller retr
 test('runTurn: retryFresh on an already-fresh turn delivers an error, never silence', async () => {
   const { deliveries, deliver } = spy();
   const r = await runTurn(scripted([{ kind: 'result', ok: false, retryFresh: true }]),
-    'p', undefined, INPUT, {}, 'turn-1', deliver);
+    'p', undefined, INPUT, {}, 'turn-1', deliver, statusSpy().send);
   expect(r.retryFresh).toBe(false);
   expect(deliveries).toHaveLength(1);
   expect(deliveries[0].status).toBe('error');
@@ -94,7 +94,7 @@ test('runTurn: retryFresh on an already-fresh turn delivers an error, never sile
 test('runTurn: a harness that yields no result frame still delivers an error turn', async () => {
   const { deliveries, deliver } = spy();
   await runTurn(scripted([{ kind: 'continuity', token: 't', sessionId: 's' }]),
-    'p', undefined, INPUT, {}, 'turn-1', deliver);
+    'p', undefined, INPUT, {}, 'turn-1', deliver, statusSpy().send);
   expect(deliveries).toHaveLength(1);
   expect(deliveries[0].status).toBe('error');
   expect(deliveries[0].error).toContain('no result');
@@ -103,7 +103,7 @@ test('runTurn: a harness that yields no result frame still delivers an error tur
 test('runTurn: a normal result is delivered exactly once', async () => {
   const { deliveries, deliver } = spy();
   await runTurn(scripted([{ kind: 'result', ok: true, text: 'done' }]),
-    'p', undefined, INPUT, {}, 'turn-1', deliver);
+    'p', undefined, INPUT, {}, 'turn-1', deliver, statusSpy().send);
   expect(deliveries).toHaveLength(1);
   expect(deliveries[0].status).toBe('success');
 });
@@ -139,7 +139,7 @@ test('runTurn: repeated statuses reach the reducer in order', async () => {
       { kind: 'status', text: '<status>reading files</status>' },
       { kind: 'result', ok: true, text: 'done' },
     ]),
-    'p', undefined, INPUT, {}, 't1', d.deliver, st.send,
+    'p', undefined, INPUT, { ARIZUKO_PROGRESS: '1' }, 't1', d.deliver, st.send,
   );
   expect(st.sent).toEqual(['reading files', 'reading files', 'writing', 'reading files']);
   expect(d.deliveries).toHaveLength(1);
@@ -149,7 +149,7 @@ test('runTurn: text with no status block sends nothing', async () => {
   const st = statusSpy();
   await runTurn(
     scripted([{ kind: 'status', text: 'just prose' }, { kind: 'result', ok: true, text: 'done' }]),
-    'p', undefined, INPUT, {}, 't1', spy().deliver, st.send,
+    'p', undefined, INPUT, { ARIZUKO_PROGRESS: '1' }, 't1', spy().deliver, st.send,
   );
   expect(st.sent).toEqual([]);
 });
@@ -253,7 +253,7 @@ describe('buildSystemPrompt layering', () => {
 test('runTurn: a failed turn sends its text as error, never as the reply', async () => {
   const { deliveries, deliver } = spy();
   const r = await runTurn(scripted([{ kind: 'result', ok: false, text: 'API Error: 400 fake says no' }]),
-    'p', undefined, INPUT, {}, 'turn-1', deliver);
+    'p', undefined, INPUT, {}, 'turn-1', deliver, statusSpy().send);
   expect(deliveries).toHaveLength(1);
   expect(deliveries[0].status).toBe('error');
   expect(deliveries[0]).not.toHaveProperty('result');
@@ -266,7 +266,7 @@ test('runTurn: a failed turn sends its text as error, never as the reply', async
 test('runTurn: a terminal failure is reported as terminal', async () => {
   const { deliveries, deliver } = spy();
   const r = await runTurn(scripted([{ kind: 'result', ok: false, terminal: true, text: 'spend limit reached' }]),
-    'p', undefined, INPUT, {}, 'turn-1', deliver);
+    'p', undefined, INPUT, {}, 'turn-1', deliver, statusSpy().send);
   expect(deliveries[0].error).toBe('spend limit reached');
   expect(r.failed).toBe('terminal');
 });
@@ -274,7 +274,7 @@ test('runTurn: a terminal failure is reported as terminal', async () => {
 test('runTurn: a clean turn reports no failure and leaves prose off the wire', async () => {
   const { deliveries, deliver } = spy();
   const r = await runTurn(scripted([{ kind: 'result', ok: true, text: 'the answer' }]),
-    'p', undefined, INPUT, {}, 'turn-1', deliver);
+    'p', undefined, INPUT, {}, 'turn-1', deliver, statusSpy().send);
   expect(deliveries[0]).not.toHaveProperty('result');
   expect(deliveries[0].error).toBeUndefined();
   expect(r.failed).toBeUndefined();
@@ -288,7 +288,7 @@ test('runTurn: a terminal failure carries its reason to the caller', async () =>
   const { deliveries, deliver } = spy();
   const why = "You've hit your individual spend limit";
   const r = await runTurn(scripted([{ kind: 'result', ok: false, terminal: true, text: why }]),
-    'p', undefined, INPUT, {}, 'turn-1', deliver);
+    'p', undefined, INPUT, {}, 'turn-1', deliver, statusSpy().send);
   expect(r.failed).toBe('terminal');
   expect(r.failedReason).toBe(why);
   // The delivered error already carried it; this asserts the two agree, so the
@@ -302,7 +302,7 @@ test('runTurn: a terminal failure carries its reason to the caller', async () =>
 test('runTurn: a failure with no text leaves failedReason unset', async () => {
   const { deliver } = spy();
   const r = await runTurn(scripted([{ kind: 'result', ok: false }]),
-    'p', undefined, INPUT, {}, 'turn-1', deliver);
+    'p', undefined, INPUT, {}, 'turn-1', deliver, statusSpy().send);
   expect(r.failed).toBe('retryable');
   expect(r.failedReason).toBeUndefined();
 });
@@ -387,37 +387,71 @@ test('runTurn resumes a delivery nudge on the same turn and transcript', async (
   expect(result.token).toBe('opaque#latest');
 });
 
-// intervalsArmed runs one short turn and answers the delays of the intervals it
-// armed, so a test reads the nudge timing without waiting for it.
-async function intervalsArmed(env: Record<string, string>): Promise<number[]> {
-  const delays: number[] = [];
-  const real = globalThis.setInterval;
-  globalThis.setInterval = ((fn: () => void, ms?: number) => {
-    delays.push(ms ?? 0);
-    return real(fn, ms);
-  }) as typeof setInterval;
-  try {
-    await runTurn(lasting(10), 'p', undefined, INPUT, env, 't1', spy().deliver, statusSpy().send);
-  } finally {
-    globalThis.setInterval = real;
-  }
-  return delays;
-}
-
-/**
- * A run on a turn where a progress line can show (ARIZUKO_PROGRESS=1) arms the
- * progress nudge, first at 180 s. A run elsewhere (GitHub, cron, migrate, a sink
- * that cannot edit and delete) arms none.
- */
-test('runTurn: the progress nudge runs at 180 s only when routd says a line can show', async () => {
-  expect(PROGRESS_INTERVAL_MS).toBe(180_000);
-  expect(await intervalsArmed({ ARIZUKO_PROGRESS: '1' })).toEqual([180_000]);
-  expect(await intervalsArmed({ ARIZUKO_PROGRESS: '' })).toEqual([]);
-  expect(await intervalsArmed({})).toEqual([]);
+/** Silent turns use the same one-shot timer and spool. */
+test('runTurn queues the reminder returned by routd on a silent turn', async () => {
+  drainLines(STEER_SPOOL);
+  let calls = 0;
+  await runTurn(lasting(30), 'p', undefined, INPUT, {}, 't1', spy().deliver, async () => ({ remind: ++calls > 1, reminder_after_ms: 1 }));
+  expect(calls).toBe(2);
+  expect(drainLines(STEER_SPOOL)).toEqual([NUDGE_TEXT]);
 });
 
-/** The nudge asks what the user gets next, and names the process notes it forbids. */
-test('NUDGE_TEXT asks what the user gets next, not which tool, model or file', () => {
-  expect(NUDGE_TEXT).toContain('what the user gets next');
-  expect(NUDGE_TEXT).toContain('not which tool, model or file');
+/** A status acknowledgment arriving after the turn cannot queue a reminder. */
+test('runTurn ignores a late timer acknowledgment', async () => {
+  drainLines(STEER_SPOOL);
+  let release!: (value: { remind: boolean }) => void;
+  let calls = 0;
+  const ack = new Promise<{ remind: boolean }>(resolve => { release = resolve; });
+  await runTurn(lasting(30), 'p', undefined, INPUT, {}, 't1', spy().deliver, async () => {
+    calls++;
+    return calls === 1 ? { remind: false, reminder_after_ms: 1 } : ack;
+  });
+  expect(calls).toBe(2);
+  release({ remind: true });
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(drainLines(STEER_SPOOL)).toEqual([]);
+});
+
+/** A timer reminder remains active across an internal delivery nudge. */
+test('runTurn keeps its reminder across delivery nudge attempts', async () => {
+  drainLines(STEER_SPOOL);
+  let attempts = 0;
+  let calls = 0;
+  const harness: Harness = {
+    ...scripted([]),
+    run: async function* () {
+      attempts++;
+      if (attempts === 2) await new Promise(resolve => setTimeout(resolve, 30));
+      yield { kind: 'result', ok: true, text: 'done' };
+    },
+  };
+  await runTurn(harness, 'p', undefined, INPUT, {}, 't1', async () => ({ nudge: attempts === 1 ? 'continue' : '' }), async () => ({ remind: ++calls > 1, reminder_after_ms: 1 }));
+  expect(attempts).toBe(2);
+  expect(calls).toBe(2);
+  expect(drainLines(STEER_SPOOL)).toEqual([NUDGE_TEXT]);
+});
+
+/** The progress flag gates fallback text while reminders and delivery remain active. */
+test.each([['1', { ARIZUKO_PROGRESS: '1' }], ['empty', { ARIZUKO_PROGRESS: '' }], ['absent', {}]] as const)('fallback status with progress %s', async (flag, env) => {
+  drainLines(STEER_SPOOL);
+  const sent: SubmitStatusPayload[] = [];
+  const d = spy();
+  const harness: Harness = {
+    ...scripted([]),
+    run: async function* () {
+      yield { kind: 'status', text: '<status>working</status>' };
+      await new Promise(resolve => setTimeout(resolve, 30));
+      yield { kind: 'result', ok: true };
+    },
+  };
+  await runTurn(harness, 'p', undefined, INPUT, env, 't1', d.deliver, async payload => {
+    sent.push(payload);
+    return payload.text ? { remind: false } : sent.filter(item => !item.text).length === 1
+      ? { remind: false, reminder_after_ms: 1 } : { remind: true };
+  });
+  expect(sent.filter(item => item.text)).toEqual(flag === '1' ? [{ turn_id: 't1', text: 'working' }] : []);
+  expect(sent.filter(item => !item.text)).toHaveLength(2);
+  expect(drainLines(STEER_SPOOL)).toEqual([NUDGE_TEXT]);
+  expect(d.deliveries).toHaveLength(1);
 });
