@@ -197,9 +197,9 @@ func (b *bot) onMessage(_ *discordgo.Session, m *discordgo.MessageCreate) {
 	isGroup := isGroupChannel(ch)
 
 	// Guild @mentions use verb "mention"; other guild messages use the default
-	// "message" verb. Route mode (target#observe) plus verb-specific match
+	// "message" verb. Route mode (target?observe) plus verb-specific match
 	// rows control which verbs fire the agent (mention-only channels keep a
-	// high-priority `verb=mention` trigger row + catch-all `#observe`).
+	// high-priority `verb=mention` trigger row + catch-all `?observe`).
 	// DMs always use "message".
 	verb := ""
 	if isGroup && b.isMentioned(m) {

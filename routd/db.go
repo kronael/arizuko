@@ -408,7 +408,7 @@ func (d *DB) RoutedToByMessageID(chatJID, id string) string {
 }
 
 // MarkMessagesObserved flags rows observed and stamps routed_to, so an observe
-// rule (target=folder#observe) ingests them into the folder's ambient context
+// rule (target=folder?observe) ingests them into the folder's ambient context
 // without a turn.
 func (d *DB) MarkMessagesObserved(folder string, msgs []core.Message) error {
 	rows := make([]store.IndexedMessage, len(msgs))

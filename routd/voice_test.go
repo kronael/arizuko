@@ -321,7 +321,7 @@ func TestObservedMessages_GetEnriched(t *testing.T) {
 
 	db, l, groups := enrichLoop(t, mediaConfig{Enabled: true, MaxBytes: 1 << 20})
 
-	// Set up an observe route: tg:** → demo#observe (observe mode, no agent turn)
+	// Set up an observe route: tg:** → demo?observe (observe mode, no agent turn)
 	// Route target "demo?observe" parses to {Folder:"demo", Mode:"observe"}
 	if _, err := db.store().PutRouteRow(core.Route{Seq: 1, Match: "tg:**", Target: "demo?observe"}); err != nil {
 		t.Fatal(err)

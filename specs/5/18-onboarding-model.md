@@ -72,7 +72,7 @@ Two shipped facts constrain it:
 ## The target flow
 
 Eight steps, each with exactly one trigger: **listen** (adapter presence grants
-nothing) → **miss** (`routd/loop.go:529` `routeMiss`, unless an `#observe`
+nothing) → **miss** (`routd/loop.go:529` `routeMiss`, unless an `?observe`
 catch-all consumes it) → **record** (routd federates `POST /v1/onboarding {jid}`
 to onbod, idempotent on the JID PK) → **greet** (onbod replies in-channel with a
 single-use `PairingTTL` pairing link that proves the bearer can read the chat
@@ -87,10 +87,10 @@ paired) → **confirm** (the next message routes; history does not move).
 
 Where the operator controls bot presence, a catch-all captures instead of
 greeting. This is route-table data, not code — a low-precedence
-`platform=telegram → staging#observe` row under the specific `room=` rows.
+`platform=telegram → staging?observe` row under the specific `room=` rows.
 
 - **Capture**: every un-promoted chat lands in the staging folder in observe
-  mode — `is_observed=1`, no turn, no reply (`ROUTING.md` § A target fragment sets the mode).
+  mode — `is_observed=1`, no turn, no reply (`ROUTING.md` §"A target query sets the mode").
 - **Discovery**: staged traffic is read where anything routed is read (dashd,
   `inspect_messages`, the next turn's `<observed>` window). No DB grep.
 - **Precedence** is plain `seq` ordering, first match wins; promotion inserts a
@@ -110,7 +110,7 @@ the route table; web admission is route tokens (`5/W`).
 
 Routing a JID does not decide who inside it drives the agent — that is
 sender-predicate stacking on the same table (`sender=` beside `room=`, with a
-lower-precedence `#observe` row catching everyone else). An unauthorized sender
+lower-precedence `?observe` row catching everyone else). An unauthorized sender
 matches only the observe row: context, no turn, no reply, no fallback.
 Engagement (`5/G`) then overrides per `(jid, topic)`, so sender rows gate who
 _opens_ a conversation, not who speaks inside one. Firing never consults the
@@ -344,7 +344,7 @@ create` seeds none, so shipping it would have turned every existing
 ## Consolidates
 
 Canonical umbrella for the onboarding narrative; nothing is superseded. `ROUTING.md`
-(`#observe`), `5/L`/`5/G` (mention promotion, engagement), `5/E` (route-miss
+(`?observe`), `5/L`/`5/G` (mention promotion, engagement), `5/E` (route-miss
 hook), `5/32`+`5/33` (grant vocabulary), `5/5` (invites, gates, the world
 roster this routes into), `5/31` (pairing — onboarding redeems the bridge
 rather than owning it, which is what makes pairing reachable outside a route

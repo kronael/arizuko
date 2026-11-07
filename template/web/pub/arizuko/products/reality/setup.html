@@ -104,12 +104,12 @@ facts/threads/relationship-alice.md</code></pre>
       <p>Add routes for other channels on purpose, with <code>arizuko route -i demo add</code>. Add a <code>assistant/content</code> group if you want a separate memory and persona for longer writing. Route it from a separate Telegram chat or a <code>/chat/&lt;token&gt;/</code> URL.</p>
 
       <h2>An observe route reads WhatsApp without replies</h2>
-      <p>To bring WhatsApp messages into the same memory without replies on WhatsApp, add a second route in <code>#observe</code> mode:</p>
-      <pre><code>arizuko route -i demo add 'platform=whatsapp room=&lt;group-id&gt;@g.us' 'assistant#observe' --seq 20</code></pre>
+      <p>To bring WhatsApp messages into the same memory without replies on WhatsApp, add a second route in <code>?observe</code> mode:</p>
+      <pre><code>arizuko route -i demo add 'platform=whatsapp room=&lt;group-id&gt;@g.us' 'assistant?observe' --seq 20</code></pre>
       <p>The table then reads:</p>
       <pre><code>seq  match                                     target
 0    room=&lt;bot-id&gt;/user/&lt;your-tg-id&gt;                    assistant
-20   platform=whatsapp room=&lt;group-id&gt;@g.us    assistant#observe
+20   platform=whatsapp room=&lt;group-id&gt;@g.us    assistant?observe
 </code></pre>
       <p>WhatsApp messages go into <code>assistant/</code> as context and start no turn. When something from WhatsApp matters, the agent replies on Telegram with a source line. <a href="../../howto/asymmetric-channels.html">Asymmetric channels</a> has the full recipe.</p>
 
@@ -135,7 +135,7 @@ facts/threads/relationship-alice.md</code></pre>
       <dl>
         <dt><a href="./">Reality agent</a></dt><dd>What users see.</dd>
         <dt><a href="../../howto/asymmetric-channels.html">asymmetric channels</a></dt><dd>The WhatsApp and Telegram split as a general recipe.</dd>
-        <dt><a href="../../concepts/routing.html#modes">routing modes</a></dt><dd>The fragments of a route target.</dd>
+        <dt><a href="../../concepts/routing.html#modes">routing modes</a></dt><dd>The query flags of a route target.</dd>
         <dt><a href="../../reference/env.html">env reference</a></dt><dd>The <code>OBSERVE_WINDOW_*</code> variables and the rest.</dd>
       </dl>
 

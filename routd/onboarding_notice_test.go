@@ -9,8 +9,8 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
-// A new onboarding request queues one notice to the `#issues` chats; a later
-// message of the same request queues none; no `#issues` route is no error.
+// A new onboarding request queues one notice to the `?issues` chats; a later
+// message of the same request queues none; no `?issues` route is no error.
 func TestRouteMissOnboardingNotice(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
@@ -32,9 +32,9 @@ func TestRouteMissOnboardingNotice(t *testing.T) {
 		return rows
 	}
 
-	miss("m0") // no #issues route: no error, no notice
+	miss("m0") // no ?issues route: no error, no notice
 	if got := pending(); len(got) != 0 {
-		t.Fatalf("notice without a #issues route: %v", got)
+		t.Fatalf("notice without a ?issues route: %v", got)
 	}
 
 	loop.SetOnbodClient(&fakeOnbod{})

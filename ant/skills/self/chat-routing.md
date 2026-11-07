@@ -15,7 +15,7 @@ wins.** There is no other priority.
 | -------- | -------------------------------------------------- |
 | `seq`    | evaluation order — lower = earlier = higher priority |
 | `match`  | space-separated `key=glob` predicates, AND'd        |
-| `target` | `<folder>[#<mode>]` — group + optional mode          |
+| `target` | `<folder>[?<mode>][#<topic-template>]` — folder, mode and topic |
 
 Match keys: `platform`, `room`, `chat_jid`, `sender`, `verb`. Globs use
 `path.Match` (`*` doesn't cross `/`). `key=*` means present; `key=` means

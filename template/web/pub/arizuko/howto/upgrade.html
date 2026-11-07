@@ -72,7 +72,7 @@ make kernel ──► DATA_DIR/images/kernel-&lt;version&gt;-&lt;hash&gt;/  ◄�
     <p><code>systemctl restart</code> runs the generator from the service's release image, then starts Docker Compose. <code>arizuko generate</code> before the restart shows its warnings on the terminal, not in the journal. Two warnings need a fix before the restart: a <a href="operate.html#frozen-fragment">FROZEN fragment</a>, and a <a href="operate.html#store-key">daemon without a store key</a>. A daemon without a store key restarts the whole instance in a loop.</p>
 
     <h2 id="packages">The next turn reads released package assets</h2>
-    <p>Startup installs core. Run <code>arizuko package sync -i NAME</code> to update other selected sources. Release notices use the existing outbound queue and only configured <code>#announce</code> destinations. Package updates start no agent migration turns.</p>
+    <p>Startup installs core. Run <code>arizuko package sync -i NAME</code> to update other selected sources. Release notices use the existing outbound queue and only configured <code>?announce</code> destinations. Package updates start no agent migration turns.</p>
     <h2 id="rollback">The older rootfs tree rolls back the guest</h2>
     <p>The older rootfs tree stays on disk. Set <code>RUNED_ROOTFS_DIR</code> to the older tree and restart. The daemons keep the new images. A rollback of the daemons needs a build from the old checkout.</p>
 
@@ -85,7 +85,7 @@ make kernel ──► DATA_DIR/images/kernel-&lt;version&gt;-&lt;hash&gt;/  ◄�
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/howto/upgrade.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-21">2026-10-21</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-28">2026-10-28</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

@@ -39,7 +39,7 @@ func TestDescribe_ModeAndTrigger(t *testing.T) {
 	}
 }
 
-// TestDescribe_Engaged covers the #engaged fragment: the row fires a turn only
+// TestDescribe_Engaged covers the ?engaged query flag: the row fires a turn only
 // through engagement, so an agent reading the table must not take it for a
 // trigger that always fires.
 func TestDescribe_Engaged(t *testing.T) {
@@ -48,14 +48,14 @@ func TestDescribe_Engaged(t *testing.T) {
 	})
 	v := find(views, 1)
 	if v.Mode != "engaged" || v.FiresTurn || v.TriggersOn != "verb=check_run" {
-		t.Fatalf("#engaged row: %+v", v)
+		t.Fatalf("?engaged row: %+v", v)
 	}
 	if !strings.Contains(v.Explain, "engaged") || !strings.Contains(v.Explain, "sloth/morha") {
 		t.Fatalf("explain does not name the mode and the folder: %q", v.Explain)
 	}
 }
 
-// TestDescribe_Announce covers the #announce fragment: the route still
+// TestDescribe_Announce covers the ?announce query flag: the route still
 // triggers normally (inbound-neutral) but is flagged as a release-note target
 // so the migrate skill opts it in.
 func TestDescribe_Announce(t *testing.T) {
@@ -66,7 +66,7 @@ func TestDescribe_Announce(t *testing.T) {
 
 	ann := find(views, 1)
 	if !ann.Announce || ann.Mode != "trigger" || !ann.FiresTurn {
-		t.Fatalf("#announce row must be an announce-flagged trigger: %+v", ann)
+		t.Fatalf("?announce row must be an announce-flagged trigger: %+v", ann)
 	}
 	plain := find(views, 2)
 	if plain.Announce {

@@ -26,8 +26,8 @@ both operator surfaces are complete, not that it is running anywhere.
 **It is one more input to the existing turn-trigger gate, not a
 subsystem.** The same concrete decision already promotes a mention,
 sustains an engagement window ([`G-engagement.md`](G-engagement.md)), and
-drops an `#observe` message without firing
-(`ROUTING.md` § A target fragment sets the mode). Proactive is
+drops an `?observe` message without firing
+(`ROUTING.md` §"A target query sets the mode"). Proactive is
 silence-driven where those are message-driven, so it needs a clock —
 otherwise it is just another input.
 

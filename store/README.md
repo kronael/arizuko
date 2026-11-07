@@ -161,9 +161,9 @@ Primary methods (by domain):
 - Routes, onboarding, topics — see source
 
 `messages.is_observed` marks rows stored under a
-folder via a `#observe` route target — they do not fire a turn but are
+folder via a `?observe` route target — they do not fire a turn but are
 surfaced to the next trigger turn's `<observed>` block. `routes.target`
-is `<folder>[#<mode>]`; per-route caps `observe_window_messages` and
+is `<folder>[?<mode>][#<topic-template>]`; per-route caps `observe_window_messages` and
 `observe_window_chars` override the env defaults.
 
 `sessions` carries topic lineage as attributes: `parent_topic`,

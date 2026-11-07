@@ -92,7 +92,7 @@ the ambient query (`store/messages.go:403`).
 
 **Distinct from `set_group_open`**, which exposes _already-observed_
 (`is_observed=1`) rows to open siblings and therefore requires an
-`#observe` route on the source side to produce them. `observe_group`
+`?observe` route on the source side to produce them. `observe_group`
 picks up source's _primary-delivered_ (`is_observed=0`) messages, so it
 needs no route change on the source at all. Two different questions —
 "who may see my ambient" vs "whose primary traffic do I want ambient" —

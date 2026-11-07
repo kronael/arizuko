@@ -9,10 +9,9 @@ single channel adapter.
 
 ## Phase status
 
-**Phase 5 is partial: 32 shipped, 3 defected, 2 partial.** Three files carry
+**Phase 5 is partial: 33 shipped, 3 defected, 1 partial.** Three files carry
 `reference` — analysis with no lifecycle to finish (`25`, `26`, `35`).
-The channel protocol still needs matching eval inputs and operator docs;
-native checklist publication still needs image and adoption acceptance.
+Native checklist publication still needs image and adoption acceptance.
 
 Not every "shipped" here is code. Two specs ship a **decision not to build**,
 with the reasoning recorded so nobody re-derives it: `5/5` (the tier framework,
@@ -65,7 +64,7 @@ data entities defined here, and `5/8` moves the cold tier into git.
 | [L-mention-promotion.md](L-mention-promotion.md)           | shipped | Reply or reaction to the bot promotes to `verb=mention` at routd ingest.; facts in `ROUTING.md` § Verb promotion                                                                                                                                                                                                |
 | [F-topic-lineage.md](F-topic-lineage.md)                   | shipped | Topics carry `parent_topic`, `forked_at`, and a per-topic observed cursor; `fork_topic` copies the parent session.; facts in `ROUTING.md` § Topic Routing, `container/README.md` § Public API                                                                                                                   |
 | [W-webhook-routes.md](W-webhook-routes.md)                 | shipped | One `route_tokens` table, two prefixes: `/chat/<token>/` and `/hook/<token>`. Owns token auth and URL shape.; facts in `reference/tokens.html`, `ROUTING.md` § Route-token surfaces                                                                                                                             |
-| [34-channel-protocol.md](34-channel-protocol.md)           | partial | Adapter protocol, URI route targets, shared placeholder expansion, validation and migrations are built and tested. The observation eval and operator examples still require URI mode flags.                                                                                                                     |
+| [34-channel-protocol.md](34-channel-protocol.md)           | shipped | Adapter protocol, URI route targets, shared expansion, validation and migrations are tested. The observation eval and operator examples use query mode flags and topic templates.                                                                                                                               |
 | [R-multi-account.md](R-multi-account.md)                   | shipped | Several accounts per adapter = several compose fragments, distinguished by `CHANNEL_NAME`.; return-adapter order in `ROUTING.md` § Reply Routing, facts in `compose/README.md` § Several accounts on one platform                                                                                               |
 | [Z-message-actions.md](Z-message-actions.md)               | shipped | Agent-initiated edit, delete, pin, unpin on messages it sent.; facts in `EXTENDING.md` § Verb support matrix, `concepts/audit.html`                                                                                                                                                                             |
 | [6-proactive-interjection.md](6-proactive-interjection.md) | shipped | Lurk mode: silence-driven turns behind a cooldown and a quiet-turn veto; the agent may emit nothing. Ships off — `PROACTIVE_ENABLED` defaults false.; facts in `concepts/proactive.html`, `routd/README.md`                                                                                                     |

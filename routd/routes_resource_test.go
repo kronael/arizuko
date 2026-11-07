@@ -546,11 +546,7 @@ func TestRouteTargetOwned(t *testing.T) {
 	}
 }
 
-// TestRouteContainment_OwnObserveFragment: a route target legally carries an
-// `#observe`/`#announce` fragment, and containment compared the RAW string — so
-// `main/trading` could not manage its own `main/trading?observe` row while the
-// delete SQL and the tool description both treat it as that folder's. sloth and
-// marinade carry 10 such rows (BUGS L82).
+// Route containment uses the folder path for targets with a mode query.
 func TestRouteContainment_OwnObserveFragment(t *testing.T) {
 	for _, c := range []struct {
 		owner, target string
@@ -562,7 +558,7 @@ func TestRouteContainment_OwnObserveFragment(t *testing.T) {
 		{"main/trading", "main/trading/sub?observe", true},
 		{"main/trading", "main/other?observe", false},
 		{"main/trading", "main?observe", false},
-		// A PREFIX is still not a folder — only the fragment comes off.
+		// A folder prefix is invalid, even with query parsing.
 		{"main/trading", "folder:main/trading", false},
 	} {
 		if got := routeTargetWithin(c.target, c.owner); got != c.want {

@@ -106,7 +106,7 @@
 
 issue_webhook(source_label="linear", jid_suffix="issues")
   &rarr; hook:acme/eng/linear/issues</code></pre>
-      <p>Each suffix gets its own URL, its own row and its own JID. A route can start turns for one JID only, with <code>chat_jid=hook:acme/eng/linear/comments</code>. Another route can store the events of the other JID with <a href="../concepts/routing.html#modes"><code>#observe</code></a> and start no turn.</p>
+      <p>Each suffix gets its own URL, its own row and its own JID. A route can start turns for one JID only, with <code>chat_jid=hook:acme/eng/linear/comments</code>. Another route can store the events of the other JID with <a href="../concepts/routing.html#modes"><code>?observe</code></a> and start no turn.</p>
 
       <h2>A revoke takes effect at once</h2>
       <p>Revoke through MCP or the CLI:</p>
@@ -138,7 +138,7 @@ arizuko token -i demo revoke hook:acme/eng/github</code></pre>
         <dt><a href="../concepts/tokens.html">route tokens</a></dt><dd>The mechanism of this page and of the <a href="chat-link.html">chat link</a>.</dd>
         <dt><a href="chat-link.html">chat link</a></dt><dd>The <code>web:</code> token for browser chat URLs.</dd>
         <dt><a href="../reference/tokens.html">token reference</a></dt><dd>Payload shapes, env vars and the full MCP and REST surface.</dd>
-        <dt><a href="../concepts/routing.html">routing</a></dt><dd>How a <code>hook:</code> JID reaches an agent, and how <code>#observe</code> works.</dd>
+        <dt><a href="../concepts/routing.html">routing</a></dt><dd>How a <code>hook:</code> JID reaches an agent, and how <code>?observe</code> works.</dd>
       </dl>
 
 
@@ -148,7 +148,7 @@ arizuko token -i demo revoke hook:acme/eng/github</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/howto/webhooks.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-21">2026-10-21</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-28">2026-10-28</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

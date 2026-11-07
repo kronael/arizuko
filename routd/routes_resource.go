@@ -273,10 +273,6 @@ func argJSONString(args resreg.Args, key string) string {
 // added_by/added_via carry the same (who, act) pair onbod stamps (spec 5/18):
 // a reader must not need to know which daemon wrote a rule to learn who did.
 
-// routeTargetWithin reports whether a route's target folder is the caller's
-// own folder or a descendant. A target legally carries a `#observe`/`#announce`
-// FRAGMENT, and it comes off before the comparison: with it on, `main/trading`
-// could not manage its own `main/trading?observe` route (BUGS L82).
 func routeTargetWithin(target, owner string) bool {
 	folder := core.ParseRouteTarget(target).Folder
 	return folder != "" && groupfolder.Contains(owner, folder)

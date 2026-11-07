@@ -218,9 +218,9 @@ routd ──► adapter ──► platform reply</code></pre>
       <dt>Read</dt>
       <dd><code>/dash/activity/</code> shows the newest message in and out of the chat. The unrouted section of <code>/dash/routes/</code> lists every chat that routd drops. <code>./arizuko route -i &lt;name&gt; list</code> prints the route table by seq.</dd>
       <dt>Cause</dt>
-      <dd>When no route matches, routd marks the messages as seen and starts no turn. An <code>#observe</code> route above the answering route has the same result: the first match wins, and an observe route has no verb, so it takes every message, mentions included. BUGS entry <code>L327</code> records this. The cursor moves, the breaker stays closed, and no error occurs.</dd>
+      <dd>When no route matches, routd marks the messages as seen and starts no turn. An <code>?observe</code> route above the answering route has the same result: the first match wins, and an observe route has no verb, so it takes every message, mentions included. BUGS entry <code>L327</code> records this. The cursor moves, the breaker stays closed, and no error occurs.</dd>
       <dt>Fix</dt>
-      <dd>Add the route, or give the answering route a lower seq than its <code>#observe</code> pair. A route row is operator data: change it with <code>arizuko route</code>.</dd>
+      <dd>Add the route, or give the answering route a lower seq than its <code>?observe</code> pair. A route row is operator data: change it with <code>arizuko route</code>.</dd>
       <dt>Source</dt>
       <dd><code>routd/loop.go:565</code> <code>routeMiss</code>, <code>dashd/routes_admin.go:105</code></dd>
     </dl>
@@ -234,7 +234,7 @@ routd ──► adapter ──► platform reply</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/howto/operate.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-28">2026-10-28</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-04">2026-11-04</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

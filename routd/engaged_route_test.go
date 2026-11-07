@@ -8,8 +8,8 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
-// An operator extends engagement to CI with one `#engaged` row above the seeded
-// `#observe` fallback (ROUTING.md §"A target fragment sets the mode",
+// An operator extends engagement to CI with one `?engaged` row above the seeded
+// `?observe` fallback (ROUTING.md §"A target query sets the mode",
 // specs/6/27-git-channel.md). The row fires while the chat and topic are
 // engaged and is observed otherwise; it is never addressed.
 func engagedCIRoutes(t *testing.T) []core.Route {
@@ -31,7 +31,7 @@ func TestEngagedRoute_ACIRowOnAnEngagedPRFiresAndIsNotAddressed(t *testing.T) {
 	if !got.ok || got.Folder != "held" || got.Addressed || got.Observe != "" {
 		t.Fatalf("check_run on an engaged PR: %+v want folder=held, not addressed", got)
 	}
-	// The default still holds: a review row has no #engaged row and is observed.
+	// The default still holds: a review row has no ?engaged row and is observed.
 	got = loop.resolve(jid, core.Message{ChatJID: jid, Topic: jid, Verb: "pull_request_review"})
 	if got.ok || got.Observe != "eng" {
 		t.Fatalf("pull_request_review on an engaged PR: %+v want observe=eng", got)
@@ -61,7 +61,7 @@ func TestEngagedRoute_ARootWindowCoversThePRTopic(t *testing.T) {
 }
 
 // A mention and a newer CI row in one batch: the CI row dispatches through its
-// #engaged rule, and only the mention is addressed (the CI row is never).
+// ?engaged rule, and only the mention is addressed (the CI row is never).
 func TestEngagedRoute_AMixedBatchAddressesOnlyTheMentionAndBothRowsDispatch(t *testing.T) {
 	db, loop := newEngagementLoop(t, engagedCIRoutes(t))
 	jid := "github:kronael/arizuko/pr/8"

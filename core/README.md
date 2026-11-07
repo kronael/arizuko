@@ -70,7 +70,7 @@ created, so timed's next sweep fired all five (BUGS `L312`).
 - Row types: `Message`, `Group`, `GroupConfig`, `Mount`, `Route`, `Task`,
   `SessionRecord`, `TopicLineage`, `PanePrompt`
 - Routing: `RouteTarget`, `ParseRouteTarget` — parses `routes.target` as
-  `<folder>[#<mode>]`
+  `<folder>[?<mode>][#<topic-template>]`
 - JIDs: `JidRoom`, `JidPlatform`
 - Ids: `GenHexToken`, `MsgID`, `NewSessionID`
 - Names and URLs: `SanitizeInstance` (filesystem / `container_name` / unquoted

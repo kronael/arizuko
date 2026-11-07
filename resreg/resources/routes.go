@@ -87,7 +87,7 @@ func init() {
 		MCPDoc:        RoutesMCPDoc,
 		MCPArgs:       RoutesMCPArgs,
 		MCPNames:      RoutesMCPNames,
-		// No folder scope: routes.target carries ?observe/#topic fragments,
+		// No folder scope: routes.target carries a query mode and topic fragment,
 		// not column-equal to a folder (spec 5/8 §"FK posture"), so Apply
 		// rebuilds routes wholesale. `id` is server-owned: Diff ignores it, it
 		// is never a create argument, and a row without one gets one minted.

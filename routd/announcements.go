@@ -79,7 +79,7 @@ func (d *DB) taggedRoutes(pick func(core.RouteTarget) bool) ([]core.Route, error
 }
 
 // QueueIssueNotice queues text as a pending outbound row in every distinct
-// chat a `#issues` route names. The outbound queue delivers it; no turn
+// chat a `?issues` route names. The outbound queue delivers it; no turn
 // starts. It returns how many chats were queued, 0 when no route is tagged.
 func (d *DB) QueueIssueNotice(text string) (int, error) {
 	tagged, err := d.taggedRoutes(func(rt core.RouteTarget) bool { return rt.Mode == "issues" })

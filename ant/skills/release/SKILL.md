@@ -55,7 +55,7 @@ user-invocable: true
    - **Bullets**: 3–6 lines, ≤ 100 chars each. Each is a technical
      change framed as user-observable behavior. Name the API/verb —
      engineers want the hook — but lead with what now works.
-     - Good: `• Routes get a #observe mode — store messages as context without firing the agent.`
+     - Good: `• Routes get a ?observe mode — store messages as context without firing the agent.`
      - Bad: `• Refactored impulse_config into match-key seq priority.` (no behavior delta)
    - **Banned**: "powerful", "seamless", "robust", "excited to announce",
      "we've improved", "various", exclamation marks (unless something

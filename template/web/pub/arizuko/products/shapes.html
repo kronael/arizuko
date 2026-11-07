@@ -155,7 +155,7 @@ arizuko network -i shop allow supermarket lidl.co.uk</code></pre>
       <p>The team sees the answer. The write of Bob goes to the workspace of Bob, and the preference of Alice goes to her memory file.</p>
 
       <h3>A Discord channel starts a turn only on a mention</h3>
-      <p><code>arizuko group add</code> for a Discord server channel writes two routes: a <code>verb=mention</code> route that starts turns, and an <code>#observe</code> route for the other messages. A reply to a bot message also counts as a mention. A DM is <code>discord:dm/&lt;channel_id&gt;</code>. The <a href="slack-team/">Slack team agent</a> page lists the other differences from Slack: no AI pane, the mention format and the JIDs.</p>
+      <p><code>arizuko group add</code> for a Discord server channel writes two routes: a <code>verb=mention</code> route that starts turns, and an <code>?observe</code> route for the other messages. A reply to a bot message also counts as a mention. A DM is <code>discord:dm/&lt;channel_id&gt;</code>. The <a href="slack-team/">Slack team agent</a> page lists the other differences from Slack: no AI pane, the mention format and the JIDs.</p>
       <p>The channel files and the member memory are under <code>/srv/data/arizuko_&lt;name&gt;/groups/</code>. The tool keys live in the <code>secrets</code> table and stay on the host, unless a <code>shell:env:&lt;KEY&gt;</code> grant names a key. A member in one channel cannot open the files and the persona of another channel without an explicit grant.</p>
 
       <h3>A running instance and Discord bot support the team</h3>
@@ -169,8 +169,8 @@ arizuko group -i acme add discord:123456789/987654321 main
       <pre><code>seq  match                                target
 -2   chat_jid=discord:dm/*                main
 -1   chat_jid=discord:*/* verb=mention    main
-0    chat_jid=discord:*/*                 main#observe</code></pre>
-      <p>To check the shape, send <code>@acme hello</code> in a channel that the bot can see; the agent replies. When the bot answers in DMs and not in channels, the channel routes are <code>#observe</code> only: add a <code>verb=mention</code> route to <code>main</code>. When <code>discd</code> is unhealthy, the token changed or the bot left the guild: copy the new token into <code>DISCORD_TOKEN</code> and restart the instance. A new channel is one more group: <code>arizuko group -i acme add 'discord:123456789/987654321' dev-chat</code>.</p>
+0    chat_jid=discord:*/*                 main?observe</code></pre>
+      <p>To check the shape, send <code>@acme hello</code> in a channel that the bot can see; the agent replies. When the bot answers in DMs and not in channels, the channel routes are <code>?observe</code> only: add a <code>verb=mention</code> route to <code>main</code>. When <code>discd</code> is unhealthy, the token changed or the bot left the guild: copy the new token into <code>DISCORD_TOKEN</code> and restart the instance. A new channel is one more group: <code>arizuko group -i acme add 'discord:123456789/987654321' dev-chat</code>.</p>
 
       <h2 id="team-brain">The team brain runs one agent for each team</h2>
       <p>A network of per-team agents, each with its own inbox and memory,
@@ -191,7 +191,7 @@ arizuko group -i acme add discord:123456789/987654321 main
         <dt>Escalation and delegation</dt>
         <dd>The SRE agent calls <code>escalate_group</code> to reach <code>corp/eng</code>. A triage agent calls <code>delegate_group</code> to give work to the responsible team.</dd>
         <dt>Observed channels</dt>
-        <dd>A Slack channel can route to <code>corp/eng#observe</code>. The agent stores the messages, starts no turn, and finds them later with <code>find_messages</code>.</dd>
+        <dd>A Slack channel can route to <code>corp/eng?observe</code>. The agent stores the messages, starts no turn, and finds them later with <code>find_messages</code>.</dd>
         <dt>ACL for each folder</dt>
         <dd>The <code>acl</code> rows of a folder decide which MCP tools and which external hosts its agent can reach. Other teams cannot read the memory, facts and diary of a team without a delegation or a grant.</dd>
       </dl>
@@ -289,7 +289,7 @@ arizuko token -i &lt;instance&gt; issue chat &lt;folder&gt;    # the public chat
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/shapes.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-11-04">2026-11-04</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-06">2026-11-06</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

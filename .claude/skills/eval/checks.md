@@ -454,7 +454,7 @@ Hook missing → solve nudge never fires → no skill matching → agent runs bl
 ### 21. Unanswered chats (humans outran the replies)
 
 Check 4 asks whether the cursor MOVED. A chat can stay current and still answer
-nothing: an `#observe` route advances the cursor without running a turn, so the
+nothing: an `?observe` route advances the cursor without running a turn, so the
 flag stays clear, the breaker stays closed and the census stays empty while a
 tenant waits for days (BUGS `L320`, found on krons after three silent days).
 This check asks about the OUTCOME instead — the newest human message against
@@ -481,7 +481,7 @@ later than its `newest_human`, or later by one round at most.
 messages and answers none.
 
 Read the route before calling it a fault. A NULL reply is correct for a folder
-nobody talks to, and for the `#observe` half of a route pair when the operator
+nobody talks to, and for the `?observe` half of a route pair when the operator
 meant plain messages to be observed. It is a fault when a person writes and
 expects an answer:
 
@@ -491,18 +491,18 @@ sq routd.routes "select split_part(sk_s,chr(31),1)||' | '||split_part(sk_s,chr(3
   ||' | '||split_part(sk_s,chr(31),3) from e where sk_s like '%<room-id>%' order by sk_s"
 ```
 
-A `verb=mention` rule with an `#observe` twin one seq below means plain messages
+A `verb=mention` rule with an `?observe` twin one seq below means plain messages
 are observed by design. Adding a `sender=` rule at the same seq answers one
 person without opening the chat to everyone.
 
-### 22. Inverted route pairs (an `#observe` twin that shadows its answer)
+### 22. Inverted route pairs (an `?observe` twin that shadows its answer)
 
 Check 21 tells you to read the route before calling a silent chat a fault. This
 one asks whether the ROUTE is the fault.
 
 `router.ResolveRoute` returns the FIRST match in `(seq, id)` order, and an
-`#observe` route carries no verb — so it matches every message, **mentions
-included**. An `#observe` row sitting at or above its answering twin therefore
+`?observe` route carries no verb — so it matches every message, **mentions
+included**. An `?observe` row sitting at or above its answering twin therefore
 shadows it completely, and the chat is deaf even to a direct mention. It reads
 as configured-to-answer and answers nothing.
 
@@ -515,7 +515,7 @@ sq routd.routes "
 , p as (select sk_s,
          split_part(sk_s, chr(31), 1) as seq,
          split_part(sk_s, chr(31), 2) as target,
-         split_part(sk_s, chr(31), 2) like '%#observe' as observe,
+         split_part(sk_s, chr(31), 2) ~ '^[^?#]+[?]observe(#.*)?$' as observe,
          substring(split_part(sk_s, chr(31), 3) from 'room=([^ ]+)') as room
        from e)
 select a.seq||' '||a.target as observes_first, a.room,
@@ -536,23 +536,22 @@ glob predicate collapses to a filler token so the annotation never over-claims
 — which means an earlier EXACT room intercepting a later glob is precisely its
 blind spot. That is why the check lives here and not in the annotation.
 
-For every target, the `verb=mention` row must sort BEFORE its `#observe` twin.
+For every target, the `verb=mention` row must sort BEFORE its `?observe` twin.
 The shipped shape is the pair at adjacent seqs, answer first:
 
     seq 10  atlas/support          chat_jid=slack:… verb=mention
-    seq 11  atlas/support#observe  chat_jid=slack:…
+    seq 11  atlas/support?observe  chat_jid=slack:…
 
-**Inverted, measured on sloth 2026-09-20 (BUGS `L327`):**
+**An inverted pair:**
 
-    seq 1  main#observe  platform=discord room=<guild>/<channel>
+    seq 1  main?observe  platform=discord room=<guild>/<channel>
     seq 2  main/main     platform=discord room=<guild>/*  verb=mention
 
-The observe row at seq 1 matched every message in that channel, so the
-guild-wide mention route at seq 2 was never consulted. Last human
-2026-09-19T09:08:48, bot NONE.
+The observe row at seq 1 matches every message in that channel, so the
+guild-wide mention route at seq 2 never runs.
 
 **Two traps when reading this.** A room GLOB counts — `room=<guild>/*` at a
-higher seq is still shadowed by a specific `room=<guild>/<channel>#observe`
+higher seq is still shadowed by a specific `room=<guild>/<channel>?observe`
 below it. And a chat that DOES answer is not proof the routes are right:
 engagement wakes an already-active thread whatever the table says, which is
 exactly what hid this on the busier channel.

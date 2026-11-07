@@ -6,7 +6,7 @@ import (
 )
 
 // TestCatalogRouteMutationHygiene pins the invariant a live run depends on: no
-// case may leave the eval chat unable to wake the agent. A leaked #observe rule
+// case may leave the eval chat unable to wake the agent. A leaked ?observe rule
 // on a route-table-resolved eval chat stores every later inject as silent
 // context and fires no turn, so every case ordered after it times out as a fake
 // agent failure (found 2026-08-20 on route-observe-silent, which configured

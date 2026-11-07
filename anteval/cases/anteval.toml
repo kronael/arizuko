@@ -298,7 +298,7 @@ want = 200
 # ── Routing ──────────────────────────────────────────────────────────────────
 
 # Doc: ant/skills/self/chat-routing.md — "Misreading a bare target as observe is
-# the classic mistake" (migration 157). The agent adds an #observe rule, reads
+# the classic mistake" (migration 157). The agent adds an ?observe rule, reads
 # it back with inspect_routing (whose mig-157 annotation reports fires_turn),
 # then DELETES it and confirms it is gone — both directions of route hygiene.
 # Correct add+read+delete → {nonce}; annotation says the rule still fires (the
@@ -316,7 +316,7 @@ want = 200
 id = "route-observe-silent"
 dimension = "routing"
 requires = ["mcp:add_route", "mcp:delete_route", "mcp:inspect_routing"]
-prompt = "Route-table observe check on a throwaway chat this case owns — do NOT touch the routing of the chat you are answering in. Step 1: add_route a rule matching chat_jid=evalx:{nonce} whose target is your own folder with #observe (a plain message on that chat must be stored as context and fire NO turn). Step 2: read the rule back with inspect_routing. Step 3: delete_route that same rule and read the table back again. Report by curling exactly ONE marker: if the annotation confirmed the rule fires NO turn AND the rule is gone after your delete, `curl -s {sink}/cb/{nonce}`; if the annotation said the rule still fires a turn, `curl -s {sink}/cb/{nonce}-fires`; if the rule is still present after your delete, `curl -s {sink}/cb/{nonce}-stuck`."
+prompt = "Route-table observe check on a throwaway chat this case owns — do NOT touch the routing of the chat you are answering in. Step 1: add_route a rule matching chat_jid=evalx:{nonce} whose target is your own folder with ?observe (a plain message on that chat must be stored as context and fire NO turn). Step 2: read the rule back with inspect_routing. Step 3: delete_route that same rule and read the table back again. Report by curling exactly ONE marker: if the annotation confirmed the rule fires NO turn AND the rule is gone after your delete, `curl -s {sink}/cb/{nonce}`; if the annotation said the rule still fires a turn, `curl -s {sink}/cb/{nonce}-fires`; if the rule is still present after your delete, `curl -s {sink}/cb/{nonce}-stuck`."
 max_wall_ms = 120000
 [case.check]
 kind = "callback"

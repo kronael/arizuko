@@ -86,11 +86,11 @@ empty and that is correct.
 
 `routd/loop.go:611` `resolve` checks engagement inside the route-hit
 branch **and** as a route-miss fallback: an engaged pair beats the route
-table entirely — including `#observe` targets and routes pointing at a
+table entirely — including `?observe` targets and routes pointing at a
 different folder — and rescues an inbound that matches nothing.
 
 Rationale: once the bot has replied in a thread the user expects a live
-conversation. Silencing it mid-thread — via `#observe`, a route
+conversation. Silencing it mid-thread — via `?observe`, a route
 elsewhere, or a miss — is worse than the operator's original intent to
 reduce noise on cold messages.
 

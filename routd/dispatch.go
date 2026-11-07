@@ -37,7 +37,7 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 	// offer takes the oldest slash command; the folder comes from the newest row
 	// that dispatches on its own (resolveBatch). Sharing one row made a `/root`
 	// followed by an @mention miss a mention-only route and drop the batch
-	// (BUGS L56, L336), and a newer review row that matched only #observe took a
+	// (BUGS L56, L336), and a newer review row that matched only ?observe took a
 	// pending mention with it (BUGS L551).
 	busyIdx := newestUserIdx(msgs)
 	if busyIdx < 0 {
@@ -145,7 +145,7 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 		bl := batch[len(batch)-1]
 		topic := turnTopic(bl)
 		// A person is owed an answer by the turn that holds their row, however many
-		// unaddressed rows (CI under #engaged) run beside it in their own turns.
+		// unaddressed rows (CI under ?engaged) run beside it in their own turns.
 		owed := slices.ContainsFunc(batch, func(m core.Message) bool { return addressed[m.ID] })
 		had, steered, busy, mark, derr := l.runTurn(folder, topic, chatJID, bl.ID, owed, batch, ambient)
 		if derr != nil {

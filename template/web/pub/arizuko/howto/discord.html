@@ -156,13 +156,13 @@ sudo systemctl restart arizuko_&lt;instance&gt;</code></pre>
     <p>The last route takes the messages of all other channels.</p>
 
     <h3 id="mention-only">Mention-only channels</h3>
-    <p>To make the agent answer only on a mention, use two routes. The first route starts a turn on a mention. The second route uses <code>#observe</code> mode: it stores every other message in the same folder as context and starts no turn.</p>
+    <p>To make the agent answer only on a mention, use two routes. The first route starts a turn on a mention. The second route uses <code>?observe</code> mode: it stores every other message in the same folder as context and starts no turn.</p>
     <pre><code>seq  match                                         target
 10   platform=discord room=123456789/* verb=mention  main
-20   platform=discord room=123456789/*               main#observe</code></pre>
+20   platform=discord room=123456789/*               main?observe</code></pre>
     <p>Route 10 starts the agent on mentions and on replies to the bot. Route 20 stores every other message of the server under <code>main</code>, so the agent has the full context at its next turn. DMs do not match these routes. Add a separate route for them.</p>
-    <p>After the agent replies in a thread, that channel and thread is <a href="../concepts/engagement.html">engaged</a> for 30 minutes by default. During that time, each message from a person in the thread starts a turn without a mention, although route 20 says <code>#observe</code>. This is by design: an agent that stops in the middle of a conversation is worse than the extra turns. <code>ENGAGEMENT_TTL</code> on <code>routd</code> sets the time.</p>
-    <p><a href="../concepts/routing.html#modes">Routing modes</a> lists all target fragments.</p>
+    <p>After the agent replies in a thread, that channel and thread is <a href="../concepts/engagement.html">engaged</a> for 30 minutes by default. During that time, each message from a person in the thread starts a turn without a mention, although route 20 says <code>?observe</code>. This is by design: an agent that stops in the middle of a conversation is worse than the extra turns. <code>ENGAGEMENT_TTL</code> on <code>routd</code> sets the time.</p>
+    <p><a href="../concepts/routing.html#modes">Routing modes</a> lists all route modes.</p>
 
     <h2>A thread is a separate conversation</h2>
     <p>When a message arrives in a thread, <code>discd</code> uses the JID of the parent channel and sets the <code>topic</code> to the thread ID. The agent sees each thread as its own conversation, and a reply to a thread stays in that thread.</p>
@@ -207,7 +207,7 @@ send_file chatJid:="discord:123456789/987654321" \
       <dt>Replies go to the wrong channel</dt>
       <dd>The agent calls <code>send</code> with a fixed JID. Use <code>reply</code>, which answers in the chat of the message.</dd>
       <dt>Only mentions start the agent</dt>
-      <dd>The matching route has <code>verb=mention</code>, or the last route is in <code>#observe</code> mode. Remove the verb predicate or the <code>#observe</code> fragment, so that all messages start a turn.</dd>
+      <dd>The matching route has <code>verb=mention</code>, or the last route is in <code>?observe</code> mode. Remove the verb predicate or the <code>?observe</code> query flag, so that all messages start a turn.</dd>
       <dt>The bot does not see the messages of a channel</dt>
       <dd>Give the bot the <strong>View Channel</strong> permission for that channel in Discord.</dd>
     </dl>
@@ -230,7 +230,7 @@ send_file chatJid:="discord:123456789/987654321" \
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/howto/discord.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-28">2026-10-28</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-06">2026-11-06</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

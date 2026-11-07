@@ -455,7 +455,7 @@ func TestResolveRouteTarget_ObserveFragment(t *testing.T) {
 
 // TestResolveRouteTarget_SlothPattern verifies the canonical mention-only
 // channel setup: a higher-priority verb=mention trigger row + a lower-
-// priority catch-all `#observe` row. Mentions fire; everything else
+// priority catch-all `?observe` row. Mentions fire; everything else
 // stores under the folder as observed context.
 func TestResolveRouteTarget_SlothPattern(t *testing.T) {
 	routes := []core.Route{
@@ -472,7 +472,7 @@ func TestResolveRouteTarget_SlothPattern(t *testing.T) {
 	}
 }
 
-// The same two rows in the other order answer nothing. An `#observe` route
+// The same two rows in the other order answer nothing. An `?observe` route
 // carries no verb, so it matches a mention too, and ResolveRoute returns the
 // FIRST match in slice order — which store.routeOrder has already sorted to
 // `ORDER BY seq, id`. So an observe row at a lower seq makes the mention row

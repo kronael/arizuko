@@ -45,7 +45,7 @@ else loaded.
   walks `routes` in order, returns the first matching `Target` after
   `{sender}` expansion. Empty string when nothing matches.
 - `ResolveRouteTarget(msg, routes) core.RouteTarget` — same, but
-  parses the target fragment into `{Folder, Mode}`.
+  parses the target URI into `{Folder, Mode, Topic}`.
 - `IsAuthorizedRoutingTarget(source, target string) bool` — enforces
   that a non-`root/*` source can only route into its own direct
   children.

@@ -12,7 +12,7 @@ import (
 )
 
 // PR #311 on krons: three inline mentions arrived in the same second as a
-// review row. The review row was newer, matched only the `#observe` fallback,
+// review row. The review row was newer, matched only the `?observe` fallback,
 // and decided the whole batch, so the mentions were marked observed and the
 // cursor passed them (BUGS L551, L75b). A batch resolves by its newest row that
 // dispatches on its own.
@@ -222,7 +222,7 @@ func TestBatchResolve_NoRowDispatchesStaysARouteMiss(t *testing.T) {
 
 // The queue keeps one live run per folder by the key folderForJid returns, so
 // the key must be the folder the worker dispatches to. A chat whose newest row
-// matches only #observe still dispatches its mention to eng; keyed on the
+// matches only ?observe still dispatches its mention to eng; keyed on the
 // chat JID instead, two such chats ran in eng at once and the second worker
 // replaced the live turn's MCP socket.
 func TestBatchResolve_TheQueueKeyIsTheFolderTheWorkerDispatchesTo(t *testing.T) {

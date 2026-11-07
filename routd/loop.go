@@ -571,8 +571,8 @@ func (l *Loop) routeMiss(chatJID string, msgs []core.Message, r resolution) {
 	l.advance(chatJID, last)
 }
 
-// noticeOnboarding tells the `#issues` chats that a new chat asks to onboard.
-// It names no token. The queue delivers it; no `#issues` route means no notice.
+// noticeOnboarding tells the `?issues` chats that a new chat asks to onboard.
+// It names no token. The queue delivers it; no `?issues` route means no notice.
 func (l *Loop) noticeOnboarding(chatJID, sender string) {
 	text := fmt.Sprintf("New onboarding request: %s in chat %s. Approve or deny it on the onbod dashboard, /dash/onbod/.", sender, chatJID)
 	if _, err := l.db.QueueIssueNotice(text); err != nil {
@@ -744,7 +744,7 @@ func (l *Loop) routedFolder(reads *chatReads, last core.Message, rt core.RouteTa
 		if rt.HasTopic {
 			engTopic = last.Topic
 		}
-		// #engaged extends engagement to the rows the rule matches, whatever
+		// ?engaged extends engagement to the rows the rule matches, whatever
 		// their verb: it fires in the engaged folder while the chat and topic
 		// are engaged and is observed under the target otherwise. Never addressed.
 		if rt.Mode == "engaged" {

@@ -32,7 +32,7 @@ import (
 )
 
 // issuesDest is the send destination name that routd resolves to the
-// instance's `#issues` routes.
+// instance's `?issues` routes.
 const issuesDest = "#issues"
 
 type RoutdFns struct {
@@ -43,7 +43,7 @@ type RoutdFns struct {
 	// claim and posted the message a second time (BUGS L106). The caller mints
 	// it before the send, so a failed send records the same id it tried.
 	SendMessage func(jid, text, msgID string) (platformID, threadRoot string, err error)
-	// QueueIssueNotice queues text to every `#issues` chat of the instance and
+	// QueueIssueNotice queues text to every `?issues` chat of the instance and
 	// returns how many; routd owns the destination list.
 	QueueIssueNotice     func(text string) (int, error)
 	SendReply            func(jid, text, replyToId, msgID string) (platformID, threadRoot string, err error)
@@ -1244,7 +1244,7 @@ func buildMCPServer(routd RoutdFns, db StoreFns, folder string, isRoot bool, cal
 	}
 
 	// sendIssueNotice serves send to the name `#issues`: routd resolves it to
-	// the instance's `#issues` routes, so the agent holds no grant to the
+	// the instance's `?issues` routes, so the agent holds no grant to the
 	// operator's chat. Only the `send` grant is checked, never a chat's folder.
 	sendIssueNotice := func(text string) (*mcp.CallToolResult, error) {
 		if !authorizeCall("send", map[string]string{"jid": issuesDest}) {

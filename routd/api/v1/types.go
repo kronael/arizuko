@@ -220,7 +220,7 @@ const (
 	// VerdictRoute — a turn is due and the folder is named. Waiting here is a
 	// fault: someone wrote, the loop would answer, and no reply came.
 	VerdictRoute = "route"
-	// VerdictObserve — an #observe route consumes the message. No turn runs, by
+	// VerdictObserve — an ?observe route consumes the message. No turn runs, by
 	// the operator's own configuration.
 	VerdictObserve = "observe"
 	// VerdictHeld — no route, direct address or engagement window claims the

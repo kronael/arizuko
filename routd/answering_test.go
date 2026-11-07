@@ -105,7 +105,7 @@ func TestAnswering_VerdictSeparatesDeafFromBroken(t *testing.T) {
 	}
 }
 
-// TestAnswering_ObserveIsAVerdictNotAFault — an #observe route consumes the
+// TestAnswering_ObserveIsAVerdictNotAFault — an ?observe route consumes the
 // message by the operator's own configuration. The chat is still waiting and is
 // still listed, but it is named `observe` and attributed to the folder that
 // watches it, because "stop observing" and "fix the agent" are different acts.

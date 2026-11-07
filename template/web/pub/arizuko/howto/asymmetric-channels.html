@@ -48,13 +48,13 @@
 
     <p class="lede">A folder can read messages from a channel and never reply there. The agent reads every message that arrives, and it replies only on the channel that you select. Use this when one source gives a lot of context, for example a busy WhatsApp group or a mailing list, and another channel holds the conversation.</p>
 
-    <h2>The target fragment decides whether a message starts a turn</h2>
-    <p>The <code>target</code> of a route can end with a <code>#mode</code> fragment. The fragment decides what <code>routd</code> does <em>after</em> it stores the message in the folder:</p>
+    <h2>The target query decides whether a message starts a turn</h2>
+    <p>A route <code>target</code> selects its mode with a query flag such as <code>?observe</code>. The mode decides whether <code>routd</code> starts a turn after it stores the message:</p>
     <table>
       <thead><tr><th>target</th><th>effect</th></tr></thead>
       <tbody>
         <tr><td><code>folder</code></td><td>store under <code>folder</code> and start a turn; the default</td></tr>
-        <tr><td><code>folder#observe</code></td><td>store under <code>folder</code> and start no turn; the agent sees the message in the history at its next turn</td></tr>
+        <tr><td><code>folder?observe</code></td><td>store under <code>folder</code> and start no turn; the agent sees the message in the history at its next turn</td></tr>
       </tbody>
     </table>
     <p>One folder can have two routes with two effects. The ACL of the agent applies to the folder, so the agent can read every observed message. The mode only decides when <code>routd</code> starts the agent. It does not change what the agent can see.</p>
@@ -63,10 +63,10 @@
     <p>Add two routes to the same folder, one in each mode:</p>
     <pre><code>seq  match                                          target
 10   platform=&lt;reply-platform&gt; room=&lt;your-room&gt;     myfolder
-20   platform=&lt;ingest-platform&gt; room=&lt;src-room&gt;    myfolder#observe</code></pre>
+20   platform=&lt;ingest-platform&gt; room=&lt;src-room&gt;    myfolder?observe</code></pre>
     <ol>
-      <li>Select the channel that answers. This is the channel where the user talks, for example a phone chat, a team Slack or a Telegram DM. Its route has no fragment.</li>
-      <li>Select the channels that only give context. Give each one a route to the <em>same</em> folder with <code>#observe</code>.</li>
+      <li>Select the channel that answers. This is the channel where the user talks, for example a phone chat, a team Slack or a Telegram DM. Its route has no query flag.</li>
+      <li>Select the channels that only give context. Give each one a route to the <em>same</em> folder with <code>?observe</code>.</li>
       <li>Put the answering route first. A lower <code>seq</code> comes first, and the first match wins. So a route for one chat must come before an observe route with a wider pattern.</li>
       <li>Change the context window if necessary. The answering turn adds the last <code>OBSERVE_WINDOW_MESSAGES</code> observed messages to the prompt, default 10, up to <code>OBSERVE_WINDOW_CHARS</code> characters, default 4000. For a busy source, increase the values for the instance, or for one route in the <code>observe_window_messages</code> and <code>observe_window_chars</code> fields of the route.</li>
     </ol>
@@ -75,13 +75,13 @@
     <p>One channel can answer only on a mention and observe the other messages. The first route matches the mentions, and the second route observes the rest of the same channel:</p>
     <pre><code>seq  match                                           target
 10   chat_jid=slack:T012ABCD/channel/C0HJKL456 verb=mention  team
-20   chat_jid=slack:T012ABCD/channel/C0HJKL456               team#observe</code></pre>
+20   chat_jid=slack:T012ABCD/channel/C0HJKL456               team?observe</code></pre>
     <p>A reply to a bot message also has <code>verb=mention</code>, so a reply starts a turn too. After the agent replies, the thread is engaged, and the next messages in it start turns without a mention. <a href="../concepts/engagement.html">Engagement</a> explains the time window.</p>
 
     <h2 id="worked-example">Telegram answers, and WhatsApp only gives context</h2>
     <pre><code>seq  match                                           target
 10   platform=telegram room=group/5229089286         rhias/nemo
-20   platform=whatsapp room=120363012345678901@g.us  rhias/nemo#observe</code></pre>
+20   platform=whatsapp room=120363012345678901@g.us  rhias/nemo?observe</code></pre>
     <p>The team talks on Telegram. The messages of the WhatsApp group go into the <code>rhias/nemo</code> folder as <code>&lt;observed&gt;</code> entries, and the agent never replies on WhatsApp. When a WhatsApp message is important, the agent posts to Telegram with a one-line source note.</p>
     <p>The <a href="../products/reality/">reality product</a> uses this setup as a case study. This page gives the general recipe.</p>
 
@@ -100,11 +100,11 @@ Observed WhatsApp posts give context; the response goes on Telegram.</code></pre
       <li>Read support email into a folder, and reply only on Slack.</li>
       <li>Copy the feed of a Discord server into a folder that already serves a personal Telegram chat. The user then has one inbox.</li>
     </ul>
-    <p>The limit is on the <em>folder</em>, not on the channel. Any number of <code>#observe</code> routes can go to one folder. Each route is one more row in the table.</p>
+    <p>The limit is on the <em>folder</em>, not on the channel. Any number of <code>?observe</code> routes can go to one folder. Each route is one more row in the table.</p>
 
     <h2>Four pages give the details</h2>
     <dl>
-      <dt><a href="../concepts/routing.html#modes">routing modes</a></dt><dd>All target fragments.</dd>
+      <dt><a href="../concepts/routing.html#modes">routing modes</a></dt><dd>All route modes.</dd>
       <dt><a href="../reference/schema.html">schema reference</a></dt><dd>The fields of a route, also the <code>observe_window_*</code> overrides.</dd>
       <dt><a href="../reference/env.html#OBSERVE_WINDOW_MESSAGES">OBSERVE_WINDOW_MESSAGES</a> and <a href="../reference/env.html#OBSERVE_WINDOW_CHARS">OBSERVE_WINDOW_CHARS</a></dt><dd>The defaults for the instance.</dd>
       <dt><a href="../products/reality/">reality product</a></dt><dd>The Nemo deployment.</dd>

@@ -315,7 +315,7 @@ agent` fail without it).
 The release image supplies the required core package. Startup installs its
 assets through the common installer; the next turn reads the selected skills
 and manual. The `CHANGELOG.md` entry follows "## Announcing".
-`routd` queues release notices only for configured `#announce` destinations.
+`routd` queues release notices only for configured `?announce` destinations.
 The existing outbound queue delivers them without an agent turn.
 
 ## Tagging a new version

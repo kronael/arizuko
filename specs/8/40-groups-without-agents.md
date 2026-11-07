@@ -15,7 +15,7 @@ and people write to it. One group setting, `agent`, says which.
 Today every group is an agent. Each row that resolves to a folder starts a
 turn, and no group fact can stop that.
 
-The one fact that stops a turn is per route: a `folder#observe` target stores
+The one fact that stops a turn is per route: a `folder?observe` target stores
 the row under the folder with no turn (`routd/loop.go:694-699`). But the
 resolver reads the route table only when the chat is not a direct address
 (`routd/loop.go:645-660`). A `web:<folder>` chat, a `hook:` token and a bare
@@ -29,7 +29,7 @@ agents and outside callers use to write to a group:
   seeded by `arizuko group add` at `cmd/arizuko/main.go:467`).
 
 So a group that only carries messages between agents still boots a guest for
-each post. An all-`#observe` route set does not help: no route row is read on
+each post. An all-`?observe` route set does not help: no route row is read on
 these paths.
 
 Three other facts look like a marker and are not one:
@@ -279,7 +279,7 @@ Proposed:
 
 ```go
 // MarkMessagesRouted stamps routed_to and the folder feed. observed sets the
-// flag on both: true for a `folder#observe` rule, false for a group with no
+// flag on both: true for a `folder?observe` rule, false for a group with no
 // agent, whose rows are its own posts.
 func (s *Store) MarkMessagesRouted(ctx context.Context, folder string,
 	msgs []core.Message, observed bool) error {

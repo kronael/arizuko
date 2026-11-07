@@ -470,7 +470,7 @@ func TestBotHandle_RoutesInbound(t *testing.T) {
 
 func TestBotHandle_SkipSelfOnly(t *testing.T) {
 	// teled must drop messages from ITSELF (avoid self-loop) but deliver
-	// third-party bots (DeeperDexBot etc.) so routes can #observe them.
+	// third-party bots (DeeperDexBot etc.) so routes can ?observe them.
 	m := newTGMock()
 	defer m.close()
 	mr := testutils.NewRouterStub()

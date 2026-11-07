@@ -91,11 +91,11 @@ DMs (`discord:dm/<channel>`) always use verb `message`.
 
 When `group add` registers a guild JID, it installs two routes: a
 `verb=mention` rule with the bare folder target (fires a turn on
-mention), and a catchall `room=guild/*` rule with `target=<folder>#observe`
+mention), and a catchall `room=guild/*` rule with `target=<folder>?observe`
 (stores the rest without firing).
 
-To make a guild channel fire on every message, replace the `#observe`
-catchall with a plain `<folder>` target (drop the fragment).
+To make a guild channel fire on every message, remove the `?observe` query
+flag from the catchall target.
 
 ## Related docs
 

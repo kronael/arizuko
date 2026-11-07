@@ -37,8 +37,8 @@ refused with 400 even when the signature is valid.
 ```
 github:<owner>                    account/org-level event (no repository)
 github:<owner>/<repo>             repo-level event (push, release, …)
-github:<owner>/<repo>/pr/<n>      one pull request   topic=pr/<n>
-github:<owner>/<repo>/issue/<n>   one issue          topic=issue/<n>
+github:<owner>/<repo>/pr/<n>      one pull request
+github:<owner>/<repo>/issue/<n>   one issue
 ```
 
 Owner and repo ride in the JID (`chanlib.ParseGitHubJID` /
@@ -49,9 +49,10 @@ login and PR comment are one identity.
 
 ## Observe vs trigger
 
-`add` seeds a mention trigger and a `<folder>#observe` fallback for every chat
-level of the source: `pr/*`, `issue/*`, the repo and, for an org or App source,
-the owner. The bot's login comes from `GITHUB_TOKEN`. A turn starts only on an
+`add` seeds a `<folder>#{jid}` mention trigger and a
+`<folder>?observe#{jid}` fallback for every chat level of the source: `pr/*`,
+`issue/*`, the repo and, for an org or App source, the owner. The fragment gives each chat its full JID as the topic.
+The bot's login comes from `GITHUB_TOKEN`. A turn starts only on an
 explicit ask: an @mention of the bot written by a person anywhere (PR, issue,
 discussion, commit comment, project status update, commit message, CI output),
 a review request or assignment to the bot login, a reply to a bot comment, or a
@@ -87,10 +88,10 @@ The bot's own comments drop, and its retained metadata never becomes a mention.
 A person's `message` or `mention` keeps a PR or issue engaged after a reply, as
 on every channel: a human comment on an engaged PR starts a turn without a new
 mention. A `check_run`, `workflow_run` or review-state row is never a `mention`,
-so it does not ride engagement. It lands on the `#observe` fallback.
+so it does not ride engagement. It lands on the `?observe` fallback.
 To let CI continue an open
 conversation, add one route above the fallback, for example
-`chat_jid=github:o/r/pr/* verb=check_run` to `team/reviewer#engaged`
+`chat_jid=github:o/r/pr/* verb=check_run` to `team/reviewer?engaged#{jid}`
 ([`ROUTING.md`](../ROUTING.md)). gitd carries no flag for this.
 Repo rows sit at seq 10/100, org at 20/200, app at
 30/300, so a narrower registration wins. Operators can edit the route rows.
@@ -100,8 +101,8 @@ others, same seq as the existing mention row (`10`; `20` for an org, `30` for an
 App, with the owner row last):
 
 ```
-arizuko route -i demo add 'chat_jid=github:o/r/issue/* verb=mention' eng --seq 10
-arizuko route -i demo add 'chat_jid=github:o/r verb=mention' eng --seq 10
+arizuko route -i demo add 'chat_jid=github:o/r/issue/* verb=mention' 'eng#{jid}' --seq 10
+arizuko route -i demo add 'chat_jid=github:o/r verb=mention' 'eng#{jid}' --seq 10
 ```
 
 Subscribe to `issue_comment`, `issues`, `pull_request`, `pull_request_review`,
@@ -165,8 +166,8 @@ the agent answers; `ipc/ipc.go` refuses a call without it and sends nothing.
 comment, so the reply goes under that code line: gitd resolves the comment that
 opened the thread (GitHub accepts only that one) and posts to
 `pulls/<n>/comments/<root>/replies`, returning `gh-rc<id>`. Anything else is the
-issue-comments endpoint, returning `gh-c<id>`. The topic stays `pr/<n>` either
-way — it names the session, never the address. The token's own
+issue-comments endpoint, returning `gh-c<id>`. The topic stays
+`github:<owner>/<repo>/pr/<n>` either way — it names the session, never the address. The token's own
 comments are dropped at ingest (`sender.login` == the token's login), as is
 other bot comments. Typed PR state and CI events from automation remain eligible.
 Without a token gitd is ingress-only: a `reply` on a

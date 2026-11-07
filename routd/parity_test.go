@@ -274,7 +274,7 @@ func TestTopicPrefix(t *testing.T) {
 	}
 }
 
-// TestObserveMarksMessages: a route in observe mode (target=folder#observe)
+// TestObserveMarksMessages: a route in observe mode (target=folder?observe)
 // flags inbound rows is_observed=1 and routed_to=folder, fires no turn, and
 // advances the cursor (gated MarkMessagesObserved parity).
 func TestObserveMarksMessages(t *testing.T) {

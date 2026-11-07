@@ -68,8 +68,8 @@
       <li><strong>Catch-all routes send a platform to a world agent.</strong> Two rows with a high <code>seq</code> send every message from a platform into one folder, the &ldquo;world&rdquo; agent, here called <code>atlas</code>:
         <pre><code>seq  match                                          target
 100  chat_jid=slack:*/channel/* verb=mention        atlas
-200  chat_jid=slack:*/channel/*                     atlas#observe</code></pre>
-        The <code>#observe</code> row stores every channel message, so the agent has context. The mention row starts a turn when someone writes <code>@atlas</code>.
+200  chat_jid=slack:*/channel/*                     atlas?observe</code></pre>
+        The <code>?observe</code> row stores every channel message, so the agent has context. The mention row starts a turn when someone writes <code>@atlas</code>.
       </li>
       <li><strong>The world agent sees a channel without a folder.</strong> When <code>atlas</code> runs a turn, it sees the <code>chat_jid</code> of the inbound message. Assume that no child folder has a route for that JID and that the sender holds an operator grant. Then the agent calls the MCP tool <code>register_group</code> with the JID and a sanitized folder name.</li>
       <li><strong><code>register_group</code> writes the group and the route.</strong> <code>routd</code> writes the group row, adds the route <code>room=&lt;jid-room&gt;</code> to the new folder at <code>seq=0</code>, and runs <code>git init</code> in the folder. The next message in that channel goes to <code>atlas/eng-support</code> instead of <code>atlas</code>.</li>
@@ -107,7 +107,7 @@ senders &mdash; ask the operator instead.</code></pre>
     </dl>
 
     <h2>Routing and grants explain the parts</h2>
-    <p><a href="../concepts/routing.html">routing</a> covers route tables, glob matching and the <code>#observe</code> mode. <a href="../reference/grants.html">grants reference</a> covers grants, roles and delegation. <a href="../reference/mcp.html#register_group">mcp reference</a> covers <code>register_group</code> and the other MCP tools. <a href="web-native-agents.html">web-native agents</a> covers the web folders that a folder with the <code>web:publish</code> grant gets.</p>
+    <p><a href="../concepts/routing.html">routing</a> covers route tables, glob matching and the <code>?observe</code> mode. <a href="../reference/grants.html">grants reference</a> covers grants, roles and delegation. <a href="../reference/mcp.html#register_group">mcp reference</a> covers <code>register_group</code> and the other MCP tools. <a href="web-native-agents.html">web-native agents</a> covers the web folders that a folder with the <code>web:publish</code> grant gets.</p>
 
       <nav class="docs-pager" aria-label="Pager">
         <a rel="prev" href="onboarding.html">&larr; Onboarding</a>
@@ -115,7 +115,7 @@ senders &mdash; ask the operator instead.</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/concepts/autoviv.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-21">2026-10-21</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-28">2026-10-28</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

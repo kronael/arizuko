@@ -110,13 +110,13 @@
         <dt>Keep one conversation</dt>
         <dd>If the bot also replies on WhatsApp, the team has two threads to follow, and the WhatsApp group gets more messages than its members want.</dd>
       </dl>
-      <p>Two routes solve this. WhatsApp routes to <code>assistant/demo#observe</code>: the messages go into the folder, the agent can read them through the same ACL, and the route mode tells <code>routd</code> to start no turn. Telegram routes to <code>assistant/demo</code> and starts turns. When something from WhatsApp matters, Rhias posts it to Telegram with a one-line source note. The WhatsApp side stays silent.</p>
+      <p>Two routes solve this. WhatsApp routes to <code>assistant/demo?observe</code>: the messages go into the folder, the agent can read them through the same ACL, and the route mode tells <code>routd</code> to start no turn. Telegram routes to <code>assistant/demo</code> and starts turns. When something from WhatsApp matters, Rhias posts it to Telegram with a one-line source note. The WhatsApp side stays silent.</p>
       <pre><code>seq  match                                           target
 10   platform=telegram room=group/5229089286         assistant/demo
-20   platform=whatsapp room=120363012345678901@g.us  assistant/demo#observe
+20   platform=whatsapp room=120363012345678901@g.us  assistant/demo?observe
 </code></pre>
-      <p>The pattern extends to more sources: RSS, partner WhatsApp groups or a Slack workspace into one folder, with replies on one main channel. <a href="../../concepts/routing.html#modes">Routing modes</a> lists the fragments.</p>
-      <p>The <code>CLAUDE.md</code> of the agent can add a rule such as "never <code>send</code> or <code>reply</code> to WhatsApp". The route mode does not replace that rule. <code>#observe</code> only stops an inbound message from starting a turn. <code>send</code> and <code>reply</code> still work for a chat that has a route, so only the <code>CLAUDE.md</code> rule or a grant on the tool limits outbound sends.</p>
+      <p>The pattern extends to more sources: RSS, partner WhatsApp groups or a Slack workspace into one folder, with replies on one main channel. <a href="../../concepts/routing.html#modes">Routing modes</a> lists the query flags.</p>
+      <p>The <code>CLAUDE.md</code> of the agent can add a rule such as "never <code>send</code> or <code>reply</code> to WhatsApp". The route mode does not replace that rule. <code>?observe</code> only stops an inbound message from starting a turn. <code>send</code> and <code>reply</code> still work for a chat that has a route, so only the <code>CLAUDE.md</code> rule or a grant on the tool limits outbound sends.</p>
 
       <h2>Rhias is a single-user shape</h2>
       <p>Rhias has the same single-user shape as the <a href="../trip-computer/">trip planner</a>, for life context instead of a project. When several people need the same agent, use the <a href="../slack-team/">slack-team</a> shape.</p>

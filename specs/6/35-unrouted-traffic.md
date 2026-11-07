@@ -59,9 +59,9 @@ joined can post; anyone with the WhatsApp number can write. So a seeded
 "drives the operator's agent with the operator's files, secrets and egress".
 That is the tenancy hole, and the reason the admission queue exists at all.
 
-A seeded **observe** catch-all (`main#observe`) fires no turn but is not neutral
+A seeded **observe** catch-all (`main?observe`) fires no turn but is not neutral
 either: every stranger's text enters `main`'s `<observed>` window on its next
-trigger turn and its `inspect_messages` result (`ROUTING.md` § A target fragment sets the mode), and the observe branch
+trigger turn and its `inspect_messages` result (`ROUTING.md` §"A target query sets the mode"), and the observe branch
 consumes the miss before the greeting branch runs, so onboarding on that
 platform is dead the day an operator turns it on (`5/18` §"Staging: the other
 posture" — mutually exclusive by construction). `5/18` already decided that

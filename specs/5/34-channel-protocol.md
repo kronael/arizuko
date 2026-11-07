@@ -1,5 +1,5 @@
 ---
-status: partial
+status: shipped
 ---
 
 # Channel adapter protocol
@@ -8,22 +8,11 @@ Adapters connect to a platform and talk to routd over HTTP. Both sides
 are HTTP servers. Wire types and the client live in `chanlib/`; the
 in-memory registry in `chanreg/`.
 
-URI targets, shared expansion, route validation and migrations have code and
-tests in `core/route_target_test.go`, `store/route_target_validation_test.go`,
+URI targets, shared expansion, validation and migrations have tests in
+`core/route_target_test.go`, `store/route_target_validation_test.go`,
 `store/route_migration_test.go`, `store/github_route_migration_test.go` and
-`routd/topic_fanout_test.go`. Documentation and eval inputs still name mode fragments.
-
-## Remaining
-
-- Make the observation eval use `?observe`, so the case tests a mode rather than a topic (`anteval/cases/anteval.toml`).
-- Document URI modes and topic templates (`template/web/pub/arizuko/concepts/routing.html`, `template/web/pub/arizuko/concepts/engagement.html`).
-- Correct observation and announcement examples (`template/web/pub/arizuko/concepts/autoviv.html`, `template/web/pub/arizuko/concepts/skills.html`).
-- Correct mode examples in references (`template/web/pub/arizuko/reference/cli.html`, `template/web/pub/arizuko/reference/env.html`).
-- Correct mode examples in channel guides (`template/web/pub/arizuko/howto/asymmetric-channels.html`, `template/web/pub/arizuko/howto/discord.html`, `template/web/pub/arizuko/howto/webhooks.html`).
-- Correct mode examples in operations guides (`template/web/pub/arizuko/howto/operate.html`, `template/web/pub/arizuko/howto/upgrade.html`).
-- Correct GitHub route templates and setup examples (`template/web/pub/arizuko/components/gitd.html`, `template/web/pub/arizuko/products/github/setup.html`).
-- Correct product routing examples (`template/web/pub/arizuko/products/reality/index.html`, `template/web/pub/arizuko/products/reality/setup.html`, `template/web/pub/arizuko/products/shapes.html`).
-- Correct Slack and planner routing examples (`template/web/pub/arizuko/products/slack-team/index.html`, `template/web/pub/arizuko/products/slack-team/setup.html`, `template/web/pub/arizuko/products/trip-computer/index.html`).
+`routd/topic_fanout_test.go`. The observation eval and operator examples use
+query mode flags and topic templates.
 
 ## Decisions
 
@@ -298,7 +287,7 @@ write, never first discovered at dispatch. CLI, REST, MCP and seeded routes
 have the same validation. Route containment and destination readers use the
 parsed folder and query flags, including release and issue destinations.
 All mode target producers, including non-GitHub seeds, emit query flags.
-The `send` destination `#issues` is unchanged.
+The `send` destination is `#issues`.
 
 ### One function expands every placeholder
 

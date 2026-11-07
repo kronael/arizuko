@@ -22,7 +22,7 @@ where a change lands.
 | Chat SDK      | `webd/assets/arizuko-client.js`        | Page author    | Embedded JS served at `/assets/`                       |
 | Actions       | MCP tools                              | Agent/Plugin   | Registry + MCP                                         |
 | Autocalls     | `routd/prompt.go`                      | Router dev     | Registry slice                                         |
-| Routing rules | `router/`                              | Agent          | MCP tools; `target=<folder>[#mode]` fragment           |
+| Routing rules | `router/`                              | Agent          | MCP tools; `target=<folder>[?mode][#topic-template]`   |
 | Mounts        | `container/`                           | Agent          | Container config                                       |
 | Skills        | `ant/skills/`                          | Agent          | File-based                                             |
 | Tasks         | `timed/`                               | Agent          | IPC actions                                            |

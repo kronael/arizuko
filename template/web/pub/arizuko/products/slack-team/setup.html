@@ -122,9 +122,9 @@ arizuko invite -i acme list</code></pre>
 -2   chat_jid=slack:*/dm/*                          main
 -1   chat_jid=slack:*/channel/* verb=mention        main
 -1   chat_jid=slack:*/group/*   verb=mention        main
-0    chat_jid=slack:*/channel/*                     main#observe
-0    chat_jid=slack:*/group/*                       main#observe</code></pre>
-      <p>The channel messages still go into <code>main</code> under <code>#observe</code>, so the agent has the context at the next mention. No turn starts until someone calls the agent. <a href="../../howto/asymmetric-channels.html#mention-only">Asymmetric channels</a> has the general recipe.</p>
+0    chat_jid=slack:*/channel/*                     main?observe
+0    chat_jid=slack:*/group/*                       main?observe</code></pre>
+      <p>The channel messages still go into <code>main</code> under <code>?observe</code>, so the agent has the context at the next mention. No turn starts until someone calls the agent. <a href="../../howto/asymmetric-channels.html#mention-only">Asymmetric channels</a> has the general recipe.</p>
 
       <h2>Each channel folder has its own instructions</h2>
       <p>Each Slack channel maps to a group folder. Edit its <code>PERSONA.md</code> for voice and <code>SYSTEM.md</code> for instructions, unless a selected package ships that file: a package file returns on the next <code>package sync</code>. Select packages for it with <code>arizuko package add -g</code> and set tool grants separately. The files are available over WebDAV under <code>/dav/&lt;folder&gt;/</code>.</p>
@@ -186,7 +186,7 @@ $EDITOR /srv/data/arizuko_acme/groups/main/support/facts/&lt;topic&gt;.md
 
 # 3. optional: start turns on mentions only; a lower seq comes first
 arizuko route -i acme add 'chat_jid=slack:T123/channel/C456 verb=mention' main/support --seq -3
-arizuko route -i acme add 'chat_jid=slack:T123/channel/C456' 'main/support#observe' --seq -2</code></pre>
+arizuko route -i acme add 'chat_jid=slack:T123/channel/C456' 'main/support?observe' --seq -2</code></pre>
       <p>Messages from <code>C456</code> then go to the session of <code>main/support</code>, with its persona, its memory and its <code>facts/</code>, separate from the rest of slack-team. Thread state belongs to each group, so no context crosses channels.</p>
       <h3>Each part has one job</h3>
       <dl>
@@ -210,7 +210,7 @@ arizuko route -i acme add 'chat_jid=slack:T123/channel/C456' 'main/support#obser
         <dt>The bot left the channel</dt>
         <dd>Slack removes the bot when someone archives the channel or an admin removes the bot. Invite it again with <code>/invite @acme</code> in the channel. No restart is necessary.</dd>
         <dt>The bot is in the channel and does not answer</dt>
-        <dd>Check the route table: a route must match the JID of the channel, and the mention route must not be <code>#observe</code>. <code>arizuko route -i acme list</code> prints the table.</dd>
+        <dd>Check the route table: a route must match the JID of the channel, and the mention route must not be <code>?observe</code>. <code>arizuko route -i acme list</code> prints the table.</dd>
         <dt>Slack refuses the token</dt>
         <dd>Someone rotated the token or installed the app again. Copy the new Bot User OAuth Token into <code>SLACK_BOT_TOKEN</code> in <code>.env</code> and restart: <code>sudo systemctl restart arizuko_acme</code>.</dd>
         <dt>The AI pane is slow</dt>
