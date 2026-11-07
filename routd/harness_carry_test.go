@@ -1,7 +1,9 @@
 package routd
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -67,8 +69,12 @@ func TestHarnessCarry(t *testing.T) {
 		if err != nil || out.Outcome != runedv1.OutcomeOK {
 			t.Fatalf("dispatch: %+v %v", out, err)
 		}
-		if got != harness {
-			t.Fatalf("harness = %q, want %q", got, harness)
+		var want bytes.Buffer
+		if err := json.Compact(&want, []byte(harness)); err != nil {
+			t.Fatal(err)
+		}
+		if got != want.String() {
+			t.Fatalf("harness = %q, want %q", got, want.String())
 		}
 	}
 	check()

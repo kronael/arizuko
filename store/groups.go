@@ -85,34 +85,6 @@ func settingsOf(it objstore.Item) map[string]any {
 	return out
 }
 
-func marshalSettings(settings map[string]any) ([]byte, error) {
-	harness, ok := settings["harness"].(json.RawMessage)
-	if !ok {
-		return json.Marshal(settings)
-	}
-	if !json.Valid(harness) {
-		return nil, errors.New("invalid harness JSON")
-	}
-	copySettings := make(map[string]any, len(settings)-1)
-	for key, value := range settings {
-		if key != "harness" {
-			copySettings[key] = value
-		}
-	}
-	raw, err := json.Marshal(copySettings)
-	if err != nil {
-		return nil, err
-	}
-	if len(raw) > 2 {
-		raw = append(raw[:len(raw)-1], ',')
-	} else {
-		raw = raw[:1]
-	}
-	raw = append(raw, `"harness":`...)
-	raw = append(raw, harness...)
-	return append(raw, '}'), nil
-}
-
 func (s *Store) GroupHarness(folder string) (json.RawMessage, error) {
 	it, ok, err := s.groupItem(context.Background(), folder)
 	if err != nil || !ok {
@@ -227,7 +199,7 @@ func groupAttrs(g core.Group, settings map[string]any) (map[string]string, error
 		settings = map[string]any{}
 	}
 	settings[cfgModel] = g.Model
-	raw, err := marshalSettings(settings)
+	raw, err := json.Marshal(settings)
 	if err != nil {
 		return nil, fmt.Errorf("group %q settings: %w", g.Folder, err)
 	}
@@ -509,7 +481,7 @@ func (s *Store) setSetting(folder, key string, value any, remove bool) error {
 	} else {
 		cfg[key] = value
 	}
-	raw, err := marshalSettings(cfg)
+	raw, err := json.Marshal(cfg)
 	if err != nil {
 		return fmt.Errorf("group %q settings: %w", folder, err)
 	}
@@ -564,7 +536,7 @@ func (s *Store) SetGroupObserveWindow(folder string, msgs, chars int) error {
 	if chars >= 0 {
 		cfg[cfgObserveWinChar] = chars
 	}
-	raw, err := marshalSettings(cfg)
+	raw, err := json.Marshal(cfg)
 	if err != nil {
 		return fmt.Errorf("group %q settings: %w", folder, err)
 	}
