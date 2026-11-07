@@ -23,7 +23,7 @@ credential.
 `status: partial`: the credential (`googd/token.go`), the JID
 (`chanlib/gdrive_jid.go`), the `gdrive_files` binding and its resource, routd
 handler and CLI are built. The mapper and `Send` are built; the poll loop is
-not connected. googd has no compose fragment and cannot start as a container.
+not connected. The compose fragment starts googd as a container.
 The Drive API is off on the only project that holds a key, so the channel
 advertises no verb (§"Capabilities follow the enabled APIs, never the key's presence"). The
 owner's framing — a document is a group, a comment thread is a topic — holds
