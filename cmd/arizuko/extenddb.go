@@ -111,6 +111,18 @@ func (m *manager) account(name string) (string, error) {
 	return made.ID, err
 }
 
+func (m *manager) deleteAccount(name string) error {
+	accounts, err := m.accounts()
+	if err != nil {
+		return err
+	}
+	id, ok := accounts[name]
+	if !ok {
+		return nil
+	}
+	return m.do("DELETE", "/accounts/"+url.PathEscape(id), nil, nil, 0)
+}
+
 func (m *manager) users(acct string) ([]string, error) {
 	var rows []struct {
 		Name string `json:"user_name"`
