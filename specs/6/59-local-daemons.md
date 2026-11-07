@@ -1,9 +1,15 @@
 ---
 status: draft
-relates-to: [../8/36-publish-plan, 26-single-world-deployment]
+relates-to:
+  [
+    ../8/36-publish-plan,
+    ../7/26-single-world-deployment,
+    31-adapter-contract,
+    43-shared-store-server,
+  ]
 ---
 
-# specs/7/59 — a package runs one command and listens on one socket
+# specs/6/59 — a package runs one command and listens on one socket
 
 An operator adds a microservice and arizuko hooks it into the runtime. The
 package declares one command. Daemons find each other through one socket
@@ -54,7 +60,7 @@ There is no D-Bus and no second supervisor. Compose supervises.
 Each daemon already serves `GET /openapi.json` from `resreg.OpenAPIHandler`
 (`webd/server.go:91`). That document is its description: its `x-mcp-*`
 operations are its MCP tools, and the paths of
-[6/31-adapter-contract](../6/31-adapter-contract.md) make it a channel. routd
+[6/31-adapter-contract](31-adapter-contract.md) make it a channel. routd
 reads the document when a socket appears and drops the daemon when the socket
 goes. Core daemons and packages use the same path, and no core table lists a
 daemon.
