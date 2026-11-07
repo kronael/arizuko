@@ -146,8 +146,12 @@ def run_agent_browser(args, state, runtime):
         str(state / "profile"),
         "--proxy",
         f"socks5://127.0.0.1:{port}",
+        "--user-agent",
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+        "--args",
+        "--disable-blink-features=AutomationControlled",
     ]
-    if os.environ.get("KATASTR_HEADED") == "1":
+    if os.environ.get("KATASTR_HEADED") != "0":
         start_display(runtime)
         command.append("--headed")
     command.extend(args)
@@ -158,7 +162,7 @@ def main():
     parser = argparse.ArgumentParser(
         description="Guest CUZK browser. State: KATASTR_STATE (~/tmp/katastr). "
         "Transport: HTTP_PROXY, KATASTR_RELAY_PORT (private host port). "
-        "Headed: KATASTR_HEADED=1 starts guest Xvfb.",
+        "Headless: KATASTR_HEADED=0 disables guest Xvfb.",
     )
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("status")
@@ -169,6 +173,12 @@ def main():
     opening.add_argument("url")
     click = commands.add_parser("click")
     click.add_argument("ref")
+    mouse = commands.add_parser("mouse")
+    mouse.add_argument("rest", nargs=argparse.REMAINDER)
+    evaluate = commands.add_parser("eval")
+    evaluate.add_argument("js")
+    browser = commands.add_parser("ab")
+    browser.add_argument("rest", nargs=argparse.REMAINDER)
     for name in "fill", "select":
         control = commands.add_parser(name)
         control.add_argument("ref")
@@ -178,6 +188,12 @@ def main():
     cooldown = commands.add_parser("cooldown")
     cooldown.add_argument("until", help="UTC RFC3339")
     args = parser.parse_args()
+    if args.command == "ab" and (
+        not args.rest
+        or args.rest[0]
+        in {"open", "goto", "navigate", "back", "forward", "reload", "pushstate"}
+    ):
+        raise ValueError("Navigation requires open; ab requires a command")
     os.umask(0o077)
     state = Path(os.environ.get("KATASTR_STATE", "~/tmp/katastr")).expanduser()
     state.mkdir(parents=True, exist_ok=True)
@@ -214,10 +230,12 @@ def main():
             save_state(ledger, data)
         runtime = Path("/tmp/katastr")
         runtime.mkdir(mode=0o700, exist_ok=True)
-        browser_args = [args.command]
-        for name in "url", "ref", "value", "path":
+        browser_args = [] if args.command == "ab" else [args.command]
+        for name in "url", "ref", "value", "path", "js":
             if hasattr(args, name):
                 browser_args.append(str(getattr(args, name)))
+        if hasattr(args, "rest"):
+            browser_args.extend(args.rest)
         return run_agent_browser(browser_args, state, runtime)
 
 

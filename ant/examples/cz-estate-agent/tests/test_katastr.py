@@ -191,6 +191,94 @@ class QuotaTests(unittest.TestCase):
             self.assertEqual(dispatched[:2], ["--session", "katastr"])
             self.assertIn(str(self.state / "profile"), dispatched)
             self.assertIn("socks5://127.0.0.1:1081", dispatched)
+            self.assertEqual(
+                dispatched[dispatched.index("--user-agent") + 1],
+                "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+            )
+            self.assertIn("--disable-blink-features=AutomationControlled", dispatched)
+            self.assertNotIn("--headed", dispatched)
+
+    def test_headed_default_starts_display(self):
+        with (
+            patch.dict(os.environ, {"HTTP_PROXY": "http://127.0.0.1:1234"}),
+            patch.object(katastr, "start_relay"),
+            patch.object(katastr, "start_display") as display,
+            patch.object(katastr.subprocess, "run") as run,
+        ):
+            os.environ.pop("KATASTR_HEADED", None)
+            katastr.run_agent_browser(["snapshot"], self.state, self.state)
+            display.assert_called_once_with(self.state)
+            self.assertIn("--headed", run.call_args.args[0])
+        with (
+            patch.dict(
+                os.environ,
+                {"HTTP_PROXY": "http://127.0.0.1:1234", "KATASTR_HEADED": "0"},
+            ),
+            patch.object(katastr, "start_relay"),
+            patch.object(katastr, "start_display") as display,
+            patch.object(katastr.subprocess, "run") as run,
+        ):
+            katastr.run_agent_browser(["snapshot"], self.state, self.state)
+            display.assert_not_called()
+            self.assertNotIn("--headed", run.call_args.args[0])
+
+    def test_passthrough_and_navigation_refusal(self):
+        for args, expected in [
+            (["mouse", "click", "12", "34"], ["mouse", "click", "12", "34"]),
+            (
+                ["eval", "document.title + ' value'"],
+                ["eval", "document.title + ' value'"],
+            ),
+            (["ab", "get", "title"], ["get", "title"]),
+            (["ab", "frame", "main"], ["frame", "main"]),
+            (["ab", "wait", "500"], ["wait", "500"]),
+        ]:
+            with self.subTest(args=args):
+                _, browser = self.command(*args)
+                self.assertEqual(browser.call_args.args[0], expected)
+        for args in [["ab"]] + [
+            ["ab", verb]
+            for verb in (
+                "open",
+                "goto",
+                "navigate",
+                "back",
+                "forward",
+                "reload",
+                "pushstate",
+            )
+        ]:
+            with (
+                self.subTest(args=args),
+                patch.object(katastr, "run_agent_browser") as browser,
+            ):
+                with (
+                    patch.object(sys, "argv", [str(SCRIPT), *args]),
+                    self.assertRaisesRegex(ValueError, "requires open"),
+                ):
+                    katastr.main()
+                browser.assert_not_called()
+
+    def test_cooldown_blocks_passthrough_without_changing_ledger(self):
+        self.command("cooldown", "1970-01-02T03:48:20Z")
+        before = (self.state / "ledger.json").read_bytes()
+        for args in (
+            ["mouse", "click", "1", "2"],
+            ["eval", "1 + 2"],
+            ["ab", "get", "title"],
+        ):
+            with (
+                self.subTest(args=args),
+                patch.object(katastr, "run_agent_browser") as browser,
+            ):
+                with (
+                    patch.object(sys, "argv", [str(SCRIPT), *args]),
+                    patch.object(katastr.time, "time", return_value=100000),
+                    self.assertRaisesRegex(ValueError, "Cooldown"),
+                ):
+                    katastr.main()
+                browser.assert_not_called()
+                self.assertEqual((self.state / "ledger.json").read_bytes(), before)
 
 
 if __name__ == "__main__":

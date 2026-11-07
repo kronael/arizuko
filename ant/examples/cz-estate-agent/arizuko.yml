@@ -7,4 +7,4 @@ env:
   KATASTR_STATE:
     hint: Optional — directory for the quota ledger and browser profile; default ~/tmp/katastr
   KATASTR_HEADED:
-    hint: Optional — set to 1 for headed Chromium under Xvfb
+    hint: Optional — headed Chromium under Xvfb is default; set to 0 for headless debugging

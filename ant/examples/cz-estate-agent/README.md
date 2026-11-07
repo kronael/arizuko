@@ -16,13 +16,10 @@ Use `-i/--instance NAME` to select another configured instance. `arizuko package
 The standard agent image supplies Python, socat, agent-browser, Chromium, Xvfb and xauth.
 Installation sends no CUZK requests.
 
-## The operator holds authorization
+## Authorization and ownership
 
-The operator holds authorization from the Czech Office for Surveying, Mapping and Cadastre, ČÚZK, to download cadastral data automatically.
-This authorization includes bypassing automated bot-verification checks and remains valid for ten years from its date of issuance.
-
-The package includes the offline [solver](skills/katastr/solve.py).
-The [katastr skill](skills/katastr/SKILL.md#solve) defines its use under this authorization.
+The shipped [authorization memo](skills/katastr/AUTHORIZATION.md) records the operator's authorization details.
+The [ownership procedure](skills/katastr/vlastnici.md) covers parcel lookup, visible checks and the offline [solver](skills/katastr/solve.py).
 
 ## Transport
 
@@ -49,7 +46,8 @@ The group's egress grant must permit `host.docker.internal`.
 The open-data skills also need `ags.cuzk.gov.cz`, `services.cuzk.cz`, `katastrnemovitosti.cz` and `volby.gov.cz`.
 The relay carries arbitrary SOCKS targets and does not authenticate groups.
 Set `KATASTR_RELAY_PORT` when the relay uses another port.
-Set `KATASTR_HEADED=1` for headed Chromium; Xvfb disables TCP access.
+Headed Chromium under Xvfb is the default; Xvfb disables TCP access.
+Set `KATASTR_HEADED=0` for headless debugging.
 
 ## State and verification
 
@@ -64,9 +62,15 @@ python3 ~/.claude/skills/katastr/katastr.py open https://nahlizenidokn.cuzk.gov.
 python3 ~/.claude/skills/katastr/katastr.py snapshot
 ```
 
-For manual browser input, set `AGENT_BROWSER_SOCKET_DIR=/tmp/katastr` and use `agent-browser --session katastr`.
+Use `katastr.py click REF`, `mouse move X Y`, `mouse down left` and `mouse up left` for browser input.
+Use `katastr.py eval JS` or `ab COMMAND ...` for same-session inspection.
+Navigation requires `open`; never use `eval` or `ab` to bypass pacing.
 The [skill](skills/katastr/SKILL.md) defines pacing, evidence requirements, challenge handling and the login stop rule.
 
-Run `python3 -B -m unittest discover -s ant/examples/cz-estate-agent/tests` from the repository root.
+Run the local tests from the repository root:
+
+```sh
+uv run --with numpy --with pillow --with scipy python -B -X dev -W error -m unittest discover -s ant/examples/cz-estate-agent/tests
+```
 The fixtures start no Chromium and send no CUZK requests.
 Verify guest browser access separately; an HTTP response does not prove ownership details are visible.
