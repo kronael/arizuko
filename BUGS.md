@@ -31,7 +31,6 @@
 - `L473` — how does a newer seeded acl floor reach an existing instance
   without re-adding rows an operator removed?
 - `L597` — choose whether human conversation takes priority over CI in bounded observed context.
-- `L680` — dashd grant add 403 and `invite_create` persists nothing; `./tests` red.
 - `L678` — no door writes group `effort`; dashd lists only 4.x models (in the per-group harness spec).
 
 
@@ -475,19 +474,6 @@ that version. A change to which rows reach live data is an auth change.
 
 - **Status:** open — needs sign-off.
 
-
-## L680 — two `tests` integration cases fail on main: dashd grant add 403s and `invite_create` persists nothing (2026-11-07, open)
-
-Measured: `go test -count=1 -short ./tests/` fails `TestFeature_DashdAdminPlane`
-(`feat_dashd_test.go:60`: `grant add = 403, want 200` for a `service:dashd`
-bearer with `acl:write`) and `TestMCP_InviteTools`
-(`integration_mcp_test.go:275`: `invite not persisted: invs=[]`; `invite_list`
-returns `{"invites":[]}`). Both fail already at `57b5bc255`, so neither is from
-today's 6/53, route or 6/46 work. `make test` is `-short` and the e2e gate does
-not run this package, so the red stayed unseen.
-
-- **Severity:** medium (the dashd grant path and the agent invite tools are refused or silent)
-- **Fix:** find the commit that broke each (bisect), then fix the cause, not the test, unless the test's premise is the stale part.
 
 ## L678 — no operator door writes a group's `effort`, and dashd lists only 4.x models (2026-11-07, open — folded into the per-group harness spec)
 
