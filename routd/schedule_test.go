@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -85,5 +86,52 @@ func TestScheduleRetryKeepsMessageIdentity(t *testing.T) {
 	task, _ = db.GetTask(task.ID)
 	if task.Status != core.TaskCompleted {
 		t.Fatalf("task = %+v", task)
+	}
+}
+
+// recoveryGate holds the recovery query until the test allows it to finish.
+type recoveryGate struct {
+	objstore.Store
+	entered chan struct{}
+	release chan struct{}
+	tick    chan struct{}
+}
+
+func (g *recoveryGate) Query(ctx context.Context, q objstore.Query) ([]objstore.Item, error) {
+	if q.Entity == store.ScheduledTasks && len(q.Where) == 1 && q.Where[0].Attr == "status" {
+		switch q.Where[0].Value {
+		case store.TaskStatusFiring:
+			close(g.entered)
+			<-g.release
+		case core.TaskActive:
+			close(g.tick)
+		}
+	}
+	return g.Store.Query(ctx, q)
+}
+
+func TestScheduleWaitsForRecovery(t *testing.T) {
+	db, srv, _ := newTestRoutd(t)
+	gate := &recoveryGate{Store: db.obj, entered: make(chan struct{}), release: make(chan struct{}), tick: make(chan struct{})}
+	db.obj = gate
+	loop := srv.loop
+	loop.BindServer(srv)
+	ctx, cancel := context.WithCancel(context.Background())
+	go loop.Run(ctx)
+	<-gate.entered
+	select {
+	case <-gate.tick:
+		t.Error("scheduler started before recovery finished")
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(gate.release)
+	select {
+	case <-gate.tick:
+	case <-time.After(5 * time.Second):
+		t.Error("scheduler did not start after recovery")
+	}
+	cancel()
+	if !loop.Wait(5 * time.Second) {
+		t.Fatal("loop did not stop")
 	}
 }
