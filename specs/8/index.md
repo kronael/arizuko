@@ -2,18 +2,24 @@
 status: active
 ---
 
-# specs/8 — enterprise hardening: trust primitives on top of phase 5
+# specs/8 — enterprise hardening and agent compositions
 
 The trust layer — the hardening that makes arizuko survive a regulated
 buyer's security review. Phase 5 builds the surfaces; this phase makes them
-defensible.
+defensible. Packages, process composition, programmable turns and groups without
+agents also belong to this phase.
 
-| Spec                                                 | Status  | Hook                                                                                                                                                                                         |
-| ---------------------------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [A-hierarchical-skills.md](A-hierarchical-skills.md) | draft   | Nested `ant/skills/` layout + self-skill root; `resolve` descends a tree instead of enumerating all 93 SKILL.md frontmatters. Per-turn O(depth).                                             |
-| [D-slack-agent-pane.md](D-slack-agent-pane.md)       | shipped | Slack AI sidebar: persisted `pane_sessions`, thread-started/context-changed handlers, staged title + suggested prompts, pane context in prompt.; facts in `slakd/README.md` § Assistant pane |
-| [E-encryption-at-rest.md](E-encryption-at-rest.md)   | partial | AES-256-GCM on `secrets.value` under a `SECRETS_KEY` keyring (shipped). `messages.db` content columns deferred — it trades away SQL search.                                                  |
-| [X-sso-saml.md](X-sso-saml.md)                       | draft   | Enterprise SSO: SAML 2.0 SP-initiated + OIDC Authorization Code on top of existing OAuth. JIT provisioning + optional SCIM deprovisioning.                                                   |
+| Spec                                                           | Status  | Summary                                                                                                                                                                                      |
+| -------------------------------------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [A-hierarchical-skills.md](A-hierarchical-skills.md)           | draft   | Nested `ant/skills/` layout + self-skill root; `resolve` descends a tree instead of enumerating all 93 SKILL.md frontmatters. Per-turn O(depth).                                             |
+| [D-slack-agent-pane.md](D-slack-agent-pane.md)                 | shipped | Slack AI sidebar: persisted `pane_sessions`, thread-started/context-changed handlers, staged title + suggested prompts, pane context in prompt.; facts in `slakd/README.md` § Assistant pane |
+| [E-encryption-at-rest.md](E-encryption-at-rest.md)             | partial | AES-256-GCM on `secrets.value` under a `SECRETS_KEY` keyring (shipped). `messages.db` content columns deferred — it trades away SQL search.                                                  |
+| [X-sso-saml.md](X-sso-saml.md)                                 | draft   | Enterprise SSO: SAML 2.0 SP-initiated + OIDC Authorization Code on top of existing OAuth. JIT provisioning + optional SCIM deprovisioning.                                                   |
+| [36-publish-plan.md](36-publish-plan.md)                       | partial | Packages, package import adapters and skill discovery; defect L200.                                                                                                                          |
+| [37-single-world-deployment.md](37-single-world-deployment.md) | draft   | One core process with Dynamo-compatible storage and isolated agent execution.                                                                                                                |
+| [38-minimum-arizuko.md](38-minimum-arizuko.md)                 | draft   | Writable files, messaging and skills define the functional minimum.                                                                                                                          |
+| [39-programmable-turns.md](39-programmable-turns.md)           | draft   | Package-declared workflows of turns, outputs, retries and approval steps.                                                                                                                    |
+| [40-groups-without-agents.md](40-groups-without-agents.md)     | draft   | Optional agent binding; primary posts and external access without dispatch.                                                                                                                  |
 
 ## Scope note
 

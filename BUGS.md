@@ -2200,8 +2200,8 @@ rather than the design.
 
 ## L447 — squashfs is the wrong compressed rootfs for a random-read boot, and this kernel builds it in its slowest mode (2026-10-19, open — needs sign-off)
 
-FOUND 2026-10-19 while costing a packed read-only rootfs
-(`specs/6/54-agent-habitat.md`). squashfs is reachable today and EROFS is not,
+FOUND 2026-10-19 while costing a packed read-only rootfs.
+Squashfs is reachable today and EROFS is not,
 so squashfs is the right FIRST step; this entry records that it is not the
 right last one.
 
@@ -9311,8 +9311,8 @@ policy forbids.
   adapter needing a service principal; each core daemon's routes move to its
   own manifest and the reserved set derives from the catalog. Then
   `TestFragmentEnvFilesAreGenerated` asserts against the catalog, not the
-  map. Spec: `7/25` §"What the contract needs"; whether the declaration is a
-  resreg row (`5/8`'s shape) or a compose-side key in `<name>.yaml` is the
+  map. Spec: `specs/8/36-publish-plan.md` §"What the contract needs";
+  whether the declaration is a resreg row (`5/8`'s shape) or a compose-side key in `<name>.yaml` is the
   decision to sign. Redesign — sign-off before code.
 - **Fix:** `f8b82a90` (the `/dash/ttsd/` row); the rest is the redesign below
 
@@ -9322,8 +9322,8 @@ one; two of the facts are gone and one table was missed.
 - `hasService(services, "ttsd")` does not exist. `166a0223` (2026-09-05,
   the day this entry was filed) replaced it with `ttsd.yaml` declaring
   `TTS_ENABLED` and `TTS_BASE_URL` as `env` defaults — the manifest key this
-  entry asks for, already shipped for one hook. `7/25`'s table row and
-  ttsd's "three name switches" are stale by that commit.
+  entry asks for, already shipped for one hook. The ttsd "three name switches"
+  claim is stale by that commit.
 - `/dash/ttsd/` left `coreProxydRoutes` at `f8b82a90`: `ttsd.yaml` declares
   it in `proxyd_routes` like every adapter, gated by `TTS_ENABLED`, owner
   `package:ttsd`. The core row also routed `/dash/ttsd/` at a `ttsd:8080`
@@ -9350,10 +9350,10 @@ one; two of the facts are gone and one table was missed.
   `resreg/resources/github_sources.go`, `store/github_sources.go`,
   `store/migrations/0088` — are gitd's `github_sources` feature: a core
   resource because gitd's delivery sources are routd's rows, which is the
-  "mount of another owner's database" coupling `7/25` measures separately,
+  "mount of another owner's database" coupling,
   not adapter wiring. The honest cost of "become an adapter" today is two
-  compose rows, one authd row and an image — `7/25`'s "one map edit from
-  passing", except it is three tables.
+  compose rows, one authd row and an image. The package acceptance boundary in
+  `specs/8/36-publish-plan.md` requires no core map edit; this wiring needs three.
 - `dashd/services.go` now lists all nine adapters as tiles; the fact holds
   (a third-party `/dash/<name>/` route works and the hub does not show it)
   over a wider table.

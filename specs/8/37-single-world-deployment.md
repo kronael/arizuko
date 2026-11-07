@@ -1,16 +1,10 @@
 ---
 status: draft
 depends: [../6/42-dynamo-over-postgres, ../6/43-shared-store-server]
-relates-to:
-  [
-    ../6/54-agent-habitat,
-    25-publish-plan,
-    27-minimum-arizuko,
-    ../6/41-qemu-substrate,
-  ]
+relates-to: [36-publish-plan, 38-minimum-arizuko, ../6/41-qemu-substrate]
 ---
 
-# specs/7/26 — single-world deployment
+# specs/8/37 — single-world deployment
 
 A single operator needs a deployment with few moving parts. The core modules
 run in one binary and one process. Their ownership boundaries remain explicit.
@@ -48,8 +42,8 @@ application can run inside a function runtime.
 
 ## Acceptance boundaries
 
-A minimal deployment supplies [27-minimum-arizuko](27-minimum-arizuko.md).
-Package installation uses [25-publish-plan](25-publish-plan.md).
+A minimal deployment supplies [38-minimum-arizuko](38-minimum-arizuko.md).
+Package installation uses [36-publish-plan](36-publish-plan.md).
 Existing permission, delivery, execution, and workspace isolation checks apply
 to the combined process. Shutdown must stop modules and their owned work.
 

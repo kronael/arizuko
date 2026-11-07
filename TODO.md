@@ -255,9 +255,6 @@ parked, not active.
 Agents should be able to iterate + build out the platform itself. Open
 target list (capture; pick + spec as they mature):
 
-- **Hive — per-group habitat of services**: webhooks + JSON KV + web
-  proxy + systemd as the four primitives. See 2026-05-26 design
-  discussion. Likely phase 8 spec when triggered.
 - **YAML manifest model**: declarative resource intent dispatched per
   daemon, k8s-style. Shipped as `specs/5/8-yaml-manifests.md`.
 - **Product registry + clone/distribute**: agent products as

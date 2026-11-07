@@ -40,15 +40,14 @@ arizuko's self-learning pointed outward. Since 2026-08-27 it also
 carries the operator cockpit (`6/28`–`6/33`): a daemon nobody can watch
 alone has not shipped alone.
 
-Phase 6 also defines the local agent and its persistent VM habitat.
+Phase 6 also defines the agent's customizable persistent machine and runtime.
 **Phase 7** defines identity-held model credentials and tool accounts.
-Package import adapters in spec 7/25 and composition drafts 7/26 and 7/27
-remain deferred to phase 8.
 
 **Phase 8** layers enterprise hardening: encryption at rest, audit
 stream, per-daemon secrets, SSO/SAML, tool-level secret broker,
-MITM-isolated egress. The trust primitives that make arizuko
-credible to regulated buyers.
+MITM-isolated egress. The trust primitives make arizuko
+credible to regulated buyers. Phase 8 also contains packages, process composition,
+programmable turns and groups without agents.
 
 **Phase 9** owns the data model: tier separation (cold / warm / hot), which
 is the vocabulary `CLAUDE.md` leans on for "every cold-tier entity is a resreg
@@ -72,7 +71,7 @@ combination is the platform thesis arizuko ships toward.
 | [5/](5/)   | platform core — surfaces, identity, routing, tenancy, runtime                                                                                                                                                                         | shipped    |
 | [6/](6/)   | split arizuko into parts — the environment contracts, the ship-in-parts catalogue (`6/16`), crackbox, the operator cockpit (`6/28`–`6/33`), the store model (`6/37`) , the QEMU substrate (`6/41`), DynamoDB over PostgreSQL (`6/42`) | **active** |
 | [7/](7/)   | identity-held model credentials and tool accounts                                                                                                                                                                                     | queued     |
-| [8/](8/)   | enterprise hardening — encryption, audit, SSO, secret broker                                                                                                                                                                          | queued     |
+| [8/](8/)   | enterprise hardening, packages, process composition, workflows and groups without agents                                                                                                                                              | queued     |
 | [9/](9/)   | the data model — cold / warm / hot tier separation, and operator-extensible `<autocalls>`; git-as-truth is declined (`5/8`) and MCP+REST unification ships in `5/16`·`5/17`                                                           | drafting   |
 | [10/](10/) | self-healing — Aeon mechanism incorporation                                                                                                                                                                                           | queued     |
 | [11/](11/) | operator tools — branding, usage limits                                                                                                                                                                                               | queued     |
@@ -96,22 +95,17 @@ order at all. `queued` is committed and waiting its turn; `drafting` is still
 being designed; `planned` is a placeholder with no specs written. Phase 5
 closed 2026-08-15; phase 6 took `active` the same day.
 
-**Composition boundaries.** Phase 6 defines independently usable components and the agent/habitat boundary.
+**Composition boundaries.** Phase 6 defines independently usable components and the agent's persistent machine.
 One-process composition remains deferred to phase 8.
 
-## Package and composition drafts remain deferred to phase 8
+## Phase 6 defines the agent's persistent machine
 
-| Spec                                                               | Status  | Summary                                                             |
-| ------------------------------------------------------------------ | ------- | ------------------------------------------------------------------- |
-| [7/25-publish-plan.md](7/25-publish-plan.md)                       | partial | Packages, package import adapters, and skill discovery; defect L200 |
-| [7/26-single-world-deployment.md](7/26-single-world-deployment.md) | draft   | One core process with Dynamo-compatible storage                     |
-| [7/27-minimum-arizuko.md](7/27-minimum-arizuko.md)                 | draft   | Writable files, messaging, and skills                               |
+| Spec                                           | Status | Summary                                                                                                                 |
+| ---------------------------------------------- | ------ | ----------------------------------------------------------------------------------------------------------------------- |
+| [6/54-agent-machine.md](6/54-agent-machine.md) | draft  | A Unix user reaches a customizable persistent machine through SSH; private disk, installed software and explicit reset. |
 
-## The local agent owns a habitat
-
-| Spec                                           | Status | Summary                                                                                          |
-| ---------------------------------------------- | ------ | ------------------------------------------------------------------------------------------------ |
-| [6/54-agent-habitat.md](6/54-agent-habitat.md) | draft  | Local model loop and credentials, persistent VM content, optional agent binding and guest tools. |
+The [phase 8 index](8/index.md) includes packages, single-world deployment,
+the functional minimum, programmable turns and groups without agents.
 
 ## ACL layers use one evaluator
 

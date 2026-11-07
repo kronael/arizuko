@@ -72,8 +72,7 @@ contracts differ from the filing in these places:
   `ant/src/backend.ts:112`. Credential selection follows whichever harness
   selection path applies. [Per-group harness](../6/53-per-group-harness.md)
   is not a prerequisite; coordinate only its host-login mount condition.
-  [The habitat boundary](../6/54-agent-habitat.md) declares this dependency
-  but defines no identity consumer. A future consumer reads the join below;
+  A future identity consumer reads the join below;
   it must not create another principal map.
 
 [Surrogate OAuth](../5/15-surrogate-oauth.md) supplies OAuth storage and the
@@ -82,7 +81,6 @@ exchange engine. [Credentials](../5/14-credentials.md) owns credential tiers.
 [Unified ACL](../5/32-acl-unified.md) and
 [paths and roles](../5/33-paths-roles.md) own authorization.
 [External MCP](../5/13-ext-mcp.md) owns tool credential delivery.
-[Agent habitat](../6/54-agent-habitat.md) supplies the identity and delivery context.
 Their frontmatter does not prove the missing model path exists.
 
 ## One join feeds the existing credential transport
@@ -373,8 +371,8 @@ remain. No sender spelling, display name, email match, folder ancestry, or
 transitive ACL expansion establishes ownership. JWT subjects use the existing
 `auth.BareSub` boundary once; stored sender principals pass unchanged.
 
-`ResolveInitiator` is the one join available to 7/29 and any identity consumer
-in [the habitat](../6/54-agent-habitat.md). Neither spec may read `oauth_identities` directly from routd or invent
+`ResolveInitiator` is the one join available to 7/29 and any other identity consumer.
+No consumer may read `oauth_identities` directly from routd or invent
 another membership table. The join returns ownership, not an authorization
 verdict. ACL evaluation continues through `auth.Authorize` and the turn gate.
 

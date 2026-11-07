@@ -54,7 +54,7 @@ as a contract. A part nobody can watch has not shipped.
 | [50-anteval-ephemeral-instance.md](50-anteval-ephemeral-instance.md) | planned | anteval run composes the arizuko CLI lifecycle with black-box cases; isolated release instance, store account and vsock window; CLI removal remains unbuilt; never touches a serving instance |
 | [52-acl-layers.md](52-acl-layers.md) | shipped | Local ACL rows override release defaults through one evaluator. Delegated rule mutations check authority and prove the policy version. |
 | [53-per-group-harness.md](53-per-group-harness.md) | draft | One opaque harness document per group; ant owns selection and validation, groups update serves dashd and MCP, and model credentials share one authorization policy. |
-| [54-agent-habitat.md](54-agent-habitat.md) | draft | The local agent owns a persistent VM habitat; optional agent binding, guest tools, installed software and agent-side programs. |
+| [54-agent-machine.md](54-agent-machine.md) | draft | A customizable persistent machine and runtime, reached as a Unix user through SSH; private disk, installed software and explicit reset. |
 
 `7` owns the contracts; `1` owns the strategy; `16` owns the map (layers,
 axes, matrices); `28` owns the cockpit and every one of `29`–`33` points back

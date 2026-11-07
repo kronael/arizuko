@@ -2,10 +2,10 @@
 status: partial
 defects: [L200]
 depends: [../5/27-compose-native-packaging, ../5/8-yaml-manifests]
-relates-to: [../6/54-agent-habitat, 26-single-world-deployment]
+relates-to: [37-single-world-deployment]
 ---
 
-# specs/7/25 — packages and skill discovery
+# specs/8/36 — packages and skill discovery
 
 A package supplies capabilities to Arizuko. A package can contain skills,
 files, an adapter, or a service. Package identity does not imply process identity.
