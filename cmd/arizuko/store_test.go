@@ -277,6 +277,9 @@ func account(t *testing.T, name string) *dynamodb.Client {
 	if err := m.user(id, "operator"); err != nil {
 		t.Fatal(err)
 	}
+	if err := m.putPolicy(id, "operator", `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"dynamodb:*","Resource":"*"}]}`); err != nil {
+		t.Fatal(err)
+	}
 	keyID, secret, err := m.mint(id, "operator")
 	if err != nil {
 		t.Fatal(err)
@@ -297,6 +300,9 @@ func snapshot(t *testing.T, source string) string {
 	m := testManager(t)
 	id, err := m.account(source)
 	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.putPolicy(id, "operator", `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["dynamodb:ListTables","dynamodb:DescribeTable","dynamodb:Scan"],"Resource":"arn:aws:dynamodb:*:*:table/*"}]}`); err != nil {
 		t.Fatal(err)
 	}
 	keyID, secret, err := m.mint(id, "operator")
@@ -358,9 +364,9 @@ func scan(t *testing.T, c *dynamodb.Client, name string) []map[string]types.Attr
 	return items
 }
 
-func dstClient(t *testing.T, dir string) *dynamodb.Client {
+func dstClient(t *testing.T, dir, daemon string) *dynamodb.Client {
 	t.Helper()
-	pair := pairOf(t, dir, "operator.env")
+	pair := pairOf(t, dir, daemon+".env")
 	cfg := dyntest.Config(t)
 	cfg.KeyID, cfg.Secret = pair[dynstore.EnvKeyID], pair[dynstore.EnvSecret]
 	c, err := dynstore.Client(cfg)
@@ -406,8 +412,9 @@ func TestEnrollCopiesEveryTableAndCounts(t *testing.T) {
 			t.Errorf("output lacks %q:\n%s", want, out)
 		}
 	}
-	dst := dstClient(t, dir)
 	for _, name := range []string{every, big} {
+		owner, _, _ := strings.Cut(name, ".")
+		dst := dstClient(t, dir, owner)
 		if got, want := scan(t, dst, name), scan(t, src, name); !reflect.DeepEqual(got, want) {
 			t.Errorf("%s differs from the source", name)
 		}
@@ -429,6 +436,11 @@ func TestEnrollCopyScanLimits(t *testing.T) {
 		t.Fatal(err)
 	}
 	proxy := httputil.NewSingleHostReverseProxy(target)
+	transport, err := dynstore.HTTPClient(dyntest.Config(t).CA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proxy.Transport = transport.GetTransport()
 	var mu sync.Mutex
 	var scans [][]byte
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -473,6 +485,22 @@ func TestEnrollCopyScanLimits(t *testing.T) {
 	}
 }
 
+func TestEnrollCopyInventoriesEveryPage(t *testing.T) {
+	source := uniq("src")
+	src := account(t, source)
+	for i := range 101 {
+		makeTable(t, src, fmt.Sprintf("teled.page%03d", i))
+	}
+	instance, _ := newInstance(t)
+	out, err := enrollRun(t, instance, snapshot(t, source))
+	if err != nil {
+		t.Fatalf("copy: %v\n%s", err, out)
+	}
+	if strings.Count(out, " 0 equal\n") != 101 {
+		t.Fatalf("copy omitted tables from the paged inventory:\n%s", out)
+	}
+}
+
 func TestEnrollCopyKeepsADestinationItem(t *testing.T) {
 	source := uniq("src")
 	src := account(t, source)
@@ -485,7 +513,7 @@ func TestEnrollCopyKeepsADestinationItem(t *testing.T) {
 	if out, err := enrollRun(t, instance, snap); err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
-	dst := dstClient(t, dir)
+	dst := dstClient(t, dir, "teled")
 	put(t, dst, name, map[string]types.AttributeValue{"pk": s("a"), "sk": s("1"), "v": s("new")})
 	out, err := enrollRun(t, instance, snap)
 	if err != nil || !strings.Contains(out, name+" 1 equal") {
@@ -508,7 +536,7 @@ func TestEnrollCopyFailsOnAnExtraDestinationItem(t *testing.T) {
 	if out, err := enrollRun(t, instance, snap); err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
-	put(t, dstClient(t, dir), name, map[string]types.AttributeValue{"pk": s("z"), "sk": s("1")})
+	put(t, dstClient(t, dir, "teled"), name, map[string]types.AttributeValue{"pk": s("z"), "sk": s("1")})
 	out, err := enrollRun(t, instance, snap)
 	if err == nil || !strings.Contains(err.Error(), "destination 2") || strings.Contains(out, name+" ") {
 		t.Fatalf("err = %v\n%s", err, out)
@@ -531,6 +559,16 @@ func TestEnrollCopyStopsBeforeAnyWrite(t *testing.T) {
 					KeySchema:  []types.KeySchemaElement{{AttributeName: aws.String("gsi"), KeyType: types.KeyTypeHash}},
 					Projection: &types.Projection{ProjectionType: types.ProjectionTypeAll},
 				}}
+			})
+			return name
+		},
+		"a table with a stream": func(t *testing.T, c *dynamodb.Client) string {
+			name := uniq("teled.stream")
+			makeTable(t, c, name, func(in *dynamodb.CreateTableInput) {
+				in.StreamSpecification = &types.StreamSpecification{
+					StreamEnabled:  aws.Bool(true),
+					StreamViewType: types.StreamViewTypeNewAndOldImages,
+				}
 			})
 			return name
 		},
@@ -560,7 +598,7 @@ func TestEnrollCopyFailsOnAnotherKeySchema(t *testing.T) {
 	if out, err := enrollRun(t, instance); err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
-	makeTable(t, dstClient(t, dir), name, func(in *dynamodb.CreateTableInput) {
+	makeTable(t, dstClient(t, dir, "teled"), name, func(in *dynamodb.CreateTableInput) {
 		in.AttributeDefinitions = in.AttributeDefinitions[:1]
 		in.KeySchema = in.KeySchema[:1]
 	})
