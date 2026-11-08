@@ -15,7 +15,7 @@
 
 ## What needs you
 
-- `L721` — delegate/escalate turns bounce between root `sloth` and `sloth/discord` for an hour; cause unmeasured.
+- `L721` — delegate/escalate turns bounced for an hour; tool-text fix ships in v0.75.4, verify on live turns after deploy.
 - `L665` — `unpair` removes the account's denies from the paired identity's turns; needs sign-off.
 - `L664` — `invite_create` mints `admin` the issuing folder cannot delegate; needs sign-off.
 - `L660` — a mention by reply engages only the reply chain, not the chat root; proposal, needs sign-off.
