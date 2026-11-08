@@ -2039,7 +2039,7 @@ func buildMCPServer(routd RoutdFns, db StoreFns, folder string, isRoot bool, cal
 	// (its group-row + route + git-init FS side-effects via s.registerGroup can't
 	// ride a resreg tx), so its auth + audit live in routd/groups_resource.go.
 
-	granted("escalate_group", "Hand a prompt up to this group's parent folder; the parent responds back through this child. Use when the request exceeds this group's authority or needs operator review. Not for peer/child handoff (delegate_group) or creating a new group (register_group). Depth capped at 1.",
+	granted("escalate_group", "Hand a prompt up to this group's parent folder; each call queues a parent turn. Use when the request exceeds this group's authority or needs operator review, not for progress reports. Use <status> or TodoWrite for live progress. Not for peer/child handoff (delegate_group) or creating a new group (register_group). Depth capped at 1.",
 		[]mcp.ToolOption{
 			mcp.WithString("prompt", mcp.Required()),
 			mcp.WithString("chatJid", mcp.Required()),
@@ -2094,7 +2094,7 @@ func buildMCPServer(routd RoutdFns, db StoreFns, folder string, isRoot bool, cal
 			return toolJSON(map[string]any{"queued": true, "parent": parent})
 		})
 
-	granted("delegate_group", "Hand a prompt down to a specific child group for async execution; the child runs in its own session and workspace. Use to offload specialist work to an existing child without blocking this chat. Not for parent handoff (escalate_group) or creating the child (register_group). Depth capped at 1.",
+	granted("delegate_group", "Hand a prompt down to a specific child group for async execution; each call queues a child turn in its own session and workspace. chatJid is the return address for the child's reply. Use to offload specialist work to an existing child without blocking this chat. Not for parent handoff (escalate_group) or creating the child (register_group). Depth capped at 1.",
 		[]mcp.ToolOption{
 			mcp.WithString("group", mcp.Required()),
 			mcp.WithString("prompt", mcp.Required()),

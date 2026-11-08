@@ -447,8 +447,10 @@ were progress reports (rollout: `escalate_group({… prompt:"Progress: …"})`).
 
 - **Severity:** high — one request costs about an hour of both slots and tens of
   millions of tokens, and user turns wait behind it.
-- **Scope:** not yet measured which side owns it: the agent using `escalate_group`
-  for progress, or routd running a parent turn for every escalation. Measure first.
+- **Status:** open — the child sent progress via `escalate_group`, which queues a
+  parent turn for every call; the parent then issued further delegations. The tool
+  descriptions did not state that each call starts a turn or direct progress to
+  `<status>`/`TodoWrite`. Delegated replies return to the caller's `chatJid`.
 - **Test:** a child that reports progress while working does not start a parent
   turn per report; one request with a delegation ends in a bounded number of turns.
 
