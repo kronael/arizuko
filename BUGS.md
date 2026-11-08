@@ -16,7 +16,6 @@
 ## What needs you
 
 - `L721` — group handoffs bounced for an hour; verify bounded turns after deployment with group sends and progress guidance.
-- `L756` — deleted held input replays into a replacement group; authorized R1 fix.
 - `L743` — an instance-wide model pause needs trusted host-side provider evidence; proposal, needs sign-off.
 
 - `L715` — A1/A2: trusted GitHub sender and source-owner binding; proposal, needs sign-off.
@@ -381,22 +380,6 @@ reads those words now.
   **Proposal:** stop the build on the first failed submake. This is an adjacent
   build-gate repair; scope approval is pending.
 
-## L756 — deleted held input replays into a replacement group (2026-11-08, open)
-
-**Severity:** HIGH, correctness; tenant isolation. Fifth v0.75.4 audit R1.
-`store/folder_scope.go:166` preserves held turn contexts and pending messages;
-`routd/model_pauses.go:114` resolves held input through its saved folder.
-After deleting and recreating that path, `routd/dispatch.go:428` accepts the
-replacement group without a route to the original chat.
-Measured: audit witness `TestAudit5DeletedFolderReplaysIntoReplacement`
-held a routed Telegram input on refusal, deleted group `a`, verified its
-pause and routes were gone, recreated `a`, and observed a second run receive
-`private-held` and the original private input. The witness asserts the defect.
-**Fix:** retire held work and its pending input span during subtree deletion;
-retain completed history and prevent path reuse from restoring dispatch.
-Regression: `routd/model_pauses_test.go::TestModelPauseDeleteRecreateRetiresHeldInput`
-failed against unfixed source: a second run received the original tenant input
-after delete/recreate without a replacement route.
 
 ## L715 — tenant GitHub ingress needs trusted sender and source-owner binding (2026-11-08, proposal — needs sign-off)
 
