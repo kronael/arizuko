@@ -39,6 +39,30 @@ export interface Turn {
   deadline: number;
 }
 
+export interface ProviderFailure {
+  reason: 'spend_limit' | 'rate_limit' | 'authentication' | 'outage';
+  reset_at?: string;
+}
+
+export function providerFailure(status: number, code: string, message: string,
+  reset?: unknown): ProviderFailure | undefined {
+  let reason: ProviderFailure['reason'];
+  if (['spend_limit_reached', 'insufficient_quota', 'billing_hard_limit_reached'].includes(code) ||
+      /^(Monthly spend limit reached|You've hit your individual spend limit)[.!]?$/.test(message))
+    reason = 'spend_limit';
+  else if (status === 429 || code === 'rate_limit_exceeded')
+    reason = 'rate_limit';
+  else if (status === 401 || code === 'authentication_error' || code === 'invalid_api_key')
+    reason = 'authentication';
+  else if (status >= 500 && status <= 599 || code === 'overloaded_error')
+    reason = 'outage';
+  else
+    return undefined;
+  const millis = typeof reset === 'number' ? reset * 1000 :
+    typeof reset === 'string' ? Date.parse(reset) : NaN;
+  return { reason, ...(Number.isFinite(millis) ? { reset_at: new Date(millis).toISOString() } : {}) };
+}
+
 // Frame is one normalized harness output. Nothing downstream parses a harness
 // payload — the <status> bug lived exactly there.
 export type Frame =
@@ -64,6 +88,7 @@ export type Frame =
       // rejection, not a flaky call. The chassis turns it into an exit code
       // runed reads as Terminal, so the turn is never re-spawned (BUGS L175).
       terminal?: boolean;
+      providerFailure?: ProviderFailure;
     };
 
 // ResultFrame is the terminal variant — what a reducer's finish() synthesizes

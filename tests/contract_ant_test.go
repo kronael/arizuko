@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	"github.com/kronael/arizuko/ipc"
+	apiv1 "github.com/kronael/arizuko/routd/api/v1"
 )
 
 func TestSubmitStatusPayloadFieldsMatchAcrossLanguages(t *testing.T) {
@@ -162,11 +163,12 @@ func TestSubmitTurnPayloadFieldsMatchAcrossLanguages(t *testing.T) {
 // every field set and assert each one arrives non-zero.
 func TestSubmitTurnDecodeKeepsEveryField(t *testing.T) {
 	payload := map[string]any{
-		"turn_id":    "t-1",
-		"session_id": "11111111-2222-3333-4444-555555555555",
-		"status":     "success",
-		"error":      "",
-		"timed_out":  true,
+		"turn_id":          "t-1",
+		"session_id":       "11111111-2222-3333-4444-555555555555",
+		"status":           "success",
+		"error":            "",
+		"timed_out":        true,
+		"provider_failure": map[string]any{"reason": "rate_limit", "reset_at": "2026-11-08T13:00:00Z"},
 		"models": map[string]any{
 			"opus": map[string]any{"input_tokens": 10, "output_tokens": 20},
 		},
@@ -193,6 +195,10 @@ func TestSubmitTurnDecodeKeepsEveryField(t *testing.T) {
 	if !got.TimedOut {
 		t.Error("timed_out dropped in decode — a timeout summary reads as a normal completion")
 	}
+	if got.ProviderFailure == nil || got.ProviderFailure.Reason != "rate_limit" ||
+		got.ProviderFailure.ResetAt != "2026-11-08T13:00:00Z" {
+		t.Fatal("provider_failure dropped in decode")
+	}
 	if len(got.Models) == 0 {
 		t.Error("models dropped in decode — the turn costs nothing on the books")
 	}
@@ -203,5 +209,31 @@ func TestSubmitTurnDecodeKeepsEveryField(t *testing.T) {
 	}
 	if errCase.Error == "" {
 		t.Error("error dropped in decode — a failed turn reports as silence")
+	}
+}
+
+func TestProviderFailureFieldsMatchAcrossLanguages(t *testing.T) {
+	src := antSource(t, "backend.ts")
+	start := strings.Index(src, "export interface ProviderFailure {")
+	if start < 0 {
+		t.Fatal("missing ProviderFailure declaration")
+	}
+	end := strings.Index(src[start:], "\n}")
+	if end < 0 {
+		t.Fatal("missing ProviderFailure end")
+	}
+	fields := regexp.MustCompile(`(?m)^\s{2}([a-z_]+)(\??):`)
+	ant := map[string]bool{}
+	for _, match := range fields.FindAllStringSubmatch(src[start:start+end], -1) {
+		ant[match[1]] = match[2] == "?"
+	}
+	got := map[string]bool{}
+	typ := reflect.TypeOf(apiv1.ProviderFailure{})
+	for i := range typ.NumField() {
+		tag := typ.Field(i).Tag.Get("json")
+		got[strings.Split(tag, ",")[0]] = strings.Contains(tag, "omitempty")
+	}
+	if !reflect.DeepEqual(ant, got) {
+		t.Fatalf("ProviderFailure declarations disagree: TS %v Go %v", ant, got)
 	}
 }

@@ -16,7 +16,7 @@ import {
 import { Binding, PolicyEvent, ToolEvent, bindings, renderSteering, runRow } from './policy.js';
 import { STEER_SPOOL, drainLines } from './spool.js';
 import type { ModelUsage } from './mcp.js';
-import { timeoutFrame } from './backend.js';
+import { timeoutFrame, providerFailure, type ProviderFailure } from './backend.js';
 import type { Frame, Harness, Turn } from './backend.js';
 import { modelGateway } from './gateway.js';
 import { AGENTS } from './agents.js';
@@ -391,7 +391,7 @@ export class ClaudeTurn {
   // rejected records that the account was refused during this turn, not merely
   // throttled. A refusal outlives a retry — sloth's seven-day cap reset eleven
   // hours out — so a result that errors after one is terminal (BUGS L175).
-  private rejected = false;
+  private rejected: ProviderFailure | undefined;
 
   push(message: unknown): Frame[] {
     const m = message as { type?: string; subtype?: string; session_id?: string };
@@ -421,13 +421,16 @@ export class ClaudeTurn {
     }
     if (m.type === 'rate_limit_event') {
       if (!isRateLimitRejected(raw)) return [];
-      this.rejected = true;
+      const info = raw.rate_limit_info as { resetsAt?: unknown };
+      this.rejected = providerFailure(429, '', '', info.resetsAt);
       return [];
     }
     if (m.type === 'result') {
       const text = 'result' in raw ? (raw as { result?: string }).result ?? undefined : undefined;
       const isError = (raw as { is_error?: boolean }).is_error === true;
       const status = claudeResultStatus(m.subtype, text, isError);
+      const failure = status === 'error'
+        ? this.rejected ?? claudeProviderFailure(text) : undefined;
       return [{
         kind: 'result',
         ok: status === 'success',
@@ -436,10 +439,27 @@ export class ClaudeTurn {
         // A resume miss ("No conversation found") surfaces as this subtype; it is a
         // retry signal, never a user-facing reply.
         retryFresh: m.subtype === 'error_during_execution' || undefined,
-        terminal: (status === 'error' && (this.rejected || permanentAPIError(text))) || undefined,
+        terminal: (status === 'error' && (!!failure || permanentAPIError(text))) || undefined,
+        providerFailure: failure,
       }];
     }
     return [];
+  }
+}
+
+export function claudeProviderFailure(text: string | undefined) {
+  const match = /^API Error:\s*(\d{3})\s+(\{.*\})$/s.exec((text ?? '').trim());
+  if (!match) return undefined;
+  try {
+    const body = JSON.parse(match[2]) as {
+      error?: { type?: string; code?: string; message?: string };
+      reset_at?: unknown;
+    };
+    if (!body.error || typeof body.error.message !== 'string') return undefined;
+    return providerFailure(Number(match[1]), body.error.code ?? body.error.type ?? '',
+      body.error.message, body.reset_at);
+  } catch {
+    return undefined;
   }
 }
 
@@ -602,7 +622,17 @@ export async function* runClaude(turn: Turn, run: QueryFn = query): AsyncGenerat
     } else if (held) {
       log(`Query threw after a result (delivering the result): ${err instanceof Error ? err.message : String(err)}`);
     } else {
-      throw err;
+      const error = err as { status?: number; error?: { error?: {
+        type?: string; message?: string;
+      } }; message?: string };
+      const envelope = error.error?.error;
+      const failure = envelope && typeof envelope.type === 'string' &&
+        typeof envelope.message === 'string'
+        ? providerFailure(error.status ?? 0, envelope.type, envelope.message)
+        : claudeProviderFailure(error.message);
+      if (!failure) throw err;
+      held = { kind: 'result', ok: false, terminal: true,
+        text: error.message, providerFailure: failure };
     }
   } finally {
     clearTimeout(timer);

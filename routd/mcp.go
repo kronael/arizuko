@@ -385,7 +385,7 @@ func (s *Server) checkTurn(tc TurnContext) (ipc.TurnCheck, error) {
 func (s *Server) mcpSubmitTurn(_ string, t ipc.TurnResult) (ipc.TurnAck, error) {
 	req := apiv1.TurnResult{
 		TurnID: t.TurnID, SessionID: t.SessionID, Status: t.Status,
-		Error: t.Error, TimedOut: t.TimedOut,
+		Error: t.Error, TimedOut: t.TimedOut, ProviderFailure: t.ProviderFailure,
 	}
 	if len(t.Models) > 0 {
 		req.Models = make(map[string]apiv1.ModelCost, len(t.Models))

@@ -1,4 +1,5 @@
 import net from 'net';
+import type { ProviderFailure } from './backend.js';
 
 const MCP_SOCK = '/run/ipc/gated.sock';
 
@@ -26,6 +27,7 @@ export interface SubmitTurnPayload {
   // True when this turn's result is the graceful query-timeout summary, not a
   // normal completion. routd logs a WARN annotation; outcome stays OK.
   timed_out?: boolean;
+  provider_failure?: ProviderFailure;
 }
 
 // SubmitStatusPayload updates the turn's progress line.

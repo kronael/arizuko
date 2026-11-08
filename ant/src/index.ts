@@ -32,6 +32,7 @@ interface ContainerOutput {
   models?: Record<string, import('./mcp.js').ModelUsage>;
   // timedOut marks a result that is the graceful query-timeout summary.
   timedOut?: boolean;
+  providerFailure?: import('./backend.js').ProviderFailure;
 }
 
 const HOME = '/home/node';
@@ -112,6 +113,7 @@ async function deliverTurn(turnID: string, output: ContainerOutput) {
       error: output.error,
       models: output.models,
       timed_out: output.timedOut,
+      provider_failure: output.providerFailure,
     });
   } catch (err) {
     log(`submit_turn failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -312,7 +314,7 @@ async function runAttempt(
       } else {
         resultCount++;
         log(`Result #${resultCount}: ok=${frame.ok}${frame.retryFresh ? ' retryFresh' : ''}${frame.text ? ` text=${frame.text.slice(0, 200)}` : ''}${frame.usage ? ` models=${Object.keys(frame.usage).join(',')}` : ''}`);
-        if (frame.retryFresh && continuity !== undefined) {
+        if (frame.retryFresh && !frame.providerFailure && continuity !== undefined) {
           log('Session error, will retry without session');
           out.retryFresh = true;
         } else {
@@ -334,6 +336,7 @@ async function runAttempt(
                 : frame.text || 'the harness failed this turn',
             models: frame.usage,
             timedOut: frame.timedOut,
+            providerFailure: frame.providerFailure,
           });
           if (ack?.nudge) out.nudge = ack.nudge;
         }

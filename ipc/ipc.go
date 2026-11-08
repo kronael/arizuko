@@ -24,6 +24,7 @@ import (
 	"github.com/kronael/arizuko/mountsec"
 	"github.com/kronael/arizuko/obs"
 	"github.com/kronael/arizuko/resreg"
+	routv1 "github.com/kronael/arizuko/routd/api/v1"
 	"github.com/kronael/arizuko/router"
 	"github.com/kronael/arizuko/store"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -127,7 +128,8 @@ type TurnResult struct {
 	Status    string `json:"status"` // success | error
 	Error     string `json:"error,omitempty"`
 	// TimedOut reports harness time or turn-limit exhaustion.
-	TimedOut bool `json:"timed_out,omitempty"`
+	TimedOut        bool                    `json:"timed_out,omitempty"`
+	ProviderFailure *routv1.ProviderFailure `json:"provider_failure,omitempty"`
 
 	// Models carries per-model token usage + pre-computed cost, as the
 	// harness reports it. Optional, and nil/empty when the agent does not

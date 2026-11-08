@@ -67,7 +67,13 @@ type TurnResult struct {
 	Error     string               `json:"error"`
 	Models    map[string]ModelCost `json:"models"`
 	// TimedOut reports harness time or turn-limit exhaustion.
-	TimedOut bool `json:"timed_out"`
+	TimedOut        bool             `json:"timed_out"`
+	ProviderFailure *ProviderFailure `json:"provider_failure,omitempty"`
+}
+
+type ProviderFailure struct {
+	Reason  string `json:"reason"`
+	ResetAt string `json:"reset_at,omitempty"`
 }
 
 // ModelCost is one model's self-reported usage in TurnResult.Models.

@@ -11,6 +11,8 @@ import {
   Harness,
   ResultFrame,
   Turn,
+  providerFailure,
+  type ProviderFailure,
 } from './backend.js';
 import { renderSkillsIndex, scanSkills } from './skills-scan.js';
 import { Binding, PolicyEvent, Verdict, bindings, runnableBy } from './policy.js';
@@ -117,6 +119,7 @@ export class CodexTurn {
   private lastText: string | undefined;
   private lastError: string | undefined;
   private terminal = false;
+  private failure: ProviderFailure | undefined;
 
   get done(): boolean {
     return this.terminal;
@@ -154,10 +157,13 @@ export class CodexTurn {
       // turn.failed carries {error:{message}}; dropping it would deliver an error
       // result with no diagnostic when no assistant text preceded it.
       const err = (obj.error as { message?: string } | undefined)?.message ?? this.lastError;
-      return [{ kind: 'result', ok: false, text: this.lastText ?? err }];
+      const failure = codexProviderFailure(obj.error) ?? this.failure;
+      return [{ kind: 'result', ok: false, text: this.lastText ?? err,
+        providerFailure: failure, terminal: failure ? true : undefined }];
     }
     if (type === 'error') {
       this.lastError = (obj.message as string | undefined) ?? 'codex error';
+      this.failure = codexProviderFailure(obj);
       return [];
     }
     return [];
@@ -177,8 +183,18 @@ export class CodexTurn {
     }
     const ok = exitCode === 0 && this.lastText !== undefined;
     const err = this.lastError ?? (stderrTail.trim() || `codex exited ${exitCode}`);
-    return { kind: 'result', ok, text: ok ? this.lastText : err };
+    return { kind: 'result', ok, text: ok ? this.lastText : err,
+      providerFailure: ok ? undefined : this.failure,
+      terminal: !ok && this.failure ? true : undefined };
   }
+}
+
+export function codexProviderFailure(value: unknown) {
+  if (!value || typeof value !== 'object') return undefined;
+  const error = value as { code?: string; message?: string; reset_at?: unknown };
+  const match = /^unexpected status (\d{3})\b/.exec(error.message ?? '');
+  return providerFailure(match ? Number(match[1]) : 0, error.code ?? '',
+    error.message ?? '', error.reset_at);
 }
 
 // codex reports no cost; tokens land, cost_cents stays 0 — honest, not derived.
