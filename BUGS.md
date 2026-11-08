@@ -555,6 +555,20 @@ The fixture values and case comments do not describe the current deployment.
 - **Test:** run the affected Playwright suites with the fixture update; TypeScript and TOML edits are outside this documentation pass.
 - **Status:** ✅ FIXED — fixtures and case comments use current services.
 
+## L691 — `make rootfs` and `make kernel` reject a complete export when DOCKER uses sudo (2026-11-08, open — record only)
+
+With `DOCKER='sudo docker'`, `DOCKER_SUDO` extracts the export as root into a
+`700` root-owned stage directory. The completeness checks then run `test -s`
+as the calling user, cannot enter the stage, and report "incomplete export".
+Seen 2026-11-08 for both targets; the exports themselves were complete when
+read as root.
+
+- **Severity:** low — blocks the build only when docker needs sudo.
+- **Affected:** `Makefile` targets `rootfs` and `kernel` (stage checks).
+- **Measured:** `make rootfs DATA_DIR=<scratch> DOCKER='sudo docker'` → "incomplete export"; `sudo test -s` on each checked file passes.
+- **Fix:** run the stage checks with `$(DOCKER_SUDO)`, or create the stage readable by the caller.
+- **Status:** open — record only.
+
 ## L678 — no operator door writes a group's `effort`, and dashd lists only 4.x models (2026-11-07, open — folded into the per-group harness spec)
 
 Measured at `3e8d7bf2a`. `store/groups.go:592` reads `effort` from the group
