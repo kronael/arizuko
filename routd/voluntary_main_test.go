@@ -33,6 +33,9 @@ func runVoluntaryMainFixture(t *testing.T) (*DB, *recDeliverer, []string, string
 	t.Cleanup(func() { db.Close() })
 	dl := &recDeliverer{}
 	srv := NewServer(db, nil, dl, nil, 0, "")
+	if err := db.store().PutGroup(core.Group{Folder: "demo"}); err != nil {
+		t.Fatal(err)
+	}
 	for _, id := range []string{"first", "second"} {
 		if _, err := db.PutTurnContext(id, "demo", "", "tg:1", "u1", ""); err != nil {
 			t.Fatal(err)

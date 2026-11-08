@@ -25,6 +25,9 @@ func TestBuildRoutdFnsSendReply(t *testing.T) {
 
 	deliver := &recDeliverer{pid: "pid-9"}
 	srv := NewServer(db, nil, deliver, nil, 0, "")
+	if err := db.store().PutGroup(core.Group{Folder: "demo"}); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := db.PutTurnContext("t1", "demo", "", "tg:42", "u1", ""); err != nil {
 		t.Fatal(err)
 	}

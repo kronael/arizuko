@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/store"
 )
 
 // Message actions (spec 5/Z-message-actions) mutate an already-delivered platform message and
@@ -65,6 +66,9 @@ func socialSrv(t *testing.T) (*DB, *recDeliverer, *Server) {
 	t.Cleanup(func() { db.Close() })
 	dl := &recDeliverer{pid: "pid-1"}
 	srv := NewServer(db, nil, dl, nil, 0, "")
+	if err := db.store().SeedItem(t.Context(), store.Groups, []string{"demo"}, map[string]string{}); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := db.PutTurnContext("t1", "demo", "", "slack:T/C/U", "u1", ""); err != nil {
 		t.Fatal(err)
 	}

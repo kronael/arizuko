@@ -84,6 +84,11 @@ type webRouteReq struct {
 // what bob's turn cost.
 func TestRESTCostRead(t *testing.T) {
 	db, h := authSrv(t, fakeVerifier{sub: "user:u", scope: []string{"cost:read:own_group"}, folder: "alice"})
+	for _, folder := range []string{"alice", "bob"} {
+		if err := db.store().PutGroup(core.Group{Folder: folder}); err != nil {
+			t.Fatal(err)
+		}
+	}
 	if _, err := db.PutTurnContext("t1", "alice", "", "web:alice", "user:u", ""); err != nil {
 		t.Fatal(err)
 	}

@@ -322,6 +322,9 @@ func TestTurnReplyAppendsAndDelivers(t *testing.T) {
 	defer db.Close()
 	dl := &fakeDeliverer{platformID: "1716.0042"}
 	srv := NewServer(db, nil, dl, nil, 0, "")
+	if err := db.store().PutGroup(core.Group{Folder: "demo"}); err != nil {
+		t.Fatal(err)
+	}
 	db.PutTurnContext("t1", "demo", "", "slack:T/C/U", "u1", "")
 
 	srv.replyForTest(t, "t1", "slack:T/C/U", "answer")
@@ -346,6 +349,9 @@ func TestResultRecordsOutcome(t *testing.T) {
 	}
 	defer db.Close()
 	srv := NewServer(db, nil, nil, nil, 0, "")
+	if err := db.store().PutGroup(core.Group{Folder: "demo"}); err != nil {
+		t.Fatal(err)
+	}
 	db.PutTurnContext("t9", "demo", "main", "web:demo", "u1", "")
 
 	body := apiv1.TurnResult{TurnID: "t9", SessionID: "sX", Status: "success",

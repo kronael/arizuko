@@ -334,6 +334,9 @@ func TestFetchHistory_AdapterRows(t *testing.T) {
 	t.Cleanup(func() { db.Close() })
 	doSetRoutes(t, db, []core.Route{{Match: "platform=slack", Target: "demo"}})
 	const jid = "slack:team/channel/c1"
+	if err := db.store().PutGroup(core.Group{Folder: "demo"}); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := db.PutTurnContext("t1", "demo", "", jid, "u1", ""); err != nil {
 		t.Fatal(err)
 	}
@@ -383,6 +386,9 @@ func TestFetchHistory_AdapterFailFallsBackToCache(t *testing.T) {
 	t.Cleanup(func() { db.Close() })
 	doSetRoutes(t, db, []core.Route{{Match: "platform=slack", Target: "demo"}})
 	const jid = "slack:team/channel/c1"
+	if err := db.store().PutGroup(core.Group{Folder: "demo"}); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := db.PutTurnContext("t1", "demo", "", jid, "u1", ""); err != nil {
 		t.Fatal(err)
 	}

@@ -201,11 +201,16 @@ func TestServeTurnMCP_OperatorAllowGrantsTool(t *testing.T) {
 
 	const folder = "w/a/b/c"
 	const jid = "slack:team/channel/c1"
+	if err := db.store().PutGroup(core.Group{Folder: folder}); err != nil {
+		t.Fatal(err)
+	}
 	doSetRoutes(t, db, []core.Route{{Match: "platform=slack", Target: folder}})
 	if _, err := db.PutTurnContext("t1", folder, "", jid, "u1", ""); err != nil {
 		t.Fatal(err)
 	}
-	// No PutGroup → no role:member floor → send is dark until the allow row grants it.
+	if holdsAction(db, folder, "mcp:send") {
+		t.Fatal("send is already granted before the operator allow row")
+	}
 	addACL(t, db, "folder:"+folder, "mcp:send", folder, "allow")
 
 	deliver := &recDeliverer{pid: "pid-x"}

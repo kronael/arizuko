@@ -218,6 +218,9 @@ func TestSubmitStatusDeliversInterimWithoutEndingTurn(t *testing.T) {
 	defer db.Close()
 	dl := &recDeliverer{}
 	srv := NewServer(db, nil, dl, nil, 0, "")
+	if err := db.store().PutGroup(core.Group{Folder: "demo"}); err != nil {
+		t.Fatal(err)
+	}
 	db.PutTurnContext("t1", "demo", "", "slack:T/C/U", "u1", "")
 	if err := db.SetTurnAddressed("t1", true); err != nil {
 		t.Fatal(err)
@@ -258,6 +261,9 @@ func TestSubmitStatusEditsLiveMessageInPlace(t *testing.T) {
 	defer db.Close()
 	dl := &recDeliverer{}
 	srv := NewServer(db, nil, dl, nil, 0, "")
+	if err := db.store().PutGroup(core.Group{Folder: "demo"}); err != nil {
+		t.Fatal(err)
+	}
 	db.PutTurnContext("t1", "demo", "", "slack:T/C/U", "u1", "")
 	if err := db.SetTurnAddressed("t1", true); err != nil {
 		t.Fatal(err)
@@ -289,6 +295,9 @@ func TestSubmitStatusHardEditErrorSurfaces(t *testing.T) {
 	defer db.Close()
 	dl := &recDeliverer{editErr: errSend}
 	srv := NewServer(db, nil, dl, nil, 0, "")
+	if err := db.store().PutGroup(core.Group{Folder: "demo"}); err != nil {
+		t.Fatal(err)
+	}
 	db.PutTurnContext("t1", "demo", "", "slack:T/C/U", "u1", "")
 	if err := db.SetTurnAddressed("t1", true); err != nil {
 		t.Fatal(err)
@@ -317,6 +326,9 @@ func TestStatusRowDoesNotSuppressReply(t *testing.T) {
 	defer db.Close()
 	dl := &recDeliverer{}
 	srv := NewServer(db, nil, dl, nil, 0, "")
+	if err := db.store().PutGroup(core.Group{Folder: "demo"}); err != nil {
+		t.Fatal(err)
+	}
 	db.PutTurnContext("t1", "demo", "", "slack:T/C/U", "u1", "")
 	if err := db.SetTurnAddressed("t1", true); err != nil {
 		t.Fatal(err)
@@ -892,6 +904,9 @@ func TestSweepExpiredRunning(t *testing.T) {
 		t.Fatalf("seed the stale turn: %v", err)
 	}
 	// a turn started just now, still running.
+	if err := db.store().PutGroup(core.Group{Folder: "demo"}); err != nil {
+		t.Fatal(err)
+	}
 	db.PutTurnContext("new", "demo", "", "slack:T/C/U2", "u1", "")
 
 	n, err := db.SweepExpiredRunning(time.Hour)

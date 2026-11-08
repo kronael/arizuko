@@ -88,6 +88,9 @@ func TestTurnDeliveredLooksInTheReturnChat(t *testing.T) {
 	}
 	t.Cleanup(func() { db.Close() })
 	srv := NewServer(db, nil, &recDeliverer{}, nil, 0, "")
+	if err := db.store().PutGroup(core.Group{Folder: "a/b"}); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := db.PutTurnContext("t-1", "a/b", "", "a/b", core.ScheduledSender, nemoChat); err != nil {
 		t.Fatal(err)
 	}
@@ -122,6 +125,9 @@ func TestTurnDeliveredCountsDiscordThreadReply(t *testing.T) {
 			}
 			t.Cleanup(func() { db.Close() })
 			srv := NewServer(db, nil, &recDeliverer{}, nil, 0, "")
+			if err := db.store().PutGroup(core.Group{Folder: "a/b"}); err != nil {
+				t.Fatal(err)
+			}
 			if _, err := db.PutTurnContext("t-1", "a/b", "th1", parent, "u1", ""); err != nil {
 				t.Fatal(err)
 			}

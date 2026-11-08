@@ -43,6 +43,9 @@ func TestReplyThreadsOnTrigger(t *testing.T) {
 	srv := NewServer(db, nil, dl, nil, 0, "")
 	jid := "discord:g1/ch-1"
 	_ = db.SetChatIsGroup(jid, true)
+	if err := db.store().PutGroup(core.Group{Folder: "demo"}); err != nil {
+		t.Fatal(err)
+	}
 	threadTurn(t, db, "t1", "demo", jid, "root-1")
 
 	srv.replyForTest(t, "t1", jid, "answer")
@@ -65,6 +68,11 @@ func TestReplyThreadRootSuppressed(t *testing.T) {
 	// In-thread turn: topic set.
 	jid := "discord:g1/ch-1"
 	_ = db.SetChatIsGroup(jid, true)
+	for _, folder := range []string{"demo", "child"} {
+		if err := db.store().PutGroup(core.Group{Folder: folder}); err != nil {
+			t.Fatal(err)
+		}
+	}
 	if _, err := db.PutTurnContext("t-th", "demo", "th-9", jid, "u1", ""); err != nil {
 		t.Fatal(err)
 	}
@@ -137,6 +145,9 @@ func TestMcpDeliverReplyThreadsSendDoesNot(t *testing.T) {
 	srv := NewServer(db, nil, dl, nil, 0, "")
 	jid := "slack:T/channel/C1"
 	_ = db.SetChatIsGroup(jid, true)
+	if err := db.store().PutGroup(core.Group{Folder: "demo"}); err != nil {
+		t.Fatal(err)
+	}
 	threadTurn(t, db, "t1", "demo", jid, "1700000111.000100")
 
 	if _, _, err := srv.mcpDeliver("t1", jid, "answer", "", "mcp-1", true); err != nil {
@@ -167,6 +178,9 @@ func TestReplyStartsThreadSetsTopic(t *testing.T) {
 	srv := NewServer(db, nil, dl, nil, 0, "")
 	jid := "discord:g1/ch-1"
 	_ = db.SetChatIsGroup(jid, true)
+	if err := db.store().PutGroup(core.Group{Folder: "demo"}); err != nil {
+		t.Fatal(err)
+	}
 	threadTurn(t, db, "t1", "demo", jid, "root-1")
 
 	srv.replyForTest(t, "t1", jid, "answer")
@@ -279,6 +293,9 @@ func TestDocumentThreadsOnTopic(t *testing.T) {
 	dl := &recDeliverer{}
 	srv := NewServer(db, nil, dl, nil, 0, "")
 	jid := "slack:T/channel/C1"
+	if err := db.store().PutGroup(core.Group{Folder: "demo"}); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := db.PutTurnContext("t1", "demo", "th-9", jid, "u1", ""); err != nil {
 		t.Fatal(err)
 	}
@@ -300,6 +317,9 @@ func TestDocumentThreadsOnTrigger(t *testing.T) {
 	srv := NewServer(db, nil, dl, nil, 0, "")
 	jid := "discord:g1/ch-1"
 	if err := db.SetChatIsGroup(jid, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.store().PutGroup(core.Group{Folder: "demo"}); err != nil {
 		t.Fatal(err)
 	}
 	threadTurn(t, db, "t1", "demo", jid, "root-1")

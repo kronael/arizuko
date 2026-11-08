@@ -228,6 +228,9 @@ func TestAnswering_SyntheticSendersAreNotPeopleWaiting(t *testing.T) {
 // maintainer could not read off any surface.
 func TestAnswering_TurnOutcomesCountTheWindow(t *testing.T) {
 	db, srv, _ := newTestRoutd(t)
+	if err := db.PutGroup(core.Group{Folder: "demo"}); err != nil {
+		t.Fatal(err)
+	}
 	h := srv.Handler()
 	open := func(id, folder, state string) {
 		t.Helper()

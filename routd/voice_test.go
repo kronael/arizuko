@@ -50,6 +50,9 @@ func TestSendVoice_SynthesizesAndDelivers(t *testing.T) {
 	srv := NewServer(db, nil, dl, nil, 0, "")
 	srv.SetTTS(TTSConfig(true, tts.URL, "af_bella", "kokoro", 5*time.Second, cache))
 
+	if err := db.store().PutGroup(core.Group{Folder: "demo"}); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := db.PutTurnContext("t1", "demo", "#deploy", "tg:42", "u1", ""); err != nil {
 		t.Fatal(err)
 	}

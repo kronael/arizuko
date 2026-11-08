@@ -31,6 +31,9 @@ func TestCheckTurnDeliveryDecision(t *testing.T) {
 			}
 			defer db.Close()
 			srv := NewServer(db, nil, nil, nil, 0, "")
+			if err := db.store().PutGroup(core.Group{Folder: "demo"}); err != nil {
+				t.Fatal(err)
+			}
 			if _, err := db.PutTurnContext("t1", "demo", "", "tg:1", "u1", ""); err != nil {
 				t.Fatal(err)
 			}
@@ -75,6 +78,9 @@ func TestCheckTurnConcurrentReadersShareOneNudge(t *testing.T) {
 	}
 	defer db.Close()
 	srv := NewServer(db, nil, nil, nil, 0, "")
+	if err := db.store().PutGroup(core.Group{Folder: "demo"}); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := db.PutTurnContext("t1", "demo", "", "tg:1", "u1", ""); err != nil {
 		t.Fatal(err)
 	}
@@ -159,6 +165,9 @@ func TestCheckTurnSocketBinding(t *testing.T) {
 	}
 	defer db.Close()
 	srv := NewServer(db, nil, nil, nil, 0, "")
+	if err := db.store().PutGroup(core.Group{Folder: "demo"}); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := db.PutTurnContext("other", "demo", "", "tg:1", "u1", ""); err != nil {
 		t.Fatal(err)
 	}
@@ -178,6 +187,9 @@ func TestSubmitTurnHoldsBeforeRecording(t *testing.T) {
 	defer db.Close()
 	dl := &recDeliverer{}
 	srv := NewServer(db, nil, dl, nil, 0, "")
+	if err := db.store().PutGroup(core.Group{Folder: "demo"}); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := db.PutTurnContext("t1", "demo", "", "tg:1", "u1", ""); err != nil {
 		t.Fatal(err)
 	}
@@ -230,6 +242,9 @@ func TestSubmitTurnCompletionOutcomes(t *testing.T) {
 			defer db.Close()
 			dl := &recDeliverer{}
 			srv := NewServer(db, nil, dl, nil, 0, "")
+			if err := db.store().PutGroup(core.Group{Folder: "demo"}); err != nil {
+				t.Fatal(err)
+			}
 			if _, err := db.PutTurnContext("t1", "demo", "", "tg:1", tt.trigger, ""); err != nil {
 				t.Fatal(err)
 			}

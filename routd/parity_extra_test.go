@@ -102,6 +102,9 @@ func TestRecoverPending_ReEnqueuesRunningTurns(t *testing.T) {
 		return true, nil
 	})
 
+	if err := db.store().PutGroup(core.Group{Folder: "demo"}); err != nil {
+		t.Fatal(err)
+	}
 	// Two chats with running turns; one with a terminal turn (must NOT re-feed).
 	if _, err := db.PutTurnContext("t1", "demo", "", "tg:100", "u", ""); err != nil {
 		t.Fatal(err)
