@@ -919,6 +919,10 @@ starting after a reset. The host has 15 GiB. After the 21:27 boot, sloth's
 is not measured. The other resets (20:01, 20:23, 21:00, 21:27, earlier ones)
 left no OOM line, so memory as their cause is unmeasured.
 
+MEASURED 2026-11-08 08:50 UTC: the shared `extenddb.service` (started
+2026-11-07 07:25) holds 6.3 GiB RSS, and the host has 4.0 GB available. Growth
+over time, and which instance's traffic causes it, is not measured.
+
 ## ✅ FIXED 2026-11-03 52df9d517 L649 — `group rename` refused any instance with a `node_modules` tree under `web/`
 
 MEASURED on krons, `arizuko group -i krons rename mayai rhias/trip --dry-run`:
