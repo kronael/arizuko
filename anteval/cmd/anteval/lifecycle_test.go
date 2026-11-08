@@ -181,7 +181,7 @@ func TestLifecycleFreshNameAndSetup(t *testing.T) {
 	}
 	_, writeErr := input.WriteString("DATA_DIR=/serving-instance\n" +
 		"RUNED_VM_DIR=/serving-instance/vms\nAPP_SRC_DEV=1\n" +
-		"AUTH_SECRET=serving-secret\n")
+		"AUTH_SECRET=serving-secret\nARIZUKO_BACKEND=codex\n")
 	if err := errors.Join(writeErr, input.Close()); err != nil {
 		t.Fatal(err)
 	}
@@ -204,6 +204,7 @@ func TestLifecycleFreshNameAndSetup(t *testing.T) {
 		"APP_SRC_DEV": "", "MAX_CONCURRENT_CONTAINERS": "1", "RUNED_GUEST_MEM": "2G",
 		"AUTH_SECRET": "seed", "ASSISTANT_NAME": f.name,
 		"ONBOARDING_ENABLED": "true", "ANTHROPIC_API_KEY": "x",
+		"ARIZUKO_BACKEND": "codex",
 	} {
 		if f.config[key] != want {
 			t.Errorf("%s = %q, want %q", key, f.config[key], want)

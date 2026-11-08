@@ -31,7 +31,7 @@ The private configuration file supplies existing instance keys:
 `RUNED_VSOCK_PORT_BASE`, `RUNED_TAP_SUBNET` and `RUNED_PROXY_PORT`.
 Use an external test store and a separate vsock, tap and proxy allocation.
 Supply `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` explicitly.
-`ARIZUKO_DEFAULT_MODEL` is optional. The runner never reads another instance's
+`ARIZUKO_DEFAULT_MODEL` and `ARIZUKO_BACKEND` are optional. The runner never reads another instance's
 configuration or credentials.
 
 The sink hostname must reach this host from the guests. The runner binds its

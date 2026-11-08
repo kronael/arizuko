@@ -303,7 +303,7 @@ func doLifecycle(ctx context.Context, cli lifecycleCLI, opts lifecycleOptions) (
 		return err
 	}
 	allowed := map[string]string{}
-	for _, key := range []string{"DYNAMODB_URL", "STORE_CA", "AWS_REGION", "HOST_APP_DIR", "RUNED_KERNEL_DIR", "RUNED_ROOTFS_DIR", "RUNED_GUEST_MEM", "RUNED_VSOCK_CID_BASE", "RUNED_VSOCK_PORT_BASE", "RUNED_TAP_SUBNET", "RUNED_PROXY_PORT", "ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN", "ARIZUKO_DEFAULT_MODEL"} {
+	for _, key := range []string{"DYNAMODB_URL", "STORE_CA", "AWS_REGION", "HOST_APP_DIR", "RUNED_KERNEL_DIR", "RUNED_ROOTFS_DIR", "RUNED_GUEST_MEM", "RUNED_VSOCK_CID_BASE", "RUNED_VSOCK_PORT_BASE", "RUNED_TAP_SUBNET", "RUNED_PROXY_PORT", "ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN", "ARIZUKO_DEFAULT_MODEL", "ARIZUKO_BACKEND"} {
 		if cfg[key] != "" {
 			allowed[key] = cfg[key]
 		}
