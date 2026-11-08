@@ -15,7 +15,8 @@
 
 ## What needs you
 
-- `L720` — an escalate/delegate turn's reply to the origin chat lands in the channel root; proposal (origin context on handoff + turn), needs sign-off.
+- `L720` — an escalate/delegate turn's reply to the origin chat lands in the channel root; fix queued (anchor on `replyToId`).
+- `L721` — delegate/escalate turns bounce between root `sloth` and `sloth/discord` for an hour; cause unmeasured.
 - `L665` — `unpair` removes the account's denies from the paired identity's turns; needs sign-off.
 - `L664` — `invite_create` mints `admin` the issuing folder cannot delegate; needs sign-off.
 - `L660` — a mention by reply engages only the reply chain, not the chat root; proposal, needs sign-off.
@@ -449,28 +450,40 @@ trigger message id it would thread on belongs to the original turn, which the
 escalate turn does not carry.
 
 - **Severity:** medium — answers to one request scatter between root and thread.
-- **Scope:** `routd/placement.go`; how an escalate/delegate turn knows the origin
-  chat's trigger and topic. Not yet measured whether `TurnContext` already holds it;
-  if threading needs a new stored field this is a schema change and stops for sign-off.
-- **Test:** an escalate turn replying to the origin chat of its delegation threads
-  where the origin turn would.
-- **Status:** proposal; needs approval for stored context and handoff changes.
-  The reply target can identify a message within the destination chat, but it is
-  optional and may name an earlier message. Its stored topic can differ from the
-  origin turn's effective topic: a sticky topic overrides the message topic
-  (`routd/parity_test.go`, `TestStickyTopicRoutesSubsequent`). The handoff does
-  not identify the originating turn, so neither lookup reliably recovers it.
-- **Proposal:** persist the origin chat JID, trigger message ID, and effective
-  topic on the handoff message, and copy them into the dispatched turn context.
-  `delegate_group` and `escalate_group` write these values from the calling turn;
-  chained handoffs propagate the original values. Dispatch copies them into the
-  new turn. Reply placement reads them only when the destination is that origin
-  chat, uses the origin topic when set, and otherwise reads the chat's thread
-  preference and roots the thread on the origin trigger. This requires extending
-  the internal handoff contract and stored message and turn schemas. Migration:
-  existing rows lack these values and retain their current placement; new handoffs
-  populate them. Test both handoff types, existing topics, sticky topics, thread
-  preference on and off, and an explicit different destination.
+- **Scope:** `routd/placement.go`, a reply to a chat that is not the turn's own.
+- **Rejected 2026-11-08 by the owner:** storing an "origin" on the handoff. A
+  recovery fan-out answers many old threads from one request, so one stored origin
+  is wrong for most replies ("there is no home or original chat … it would be wrong
+  half the time").
+- **Fix:** anchor on the message the reply names. A `reply` with `replyToId` to a
+  chat that is not the turn's own goes into that message's thread: its stored topic
+  when it has one, else a new thread rooted on it when the chat prefers thread
+  replies. No new stored field; the agent's explicit target decides.
+- **Test:** a reply from a turn whose `ChatJID` is a folder, to a thread-preferring
+  chat with `replyToId` = a root message, carries `threadRoot` = that id; with
+  `replyToId` = a message stored in thread T, it carries `threadID` = T; without
+  `replyToId`, nothing changes.
+
+## L721 — delegate and escalate turns bounce between root `sloth` and `sloth/discord` for an hour (2026-11-08, open)
+
+MEASURED 2026-11-08 on sloth from the journal: after kronael's 14:49 request
+("look back and finish all interrupted sessions"), root `sloth` ran 14 turns with
+`trigger` `escalate` between 15:30:03 and 16:33:21, each 56–423 s, while
+`sloth/discord` ran delegate turns between them (`delegating to child` /
+`escalating to parent` log pairs, e.g. 16:11:31 → 16:13:53 → 16:13:55). Single
+turns read 11–18 M input tokens (`agent self-reported model usage`: `sloth`
+17,933,209 at 16:13:08; `sloth/discord` 11,816,050 at 16:14:02). With
+`MAX_CONCURRENT_CONTAINERS=2` these turns hold both slots. The child's escalations
+were progress reports (rollout: `escalate_group({… prompt:"Progress: …"})`).
+
+- **Severity:** high — one request costs about an hour of both slots and tens of
+  millions of tokens, and user turns wait behind it.
+- **Scope:** not yet measured which side owns it: the agent using `escalate_group`
+  for progress, or routd running a parent turn for every escalation. Measure first.
+- **Test:** a child that reports progress while working does not start a parent
+  turn per report; one request with a delegation ends in a bounded number of turns.
+
+## ✅ FIXED 2026-11-06 d50afcdcd L669 — dashd's group delete purges `acl` rows and edges after only `admin` on the folder (2026-11-06)
 
 ## ✅ FIXED 2026-11-06 d50afcdcd L669 — dashd's group delete purges `acl` rows and edges after only `admin` on the folder (2026-11-06)
 
