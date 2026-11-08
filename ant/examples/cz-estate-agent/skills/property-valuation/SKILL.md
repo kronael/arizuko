@@ -6,6 +6,10 @@ when_to_use: 'ocenění, odhad ceny, valuation, comparables, Kč/m2, cena pozemk
 
 # Property valuation
 
+Run a valuation only when the user explicitly requests it for a property.
+Use `guides/research.md` for the evidence and reconciliation procedure.
+Run `zdroje-review` before delivery and use `estate-site` for publication.
+
 ALWAYS give every load-bearing number a source: listing URL, sale record or build cost, with its date.
 ALWAYS check that the asking price in the listing belongs to this property.
 ALWAYS give one headline price band. A second band is allowed only for a really different buyer type, with its premium as an explicit percentage.
