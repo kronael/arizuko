@@ -57,7 +57,51 @@ func (realCLI) Preflight(ctx context.Context, cfg map[string]string) error {
 	return preflight(ctx, realHost{}, cfg)
 }
 
+// Krons daemon containers used 291.441 MiB on 2026-11-08; no gateway ran.
+// The total times 1.5 rounds up to 512 MiB.
+const servicesMemoryKiB = 512 * 1024
+
+func checkMemory(host preflightHost, cfg map[string]string) error {
+	mem := strings.TrimSpace(cfg["RUNED_GUEST_MEM"])
+	factor := uint64(1024)
+	if strings.HasSuffix(mem, "G") || strings.HasSuffix(mem, "g") {
+		factor *= 1024
+		mem = mem[:len(mem)-1]
+	} else if strings.HasSuffix(mem, "M") || strings.HasSuffix(mem, "m") {
+		mem = mem[:len(mem)-1]
+	}
+	guest, err := strconv.ParseUint(mem, 10, 64)
+	if err != nil || guest == 0 || guest > (^uint64(0)-servicesMemoryKiB)/factor {
+		return fmt.Errorf("invalid RUNED_GUEST_MEM %q", cfg["RUNED_GUEST_MEM"])
+	}
+	guest *= factor
+	data, err := host.ReadFile("/proc/meminfo")
+	if err != nil {
+		return fmt.Errorf("read /proc/meminfo: %w", err)
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) > 0 && fields[0] == "MemAvailable:" {
+			if len(fields) != 3 || fields[2] != "kB" {
+				return errors.New("invalid MemAvailable in /proc/meminfo")
+			}
+			available, err := strconv.ParseUint(fields[1], 10, 64)
+			if err != nil {
+				return errors.New("invalid MemAvailable in /proc/meminfo")
+			}
+			if available < servicesMemoryKiB+guest {
+				return fmt.Errorf("insufficient memory: available %d KiB, services and gateway %d KiB, guest %d KiB", available, servicesMemoryKiB, guest)
+			}
+			return nil
+		}
+	}
+	return errors.New("missing MemAvailable in /proc/meminfo")
+}
+
 func preflight(ctx context.Context, host preflightHost, cfg map[string]string) error {
+	if err := checkMemory(host, cfg); err != nil {
+		return err
+	}
 	for _, path := range []string{"/dev/kvm", "/dev/vhost-vsock", "/dev/net/tun"} {
 		if err := host.Open(path, os.O_RDWR); err != nil {
 			return fmt.Errorf("open %s: %w", path, err)

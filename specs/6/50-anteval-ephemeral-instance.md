@@ -19,12 +19,11 @@ runs its cases against that instance, and removes the instance when the run
 ends. It never reaches an instance that serves users.
 
 The CLI lifecycle and fake-based tests are implemented.
-The device, artifact, image and allocation checks run before creation. Capacity
-checks and live acceptance are incomplete.
+The device, artifact, image, memory and allocation checks run before creation.
+Live acceptance remains incomplete.
 
 ## Remaining
 
-- Refuse startup without sufficient memory for services, gateway and one guest. The spec and Compose do not declare a service and gateway memory budget.
 - Prove guest callback reachability and disposable smoke/product runs on an isolated external test store, including cleanup after success, failure, partial startup and interruption (`anteval/cmd/anteval/lifecycle_test.go`, `anteval/cases/anteval.toml`; L379).
 
 ## Problem — measured on krons 2026-10-21
@@ -117,7 +116,7 @@ The run refuses an existing data directory or Compose project.
 | Release assets    | Rootfs and kernel assets from the release are read-only. Mutable guest state belongs to the new instance.                                                                                                                                                                              |
 | Model and gateway | Supply the model credential explicitly. Install the normal gateway package for case cost and settle checks. Never copy another instance's credential.                                                                                                                                  |
 | Eval setup        | Use `group add`, `group grant`, `network allow` and `token issue bearer` on the new instance. Give the selected cases their grants and a reachable callback sink.                                                                                                                      |
-| Capacity          | Set `MAX_CONCURRENT_CONTAINERS=1`. Refuse startup without KVM, the release images, or memory for the instance, gateway and one guest.                                                                                                                                                  |
+| Capacity          | Set `MAX_CONCURRENT_CONTAINERS=1`. Require `RUNED_GUEST_MEM`. Refuse startup without KVM, the release images, or available memory for 512 MiB of services and gateway plus one configured guest.                                                                                       |
 
 Store enrollment and removal belong to the ordinary CLI lifecycle.
 They must work without anteval's cases. anteval invokes those commands and

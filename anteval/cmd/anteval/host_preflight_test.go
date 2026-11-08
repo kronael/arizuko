@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -18,6 +19,7 @@ type fakeHost struct {
 	imageError   bool
 	inventory    map[string]string
 	commandError string
+	meminfo      string
 }
 
 func (f *fakeHost) Run(_ context.Context, name string, args ...string) ([]byte, error) {
@@ -44,7 +46,15 @@ func (f *fakeHost) Open(path string, flags int) error {
 	return (realHost{}).Open(path, flags)
 }
 func (*fakeHost) Stat(path string) (os.FileInfo, error) { return os.Stat(path) }
-func (*fakeHost) ReadFile(path string) ([]byte, error)  { return os.ReadFile(path) }
+func (f *fakeHost) ReadFile(path string) ([]byte, error) {
+	if path == "/proc/meminfo" {
+		if f.meminfo != "" {
+			return []byte(f.meminfo), nil
+		}
+		return []byte("MemAvailable: 999999999 kB\n"), nil
+	}
+	return os.ReadFile(path)
+}
 func (f *fakeHost) InspectImages(_ context.Context, images []string) error {
 	f.images = images
 	if f.imageError {
@@ -257,5 +267,47 @@ func TestAllocationAllowsUnrelatedResources(t *testing.T) {
 	}}
 	if err := preflight(context.Background(), host, cfg); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestPreflightMemory(t *testing.T) {
+	_, cfg := preflightFixture(t)
+	cfg["RUNED_GUEST_MEM"] = "3G"
+	needed := servicesMemoryKiB + 3*1024*1024
+	for _, tc := range []struct {
+		name      string
+		available int
+		refuse    bool
+	}{
+		{"below", needed - 1, true}, {"equal", needed, false}, {"above", needed + 1, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			host := &fakeHost{meminfo: fmt.Sprintf("MemAvailable: %d kB\n", tc.available)}
+			err := preflight(context.Background(), host, cfg)
+			if tc.refuse {
+				if err == nil {
+					t.Fatal("accepted insufficient memory")
+				}
+				for _, number := range []int{tc.available, servicesMemoryKiB, 3 * 1024 * 1024} {
+					if !strings.Contains(err.Error(), fmt.Sprint(number)) {
+						t.Errorf("error %q lacks %d", err, number)
+					}
+				}
+			} else if err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+	for _, value := range []string{"", "0", "bad", "99999999999999999999G"} {
+		cfg["RUNED_GUEST_MEM"] = value
+		if err := checkMemory(&fakeHost{}, cfg); err == nil {
+			t.Errorf("accepted guest memory %q", value)
+		}
+	}
+	cfg["RUNED_GUEST_MEM"] = "1M"
+	for _, value := range []string{"MemTotal: 100 kB\n", "MemAvailable: bad kB\n", "MemAvailable: 3 MB\n"} {
+		if err := checkMemory(&fakeHost{meminfo: value}, cfg); err == nil {
+			t.Errorf("accepted meminfo %q", value)
+		}
 	}
 }

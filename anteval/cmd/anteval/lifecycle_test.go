@@ -138,7 +138,7 @@ func lifecycleFixture(t *testing.T) lifecycleOptions {
 	t.Helper()
 	t.Setenv("ARIZUKO_DATA_DIR", t.TempDir())
 	file := filepath.Join(t.TempDir(), "env")
-	data := "DYNAMODB_URL=x\nSTORE_CA=x\nAWS_REGION=x\nEXTENDDB_PASSWORD=x\nHOST_APP_DIR=x\nRUNED_KERNEL_DIR=x\nRUNED_ROOTFS_DIR=x\nRUNED_VSOCK_CID_BASE=3\nRUNED_VSOCK_PORT_BASE=5555\nRUNED_TAP_SUBNET=x\nRUNED_PROXY_PORT=3128\nANTHROPIC_API_KEY=x\n"
+	data := "DYNAMODB_URL=x\nSTORE_CA=x\nAWS_REGION=x\nEXTENDDB_PASSWORD=x\nHOST_APP_DIR=x\nRUNED_KERNEL_DIR=x\nRUNED_ROOTFS_DIR=x\nRUNED_GUEST_MEM=2G\nRUNED_VSOCK_CID_BASE=3\nRUNED_VSOCK_PORT_BASE=5555\nRUNED_TAP_SUBNET=x\nRUNED_PROXY_PORT=3128\nANTHROPIC_API_KEY=x\n"
 	if err := os.WriteFile(file, []byte(data), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -201,7 +201,7 @@ func TestLifecycleFreshNameAndSetup(t *testing.T) {
 		}
 	}
 	for key, want := range map[string]string{
-		"APP_SRC_DEV": "", "MAX_CONCURRENT_CONTAINERS": "1",
+		"APP_SRC_DEV": "", "MAX_CONCURRENT_CONTAINERS": "1", "RUNED_GUEST_MEM": "2G",
 		"AUTH_SECRET": "seed", "ASSISTANT_NAME": f.name,
 		"ONBOARDING_ENABLED": "true", "ANTHROPIC_API_KEY": "x",
 	} {
