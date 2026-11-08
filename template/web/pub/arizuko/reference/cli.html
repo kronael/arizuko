@@ -464,11 +464,11 @@ arizuko secret -i demo set main CF_API_TOKEN --value cf_xxxxxxxx</code></pre>
 
     <h2 id="other" class="group-h2">Other subcommands</h2>
 
-    <h3 id="model-pauses"><span class="sig">arizuko model-pauses list|clear [--url|-u URL] [--token|-t BEARER]</span></h3>
-    <p>List or clear the instance model pause through routd. <code>ROUTER_URL</code> and <code>ARIZUKO_TOKEN</code> supply the defaults. The bearer must identify an operator. The command runs remotely without <code>-i</code> or a store connection.</p>
-    <p><code>list</code> reads <code>GET /v1/model_pauses</code> and prints an empty or singleton JSON list. <code>clear</code> reads the row first, then posts its <code>opened_at</code> and <code>probe_attempt_id</code> to <code>/v1/model_pauses/clear</code>. A changed pause returns a conflict. Clear releases saved input. Another provider refusal opens a new episode.</p>
+    <h3 id="model-pauses"><span class="sig">arizuko model-pauses list|clear [--folder FOLDER] [--url|-u URL] [--token|-t BEARER]</span></h3>
+    <p>List folder pauses or clear one through routd. <code>ROUTER_URL</code> and <code>ARIZUKO_TOKEN</code> supply the defaults. The bearer must identify an operator. The command runs remotely without <code>-i</code> or a store connection.</p>
+    <p><code>list</code> reads <code>GET /v1/model_pauses</code> and prints a JSON list. <code>clear</code> requires <code>--folder FOLDER</code>. It reads that folder's row, then posts its <code>folder</code>, <code>opened_at</code> and <code>probe_attempt_id</code> to <code>/v1/model_pauses/clear</code>. A changed pause returns a conflict. Clear releases the folder's saved input. Another provider refusal opens a new episode.</p>
     <pre><code>arizuko model-pauses list --url "$ROUTER_URL" --token "$ARIZUKO_TOKEN"
-arizuko model-pauses clear --url "$ROUTER_URL" --token "$ARIZUKO_TOKEN"</code></pre>
+arizuko model-pauses clear --folder rhias/trip --url "$ROUTER_URL" --token "$ARIZUKO_TOKEN"</code></pre>
     <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/48eeefc6a953a56a955baef471ce60e35137b6dd/cmd/arizuko/model_pauses.go#L16-L78">[model_pauses.go]</a>.</p>
     <p>These subcommands exist in the binary. Their usage line is the reference; run the subcommand without arguments to print it.</p>
     <table>
@@ -497,7 +497,7 @@ arizuko model-pauses clear --url "$ROUTER_URL" --token "$ARIZUKO_TOKEN"</code></
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/reference/cli.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-11-07">2026-11-07</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-08">2026-11-08</time>
       </div>
     </main>
 

@@ -14,9 +14,12 @@ import (
 
 var ErrModelPaused = errors.New("model access is paused")
 
-var modelPauseKey = objstore.Key{Partition: OwnerRoutd, Sort: "instance"}
+func modelPauseKey(folder string) objstore.Key {
+	return objstore.Key{Partition: OwnerRoutd, Sort: folder}
+}
 
 type ModelPause struct {
+	Folder         string
 	Reason         string
 	OpenedAt       string
 	NextAttemptAt  string
@@ -32,17 +35,37 @@ type TurnAdmission struct {
 	ProbeEpisode string
 }
 
-func (s *Store) ReadModelPause(ctx context.Context) (*ModelPause, error) {
-	it, ok, err := s.itemAt(ctx, ModelPauses, modelPauseKey)
+func (s *Store) ReadModelPause(ctx context.Context, folder string) (*ModelPause, error) {
+	it, ok, err := s.itemAt(ctx, ModelPauses, modelPauseKey(folder))
 	if err != nil || !ok {
 		return nil, err
 	}
+	return decodeModelPause(it)
+}
+
+func (s *Store) ListModelPauses(ctx context.Context) ([]ModelPause, error) {
+	items, err := s.Obj().Query(ctx, objstore.Query{Entity: ModelPauses, Partition: OwnerRoutd})
+	if err != nil {
+		return nil, err
+	}
+	var pauses []ModelPause
+	for _, it := range items {
+		p, err := decodeModelPause(it)
+		if err != nil {
+			return nil, err
+		}
+		pauses = append(pauses, *p)
+	}
+	return pauses, nil
+}
+
+func decodeModelPause(it objstore.Item) (*ModelPause, error) {
 	n, err := strconv.Atoi(it.Attrs["attempts"])
 	if err != nil {
 		return nil, fmt.Errorf("read model pause attempts: %w", err)
 	}
 	return &ModelPause{
-		Reason: it.Attrs["reason"], OpenedAt: it.Attrs["opened_at"],
+		Folder: it.Key.Sort, Reason: it.Attrs["reason"], OpenedAt: it.Attrs["opened_at"],
 		NextAttemptAt: it.Attrs["next_attempt_at"], Attempts: n,
 		Evidence: it.Attrs["evidence"], ProbeTurnID: it.Attrs["probe_turn_id"],
 		ProbeAttemptID: it.Attrs["probe_attempt_id"],
@@ -71,7 +94,7 @@ func modelPauseWrite(p *ModelPause) objstore.Write {
 	setAttr(attrs, "next_attempt_at", p.NextAttemptAt)
 	setAttr(attrs, "probe_turn_id", p.ProbeTurnID)
 	setAttr(attrs, "probe_attempt_id", p.ProbeAttemptID)
-	return objstore.Write{Op: objstore.Put, Entity: ModelPauses, Key: modelPauseKey, Attrs: attrs}
+	return objstore.Write{Op: objstore.Put, Entity: ModelPauses, Key: modelPauseKey(p.Folder), Attrs: attrs}
 }
 
 func modelRetryAt(now time.Time, attempts int, reset time.Time) string {
@@ -102,7 +125,8 @@ func (s *Store) RecordProviderFailure(ctx context.Context, turnID, attempt, reas
 		if !ok {
 			return nil, fmt.Errorf("no provider attempt %s", turnID)
 		}
-		p, err := s.ReadModelPause(ctx)
+		folder := it.Attrs[attrTurnFolder]
+		p, err := s.ReadModelPause(ctx, folder)
 		if err != nil {
 			return nil, err
 		}
@@ -112,7 +136,7 @@ func (s *Store) RecordProviderFailure(ctx context.Context, turnID, attempt, reas
 		}
 		before := modelPauseCond(p)
 		if p == nil {
-			p = &ModelPause{Reason: reason, OpenedAt: core.TS(now), Attempts: 1, Evidence: reason}
+			p = &ModelPause{Folder: folder, Reason: reason, OpenedAt: core.TS(now), Attempts: 1, Evidence: reason}
 			p.NextAttemptAt = modelRetryAt(now, p.Attempts, reset)
 		} else if p.ProbeTurnID == turnID && p.ProbeAttemptID == attempt {
 			p.Attempts++
@@ -144,7 +168,7 @@ func (s *Store) RecordProviderFailure(ctx context.Context, turnID, attempt, reas
 
 func modelPauseDelete(p ModelPause) objstore.Write {
 	return objstore.Write{Op: objstore.Delete, Entity: ModelPauses,
-		Key: modelPauseKey, Cond: modelPauseCond(&p)}
+		Key: modelPauseKey(p.Folder), Cond: modelPauseCond(&p)}
 }
 
 func (s *Store) ClearModelPauseInto(ws *WriteSet, p ModelPause, refused error) error {
@@ -155,7 +179,7 @@ func (s *Store) CompleteModelProbe(ctx context.Context, tc TurnContext) error {
 	if tc.ProbeEpisode == "" {
 		return nil
 	}
-	p, err := s.ReadModelPause(ctx)
+	p, err := s.ReadModelPause(ctx, tc.Folder)
 	if err != nil || p == nil || p.OpenedAt != tc.ProbeEpisode ||
 		p.ProbeTurnID != tc.TurnID || p.ProbeAttemptID != tc.AttemptID {
 		return err
@@ -172,7 +196,7 @@ func (s *Store) RearmModelProbe(ctx context.Context, p ModelPause, now time.Time
 	}
 	// A refused rearm belongs to a newer episode or a completed attempt.
 	_, err = s.TryWriteEntities(ctx, nil, objstore.Write{
-		Op: objstore.Update, Entity: ModelPauses, Key: modelPauseKey,
+		Op: objstore.Update, Entity: ModelPauses, Key: modelPauseKey(p.Folder),
 		Attrs:  map[string]string{"next_attempt_at": core.TS(now)},
 		Remove: []string{"probe_turn_id", "probe_attempt_id"}, Cond: modelPauseCond(&p),
 	}, objstore.Write{

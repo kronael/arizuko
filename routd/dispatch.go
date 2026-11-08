@@ -37,7 +37,7 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	pause, err := l.db.store().ReadModelPause(context.Background())
+	pause, err := l.db.store().ReadModelPause(context.Background(), l.folderForJid(chatJID))
 	if err != nil {
 		return false, err
 	}
@@ -224,7 +224,7 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 	hadAny = hadAny || steerConsumed
 	l.advanceObserved(folder, marks)
 	if deferredSteer != nil {
-		pause, err := l.db.store().ReadModelPause(context.Background())
+		pause, err := l.db.store().ReadModelPause(context.Background(), folder)
 		if err != nil {
 			return hadAny, err
 		}
@@ -425,7 +425,7 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, addressed bool, tr
 		}
 		return true, false, false, "", nil
 	}
-	probe, err := l.modelAdmission(trigger[0])
+	probe, err := l.modelAdmission(folder, trigger[0])
 	if err != nil {
 		return false, false, false, "", err
 	}

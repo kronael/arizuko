@@ -13,7 +13,7 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
-- Provider refusals pause model access across the instance and preserve input.
+- Provider reports pause model access in the reporting folder and preserve input.
   One saved turn probes automatically. Operators can list or clear the pause
   through REST, MCP, the dashboard or `arizuko model-pauses`.
 

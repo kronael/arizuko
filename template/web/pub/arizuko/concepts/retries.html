@@ -63,8 +63,8 @@
 
     <p class="lede">Every turn runs in its own short-lived virtual machine. Sometimes that guest stops in the middle of a turn, because it runs out of memory or reaches the run time limit. Then no answer comes back. <code>routd</code> sees the run with no reply and runs the turn again, up to three times, without a message to you. You get one slower reply instead of silence.</p>
 
-    <h2 id="provider-pause">A provider refusal pauses the instance and saves input</h2>
-    <p>A structured provider error can report a spend limit, rate limit, refused authentication or outage. Then routd holds all new turns, including groups with user keys or another backend. Already-admitted turns may finish.</p>
+    <h2 id="provider-pause">A provider refusal pauses its folder and saves input</h2>
+    <p>A structured provider error can report a spend limit, rate limit, refused authentication or outage. Then routd holds new turns in the reporting folder. Other folders keep running. Already-admitted turns may finish.</p>
     <pre><code>provider refusal ──► saved input ──► due time
                                        │
                                        ▼
@@ -76,7 +76,7 @@
                               wait       resume saved input</code></pre>
     <p>Each destination chat gets one durable notice per pause: <code>Model access is paused: &lt;reason&gt;. Your messages are saved. I will retry automatically.</code> New messages and restarts reuse that notice. Waiting input stops typing.</p>
     <p>The delay starts at 30 seconds and doubles after each refused probe, up to one hour, with bounded jitter. A future provider reset time overrides the delay. New messages and duplicate reports do not extend the wait.</p>
-    <p>At the due time, one oldest held turn uses the normal guest and timeout paths. A submitted result without a provider refusal clears the pause. A failure before submission does not prove recovery. A restart resolves an interrupted probe before another can start.</p>
+    <p>At the due time, the folder's oldest held turn uses the normal guest and timeout paths. A submitted result without a provider refusal clears that folder's pause. A failure before submission does not prove recovery. A restart resolves an interrupted probe before another can start.</p>
     <p>Held input keeps its cursor, session, content, retry count and order. Later messages stay outside the saved turn boundary. Local crash retries, error marking and retention cleanup do not consume held input.</p>
     <p>Operators can inspect or clear the pause at <code>/dash/model-pauses/</code>, through <a href="../reference/cli.html#model-pauses"><code>arizuko model-pauses</code></a>, or with <a href="../reference/mcp.html#list_model_pauses">the operator MCP tools</a>. Clear releases saved input. Another refusal opens a new pause.</p>
     <p>Exit 78 alone, assistant quotations, tool failures and unknown errors do not open a pause. Other turn failures follow the local retry rules below.</p>
@@ -128,7 +128,7 @@ usage.&lt;/system-note&gt;</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/concepts/retries.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-21">2026-10-21</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-08">2026-11-08</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

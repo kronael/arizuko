@@ -85,7 +85,7 @@ in `schedule_test.go` cover firing and retry behavior.
   | `ok`                                               | advances the cursor and the observed cursor, ends the turn                              |
   | `silent`                                           | does the same and counts no output                                                      |
   | `ok` with no result and no bot row                 | tells the chat and never retries, because a clean run that delivered nothing is a fault |
-  | `submit_turn.provider_failure`                     | holds input and opens the instance pause before generic error handling                  |
+  | `submit_turn.provider_failure`                     | holds input and opens the reporting folder's pause before generic error handling        |
   | `error`, no reply, not `terminal`                  | retries, up to `MAX_TURN_RETRY`                                                         |
   | `error` with a reply, retries spent, or `terminal` | marks the rows errored, sends a per-turn notice to every chat the run owed, advances    |
   | `busy`                                             | does not advance, applies the busy backoff                                              |
@@ -103,7 +103,7 @@ in `schedule_test.go` cover firing and retry behavior.
 - **A row names its source and its writer.** `messages.source` holds the adapter of record that ingest carries. An outbound reply reads it with `LatestSource(jid)`, so a reply leaves through the bot that received the message. A turn's delivery rows and its progress row take an `out-<hex>` id (`outboundRow` in `turns.go`). An MCP send takes `mcp-<unix nanos>` (`core.MsgID`). Inbound polling filters bot rows.
 - **A proactive turn starts from a synthetic row.** The scanner in `proactive.go` appends an inbound row with sender `timed-proactive` (`store.ProactiveSelfSender`). That row never resets the chat's silence clock, because the trigger must not feed itself. The `timed-` prefix puts the turn on the path of every task turn: it renews no engagement, runs no slash command and carries no caller sub.
 
-## Provider refusals hold input across the instance
+## Provider refusals hold input in the reporting folder
 
 `ProviderFailure` comes from an attempt-ending provider error. Its `reason`
 is `spend_limit`, `rate_limit`, `authentication` or `outage`. `reset_at` is
@@ -121,15 +121,16 @@ provider refusal ──► model_pauses ──► normal turn claims held
                          rearm                └──► submitted, no refusal: clear
 ```
 
-One durable `model_pauses` row holds all new turns, including user model credentials
-and groups on another backend. `OpenTurnContext` guards normal admission and
+One durable `model_pauses` row per folder holds that folder's new turns.
+The guest report is untrusted; the durable turn binding supplies the folder.
+`OpenTurnContext` guards normal admission and
 probe claims in the same batch. Already-admitted turns may finish, but their
 success cannot clear the pause. A store error holds admission.
 
 The first delay is 30 seconds. Each refused probe doubles the delay up to one
 hour, with bounded jitter. A valid future provider reset time overrides the
 delay. New messages and duplicate reports do not extend it. At the due time,
-the Loop selects one oldest input by timestamp, message ID, then chat JID.
+the Loop selects that folder's oldest input by timestamp, message ID, then chat JID.
 Its guarded claim binds the episode and attempt. `next_attempt_at=null` means
 that this probe owns the pause. The probe uses the normal spawn and timeout
 paths. A submitted result without `ProviderFailure` clears the pause. A busy
@@ -145,20 +146,21 @@ busy backoff and retention GC. Waiting input stops typing. After a restart,
 routd resolves an interrupted probe through existing running-turn recovery
 before rearming it. Old callback bindings cannot affect the current attempt.
 
-Each destination chat gets one durable notice per episode:
+Each destination chat gets one durable notice per folder and episode:
 `Model access is paused: <reason>. Your messages are saved. I will retry automatically.`
 Forwarded input uses the reply destination. The outbound row keeps its ID
 through send failures and restarts, and the existing delivery backoff applies.
 Ordinary failure notices use per-turn IDs. `chats.errored` remains diagnostic.
 
 Operators list or clear the pause through one audited REST/MCP resource:
-`GET /v1/model_pauses` returns an empty or singleton list with queued input
-count. `POST /v1/model_pauses/clear` requires the listed `opened_at` and the
+`GET /v1/model_pauses` returns each folder's pause with its queued input
+count. `POST /v1/model_pauses/clear` requires the listed `folder`, `opened_at` and the
 current `probe_attempt_id` when a probe is bound. A changed episode or attempt
 returns a conflict. The MCP tools are `list_model_pauses` and
 `clear_model_pause`. Members and folder-scoped grants cannot use these controls.
 The dashboard at `/dash/model-pauses/` and remote `arizuko model-pauses list|clear`
-use the same API. Clear releases input. Another refusal opens a new episode.
+use the same API. CLI clear requires `--folder FOLDER`. Clear releases that
+folder's input. Another refusal opens a new episode.
 
 ## Prompt assembly
 
@@ -329,7 +331,7 @@ Tasks:
 
 Model access:
 
-- `GET /v1/model_pauses` and `POST /v1/model_pauses/clear` list and clear the instance pause. The operator-only control and arguments are described above.
+- `GET /v1/model_pauses` and `POST /v1/model_pauses/clear` list and clear folder pauses. The operator-only control and arguments are described above.
 
 Dead letters and cost:
 

@@ -15,6 +15,9 @@
 
 ## What needs you
 
+- `L719` — guest ProviderFailure opens an instance pause; approved folder containment fix.
+- `L723` — an instance-wide model pause needs trusted host-side provider evidence; proposal, needs sign-off.
+
 - `L715` — A1/A2: trusted GitHub sender and source-owner binding; proposal, needs sign-off.
 
 
@@ -391,6 +394,31 @@ authenticated source ownership through dispatch and credential selection;
 **Default if nothing is decided:** keep tenant GitHub ingress management
 disabled by the operator gate. Supporting tenant-managed sources needs
 sign-off on the new trust contract before implementation.
+
+## L719 — guest provider reports pause other folders (2026-11-08, open)
+
+**Severity:** HIGH, resource/DoS. Fourth v0.75.4 audit B2.
+`routd/turns.go:176` accepts a bound guest's `ProviderFailure`;
+`store/model_pauses.go:18` writes the singleton instance row;
+`store/turn_context.go:160` blocks every folder on that row.
+Measured: audit witness `TestAudit4GuestSubmissionOpensGlobalPause` used the
+ordinary bound submission path with reset time 2099 and blocked folder B.
+Socket dispatch was source-verified; no malicious container ran.
+**Fix:** the reporting folder owns the pause row and admission guard;
+list/clear retain operator-only access and identify the folder.
+Regression must prove a forged report in folder A cannot block folder B.
+Measured: `routd/model_pauses_test.go::TestModelPauseForgedResetHoldsOnlyReportingFolder`
+failed before the fix and when B's admission guard used A's pause row.
+
+## L723 — instance-wide model pause requires host provider evidence (2026-11-08, proposal — needs sign-off)
+
+**Severity:** HIGH, design; no test — design. A bound guest socket attests
+the reporting turn, not a provider refusal (`routd/mcp.go:138`).
+**Options:** (a) define trusted host-side provider evidence before opening
+an instance-wide pause; (b) retain reporting-folder pauses only.
+**Default if nothing is decided:** keep guest reports scoped to their
+reporting folder. An instance-wide pause needs sign-off on host evidence;
+the two-method runtime port stays unchanged.
 
 ## Design invariants — intentional, do not re-report
 

@@ -57,7 +57,7 @@ func TestModelPauseAdmissionAndSingleProbe(t *testing.T) {
 	if len(winners) != 1 {
 		t.Fatalf("probe winners=%d, want one", len(winners))
 	}
-	probe, err := s.ReadModelPause(t.Context())
+	probe, err := s.ReadModelPause(t.Context(), "g")
 	if err != nil || probe.NextAttemptAt != "" || probe.ProbeAttemptID == "" {
 		t.Fatalf("bound probe %+v %v", probe, err)
 	}
@@ -65,8 +65,19 @@ func TestModelPauseAdmissionAndSingleProbe(t *testing.T) {
 	if err := s.CompleteModelProbe(t.Context(), tc); err != nil {
 		t.Fatal(err)
 	}
-	if p, err := s.ReadModelPause(t.Context()); err != nil || p != nil {
+	if p, err := s.ReadModelPause(t.Context(), "g"); err != nil || p != nil {
 		t.Fatalf("probe did not clear: %+v %v", p, err)
+	}
+}
+
+func TestModelPauseDeletedWithFolder(t *testing.T) {
+	s := openEntities(t)
+	openPause(t, s, "oldest", time.Now())
+	if _, _, err := s.DeleteGroup("g"); err != nil {
+		t.Fatal(err)
+	}
+	if p, err := s.ReadModelPause(t.Context(), "g"); err != nil || p != nil {
+		t.Fatalf("pause after folder deletion: %+v %v", p, err)
 	}
 }
 
@@ -91,7 +102,7 @@ func TestModelPauseDuplicateBackoffResetAndLateCompletion(t *testing.T) {
 	if err := s.CompleteModelProbe(t.Context(), probe); err != nil {
 		t.Fatal(err)
 	}
-	if p, _ := s.ReadModelPause(t.Context()); p == nil {
+	if p, _ := s.ReadModelPause(t.Context(), "g"); p == nil {
 		t.Fatal("old probe cleared a rearmed episode")
 	}
 	if _, err := s.OpenTurnContext("t", "g", "", "web:g", "u", "", &TurnAdmission{ProbeEpisode: p.OpenedAt}); err != nil {
@@ -135,7 +146,7 @@ func TestModelPauseStoreErrorsHoldAndRefusalIsAtomic(t *testing.T) {
 	for _, fault := range []pauseFaultStore{{Store: s.Obj(), failRead: true}, {Store: s.Obj(), failWrite: true}} {
 		broken := NewOver(fault)
 		if fault.failRead {
-			if _, err := broken.ReadModelPause(t.Context()); err == nil {
+			if _, err := broken.ReadModelPause(t.Context(), "g"); err == nil {
 				t.Fatal("read error swallowed")
 			}
 		} else if _, err := broken.OpenTurnContext("blocked", "g", "", "web:g", "u", "", nil); err == nil {
@@ -148,7 +159,7 @@ func TestModelPauseStoreErrorsHoldAndRefusalIsAtomic(t *testing.T) {
 	if _, err := broken.RecordProviderFailure(t.Context(), "t", tc.AttemptID, "outage", time.Time{}, time.Now()); err == nil {
 		t.Fatal("refusal write error swallowed")
 	}
-	if p, _ := s.ReadModelPause(t.Context()); p != nil {
+	if p, _ := s.ReadModelPause(t.Context(), "g"); p != nil {
 		t.Fatal("pause landed without attempt")
 	}
 	if tc, _ := s.TurnContextOf("t"); tc.State != TurnRunning || tc.ProviderFailureAttempt != "" {
@@ -185,7 +196,7 @@ func TestModelPauseLateProbeCannotClearNewEpisodeAndHeldSurvivesGC(t *testing.T)
 		t.Fatal(err)
 	}
 	old, _ := s.TurnContextOf("old")
-	bound, _ := s.ReadModelPause(t.Context())
+	bound, _ := s.ReadModelPause(t.Context(), "g")
 	ws := &WriteSet{}
 	if err := s.ClearModelPauseInto(ws, *bound, errors.New("changed")); err != nil {
 		t.Fatal(err)
@@ -200,7 +211,7 @@ func TestModelPauseLateProbeCannotClearNewEpisodeAndHeldSurvivesGC(t *testing.T)
 	if err := s.CompleteModelProbe(t.Context(), old); err != nil {
 		t.Fatal(err)
 	}
-	if after, err := s.ReadModelPause(t.Context()); err != nil || after == nil || after.OpenedAt != newer.OpenedAt {
+	if after, err := s.ReadModelPause(t.Context(), "g"); err != nil || after == nil || after.OpenedAt != newer.OpenedAt {
 		t.Fatalf("late probe cleared newer episode: %+v %v", after, err)
 	}
 	if err := s.setTurnAttrs("new", map[string]string{AttrTurnStartedAt: core.TS(time.Now().Add(-24 * time.Hour))}); err != nil {

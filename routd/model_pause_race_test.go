@@ -52,7 +52,7 @@ func TestModelPauseStaleCallbackAcrossRebind(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			pause, err := db.store().ReadModelPause(t.Context())
+			pause, err := db.store().ReadModelPause(t.Context(), "a")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -80,7 +80,7 @@ func TestModelPauseStaleCallbackAcrossRebind(t *testing.T) {
 			close(gate.release)
 			callbackErr := <-done
 			tc, ok := db.GetTurnContext("held")
-			currentPause, err := db.store().ReadModelPause(t.Context())
+			currentPause, err := db.store().ReadModelPause(t.Context(), "a")
 			if err != nil {
 				t.Fatal(err)
 			}

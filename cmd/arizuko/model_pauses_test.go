@@ -53,17 +53,23 @@ func TestModelPausesCLIUsesOperatorResourceAndAudit(t *testing.T) {
 	member := mint("member", []string{"a/**"})
 	var out bytes.Buffer
 	for _, action := range []string{"list", "clear"} {
-		if err := runModelPauses(srv.Client(), srv.URL, member, action, &out); err == nil {
+		if err := runModelPauses(srv.Client(), srv.URL, member, action, "a", &out); err == nil {
 			t.Fatalf("member %s allowed", action)
 		}
 	}
-	if err := runModelPauses(srv.Client(), srv.URL, op, "list", &out); err != nil || !strings.Contains(out.String(), "spend_limit") {
+	if err := runModelPauses(srv.Client(), srv.URL, op, "list", "", &out); err != nil || !strings.Contains(out.String(), "spend_limit") {
 		t.Fatalf("list=%s %v", out.String(), err)
 	}
-	if err := runModelPauses(srv.Client(), srv.URL, op, "clear", &out); err != nil {
+	if err := runModelPauses(srv.Client(), srv.URL, op, "clear", "", &out); err == nil {
+		t.Fatal("clear without folder succeeded")
+	}
+	if err := runModelPauses(srv.Client(), srv.URL, op, "clear", "b", &out); err == nil {
+		t.Fatal("clear selected another folder")
+	}
+	if err := runModelPauses(srv.Client(), srv.URL, op, "clear", "a", &out); err != nil {
 		t.Fatal(err)
 	}
-	if p, err := st.ReadModelPause(t.Context()); err != nil || p != nil {
+	if p, err := st.ReadModelPause(t.Context(), "a"); err != nil || p != nil {
 		t.Fatalf("clear=%+v %v", p, err)
 	}
 	rows, err := audit.Query(t.Context(), st.Obj(), audit.Filter{})
@@ -82,7 +88,7 @@ func TestModelPausesCLIUsesOperatorResourceAndAudit(t *testing.T) {
 	if n != 1 {
 		t.Fatalf("clear audits=%d", n)
 	}
-	if err := runModelPauses(srv.Client(), srv.URL, op, "clear", &out); err == nil {
+	if err := runModelPauses(srv.Client(), srv.URL, op, "clear", "a", &out); err == nil {
 		t.Fatal("clear without pause claimed success")
 	}
 }

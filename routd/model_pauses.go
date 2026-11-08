@@ -15,12 +15,12 @@ import (
 
 var errModelInputOrder = errors.New("older model input pending")
 
-func (l *Loop) modelAdmission(candidate core.Message) (*store.ModelPause, error) {
-	p, err := l.db.store().ReadModelPause(context.Background())
+func (l *Loop) modelAdmission(folder string, candidate core.Message) (*store.ModelPause, error) {
+	p, err := l.db.store().ReadModelPause(context.Background(), folder)
 	if err != nil || (p != nil && (p.NextAttemptAt == "" || p.NextAttemptAt > core.NowTS())) {
 		return nil, err
 	}
-	oldest, err := l.oldestModelInput()
+	oldest, err := l.oldestModelInput(folder)
 	if err != nil {
 		return nil, err
 	}
@@ -34,7 +34,7 @@ func (l *Loop) modelAdmission(candidate core.Message) (*store.ModelPause, error)
 	return p, nil
 }
 
-func (l *Loop) oldestModelInput() (core.Message, error) {
+func (l *Loop) oldestModelInput(folder string) (core.Message, error) {
 	running, err := l.db.RunningTurns()
 	if err != nil {
 		return core.Message{}, err
@@ -53,7 +53,7 @@ func (l *Loop) oldestModelInput() (core.Message, error) {
 			continue
 		}
 		batch := l.resolveBatch(jid, msgs)
-		if !batch.ok {
+		if !batch.ok || batch.Folder != folder {
 			continue
 		}
 		for i, m := range msgs {
@@ -109,7 +109,7 @@ func (l *Loop) noticeModelPause(p *store.ModelPause, tc TurnContext) error {
 	labels := map[string]string{"spend_limit": "provider spend limit", "rate_limit": "provider rate limit",
 		"authentication": "provider authentication refused", "outage": "provider outage"}
 	row := core.Message{
-		ID:      fmt.Sprintf("model-pause-%x", sha256.Sum256([]byte(p.OpenedAt+"\x00"+jid))),
+		ID:      fmt.Sprintf("model-pause-%x", sha256.Sum256([]byte(p.Folder+"\x00"+p.OpenedAt+"\x00"+jid))),
 		ChatJID: jid, Timestamp: at, Sender: tc.Folder, BotMsg: true, FromMe: true,
 		Topic: tc.Topic, RoutedTo: tc.Folder,
 		Content: "Model access is paused: " + labels[p.Reason] +
@@ -133,7 +133,7 @@ func (l *Loop) holdModelInput(chatJID string, trigger []core.Message) error {
 	if l.deliver != nil {
 		clearPresence(l.deliver, []string{replyChat(chatJID, trigger[len(trigger)-1])})
 	}
-	p, err := l.db.store().ReadModelPause(context.Background())
+	p, err := l.db.store().ReadModelPause(context.Background(), l.folderForJid(chatJID))
 	if err != nil || p == nil {
 		return err
 	}
@@ -143,9 +143,21 @@ func (l *Loop) holdModelInput(chatJID string, trigger []core.Message) error {
 }
 
 func (l *Loop) recoverModelProbe(startup bool) error {
-	p, err := l.db.store().ReadModelPause(context.Background())
-	if err != nil || p == nil || p.ProbeTurnID == "" {
+	pauses, err := l.db.store().ListModelPauses(context.Background())
+	if err != nil {
 		return err
+	}
+	for i := range pauses {
+		if err := l.recoverFolderModelProbe(&pauses[i], startup); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (l *Loop) recoverFolderModelProbe(p *store.ModelPause, startup bool) error {
+	if p.ProbeTurnID == "" {
+		return nil
 	}
 	tc, ok := l.db.GetTurnContext(p.ProbeTurnID)
 	if !ok {
@@ -174,7 +186,7 @@ func (l *Loop) requeueModelProbe(p *store.ModelPause, tc TurnContext, mayBeRunni
 	if p == nil || tc.ProbeEpisode == "" {
 		return
 	}
-	current, err := l.db.store().ReadModelPause(context.Background())
+	current, err := l.db.store().ReadModelPause(context.Background(), p.Folder)
 	if err != nil || current == nil || current.OpenedAt != p.OpenedAt ||
 		current.ProbeAttemptID != tc.AttemptID {
 		return

@@ -26,7 +26,7 @@ Instance:
 - `arizuko proxy-config [-i NAME] [--listen :8080] [--forward-auth <host:port>]` renders the live route table as a Caddyfile. Without `--forward-auth`, every authenticated route renders as a 503 and never as an open hop.
 - `arizuko probe <base-url> [--token|-t T] [--foreign-folder F]` checks a deployed component against the component environment. `ARCHITECTURE.md` section "Decided, and why" describes that environment. Go tests read the source, and this command reads the instance. A daemon can pass every test and still ship with `openapi.json` behind auth, or with a gate unwired. The command detects paths that the document advertises and the mux does not serve, and never the reverse. proxyd answers every path from a `/` catch-all, so "it responded" never proves that a resource is mounted there.
 
-- `arizuko model-pauses list|clear [--url|-u URL] [--token|-t BEARER]` reads or clears the instance pause through routd's operator-only `model_pauses` API. `ROUTER_URL` and `ARIZUKO_TOKEN` supply the defaults. `clear` reads the current episode and probe attempt before submitting a guarded clear. A changed pause returns a conflict. The command runs remotely without `-i` or a store connection.
+- `arizuko model-pauses list|clear [--folder FOLDER] [--url|-u URL] [--token|-t BEARER]` lists folder pauses or clears one through routd's operator-only `model_pauses` API. `ROUTER_URL` and `ARIZUKO_TOKEN` supply the defaults. `clear` requires `--folder` and reads its current episode and probe attempt before submitting a guarded clear. A changed pause returns a conflict. The command runs remotely without `-i` or a store connection.
 
 Groups and access:
 

@@ -30,11 +30,11 @@ func (d *dash) handleModelPauses(w http.ResponseWriter, r *http.Request) {
 		if row.NextAttemptAt != nil {
 			next = *row.NextAttemptAt
 		}
-		control := fmt.Sprintf(`<form method="post" action="/dash/model-pauses/clear"><input type="hidden" name="opened_at" value="%s"><input type="hidden" name="probe_attempt_id" value="%s"><button>Clear pause</button></form>`, esc(row.OpenedAt), esc(row.ProbeAttemptID))
-		cells = append(cells, []string{esc(row.Reason), esc(row.OpenedAt), esc(next),
+		control := fmt.Sprintf(`<form method="post" action="/dash/model-pauses/clear"><input type="hidden" name="folder" value="%s"><input type="hidden" name="opened_at" value="%s"><input type="hidden" name="probe_attempt_id" value="%s"><button>Clear pause</button></form>`, esc(row.Folder), esc(row.OpenedAt), esc(row.ProbeAttemptID))
+		cells = append(cells, []string{esc(row.Folder), esc(row.Reason), esc(row.OpenedAt), esc(next),
 			fmt.Sprint(row.Attempts), fmt.Sprint(row.QueuedCount), control})
 	}
-	_, _ = fmt.Fprint(w, htmlTable([]string{"reason", "opened", "next attempt", "attempts", "saved messages", "control"}, cells, "model access is available"))
+	_, _ = fmt.Fprint(w, htmlTable([]string{"folder", "reason", "opened", "next attempt", "attempts", "saved messages", "control"}, cells, "model access is available"))
 	pageClose(w, r)
 }
 
@@ -47,7 +47,7 @@ func (d *dash) handleModelPauseClear(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	body, status, err := d.routdCall(r.Context(), http.MethodPost, "/v1/model_pauses/clear",
-		map[string]string{"opened_at": r.FormValue("opened_at"), "probe_attempt_id": r.FormValue("probe_attempt_id")})
+		map[string]string{"folder": r.FormValue("folder"), "opened_at": r.FormValue("opened_at"), "probe_attempt_id": r.FormValue("probe_attempt_id")})
 	if err != nil || status != http.StatusOK {
 		http.Error(w, upstreamErr("routd", status, body), http.StatusBadGateway)
 		return

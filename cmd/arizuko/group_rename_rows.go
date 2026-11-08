@@ -459,7 +459,9 @@ func (mapping renameMap) row(owner, entity string, before objstore.Item, root st
 		after.Key.Partition = mapping.identity(before.Key.Partition)
 	case runstore.SessionLog:
 		after.Key.Partition = mapping.folder(before.Key.Partition)
-	case store.RouteTokens, store.ScheduledTasks, store.PendingActions, store.GitHubSources, store.GDriveFiles, store.PaneSessions, store.Counters, store.UserProfiles, store.TaskRunLogs, store.TurnContexts, store.MessageActivity, store.MessageDelivery, store.ModelPauses, store.OnboardingGates, store.Invites, store.InviteRedemptions, store.ScopeEntity, runstore.Spawns, authstore.SigningKeys, authstore.SigningKeySlot, authstore.AuthUsers, authstore.OAuthIdentities, authstore.RefreshTokens, authstore.RefreshFamilies, chanstore.OutboundDedup, chanstore.InboundPending, chanstore.FileURL, chanstore.AckMark, emaistore.EmailThreads, emaistore.EmailMsgIDs:
+	case store.ModelPauses:
+		after.Key.Sort = mapping.folder(before.Key.Sort)
+	case store.RouteTokens, store.ScheduledTasks, store.PendingActions, store.GitHubSources, store.GDriveFiles, store.PaneSessions, store.Counters, store.UserProfiles, store.TaskRunLogs, store.TurnContexts, store.MessageActivity, store.MessageDelivery, store.OnboardingGates, store.Invites, store.InviteRedemptions, store.ScopeEntity, runstore.Spawns, authstore.SigningKeys, authstore.SigningKeySlot, authstore.AuthUsers, authstore.OAuthIdentities, authstore.RefreshTokens, authstore.RefreshFamilies, chanstore.OutboundDedup, chanstore.InboundPending, chanstore.FileURL, chanstore.AckMark, emaistore.EmailThreads, emaistore.EmailMsgIDs:
 	default:
 		return after, fmt.Errorf("unclassified coordinate schema %s.%s", owner, entity)
 	}

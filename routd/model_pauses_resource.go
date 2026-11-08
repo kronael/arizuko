@@ -47,45 +47,57 @@ func (s *Server) modelPausesPostBuild(folder, caller string, authorize authorize
 }
 
 func (s *Server) modelPausesHandler(ctx context.Context, x resreg.Execution) (any, error) {
-	p, err := s.db.store().ReadModelPause(ctx)
-	if err != nil {
-		return nil, err
-	}
 	switch x.Action {
 	case resreg.ActionList:
 		rows := []resources.ModelPauseRow{}
-		if p == nil {
-			return rows, nil
+		pauses, err := s.db.store().ListModelPauses(ctx)
+		if err != nil {
+			return nil, err
 		}
-		n := 0
 		jids, err := s.db.ChatJIDs()
 		if err != nil {
 			return nil, err
 		}
-		for _, jid := range jids {
-			msgs, err := s.db.NewMessagesForChat(jid, s.db.GetAgentCursor(jid), 0)
-			if err != nil {
-				return nil, err
-			}
-			for _, m := range msgs {
-				if !m.BotMsg {
-					n++
+		loop := s.loop
+		if loop == nil {
+			loop = &Loop{db: s.db}
+		}
+		for _, p := range pauses {
+			n := 0
+			for _, jid := range jids {
+				msgs, err := s.db.NewMessagesForChat(jid, s.db.GetAgentCursor(jid), 0)
+				if err != nil {
+					return nil, err
+				}
+				if newestUserIdx(msgs) < 0 {
+					continue
+				}
+				batch := loop.resolveBatch(jid, msgs)
+				for i, m := range msgs {
+					if !m.BotMsg && batch.rows[i].ok && batch.rows[i].Folder == p.Folder {
+						n++
+					}
 				}
 			}
+			row := resources.ModelPauseRow{Folder: p.Folder, Reason: p.Reason, OpenedAt: p.OpenedAt,
+				Attempts: p.Attempts, Evidence: p.Evidence, ProbeTurnID: p.ProbeTurnID,
+				ProbeAttemptID: p.ProbeAttemptID, QueuedCount: n}
+			if p.NextAttemptAt != "" {
+				row.NextAttemptAt = &p.NextAttemptAt
+			}
+			rows = append(rows, row)
 		}
-		row := resources.ModelPauseRow{Reason: p.Reason, OpenedAt: p.OpenedAt,
-			Attempts: p.Attempts, Evidence: p.Evidence, ProbeTurnID: p.ProbeTurnID,
-			ProbeAttemptID: p.ProbeAttemptID, QueuedCount: n}
-		if p.NextAttemptAt != "" {
-			row.NextAttemptAt = &p.NextAttemptAt
-		}
-		return append(rows, row), nil
+		return rows, nil
 	case resreg.Action("clear"):
+		p, err := s.db.store().ReadModelPause(ctx, x.Args.Str("folder"))
+		if err != nil {
+			return nil, err
+		}
 		if p == nil || p.OpenedAt != x.Args.Str("opened_at") ||
 			p.ProbeAttemptID != x.Args.Str("probe_attempt_id") {
 			return nil, resreg.Errorf(http.StatusConflict, "model pause changed; list it again")
 		}
-		err := s.db.store().ClearModelPauseInto(x.Writes, *p,
+		err = s.db.store().ClearModelPauseInto(x.Writes, *p,
 			resreg.Errorf(http.StatusConflict, "model pause changed; list it again"))
 		return map[string]bool{"ok": true}, err
 	}

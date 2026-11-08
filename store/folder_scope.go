@@ -47,6 +47,8 @@ var entityScopePurge = []entityScope{
 	// The folder itself and its children.
 	{entity: Groups, seps: []string{"/"},
 		folderOf: func(it objstore.Item) (string, bool) { return it.Key.Sort, true }},
+	{entity: ModelPauses, seps: []string{"/"},
+		folderOf: func(it objstore.Item) (string, bool) { return it.Key.Sort, true }},
 
 	// Confers.
 	{entity: ACL, seps: []string{"/"}, folderOf: func(it objstore.Item) (string, bool) {
@@ -172,7 +174,6 @@ var folderScopeKeep = map[string]keepReason{
 	"auth_users":       keep("a person, not a folder"),
 	"onboarding":       keep("a person, not a folder"),
 	"onboarding_gates": keep("instance-wide"),
-	"model_pauses":     keep("instance-wide provider access, independent of group deletion"),
 	"proxyd_routes":    keep("owner is a package or the instance, never a folder"),
 	"resreg_scopes":    keep("one version marker per subsystem, instance-wide"),
 	"counters":         keep("one server-minted number per name, instance-wide"),

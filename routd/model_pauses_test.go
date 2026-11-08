@@ -114,8 +114,43 @@ func processPauseChat(t *testing.T, l *Loop, jid string) {
 	}
 }
 
+func pauseChatInFolder(t *testing.T, db *DB, jid, folder string) {
+	t.Helper()
+	if err := db.store().InsertRouteToken("pause-"+jid, store.RouteToken{JID: jid, OwnerFolder: folder, TargetFolder: folder}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestModelPauseForgedResetHoldsOnlyReportingFolder(t *testing.T) {
+	db, l, p, _ := pauseFixture(t)
+	if _, err := db.store().OpenTurnContext("forged", "a", "", "web:a", "u", "", nil); err != nil {
+		t.Fatal(err)
+	}
+	tc, ok := db.GetTurnContext("forged")
+	if !ok {
+		t.Fatal("missing turn")
+	}
+	fns := p.srv.buildRoutdFns(turnMCP{folder: "a", turnID: "forged", attempt: tc.AttemptID})
+	_, err := fns.SubmitTurn("a", ipc.TurnResult{TurnID: "forged", Status: "error", ProviderFailure: &apiv1.ProviderFailure{Reason: "rate_limit", ResetAt: "2099-01-01T00:00:00Z"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.store().OpenTurnContext("same-folder", "a", "", "web:a", "u", "", nil); !errors.Is(err, store.ErrModelPaused) {
+		t.Fatalf("same folder admitted: %v", err)
+	}
+	pauseInput(t, db, "web:b", "independent", "v", "run", time.Now())
+	processPauseChat(t, l, "web:b")
+	if len(p.runs) != 1 || p.runs[0].TurnID != "independent" {
+		t.Fatalf("other folder did not run: %+v", p.runs)
+	}
+	if tc, ok := db.GetTurnContext("forged"); !ok || tc.State != store.TurnHeld {
+		t.Fatalf("reporting folder not held: %+v %v", tc, ok)
+	}
+}
+
 func TestModelPauseNormalTurns429Then200(t *testing.T) {
 	db, l, p, _ := pauseFixture(t, "rate_limit")
+	pauseChatInFolder(t, db, "web:b", "a")
 	now := time.Now()
 	pauseInput(t, db, "web:a", "a-old", "u", "saved first", now)
 	pauseInput(t, db, "web:b", "b-later", "v", "saved second", now.Add(time.Second))
@@ -147,7 +182,7 @@ func TestModelPauseNormalTurns429Then200(t *testing.T) {
 	if len(p.runs) != 2 || p.runs[1].TurnID != "a-old" || !strings.Contains(p.runs[1].MessageBatch, "saved first") || strings.Contains(p.runs[1].MessageBatch, "saved third") {
 		t.Fatalf("probe changed held span: %+v", p.runs)
 	}
-	if pause, err := db.store().ReadModelPause(t.Context()); err != nil || pause != nil {
+	if pause, err := db.store().ReadModelPause(t.Context(), "a"); err != nil || pause != nil {
 		t.Fatalf("probe did not clear: %+v %v", pause, err)
 	}
 	processPauseChat(t, l, "web:b")
@@ -161,13 +196,13 @@ func TestModelPauseRestartWaitingAndRunningProbe(t *testing.T) {
 	db, l, p, dl := pauseFixture(t, "spend_limit")
 	pauseInput(t, db, "web:a", "held", "u", "keep me", time.Now())
 	processPauseChat(t, l, "web:a")
-	before, _ := db.store().ReadModelPause(t.Context())
+	before, _ := db.store().ReadModelPause(t.Context(), "a")
 	restarted := NewLoop(db, p, LoopConfig{Deliver: dl})
 	restarted.StopQueue()
 	p.srv = NewServer(db, restarted, dl, nil, 0, "")
 	restarted.recoverPending()
 	processPauseChat(t, restarted, "web:a")
-	after, _ := db.store().ReadModelPause(t.Context())
+	after, _ := db.store().ReadModelPause(t.Context(), "a")
 	if *before != *after || len(p.runs) != 1 {
 		t.Fatal("waiting restart changed pause or started a guest")
 	}
@@ -176,7 +211,7 @@ func TestModelPauseRestartWaitingAndRunningProbe(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { _, err := restarted.processGroupMessages("web:a"); done <- err }()
 	<-p.started
-	bound, _ := db.store().ReadModelPause(t.Context())
+	bound, _ := db.store().ReadModelPause(t.Context(), "a")
 	if bound.NextAttemptAt != "" {
 		t.Fatal("running probe has a due time")
 	}
@@ -209,7 +244,7 @@ func modelPauseDue(t *testing.T, db *DB) {
 	t.Helper()
 	if err := db.store().WriteEntities(t.Context(), nil, objstore.Write{
 		Op: objstore.Update, Entity: store.ModelPauses,
-		Key:   objstore.Key{Partition: store.OwnerRoutd, Sort: "instance"},
+		Key:   objstore.Key{Partition: store.OwnerRoutd, Sort: "a"},
 		Attrs: map[string]string{"next_attempt_at": core.TS(time.Now().Add(-time.Second))},
 	}); err != nil {
 		t.Fatal(err)
@@ -221,7 +256,7 @@ func TestModelPauseRestartAfterSubmissionResolvesTheBoundProbe(t *testing.T) {
 	pauseInput(t, db, "web:a", "held", "u", "saved", time.Now())
 	processPauseChat(t, l, "web:a")
 	modelPauseDue(t, db)
-	pause, _ := db.store().ReadModelPause(t.Context())
+	pause, _ := db.store().ReadModelPause(t.Context(), "a")
 	if _, err := db.store().OpenTurnContext("held", "a", "", "web:a", "u", "",
 		&store.TurnAdmission{ProbeEpisode: pause.OpenedAt}); err != nil {
 		t.Fatal(err)
@@ -235,7 +270,7 @@ func TestModelPauseRestartAfterSubmissionResolvesTheBoundProbe(t *testing.T) {
 	if err := restarted.recoverModelProbe(true); err != nil {
 		t.Fatal(err)
 	}
-	if pause, err := db.store().ReadModelPause(t.Context()); err != nil || pause != nil {
+	if pause, err := db.store().ReadModelPause(t.Context(), "a"); err != nil || pause != nil {
 		t.Fatalf("completed probe stranded after restart: %+v %v", pause, err)
 	}
 	processPauseChat(t, restarted, "web:a")
@@ -246,20 +281,21 @@ func TestModelPauseRestartAfterSubmissionResolvesTheBoundProbe(t *testing.T) {
 
 func TestModelPauseAlreadyAdmittedTurnDoesNotProbeOrClear(t *testing.T) {
 	db, l, p, _ := pauseFixture(t, "rate_limit")
+	pauseChatInFolder(t, db, "web:b", "a")
 	now := time.Now()
 	pauseInput(t, db, "web:b", "admitted", "v", "in flight", now.Add(-time.Second))
 	msgs, err := db.NewMessagesForChat("web:b", "", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.store().OpenTurnContext("admitted", "b", "", "web:b", "v", "",
+	if _, err := db.store().OpenTurnContext("admitted", "a", "", "web:b", "v", "",
 		&store.TurnAdmission{InputLast: store.MessageCursor(msgs[0])}); err != nil {
 		t.Fatal(err)
 	}
 	pauseInput(t, db, "web:a", "held", "u", "saved", now)
 	processPauseChat(t, l, "web:a")
 	modelPauseDue(t, db)
-	oldest, err := l.oldestModelInput()
+	oldest, err := l.oldestModelInput("a")
 	if err != nil || oldest.ID != "held" {
 		t.Fatalf("already admitted input selected: %+v %v", oldest, err)
 	}
@@ -268,10 +304,10 @@ func TestModelPauseAlreadyAdmittedTurnDoesNotProbeOrClear(t *testing.T) {
 		t.Fatal("already-admitted input stole the probe")
 	}
 	p.srv.replyForTest(t, "admitted", "web:b", "finished")
-	if _, err := p.srv.mcpSubmitTurn("b", ipc.TurnResult{TurnID: "admitted", Status: "success"}); err != nil {
+	if _, err := p.srv.mcpSubmitTurn("a", ipc.TurnResult{TurnID: "admitted", Status: "success"}); err != nil {
 		t.Fatal(err)
 	}
-	if pause, err := db.store().ReadModelPause(t.Context()); err != nil || pause == nil {
+	if pause, err := db.store().ReadModelPause(t.Context(), "a"); err != nil || pause == nil {
 		t.Fatalf("ordinary success cleared pause: %+v %v", pause, err)
 	}
 	processPauseChat(t, l, "web:b")
@@ -286,7 +322,7 @@ func TestModelPauseManualClearAndLateCallback(t *testing.T) {
 	pauseInput(t, db, "web:a", "held", "u", "keep", time.Now())
 	processPauseChat(t, l, "web:a")
 	pauseInput(t, db, "web:a", "later", "u", "later input", time.Now().Add(time.Second))
-	pause, _ := db.store().ReadModelPause(t.Context())
+	pause, _ := db.store().ReadModelPause(t.Context(), "a")
 	ws := &store.WriteSet{}
 	if err := db.store().ClearModelPauseInto(ws, *pause, errors.New("changed")); err != nil {
 		t.Fatal(err)
@@ -315,7 +351,7 @@ func TestModelPauseNoticeDurableBeyondAppendWindow(t *testing.T) {
 	dl.failSend = true
 	pauseInput(t, db, "web:a", "held", "u", "keep", time.Now())
 	processPauseChat(t, l, "web:a")
-	pause, _ := db.store().ReadModelPause(t.Context())
+	pause, _ := db.store().ReadModelPause(t.Context(), "a")
 	tc, _ := db.GetTurnContext("held")
 	for i := range 260 {
 		pauseInput(t, db, "web:a", fmt.Sprintf("extra-%d", i), "u", "extra", time.Now())
@@ -349,6 +385,7 @@ func TestModelPauseNoticeDurableBeyondAppendWindow(t *testing.T) {
 
 func TestModelPauseForwardedNoticeAndOldestTies(t *testing.T) {
 	db, l, p, dl := pauseFixture(t, "spend_limit")
+	pauseChatInFolder(t, db, "web:b", "a")
 	now := time.Now()
 	if err := db.PutMessage(core.Message{ID: "held", ChatJID: "web:a", Sender: "u", Content: "forwarded", Timestamp: now, ForwardedFrom: "slack:origin"}); err != nil {
 		t.Fatal(err)
@@ -398,11 +435,11 @@ func TestModelPauseBusyProbeRequeuesWithoutRecovery(t *testing.T) {
 	db, l, p, _ := pauseFixture(t, "rate_limit")
 	pauseInput(t, db, "web:a", "held", "u", "saved", time.Now())
 	processPauseChat(t, l, "web:a")
-	before, _ := db.store().ReadModelPause(t.Context())
+	before, _ := db.store().ReadModelPause(t.Context(), "a")
 	modelPauseDue(t, db)
 	p.busy = true
 	processPauseChat(t, l, "web:a")
-	after, _ := db.store().ReadModelPause(t.Context())
+	after, _ := db.store().ReadModelPause(t.Context(), "a")
 	if after == nil || after.OpenedAt != before.OpenedAt || after.ProbeAttemptID != "" || after.NextAttemptAt == "" || after.Attempts != 1 || db.GetAgentCursor("web:a") != "" {
 		t.Fatalf("busy probe falsely recovered: %+v", after)
 	}
@@ -415,11 +452,11 @@ func TestModelPauseFailureBeforeGuestSubmissionDoesNotProveRecovery(t *testing.T
 	db, l, p, _ := pauseFixture(t, "rate_limit")
 	pauseInput(t, db, "web:a", "held", "u", "saved", time.Now())
 	processPauseChat(t, l, "web:a")
-	before, _ := db.store().ReadModelPause(t.Context())
+	before, _ := db.store().ReadModelPause(t.Context(), "a")
 	modelPauseDue(t, db)
 	p.noSubmission = true
 	processPauseChat(t, l, "web:a")
-	after, _ := db.store().ReadModelPause(t.Context())
+	after, _ := db.store().ReadModelPause(t.Context(), "a")
 	if after == nil || after.OpenedAt != before.OpenedAt || after.ProbeAttemptID != "" || after.NextAttemptAt == "" || db.GetAgentCursor("web:a") != "" {
 		t.Fatalf("failed spawn cleared or consumed probe: %+v", after)
 	}

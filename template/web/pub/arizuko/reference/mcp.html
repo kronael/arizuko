@@ -833,12 +833,12 @@
     </table>
     <p class="returns"><strong>Returns:</strong> JSON <code>{sub, identity, subs}</code>.</p>
 
-    <h2 id="model-pauses">Operators control the instance pause</h2>
+    <h2 id="model-pauses">Operators control folder pauses</h2>
 
     <h3 id="list_model_pauses"><code>list_model_pauses</code></h3>
-    <p>List the instance model pause with no arguments. Returns an empty or singleton list with <code>reason</code>, <code>opened_at</code>, <code>next_attempt_at</code>, <code>attempts</code>, sanitized <code>evidence</code>, <code>probe_turn_id</code>, <code>probe_attempt_id</code> and <code>queued_count</code>. A null next attempt means a probe owns the pause.</p>
+    <p>List folder pauses with no arguments. Each row contains <code>folder</code>, <code>reason</code>, <code>opened_at</code>, <code>next_attempt_at</code>, <code>attempts</code>, sanitized <code>evidence</code>, <code>probe_turn_id</code>, <code>probe_attempt_id</code> and <code>queued_count</code>. A null next attempt means a probe owns that folder's pause.</p>
     <h3 id="clear_model_pause"><code>clear_model_pause</code></h3>
-    <p>Release saved input. Required string <code>opened_at</code> identifies the listed episode. Optional string <code>probe_attempt_id</code> must match the listed attempt when a probe is bound. A changed pause returns a conflict. Success returns <code>{"ok":true}</code>.</p>
+    <p>Release one folder's saved input. Required strings <code>folder</code> and <code>opened_at</code> identify the listed episode. Optional string <code>probe_attempt_id</code> must match the listed attempt when a probe is bound. A changed pause returns a conflict. Success returns <code>{"ok":true}</code>.</p>
     <p>Both tools require instance-wide operator authority through the injected gate. Members and folder-scoped grants do not confer access. REST uses the same handler at <code>GET /v1/model_pauses</code> and <code>POST /v1/model_pauses/clear</code>. Clear and its audit row commit together.</p>
     <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/48eeefc6a953a56a955baef471ce60e35137b6dd/resreg/resources/model_pauses.go#L10-L46">[resource declaration]</a> and <a href="https://github.com/kronael/arizuko/blob/48eeefc6a953a56a955baef471ce60e35137b6dd/routd/model_pauses_resource.go#L13-L93">[handler and authorization]</a>.</p>
 

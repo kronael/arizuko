@@ -62,7 +62,7 @@ func TestModelPausesDashboardOperatorClearAndAudit(t *testing.T) {
 	}
 	for _, operator := range []bool{false, true} {
 		for _, foreign := range []bool{false, true} {
-			form := url.Values{"opened_at": {pause.OpenedAt}, "probe_attempt_id": {""}}
+			form := url.Values{"folder": {"a"}, "opened_at": {pause.OpenedAt}, "probe_attempt_id": {""}}
 			req := httptest.NewRequest("POST", "http://dash.test/dash/model-pauses/clear", strings.NewReader(form.Encode()))
 			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 			req.Header.Set("Origin", "http://dash.test")
@@ -85,7 +85,7 @@ func TestModelPausesDashboardOperatorClearAndAudit(t *testing.T) {
 			}
 		}
 	}
-	form := url.Values{"opened_at": {pause.OpenedAt}, "probe_attempt_id": {""}}
+	form := url.Values{"folder": {"a"}, "opened_at": {pause.OpenedAt}, "probe_attempt_id": {""}}
 	req := asOperator(httptest.NewRequest("POST", "http://dash.test/dash/model-pauses/clear", strings.NewReader(form.Encode())))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Origin", "http://dash.test")
@@ -94,7 +94,7 @@ func TestModelPausesDashboardOperatorClearAndAudit(t *testing.T) {
 	if w.Code != 303 {
 		t.Fatalf("clear=%d %s", w.Code, w.Body.String())
 	}
-	if p, err := st.ReadModelPause(t.Context()); err != nil || p != nil {
+	if p, err := st.ReadModelPause(t.Context(), "a"); err != nil || p != nil {
 		t.Fatalf("pause=%+v %v", p, err)
 	}
 	rows, err := audit.Query(t.Context(), obj, audit.Filter{})

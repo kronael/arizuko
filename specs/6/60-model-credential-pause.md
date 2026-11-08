@@ -2,9 +2,10 @@
 status: shipped
 ---
 
-# A provider refusal pauses the instance
+# A provider refusal pauses the reporting folder
 
-One pause holds all turns until a held turn runs without a provider refusal.
+One pause per folder holds its turns until a held turn runs without a provider refusal.
+An instance-wide pause needs host-side provider evidence; BUGS proposal `L723` needs sign-off.
 
 Owner measurements, 2026-11-08: rhias/trip exits 78 within eight seconds after
 a spend limit; an eval receives 107 HTTP 429s in ten minutes on a shared token.
@@ -19,7 +20,7 @@ References use `f14b3a7a3f646332a578fe1e5901a0242b8c96dc`:
 messages ──► turn claim (changed) ──normal spawn──► runed ──► ant (changed)
                    │ guard (new)                              │
                    ▼                                          │
-          instance pause (new) ◄──ProviderFailure (new)────────┘
+            folder pause (new) ◄──ProviderFailure (new)────────┘
                    │ due: oldest held turn only (new)
                    └──────────────────────────────► turn claim
 operator REST / MCP ◄──► pause handler (new) ◄── dashboard / CLI (changed)
@@ -36,7 +37,7 @@ chat/folder breakers and notice suppression (removed)
   names: [TurnResult]
   never: infer a pause from exit 78
 - path: store/model_pauses.go (new), store/turn_context.go (changed)
-  job: persist one episode and guard turn claims
+  job: persist one episode per folder and guard that folder's turn claims
   names: [OpenTurnContext]
   never: create another admission lock or credential registry
 - path: routd/dispatch.go, routd/turns.go, routd/loop.go (changed)
@@ -70,17 +71,17 @@ Exit 78 alone never pauses: HTTP 400 content errors also produce it
 
 ### The oldest held turn is the probe
 
-One routd-owned row holds `reason`, `opened_at`, `next_attempt_at`, `attempts`
-and sanitized evidence. `opened_at` identifies the episode. This pause also
-holds BYOA keys and groups on another backend. That cost is accepted because
-provider refusals are rare: one rule needs no credential identity computation.
+One routd-owned row keyed by folder holds `reason`, `opened_at`, `next_attempt_at`,
+`attempts` and sanitized evidence. `opened_at` identifies the episode within the
+folder. The guest report is untrusted and holds only the reporting turn's
+durable folder binding. Other folders keep normal admission.
 The existing `GuardedBatch` behind `OpenTurnContext`
 (`store/turn_context.go:149`, rebind at `store/turn_context.go:164`) is the
 one serialization point. Its added guard admits normal turns only when the
-pause is absent. Opening, claiming a probe and clearing use that same batch.
+folder's pause is absent. Opening, claiming a probe and clearing use that same batch.
 Already-admitted turns may finish; their success cannot clear the pause.
 At `next_attempt_at`, the existing Loop (`routd/loop.go:314`) selects the oldest
-held input by timestamp, then message ID and chat JID. Its conditional claim
+held input in that folder by timestamp, then message ID and chat JID. Its conditional claim
 atomically binds that turn to the episode and sets `next_attempt_at` null.
 Null means a probe owns the episode; every other admission remains blocked.
 The probe uses normal spawn, harness and timeout paths, without new runed/ant
@@ -106,15 +107,15 @@ turn rebind and closes each old run's callback surface.
 
 ### One notice and one operator control
 
-Each affected chat gets one durable outbound row keyed by episode and chat:
+Each affected chat gets one durable outbound row keyed by folder, episode and chat:
 "Model access is paused: <reason>. Your messages are saved. I will retry
 automatically." Later messages and restart reuse that row. Forwarded replies
 use their destination chat; outbound delivery retries keep their existing
 backoff and adapter deduplication. Pausing stops typing while input waits.
 The operator-only `model_pauses` resreg resource exposes list and clear through
 one annotated REST/MCP handler with injected authorization and atomic audit.
-The dashboard shows the row and queued count, with "Clear pause".
-CLI `model-pauses list` and `model-pauses clear` use that resource.
+The dashboard shows each folder's row and queued count, with "Clear pause".
+CLI `model-pauses list` and `model-pauses clear --folder FOLDER` use that resource.
 Clear releases work; another provider refusal opens a new episode.
 
 ## The pause replaces overlapping controls
@@ -137,7 +138,7 @@ This is an estimate; implementation reports actual added/deleted lines.
 ## Contract
 
 - Fake provider: 429 then 200 through normal turns. No guest starts during the
-  delay; exactly one oldest turn probes, clears the pause and preserves order.
+  folder's delay; exactly one oldest turn probes, clears its pause and preserves order.
   Removing the admission guard fails this test.
 - A provider spend-limit envelope with exit 78 pauses; exit 78 with HTTP 400
   content failure, assistant lookalikes and unknown errors do not.
@@ -147,6 +148,7 @@ This is an estimate; implementation reports actual added/deleted lines.
   episode. Repeated reports and failed notice delivery retain one outbound row.
 - REST/MCP, dashboard and CLI prove operator-only list/clear and audit parity;
   the Go/TS ProviderFailure contract agrees. No runtime port changes occur.
+- A forged provider report in folder A never blocks folder B.
 
 ## Contract tests
 

@@ -13,6 +13,7 @@ import (
 
 func TestModelPauseDueProbeKeepsOtherChatNotice(t *testing.T) {
 	db, l, p, _ := pauseFixture(t, "rate_limit")
+	pauseChatInFolder(t, db, "web:b", "a")
 	now := time.Now()
 	pauseInput(t, db, "web:a", "old", "u", "first", now)
 	processPauseChat(t, l, "web:a")
@@ -38,14 +39,15 @@ func TestModelPauseDueProbeKeepsOtherChatNotice(t *testing.T) {
 
 func TestModelPauseOrderedCommandKeepsInput(t *testing.T) {
 	db, l, p, _ := pauseFixture(t, "rate_limit")
+	pauseChatInFolder(t, db, "web:b", "a")
 	now := time.Now()
 	pauseInput(t, db, "web:a", "held", "u", "saved", now)
 	processPauseChat(t, l, "web:a")
-	pause, err := db.store().ReadModelPause(t.Context())
+	pause, err := db.store().ReadModelPause(t.Context(), "a")
 	if err != nil {
 		t.Fatal(err)
 	}
-	w := doJSON(t, p.srv.Handler(), "POST", "/v1/model_pauses/clear", "", map[string]string{"opened_at": pause.OpenedAt})
+	w := doJSON(t, p.srv.Handler(), "POST", "/v1/model_pauses/clear", "", map[string]string{"folder": "a", "opened_at": pause.OpenedAt})
 	if w.Code != 200 {
 		t.Fatalf("clear=%d %s", w.Code, w.Body.String())
 	}
@@ -67,6 +69,7 @@ func TestModelPauseOrderedCommandKeepsInput(t *testing.T) {
 
 func TestModelPauseOrderedCommandRunsOnceAfterAllBatches(t *testing.T) {
 	db, l, p, dl := pauseFixture(t)
+	pauseChatInFolder(t, db, "web:b", "a")
 	now := time.Now()
 	pauseInput(t, db, "web:a", "first", "u", "first", now)
 	pauseInput(t, db, "web:b", "second", "v", "second", now.Add(time.Second))
@@ -98,6 +101,7 @@ func TestModelPauseOrderedCommandRunsOnceAfterAllBatches(t *testing.T) {
 
 func TestModelPauseOrderedRootKeepsElevation(t *testing.T) {
 	db, l, p, _ := pauseFixture(t)
+	pauseChatInFolder(t, db, "web:b", "a")
 	if err := addMembership(db, "u", "role:operator", "test"); err != nil {
 		t.Fatal(err)
 	}
@@ -122,6 +126,8 @@ func TestModelPausePollHeldOrder(t *testing.T) {
 	for _, clear := range []string{"manual", "probe"} {
 		t.Run(clear, func(t *testing.T) {
 			db, setup, p, dl := pauseFixture(t, "rate_limit")
+			pauseChatInFolder(t, db, "web:b", "a")
+			pauseChatInFolder(t, db, "web:z", "a")
 			now := time.Now().UTC()
 			pauseInput(t, db, "web:a", "a0", "u", "held", now)
 			processPauseChat(t, setup, "web:a")
@@ -135,7 +141,7 @@ func TestModelPausePollHeldOrder(t *testing.T) {
 			}
 			pauseInput(t, db, "web:b", "c", "u", "fourth", now.Add(4*time.Second))
 			if clear == "manual" {
-				pause, err := db.store().ReadModelPause(t.Context())
+				pause, err := db.store().ReadModelPause(t.Context(), "a")
 				if err != nil {
 					t.Fatal(err)
 				}

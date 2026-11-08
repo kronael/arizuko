@@ -67,7 +67,7 @@ func TestFailureNoticePerChat(t *testing.T) {
 		if _, err := loop.processGroupMessages(step.jid); err != nil {
 			t.Fatal(err)
 		}
-		if pause, err := db.store().ReadModelPause(t.Context()); err != nil || pause != nil {
+		if pause, err := db.store().ReadModelPause(t.Context(), "a"); err != nil || pause != nil {
 			t.Fatalf("raw failure prose paused the instance: %+v %v", pause, err)
 		}
 		var got []string
