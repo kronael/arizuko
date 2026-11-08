@@ -13,32 +13,214 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
-- Provider reports pause model access in the reporting folder and preserve input.
-  One saved turn probes automatically. Operators can list or clear the pause
-  through REST, MCP, the dashboard or `arizuko model-pauses`.
+## [v0.75.5] — 2026-11-09
 
+> arizuko v0.75.5 — group models and saved messages
+>
+> Groups select their models, provider refusals preserve messages, and GitHub Apps and Google Drive support replies.
+>
+> • Provider limits — the affected folder saves your messages and retries automatically.
+> • Group models — each group selects its backend, model and effort through harness settings.
+> • GitHub Apps — replies and repository tools use tokens limited to the turn's repository.
+> • Google Drive — bound documents receive comment replies and report their connection state.
+> • Group messages — send reaches another group when the caller holds a target grant.
+> • Progress — native checklists reach chat and web clients, including after reconnection.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Features
+
+- Provider spend limits, rate limits, authentication refusals and outages pause
+  model turns in the reporting folder under specs/6/60-model-credential-pause.md.
+  Other folders continue normally.
+- Held messages retain their content, cursor, session, retry count and order.
+  The oldest held turn probes automatically through the normal run path.
+  Repeated refusals double the delay from 30 seconds to one hour, with jitter.
+  A provider reset time sets the delay when available.
+- Each affected chat receives one pause notice per episode, including across
+  restarts and delivery retries. Operators list or clear pauses through REST,
+  MCP, the dashboard or `arizuko model-pauses`.
+- Pause recovery preserves the saved dispatch binding through route changes.
+  Probe claims, recovery and guarded clears prevent concurrent probes and stale
+  callbacks from clearing another episode. Local failures keep bounded retries.
+  Probe recovery preserves successor runs and isolates stalled recovery to its folder.
+- Group deletion retires unfinished turns and consumes their saved input atomically.
+  Admission checks group existence in the same transaction.
+  Late provider reports cannot restore deleted input. Completed turn history remains available.
+- Groups select their backend, model and effort with one `harness` document.
+  The groups REST/MCP resource and dashboard replace the document with an audited
+  write. Codex receives reasoning effort on new and resumed runs.
+- A group's `agent` setting selects a named handler under `/usr/local/bin/`.
+  The default `ant` runs directly under Bun. Invalid handler names fail terminally.
+- Native checklists supply bounded, coalesced turn progress. Web clients replay
+  active progress after reconnection and remove progress when the turn ends.
+  Addressed turns receive one steering reminder when they have no plan.
+  Child checklist updates do not replace the parent turn's progress.
 - Approval pages show routd's rendered request and standing rule. The agent
   waits for the original call's result and never reissues an approved call.
-
-- Align operator and package documentation with proxyd static serving, routd's
-  task ticker, Bun ant launch and group handler selection. Remove the retired
-  component pages and private-store bootstrap. Record deferred process folds,
-  contract proposals and existing test failures in the bug queue.
-
-- Agents message other groups with `send(chatJid="<folder>", text="...")`,
-  checked against `mcp:send` on the target. `send` and routing hand-offs share
-  `store.PostGroup`. Removed `delegate_group`, `escalate_group` and the
-  `<escalation_origin/>` tag.
+- Agents message other groups with `send(chatJid="<folder>", text="...")`.
+  `send` and routing hand-offs share `store.PostGroup` and check target authority.
+- The member `mcp:send` permission floor requires a platform `jid` parameter.
+  A group destination requires an explicit target grant, including across tenants.
 - ACL policy reads local rows before release defaults from `auth/defaults.go`.
   A local hold can override a default skip. Failed policy reads block access.
 - ACL changes, unpair, approvals and invitations check the writer's authority
   through `CheckGrant`. Rule writes prove the checked policy version.
   Invitation redemption checks the recorded issuer's current authority.
+- Route targets accept query modes and topic templates through one placeholder
+  renderer. Writers validate targets and authorize the target folder.
+  Concurrent route reassignment causes a conflict before a stale mutation applies.
+- GitHub conversations use their full chat JID for routing and topic separation.
+  GitHub App replies and typing reactions use a token limited to one repository.
+  App bot identity and PAT identity both support mention detection.
+- GitHub reply credentials follow source precedence: repository, organization,
+  then App. Repository and organization sources use `GITHUB_TOKEN`.
+  App sources require installation access without a PAT fallback.
+- The connector broker derives `GITHUB_INSTALLATION_TOKEN` from the trusted turn
+  repository and its selected App source. User secrets cannot replace this token.
+  The guest receives neither App private keys nor installation tokens.
+- Source deletion, installation suspension and repository removal invalidate
+  cached App access. Token reuse rechecks installation access.
+  Source revocation removes only its recorded seeded routes and rejects concurrent handoffs.
+- Only instance operators manage GitHub sources and routes that match GitHub
+  ingress, including implicit routes from `register_group`.
+  This requirement covers repository, organization and App sources.
+  The dashboard's GitHub sources page lists, adds and deletes sources.
+  Creation shows the webhook URL and secret once.
+- Google Drive polls comments on bound files, replies to threads and probes Drive
+  and Sheets independently. The dashboard shows credential, API and file state.
+  Authenticated passthrough exposes Drive and Sheets to configured connectors.
+  Polling continues without an account email. API probes identify disabled Drive access.
+- Drive stores a cursor only after the whole poll sweep succeeds.
+  Resolve and reopen actions without text receive a nonempty description.
+  Routd accepts these actions without blocking the poll cursor.
+- Turn deadlines default to 60 minutes. Ant warns five minutes before its query
+  deadline. Ordinary failure notices use durable identifiers per turn.
+  Only addressed turns owe a reply or publish progress.
+- Routd runs scheduled tasks after startup recovery and preserves each scheduled
+  message's stable identity.
+- Shared-store enrollment requires complete daemon keys and an explicit region.
+  Snapshot copies scan in pages of 500 and check every table's count.
+  Isolated acceptance covers owner-readable keys, read-only copying and startup
+  with the source server stopped.
+- `arizuko rm` removes instance files, services and the enrolled store account.
+  Store removal deletes declared tables by name with scoped daemon keys, without
+  requiring `ListTables` permission. Fresh runtime directories belong to the run UID.
+- `anteval run` creates, enrolls, starts and removes a disposable instance.
+  Cleanup runs after setup failures, case failures and interrupts.
+  Partial reports survive driver errors outside the disposable instance.
+  The runner preserves the configured backend and supplies the registered chat-link tool grant.
+  Publishing checks pass callback details to the child that performs the work.
+- Anteval checks devices, artifacts, cached images and occupied allocations
+  before creation. Available memory must cover the configured guest plus
+  1536 MiB for services and the gateway.
+- Standalone Webdata supplies expiring browser-extraction handles.
+  The CZ estate package adds authorized browser challenge solving, parcel
+  open-data methods and the current ownership workflow.
+- Operator and package documentation describes proxyd static serving, routd's
+  task ticker, Bun ant launch and group handler selection.
+  The bug queue records deferred process folds, contract proposals and existing test failures.
+
+### Removals
+
+- Remove `vited` and live reload. Proxyd serves the web tree directly with
+  public and private access checks.
+- Remove the `timed` daemon. Routd owns the task ticker.
+- Remove `delegate_group`, `escalate_group` and `<escalation_origin/>`.
+- Remove the shell ant entrypoint and emitted TypeScript build tree.
+- Remove the bundled private-store deployment, private host-address synthesis,
+  flat group `model` and `effort` readers, and retired component pages.
+- Remove per-chat and per-folder circuit breakers and separate failure-notice
+  suppression. Folder provider pauses own admission and pause notices.
+
+### Breaking changes
+
+- Replace delegation and escalation calls with `send` to the target folder.
+  A reply between groups requires an explicit send back.
+- Flat group `model` and `effort` overrides do not apply.
+  A present `harness` document replaces instance defaults as a whole.
+  Omitted model or effort selects the adapter's native default.
+  Changing backends requires ending the active run and using `/new` for affected topics.
+- Direct mode supplies the configured host Codex login without a separate
+  `codex` grant. Gateway mode withholds the host login.
+  Review existing Codex grant and deny rows before rollout.
 - Dashboard pages, rows and counts require `interact` on each folder.
   Operator status requires an `admin` verdict on `**`.
 - The CLI selects operator membership only when the action is omitted at `**`.
   Explicit `admin` writes an ACL row. Grant listings show stored rows and
   memberships without release defaults.
+- GitHub ingress management requires instance operator authority on every surface.
+  Existing source secrets remain valid until an operator rotates them.
+- A store URL or CA override in `env/operator.env` must match `.env`.
+  Host commands and containers use the same external store address.
+
+### Environment/configuration
+
+- Set `DYNAMODB_URL`, `STORE_CA` and `AWS_REGION` for the external shared store.
+  Enrollment writes scoped credentials to `env/<daemon>.env` and `env/operator.env`.
+  Private-store port settings do not apply. Keep the enrollment administrator
+  password outside the instance.
+- Keep `ARIZUKO_BACKEND`, `ARIZUKO_DEFAULT_MODEL` and `ARIZUKO_DEFAULT_EFFORT`
+  as instance defaults. Group `harness` selects overrides through `ARIZUKO_HARNESS`.
+  Group `agent` selects the turn handler. Numeric `agent: 0` is unsupported.
+- Set `GITHUB_APP_ID` and `GITHUB_APP_PRIVATE_KEY` for App access.
+  The private key is base64-encoded PEM. Configure the App connector with the
+  derived `GITHUB_INSTALLATION_TOKEN` slot, never a stored user token.
+- Configure googd with `GDRIVE_SA_KEY_JSON`, optional `GDRIVE_IMPERSONATE`,
+  `GOOGD_CONNECTOR_TOKEN` and `GDRIVE_POLL_INTERVAL`, which defaults to 30s with
+  a 10s minimum. `GDRIVE_API_URL` and `SHEETS_API_URL` select API endpoints.
+- `RUNED_RUN_TIMEOUT` defaults to `60m`.
+  `RUNED_ROOTFS_DIR` and `RUNED_KERNEL_DIR` select the matching guest artifacts.
+- Anteval requires explicit model credentials, an external test store and
+  separate vsock, tap and proxy allocations. Its credential preflight requires
+  `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN`.
+  Codex credential setup remains incomplete.
+
+### Migrations
+
+- Routd moves legacy `#observe`, `#engaged`, `#announce` and `#issues` mode
+  fragments to query flags once. Other fragments remain topic templates.
+- Routd adds `#{jid}` to unpinned GitHub routes once, including routes selected
+  by `platform=github` and `chat_jid=github:`. Explicit topic fragments remain unchanged.
+- Startup binds legacy GitHub sources to unique default routes at their owner
+  folder. Missing, edited or ambiguous seeds require the manual procedure in
+  INSTALL.md. Restart does not retry skipped sources.
+- The member-send migration removes the old `system:4r` wildcard `mcp:send`
+  allow row when the row has no grant option. Operator-authored rows remain.
+- Move private-store instances through INSTALL.md's enrollment and snapshot-copy
+  procedure before upgrading. Complete the count checks before destination startup.
+- Convert flat group model settings to complete `harness` documents before
+  restart. The runtime does not infer a backend or convert those settings.
+
+### Deploy steps
+
+1. Before restart, export groups and convert flat `model` and `effort` settings
+   to complete `harness` documents as INSTALL.md directs.
+   Preserve unrelated settings and row fields. Preview with `arizuko plan`.
+   Apply with `arizuko apply`. Verify each intended backend, model and effort.
+2. Complete external-store enrollment or the snapshot move before startup.
+   Remove conflicting store URL and CA overrides from `env/operator.env`.
+3. Before trusting GitHub ingress, disable affected webhooks and rotate source
+   secrets registered by or disclosed to non-operators.
+   Inventory sources with `arizuko github list`.
+   Remove affected sources and register them as an operator.
+   Follow INSTALL.md for sources without route ownership metadata.
+   Configure GitHub with each new secret before enabling deliveries.
+4. For App access, set `GITHUB_APP_ID` and `GITHUB_APP_PRIVATE_KEY`.
+   Install the App on selected repositories and configure the connector token slot.
+5. Ship the daemon image, ant rootfs and kernel/initrd together.
+   Run `sudo make images DATA_DIR=<data-dir>` and
+   `sudo make kernel DATA_DIR=<data-dir>`.
+   Update both `RUNED_ROOTFS_DIR` and `RUNED_KERNEL_DIR` before generation and restart.
+   The old initrd selects the removed shell entrypoint.
+6. Regenerate Compose with `arizuko generate -i <instance>` and resolve frozen
+   fragments and missing daemon keys. Use INSTALL.md's shared-store systemd unit
+   and the release image. Reload systemd after unit changes.
+   Normal startup removes orphaned `timed` and `vited` containers.
+7. Restart krons first with `sudo systemctl restart arizuko_krons`.
+   Verify real replies and post-deploy gates 1–4.
+   Run anteval only by explicit operator action on a disposable instance.
+   Verify the generated operator docs and their version stamp.
 
 ## [v0.75.4] — 2026-11-08
 
