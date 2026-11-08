@@ -369,6 +369,15 @@ func cmdCreate(args []string) {
 		die("Failed: make the store dir at %s: %v", storeDir, err)
 	}
 	chownStore(storeDir)
+	packagesDir := filepath.Join(dataDir, "packages")
+	if err := os.MkdirAll(packagesDir, 0o755); err != nil {
+		die("Failed: make the packages dir at %s: %v", packagesDir, err)
+	}
+	if err := os.Chown(packagesDir, containerUID, containerGID); err != nil {
+		slog.Warn("could not chown packages dir to container uid; run as root or fix manually",
+			"dir", packagesDir, "uid", containerUID, "err", err,
+			"fix", fmt.Sprintf("sudo chown %d:%d %s", containerUID, containerGID, packagesDir))
+	}
 	if err := container.SetupGroup(cfg, store.DefaultFolder); err != nil {
 		die("Failed: setup group dir: %v", err)
 	}

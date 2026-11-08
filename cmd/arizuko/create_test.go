@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -43,5 +44,24 @@ func TestChownStore_NonRootWarnsNotFatal(t *testing.T) {
 	}
 	if !strings.Contains(out, "sudo chown -R 1000:1000") {
 		t.Errorf("WARN must carry the sudo-chown fix hint, got: %q", out)
+	}
+}
+
+func TestCreatePackagesWritableByContainer(t *testing.T) {
+	if os.Geteuid() != 0 && os.Geteuid() != containerUID {
+		t.Skip("requires root or container uid")
+	}
+	base := t.TempDir()
+	t.Setenv("ARIZUKO_DATA_DIR", base)
+	t.Setenv("DATA_DIR", "")
+	cmdCreate([]string{"packages-test"})
+	packages := filepath.Join(base, "arizuko_packages-test", "packages")
+	info, err := os.Stat(packages)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stat := info.Sys().(*syscall.Stat_t)
+	if stat.Uid != containerUID || info.Mode().Perm()&0o200 == 0 {
+		t.Fatalf("packages owner = %d, mode = %v; container uid must write", stat.Uid, info.Mode())
 	}
 }
