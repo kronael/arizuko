@@ -329,6 +329,9 @@ at HEAD `d808fad9b0c0b279a7d8a9ad5b56258308e976f9`.
 **Fix:** consume the cursor and retire the turn in one guarded batch with
 the same binding conditions. Reload on conflict before consuming input.
 **Regression:** `routd/model_pauses_retirement_test.go::TestDeletionPreservesSurvivingReboundInput`.
+**Measured:** the correct-behavior regression fails before the fix and passes
+after it. The parent overlay restoring the original cursor write fails at
+the empty-cursor assertion (`/tmp/arizuko-audit7-parent/l792-mutation.log`).
 
 ## L793 — admission after deletion restores private input (2026-11-08, open)
 

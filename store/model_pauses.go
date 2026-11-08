@@ -245,15 +245,6 @@ func (s *Store) retireFolderTurns(ctx context.Context, folder string) (int, erro
 			if tc.State == TurnDone || !groupfolder.ContainsSep(folder, tc.Folder, "/") {
 				break
 			}
-			if tc.InputLast != "" {
-				key, err := chatKey(tc.ChatJID)
-				if err != nil {
-					return 0, err
-				}
-				if _, err := s.advanceCursor(ctx, Chats, key, AttrChatAgentCursor, tc.InputLast, nil); err != nil {
-					return 0, err
-				}
-			}
 			where := []objstore.Cmp{
 				{Attr: attrTurnState, Op: objstore.Eq, Value: tc.State},
 				{Attr: attrTurnFolder, Op: objstore.Eq, Value: tc.Folder},
@@ -265,11 +256,35 @@ func (s *Store) retireFolderTurns(ctx context.Context, folder string) (int, erro
 				}
 				where = append(where, cmp)
 			}
-			retired, err := s.TryWriteEntities(ctx, nil, objstore.Write{
+			writes := []objstore.Write{{
 				Op: objstore.Update, Entity: TurnContexts, Key: item.Key,
 				Attrs: map[string]string{attrTurnState: TurnDone, attrTurnRunReturned: flagSet},
 				Cond:  objstore.Cond{Where: where},
-			})
+			}}
+			if tc.InputLast != "" {
+				key, err := chatKey(tc.ChatJID)
+				if err != nil {
+					return 0, err
+				}
+				chat, exists, err := s.itemAt(ctx, Chats, key)
+				if err != nil {
+					return 0, err
+				}
+				if !exists {
+					writes = append(writes, objstore.Write{Op: objstore.Put, Entity: Chats, Key: key,
+						Attrs: map[string]string{AttrChatAgentCursor: tc.InputLast},
+						Cond:  objstore.Cond{Item: objstore.ItemAbsent}})
+				} else if cursor, present := chat.Attrs[AttrChatAgentCursor]; cursor < tc.InputLast {
+					cmp := objstore.Cmp{Attr: AttrChatAgentCursor, Op: objstore.Lt, Value: tc.InputLast}
+					if !present {
+						cmp.Op = objstore.Absent
+					}
+					writes = append(writes, objstore.Write{Op: objstore.Update, Entity: Chats, Key: key,
+						Attrs: map[string]string{AttrChatAgentCursor: tc.InputLast},
+						Cond:  objstore.Cond{Where: []objstore.Cmp{cmp}}})
+				}
+			}
+			retired, err := s.TryWriteEntities(ctx, nil, writes...)
 			if err != nil {
 				return 0, err
 			}
