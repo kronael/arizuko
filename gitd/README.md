@@ -152,8 +152,9 @@ backstop.
 ## Reply
 
 `send_text` and `send_file` are the verbs, with `typing`, advertised only when
-`GITHUB_TOKEN` is set. gitd advertises no `edit`, so routd posts no progress
+`GITHUB_TOKEN` or `GITHUB_APP_ID` is set. gitd advertises no `edit`, so routd posts no progress
 comment on GitHub and the `👀` mark is the whole progress display.
+The typing mark uses the PAT. App-only instances do not set the mark.
 `send_text` posts the agent's reply as a comment on the PR or issue the JID
 names and returns the id the same comment carries inbound.
 `send_file` posts a text file as a fenced block in a comment (GitHub has no API that
@@ -170,19 +171,19 @@ issue-comments endpoint, returning `gh-c<id>`. The topic stays
 `github:<owner>/<repo>/pr/<n>` either way — it names the session, never the address. The token's own
 comments are dropped at ingest (`sender.login` == the token's login), as is
 other bot comments. Typed PR state and CI events from automation remain eligible.
-Without a token gitd is ingress-only: a `reply` on a
+Without either credential gitd is ingress-only: a `reply` on a
 `github:` JID fails with a plain `channel github: send_text not supported`
 (`chanreg/httpchan.go`), and on the MCP path `ipc/ipc.go` records the row
 pending and tells the agent it is queued.
 
-A `GET /user` that fails at boot lands in the same place: gitd logs it at
-ERROR, withdraws `send_text` from the registration that already ran, and keeps
-serving ingress — exiting would cycle every daemon on the instance (BUGS
+A `GET /user` that fails at boot makes gitd log an error and keep serving ingress.
+Without an App ID, gitd withdraws `send_text` from the registration. Exiting would
+cycle every daemon on the instance (BUGS
 `L406`). What follows depends on the answer. GitHub REFUSING the token is
 permanent, so nothing asks again and a new credential is the only repair.
 GitHub not answering — a dropped connection, a 5xx, a rate limit — is not, so
 gitd re-asks `/user` every minute and puts `send_text` back the moment it
-answers; it stays withdrawn in between because the login that drops gitd's own
+answers; without an App ID it stays withdrawn in between because the login that drops gitd's own
 comments at ingest is still unknown. `/health` reads 200 throughout: the daemon
 is up and ingesting, and a `disconnected` 503 would have routd deregister the
 channel after three probes and take ingress with it.
@@ -194,6 +195,8 @@ channel after three probes and take ingress with it.
 | `ROUTER_URL`              | required                 |                                                                                        |
 | `SECRETS_KEY`             | required                 | the keyring routd seals `github_sources` with                                          |
 | `GITHUB_TOKEN`            | unset                    | enables `send_text`, `send_file`, `typing`                                             |
+| `GITHUB_APP_ID`           | unset                    | GitHub App ID for App source replies                                                   |
+| `GITHUB_APP_PRIVATE_KEY`  | unset                    | base64-encoded GitHub App RSA private key in PEM format                                |
 | `GITHUB_API_URL`          | `https://api.github.com` |                                                                                        |
 | `LISTEN_ADDR`             | `:8080`                  |                                                                                        |
 | `CHANNEL_NAME`            | `github`                 | the channel name gitd registers under                                                  |

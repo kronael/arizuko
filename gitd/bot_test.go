@@ -15,7 +15,18 @@ import (
 
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/objstore/dynstore/dyntest"
+	"github.com/kronael/arizuko/store"
 )
+
+type testSources []store.GitHubSource
+
+func (s testSources) ListGitHubSources(string) ([]store.GitHubSource, error) { return s, nil }
+
+func testBot(cfg config) *bot {
+	b := newBot(cfg)
+	b.sources = testSources{{Source: "org/kronael"}}
+	return b
+}
 
 func TestMain(m *testing.M) { dyntest.Main(m) }
 
@@ -41,7 +52,7 @@ func fakeGitHub(t *testing.T, status int, reply string) (*httptest.Server, *[]*h
 
 func TestSend_PostsComment(t *testing.T) {
 	gh, reqs, bodies := fakeGitHub(t, 201, `{"id":777,"html_url":"https://github.com/kronael/arizuko/pull/12#issuecomment-777"}`)
-	b := newBot(config{Token: "ghp_test", APIBase: gh.URL})
+	b := testBot(config{Token: "ghp_test", APIBase: gh.URL})
 	id, err := b.Send(chanlib.SendRequest{ChatJID: "github:kronael/arizuko/pr/12", Content: "looks good"})
 	if err != nil || id != "gh-c777" {
 		t.Fatalf("Send = %q, %v", id, err)
@@ -100,7 +111,7 @@ func TestSend_InlineReviewReplyTargetsThreadRoot(t *testing.T) {
 				"GET /repos/kronael/arizuko/pulls/comments/" + strings.TrimPrefix(c.replyTo, "gh-rc"): c.lookup,
 				root: `{"id":888}`,
 			})
-			b := newBot(config{Token: "ghp_test", APIBase: gh.URL})
+			b := testBot(config{Token: "ghp_test", APIBase: gh.URL})
 			id, err := b.Send(chanlib.SendRequest{ChatJID: "github:kronael/arizuko/pr/12",
 				ReplyTo: c.replyTo, Content: "fixed, thanks"})
 			if err != nil || id != "gh-rc888" {
@@ -128,7 +139,7 @@ func TestSend_OrdinaryCommentTargetsIssueComments(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			gh, seen := fakeGitHubAPI(t, map[string]string{"POST " + c.path: `{"id":888}`})
-			b := newBot(config{Token: "ghp_test", APIBase: gh.URL})
+			b := testBot(config{Token: "ghp_test", APIBase: gh.URL})
 			id, err := b.Send(chanlib.SendRequest{ChatJID: c.jid, ReplyTo: c.replyTo, Content: "x"})
 			if err != nil || id != "gh-c888" {
 				t.Fatalf("Send = %q, %v; requests %v", id, err, *seen)
@@ -146,7 +157,7 @@ func TestSend_UnknownReviewThreadRefused(t *testing.T) {
 	gh, seen := fakeGitHubAPI(t, map[string]string{
 		"POST /repos/kronael/arizuko/issues/12/comments": `{"id":888}`,
 	})
-	b := newBot(config{Token: "ghp_test", APIBase: gh.URL})
+	b := testBot(config{Token: "ghp_test", APIBase: gh.URL})
 	_, err := b.Send(chanlib.SendRequest{ChatJID: "github:kronael/arizuko/pr/12",
 		ReplyTo: "gh-rc5678901200", Content: "x"})
 	if !errors.Is(err, chanlib.ErrPermanent) {
@@ -159,7 +170,7 @@ func TestSend_UnknownReviewThreadRefused(t *testing.T) {
 
 func TestSend_Refusals(t *testing.T) {
 	gh, _, _ := fakeGitHub(t, 422, `{"message":"Validation Failed"}`)
-	b := newBot(config{Token: "ghp_test", APIBase: gh.URL})
+	b := testBot(config{Token: "ghp_test", APIBase: gh.URL})
 	if _, err := b.Send(chanlib.SendRequest{ChatJID: "github:kronael/arizuko", Content: "x"}); !errors.Is(err, chanlib.ErrInvalidRequest) {
 		t.Errorf("repo-level jid err = %v, want ErrInvalidRequest", err)
 	}
@@ -169,12 +180,12 @@ func TestSend_Refusals(t *testing.T) {
 	if _, err := b.Send(chanlib.SendRequest{ChatJID: "github:kronael/arizuko/pr/12", Content: "x"}); !errors.Is(err, chanlib.ErrPermanent) {
 		t.Errorf("422 err = %v, want ErrPermanent", err)
 	}
-	noToken := newBot(config{APIBase: gh.URL})
+	noToken := testBot(config{APIBase: gh.URL})
 	if _, err := noToken.Send(chanlib.SendRequest{ChatJID: "github:kronael/arizuko/pr/12", Content: "x"}); !errors.Is(err, chanlib.ErrPermanent) {
 		t.Errorf("no-token err = %v, want ErrPermanent", err)
 	}
 	down, _, _ := fakeGitHub(t, 503, `{"message":"unavailable"}`)
-	b = newBot(config{Token: "ghp_test", APIBase: down.URL})
+	b = testBot(config{Token: "ghp_test", APIBase: down.URL})
 	if _, err := b.Send(chanlib.SendRequest{ChatJID: "github:kronael/arizuko/pr/12", Content: "x"}); !errors.Is(err, chanlib.ErrNotDelivered) {
 		t.Errorf("503 err = %v, want ErrNotDelivered", err)
 	}
@@ -205,7 +216,7 @@ func TestSend_TransportFailureIsUnclassified(t *testing.T) {
 	// LIFO: the handler is released BEFORE Close waits for it to return.
 	defer gh.Close()
 	defer close(block)
-	b := newBot(config{Token: "ghp_test", APIBase: gh.URL})
+	b := testBot(config{Token: "ghp_test", APIBase: gh.URL})
 	b.http = &http.Client{Timeout: 50 * time.Millisecond}
 	_, err := b.Send(chanlib.SendRequest{ChatJID: "github:kronael/arizuko/pr/12", Content: "x"})
 	if err == nil {
@@ -236,7 +247,7 @@ func TestSend_ThreadLookupTimeoutReleasesTheClaim(t *testing.T) {
 	// LIFO: the handler is released BEFORE Close waits for it to return.
 	defer gh.Close()
 	defer close(block)
-	b := newBot(config{Token: "ghp_test", APIBase: gh.URL})
+	b := testBot(config{Token: "ghp_test", APIBase: gh.URL})
 	b.http = &http.Client{Timeout: 50 * time.Millisecond}
 
 	_, err := b.Send(chanlib.SendRequest{ChatJID: "github:kronael/arizuko/pr/12",
@@ -268,7 +279,7 @@ func TestCall_RateLimited403IsRetryable(t *testing.T) {
 				_, _ = w.Write([]byte(`{"message":"Forbidden"}`))
 			}))
 			defer gh.Close()
-			b := newBot(config{Token: "ghp_test", APIBase: gh.URL})
+			b := testBot(config{Token: "ghp_test", APIBase: gh.URL})
 
 			_, err := b.Send(chanlib.SendRequest{ChatJID: "github:kronael/arizuko/pr/12", Content: "x"})
 
@@ -293,7 +304,7 @@ func writeTemp(t *testing.T, name string, data []byte) string {
 
 func TestSendFile_PostsTextAsFencedBlock(t *testing.T) {
 	gh, reqs, bodies := fakeGitHub(t, 201, `{"id":901}`)
-	b := newBot(config{Token: "ghp_test", APIBase: gh.URL})
+	b := testBot(config{Token: "ghp_test", APIBase: gh.URL})
 	path := writeTemp(t, "main.go", []byte("package main\n\n// ``` inside\nfunc main() {}\n"))
 	id, err := b.SendFile("github:kronael/arizuko/pr/12", path, "main.go", "the entrypoint", "", "", "")
 	if err != nil || id != "gh-c901" {
@@ -312,7 +323,7 @@ func TestSendFile_PostsTextAsFencedBlock(t *testing.T) {
 
 func TestSendFile_RefusesBeforeAnyRequest(t *testing.T) {
 	gh, reqs, _ := fakeGitHub(t, 201, `{"id":1}`)
-	b := newBot(config{Token: "ghp_test", APIBase: gh.URL})
+	b := testBot(config{Token: "ghp_test", APIBase: gh.URL})
 	jid := "github:kronael/arizuko/pr/12"
 
 	t.Run("oversize", func(t *testing.T) {

@@ -19,14 +19,13 @@ Repository events reach groups through ordinary routes. gitd receives signed web
 and posts replies as comments. Repository state changes use the GitHub MCP connector.
 App webhook ingress and repository-qualified route topics have implementation tests.
 `routd/topic_fanout_test.go` proves separate sessions for two repositories' PR 12.
-App replies and installation-token tooling are absent. Automatic PR workspaces
+Installation-token access through the broker is absent. Automatic PR workspaces
 and group archival are unbuilt.
-The App completion below is approved and unbuilt. The repository workspace proposal
+The remaining App completion below is approved and unbuilt. The repository workspace proposal
 still needs owner approval, including its public contracts and retention policy.
 
 ## Remaining
 
-- Add a shared host App client with repository-limited installation tokens, refresh and per-source PAT/App reply selection (`gitd/bot.go`, `gitd/main.go`).
 - Bind derived installation credentials to the trusted turn repository, with no PAT fallback or user-secret overlay (`routd/mcp.go`, `ipc/connector.go`, `template/connectors/github.toml`).
 - Fence revoked source/install/repository access and invalidate cached tokens before new replies, discovery or calls (`gitd/server.go`, `routd/github_sources_resource.go`, `routd/mcp.go`).
 - Add source dashboard view/control and App setup documentation (`dashd/main.go`, `dashd/routes_admin.go`, `gitd/README.md`, `template/web/pub/arizuko/components/gitd.html`).
@@ -40,9 +39,9 @@ still needs owner approval, including its public contracts and retention policy.
 
 A comment is a message in the conversation. A merge, label, or review changes repository
 state. `gitd/bot.go` implements `send_text`, `send_file` and the typing indicator below;
-`gitd/main.go:capsFor` advertises those three, and no `edit`, when `GITHUB_TOKEN` is set. The token's user posts the comment and the returned identity
+`gitd/main.go:capsFor` advertises those three, and no `edit`, when a PAT or App ID is set. The selected identity posts the comment and the returned identity
 is `gh-c<id>`, or `gh-rc<id>` for an inline review comment, matching inbound comment IDs.
-Without that token, gitd is ingress-only.
+Without either credential, gitd is ingress-only.
 Other channel verbs return Unsupported.
 
 > The channel creates, edits and reacts to ITS OWN posts in the thread it was
@@ -542,6 +541,10 @@ define this system's conversation retention.
 Both credential modes are required. The operator chooses per source: a `repo/` or `org/` source replies and calls tools
 with the PAT in `GITHUB_TOKEN`; an `app/<slug>` source uses App installation
 tokens for both. No setting outside the source registration selects between them.
+For a reply, gitd checks registered sources for the repository in order: an exact
+`repo/<owner>/<repo>`, then `org/<owner>`, then an `app/<slug>`. The first two
+use the PAT; the App uses its repository installation or refuses. With no source,
+gitd refuses the reply.
 
 One App belongs to one instance. Personal accounts and organizations install that App
 on selected repositories. Its webhook uses the existing `app/<slug>` source directly.
@@ -549,7 +552,8 @@ Installation supplies GitHub authority; source registration supplies verificatio
 routing; ACL grants supply tool access; holds supply approval. These remain separate.
 
 The proposal adds one shared App client for gitd replies and routd's existing broker.
-The App ID and RSA private key are operator credentials in the host configuration.
+The App ID and RSA private key are operator credentials in the instance `.env`,
+named `GITHUB_APP_ID` and `GITHUB_APP_PRIVATE_KEY` (base64-encoded PEM), respectively.
 Neither the key nor an installation token enters the agent environment or tool output.
 The client resolves the repository's installation through GitHub and mints a token for
 exactly that repository. Tokens remain on the host and refresh before their expiry.
@@ -571,8 +575,8 @@ proposed path. Real discovery and repository calls still require credentialed ac
 The repository/topic contract above supplies the immutable identity for managed
 workspaces. The broker still binds credentials to the trusted turn context, never an
 agent-selected repository or topic string. Revocation fences new calls and invalidates
-cached tokens before another dispatch. Neither the token contract nor the workspace
-and topic contract is implemented.
+cached tokens before another dispatch. The broker token contract and the workspace
+and topic contract are unimplemented.
 
 ## Delivery and gaps
 
@@ -585,12 +589,12 @@ Permanent refusals return an error. A gitd outage still requires GitHub
 redelivery. Stable comment/delivery IDs give routd's message store its replay boundary;
 GitHub's HMAC does not attest a timestamp. `mapEvent` drops Bot senders, and token-backed
 startup learns the token user's login so `handleWebhook` also drops that user's comments.
-A token GitHub refuses at startup is not fatal: gitd withdraws `send_text` through
+A PAT GitHub refuses at startup is not fatal: gitd withdraws `send_text` through
 `RouterClient.SetCaps` and serves ingress only, because exiting cycles the whole
-compose project. Without that login the self-drop is inactive.
+compose project, unless an App ID also enables replies. Without that login the self-drop is inactive.
 
 GitHub logins are mutable, so login-based principals can transfer after a rename.
-App JWTs, token refresh, App bot replies, and App-token discovery are absent.
+App-token discovery is absent.
 `github_sources` has REST/MCP and CLI management but no dashboard view and control.
 Source deletion does not uninstall an App or revoke its tool grants.
 Revocation, repository removal, suspension, and uninstall need checks with cached tokens.

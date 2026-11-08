@@ -19,14 +19,23 @@ import (
 	"unicode/utf8"
 
 	"github.com/kronael/arizuko/chanlib"
+	"github.com/kronael/arizuko/githubapp"
+	"github.com/kronael/arizuko/store"
 )
+
+type sourceReader interface {
+	ListGitHubSources(string) ([]store.GitHubSource, error)
+}
 
 type bot struct {
 	chanlib.NoSocial
 	chanlib.NoVoiceSender
 
-	cfg  config
-	http *http.Client
+	cfg     config
+	http    *http.Client
+	sources sourceReader
+	app     *githubapp.Client
+	appErr  error
 
 	login         atomic.Value
 	connected     atomic.Bool
@@ -170,6 +179,10 @@ func (b *bot) call(method, url string, body []byte, want []int) ([]byte, error) 
 }
 
 func (b *bot) callContext(ctx context.Context, method, url string, body []byte, want []int) ([]byte, error) {
+	return b.callToken(ctx, method, url, body, want, b.cfg.Token)
+}
+
+func (b *bot) callToken(ctx context.Context, method, url string, body []byte, want []int, token string) ([]byte, error) {
 	var rdr io.Reader
 	if body != nil {
 		rdr = bytes.NewReader(body)
@@ -179,6 +192,7 @@ func (b *bot) callContext(ctx context.Context, method, url string, body []byte, 
 		return nil, err
 	}
 	b.decorate(hreq)
+	hreq.Header.Set("Authorization", "Bearer "+token)
 	if body != nil {
 		hreq.Header.Set("Content-Type", "application/json")
 	}
@@ -207,10 +221,10 @@ func (b *bot) callContext(ctx context.Context, method, url string, body []byte, 
 // in. GitHub takes only that comment as a reply target — "replies to replies
 // are not supported" — while the id routd hands back is whichever comment
 // anchored the turn, a reply as often as the root.
-func (b *bot) threadRoot(j chanlib.GitHubJID, id int64) (int64, error) {
-	raw, err := b.call("GET",
+func (b *bot) threadRoot(j chanlib.GitHubJID, id int64, token string) (int64, error) {
+	raw, err := b.callToken(context.Background(), "GET",
 		fmt.Sprintf("%s/repos/%s/%s/pulls/comments/%d", b.cfg.APIBase, j.Owner, j.Repo, id),
-		nil, []int{http.StatusOK})
+		nil, []int{http.StatusOK}, token)
 	if err != nil {
 		return 0, err
 	}
@@ -226,14 +240,52 @@ func (b *bot) threadRoot(j chanlib.GitHubJID, id int64) (int64, error) {
 	return id, nil
 }
 
-// Send posts the agent's reply as a comment, and ReplyTo decides where. A
-// review comment's id answers under that inline thread through the review-reply
-// endpoint, so a reviewer reading the diff sees the answer on its own code
-// line; every other reply uses the issue-comments endpoint, which GitHub shares
-// between PR and issue conversations. GitHub's refusal of a missing or foreign
-// thread is returned, never redirected to the conversation tab, which would
-// hide it. Returns the id inbound uses for the same comment, so a later
-// reply_to resolves to this row.
+func (b *bot) replyToken(j chanlib.GitHubJID) (string, error) {
+	if b.sources == nil {
+		return "", fmt.Errorf("%w: github sources unavailable", chanlib.ErrPermanent)
+	}
+	sources, err := b.sources.ListGitHubSources("")
+	if err != nil {
+		return "", err
+	}
+	var repo, org, app bool
+	for _, source := range sources {
+		kind, name, err := store.ParseGitHubSourceKey(source.Source)
+		if err != nil {
+			return "", err
+		}
+		switch kind {
+		case store.GitHubSourceRepo:
+			repo = repo || strings.EqualFold(name, j.Owner+"/"+j.Repo)
+		case store.GitHubSourceOrg:
+			org = org || strings.EqualFold(name, j.Owner)
+		case store.GitHubSourceApp:
+			app = true
+		}
+	}
+	if repo || org {
+		if b.cfg.Token == "" {
+			return "", fmt.Errorf("%w: GITHUB_TOKEN unset", chanlib.ErrPermanent)
+		}
+		return b.cfg.Token, nil
+	}
+	if !app {
+		return "", fmt.Errorf("%w: no github source for repository", chanlib.ErrPermanent)
+	}
+	if b.appErr != nil {
+		return "", fmt.Errorf("%w: %v", chanlib.ErrPermanent, b.appErr)
+	}
+	if b.app == nil {
+		return "", fmt.Errorf("%w: github app credentials are required", chanlib.ErrPermanent)
+	}
+	token, err := b.app.Token(context.Background(), j.Owner, j.Repo)
+	if err != nil {
+		return "", fmt.Errorf("github app token: %w", err)
+	}
+	return token, nil
+}
+
+// Send returns the inbound-formatted id of the posted comment.
 func (b *bot) Send(req chanlib.SendRequest) (string, error) {
 	j, ok := chanlib.ParseGitHubJID(req.ChatJID)
 	if !ok {
@@ -243,13 +295,14 @@ func (b *bot) Send(req chanlib.SendRequest) (string, error) {
 		return "", fmt.Errorf("%w: %s has no comment thread; reply on a pr/<n> or issue/<n> jid",
 			chanlib.ErrInvalidRequest, req.ChatJID)
 	}
-	if b.cfg.Token == "" {
-		return "", fmt.Errorf("%w: GITHUB_TOKEN unset; post through the github connector", chanlib.ErrPermanent)
+	token, err := b.replyToken(j)
+	if err != nil {
+		return "", err
 	}
 	url := fmt.Sprintf("%s/repos/%s/%s/issues/%d/comments", b.cfg.APIBase, j.Owner, j.Repo, j.Number)
 	prefix := issueIDPrefix
 	if id, ok := reviewCommentID(req.ReplyTo); ok && j.Kind == "pr" {
-		root, err := b.threadRoot(j, id)
+		root, err := b.threadRoot(j, id, token)
 		if err != nil {
 			return "", err
 		}
@@ -258,7 +311,7 @@ func (b *bot) Send(req chanlib.SendRequest) (string, error) {
 		prefix = reviewIDPrefix
 	}
 	body, _ := json.Marshal(map[string]string{"body": req.Content})
-	raw, err := b.call("POST", url, body, []int{http.StatusCreated})
+	raw, err := b.callToken(context.Background(), "POST", url, body, []int{http.StatusCreated}, token)
 	if err != nil {
 		return "", err
 	}
@@ -280,8 +333,8 @@ const uploadHint = "commit it to a branch with the github connector and link it 
 // comment, so a file that is not text, or does not fit the comment cap, is
 // refused before any request with the connector tool that can hold it.
 func (b *bot) SendFile(jid, path, name, caption, replyTo, _, _ string) (string, error) {
-	if b.cfg.Token == "" {
-		return "", chanlib.Unsupported("send_file", "github", "GITHUB_TOKEN unset; "+uploadHint)
+	if b.cfg.Token == "" && b.cfg.AppID == "" {
+		return "", chanlib.Unsupported("send_file", "github", "credentials unset; "+uploadHint)
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {

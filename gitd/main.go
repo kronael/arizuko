@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/githubapp"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -31,7 +33,7 @@ func main() {
 		ListenAddr: cfg.ListenAddr,
 		ListenURL:  cfg.ListenURL,
 		Prefixes:   []string{"github:"},
-		Caps:       capsFor(cfg.Token),
+		Caps:       capsFor(cfg.Token + cfg.AppID),
 		Start: func(ctx context.Context, rc *chanlib.RouterClient) (http.Handler, func(), error) {
 			// github_sources is routd's: gitd reads the sealed secret per
 			// delivery and never writes — registration is routd's REST/MCP face
@@ -56,6 +58,15 @@ func main() {
 			// restarting must not lose the event: retain and re-deliver.
 			rc.RetainInbound(ctx, as.Chan)
 			b := newBot(cfg)
+			b.sources = st
+			if cfg.AppID != "" || cfg.AppPrivateKey != "" {
+				key, err := base64.StdEncoding.DecodeString(cfg.AppPrivateKey)
+				if err != nil {
+					b.appErr = errors.New("invalid base64 github app private key")
+				} else {
+					b.app, b.appErr = githubapp.New(cfg.AppID, string(key), cfg.APIBase, b.http)
+				}
+			}
 			b.useMark(rc, as.Chan)
 			if cfg.Token != "" {
 				// A mark a crash left standing: find it by its record and clear it.
@@ -97,7 +108,7 @@ func verifyToken(ctx context.Context, b *bot, rc capSetter, every time.Duration)
 	slog.Error(noLoginConsequence("github /user failed")+
 		"; gitd runs ingress-only, send_text is withdrawn, and gitd's own comments are no longer dropped at ingest",
 		"err", err)
-	setCaps(rc, capsFor(""))
+	setCaps(rc, capsFor(b.cfg.AppID))
 	if errors.Is(err, chanlib.ErrPermanent) {
 		return
 	}
@@ -119,7 +130,7 @@ func reverify(ctx context.Context, b *bot, rc capSetter, every time.Duration) {
 			switch {
 			case err == nil:
 				slog.Info("github /user answered; send_text is back on the registration", "login", b.Login())
-				setCaps(rc, capsFor(b.cfg.Token))
+				setCaps(rc, capsFor(b.cfg.Token+b.cfg.AppID))
 				return
 			case errors.Is(err, chanlib.ErrPermanent):
 				slog.Error("github refused the token; send_text stays withdrawn until gitd restarts with a new one",
@@ -140,23 +151,27 @@ func setCaps(rc capSetter, caps map[string]bool) {
 }
 
 type config struct {
-	Name       string
-	Token      string
-	APIBase    string
-	RouterURL  string
-	ListenAddr string
-	ListenURL  string
-	SecretsKey string
+	Name          string
+	Token         string
+	APIBase       string
+	RouterURL     string
+	ListenAddr    string
+	ListenURL     string
+	SecretsKey    string
+	AppID         string
+	AppPrivateKey string
 }
 
 func loadConfig() config {
 	return config{
-		Name:       core.EnvOr("CHANNEL_NAME", "github"),
-		Token:      core.EnvOr("GITHUB_TOKEN", ""),
-		APIBase:    core.EnvOr("GITHUB_API_URL", "https://api.github.com"),
-		RouterURL:  chanlib.MustEnv("ROUTER_URL"),
-		ListenAddr: core.EnvOr("LISTEN_ADDR", ":8080"),
-		ListenURL:  core.EnvOr("LISTEN_URL", "http://gitd:8080"),
-		SecretsKey: core.EnvOr("SECRETS_KEY", ""),
+		Name:          core.EnvOr("CHANNEL_NAME", "github"),
+		Token:         core.EnvOr("GITHUB_TOKEN", ""),
+		AppID:         core.EnvOr("GITHUB_APP_ID", ""),
+		AppPrivateKey: core.EnvOr("GITHUB_APP_PRIVATE_KEY", ""),
+		APIBase:       core.EnvOr("GITHUB_API_URL", "https://api.github.com"),
+		RouterURL:     chanlib.MustEnv("ROUTER_URL"),
+		ListenAddr:    core.EnvOr("LISTEN_ADDR", ":8080"),
+		ListenURL:     core.EnvOr("LISTEN_URL", "http://gitd:8080"),
+		SecretsKey:    core.EnvOr("SECRETS_KEY", ""),
 	}
 }
