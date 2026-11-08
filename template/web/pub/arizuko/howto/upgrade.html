@@ -52,7 +52,26 @@
     <p>Run the commands in the arizuko checkout. Replace <code>demo</code> with the name of the instance.</p>
     <pre><code>git pull                                          # the new release
 make build                                        # ./arizuko and the daemon binaries
-sudo make images DATA_DIR=/srv/data/arizuko_demo  # prints rootfs: &lt;dir&gt;
+./arizuko get -i demo groups &gt; groups-before.yml  # includes stored settings</code></pre>
+
+    <h2 id="harness">Flat overrides require a harness before the restart</h2>
+    <p>Read <code>groups-before.yml</code> for groups whose <code>config</code> JSON contains top-level <code>model</code> or <code>effort</code> keys. The runtime reads overrides only from <code>config.harness</code>.</p>
+    <p>If any group needs conversion, copy the inventory:</p>
+    <pre><code>cp groups-before.yml groups-harness.yml</code></pre>
+    <p>In <code>groups-harness.yml</code>, keep only the affected rows. <code>apply</code> replaces each named group row. Preserve every exported row field and every unrelated setting in <code>config</code>. Remove the top-level <code>model</code> and <code>effort</code> keys. Set <code>harness</code> to one complete JSON object with the group's intended backend, model and effort. Do not infer the backend from the model name. Replace the placeholders in this rows-file shape with the group's values:</p>
+    <pre><code>groups:
+  - folder: &lt;folder&gt;
+    product: &lt;product&gt;
+    config: |-
+      {"harness":{"backend":"&lt;backend&gt;","model":"&lt;model&gt;","effort":"&lt;effort&gt;"}}</code></pre>
+    <p>The backend is <code>claude</code>, <code>codex</code> or <code>pi</code>. Use an effort value that the selected backend accepts. Preview the changes. Then apply the file:</p>
+    <pre><code>./arizuko plan -i demo groups-harness.yml
+./arizuko apply -i demo groups-harness.yml
+./arizuko get -i demo groups</code></pre>
+    <p>Confirm each affected group's stored harness matches its intended values. Do not continue the rollout until every affected group has a complete harness document. If the inventory contains no flat overrides, continue without a conversion.</p>
+
+    <h2 id="restart">Build the artifacts and restart the instance</h2>
+    <pre><code>sudo make images DATA_DIR=/srv/data/arizuko_demo  # prints rootfs: &lt;dir&gt;
 sudo make kernel DATA_DIR=/srv/data/arizuko_demo  # prints kernel: &lt;dir&gt;
 sudoedit /srv/data/arizuko_demo/.env              # RUNED_ROOTFS_DIR, RUNED_KERNEL_DIR
 ./arizuko generate -i demo                           # read every warning it prints
@@ -85,7 +104,7 @@ make kernel ──► DATA_DIR/images/kernel-&lt;version&gt;-&lt;hash&gt;/  ◄�
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/howto/upgrade.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-28">2026-10-28</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-07">2026-11-07</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

@@ -852,6 +852,49 @@ and `.env` must name it.
 ```bash
 git pull                                          # the new release
 make build                                        # ./arizuko and the daemon binaries
+./arizuko get -i demo groups > groups-before.yml  # includes stored settings
+```
+
+Before the restart, read `groups-before.yml` for groups whose `config` JSON
+contains top-level `model` or `effort` keys. The runtime reads overrides only
+from `config.harness`.
+
+If any group needs conversion, copy the inventory:
+
+```bash
+cp groups-before.yml groups-harness.yml
+```
+
+In `groups-harness.yml`, keep only the affected rows. `apply` replaces each
+named group row. Preserve every exported row field and every unrelated setting
+in `config`. Remove the top-level
+`model` and `effort` keys. Set `harness` to one complete JSON object with the
+group's intended backend, model and effort. Do not infer the backend from the
+model name. Replace the placeholders in this rows-file shape with the group's
+values:
+
+```yaml
+groups:
+  - folder: <folder>
+    product: <product>
+    config: |-
+      {"harness":{"backend":"<backend>","model":"<model>","effort":"<effort>"}}
+```
+
+The backend is `claude`, `codex` or `pi`. Use an effort value that the selected
+backend accepts. Preview the changes. Then apply the file:
+
+```bash
+./arizuko plan -i demo groups-harness.yml
+./arizuko apply -i demo groups-harness.yml
+./arizuko get -i demo groups
+```
+
+Confirm each affected group's stored harness matches its intended values.
+Do not continue the rollout until every affected group has a complete harness
+document. If the inventory contains no flat overrides, continue without a conversion.
+
+```bash
 sudo make images DATA_DIR=/srv/data/arizuko_demo  # prints rootfs: <dir>
 sudo make kernel DATA_DIR=/srv/data/arizuko_demo  # prints kernel: <dir>
 sudoedit /srv/data/arizuko_demo/.env              # RUNED_ROOTFS_DIR, RUNED_KERNEL_DIR
