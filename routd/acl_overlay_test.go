@@ -86,7 +86,7 @@ func TestOperatorOverlay(t *testing.T) {
 		t.Error("overlay deny: reply must be blocked (deny wins over the floor)")
 	}
 	// A floor verb the operator didn't touch is still allowed.
-	if !db.Authorize(sub, folder, "mcp:send", nil) {
+	if !db.Authorize(sub, folder, "mcp:send", map[string]string{"jid": "telegram:chat/own"}) {
 		t.Error("floor verb send must stay allowed")
 	}
 }
@@ -114,7 +114,11 @@ func TestDBAuthorize_MagnitudeFromMembership(t *testing.T) {
 	}
 	for _, f := range []string{"demo", "w/a/b/c"} {
 		for _, verb := range []string{"mcp:reply", "mcp:send", "mcp:like"} {
-			if !db.Authorize("folder:"+f, f, verb, nil) {
+			var params map[string]string
+			if verb == "mcp:send" {
+				params = map[string]string{"jid": "telegram:chat/own"}
+			}
+			if !db.Authorize("folder:"+f, f, verb, params) {
 				t.Errorf("role:member floor should allow %s for %s", verb, f)
 			}
 		}

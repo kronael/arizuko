@@ -102,7 +102,7 @@ func TestTurnAuthorize_UnpairedSenderKeepsTheFloor(t *testing.T) {
 
 	for _, sender := range []string{"telegram:user/1112184352", "whatsapp:271317395882184@lid", ""} {
 		authorize := srv.turnAuthorize(turnMCP{folder: folder, trigger: sender})
-		if !authorize(folder, "mcp:send", nil) {
+		if !authorize(folder, "mcp:send", map[string]string{"jid": "telegram:chat/own"}) {
 			t.Fatalf("sender %q lost the role:member messaging floor", sender)
 		}
 		if authorize(folder, "mcp:register_group", nil) {

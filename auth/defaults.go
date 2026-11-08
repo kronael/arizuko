@@ -63,8 +63,12 @@ var defaultRows = func() []core.ACLRow {
 			Effect: store.EffectAllow},
 	}
 	for _, v := range memberVerbs {
-		rows = append(rows, core.ACLRow{Principal: store.RoleMember,
-			Action: "mcp:" + v, Scope: "**", Effect: store.EffectAllow})
+		row := core.ACLRow{Principal: store.RoleMember,
+			Action: "mcp:" + v, Scope: "**", Effect: store.EffectAllow}
+		if v == "send" {
+			row.Params = "jid"
+		}
+		rows = append(rows, row)
 	}
 	for _, e := range skipApproval {
 		rows = append(rows, core.ACLRow{Principal: store.RoleMember,

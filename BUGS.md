@@ -482,6 +482,8 @@ that version. A change to which rows reach live data is an auth change.
   route's member grant outside its subtree. `store/messages.go:392` writes
   the target's inbound message; `routd/loop.go:677` dispatches direct groups.
   The send test stubs authorization and misses the policy composition.
+  `ipc/send_policy_test.go::TestSendGroupRealPolicy` fails against the
+  unmodified policy: the ungranted send returns no error and writes `world/b`.
 - **Fix:** restrict the platform-send floor with existing parameter predicates;
   retain explicit cross-group grants and platform ownership checks. Reconcile
   system-seeded wildcard rows through one idempotent upgrade migration.
