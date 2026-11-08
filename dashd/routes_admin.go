@@ -7,11 +7,13 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/dashd/dashstore"
+	"github.com/kronael/arizuko/resreg/resources"
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
 )
 
@@ -388,4 +390,91 @@ func (d *dash) listRoutes(ctx context.Context) ([]core.Route, error) {
 		return nil, err
 	}
 	return routes, nil
+}
+
+func (d *dash) handleGitHubSources(w http.ResponseWriter, r *http.Request) {
+	if _, ok := requireUser(w, r); !ok {
+		return
+	}
+	body, status, err := d.routdGet(r.Context(), "/v1/github_sources")
+	if err != nil || status != http.StatusOK {
+		http.Error(w, "Could not load GitHub sources from routd.", http.StatusBadGateway)
+		return
+	}
+	var sources []resources.GitHubSourcesRow
+	if err := json.Unmarshal(body, &sources); err != nil {
+		http.Error(w, "Could not read GitHub sources from routd.", http.StatusBadGateway)
+		return
+	}
+	allowed, _ := d.callerScope(r)
+	var rows [][]string
+	for _, source := range sources {
+		if !visible(allowed, source.OwnerFolder) {
+			continue
+		}
+		kind, name, _ := strings.Cut(source.Source, "/")
+		del := `<form method="post" action="/dash/github_sources/delete" class="form-inline"` +
+			` onsubmit="return confirm('Delete this source? GitHub deliveries will stop and its routes will be removed.')">` +
+			`<input type="hidden" name="source" value="` + esc(source.Source) + `">` +
+			`<input type="hidden" name="owner_folder" value="` + esc(source.OwnerFolder) + `">` +
+			`<button type="submit">delete</button></form>`
+		rows = append(rows, []string{esc(kind), esc(name), esc(source.OwnerFolder), del})
+	}
+	pageTopFor(w, r, "GitHub sources")
+	_, _ = fmt.Fprint(w, `<p>A source connects a repository, organization or GitHub App to a group. `+
+		`Only group admins can add or delete sources. Webhook secrets never appear here.</p>`)
+	_, _ = fmt.Fprint(w, htmlTable([]string{"Type", "Name", "Group folder", ""}, rows,
+		"No GitHub sources are registered for your groups."))
+	_, _ = fmt.Fprint(w, htmlSection("Add GitHub source",
+		`<p>For the webhook URL and secret, use <code>arizuko github -i &lt;instance&gt; add &lt;kind&gt; &lt;name&gt; &lt;folder&gt;</code>. `+
+			`The command prints the secret once. This form does not show the secret.</p>`+
+			`<form method="post" action="/dash/github_sources/">`+
+			htmlFormRow("Source type", `<select name="kind"><option value="repo">Repository</option>`+
+				`<option value="org">Organization</option><option value="app">GitHub App</option></select>`)+
+			htmlFormRow("Name", `<input name="name" required>`)+
+			`<p>For a repository, enter owner/repo. For an organization, enter its account name. `+
+			`For an App, enter the name after <code>github.com/apps/</code>.</p>`+
+			htmlFormRow("Group folder", `<input name="owner_folder" placeholder="team/reviewer" required>`)+
+			`<p><button type="submit">add source</button></p></form>`))
+	pageClose(w, r)
+}
+
+func (d *dash) handleGitHubSourceCreate(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
+	folder := strings.TrimSpace(r.FormValue("owner_folder"))
+	if _, ok := d.requireAdmin(w, r, folder); !ok {
+		return
+	}
+	_, status, err := d.routdCall(r.Context(), http.MethodPost, "/v1/github_sources", map[string]string{
+		"owner_folder": folder,
+		"kind":         strings.TrimSpace(r.FormValue("kind")),
+		"name":         strings.TrimSpace(r.FormValue("name")),
+	})
+	if err != nil || status != http.StatusCreated {
+		http.Error(w, "Could not add the GitHub source.", http.StatusBadGateway)
+		return
+	}
+	http.Redirect(w, r, "/dash/github_sources/", http.StatusSeeOther)
+}
+
+func (d *dash) handleGitHubSourceDelete(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
+	folder := strings.TrimSpace(r.FormValue("owner_folder"))
+	if _, ok := d.requireAdmin(w, r, folder); !ok {
+		return
+	}
+	source := strings.TrimSpace(r.FormValue("source"))
+	_, status, err := d.routdCall(r.Context(), http.MethodDelete,
+		"/v1/github_sources/"+url.PathEscape(source)+"?owner_folder="+url.QueryEscape(folder), nil)
+	if err != nil || status < 200 || status >= 300 {
+		http.Error(w, "Could not delete the GitHub source.", http.StatusBadGateway)
+		return
+	}
+	http.Redirect(w, r, "/dash/github_sources/", http.StatusSeeOther)
 }

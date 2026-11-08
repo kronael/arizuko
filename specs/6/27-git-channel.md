@@ -26,7 +26,6 @@ still needs owner approval, including its public contracts and retention policy.
 
 ## Remaining
 
-- Add source dashboard view/control and App setup documentation (`dashd/main.go`, `dashd/routes_admin.go`, `gitd/README.md`, `template/web/pub/arizuko/components/gitd.html`).
 - Prove App bot loop suppression, token renewal, repository bounds, grant/hold behavior and real hosted MCP discovery/calls in a disposable repository (`gitd/bot_test.go`, `gitd/server_test.go`, `anteval/cases/anteval.toml`).
 - Obtain approval for repository bindings, PR group provisioning, lifecycle fences, overlapping-writer exclusion and generated-asset retention (`specs/6/27-git-channel.md`).
 - Build approved binding/group management, CLI and dashboard surfaces with scoped authorization (`resreg/resources/groups.go`, `routd/groups_resource.go`, `store/groups.go`, `cmd/arizuko/github.go`, `dashd/groups_admin.go`).
@@ -594,7 +593,7 @@ compose project, unless an App ID also enables replies. Without that login the s
 
 GitHub logins are mutable, so login-based principals can transfer after a rename.
 App-token discovery uses the trusted turn repository and refuses missing App authority.
-`github_sources` has REST/MCP and CLI management but no dashboard view and control.
+`github_sources` has REST/MCP, CLI and dashboard view/control through routd's `/v1/github_sources`.
 Source deletion does not uninstall an App or revoke its tool grants.
 gitd replies and routd's App connector discovery/calls re-read sources before resolving credentials.
 A missing source refuses access and evicts the repository's cached App token.

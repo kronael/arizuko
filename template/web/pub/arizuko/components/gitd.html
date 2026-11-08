@@ -60,10 +60,10 @@
     <h2>gitd lets the agent hear from a repository</h2>
     <p>Without gitd, the agent can be told about a repository but cannot hear from it. Someone has to paste the pull request, and the agent answers about a snapshot that has already changed. With gitd, the repository takes part. The comment arrives as a message, the agent reads its thread, and the reply lands on the same pull request.</p>
 
-    <p>gitd only receives, by design. Merging, labelling and reviewing are repository actions with their own permissions. To route them through chat verbs would need a second permission model next to the one of GitHub. They go through the MCP connector instead, where the scope of the token is the limit.</p>
+    <p>gitd receives events and posts replies. Repository changes such as merges use the GitHub MCP connector. Tool grants and GitHub permissions control those changes.</p>
 
     <h2>gitd sits between GitHub and routd</h2>
-    <div class="callout"><strong>A webhook becomes an inbound message.</strong> The path starts at the GitHub webhook. gitd verifies the signature, resolves the source and builds the JID. In routd, the route table decides the folder and whether a turn starts. Then the agent runs. Outbound actions go through the GitHub MCP connector, not gitd. The exception is <code>send_text</code>, which posts a comment when <code>GITHUB_TOKEN</code> is set.</div>
+    <div class="callout"><strong>A webhook becomes an inbound message.</strong> gitd verifies the signature and sends the message to routd. The route table selects the group. gitd posts reply comments with a personal access token or an App installation token. Repository changes use the GitHub MCP connector.</div>
 
     <p>gitd depends on routd for delivery and on the <code>github_sources</code> table of routd for the secrets. Nothing depends on gitd: without it, the repository stops talking to the agent.</p>
 
@@ -82,6 +82,46 @@ arizuko github -i &lt;inst&gt; list                        # secrets never print
 arizuko github -i &lt;inst&gt; rm app/arizuko-krons eng    # 404s the URL, drops the routes</code></pre>
 
     <p>routd seals the secret under <code>SECRETS_KEY</code> in its <code>github_sources</code> table, and gitd unseals it for each delivery. The URL path <code>/github/&lt;kind&gt;/&lt;name&gt;</code> selects the secret that verifies the signature, so a payload never chooses its own verifier. A repository or organization source is also bound to its repository or organization. gitd refuses a payload that names another repository with 400, even when the signature is valid.</p>
+
+    <p>Open <strong>GitHub sources</strong> at <code>/dash/github_sources/</code> to list, add or delete sources for your groups. Only group admins can change sources. The dashboard never shows secrets. Use <code>arizuko github add</code> for the one-time setup secret.</p>
+
+    <h2>A GitHub App connects selected repositories</h2>
+    <p>Use one GitHub App per instance. An installation gives the App access to selected repositories. A source checks webhook signatures and routes events to a group.</p>
+    <ol>
+      <li>In GitHub account or organization settings, open <strong>Developer settings → GitHub Apps → New GitHub App</strong>. Enter a name and your instance's public HTTPS homepage URL. Create the App. Record its numeric <strong>App ID</strong>. Read its slug from <code>https://github.com/apps/&lt;slug&gt;</code>. A private App installs only on its owner's account. Other accounts require a public App.</li>
+      <li>Under <strong>Private keys</strong>, select <strong>Generate a private key</strong>. Keep the downloaded PEM file private. Run <code>base64 -w0 /path/to/private-key.pem</code> to encode the file as one line. Set the App ID and encoded key in the instance's <code>.env</code>:</li>
+    </ol>
+    <pre><code>GITHUB_APP_ID=&lt;numeric-app-id&gt;
+GITHUB_APP_PRIVATE_KEY=&lt;base64-pem&gt;</code></pre>
+    <ol start="3">
+      <li>Register <code>app/&lt;slug&gt;</code> for the group that receives the events. Use the command below. Copy the returned URL and one-time secret into the App's <strong>Webhooks</strong> settings. Select <strong>Active</strong>. The URL is <code>https://&lt;instance-host&gt;/github/app/&lt;slug&gt;</code>.</li>
+    </ol>
+    <pre><code>arizuko github -i &lt;inst&gt; add app &lt;slug&gt; &lt;folder&gt;</code></pre>
+    <ol start="4">
+      <li>In <strong>Permissions &amp; events</strong>, set the repository permissions below. Save the changes.</li>
+    </ol>
+    <table>
+      <tr><th>Permission</th><th>Access</th><th>Purpose</th></tr>
+      <tr><td>Metadata</td><td>Read-only</td><td>GitHub includes this permission automatically</td></tr>
+      <tr><td>Issues</td><td>Read and write</td><td>Issue comments and reactions</td></tr>
+      <tr><td>Pull requests</td><td>Read and write</td><td>Pull request comments, reviews and reactions</td></tr>
+      <tr><td>Contents</td><td>Read-only for file tools</td><td>Write tools need Read and write</td></tr>
+      <tr><td>Checks and Actions</td><td>Read-only, optional</td><td>CI events</td></tr>
+    </table>
+    <p>Subscribe to <strong>Issues</strong>, <strong>Issue comment</strong>, <strong>Pull request</strong>, <strong>Pull request review</strong>, <strong>Pull request review comment</strong> and <strong>Pull request review thread</strong>. For CI, also select <strong>Check run</strong>, <strong>Check suite</strong> and <strong>Workflow run</strong>. Add other permissions only when the selected tools or events need them.</p>
+    <ol start="5">
+      <li>Open <strong>Install App</strong> and select an account. Choose <strong>Only select repositories</strong>. Select the repositories and install the App. An organization owner may need to approve the installation.</li>
+      <li>Add the connector block from <code>template/connectors/github.toml</code> to the instance's <code>connectors.toml</code> to enable repository tools. Keep <code>GITHUB_INSTALLATION_TOKEN</code> in <code>secrets</code> and the <code>Authorization</code> header. Restart the instance with <code>sudo systemctl restart arizuko_&lt;inst&gt;</code> to load the configuration.</li>
+    </ol>
+    <p>routd derives <code>GITHUB_INSTALLATION_TOKEN</code> from the trusted turn repository. Do not set this slot in <code>.env</code> or user secrets. The private key and installation tokens stay on the host. Tool access still requires <code>mcp:github_&lt;tool&gt;</code> grants. Holds still require approval.</p>
+    <p>In the App's <strong>Recent deliveries</strong>, check that a ping receives HTTP 200.</p>
+    <p>GitHub setup details: <a href="https://docs.github.com/en/apps/creating-github-apps/writing-code-for-a-github-app/building-a-github-app-that-responds-to-webhook-events">[App registration]</a> and <a href="https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/choosing-permissions-for-a-github-app">[permissions]</a>.</p>
+
+    <h2>Source deletion and installation removal stop access</h2>
+    <p>Delete a source in <strong>GitHub sources</strong> or run the command below. The webhook URL then returns 404. routd removes the source's seeded routes.</p>
+    <pre><code>arizuko github -i &lt;inst&gt; rm app/&lt;slug&gt; &lt;folder&gt;</code></pre>
+    <p>Source deletion does not uninstall the App or remove tool grants. To remove GitHub access, uninstall the App under <strong>Settings → Applications → Installed GitHub Apps</strong>. You can also remove individual repositories from the installation. gitd replies and App connector calls refuse access when the source or installation is missing.</p>
+    <p>GitHub describes the controls in <a href="https://docs.github.com/en/apps/using-github-apps/reviewing-and-modifying-installed-github-apps">[installation and removal]</a>.</p>
 
     <h2>The JID names the owner, the repository and the thread</h2>
     <pre><code>github:&lt;owner&gt;                    account or org event, no repository
@@ -104,14 +144,18 @@ github:&lt;owner&gt;/&lt;repo&gt;/issue/&lt;n&gt;   one issue</code></pre>
     <p>Every other event carries the keys it has, such as <code>kind</code>, <code>id</code>, <code>url</code> and the review <code>state</code>. The agent reads the place of a comment from the header and needs no extra API call.</p>
 
     <h2>gitd posts replies as comments</h2>
-    <p><code>send_text</code>, <code>send_file</code> and <code>typing</code> need <code>GITHUB_TOKEN</code>. A reply goes to the pull request or issue that the JID names. The agent must pass <code>replyToId</code>, the <code>id</code> from the header of the message it answers. A <code>gh-rc</code> id keeps the reply in that review thread, and a <code>gh-c</code> id answers in the conversation. gitd does not edit comments, so a pull request gets no progress comment. The eyes reaction on the comment that started the turn is the only sign of work. gitd drops the own comments of the token and the comments of other bots, so the agent cannot answer itself. Typed pull request state events and CI events from automation stay eligible. Without a token, gitd only receives.</p>
+    <p>For each reply, gitd selects the most specific registered source: <code>repo/&lt;owner&gt;/&lt;repo&gt;</code>, then <code>org/&lt;owner&gt;</code>, then <code>app/&lt;slug&gt;</code>. Repository and organization sources use <code>GITHUB_TOKEN</code>, a personal access token. App sources use an installation token for that repository. Missing App access refuses the reply without a PAT fallback. The connector's <code>GITHUB_INSTALLATION_TOKEN</code> slot also requires an App source for the trusted repository.</p>
+    <p>A reply goes to the pull request or issue that the JID names. The agent must pass <code>replyToId</code> from the message header. A <code>gh-rc</code> id keeps the reply in that review thread. A <code>gh-c</code> id answers in the conversation.</p>
+    <p>gitd does not edit comments. The eyes reaction on the starting comment shows that a turn runs. gitd drops its own comments and other bot comments. Without a personal access token or App credentials, gitd only receives events.</p>
 
-    <h2>Five environment variables configure gitd</h2>
+    <h2>Environment variables configure gitd</h2>
     <table>
       <tr><th>var</th><th>default</th><th>note</th></tr>
       <tr><td><code>ROUTER_URL</code></td><td>required</td><td></td></tr>
       <tr><td><code>SECRETS_KEY</code></td><td>unset</td><td>the keyring that seals <code>github_sources</code>. gitd needs it to unseal the secrets</td></tr>
       <tr><td><code>GITHUB_TOKEN</code></td><td>unset</td><td>enables <code>send_text</code>, <code>send_file</code> and <code>typing</code></td></tr>
+      <tr><td><code>GITHUB_APP_ID</code></td><td>unset</td><td>numeric App ID for App source replies and repository tools</td></tr>
+      <tr><td><code>GITHUB_APP_PRIVATE_KEY</code></td><td>unset</td><td>App RSA private key as a base64-encoded PEM file</td></tr>
       <tr><td><code>GITHUB_API_URL</code></td><td><code>https://api.github.com</code></td><td></td></tr>
       <tr><td><code>LISTEN_ADDR</code></td><td><code>:8080</code></td><td></td></tr>
     </table>

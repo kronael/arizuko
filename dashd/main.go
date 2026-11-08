@@ -587,6 +587,9 @@ func (d *dash) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PATCH /dash/routes/{id}", g(d.handleRouteUpdate))
 	mux.HandleFunc("DELETE /dash/routes/{id}", g(d.handleRouteDelete))
 	mux.HandleFunc("POST /dash/routes/{id}/delete", g(d.handleRouteDelete))
+	mux.HandleFunc("GET /dash/github_sources/", g(d.handleGitHubSources))
+	mux.HandleFunc("POST /dash/github_sources/", g(d.handleGitHubSourceCreate))
+	mux.HandleFunc("POST /dash/github_sources/delete", g(d.handleGitHubSourceDelete))
 
 	// Group create / delete / settings — admin-gated. Settings + delete use
 	// trailing-wildcard ({folder...}) dispatchers so nested folders like
@@ -637,6 +640,7 @@ var navLinks = []struct {
 	{"/dash/activity/", "activity", false},
 	{"/dash/groups/", "groups", false},
 	{"/dash/routes/", "routes", false},
+	{"/dash/github_sources/", "GitHub sources", false},
 	{"/dash/services/", "services", true},
 	{"/dash/packages/", "packages", true},
 	{"/dash/invites/", "invites", true},
@@ -726,6 +730,7 @@ var portalTmpl = template.Must(template.New("portal").Parse(`<h1 class="brand">{
 <a class="tile" href="/dash/packages/"><h2>packages</h2><p>installed packages</p></a>
 <a class="tile" href="/dash/groups/"><h2>groups</h2><p>group hierarchy</p></a>
 <a class="tile" href="/dash/routes/"><h2>routes</h2><p>message routing table</p></a>
+<a class="tile" href="/dash/github_sources/"><h2>GitHub sources</h2><p>connect repositories and GitHub Apps</p></a>
 <a class="tile" href="/dash/memory/"><h2>memory</h2><p>knowledge browser</p></a>
 <a class="tile" href="/dash/profile/"><h2>profile</h2><p>account and API keys</p></a>
 {{if .Operator}}<a class="tile" href="/dash/services/"><h2>services</h2><p>daemon health</p></a>{{end}}

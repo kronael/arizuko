@@ -32,6 +32,86 @@ selects the secret — the payload never chooses its own verifier — and a
 repo/org source is bound to its repo/org: a payload naming another repo is
 refused with 400 even when the signature is valid.
 
+## A GitHub App connects selected repositories
+
+Use one GitHub App per instance. An installation gives the App access to selected
+repositories. A source supplies webhook verification and routing to a group.
+
+1. In GitHub account or organization settings, open **Developer settings → GitHub Apps → New GitHub App**.
+   Enter an App name and your instance's public HTTPS URL as the homepage.
+   Create the App. Record its numeric **App ID**.
+   The slug is the name in `https://github.com/apps/<slug>`.
+   A private App installs only on its owner's account. Other accounts require a public App.
+2. Under **Private keys**, select **Generate a private key**.
+   Keep the downloaded PEM file private. Encode the file as one base64 line:
+
+   ```bash
+   base64 -w0 /path/to/private-key.pem
+   ```
+
+   Set these values in the instance's `.env`:
+
+   ```dotenv
+   GITHUB_APP_ID=<numeric-app-id>
+   GITHUB_APP_PRIVATE_KEY=<base64-pem>
+   ```
+
+   These are host credentials. Do not put the private key in a group or an agent secret.
+
+3. Register the App source for the group that receives its events:
+
+   ```bash
+   arizuko github -i <inst> add app <slug> <folder>
+   ```
+
+   Copy the returned URL and one-time secret into the App's **Webhooks** settings.
+   The URL is `https://<instance-host>/github/app/<slug>`. Select **Active**.
+
+4. In **Permissions & events**, set repository permissions:
+   - **Metadata: Read-only**, which GitHub includes automatically.
+   - **Issues: Read and write** for issue comments and reactions.
+   - **Pull requests: Read and write** for pull request comments, reviews and reactions.
+   - **Contents: Read-only** if repository tools need file access. Write tools need **Read and write**.
+   - **Checks: Read-only** and **Actions: Read-only** if you need CI events.
+
+   Subscribe to **Issues**, **Issue comment**, **Pull request**, **Pull request review**,
+   **Pull request review comment** and **Pull request review thread**.
+   For CI, also select **Check run**, **Check suite** and **Workflow run**.
+   Save the changes. Add other permissions only when the selected tools or events need them.
+
+5. Open **Install App**, select an account, and choose **Only select repositories**.
+   Select the repositories and install the App. An organization owner may need to approve the installation.
+6. Add the connector block from `template/connectors/github.toml` to the instance's `connectors.toml` to enable repository tools.
+   Keep `GITHUB_INSTALLATION_TOKEN` in `secrets` and the `Authorization` header.
+   routd derives this token from the trusted turn repository. Do not set the slot in `.env` or user secrets.
+   Tool access still requires `mcp:github_<tool>` grants. Holds still require approval.
+   Restart the instance with `sudo systemctl restart arizuko_<inst>` to load the configuration.
+
+In the App's **Recent deliveries**, check that a ping receives HTTP 200.
+Check **GitHub sources** at `/dash/github_sources/` to list, add or delete sources.
+The dashboard shows source types and names, but never secrets. Use the CLI for the one-time setup secret.
+
+For each reply, gitd selects the most specific registered source: `repo/<owner>/<repo>`,
+then `org/<owner>`, then `app/<slug>`. Repository and organization sources use `GITHUB_TOKEN`, a personal access token.
+An App source uses an installation token for that repository. Missing App access refuses the reply without a PAT fallback.
+The connector's `GITHUB_INSTALLATION_TOKEN` slot also requires an App source for the trusted repository.
+The private key and installation tokens stay on the host.
+
+To stop deliveries and remove the source's seeded routes, delete the source in the dashboard or run:
+
+```bash
+arizuko github -i <inst> rm app/<slug> <folder>
+```
+
+The webhook URL then returns 404. Source deletion does not uninstall the App or remove tool grants.
+To remove GitHub access, uninstall the App under the account's **Settings → Applications → Installed GitHub Apps**.
+You can also remove individual repositories from the installation.
+gitd replies and App connector calls refuse access when the source or installation is missing.
+
+GitHub setup details: [App registration](https://docs.github.com/en/apps/creating-github-apps/writing-code-for-a-github-app/building-a-github-app-that-responds-to-webhook-events),
+[permissions](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/choosing-permissions-for-a-github-app),
+[installation and removal](https://docs.github.com/en/apps/using-github-apps/reviewing-and-modifying-installed-github-apps).
+
 ## JID grammar
 
 ```
@@ -154,7 +234,7 @@ backstop.
 `send_text` and `send_file` are the verbs, with `typing`, advertised only when
 `GITHUB_TOKEN` or `GITHUB_APP_ID` is set. gitd advertises no `edit`, so routd posts no progress
 comment on GitHub and the `👀` mark is the whole progress display.
-The typing mark uses the PAT. App-only instances do not set the mark.
+The typing mark follows the same source and credential rule as replies.
 `send_text` posts the agent's reply as a comment on the PR or issue the JID
 names and returns the id the same comment carries inbound.
 `send_file` posts a text file as a fenced block in a comment (GitHub has no API that
