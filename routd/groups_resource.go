@@ -23,6 +23,7 @@ import (
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/resreg/resources"
+	"github.com/kronael/arizuko/router"
 )
 
 // groupsActionRegister is register_group's verb (not CRUD create): its FS
@@ -176,6 +177,9 @@ func (s *Server) groupsPostBuild(folder, callerSub string, authorize authorizeFn
 		// under acme.
 		if !authorize(gfld, "mcp:register_group", nil) {
 			return "", nil, resreg.Errorf(http.StatusForbidden, "register_group on %s: not permitted", gfld)
+		}
+		if router.HasGitHubIngress(groupRouteMatch(argString(args, "jid"))) && !authorize("**", "admin", nil) {
+			return "", nil, resreg.Errorf(http.StatusForbidden, "operator access required")
 		}
 		return "", nil, nil
 	}

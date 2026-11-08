@@ -235,6 +235,10 @@ func toInviteInfo(inv Invite) ipc.InviteInfo {
 	}
 }
 
+func groupRouteMatch(jid string) string {
+	return "room=" + core.JidRoom(jid)
+}
+
 // registerGroup persists the group, adds a room-matched default route (deleting
 // the group row it wrote on a failed insert so a route-less orphan is never
 // left; nothing under the folder goes with it),
@@ -251,7 +255,7 @@ func (s *Server) registerGroup(jid string, g core.Group) error {
 			return err
 		}
 	}
-	match := "room=" + core.JidRoom(jid)
+	match := groupRouteMatch(jid)
 	if _, err := s.db.AddRoute(core.Route{Seq: 0, Match: match, Target: g.Folder}); err != nil {
 		if !existed {
 			// A rollback that ALSO fails leaves the orphan this rollback exists
