@@ -2,10 +2,10 @@
 
 Live in your session — callable directly, no skill invocation needed.
 
-Only explicit delivery tools reach the user. ALWAYS call `reply` for an
-answer; printed prose stays in the transcript. A successful `like` counts as
-a reply when a reaction conveys the answer. Narration uses `<status>` as
-described in the resident manual's § Unattended.
+ALWAYS call `reply` for an answer. A successful `like` counts as a reply when
+a reaction conveys the answer. Printed `<status>` blocks report progress as
+described in the resident manual's § Unattended. Other printed prose stays
+in the transcript.
 
 If Telegram confirms a missing reply target and says `not delivered, and no retry follows`, ALWAYS recover in the same `chatJid`.
 ALWAYS inspect that chat, then choose an earlier `replyToId` or a fresh same-chat `send`.

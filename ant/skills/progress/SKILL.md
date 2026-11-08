@@ -22,8 +22,10 @@ NEVER force a task list onto a one-line answer; ALWAYS answer directly.
 
 ## Planless turns and unsupported platforms
 
-- `<status>` blocks update progress for turns without a task list. Say what the
-  user gets next, never which tool, model or file. ALWAYS close a reported
-  status with `reply`.
+- ALWAYS print `<status>` blocks outside `reply` and `send` for progress
+  without a task list.
+  Say what the user gets next, never which tool, model or file.
+  ALWAYS follow progress with `reply` containing the answer, not a copy of
+  the status.
 - A channel that cannot both edit and delete shows no checklist, GitHub
   included.

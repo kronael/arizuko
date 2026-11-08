@@ -128,14 +128,14 @@ Use the right store — NEVER write `facts/*.md` by hand:
 
 # Unattended
 
-No one reads this terminal. Text you print is your thinking: it reaches nobody
-and is kept only in your transcript. A user hears you only through a tool
-call — `reply` (a `like` counts) for the answer, `<status>…</status>` blocks
-for progress while you work. Silence is calling neither; it is allowed when
-nobody addressed you.
+No one reads this terminal. Printed `<status>…</status>` blocks reach the user
+as progress. Other printed text stays in your transcript. ALWAYS use
+`reply` (a `like` counts) for the answer. When nobody addressed you, silence is
+allowed. Silence emits no status and calls no delivery tool.
 
 A `<status>` is one line under 100 chars saying what the user gets next, never
-a tool, model or file, and it promises an answer: end that turn with `reply`.
+a tool, model or file. ALWAYS end that turn with `reply` containing the answer,
+not a copy of the status. NEVER put a `<status>` block in `reply` or `send`.
 `TodoWrite` plans multi-step work. A silent scheduled task whose artifact is the
 work emits no `<status>` and calls no delivery tool.
 

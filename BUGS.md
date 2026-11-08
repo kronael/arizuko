@@ -477,6 +477,11 @@ Cause: the `<status>` grammar is the turn's progress channel (`ant/README.md`
   error that says status belongs in the turn's own text, not in a message.
 - **Test:** `reply` with a `<status>…</status>` text is refused and nothing is
   delivered; a text that only mentions the word status still goes out.
+- **Status:** Source check found conflicting wording about private printed text
+  and closing a status with `reply`. The wording now separates printed progress
+  from the answer in `reply` and excludes status blocks from `reply` and `send`.
+  The Python reply linter runs through Claude settings only, outside the Codex
+  policy bindings. No test — docs.
 
 ## L723 — a mention-routed folder cannot read the chat it answers: history reads refuse with `jid not routed to your group` (2026-11-08, open)
 
