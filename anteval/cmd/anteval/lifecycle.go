@@ -409,23 +409,18 @@ func doLifecycle(ctx context.Context, cli lifecycleCLI, opts lifecycleOptions) (
 	results, driveErr := cli.Drive(run.Config{Context: ctx, Target: target, Cases: opts.cases, Nonce: opts.nonce, TargetBase: cfg["WEB_HOST"], Chat: "web:eval", Folder: "eval", SinkBind: opts.sinkBind, SinkURL: opts.sinkURL})
 	md := report.Markdown(results)
 	fmt.Print(md)
-	if driveErr != nil {
-		return driveErr
-	}
 	if opts.md != "" {
-		if err = os.WriteFile(opts.md, []byte(md), 0644); err != nil {
-			return err
-		}
+		err = errors.Join(err, os.WriteFile(opts.md, []byte(md), 0644))
 	}
 	if opts.json != "" {
-		var b []byte
-		b, err = report.JSON(results)
-		if err != nil {
-			return err
+		b, jsonErr := report.JSON(results)
+		if jsonErr == nil {
+			jsonErr = os.WriteFile(opts.json, b, 0644)
 		}
-		if err = os.WriteFile(opts.json, b, 0644); err != nil {
-			return err
-		}
+		err = errors.Join(err, jsonErr)
+	}
+	if err = errors.Join(driveErr, err); err != nil {
+		return err
 	}
 	if !report.AllPassed(results) {
 		return errors.New("cases failed")

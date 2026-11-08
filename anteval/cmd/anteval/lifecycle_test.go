@@ -246,6 +246,8 @@ func TestLifecycleFreshNameAndSetup(t *testing.T) {
 
 func TestLifecycleSIGINTCleansUp(t *testing.T) {
 	opts := lifecycleFixture(t)
+	opts.md = filepath.Join(t.TempDir(), "report.md")
+	opts.json = filepath.Join(t.TempDir(), "report.json")
 	cases := t.TempDir()
 	data := "[[case]]\nid='interrupt'\nprompt='noop'\nmax_wall_ms=1000\n" +
 		"[case.check]\nkind='callback'\n"
@@ -254,12 +256,19 @@ func TestLifecycleSIGINTCleansUp(t *testing.T) {
 	}
 	f := &fakeLifecycle{interrupt: true}
 	err := doRun([]string{"--env", opts.envFile, "--target", opts.name,
-		"--sink", opts.sinkURL, "--cases", cases}, f)
+		"--sink", opts.sinkURL, "--cases", cases, "--md", opts.md,
+		"--json", opts.json}, f)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("interrupt error = %v", err)
 	}
 	if got := strings.Join(f.calls[len(f.calls)-2:], ","); got != "stop,rm -i anteval-test" {
 		t.Fatal(got)
+	}
+	for _, path := range []string{opts.md, opts.json} {
+		data, err := os.ReadFile(path)
+		if err != nil || !strings.Contains(string(data), "interrupt") {
+			t.Errorf("partial report %s: %q, %v", path, data, err)
+		}
 	}
 }
 
