@@ -89,6 +89,9 @@ func Open() (*DB, error) {
 	if err := d.store().MigrateMemberSend(ctx); err != nil {
 		return nil, err
 	}
+	if err := d.store().MigrateGitHubSourceRoutes(ctx); err != nil {
+		return nil, err
+	}
 	if seeded && product != "" {
 		if err := d.PutInstalledPackage(InstalledPackage{Folder: store.DefaultFolder, Name: product,
 			Source: "ant/examples/" + product, InstalledAt: core.TS(time.Now())}); err != nil {
