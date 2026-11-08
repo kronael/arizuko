@@ -15,7 +15,6 @@
 
 ## What needs you
 
-- `L700` — ordinary agents can send to another tenant without a target grant; release blocker B1, fix authorized.
 - `L699` — anteval cannot run a Codex smoke: it requires an Anthropic credential and installs an Anthropic-only gateway; proposal.
 - `L686` — decide whether to retire the four duplicated top-level creative skill names; proposal, needs sign-off.
 - `L687` — decide whether to retire the scheduler's two external write endpoints; proposal, needs sign-off.
@@ -471,23 +470,6 @@ that version. A change to which rows reach live data is an auth change.
 
 - **Status:** open — needs sign-off.
 
-
-## L700 — member send floor permits foreign group posts (2026-11-08, open)
-
-- **Severity:** critical, correctness; v0.75.4 release blocker B1.
-- **Measured:** release audit's `rg -n 'authzStructural|PostGroup|gateJID' ipc/ipc.go`;
-  confirmed in this worktree at `ipc/ipc.go:1285`: group sends authorize
-  `mcp:send` against the target without parameters. `auth/defaults.go:65`
-  grants members that action on `**`; `auth/authorize.go:123` accepts the
-  route's member grant outside its subtree. `store/messages.go:392` writes
-  the target's inbound message; `routd/loop.go:677` dispatches direct groups.
-  The send test stubs authorization and misses the policy composition.
-  `ipc/send_policy_test.go::TestSendGroupRealPolicy` fails against the
-  unmodified policy: the ungranted send returns no error and writes `world/b`.
-- **Fix:** restrict the platform-send floor with existing parameter predicates;
-  retain explicit cross-group grants and platform ownership checks. Reconcile
-  system-seeded wildcard rows through one idempotent upgrade migration.
-- **Status:** open — fix authorized; real-policy send and upgrade regressions required.
 
 ## L699 — anteval cannot run a Codex-backend smoke (2026-11-08, open — proposal, needs sign-off)
 
