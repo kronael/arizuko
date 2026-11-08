@@ -78,11 +78,19 @@ func TestGitHubSourcesWrite(t *testing.T) {
 			seedAdmin(t, d.routd, "admin@x", "team/review")
 			w := httptest.NewRecorder()
 			newMux(d).ServeHTTP(w, adminReq("POST", tc.path, tc.form.Encode(), "admin@x"))
-			if w.Code != http.StatusSeeOther || w.Header().Get("Location") != "/dash/github_sources/" {
-				t.Fatalf("write = %d headers=%v body=%s", w.Code, w.Header(), w.Body.String())
-			}
-			if strings.Contains(w.Body.String()+w.Header().Get("Location"), "secret") {
-				t.Fatal("write exposed a secret")
+			if tc.name == "add" {
+				// The secret exists only in this response; the page shows it once.
+				if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "new-secret") ||
+					!strings.Contains(w.Body.String(), "https://example.com/github/app/reviewer") {
+					t.Fatalf("add = %d body=%s", w.Code, w.Body.String())
+				}
+			} else {
+				if w.Code != http.StatusSeeOther || w.Header().Get("Location") != "/dash/github_sources/" {
+					t.Fatalf("write = %d headers=%v body=%s", w.Code, w.Header(), w.Body.String())
+				}
+				if strings.Contains(w.Body.String()+w.Header().Get("Location"), "secret") {
+					t.Fatal("delete exposed a secret")
+				}
 			}
 			if u.calls != 1 || u.method != tc.method || u.path != tc.upstreamPath {
 				t.Fatalf("upstream: calls=%d %s %s", u.calls, u.method, u.path)

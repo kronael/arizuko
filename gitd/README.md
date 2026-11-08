@@ -89,7 +89,7 @@ repositories. A source supplies webhook verification and routing to a group.
 
 In the App's **Recent deliveries**, check that a ping receives HTTP 200.
 Check **GitHub sources** at `/dash/github_sources/` to list, add or delete sources.
-The dashboard shows source types and names, but never secrets. Use the CLI for the one-time setup secret.
+The dashboard lists source types and names, never secrets. When you add a source there, the next page shows its webhook URL and secret once, as the CLI does.
 
 For each reply, gitd selects the most specific registered source: `repo/<owner>/<repo>`,
 then `org/<owner>`, then `app/<slug>`. Repository and organization sources use `GITHUB_TOKEN`, a personal access token.

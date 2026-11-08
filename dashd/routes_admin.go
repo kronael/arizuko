@@ -426,8 +426,7 @@ func (d *dash) handleGitHubSources(w http.ResponseWriter, r *http.Request) {
 	_, _ = fmt.Fprint(w, htmlTable([]string{"Type", "Name", "Group folder", ""}, rows,
 		"No GitHub sources are registered for your groups."))
 	_, _ = fmt.Fprint(w, htmlSection("Add GitHub source",
-		`<p>For the webhook URL and secret, use <code>arizuko github -i &lt;instance&gt; add &lt;kind&gt; &lt;name&gt; &lt;folder&gt;</code>. `+
-			`The command prints the secret once. This form does not show the secret.</p>`+
+		`<p>After you add a source, the next page shows its webhook URL and secret once.</p>`+
 			`<form method="post" action="/dash/github_sources/">`+
 			htmlFormRow("Source type", `<select name="kind"><option value="repo">Repository</option>`+
 				`<option value="org">Organization</option><option value="app">GitHub App</option></select>`)+
@@ -448,16 +447,26 @@ func (d *dash) handleGitHubSourceCreate(w http.ResponseWriter, r *http.Request) 
 	if _, ok := d.requireAdmin(w, r, folder); !ok {
 		return
 	}
-	_, status, err := d.routdCall(r.Context(), http.MethodPost, "/v1/github_sources", map[string]string{
+	body, status, err := d.routdCall(r.Context(), http.MethodPost, "/v1/github_sources", map[string]string{
 		"owner_folder": folder,
 		"kind":         strings.TrimSpace(r.FormValue("kind")),
 		"name":         strings.TrimSpace(r.FormValue("name")),
 	})
-	if err != nil || status != http.StatusCreated {
+	var created struct{ Source, URL, Secret string }
+	if err != nil || status != http.StatusCreated || json.Unmarshal(body, &created) != nil {
 		http.Error(w, "Could not add the GitHub source.", http.StatusBadGateway)
 		return
 	}
-	http.Redirect(w, r, "/dash/github_sources/", http.StatusSeeOther)
+	// GitHub needs the URL and the secret, and routd returns the secret only
+	// here, so this page shows it once, as the CLI does.
+	pageTopFor(w, r, "GitHub source added")
+	_, _ = fmt.Fprint(w, htmlSection("Configure the webhook on GitHub",
+		`<p>Copy the secret now. This page is the only place it appears.</p>`+
+			htmlFormRow("Source", `<code>`+esc(created.Source)+`</code>`)+
+			htmlFormRow("Payload URL", `<code>`+esc(created.URL)+`</code>`)+
+			htmlFormRow("Secret", `<code>`+esc(created.Secret)+`</code>`)+
+			`<p><a href="/dash/github_sources/">back to GitHub sources</a></p>`))
+	pageClose(w, r)
 }
 
 func (d *dash) handleGitHubSourceDelete(w http.ResponseWriter, r *http.Request) {

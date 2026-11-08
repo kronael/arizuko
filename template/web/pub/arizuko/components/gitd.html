@@ -83,7 +83,7 @@ arizuko github -i &lt;inst&gt; rm app/arizuko-krons eng    # 404s the URL, drops
 
     <p>routd seals the secret under <code>SECRETS_KEY</code> in its <code>github_sources</code> table, and gitd unseals it for each delivery. The URL path <code>/github/&lt;kind&gt;/&lt;name&gt;</code> selects the secret that verifies the signature, so a payload never chooses its own verifier. A repository or organization source is also bound to its repository or organization. gitd refuses a payload that names another repository with 400, even when the signature is valid.</p>
 
-    <p>Open <strong>GitHub sources</strong> at <code>/dash/github_sources/</code> to list, add or delete sources for your groups. Only group admins can change sources. The dashboard never shows secrets. Use <code>arizuko github add</code> for the one-time setup secret.</p>
+    <p>Open <strong>GitHub sources</strong> at <code>/dash/github_sources/</code> to list, add or delete sources for your groups. Only group admins can change sources. The list never shows secrets. When you add a source, the next page shows its webhook URL and secret one time, as <code>arizuko github add</code> does.</p>
 
     <h2>A GitHub App connects selected repositories</h2>
     <p>Use one GitHub App per instance. An installation gives the App access to selected repositories. A source checks webhook signatures and routes events to a group.</p>
@@ -200,7 +200,7 @@ export LISTEN_ADDR=:8080
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/components/gitd.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-11-07">2026-11-07</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-08">2026-11-08</time>
       </div>
   </main>
 
