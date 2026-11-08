@@ -11,6 +11,8 @@ import { toolLogPost, toolLogPre } from './tool-log.js';
 import { todoStatus } from './todo-status.js';
 import { replyOwed } from './reply-owed.js';
 import { STEER_SPOOL, drainLines } from './spool.js';
+import { spawn } from 'child_process';
+import path from 'path';
 
 // ToolEvent is the shape claude and codex already agree on — measured against
 // codex 0.147.0: its hook stdin carries these exact keys. pi names the same
@@ -67,6 +69,7 @@ export function bindings(ctx: PolicyContext): Binding[] {
   const todo = todoStatus(ctx.turnID);
   return [
     { id: 'reply-owed', event: 'Stop', returns: ['deny'], run: replyOwed(ctx.turnID) },
+    { id: 'reply-length', event: 'PreToolUse', matcher: 'mcp__arizuko__reply|mcp__arizuko__send', returns: ['deny'], run: (ev) => replyLength(ctx.home, ev) },
     // A skill the agent writes today runs in its NEXT session. Scans the file the
     // write would PRODUCE, not the fragment it carries (BUGS J9).
     { id: 'skill-guard', event: 'PreToolUse', matcher: 'Write|Edit|MultiEdit', returns: ['deny'], run: async (ev) => skillGuard(ev) },
@@ -90,6 +93,22 @@ export function bindings(ctx: PolicyContext): Binding[] {
     // equivalent, so the matcher never fires there.
     { id: 'todo-status', event: 'PostToolUse', matcher: 'TodoWrite', returns: [], run: (ev) => todo(ev) },
   ];
+}
+
+async function replyLength(home: string, ev: ToolEvent): Promise<Verdict> {
+  const child = spawn('python3', [path.join(home, '.claude/hooks/reply_lint.py')]);
+  const chunks: Buffer[] = [];
+  child.stdout.on('data', (chunk: Buffer) => chunks.push(chunk));
+  child.stdin.end(JSON.stringify(ev));
+  const code = await new Promise<number | null>((resolve, reject) => {
+    child.on('error', reject);
+    child.on('close', resolve);
+  });
+  if (code !== 0) throw new Error(`reply lint exited ${code}`);
+  const output = Buffer.concat(chunks).toString();
+  if (!output) return ALLOW;
+  const result = JSON.parse(output);
+  return { kind: 'deny', reason: result.hookSpecificOutput.permissionDecisionReason };
 }
 
 // renderSteering is THE <user-steering> wrapper: the steering row injects it

@@ -523,6 +523,7 @@ reply-length row, so a codex `reply` or `send` is never checked.
   every harness renders it; no second copy of the rule.
 - **Test:** the policy table carries the reply-length row and codex's rendered
   hooks include it.
+- **Status:** implementation shared across claude, codex and pi; awaiting release.
 
 ## ✅ FIXED 2026-11-06 d50afcdcd L669 — dashd's group delete purges `acl` rows and edges after only `admin` on the folder (2026-11-06)
 
