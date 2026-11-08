@@ -164,7 +164,7 @@ var folderScopeKeep = map[string]keepReason{
 	"message_delivery": keep("keyed by delivery status; it follows messages"),
 
 	// Turn history.
-	"turn_context": keep("history; held turns retire before the subtree is purged"),
+	"turn_context": keep("history; unfinished turns retire before the subtree is purged"),
 	"turn_results": keep("keyed by turn_id; a re-created folder mints new ones"),
 
 	// No folder coordinate at all.
@@ -267,7 +267,7 @@ func (s *Store) purgeFolder(ctx context.Context, folder string) ([]string, int, 
 			return nil, 0, 0, err
 		}
 		if e.entity == Groups {
-			retired, err := s.retireHeldTurns(ctx, folder)
+			retired, err := s.retireFolderTurns(ctx, folder)
 			if err != nil {
 				return nil, 0, 0, err
 			}

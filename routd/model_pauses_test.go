@@ -853,3 +853,75 @@ checked:
 		t.Fatalf("binding changed: %+v %v", after, err)
 	}
 }
+
+func TestModelPauseDeleteClosesRunningCallbacks(t *testing.T) {
+	for _, probe := range []bool{false, true} {
+		t.Run(fmt.Sprintf("probe=%t", probe), func(t *testing.T) {
+			db, l, p, _ := pauseFixture(t)
+			jid := "telegram:group/deleted"
+			doSetRoutes(t, db, []core.Route{{Match: "chat_jid=" + jid, Target: "a"}})
+			pauseInput(t, db, jid, "old", "sender", "private input", time.Now())
+			msgs, err := db.NewMessagesForChat(jid, "", 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			admission := &store.TurnAdmission{AttemptID: "running", InputLast: store.MessageCursor(msgs[0])}
+			if _, err := db.store().OpenTurnContext("old", "a", "", jid, "sender", "", admission); err != nil {
+				t.Fatal(err)
+			}
+			if probe {
+				if _, err := db.store().RecordProviderFailure(t.Context(), "old", "running", "outage", time.Time{}, time.Now()); err != nil {
+					t.Fatal(err)
+				}
+				modelPauseDue(t, db)
+				pause, err := db.store().ReadModelPause(t.Context(), "a")
+				if err != nil {
+					t.Fatal(err)
+				}
+				admission.AttemptID, admission.ProbeEpisode = "probe", pause.OpenedAt
+				if _, err := db.store().OpenTurnContext("old", "a", "", jid, "sender", "", admission); err != nil {
+					t.Fatal(err)
+				}
+			}
+			_, _, err = db.store().DeleteGroupStopping(t.Context(), "a", func(context.Context, string) error {
+				_, callbackErr := p.srv.mcpSubmitTurnAttempt(ipc.TurnResult{TurnID: "old", Status: "error", ProviderFailure: &apiv1.ProviderFailure{Reason: "outage"}}, admission.AttemptID)
+				if callbackErr == nil {
+					t.Error("deleted attempt accepted callback")
+				}
+				return nil
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := db.PutGroup(core.Group{Folder: "a"}); err != nil {
+				t.Fatal(err)
+			}
+			turn, ok := db.GetTurnContext("old")
+			if !ok || turn.State != store.TurnDone || !turn.RunReturned || db.GetAgentCursor(jid) != admission.InputLast {
+				t.Errorf("deleted input remains: turn=%+v cursor=%q", turn, db.GetAgentCursor(jid))
+			}
+			routes, err := db.Routes()
+			if err != nil || len(routes) != 0 {
+				t.Errorf("routes after deletion: %+v %v", routes, err)
+			}
+			pause, err := db.store().ReadModelPause(t.Context(), "a")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if pause != nil {
+				t.Errorf("callback restored pause: %+v", pause)
+				modelPauseDue(t, db)
+			}
+			processPauseChat(t, l, jid)
+			if len(p.runs) != 0 {
+				t.Errorf("private input dispatched without route: %+v", p.runs)
+			}
+			pauseInput(t, db, jid, "new", "sender", "new input", time.Now().Add(time.Second))
+			doSetRoutes(t, db, []core.Route{{Match: "chat_jid=" + jid, Target: "a"}})
+			processPauseChat(t, l, jid)
+			if len(p.runs) != 1 || p.runs[0].TurnID != "new" || strings.Contains(p.runs[0].MessageBatch, "private input") {
+				t.Errorf("replacement received wrong input: %+v", p.runs)
+			}
+		})
+	}
+}

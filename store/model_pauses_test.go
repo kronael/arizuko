@@ -224,3 +224,81 @@ func TestModelPauseLateProbeCannotClearNewEpisodeAndHeldSurvivesGC(t *testing.T)
 		t.Fatalf("held input changed under GC: %+v", tc)
 	}
 }
+
+type refusalBeforeRetire struct {
+	objstore.Store
+	fired bool
+}
+
+func (s *refusalBeforeRetire) GuardedBatch(ctx context.Context, checks []objstore.Check, writes []objstore.Write) (bool, error) {
+	if !s.fired && len(writes) == 1 && writes[0].Entity == TurnContexts && writes[0].Attrs[attrTurnState] == TurnDone {
+		s.fired = true
+		if _, err := NewOver(s.Store).RecordProviderFailure(ctx, "running", "attempt", "outage", time.Time{}, time.Now()); err != nil {
+			return false, err
+		}
+	}
+	return s.Store.GuardedBatch(ctx, checks, writes)
+}
+
+func TestDeleteFolderRetriesRefusalAndKeepsCompletedTurn(t *testing.T) {
+	s := openEntities(t)
+	admission := &TurnAdmission{AttemptID: "attempt", InputLast: MsgStamp(core.NowTS(), "saved-span")}
+	if _, err := s.OpenTurnContext("running", "g", "", "web:g", "u", "", admission); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.OpenTurnContext("completed", "g", "", "web:g", "u", "", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetTurnState("completed", TurnDone); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := s.TurnContextOf("completed")
+	gate := &refusalBeforeRetire{Store: s.Obj()}
+	if _, _, err := NewOver(gate).DeleteGroup("g"); err != nil {
+		t.Fatal(err)
+	}
+	turn, ok := s.TurnContextOf("running")
+	cursor, cursorErr := s.AgentCursor("web:g")
+	if !gate.fired || !ok || turn.State != TurnDone || !turn.RunReturned || cursorErr != nil || cursor != admission.InputLast {
+		t.Fatalf("refusal survived retirement: fired=%v turn=%+v cursor=%q", gate.fired, turn, cursor)
+	}
+	after, ok := s.TurnContextOf("completed")
+	if !ok || after != before {
+		t.Fatalf("completed history changed: before=%+v after=%+v", before, after)
+	}
+}
+
+type deleteBeforeRefusal struct {
+	objstore.Store
+	fired bool
+}
+
+func (s *deleteBeforeRefusal) GuardedBatch(ctx context.Context, checks []objstore.Check, writes []objstore.Write) (bool, error) {
+	if !s.fired && len(writes) == 2 && writes[0].Entity == ModelPauses && writes[1].Entity == TurnContexts {
+		s.fired = true
+		if _, _, err := NewOver(s.Store).DeleteGroup("g"); err != nil {
+			return false, err
+		}
+	}
+	return s.Store.GuardedBatch(ctx, checks, writes)
+}
+
+func TestDeleteFolderDefeatsInFlightRefusal(t *testing.T) {
+	s := openEntities(t)
+	admission := &TurnAdmission{AttemptID: "attempt", InputLast: MsgStamp(core.NowTS(), "saved-span")}
+	if _, err := s.OpenTurnContext("running", "g", "", "web:g", "u", "", admission); err != nil {
+		t.Fatal(err)
+	}
+	gate := &deleteBeforeRefusal{Store: s.Obj()}
+	if _, err := NewOver(gate).RecordProviderFailure(t.Context(), "running", "attempt", "outage", time.Time{}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	turn, ok := s.TurnContextOf("running")
+	cursor, err := s.AgentCursor("web:g")
+	if !gate.fired || !ok || turn.State != TurnDone || !turn.RunReturned || err != nil || cursor != admission.InputLast {
+		t.Fatalf("stale refusal changed retired turn: fired=%v turn=%+v cursor=%q err=%v", gate.fired, turn, cursor, err)
+	}
+	if pause, err := s.ReadModelPause(t.Context(), "g"); err != nil || pause != nil {
+		t.Fatalf("stale refusal restored pause: %+v %v", pause, err)
+	}
+}
