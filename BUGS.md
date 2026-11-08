@@ -15,6 +15,7 @@
 
 ## What needs you
 
+- `L717` — a codex turn whose model host egress refuses runs to the 60-minute timeout; fix queued.
 - `L665` — `unpair` removes the account's denies from the paired identity's turns; needs sign-off.
 - `L664` — `invite_create` mints `admin` the issuing folder cannot delegate; needs sign-off.
 - `L660` — a mention by reply engages only the reply chain, not the chat root; proposal, needs sign-off.
@@ -431,36 +432,6 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
   containment (decision 7, `ipc/ipc.go:2267`, `:2334`, `:2387`, `:2426`), and the
   `/root` issuer holds `admin` on `**`, the authority that answers a hold. The defect
   in the same area is who the root turn serves: `L666`.
-
-## L716 — a reply to a Discord thread's own JID does not count as the turn's delivery, so every such turn gets the `[deliver]` nudge (2026-11-08, open)
-
-MEASURED 2026-11-08 on sloth (v0.75.3, codex `gpt-6.1-sol`), Discord thread
-`1568352694081552435` in channel `discord:837270552959516682/837270552959516687`,
-rollout `groups/sloth/discord/.codex/sessions/2026/11/08/rollout-…-01a1bb36-e5e4-77d1-ab59-612080c723b7.jsonl`.
-Five of six turns called `reply` with `chatJid:"discord:837270552959516682/1568352694081552435"`
-(12:52:09, 12:55:59, 13:30:09, 13:31:44, 13:45:52) and each reply reached Discord
-(the next prompt shows it as `<observed … verb="reply" bot="true">`). Each turn
-still got `[deliver] You were addressed and delivered nothing` from the Stop hook
-(12:52:19, 12:56:23, 13:30:20, 13:31:55, 13:46:02), and the agent answered it with
-a ✅ `like` on the user's message: one extra model round and one stray reaction per turn.
-
-Cause, read from code: the turn's `ChatJID` is the parent channel (dispatch logs
-`chat_jid` `…/837270552959516687`, topic `1568352694081552435`). `recordOutboundReply`
-(`ipc/ipc.go:1396`) stores the row under the JID the agent passed, the thread's
-own JID. `turnDelivered` (`routd/turns.go:56`) asks `TurnHasBotReply` for the
-turn id inside the parent's partition only (`store/messages.go:859`), so it never
-sees the row. The agent takes the thread JID from its own earlier replies, which
-later prompts show with that `chat_id`.
-
-- **Severity:** medium — every codex turn in a Discord thread pays an extra model
-  round and leaves a reaction nobody asked for; a turn that truly delivered nothing
-  is indistinguishable in the log.
-- **Scope:** `routd/turns.go` `turnDelivered`; the thread-JID ↔ parent+topic mapping.
-- **Fix:** count a reply in the conversation the turn serves, whichever of its two
-  JIDs the agent used; no change to the `reply` tool contract.
-- **Test:** a turn on parent JID + thread topic whose reply is stored under the
-  thread JID reports delivered; a reply to an unrelated chat still does not.
-- **Status:** open — change awaiting verification: `turnDelivered` also asks `TurnHasBotReply` for `discord:<guild>/<topic>` (`discordThreadJID`, `routd/turns.go`), derived from the turn's topic, the mapping discd's `chatAndTopic` makes. Other platforms are unchanged. Test: `TestTurnDeliveredCountsDiscordThreadReply`.
 
 ## L717 — a codex turn whose model host egress refuses runs until the 60-minute timeout (2026-11-08, open)
 
