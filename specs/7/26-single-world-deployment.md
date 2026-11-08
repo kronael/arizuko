@@ -1,5 +1,5 @@
 ---
-status: draft
+status: partial
 ---
 
 # specs/7/26 — consolidate work into the daemon that owns it

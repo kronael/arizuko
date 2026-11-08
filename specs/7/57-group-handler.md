@@ -1,5 +1,5 @@
 ---
-status: draft
+status: partial
 ---
 
 # specs/7/57 — the group names its handler
