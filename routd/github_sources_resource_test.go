@@ -6,7 +6,93 @@ import (
 	"testing"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/groupfolder"
+	"github.com/kronael/arizuko/ipc"
 )
+
+func TestGitHubSourcesAppAuthorizationREST(t *testing.T) {
+	for _, tc := range []struct {
+		kind, folder, scope string
+		want                int
+	}{
+		{"app", "eng", "routes:write:own_group", 403},
+		{"app", "eng", "routes:write", 403},
+		{"app", "", "routes:write:own_group", 403},
+		{"repo", "eng", "routes:write:own_group", 201},
+		{"org", "eng", "routes:write:own_group", 201},
+		{"app", "", "routes:write", 201},
+	} {
+		t.Run(tc.kind+tc.scope, func(t *testing.T) {
+			db, h := authSrv(t, fakeVerifier{sub: "user:u", scope: []string{tc.scope}, folder: tc.folder})
+			db.SetSecretKeys([]byte("k1"))
+			_ = db.PutGroup(core.Group{Folder: "eng"})
+			name := "bot"
+			if tc.kind == "repo" {
+				name = "owner/repo"
+			}
+			rec := doJSON(t, h, "POST", "/v1/github_sources", "", map[string]string{"owner_folder": "eng", "kind": tc.kind, "name": name})
+			if rec.Code != tc.want {
+				t.Fatalf("status=%d want=%d body=%s", rec.Code, tc.want, rec.Body.String())
+			}
+			if tc.want == 403 {
+				rows, err := db.secretStore().ListGitHubSources("")
+				if err != nil || len(rows) != 0 || routeCount(t, db) != 0 {
+					t.Fatalf("denied registration left rows=%v err=%v", rows, err)
+				}
+				if _, ok, err := db.secretStore().GitHubSourceSecret("app/bot"); err != nil || ok {
+					t.Fatalf("denied registration left secret: ok=%v err=%v", ok, err)
+				}
+			}
+		})
+	}
+}
+
+func TestGitHubSourcesAppAuthorizationMCP(t *testing.T) {
+	for _, elevated := range []bool{false, true} {
+		t.Run(map[bool]string{false: "scoped", true: "operator"}[elevated], func(t *testing.T) {
+			db, err := OpenMem()
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { db.Close() })
+			db.SetSecretKeys([]byte("k1"))
+			_ = db.PutGroup(core.Group{Folder: "eng"})
+			grantMCPTools(t, db, "eng", "register_github_source")
+			srv := NewServer(db, nil, nil, nil, 0, "")
+			turn := turnMCP{folder: "eng", elevated: elevated}
+			sock := groupfolder.IpcSocket(t.TempDir())
+			pb := srv.githubSourcesPostBuild("eng", "folder:eng", srv.turnAuthorize(turn), srv.turnVisible(turn))
+			stop, err := ipc.ServeMCP(sock, srv.buildRoutdFns(turn), srv.buildStoreFns(turn), "eng", elevated, 0, "folder:eng", pb)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(stop)
+			text, failure := callToolText(t, sock, "register_github_source", map[string]any{"kind": "app", "name": "bot"})
+			if (failure == "") != elevated {
+				t.Fatalf("elevated=%v text=%s error=%s", elevated, text, failure)
+			}
+			if !elevated {
+				secrets, err := srv.derivedConnectorSecrets(turnMCP{folder: "eng", chatJID: "github:victim/private/pr/1"}, []string{ipc.GitHubInstallationToken})
+				if err == nil || !strings.Contains(err.Error(), "no github source") || len(secrets) != 0 {
+					t.Fatalf("foreign repository credential: secrets=%v err=%v", secrets, err)
+				}
+				rows, err := db.secretStore().ListGitHubSources("")
+				if err != nil || len(rows) != 0 || routeCount(t, db) != 0 {
+					t.Fatalf("denied registration left rows=%v err=%v", rows, err)
+				}
+				if _, ok, err := db.secretStore().GitHubSourceSecret("app/bot"); err != nil || ok {
+					t.Fatalf("denied registration left secret: ok=%v err=%v", ok, err)
+				}
+				for _, source := range []struct{ kind, name string }{{"repo", "owner/repo"}, {"org", "owner"}} {
+					_, failure := callToolText(t, sock, "register_github_source", map[string]any{"kind": source.kind, "name": source.name})
+					if failure != "" {
+						t.Fatalf("%s registration denied: %s", source.kind, failure)
+					}
+				}
+			}
+		})
+	}
+}
 
 func TestGitHubSources_RESTRoundTrip(t *testing.T) {
 	db, err := OpenMem()

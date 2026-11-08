@@ -75,7 +75,11 @@ func TestGitHubSourcesWrite(t *testing.T) {
 			u.status, u.respond = tc.status, tc.response
 			d := &dash{routd: routdDB(t), routdURL: u.srv.URL,
 				svc: func(context.Context) (string, error) { return "dashd-token", nil }}
-			seedAdmin(t, d.routd, "admin@x", "team/review")
+			scope := "team/review"
+			if tc.name == "add" {
+				scope = "**"
+			}
+			seedAdmin(t, d.routd, "admin@x", scope)
 			w := httptest.NewRecorder()
 			newMux(d).ServeHTTP(w, adminReq("POST", tc.path, tc.form.Encode(), "admin@x"))
 			if tc.name == "add" {
@@ -109,6 +113,39 @@ func TestGitHubSourcesWrite(t *testing.T) {
 				}
 			} else if u.query != "owner_folder=team%2Freview" || u.body != "" {
 				t.Fatalf("deletion query=%q body=%q", u.query, u.body)
+			}
+		})
+	}
+}
+
+func TestGitHubSourcesAppRequiresOperator(t *testing.T) {
+	u := newRoutdUpstream(t)
+	u.status, u.respond = http.StatusCreated, `{"source":"app/bot","secret":"secret"}`
+	d := &dash{routd: routdDB(t), routdURL: u.srv.URL}
+	seedAdmin(t, d.routd, "admin@x", "team")
+	w := httptest.NewRecorder()
+	newMux(d).ServeHTTP(w, adminReq("POST", "/dash/github_sources/", "kind=app&name=bot&owner_folder=team", "admin@x"))
+	if w.Code != http.StatusForbidden || u.calls != 0 || strings.Contains(w.Body.String(), "secret") {
+		t.Fatalf("status=%d calls=%d body=%s", w.Code, u.calls, w.Body.String())
+	}
+}
+
+func TestGitHubSourcesScopedAdminAddsRepoAndOrg(t *testing.T) {
+	for _, kind := range []string{"repo", "org"} {
+		t.Run(kind, func(t *testing.T) {
+			u := newRoutdUpstream(t)
+			u.status, u.respond = http.StatusCreated, `{"source":"source","secret":"secret"}`
+			d := &dash{routd: routdDB(t), routdURL: u.srv.URL}
+			seedAdmin(t, d.routd, "admin@x", "team")
+			w := httptest.NewRecorder()
+			name := "owner"
+			if kind == "repo" {
+				name = "owner/project"
+			}
+			form := url.Values{"kind": {kind}, "name": {name}, "owner_folder": {"team"}}
+			newMux(d).ServeHTTP(w, adminReq("POST", "/dash/github_sources/", form.Encode(), "admin@x"))
+			if w.Code != http.StatusOK || u.calls != 1 {
+				t.Fatalf("status=%d calls=%d", w.Code, u.calls)
 			}
 		})
 	}

@@ -422,7 +422,8 @@ func (d *dash) handleGitHubSources(w http.ResponseWriter, r *http.Request) {
 	}
 	pageTopFor(w, r, "GitHub sources")
 	_, _ = fmt.Fprint(w, `<p>A source connects a repository, organization or GitHub App to a group. `+
-		`Only group admins can add or delete sources. Webhook secrets never appear here.</p>`)
+		`Group admins can add repository and organization sources. Only operators can add App sources. `+
+		`Webhook secrets never appear here.</p>`)
 	_, _ = fmt.Fprint(w, htmlTable([]string{"Type", "Name", "Group folder", ""}, rows,
 		"No GitHub sources are registered for your groups."))
 	_, _ = fmt.Fprint(w, htmlSection("Add GitHub source",
@@ -444,7 +445,11 @@ func (d *dash) handleGitHubSourceCreate(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	folder := strings.TrimSpace(r.FormValue("owner_folder"))
-	if _, ok := d.requireAdmin(w, r, folder); !ok {
+	scope := folder
+	if strings.TrimSpace(r.FormValue("kind")) == "app" {
+		scope = "**"
+	}
+	if _, ok := d.requireAdmin(w, r, scope); !ok {
 		return
 	}
 	body, status, err := d.routdCall(r.Context(), http.MethodPost, "/v1/github_sources", map[string]string{
