@@ -15,8 +15,6 @@
 
 ## What needs you
 
-- `L701` — contentless Drive resolution stalls its file cursor.
-
 - `L699` — anteval cannot run a Codex smoke: it requires an Anthropic credential and installs an Anthropic-only gateway; proposal.
 - `L686` — decide whether to retire the four duplicated top-level creative skill names; proposal, needs sign-off.
 - `L687` — decide whether to retire the scheduler's two external write endpoints; proposal, needs sign-off.
@@ -9248,7 +9246,3 @@ Three shapes, one decision:
   **Fix:** measure instruction/tool exposure and completion behavior, then improve
   the existing declaration so an unambiguous completed task calls the stop tool.
   Do not add a second lifecycle policy or unconditional platform stop hook.
-
-## L701 — contentless Drive resolution stalls its file cursor (2026-11-08, open)
-
-`googd/map.go:45` emits resolve and reopen events with empty content; `routd/server.go:437` rejects them, so `googd/poll.go:203` returns before saving the cursor. The existing `TestMapThread` fixture and `TestPollRefusedDeliveryKeepsCursor` measure the incompatible contracts. Render an action description in the mapper and test delivery and cursor advancement against ingress validation.
