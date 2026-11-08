@@ -15,7 +15,6 @@
 
 ## What needs you
 
-- `L727` — a completed model probe bypasses terminal handling and local retry limits; approved fix.
 - `L723` — an instance-wide model pause needs trusted host-side provider evidence; proposal, needs sign-off.
 
 - `L715` — A1/A2: trusted GitHub sender and source-owner binding; proposal, needs sign-off.
@@ -394,22 +393,6 @@ authenticated source ownership through dispatch and credential selection;
 **Default if nothing is decided:** keep tenant GitHub ingress management
 disabled by the operator gate. Supporting tenant-managed sources needs
 sign-off on the new trust contract before implementation.
-
-## L727 — completed model probes bypass local failure limits (2026-11-08, open)
-
-**Severity:** HIGH, correctness. Fourth v0.75.4 audit B3.
-`routd/dispatch.go:637` returns before terminal and `maxTurnRetry` handling
-when a completed probe supplies no result. `store/model_pauses.go:196`
-rearms the same input without increasing its local retry count.
-Measured: audit witness `TestAudit4NoSubmissionProbeRepeatsPastRetryLimit`
-ran seven terminal failed probes with limit three; retry count stayed zero
-and later input never ran. With folder containment, later input in that
-folder still starves. **Fix:** apply the ordinary terminal/retry policy to
-completed local failures, retain the provider pause, and finish exhausted
-input so the next held input can probe. Busy and not-started attempts stay held.
-Measured: `routd/model_pauses_test.go::TestModelPauseFailureBeforeGuestSubmissionDoesNotProveRecovery`
-fails for terminal, exhausted and silent probes before the fix.
-Parent mutation restores the early return and fails all three cases.
 
 ## L723 — instance-wide model pause requires host provider evidence (2026-11-08, proposal — needs sign-off)
 
