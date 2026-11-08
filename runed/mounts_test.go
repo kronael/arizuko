@@ -2,6 +2,7 @@ package runed
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -430,5 +431,37 @@ func TestMkSlotGivesTheNewSlotToTheRunUID(t *testing.T) {
 	uid, _ := container.RunUID()
 	if got := int(fi.Sys().(*syscall.Stat_t).Uid); got != uid {
 		t.Fatalf("slot owner = %d, want the run uid %d", got, uid)
+	}
+}
+
+func TestBuildMountsNewGroupHomeWritable(t *testing.T) {
+	if os.Geteuid() != 0 {
+		t.Skip("requires root to run as the guest uid")
+	}
+	cfg, folders := fhsConfig(t)
+	for _, dir := range []string{filepath.Dir(cfg.ProjectRoot), cfg.ProjectRoot} {
+		if err := os.Chmod(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	req := runedv1.RunRequest{Packages: []string{"core"}, Folder: "eval/child"}
+	groupDir := filepath.Join(cfg.GroupsDir, string(req.Folder))
+	mustBuildMounts(t, cfg, folders, req, core.GroupConfig{}, groupDir)
+	uid, _ := container.RunUID()
+	cmd := exec.Command("/usr/bin/touch", filepath.Join(groupDir, "probe"))
+	cmd.SysProcAttr = &syscall.SysProcAttr{Credential: &syscall.Credential{Uid: uint32(uid), Gid: uint32(uid)}}
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("run uid cannot write group home: %v: %s", err, output)
+	}
+	if err := os.Chown(groupDir, 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	mustBuildMounts(t, cfg, folders, req, core.GroupConfig{}, groupDir)
+	info, err := os.Stat(groupDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if owner := info.Sys().(*syscall.Stat_t).Uid; owner != 0 {
+		t.Fatalf("existing group home owner = %d, want 0", owner)
 	}
 }

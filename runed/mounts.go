@@ -57,6 +57,7 @@ func buildMounts(
 		Host:      groupDir,
 		Container: core.ContainerHome,
 	})
+	mkSlot(groupDir)
 	media := filepath.Join(groupDir, "media")
 	mkMountSource(media)
 
@@ -264,25 +265,25 @@ func worldOf(folder string, elevated bool) string {
 	return folder
 }
 
-// mkSlot is the spawn-time backstop for a web slot container.SetupGroup should
-// already have created (a group registered before cfg.WebDir was set, say).
-// runed runs as root, so a slot it creates here is root-owned and the agent
-// could not write it: the new slot is given to the run uid. If the MkdirAll
-// or the chown fails, the agent sees a mounted-but-unwritable directory.
-// Report; never discard.
+// mkSlot gives a newly created writable mount source to the run uid.
 func mkSlot(dir string) {
 	if _, err := os.Stat(dir); err == nil {
 		return
 	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		slog.Error("web slot missing and not creatable — the substrate will materialize it as root",
-			"slot", dir, "err", err)
+	if err := os.MkdirAll(filepath.Dir(dir), 0o755); err != nil {
+		slog.Error("mount source parent not created", "path", dir, "err", err)
+		return
+	}
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		if !os.IsExist(err) {
+			slog.Error("mount source not created", "path", dir, "err", err)
+		}
 		return
 	}
 	uid, _ := container.RunUID()
 	if err := os.Chown(dir, uid, uid); err != nil {
-		slog.Error("web slot created but not given to the agent uid — the agent cannot write it",
-			"slot", dir, "uid", uid, "err", err)
+		slog.Error("mount source created but not given to the agent uid",
+			"path", dir, "uid", uid, "err", err)
 	}
 }
 
