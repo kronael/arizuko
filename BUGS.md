@@ -50,24 +50,6 @@ marker every entry carries. Ten entries said open in the heading and carried no
 `- **Status:** open` line, so a Status-only count answered 22 for a queue of
 31 — this section shipped with those ten missing.
 
-## L692 — disposable cleanup cannot enumerate tables with enrolled keys (2026-11-08, open — proposal, needs sign-off)
-
-Measured on the isolated PostgreSQL 17 / ExtendDB 0.1.11 server:
-interrupting `anteval-1794122472148` removed its containers and network,
-then `arizuko rm` returned `AccessDeniedException` for authd's
-`dynamodb:ListTables` on `table/*`. The instance data directory remained.
-Evidence: external `sol-accept-20261108T0720/claude-smoke.log` and
-`store-server.log` at 07:22:07 UTC. No case started.
-
-`cmd/arizuko/store.go:253` enumerates the account with each daemon key;
-`cmd/arizuko/store.go:111` grants each key only its owned table prefixes.
-The enforcing server denies the account-wide enumeration.
-No test yet — ops measurement. A repair needs an enforcing-server regression.
-**Options:** authorize account discovery for removal, or remove the account
-through an administrator-owned removal operation. **Default if nothing is
-decided:** cleanup fails and preserves the data directory. Any authorization
-change needs owner sign-off; this blocks clean disposable acceptance.
-
 **A contract or design decision.** Each names the question in its own Status
 line; none can be answered from the code.
 
@@ -492,6 +474,24 @@ that version. A change to which rows reach live data is an auth change.
 
 - **Status:** open — needs sign-off.
 
+
+## L692 — disposable cleanup cannot enumerate tables with enrolled keys (2026-11-08, open — proposal, needs sign-off)
+
+Measured on the isolated PostgreSQL 17 / ExtendDB 0.1.11 server:
+interrupting `anteval-1794122472148` removed its containers and network,
+then `arizuko rm` returned `AccessDeniedException` for authd's
+`dynamodb:ListTables` on `table/*`. The instance data directory remained.
+Evidence: external `sol-accept-20261108T0720/claude-smoke.log` and
+`store-server.log` at 07:22:07 UTC. No case started.
+
+`cmd/arizuko/store.go:253` enumerates the account with each daemon key;
+`cmd/arizuko/store.go:111` grants each key only its owned table prefixes.
+The enforcing server denies the account-wide enumeration.
+No test yet — ops measurement. A repair needs an enforcing-server regression.
+**Options:** authorize account discovery for removal, or remove the account
+through an administrator-owned removal operation. **Default if nothing is
+decided:** cleanup fails and preserves the data directory. Any authorization
+change needs owner sign-off; this blocks clean disposable acceptance.
 
 ## L678 — no operator door writes a group's `effort`, and dashd lists only 4.x models (2026-11-07, open — folded into the per-group harness spec)
 
