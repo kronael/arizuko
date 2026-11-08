@@ -37,14 +37,12 @@ contract the agent sees — the same left column, delivered by a different
 right-hand side. `ant/` changes by zero lines.
 
 Native boot and turn tests cover the UID clamp, read-only exports, MCP,
-proxy policy, steering, normal poweroff, Kill and cancellation in
+proxy policy, two-guest CID isolation, steering, normal poweroff, Kill and cancellation in
 `runed/qemu_boot_test.go` and `runed/qemu_turn_boot_test.go`.
-The isolated vsock fixture in `runed/vmctl_test.go` does not prove two-guest isolation.
 
 ## Remaining
 
 - Prove guest-observable smoke through the disposable eval lifecycle, including tools that resolve names locally (`anteval/cases/anteval.toml`; L379).
-- Prove that a second real VM cannot dial the first VM's CID-pinned MCP bridge (`runed/vmctl_test.go`, `runed/qemu_turn_boot_test.go`).
 - Kill runed with SIGKILL mid-turn and prove startup sweep removes every owned process, tap, mount and staging tree (`runed/qemu.go`, `runed/vmrecord_test.go`).
 - Complete release-image rollout and the declared peak-memory sample before claiming the host budget on deployment (`runed/README.md`, `runed/guestpeak_test.go`).
 
@@ -949,9 +947,8 @@ checks.
   cannot observe a guest (BUGS `L379`), so its score says nothing about the
   substrate.
 - A guest whose bridge is pinned to CID _N_ cannot reach folder _B_'s socket
-  from a guest with CID _M_; the test is a second VM dialing the first VM's
-  `mcp` port and being refused at `accept`. **Not met:** the real vsock loopback
-  fixture `TestMCPBridgeServesOnlyItsOwnGuestCID` passes, but it uses no second VM.
+  from a guest with CID _M_; `TestGuestMCPBridgeRejectsOtherGuest` boots two
+  guests and dials the first guest's `mcp` port from the second.
 - A write to every `ro` family from the guest returns `EROFS`; a write to
   `home/` lands on the host as uid 1000.
 - From the guest: `curl` to an allowlisted name succeeds through the proxy;

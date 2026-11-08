@@ -60,6 +60,176 @@ printf 'ready\n' > /home/node/ready
 while :; do sleep 0.1; done
 `
 
+const bridgeIsolationEntry = `#!/bin/sh
+set -eu
+python3 - <<'PY'
+import errno, os, socket
+if os.environ['ROLE'] == 'victim':
+    s = socket.socket(socket.AF_UNIX)
+    s.connect('/run/ipc/gated.sock')
+else:
+    s = socket.socket(socket.AF_VSOCK)
+s.settimeout(5)
+try:
+    if os.environ['ROLE'] != 'victim':
+        s.connect((socket.VMADDR_CID_HOST, int(os.environ['VICTIM_PORT'])))
+    s.sendall(b'probe')
+    reply = s.recv(5)
+except OSError as err:
+    assert err.errno in (errno.ECONNRESET, errno.EPIPE, errno.ENOTCONN), err
+    reply = b''
+if os.environ['ROLE'] == 'victim':
+    assert reply == b'probe', reply
+else:
+    assert reply == b'', reply
+open('/home/node/ready', 'w').write('ready')
+PY
+while :; do sleep 1; done
+`
+
+func TestGuestMCPBridgeRejectsOtherGuest(t *testing.T) {
+	if testing.Short() {
+		t.Skip("needs isolated KVM environment")
+	}
+	if os.Geteuid() != 0 {
+		t.Skip("needs root for guest mounts and networking")
+	}
+	for _, key := range []string{
+		"RUNED_BENCH_ID", "RUNED_BENCH_OUTPUT_DIR", envKernelDir,
+		envRootfsDir, envCIDBase, envVsockBase, envTapSubnet,
+	} {
+		if os.Getenv(key) == "" {
+			t.Skipf("%s is not set", key)
+		}
+	}
+	for _, dev := range []string{
+		"/dev/kvm", "/dev/vhost-vsock", filepath.Join(os.Getenv(envKernelDir), kernelImage),
+		filepath.Join(os.Getenv(envKernelDir), kernelInitrd), os.Getenv(envRootfsDir),
+	} {
+		if _, err := os.Stat(dev); err != nil {
+			t.Skipf("%s unavailable: %v", dev, err)
+		}
+	}
+	root, err := os.MkdirTemp(os.Getenv("RUNED_BENCH_OUTPUT_DIR"), "bridge-proof-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		mounts, err := os.Open("/proc/self/mountinfo")
+		if err != nil {
+			t.Errorf("inspect mounts before cleanup: %v", err)
+			return
+		}
+		left := mountedUnder(mounts, root)
+		_ = mounts.Close()
+		if len(left) != 0 {
+			t.Errorf("test mounts remain: %v", left)
+			return
+		}
+		if err := os.RemoveAll(root); err != nil {
+			t.Errorf("remove test directory: %v", err)
+		}
+	})
+	if err := os.Chmod(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &core.Config{
+		Name: os.Getenv("RUNED_BENCH_ID"), ProjectRoot: root,
+		GroupsDir: filepath.Join(root, "groups"), IpcDir: filepath.Join(root, "ipc"),
+		MaxContainers: 2,
+	}
+	for _, dir := range []string{
+		filepath.Join(root, "app"), filepath.Join(cfg.IpcDir, "solo", "victim"),
+		filepath.Join(cfg.IpcDir, "solo", "attacker"),
+		filepath.Join(cfg.GroupsDir, "solo", "victim"),
+		filepath.Join(cfg.GroupsDir, "solo", "attacker"),
+	} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	entry := filepath.Join(root, "app", "entrypoint.sh")
+	if err := os.WriteFile(entry, []byte(bridgeIsolationEntry), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	socket := filepath.Join(cfg.IpcDir, "solo", "victim", "gated.sock")
+	listener, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(socket, 0o666); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			var buf [5]byte
+			_, err = io.ReadFull(conn, buf[:])
+			if err == nil {
+				_, _ = conn.Write(buf[:])
+			}
+			_ = conn.Close()
+		}
+	}()
+	runtime, _, err := NewQemuRuntime(cfg, resolverFor(cfg))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	start := func(role string, port uint32, ended *bool) <-chan RunResult {
+		home := filepath.Join(root, "home-"+role)
+		if err := os.Mkdir(home, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chown(home, 1000, 1000); err != nil {
+			t.Fatal(err)
+		}
+		result := make(chan RunResult, 1)
+		turn := Turn{
+			Handle: role, Folder: "solo/" + role,
+			Mounts: []core.Mount{
+				{Host: home, Container: core.ContainerHome},
+				{Host: entry, Container: "/app/entrypoint.sh", RO: true},
+			},
+			Env: map[string]string{
+				"HOME": core.ContainerHome, "ROLE": role,
+				"VICTIM_PORT": strconv.FormatUint(uint64(port), 10),
+			},
+			RegisterSteer: func(func(string) bool) {},
+		}
+		go func() { result <- runtime.Run(ctx, turn) }()
+		t.Cleanup(func() {
+			cancel()
+			if !*ended {
+				<-result
+			}
+		})
+		return result
+	}
+	victimEnded := false
+	victim := start("victim", 0, &victimEnded)
+	waitTurnProof(t, filepath.Join(root, "home-victim", "ready"), victim, &victimEnded)
+	rec, err := loadVMRecord(filepath.Join(root, "vms", "victim"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	attackerEnded := false
+	attacker := start("attacker", rec.McpPort, &attackerEnded)
+	waitTurnProof(t, filepath.Join(root, "home-attacker", "ready"), attacker, &attackerEnded)
+	other, err := loadVMRecord(filepath.Join(root, "vms", "attacker"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.CID == other.CID {
+		t.Fatal("guests received the same CID")
+	}
+}
+
 func TestGuestTurnOverCtl(t *testing.T) {
 	if testing.Short() {
 		t.Skip("needs isolated KVM benchmark environment")
