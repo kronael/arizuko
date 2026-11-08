@@ -18,7 +18,37 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/kronael/arizuko/store"
 )
+
+func ResolveSource(sources []store.GitHubSource, owner, repo string) (string, error) {
+	var repository, org, app bool
+	for _, source := range sources {
+		kind, name, err := store.ParseGitHubSourceKey(source.Source)
+		if err != nil {
+			return "", err
+		}
+		switch kind {
+		case store.GitHubSourceRepo:
+			repository = repository || strings.EqualFold(name, owner+"/"+repo)
+		case store.GitHubSourceOrg:
+			org = org || strings.EqualFold(name, owner)
+		case store.GitHubSourceApp:
+			app = true
+		}
+	}
+	switch {
+	case repository:
+		return store.GitHubSourceRepo, nil
+	case org:
+		return store.GitHubSourceOrg, nil
+	case app:
+		return store.GitHubSourceApp, nil
+	default:
+		return "", fmt.Errorf("no github source for repository")
+	}
+}
 
 type token struct {
 	Value   string    `json:"token"`

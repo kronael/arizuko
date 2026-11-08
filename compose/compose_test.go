@@ -423,6 +423,22 @@ func TestSplitScopesSecretsKey(t *testing.T) {
 	}
 }
 
+func TestGitHubAppBrokerEnv(t *testing.T) {
+	dir := seed(t, "GITHUB_APP_ID=123\nGITHUB_APP_PRIVATE_KEY=encoded-key\n")
+	gen(t, dir)
+	for _, daemon := range []string{"routd", "gitd"} {
+		env := read(t, dir, "env/"+daemon+".env")
+		for _, key := range []string{"GITHUB_APP_ID=123", "GITHUB_APP_PRIVATE_KEY=encoded-key"} {
+			if !strings.Contains(env, key) {
+				t.Errorf("%s missing %s", daemon, key)
+			}
+		}
+	}
+	if strings.Contains(read(t, dir, "env/runed.env"), "GITHUB_APP_PRIVATE_KEY=") {
+		t.Fatal("execution daemon received the App private key")
+	}
+}
+
 // A daemon's env file carries a credential only if the daemon's code reads it.
 // authd owns OAuth (a56202d4), so onbod's provider block was pure exposure
 // surface; webd reads neither AUTH_SECRET nor AUTH_BASE_URL, proxyd reads only

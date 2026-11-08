@@ -19,14 +19,13 @@ Repository events reach groups through ordinary routes. gitd receives signed web
 and posts replies as comments. Repository state changes use the GitHub MCP connector.
 App webhook ingress and repository-qualified route topics have implementation tests.
 `routd/topic_fanout_test.go` proves separate sessions for two repositories' PR 12.
-Installation-token access through the broker is absent. Automatic PR workspaces
+Installation-token access through the broker binds to the trusted turn repository. Automatic PR workspaces
 and group archival are unbuilt.
-The remaining App completion below is approved and unbuilt. The repository workspace proposal
+The remaining App completion below is approved. The repository workspace proposal
 still needs owner approval, including its public contracts and retention policy.
 
 ## Remaining
 
-- Bind derived installation credentials to the trusted turn repository, with no PAT fallback or user-secret overlay (`routd/mcp.go`, `ipc/connector.go`, `template/connectors/github.toml`).
 - Fence revoked source/install/repository access and invalidate cached tokens before new replies, discovery or calls (`gitd/server.go`, `routd/github_sources_resource.go`, `routd/mcp.go`).
 - Add source dashboard view/control and App setup documentation (`dashd/main.go`, `dashd/routes_admin.go`, `gitd/README.md`, `template/web/pub/arizuko/components/gitd.html`).
 - Prove App bot loop suppression, token renewal, repository bounds, grant/hold behavior and real hosted MCP discovery/calls in a disposable repository (`gitd/bot_test.go`, `gitd/server_test.go`, `anteval/cases/anteval.toml`).
@@ -536,7 +535,7 @@ likewise combines webhook wakeups with reconciliation against open PRs. The appl
 pattern is current-state reconciliation; its application deletion policy does not
 define this system's conversation retention.
 
-## App completion — approved, unbuilt
+## App completion — approved, partial
 
 Both credential modes are required. The operator chooses per source: a `repo/` or `org/` source replies and calls tools
 with the PAT in `GITHUB_TOKEN`; an `app/<slug>` source uses App installation
@@ -551,13 +550,13 @@ on selected repositories. Its webhook uses the existing `app/<slug>` source dire
 Installation supplies GitHub authority; source registration supplies verification and
 routing; ACL grants supply tool access; holds supply approval. These remain separate.
 
-The proposal adds one shared App client for gitd replies and routd's existing broker.
+`githubapp` supplies one shared App client for gitd replies and routd's existing broker.
 The App ID and RSA private key are operator credentials in the instance `.env`,
 named `GITHUB_APP_ID` and `GITHUB_APP_PRIVATE_KEY` (base64-encoded PEM), respectively.
 Neither the key nor an installation token enters the agent environment or tool output.
 The client resolves the repository's installation through GitHub and mints a token for
 exactly that repository. Tokens remain on the host and refresh before their expiry.
-The proposal adds no installation table, credential endpoint, relay, channel mutation
+The implementation adds no installation table, credential endpoint, relay, channel mutation
 verbs, or extension to the storage/execution ports.
 
 The connector declares a reserved derived `GITHUB_INSTALLATION_TOKEN` slot in the existing
@@ -569,14 +568,15 @@ writes; public reads follow GitHub's public access rules.
 
 GitHub's [host integration guide](https://github.com/github/github-mcp-server/blob/main/docs/host-integration.md)
 accepts valid access tokens; its [remote policy documentation](https://github.com/github/github-mcp-server/blob/main/docs/policies-and-governance.md)
-explicitly lists installation tokens. The existing hosted HTTP transport remains the
-proposed path. Real discovery and repository calls still require credentialed acceptance.
+explicitly lists installation tokens. The existing hosted HTTP transport carries
+discovery and calls. Real discovery and repository calls still require credentialed acceptance.
 
 The repository/topic contract above supplies the immutable identity for managed
 workspaces. The broker still binds credentials to the trusted turn context, never an
 agent-selected repository or topic string. Revocation fences new calls and invalidates
-cached tokens before another dispatch. The broker token contract and the workspace
-and topic contract are unimplemented.
+cached tokens before another dispatch. The broker token contract is implemented in
+`routd/mcp.go` and `ipc/connector.go`. `githubapp.ResolveSource` supplies the shared
+source precedence for gitd and routd. The workspace and topic contract are unimplemented.
 
 ## Delivery and gaps
 
@@ -594,7 +594,7 @@ A PAT GitHub refuses at startup is not fatal: gitd withdraws `send_text` through
 compose project, unless an App ID also enables replies. Without that login the self-drop is inactive.
 
 GitHub logins are mutable, so login-based principals can transfer after a rename.
-App-token discovery is absent.
+App-token discovery uses the trusted turn repository and refuses missing App authority.
 `github_sources` has REST/MCP and CLI management but no dashboard view and control.
 Source deletion does not uninstall an App or revoke its tool grants.
 Revocation, repository removal, suspension, and uninstall need checks with cached tokens.

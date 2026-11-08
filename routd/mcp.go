@@ -1,18 +1,22 @@
 package routd
 
 import (
+	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/githubapp"
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/ipc"
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
@@ -563,6 +567,11 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 		// The trigger sender resolves the triggering user's BYOA secrets, not
 		// folder scope only.
 		ResolveConnectorSecrets: func(folder, tool string, required []string) (map[string]string, error) {
+			derived, err := s.derivedConnectorSecrets(t, required)
+			if err != nil {
+				return nil, err
+			}
+			required = userConnectorSecrets(required)
 			callerSub := turnCallerSub(t.trigger)
 			res, scopes, err := s.db.ConnectorSecrets(folder, callerSub, required)
 			// secret_use_log (spec 5/13 §Audit): one row per resolved key — THAT a
@@ -585,12 +594,23 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 					slog.Warn("secret_use_log write failed", "key", k, "err", lerr)
 				}
 			}
+			for key, value := range derived {
+				res[key] = value
+			}
 			return res, err
 		},
 		// The reactive half of spec 5/15: called at most once, only on a 401.
 		// No secret_use_log row — see RefreshConnectorSecrets.
 		RefreshConnectorSecrets: func(folder, _ string, required []string) (map[string]string, error) {
-			return s.db.RefreshConnectorSecrets(folder, turnCallerSub(t.trigger), required)
+			derived, err := s.derivedConnectorSecrets(t, required)
+			if err != nil {
+				return nil, err
+			}
+			res, err := s.db.RefreshConnectorSecrets(folder, turnCallerSub(t.trigger), userConnectorSecrets(required))
+			for key, value := range derived {
+				res[key] = value
+			}
+			return res, err
 		},
 		// Authorize is the per-call row-ACL check (magnitude + containment in
 		// one); elevated turns allow-all (turnAuthorize). The hand-authored gates
@@ -605,6 +625,50 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 		// one path /dash/audit/ could not see (BUGS F70).
 		LogIPCAudit: s.db.store().LogIPCAudit,
 	}
+}
+
+func newGitHubApp() (*githubapp.Client, error) {
+	key, err := base64.StdEncoding.DecodeString(os.Getenv("GITHUB_APP_PRIVATE_KEY"))
+	if err != nil {
+		return nil, fmt.Errorf("invalid base64 github app private key")
+	}
+	return githubapp.New(os.Getenv("GITHUB_APP_ID"), string(key),
+		core.EnvOr("GITHUB_API_URL", "https://api.github.com"), nil)
+}
+
+func userConnectorSecrets(required []string) []string {
+	return slices.DeleteFunc(slices.Clone(required), func(key string) bool {
+		return key == ipc.GitHubInstallationToken
+	})
+}
+
+func (s *Server) derivedConnectorSecrets(t turnMCP, required []string) (map[string]string, error) {
+	if !slices.Contains(required, ipc.GitHubInstallationToken) {
+		return nil, nil
+	}
+	j, ok := chanlib.ParseGitHubJID(t.chatJID)
+	if !ok || j.Repo == "" {
+		return nil, fmt.Errorf("derived github credential requires a turn repository")
+	}
+	sources, err := s.db.store().ListGitHubSources("")
+	if err != nil {
+		return nil, err
+	}
+	kind, err := githubapp.ResolveSource(sources, j.Owner, j.Repo)
+	if err != nil {
+		return nil, err
+	}
+	if kind != store.GitHubSourceApp {
+		return nil, fmt.Errorf("turn repository does not use a github app source")
+	}
+	if s.githubAppErr != nil {
+		return nil, s.githubAppErr
+	}
+	token, err := s.githubApp.Token(context.Background(), j.Owner, j.Repo)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]string{ipc.GitHubInstallationToken: token}, nil
 }
 
 // ServeTurnMCP binds the per-turn agent MCP socket in-process; expectedUID

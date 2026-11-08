@@ -131,6 +131,25 @@ func TestCallConnectorTool_SecretRidesInHeader(t *testing.T) {
 	}
 }
 
+func TestConnectorRequiresDerivedToken(t *testing.T) {
+	url, _, requests := fakeMCP(t)
+	spec := &ConnectorSpec{
+		Name: "github", URL: url, Secrets: []string{GitHubInstallationToken},
+		Headers: map[string]string{"Authorization": "Bearer {secret:GITHUB_INSTALLATION_TOKEN}"},
+	}
+	secrets := map[string]string{"GITHUB_TOKEN": "pat"}
+	if _, err := DiscoverConnectorTools(context.Background(), spec, secrets); err == nil {
+		t.Fatal("discovery accepted a PAT for the derived slot")
+	}
+	tool := ConnectorTool{Connector: spec, RemoteName: "echo_auth"}
+	if _, err := CallConnectorTool(context.Background(), tool, nil, secrets); err == nil {
+		t.Fatal("call accepted a PAT for the derived slot")
+	}
+	if requests() != 0 {
+		t.Fatal("missing derived token reached the connector")
+	}
+}
+
 // The result scrub is the guarantee that survived the transport swap: a secret
 // value echoed back by the upstream must never reach the agent.
 func TestCallConnectorTool_ScrubsSecretFromResult(t *testing.T) {

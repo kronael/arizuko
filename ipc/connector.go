@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"slices"
 	"time"
 
 	"github.com/mark3labs/mcp-go/client"
@@ -30,6 +31,8 @@ import (
 
 	"github.com/kronael/arizuko/expand"
 )
+
+const GitHubInstallationToken = "GITHUB_INSTALLATION_TOKEN"
 
 // ConnectorSpec is one [[connector]] block with transport "mcp". Loaded from
 // <data_dir>/connectors.toml at routd boot. Immutable thereafter, which is what
@@ -66,6 +69,9 @@ type ConnectorTool struct {
 // dial opens an initialized MCP session against the connector's endpoint with
 // the resolved secrets rendered into request headers. The caller closes it.
 func dial(ctx context.Context, spec *ConnectorSpec, secrets map[string]string) (*client.Client, error) {
+	if slices.Contains(spec.Secrets, GitHubInstallationToken) && secrets[GitHubInstallationToken] == "" {
+		return nil, fmt.Errorf("connector %q requires a derived %s", spec.Name, GitHubInstallationToken)
+	}
 	if spec.URL == "" {
 		return nil, fmt.Errorf("connector %q: empty url", spec.Name)
 	}

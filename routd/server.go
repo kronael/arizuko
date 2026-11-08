@@ -16,6 +16,7 @@ import (
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/chanreg"
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/githubapp"
 	"github.com/kronael/arizuko/ipc"
 	"github.com/kronael/arizuko/resreg"
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
@@ -115,7 +116,9 @@ type Server struct {
 
 	// Loaded once at boot, registered through every per-turn MCP socket;
 	// nil/empty leaves the connector path off.
-	connectors []ipc.ConnectorSpec
+	connectors   []ipc.ConnectorSpec
+	githubApp    *githubapp.Client
+	githubAppErr error
 
 	// REST-descriptor tool catalog, registered per turn.
 	extTools []ipc.ExtTool
@@ -131,7 +134,9 @@ const DefaultEngagementTTL = 30 * time.Minute
 
 // NewServer wires the HTTP server. loop may be nil for pure REST tests.
 func NewServer(db *DB, loop *Loop, deliver Deliverer, verify Verifier, engagementTTL time.Duration, webHost string) *Server {
-	return &Server{db: db, loop: loop, deliver: deliver, verify: verify, engagementT: engagementTTL, webHost: webHost}
+	s := &Server{db: db, loop: loop, deliver: deliver, verify: verify, engagementT: engagementTTL, webHost: webHost}
+	s.githubApp, s.githubAppErr = newGitHubApp()
+	return s
 }
 
 // SetDirs supplies the group + web roots the in-process MCP file-path tools

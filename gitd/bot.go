@@ -248,29 +248,15 @@ func (b *bot) replyToken(j chanlib.GitHubJID) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	var repo, org, app bool
-	for _, source := range sources {
-		kind, name, err := store.ParseGitHubSourceKey(source.Source)
-		if err != nil {
-			return "", err
-		}
-		switch kind {
-		case store.GitHubSourceRepo:
-			repo = repo || strings.EqualFold(name, j.Owner+"/"+j.Repo)
-		case store.GitHubSourceOrg:
-			org = org || strings.EqualFold(name, j.Owner)
-		case store.GitHubSourceApp:
-			app = true
-		}
+	kind, err := githubapp.ResolveSource(sources, j.Owner, j.Repo)
+	if err != nil {
+		return "", fmt.Errorf("%w: %v", chanlib.ErrPermanent, err)
 	}
-	if repo || org {
+	if kind != store.GitHubSourceApp {
 		if b.cfg.Token == "" {
 			return "", fmt.Errorf("%w: GITHUB_TOKEN unset", chanlib.ErrPermanent)
 		}
 		return b.cfg.Token, nil
-	}
-	if !app {
-		return "", fmt.Errorf("%w: no github source for repository", chanlib.ErrPermanent)
 	}
 	if b.appErr != nil {
 		return "", fmt.Errorf("%w: %v", chanlib.ErrPermanent, b.appErr)

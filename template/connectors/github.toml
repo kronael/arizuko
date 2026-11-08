@@ -7,18 +7,14 @@
 # subprocess shape this file used to document could never run for exactly that
 # reason (BUGS L132).
 #
-# THE TOKEN. Put it in the secrets table, folder- or user-scoped:
+# App sources use the reserved GITHUB_INSTALLATION_TOKEN slot. routd derives it
+# from the trusted turn repository with GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY
+# in the host .env. User secrets cannot supply this slot. Missing App authority
+# refuses discovery and calls; no PAT fallback applies.
 #
-#   arizuko secret <inst> set folder:<folder> GITHUB_TOKEN --value ghp_…
-#
-# The broker resolves it per call, renders it into the Authorization header
-# below, and scrubs the value out of the result. The agent never holds it — that
-# is the whole point of the connector over the `shell:env:GITHUB_TOKEN` grant,
-# which hands the agent a spendable token instead.
-#
-# `auth/surrogate/providers/github.toml` (spec 5/15) writes the SAME
-# `GITHUB_TOKEN` key after a user consents at /dash/me/connections, so the agent
-# can act as the human rather than as a shared PAT. Either fills this slot.
+# For PAT sources, replace GITHUB_INSTALLATION_TOKEN with GITHUB_TOKEN in both
+# secrets and Authorization. GITHUB_TOKEN keeps its folder/user secret meaning,
+# including surrogate OAuth (spec 5/15). Neither mode exposes tokens to the agent.
 #
 # THE TOKEN DOES NOT GO IN THE HOST .env. `readSecrets` passes only
 # `store.EnvProfileKeys` (the model credentials) into a container, so a
@@ -35,7 +31,7 @@
 name      = "github"
 transport = "mcp"
 url       = "https://api.githubcopilot.com/mcp/"
-secrets   = ["GITHUB_TOKEN"]
+secrets   = ["GITHUB_INSTALLATION_TOKEN"]
 
 [connector.headers]
-Authorization = "Bearer {secret:GITHUB_TOKEN}"
+Authorization = "Bearer {secret:GITHUB_INSTALLATION_TOKEN}"

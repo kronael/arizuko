@@ -109,6 +109,7 @@ var daemonKeys = map[string][]string{
 	},
 	// routd: conversation state. NO egress proxy, NO docker socket.
 	"routd": {
+		"GITHUB_APP_ID", "GITHUB_APP_PRIVATE_KEY", "GITHUB_API_URL",
 		"AUTHD_URL", "AUTHD_SERVICE_KEY", "ONBOD_URL",
 		"MAX_CONCURRENT_CONTAINERS",
 		// routd detects the route miss that fires chat-initiated onboarding;
