@@ -28,6 +28,7 @@
 - `L769` — choose whether `/pub/` filters Markdown; forwarding without an extension filter is measured.
 - `L770` — approve persistent web lint through the shared policy; local settings hooks are replaced at spawn.
 - `L771` — a run timeout counts toward automatic turn retry; owner decided no retry + a deadline continuation nudge; fix queued.
+- `L772` — agent image removal breaks a second instance's rootfs; trees duplicate; fix queued.
 - `L665` — `unpair` removes the account's denies from the paired identity's turns; needs sign-off.
 - `L664` — `invite_create` mints `admin` the issuing folder cannot delegate; needs sign-off.
 - `L660` — a mention by reply engages only the reply chain, not the chat root; proposal, needs sign-off.
@@ -727,6 +728,25 @@ the exhausted deadline can buy another full attempt without a new user request.
   already receives the `[deadline]` steering note mid-turn; codex reads input only
   between turns (L570), so ant must stop codex shortly before the deadline and
   resume the same thread with that one prompt. Changes spec 5/12's retry rule.
+
+## L772 — removing the agent image after export breaks the second instance's rootfs, and each instance stores its own 7.3 GB tree (2026-11-08, open)
+
+MEASURED 2026-11-08 on hel1v5: `make rootfs` exports into one `DATA_DIR`
+(`Makefile` `ROOTFS_DIR ?= $(DATA_DIR)/images/rootfs-$(ROOTFS_KEY)`), and since
+`47186b354` it runs `docker image rm arizuko-ant:latest` after the export. A second
+`make rootfs DATA_DIR=<other instance>` then stops with "no arizuko-ant:latest image".
+Both instances hold an identical tree: `du -sh` gives 7.3G for
+`/srv/data/arizuko_krons/images/rootfs-417487f600e2` and 7.3G for the sloth twin, on a
+disk with 10–12 GB free during this release.
+
+- **Severity:** medium — a multi-instance host cannot finish a release, and two copies
+  of one read-only tree cost 7.3 GB.
+- **Scope:** `Makefile` `rootfs` target.
+- **Fix:** when another instance on the host already holds the tree for the same key,
+  link it (`cp -al`; the guest mounts the tree read-only) instead of exporting again;
+  remove the image only after the last instance has its tree.
+- **Test:** `make -n rootfs` for a second `DATA_DIR` with an existing same-key tree
+  shows the link, not an export.
 
 ## ✅ FIXED 2026-11-06 d50afcdcd L669 — dashd's group delete purges `acl` rows and edges after only `admin` on the folder (2026-11-06)
 
