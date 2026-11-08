@@ -4,7 +4,7 @@ Run `python3 ~/.claude/skills/itinerary/scripts/trip_lint.py ~/public_html/<trip
 
 Run `python3 ~/.claude/skills/itinerary/scripts/link_check.py ~/public_html/<trip>/day*.html` to inspect map links in the browser. A browser error or timeout is a failed check. Inspect rendered routes and a 390 px page separately; static checks cannot verify route geometry or source truth.
 
-When a stop, date, route or venue changes, recheck its hours, route, affected links and pages. When only text changes, rerun the static checker. For independent judgment use core `oracle` with Codex model `gpt-6-astra` and reasoning effort `high`.
+When a stop, date, route or venue changes, recheck its hours, route, affected links and pages. For independent judgment use core `oracle` with Codex model `gpt-6-astra` and reasoning effort `high`.
 
 Run all of it after every change, not only the first build.
 

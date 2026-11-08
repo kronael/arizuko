@@ -15,7 +15,14 @@ user-invocable: true
 
 A finished day page starts with decision cards for the available routes. Each card gives distance, time and suitability and opens its route. Verify named stops and marked paths in a browser. Record photos, ratings, review counts and recent reviews separately for each source; mark missing evidence as unknown.
 
-After a stop, date, route, venue or timing changes, recheck the affected sources, route and page. Run the static and browser checks in `guides/checks.md` before delivery.
+After a stop, date, route, venue or timing changes, recheck the affected sources, route and page. Before delivery, both commands must exit 0:
+
+```sh
+python3 ~/.claude/skills/itinerary/scripts/trip_lint.py ~/public_html/<trip>
+python3 ~/.claude/skills/itinerary/scripts/link_check.py ~/public_html/<trip>/day*.html
+```
+
+Complete the remaining checks in `guides/checks.md` before delivery.
 
 One trip = `~/workspace/trips/<trip>/` (`db/` tables, `CLAUDE.md` with
 decisions and vetoes) + `~/public_html/<trip>/` (pages). A place is on a
