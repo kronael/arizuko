@@ -1,25 +1,5 @@
 # BUGS.md — open issues queue
 
-## L791 — a late provider refusal restores deleted group input (2026-11-08)
-
-- **Severity:** HIGH, correctness; tenant isolation; blocks v0.75.5.
-- **Status:** open; fix authorized.
-- **Evidence:** sixth audit `TestAudit6RefusalDuringGroupDeletionReplaysIntoReplacement`
-  submits through `mcpSubmitTurnAttempt` in the `DeleteGroupStopping` stop callback
-  after purge, recreates folder `a` without routes, and dispatches private input.
-  Its PASS proves the defect. Source confirms purge-before-stop in
-  `store/groups.go:349` and held-only retirement in `store/model_pauses.go:237`.
-- **Cause:** running attempts and probes retain their binding and open callback;
-  `RecordProviderFailure` can conditionally change them to held after the purge.
-- **Fix:** retire unfinished bound attempts and saved input spans, including running
-  attempts and probes; conditionally make them terminal and callback-closed, retry
-  conflicting transitions before successful deletion, and keep completed history.
-- **Regression:** a refusal after purge cannot restore input, and a recreated group
-  receives none; cover running attempts and probes through the real callback.
-- **Measured:** `routd/model_pauses_test.go::TestModelPauseDeleteClosesRunningCallbacks`
-  fails for running and probe attempts at the original HEAD: callback accepted,
-  turn held with `run_returned=false`, input cursor empty (4.787 s, exit 1).
-
 > **Standing policy — every fix here adheres to WISDOM** (`~/.claude/CLAUDE.md`):
 > minimality (smallest change at the root cause), orthogonality (one concern per
 > fix, no parallel second path — amend the original), fail loud to the user on
@@ -35,7 +15,6 @@
 
 ## What needs you
 
-- `L791` — a provider refusal after group purge restores deleted input into a reused folder; release blocker.
 - `L790` — `TestHoldE2E_ChannelWithoutButtonsStillGetsAnAnswerablePrompt` fails under host load (fixed 5 s wait).
 - `L721` — group handoffs bounced for an hour; verify bounded turns after deployment with group sends and progress guidance.
 - `L743` — an instance-wide model pause needs trusted host-side provider evidence; proposal, needs sign-off.
