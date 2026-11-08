@@ -15,6 +15,7 @@
 
 ## What needs you
 
+- `L718` — a dead digest run is recovered at its old END and posts a stale window; fix queued.
 - `L665` — `unpair` removes the account's denies from the paired identity's turns; needs sign-off.
 - `L664` — `invite_create` mints `admin` the issuing folder cannot delegate; needs sign-off.
 - `L660` — a mention by reply engages only the reply chain, not the chat root; proposal, needs sign-off.
@@ -431,6 +432,35 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
   containment (decision 7, `ipc/ipc.go:2267`, `:2334`, `:2387`, `:2426`), and the
   `/root` issuer holds `admin` on `**`, the authority that answers a hold. The defect
   in the same area is who the root turn serves: `L666`.
+
+## L718 — a dead digest run is recovered at its old END, so the late post reports a stale window as current (2026-11-08, open)
+
+MEASURED 2026-11-08 on sloth: the scheduled `sloth/discord` digest turn
+`sched-task-1792430980437-7f9c2512@2026-11-08T09:00:00Z` died (the Claude weekly
+limit, exit 78). At 14:49 kronael asked root `sloth` to finish interrupted
+sessions; it delegated to `sloth/discord`, whose diary says "Recovered Nov8
+digest at original cutoff 09:00:20" (`groups/sloth/discord/diary/20261108.md:22`).
+`tmp/digest/20261108/window.txt` holds `END=2026-11-08T09:00:20Z`, `MISSED=0`.
+The digest went to #main at about 15:03 as message `1569004444488826903` and
+says "0 PRs merged" and "no result yet", while #309 and #430 merged at 13:45:05Z
+and 13:45:03Z, before the post (`reports/digest-20261108.md`, work half). The
+owner read it as false.
+
+Cause, read from the skill: `ant/examples/company-brain/skills/digest/SKILL.md`
+§5 "Redo (same window): `window.py` with the same `--end`" is meant for a run
+that already posted, but nothing says so, and `window.py` accepts any `--end`.
+The skill's own design covers a dead run with the next run at now: `START =
+max(END − 24h, state.last_end)` and `MISSED=1` (`window.py:6`).
+
+- **Severity:** medium — the one message in #main states a past window as the
+  present after a failure, which is exactly when readers check it.
+- **Scope:** `ant/examples/company-brain/skills/digest/scripts/window.py`, `SKILL.md` §5.
+- **Fix:** `window.py` refuses `--end` unless it repeats the posted run's END
+  (the state's `posted_run` / `last_end`), naming the dead-run path: run without
+  `--end`. `SKILL.md` says a dead run is never redone at its END.
+- **Test:** `--end` of a run that never posted is refused; `--end` equal to the
+  posted run's END still works; no `--end` after a dead run gives `MISSED=1`
+  and START = the state's `last_end`.
 
 ## ✅ FIXED 2026-11-06 d50afcdcd L669 — dashd's group delete purges `acl` rows and edges after only `admin` on the folder (2026-11-06)
 
