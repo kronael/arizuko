@@ -31,7 +31,7 @@ import (
 
 type config struct {
 	port           string
-	viteAddr       string
+	webDir         string
 	pubRedirectURL string
 	authSecret     string
 	authdURL       string // soak: dual-verify ES256 bearers + 302 /auth/* to authd
@@ -47,7 +47,6 @@ func loadConfig() config {
 	}
 	return config{
 		port:           port,
-		viteAddr:       core.EnvOr("VITE_ADDR", "http://vited:8080"),
 		pubRedirectURL: strings.TrimRight(core.EnvOr("PUB_REDIRECT_URL", ""), "/"),
 		authdURL:       strings.TrimRight(os.Getenv("AUTHD_URL"), "/"),
 		trustedProxies: parseTrustedProxies(os.Getenv("TRUSTED_PROXIES")),
@@ -109,7 +108,7 @@ type server struct {
 	cfg         config
 	stRoutd     *store.Store    // routd.db: proxyd_routes, acl, user_profiles (split ownership; scope lookup reads one DB)
 	rr          *routesResource // stateless route handler; reads routes from DB per request (spec 5/8 no-cache)
-	viteProxy   *httputil.ReverseProxy
+	files       http.Handler
 	authdProxy  *httputil.ReverseProxy // nil when AUTHD_URL unset (local dev)
 	ks          *auth.KeySet           // authd's ES256 JWKs; nil when AUTHD_URL unset, and then tryAuth authenticates nobody
 	svc         *auth.TokenSource      // service:proxyd token presented to backends (nil → local dev, X-User-* unsigned)
@@ -174,7 +173,7 @@ func matchWebRoute(routes []store.WebRoute, urlPath string) (store.WebRoute, boo
 
 // pubRedirect probes a configured public-docs URL and caches whether
 // it's reachable. When reachable, /pub/* is served as an HTTP 302 to
-// that URL; when not, the caller falls back to the local viteProxy.
+// that URL; when not, the caller falls back to the local files.
 // Probe is a HEAD with a short timeout; result cached for `ttl`.
 type pubRedirect struct {
 	url    string
@@ -230,7 +229,7 @@ func newServer(cfg config, stRoutd *store.Store, ks *auth.KeySet, svc *auth.Toke
 		cfg:        cfg,
 		stRoutd:    stRoutd,
 		rr:         rr,
-		viteProxy:  proxy(cfg.viteAddr),
+		files:      staticFiles(cfg.webDir),
 		authdProxy: ap,
 		ks:         ks,
 		svc:        svc,
@@ -481,14 +480,8 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// /pub and /, and /pub/* are kept hand-wired: they involve external
-	// redirect probing and websocket-upgrade fall-through, not the static
-	// TOML-route forwarding pattern.
+	// /pub and /, and /pub/* use external redirect probing.
 	if r.URL.Path == "/" || r.URL.Path == "/pub" {
-		if strings.EqualFold(r.Header.Get("Upgrade"), "websocket") {
-			s.viteProxy.ServeHTTP(w, r)
-			return
-		}
 		// A mapped vhost front-doors to its public slot. `/pub` stays reserved
 		// in place — only bare `/` redirects, so the follow-up `/pub/W/` lands
 		// in the /pub/ branch below and the redirect can't loop.
@@ -507,7 +500,6 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 	}
 	if strings.HasPrefix(r.URL.Path, "/pub/") {
 		if s.pubRedir != nil &&
-			!strings.EqualFold(r.Header.Get("Upgrade"), "websocket") &&
 			s.pubRedir.reachable() {
 			rest := strings.TrimPrefix(r.URL.Path, "/pub")
 			if r.URL.RawQuery != "" {
@@ -532,21 +524,14 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, "Forbidden", http.StatusForbidden)
 				return
 			case "auth":
-				s.requireAuth(s.viteProxy.ServeHTTP)(w, r)
+				s.requireAuth(s.files.ServeHTTP)(w, r)
 				return
 			}
 		}
-		s.viteProxy.ServeHTTP(w, r)
+		s.files.ServeHTTP(w, r)
 		return
 	}
 
-	// /priv/* — JWT-gated + folder-scoped, served by the same vited instance as
-	// /pub/* and resolving under <data>/web/priv/<folder>/. No path rewrite: vite
-	// cwd is <data>/web/. After auth the caller must hold a grant covering the
-	// folder that owns the slot (auth.MatchSlot). This used to cut the path at its
-	// FIRST segment, which is wrong in both directions: a folder is multi-segment,
-	// so `atlas/search` could not read its own slot, while a scope of `atlas/*`
-	// read nothing at all.
 	if r.URL.Path == "/priv" || strings.HasPrefix(r.URL.Path, "/priv/") {
 		s.requireAuth(func(w http.ResponseWriter, r *http.Request) {
 			slotPath := strings.TrimPrefix(strings.TrimPrefix(r.URL.Path, "/priv"), "/")
@@ -558,14 +543,16 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 						return
 					}
 				}
-				if !auth.MatchSlot(gs, slotPath) {
+				prefix := auth.MatchSlotPrefix(gs, slotPath)
+				if prefix == "" {
 					slog.Warn("priv forbidden", "sub", r.Header.Get("X-User-Sub"),
 						"slot_path", slotPath, "path", r.URL.Path)
 					http.Error(w, "Forbidden", http.StatusForbidden)
 					return
 				}
+				r = r.WithContext(context.WithValue(r.Context(), staticAllowedKey{}, "priv/"+prefix))
 			}
-			s.viteProxy.ServeHTTP(w, r)
+			s.files.ServeHTTP(w, r)
 		})(w, r)
 		return
 	}
@@ -600,7 +587,7 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 	// unconfigured callback) is treated as a private surface — auth-gate it
 	// so it bounces to /auth/login rather than the public /pub fallback.
 	if strings.HasPrefix(r.URL.Path, "/auth/") {
-		s.requireAuth(s.viteProxy.ServeHTTP)(w, r)
+		s.requireAuth(s.files.ServeHTTP)(w, r)
 		return
 	}
 
@@ -1108,6 +1095,7 @@ func main() {
 
 	cfg := loadConfig()
 	cfg.authSecret = coreCfg.AuthSecret
+	cfg.webDir = coreCfg.WebDir
 
 	// routd.db owns proxyd_routes/acl/user_profiles/route_tokens in the split
 	// topology (spec 5/16-mcp-rest-unification), plus audit_log (routd migration 0016). proxyd reads
@@ -1144,7 +1132,7 @@ func main() {
 	// HMAC retire step 2: proxyd presents its own service:proxyd ES256 token to
 	// backends (Authorization: Bearer) as the channel proof for the X-User-*
 	// headers it stamps — replacing the X-User-Sig HMAC. Exchanged lazily from
-	// AUTHD_SERVICE_KEY at AUTHD_URL (same pattern as timed/onbod). Unset (local
+	// AUTHD_SERVICE_KEY at AUTHD_URL (same pattern as onbod). Unset (local
 	// dev) → svc nil, identity forwarded unsigned exactly as an anon request.
 	var svc *auth.TokenSource
 	if serviceKey := os.Getenv("AUTHD_SERVICE_KEY"); cfg.authdURL != "" && serviceKey != "" {
@@ -1180,7 +1168,7 @@ func main() {
 	})
 
 	slog.Info("proxyd starting",
-		"port", cfg.port, "vite", cfg.viteAddr, "routes", len(s.routes()))
+		"port", cfg.port, "web", cfg.webDir, "routes", len(s.routes()))
 
 	srv := &http.Server{
 		Addr:    cfg.port,

@@ -2,7 +2,7 @@ import { test, expect, asUser } from './_helpers';
 
 // services.spec — /dash/services/ cockpit hub.
 //
-// The services hub probes all 8 core daemons at /health. In tests none of the
+// The services hub probes all 7 core daemons at /health. In tests none of the
 // daemon hostnames resolve, so every tile shows status=unknown (DNS failure).
 // The key invariant is the tile structure: built tiles link to their control
 // plane REGARDLESS of probe status (D6 — an unreachable built daemon is
@@ -12,7 +12,7 @@ import { test, expect, asUser } from './_helpers';
 // other way round.
 
 const BUILT = ['routd', 'runed', 'authd', 'proxyd'];
-const UNBUILT = ['onbod', 'timed', 'webd', 'davd'];
+const UNBUILT = ['onbod', 'webd', 'davd'];
 const ALL = [...BUILT, ...UNBUILT];
 
 test.describe('services hub', () => {
@@ -24,7 +24,7 @@ test.describe('services hub', () => {
     });
   });
 
-  test('renders services grid with all 8 daemons', async ({ page }) => {
+  test('renders services grid with all 7 daemons', async ({ page }) => {
     await page.goto('/dash/services/');
     await expect(page.locator('h1')).toHaveText('Services');
     await expect(page.locator('.services-grid')).toBeVisible();
@@ -69,9 +69,9 @@ test.describe('services hub', () => {
     await page.goto('/dash/services/');
     // In tests, daemon hostnames don't resolve → DNS failure → unknown.
     const tiles = page.locator('.service-tile');
-    await expect(tiles).toHaveCount(8);
+    await expect(tiles).toHaveCount(ALL.length);
     // Each tile carries a data-status attribute.
-    for (let i = 0; i < 8; i++) {
+    for (let i = 0; i < ALL.length; i++) {
       const status = await tiles.nth(i).getAttribute('data-status');
       expect(['ok', 'err', 'unknown']).toContain(status);
     }

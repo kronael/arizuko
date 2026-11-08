@@ -172,7 +172,7 @@ func (d *dash) foldersViaRoutd(ctx context.Context) ([]string, error) {
 // render a field the API does not have.
 func (d *dash) tasksViaRoutd(ctx context.Context) ([]resources.ScheduledTasksRow, error) {
 	// GET /v1/tasks, not /v1/<name>: the scheduled_tasks resource deliberately
-	// serves a different REST path because timed calls it across the container
+	// serves a different REST path for callers across the container
 	// boundary (resources/scheduled_tasks.go, BUGS F21). Assuming the resource
 	// name IS the path answered 404 on the first attempt.
 	body, status, err := d.bearerCall(ctx, d.routdURL, http.MethodGet, "/v1/tasks", nil)

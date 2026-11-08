@@ -44,17 +44,23 @@ func MatchGroups(allowed []string, folder string) bool {
 // where one folder's mount already holds another's bytes. Folder decisions use
 // MatchGroups, which crosses no segment the glob did not ask for.
 func MatchSlot(allowed []string, slotPath string) bool {
+	return MatchSlotPrefix(allowed, slotPath) != ""
+}
+
+// MatchSlotPrefix returns the first authorized folder prefix of a web-slot path.
+func MatchSlotPrefix(allowed []string, slotPath string) string {
 	slotPath = strings.Trim(slotPath, "/")
 	if slotPath == "" {
-		return false
+		return ""
 	}
 	segs := strings.Split(slotPath, "/")
 	for i := 1; i <= len(segs); i++ {
-		if MatchGroups(allowed, strings.Join(segs[:i], "/")) {
-			return true
+		prefix := strings.Join(segs[:i], "/")
+		if MatchGroups(allowed, prefix) {
+			return prefix
 		}
 	}
-	return false
+	return ""
 }
 
 // matchPattern reports whether the glob `pattern` covers the path `p`.

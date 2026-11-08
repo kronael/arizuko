@@ -137,7 +137,7 @@ concepts/jid.html` waits on this.
 
 - Separate web server process or keep router-internal
 - If separate: HTTP to router like other adapters
-- Auth, slink, vite proxy
+- Auth, slink, static serving
 
 ### Open
 
@@ -189,7 +189,6 @@ touched, not all at once:
   message chunking, markdown→HTML — move to gateway/router.
 - **gateway/gateway.go**: routing logic duplicates `router.ResolveRoute`;
   sticky routing managed by gateway, not router.
-- **timed/main.go**: spawn archiving/TTL — gateway lifecycle concern.
 - **onbod**: direct DB writes to `groups`/`routes`, calls
   `container.SeedGroupDir` directly — should go through gateway API.
 

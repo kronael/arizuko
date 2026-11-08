@@ -1,6 +1,6 @@
 # arizuko doc site
 
-Static HTML served at `/pub/` by vited. Source lives in
+Static HTML served at `/pub/` by proxyd. Source lives in
 `template/web/pub/` in the arizuko repo. The release image carries
 `template/web/pub/arizuko/`, and `arizuko generate` copies it into each
 instance's `<data-dir>/web/pub/arizuko/` on every start.

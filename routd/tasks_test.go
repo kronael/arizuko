@@ -21,68 +21,8 @@ func doGet(t *testing.T, h http.Handler, path string) *httptest.ResponseRecorder
 	return rec
 }
 
-// TestTasksDueEndpoint: GET /v1/tasks/due (tasks:read) atomically claims + returns
-// the overdue active task from routd's OWN routd.db, flipping its status to
-// 'firing' so a concurrent poller skips it.
-func TestTasksDueEndpoint(t *testing.T) {
-	db, h := authSrv(t, fakeVerifier{sub: "service:timed", scope: []string{"tasks:read"}})
-
-	past := time.Now().Add(-time.Hour)
-	s := store.NewOver(db.Obj())
-	if err := s.CreateTask(core.Task{
-		ID: "due-1", Owner: "main", ChatJID: "web:main", Prompt: "ping",
-		Cron: "0 9 * * *", NextRun: &past, Status: core.TaskActive, Created: time.Now(),
-	}); err != nil {
-		t.Fatalf("seed task: %v", err)
-	}
-	// A future task must NOT be returned.
-	future := time.Now().Add(time.Hour)
-	if err := s.CreateTask(core.Task{
-		ID: "future-1", Owner: "main", ChatJID: "web:main", Prompt: "later",
-		NextRun: &future, Status: core.TaskActive, Created: time.Now(),
-	}); err != nil {
-		t.Fatalf("seed future task: %v", err)
-	}
-
-	rec := doGet(t, h, "/v1/tasks/due")
-	if rec.Code != 200 {
-		t.Fatalf("GET /v1/tasks/due = %d want 200 body=%s", rec.Code, rec.Body.String())
-	}
-	var resp struct {
-		Tasks []dueTask `json:"tasks"`
-	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if len(resp.Tasks) != 1 || resp.Tasks[0].ID != "due-1" {
-		t.Fatalf("due tasks = %+v, want [due-1]", resp.Tasks)
-	}
-	if resp.Tasks[0].Owner != "main" {
-		t.Errorf("due task owner = %q want main", resp.Tasks[0].Owner)
-	}
-	if resp.Tasks[0].Prompt != "ping" {
-		t.Errorf("due task prompt = %q want ping", resp.Tasks[0].Prompt)
-	}
-	// next_run is the fire's IDENTITY, not a display field: timed keys the
-	// enqueued message id on it so a retry after a lost response dedups against
-	// the first attempt (BUGS L33). The claim must not disturb it, and it must
-	// round-trip byte-stably through the reschedule, so it is RFC3339 in UTC.
-	if want := past.UTC().Format(time.RFC3339); resp.Tasks[0].NextRun != want {
-		t.Errorf("due task next_run = %q, want the claimed %q", resp.Tasks[0].NextRun, want)
-	}
-	// Claimed: the returned task is now 'firing', the future task still 'active'.
-	if got, _ := db.GetTask("due-1"); got.Status != "firing" {
-		t.Errorf("due task status = %q want firing (claimed)", got.Status)
-	}
-	if got, _ := db.GetTask("future-1"); got.Status != core.TaskActive {
-		t.Errorf("future task status = %q want active (untouched)", got.Status)
-	}
-}
-
-// TestTaskRunLogEndpoint: POST /v1/tasks/runlog (tasks:write) appends one
-// task_run_logs row to routd's OWN routd.db, readable back via inspect.
 func TestTaskRunLogEndpoint(t *testing.T) {
-	db, h := authSrv(t, fakeVerifier{sub: "service:timed", scope: []string{"tasks:write"}})
+	db, h := authSrv(t, fakeVerifier{sub: "service:routd", scope: []string{"tasks:write"}})
 	seedTask(t, db, "rl-1", "main", "web:main", "do it")
 
 	rec := doJSON(t, h, "POST", "/v1/tasks/runlog", "", taskRunLogBody{
@@ -100,7 +40,7 @@ func TestTaskRunLogEndpoint(t *testing.T) {
 // with a non-empty next_run stores it and flips the task back to active — the
 // retry of the same fire.
 func TestTaskRescheduleRecurring(t *testing.T) {
-	db, h := authSrv(t, fakeVerifier{sub: "service:timed", scope: []string{"tasks:write"}})
+	db, h := authSrv(t, fakeVerifier{sub: "service:routd", scope: []string{"tasks:write"}})
 	// Seed a 'firing' task (the state after GET /v1/tasks/due claimed it).
 	s := store.NewOver(db.Obj())
 	now := time.Now()
@@ -129,7 +69,7 @@ func TestTaskRescheduleRecurring(t *testing.T) {
 // TestTaskRescheduleOneShot: an empty next_run on a task with no cron clears
 // next_run (NULL) and marks the one-shot task completed.
 func TestTaskRescheduleOneShot(t *testing.T) {
-	db, h := authSrv(t, fakeVerifier{sub: "service:timed", scope: []string{"tasks:write"}})
+	db, h := authSrv(t, fakeVerifier{sub: "service:routd", scope: []string{"tasks:write"}})
 	s := store.NewOver(db.Obj())
 	now := time.Now()
 	if err := s.CreateTask(core.Task{
@@ -167,7 +107,7 @@ func TestTaskRescheduleRequiresWriteScope(t *testing.T) {
 // next instant its cron names, computed by routd; a cron that will not parse
 // moves the task to error and leaves no next_run.
 func TestTaskRescheduleReadsTheCron(t *testing.T) {
-	db, h := authSrv(t, fakeVerifier{sub: "service:timed", scope: []string{"tasks:write"}})
+	db, h := authSrv(t, fakeVerifier{sub: "service:routd", scope: []string{"tasks:write"}})
 	s := store.NewOver(db.Obj())
 	now := time.Now()
 	for id, cron := range map[string]string{"rs-cron": "0 9 * * *", "rs-bad": "not a cron"} {
@@ -189,14 +129,6 @@ func TestTaskRescheduleReadsTheCron(t *testing.T) {
 	got, _ = db.GetTask("rs-bad")
 	if got.Status != "error" || got.NextRun != nil {
 		t.Errorf("bad cron: status %q next_run %v, want error with no next_run", got.Status, got.NextRun)
-	}
-}
-
-// TestTasksDueRequiresReadScope: a token without tasks:read is 403.
-func TestTasksDueRequiresReadScope(t *testing.T) {
-	_, h := authSrv(t, fakeVerifier{sub: "user:u", scope: []string{"routes:read"}})
-	if rec := doGet(t, h, "/v1/tasks/due"); rec.Code != 403 {
-		t.Fatalf("GET /v1/tasks/due without tasks:read = %d want 403", rec.Code)
 	}
 }
 

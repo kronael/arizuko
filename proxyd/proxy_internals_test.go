@@ -398,9 +398,9 @@ func TestPriv_FolderScopedGrant(t *testing.T) {
 	k, ks := es256KeySet(t)
 
 	s := &server{
-		cfg:       config{authSecret: "testsecret", authdURL: "http://authd"},
-		ks:        ks,
-		viteProxy: httputil.NewSingleHostReverseProxy(bu),
+		cfg:   config{authSecret: "testsecret", authdURL: "http://authd"},
+		ks:    ks,
+		files: httputil.NewSingleHostReverseProxy(bu),
 	}
 
 	cases := []struct {

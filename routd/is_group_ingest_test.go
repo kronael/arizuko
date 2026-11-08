@@ -12,7 +12,7 @@ func stated(v bool) *bool { return &v }
 
 // A chat is classified by the adapter that OBSERVES it, and by nothing else.
 //
-// timed's cron fire posts into a chat it only writes to — `fireSplit` builds an
+// a scheduled task posts into a chat it only writes to — the scheduler builds an
 // apiv1.Message carrying id, chat_jid, sender, content and timestamp — so it
 // states no classification. Reading that silence as "DM" cleared
 // `chats.is_group` on every fire, and `turns.go` then answered a live group in

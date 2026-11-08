@@ -52,28 +52,35 @@ func TestFeature_DashdAdminPlane(t *testing.T) {
 		}
 	})
 
-	// Grant add persists and is visible via ListACL.
+	// An ACL scope permits delegation only when the caller holds grant authority.
 	t.Run("grants-crud", func(t *testing.T) {
 		f := bootFederation(t)
-		tok := f.authd.mintService(t, "service:dashd", "acl:write")
 		body := map[string]string{"principal": "alice@x", "scope": "world/sub", "action": "admin", "effect": "allow"}
-		if rec := postBearer(t, f.routdTS.URL, "POST", "/v1/acl", tok, "", body); rec.StatusCode != 403 {
-			t.Fatalf("grant without authority = %d, want 403", rec.StatusCode)
+		for _, scope := range []string{"routes:write", "acl:write"} {
+			tok := f.authd.mintService(t, "service:dashd", scope)
+			if rec := postBearer(t, f.routdTS.URL, "POST", "/v1/acl", tok, "", body); rec.StatusCode != 403 {
+				t.Fatalf("grant add with %s = %d, want 403", scope, rec.StatusCode)
+			}
+		}
+		rows, err := f.routdDB.ListACL("alice@x")
+		if err != nil {
+			t.Fatalf("ListACL: %v", err)
+		}
+		if len(rows) != 0 {
+			t.Fatalf("refused grant persisted: %+v", rows)
 		}
 		if err := store.NewOver(f.routdDB.Obj()).PutACLRow(core.ACLRow{
 			Principal: "service:dashd", Scope: "world/sub", Action: "admin", Effect: "allow", GrantOption: true,
 		}); err != nil {
 			t.Fatal(err)
 		}
+		tok := f.authd.mintService(t, "service:dashd", "acl:write")
 		if rec := postBearer(t, f.routdTS.URL, "POST", "/v1/acl", tok, "", body); rec.StatusCode != 200 {
 			t.Fatalf("grant add = %d, want 200", rec.StatusCode)
 		}
-		rows, err := f.routdDB.ListACL("alice@x")
-		if err != nil {
-			t.Fatalf("ListACL: %v", err)
-		}
-		if len(rows) == 0 {
-			t.Fatal("grant not persisted")
+		rows, err = f.routdDB.ListACL("alice@x")
+		if err != nil || len(rows) != 1 {
+			t.Fatalf("grant not persisted: %+v, err=%v", rows, err)
 		}
 	})
 

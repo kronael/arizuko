@@ -12,7 +12,7 @@ production has already shown. `INSTANCE` and the `sq` helper come from
 INSTANCE=krons
 sudo systemctl is-active arizuko_${INSTANCE}
 # Split topology: containers are arizuko_<daemon>_<instance> (routd, runed, authd,
-# onbod, timed, proxyd, webd, dashd, davd, + adapters). Filter on the _<instance>
+# onbod, proxyd, webd, dashd, davd, + adapters). Filter on the _<instance>
 # suffix — "name=arizuko_${INSTANCE}" matches NOTHING (no bare arizuko_krons container).
 sudo docker ps --filter "name=_${INSTANCE}" --format "{{.Names}} {{.Status}}"
 ```
@@ -120,7 +120,7 @@ tail -30 /srv/data/arizuko_${INSTANCE}/groups/${FOLDER}/logs/$(ls -t /srv/data/a
 
 ---
 
-### 7. Task scheduler (timed)
+### 7. Task scheduler (routd)
 
 ```bash
 # Tasks and their next run
@@ -144,13 +144,13 @@ sq routd.task_run_logs "select attrs->'task_id'->>'S' as task_id,
 
 **Pass**: tasks with `next_run` values in the future; recent `task_run_logs` with
 `status = 'success'`.
-**Fail**: tasks with `next_run` in the past and no recent log → timed daemon stuck.
-Check: `sudo docker ps --filter name=arizuko_timed_${INSTANCE}`.
+**Fail**: tasks with `next_run` in the past and no recent log → routd task ticker stalled.
+Check: `sudo docker ps --filter name=arizuko_routd_${INSTANCE}`.
 
-Also check timed logs:
+Also check routd logs:
 ```bash
 sudo journalctl -u arizuko_${INSTANCE} --since "1 hour ago" --no-pager \
-  | grep "timed" | grep -E "error|fired|scheduler" | tail -10
+  | grep "routd" | grep -E "error|fired|scheduler" | tail -10
 ```
 
 ---

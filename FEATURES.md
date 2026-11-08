@@ -117,17 +117,17 @@ The verbs each adapter supports are in [EXTENDING.md § Verb support matrix](EXT
 | Operator         | A member of `role:operator` holds `*` on `**`.                                                     | `auth/authorize_test.go::TestAuthorize_RoleMembershipOneDeep`                 |
 | Overlay          | Operator rows add to the `role:member` floor: an allow adds a tool and a deny blocks a floor verb. | `routd/acl_overlay_test.go::TestOperatorOverlay`                              |
 
-## timed fires each due task once
+## routd fires scheduled tasks
 
 | Feature               | Behaviour today                                                                                       | Evidence                                                                             |
 | --------------------- | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
 | Task create           | `schedule_task` stores a cron, interval or one-time task with its `next_run`, and refuses a bad cron. | `routd/scheduled_tasks_resource_test.go::TestScheduledTasksMCP_ScheduleParsesCron`   |
 | Next run              | `NextRun` gives the next match of a cron, or now plus N ms for an interval.                           | `core/cron_test.go::TestNextRunBasic`                                                |
 | Pause, resume, cancel | The agent tools change the status of a task, and cancel deletes it.                                   | `routd/scheduled_tasks_resource_test.go::TestScheduledTasksMCP_PauseResumeCancelOwn` |
-| Reschedule            | timed writes the next run of a cron task, and marks a one-time task `completed`.                      | `timed/split_test.go::TestFireSplitOneShotCompletes`                                 |
+| Reschedule            | routd writes the next run of a cron task, and marks a one-time task `completed`.                      | `routd/schedule_test.go::TestScheduleTasks`                                          |
 | Recovery              | At start, the store sets tasks left in `firing` back to active.                                       | `store/tasks_test.go::TestRecoverFiringTasks`                                        |
 | Due claim             | `DueTasks` claims each due task once and marks it `firing`.                                           | `store/tasks_test.go::TestDueTasks_ClaimsOnce`                                       |
-| Fire                  | A tick claims a due task, queues its prompt, logs the run and reschedules.                            | `timed/split_test.go::TestFireSplitDrivesRoutd`                                      |
+| Fire                  | A tick claims a due task, queues its prompt, logs the run and reschedules.                            | `routd/schedule_test.go::TestScheduleTasks`                                          |
 | Run log               | routd lists the runs of a task, newest first.                                                         | `store/task_run_logs_test.go::TestThePerTaskHistoryNamesOneTaskAndHonoursItsLimit`   |
 | Run now               | `PATCH /v1/tasks/{id}` with `next_run` sets the run time, and the task fires on the next tick.        | `routd/tasks_test.go::TestTaskPatchEndpoint`                                         |
 
@@ -260,23 +260,23 @@ The verbs each adapter supports are in [EXTENDING.md § Verb support matrix](EXT
 
 ## The core daemons report health, and a change writes an audit row
 
-| Feature                    | Behaviour today                                                            | Evidence                                                                      |
-| -------------------------- | -------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| routd health               | `/health` answers 200 without a token.                                     | `tests/feat_health_test.go::TestFeature_HealthEndpoints/routd-health-no-auth` |
-| runed health               | `/health` answers 200 before the auth gate.                                | `tests/feat_health_test.go::TestFeature_HealthEndpoints/runed-health`         |
-| proxyd health              | `/health` answers 200.                                                     | `proxyd/integration_test.go::TestHealthEndpoint`                              |
-| dashd health               | `/health` answers `{"ok":true}`.                                           | `dashd/main_test.go::TestDashHealth`                                          |
-| webd health                | `/health` reports the adapter data.                                        | `webd/api_test.go::TestHandleHealth`                                          |
-| authd, onbod, timed health | Each daemon serves `/health`.                                              | `authd/health_served_test.go::TestAuthdHealthAnswers503WhenTheStoreIsDown`    |
-| Audit row                  | `audit.Emit` writes a row with category, action, actor and instance.       | `audit/log_test.go::TestEmit_Inserts`                                         |
-| Audit with mutation        | The audit row commits with its change, and a refused change leaves no row. | `audit/audit_log_test.go::TestTheAuditRowIsOneCommitWithItsMutation`          |
-| Audit redaction            | Sensitive param keys appear as `<redacted:...>`.                           | `audit/log_test.go::TestRedactParams_HidesSensitiveKeys`                      |
-| Metrics                    | With `METRICS_ENABLED`, `/metrics` shows the `arizuko_*` families.         | `obs/metrics_test.go::TestMetricsHandler_EnabledExposesFamilies`              |
-| OTLP                       | With `OTEL_EXPORTER_OTLP_ENDPOINT`, log records also go to the exporter.   | `obs/obs_test.go::TestSetup_WithEnv_FanOut`                                   |
-| Turn key record            | routd records the hash of the gateway key of each turn.                    | `routd/gateway_test.go::TestTurnRecordsTheKeyThatMeteredIt`                   |
-| Spend read                 | `GET /v1/cost` adds the gateway usage of the key of a turn.                | `routd/gateway_test.go::TestKeySpendSumsTheModelsAndRoundsTheTotalOnce`       |
-| Spend containment          | A caller outside the folder of the turn gets 403.                          | `routd/authz_containment_test.go::TestRESTCostRead`                           |
-| Turn result                | routd stores the session id and cost of a turn and drops a second report.  | `routd/contract_test.go::TestResultRecordsOutcome`                            |
+| Feature                | Behaviour today                                                            | Evidence                                                                      |
+| ---------------------- | -------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| routd health           | `/health` answers 200 without a token.                                     | `tests/feat_health_test.go::TestFeature_HealthEndpoints/routd-health-no-auth` |
+| runed health           | `/health` answers 200 before the auth gate.                                | `tests/feat_health_test.go::TestFeature_HealthEndpoints/runed-health`         |
+| proxyd health          | `/health` answers 200.                                                     | `proxyd/integration_test.go::TestHealthEndpoint`                              |
+| dashd health           | `/health` answers `{"ok":true}`.                                           | `dashd/main_test.go::TestDashHealth`                                          |
+| webd health            | `/health` reports the adapter data.                                        | `webd/api_test.go::TestHandleHealth`                                          |
+| authd and onbod health | Each daemon serves `/health`.                                              | `authd/health_served_test.go::TestAuthdHealthAnswers503WhenTheStoreIsDown`    |
+| Audit row              | `audit.Emit` writes a row with category, action, actor and instance.       | `audit/log_test.go::TestEmit_Inserts`                                         |
+| Audit with mutation    | The audit row commits with its change, and a refused change leaves no row. | `audit/audit_log_test.go::TestTheAuditRowIsOneCommitWithItsMutation`          |
+| Audit redaction        | Sensitive param keys appear as `<redacted:...>`.                           | `audit/log_test.go::TestRedactParams_HidesSensitiveKeys`                      |
+| Metrics                | With `METRICS_ENABLED`, `/metrics` shows the `arizuko_*` families.         | `obs/metrics_test.go::TestMetricsHandler_EnabledExposesFamilies`              |
+| OTLP                   | With `OTEL_EXPORTER_OTLP_ENDPOINT`, log records also go to the exporter.   | `obs/obs_test.go::TestSetup_WithEnv_FanOut`                                   |
+| Turn key record        | routd records the hash of the gateway key of each turn.                    | `routd/gateway_test.go::TestTurnRecordsTheKeyThatMeteredIt`                   |
+| Spend read             | `GET /v1/cost` adds the gateway usage of the key of a turn.                | `routd/gateway_test.go::TestKeySpendSumsTheModelsAndRoundsTheTotalOnce`       |
+| Spend containment      | A caller outside the folder of the turn gets 403.                          | `routd/authz_containment_test.go::TestRESTCostRead`                           |
+| Turn result            | routd stores the session id and cost of a turn and drops a second report.  | `routd/contract_test.go::TestResultRecordsOutcome`                            |
 
 ## The daemons connect through fixed contracts
 
@@ -285,7 +285,7 @@ The verbs each adapter supports are in [EXTENDING.md § Verb support matrix](EXT
 | Ingress key            | `POST /v1/messages` makes the id from `X-Idempotency-Key` and refuses an id and a key together.       | `routd/fixes_test.go::TestIngressIdempotencyKey`                       |
 | Redelivery             | A second delivery of one message id adds no second row.                                               | `store/store_test.go::TestPutMessage_RedeliveryIsStillANoOp`           |
 | Web route tools        | `set_web_route`, `del_web_route` and `list_web_routes` change the rows of the folder of the caller.   | `routd/web_routes_resource_test.go::TestWebRoutesMCP_CreateListDelete` |
-| Web route fall-through | proxyd sends a `/pub` request with no matching row to vited.                                          | `proxyd/main_test.go::TestProxydPubWebRouteNoMatchProxies`             |
+| Web route fall-through | proxyd serves local files for a `/pub` request with no matching row.                                  | `proxyd/static_test.go::TestStaticFilesThroughRoutes`                  |
 | proxyd routes          | proxyd uses the longest matching path prefix.                                                         | `proxyd/routes_test.go::TestMatchRoute_LongestPrefix_Wins`             |
 | WebDAV guard           | proxyd blocks writes to `.env`, `*.pem`, `.git` and `logs/` under `/dav/`.                            | `proxyd/main_test.go::TestProxydDavBlocksSensitiveWrites`              |
 | MCP connectors         | routd registers the tools of a remote MCP server for a folder and removes the secret from the result. | `ipc/connector_test.go::TestConnector_EndToEndThroughMCPSocket`        |

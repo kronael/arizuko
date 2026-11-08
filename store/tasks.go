@@ -211,7 +211,7 @@ func (s *Store) SetTaskStatus(id, status string) error {
 }
 
 // RescheduleTask re-arms a fired task WITHOUT an audit_log row: the write half
-// of timed's fire loop, behind POST /v1/tasks/{id}/reschedule. A non-empty
+// of the scheduler, behind POST /v1/tasks/{id}/reschedule. A non-empty
 // nextRun is stored verbatim (a retry of the same fire). An empty one is the
 // task's own cron read forward: the next instant for a recurring task, no
 // further run and status 'completed' for a one-shot, status 'error' for a cron
@@ -348,7 +348,7 @@ func (s *Store) RecoverFiringTasks() (int64, error) {
 
 // DueTasks claims active tasks whose next_run has passed, marking them
 // 'firing' so concurrent pollers skip them, and returns them: the read half of
-// timed's fire loop, behind GET /v1/tasks/due. The claim is per task and
+// the scheduler, behind GET /v1/tasks/due. The claim is per task and
 // CONDITIONAL on the status still being 'active', so a task another poller
 // took in between is dropped from the answer rather than fired twice.
 func (s *Store) DueTasks(now time.Time) ([]core.Task, error) {

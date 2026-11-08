@@ -138,6 +138,7 @@ Enter the absolute artifact directories printed by the build when prompted.
 Enrollment creates scoped keys in `env/` before the owner daemons create their tables.
 Keep the instance and temporary directory private.
 If a command fails, inspect both directories before retrying.
+Guest execution needs separate verification.
 
 <!-- twin:install -->
 
@@ -349,7 +350,6 @@ test names the policy to rewrite.
 | `runed`       | `runed.*`                       |
 | `slakd`       | `routd.*`, `slakd.*`            |
 | `teled`       | `teled.*`                       |
-| `timed`       | none                            |
 | `ttsd`        | none                            |
 | `webd`        | `routd.*`                       |
 
@@ -357,8 +357,7 @@ Three rows need care:
 
 - `gitd`, `googd` and `slakd` open the tables of routd directly, see `gitd/main.go`, `googd/main.go` and `slakd/main.go`. A policy with only their own prefix lets them
   authenticate and then read nothing.
-- `timed` needs no key. It writes through the HTTP interface of the owner with
-  a service token. `ttsd` opens no store.
+- `ttsd` opens no store.
 - `cmd/arizuko` is the operator command on the host. Its key goes in
   `env/operator.env`, not in the file of a daemon.
 

@@ -77,6 +77,9 @@ func (s *Server) handleDash(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	snap := s.snapshot()
+	s.scheduleMu.Lock()
+	schedule := s.schedule
+	s.scheduleMu.Unlock()
 
 	var b strings.Builder
 	fmt.Fprintf(&b, `<div class="crumb"><a href="/dash/services/">arizuko hub</a> › routd</div>`)
@@ -89,6 +92,7 @@ func (s *Server) handleDash(w http.ResponseWriter, r *http.Request) {
 	tile(&b, "Pending outbound", snap.Pending, warnIf(snap.Pending > 0))
 	b.WriteString(`</div>`)
 
+	fmt.Fprintf(&b, `<p>Task ticker: last tick %s; firing count %d; error %s</p>`, html.EscapeString(schedule.LastTick.Format(time.RFC3339)), schedule.Fired, html.EscapeString(schedule.Err))
 	b.WriteString(erroredTable(snap.Errored))
 	b.WriteString(deadLetterTable(snap.Dead))
 	_, _ = fmt.Fprint(w, theme.Page("routd", template.HTML(b.String())))

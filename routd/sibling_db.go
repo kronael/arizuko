@@ -12,7 +12,7 @@ import (
 
 // sibling_db.go is the federation surface: routd owns acl/acl_membership,
 // secrets/secret_use_log (it holds SECRETS_KEY), scheduled_tasks/task_run_logs
-// (serving timed) and pane_sessions (serving slakd); authd owns identity and
+// and pane_sessions (serving slakd); authd owns identity and
 // runed owns session_log, both federated over HTTP.
 
 // Tasks reads scheduled_tasks for the tasks.json spawn snapshot: a root group
@@ -268,16 +268,16 @@ func (d *DB) GetTask(id string) (core.Task, bool) {
 	return d.store().GetTask(id)
 }
 
-// DueTasks atomically claims + returns the tasks ready to fire (timed's read half).
+// DueTasks atomically claims + returns the tasks ready to fire for the scheduler.
 func (d *DB) DueTasks(now time.Time) ([]core.Task, error) { return d.store().DueTasks(now) }
 
 // RecoverFiringTasks re-arms tasks stranded in 'firing' by a crash mid-fire.
 func (d *DB) RecoverFiringTasks() (int64, error) { return d.store().RecoverFiringTasks() }
 
-// RecordTaskRun appends one task_run_logs row (timed's write half).
+// RecordTaskRun appends one task_run_logs row for the scheduler.
 func (d *DB) RecordTaskRun(l store.TaskRunLog) error { return d.store().RecordTaskRun(l) }
 
-// RescheduleTask re-arms a fired task (timed's reschedule half).
+// RescheduleTask re-arms a fired task for the scheduler.
 func (d *DB) RescheduleTask(id, nextRun string) error {
 	return d.store().RescheduleTask(id, nextRun)
 }

@@ -1,4 +1,4 @@
-DAEMONS = authd routd runed onbod dashd proxyd webd timed teled discd emaid slakd gitd googd ttsd
+DAEMONS = authd routd runed onbod dashd proxyd webd teled discd emaid slakd gitd googd ttsd
 # COMPONENTS are sibling pieces with their own Makefile and README. They live
 # in this monorepo but are orthogonal: their code does not import
 # arizuko-internal packages. egress is what runed starts per spawn (spec 6/24).
@@ -226,7 +226,7 @@ test-all: test integration play
 # 11.0s, dyntest 1.0s, 0 races. The list stays bounded by COST, not derived,
 # because -race over the whole tree is not a gate anyone would run.
 test-race:
-	go test -race -count=1 -timeout 30m ./runed/... ./timed/... ./routd/... ./store/... ./authd/... ./objstore/...
+	go test -race -count=1 -timeout 30m ./runed/... ./routd/... ./store/... ./authd/... ./objstore/...
 .PHONY: test-race
 
 # test-e2e: release-only webd route-token E2E tests (TestE2E*, slow, ≤5 min).
@@ -305,7 +305,6 @@ images: check-skills
 	$(DOCKER_BUILD) -t arizuko-davd -f davd/Dockerfile .
 	$(DOCKER_BUILD) -t arizuko-ttsd -f ttsd/Dockerfile .
 	make -C ant image DOCKER="$(DOCKER)"
-	make vite-image
 	make rootfs
 
 # rootfs exports the agent image's filesystem as a directory tree, which is what
@@ -335,7 +334,7 @@ rootfs:
 	  if [ -z "$$image_env" ] || [ "$$image_env" = null ] || [ "$$image_env" = '[]' ]; then \
 	    echo "rootfs: image has no environment metadata" >&2; exit 1; fi; \
 	  if [ -e "$(ROOTFS_DIR)" ] || [ -L "$(ROOTFS_DIR)" ]; then \
-	    if [ -d "$(ROOTFS_DIR)/usr" ] && [ -s "$(ROOTFS_DIR)/app/entrypoint.sh" ] && \
+	    if [ -d "$(ROOTFS_DIR)/usr" ] && [ -s "$(ROOTFS_DIR)/app/src/index.ts" ] && \
 	      [ -s "$(ROOTFS_DIR)/usr/local/bin/node" ] && [ -s "$(ROOTFS_DIR)/.image-env.json" ] && \
 	      [ "$$(cat "$(ROOTFS_DIR)/.image-env.json")" = "$$image_env" ]; then \
 	      echo "rootfs: $(ROOTFS_DIR) is current for $(ROOTFS_KEY)"; \
@@ -350,7 +349,7 @@ rootfs:
 	  bash -o pipefail -c '$(DOCKER) export "$$1" | $(DOCKER_SUDO) tar -x -C "$$2"' _ "$$cid" "$$stage"; \
 	  $(DOCKER) rm -f "$$cid" >/dev/null; cid=; trap - EXIT HUP INT TERM; \
 	  printf '%s\n' "$$image_env" | $(DOCKER_SUDO) tee "$$stage/.image-env.json" >/dev/null; \
-	  if ! { test -d "$$stage/usr" && test -s "$$stage/app/entrypoint.sh" && \
+	  if ! { test -d "$$stage/usr" && test -s "$$stage/app/src/index.ts" && \
 	    test -s "$$stage/usr/local/bin/node" && test -s "$$stage/.image-env.json" && \
 	    test "$$(cat "$$stage/.image-env.json")" = "$$image_env"; }; then \
 	    echo "rootfs: incomplete export at $$stage" >&2; exit 1; fi; \
@@ -432,10 +431,7 @@ bench-boot:
 	    echo "bench-boot: $$samples samples, want $$((2 * $(BENCH_PAIRS)))" >&2; exit 1; fi; \
 	  grep -E 'BENCH_SAMPLE|BENCH_SUMMARY' $(BENCH_ARTIFACT_DIR)/bench-boot.log
 
-vite-image:
-	$(DOCKER_BUILD) -f ant/Dockerfile.vite -t arizuko-vite:latest .
-
 agent:
 	make -C ant image DOCKER="$(DOCKER)"
 
-.PHONY: build lint test clean check-skills images agent vite-image rootfs bench-boot
+.PHONY: build lint test clean check-skills images agent rootfs bench-boot

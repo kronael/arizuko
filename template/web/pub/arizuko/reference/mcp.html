@@ -147,16 +147,17 @@
     <p class="returns"><strong>Returns:</strong> JSON <code>{"ok": true, "id": "&lt;platformId&gt;"}</code>; <code>routd</code> records the outbound row in <code>messages</code> with that id. Pass the id to <code>edit</code> to change the message in place.</p>
 
     <h3 id="send"><code>send</code></h3>
-    <p>Use <code>send</code> for a notification or an explicit different chat. <code>send</code> posts in the main channel of the chat. An explicit foreign chat keeps its own destination. Use <code>reply</code> for answers and <code>send_file</code> for files.</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1286"><code>ipc/ipc.go:1286</code></a> &middot; Grant action: <code>send(jid=...)</code> &middot; In <code>role:member</code>, granted to every folder at create.</p>
+    <p>Use <code>send</code> for a notification, a platform chat or a group folder. A platform target receives the message in its main channel. A bare folder target receives an inbound message that starts its own turn. The post records the calling folder as its return address. Use <code>reply</code> for answers in a platform chat and <code>send_file</code> for files.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1312"><code>ipc/ipc.go:1312</code></a> &middot; Grant action: <code>mcp:send</code>, checked on the target folder for a group post &middot; In <code>role:member</code>, granted to every folder at create.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
-        <tr><td class="name">chatJid</td><td class="type">string</td><td class="req req-y">yes</td><td>Target chat JID; grant-checked + folder-authorized via <code>authorizeJID</code>.</td></tr>
+        <tr><td class="name">chatJid</td><td class="type">string</td><td class="req req-y">yes</td><td>A platform chat JID or a full group folder. Platform chats use <code>authorizeJID</code>; group posts check <code>mcp:send</code> on that folder.</td></tr>
         <tr><td class="name">text</td><td class="type">string</td><td class="req req-y">yes</td><td>Message body.</td></tr>
       </tbody>
     </table>
-    <p class="returns"><strong>Returns:</strong> JSON <code>{"ok": true, "id": "&lt;platformId&gt;"}</code>; <code>routd</code> records the outbound row in <code>messages</code> with that id. Pass the id to <code>edit</code> to change the message in place.</p>
+    <p class="returns"><strong>Returns:</strong> JSON <code>{"ok": true, "id": "&lt;messageId&gt;"}</code>. A platform send returns the platform message ID. A group post returns the stored inbound message ID.</p>
+    <pre><code>mcpc @s tools-call send chatJid=world/peer text=hello</code></pre>
 
     <h3 id="send_file"><code>send_file</code></h3>
     <p>Deliver a file from the group workspace (<code>~/</code>) to a chat. Works on every platform whose channel registered the tool. The <code>caption</code> IS the accompanying message &mdash; never follow with <code>send</code>. Not for inline text the user can read in-chat.</p>
@@ -406,33 +407,6 @@
     <p class="returns"><strong>Returns:</strong> JSON <code>{tasks, runs?}</code>.</p>
 
     <h2 id="groups">groups &amp; delegation</h2>
-
-    <h3 id="delegate_group"><code>delegate_group</code></h3>
-    <p>Hand a prompt down to a specific child group for async execution; the child runs in its own session and workspace. Depth capped at 1.</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2070"><code>ipc/ipc.go:2070</code></a> &middot; Grant action: <code>delegate_group</code> (delegated, not a default) &middot; <code>auth.Authorize</code> on the target folder.</p>
-    <table class="params">
-      <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
-      <tbody>
-        <tr><td class="name">group</td><td class="type">string</td><td class="req req-y">yes</td><td>Target child folder.</td></tr>
-        <tr><td class="name">prompt</td><td class="type">string</td><td class="req req-y">yes</td><td>Prompt body delivered as a synthetic message.</td></tr>
-        <tr><td class="name">chatJid</td><td class="type">string</td><td class="req req-y">yes</td><td>JID used as <code>ForwardedFrom</code> provenance.</td></tr>
-        <tr><td class="name">depth</td><td class="type">number</td><td class="req req-n">no</td><td>Caller-passed depth counter; rejected when <code>&ge; 1</code>.</td></tr>
-      </tbody>
-    </table>
-    <p class="returns"><strong>Returns:</strong> JSON <code>{"queued": true}</code>; enqueues a message-check for the target.</p>
-
-    <h3 id="escalate_group"><code>escalate_group</code></h3>
-    <p>Hand a prompt up to this group's parent folder; the parent responds back through this child. Use when the request exceeds this group's authority or needs operator review. Depth capped at 1.</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2015"><code>ipc/ipc.go:2015</code></a> &middot; Grant action: <code>escalate_group</code> (delegated, not a default) &middot; Wraps the prompt in <code>&lt;escalation_origin/&gt;</code> with reply_to provenance.</p>
-    <table class="params">
-      <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
-      <tbody>
-        <tr><td class="name">prompt</td><td class="type">string</td><td class="req req-y">yes</td><td>Prompt to bubble up.</td></tr>
-        <tr><td class="name">chatJid</td><td class="type">string</td><td class="req req-y">yes</td><td>Originating chat JID (for reply_to in the wrap).</td></tr>
-        <tr><td class="name">depth</td><td class="type">number</td><td class="req req-n">no</td><td>Caller-passed depth counter; rejected when <code>&ge; 1</code>.</td></tr>
-      </tbody>
-    </table>
-    <p class="returns"><strong>Returns:</strong> JSON <code>{"queued": true, "parent": "&lt;folder&gt;"}</code>.</p>
 
     <h3 id="refresh_groups"><code>refresh_groups</code></h3>
     <p>Return the folder of every registered group. Use to find delegation targets or to audit the group tree. The REST face limits the list to the subtree of the caller.</p>
@@ -965,7 +939,7 @@ headers   = { Authorization = "Bearer {secret:CF_API_TOKEN}" }
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/reference/mcp.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-11-04">2026-11-04</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-07">2026-11-07</time>
       </div>
     </main>
 

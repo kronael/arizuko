@@ -1,6 +1,7 @@
 package tests
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -30,7 +31,7 @@ func TestFeature_AgentDispatch(t *testing.T) {
 		if err := s.PutGroup(core.Group{Folder: "corp/eng"}); err != nil {
 			t.Fatal(err)
 		}
-		if err := s.SetGroupHarness("corp/eng", []byte(`{"backend":"claude","model":"claude-haiku"}`)); err != nil {
+		if err := s.SetGroupSettings("corp/eng", map[string]json.RawMessage{"harness": []byte(`{"backend":"claude","model":"claude-haiku"}`)}); err != nil {
 			t.Fatal(err)
 		}
 		g, ok := s.GroupByFolder("corp/eng")

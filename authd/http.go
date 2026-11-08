@@ -28,7 +28,6 @@ var serviceGrants = map[string][]string{
 	// authd self-mints service:authd for the grants backend; it needs
 	// grants:read, not keys:read (/v1/keys is public).
 	"service:authd": {"grants:read"},
-	"service:timed": {"messages:write", "tasks:read", "tasks:write"},
 	"service:onbod": {"messages:write", "groups:write"},
 	// service:routd dispatches runs, resolves identities at authd, and
 	// federates /invite + /gate to onbod, which OWNS those tables.

@@ -84,7 +84,7 @@ month`. One skill carries the technique for both lenses
 (`ant/skills/compact-memories/SKILL.md`): the last fully elapsed period, the
 level below as the source, one outcome line in `<lens>/.compact-log.jl`,
 corrections kept verbatim and the agent's own conclusions dropped. Each task
-runs on `timed` with `context_mode: isolated`, because a compaction turn that
+runs through the routd task ticker with `context_mode: isolated`, because a compaction turn that
 shared the group's session would summarise its own summarising.
 
 ## Public API

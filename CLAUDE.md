@@ -279,8 +279,8 @@ round that finds nothing commits nothing.
   hardcode `:8080`. Multi-daemon local-dev sets `LISTEN_ADDR=:90XX`; that
   is the exception.
 - **Split write-discipline**: FS-mounted daemons (dashd, onbod, CLI) write
-  owned tables directly to the owner's DB; non-mounted daemons (slakd,
-  timed) write via the owner's HTTP API + service token.
+  owned tables directly to the owner's DB; non-mounted daemons (slakd)
+  write via the owner's HTTP API + service token.
 
 ## Subagent worktrees
 

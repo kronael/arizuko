@@ -105,7 +105,7 @@
     <p>The server runs outside every instance's Compose project and systemd unit. The server owns PostgreSQL, its catalog, TLS files and administrator credential. <code>arizuko store enroll</code> creates the account and scoped keys. The host and containers use the same URL and CA.</p>
 
     <h2>Each daemon signs with its own key</h2>
-    <p>Each daemon signs in as its own IAM user with its own access key. The policy of that user names the owners the daemon opens. A table name has the form <code>&lt;owner&gt;.&lt;entity&gt;</code>, for example <code>routd.acl</code>, so one line of policy covers all the tables of <code>routd</code>. <code>store/owner_reach.go</code> lists which daemon opens which owner, and a test fails when the code reaches an owner that the list does not name. A daemon that has the server address and no key refuses to start. <code>timed</code> and <code>ttsd</code> hold no key: they call the <code>/v1</code> API of an owner.</p>
+    <p>Each daemon signs in as its own IAM user with its own access key. The policy of that user names the owners the daemon opens. A table name has the form <code>&lt;owner&gt;.&lt;entity&gt;</code>, for example <code>routd.acl</code>, so one line of policy covers all the tables of <code>routd</code>. <code>store/owner_reach.go</code> lists which daemon opens which owner, and a test fails when the code reaches an owner that the list does not name. A daemon that has the server address and no key refuses to start. <code>ttsd</code> holds no key: it calls the <code>/v1</code> API of an owner.</p>
 
     <h2>Back up the files and the server separately</h2>
     <p>An instance archive holds group files, adapter files and credentials. It holds no server rows. Stop the instance before copying its files. Leave the external server running. Back up the server catalog, data database, TLS files and configuration separately. The catalog backup must include its <code>encryption_key</code> setting.</p>
@@ -123,7 +123,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/concepts/store.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-21">2026-10-21</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-07">2026-11-07</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

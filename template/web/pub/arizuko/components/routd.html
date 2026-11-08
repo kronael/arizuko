@@ -35,10 +35,8 @@
             <li><a href="runed.html">runed</a></li>
             <li><a href="slakd.html">slakd</a></li>
             <li><a href="teled.html">teled</a></li>
-            <li><a href="timed.html">timed</a></li>
             <li><a href="tokens.html">route tokens</a></li>
             <li><a href="ttsd.html">ttsd</a></li>
-            <li><a href="vited.html">vited</a></li>
             <li><a href="webd.html">webd</a></li>
             <li><a href="whapd.html">whapd</a></li>
           </ul>
@@ -54,6 +52,9 @@
       <h1>routd</h1>
 
       <p class="lede">routd picks the folder for each message, checks the action, serves the agent tools and delivers the reply.</p>
+
+    <h2>routd runs the task ticker</h2>
+    <p>The ticker claims due tasks once at startup and every 60 seconds. It sends prompts through normal message ingress, records enqueue results and advances schedules through routd's store. The router dashboard shows the last tick, firing count and error.</p>
 
     <h2>routd routes each message, checks it and delivers the reply</h2>
     <p>routd is the switchboard. A message comes in from any channel. routd decides which group folder it belongs to, checks that the sender is allowed, runs the turn and sends the reply back out.</p>
@@ -95,7 +96,7 @@
 
     <dl>
       <dt>Inputs</dt>
-      <dd>Inbound messages from channel adapters on <code>POST /v1/messages</code>, each with a <code>service:&lt;daemon&gt;</code> ES256 token. The tool calls of the agent over the MCP socket in the process. Claims of due tasks from <a href="timed.html">timed</a>.</dd>
+      <dd>Inbound messages from channel adapters on <code>POST /v1/messages</code>, each with a <code>service:&lt;daemon&gt;</code> ES256 token. The tool calls of the agent over the MCP socket in the process. Due-task claims from the task ticker in the same process.</dd>
       <dt>Outputs</dt>
       <dd>Run requests to runed on <code>POST /v1/runs</code>. Delivered replies through the <code>chanreg</code> deliverer to the adapter that owns the JID prefix.</dd>
       <dt>Dependencies</dt>
@@ -138,7 +139,7 @@ export WEB_HOST=localhost:8080
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/components/routd.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-21">2026-10-21</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-07">2026-11-07</time>
       </div>
     </main>
 

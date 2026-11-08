@@ -6,7 +6,7 @@ An extension point lets you add an integration. Examples are a channel
 adapter, a speech backend, an oracle skill, a mount for one folder, an
 autocall, a scheduled task and a network egress rule. An extension point does
 not change the system core. The core is routd, runed, authd, store, ipc, auth,
-the grants, proxyd, webd, dashd, timed, onbod, the container runner and
+the grants, proxyd, webd, dashd, onbod, the container runner and
 chanlib/chanreg. The core changes as a unit, through specs and not through
 these points. [ARCHITECTURE.md](ARCHITECTURE.md#core-vs-integrations) explains
 the split, and [its repository map](ARCHITECTURE.md#where-a-change-lands) shows
@@ -25,7 +25,7 @@ where a change lands.
 | Routing rules | `router/`                              | Agent          | MCP tools; `target=<folder>[?mode][#topic-template]`   |
 | Mounts        | `container/`                           | Agent          | Container config                                       |
 | Skills        | `ant/skills/`                          | Agent          | File-based                                             |
-| Tasks         | `timed/`                               | Agent          | IPC actions                                            |
+| Tasks         | `routd/schedule.go`                    | Agent          | IPC actions                                            |
 | Diary         | `diary/`                               | Agent          | File-based                                             |
 | Network rules | `store/network.go`                     | Operator       | CLI + DB rows                                          |
 | Web routes    | `store/web_routes.go`                  | Agent          | MCP tools (`set_web_route` / `del_web_route`)          |
@@ -267,7 +267,7 @@ A package can supply these assets:
 
 - `group/` supplies files for the group folder at the same relative paths. Package-root documentation stays with the source.
 - `skills/<name>/SKILL.md` mounts read-only at `~/.claude/skills/<name>/`.
-- `bin/<name>` mounts read-only at `/usr/local/bin/<name>`, already on the guest `PATH`.
+- `bin/<name>` mounts read-only at `/usr/local/bin/<name>`, already on the guest `PATH`. A package can supply a turn handler here.
 - `hooks/` supplies scripts at the read-only package path and `~/.claude/hooks/`.
 - `.claude/settings.json` and `.codex/hooks.json` supply native hook configuration.
 - Root `CLAUDE.md` supplies a manual; the renderer combines selected manuals once at `~/.claude/CLAUDE.md`.
@@ -503,7 +503,7 @@ The route table of `proxyd` comes from two sources. The first is the
 `generate` reads at compose-generate time. The second is a static slice of core
 routes in `compose/compose.go`, see `coreProxydRoutes`. The slice holds the
 surfaces of webd, onbod, davd and dashd, and the `/dash/<daemon>/` page of
-routd, runed, authd, proxyd, onbod, timed and webd. Routes cannot live in the
+routd, runed, authd, proxyd, onbod and webd. Routes cannot live in the
 compose fragment, because `proxyd` is their consumer and Docker is not. A new
 inbound web path is one manifest block and needs no Go edit:
 
@@ -876,6 +876,14 @@ To add one:
 
 ## Swapping the agent harness
 
+A handler is the program that runs a group's turns. The group's `agent`
+setting selects the executable. An absent value or numeric `1` selects `ant`,
+which runs under Bun at `/usr/local/bin/ant`. A string matching
+`[A-Za-z0-9_][A-Za-z0-9_.-]*` selects `/usr/local/bin/<name>`.
+Numeric `0` is unsupported. An installed package supplies the handler as
+`bin/<name>`. Set `agent` through the dashboard's Agent field or
+`PATCH /v1/groups/{folder}`. The setting is separate from ant's model backend.
+
 ant wraps an agentic harness and is never one. The extension point is the
 process boundary and not an interface inside ant. `routd` serves the MCP
 socket of each turn in-process, in `ServeTurnMCP` in `routd/mcp.go`. ant is
@@ -950,7 +958,8 @@ confers, and the attested sender adds inside the subtree of that folder. See
 [`auth/README.md`](auth/README.md#authorization-is-one-row-and-one-question).
 A new action is therefore grantable to a folder, to a person or to both.
 
-`escalate_group` sends a message to the parent and grants no permission.
+`send` with a group folder as `chatJid` posts a message there after checking
+`mcp:send` on the target. The message grants no permission.
 [`auth/README.md`](auth/README.md) and [GRANTS.md](GRANTS.md) describe the
 model, the row and the evaluator. The page `reference/grants.html` describes
 the grammar of `params`.

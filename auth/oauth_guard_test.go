@@ -16,7 +16,7 @@ import (
 	"time"
 )
 
-// matchEmailAllowlist — who is allowed to sign in at all.
+// MatchEmailAllowlist — who is allowed to sign in at all.
 
 func TestMatchEmailAllowlistFailsClosed(t *testing.T) {
 	cases := []struct {
@@ -47,7 +47,7 @@ func TestMatchEmailAllowlistFailsClosed(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			if got := MatchEmailAllowlist(c.email, c.allowlist); got != c.want {
-				t.Errorf("matchEmailAllowlist(%q, %q) = %v, want %v", c.email, c.allowlist, got, c.want)
+				t.Errorf("MatchEmailAllowlist(%q, %q) = %v, want %v", c.email, c.allowlist, got, c.want)
 			}
 		})
 	}
@@ -149,7 +149,7 @@ func TestCheckGitHubOrgMemberSendsTheToken(t *testing.T) {
 	}
 }
 
-// SignState / verifyState — the OAuth round-trip CSRF token.
+// SignState / VerifyState — the OAuth round-trip CSRF token.
 
 func callbackReq(state, cookie string) *http.Request {
 	r := httptest.NewRequest("GET", "https://host/auth/callback?code=abc&state="+url.QueryEscape(state), nil)
@@ -205,7 +205,7 @@ func TestVerifyStateRejectsEveryTamperedForm(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			if _, ok := VerifyState(secret, callbackReq(c.state, c.state)); ok {
-				t.Errorf("verifyState accepted %s", c.name)
+				t.Errorf("VerifyState accepted %s", c.name)
 			}
 		})
 	}
@@ -267,7 +267,7 @@ func TestSignStateIsUnpredictable(t *testing.T) {
 	for i := 0; i < 32; i++ {
 		s := SignState(secret, StateIntent{})
 		if seen[s] {
-			t.Fatalf("signStateP repeated %q; two sessions would share a CSRF token", s)
+			t.Fatalf("SignState repeated %q; two sessions would share a CSRF token", s)
 		}
 		seen[s] = true
 	}

@@ -55,4 +55,6 @@ PID 1, and the guest then runs in silence.
 `go.mod`, so the root `go test ./...` never reaches it; run `go test ./...`
 inside `kernel/guest-init/`.
 It mounts what the host shares, assembles the agent's root, starts the MCP
-bridge and runs the agent (`runed/README.md` § Mounts).
+bridge and executes `/usr/local/bin/<ARIZUKO_AGENT>`. An absent value selects
+`/usr/local/bin/ant`, which runs under Bun. Installed packages supply named
+handlers through `bin/<name>`. See [runed/README.md](../runed/README.md#the-turn-envelope).

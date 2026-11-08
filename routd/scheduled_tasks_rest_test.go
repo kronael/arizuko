@@ -235,7 +235,7 @@ func TestRESTTaskTier2Descendant(t *testing.T) {
 // TestRESTTaskRootListsAll: the root/service token (empty JWT folder) still sees
 // every folder's tasks — the other side of the list-all guard.
 func TestRESTTaskRootListsAll(t *testing.T) {
-	db, h := authSrv(t, fakeVerifier{sub: "service:timed", scope: []string{"tasks:read"}})
+	db, h := authSrv(t, fakeVerifier{sub: "service:routd", scope: []string{"tasks:read"}})
 	_ = db.PutGroup(core.Group{Folder: "alice"})
 	_ = db.PutGroup(core.Group{Folder: "bob"})
 	seedTask(t, db, "a-1", "alice", "web:alice", "mine")

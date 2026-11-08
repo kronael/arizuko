@@ -196,7 +196,7 @@ routd ──► adapter ──► platform reply</code></pre>
       <dt>Cause</dt>
       <dd><code>arizuko generate</code> replaces an installed fragment with a link to the template only when the two files are identical. After a change by hand, also to a comment, generate keeps the file. The file then does not get a new mount, env var or timeout from the template.</dd>
       <dt>Fix</dt>
-      <dd>Move the difference into <code>.env</code>. <code>.env</code> holds the <code>&lt;KEY&gt;_&lt;LABEL&gt;</code> overrides. Copy the template over the changed file. The next <code>arizuko generate</code> replaces it with a link.</dd>
+      <dd>Move the difference into <code>.env</code>. Use the <code>&lt;KEY&gt;_&lt;LABEL&gt;</code> overrides for account variants. Copy the template over the changed file. The next <code>arizuko generate</code> replaces it with a link.</dd>
       <dt>Source</dt>
       <dd><code>compose/fragments.go:62</code> <code>RelinkCatalog</code>, <code>cmd/arizuko/packages.go</code></dd>
     </dl>

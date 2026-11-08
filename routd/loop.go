@@ -293,6 +293,11 @@ func (l *Loop) Run(ctx context.Context) {
 	} else if n > 0 {
 		slog.Info("re-armed scheduled tasks stranded in 'firing'", "count", n)
 	}
+	if l.srv != nil {
+		scheduleDone := make(chan struct{})
+		go func() { defer close(scheduleDone); l.srv.ScheduleLoop(ctx) }()
+		defer func() { <-scheduleDone }()
+	}
 	if l.proactive.Enabled {
 		l.nextScanAt = time.Now().Add(l.proactive.ScanInterval)
 	}

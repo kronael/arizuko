@@ -125,18 +125,16 @@
       </section>
 
       <section id="patterns">
-        <h2>Three tools move work between folders</h2>
+        <h2>Agents send work to a granted folder</h2>
         <dl>
-          <dt><code>delegate_group(group, prompt, chatJid)</code></dt>
-          <dd>Hands a prompt down to a child folder. The child runs on its own, and the parent does not wait. See <a href="../concepts/turn.html#children">a child folder runs in its own guest</a>.</dd>
-          <dt><code>escalate_group(prompt, chatJid)</code></dt>
-          <dd>Hands a prompt up to the parent folder. The parent answers back through this child.</dd>
+          <dt><code>send(chatJid, text)</code></dt>
+          <dd>Posts a message to a parent, child or peer folder after checking <code>mcp:send</code> on the target. The post records the calling folder as its return address. See <a href="../concepts/turn.html#children">a child folder runs in its own guest</a>.</dd>
           <dt><code>observe_group(source)</code></dt>
           <dd>Reads the messages of another folder without taking over its routing.</dd>
         </dl>
         <p>
           <code>fork_topic(parent, child)</code> starts a new topic with a fresh session ID and a copy of the parent's Claude Code session file. See <a href="../concepts/topics.html">topics</a>.
-          Tool definitions: <a href="https://github.com/kronael/arizuko/blob/c419018a5efa4d9320fcd878c1a19560ab932aa4/ipc/ipc.go#L1996-L2004" title="ipc/ipc.go lines 1996 to 2004">[delegate_group]</a> <a href="https://github.com/kronael/arizuko/blob/c419018a5efa4d9320fcd878c1a19560ab932aa4/ipc/ipc.go#L1941-L1946" title="ipc/ipc.go lines 1941 to 1946">[escalate_group]</a> <a href="https://github.com/kronael/arizuko/blob/c419018a5efa4d9320fcd878c1a19560ab932aa4/ipc/ipc.go#L1843-L1850" title="ipc/ipc.go lines 1843 to 1850">[observe_group]</a> <a href="https://github.com/kronael/arizuko/blob/c419018a5efa4d9320fcd878c1a19560ab932aa4/ipc/ipc.go#L1633-L1637" title="ipc/ipc.go lines 1633 to 1637">[fork_topic]</a>.
+          Tool definitions: <a href="https://github.com/kronael/arizuko/blob/215db68b88692b60df34bd1104690c7346d59fdc/ipc/ipc.go#L1312-L1349" title="ipc/ipc.go lines 1312 to 1349">[send]</a> <a href="https://github.com/kronael/arizuko/blob/c419018a5efa4d9320fcd878c1a19560ab932aa4/ipc/ipc.go#L1843-L1850" title="ipc/ipc.go lines 1843 to 1850">[observe_group]</a> <a href="https://github.com/kronael/arizuko/blob/c419018a5efa4d9320fcd878c1a19560ab932aa4/ipc/ipc.go#L1633-L1637" title="ipc/ipc.go lines 1633 to 1637">[fork_topic]</a>.
         </p>
       </section>
 

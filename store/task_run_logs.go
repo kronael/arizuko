@@ -1,7 +1,7 @@
 package store
 
 // task_run_logs.go holds every read and write of `task_run_logs`: one item per
-// execution of a scheduled task, appended when timed reports a run.
+// execution of a scheduled task, appended when the scheduler reports a run.
 //
 // The partition is OwnerRoutd and the sort key the instant: three of the four
 // reads name no task and ask for the newest, so they are ordered ranges; the
@@ -113,7 +113,7 @@ func runInstant(at string) string {
 	return at[:tsWidth]
 }
 
-// RecordTaskRun appends one execution; timed's fire loop is the producer,
+// RecordTaskRun appends one execution; the scheduler is the producer,
 // behind POST /v1/tasks/runlog. The create REFUSES a collision, so two runs
 // stamped at one nanosecond with one suffix are loud rather than one lost run.
 func (s *Store) RecordTaskRun(l TaskRunLog) error {

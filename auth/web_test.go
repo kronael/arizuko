@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// safeReturn is the open-redirect guard on every ?return= the auth flow
+// SafeReturn is the open-redirect guard on every ?return= the auth flow
 // carries across a provider round trip. A miss here sends a user who just
 // authenticated to an attacker's page with their session live. It had no test.
 func TestSafeReturnRejectsEveryOffSiteForm(t *testing.T) {
@@ -29,7 +29,7 @@ func TestSafeReturnRejectsEveryOffSiteForm(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			got, ok := SafeReturn(c.in)
 			if ok {
-				t.Errorf("safeReturn(%q) accepted it as %q — a logged-in user lands off-site", c.in, got)
+				t.Errorf("SafeReturn(%q) accepted it as %q — a logged-in user lands off-site", c.in, got)
 			}
 			if got != "" {
 				t.Errorf("a rejected value must return the empty string, got %q", got)
@@ -50,16 +50,16 @@ func TestSafeReturnAcceptsAnOwnSitePath(t *testing.T) {
 	for _, in := range good {
 		got, ok := SafeReturn(in)
 		if !ok {
-			t.Errorf("safeReturn(%q) rejected an own-site path; the user is bounced to the root after login", in)
+			t.Errorf("SafeReturn(%q) rejected an own-site path; the user is bounced to the root after login", in)
 			continue
 		}
 		if got != in {
-			t.Errorf("safeReturn(%q) = %q, want it returned unchanged", in, got)
+			t.Errorf("SafeReturn(%q) = %q, want it returned unchanged", in, got)
 		}
 	}
 }
 
-// jsSafe escapes the three sequences that break out of a <script> block
+// JSSafe escapes the three sequences that break out of a <script> block
 // holding JSON. Without it any string that reaches the page — a display name,
 // a folder, a provider error — is a stored XSS.
 func TestJSSafeClosesTheScriptEscapeHatches(t *testing.T) {
@@ -73,7 +73,7 @@ func TestJSSafeClosesTheScriptEscapeHatches(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			got := JSSafe([]byte(c.in))
 			if strings.Contains(got, c.wantAbsent) {
-				t.Errorf("jsSafe left %q in the output: %s", c.wantAbsent, got)
+				t.Errorf("JSSafe left %q in the output: %s", c.wantAbsent, got)
 			}
 		})
 	}
@@ -90,7 +90,7 @@ func TestJSSafeStaysValidJSON(t *testing.T) {
 	}
 	var back map[string]string
 	if err := json.Unmarshal([]byte(JSSafe(raw)), &back); err != nil {
-		t.Fatalf("jsSafe output is no longer parseable JSON: %v", err)
+		t.Fatalf("JSSafe output is no longer parseable JSON: %v", err)
 	}
 	if back["name"] != original["name"] {
 		t.Errorf("round trip changed the value:\n got %q\nwant %q", back["name"], original["name"])

@@ -1,3 +1,4 @@
+#!/usr/local/bin/bun
 // index.ts — the chassis runtime half every occupant shares: stdin envelope
 // parse, IPC steering + close sentinel, the <status> pipeline, idempotent
 // submit_turn, the inner turn loop. The harness half lives behind backend.ts.
@@ -413,121 +414,113 @@ export async function runTurn(
 async function main(): Promise<void> {
   let containerInput!: ContainerInput;
 
-  const cleanupSecrets = () => {
-    try { fs.unlinkSync('/tmp/input.json'); } catch { /* may not exist */ }
-  };
-
   try {
-    try {
-      const stdinData = await readStdin();
-      containerInput = JSON.parse(stdinData);
-      log(`Received input for group: ${containerInput.groupFolder}`);
-    } catch (err) {
-      cleanupSecrets();
-      log(`Failed to parse input: ${err instanceof Error ? err.message : String(err)}`);
-      process.exit(1);
+    const stdinData = await readStdin();
+    containerInput = JSON.parse(stdinData);
+    if (typeof containerInput?.prompt !== 'string') throw new Error('prompt must be a string');
+    log(`Received input for group: ${containerInput.groupFolder}`);
+  } catch (err) {
+    log(`Failed to parse input: ${err instanceof Error ? err.message : String(err)}`);
+    process.exit(1);
+  }
+
+  // The seam's env is Record<string,string>: process.env filtered once here
+  // instead of once per harness.
+  const env: Record<string, string> = {};
+  for (const [k, v] of Object.entries(process.env)) {
+    if (v !== undefined) env[k] = v;
+  }
+  for (const [key, value] of Object.entries(containerInput.secrets || {})) {
+    env[key] = value;
+  }
+
+  fs.mkdirSync(IPC_INPUT_DIR, { recursive: true });
+  try { fs.unlinkSync(IPC_INPUT_CLOSE_SENTINEL); } catch { /* ignore */ }
+
+  let prompt = containerInput.prompt;
+  if (containerInput.isScheduledTask) {
+    prompt = `[SCHEDULED TASK - The following message was sent automatically and is not coming directly from the user or group.]\n\n${prompt}`;
+  }
+  // Both queues: what IPC holds now, plus anything the steering policy never
+  // got to deliver because the last turn stopped calling tools.
+  const pending = [...drainSteering(), ...drainIpcInput()];
+  if (pending.length > 0) {
+    log(`Draining ${pending.length} pending IPC messages into initial prompt`);
+    prompt += '\n' + pending.join('\n');
+  }
+
+  // The platform hands back the sessionId a continuity frame carried; it is a
+  // valid token for the harness that minted it. The harness unpacks and validates
+  // — a placeholder or a pruned transcript starts fresh inside run().
+  let continuity = containerInput.sessionId;
+  let lastSessionId = containerInput.sessionId;
+  const seedTurnID = containerInput.messageId || `boot-${Date.now()}`;
+  let turnIndex = 0;
+  try {
+    // Selected inside the delivering try: an unknown ARIZUKO_BACKEND fails this turn
+    // loudly to the user, never a silent exit.
+    const selection = parseHarness(env);
+    const harness = selectHarness(selection.backend);
+    if (env.ARIZUKO_HARNESS !== undefined) {
+      if (selection.model === undefined) delete env.ARIZUKO_MODEL; else env.ARIZUKO_MODEL = selection.model;
+      if (selection.effort === undefined) delete env.ARIZUKO_EFFORT; else env.ARIZUKO_EFFORT = selection.effort;
     }
+    log(`backend: ${harness.name}`);
+    while (true) {
+      log(`Starting turn (continuity: ${continuity || 'fresh'})...`);
 
-    // The seam's env is Record<string,string>: process.env filtered once here
-    // instead of once per harness.
-    const env: Record<string, string> = {};
-    for (const [k, v] of Object.entries(process.env)) {
-      if (v !== undefined) env[k] = v;
-    }
-    for (const [key, value] of Object.entries(containerInput.secrets || {})) {
-      env[key] = value;
-    }
-
-    fs.mkdirSync(IPC_INPUT_DIR, { recursive: true });
-    try { fs.unlinkSync(IPC_INPUT_CLOSE_SENTINEL); } catch { /* ignore */ }
-
-    let prompt = containerInput.prompt;
-    if (containerInput.isScheduledTask) {
-      prompt = `[SCHEDULED TASK - The following message was sent automatically and is not coming directly from the user or group.]\n\n${prompt}`;
-    }
-    // Both queues: what IPC holds now, plus anything the steering policy never
-    // got to deliver because the last turn stopped calling tools.
-    const pending = [...drainSteering(), ...drainIpcInput()];
-    if (pending.length > 0) {
-      log(`Draining ${pending.length} pending IPC messages into initial prompt`);
-      prompt += '\n' + pending.join('\n');
-    }
-
-    // The platform hands back the sessionId a continuity frame carried; it is a
-    // valid token for the harness that minted it. The harness unpacks and validates
-    // — a placeholder or a pruned transcript starts fresh inside run().
-    let continuity = containerInput.sessionId;
-    let lastSessionId = containerInput.sessionId;
-    const seedTurnID = containerInput.messageId || `boot-${Date.now()}`;
-    let turnIndex = 0;
-    try {
-      // Selected inside the delivering try: an unknown ARIZUKO_BACKEND fails this turn
-      // loudly to the user, never a silent exit.
-      const selection = parseHarness(env);
-      const harness = selectHarness(selection.backend);
-      if (env.ARIZUKO_HARNESS !== undefined) {
-        if (selection.model === undefined) delete env.ARIZUKO_MODEL; else env.ARIZUKO_MODEL = selection.model;
-        if (selection.effort === undefined) delete env.ARIZUKO_EFFORT; else env.ARIZUKO_EFFORT = selection.effort;
-      }
-      log(`backend: ${harness.name}`);
-      while (true) {
-        log(`Starting turn (continuity: ${continuity || 'fresh'})...`);
-
-        const turnID = turnIndex === 0 ? seedTurnID : `${seedTurnID}:${turnIndex}`;
-        const r = await runTurn(harness, prompt, continuity, containerInput, env, turnID);
-        if (r.retryFresh && continuity) {
-          log(`Session error on resume, retrying with fresh session (was: ${continuity})`);
-          continuity = undefined;
-          continue;
-        }
-        if (r.token) continuity = r.token;
-        if (r.sessionId) lastSessionId = r.sessionId;
-
-        // The turn delivered no answer. Exit non-zero so runed reports the run
-        // as failed and routd's own failure path runs — the one that retries,
-        // marks the chat errored and tells the user. Staying alive for the next
-        // message would hide a model outage behind a clean-looking container.
-        if (r.failed) {
-          // The reason comes BEFORE the explanation of the exit, because runed keeps
-          // a TAIL: a reason at the end of the sentence is the first thing cut.
-          log(
-            `Turn failed (${r.failed})` +
-              (r.failedReason ? `: ${r.failedReason}` : '') +
-              '; exiting so the run is recorded as a failure',
-          );
-          process.exit(r.failed === 'terminal' ? EXIT_TERMINAL : 1);
-        }
-
-        if (r.closedDuringQuery) {
-          log('Close sentinel consumed during query, exiting');
-          break;
-        }
-
-        log('Turn ended, checking for next IPC message...');
-
-        const nextMessage = checkIpcMessage();
-        if (nextMessage === null) {
-          log('Input empty, exiting');
-          break;
-        }
-
-        turnIndex++;
-        log(`Got new message (${nextMessage.length} chars), starting new turn (turn ${turnIndex})`);
-        prompt = nextMessage;
-      }
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : String(err);
-      log(`Agent error: ${errorMessage}`);
       const turnID = turnIndex === 0 ? seedTurnID : `${seedTurnID}:${turnIndex}`;
-      await deliverTurn(turnID, {
-        status: 'error',
-        newSessionId: lastSessionId,
-        error: errorMessage,
-      });
-      process.exit(err instanceof HarnessConfigError ? EXIT_TERMINAL : 1);
+      const r = await runTurn(harness, prompt, continuity, containerInput, env, turnID);
+      if (r.retryFresh && continuity) {
+        log(`Session error on resume, retrying with fresh session (was: ${continuity})`);
+        continuity = undefined;
+        continue;
+      }
+      if (r.token) continuity = r.token;
+      if (r.sessionId) lastSessionId = r.sessionId;
+
+      // The turn delivered no answer. Exit non-zero so runed reports the run
+      // as failed and routd's own failure path runs — the one that retries,
+      // marks the chat errored and tells the user. Staying alive for the next
+      // message would hide a model outage behind a clean-looking container.
+      if (r.failed) {
+        // The reason comes BEFORE the explanation of the exit, because runed keeps
+        // a TAIL: a reason at the end of the sentence is the first thing cut.
+        log(
+          `Turn failed (${r.failed})` +
+            (r.failedReason ? `: ${r.failedReason}` : '') +
+            '; exiting so the run is recorded as a failure',
+        );
+        process.exit(r.failed === 'terminal' ? EXIT_TERMINAL : 1);
+      }
+
+      if (r.closedDuringQuery) {
+        log('Close sentinel consumed during query, exiting');
+        break;
+      }
+
+      log('Turn ended, checking for next IPC message...');
+
+      const nextMessage = checkIpcMessage();
+      if (nextMessage === null) {
+        log('Input empty, exiting');
+        break;
+      }
+
+      turnIndex++;
+      log(`Got new message (${nextMessage.length} chars), starting new turn (turn ${turnIndex})`);
+      prompt = nextMessage;
     }
-  } finally {
-    cleanupSecrets();
+  } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    log(`Agent error: ${errorMessage}`);
+    const turnID = turnIndex === 0 ? seedTurnID : `${seedTurnID}:${turnIndex}`;
+    await deliverTurn(turnID, {
+      status: 'error',
+      newSessionId: lastSessionId,
+      error: errorMessage,
+    });
+    process.exit(err instanceof HarnessConfigError ? EXIT_TERMINAL : 1);
   }
 }
 

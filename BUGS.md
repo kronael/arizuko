@@ -16,6 +16,12 @@
 ## What needs you
 
 - `L699` — anteval cannot run a Codex smoke: it requires an Anthropic credential and installs an Anthropic-only gateway; proposal.
+- `L686` — decide whether to retire the four duplicated top-level creative skill names; proposal, needs sign-off.
+- `L687` — decide whether to retire the scheduler's two external write endpoints; proposal, needs sign-off.
+- `L688` — defer folding onbod into routd until measured net savings justify the boundary change; needs sign-off.
+- `L689` — defer folding dashd until measured net savings and reused code justify it; needs sign-off.
+- `L691` — `make rootfs` and `make kernel` reject a complete export when DOCKER uses sudo; record only.
+
 - `L676` — decide whether dashboard group creation must check the creator's new subtree grant.
 - `L675` — the guest's Python is under `/root` (700); fix at the next rootfs build.
 - `L674` — `compose down` fails on a deleted fragment despite `required: false`; proposal.
@@ -210,8 +216,8 @@ reads those words now.
   dashd's admin writes over routd's `/v1` need a forwarder trust routd does not grant.
 - `L151` — an adapter with a dead credential restart-loops and nothing pushes the fact
   anywhere a person sees.
-- `L2` — a delegated child is never dispatched; a measured cause and an unsigned fix.
-- `L13`, `L31`, `L41`, `L134` — a write-only `secret_use_log` with no read surface;
+- `L2` — a platform-chat `send` writes bot output and does not start another agent's turn; caller feedback needs a decision.
+- `L13`, `L31`, `L41`, `L134` — secret-use persistence and related secret surfaces;
   four of six product payload kinds seed-once so a product never updates; compose
   fragments frozen once they differ by a byte; a `shell:env:` grant that cannot be
   conditioned on the channel.
@@ -238,12 +244,6 @@ reads those words now.
 - `L488` — the standalone mcpfw image has no container build gate.
 - `L487`, `L489`, `L491`, `L501`, `L502` — doc and
   comment drift against the code, each naming the sentence to change.
-
-**Found by the product-docs pass (2026-10-21).**
-
-- `L503` — the "depth capped at 1" of `delegate_group` and `escalate_group`
-  checks an argument the caller sets: carry a hop count on the row, or drop
-  the claim from both tool descriptions.
 
 **Found by the v0.70.6 release review (2026-10-21).**
 
@@ -496,6 +496,101 @@ This blocks the 6/47 Codex `reply` smoke and the 6/53 mixed-backend smoke.
   allowlisted for the eval folder; cost and settle checks have no meter in that
   mode. **Recommendation:** (1), because it keeps one metered path for both
   backends.
+
+## L686 — four exposed creative skill names duplicate the create payload (2026-11-07, open — proposal, needs sign-off)
+
+The tracked `ascii-video`, `excalidraw`, `manim-video` and `p5js` trees contain
+42 byte-identical counterparts under `ant/skills/create/`, totaling 16,270 lines.
+`container/packages.go:23` enumerates package-root skills and
+`ant/src/skills-scan.ts:26` scans top-level descriptors. Both selection surfaces
+are active. Retiring names changes selection, `.disabled` behavior and possible
+installed references.
+
+- **Severity:** low — duplicate assets require duplicate maintenance.
+- **Scope:** creative skill names and canonical assets.
+- **Affected:** `ant/skills/create/` and the four top-level creative skill trees.
+- **Measured:** tracked-file byte comparison: ascii-video 8 files / 7,695 lines; excalidraw 4 / 384; manim-video 15 / 2,773; p5js 15 / 5,418.
+- **Options:** (a) retire the four names and keep one create asset tree after checking source ownership, sync and attribution; (b) retain the exposed names and duplicate assets.
+- **Default if nothing is decided:** retain both surfaces.
+- **Test:** no test — design; the duplicate payload measurement does not prove names are unused.
+- **Status:** open — needs owner sign-off.
+
+## L687 — scheduler write endpoints have no in-repository production client (2026-11-07, open — proposal, needs sign-off)
+
+`routd/server.go:277` registers `POST /v1/tasks/runlog` and
+`POST /v1/tasks/{id}/reschedule`. The task ticker calls `RecordTaskRun` and
+`RescheduleTask` directly in `routd/schedule.go`. Repository HTTP callers are
+tests and documentation. The registered external contract can still have outside clients.
+
+- **Severity:** low — supported endpoints retain handlers and tests without an internal client.
+- **Scope:** scheduler REST write contract.
+- **Affected:** `routd/server.go` and endpoint-specific tests.
+- **Measured:** search `handleTaskRunLog`, `handleTaskReschedule`, `RecordTaskRun`, `RescheduleTask`, `runlog` and `reschedule` across routd, cmd, ipc and ant, including constructed URLs.
+- **Options:** (a) retire both writes after confirming the supported outside API; (b) keep both endpoints and their gates.
+- **Default if nothing is decided:** keep both registered writes. Keep task management, MCP `reschedule_task` and run-log reads under either option.
+- **Test:** no test — design; caller reachability does not authorize an external API deletion.
+- **Status:** open — needs owner sign-off.
+
+## L688 — folding onbod into routd needs measured savings (2026-11-07, open — deferred proposal, needs sign-off)
+
+onbod owns admission tables and audits in `onbod/db.go`. It opens onbod and
+routd stores in `onbod/main.go`; routd calls it for admission. No matched-workload
+comparison establishes net savings from an in-process admission module.
+
+- **Severity:** low — no demonstrated defect; a deferred process-boundary decision.
+- **Scope:** onbod process and table authority.
+- **Affected:** onbod, routd and any proposed webd page move.
+- **Options:** (a) fold admission into routd while preserving onbod table ownership and gates, after measuring net savings and reused code; (b) keep onbod separate.
+- **Default if nothing is decided:** keep onbod separate, as recommended by the Astra audit. A table migration or new webd protocol needs its own design.
+- **Trigger:** a matched-workload comparison demonstrates net memory savings and exact code reuse.
+- **Test:** no test — design; measurements are pending.
+- **Status:** open — deferred, needs owner sign-off; outside the built slices of `specs/7/26-single-world-deployment.md`.
+
+## L689 — folding dashd needs measured savings and code reuse (2026-11-07, open — deferred proposal, needs sign-off)
+
+dashd imports platform code in `dashd/services.go`. Import coupling does not
+establish reusable work or net memory savings from a process fold.
+The measured 12.5 MiB average across nine daemons is neither dashd's individual
+footprint nor a net saving for this proposal.
+
+- **Severity:** low — no demonstrated defect; a deferred process-boundary decision.
+- **Scope:** dashboard process boundary.
+- **Affected:** dashd and a prospective owning daemon.
+- **Options:** (a) fold dashd after measuring net savings and identifying reused code; (b) keep dashd separate.
+- **Default if nothing is decided:** keep dashd separate, as recommended by the Astra audit. Preserve useful standalone services, platform-adapter processes and runed's execution isolation.
+- **Trigger:** matched-workload measurements and a specific reuse case justify the fold.
+- **Test:** no test — design; measurements are pending.
+- **Status:** open — deferred, needs owner sign-off; outside the built slices of `specs/7/26-single-world-deployment.md`.
+
+## L690 — source fixtures and case comments name retired services (2026-11-07, ✅ FIXED)
+
+`tests/dashd-playwright/stub-upstream.ts:192` contains a
+`http://vited:8080` backend. `tests/dashd-playwright/tests/services.spec.ts:15`
+includes `timed` in `UNBUILT`. `anteval/cases/anteval.toml:47` calls the
+scheduler the `timed` primitive; line 397 cites the absent `timed/split.go`.
+The fixture values and case comments do not describe the current deployment.
+
+- **Severity:** low — stale test fixtures misdescribe service topology.
+- **Scope:** dashboard Playwright fixtures and anteval case comments.
+- **Affected:** the two TypeScript files and TOML case file above.
+- **Measured:** the requested non-Go `rg -n 'vited|timed'` scan finds these four lines; deployment generation contains neither service.
+- **Fix:** align fixture backend and service expectations with proxyd static serving and routd scheduling.
+- **Test:** run the affected Playwright suites with the fixture update; TypeScript and TOML edits are outside this documentation pass.
+- **Status:** ✅ FIXED — fixtures and case comments use current services.
+
+## L691 — `make rootfs` and `make kernel` reject a complete export when DOCKER uses sudo (2026-11-08, open — record only)
+
+With `DOCKER='sudo docker'`, `DOCKER_SUDO` extracts the export as root into a
+`700` root-owned stage directory. The completeness checks then run `test -s`
+as the calling user, cannot enter the stage, and report "incomplete export".
+Seen 2026-11-08 for both targets; the exports themselves were complete when
+read as root.
+
+- **Severity:** low — blocks the build only when docker needs sudo.
+- **Affected:** `Makefile` targets `rootfs` and `kernel` (stage checks).
+- **Measured:** `make rootfs DATA_DIR=<scratch> DOCKER='sudo docker'` → "incomplete export"; `sudo test -s` on each checked file passes.
+- **Fix:** run the stage checks with `$(DOCKER_SUDO)`, or create the stage readable by the caller.
+- **Status:** open — record only.
 
 ## L678 — no operator door writes a group's `effort`, and dashd lists only 4.x models (2026-11-07, open — folded into the per-group harness spec)
 
@@ -1033,15 +1128,15 @@ spend limit" in the group logs. Last successful krons run 2026-11-01T07:38
 
 ## L639 — the platform-prefix refusal sits before the delegation return swap (2026-11-02, open)
 
-MEASURED 2026-11-02. Moving L572's check from `send` into ipc `gateJID`
-failed `TestDelegatedReplyReturnsToOrigin`: `reply: jid "root/eng" has no
-platform prefix`. A delegated turn's chat JID is the bare child folder, and
-routd `placeTurnDelivery` (`routd/placement.go`) swaps it for `return_to`
-when the target is the turn's own chat. `reply` (`mcpDeliver` threaded), `mcpAppendDoc` and
-`mcpSendVoice` (`routd/mcp.go`) place through it; `send` (`mcp.go:51`,
-threaded=false) and `Post` do not, so L572's ipc check on `send` is correct.
-The gate change was reverted. At HEAD `send_file`, `send_voice` and `post`
-still accept `user/137865889`, the L572 shape.
+`send` accepts a bare group folder and posts an inbound message there.
+`send_file`, `send_voice` and `post` use platform delivery, but still accept
+`user/137865889` without a platform prefix. A delivery can fail after the
+outbound writer creates a pending row for the invalid destination.
+
+A routed turn's chat JID can be a bare folder. `placeTurnDelivery` in
+`routd/placement.go` maps that chat to its recorded return address for
+`reply`, `send_file` and `send_voice`. A platform-prefix check must follow
+that mapping. `post` does not use the mapping.
 
 - **Severity:** low (needs an agent to pass a wrong JID)
 - **Scope:** `routd/mcp.go`, `routd/placement.go`, the ipc failure path
@@ -1480,29 +1575,6 @@ stands; the sentence about the default describes the exception.
 `auth.Authorize` where none is set". No test — docs.
 
 - **Status:** open (record only).
-
-## L503 — `delegate_group` and `escalate_group` say "Depth capped at 1", and the cap reads an argument the caller sets (2026-10-21, open — needs sign-off)
-
-FOUND 2026-10-21 by the product-docs pass, read at `a3015fcf`. Both tool
-descriptions end "Depth capped at 1." (`ipc/ipc.go:1941`, `:1996`), and
-`reference/mcp.html` copies them. Each handler reads `depth :=
-req.GetInt("depth", 0)` and refuses `depth >= 1` (`:1961-1964`, `:2013-2016`).
-The delegation row carries only the prompt (`:2019-2025`), and
-`grep -rn '"depth"' --include=*.go --include=*.ts .` finds no other reader or
-writer. So a child turn starts with no depth, calls `delegate_group` with the
-default 0, and passes. A chain parent → child → grandchild runs as far as the
-grants of each folder reach, and a parent and a child that hold both tools
-can hand one prompt back and forth with no bound. `concepts/routing.html`
-said "Both tools refuse to go more than one level"; this pass corrected the
-page, and the tool descriptions are code.
-
-- **Severity:** low — grants still bound every hop; the stated limit is false.
-- **Scope:** agent hand-off tools.
-- **Affected:** ipc (`delegate_group`, `escalate_group`).
-- **Status:** open — needs sign-off. A real cap is a hop count carried on the
-  delegation row into the child turn, which changes the message contract (`L2`
-  names the same bound for `send`). The other fix drops the sentence from both
-  descriptions. No test — a test would pin the current gap.
 
 ## L505 — every reply, send, Stop hook and turn completion reads the whole chat to find one summary row (2026-10-21, open)
 
@@ -6182,7 +6254,8 @@ inline. `5/B` and `5/F` are the specs to amend.
 
 ## L72 — anteval leaks a group per case and every release pays an LLM turn for each (2026-08-23, open — needs sign-off on spec `6/50`)
 
-`anteval` cases create child groups (`register_group` / `delegate_group`) and
+`anteval` cases create child groups with `register_group` and post tasks with
+`send`, and
 nothing ever deletes them. 31 of krons' 43 groups are eval leftovers:
 
 ```
@@ -7026,240 +7099,45 @@ it is a one-time copy.
   (`container/blend.go:289-300`, BUGS `L34`). Answering one does not answer the
   other; they should stay two entries.
 
-## L13 — `secret_use_log` is write-only: no read surface on any face (2026-08-11, proposed 2026-08-15 — RE-MEASURED 2026-09-21: the ENTITY has no reader, the FACT has two. Do NOT build the proposal below)
+## L13 — secret-use facts have two persistent representations (2026-11-07, open — proposal, needs sign-off)
 
-The table (routd/migrations/0008-secrets.sql) is written on every resolved
-secret (`routd/mcp.go:503`, `store/secret_use_log.go:38`) and read by nothing:
-no resreg resource, no REST/MCP face, no dashd page, no CLI verb — only the
-side `audit_log` row each write also emits is reachable. This repeats the exact
-class BUGS `F29`/`F35` closed for the four `audit_log` owners ("audit rows
-reachable only with sqlite3"), and it outlived `F68` (2026-08-09), which fixed
-this table's writer fields without giving it a reader. Cost: the per-key
-forensic detail (key, tool, scope_kind) the writer was just fixed to record
-answers "who used which secret" only to an operator with sqlite3 on the host.
+`store/secret_use_log.go:115` writes a dedicated `secret_use_log` entity and
+an audit event in one guarded batch. The audit event carries caller, secret
+identity and scope, tool, spawn, outcome, error and duration. The broker calls
+`LogSecretUse` in `routd/mcp.go`. The entity's other consumers handle schema,
+retention, import and group history; no business query reads the dedicated rows.
+The audit representation is readable through REST and MCP.
 
-- **Severity:** low
-- **Scope:** secret-use forensic log read surface
-- **Affected:** routd, store
-- **Source:** `store/secret_use_log.go:38`, `routd/migrations/0008-secrets.sql`
-- **Status:** PROPOSED, not built — the premise is CONFIRMED at 28d20228
-  (readers are four test files and nothing else; no `Table:` declaration, no
-  REST handler, no dashd page, no CLI verb), but the fix is a new wire contract,
-  which this pass does not ship unreviewed.
-  Why it is not a mechanical registration: in this codebase a resource's name IS
-  its wire identity, and `5/17` derives the MCP tool from the same declaration
-  that serves REST. Registering `secret_use_log` therefore publishes a new
-  `/v1/secret_use_log` path AND a new agent-visible tool in one move, and the
-  question "may an AGENT read which secrets were used, by whom, with which
-  tool?" is a security decision the operator owns, not a detail of the wiring.
-  Recommended shape, for approval:
-  - Owner routd (it owns the table, routd migration `0008`), read-only: `list`
-    with folder containment, no create/update/delete — the writer stays
-    `store/secret_use_log.go`, the single one.
-  - RowType mirroring the columns already written (`key`, `scope`,
-    `scope_kind`, `tool`, `caller_sub`, `spawn_id`, `ts`), so the doc and the
-    handler read one struct.
-  - Gate: operator scope on REST. On the agent MCP face, either omit it
-    entirely (operator-only forensics, the safer default and my
-    recommendation) or bind it to the caller's own folder — never a plain
-    `mcp:` grant with the default target resolver.
-  - `F35`'s onbod `audit_log` resource is the precedent to copy for the
-    read-only shape.
-- **Evidence:** table writer/reader sweep over all migrations
-  (`INSERT INTO|UPDATE` vs `FROM <table>` vs `Table:` resreg decls) →
-  `secret_use_log writers=1 readers=0 resreg=0`. `grep -rn secret_use_log`
-  → writer paths + migrate-split copy + docs only.
-- **RE-MEASURED at 17459f6a 2026-09-21. The defect is half real and the
-  prescribed fix is now the WRONG one — building it would manufacture the
-  duplication root `CLAUDE.md` forbids.**
+- **Severity:** low — duplicated persistence without a business reader for one representation.
+- **Scope:** secret-use persistence and history.
+- **Affected:** `store/secret_use_log.go`, entity declarations and history handling.
+- **Measured:** production Go searches for `secret_use_log`, `SecretUseLog` and `LogSecretUse`, followed through the audit resource and history consumers.
+- **Options:** (a) retain the audit event and retire the parallel entity/write/serialization after deciding history and external-reader handling; (b) retain both representations.
+- **Default if nothing is decided:** retain both representations and existing history. Do not add a second read resource to justify duplicate storage.
+- **Test:** no test — design; persistent schema and outside readers require a contract decision. Live data migration is an operator action.
+- **Status:** open — needs owner sign-off.
 
-  **The entity still has no reader.** Confirmed, and the source says so itself:
-  `store/secret_use_log.go:15` — "NO READ DECIDED IT, because there is no
-  reader: nothing in the tree calls this file for anything but the write, on
-  any instance." No resreg declaration, no handler, no dashd page, no CLI verb.
+## L2 — a platform-chat send does not start another agent's turn (2026-08-08, open — needs sign-off)
 
-  **But the FACT is fully readable, on both faces, and has been.** `LogSecretUse`
-  writes the item and an `audit_log` row in ONE batch
-  (`store/secret_use_log.go:141-183`), and that row is a COMPLETE projection of
-  `SecretUseRow` — all nine fields, nothing dropped:
+`send` to a platform-qualified chat writes outbound bot output through
+`ipc.putOutboundRow`. An all-bot batch does not start a turn in
+`routd/dispatch.go`. When another folder writes the batch, routd logs
+"delegation woke nothing", but the calling agent gets a successful send.
+An agent that expects a response can wait for a turn that never starts.
 
-  | `SecretUseRow` | where it lands in the `audit_log` row |
-  | --- | --- |
-  | `TS` | the row id / `created_at` |
-  | `CallerSub` | `actor` + `actor_sub` |
-  | `Key`, `Scope` | `resource` = `secrets/<scope>/<folder>/<key>` |
-  | `Scope` | `scope` |
-  | `Folder` | `folder` |
-  | `Tool`, `SpawnID` | `params_summary` |
-  | `Status` | `outcome` + `error_msg` |
-  | `LatencyMS` | `duration_ms` |
+To request another agent's work, call `send` with its bare group folder as
+`chatJid`. That path uses `store.PostGroup` and writes an inbound non-bot row.
 
-  `audit_log` IS a registered resreg resource (`resreg/resources/audit.go`),
-  mounted by routd (`routd/audit_resource.go`), which is the daemon that owns
-  this table. So "who used which secret, from where, with which tool" is already
-  answerable two ways, neither needing a shell on the host:
-
-  - REST `GET /v1/audit?category=secret` behind the `audit:read` scope;
-  - MCP `query_audit` with `category=secret`, bound to the caller's own folder.
-
-  `action=secret.read` is written by exactly one site in the tree
-  (`store/secret_use_log.go:154`), so it isolates secret USES from
-  `secret.set` / `secret.delete` cleanly.
-
-  **Therefore the entry's own security question is already answered, and not in
-  the direction it assumed.** It asks the operator to decide "may an AGENT read
-  which secrets were used, by whom, with which tool?" — an agent holding
-  `mcp:query_audit` can read exactly that today, folder-bound. Registering
-  `secret_use_log` would not open a new door; it would cut a second door into
-  the same room, publishing `/v1/secret_use_log` and a second agent tool over a
-  fact `/v1/audit` already serves. That is a second FORMAT for one declaration,
-  the rule in root `CLAUDE.md` §"One declaration, many readers", and
-  `resreg/resources/audit.go` is emphatic that an append-only log gets one
-  read-only face, not several.
-
-  **The recorded direction is the opposite one: retire the entity.**
-  `audit/PLAN.md:319-322` already says so — "`secret_use_log` — replaced by
-  `secret.read` rows in `audit_log` once the audit table lands (… consolidates
-  in round 3 if hot-path volume permits)". The audit table landed. The item is
-  the leftover half of a consolidation that stopped at the write.
-
-  **What it costs to leave alone: almost nothing.** The entity is EMPTY on the
-  whole fleet — `store/secret_use_log.go:28` records zero rows on all three live
-  snapshots at 2026-09-07, because the broker writes only when a container tool
-  resolves a secret and the fleet has one secret. A reader would page nothing.
-
-  **Status: the proposal above is WITHDRAWN, not pending.** Do not build it. The
-  live question is whether to finish `audit/PLAN.md`'s round 3 and delete the
-  entity, leaving `audit_log` as the single record. That is a spec-level
-  deletion touching `specs/5/13` §Audit, which mandates the row, so it is a
-  sign-off rather than a refinement — but a much smaller and better-shaped one
-  than the new wire contract this entry originally asked for. Until it happens
-  the duplicate write is harmless: one empty item collection, written in the
-  same batch, costing one item per secret read.
-
-## L2 — a delegated child is never dispatched: its only message is a bot row (2026-08-08, CAUSE ISOLATED 2026-08-15; SILENT HALF FIXED 2026-09-20, the fix needs sign-off, REPRODUCED 2026-08-16 on v0.64.0)
-
-Same live run, `child-delegate`. Unlike L1 this one is NOT root-caused, and it
-is recorded that way on purpose.
-
-The v0.64.0 anteval run reproduces it unchanged (`no callback for
-etjty2l-child-delegate`). The harness prints "case needs `mcp:register_group`,
-`mcp:delegate_group`" on any timeout; that hint is generic and wrong here — the
-logs below show both calls succeeding.
-
-What is verified from the logs: the parent registered the child
-(`"group registered" jid=web:eval/etjgjnv-child-delegate folder=eval/etjgjnv-child-delegate`)
-and delegated the task (`"send" folder=eval jid=web:eval/etjgjnv-child-delegate
-text="Task: run this exact command and report the result back here"`). So
-registration and delegation both work. The child never fired the callback.
-
-**CAUSE ISOLATED 2026-08-15 by the call path.** No probe was needed and no
-capability is involved. Agent-to-agent delegation over `send` cannot wake the
-target folder, by construction:
-
-1. The parent's `send` reaches `ipc.internalSend` → `gated.SendMessage` →
-   `routd.mcpDeliver`, which delivers, and `ipc.putOutboundRow`, which persists
-   the row. That writer stamps EVERY agent-authored row `FromMe: true,
-   BotMsg: true` (`ipc/ipc.go` putOutboundRow) — there is no separate shape for
-   "addressed to another folder".
-2. The poll DOES see it: `DB.NewMessages` filters on timestamp only, so the
-   child chat is picked up and `resolve` succeeds (the child folder was
-   registered), and it is enqueued.
-3. `processGroupMessages` then drops it (`routd/dispatch.go:52-62`):
-
-       // Strip bot rows from the trigger batch (don't feed the agent its own
-       // output) but keep them in the rendered context.
-       for _, m := range msgs { if !m.BotMsg { trigger = append(trigger, m) } }
-       if len(trigger) == 0 { l.advance(chatJID, last); return false, nil }
-
-   The child's chat holds nothing BUT bot rows, so `trigger` is empty. The
-   cursor advances and the function returns `(false, nil)` — the "silent no-op"
-   that is deliberately NOT a failure, so it does not even trip the breaker.
-   No container is ever spawned for the child.
-
-Both recorded candidates are answered:
-- The `egress` ACL vs `network_rules` question is MOOT. No container starts, so
-  no egress decision is ever reached. The two mechanisms never got to disagree.
-- "the child may never have been dispatched at all" is CORRECT, and now
-  explained: it was enqueued and then dropped at the bot-row strip.
-
-- **Severity:** medium — agent-to-agent delegation silently does nothing.
-- **Scope:** message model — what may trigger a turn
-- **Affected:** routd (dispatch), ipc (outbound writer)
-- **Status:** NOT FIXED — the fix is a redesign and needs sign-off.
-
-**PROPOSAL, for the user, not built.** The bot-row strip is correct and must
-stay: it is what stops an agent re-triggering itself on its own output. The
-missing distinction is that a row authored by folder A and addressed to folder
-B is B's INBOUND, not B's own output. A fix has to say so explicitly, and that
-is a new contract on the message model plus a loop-safety rule:
-
-- Make the trigger test `m.BotMsg && m.Sender != <this folder>` rather than
-  `m.BotMsg` alone, so a row a DIFFERENT folder wrote can trigger. `Sender` is
-  already the author folder at this writer, so no new column is needed.
-- Bound it, or two agents ping-pong forever: a hop budget carried on the row, a
-  depth cap on the delegation chain, or a rule that only a registered CHILD
-  folder may be woken by its parent. This is the part that decides the shape,
-  and it is a product call, not a code call.
-- Decide whether the woken turn is credentialed as the child (socket folder) —
-  it is, since the socket is per-folder — and whether the parent needs an ACL
-  action to wake another folder at all.
-
-Until then, delegation should either be refused loudly at the `send` gate when
-the target folder is not the caller's own chat, or documented as not supported.
-Silently storing a row nobody will ever act on is the worst of the three.
-
-- **The DROP HAS MOVED since this was filed, and it is still silent.** It is no
-  longer the bot-row strip: `processGroupMessages` now calls `newestUserIdx`
-  first and returns at `steerIdx < 0` — "An all-bot batch routes nothing"
-  (`routd/dispatch.go`). Same outcome, one screen earlier. The mechanism this
-  entry isolated is unchanged: every agent-authored row is stamped `BotMsg`, so
-  a delegated child's chat holds nothing else.
-- **The silence is fixed 2026-09-20.** An all-bot batch is normally a folder's
-  OWN output, correctly ignored. It is not when another folder wrote it, and
-  that case now says so, naming the chat, the author and the row count. The
-  distinction is `groupfolder.JidFolder(chatJID)` against the newest row's
-  `Sender`: a delegation carries the PARENT's folder, a self-reply carries the
-  chat's own.
-- **PROVEN BY MUTATION both ways:** drop the warning and the delegation test
-  fails; drop the `Sender != author` term and the twin fails, because a folder's
-  own output must stay quiet — a notice on every turn a folder takes would be
-  worse than silence.
-- **Still NOT FIXED, and it is the redesign:** the bot-row strip is correct and
-  must stay, because it is what stops an agent re-triggering itself. Making a
-  delegation wake its target needs a row shape that is neither "a person spoke"
-  nor "my own output" — a message-model change, which is the sign-off this
-  entry has been waiting for since August.
-- **The notice shipped 2026-09-20 read the chat's folder out of the JID, and on
-  two JID shapes that made it lie. FIXED 2026-09-21 (`2abe141f`).** It called
-  `groupfolder.JidFolder(chatJID)`, but the grammar is ambiguous by design —
-  `web:t/sfx` reads as folder `t/sfx` while its mint recorded `t`, and
-  `hook:a/b/c` reads as `a/b`. So on every route-token chat and every `hook:`
-  chat the comparison was `t/sfx != t`, and the folder's OWN reply logged
-  "delegation woke nothing" once per reply, forever.
-  `store.RouteTokenTargetByJID` is "the single reader every folder-from-JID path
-  goes through" (its own comment) and `routd/loop.go` `directFolder` is the call
-  site that already uses it; the notice now uses it too. The 2026-09-20 mutation
-  proof could not catch this because both its tests use a plain `web:<folder>`
-  JID, where the grammar happens to be right. Same bug class as `L4`/`L1`, in
-  the code written to report `L2`.
-  - PROVEN BY MUTATION: with the grammar reader,
-    `TestDispatch_ARouteTokenChatsOwnReplyIsNotADelegation` fails with
-    `chat_folder=acme/tok wrote_by=acme`; the two 2026-09-20 tests keep passing
-    either way, so a real cross-folder delegation still warns and a plain
-    folder chat still stays quiet.
-- **The warning is NOT enough to act on, and that is the bounded half of the
-  sign-off.** A `slog.Warn` in routd reaches an operator reading the census. It
-  does not reach the agent that called `send`, which still gets a success and
-  then waits for a callback that cannot come, and it does not reach the person
-  who asked for the delegation. `CLAUDE.md` §Fail loud requires an error on a
-  user-facing path to surface to the caller, not only to a log — and the entry
-  already named this option ("refused loudly at the `send` gate"). It is one
-  question, not a redesign: **should `send` refuse when the target chat's folder
-  is not the caller's own, given that posting a notification into another
-  folder's channel is a legitimate use of the same call?** The message-model
-  change (a row that is neither "a person spoke" nor "my own output", plus the
-  hop budget) stays the separate, larger sign-off; nothing here touches it.
+- **Severity:** medium — a successful platform delivery does not confirm an agent turn.
+- **Scope:** caller feedback for platform-chat sends.
+- **Affected:** ipc outbound writer, routd dispatch.
+- **Measured:** `routd/dispatch.go` all-bot handling and
+  `ipc/send_platformless_test.go` `TestSendGroupAndPlatform` distinguish the two paths.
+- **Status:** open — needs sign-off on caller feedback. No test — design.
+- **Options:** (a) keep platform sends as notifications; (b) warn the caller
+  when a platform send reaches another group's chat without starting a turn.
+- **Default if nothing is decided:** platform sends deliver bot output;
+  agents use bare-folder `send` to request work.
 
 ## F75 — three skill trees are triplicated and one pair has already drifted (2026-08-08, partly fixed 2026-09-21 — live drift closed, de-triplication still a redesign)
 
@@ -9197,7 +9075,7 @@ policy forbids.
   adapter needing a service principal; each core daemon's routes move to its
   own manifest and the reserved set derives from the catalog. Then
   `TestFragmentEnvFilesAreGenerated` asserts against the catalog, not the
-  map. Spec: `specs/8/36-publish-plan.md` §"What the contract needs";
+  map. Spec: `specs/6/59-local-daemons.md` §"One declaration, one lifecycle";
   whether the declaration is a resreg row (`5/8`'s shape) or a compose-side key in `<name>.yaml` is the
   decision to sign. Redesign — sign-off before code.
 - **Fix:** `f8b82a90` (the `/dash/ttsd/` row); the rest is the redesign below
@@ -9239,7 +9117,7 @@ one; two of the facts are gone and one table was missed.
   "mount of another owner's database" coupling,
   not adapter wiring. The honest cost of "become an adapter" today is two
   compose rows, one authd row and an image. The package acceptance boundary in
-  `specs/8/36-publish-plan.md` requires no core map edit; this wiring needs three.
+  `specs/6/59-local-daemons.md` requires no core map edit; this wiring needs three.
 - `dashd/services.go` now lists all nine adapters as tiles; the fact holds
   (a third-party `/dash/<name>/` route works and the hub does not show it)
   over a wider table.

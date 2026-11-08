@@ -22,8 +22,8 @@ resolver reads the route table only when the chat is not a direct address
 folder JID always dispatch (`routd/loop.go:663-666`). Those are the doors that
 agents and outside callers use to write to a group:
 
-- `delegate_group` and `escalate_group` write a row to the bare folder JID
-  (`ipc/ipc.go:2086-2093`, `ipc/ipc.go:2047-2054`).
+- The agent tool `send` with a group folder as `chatJid` writes an inbound
+  row through `store.PostGroup` (`ipc/ipc.go`, `store/messages.go`).
 - webd's `/mcp` `send` writes a row to `web:<folder>` (`webd/mcp.go:141-169`).
 - a default task names the folder itself as its chat (`store/tasks.go:510`,
   seeded by `arizuko group add` at `cmd/arizuko/main.go:467`).
@@ -46,7 +46,7 @@ Three other facts look like a marker and are not one:
 ## Where it fits
 
 ```
- adapter   webd /mcp send   delegate_group   timed
+ adapter   webd /mcp send   agent send       timed
     │            │                │            │
     └────────────┴───── PutMessage (routd) ────┘
                               │
@@ -303,8 +303,8 @@ not render in its first turn.
 
 ```
  agent in folder a                                agent in folder b
-   │ delegate_group(group=x)                        ▲ observe_group(source=x)
-   │ gate: mcp:delegate_group on x                  │ rows render on b's next turn
+   │ send(chatJid=x, text=...)                       ▲ observe_group(source=x)
+   │ gate: mcp:send on x                             │ rows render on b's next turn
    ▼                                                │
  ┌──────────────────────────────────────────────────┴─┐
  │ group x, agent=0 (new)                             │
@@ -316,17 +316,15 @@ not render in its first turn.
  external agent                                   external agent
 ```
 
-No tool is new. `delegate_group` is the post from inside, because its gate
-binds the target folder (`ipc/ipc.go:2071-2074`); `inject_message` is not one,
-because it checks only the caller's own folder and takes any `sender`
-(`ipc/ipc.go:1980-1985`, BUGS `L431`). `send` stays delivery to a chat of a
-person: it writes a bot row, and the watched read skips bot rows
-(`store/message_folders.go:313-314`).
+The agent tool `send` posts to a bare folder after checking `mcp:send` on
+that target (`ipc/ipc.go`). `store.PostGroup` writes a non-bot row with the
+calling folder as `ForwardedFrom`. A platform-qualified target follows the
+platform delivery path and writes a bot row. The watched read skips bot rows
+(`store/message_folders.go`).
 
-A post does not wake a reader. A reader that must act on a post now is the
-target of a `delegate_group`, which exists. The caveats are questions 2 and 4:
-`delegate_group` answers `queued` for a run that will not happen, and the
-external read sees one of the two chats.
+A post to a group with no agent does not wake a reader. To request work now,
+an agent sends to a group with an agent bound. The external read sees one of
+the two chats, as question 4 describes.
 
 ## External agents use the bearer and the grant that exist
 
@@ -385,12 +383,12 @@ the folder's files over `/dav/`.
    chats, and [paths and roles](../5/33-paths-roles.md) has no grant for that today.
 
 2. **What does a write that asks for a run return for a group with no agent?**
-   `delegate_group(group=x)` answers `{"queued": true}` (`ipc/ipc.go:2099`) and
-   the row's sender is `delegate`, not the posting folder (`store/messages.go:374`);
-   a timed task into x fires and nothing runs. Answers: (a) refuse with
-   "x has no agent"; (b) store it, and the reply says `"agent": false`. Recommend
-   (b) for `delegate_group`, because it is the post from inside, plus the
-   posting folder as the sender, so a reader can tell which agent wrote.
+   The agent tool `send(chatJid=x, text="...")` returns `{"ok": true, "id": "..."}`.
+   `store.PostGroup` records the sender as `delegate` and the posting folder
+   as `ForwardedFrom`. A timed task into x fires and nothing runs. Answers:
+   (a) refuse with "x has no agent"; (b) store it, and the reply says
+   `"agent": false`. Recommend (b) for `send` to a group, plus the posting
+   folder as the sender, so a reader can tell which agent wrote.
 
 3. **Does the folder of a group with no agent keep its default tasks?**
    `arizuko group add` seeds the default tasks before any setting exists

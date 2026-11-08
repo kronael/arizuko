@@ -33,7 +33,7 @@ var ScheduledTasksResponses = map[resreg.Action]reflect.Type{
 
 // ScheduledTasksEndpoints is the single owner of the endpoint set; routd must
 // never override it (BUGS F21). The REST path is /v1/tasks, NOT /v1/<name>:
-// timed calls it across the container boundary and its fire loop shares the
+// the scheduler shares the
 // prefix. schedule/pause/resume are MCPOnly (the operator drives them through
 // PATCH {status}); get is REST-only with no MCPDoc entry, hence no tool. patch
 // is both: the REST PATCH, and the agent's reschedule_task for its {next_run}.

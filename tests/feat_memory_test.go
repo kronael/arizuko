@@ -4,6 +4,7 @@
 package tests
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/kronael/arizuko/core"
@@ -84,7 +85,7 @@ func TestFeature_MemoryGroupState(t *testing.T) {
 		if err := s.PutGroup(core.Group{Folder: "m"}); err != nil {
 			t.Fatal(err)
 		}
-		if err := s.SetGroupHarness("m", []byte(`{"backend":"claude","model":"claude-haiku-4-5"}`)); err != nil {
+		if err := s.SetGroupSettings("m", map[string]json.RawMessage{"harness": []byte(`{"backend":"claude","model":"claude-haiku-4-5"}`)}); err != nil {
 			t.Fatal(err)
 		}
 		g, ok := s.GroupByFolder("m")

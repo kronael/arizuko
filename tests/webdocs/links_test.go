@@ -112,7 +112,7 @@ func siteFiles(t *testing.T, exts ...string) []string {
 
 // TestWebDocsInternalLinksResolve walks every href and src on the site and
 // requires the target to exist on disk. A directory link ("../github/") means
-// that directory's index.html, which is how vited serves it.
+// that directory's index.html, which is how proxyd serves it.
 func TestWebDocsInternalLinksResolve(t *testing.T) {
 	checked := 0
 	for _, f := range htmlFiles(t) {

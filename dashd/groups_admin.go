@@ -270,30 +270,8 @@ func (d *dash) handleGroupSettings(w http.ResponseWriter, r *http.Request) {
 	disabled := d.skillsDisabled(folder)
 
 	_, _ = fmt.Fprintf(w, `<form method="post" action="/dash/groups/%s/settings">`, folderPath(folder))
-	var harness map[string]json.RawMessage
-	if len(g.Harness) > 0 {
-		if err := json.Unmarshal(g.Harness, &harness); err != nil {
-			_, _ = fmt.Fprint(w, htmlBanner("err", "could not read harness: "+esc(err.Error())))
-			pageClose(w, r)
-			return
-		}
-	}
-	defaultsChecked := ""
-	if len(g.Harness) == 0 {
-		defaultsChecked = " checked"
-	}
-	_, _ = fmt.Fprintf(w, `<p><label><input type="checkbox" name="instance_defaults" value="1"%s> Use instance defaults</label></p>`, defaultsChecked)
-	for _, key := range []string{"backend", "model", "effort"} {
-		var value string
-		if raw, ok := harness[key]; ok {
-			if err := json.Unmarshal(raw, &value); err != nil {
-				_, _ = fmt.Fprint(w, htmlBanner("err", "could not read harness "+key+": "+esc(err.Error())))
-				pageClose(w, r)
-				return
-			}
-		}
-		_, _ = fmt.Fprint(w, htmlFormRow(key, fmt.Sprintf(`<input name="%s" value="%s">`, key, esc(value))))
-	}
+	_, _ = fmt.Fprint(w, htmlFormRow("Agent", fmt.Sprintf(`<input name="agent" value="%s" placeholder="ant">`, esc(g.Agent))))
+	_, _ = fmt.Fprint(w, htmlFormRow("Harness JSON", fmt.Sprintf(`<textarea name="harness">%s</textarea>`, esc(string(g.Harness)))))
 	_, _ = fmt.Fprintf(w, `<p><label><input type="checkbox" name="open" value="1"%s> open <span class="dim">— sibling groups can see messages sent here</span></label></p>`, openChecked)
 	_, _ = fmt.Fprint(w, htmlFormRow("Messages a nearby group can peek at",
 		fmt.Sprintf(`<input type="number" name="observe_window_messages" value="%s" min="0"> <span class="dim">max messages a sibling sees (blank = default 50)</span>`, numOrBlank(owMsgs))))
@@ -349,7 +327,7 @@ func (d *dash) handleGroupSettingsSave(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad folder", http.StatusBadRequest)
 		return
 	}
-	_, ok := d.requireAdmin(w, r, folder)
+	sub, ok := d.requireAdmin(w, r, folder)
 	if !ok {
 		return
 	}
@@ -357,40 +335,27 @@ func (d *dash) handleGroupSettingsSave(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad form", http.StatusBadRequest)
 		return
 	}
-	open := r.FormValue("open") == "1"
-	// Blank or 0 = clear to default. SetGroupObserveWindow clears on <0, so map
-	// an empty/zero submission to -1 instead of persisting 0 as a real override.
-	owMsgs := clearableNum(r.FormValue("observe_window_messages"))
-	owChars := clearableNum(r.FormValue("observe_window_chars"))
-	var harness map[string]string
-	if r.FormValue("instance_defaults") != "1" {
-		harness = map[string]string{"backend": strings.TrimSpace(r.FormValue("backend"))}
-		for _, key := range []string{"model", "effort"} {
-			if value := strings.TrimSpace(r.FormValue(key)); value != "" {
-				harness[key] = value
-			}
-		}
+	agent := r.FormValue("agent")
+	var agentValue json.RawMessage = []byte("1")
+	if agent != "" {
+		agentValue, _ = json.Marshal(agent)
 	}
-	config, err := json.Marshal(map[string]any{"harness": harness})
-	if err != nil {
+	open, _ := json.Marshal(r.FormValue("open") == "1")
+	msgs, _ := json.Marshal(clearableNum(r.FormValue("observe_window_messages")))
+	chars, _ := json.Marshal(clearableNum(r.FormValue("observe_window_chars")))
+	if string(msgs) == "-1" {
+		msgs = []byte("null")
+	}
+	if string(chars) == "-1" {
+		chars = []byte("null")
+	}
+	var harness json.RawMessage
+	if value := strings.TrimSpace(r.FormValue("harness")); value != "" {
+		harness = json.RawMessage(value)
+	}
+	settings := map[string]json.RawMessage{"agent": agentValue, "harness": harness, "open": open, "observe_window_messages": msgs, "observe_window_chars": chars}
+	if err := d.routdStore().AsUser(sub).SetGroupSettings(folder, settings); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	result, status, err := d.routdCall(r.Context(), http.MethodPatch,
-		"/v1/groups/"+url.PathEscape(folder), map[string]string{"config": string(config)})
-	if err != nil || status != http.StatusOK {
-		http.Error(w, fmt.Sprintf("routd group settings: status %d: %s %v", status, result, err), http.StatusBadGateway)
-		return
-	}
-	s := d.routdStore()
-	if err := s.SetGroupOpen(folder, open); err != nil {
-		slog.Warn("group settings save: open", "folder", folder, "err", err)
-		http.Error(w, "write failed", http.StatusInternalServerError)
-		return
-	}
-	if err := s.SetGroupObserveWindow(folder, owMsgs, owChars); err != nil {
-		slog.Warn("group settings save: observe", "folder", folder, "err", err)
-		http.Error(w, "write failed", http.StatusInternalServerError)
 		return
 	}
 	// Skills: checked values are enabled; unchecked skills (all stock minus checked) get .disabled.

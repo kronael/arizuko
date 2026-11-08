@@ -6,8 +6,8 @@ status: active
 
 The trust layer — the hardening that makes arizuko survive a regulated
 buyer's security review. Phase 5 builds the surfaces; this phase makes them
-defensible. Packages, process composition, programmable turns and groups without
-agents also belong to this phase.
+defensible. Group compositions and the minimum runtime also belong to this phase.
+The package contract lives in [6/59-local-daemons](../6/59-local-daemons.md).
 
 | Spec                                                       | Status  | Summary                                                                                                                                                                                      |
 | ---------------------------------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -15,9 +15,8 @@ agents also belong to this phase.
 | [D-slack-agent-pane.md](D-slack-agent-pane.md)             | shipped | Slack AI sidebar: persisted `pane_sessions`, thread-started/context-changed handlers, staged title + suggested prompts, pane context in prompt.; facts in `slakd/README.md` § Assistant pane |
 | [E-encryption-at-rest.md](E-encryption-at-rest.md)         | partial | AES-256-GCM on `secrets.value` under a `SECRETS_KEY` keyring (shipped). `messages.db` content columns deferred — it trades away SQL search.                                                  |
 | [X-sso-saml.md](X-sso-saml.md)                             | draft   | Enterprise SSO: SAML 2.0 SP-initiated + OIDC Authorization Code on top of existing OAuth. JIT provisioning + optional SCIM deprovisioning.                                                   |
-| [36-publish-plan.md](36-publish-plan.md)                   | partial | Packages, package import adapters and skill discovery; defect L200.                                                                                                                          |
-| [39-programmable-turns.md](39-programmable-turns.md)       | draft   | Package-declared workflows of turns, outputs, retries and approval steps.                                                                                                                    |
 | [40-groups-without-agents.md](40-groups-without-agents.md) | draft   | Optional agent binding; primary posts and external access without dispatch.                                                                                                                  |
+| [60-minimum-arizuko.md](60-minimum-arizuko.md)             | draft   | What a core-only instance must do: four acceptance checks, each owned by another spec.                                                                                                       |
 
 ## Scope note
 
@@ -38,3 +37,9 @@ channel-specific items go there.
 
 There is no secret-broker spec in this phase: the broker is specced in
 [`../5/13-ext-mcp.md`](../5/13-ext-mcp.md).
+
+## Deleted 2026-11-07
+
+| was                        | why                                                                                                        |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `39-programmable-turns.md` | A workflow is messages between groups under ACLs and routing, as [7/58](../7/58-group-posts.md) specifies. |

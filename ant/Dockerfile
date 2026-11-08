@@ -190,12 +190,10 @@ RUN npm install
 # are rare; regressions in Anthropic SDK are fixed by upstream fast.
 RUN npm install @anthropic-ai/claude-agent-sdk@latest
 COPY . ./
-RUN npm run build && rm -rf dist
+RUN npm run build
 RUN mkdir -p /mnt /run/ipc/input /var/lib/share /var/lib/www /var/lib/groups /opt/arizuko
 
-# Entrypoint is now a real file (was inline printf); easier to review/diff.
-COPY entrypoint.sh /app/entrypoint.sh
-RUN chmod +x /app/entrypoint.sh
+RUN ln -s /app/src/index.ts /usr/local/bin/ant
 
 # Toolchain root-owned at 755 (was world-writable — agent code could swap cargo).
 # /home/node is 755 (was 777). FHS mount points node-owned for runtime writes
@@ -211,4 +209,4 @@ WORKDIR /home/node
 # Agent container is one-shot (stdin JSON in, stdout JSON out). Liveness is
 # tracked by runed — no HEALTHCHECK is meaningful here.
 
-ENTRYPOINT ["/app/entrypoint.sh"]
+ENTRYPOINT ["/usr/local/bin/ant"]

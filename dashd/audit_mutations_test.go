@@ -54,7 +54,7 @@ func auditRowsFor(t *testing.T, h objstore.Store, action string) []audit.Row {
 }
 
 func TestGrantAdd_Audited(t *testing.T) {
-	d, _ := splitAdminDash(t, "alice@x")
+	d, routd := splitAdminDash(t, "alice@x")
 	mux := newMux(d)
 	form := url.Values{
 		"principal": {"bob@x"}, "action": {"mcp:send"}, "effect": {"allow"}, "scope": {"team"},
@@ -64,8 +64,23 @@ func TestGrantAdd_Audited(t *testing.T) {
 	if w.Code != http.StatusSeeOther {
 		t.Fatalf("POST grants = %d body=%q", w.Code, w.Body.String())
 	}
+	if n := countGrants(t, routd, "bob@x", "mcp:send"); n != 1 {
+		t.Fatalf("grant add = %d rows, want 1", n)
+	}
 	if got := auditActor(t, d, "acl.add"); got != "alice@x" {
 		t.Errorf("acl.add actor_sub = %q, want alice@x", got)
+	}
+	form = url.Values{"principal": {"bob@x"}, "action": {"mcp:send"}, "effect": {"allow"}}.Encode()
+	w = httptest.NewRecorder()
+	mux.ServeHTTP(w, adminReq("POST", "/dash/groups/team/grants/revoke", form, "alice@x"))
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("POST grants/revoke = %d body=%q", w.Code, w.Body.String())
+	}
+	if n := countGrants(t, routd, "bob@x", "mcp:send"); n != 0 {
+		t.Fatalf("grant revoke = %d rows, want 0", n)
+	}
+	if got := auditActor(t, d, "acl.remove"); got != "alice@x" {
+		t.Errorf("acl.remove actor_sub = %q, want alice@x", got)
 	}
 }
 

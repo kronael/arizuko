@@ -63,7 +63,7 @@ capability comes from its `acl` rows. Audit operator (`**`) grants.
 | Var                                                        | Notes                                                                                 |
 | ---------------------------------------------------------- | ------------------------------------------------------------------------------------- |
 | `ASSISTANT_HAS_OWN_NUMBER`                                 | WhatsApp-specific, dropped                                                            |
-| `VITE_PORT`                                                | Use `WEB_PORT`; `VITE_PORT_INTERNAL` for internal                                     |
+| `VITE_PORT`                                                | Use `WEB_PORT`; proxyd serves static files                                            |
 | `WEB_PUBLIC`                                               | Replaced by `/pub/` convention in proxyd                                              |
 | `WEBDAV_URL`                                               | Backend URL is hardcoded (`http://davd:8080`); `WEBDAV_ENABLED` still gates the route |
 | `FILE_TRANSFER_ENABLED` / `FILE_DENY_GLOBS` / `FILE_MAX_*` | File command surface not ported                                                       |

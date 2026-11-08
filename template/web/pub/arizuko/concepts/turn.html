@@ -131,14 +131,12 @@
     <p>A turn runs in one folder, and a folder has at most one live guest. To give work to a sub-agent on a second machine, an agent uses a second folder:</p>
     <ul>
       <li><code>register_group</code> creates a child folder and its first route. The caller needs a grant on <code>mcp:register_group</code> with a scope that covers the new folder. No count limits the children of a folder.</li>
-      <li><code>delegate_group</code> writes the prompt as a message on the chat of the target folder. <code>routd</code> resolves that chat to the folder and calls <code>runed</code>, and <code>runed</code> boots a guest for the child. The child turn has its own session. Its reply goes to the chat that the parent names in <code>chatJid</code>.</li>
-      <li><code>escalate_group</code> writes the prompt on the chat of the parent folder in the same way, and the parent answers through the child.</li>
+      <li><code>send(chatJid="&lt;folder&gt;", text="...")</code> writes an inbound message to the target folder. <code>routd</code> starts that folder's turn through <code>runed</code>. The target has its own guest and session. The post records the calling folder as its return address.</li>
     </ul>
     <p>The parent turn and the child turn run at the same time, in two guests. <code>MAX_CONCURRENT_CONTAINERS</code>, default 5, caps the live guests of the whole instance. Past the cap, <code>runed</code> answers busy and <code>routd</code> tries again.</p>
-    <p>Three more limits apply:</p>
+    <p>Two more limits apply:</p>
     <ul>
-      <li>The grant scope of <code>delegate_group</code> sets which folders an agent can name. A grant on <code>corp/eng/**</code> keeps it inside that subtree.</li>
-      <li>Both hand-off tools refuse a call with a <code>depth</code> argument of 1 or more. No code passes a depth to the child turn, so the check does not stop a chain of hand-offs.</li>
+      <li>Each group post checks <code>mcp:send</code> on the target folder. The default member role includes <code>send</code>; local ACL rows can restrict access.</li>
       <li>Claude Code subagents that the agent starts with its <code>Task</code> tool run inside the guest of the turn. They cannot reach <code>runed</code>, so they get no guest of their own.</li>
     </ul>
 

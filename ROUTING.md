@@ -44,7 +44,7 @@ fails at once.
 
 ### A scheduled task runs in its owner folder
 
-`timed` posts a task's prompt to the owner folder, not to the task's chat. The
+`routd` posts a task's prompt to the owner folder, not to the task's chat. The
 row addresses the folder directly, so the route table does not apply, and its
 `forwarded_from` is the task's `chat_jid`. The turn runs in the owner, and
 `reply` and `send` deliver to that chat, the same return address a delegation
@@ -723,11 +723,12 @@ up `routed_to` for that message.
 2. **The sticky group** of the chat.
 3. **The route table.**
 
-`forwarded_from` on a row is a return address and never a marker of a channel
-forward. `delegate` and `escalate` write a row into the queue of the target
-folder, and they set `forwarded_from` to the chat that asked, or to the JID of
-the escalation worker, see `delegateViaMessage` in `routd/steer.go`. The turn that
-the row starts delivers its `reply` and `send` there.
+`forwarded_from` on a row records a return address. Agent `send` calls and
+routd's routing hand-offs write through `store.PostGroup`. A group `send`
+sets the return address to the calling folder. A routing hand-off sets it to
+the originating chat. Agents use `send` with a full folder as `chatJid` to
+answer another group. A platform reply to a routing hand-off returns to the
+originating chat.
 
 `routd` chooses the adapter that carries a reply in this order, see `resolveEntry` in `routd/deliver.go`:
 
@@ -806,8 +807,9 @@ passes the message to the agent unchanged, with no confirmation and no error.
 Messages that start with `@` have many other meanings. Examples are mentions
 such as `@everyone`, references to another instance such as `@sloth`, and
 ordinary sentences. An unknown name cannot safely mean "set sticky". The agent
-decides whether the text is a typo, a mention or a `delegate_group` call to a
-child.
+decides whether the text is a typo, a mention or a request for another group.
+To pass the request to a group, the agent calls `send` with that folder as
+`chatJid`. The call requires `mcp:send` on the target folder.
 
 `routd` stores the sticky state for each chat in the `chats` table, in the
 columns `sticky_group` and `sticky_topic`. An absent value means no sticky. All

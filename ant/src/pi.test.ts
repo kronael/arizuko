@@ -129,7 +129,7 @@ test('piArgs: no self-granted extensions, scanned skills only, @file prompt', ()
   expect(args).toContain('--no-skills');
   // Discovery off, but an explicit -e still loads — that is how arizuko's
   // policy rows run on pi while nothing the agent wrote under ~/.pi does.
-  expect(args[args.indexOf('-e') + 1]).toBe('/tmp/dist/pi-extension.js');
+  expect(args[args.indexOf('-e') + 1]).toBe('/app/src/pi-extension.ts');
   const i = args.indexOf('--skill');
   expect(args[i + 1]).toBe('/home/node/.claude/skills/diary');
   expect(args).toContain('claude-serve/sonnet');

@@ -294,7 +294,7 @@ inside the same trust zone as `proxyd`, and not on a rented edge.
 ┌─ host (trusted) ─────────────────────────────────────────┐
 │                                                          │
 │  ┌─ arizuko_<instance> (docker-compose, trusted) ──────┐ │
-│  │  authd routd runed onbod dashd webd proxyd timed    │ │
+│  │  authd routd runed onbod dashd webd proxyd          │ │
 │  │  teled   discd   slakd   whapd   ...                │ │
 │  └─────────────────────────────────────────────────────┘ │
 │                                                          │
@@ -504,7 +504,7 @@ the result. The operator writes `connectors.toml`, and `routd` reads it once at
 boot. That file is the destination allowlist of door 2. The agent picks a tool
 and never a host.
 
-`callerSub` is the sender of a human turn. For a timed or system turn it is
+`callerSub` is the sender of a human turn. For a scheduled or system turn it is
 `service:routd`, see `turnCallerSub` in `routd/dispatch.go`. It is not the
 authorization principal, which is `folder:<path>`. A scheduled task therefore
 finds no row of a person. A cron task that needs a capability credential needs
@@ -785,7 +785,7 @@ traffic. It logs every request as a structured JSON line:
 ```
 
 `actor_sub` is the authenticated identity. It is empty for public routes. All
-traffic passes through `proxyd` before it reaches webd, dashd, vited or davd,
+traffic passes through `proxyd` before it serves static files or reaches webd, dashd or davd,
 so this log is the authoritative access record. No backend needs its own
 access log.
 

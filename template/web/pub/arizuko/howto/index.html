@@ -66,6 +66,7 @@
     <p>A new instance needs a store and initialized owner tables before the first <code>package add</code>. Run the following commands from the repository as the UID 1000 instance owner. Change <code>demo</code> if that instance exists. The commands refuse to overwrite its directory.</p>
     <p>Configure the external ExtendDB server first. <a href="https://github.com/kronael/arizuko/blob/main/INSTALL.md#share-one-store-server-between-instances">[INSTALL.md]</a> gives the server procedure. The host and containers must reach the same HTTPS URL. The server certificate must cover that address.</p>
     <p>The commands build the daemon image and guest artifacts. Enter the absolute artifact directories printed by the build when prompted. Enrollment creates scoped keys before the owner daemons create their tables. Keep the administrator password with the server, outside the instance. Keep the instance and temporary directory private.</p>
+    <p>Guest execution needs separate verification.</p>
     <pre id="twin-install"><code># Run from the repository as the instance owner, with UID 1000.
 set -Eeuo pipefail
 umask 077
@@ -262,7 +263,7 @@ arizuko apply -i demo rows.yml          # write only the rows in the file</code>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/howto/index.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-11-06">2026-11-06</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-07">2026-11-07</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

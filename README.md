@@ -46,7 +46,7 @@ https://krons.fiu.wtf/pub/arizuko/.
   of you across restarts.
 - One agent across several channels at once. Slack, Discord, email, WhatsApp
   and web chat all feed the same store.
-- Scheduled work. `timed` fires a turn on a cron schedule; no webhook needed.
+- Scheduled work. `routd` fires a turn on a cron schedule; no webhook needed.
 - An email or webhook agent. `emaid` reads IMAP and checks DMARC; any caller
   can POST to `/hook/<token>`.
 - Search over your own documents. Mount a tree over WebDAV (`davd`) and the
@@ -97,13 +97,12 @@ turn ends, the guest powers off and the writable layer is gone. A folder runs
 one guest at a time, and a message that arrives during a turn goes into the
 running guest.
 
-An agent gives work to a sub-agent on a machine of its own through a second
-folder. `register_group` creates a child folder, and `delegate_group` puts a
-prompt in the queue of that folder. The child runs its own turn, in its own
-guest and session, and replies in the chat that the parent names.
-`escalate_group` sends a prompt up to the parent folder. Each tool needs a
-grant. Claude Code subagents that start inside a turn share the guest of that
-turn. [concepts/turn.html](template/web/pub/arizuko/concepts/turn.html#children)
+Agents message each other with `send(chatJid="<folder>", text="...")`.
+The caller needs `mcp:send` on the target folder. `register_group` creates a
+child folder. The target runs its own turn, guest and session. The post records
+the calling folder as its return address. Claude Code subagents that start
+inside a turn share the guest of that turn.
+[concepts/turn.html](template/web/pub/arizuko/concepts/turn.html#children)
 gives the limits.
 
 ## When to use arizuko

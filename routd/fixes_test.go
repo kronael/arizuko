@@ -12,6 +12,7 @@ import (
 
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/objstore"
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 	"github.com/kronael/arizuko/store"
@@ -1197,7 +1198,7 @@ func TestWhapdFlatAttachmentFolded(t *testing.T) {
 }
 
 // L66: a deleted group used to strand its 5 seeded `<folder>-mem-N` tasks.
-// They stayed `active` and timed kept firing them at a folder that no longer
+// They stayed `active` and the scheduler kept firing them at a folder that no longer
 // existed — sloth ran Coach-mem-0..4 nightly for months, none of them ever
 // executing. A child folder's tasks are its own and must survive, exactly as
 // its routes do.
@@ -1359,4 +1360,48 @@ func (d *recDeliverer) waitSends(t *testing.T, n int) {
 	awaitCond(t, fmt.Sprintf("the deliverer never recorded %d sends", n), func() bool {
 		return len(d.sentMsgs()) >= n
 	})
+}
+
+func TestInvalidGroupAgentFailsOnce(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := db.PutGroup(core.Group{Folder: "demo"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.store().WriteEntities(context.Background(), nil, objstore.Write{Op: objstore.Merge, Entity: store.Groups, Key: objstore.Key{Partition: store.OwnerRoutd, Sort: "demo"}, Attrs: map[string]string{"config": `{"agent":"../bad"}`}}); err != nil {
+		t.Fatal(err)
+	}
+	dl := &recDeliverer{}
+	attempts := 0
+	runner := runnerFn(func(context.Context, runedv1.RunRequest) (runedv1.RunOutcome, error) {
+		attempts++
+		return runedv1.RunOutcome{}, nil
+	})
+	loop := NewLoop(db, runner, LoopConfig{Deliver: dl, MaxTurnRetry: 2})
+	loop.StopQueue()
+	doSetRoutes(t, db, []core.Route{{Match: "platform=slack", Target: "demo"}})
+	if err := db.PutMessage(core.Message{ID: "bad-agent", ChatJID: "slack:T/C/U", Sender: "u1", Content: "hi", Timestamp: time.Now().UTC(), Verb: "message"}); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if _, err := loop.processGroupMessages("slack:T/C/U"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tc, ok := db.GetTurnContext("bad-agent")
+	if !ok {
+		t.Fatal("turn not found")
+	}
+	if tc.State != "done" || tc.RetryCount != 0 || attempts != 0 {
+		t.Fatalf("turn=%+v runner calls=%d", tc, attempts)
+	}
+	if len(dl.sends) != 1 || !strings.Contains(dl.sends[0].text, "demo") || !strings.Contains(dl.sends[0].text, "../bad") {
+		t.Fatalf("notices = %+v", dl.sends)
+	}
+	if got := db.GetAgentCursor("slack:T/C/U"); !strings.HasSuffix(got, "\x1fbad-agent") {
+		t.Fatalf("cursor = %q", got)
+	}
 }

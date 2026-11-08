@@ -18,6 +18,7 @@ import (
 // an array — routd renders, runed runs.
 type RunRequest struct {
 	Packages []string `json:"packages"`
+	Agent    string   `json:"agent,omitempty"`
 	// ManagedFiles are the group-home paths package sync rewrites; the
 	// renderer denies the agent's file tools on them (advisory, not a boundary).
 	ManagedFiles    []string        `json:"managed_files,omitempty"`

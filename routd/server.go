@@ -4,11 +4,13 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/kronael/arizuko/audit"
@@ -78,6 +80,8 @@ type Verifier interface {
 // Server is routd's HTTP face: ingress + route/web-route/route-token CRUD +
 // outbound passthrough. It hosts the per-turn agent MCP socket (mcp.go).
 type Server struct {
+	scheduleMu  sync.Mutex
+	schedule    scheduleState
 	db          *DB
 	loop        *Loop
 	deliver     Deliverer
@@ -272,10 +276,9 @@ func (s *Server) Handler() http.Handler {
 	s.mountSecrets(mux)
 	mux.HandleFunc("POST /v1/pane", s.handlePaneSet)
 	// The fire-loop control plane (due/runlog/reschedule) + run-log readers
-	// stay hand-rolled: they serve timed, not resource CRUD.
+	// stay hand-rolled alongside resource CRUD.
 	s.mountTasks(mux)
 	mux.HandleFunc("GET /v1/tasks/runs", s.handleAllRunLogs)
-	mux.HandleFunc("GET /v1/tasks/due", s.handleTasksDue)
 	mux.HandleFunc("POST /v1/tasks/runlog", s.handleTaskRunLog)
 	mux.HandleFunc("GET /v1/tasks/{id}/runs", s.handleTaskRunLogs)
 	mux.HandleFunc("POST /v1/tasks/{id}/reschedule", s.handleTaskReschedule)
@@ -407,20 +410,37 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	// The minted id's adapter name is the verified caller (service:<adapter>);
-	// "adapter" when unverified.
-	adapter := strings.TrimPrefix(sub, "service:")
-	if adapter == "" {
-		adapter = "adapter"
-	}
 	var m apiv1.Message
 	if err := json.NewDecoder(r.Body).Decode(&m); err != nil {
 		writeErr(w, 400, "bad_request", err.Error())
 		return
 	}
-	if m.ChatJID == "" || m.Content == "" {
-		writeErr(w, 400, "missing_field", "chat_jid and content required")
+	id, err := s.ingestMessage(m, sub, r.Header.Get("X-Idempotency-Key"))
+	if err != nil {
+		e := err.(*ingressError)
+		writeErr(w, e.status, e.code, e.message)
 		return
+	}
+	writeJSON(w, 200, apiv1.MessageAck{OK: true, ID: id})
+}
+
+type ingressError struct {
+	status        int
+	code, message string
+}
+
+func (e *ingressError) Error() string {
+	body, _ := json.Marshal(apiv1.Err{Error: e.code, Message: e.message})
+	return fmt.Sprintf("enqueue status %d: %s\n", e.status, body)
+}
+
+func (s *Server) ingestMessage(m apiv1.Message, sub, idemKey string) (string, error) {
+	adapter := strings.TrimPrefix(sub, "service:")
+	if adapter == "" {
+		adapter = "adapter"
+	}
+	if m.ChatJID == "" || m.Content == "" {
+		return "", &ingressError{400, "missing_field", "chat_jid and content required"}
 	}
 	// A platform-scheme inbound must land under a registered channel's
 	// prefixes. Internal schemes (web:/hook:/bare-folder) are exempt; unverified
@@ -432,12 +452,10 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 				entry = s.reg.ByPrincipal(sub)
 			}
 			if entry != nil && !entry.Owns(m.ChatJID) {
-				writeErr(w, 400, "jid_prefix_mismatch", "adapter doesn't own "+m.ChatJID)
-				return
+				return "", &ingressError{400, "jid_prefix_mismatch", "adapter doesn't own " + m.ChatJID}
 			}
 		} else if s.reg.ForJID(m.ChatJID) == nil {
-			writeErr(w, 400, "jid_prefix_mismatch", "no registered channel owns "+m.ChatJID)
-			return
+			return "", &ingressError{400, "jid_prefix_mismatch", "no registered channel owns " + m.ChatJID}
 		}
 	}
 	// Sender ownership, NOT nested in the branch above: a web:/hook: ChatJID
@@ -449,18 +467,14 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 	// registry entry, and the guard took web chat down on krons (2026-08-05).
 	if s.reg != nil && sub != "" && strings.Contains(m.Sender, ":") && !strings.HasPrefix(m.Sender, "anon:") {
 		if entry := s.reg.ByPrincipal(sub); entry != nil && !entry.OwnsScheme(m.Sender) {
-			writeErr(w, 400, "sender_scheme_mismatch",
-				"adapter may not assert sender "+m.Sender)
-			return
+			return "", &ingressError{400, "sender_scheme_mismatch", "adapter may not assert sender " + m.Sender}
 		}
 	}
 	// X-Idempotency-Key is honored ONLY when id is absent: routd mints
 	// id=<adapter>-<key> so the two keys collapse. Both together is ambiguous.
-	idemKey := r.Header.Get("X-Idempotency-Key")
 	switch {
 	case m.ID != "" && idemKey != "":
-		writeErr(w, 400, "ambiguous_idempotency", "send either a stable id or X-Idempotency-Key, not both")
-		return
+		return "", &ingressError{400, "ambiguous_idempotency", "send either a stable id or X-Idempotency-Key, not both"}
 	case m.ID == "" && idemKey != "":
 		m.ID = adapter + "-" + idemKey
 	case m.ID == "":
@@ -505,8 +519,7 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 	if verb != "untrusted" && verb != "mention" && !directReply && m.Topic != "" {
 		stopped, err := s.db.store().ThreadDisengaged(m.ChatJID, m.Topic)
 		if err != nil {
-			writeErr(w, 500, "store_error", err.Error())
-			return
+			return "", &ingressError{500, "store_error", err.Error()}
 		}
 		root, exists := s.db.MessageByID(m.ChatJID, m.Topic)
 		threadMention = !stopped && exists && addressesBot(root)
@@ -524,15 +537,13 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 	row := buildMessageRow(m, ts, verb)
 	// A held tool blocks the agent worker. Its verdict must not queue behind it.
 	if s.loop != nil && s.loop.handleVerdictCommand(m.ChatJID, row) {
-		writeJSON(w, 200, apiv1.MessageAck{OK: true, ID: m.ID})
-		return
+		return m.ID, nil
 	}
 	// Engagement is NOT committed at ingress: the folder is unknown until route
 	// resolution. A pre-PutMessage claim with an empty folder would make
 	// Engaged return ("", true) and misroute.
 	if err := s.db.PutMessage(row); err != nil {
-		writeErr(w, 500, "store_error", err.Error())
-		return
+		return "", &ingressError{500, "store_error", err.Error()}
 	}
 	// A classification is written only by a caller that gave one (api/v1
 	// § Message.IsGroup).
@@ -544,7 +555,7 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 	if s.loop != nil {
 		s.loop.Enqueue(m.ChatJID)
 	}
-	writeJSON(w, 200, apiv1.MessageAck{OK: true, ID: m.ID})
+	return m.ID, nil
 }
 
 func (s *Server) handleOutbound(w http.ResponseWriter, r *http.Request) {
@@ -677,45 +688,6 @@ func (s *Server) handlePaneSet(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, apiv1.OK{OK: true})
 }
 
-// dueTask is the GET /v1/tasks/due row: exactly what timed's fire loop needs
-// to enqueue a message + reschedule.
-type dueTask struct {
-	ID          string `json:"id"`
-	Owner       string `json:"owner"`
-	ChatJID     string `json:"chat_jid"`
-	Prompt      string `json:"prompt"`
-	Cron        string `json:"cron"`
-	ContextMode string `json:"context_mode"`
-	// NextRun is the scheduled time this claim FIRES FOR, unchanged by the
-	// claim: timed keys the message id on it, so a retry after a lost response
-	// mints the SAME id and the id-PK dedups (BUGS L33). RFC3339 UTC so the
-	// round-trip through reschedule is byte-stable.
-	NextRun string `json:"next_run"`
-}
-
-// handleTasksDue atomically claims (marks 'firing') and returns the tasks whose
-// next_run has passed — the read half of timed's fire loop.
-func (s *Server) handleTasksDue(w http.ResponseWriter, r *http.Request) {
-	if !s.authed(w, r, "tasks:read") {
-		return
-	}
-	tasks, err := s.db.DueTasks(time.Now())
-	if err != nil {
-		writeErr(w, 500, "db_error", err.Error())
-		return
-	}
-	out := make([]dueTask, len(tasks))
-	for i, t := range tasks {
-		next := ""
-		if t.NextRun != nil {
-			next = t.NextRun.UTC().Format(time.RFC3339)
-		}
-		out[i] = dueTask{ID: t.ID, Owner: t.Owner, ChatJID: t.ChatJID, Prompt: t.Prompt,
-			Cron: t.Cron, ContextMode: t.ContextMode, NextRun: next}
-	}
-	writeJSON(w, 200, map[string]any{"tasks": out})
-}
-
 // taskRunLogBody is the POST /v1/tasks/runlog payload; duration_ms is the fire
 // latency.
 type taskRunLogBody struct {
@@ -725,7 +697,7 @@ type taskRunLogBody struct {
 	DurationMS int64  `json:"duration_ms"`
 }
 
-// handleTaskRunLog appends one task_run_logs row — the write half of timed's
+// handleTaskRunLog appends one task_run_logs row — the write half of the scheduler
 // fire loop.
 func (s *Server) handleTaskRunLog(w http.ResponseWriter, r *http.Request) {
 	if !s.authed(w, r, "tasks:write") {

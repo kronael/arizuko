@@ -61,7 +61,9 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">concepts</a> &rsaquo; addressing</p>
 <h1>jid</h1>
 
-    <p class="lede">A JID is the one address shape that every adapter uses for its chats and senders. The prefixes are <code>telegram</code>, <code>discord</code>, <code>whatsapp</code>, <code>slack</code>, <code>email</code>, <code>github</code>, <code>gdrive</code>, <code>web</code> for browser chats and <code>hook</code> for webhooks. Every address has the shape <code>&lt;platform&gt;:&lt;rest&gt;</code>. So one routing rule such as <code>chat_jid=telegram:group/*</code> matches every Telegram group and nothing else, and routes and grants can ignore the details of each platform.</p>
+    <p class="lede">A JID is the one address shape that every adapter uses for its chats and senders. The prefixes are <code>telegram</code>, <code>discord</code>, <code>whatsapp</code>, <code>slack</code>, <code>email</code>, <code>github</code>, <code>gdrive</code>, <code>web</code> for browser chats and <code>hook</code> for webhooks. Every adapter address has the shape <code>&lt;platform&gt;:&lt;rest&gt;</code>. So one routing rule such as <code>chat_jid=telegram:group/*</code> matches every Telegram group and nothing else, and routes and grants can ignore the details of each platform.</p>
+
+    <p>The agent tool <code>send</code> also accepts a bare group folder as <code>chatJid</code>. That destination posts to the group after checking <code>mcp:send</code> on the target. See <a href="../reference/mcp.html#send">send</a> for the parameters.</p>
 
     <h2>The platform comes before the colon</h2>
     <p>Each platform names things in its own way. Telegram chat IDs are signed integers, and a negative number means a group. teled writes the kind into the JID and drops the minus sign. WhatsApp adds a server name, <code>@g.us</code> for groups and <code>@s.whatsapp.net</code> for DMs.</p>
@@ -99,7 +101,7 @@ match='sender=telegram:user/[0-9]*'  # any numeric telegram user</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/concepts/jid.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-21">2026-10-21</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-24">2026-10-24</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

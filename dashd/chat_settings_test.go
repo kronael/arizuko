@@ -127,61 +127,54 @@ func TestGroupHarnessDashboard(t *testing.T) {
 		t.Fatal(err)
 	}
 	backend := routd.NewServer(routd.OpenOver(db), nil, nil, nil, 0, "").Handler()
-	var patches atomic.Int32
-	refuse := false
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodPatch {
-			patches.Add(1)
-			if refuse {
-				http.Error(w, "forbidden", http.StatusForbidden)
-				return
-			}
-		}
-		backend.ServeHTTP(w, r)
-	}))
+	server := httptest.NewServer(backend)
 	t.Cleanup(server.Close)
 	d := &dash{routd: db, routdURL: server.URL, groupsDir: filepath.Join(appDir, "groups")}
 	mux := newMux(d)
-	form := url.Values{"backend": {"codex"}, "model": {"future-model"}, "effort": {"high"}}.Encode()
+	const document = `{"backend":"codex","model":"future-model","effort":"high","options":{"future_key":[1,true,"value"]}}`
+	form := url.Values{"agent": {"custom-handler"}, "harness": {document}}.Encode()
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, adminReq("POST", "/dash/groups/team/settings", form, "alice"))
-	if w.Code != http.StatusSeeOther || patches.Load() != 1 {
+	if w.Code != http.StatusSeeOther {
 		t.Fatalf("save: %d %s", w.Code, w.Body.String())
 	}
 	g, ok := store.NewOver(db).GroupByFolder("team")
-	var harness map[string]string
-	if !ok || json.Unmarshal(g.Harness, &harness) != nil || harness["backend"] != "codex" || harness["model"] != "future-model" || harness["effort"] != "high" {
+	var harness map[string]json.RawMessage
+	if !ok || g.Agent != "custom-handler" || json.Unmarshal(g.Harness, &harness) != nil || string(g.Harness) != document {
 		t.Fatalf("group: %+v", g)
+	}
+	if rows := auditRowsFor(t, db, "group.settings"); len(rows) != 1 || rows[0].ActorSub != "alice" {
+		t.Fatalf("save audit = %+v, want one mutation by alice", rows)
 	}
 	w = httptest.NewRecorder()
 	mux.ServeHTTP(w, adminReq("GET", "/dash/groups/team/settings", "", "alice"))
-	for _, want := range []string{`name="backend" value="codex"`, `name="model" value="future-model"`, `name="effort" value="high"`, `Use instance defaults`} {
+	for _, want := range []string{`name="agent" value="custom-handler"`, `<textarea name="harness">` + esc(document) + `</textarea>`} {
 		if !strings.Contains(w.Body.String(), want) {
 			t.Fatalf("missing field %s: %s", want, w.Body.String())
 		}
 	}
-	if strings.Contains(w.Body.String(), `<textarea name="harness">`) {
-		t.Fatal("raw harness editor remains")
-	}
-	for _, form := range []url.Values{{"backend": {"claude"}}, {"instance_defaults": {"1"}, "backend": {"codex"}}} {
+	for i, form := range []url.Values{{"harness": {`{"backend":"claude","future":42}`}}, {"harness": {""}}} {
 		w = httptest.NewRecorder()
 		mux.ServeHTTP(w, adminReq("POST", "/dash/groups/team/settings", form.Encode(), "alice"))
 		g, _ = store.NewOver(db).GroupByFolder("team")
-		if w.Code != 303 || (form.Get("instance_defaults") == "1" && len(g.Harness) != 0) || (form.Get("backend") == "claude" && string(g.Harness) != `{"backend":"claude"}`) {
+		if w.Code != 303 || string(g.Harness) != form.Get("harness") {
 			t.Fatalf("replacement/reset: %d %+v", w.Code, g)
 		}
+		if rows := auditRowsFor(t, db, "group.settings"); len(rows) != i+2 || rows[0].ActorSub != "alice" {
+			t.Fatalf("replacement/reset audit = %+v, want one mutation by alice", rows)
+		}
 	}
-	before := patches.Load()
+	before := len(auditRowsFor(t, db, "group.settings"))
 	w = httptest.NewRecorder()
 	mux.ServeHTTP(w, adminReq("POST", "/dash/groups/team/settings", form, "stranger"))
-	if w.Code != 403 || patches.Load() != before {
+	if w.Code != 403 || len(auditRowsFor(t, db, "group.settings")) != before {
 		t.Fatalf("unauthorized save: %d", w.Code)
 	}
-	refuse = true
+	invalid := url.Values{"agent": {"another-handler"}, "harness": {`[]`}, "open": {"1"}}.Encode()
 	w = httptest.NewRecorder()
-	mux.ServeHTTP(w, adminReq("POST", "/dash/groups/team/settings", form, "alice"))
+	mux.ServeHTTP(w, adminReq("POST", "/dash/groups/team/settings", invalid, "alice"))
 	g, _ = store.NewOver(db).GroupByFolder("team")
-	if w.Code != 502 || len(g.Harness) != 0 {
-		t.Fatalf("upstream refusal: %d %+v", w.Code, g)
+	if w.Code != 400 || len(g.Harness) != 0 || g.Agent != "" || g.Open || len(auditRowsFor(t, db, "group.settings")) != before {
+		t.Fatalf("invalid document changed settings: %d %+v", w.Code, g)
 	}
 }

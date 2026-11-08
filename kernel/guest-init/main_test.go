@@ -359,8 +359,8 @@ func TestTheExitFrameCarriesTheAgentsOwnCode(t *testing.T) {
 func TestAgentCmdRunsTheImagesEntrypointAsTheAgent(t *testing.T) {
 	t.Setenv("ARIZUKO_CTL", "5557")
 	cmd := agentCmd(map[string]string{"B": "2", "A": "1"}, []byte("payload"))
-	if cmd.Path != "/app/entrypoint.sh" {
-		t.Errorf("execs %q, want the image's entrypoint /app/entrypoint.sh", cmd.Path)
+	if cmd.Path != "/usr/local/bin/ant" {
+		t.Errorf("execs %q, want the image's entrypoint /usr/local/bin/ant", cmd.Path)
 	}
 	if !reflect.DeepEqual(cmd.Env, []string{"A=1", "B=2"}) {
 		t.Errorf("environment %v, want exactly the turn's, sorted", cmd.Env)
@@ -378,6 +378,47 @@ func TestAgentCmdRunsTheImagesEntrypointAsTheAgent(t *testing.T) {
 	}
 	if string(b) != "payload" {
 		t.Errorf("stdin is %q, want the turn's payload", b)
+	}
+}
+
+func TestAgentHandler(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		file  bool
+		mode  os.FileMode
+		valid bool
+	}{
+		{name: "echo", file: true, mode: 0755, valid: true},
+		{name: "../ant"},
+		{name: "missing"},
+		{name: "not-executable", file: true, mode: 0644},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := agentCmd(map[string]string{"ARIZUKO_AGENT": tc.name}, []byte("payload"))
+			if tc.valid && cmd.Path != "/usr/local/bin/"+tc.name {
+				t.Fatalf("handler path = %q", cmd.Path)
+			}
+			if tc.file || tc.name == "missing" {
+				path := filepath.Join(t.TempDir(), tc.name)
+				if tc.file {
+					if err := os.WriteFile(path, []byte("#!/bin/sh\ncat >/dev/null\n"), tc.mode); err != nil {
+						t.Fatal(err)
+					}
+				}
+				cmd.Path = path
+			}
+			cmd.SysProcAttr = nil
+			var wire bytes.Buffer
+			run(&turn{c: &ctl{w: &wire}}, cmd)
+			frames := decodeAll(t, bytes.NewReader(wire.Bytes()))
+			last := frames[len(frames)-1]
+			if last.Kind != kindExit || (tc.valid && last.Code != 0) || (!tc.valid && last.Code != initExit) {
+				t.Fatalf("frames = %+v", frames)
+			}
+			if !tc.valid && (len(frames) < 2 || !strings.Contains(frames[0].Line, tc.name)) {
+				t.Fatalf("handler missing from error: %+v", frames)
+			}
+		})
 	}
 }
 

@@ -511,7 +511,7 @@ func TestRouteTargetWithin(t *testing.T) {
 		{"folder:world/b", "world/a", false},
 		{"world/b", "world/a", false},
 		{"world/ab", "world/a", false}, // must not prefix-match world/a in world/ab
-		{"daemon:timed", "world/a", false},
+		{"daemon:routd", "world/a", false},
 		{"builtin:stop", "world/a", false},
 	}
 	for _, c := range cases {
@@ -531,13 +531,13 @@ func TestRouteTargetOwned(t *testing.T) {
 		want              bool
 	}{
 		{"", "world/a", true}, // root / service token owns everything
-		{"", "daemon:timed", true},
+		{"", "daemon:routd", true},
 		{"world/a", "world/a", true},
 		{"world/a", "world/a/child", true},
 		{"world/a", "world/b", false},
 		{"world/a", "world/ab", false},
 		{"world/a", "folder:world/a", false},
-		{"world/a", "daemon:timed", false},
+		{"world/a", "daemon:routd", false},
 	}
 	for _, c := range cases {
 		if got := routeTargetOwned(c.jwtFolder, c.target); got != c.want {

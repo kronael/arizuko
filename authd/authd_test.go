@@ -57,7 +57,7 @@ func TestBootGeneratesActiveKey(t *testing.T) {
 func TestMintVerifyThroughAuthd(t *testing.T) {
 	db := testDB(t)
 	a := newTestAuthd(t, db)
-	tok, err := a.MintForSubject("service:timed", "service", nil, []string{"tasks:read"}, "")
+	tok, err := a.MintForSubject("service:routd", "service", nil, []string{"tasks:read"}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +66,7 @@ func TestMintVerifyThroughAuthd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("verify: %v", err)
 	}
-	if sub.Sub != "service:timed" || !auth.HasScope(sub.Scope, "tasks", "read") {
+	if sub.Sub != "service:routd" || !auth.HasScope(sub.Scope, "tasks", "read") {
 		t.Fatalf("bad subject %+v", sub)
 	}
 }
@@ -250,11 +250,11 @@ func TestOAuthUserUpsertUniqueProvider(t *testing.T) {
 func TestServiceTokenEndpoint(t *testing.T) {
 	db := testDB(t)
 	a := newTestAuthd(t, db)
-	srv := &server{a: a, serviceSecrets: map[string]string{"boot-secret-timed": "service:timed"}}
+	srv := &server{a: a, serviceSecrets: map[string]string{"boot-secret-routd": "service:routd"}}
 	ts := httptest.NewServer(srv.mux(nil))
 	defer ts.Close()
 
-	resp, out := postSvcToken(t, ts.URL, "timed", "boot-secret-timed")
+	resp, out := postSvcToken(t, ts.URL, "routd", "boot-secret-routd")
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
 		t.Fatalf("status %d", resp.StatusCode)
@@ -264,12 +264,12 @@ func TestServiceTokenEndpoint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("service token invalid: %v", err)
 	}
-	if sub.Sub != "service:timed" {
+	if sub.Sub != "service:routd" {
 		t.Fatalf("sub = %q", sub.Sub)
 	}
-	// Scope is the declared service grant for timed.
-	if !auth.HasScope(sub.Scope, "messages", "write") || !auth.HasScope(sub.Scope, "tasks", "read") {
-		t.Fatalf("service:timed grants wrong: %v", sub.Scope)
+	// Scope is the declared service grant for routd.
+	if !auth.HasScope(sub.Scope, "runs", "run") || !auth.HasScope(sub.Scope, "identity", "read") {
+		t.Fatalf("service:routd grants wrong: %v", sub.Scope)
 	}
 	// The response advertises the scope; the field name is "token", not the old
 	// "access_token".
@@ -283,12 +283,12 @@ func TestServiceTokenEndpoint(t *testing.T) {
 func TestServiceTokenSecretMustBeInHeaderNotBody(t *testing.T) {
 	db := testDB(t)
 	a := newTestAuthd(t, db)
-	srv := &server{a: a, serviceSecrets: map[string]string{"boot-secret-timed": "service:timed"}}
+	srv := &server{a: a, serviceSecrets: map[string]string{"boot-secret-routd": "service:routd"}}
 	ts := httptest.NewServer(srv.mux(nil))
 	defer ts.Close()
 
 	// Secret only in the body (old shape) + no Authorization header → rejected.
-	body, _ := json.Marshal(map[string]string{"daemon": "timed", "key": "boot-secret-timed", "secret": "boot-secret-timed"})
+	body, _ := json.Marshal(map[string]string{"daemon": "routd", "key": "boot-secret-routd", "secret": "boot-secret-routd"})
 	resp, err := http.Post(ts.URL+"/v1/service-token", "application/json", bytes.NewReader(body))
 	if err != nil {
 		t.Fatal(err)
@@ -302,11 +302,11 @@ func TestServiceTokenSecretMustBeInHeaderNotBody(t *testing.T) {
 func TestServiceTokenBadSecretRejected(t *testing.T) {
 	db := testDB(t)
 	a := newTestAuthd(t, db)
-	srv := &server{a: a, serviceSecrets: map[string]string{"boot": "service:timed"}}
+	srv := &server{a: a, serviceSecrets: map[string]string{"boot": "service:routd"}}
 	ts := httptest.NewServer(srv.mux(nil))
 	defer ts.Close()
 
-	resp, _ := postSvcToken(t, ts.URL, "timed", "wrong")
+	resp, _ := postSvcToken(t, ts.URL, "routd", "wrong")
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("expected 401, got %d", resp.StatusCode)
@@ -318,11 +318,11 @@ func TestServiceTokenBadSecretRejected(t *testing.T) {
 func TestServiceTokenWrongDaemonRejected(t *testing.T) {
 	db := testDB(t)
 	a := newTestAuthd(t, db)
-	srv := &server{a: a, serviceSecrets: map[string]string{"boot": "service:timed"}}
+	srv := &server{a: a, serviceSecrets: map[string]string{"boot": "service:routd"}}
 	ts := httptest.NewServer(srv.mux(nil))
 	defer ts.Close()
 
-	resp, _ := postSvcToken(t, ts.URL, "onbod", "boot") // boot is timed's secret
+	resp, _ := postSvcToken(t, ts.URL, "onbod", "boot") // boot is routd's secret
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("expected 401 for mismatched daemon, got %d", resp.StatusCode)
@@ -406,10 +406,10 @@ func TestRefreshEndpointRotates(t *testing.T) {
 }
 
 func TestLoadServiceSecretsParsing(t *testing.T) {
-	t.Setenv("AUTHD_SERVICE_KEYS", "service:timed=aaa, service:onbod=bbb ,bad,=ccc,ddd=")
+	t.Setenv("AUTHD_SERVICE_KEYS", "service:routd=aaa, service:onbod=bbb ,bad,=ccc,ddd=")
 	t.Setenv("AUTHD_SERVICE_KEY", "self-secret")
 	got := loadServiceSecrets()
-	if got["aaa"] != "service:timed" || got["bbb"] != "service:onbod" {
+	if got["aaa"] != "service:routd" || got["bbb"] != "service:onbod" {
 		t.Fatalf("parse failed: %v", got)
 	}
 	if got["self-secret"] != "service:authd" {

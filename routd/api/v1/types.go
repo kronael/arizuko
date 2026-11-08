@@ -24,7 +24,7 @@ type Message struct {
 	// IsGroup is the chat's classification: true for a group or channel, false for
 	// a DM, NIL for a caller that has none to give. The third state is the point,
 	// because routd WRITES this onto `chats.is_group`: only the adapter that
-	// OBSERVES the chat classifies it, while timed's cron fire and an eval
+	// OBSERVES the chat classifies it, while a scheduled task and an eval
 	// injection merely post into a chat someone else observes. A bare bool spells
 	// their silence "DM", which unflagged every group chat a scheduled task fires
 	// into and answered a live group in a direct chat's reply shape (BUGS L306).
@@ -77,7 +77,7 @@ type ModelCost struct {
 	CostCents int `json:"cost_cents"`
 }
 
-// OutboundRequest is POST /v1/outbound (timed/onbod → routd → adapter).
+// OutboundRequest is POST /v1/outbound (onbod → routd → adapter).
 // routd appends the messages row it delivers.
 type OutboundRequest struct {
 	JID     string `json:"jid"`

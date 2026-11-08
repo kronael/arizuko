@@ -59,7 +59,10 @@ func (s *Server) groupsHandler(_ context.Context, x resreg.Execution) (any, erro
 
 	case resreg.ActionGet:
 		folder := x.Args.Str("folder")
-		group, ok := s.db.store().GroupByFolder(folder)
+		group, ok, err := s.db.store().GroupByFolderChecked(folder)
+		if err != nil {
+			return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
+		}
 		if !ok {
 			return nil, resreg.Errorf(http.StatusNotFound, "no group %s", folder)
 		}
@@ -70,15 +73,22 @@ func (s *Server) groupsHandler(_ context.Context, x resreg.Execution) (any, erro
 		if err := json.Unmarshal([]byte(x.Args.Str("config")), &settings); err != nil || settings == nil {
 			return nil, resreg.Errorf(http.StatusBadRequest, "config must be a JSON object")
 		}
-		if value, exists := settings["harness"]; exists {
-			if string(value) == "null" {
-				value = nil
-			}
-			if err := s.db.store().AsUser(x.Caller.Sub).SetGroupHarness(x.Args.Str("folder"), value); err != nil {
-				return nil, resreg.Errorf(http.StatusBadRequest, "%v", err)
+		changes := map[string]json.RawMessage{}
+		for _, key := range []string{"agent", "harness"} {
+			if value, ok := settings[key]; ok {
+				if key == "harness" && string(value) == "null" {
+					value = nil
+				}
+				changes[key] = value
 			}
 		}
-		group, ok := s.db.store().GroupByFolder(x.Args.Str("folder"))
+		if err := s.db.store().AsUser(x.Caller.Sub).SetGroupSettings(x.Args.Str("folder"), changes); err != nil {
+			return nil, resreg.Errorf(http.StatusBadRequest, "%v", err)
+		}
+		group, ok, err := s.db.store().GroupByFolderChecked(x.Args.Str("folder"))
+		if err != nil {
+			return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
+		}
 		if !ok {
 			return nil, resreg.Errorf(http.StatusNotFound, "group not found")
 		}

@@ -136,7 +136,7 @@ The declared type is the one declaration, and the handler is its second reader. 
 
 A daemon passes no resource list, so it cannot advertise what it does not mount. The check is on identity and not on path presence. Three daemons serve `GET /v1/sessions` over three different tables. proxyd answers every path from a `/` catch-all. So a path probe would document the schemas of other daemons. Hand-rolled `mux.HandleFunc` mounts and catch-alls are not `*restMount` and drop out of the document.
 
-The document is built on the first request and not at construction. So `/openapi.json` may be mounted on the mux that it documents. The document is then cached for the lifetime of the process. The path is public, so mount it before auth. resreg uses no `huma`, no `swag` and no codegen. routd, runed, authd, timed, onbod, webd, proxyd and dashd all mount it. The aggregator landing page is `/pub/arizuko/reference/openapi.html`.
+The document is built on the first request and not at construction. So `/openapi.json` may be mounted on the mux that it documents. The document is then cached for the lifetime of the process. The path is public, so mount it before auth. resreg uses no `huma`, no `swag` and no codegen. routd, runed, authd, onbod, webd, proxyd and dashd all mount it. The aggregator landing page is `/pub/arizuko/reference/openapi.html`.
 
 `OpenAPI(daemon, baseURL, resources)` is the underlying emitter and takes resources directly. Tests use it with `resregtest.Mounted(...)`. It emits one operation per declared `Endpoint` and nothing else. A resource with no `Endpoints` contributes only its schema. No `/v1/<name>` operation is invented from a CRUD convention, and `resources.TestEveryResourceDeclaresEndpoints` keeps that case from arising.
 

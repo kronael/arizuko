@@ -3,10 +3,9 @@
   "version": "1.0.0",
   "type": "module",
   "description": "Container-side agent runner for Arizuko",
-  "main": "dist/index.js",
   "scripts": {
-    "build": "bunx tsc",
-    "start": "node dist/index.js",
+    "build": "bunx tsc --noEmit",
+    "start": "bun src/index.ts",
     "test": "bun test src/"
   },
   "dependencies": {

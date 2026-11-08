@@ -44,7 +44,7 @@ kind = "callback"
 
 # Doc: ant/CLAUDE.md Storage — containers are ephemeral per turn; anything
 # outside /home/node/ (~) is lost. The agent persists the marker under ~ and
-# schedules a self-message ~60s out (the `timed` primitive is the trigger, as
+# schedules a self-message ~60s out (routd scheduling is the trigger, as
 # webhook-in uses a webhook). The scheduled turn runs in a FRESH container; a
 # callback proves ~ survived across containers. If the agent wrote outside ~
 # (e.g. /tmp), the fresh container finds nothing and no callback fires.
@@ -60,20 +60,18 @@ kind = "callback"
 
 [[case]]
 id = "child-delegate"
-requires = ["mcp:register_group", "mcp:delegate_group"]
+requires = ["mcp:register_group", "mcp:send"]
 dimension = "subagents"
 smoke = true
 # Do NOT add a "grant the child egress" step here. I proposed exactly that on
 # 2026-08-21, reasoning from 5/33 that a child inherits nothing — wrong for
 # egress: it is not an `acl` row. It lives in `network_rules`, and
 # routd/network.go ResolveAllowlist walks the full ancestry at dispatch, so a
-# child DOES inherit its parent's allowlist by design. The real cause of the
-# timeout was a silent delegate_group failure (BUGS L65), which is precisely
-# what this case exists to catch.
-prompt = "Create a child group `eval/{nonce}` and delegate this task to it (the child, not you, must perform it): run `curl -s {sink}/cb/{nonce}`."
+# child DOES inherit its parent's allowlist by design.
+prompt = "Create a child group `eval/{nonce}` and use `send` to post this task to that group (the child, not you, must perform it): run `curl -s {sink}/cb/{nonce}`."
 # The only case that spawns TWO containers in sequence, so it needs the widest
 # budget, not the default one. Measured on krons 2026-08-22 (nonce etk5srr):
-# register_group returned 75s in, delegate_group fired at 80s, the child's
+# register_group returned 75s in, the group post fired at 80s, the child's
 # container spawn began at 85s — and the child still has to boot and curl.
 # It passed in 104s on an idle instance and blew the old 150s cap in a full
 # smoke run. 150s was tighter than fresh-context's 180s while doing far more.
@@ -404,7 +402,7 @@ kind = "callback"
 # fact in the scheduled prompt or fabricates an answer false-passes; the sink
 # judges reporting, the LLM judges itself.
 # NOT measurable here: layer-1 resume across turns. A scheduled fire carries
-# no topic (timed/split.go), so a group-context follow-up resumes the ROOT
+# no topic (routd/schedule.go), so a group-context follow-up resumes the ROOT
 # session while every case runs in its own topic — the fork/resume contract
 # is pinned at the integration tier instead (tests/feat_continuity_test.go).
 [[case]]

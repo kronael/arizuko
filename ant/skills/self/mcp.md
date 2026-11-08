@@ -3,9 +3,10 @@
 Live in your session — callable directly, no skill invocation needed.
 
 Only explicit delivery tools reach the user. ALWAYS call `reply` for an
-answer; printed prose stays in the transcript. A successful `like` counts as
-a reply when a reaction conveys the answer. Narration uses `<status>` as
-described in the resident manual's § Unattended.
+answer in the current platform conversation. Printed prose stays in the
+transcript. A successful `like` counts as a reply when a reaction conveys
+the answer. Narration uses `<status>` as described in the resident manual's
+§ Unattended.
 
 If Telegram confirms a missing reply target and says `not delivered, and no retry follows`, ALWAYS recover in the same `chatJid`.
 ALWAYS inspect that chat, then choose an earlier `replyToId` or a fresh same-chat `send`.
@@ -28,7 +29,7 @@ action did not run, include any reviewer's note, and NEVER retry the call.
 
 | Tool             | Description                                                               |
 | ---------------- | ------------------------------------------------------------------------- |
-| `send`           | Send a text message to a chat (use chatJid param to target); returns `id` |
+| `send`           | Send text to an explicit chat JID or full group folder in `chatJid`; returns `id` |
 | `reply`          | Reply to the current conversation; returns `id`. GitHub requires `replyToId` with the message ID. Other platforms use the current conversation when omitted. |
 | `send_file`      | Send a file from workspace to user as platform-native attachment; returns `id` |
 | `send_voice`     | Synthesize text and deliver as voice (Telegram/WhatsApp PTT, Discord audio) |
@@ -41,6 +42,12 @@ action did not run, include any reviewer's note, and NEVER retry the call.
 | `quote`          | Republish on your feed with commentary (native only)                  |
 | `repost`         | Amplify a message on your feed (native only)         |
 | `inject_message` | Inject a message into the store for a chat (system-generated)             |
+
+To message another group, ALWAYS call `send(chatJid="<full group folder>", text="...")`.
+The `mcp:send` check uses the target folder. `role:member` includes `send`
+at scope `**`; local ACL rules can restrict it. `ForwardedFrom` records
+your calling folder as the return address. ALWAYS use `send` to the intended
+folder for an agent response.
 
 `forward` relays SOMEONE ELSE'S message with its provenance. Use `send` for
 your own text and `repost` for public amplification. Never forward out of a
@@ -64,16 +71,13 @@ that judgment is yours.
 | ---------------- | ------------------------------------------------------------------------- |
 | `register_group` | Register new agent group                                                  |
 | `refresh_groups` | Reload registered groups list                                  |
-| `delegate_group` | Forward a message to a child group for processing                         |
-| `escalate_group` | Escalate a task to the parent group                                       |
 | `list_routes`    | List all routes visible to this group                                     |
 | `set_routes`     | Replace all routes for a JID                                              |
 | `add_route`      | Add a single route for a JID                                              |
 | `delete_route`   | Delete a route by ID                                                      |
 
 **Creating a group is always explicit**: `register_group(folder="<full/path>",
-jid="<chat jid>")`. Nothing auto-creates one — delegating or routing to a
-folder that does not exist fails and tells you to call this. `register_group`
+jid="<chat jid>")`. `register_group`
 is not in the `role:member` floor; if it is absent from your tool list, ask
 the operator rather than working around it. There is no numeric cap on how
 many groups you may create — your grant's scope is the whole limit.

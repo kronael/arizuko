@@ -97,13 +97,16 @@ func TestRoutdBootsFromTheEnvironment(t *testing.T) {
 		t.Fatalf("Routes = %+v, want one rule targeting acme", routes)
 	}
 
-	// The floor: without it the instance denies everything and boots healthy.
-	rows, err := store.NewOver(db.Obj()).ACLRowsFor([]string{store.RoleOperator})
-	if err != nil {
-		t.Fatalf("read the floor: %v", err)
+	// The release policy grants operators access through their stored membership.
+	st := store.NewOver(db.Obj())
+	if err := st.AddMembership("user:operator", store.RoleOperator, ""); err != nil {
+		t.Fatalf("add operator membership: %v", err)
 	}
-	if len(rows) == 0 {
-		t.Error("a routd born on the endpoint has no operator grant; every request would be denied")
+	if !auth.Authorize(st, auth.Caller{Principal: "user:operator"}, "admin", "acme", nil) {
+		t.Error("the operator is denied by the release policy")
+	}
+	if auth.Authorize(st, auth.Caller{Principal: "user:other"}, "admin", "acme", nil) {
+		t.Error("a user without operator membership is granted admin")
 	}
 
 	// The audit sink: routd's own mutations record through the handle it was

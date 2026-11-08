@@ -77,7 +77,7 @@ func serveTasksMCPElevated(t *testing.T, db *DB, folder string) string {
 
 // TestScheduledTasksMCP_ScheduleParsesCron: schedule_task folds in the three
 // `cron` forms (5-field cron / ms interval / RFC3339 one-shot) + rejects a bad
-// expr. A one-shot stores an EMPTY cron (so timed completes it after one firing);
+// expr. A one-shot stores an EMPTY cron (so the scheduler completes it after one firing);
 // a broken parser that stored the RFC3339 string as cron is caught here.
 func TestScheduledTasksMCP_ScheduleParsesCron(t *testing.T) {
 	db, err := OpenMem()
@@ -233,7 +233,7 @@ func TestScheduledTasksMCP_PauseResumeCancelOwn(t *testing.T) {
 	}
 }
 
-// TestScheduledTasksMCP_RescheduleOverrideSurvivesTheFire: timed re-arms a task
+// TestScheduledTasksMCP_RescheduleOverrideSurvivesTheFire: the scheduler re-arms a task
 // when it enqueues the prompt, so a job that calls reschedule_task during its
 // own turn writes AFTER that re-arm and its next_run stands. The next poll
 // leaves it alone; a refused call (cross-folder, bad time) writes nothing.
@@ -257,7 +257,7 @@ func TestScheduledTasksMCP_RescheduleOverrideSurvivesTheFire(t *testing.T) {
 	}
 	later := time.Now().Add(48 * time.Hour)
 
-	// The fire: timed claims the due task, enqueues, and asks routd to re-arm.
+	// The fire: the scheduler claims the due task, enqueues, and asks routd to re-arm.
 	if due, err := db.store().DueTasks(later); err != nil || len(due) != 2 {
 		t.Fatalf("DueTasks = %d tasks, err %v; want both seeded tasks", len(due), err)
 	}
@@ -523,7 +523,7 @@ func seedTaskAt(t *testing.T, db *DB, id, status, cron string, next *time.Time) 
 // resume_task drops a cron task's stale next_run (the scheduler fills the next
 // cron instant) and keeps a one-shot's; reschedule_task revives a completed
 // one-shot with the job's new time; a next_run written while the task is still
-// firing survives timed's re-arm; schedule_task refuses an empty cron.
+// firing survives the scheduler re-arm; schedule_task refuses an empty cron.
 func TestScheduledTasksMCP_ResumeAndRescheduleStates(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {

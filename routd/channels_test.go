@@ -37,7 +37,7 @@ func newChannelRoutd(t *testing.T) (*Server, *chanreg.Registry) {
 // TestIngressJIDOwnership ports gated api.handleMessage's entry.Owns reject: a
 // platform-scheme inbound must land under a registered channel's prefixes.
 // Unowned platform JIDs are rejected (400 jid_prefix_mismatch); owned JIDs and
-// internal schemes (web:/hook:, used by web chat + timed) are accepted.
+// internal schemes (web:/hook:, used by web chat + scheduler) are accepted.
 func TestIngressJIDOwnership(t *testing.T) {
 	srv, _ := newChannelRoutd(t)
 	h := srv.Handler()

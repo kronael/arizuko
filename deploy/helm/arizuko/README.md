@@ -1,8 +1,8 @@
 # arizuko Helm chart
 
 The topology `compose/compose.go` generates, on Kubernetes: `authd`, `routd`
-and `runed`, the web plane (`proxyd`, `webd`, `vited`), the operator daemons
-(`dashd`, `onbod`, `timed`, `davd`) and a values-driven set of channel
+and `runed`, the web plane (`proxyd`, `webd`), the operator daemons
+(`dashd`, `onbod`, `davd`) and a values-driven set of channel
 adapters — one Deployment + Service + Secret each. One release is one
 instance. Every daemon listens on `:8080` inside its container.
 
@@ -28,9 +28,7 @@ instance. Every daemon listens on `:8080` inside its container.
 | `routd.yaml`    | routd                         | Router: conversation state, group tree, one MCP socket per turn                          | whole                   | `routdService`              |
 | `runed.yaml`    | runed                         | Execution plane: one KVM guest per turn                                                  | whole + `/dev/*`        | `runedService`              |
 | `webd.yaml`     | webd                          | Chat widget, panel, `/api`, `/me`                                                        | none                    | `webdService`               |
-| `proxyd.yaml`   | proxyd                        | Public reverse proxy + auth gate; the Ingress target                                     | none                    | `proxydService`             |
-| `vited.yaml`    | vited                         | Static `/pub` + `/priv` tree                                                             | `web/`, read-only       | `vitedService`              |
-| `timed.yaml`    | timed                         | Scheduled messages                                                                       | none                    | `timedService`              |
+| `proxyd.yaml`   | proxyd                        | Public reverse proxy, auth gate and static files; the Ingress target                     | `web/`, read-only       | `proxydService`             |
 | `dashd.yaml`    | dashd                         | Operator dashboard (`/dash`)                                                             | `groups/`, `surrogate/` | `dashdService`              |
 | `onbod.yaml`    | onbod                         | Onboarding / admission queue (`/onboard`)                                                | `groups/`, `web/`       | `onbodService`              |
 | `davd.yaml`     | davd                          | WebDAV over `groups/` (`/dav`)                                                           | `groups/`               | `davdService`               |
@@ -46,6 +44,7 @@ Each instance uses one account on an external ExtendDB server over PostgreSQL.
 The chart runs no store. The server owns its databases, catalog, TLS files and
 administrator credential. [INSTALL.md](../../../INSTALL.md#share-one-store-server-between-instances)
 gives the server procedure.
+Daemons reach their owner tables through the DynamoDB protocol at `DYNAMODB_URL`.
 
 Create the instance on the data volume, configure `DYNAMODB_URL`, `STORE_CA`
 and `AWS_REGION`, then run `arizuko store enroll` as the instance owner.
@@ -65,6 +64,7 @@ Copy the enrolled values into the chart:
 `store.StoreReach` in `store/owner_reach.go` declares each daemon's table scope.
 Keep the operator pair in `env/operator.env` for host commands.
 Back up the external server independently of the data volume.
+`davd` runs dufs and holds no store key.
 
 ## The data volume
 
@@ -78,7 +78,7 @@ files and media.
 It is one volume on one node because the per-turn socket under `ipc/` is an
 inode routd and runed must both see. That is why `routd` and `runed` run one
 replica each with `strategy: Recreate`, and why every pod that mounts the
-volume (routd, runed, onbod, dashd, davd, vited) follows the same `nodeName`
+volume (routd, runed, onbod, dashd, davd, proxyd) follows the same `nodeName`
 or `nodeSelector`. Seed it once with `arizuko create` before the first start;
 that is not a per-rollout step.
 
@@ -163,7 +163,7 @@ helm install arizuko deploy/helm/arizuko \
 
 `my-values.yaml` carries § Values you must set; `ci/lint-values.yaml` shows
 the shape with placeholders. The images (`make images`) must be reachable
-from the node: `arizuko`, `arizuko-vite`, and `arizuko-davd` if WebDAV is on.
+from the node: `arizuko` and `arizuko-davd` if WebDAV is on.
 The agent image is not pulled by any pod — `make rootfs` exports it into
 `runed.rootfsDir` on the volume.
 

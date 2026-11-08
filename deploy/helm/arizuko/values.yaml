@@ -5,7 +5,6 @@
 # ---------------------------------------------------------------------------
 # Images, built by `make images`:
 #   - arizuko       every daemon and Go adapter, one entrypoint each
-#   - arizuko-vite  vited, the /pub + /priv static tree
 #   - arizuko-davd  davd, WebDAV over groups/ (optional)
 # The agent image (arizuko-ant) is a BUILD input, not a runtime setting:
 # `make rootfs` exports its filesystem into runed.rootfsDir and runed boots
@@ -15,7 +14,6 @@ image:
   repository: arizuko
   tag: latest
   pullPolicy: IfNotPresent
-viteImage: arizuko-vite:latest
 davImage: arizuko-davd:latest
 imagePullSecrets: []
 
@@ -23,7 +21,7 @@ nameOverride: ''
 fullnameOverride: ''
 
 # Every pod that mounts the data volume (routd, runed, onbod, dashd, davd,
-# vited) lands on ONE node: the claim is RWO, and routd and runed must see the
+# proxyd) lands on ONE node: the claim is RWO, and routd and runed must see the
 # same Unix socket inode. Name that node here — it is the node runed.nodeSelector
 # picks.
 nodeName: ''
@@ -113,8 +111,7 @@ secrets:
   # Per daemon. serviceKey is its AUTHD_SERVICE_KEY (openssl rand -hex 32;
   # authd learns the whole set from these same values). storeKeyId and
   # storeSecret are its own AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY from
-  # `arizuko store enroll`. timed holds no store key: it writes through routd's HTTP
-  # API. Add an entry for every adapter you enable.
+  # `arizuko store enroll`. Add an entry for every adapter you enable.
   daemons:
     authd:
       storeKeyId: ''
@@ -127,8 +124,6 @@ secrets:
       serviceKey: ''
       storeKeyId: ''
       storeSecret: ''
-    timed:
-      serviceKey: ''
     onbod:
       serviceKey: ''
       storeKeyId: ''
@@ -174,7 +169,7 @@ secrets:
   emailPassword: '' # EMAIL_PASSWORD         (emaid)
 
 # ---------------------------------------------------------------------------
-# Web plane. proxyd is the public entry; webd + vited sit behind it. Every
+# Web plane. proxyd is the public entry; webd sits behind it. Every
 # daemon listens on :8080 inside its container.
 # ---------------------------------------------------------------------------
 web:
@@ -183,8 +178,6 @@ web:
     enabled: true # public reverse proxy + auth gate; the Ingress points here
   webd:
     enabled: true # chat widget, panel, /api, /me portal
-  vited:
-    enabled: true # static /pub + /priv tree
 
 ingress:
   enabled: false
@@ -198,8 +191,6 @@ ingress:
   #      - arizuko.example.com
 
 # Optional core daemons (compose profiles). authd, routd and runed always run.
-timed:
-  enabled: true # scheduled messages
 dashd:
   enabled: true # operator dashboard (/dash)
 onbod:

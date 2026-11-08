@@ -42,7 +42,7 @@ func TestMintModesStampTyp(t *testing.T) {
 	db := testDB(t)
 	a := newTestAuthd(t, db)
 
-	svc, err := a.MintForSubject("service:timed", "service", nil, []string{"tasks:read"}, "")
+	svc, err := a.MintForSubject("service:routd", "service", nil, []string{"tasks:read"}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
