@@ -286,6 +286,18 @@ func (s *Server) mcpDeliver(turnID, jid, text, replyTo, msgID string, threaded b
 			return "", "", err
 		}
 		jid, topic, threadRoot = place.jid, place.threadID, place.threadRoot
+		if jid != tc.ChatJID && jid != returnTarget(tc, tc.ChatJID) && replyTo != "" {
+			topic = s.db.TopicByID(jid, replyTo)
+			if topic == "" {
+				on, err := s.db.store().ChatThreadReplies(jid)
+				if err != nil {
+					return "", "", fmt.Errorf("%w: chat thread preference could not be read: %v", chanlib.ErrPermanent, err)
+				}
+				if on {
+					threadRoot = strings.TrimPrefix(replyTo, jid+"/")
+				}
+			}
+		}
 	}
 	pid, err := s.deliver.Send(jid, text, replyTo, topic, threadRoot, msgID)
 	if err != nil {

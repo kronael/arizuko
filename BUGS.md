@@ -463,6 +463,7 @@ escalate turn does not carry.
   chat with `replyToId` = a root message, carries `threadRoot` = that id; with
   `replyToId` = a message stored in thread T, it carries `threadID` = T; without
   `replyToId`, nothing changes.
+- **Status:** cross-chat replies use the named message topic or root according to the chat preference; covered by `TestCrossChatReplyUsesTargetMessageThread`.
 
 ## L721 — delegate and escalate turns bounce between root `sloth` and `sloth/discord` for an hour (2026-11-08, open)
 
