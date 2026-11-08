@@ -153,7 +153,15 @@ func TestCheckTurnReadsSocialDelivery(t *testing.T) {
 
 // The hidden turn check cannot name another turn through a bound MCP socket.
 func TestCheckTurnSocketBinding(t *testing.T) {
-	srv := &Server{}
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	srv := NewServer(db, nil, nil, nil, 0, "")
+	if _, err := db.PutTurnContext("other", "demo", "", "tg:1", "u1", ""); err != nil {
+		t.Fatal(err)
+	}
 	fns := srv.buildRoutdFns(turnMCP{turnID: "bound"})
 	if _, err := fns.CheckTurn("demo", "other"); err == nil {
 		t.Fatal("foreign turn accepted")
