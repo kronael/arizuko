@@ -15,7 +15,6 @@
 
 ## What needs you
 
-- `L705` — scoped admins can register App webhook sources and manufacture instance-App repository context; approved fix.
 
 - `L699` — anteval cannot run a Codex smoke: it requires an Anthropic credential and installs an Anthropic-only gateway; proposal.
 - `L686` — decide whether to retire the four duplicated top-level creative skill names; proposal, needs sign-off.
@@ -9248,13 +9247,3 @@ Three shapes, one decision:
   **Fix:** measure instruction/tool exposure and completion behavior, then improve
   the existing declaration so an unambiguous completed task calls the stop tool.
   Do not add a second lifecycle policy or unconditional platform stop hook.
-
-## L705 — scoped admins can manufacture instance-App repository context (2026-11-08, open)
-
-- **Severity:** HIGH, correctness; release blocker R1.
-- **Measured:** source-verified chain at `dashd/routes_admin.go:447`, `routd/github_sources_resource.go:108`, `gitd/event.go:160`, `routd/mcp.go:649`, `githubapp/app.go:122`: folder-admin registration returns an App source secret; signed foreign-repository ingress reaches global App credential resolution. No executed exploit.
-- **Failure:** a scoped admin with GitHub connector grants can spend the instance App's authority on another repository.
-- **Fix:** App registration and its one-time secret disclosure require instance-operator authority through existing authorization gates on REST, MCP, dashboard and CLI. Repo/org registration retains folder-admin authority.
-- **Regression:** `routd/github_sources_resource_test.go::TestGitHubSourcesAppAuthorizationREST`, `TestGitHubSourcesAppAuthorizationMCP` and `dashd/github_sources_test.go::TestGitHubSourcesAppRequiresOperator` fail before the fix: scoped registration returns a secret on REST, MCP and dashboard. Operator registration and scoped repo/org registration pass. The CLI uses host-operator store credentials; it has no scoped-user mode.
-- **Mutation:** independently removing the REST JWT-folder restriction, MCP operator check, and dashboard operator scope makes the corresponding regression fail by returning an App secret; all restored.
-- **Status:** approved, fixing before R2.
