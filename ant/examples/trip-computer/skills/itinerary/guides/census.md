@@ -9,7 +9,8 @@ whole trip is planned from. Rule set and costs: `../SKILL.md`.
 
 `~/workspace/trips/<trip>/db/` — five tables, one row per place — and
 `~/public_html/<trip>/places.html` published from them (sights by
-distance band, then the full list; links to the tables).
+distance band, then the full list). Keep the tables in the private workspace.
+Publish only the selected place facts; exclude private decisions and personal contacts.
 
 | file | rows | score |
 | --- | --- | --- |
@@ -155,13 +156,14 @@ refuse). This is the only egress list in the skill.
 
 Precheck before step 3 and again before Round 2:
 ```bash
-for h in api.openstreetmap.org nominatim.openstreetmap.org mapy.com www.google.com maps.app.goo.gl www.tripadvisor.com en.wikipedia.org api.met.no api.open-meteo.com; do
+for h in api.openstreetmap.org nominatim.openstreetmap.org mapy.com www.google.com maps.google.com maps.app.goo.gl goo.gl maps.gstatic.com www.gstatic.com lh3.googleusercontent.com consent.google.com www.tripadvisor.com en.wikipedia.org api.met.no api.open-meteo.com; do
   printf '%s ' "$h"; curl -s -o /dev/null -w '%{http_code}\n' "https://$h/"
 done
 ```
-`403` on every path or `000` = the host is not on the allowlist. Send
-the user the exact ask in the same message, then continue with OSM and
-label the page "corroborated on OSM, not Mapy":
+Inspect the proxy response for an allowlist refusal. A `000` result means
+the connection failed; it does not identify the cause. For a confirmed
+refusal, send the user the exact ask in the same message. Continue the
+available research and mark the refused source as unchecked:
 `/root network_allow('<folder>', '<host>')` (folder from
 `$ARIZUKO_GROUP_FOLDER`).
 

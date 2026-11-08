@@ -21,7 +21,7 @@ these classes: `timeline-date` (`HH:MM — <title>`), `food-list`,
 defines them.
 
 **Manual Checks:**
-- Index card headers match page titles exactly
+- Each page's `<title>` matches its `<h1>`; index cards use "Day N — Weekday, Mon D"
 - Index card descriptions match day page content
 - Map links follow `mapy-links.md` (no `?q=`)
 - Timeline timing realistic (no overlaps)
@@ -30,20 +30,11 @@ defines them.
 
 ## Design Rules
 
-**NO vertical accent borders** — use background color instead:
-```css
-/* Good */
-background: rgba(255, 183, 77, 0.08);
-padding: 1em;
-border-radius: 8px;
-
-/* Bad */
-border-left: 4px solid var(--accent);
-```
-
 **Styling:**
 - ALWAYS use `assets/hub-lavender.css` + `assets/hub.js` (the site can add local styles)
-- NEVER inline styles except minimal layout (nav flex, spacing)
+- ALWAYS use the stylesheet's classes and colour tokens; keep its 2px radii and 760px column.
+- NEVER add a page theme or vertical accent borders; use the existing box classes.
+- NEVER inline styles except minimal layout (nav flex, spacing).
 - Clean titles (NO unnecessary suffixes)
 
 ## HTML Template
@@ -52,14 +43,16 @@ border-left: 4px solid var(--accent);
 <!DOCTYPE html>
 <html lang="en">
 <head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Page Title</title>
   <link rel="stylesheet" href="assets/hub-lavender.css">
 </head>
 <body>
   <a href="index.html" class="back-btn">&larr; overview</a>
-  <button class="theme-toggle"></button>
+  <button class="theme-toggle" aria-label="Toggle theme"></button>
 
-  <nav style="max-width: 900px; margin: 1.5em auto 0; padding: 0 1.5em; display: flex; gap: 0.5em; flex-wrap: wrap; font-size: 0.9em;">
+  <nav style="max-width: 760px; margin: 1.5em auto 0; padding: 0 1.5em; display: flex; gap: 0.5em; flex-wrap: wrap; font-size: 0.9em;">
     <a href="day1.html" style="color: var(--dim); text-decoration: none;">Day 1</a>
     <span style="color: var(--border);">•</span>
     <a href="day2.html" style="color: var(--dim); text-decoration: none;">Day 2</a>
@@ -68,7 +61,7 @@ border-left: 4px solid var(--accent);
   </nav>
 
   <div class="hub-container">
-    <h1>Title</h1>
+    <h1>Page Title</h1>
     <!-- Content -->
   </div>
 

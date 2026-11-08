@@ -13,8 +13,8 @@ Run all of it after every change, not only the first build.
 Every restaurant, café, museum, attraction and car park on the page is
 a `db/` row with address and postcode, phone, website or listing when
 one exists, place links per kind (`mapy-links.md`) — or `not found`
-written out after two sources tried. Public copies: `diff -q ~/workspace/trips/<trip>/db/*.md
-~/public_html/<trip>/db/` is empty.
+written out after two sources tried. Compare the page facts with the private rows.
+Keep database files, decisions and personal contacts outside `~/public_html/`.
 
 ## Trails
 
