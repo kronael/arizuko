@@ -16,6 +16,7 @@
 ## What needs you
 
 - `L721` — delegate/escalate turns bounced for an hour; tool-text fix ships in v0.75.4, verify on live turns after deploy.
+- `L722` — an agent `reply` carrying a `<status>` block posts raw tags; fix queued.
 - `L665` — `unpair` removes the account's denies from the paired identity's turns; needs sign-off.
 - `L664` — `invite_create` mints `admin` the issuing folder cannot delegate; needs sign-off.
 - `L660` — a mention by reply engages only the reply chain, not the chat root; proposal, needs sign-off.
@@ -453,6 +454,28 @@ were progress reports (rollout: `escalate_group({… prompt:"Progress: …"})`).
   `<status>`/`TodoWrite`. Delegated replies return to the caller's `chatJid`.
 - **Test:** a child that reports progress while working does not start a parent
   turn per report; one request with a delegation ends in a bounded number of turns.
+
+## L722 — an agent `reply` carrying a `<status>` block posts the raw tags to the chat (2026-11-08, open)
+
+MEASURED 2026-11-08 on sloth (codex `gpt-6.1-sol`): in thread `1569000827429847372`
+of `discord:837270552959516682/1504474527638224936`, root `sloth` posted the status
+correctly as message `1569075404684140708` ("⏳ You get answers in the original
+threads, …", 19:45:28), then the same line again as message `1569075413961940993`
+with the literal text `<status>You get answers … questions.</status>` (19:45:30;
+Discord API). The rollout shows the agent printed the status and then called
+`mcp__arizuko__reply({chatJid:"discord:837270552959516682/1504474527638224936",
+text:"<status>…</status>"})`. The owner asked "wtf is this".
+
+Cause: the `<status>` grammar is the turn's progress channel (`ant/README.md`
+§ Contracts with the Go side); nothing stops the same block from going out through
+`reply` or `send`, so a model that mixes them posts the tags verbatim.
+
+- **Severity:** medium — raw protocol text in the user's chat.
+- **Scope:** `ipc/ipc.go` `refuseText` (shared by `reply` and `send`).
+- **Fix:** refuse a `reply`/`send` text that contains a `<status>` block, with an
+  error that says status belongs in the turn's own text, not in a message.
+- **Test:** `reply` with a `<status>…</status>` text is refused and nothing is
+  delivered; a text that only mentions the word status still goes out.
 
 ## ✅ FIXED 2026-11-06 d50afcdcd L669 — dashd's group delete purges `acl` rows and edges after only `admin` on the folder (2026-11-06)
 
