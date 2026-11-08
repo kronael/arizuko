@@ -6,10 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"slices"
 	"time"
 
 	"github.com/kronael/arizuko/core"
+	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -225,7 +227,12 @@ func (l *Loop) stopModelProbe(tc TurnContext) error {
 		if !ok {
 			return fmt.Errorf("run recovery cannot kill the interrupted model probe")
 		}
-		return killer.Kill(context.Background(), tc.RunID)
+		err := killer.Kill(context.Background(), tc.RunID)
+		var apiErr *runedv1.APIError
+		if errors.As(err, &apiErr) && apiErr.Status == http.StatusNotFound && apiErr.Code == "unknown_run" {
+			return nil
+		}
+		return err
 	}
 	stopper, ok := l.runner.(RunStopper)
 	if !ok {

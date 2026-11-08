@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"runtime"
 	"strings"
 	"sync"
@@ -516,7 +517,7 @@ func TestModelPauseRequeueKillsCapturedRun(t *testing.T) {
 	if after.ProbeAttemptID != "probe" || len(p.kills) != 1 || p.kills[0] != "captured" || p.stops != 0 {
 		t.Fatalf("failed kill changed pause or target: pause=%+v kills=%v stops=%d", after, p.kills, p.stops)
 	}
-	p.stopErr = nil
+	p.stopErr = &runedv1.APIError{Status: http.StatusNotFound, Code: "unknown_run"}
 	l.requeueModelProbe(pause, tc, true)
 	after, _ = db.store().ReadModelPause(t.Context(), "a")
 	if after.ProbeAttemptID != "" || len(p.kills) != 2 || p.kills[1] != "captured" || p.stops != 0 {
@@ -676,6 +677,100 @@ func TestModelPauseFailureBeforeGuestSubmissionDoesNotProveRecovery(t *testing.T
 			}
 			if pause, err := db.store().ReadModelPause(t.Context(), "a"); err != nil || pause != nil {
 				t.Fatalf("next probe did not recover: %+v %v", pause, err)
+			}
+		})
+	}
+}
+
+func TestModelPauseMissingCapturedRunRecovery(t *testing.T) {
+	for _, completed := range []bool{false, true} {
+		t.Run(fmt.Sprintf("completed=%t", completed), func(t *testing.T) {
+			db, l, p, dl := pauseFixture(t, "rate_limit")
+			pauseInput(t, db, "web:a", "held", "u", "saved", time.Now())
+			processPauseChat(t, l, "web:a")
+			modelPauseDue(t, db)
+			pause, _ := db.store().ReadModelPause(t.Context(), "a")
+			if _, err := db.store().OpenTurnContext("held", "a", "", "web:a", "u", "", &store.TurnAdmission{AttemptID: "probe", ProbeEpisode: pause.OpenedAt}); err != nil {
+				t.Fatal(err)
+			}
+			if err := db.SetTurnRunID("held", "captured"); err != nil {
+				t.Fatal(err)
+			}
+			if completed {
+				p.srv.replyForTest(t, "held", "web:a", "recovered")
+				if _, err := p.srv.mcpSubmitTurn("a", ipc.TurnResult{TurnID: "held", Status: "success"}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			p.stopErr = fmt.Errorf("kill: %w", &runedv1.APIError{Status: http.StatusNotFound, Code: "unknown_run"})
+			if err := db.SetRunReturned("held"); err != nil {
+				t.Fatal(err)
+			}
+			pauseInput(t, db, "web:b", "independent", "v", "run", time.Now())
+			poller := NewLoop(db, p, LoopConfig{Deliver: dl})
+			defer poller.StopQueue()
+			polled := make(chan string, 4)
+			poller.q.SetProcessMessagesFn(func(jid string) (bool, error) {
+				polled <- jid
+				return false, nil
+			})
+			poller.pollOnce()
+			timeout := time.After(5 * time.Second)
+		checkedPoll:
+			for {
+				select {
+				case jid := <-polled:
+					if jid == "web:b" {
+						break checkedPoll
+					}
+				case <-timeout:
+					t.Fatal("independent input did not poll")
+				}
+			}
+			after, err := db.store().ReadModelPause(t.Context(), "a")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if completed && after != nil {
+				t.Fatalf("completed pause remains: %+v", after)
+			}
+			if !completed && (after == nil || after.ProbeAttemptID != "" || after.NextAttemptAt == "") {
+				t.Fatalf("pause not rearmed: %+v", after)
+			}
+			if len(p.kills) != 1 || p.kills[0] != "captured" || p.stops != 0 {
+				t.Fatalf("kills=%v stops=%d", p.kills, p.stops)
+			}
+		})
+	}
+}
+
+func TestModelPauseStopCapturedRunErrors(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		err     error
+		wantErr bool
+	}{
+		{"success", nil, false},
+		{"missing", &runedv1.APIError{Status: http.StatusNotFound, Code: "unknown_run"}, false},
+		{"wrapped missing", fmt.Errorf("wrapped: %w", &runedv1.APIError{Status: http.StatusNotFound, Code: "unknown_run"}), false},
+		{"other 404", &runedv1.APIError{Status: http.StatusNotFound, Code: "other"}, true},
+		{"wrong status", &runedv1.APIError{Status: http.StatusInternalServerError, Code: "unknown_run"}, true},
+		{"auth", &runedv1.APIError{Status: http.StatusUnauthorized, Code: "unauthorized"}, true},
+		{"transport", errors.New("connection refused"), true},
+		{"kill failure", &runedv1.APIError{Status: http.StatusInternalServerError, Code: "kill_failed"}, true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			p := &pauseProvider{stopErr: tt.err}
+			l := &Loop{runner: p}
+			err := l.stopModelProbe(TurnContext{RunID: "captured", Folder: "a"})
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("error=%v want error=%t", err, tt.wantErr)
+			}
+			if tt.wantErr && !errors.Is(err, tt.err) {
+				t.Fatalf("error %v does not preserve %v", err, tt.err)
+			}
+			if len(p.kills) != 1 || p.kills[0] != "captured" || p.stops != 0 {
+				t.Fatalf("kills=%v stops=%d", p.kills, p.stops)
 			}
 		})
 	}

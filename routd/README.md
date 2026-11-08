@@ -152,7 +152,8 @@ routd resolves an interrupted probe through existing running-turn recovery
 before rearming it. Old callback bindings cannot affect the current attempt.
 Recovery holds the queue's admission lock while the folder is idle. It kills
 the captured run ID when available; an interrupted request without an ID uses
-the folder stop under that lock. Rebinding clears the previous attempt's run ID.
+the folder stop under that lock. A confirmed missing captured run counts as
+stopped. Rebinding clears the previous attempt's run ID.
 
 Each destination chat gets one durable notice per folder and episode:
 `Model access is paused: <reason>. Your messages are saved. I will retry automatically.`

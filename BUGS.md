@@ -16,6 +16,7 @@
 ## What needs you
 
 - `L721` — group handoffs bounced for an hour; verify bounded turns after deployment with group sends and progress guidance.
+- `L757` — missing captured run blocks automatic model probe recovery; authorized R2 fix.
 - `L743` — an instance-wide model pause needs trusted host-side provider evidence; proposal, needs sign-off.
 
 - `L715` — A1/A2: trusted GitHub sender and source-owner binding; proposal, needs sign-off.
@@ -379,6 +380,26 @@ reads those words now.
   `/tmp/arizuko-github-baseline-build.log`. No test — ops.
   **Proposal:** stop the build on the first failed submake. This is an adjacent
   build-gate repair; scope approval is pending.
+
+
+## L757 — missing captured run prevents automatic probe recovery (2026-11-08, open)
+
+**Severity:** HIGH, correctness. Fifth v0.75.4 audit R2.
+`routd/model_pauses.go:228` propagates a captured run's typed `404 unknown_run`
+from Kill before conditional completion or rearm. The bound pause has no due
+time; `routd/loop.go:517` returns before pending-chat scanning on every poll.
+Runed retention removes terminal spawn records after seven days
+(`runed/runstore/spawns.go:352`); no live guest is required.
+Measured: audit witness `TestAudit5MissingCapturedRunBlocksPolling` made three
+polls with an enabled queue and the exact typed response. Each repeated Kill,
+kept the bound pause, and skipped independent input; direct processing worked.
+Retention and the HTTP response were source-verified; no seven-day wait occurred.
+**Fix:** only a confirmed missing captured run counts as already stopped;
+continue conditional completion/rearm, preserve other kill failures, and never
+substitute StopFolder for a captured run ID.
+Regression: `routd/model_pauses_test.go::TestModelPauseMissingCapturedRunRecovery`
+and `TestModelPauseStopCapturedRunErrors` failed on the unfixed source for
+both completion states and direct/wrapped missing-run errors.
 
 
 ## L715 — tenant GitHub ingress needs trusted sender and source-owner binding (2026-11-08, proposal — needs sign-off)
