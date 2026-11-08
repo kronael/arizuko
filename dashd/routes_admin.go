@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/resreg/resources"
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
 	"github.com/kronael/arizuko/router"
@@ -284,7 +285,7 @@ func (d *dash) handleRouteUpdate(w http.ResponseWriter, r *http.Request) {
 	// Authz on the CURRENT row's folder, not just the submitted target — an
 	// admin on folder B must not be able to repoint a route that currently
 	// targets folder A. Load the existing target first; 404 if it's gone.
-	current, found, err := d.routdStore().RouteByID(id)
+	current, found, version, err := d.routdStore().RouteByIDVersion(id)
 	if err != nil {
 		slog.Warn("routes: update lookup", "id", id, "err", err)
 		http.Error(w, "lookup failed", http.StatusInternalServerError)
@@ -318,8 +319,12 @@ func (d *dash) handleRouteUpdate(w http.ResponseWriter, r *http.Request) {
 		Target:                body.Target,
 		ObserveWindowMessages: body.ObserveWindowMessages,
 		ObserveWindowChars:    body.ObserveWindowChars,
-	})
+	}, version)
 	if err != nil {
+		if errors.Is(err, objstore.ErrScopeMoved) {
+			http.Error(w, "route changed", http.StatusConflict)
+			return
+		}
 		slog.Warn("routes: update", "id", id, "err", err)
 		http.Error(w, "write failed", http.StatusInternalServerError)
 		return
@@ -344,7 +349,7 @@ func (d *dash) handleRouteDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Resolve folder via the existing route row so we can gate admin to scope.
-	current, found, err := d.routdStore().RouteByID(id)
+	current, found, version, err := d.routdStore().RouteByIDVersion(id)
 	if err != nil {
 		slog.Warn("routes: lookup", "id", id, "err", err)
 		http.Error(w, "lookup failed", http.StatusInternalServerError)
@@ -362,8 +367,12 @@ func (d *dash) handleRouteDelete(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	n, err := d.routdStore().AsUser(sub).DeleteRoute(id)
+	n, err := d.routdStore().AsUser(sub).DeleteRoute(id, version)
 	if err != nil {
+		if errors.Is(err, objstore.ErrScopeMoved) {
+			http.Error(w, "route changed", http.StatusConflict)
+			return
+		}
 		slog.Warn("routes: delete", "id", id, "err", err)
 		http.Error(w, "delete failed", http.StatusInternalServerError)
 		return

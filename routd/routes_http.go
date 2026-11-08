@@ -77,7 +77,8 @@ func (s *Server) mountRoutes(mux *http.ServeMux) {
 // open.
 func (s *Server) routesRESTGate(x resreg.Execution, _ string, _ map[string]string) error {
 	if s.verify == nil {
-		return nil
+		_, err := s.routesNeedGitHubOperator(x)
+		return err
 	}
 	held := x.Caller.Scopes()
 	want := []string{"routes:read", "routes:read:own_group"}

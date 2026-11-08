@@ -577,6 +577,9 @@ func MCPTools(srv *mcpserver.MCPServer, r Resource, callerFor CallerFromMCPFunc,
 func invoke(ctx context.Context, r Resource, x Execution) (any, int, error) {
 	start := time.Now()
 	forward := r.Store == nil // forwarder: downstream daemon logs
+	if !forward && x.Action.Mutates() {
+		x.Writes = &store.WriteSet{}
+	}
 	var scope string
 	var params map[string]string
 	if r.Authz != nil {
@@ -606,7 +609,6 @@ func invoke(ctx context.Context, r Resource, x Execution) (any, int, error) {
 		emitAudit(ctx, x, scope, params, audit.OutcomeOK, "", start, forward)
 		return res, 0, nil
 	}
-	x.Writes = &store.WriteSet{}
 	res, herr := r.Handler(ctx, x)
 	if herr != nil {
 		// Nothing was written, so the row that records the attempt goes in

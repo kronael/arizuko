@@ -118,7 +118,7 @@ func runRouteRm(s *store.Store, id int64, w io.Writer) error {
 	if !ok {
 		return fmt.Errorf("no route %d", id)
 	}
-	n, err := s.DeleteRoute(id)
+	n, err := s.DeleteRoute(id, "")
 	if err != nil {
 		return err
 	}

@@ -29,7 +29,7 @@ func TestRouteWritersRejectInvalidTargets(t *testing.T) {
 		if _, err := s.PutRouteRow(r); err == nil {
 			t.Errorf("PutRouteRow accepted %q", target)
 		}
-		if _, err := s.UpdateRoute(id, r); err == nil {
+		if _, err := s.UpdateRoute(id, r, ""); err == nil {
 			t.Errorf("UpdateRoute accepted %q", target)
 		}
 		if _, err := s.PutRouteInto(context.Background(), &WriteSet{}, r, "", "", nil); err == nil {

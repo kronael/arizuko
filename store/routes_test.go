@@ -38,7 +38,7 @@ func TestUpdateRoute_RejectsWebJIDPredicate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AddRoute: %v", err)
 	}
-	_, err = s.UpdateRoute(id, core.Route{Match: "chat_jid=web:alpha", Target: "alpha"})
+	_, err = s.UpdateRoute(id, core.Route{Match: "chat_jid=web:alpha", Target: "alpha"}, "")
 	if !errors.Is(err, ErrWebJIDRouted) {
 		t.Errorf("UpdateRoute(web jid) err = %v, want ErrWebJIDRouted", err)
 	}
@@ -47,7 +47,7 @@ func TestUpdateRoute_RejectsWebJIDPredicate(t *testing.T) {
 // An update that matches no row is not a mutation: no rows, no audit row.
 func TestUpdateRoute_MissingIDRecordsNothing(t *testing.T) {
 	s := openMem(t)
-	n, err := s.UpdateRoute(404, core.Route{Match: "chat_jid=telegram:1", Target: "alpha"})
+	n, err := s.UpdateRoute(404, core.Route{Match: "chat_jid=telegram:1", Target: "alpha"}, "")
 	if err != nil || n != 0 {
 		t.Fatalf("UpdateRoute(missing) = %d, %v; want 0, nil", n, err)
 	}
@@ -125,7 +125,7 @@ func TestRouteByID_RefusesADuplicateIDAndDeletesNothing(t *testing.T) {
 		}
 	}
 
-	if _, err := s.DeleteRoute(37); err == nil {
+	if _, err := s.DeleteRoute(37, ""); err == nil {
 		t.Fatal("a duplicate id must be refused: deleting the first match destroys an arbitrary rule")
 	} else if !strings.Contains(err.Error(), "names two rules") {
 		t.Errorf("the refusal must say the id is ambiguous, got: %v", err)

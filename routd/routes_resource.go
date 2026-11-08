@@ -24,6 +24,7 @@ import (
 	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
+	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/resreg/resources"
 	"github.com/kronael/arizuko/router"
@@ -76,8 +77,8 @@ func (s *Server) routesNeedGitHubOperator(x resreg.Execution) (bool, error) {
 		if id == 0 {
 			return false, resreg.Errorf(http.StatusBadRequest, "id required")
 		}
-		route, err := s.db.GetRoute(id)
-		if errors.Is(err, ErrNoRoute) {
+		route, found, version, err := s.db.store().RouteByIDVersion(id)
+		if err == nil && !found {
 			return false, resreg.Errorf(http.StatusNotFound, "route not found: %d", id)
 		}
 		if errors.Is(err, store.ErrRouteIDAmbiguous) {
@@ -86,20 +87,27 @@ func (s *Server) routesNeedGitHubOperator(x resreg.Execution) (bool, error) {
 		if err != nil {
 			return false, resreg.Errorf(http.StatusInternalServerError, "store_error")
 		}
+		x.Writes.Prove(version)
 		return router.HasGitHubIngress(route.Match), nil
 	case routesActionSet:
 		var routes []core.Route
 		if err := json.Unmarshal([]byte(argJSONString(x.Args, "routes")), &routes); err != nil {
 			return false, resreg.Errorf(http.StatusBadRequest, "invalid routes json: %v", err)
 		}
+		var existing []core.Route
+		version, err := objstore.ReadConsistent(context.Background(), s.db.store().Obj(), store.OwnerScope(store.OwnerRoutd), func(context.Context) error {
+			var err error
+			existing, err = s.db.Routes()
+			return err
+		})
+		if err != nil {
+			return false, resreg.Errorf(http.StatusInternalServerError, "store_error")
+		}
+		x.Writes.Prove(version)
 		for _, route := range routes {
 			if router.HasGitHubIngress(route.Match) {
 				return true, nil
 			}
-		}
-		existing, err := s.db.Routes()
-		if err != nil {
-			return false, resreg.Errorf(http.StatusInternalServerError, "store_error")
 		}
 		for _, route := range existing {
 			if (x.Caller.Folder == "" || routeTargetWithin(route.Target, x.Caller.Folder)) && router.HasGitHubIngress(route.Match) {

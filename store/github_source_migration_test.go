@@ -60,9 +60,9 @@ func TestMigrateGitHubSourceRoutes(t *testing.T) {
 			switch tc.edit {
 			case "target":
 				route.Target = tc.owner + "/child#{jid}"
-				_, err = s.UpdateRoute(route.ID, route)
+				_, err = s.UpdateRoute(route.ID, route, "")
 			case "missing":
-				_, err = s.DeleteRoute(route.ID)
+				_, err = s.DeleteRoute(route.ID, "")
 			case "duplicate":
 				route.ID, route.Seq = 0, 999
 				_, err = s.AddRoute(route)

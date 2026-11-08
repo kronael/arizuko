@@ -307,6 +307,17 @@ func (s *Store) RouteByID(id int64) (core.Route, bool, error) {
 	return r, ok, err
 }
 
+func (s *Store) RouteByIDVersion(id int64) (core.Route, bool, objstore.Version, error) {
+	var route core.Route
+	var found bool
+	v, err := objstore.ReadConsistent(context.Background(), s.Obj(), OwnerScope(OwnerRoutd), func(ctx context.Context) error {
+		var err error
+		_, route, found, err = s.routeByID(ctx, id)
+		return err
+	})
+	return route, found, v, err
+}
+
 // putRoute writes one rule create-if-absent, minting an id when the caller
 // carries none. It answers the id the rule now holds, whether it minted one or
 // found the rule already there: what an idempotent add owes its caller.
@@ -438,7 +449,7 @@ func (s *Store) PutRouteRow(r core.Route) (int64, error) {
 // DeleteRoute removes a rule by id and records it. Returns rows affected (0 is
 // not found, and no audit row: a delete that matched nothing is not a
 // mutation).
-func (s *Store) DeleteRoute(id int64) (int64, error) {
+func (s *Store) DeleteRoute(id int64, v objstore.Version) (int64, error) {
 	ctx := context.Background()
 	it, r, ok, err := s.routeByID(ctx, id)
 	if err != nil {
@@ -448,19 +459,20 @@ func (s *Store) DeleteRoute(id int64) (int64, error) {
 		return 0, nil
 	}
 	actor, actorSub, surface := s.auditIdentity()
-	err = s.writeAudited(func() ([]objstore.Write, audit.Event, error) {
-		w := objstore.Write{Op: objstore.Delete, Entity: Routes, Key: it.Key}
-		return []objstore.Write{w}, audit.Event{
-			Category: audit.CategoryMutation,
-			Action:   "route.delete",
-			Actor:    actor,
-			ActorSub: actorSub,
-			Surface:  surface,
-			Resource: fmt.Sprintf("routes/%d", id),
-			Folder:   core.ParseRouteTarget(r.Target).Folder,
-			Outcome:  audit.OutcomeOK,
-		}, nil
+	ws := &WriteSet{}
+	ws.Prove(v)
+	ws.Add(objstore.Write{Op: objstore.Delete, Entity: Routes, Key: it.Key})
+	_, rec := audit.WriteFor(audit.Event{
+		Category: audit.CategoryMutation,
+		Action:   "route.delete",
+		Actor:    actor,
+		ActorSub: actorSub,
+		Surface:  surface,
+		Resource: fmt.Sprintf("routes/%d", id),
+		Folder:   core.ParseRouteTarget(r.Target).Folder,
+		Outcome:  audit.OutcomeOK,
 	})
+	err = s.Apply(ctx, ws, rec)
 	if err != nil {
 		return 0, err
 	}
@@ -471,7 +483,7 @@ func (s *Store) DeleteRoute(id int64) (int64, error) {
 // is not found, and no audit row). An edit that changes seq, target or match
 // changes the rule's COORDINATE, so the write is a delete and a put in ONE
 // batch; the id is carried across, because it is the handle every agent holds.
-func (s *Store) UpdateRoute(id int64, r core.Route) (int64, error) {
+func (s *Store) UpdateRoute(id int64, r core.Route, v objstore.Version) (int64, error) {
 	if MatchesWebJID(r.Match) {
 		return 0, ErrWebJIDRouted
 	}
@@ -499,23 +511,25 @@ func (s *Store) UpdateRoute(id int64, r core.Route) (int64, error) {
 		}}, writes...)
 	}
 	actor, actorSub, surface := s.auditIdentity()
-	err = s.writeAudited(func() ([]objstore.Write, audit.Event, error) {
-		return writes, audit.Event{
-			Category: audit.CategoryMutation,
-			Action:   "route.update",
-			Actor:    actor,
-			ActorSub: actorSub,
-			Surface:  surface,
-			Resource: fmt.Sprintf("routes/%d", id),
-			Folder:   r.Target,
-			Outcome:  audit.OutcomeOK,
-			ParamsSummary: map[string]any{
-				"match":  r.Match,
-				"target": r.Target,
-				"seq":    r.Seq,
-			},
-		}, nil
+	ws := &WriteSet{}
+	ws.Prove(v)
+	ws.Add(writes...)
+	_, rec := audit.WriteFor(audit.Event{
+		Category: audit.CategoryMutation,
+		Action:   "route.update",
+		Actor:    actor,
+		ActorSub: actorSub,
+		Surface:  surface,
+		Resource: fmt.Sprintf("routes/%d", id),
+		Folder:   r.Target,
+		Outcome:  audit.OutcomeOK,
+		ParamsSummary: map[string]any{
+			"match":  r.Match,
+			"target": r.Target,
+			"seq":    r.Seq,
+		},
 	})
+	err = s.Apply(ctx, ws, rec)
 	if err != nil {
 		return 0, err
 	}

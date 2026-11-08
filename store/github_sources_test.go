@@ -306,7 +306,7 @@ func TestGitHubSourceRemoveKeepsExistingAndReplacedRoutes(t *testing.T) {
 	if replaced.ID == 0 {
 		t.Fatal("seeded route missing")
 	}
-	if _, err := s.DeleteRoute(replaced.ID); err != nil {
+	if _, err := s.DeleteRoute(replaced.ID, ""); err != nil {
 		t.Fatal(err)
 	}
 	replacementID, err := s.AddRoute(seeded[1])
@@ -323,7 +323,7 @@ func TestGitHubSourceRemoveKeepsExistingAndReplacedRoutes(t *testing.T) {
 		t.Fatal("route to edit missing")
 	}
 	edited.Target = "other#{jid}"
-	if _, err := s.UpdateRoute(edited.ID, edited); err != nil {
+	if _, err := s.UpdateRoute(edited.ID, edited, ""); err != nil {
 		t.Fatal(err)
 	}
 	if hit, err := s.RemoveGitHubSource("app/one", "eng"); err != nil || !hit {
