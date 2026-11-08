@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/core"
+	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 	"golang.org/x/sys/unix"
 )
 
@@ -93,7 +94,7 @@ func TestGuestTurnOverCtl(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	entry := filepath.Join(root, "app", "entrypoint.sh")
+	entry := filepath.Join(root, "app", "probe")
 	if err := os.WriteFile(entry, []byte(turnProofEntry), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -163,16 +164,16 @@ func TestGuestTurnOverCtl(t *testing.T) {
 			defer cancel()
 			steers := make(chan func(string) bool, 1)
 			handle := "turn-proof-" + mode
+			env := turnEnv(cfg, runedv1.RunRequest{Agent: "probe"}, 0)
+			env["HOME"], env["TURN_MODE"] = core.ContainerHome, mode
+			env["TURN_HOST"], env["TURN_IP"], env["TURN_PORT"] = cfg.Name, address, port
 			turn := Turn{
 				Handle: handle, Folder: "solo/inbox",
 				Mounts: []core.Mount{
 					{Host: home, Container: core.ContainerHome},
-					{Host: entry, Container: "/app/entrypoint.sh", RO: true},
+					{Host: entry, Container: "/usr/local/bin/probe", RO: true},
 				},
-				Env: map[string]string{
-					"HOME": core.ContainerHome, "TURN_MODE": mode,
-					"TURN_HOST": cfg.Name, "TURN_IP": address, "TURN_PORT": port,
-				},
+				Env:   env,
 				Stdin: []byte("turn-stdin\n"), Egress: []string{cfg.Name},
 				RegisterSteer: func(steer func(string) bool) { steers <- steer },
 			}
@@ -389,7 +390,7 @@ func cleanTurnProof(t *testing.T, root string) {
 			}
 		}
 	}
-	_ = os.Remove(filepath.Join(root, "app", "entrypoint.sh"))
+	_ = os.Remove(filepath.Join(root, "app", "probe"))
 	_ = os.Remove(filepath.Join(root, "ipc", "solo", "inbox", "gated.sock"))
 	for _, dir := range []string{
 		logs, filepath.Join(root, "groups", "solo", "inbox"),
