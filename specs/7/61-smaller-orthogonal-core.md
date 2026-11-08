@@ -254,7 +254,7 @@ Go entrypoints come from `rg -l '^func main\(' --glob '*.go'`.
    Proof: replay parent-plus-topic and thread-JID inputs against the same stored
    conversation and obtain the same rows, delivery result, and authorization target.
    An unrelated chat and folder must remain refused.
-   L723 also reports three refused history reads. Its own-chat exception failure
+   L761 also reports three refused history reads. Its own-chat exception failure
    remains unmeasured in the entry. Trace that failure before changing authorization.
    Normalization and route authorization require separate changes and evidence.
 
@@ -288,7 +288,7 @@ Go entrypoints come from `rg -l '^func main\(' --glob '*.go'`.
    Record exact deleted functions and required configuration before any cutover.
 
 Sources for the incident measurements: `.diary/20261108.md` entries L716, L719,
-and L720; `BUGS.md` entry L723. These records describe distinct failures.
+and L720; `BUGS.md` entry L761. These records describe distinct failures.
 The draft does not claim one refactor fixes all four.
 
 Keep authn, authorization, resource handling, storage, and execution as separate
@@ -311,7 +311,7 @@ Process count alone does not measure orthogonality.
 3. **Should conversation normalization be the first core cut?**
    Recommendation: yes, followed by placement as a separate change.
    L716 and the source sites show repeated address knowledge.
-   Require a measured explanation of L723 before approving any read-policy change.
+   Require a measured explanation of L761 before approving any read-policy change.
 4. **Should a fronting-proxy trial precede the single-process composition?**
    Recommendation: keep it separate from 7/26. Existing `proxycfg` and
    `/auth/forward` make the transport boundary independently testable.

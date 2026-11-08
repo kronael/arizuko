@@ -16,9 +16,9 @@
 ## What needs you
 
 - `L721` — delegate/escalate turns bounced for an hour; tool-text fix ships in v0.75.4, verify on live turns after deploy.
-- `L722` — an agent `reply` carrying a `<status>` block posts raw tags; manual fix ships in v0.75.4, verify on live codex turns.
-- `L723` — a mention-routed folder cannot read the chat it answers; fix queued.
-- `L724` — the reply length lint does not run on codex turns; fix queued.
+- `L760` — an agent `reply` carrying a `<status>` block posts raw tags; manual fix ships in v0.75.4, verify on live codex turns.
+- `L761` — a mention-routed folder cannot read the chat it answers; fix queued.
+- `L762` — the reply length lint does not run on codex turns; fix queued.
 - `L665` — `unpair` removes the account's denies from the paired identity's turns; needs sign-off.
 - `L664` — `invite_create` mints `admin` the issuing folder cannot delegate; needs sign-off.
 - `L660` — a mention by reply engages only the reply chain, not the chat root; proposal, needs sign-off.
@@ -457,7 +457,7 @@ were progress reports (rollout: `escalate_group({… prompt:"Progress: …"})`).
 - **Test:** a child that reports progress while working does not start a parent
   turn per report; one request with a delegation ends in a bounded number of turns.
 
-## L722 — an agent `reply` carrying a `<status>` block posts the raw tags to the chat (2026-11-08, open)
+## L760 — an agent `reply` carrying a `<status>` block posts the raw tags to the chat (2026-11-08, open)
 
 MEASURED 2026-11-08 on sloth (codex `gpt-6.1-sol`): in thread `1569000827429847372`
 of `discord:837270552959516682/1504474527638224936`, root `sloth` posted the status
@@ -484,7 +484,7 @@ Cause: the `<status>` grammar is the turn's progress channel (`ant/README.md`
   The Python reply linter runs through Claude settings only, outside the Codex
   policy bindings. No test — docs.
 
-## L723 — a mention-routed folder cannot read the chat it answers: history reads refuse with `jid not routed to your group` (2026-11-08, open)
+## L761 — a mention-routed folder cannot read the chat it answers: history reads refuse with `jid not routed to your group` (2026-11-08, open)
 
 MEASURED 2026-11-08 on sloth: kronael mentioned sloth in thread `1567944066765824111`
 of `discord:837270552959516682/920916162416635944`; routd dispatched `sloth/trading`
@@ -511,9 +511,9 @@ parent and topic to the thread JID.
 - **Test:** a mention-routed folder's turn reads its own chat and thread (parent JID +
   topic, and the thread's own JID); a folder with no route to a chat is still refused.
 
-## L724 — the reply length lint does not run on codex turns (2026-11-08, open)
+## L762 — the reply length lint does not run on codex turns (2026-11-08, open)
 
-MEASURED 2026-11-08 by source reading during L722: `ant/hooks/reply_lint.py` (the
+MEASURED 2026-11-08 by source reading during L760: `ant/hooks/reply_lint.py` (the
 Response Style ceiling, 500 chars / 6 lines) is bound only in
 `ant/.claude/settings.json`, which claude reads. Codex renders its hooks from the
 policy table in `ant/src/policy.ts` (`codexHooksConfig`), and the table holds no
