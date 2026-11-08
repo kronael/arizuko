@@ -454,6 +454,23 @@ escalate turn does not carry.
   if threading needs a new stored field this is a schema change and stops for sign-off.
 - **Test:** an escalate turn replying to the origin chat of its delegation threads
   where the origin turn would.
+- **Status:** proposal; needs approval for stored context and handoff changes.
+  The reply target can identify a message within the destination chat, but it is
+  optional and may name an earlier message. Its stored topic can differ from the
+  origin turn's effective topic: a sticky topic overrides the message topic
+  (`routd/parity_test.go`, `TestStickyTopicRoutesSubsequent`). The handoff does
+  not identify the originating turn, so neither lookup reliably recovers it.
+- **Proposal:** persist the origin chat JID, trigger message ID, and effective
+  topic on the handoff message, and copy them into the dispatched turn context.
+  `delegate_group` and `escalate_group` write these values from the calling turn;
+  chained handoffs propagate the original values. Dispatch copies them into the
+  new turn. Reply placement reads them only when the destination is that origin
+  chat, uses the origin topic when set, and otherwise reads the chat's thread
+  preference and roots the thread on the origin trigger. This requires extending
+  the internal handoff contract and stored message and turn schemas. Migration:
+  existing rows lack these values and retain their current placement; new handoffs
+  populate them. Test both handoff types, existing topics, sticky topics, thread
+  preference on and off, and an explicit different destination.
 
 ## ✅ FIXED 2026-11-06 d50afcdcd L669 — dashd's group delete purges `acl` rows and edges after only `admin` on the folder (2026-11-06)
 
