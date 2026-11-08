@@ -57,9 +57,10 @@ func (realCLI) Preflight(ctx context.Context, cfg map[string]string) error {
 	return preflight(ctx, realHost{}, cfg)
 }
 
-// Krons daemon containers used 291.441 MiB on 2026-11-08; no gateway ran.
-// The total times 1.5 rounds up to 512 MiB.
-const servicesMemoryKiB = 512 * 1024
+// Measured 2026-11-08: krons daemon containers 291 MiB, an idle litellm
+// gateway 610 MiB and its PostgreSQL about 80 MiB. The total times 1.5 rounds
+// up to 1536 MiB.
+const servicesMemoryKiB = 1536 * 1024
 
 func checkMemory(host preflightHost, cfg map[string]string) error {
 	mem := strings.TrimSpace(cfg["RUNED_GUEST_MEM"])

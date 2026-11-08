@@ -27,7 +27,7 @@ make validate                     # load+validate the case catalog (no target)
 Run on the instance host with `arizuko`, Docker, systemd and KVM available.
 The private configuration file supplies existing instance keys:
 `DYNAMODB_URL`, `STORE_CA`, `AWS_REGION`, `EXTENDDB_PASSWORD`, `HOST_APP_DIR`,
-`RUNED_KERNEL_DIR`, `RUNED_ROOTFS_DIR`, `RUNED_VSOCK_CID_BASE`,
+`RUNED_KERNEL_DIR`, `RUNED_ROOTFS_DIR`, `RUNED_GUEST_MEM`, `RUNED_VSOCK_CID_BASE`,
 `RUNED_VSOCK_PORT_BASE`, `RUNED_TAP_SUBNET` and `RUNED_PROXY_PORT`.
 Use an external test store and a separate vsock, tap and proxy allocation.
 Supply `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` explicitly.

@@ -116,7 +116,7 @@ The run refuses an existing data directory or Compose project.
 | Release assets    | Rootfs and kernel assets from the release are read-only. Mutable guest state belongs to the new instance.                                                                                                                                                                              |
 | Model and gateway | Supply the model credential explicitly. Install the normal gateway package for case cost and settle checks. Never copy another instance's credential.                                                                                                                                  |
 | Eval setup        | Use `group add`, `group grant`, `network allow` and `token issue bearer` on the new instance. Give the selected cases their grants and a reachable callback sink.                                                                                                                      |
-| Capacity          | Set `MAX_CONCURRENT_CONTAINERS=1`. Require `RUNED_GUEST_MEM`. Refuse startup without KVM, the release images, or available memory for 512 MiB of services and gateway plus one configured guest.                                                                                       |
+| Capacity          | Set `MAX_CONCURRENT_CONTAINERS=1`. Require `RUNED_GUEST_MEM`. Refuse startup without KVM, the release images, or available memory for 1536 MiB of services and gateway plus one configured guest.                                                                                      |
 
 Store enrollment and removal belong to the ordinary CLI lifecycle.
 They must work without anteval's cases. anteval invokes those commands and
