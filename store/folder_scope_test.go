@@ -2,9 +2,11 @@ package store
 
 import (
 	"github.com/kronael/arizuko/core"
+	"reflect"
 	"sort"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestFolderScope_ClassifiesEveryDeclaredEntity is what makes "the purge is
@@ -163,5 +165,52 @@ func TestDeleteGroupRefusesAnEmptyFolder(t *testing.T) {
 	}
 	if removed != 0 {
 		t.Errorf("removed %d for an empty folder", removed)
+	}
+}
+
+func TestDeleteGroupRetiresOnlyHeldSubtree(t *testing.T) {
+	s := openEntities(t)
+	now := time.Now()
+	cursor := MessageCursor(core.Message{Timestamp: now, ID: "held"})
+	later := MessageCursor(core.Message{Timestamp: now.Add(time.Second), ID: "later"})
+	for _, tc := range []struct{ id, folder, jid, state string }{
+		{"held", "a/child", "web:held", TurnHeld},
+		{"ahead", "a", "web:ahead", TurnHeld},
+		{"other", "ab", "web:other", TurnHeld},
+		{"complete", "a/child", "web:complete", TurnDone},
+	} {
+		if _, err := s.OpenTurnContext(tc.id, tc.folder, "", tc.jid, "u", "", &TurnAdmission{InputLast: cursor}); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.SetTurnState(tc.id, tc.state); err != nil {
+			t.Fatal(err)
+		}
+	}
+	completed, _ := s.TurnContextOf("complete")
+	other, _ := s.TurnContextOf("other")
+	if err := s.SetAgentCursor("web:ahead", later); err != nil {
+		t.Fatal(err)
+	}
+	_, swept, err := s.DeleteGroup("a")
+	if err != nil || swept != 2 {
+		t.Fatalf("orphan retirement: swept=%d err=%v", swept, err)
+	}
+	for _, id := range []string{"held", "ahead"} {
+		tc, ok := s.TurnContextOf(id)
+		if !ok || tc.State != TurnDone || !tc.RunReturned {
+			t.Fatalf("turn %s not retired: %+v", id, tc)
+		}
+	}
+	if got, err := s.AgentCursor("web:held"); err != nil || got != cursor {
+		t.Fatalf("held cursor=%q err=%v", got, err)
+	}
+	if got, err := s.AgentCursor("web:ahead"); err != nil || got != later {
+		t.Fatalf("cursor moved backwards: %q err=%v", got, err)
+	}
+	if got, _ := s.TurnContextOf("other"); !reflect.DeepEqual(got, other) {
+		t.Fatalf("unrelated turn changed: %+v", got)
+	}
+	if got, _ := s.TurnContextOf("complete"); !reflect.DeepEqual(got, completed) {
+		t.Fatalf("completed history changed: %+v", got)
 	}
 }

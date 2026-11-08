@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/objstore"
 )
 
@@ -230,4 +231,54 @@ func (s *Store) HeldTurns(ctx context.Context, chatJID string) ([]TurnContext, e
 		turns = append(turns, turnFrom(it))
 	}
 	return turns, err
+}
+
+func (s *Store) retireHeldTurns(ctx context.Context, folder string) (int, error) {
+	turns, err := s.HeldTurns(ctx, "")
+	if err != nil {
+		return 0, err
+	}
+	retiredCount := 0
+	for _, tc := range turns {
+		if !groupfolder.ContainsSep(folder, tc.Folder, "/") {
+			continue
+		}
+		if tc.InputLast != "" {
+			key, err := chatKey(tc.ChatJID)
+			if err != nil {
+				return 0, err
+			}
+			if _, err := s.advanceCursor(ctx, Chats, key, AttrChatAgentCursor, tc.InputLast, nil); err != nil {
+				return 0, err
+			}
+		}
+		key, err := turnKey(tc.TurnID)
+		if err != nil {
+			return 0, err
+		}
+		where := []objstore.Cmp{
+			{Attr: attrTurnState, Op: objstore.Eq, Value: TurnHeld},
+			{Attr: attrTurnFolder, Op: objstore.Eq, Value: tc.Folder},
+		}
+		for attr, value := range map[string]string{"attempt_id": tc.AttemptID, "input_last": tc.InputLast} {
+			cmp := objstore.Cmp{Attr: attr, Op: objstore.Eq, Value: value}
+			if value == "" {
+				cmp.Op = objstore.Absent
+			}
+			where = append(where, cmp)
+		}
+		retired, err := s.TryWriteEntities(ctx, nil, objstore.Write{
+			Op: objstore.Update, Entity: TurnContexts, Key: key,
+			Attrs: map[string]string{attrTurnState: TurnDone, attrTurnRunReturned: flagSet},
+			Cond:  objstore.Cond{Where: where},
+		})
+		if err != nil {
+			return 0, err
+		}
+		if !retired {
+			return 0, fmt.Errorf("retire held turn %s: binding changed", tc.TurnID)
+		}
+		retiredCount++
+	}
+	return retiredCount, nil
 }

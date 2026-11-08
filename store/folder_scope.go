@@ -163,8 +163,8 @@ var folderScopeKeep = map[string]keepReason{
 	"message_activity": keep("one partition over every chat; it follows messages"),
 	"message_delivery": keep("keyed by delivery status; it follows messages"),
 
-	// Turn state, keyed by a turn id the next tenant never mints.
-	"turn_context": keep("keyed by turn_id; a re-created folder mints new ones"),
+	// Turn history.
+	"turn_context": keep("history; held turns retire before the subtree is purged"),
 	"turn_results": keep("keyed by turn_id; a re-created folder mints new ones"),
 
 	// No folder coordinate at all.
@@ -265,6 +265,13 @@ func (s *Store) purgeFolder(ctx context.Context, folder string) ([]string, int, 
 				return s.TryWriteEntities(ctx, nil, chunk...)
 			}); err != nil {
 			return nil, 0, 0, err
+		}
+		if e.entity == Groups {
+			retired, err := s.retireHeldTurns(ctx, folder)
+			if err != nil {
+				return nil, 0, 0, err
+			}
+			swept += retired
 		}
 	}
 	if err := s.purgeFolderPartitions(ctx, owned); err != nil {

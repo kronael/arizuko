@@ -241,6 +241,51 @@ func TestModelPauseHeldBindingSurvivesRouteChange(t *testing.T) {
 	}
 }
 
+func TestModelPauseDeleteRecreateRetiresHeldInput(t *testing.T) {
+	for _, pending := range []bool{false, true} {
+		t.Run(fmt.Sprintf("later_pending_%t", pending), func(t *testing.T) {
+			db, l, p, _ := pauseFixture(t, "rate_limit")
+			jid := "telegram:group/deleted"
+			doSetRoutes(t, db, []core.Route{{Match: "chat_jid=" + jid, Target: "a"}})
+			now := time.Now()
+			pauseInput(t, db, jid, "old", "sender", "old tenant input", now)
+			processPauseChat(t, l, jid)
+			before, ok := db.GetTurnContext("old")
+			if !ok || before.State != store.TurnHeld {
+				t.Fatalf("turn was not held: %+v", before)
+			}
+			if pending {
+				pauseInput(t, db, jid, "new", "sender", "new tenant input", now.Add(time.Second))
+			}
+			if _, _, err := db.store().DeleteGroup("a"); err != nil {
+				t.Fatal(err)
+			}
+			if err := db.PutGroup(core.Group{Folder: "a"}); err != nil {
+				t.Fatal(err)
+			}
+			after, ok := db.GetTurnContext("old")
+			if !ok || after.State != store.TurnDone || !after.RunReturned || db.GetAgentCursor(jid) != before.InputLast {
+				t.Fatalf("held input survived deletion: turn=%+v cursor=%q", after, db.GetAgentCursor(jid))
+			}
+			if msg, ok := db.MessageByID(jid, "old"); !ok || msg.Content != "old tenant input" {
+				t.Fatalf("message history lost: %+v", msg)
+			}
+			if !pending {
+				processPauseChat(t, l, jid)
+				if len(p.runs) != 1 {
+					t.Fatalf("held input ran without a route: %+v", p.runs)
+				}
+				pauseInput(t, db, jid, "new", "sender", "new tenant input", now.Add(time.Second))
+			}
+			doSetRoutes(t, db, []core.Route{{Match: "chat_jid=" + jid, Target: "a"}})
+			processPauseChat(t, l, jid)
+			if len(p.runs) != 2 || p.runs[1].TurnID != "new" || strings.Contains(p.runs[1].MessageBatch, "old tenant input") || !strings.Contains(p.runs[1].MessageBatch, "new tenant input") {
+				t.Fatalf("path reuse dispatched wrong input: %+v", p.runs)
+			}
+		})
+	}
+}
+
 func TestModelPauseExpiredEngagementPollsHeldInput(t *testing.T) {
 	db, setup, p, dl := pauseFixture(t, "rate_limit")
 	jid := "telegram:group/expiry"

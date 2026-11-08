@@ -143,6 +143,7 @@ New claims check the oldest pending input even after the pause clears.
 Commands wait for earlier input in the chat to finish. Completed batches
 advance their cursor before the next batch is admitted.
 The saved input boundary excludes later messages from the held turn.
+Deleting a group subtree retires its held turns through that boundary.
 Worker dispatch, polling and oldest-input selection use the held turn's saved
 folder, topic, trigger and return address before fresh routing or engagement.
 Held turns bypass error marking,
