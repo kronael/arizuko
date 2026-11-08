@@ -15,7 +15,6 @@
 
 ## What needs you
 
-- `L717` — a codex turn whose model host egress refuses runs to the 60-minute timeout; fix queued.
 - `L665` — `unpair` removes the account's denies from the paired identity's turns; needs sign-off.
 - `L664` — `invite_create` mints `admin` the issuing folder cannot delegate; needs sign-off.
 - `L660` — a mention by reply engages only the reply chain, not the chat root; proposal, needs sign-off.
@@ -432,38 +431,6 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
   containment (decision 7, `ipc/ipc.go:2267`, `:2334`, `:2387`, `:2426`), and the
   `/root` issuer holds `admin` on `**`, the authority that answers a hold. The defect
   in the same area is who the root turn serves: `L666`.
-
-## L717 — a codex turn whose model host egress refuses runs until the 60-minute timeout (2026-11-08, open)
-
-MEASURED 2026-11-08 on sloth: operator probe turn `cli-1794141618560727319` in
-`sloth/support` started 12:40:23 with `ARIZUKO_BACKEND=codex` before
-`api.openai.com` was in `network_rules`. The egress proxy logged 55 `deny connect`
-lines (47 for `api.openai.com`), and the guest exited `code 143, timedOut:true`
-after 3599.9 s at 13:40:23. Allowing the host at 12:51 did not help the running
-turn. The eval turn with the same refusal pattern fixed failed in 27 s once the
-host was allowed and auth was missing (401), so the hang belongs to the refused
-connect, not to codex in general.
-
-- **Severity:** medium — a missing egress rule for the model host costs one turn
-  slot for an hour per message and gives the user no answer until then.
-- **Scope:** the codex harness retry on a refused model connection (`ant/src/codex.ts`),
-  or the egress refusal's shape as codex sees it.
-- **Status:** codex is the side that keeps the turn alive. MEASURED 2026-11-08,
-  codex-cli 0.167.0, `HTTPS_PROXY` at a proxy answering every CONNECT with the
-  egress shape (403, `denied: host not allowed`, closed): codex retries the
-  stream 5 times, falls back from WebSockets to HTTPS, then emits
-  `Reconnecting... waiting for network` with growing backoff until killed (150 s
-  run, exit 124, still looping). `request_max_retries` / `stream_max_retries`
-  do not bound that loop (custom provider, both 1) and the built-in `openai`
-  provider cannot be overridden, so no knob exists. Changed: `CodexTurn` ends
-  the turn after 3 such events in a row with a failure naming the model host
-  (the gateway host, else `api.openai.com or chatgpt.com`) and the
-  `network_rules` remedy; the driver then kills codex. The 403 body does not
-  reach the user: codex shows only the status.
-- **Fix:** applied in `ant/src/codex.ts` (see Status); the host named is the one
-  ant knows, not the one the proxy denied.
-- **Test:** a codex turn with the model host refused ends well before the run timeout
-  with a failure that names the refused host.
 
 ## ✅ FIXED 2026-11-06 d50afcdcd L669 — dashd's group delete purges `acl` rows and edges after only `admin` on the folder (2026-11-06)
 
