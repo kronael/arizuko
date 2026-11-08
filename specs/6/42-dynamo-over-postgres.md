@@ -821,17 +821,18 @@ failures, skips or race reports:
 | ---------------------------------------------------------------------------------------- | ------------- | -------------------- | ---------------- |
 | PostgreSQL 17.11, `postgres:17-alpine`, with `ghcr.io/extenddb/extenddb-postgres:0.1.11` | 24/24         | 3.23 s               | 4.253 s          |
 | SQLite with `ghcr.io/extenddb/extenddb-dev:0.1.11`, the dyntest default                  | 24/24         | 1.67 s               | 4.201 s          |
+| DynamoDB Local 2.5.4, `amazon/dynamodb-local:2.5.4 -inMemory`                            | 24/24         | —                    | 3.406 s          |
 
 The PostgreSQL run set `ARIZUKO_TEST_DYNAMO_ENDPOINT` to the isolated TLS
 endpoint, `ARIZUKO_TEST_DYNAMO_CA` to its generated certificate and `AWS_REGION`
 to `us-east-1`. An IAM user signed requests with its own access key.
 Both backends set control-plane and index delays to zero.
 The default run unset the endpoint and CA variables.
-The SQLite fixture does not establish DynamoDB Local compatibility.
+The DynamoDB Local run set `ARIZUKO_TEST_DYNAMO_ENDPOINT=http://127.0.0.1:18000`
+with static local credentials.
 
 ### Remaining
 
-- Run driver conformance on DynamoDB Local, including the concurrent bodies with `-race` (`objstore/dynstore/dynstore_test.go`). No DynamoDB Local image was cached on 2026-11-08; the test required cached images only.
 - Record the required twenty-query search comparison and deployment soak evidence (`routd/README.md`, `CHANGELOG.md`).
 
 ## Ties
