@@ -45,6 +45,10 @@ class FormatTests(unittest.TestCase):
         self.val.write_text('<table><tr><td>Price</td><td class="n">1 000–2 000 Kč</td><td class="n">12,5 %</td></tr></table>')
         self.assertEqual(self.run_check(self.val).returncode, 0)
 
+    def test_n1_accepts_row_header_label(self):
+        self.val.write_text('<table><tr><th>Item</th><th>Value</th></tr><tr><th>Price</th><td class="n">1 000 Kč</td></tr></table>')
+        self.assertEqual(self.run_check(self.val).returncode, 0)
+
     def test_n2_negative_heading(self):
         self.val.write_text('<h2>  Co nežádat: omezení </h2>')
         result = self.run_check(self.val)

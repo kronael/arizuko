@@ -78,11 +78,13 @@ def check_page(root, report):
             cells = [c for c in row.children if isinstance(c, Node) and c.tag in {"th", "td"}]
             if len(cells) > 3:
                 invalid = True
-            values = [c for c in cells if c.tag == "td"]
-            if values:
-                body.append(values)
-                if len(values) < 2 or any("n" not in c.classes() or not numeric(c.text()) for c in values[1:]):
-                    invalid = True
+            # The first cell is the label, a `th` row header or a `td`; a row of
+            # only `th` cells is the header.
+            if not cells or all(c.tag == "th" for c in cells):
+                continue
+            body.append(cells)
+            if len(cells) < 2 or any(c.tag != "td" or "n" not in c.classes() or not numeric(c.text()) for c in cells[1:]):
+                invalid = True
         if not body or invalid:
             report(table, "N1", "table must contain a label and numeric columns, at most three columns")
     for node in root.descendants():
