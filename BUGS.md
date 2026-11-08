@@ -9042,32 +9042,28 @@ routd's `/v1` first — it is the precondition for both S1 and S11.
 
 ## L188 — sections that left `ant/CLAUDE.md` under 6/34 with no anteval case behind them (2026-09-05, open — backfill list)
 
-6/34 proposed "no case, no move"; the maintainer moved first and accepted a
-window in which a dropped rule is undetectable. This is the ledger of that
-window: each row is a rule that now loads only when the agent chooses its
-owner, and whose observance nothing measures. A row closes when
-`anteval/cases/anteval.toml` gains a case that exercises it.
+The remaining rules lack conformance coverage under the current anteval contract.
 
-| Moved section (owner now)                                                                     | Case today                                       |
-| --------------------------------------------------------------------------------------------- | ------------------------------------------------ |
-| Greetings (`hello` frontmatter)                                                               | none                                             |
-| Model economy — breadth to `/sonnet`, `/haiku` (their frontmatter)                            | none                                             |
-| Persona layers (`persona/SKILL.md`, the `<persona>` block's own `/persona` pointer)          | none                                             |
-| `inspect_*` / `find_messages` over `sqlite3` (`self/mcp.md`)                                  | none                                             |
-| Session-opening ritual (`self/SKILL.md` §Session recovery)                                   | none                                             |
-| `register_group` absent = ask, the CLAUSE only (`self/mcp.md`)                                | partial — `world-create-refusal-honest`, `child-delegate` |
-| Additional mounts, operator SQL (`EXTENDING.md` §Adding a host mount)                         | none (operator procedure, not agent behaviour)   |
-| CLAUDE.md ownership, `~/CLAUDE.md` operator-only (`self/migration.md`)                        | none                                             |
-| Web routing table + login/dashboard/portal pointers (`self/web-routing.md`)                   | partial — `web-route`                            |
-| Gateway commands (`self/commands.md`)                                                         | none                                             |
-| `@<unknown>` prefix (`self/chat-routing.md`)                                                  | none                                             |
-| Runtimes — `uv --python 3.14`, `bun`, never bare `pip` (`self/runtimes.md`)                   | none                                             |
-| Attachment transcript preference (`self/messages.md`)                                         | none (`read-attachment-honesty` covers the resident no-tag rule only) |
-| Social actions — `platform_id=` as `targetId`, edit windows (`like`/`delete`/`edit`/pin descriptions) | none                                     |
-| Slack `like` scope error, Reddit unsupported (`channels/SKILL.md`)                            | none                                             |
-| Slack / Discord threading (`slack-thread.md`, `slack-channel.md`, `discord-channel.md`)       | none                                             |
-| Reaction register mirroring, DM anti-patterns (`like` description)                            | none                                             |
-| Telegram group reactions (`telegram-group.md`)                                                | none                                             |
+| Moved section (owner now) | Case today |
+| --- | --- |
+| Greetings (`hello` frontmatter) | not externally observable with current check kinds — greeting wording is prose. |
+| Model economy — breadth to `/sonnet`, `/haiku` (their frontmatter) | not externally observable with current check kinds — model choice is not exposed by the asserted effect. |
+| Persona layers (`persona/SKILL.md`, the `<persona>` block's own `/persona` pointer) | not externally observable with current check kinds — persona register is reply wording. |
+| `inspect_*` / `find_messages` over `sqlite3` (`self/mcp.md`) | not externally observable with current check kinds — the same result can come from either reader. |
+| Session-opening ritual (`self/SKILL.md` §Session recovery) | not externally observable with current check kinds — the checks cannot see the reads or their order. |
+| `register_group` absent = ask, the clause only (`self/mcp.md`) | not externally observable with current check kinds — asking is reply prose; `world-create-refusal-honest` and `child-delegate` cover other clauses. |
+| Additional mounts, operator SQL (`EXTENDING.md` §Adding a host mount) | out of anteval scope — operator procedure, not agent behaviour. |
+| CLAUDE.md ownership, `~/CLAUDE.md` operator-only (`self/migration.md`) | not externally observable with current check kinds — the checks cannot prove the agent left a file unchanged. |
+| Web routing table + login/dashboard/portal pointers (`self/web-routing.md`) | partial — `web-route`; not externally observable with current check kinds — the remaining pointers are reply prose. |
+| Gateway commands (`self/commands.md`) | not externally observable with current check kinds — command help is reply prose. |
+| `@<unknown>` prefix (`self/chat-routing.md`) | `unknown-addressee` |
+| Runtimes — `uv --python 3.14`, `bun`, never bare `pip` (`self/runtimes.md`) | not externally observable with current check kinds — an artifact can succeed with another runtime or installer. |
+| Attachment transcript preference (`self/messages.md`) | not externally observable with current check kinds — the injected task cannot supply a voice or video attachment with a transcript. |
+| Social actions — `platform_id=` as `targetId`, edit windows (`like`/`delete`/`edit`/pin descriptions) | not externally observable with current check kinds — the eval web chat lacks the required social actions. |
+| Slack `like` scope error, Reddit unsupported (`channels/SKILL.md`) | not externally observable with current check kinds — the eval web chat cannot produce those channel-specific errors. |
+| Slack / Discord threading (`slack-thread.md`, `slack-channel.md`, `discord-channel.md`) | not externally observable with current check kinds — the eval web chat has no Slack or Discord thread. |
+| Reaction register mirroring, DM anti-patterns (`like` description) | not externally observable with current check kinds — the eval web chat cannot exercise reactions or platform DMs. |
+| Telegram group reactions (`telegram-group.md`) | not externally observable with current check kinds — the eval web chat cannot exercise Telegram reactions. |
 
 Covered by an existing case and therefore not listed: Network egress
 (`egress-diagnose`, `egress-dns-distinguish`, `self-grant-noop`),
@@ -9080,37 +9076,7 @@ Local paths table (`link-is-public-url`), the map (`self-skill`).
 - **Affected:** every backend, every group
 - **Source:** `specs/6/34-resident-prompt.md:276` §"The failure mode, and the three guards" (`status: shipped`); the move
   commit `docs(ant): ant/CLAUDE.md carries only what the rule of 6/34 keeps resident`
-- **RE-MEASURED 2026-09-20 and the ledger was wrong about two of its own rows.**
-  A ledger that names a rule as unguarded when the rule never left sends the
-  next person to write a case for something that already loads on every turn.
-  - **`send_file` caption = TL;DR — row removed.** The rule is still in the
-    resident file, twice: `ant/CLAUDE.md:186` ("the `caption` carries the
-    TL;DR") and `:196` ("a 2-4 sentence distillation"). It never moved.
-  - **`register_group` — row narrowed.** `ant/CLAUDE.md:41` still says
-    "Creating a group is always explicit … nothing auto-creates one". Only the
-    "absent = ask" clause moved, so the row now names that clause alone.
-  - The `Source:` line cited §"The failure mode"; the section is §"The failure
-    mode, and the three guards" at `specs/6/34-resident-prompt.md:276`, and that
-    spec is `status: shipped`.
-
-  `anteval/cases/anteval.toml` holds 22 cases and has not changed since
-  `9579fd32`, so every remaining "Case today" column re-measures identically.
-  All 19 owner paths resolve and all 11 "already covered" ids exist.
-- **Status:** open — 17 rows remain, and each is a case to write, not an edit.
-
-**Sequencing, measured 2026-09-21: `L72` comes first.** Each row here closes by
-adding an anteval case, and `anteval/cases/anteval.toml` holds 22 today. `L72`
-records that every case creates a child group nothing deletes — re-measured,
-krons now carries 47 eval groups of 59, and each one bills an auto-migrate turn
-on every `MIGRATION_VERSION` bump, forever.
-
-So backfilling these twelve rows against today's anteval raises a live leak by
-about half again, and every release after pays for it. The ledger is right that
-the rules are unmeasured; the cost of measuring them is the thing to fix first.
-
-One row needs no case at all and should be struck rather than backfilled:
-"Additional mounts, operator SQL" is an operator procedure, not agent
-behaviour, and the table already says so.
+- **Status:** open — the remaining rules need observability beyond the current check kinds or a different test surface.
 
 ## L189 — `sandbox/` writes no netfilter rule for a host-name allowlist entry (2026-09-05, SILENT HALF FIXED 2026-09-20; the rule is ANSWERED by `6/41`, pending that spec's step 1)
 

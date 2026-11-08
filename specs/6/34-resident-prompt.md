@@ -12,12 +12,7 @@ L188 remains open because static pointers do not prove agent conformance.
 
 ## Remaining
 
-- Add conformance for greetings, model economy and persona selection (`anteval/cases/anteval.toml`; L188).
-- Add conformance for inspection/search tools, session recovery and the missing-register-group refusal (`anteval/cases/anteval.toml`; L188).
-- Verify the host-mount/operator procedure and manual ownership boundary (`EXTENDING.md`, `anteval/cases/anteval.toml`; L188).
-- Complete web-routing/login/dashboard guidance and gateway-command conformance (`anteval/cases/anteval.toml`; L188).
-- Add conformance for unknown addressees, runtime selection and attachment transcript preference (`anteval/cases/anteval.toml`; L188).
-- Add conformance for social-action IDs/edit windows, unsupported reactions, Slack/Discord threading, reaction mirroring/DM behavior and Telegram group reactions (`anteval/cases/anteval.toml`; L188).
+- Cover the externally unobservable rules listed in L188 when a suitable test surface exists; host-mount procedure is outside anteval scope.
 - Run these cases only through the disposable lifecycle, with guest callback reachability (`anteval/cmd/anteval/lifecycle_test.go`; L379).
 
 ## Problem
