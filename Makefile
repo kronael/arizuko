@@ -334,7 +334,7 @@ rootfs:
 	  if [ -z "$$image_env" ] || [ "$$image_env" = null ] || [ "$$image_env" = '[]' ]; then \
 	    echo "rootfs: image has no environment metadata" >&2; exit 1; fi; \
 	  if [ -e "$(ROOTFS_DIR)" ] || [ -L "$(ROOTFS_DIR)" ]; then \
-	    if [ -d "$(ROOTFS_DIR)/usr" ] && [ -s "$(ROOTFS_DIR)/app/entrypoint.sh" ] && \
+	    if [ -d "$(ROOTFS_DIR)/usr" ] && [ -s "$(ROOTFS_DIR)/app/src/index.ts" ] && \
 	      [ -s "$(ROOTFS_DIR)/usr/local/bin/node" ] && [ -s "$(ROOTFS_DIR)/.image-env.json" ] && \
 	      [ "$$(cat "$(ROOTFS_DIR)/.image-env.json")" = "$$image_env" ]; then \
 	      echo "rootfs: $(ROOTFS_DIR) is current for $(ROOTFS_KEY)"; \
@@ -349,7 +349,7 @@ rootfs:
 	  bash -o pipefail -c '$(DOCKER) export "$$1" | $(DOCKER_SUDO) tar -x -C "$$2"' _ "$$cid" "$$stage"; \
 	  $(DOCKER) rm -f "$$cid" >/dev/null; cid=; trap - EXIT HUP INT TERM; \
 	  printf '%s\n' "$$image_env" | $(DOCKER_SUDO) tee "$$stage/.image-env.json" >/dev/null; \
-	  if ! { test -d "$$stage/usr" && test -s "$$stage/app/entrypoint.sh" && \
+	  if ! { test -d "$$stage/usr" && test -s "$$stage/app/src/index.ts" && \
 	    test -s "$$stage/usr/local/bin/node" && test -s "$$stage/.image-env.json" && \
 	    test "$$(cat "$$stage/.image-env.json")" = "$$image_env"; }; then \
 	    echo "rootfs: incomplete export at $$stage" >&2; exit 1; fi; \
