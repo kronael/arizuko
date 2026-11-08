@@ -12,11 +12,11 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/chanlib"
+	"github.com/kronael/arizuko/googd/googstore"
 	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/store"
 )
 
-const pollEntity = "file_poll"
 const commentFields = "nextPageToken,comments(id,createdTime,modifiedTime,resolved,deleted,author(displayName,me),content,quotedFileContent(value),mentionedEmailAddresses,assigneeEmailAddress,replies(id,createdTime,modifiedTime,deleted,action,author(displayName,me),content,mentionedEmailAddresses,assigneeEmailAddress))"
 
 type filePoll struct {
@@ -68,7 +68,7 @@ func (p *poller) sweep(ctx context.Context, now time.Time) {
 		active[file.FileID] = true
 		state := p.files[file.FileID]
 		if state == nil {
-			rows, err := p.db.Query(ctx, objstore.Query{Entity: pollEntity, Partition: p.name, Key: objstore.KeyPredicate{Op: objstore.ExactKey, Value: file.FileID}})
+			rows, err := p.db.Query(ctx, objstore.Query{Entity: googstore.PollEntity, Partition: p.name, Key: objstore.KeyPredicate{Op: objstore.ExactKey, Value: file.FileID}})
 			if err != nil {
 				slog.Error("read Drive cursor", "file", file.FileID, "err", err)
 				continue
@@ -115,7 +115,7 @@ func (p *poller) sweep(ctx context.Context, now time.Time) {
 	}
 }
 func (p *poller) save(ctx context.Context, id string, state *filePoll) error {
-	_, err := p.db.GuardedBatch(ctx, nil, []objstore.Write{{Op: objstore.Put, Entity: pollEntity, Key: objstore.Key{Partition: p.name, Sort: id}, Attrs: map[string]string{"cursor": state.cursor, "status": state.status, "name": state.name, "last_poll": state.lastPoll}}})
+	_, err := p.db.GuardedBatch(ctx, nil, []objstore.Write{{Op: objstore.Put, Entity: googstore.PollEntity, Key: objstore.Key{Partition: p.name, Sort: id}, Attrs: map[string]string{"cursor": state.cursor, "status": state.status, "name": state.name, "last_poll": state.lastPoll}}})
 	return err
 }
 func (p *poller) pollFile(ctx context.Context, id string, state *filePoll) (string, bool, error) {
@@ -226,7 +226,7 @@ func (p *poller) dashSection() chanlib.DashSection {
 		return section
 	}
 	for _, file := range files {
-		rows, err := p.db.Query(context.Background(), objstore.Query{Entity: pollEntity, Partition: p.name, Key: objstore.KeyPredicate{Op: objstore.ExactKey, Value: file.FileID}})
+		rows, err := p.db.Query(context.Background(), objstore.Query{Entity: googstore.PollEntity, Partition: p.name, Key: objstore.KeyPredicate{Op: objstore.ExactKey, Value: file.FileID}})
 		if err != nil {
 			section.Rows = append(section.Rows, [2]string{file.FileID, "error: " + err.Error()})
 			continue

@@ -29,8 +29,14 @@ import (
 	"github.com/aws/smithy-go"
 	"github.com/joho/godotenv"
 
+	"github.com/kronael/arizuko/audit"
+	"github.com/kronael/arizuko/authd/authstore"
+	"github.com/kronael/arizuko/chanlib/chanstore"
+	"github.com/kronael/arizuko/emaid/emaistore"
+	"github.com/kronael/arizuko/googd/googstore"
 	"github.com/kronael/arizuko/objstore/dynstore"
 	"github.com/kronael/arizuko/objstore/dynstore/dyntest"
+	"github.com/kronael/arizuko/runed/runstore"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -758,4 +764,103 @@ func TestEnrolledPoliciesEnforceStoreReach(t *testing.T) {
 		}
 	}
 	t.Run("kept", checkReach)
+}
+
+func TestRemoveInstanceEnforcingStore(t *testing.T) {
+	if testing.Short() && os.Getenv(dyntest.EnvEndpoint) == "" {
+		t.Skip("set ARIZUKO_TEST_DYNAMO_ENDPOINT to an isolated policy-enforcing ExtendDB server")
+	}
+	instance, dir := newInstance(t)
+	m := testManager(t)
+	if out, err := enrollRun(t, instance); err != nil {
+		t.Fatalf("enroll: %v\n%s", err, out)
+	}
+	accounts, err := m.accounts()
+	if err != nil {
+		t.Fatal(err)
+	}
+	account := "arizuko_" + instance
+	id := accounts[account]
+	const fixture = "removal_fixture"
+	if err := m.user(id, fixture); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.putPolicy(id, fixture, `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"dynamodb:*","Resource":"*"}]}`); err != nil {
+		t.Fatal(err)
+	}
+	key, secret, err := m.mint(id, fixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := dyntest.Config(t)
+	cfg.KeyID, cfg.Secret = key, secret
+	admin, err := dynstore.Client(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	t.Cleanup(func() {
+		for _, name := range names {
+			_, _ = admin.DeleteTable(context.Background(), &dynamodb.DeleteTableInput{TableName: aws.String(name)})
+		}
+		if err := m.deleteAccount(account); err != nil {
+			t.Errorf("cleanup account: %v", err)
+		}
+	})
+
+	create := func(owner string, entities ...string) {
+		t.Helper()
+		c := cfg
+		c.Prefix = dynstore.Prefix(owner)
+		d, err := dynstore.Dial(c)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, entity := range entities {
+			if err := d.CreateEntity(context.Background(), entity); err != nil {
+				t.Fatalf("create %s.%s: %v", owner, entity, err)
+			}
+			names = append(names, c.Prefix+entity)
+		}
+	}
+	create("authd", authstore.Entities...)
+	create("authd", audit.Entity)
+	for _, owner := range []string{store.OwnerRoutd, store.OwnerOnbod, store.OwnerRuned} {
+		create(owner, store.EntitiesByOwner[owner]...)
+		if owner == store.OwnerRuned {
+			create(owner, runstore.Entities...)
+		}
+		create(owner, store.ScopeEntity, audit.Entity)
+	}
+	for _, owner := range []string{"gitd", "googd", "slakd", "teled", "discd", "emaid"} {
+		create(owner, chanstore.Entities...)
+	}
+	create("emaid", emaistore.Entities...)
+	create("googd", googstore.PollEntity)
+	page, err := admin.ListTables(context.Background(), &dynamodb.ListTablesInput{})
+	if err != nil || len(page.TableNames) != len(names) {
+		t.Fatalf("created %d tables, listed %d: %v", len(names), len(page.TableNames), err)
+	}
+
+	bin := t.TempDir()
+	script := filepath.Join(bin, "systemctl")
+	writeFile(t, script, "#!/bin/sh\nexit 3\n")
+	if err := os.Chmod(script, 0755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	if err := removeInstance(instance); err != nil {
+		t.Fatalf("remove: %v", err)
+	}
+	accounts, err = m.accounts()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := accounts[account]; ok {
+		t.Fatal("account remains")
+	}
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatalf("instance directory remains: %v", err)
+	}
+	names = nil // ExtendDB refuses account deletion while any table remains.
 }

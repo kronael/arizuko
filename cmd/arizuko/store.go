@@ -18,9 +18,15 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/joho/godotenv"
+	"github.com/kronael/arizuko/audit"
+	"github.com/kronael/arizuko/authd/authstore"
+	"github.com/kronael/arizuko/chanlib/chanstore"
 	"github.com/kronael/arizuko/compose"
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/emaid/emaistore"
+	"github.com/kronael/arizuko/googd/googstore"
 	"github.com/kronael/arizuko/objstore/dynstore"
+	"github.com/kronael/arizuko/runed/runstore"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -249,26 +255,34 @@ func signedCheck(c *dynamodb.Client, prefix string) error {
 	return nil
 }
 
-func deleteTables(ctx context.Context, c *dynamodb.Client, prefixes []string) error {
-	pages := dynamodb.NewListTablesPaginator(c, &dynamodb.ListTablesInput{})
-	var names []string
-	for pages.HasMorePages() {
-		page, err := pages.NextPage(ctx)
-		if err != nil {
-			return err
-		}
-		for _, name := range page.TableNames {
-			for _, prefix := range prefixes {
-				if strings.HasPrefix(name, dynstore.Prefix(prefix)) {
-					names = append(names, name)
-					break
-				}
-			}
-		}
+func removalEntities(owner string) []string {
+	switch owner {
+	case store.OwnerAuthd:
+		return append(slices.Clone(authstore.Entities), audit.Entity)
+	case store.OwnerRoutd, store.OwnerOnbod:
+		entities := slices.Clone(store.EntitiesByOwner[owner])
+		return append(entities, store.ScopeEntity, audit.Entity)
+	case store.OwnerRuned:
+		return append(slices.Clone(runstore.Entities), store.ScopeEntity, audit.Entity)
+	case "googd":
+		return append(slices.Clone(chanstore.Entities), googstore.PollEntity)
+	case "emaid":
+		return append(slices.Clone(chanstore.Entities), emaistore.Entities...)
+	case "gitd", "slakd", "teled", "discd":
+		return slices.Clone(chanstore.Entities)
+	default:
+		return nil
 	}
-	for _, name := range names {
-		if _, err := c.DeleteTable(ctx, &dynamodb.DeleteTableInput{TableName: aws.String(name)}); err != nil {
-			return err
+}
+
+func deleteTables(ctx context.Context, c *dynamodb.Client, prefixes []string) error {
+	for _, prefix := range prefixes {
+		for _, entity := range removalEntities(prefix) {
+			_, err := c.DeleteTable(ctx, &dynamodb.DeleteTableInput{TableName: aws.String(dynstore.Prefix(prefix) + entity)})
+			var missing *types.ResourceNotFoundException
+			if err != nil && !errors.As(err, &missing) {
+				return err
+			}
 		}
 	}
 	return nil
@@ -322,8 +336,16 @@ func deleteStore(dataDir, account string, m *manager) error {
 		}
 		owners = append(owners, owner{c, prefixes})
 	}
+	seen := map[string]bool{}
 	for _, owner := range owners {
-		if err := deleteTables(context.Background(), owner.client, owner.prefixes); err != nil {
+		var prefixes []string
+		for _, prefix := range owner.prefixes {
+			if !seen[prefix] {
+				prefixes = append(prefixes, prefix)
+				seen[prefix] = true
+			}
+		}
+		if err := deleteTables(context.Background(), owner.client, prefixes); err != nil {
 			return err
 		}
 	}

@@ -13,6 +13,7 @@ import (
 
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/googd/googstore"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -50,7 +51,7 @@ func main() {
 				_ = as.Close()
 				return nil, nil, openErr
 			}
-			if openErr = as.Driver.CreateEntity(ctx, pollEntity); openErr != nil {
+			if openErr = as.Driver.CreateEntity(ctx, googstore.PollEntity); openErr != nil {
 				_ = st.Close()
 				_ = as.Close()
 				return nil, nil, openErr
