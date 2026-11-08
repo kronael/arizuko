@@ -26,7 +26,7 @@ The site is a generated index plus hand-written pages. The package owns the gene
 `| ID | Place | URL | Price | Area m² | Minutes | First seen | Verified | Status |`.
 A status with `staženo`, `prodáno`, `neaktivní` or `vyřazeno` removes the row from the site. `★` in the status marks a priority. `nové` marks a new row.
 
-`site.json` holds only what differs from the defaults: `title`, `lang`, `intro`, `db`, `site`, `links` (cards under "more"), `limits` (the colour thresholds: `minutes_green`, `minutes_yellow`, `area_green`, `price_red`) and `labels` (every fixed text, default Czech). The default `db` and `site` paths are in the table above.
+`site.json` holds only what differs from the defaults: `title`, `lang`, `intro`, `db`, `site`, `links` (cards under "more"), `limits` (the colour thresholds: `minutes_green`, `minutes_yellow`, `area_green`, `price_red`), `labels` (every fixed text, default Czech), and `criteria` (the group's listing research brief). The default `db` and `site` paths are in the table above. The listing workflow reads `criteria`; the renderer does not score it.
 
 ## Build
 

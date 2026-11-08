@@ -9,6 +9,8 @@ when_to_use: 'parcela, sousední parcely, druh pozemku, RUIAN, WFS, územní pl�
 These sources need no browser and meet no challenge. They never give owner names.
 Owners, liens and easements come only from `katastr`.
 
+For parcel evidence use [parcels.md](guides/parcels.md). For a pasture expansion study use [pasture-expansion.md](guides/pasture-expansion.md). Record missing results as unknown.
+
 ALWAYS take the parcel from the source document or the map, never from a listing pin or an area match.
 ALWAYS check the cadastral territory code (`katastralniuzemi`) in the answer. One municipality can hold several territories.
 NEVER state that land is buildable from its land type. Land type is not zoning: ALWAYS read the municipality's zoning plan.

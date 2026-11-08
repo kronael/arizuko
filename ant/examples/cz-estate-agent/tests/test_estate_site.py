@@ -49,6 +49,21 @@ class SiteTests(unittest.TestCase):
         self.build()
         self.assertEqual((self.site / "local.css").read_text(), ":root{--accent:red}")
 
+    def test_group_search_criteria_survive_config_loading(self):
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location("gen_site", SCRIPT)
+        generator = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(generator)
+        config = json.loads(self.cfg.read_text())
+        config["criteria"] = {"use": "stables", "pasture": "adjacent", "minimum_area_m2": 20000}
+        self.cfg.write_text(json.dumps(config))
+        self.assertEqual(generator.load_config(str(self.cfg))["criteria"], config["criteria"])
+        config["criteria"] = "pasture"
+        self.cfg.write_text(json.dumps(config))
+        with self.assertRaisesRegex(ValueError, "criteria must be a JSON object"):
+            generator.load_config(str(self.cfg))
+
     def test_new_page_listed_as_valuation(self):
         self.build()
         run("--config", str(self.cfg), "new", "oceneni/alpha", "Alpha", "--listing", "1")

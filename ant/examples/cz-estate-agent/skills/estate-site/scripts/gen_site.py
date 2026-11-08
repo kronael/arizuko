@@ -57,6 +57,8 @@ def load_config(path):
     if os.path.exists(path):
         with open(path, encoding="utf-8") as f:
             local = json.load(f)
+        if "criteria" in local and not isinstance(local["criteria"], dict):
+            raise ValueError("criteria must be a JSON object")
         for key, val in local.items():
             if isinstance(cfg.get(key), dict):
                 cfg[key].update(val)
