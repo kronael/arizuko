@@ -15,7 +15,6 @@
 
 ## What needs you
 
-- `L709` — revoking an App source deletes other tenants' identically matching routes; approved fix.
 
 
 - `L699` — anteval cannot run a Codex smoke: it requires an Anthropic credential and installs an Anthropic-only gateway; proposal.
@@ -110,9 +109,6 @@ line; none can be answered from the code.
 
 - `L434` — may gitd hold the dedup claim on a 5xx and dead-letter visibly?
   It changes delivery semantics for every adapter.
-
-- `L435` — store the target on the `github_sources` row and migrate, or accept
-  that a revoke below the owner leaves its routes.
 
 - `L133` — one question after that re-measure: `ext:` is a third namespace the
   proposal would break.
@@ -2563,33 +2559,13 @@ only a dead rule that looks live on the dashboard. Measure before fixing.
   a message for that repository
 - **Related:** `L435` (the same file, the revoke path), `L417`
 
-## L435 — a github source bound below its owner keeps its routes after a revoke (2026-10-17, open)
+## 📋 RECORD L435 — a GitHub target changes route targets, not predicates
 
-Found while writing `store/gdrive_files.go` against `github_sources` as the
-model. `AddGitHubSourceInto` renders the seeded rules from its `target`
-parameter (`store/github_sources.go:177`), and `RemoveGitHubSourceInto`
-renders them from `ownerFolder` (`store/github_sources.go:238`). The removal
-deletes rules BY MATCH, so when the target differs from the owner the two
-renderings disagree and the delete matches nothing.
-
-The row holds no target, which is why the remove path has nothing better to
-use. A revoke then reports success, drops the source item, and leaves four
-route rules pointing at a folder nobody bound any more; a later inbound event
-for that repository still routes.
-
-`gdrive_files` does not inherit this: the item carries `target_folder` and the
-remove path renders from the row.
-
-- **Severity:** medium — a revoked binding keeps routing, and the CLI says it
-  worked
-- **Scope:** `store/github_sources.go` `AddGitHubSourceInto` /
-  `RemoveGitHubSourceInto`
-- **Measurement:** read both call sites 2026-10-17; the add takes `target`, the
-  remove takes `ownerFolder`, and `deleteRoutesMatchingInto` matches on the
-  rendered `match` string
-- **Status:** open — the fix is to store the target on the row, as
-  `gdrive_files` does, and migrate the existing items
-- **Related:** `L417` (the github seed's reach), `specs/6/45-gdrive-comments-channel.md`
+The orphan-route premise is false: `GitHubSourceRoutes` uses the source key
+for match predicates and the folder for targets. Restoring the original
+match-only helper in `TestGitHubSourceRemoveKeepsOtherTargets` removes both
+owners' child-target routes. L709 binds revocation to the recorded target and
+route identities; legacy rows without that metadata refuse revocation.
 
 ## L434 — gitd calls every 5xx not-delivered, and its own spec calls 5xx ambiguous (2026-10-17, open — needs sign-off)
 
@@ -9249,15 +9225,3 @@ Three shapes, one decision:
   **Fix:** measure instruction/tool exposure and completion behavior, then improve
   the existing declaration so an unambiguous completed task calls the stop tool.
   Do not add a second lifecycle policy or unconditional platform stop hook.
-
-## L709 — App source revoke deletes other tenants' routes (2026-11-08, open)
-
-- **Severity:** HIGH, correctness; release blocker R2.
-- **Measured:** `store/github_sources.go:139` renders identical App match predicates for every slug; `store/routes.go:68` gives different targets different route keys; `store/github_sources.go:225–268` verifies the source owner but deletes every matching route across the global partition. Source-verified, no destructive reproduction.
-- **Failure:** deleting `app/attacker` owned by A deletes routes seeded by `app/victim` owned by B, while B's source survives.
-- **Fix:** revoke removes only routes seeded for the source's owner/target. Preserve other targets, including when registration uses a distinct `target_folder`. No match-only deletion across tenants.
-- **Regression:** `store/github_sources_test.go::TestGitHubSourceRemoveKeepsOtherTargets` fails before the fix because all eight routes of the other App source disappear. It covers two owners with child targets and verifies the other source remains. Additional tests preserve pre-existing/replaced/retargeted routes and refuse legacy metadata or targets outside the owner.
-- **Related:** L435 claims that target-dependent rendering changes match predicates; current source contradicts that premise because only target changes. Re-measure its ownership concern with this regression.
-- **Fix details:** record `target_folder` and minted `route_ids` in the source row; delete only exact seeded coordinates with those IDs. Sources without ownership metadata refuse revocation before buffering any deletion; an operator must clean up those records.
-- **Mutation:** restoring the original match-only helper deletes all eight foreign routes and fails the two-App regression. Removing the ID check, coordinate check, owner containment, or recorded target also fails a regression. All five mutations restored; combined GitHub/Drive short/race tests pass on store, routd and dashd.
-- **Status:** approved, fixing after R1.
