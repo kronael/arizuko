@@ -37,13 +37,12 @@ contract the agent sees — the same left column, delivered by a different
 right-hand side. `ant/` changes by zero lines.
 
 Native boot and turn tests cover the UID clamp, read-only exports, MCP,
-proxy policy, two-guest CID isolation, steering, normal poweroff, Kill and cancellation in
-`runed/qemu_boot_test.go` and `runed/qemu_turn_boot_test.go`.
+proxy policy, two-guest CID isolation, the startup sweep after SIGKILL, steering, normal poweroff, Kill and cancellation in
+`runed/qemu_boot_test.go`, `runed/qemu_turn_boot_test.go` and `runed/vmrecord_test.go`.
 
 ## Remaining
 
 - Prove guest-observable smoke through the disposable eval lifecycle, including tools that resolve names locally (`anteval/cases/anteval.toml`; L379).
-- Kill runed with SIGKILL mid-turn and prove startup sweep removes every owned process, tap, mount and staging tree (`runed/qemu.go`, `runed/vmrecord_test.go`).
 - Complete release-image rollout and the declared peak-memory sample before claiming the host budget on deployment (`runed/README.md`, `runed/guestpeak_test.go`).
 
 ## What the design must answer — measured 2026-09-12 on hel1v5 (the krons host)

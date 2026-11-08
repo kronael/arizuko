@@ -1,8 +1,11 @@
 package runed
 
 import (
+	"context"
 	"fmt"
+	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -10,7 +13,200 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/kronael/arizuko/core"
 )
+
+func TestStartupSweepAfterRuntimeSIGKILL(t *testing.T) {
+	if testing.Short() || os.Geteuid() != 0 {
+		t.Skip("needs root and an isolated KVM environment")
+	}
+	for _, key := range []string{
+		"RUNED_BENCH_ID", "RUNED_BENCH_OUTPUT_DIR", envKernelDir,
+		envRootfsDir, envCIDBase, envVsockBase, envTapSubnet,
+	} {
+		if os.Getenv(key) == "" {
+			t.Skipf("%s is not set", key)
+		}
+	}
+	for _, path := range []string{
+		"/dev/kvm", "/dev/vhost-vsock", filepath.Join(os.Getenv(envKernelDir), kernelImage),
+		filepath.Join(os.Getenv(envKernelDir), kernelInitrd), os.Getenv(envRootfsDir),
+	} {
+		if _, err := os.Stat(path); err != nil {
+			t.Skipf("%s unavailable: %v", path, err)
+		}
+	}
+	if root := os.Getenv("RUNED_CRASH_PROOF_ROOT"); root != "" {
+		if os.Getenv("RUNED_CRASH_PROOF_SWEEP") == "1" {
+			cfg := crashProofConfig(root)
+			if _, _, err := NewQemuRuntime(cfg, resolverFor(cfg)); err != nil {
+				t.Fatal(err)
+			}
+			return
+		}
+		crashProofRun(t, root)
+		return
+	}
+	root, err := os.MkdirTemp(os.Getenv("RUNED_BENCH_OUTPUT_DIR"), "sweep-proof-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		f, err := os.Open("/proc/self/mountinfo")
+		if err != nil {
+			t.Errorf("inspect mounts before cleanup: %v", err)
+			return
+		}
+		left := mountedUnder(f, root)
+		_ = f.Close()
+		if len(left) != 0 {
+			t.Errorf("test mounts remain: %v", left)
+			return
+		}
+		if err := os.RemoveAll(root); err != nil {
+			t.Errorf("remove test directory: %v", err)
+		}
+	})
+	if err := os.Chmod(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, dir := range []string{"app", "home", "groups/solo/inbox", "ipc/solo/inbox"} {
+		if err := os.MkdirAll(filepath.Join(root, dir), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Chown(filepath.Join(root, "home"), 1000, 1000); err != nil {
+		t.Fatal(err)
+	}
+	entry := "#!/bin/sh\nprintf ready > /home/node/ready\nwhile :; do sleep 1; done\n"
+	if err := os.WriteFile(filepath.Join(root, "app", "entrypoint.sh"), []byte(entry), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(os.Args[0], "-test.run=^TestStartupSweepAfterRuntimeSIGKILL$")
+	cmd.Env = append(os.Environ(), "RUNED_CRASH_PROOF_ROOT="+root)
+	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	waited := false
+	t.Cleanup(func() {
+		if !waited {
+			_ = cmd.Process.Kill()
+			_ = cmd.Wait()
+		}
+		rec, err := loadVMRecord(filepath.Join(root, "vms", "crash-proof"))
+		if err != nil {
+			return
+		}
+		cfg := crashProofConfig(root)
+		paths, err := qemuPreconditions(cfg)
+		if err != nil {
+			t.Errorf("cleanup preconditions: %v", err)
+			return
+		}
+		q := &qemuRuntime{cfg: cfg, paths: paths, procs: hostProcs{}, reapPoll: 50 * time.Millisecond}
+		if err := reapVM(rec, q.procs, q.paths.Grace, q.reapPoll, treeFor(rec.TurnDir), q); err != nil {
+			t.Errorf("cleanup crash fixture: %v", err)
+		}
+	})
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		if _, err := os.Stat(filepath.Join(root, "home", "ready")); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("guest did not become ready")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	rec, err := loadVMRecord(filepath.Join(root, "vms", "crash-proof"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rec.VirtiofsdPids) != 2 {
+		t.Fatalf("virtiofsd pids = %v", rec.VirtiofsdPids)
+	}
+	targets := rec.reapTargets()
+	for _, target := range targets {
+		if target.pid <= 0 || !(hostProcs{}).alive(target.pid) {
+			t.Fatalf("%s pid %d is not running", target.what, target.pid)
+		}
+	}
+	if _, err := net.InterfaceByName(rec.Tap); err != nil {
+		t.Fatalf("tap before crash: %v", err)
+	}
+	f, err := os.Open("/proc/self/mountinfo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mounts := mountedUnder(f, rec.TurnDir)
+	_ = f.Close()
+	if len(mounts) == 0 {
+		t.Fatal("turn has no staging mounts")
+	}
+	if err := cmd.Process.Kill(); err != nil {
+		t.Fatal(err)
+	}
+	err = cmd.Wait()
+	waited = true
+	if exit, ok := err.(*exec.ExitError); !ok || exit.Sys().(syscall.WaitStatus).Signal() != syscall.SIGKILL {
+		t.Fatalf("runtime exit = %v, want SIGKILL", err)
+	}
+	restart := exec.Command(os.Args[0], "-test.run=^TestStartupSweepAfterRuntimeSIGKILL$")
+	restart.Env = append(os.Environ(), "RUNED_CRASH_PROOF_ROOT="+root, "RUNED_CRASH_PROOF_SWEEP=1")
+	if output, err := restart.CombinedOutput(); err != nil {
+		t.Fatalf("restart runtime: %v\n%s", err, output)
+	}
+	for _, target := range targets {
+		if (hostProcs{}).alive(target.pid) {
+			t.Errorf("%s pid %d survived startup", target.what, target.pid)
+		}
+	}
+	if _, err := net.InterfaceByName(rec.Tap); err == nil {
+		t.Errorf("tap %s survived startup", rec.Tap)
+	}
+	f, err = os.Open("/proc/self/mountinfo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mounts = mountedUnder(f, rec.TurnDir)
+	_ = f.Close()
+	if len(mounts) != 0 {
+		t.Errorf("mounts survived startup: %v", mounts)
+	}
+	if _, err := os.Stat(rec.TurnDir); !os.IsNotExist(err) {
+		t.Errorf("staging directory survived startup: %v", err)
+	}
+}
+
+func crashProofConfig(root string) *core.Config {
+	return &core.Config{
+		Name: os.Getenv("RUNED_BENCH_ID"), ProjectRoot: root,
+		GroupsDir: filepath.Join(root, "groups"), IpcDir: filepath.Join(root, "ipc"),
+		MaxContainers: 1,
+	}
+}
+
+func crashProofRun(t *testing.T, root string) {
+	t.Helper()
+	cfg := crashProofConfig(root)
+	runtime, _, err := NewQemuRuntime(cfg, resolverFor(cfg))
+	if err != nil {
+		t.Fatal(err)
+	}
+	turn := Turn{
+		Handle: "crash-proof", Folder: "solo/inbox",
+		Mounts: []core.Mount{
+			{Host: filepath.Join(root, "home"), Container: core.ContainerHome},
+			{Host: filepath.Join(root, "app", "entrypoint.sh"), Container: "/app/entrypoint.sh", RO: true},
+		},
+		Env:           map[string]string{"HOME": core.ContainerHome},
+		RegisterSteer: func(func(string) bool) {},
+	}
+	result := runtime.Run(context.Background(), turn)
+	t.Fatalf("turn ended before SIGKILL: %+v", result)
+}
 
 // fakeProcs is a pid table the test owns, so the reap's order, its bounded grace
 // and its confirm-gone rule are checked without starting a process.
