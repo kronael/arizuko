@@ -38,6 +38,7 @@ type bot struct {
 	appErr  error
 
 	login         atomic.Value
+	appLogin      atomic.Value
 	connected     atomic.Bool
 	lastInboundAt atomic.Int64
 	deliveries    sync.Map
@@ -51,11 +52,20 @@ func newBot(cfg config) *bot {
 func (b *bot) isConnected() bool    { return b.connected.Load() }
 func (b *bot) LastInboundAt() int64 { return b.lastInboundAt.Load() }
 
-// Login is the configured App or token account. Ingest drops
-// events this login sends so the agent's own comment cannot start a turn.
+// Login is the account GITHUB_TOKEN acts as; "" without a token.
 func (b *bot) Login() string {
 	v, _ := b.login.Load().(string)
 	return v
+}
+
+// LoginFor is the account that answers on a source of this kind: the App's
+// bot on an app/ source once the App is verified, otherwise the token's user.
+// Ingest drops events this login sends and detects mentions of it.
+func (b *bot) LoginFor(kind string) string {
+	if v, _ := b.appLogin.Load().(string); kind == store.GitHubSourceApp && v != "" {
+		return v
+	}
+	return b.Login()
 }
 
 func (b *bot) markDelivery(source string, at time.Time) {
@@ -71,12 +81,13 @@ func (b *bot) start(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		b.login.Store(login)
+		b.appLogin.Store(login)
 		slog.Info("github app verified", "login", login)
-		return nil
 	}
 	if b.cfg.Token == "" {
-		slog.Warn(noLoginConsequence("GITHUB_TOKEN is unset"))
+		if b.app == nil {
+			slog.Warn(noLoginConsequence("GITHUB_TOKEN is unset"))
+		}
 		return nil
 	}
 	req, err := http.NewRequestWithContext(ctx, "GET", b.cfg.APIBase+"/user", nil)

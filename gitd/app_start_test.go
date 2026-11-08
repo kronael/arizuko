@@ -94,3 +94,21 @@ func TestAppOnlyStartupWebhookTriggersSeededRoute(t *testing.T) {
 		t.Errorf("app requests = %d, want 1", calls)
 	}
 }
+
+// With a PAT and an App both configured, each source kind keeps its own
+// identity, so neither self-drop nor mention detection loses its account.
+func TestLoginForKeepsOneIdentityPerCredential(t *testing.T) {
+	b := newBot(config{})
+	b.login.Store("pat-user")
+	if got := b.LoginFor(store.GitHubSourceApp); got != "pat-user" {
+		t.Fatalf("app source before App verification = %q, want the PAT login", got)
+	}
+	b.appLogin.Store("arizuko[bot]")
+	for kind, want := range map[string]string{
+		store.GitHubSourceApp: "arizuko[bot]", store.GitHubSourceRepo: "pat-user", store.GitHubSourceOrg: "pat-user",
+	} {
+		if got := b.LoginFor(kind); got != want {
+			t.Errorf("LoginFor(%s) = %q, want %q", kind, got, want)
+		}
+	}
+}

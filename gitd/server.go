@@ -107,7 +107,7 @@ func (s *server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		chanlib.WriteJSON(w, map[string]any{"ok": true})
 		return
 	}
-	msg, drop, err := mapEvent(kind, name, event, delivery, body, s.now(), s.bot.Login())
+	msg, drop, err := mapEvent(kind, name, event, delivery, body, s.now(), s.bot.LoginFor(kind))
 	if err != nil {
 		slog.Warn("github webhook: rejected", "source", key, "event", event, "err", err)
 		chanlib.WriteErr(w, http.StatusBadRequest, err.Error())
