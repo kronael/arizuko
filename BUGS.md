@@ -432,6 +432,55 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
   `/root` issuer holds `admin` on `**`, the authority that answers a hold. The defect
   in the same area is who the root turn serves: `L666`.
 
+## L716 — a reply to a Discord thread's own JID does not count as the turn's delivery, so every such turn gets the `[deliver]` nudge (2026-11-08, open)
+
+MEASURED 2026-11-08 on sloth (v0.75.3, codex `gpt-6.1-sol`), Discord thread
+`1568352694081552435` in channel `discord:837270552959516682/837270552959516687`,
+rollout `groups/sloth/discord/.codex/sessions/2026/11/08/rollout-…-01a1bb36-e5e4-77d1-ab59-612080c723b7.jsonl`.
+Five of six turns called `reply` with `chatJid:"discord:837270552959516682/1568352694081552435"`
+(12:52:09, 12:55:59, 13:30:09, 13:31:44, 13:45:52) and each reply reached Discord
+(the next prompt shows it as `<observed … verb="reply" bot="true">`). Each turn
+still got `[deliver] You were addressed and delivered nothing` from the Stop hook
+(12:52:19, 12:56:23, 13:30:20, 13:31:55, 13:46:02), and the agent answered it with
+a ✅ `like` on the user's message: one extra model round and one stray reaction per turn.
+
+Cause, read from code: the turn's `ChatJID` is the parent channel (dispatch logs
+`chat_jid` `…/837270552959516687`, topic `1568352694081552435`). `recordOutboundReply`
+(`ipc/ipc.go:1396`) stores the row under the JID the agent passed, the thread's
+own JID. `turnDelivered` (`routd/turns.go:56`) asks `TurnHasBotReply` for the
+turn id inside the parent's partition only (`store/messages.go:859`), so it never
+sees the row. The agent takes the thread JID from its own earlier replies, which
+later prompts show with that `chat_id`.
+
+- **Severity:** medium — every codex turn in a Discord thread pays an extra model
+  round and leaves a reaction nobody asked for; a turn that truly delivered nothing
+  is indistinguishable in the log.
+- **Scope:** `routd/turns.go` `turnDelivered`; the thread-JID ↔ parent+topic mapping.
+- **Fix:** count a reply in the conversation the turn serves, whichever of its two
+  JIDs the agent used; no change to the `reply` tool contract.
+- **Test:** a turn on parent JID + thread topic whose reply is stored under the
+  thread JID reports delivered; a reply to an unrelated chat still does not.
+
+## L717 — a codex turn whose model host egress refuses runs until the 60-minute timeout (2026-11-08, open)
+
+MEASURED 2026-11-08 on sloth: operator probe turn `cli-1794141618560727319` in
+`sloth/support` started 12:40:23 with `ARIZUKO_BACKEND=codex` before
+`api.openai.com` was in `network_rules`. The egress proxy logged 55 `deny connect`
+lines (47 for `api.openai.com`), and the guest exited `code 143, timedOut:true`
+after 3599.9 s at 13:40:23. Allowing the host at 12:51 did not help the running
+turn. The eval turn with the same refusal pattern fixed failed in 27 s once the
+host was allowed and auth was missing (401), so the hang belongs to the refused
+connect, not to codex in general.
+
+- **Severity:** medium — a missing egress rule for the model host costs one turn
+  slot for an hour per message and gives the user no answer until then.
+- **Scope:** the codex harness retry on a refused model connection (`ant/src/codex.ts`),
+  or the egress refusal's shape as codex sees it.
+- **Fix:** not yet measured which side retries; first read codex's behaviour on the
+  proxy's refusal, then fail the turn fast with a visible error.
+- **Test:** a codex turn with the model host refused ends well before the run timeout
+  with a failure that names the refused host.
+
 ## ✅ FIXED 2026-11-06 d50afcdcd L669 — dashd's group delete purges `acl` rows and edges after only `admin` on the folder (2026-11-06)
 
 FOUND by source reading at `a4e1cc97b`, Astra's third review of `6/52`; not
