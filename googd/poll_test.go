@@ -11,6 +11,7 @@ import (
 
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/objstore"
+	"github.com/kronael/arizuko/routd"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -95,6 +96,39 @@ func TestPollPagingAndCursor(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+func TestPollActionDeliveryAndCursor(t *testing.T) {
+	p, db, _ := newPollTest(t, func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/comments") {
+			fmt.Fprint(w, `{}`)
+			return
+		}
+		if r.URL.Query().Get("pageToken") == "" {
+			fmt.Fprint(w, `{"nextPageToken":"next","comments":[{"id":"c1","createdTime":"2026-01-01T00:00:00Z","modifiedTime":"2026-01-02T00:00:00Z","action":"resolve","author":{"displayName":"Alice"}}]}`)
+			return
+		}
+		fmt.Fprint(w, `{"comments":[{"id":"c2","createdTime":"2026-01-01T00:00:00Z","modifiedTime":"2026-01-03T00:00:00Z","action":"reopen","author":{"displayName":"Alice"}}]}`)
+	}, "file")
+	ingressDB := &pollDB{rows: map[string]map[string]string{}}
+	ingress := httptest.NewServer(routd.NewServer(routd.OpenOver(ingressDB), nil, nil, nil, 0, "").Handler())
+	defer ingress.Close()
+	p.router = chanlib.NewRouterClient(ingress.URL)
+	p.sweep(t.Context(), time.Now())
+	if got := db.rows["file"]["cursor"]; got != "2026-01-03T00:00:00Z" {
+		t.Fatalf("cursor = %q, ingress rows = %v", got, ingressDB.rows)
+	}
+	for _, action := range []string{"resolve", "reopen"} {
+		found := false
+		for _, row := range ingressDB.rows {
+			if row["verb"] == action && row["preview"] == "Comment "+map[string]string{"resolve": "resolved", "reopen": "reopened"}[action] {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("missing delivered %s: %v", action, ingressDB.rows)
+		}
+	}
+}
+
 func TestPollRefusedDeliveryKeepsCursor(t *testing.T) {
 	p, db, router := newPollTest(t, func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "/comments") {

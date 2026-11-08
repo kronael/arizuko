@@ -47,6 +47,11 @@ func mapThread(file, name, source, account string, comment driveComment) []chanl
 		} else if post.Action == "reopen" && post.Content == "" {
 			verb = "reopen"
 		}
+		if content == "" && verb == "resolve" {
+			content = "Comment resolved"
+		} else if content == "" && verb == "reopen" {
+			content = "Comment reopened"
+		}
 		timestamp, _ := time.Parse(time.RFC3339Nano, post.CreatedTime)
 		messages = append(messages, chanlib.InboundMsg{ID: id, ChatJID: jid.String(), Topic: jid.Topic(), Sender: "gdrive:" + post.Author.DisplayName, SenderName: post.Author.DisplayName, Content: content, Timestamp: timestamp.Unix(), ReplyTo: replyTo, Verb: verb, IsGroup: true, ChatName: name, Source: source})
 	}
