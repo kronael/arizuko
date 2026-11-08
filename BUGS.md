@@ -15,20 +15,16 @@
 
 ## What needs you
 
+- `L790` — `TestHoldE2E_ChannelWithoutButtonsStillGetsAnAnswerablePrompt` fails under host load (fixed 5 s wait).
 - `L721` — group handoffs bounced for an hour; verify bounded turns after deployment with group sends and progress guidance.
 - `L743` — an instance-wide model pause needs trusted host-side provider evidence; proposal, needs sign-off.
-
 - `L715` — A1/A2: trusted GitHub sender and source-owner binding; proposal, needs sign-off.
-
-
-
 - `L699` — anteval cannot run a Codex smoke: it requires an Anthropic credential and installs an Anthropic-only gateway; proposal.
 - `L686` — decide whether to retire the four duplicated top-level creative skill names; proposal, needs sign-off.
 - `L687` — decide whether to retire the scheduler's two external write endpoints; proposal, needs sign-off.
 - `L688` — defer folding onbod into routd until measured net savings justify the boundary change; needs sign-off.
 - `L689` — defer folding dashd until measured net savings and reused code justify it; needs sign-off.
 - `L691` — `make rootfs` and `make kernel` reject a complete export when DOCKER uses sudo; record only.
-
 - `L676` — decide whether dashboard group creation must check the creator's new subtree grant.
 - `L675` — the guest's Python is under `/root` (700); fix at the next rootfs build.
 - `L674` — `compose down` fails on a deleted fragment despite `required: false`; proposal.
@@ -46,26 +42,17 @@
   without re-adding rows an operator removed?
 - `L597` — choose whether human conversation takes priority over CI in bounded observed context.
 - `L678` — no door writes group `effort`; dashd lists only 4.x models (in the per-group harness spec).
-
-
-
 - `L592` — correct the trading report publish grant and private report placement.
-
-
-
 Every open entry waits on a person, not on work. Grouped by what it waits FOR,
 so the queue can be unblocked without reading 5,000 lines.
 `TestOpenEntriesAreListedHere` (`tests/bugsindex`) fails when this list and the
 open set disagree, so it cannot quietly rot.
-
 It reads the HEADING, because that is what a reader sees and it is the only
 marker every entry carries. Ten entries said open in the heading and carried no
 `- **Status:** open` line, so a Status-only count answered 22 for a queue of
 31 — this section shipped with those ten missing.
-
 **A contract or design decision.** Each names the question in its own Status
 line; none can be answered from the code.
-
 - `L570` — may routd steer rows into a running turn? Adds a verb to the
   runed boundary.
 - `L571` — measure a two-sender batch under a `{sender}` route.
@@ -79,40 +66,30 @@ line; none can be answered from the code.
   2026-09-21 and each came back narrower than filed.
 - `L436` — measure whether a route target holding `..` resolves, then fix the
   gate in every resource that takes a folder.
-
 - `L437` — emit `WHISPER_BASE_URL` into the turn and hand every guest an
   ungated host service, or drop the self-transcription claim from the two
   skills that make it.
-
 - `L448` — does the 1.5 s boot gate hold when the fleet measures 3.15 s? The
   custom kernel is 2.03x faster than stock and so earns its place, but the
   reason written in the fragment is dead config, and production already misses
   the gate it is defending.
-
 - `L447` — carry the rootfs from squashfs to EROFS, or stop at squashfs? EROFS
   is faster on the random reads a boot makes, and costs one fragment line plus
   one builder stage — this repo compiles its own kernel, so neither is new.
-
 - `L443` — should a dispatch retry re-run the 👀 mark? Making the mark
   idempotent hides the retries; stopping the retry needs to know why the first
   four did not count as done.
-
 - `L442` — should the observed window key on the trigger's chat instead of the
   folder? Re-keying it changes what every agent on every channel sees.
-
 - `L441` — may a revoke delete every route under the source's JID prefix,
   including rows an operator added by hand? Otherwise a migration must name
   the two rows the renderer no longer produces.
-
 - `L440` — may `/send` key its frame on the row id so a live frame and a
   replayed one agree? It changes `platform_id`, which other readers compare.
-
 - `L439` — the first status frame has no topic because routd writes the row
   with no reply-to; the fix is in the send path, not inside webd.
-
 - `L434` — may gitd hold the dedup claim on a 5xx and dead-letter visibly?
   It changes delivery semantics for every adapter.
-
 - `L133` — one question after that re-measure: `ext:` is a third namespace the
   proposal would break.
 - `L152` — the record is written: the reconciler has no oracle, because arizuko
@@ -139,20 +116,16 @@ line; none can be answered from the code.
   first, ack asynchronously, or state the shape in `specs/5/E-routd.md`?
 - `L431` — `inject_message` lets an agent write `/approve` as any sender: mark
   injected rows so `handleCommand` skips them, or drop the `sender` parameter?
-
 **A contract or design decision, measured since.**
-
 - `L404` — a BYOC row is dropped under a gateway and `6/23` says it is translated. The
   silence is fixed; whether a user's own credential should fund a gateway key is yours.
 - `L398` — the suite's slowness is MEASURED and it is not a slow test: 783 routd tests,
   median 0.61 s, each creating 32 tables through the fixture every daemon shares. Making
   that per-binary instead of per-test is a change to `store.TestOwner`'s contract, so it
   is yours.
-
 **The GitHub channel, opened 2026-10-16 when the path first ran end to end.**
 Three siblings were fixed the same day (`L413`, `L415`, `L419`); these are the
 ones no measurement can settle.
-
 - `L417` — an App source seeds `github:*/*`, so an instruction injected into a
   comment body reaches any repository the token can see. Narrowing the seed
   breaks enrolment; refusing an unknown JID breaks the agent opening an issue.
@@ -170,12 +143,9 @@ ones no measurement can settle.
 - `L421` — `replyThreadRoot` returns "" whenever a turn has a topic, and routd
   fills `ThreadID` from the topic. Both are wrong; repairing either changes
   what teled, discd and slakd receive.
-
 **Small fixes awaiting a go.** Each is bounded, and its entry names the fix.
-
 - `L469` — CUZK Chromium runs as a host process rather than inside Rhias's
   QEMU sandbox; host browser stopped and disabled pending guest replacement.
-
 - `L428` — the web design guard passes shapes it should refuse, and a site that
   loses fifteen sidebars.
 - `L429` — four classes the pages use have no rule in `hub.css`.
@@ -183,11 +153,9 @@ ones no measurement can settle.
   `submit_turn` overwrites it.
 - `L433` — nothing fails when an isolated turn's session is written back, or
   when ant stops passing the declared id.
-
 **An operator action on live data.** The platform side is done in each.
 (`L334` is closed and carries one too: the third party's `**` on sloth is not
 revoked — see its entry.)
-
 - `L406` — `gitd` holds no store key, so enabling it restart-loops the instance.
   gitd holds a key and runs on sloth; what is left is the refusal that should
   stop an enable without a key, and the mint is `L319`.
@@ -205,12 +173,10 @@ revoked — see its entry.)
 - `L63` — krons whapd wants a phone re-pair; the recipe is in the entry.
 - `L359` — 11 G of interrupted git repacks, on a disk with 3.9 G free. The
   files are unreferenced and the deletion is live data, so it is yours.
-
 **Proposals the guard could not see until 2026-10-08.** Each heading says PROPOSED or
 "needs sign-off" and no literal `open`, so `TestOpenEntriesAreListedHere` passed over
 all thirteen — for two months, and the queue under-reported by that much. The guard
 reads those words now.
-
 - `L145`, `L146` — the inbound path as one rewrite: a channel payload becomes
   (destination URI, actor), and a link's URI selects a destination within what its
   token authorizes. Two halves of one design.
@@ -225,9 +191,7 @@ reads those words now.
   conditioned on the channel.
 - `M4` — `vited` in production: the crash class is fixed and the cost premise was
   REFUTED, so what is left is posture.
-
 **Found by the docs fold (2026-10-20); each re-measured in the code.**
-
 - `L493` — a deny row never subtracts from `/priv`: proxyd gates it on the
   allow-only listing. Same class as `F5`, on a path that returns file bytes.
 - `L495` — `forward` checks the target chat and never the source message; on
@@ -246,22 +210,16 @@ reads those words now.
 - `L488` — the standalone mcpfw image has no container build gate.
 - `L487`, `L489`, `L491`, `L501`, `L502` — doc and
   comment drift against the code, each naming the sentence to change.
-
 **Found by the v0.70.6 release review (2026-10-21).**
-
 - `L505` — which keyed read replaces the whole-chat scan for the task summary
   row? It needs a store method that returns an error.
-
 **Found by the anteval-leak investigation (2026-10-21).**
-
 - `L72` — sign off the shape in spec `6/50`: anteval makes a disposable
   instance and never touches a serving one. 47 leaked children held the
   v0.70.6 release's run slots.
 - `L512` — the eval setup grants egress `*` and two catalog cases need named
   rules; the disposable runner allows only the sink name now.
-
 **Found by the memory and cleanup pass (2026-10-21).**
-
 - `L513` — may runed's start check sum the guest budget of every instance on
   the host? Today each instance passes alone; krons and sloth together cap 8 GB
   of guests on a 16 GB host.
@@ -276,15 +234,11 @@ reads those words now.
   retired: drop the verb, or keep it for a future adapter?
 - `L520` — sloth's ExtendDB grew to 2.7 GB in 54 h and fell to 152 MiB on
   restart; is it load or a leak?
-
 **Found by the rhias evaluation (2026-10-21).**
-
 - `L526` — thirteen more variables routd reads are not in `daemonKeys["routd"]`.
   An operator names which of them to deliver, because delivering one can switch
   a feature on.
-
 **Found by the dead-code sweep (2026-10-22).**
-
 - `L536` — delete the stored numeric route id (−371 lines, astra): the id
   becomes the encoded coordinate. Changes the route API and the tie order.
 - `L535` — after a turn ends, a background subagent's result restarts the
@@ -296,47 +250,31 @@ reads those words now.
   calls.
 - `L532` — no code writes the `task.delete` audit row that `audit/PLAN.md`
   lists.
-
 **Found by the per-group machine spec (2026-10-23).**
-
 - `L537` — DECIDED: each group sizes its own guest with `mem`, `smp` and
   `timeout` keys in `container_config` (`specs/9/20-group-machine-size.md`);
   waits for a measured group that needs more than 2 GB or 2 vCPUs.
 - `L538` — routd reads the guest capabilities through the action lattice, so
   every onboarded world's agent gets a read-only share: exact match, and
   delete `share_mount(readonly)`?
-
 **Found while measuring `L535` (2026-10-23).**
-
 - `L543` — nothing writes the `_close` sentinel: delete the close path, or give
   it a writer?
 - `L544` — the ant image holds SDK 0.3.278 from a cached layer while the
   Dockerfile says latest: pin the lockfiles, or bust the cache?
-
 **Found while migrating the Telegram DMs (2026-10-25).**
-
   routd stored the rows as a chat: refuse a JID without a platform?
-
 **Found while folding the lowercase `bugs.md` into this file (2026-10-20).**
-
 - `L480` — slakd sends a whole reply as one `chat.postMessage`; `chanlib.Chunk`
   exists and discd and teled use it.
 - `L481` — `5/7` promises `require_audience` per route and nothing reads `aud`:
   build the check, or strike the promise and the `audience` mint parameter.
-
 **Outside this repo.**
-
 - `L40` — the edge must set `X-Forwarded-For` before `TRUSTED_PROXIES` may
   widen. Adding the gateway without that buys nothing.
-
 **Blocked on another entry.**
-
 - `L189` — blocked on `L137`. Do not take it alone.
-
-
 **A spec whose status is a claim.**
-
-
 - **GITHUB-PRODUCT-SETUP** (MED, config) — `ant/examples/github/PRODUCT.md`
   requires `GITHUB_APP_ID`, `GITHUB_PRIVATE_KEY`, and `GITHUB_WEBHOOK_SECRET`,
   but `gitd.loadConfig` reads none of them. The setup claims gitd is unbuilt,
@@ -348,7 +286,6 @@ reads those words now.
   token and describe source registration, `github:` routes, and `connectors.toml`.
   Working-tree correction verified by product seed tests, web link tests, and
   a before/after manifest check; commit blocked by read-only `.git`.
-
 - **GITHUB-TOPIC-REPOSITORY** (MED, design) — `GitHubJID.Topic` at
   `chanlib/github_jid.go:75` returns only kind and number; `gitd/event.go:298`
   copies that value to the message, and `store/sessions.go` keys sessions by
@@ -357,7 +294,6 @@ reads those words now.
   **Proposal:** include repository identity in GitHub topics, or route each
   repository to a distinct group. Needs sign-off because the topic contract and
   existing conversation keys change.
-
 - **GITHUB-APP-CREDENTIAL-CONTRACT** (MED, design) — `gitd/bot.go` sends
   comments with a static user token. `routd/mcp.go` resolves connector credentials
   from user/folder secrets, with no App installation-token provider. The requested
@@ -371,7 +307,6 @@ reads those words now.
   and storage. Existing tool grants and holds remain the authority for calls.
   No relay, credential endpoint, installation table, or wider storage/runtime
   port. Needs sign-off for the new credential contract.
-
 - **BUILD-DAEMON-FAILURE-MASKED** (MED, ops) — `Makefile:22` runs daemon
   submakes separated by semicolons. A later success hides an earlier failure.
   Measured 2026-10-09: `make build` returned zero after dashd failed with a
@@ -380,8 +315,18 @@ reads those words now.
   **Proposal:** stop the build on the first failed submake. This is an adjacent
   build-gate repair; scope approval is pending.
 
+## L790 — the hold e2e test fails under host load (2026-11-08, open)
 
+MEASURED 2026-11-08 on fec94801c: `go test ./... -short` failed
+`TestHoldE2E_ChannelWithoutButtonsStillGetsAnAnswerablePrompt` with "the gate
+never noticed the approval" (`routd/hold_e2e_test.go:207`) while the host had
+3.2 GB free and three Codex workers ran; routd took 544.8 s. Alone it passes
+3/3 in 2.2 s. The test waits a fixed `time.After(5 * time.Second)` at
+`routd/hold_e2e_test.go:206`.
 
+- **Severity:** low — a test flake, no product effect measured
+- **Fix:** wait on the gate's own signal, or bound the wait by the test deadline
+- **Status:** open
 
 ## L715 — tenant GitHub ingress needs trusted sender and source-owner binding (2026-11-08, proposal — needs sign-off)
 
