@@ -15,6 +15,10 @@
 
 ## What needs you
 
+- `L713` — A1/A2: tenant authority controls global GitHub ingress; containment authorized.
+- `L714` — N2: document manual repair/removal for skipped legacy GitHub sources.
+- `L715` — A1/A2: trusted GitHub sender and source-owner binding; proposal, needs sign-off.
+
 
 
 - `L699` — anteval cannot run a Codex smoke: it requires an Anthropic credential and installs an Anthropic-only gateway; proposal.
@@ -376,6 +380,51 @@ reads those words now.
   `/tmp/arizuko-github-baseline-build.log`. No test — ops.
   **Proposal:** stop the build on the first failed submake. This is an adjacent
   build-gate repair; scope approval is pending.
+
+## L713 — tenant authority controls global GitHub ingress (2026-11-08, open)
+
+**Severity:** CRITICAL, hardening. Third v0.75.4 audit A1/A2.
+`dashd/routes_admin.go:447`, `routd/github_sources_resource.go:114` and `:132`
+permit scoped repo/org registration and return its HMAC secret. The signed
+sender becomes a global `github:<login>` identity, including a PAT owner or
+operator. `dashd/routes_admin.go:244`, `routd/routes_http.go:80` and
+`routd/routes_resource.go:221` authorize route destinations without GitHub
+ingress authority. A sequence-0 route can capture another tenant's authentic
+App delivery and select its repository credentials through the global broker.
+Measured: `routd/github_sources_resource_test.go::TestGitHubSourcesAuthorizationREST`
+and `TestGitHubSourcesAuthorizationMCP`,
+`dashd/github_sources_test.go::TestGitHubSourcesScopedAdminDenied`, and the
+three surfaces' `GitHubIngressDenied` tests fail against the original gates.
+**Fix:** require instance-operator authority through existing dashboard, REST
+and MCP gates for every source registration/secret disclosure and every
+mutation selecting GitHub ingress. Preserve scoped non-GitHub routes.
+Include namespace globs and catch-all predicates that capture GitHub traffic.
+
+## L714 — skipped legacy GitHub sources need an operator repair procedure (2026-11-08, open)
+
+**Severity:** MED, docs. Third v0.75.4 audit N2.
+`store/github_source_migration.go:46` skips missing or ambiguous seeds and
+`:71` writes the final marker. Route edits do not rerun the backfill.
+`store/github_sources.go:249` refuses revocation without valid target and
+route identities. No test — docs. **Fix:** document explicit operator
+repair/removal in INSTALL.md, without automatic rebinding. Document rotation
+of secrets disclosed to non-operators, including sloth's `app/sloth` owned by
+`sloth/discord` and `repo/vumilan/morha` owned by `sloth/morha`.
+
+## L715 — tenant GitHub ingress needs trusted sender and source-owner binding (2026-11-08, proposal — needs sign-off)
+
+**Severity:** CRITICAL, design. Third v0.75.4 audit A1/A2; no test — design.
+`gitd/event.go:368` promotes a tenant-signed sender to global GitHub identity.
+`routd/dispatch.go:451` carries the chat and sender without authenticated
+source ownership; `routd/mcp.go:653` resolves credentials from all sources.
+A tenant HMAC must not attest a global `github:<login>` principal. Tenant
+dispatch and credential selection must bind to an operator-approved source
+and repository owner. **Options:** (a) define trusted sender binding and carry
+authenticated source ownership through dispatch and credential selection;
+(b) keep GitHub ingress management exclusive to instance operators.
+**Default if nothing is decided:** keep tenant GitHub ingress management
+disabled by the operator gate. Supporting tenant-managed sources needs
+sign-off on the new trust contract before implementation.
 
 ## Design invariants — intentional, do not re-report
 
