@@ -811,9 +811,27 @@ conformance suite. `cmd/arizuko/store_test.go` covers enrollment, policy
 readback, snapshot copying and enrolled policy enforcement on PostgreSQL-backed
 ExtendDB.
 
+On 2026-11-08, Go 1.27.3 ran the full conformance suite at
+`f955dd37876b616f44783777a20c504b81fefa7f` with
+`go test ./objstore/dynstore -run '^TestConformance$' -race -count=1 -timeout=1800s -json`.
+Both runs passed all 24 bodies, including the concurrent bodies, with zero
+failures, skips or race reports:
+
+| Backend                                                                                  | Bodies passed | Conformance duration | Package duration |
+| ---------------------------------------------------------------------------------------- | ------------- | -------------------- | ---------------- |
+| PostgreSQL 17.11, `postgres:17-alpine`, with `ghcr.io/extenddb/extenddb-postgres:0.1.11` | 24/24         | 3.23 s               | 4.253 s          |
+| SQLite with `ghcr.io/extenddb/extenddb-dev:0.1.11`, the dyntest default                  | 24/24         | 1.67 s               | 4.201 s          |
+
+The PostgreSQL run set `ARIZUKO_TEST_DYNAMO_ENDPOINT` to the isolated TLS
+endpoint, `ARIZUKO_TEST_DYNAMO_CA` to its generated certificate and `AWS_REGION`
+to `us-east-1`. An IAM user signed requests with its own access key.
+Both backends set control-plane and index delays to zero.
+The default run unset the endpoint and CA variables.
+The SQLite fixture does not establish DynamoDB Local compatibility.
+
 ### Remaining
 
-- Run driver conformance on PostgreSQL-backed ExtendDB and DynamoDB Local, including the concurrent bodies with `-race` (`objstore/dynstore/dynstore_test.go`).
+- Run driver conformance on DynamoDB Local, including the concurrent bodies with `-race` (`objstore/dynstore/dynstore_test.go`). No DynamoDB Local image was cached on 2026-11-08; the test required cached images only.
 - Record the required twenty-query search comparison and deployment soak evidence (`routd/README.md`, `CHANGELOG.md`).
 
 ## Ties
