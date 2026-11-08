@@ -105,7 +105,11 @@ func verifyToken(ctx context.Context, b *bot, rc capSetter, every time.Duration)
 	if err == nil {
 		return
 	}
-	slog.Error(noLoginConsequence("github /user failed")+
+	endpoint := "/user"
+	if b.app != nil {
+		endpoint = "/app"
+	}
+	slog.Error(noLoginConsequence("github "+endpoint+" failed")+
 		"; gitd runs ingress-only, send_text is withdrawn, and gitd's own comments are no longer dropped at ingest",
 		"err", err)
 	setCaps(rc, capsFor(b.cfg.AppID))
@@ -129,7 +133,7 @@ func reverify(ctx context.Context, b *bot, rc capSetter, every time.Duration) {
 			err := b.start(ctx)
 			switch {
 			case err == nil:
-				slog.Info("github /user answered; send_text is back on the registration", "login", b.Login())
+				slog.Info("github identity answered; send_text is back on the registration", "login", b.Login())
 				setCaps(rc, capsFor(b.cfg.Token+b.cfg.AppID))
 				return
 			case errors.Is(err, chanlib.ErrPermanent):
@@ -137,7 +141,7 @@ func reverify(ctx context.Context, b *bot, rc capSetter, every time.Duration) {
 					"err", err)
 				return
 			default:
-				slog.Warn("github /user still unanswered; send_text stays withdrawn", "err", err)
+				slog.Warn("github identity still unanswered; send_text stays withdrawn", "err", err)
 			}
 		}
 	}

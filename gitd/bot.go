@@ -51,7 +51,7 @@ func newBot(cfg config) *bot {
 func (b *bot) isConnected() bool    { return b.connected.Load() }
 func (b *bot) LastInboundAt() int64 { return b.lastInboundAt.Load() }
 
-// Login is the account GITHUB_TOKEN acts as; "" without a token. Ingest drops
+// Login is the configured App or token account. Ingest drops
 // events this login sends so the agent's own comment cannot start a turn.
 func (b *bot) Login() string {
 	v, _ := b.login.Load().(string)
@@ -63,10 +63,18 @@ func (b *bot) markDelivery(source string, at time.Time) {
 	b.deliveries.Store(source, at.Unix())
 }
 
-// start learns the token's login (GET /user) so self-authored comments are
-// recognised at ingest. No token → ingress only, nothing to learn.
+// start learns the bot login so self-authored comments are recognised at ingest.
 func (b *bot) start(ctx context.Context) error {
 	defer b.connected.Store(true)
+	if b.app != nil {
+		login, err := b.app.Login(ctx)
+		if err != nil {
+			return err
+		}
+		b.login.Store(login)
+		slog.Info("github app verified", "login", login)
+		return nil
+	}
 	if b.cfg.Token == "" {
 		slog.Warn(noLoginConsequence("GITHUB_TOKEN is unset"))
 		return nil

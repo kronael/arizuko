@@ -132,7 +132,7 @@ login and PR comment are one identity.
 `add` seeds a `<folder>#{jid}` mention trigger and a
 `<folder>?observe#{jid}` fallback for every chat level of the source: `pr/*`,
 `issue/*`, the repo and, for an org or App source, the owner. The fragment gives each chat its full JID as the topic.
-The bot's login comes from `GITHUB_TOKEN`. A turn starts only on an
+The bot's login comes from the configured App, or from `GITHUB_TOKEN` when no App is configured. A turn starts only on an
 explicit ask: an @mention of the bot written by a person anywhere (PR, issue,
 discussion, commit comment, project status update, commit message, CI output),
 a review request or assignment to the bot login, a reply to a bot comment, or a

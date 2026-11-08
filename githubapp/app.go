@@ -99,22 +99,10 @@ func (c *Client) Token(ctx context.Context, owner, repo string) (string, error) 
 	now := c.now()
 	cached := c.tokens[name]
 	delete(c.tokens, name)
-	claims, err := json.Marshal(struct {
-		Iss string `json:"iss"`
-		Iat int64  `json:"iat"`
-		Exp int64  `json:"exp"`
-	}{c.id, now.Add(-time.Minute).Unix(), now.Add(9 * time.Minute).Unix()})
+	jwt, err := c.jwt(now)
 	if err != nil {
 		return "", err
 	}
-	enc := base64.RawURLEncoding
-	unsigned := enc.EncodeToString([]byte(`{"alg":"RS256","typ":"JWT"}`)) + "." + enc.EncodeToString(claims)
-	hash := sha256.Sum256([]byte(unsigned))
-	signature, err := rsa.SignPKCS1v15(rand.Reader, c.key, crypto.SHA256, hash[:])
-	if err != nil {
-		return "", fmt.Errorf("sign github app JWT: %w", err)
-	}
-	jwt := unsigned + "." + enc.EncodeToString(signature)
 	var installation struct {
 		ID          int64      `json:"id"`
 		SuspendedAt *time.Time `json:"suspended_at"`
@@ -149,6 +137,42 @@ func (c *Client) Token(ctx context.Context, owner, repo string) (string, error) 
 	result.Installation = installation.ID
 	c.tokens[name] = result
 	return result.Value, nil
+}
+
+func (c *Client) Login(ctx context.Context) (string, error) {
+	jwt, err := c.jwt(c.now())
+	if err != nil {
+		return "", err
+	}
+	var app struct {
+		Slug string `json:"slug"`
+	}
+	if err := c.request(ctx, http.MethodGet, "/app", jwt, nil, &app); err != nil {
+		return "", err
+	}
+	if app.Slug == "" {
+		return "", fmt.Errorf("github app has no slug")
+	}
+	return app.Slug + "[bot]", nil
+}
+
+func (c *Client) jwt(now time.Time) (string, error) {
+	claims, err := json.Marshal(struct {
+		Iss string `json:"iss"`
+		Iat int64  `json:"iat"`
+		Exp int64  `json:"exp"`
+	}{c.id, now.Add(-time.Minute).Unix(), now.Add(9 * time.Minute).Unix()})
+	if err != nil {
+		return "", err
+	}
+	enc := base64.RawURLEncoding
+	unsigned := enc.EncodeToString([]byte(`{"alg":"RS256","typ":"JWT"}`)) + "." + enc.EncodeToString(claims)
+	hash := sha256.Sum256([]byte(unsigned))
+	signature, err := rsa.SignPKCS1v15(rand.Reader, c.key, crypto.SHA256, hash[:])
+	if err != nil {
+		return "", fmt.Errorf("sign github app JWT: %w", err)
+	}
+	return unsigned + "." + enc.EncodeToString(signature), nil
 }
 
 func (c *Client) Invalidate(owner, repo string) {
