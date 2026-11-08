@@ -164,3 +164,7 @@ the user the exact ask in the same message, then continue with OSM and
 label the page "corroborated on OSM, not Mapy":
 `/root network_allow('<folder>', '<host>')` (folder from
 `$ARIZUKO_GROUP_FOLDER`).
+
+## Photos and reviews
+
+Record each platform's rating, review count, observation date and recent reviews separately. Inspect photos for practical details such as access and seating. Mark missing counts or photos as unknown.

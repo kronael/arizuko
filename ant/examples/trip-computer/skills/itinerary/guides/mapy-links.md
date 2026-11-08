@@ -89,3 +89,7 @@ python3 ~/.claude/skills/itinerary/scripts/mapyrc.py routes.json
 - a mapy car route without the Google route beside it
 - a trail walk or loop in `foot` (131): the "Fast" profile may leave
   the marked trail; use `hike` (132)
+
+## Route verification
+
+Match each named place to its own map entry before building the route. Open the finished route in a browser and check that its path, named stops and distances agree with the page. Static URL checks do not verify the rendered route.

@@ -173,3 +173,7 @@ Edit the page in place; Rounds 2–4 run on the changed items only.
   stops), `km` recomputed; the pages keep their stops.
 - A forecast host is down: the last forecast with its date in the
   weather box; never the hosts tried.
+
+## First screen
+
+Place the day decision first. Show route choices as cards with distance, time and suitability, and link each card to its verified route. Keep rating and review counts tied to their named source.

@@ -1,22 +1,12 @@
 # Checks — before every delivery (Round 4)
 
+Run `python3 ~/.claude/skills/itinerary/scripts/trip_lint.py ~/public_html/<trip>` for the whole site. It checks local links, navigation, page structure, map URLs and meal lines. The `page_check.py` entry point delegates to this same checker.
+
+Run `python3 ~/.claude/skills/itinerary/scripts/link_check.py ~/public_html/<trip>/day*.html` to inspect map links in the browser. A browser error or timeout is a failed check. Inspect rendered routes and a 390 px page separately; static checks cannot verify route geometry or source truth.
+
+When a stop, date, route or venue changes, recheck its hours, route, affected links and pages. When only text changes, rerun the static checker. For independent judgment use core `oracle` with Codex model `gpt-6-astra` and reasoning effort `high`.
+
 Run all of it after every change, not only the first build.
-
-## Page check script (exit 0 or no delivery)
-
-```bash
-python3 ~/.claude/skills/itinerary/scripts/page_check.py ~/public_html/<trip>/day*.html
-```
-Fails on: title ≠ h1, `<div>` imbalance, `<nav>` count ≠ 1, a `?q=`
-anywhere, an empty `href`, a `mapy.cz` link, a phone outside a `tel:`
-link, `checked-line` count ≠ 1, a missing `source-note`, a missing meal
-item (Breakfast / Lunch / Coffee / Dinner as `HH:MM — <Meal>`), a Food
-heading outside the timeline, and a food `<li>` that is over 10 words
-before the first `·`, has no `Google x.x` / `unrated`, no `tel:` link
-(or `phone: not found`), no Google link, no mapy link, or a
-`source=coor` pin. Warns when `Story.` boxes < stops, `if full` < drive
-items, or a food line shows no open-today proof (a time) — fix or
-explain each warning in the delivery.
 
 ## Venues and car parks
 

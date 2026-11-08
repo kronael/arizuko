@@ -1,5 +1,7 @@
 # Web Deployment Guide
 
+Copy `components/hub-lavender.css` and `components/hub.js` from the installed itinerary skill into the site’s `assets/` directory before publishing. Use relative asset links.
+
 ## File Structure
 
 ```
@@ -40,7 +42,7 @@ border-left: 4px solid var(--accent);
 ```
 
 **Styling:**
-- ALWAYS use `/pub/<folder>/<site>/assets/hub-lavender.css` + `/pub/<folder>/<site>/assets/hub.js` (rules: the site's `CLAUDE.md` § Web style)
+- ALWAYS use `assets/hub-lavender.css` + `assets/hub.js` (the site can add local styles)
 - NEVER inline styles except minimal layout (nav flex, spacing)
 - Clean titles (NO unnecessary suffixes)
 
@@ -51,7 +53,7 @@ border-left: 4px solid var(--accent);
 <html lang="en">
 <head>
   <title>Page Title</title>
-  <link rel="stylesheet" href="/pub/<folder>/<site>/assets/hub-lavender.css">
+  <link rel="stylesheet" href="assets/hub-lavender.css">
 </head>
 <body>
   <a href="index.html" class="back-btn">&larr; overview</a>
@@ -70,7 +72,7 @@ border-left: 4px solid var(--accent);
     <!-- Content -->
   </div>
 
-  <script src="/pub/<folder>/<site>/assets/hub.js"></script>
+  <script src="assets/hub.js"></script>
 </body>
 </html>
 ```
