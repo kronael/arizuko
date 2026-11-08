@@ -15,6 +15,8 @@
 
 ## What needs you
 
+- `L709` — revoking an App source deletes other tenants' identically matching routes; approved fix.
+
 
 - `L699` — anteval cannot run a Codex smoke: it requires an Anthropic credential and installs an Anthropic-only gateway; proposal.
 - `L686` — decide whether to retire the four duplicated top-level creative skill names; proposal, needs sign-off.
@@ -9247,3 +9249,15 @@ Three shapes, one decision:
   **Fix:** measure instruction/tool exposure and completion behavior, then improve
   the existing declaration so an unambiguous completed task calls the stop tool.
   Do not add a second lifecycle policy or unconditional platform stop hook.
+
+## L709 — App source revoke deletes other tenants' routes (2026-11-08, open)
+
+- **Severity:** HIGH, correctness; release blocker R2.
+- **Measured:** `store/github_sources.go:139` renders identical App match predicates for every slug; `store/routes.go:68` gives different targets different route keys; `store/github_sources.go:225–268` verifies the source owner but deletes every matching route across the global partition. Source-verified, no destructive reproduction.
+- **Failure:** deleting `app/attacker` owned by A deletes routes seeded by `app/victim` owned by B, while B's source survives.
+- **Fix:** revoke removes only routes seeded for the source's owner/target. Preserve other targets, including when registration uses a distinct `target_folder`. No match-only deletion across tenants.
+- **Regression:** `store/github_sources_test.go::TestGitHubSourceRemoveKeepsOtherTargets` fails before the fix because all eight routes of the other App source disappear. It covers two owners with child targets and verifies the other source remains. Additional tests preserve pre-existing/replaced/retargeted routes and refuse legacy metadata or targets outside the owner.
+- **Related:** L435 claims that target-dependent rendering changes match predicates; current source contradicts that premise because only target changes. Re-measure its ownership concern with this regression.
+- **Fix details:** record `target_folder` and minted `route_ids` in the source row; delete only exact seeded coordinates with those IDs. Sources without ownership metadata refuse revocation before buffering any deletion; an operator must clean up those records.
+- **Mutation:** restoring the original match-only helper deletes all eight foreign routes and fails the two-App regression. Removing the ID check, coordinate check, owner containment, or recorded target also fails a regression. All five mutations restored; combined GitHub/Drive short/race tests pass on store, routd and dashd.
+- **Status:** approved, fixing after R1.

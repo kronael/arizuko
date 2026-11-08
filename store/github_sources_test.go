@@ -192,3 +192,132 @@ func storedGitHubSecret(t *testing.T, s *Store, source string) string {
 	}
 	return items[0].Attrs[attrGHSecret]
 }
+
+func TestGitHubSourceRemoveKeepsOtherTargets(t *testing.T) {
+	s := keyedStore(t)
+	for _, tc := range []struct{ source, owner, target string }{
+		{"app/one", "eng", "eng/sub"},
+		{"app/two", "other", "other/sub"},
+	} {
+		if _, err := s.AddGitHubSource(GitHubSource{Source: tc.source, OwnerFolder: tc.owner}, tc.target); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if hit, err := s.RemoveGitHubSource("app/one", "eng"); err != nil || !hit {
+		t.Fatalf("remove = %v, %v", hit, err)
+	}
+	if _, ok, err := s.GitHubSourceSecret("app/one"); err != nil || ok {
+		t.Fatalf("removed source remains: ok=%v err=%v", ok, err)
+	}
+	if _, ok, err := s.GitHubSourceSecret("app/two"); err != nil || !ok {
+		t.Fatalf("other source missing: ok=%v err=%v", ok, err)
+	}
+	routes := s.AllRoutes()
+	want, err := GitHubSourceRoutes("app/two", "other/sub")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(routes) != len(want) {
+		t.Fatalf("remaining routes = %+v, want %+v", routes, want)
+	}
+	for _, route := range routes {
+		if !strings.HasPrefix(route.Target, "other/sub") {
+			t.Errorf("unexpected route: %+v", route)
+		}
+	}
+}
+
+func TestGitHubSourceRemoveLegacyKeepsSourceAndRoutes(t *testing.T) {
+	s := keyedStore(t)
+	for _, tc := range []struct{ source, owner string }{{"app/one", "eng"}, {"app/two", "other"}} {
+		if _, err := s.AddGitHubSource(GitHubSource{Source: tc.source, OwnerFolder: tc.owner}, tc.owner); err != nil {
+			t.Fatal(err)
+		}
+	}
+	key, err := githubSourceKey("app/one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Obj().GuardedBatch(context.Background(), nil, []objstore.Write{{
+		Op: objstore.Update, Entity: GitHubSources, Key: key, Remove: []string{attrGHTargetFolder, attrGHRouteIDs},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if hit, err := s.RemoveGitHubSource("app/one", "eng"); err == nil || hit {
+		t.Fatalf("legacy removal = %v, %v; want error", hit, err)
+	}
+	if _, ok, err := s.GitHubSourceSecret("app/one"); err != nil || !ok {
+		t.Fatalf("legacy source missing: %v, %v", ok, err)
+	}
+	if routes := s.AllRoutes(); len(routes) != 16 {
+		t.Fatalf("routes after refused removal = %+v", routes)
+	}
+}
+
+func TestGitHubSourceRemoveKeepsExistingAndReplacedRoutes(t *testing.T) {
+	s := keyedStore(t)
+	seeded, err := GitHubSourceRoutes("app/one", "eng")
+	if err != nil {
+		t.Fatal(err)
+	}
+	existingID, err := s.AddRoute(seeded[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AddGitHubSource(GitHubSource{Source: "app/one", OwnerFolder: "eng"}, "eng"); err != nil {
+		t.Fatal(err)
+	}
+	var replaced core.Route
+	for _, route := range s.AllRoutes() {
+		if route.Match == seeded[1].Match {
+			replaced = route
+		}
+	}
+	if replaced.ID == 0 {
+		t.Fatal("seeded route missing")
+	}
+	if _, err := s.DeleteRoute(replaced.ID); err != nil {
+		t.Fatal(err)
+	}
+	replacementID, err := s.AddRoute(seeded[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	var edited core.Route
+	for _, route := range s.AllRoutes() {
+		if route.Match == seeded[2].Match {
+			edited = route
+		}
+	}
+	if edited.ID == 0 {
+		t.Fatal("route to edit missing")
+	}
+	edited.Target = "other#{jid}"
+	if _, err := s.UpdateRoute(edited.ID, edited); err != nil {
+		t.Fatal(err)
+	}
+	if hit, err := s.RemoveGitHubSource("app/one", "eng"); err != nil || !hit {
+		t.Fatalf("remove = %v, %v", hit, err)
+	}
+	routes := s.AllRoutes()
+	if len(routes) != 3 {
+		t.Fatalf("remaining routes = %+v", routes)
+	}
+	ids := map[int64]bool{routes[0].ID: true, routes[1].ID: true, routes[2].ID: true}
+	if !ids[existingID] || !ids[replacementID] || !ids[edited.ID] {
+		t.Fatalf("remaining route IDs = %v, want %d, %d and %d", ids, existingID, replacementID, edited.ID)
+	}
+}
+
+func TestGitHubSourceRemoveRejectsTargetOutsideOwner(t *testing.T) {
+	s := keyedStore(t)
+	if _, err := s.AddGitHubSource(GitHubSource{Source: "app/one", OwnerFolder: "eng"}, "other"); err != nil {
+		t.Fatal(err)
+	}
+	if hit, err := s.RemoveGitHubSource("app/one", "eng"); err == nil || hit {
+		t.Fatalf("remove outside target = %v, %v; want error", hit, err)
+	}
+	if routes := s.AllRoutes(); len(routes) != 8 {
+		t.Fatalf("routes after refused removal = %+v", routes)
+	}
+}

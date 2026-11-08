@@ -16,6 +16,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"regexp"
@@ -24,14 +25,17 @@ import (
 
 	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/objstore"
 )
 
 // The attributes a source item carries. `source` is the coordinate.
 const (
-	attrGHSecret      = "secret"
-	attrGHOwnerFolder = "owner_folder"
-	attrGHCreatedAt   = "created_at"
+	attrGHSecret       = "secret"
+	attrGHOwnerFolder  = "owner_folder"
+	attrGHTargetFolder = "target_folder"
+	attrGHRouteIDs     = "route_ids"
+	attrGHCreatedAt    = "created_at"
 )
 
 // githubSourceKey is the coordinate of one source.
@@ -182,6 +186,10 @@ func (s *Store) AddGitHubSourceInto(ctx context.Context, ws *WriteSet, src GitHu
 	for i := range routes {
 		routes[i].ID = ids[i]
 	}
+	routeIDs, err := json.Marshal(ids)
+	if err != nil {
+		return "", err
+	}
 	secret := GenRouteToken()
 	sealed, err := s.storeValue(secret)
 	if err != nil {
@@ -200,9 +208,11 @@ func (s *Store) AddGitHubSourceInto(ctx context.Context, ws *WriteSet, src GitHu
 	if err := ws.AddGuarded(refused, objstore.Write{
 		Op: objstore.Put, Entity: GitHubSources, Key: key,
 		Attrs: map[string]string{
-			attrGHSecret:      sealed,
-			attrGHOwnerFolder: src.OwnerFolder,
-			attrGHCreatedAt:   core.TS(ts),
+			attrGHSecret:       sealed,
+			attrGHOwnerFolder:  src.OwnerFolder,
+			attrGHTargetFolder: target,
+			attrGHRouteIDs:     string(routeIDs),
+			attrGHCreatedAt:    core.TS(ts),
 		},
 		Cond: objstore.Cond{Item: objstore.ItemAbsent},
 	}); err != nil {
@@ -231,26 +241,42 @@ func (s *Store) RemoveGitHubSourceInto(ctx context.Context, ws *WriteSet, key, o
 	if !ok || it.Attrs[attrGHOwnerFolder] != ownerFolder {
 		return false, nil
 	}
-	ws.Add(objstore.Write{Op: objstore.Delete, Entity: GitHubSources, Key: it.Key})
-	routes, err := GitHubSourceRoutes(key, ownerFolder)
+	target := it.Attrs[attrGHTargetFolder]
+	if !groupfolder.IsValidFolder(target) || !groupfolder.Contains(ownerFolder, target) {
+		return false, fmt.Errorf("github source %q has no valid target within owner %q; remove its routes and source manually", key, ownerFolder)
+	}
+	var ids []int64
+	if err := json.Unmarshal([]byte(it.Attrs[attrGHRouteIDs]), &ids); err != nil {
+		return false, fmt.Errorf("github source %q has no route identities; remove its routes and source manually", key)
+	}
+	routes, err := GitHubSourceRoutes(key, target)
 	if err != nil {
 		return false, err
 	}
-	// Deleted by MATCH, the third field of a route's coordinate, so this reads
-	// the routes partition: 58 rules on the largest live instance.
+	if len(ids) != len(routes) {
+		return false, fmt.Errorf("github source %q has invalid route identities; remove its routes and source manually", key)
+	}
+	for i := range routes {
+		if ids[i] <= 0 {
+			return false, fmt.Errorf("github source %q has invalid route identities; remove its routes and source manually", key)
+		}
+		routes[i].ID = ids[i]
+	}
+	ws.Add(objstore.Write{Op: objstore.Delete, Entity: GitHubSources, Key: it.Key})
 	if err := s.deleteRoutesMatchingInto(ctx, ws, routes); err != nil {
 		return false, err
 	}
 	return true, nil
 }
 
-// deleteRoutesMatchingInto buffers the removal of every route rule whose `match`
-// is one a registration seeded. A rule the operator has since edited away is
-// simply not there.
 func (s *Store) deleteRoutesMatchingInto(ctx context.Context, ws *WriteSet, seeded []core.Route) error {
-	wanted := make(map[string]bool, len(seeded))
+	wanted := make(map[objstore.Key]int64, len(seeded))
 	for _, r := range seeded {
-		wanted[r.Match] = true
+		key, err := routeKey(r)
+		if err != nil {
+			return err
+		}
+		wanted[key] = r.ID
 	}
 	items, err := s.Obj().Query(ctx, objstore.Query{Entity: Routes, Partition: OwnerRoutd})
 	if err != nil {
@@ -262,7 +288,8 @@ func (s *Store) deleteRoutesMatchingInto(ctx context.Context, ws *WriteSet, seed
 		if err != nil {
 			return err
 		}
-		if !wanted[r.Match] {
+		id, ok := wanted[it.Key]
+		if !ok || (id != 0 && r.ID != id) {
 			continue
 		}
 		writes = append(writes, objstore.Write{Op: objstore.Delete, Entity: Routes, Key: it.Key})
