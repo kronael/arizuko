@@ -15,9 +15,11 @@ Owner, verbatim:
 
 > still you should try to make it smaller have this as a task for 7/ … where we want to also try to replace the oauth layer if we can and simplify everything we have into more orthogonal components
 
-TypeScript remains the current choice for ant. The task tests which responsibilities
-the environment or an upstream component can take over. A language rewrite alone
-does not satisfy the task.
+The owner later moved the language question out of this spec: "it makes not much
+sense to have ant in typescript after all … have the rewrite for 8/ not 7/". A Go
+ant that drives the `claude`, `codex` and `pi` CLIs is phase 8. This task tests
+which responsibilities the environment or an upstream component can take over,
+whatever language ant is written in.
 
 All source measurements below use detached commit
 `9be919983c1f2c60772631cc2eab5b4f67b6039e`, measured 2026-11-08.
@@ -300,7 +302,7 @@ Process count alone does not measure orthogonality.
 1. **Should environment integration require upstream support before ant changes?**
    Recommendation: yes. The three MCP renderers and hook translations above are
    today's concrete targets. A local standard without harness adoption adds machinery.
-   Keep TypeScript and measure installed harness behavior first.
+   Measure installed harness behavior first; the language rewrite is phase 8.
 2. **Should Dex become required for a small callback deletion?**
    Recommendation: no on present evidence. The candidate function bodies total
    256 lines, and the native callbacks enforce admission rules absent from the
