@@ -460,6 +460,7 @@ later prompts show with that `chat_id`.
   JIDs the agent used; no change to the `reply` tool contract.
 - **Test:** a turn on parent JID + thread topic whose reply is stored under the
   thread JID reports delivered; a reply to an unrelated chat still does not.
+- **Status:** open — change awaiting verification: `turnDelivered` also asks `TurnHasBotReply` for `discord:<guild>/<topic>` (`discordThreadJID`, `routd/turns.go`), derived from the turn's topic, the mapping discd's `chatAndTopic` makes. Other platforms are unchanged. Test: `TestTurnDeliveredCountsDiscordThreadReply`.
 
 ## L717 — a codex turn whose model host egress refuses runs until the 60-minute timeout (2026-11-08, open)
 
