@@ -448,8 +448,20 @@ connect, not to codex in general.
   slot for an hour per message and gives the user no answer until then.
 - **Scope:** the codex harness retry on a refused model connection (`ant/src/codex.ts`),
   or the egress refusal's shape as codex sees it.
-- **Fix:** not yet measured which side retries; first read codex's behaviour on the
-  proxy's refusal, then fail the turn fast with a visible error.
+- **Status:** codex is the side that keeps the turn alive. MEASURED 2026-11-08,
+  codex-cli 0.167.0, `HTTPS_PROXY` at a proxy answering every CONNECT with the
+  egress shape (403, `denied: host not allowed`, closed): codex retries the
+  stream 5 times, falls back from WebSockets to HTTPS, then emits
+  `Reconnecting... waiting for network` with growing backoff until killed (150 s
+  run, exit 124, still looping). `request_max_retries` / `stream_max_retries`
+  do not bound that loop (custom provider, both 1) and the built-in `openai`
+  provider cannot be overridden, so no knob exists. Changed: `CodexTurn` ends
+  the turn after 3 such events in a row with a failure naming the model host
+  (the gateway host, else `api.openai.com or chatgpt.com`) and the
+  `network_rules` remedy; the driver then kills codex. The 403 body does not
+  reach the user: codex shows only the status.
+- **Fix:** applied in `ant/src/codex.ts` (see Status); the host named is the one
+  ant knows, not the one the proxy denied.
 - **Test:** a codex turn with the model host refused ends well before the run timeout
   with a failure that names the refused host.
 
