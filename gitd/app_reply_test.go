@@ -82,3 +82,38 @@ func TestReplySourceSelection(t *testing.T) {
 		})
 	}
 }
+
+func TestAppSourceTypingMarkUsesInstallationToken(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	auth := ""
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/repos/acme/project/installation":
+			fmt.Fprint(w, `{"id":1}`)
+		case "/app/installations/1/access_tokens":
+			fmt.Fprintf(w, `{"token":"app-token","expires_at":%q}`, time.Now().Add(time.Hour).UTC().Format(time.RFC3339))
+		case "/repos/acme/project/issues/comments/7/reactions":
+			auth = r.Header.Get("Authorization")
+			w.WriteHeader(201)
+			fmt.Fprint(w, `{"id":9}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	b := newBot(config{Token: "pat", APIBase: server.URL})
+	b.sources = testSources{{Source: "app/bot"}}
+	privateKey := string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)}))
+	if b.app, err = githubapp.New("123", privateKey, server.URL, server.Client()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.addEyes("github:acme/project/issue/1", "gh-c7"); err != nil {
+		t.Fatal(err)
+	}
+	if auth != "Bearer app-token" {
+		t.Fatalf("authorization = %q, want the installation token", auth)
+	}
+}

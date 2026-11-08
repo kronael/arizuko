@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strconv"
@@ -35,12 +36,13 @@ func reactionsPath(j chanlib.GitHubJID, msgID string) (string, bool) {
 
 // targetPath is reactionsPath for a chat JID and the message id the mark was
 // pinned to.
-func targetPath(jid, target string) (string, bool) {
+func targetPath(jid, target string) (chanlib.GitHubJID, string, bool) {
 	j, ok := chanlib.ParseGitHubJID(jid)
 	if !ok {
-		return "", false
+		return j, "", false
 	}
-	return reactionsPath(j, target)
+	path, ok := reactionsPath(j, target)
+	return j, path, ok
 }
 
 // Typing sets (on) or removes (off) a 👀 on the comment that started the turn.
@@ -48,7 +50,7 @@ func targetPath(jid, target string) (string, bool) {
 // GitHub refusal is logged at warn by the mark and goes no further; the reply
 // is the product.
 func (b *bot) Typing(jid string, on bool) {
-	if b.cfg.Token == "" || b.mark == nil {
+	if b.cfg.Token == "" && b.app == nil || b.mark == nil {
 		return
 	}
 	b.mark.Typing(jid, on)
@@ -58,13 +60,17 @@ func (b *bot) Typing(jid string, on bool) {
 // id, which the delete needs. A target with no reactable comment is
 // chanlib.ErrNoMarkTarget.
 func (b *bot) addEyes(jid, target string) (string, error) {
-	path, ok := targetPath(jid, target)
+	j, path, ok := targetPath(jid, target)
 	if !ok {
 		return "", chanlib.ErrNoMarkTarget
 	}
+	token, err := b.replyToken(j)
+	if err != nil {
+		return "", err
+	}
 	body, _ := json.Marshal(map[string]string{"content": typingReaction})
 	// 200 is GitHub answering that this reaction already stands.
-	raw, err := b.call("POST", b.cfg.APIBase+path, body, []int{200, 201})
+	raw, err := b.callToken(context.Background(), "POST", b.cfg.APIBase+path, body, []int{200, 201}, token)
 	if err != nil {
 		return "", err
 	}
@@ -80,10 +86,14 @@ func (b *bot) addEyes(jid, target string) (string, error) {
 // removeEyes deletes the 👀 addEyes made. 404 is the reaction (or its comment)
 // already gone, which is what the caller wanted.
 func (b *bot) removeEyes(jid, target, handle string) error {
-	path, ok := targetPath(jid, target)
+	j, path, ok := targetPath(jid, target)
 	if !ok {
 		return fmt.Errorf("github mark target %q has no reactions path", target)
 	}
-	_, err := b.call("DELETE", b.cfg.APIBase+path+"/"+handle, nil, []int{204, 404})
+	token, err := b.replyToken(j)
+	if err != nil {
+		return err
+	}
+	_, err = b.callToken(context.Background(), "DELETE", b.cfg.APIBase+path+"/"+handle, nil, []int{204, 404}, token)
 	return err
 }

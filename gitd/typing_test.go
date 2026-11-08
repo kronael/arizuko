@@ -87,7 +87,7 @@ func newTypingEnv(t *testing.T, st *chanstore.Store, cfg config) *typingEnv {
 	t.Helper()
 	routd := httptest.NewServer(&fakeRoutd{})
 	t.Cleanup(routd.Close)
-	e := &typingEnv{b: newBot(cfg), rc: chanlib.NewRouterClient(routd.URL), st: st}
+	e := &typingEnv{b: testBot(cfg), rc: chanlib.NewRouterClient(routd.URL), st: st}
 	e.b.useMark(e.rc, st)
 	t.Cleanup(e.b.stop)
 	return e
@@ -317,6 +317,7 @@ func TestWebhook_RecordsTheTriggerComment(t *testing.T) {
 	api, url := newReactionAPI(t)
 	e := newTestEnv(t, secretMap{"repo/kronael/arizuko": "s3cret"})
 	e.srv.bot.cfg.Token, e.srv.bot.cfg.APIBase = "ghp_test", url
+	e.srv.bot.sources = testSources{{Source: "repo/kronael/arizuko"}}
 
 	for _, c := range []struct{ event, fixture, path string }{
 		{"issue_comment", "issue_comment_created", "/repos/kronael/arizuko/issues/comments/4567890123/reactions"},
