@@ -58,6 +58,7 @@ as a contract. A part nobody can watch has not shipped.
 | [55-identity-held-credentials.md](55-identity-held-credentials.md) | draft | A user's credential pays for that user's turn; delivery, enrollment and internal funding await owner decisions. |
 | [56-identity-held-tools.md](56-identity-held-tools.md) | queued | Tools carried by an OAuth identity and whose account a call acts as; the agent's own login stays the default and acting as a human stays a grant. |
 | [59-local-daemons.md](59-local-daemons.md) | draft | One package lifecycle for core and outside daemons; Compose, socket discovery, scoped auth and store enrollment. |
+| [60-model-credential-pause.md](60-model-credential-pause.md) | draft | One credential pause holds messages, notifies each chat once and probes for recovery; removes chat/folder breakers. |
 
 `7` owns the contracts; `1` owns the strategy; `16` owns the map (layers,
 axes, matrices); `28` owns the cockpit and every one of `29`–`33` points back
