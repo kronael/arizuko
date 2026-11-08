@@ -471,6 +471,12 @@ that version. A change to which rows reach live data is an auth change.
 - **Status:** open — needs sign-off.
 
 
+## L701 — GitHub platform routes lose conversation separation after upgrade (2026-11-08, open)
+
+- **Severity:** HIGH, correctness; blocks v0.75.4 upgrades.
+- **Evidence:** `gitd/event.go` no longer supplies a topic; `store/github_route_migration.go:15` migrates only `chat_jid=github:` predicates. A `platform=github verb=mention` route to `desk` sends distinct issues and PRs to `(desk, "")`. No live route inventory was taken.
+- **Fix:** Migrate explicit `platform=github` predicates too, preserving pinned topics and idempotence. Test: `store/github_route_migration_test.go::TestMigrateGitHubRouteTopics`.
+
 ## L699 — anteval cannot run a Codex-backend smoke (2026-11-08, open — proposal, needs sign-off)
 
 MEASURED 2026-11-08 at `269c83f09`, Sol's Codex smoke stopped before creation:
