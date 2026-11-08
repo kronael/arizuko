@@ -17,7 +17,7 @@ def load(name, path):
 
 class TerrainTests(unittest.TestCase):
     def test_missing_elevation_is_unknown(self):
-        terrain = load("terrain", ROOT / "nemo/scripts/terrain_view.py")
+        terrain = load("terrain", ROOT / "listing-research/scripts/terrain_view.py")
         with patch.object(terrain, "elev_batch", return_value=[None] * 49), patch.object(terrain, "overpass", return_value={"err": "unavailable"}):
             result = terrain.analyze(50, 14)
         self.assertEqual(result["error"], "elevation unknown")
