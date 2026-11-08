@@ -35,6 +35,7 @@ import (
 // that this list covers everything routd advertises.
 func routdResources(s *Server) []resreg.Resource {
 	return []resreg.Resource{
+		s.modelPausesResource(),
 		s.routesResource(nil),
 		s.webRoutesResource(),
 		s.scheduledTasksResource(nil, false),
@@ -218,6 +219,7 @@ func TestOpenAPI_EveryAdvertisedPathIsMounted(t *testing.T) {
 		"GET /v1/installed_packages",
 		"GET /v1/installed_packages/{name}",
 		"GET /v1/pending_actions",
+		"GET /v1/model_pauses",
 		"GET /v1/route_tokens",
 		"GET /v1/routes",
 		"GET /v1/tasks",
@@ -226,6 +228,7 @@ func TestOpenAPI_EveryAdvertisedPathIsMounted(t *testing.T) {
 		"PATCH /v1/groups/{folder}",
 		"PATCH /v1/tasks/{taskId}",
 		"POST /v1/acl",
+		"POST /v1/model_pauses/clear",
 		"POST /v1/dead_letters/{id}/replay",
 		"POST /v1/gdrive_files",
 		"POST /v1/github_sources",

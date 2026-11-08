@@ -243,6 +243,7 @@ func (s *Server) Handler() http.Handler {
 	s.mountInstalledPackages(mux)
 	s.mountAudit(mux)
 	s.mountDeadLetters(mux)
+	s.mountModelPauses(mux)
 	s.mountChats(mux)
 	// Verdicts funnel to the same core the chat /approve command runs (spec 5/19).
 	s.mountPendingActions(mux)

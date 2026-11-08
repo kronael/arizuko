@@ -33,6 +33,14 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 	if len(msgs) == 0 {
 		return false, nil
 	}
+	msgs, err = l.heldInput(chatJID, msgs)
+	if err != nil {
+		return false, err
+	}
+	pause, err := l.db.store().ReadModelPause(context.Background())
+	if err != nil {
+		return false, err
+	}
 	last := msgs[len(msgs)-1]
 	// Three questions, three rows. The busy key is the newest user row; the steer
 	// offer takes the oldest slash command; the folder comes from the newest row
@@ -56,7 +64,7 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 	}
 	// The busy key is the newest USER row: a person's next message clears the
 	// backoff, the running turn's own bot rows do not (BUGS L298, L55).
-	if l.busyDeferred(chatJID, msgs[busyIdx].ID) {
+	if pause == nil && l.busyDeferred(chatJID, msgs[busyIdx].ID) {
 		return false, nil
 	}
 	b := l.resolveBatch(chatJID, msgs)
@@ -73,7 +81,7 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 	steerConsumed := false
 	steerIdx := steerRowIdx(msgs)
 	steerMsg := msgs[steerIdx]
-	if l.steer(chatJID, steerMsg, folder, b.rows[steerIdx].AtName) {
+	if pause == nil && l.steer(chatJID, steerMsg, folder, b.rows[steerIdx].AtName) {
 		// Consumed HERE, exactly once, before anything else can fail: no steer
 		// handler may run a second time because a later dispatch was refused.
 		l.advance(chatJID, steerMsg)
@@ -149,6 +157,12 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 		// unaddressed rows (CI under ?engaged) run beside it in their own turns.
 		owed := slices.ContainsFunc(batch, func(m core.Message) bool { return addressed[m.ID] })
 		had, steered, busy, mark, derr := l.runTurn(folder, topic, chatJID, bl.ID, owed, batch, ambient)
+		if errors.Is(derr, store.ErrModelPaused) {
+			if gi > 0 {
+				l.advanceFinished(chatJID, folder, msgs, batch[0], marks)
+			}
+			return hadAny, l.holdModelInput(chatJID, batch)
+		}
 		if derr != nil {
 			// Transport failure: this turn is not consumed and re-feeds next poll
 			// (at-least-once; turn_results dedups). A steered batch has no re-feed
@@ -386,6 +400,35 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, addressed bool, tr
 		}
 		return true, false, false, "", nil
 	}
+	probe, err := l.modelAdmission(chatJID)
+	if err != nil {
+		return false, false, false, "", err
+	}
+	admission := store.TurnAdmission{AttemptID: randHex(16),
+		InputLast: store.MessageCursor(last)}
+	if probe != nil {
+		admission.ProbeEpisode = probe.OpenedAt
+	}
+	prior, _, err := l.db.store().ReadTurnContext(ctx, turnID)
+	if err != nil {
+		return false, false, false, "", err
+	}
+	live, err := l.db.store().OpenTurnContext(turnID, folder, topic, chatJID,
+		last.Sender, last.ForwardedFrom, &admission)
+	if err != nil || !live {
+		return false, false, false, "", err
+	}
+	tc := TurnContext{TurnID: turnID, Folder: folder, AttemptID: admission.AttemptID,
+		ProbeEpisode: admission.ProbeEpisode}
+	if probe != nil {
+		probe.ProbeTurnID, probe.ProbeAttemptID, probe.NextAttemptAt = turnID, tc.AttemptID, ""
+	}
+	started, completed := false, false
+	defer func() {
+		if !completed {
+			l.requeueModelProbe(probe, tc, started)
+		}
+	}()
 	// A gateway that will not answer fails the turn as a dependency outage (the
 	// batch re-feeds, the breaker streak is untouched); spawning anyway would
 	// run a turn no cap can stop.
@@ -398,9 +441,13 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, addressed bool, tr
 	}
 	// A spent cap delivers a refusal and consumes the batch.
 	if msg != "" {
+		if probe != nil {
+			return false, false, false, "", store.ErrModelPaused
+		}
 		if l.deliver != nil {
 			l.sendNotice(turnID, chatJID, msg, topic, "budget-"+turnID)
 		}
+		finishTurn(l.db, l.deliver, turnID, endDone)
 		return true, false, false, "", nil
 	}
 	// BEFORE the prompt build, so FlushSysMsgs renders them this turn.
@@ -427,15 +474,6 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, addressed bool, tr
 
 	// forwarded_from is the turn's return address: reply/send/document deliver
 	// to the origin chat, not the child folder JID the run addresses.
-	live, err := l.db.PutTurnContext(turnID, folder, topic, chatJID, last.Sender, last.ForwardedFrom)
-	if err != nil {
-		return false, false, false, "", err
-	}
-	if !live {
-		// A re-fed batch whose run is done: skip, so a sibling batch's steer
-		// does not replay finished output.
-		return false, false, false, "", nil
-	}
 	if err := l.db.SetTurnAddressed(turnID, addressed); err != nil {
 		return false, false, false, "", err
 	}
@@ -449,6 +487,7 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, addressed bool, tr
 		if ipcDir, ierr := l.folders.IpcPath(folder); ierr == nil {
 			if stop, serr := l.srv.ServeTurnMCP(turnMCP{
 				folder: folder, topic: topic, chatJID: chatJID, turnID: turnID, trigger: last.Sender, elevated: elevated,
+				attempt: tc.AttemptID,
 			}, ipcDir); serr == nil {
 				defer stop()
 			} else {
@@ -467,7 +506,7 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, addressed bool, tr
 
 	// A chat idle past the threshold would resume a session the agent has long
 	// forgotten. Isolated runs carry no session lineage.
-	if !core.IsIsolatedSender(last.Sender) {
+	if !core.IsIsolatedSender(last.Sender) && prior.State != store.TurnHeld {
 		if sid := l.db.SessionID(folder, topic); sid != "" && l.sessionIdleExpired(chatJID) {
 			slog.Info("session: resetting on idle expiry",
 				"folder", folder, "topic", topic, "jid", chatJID, "threshold", l.sessionIdle)
@@ -515,6 +554,7 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, addressed bool, tr
 	// The agent nudges for a progress line only where a person is owed an answer
 	// and the reply chat can show and remove one.
 	progress := addressed && canShowProgress(l.deliver, replyJID)
+	started = true
 	out, derr := l.dispatchRun(ctx, folder, topic, replyJID, turnID, last.Sender, rendered, elevated, progress, gwKey.Key)
 	if derr != nil {
 		l.pauseProgress(replyJID, out.RunID)
@@ -527,6 +567,10 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, addressed bool, tr
 		return false, false, false, "", derr
 	}
 	if out.Busy {
+		started = false
+		if probe != nil {
+			return false, false, false, "", store.ErrModelPaused
+		}
 		// Typing stays on: the batch re-feeds. End or a drop of the chat clears it.
 		l.waiting.Store(chatJID, replyJID)
 		// runed keeps no internal queue: leave turn_context running and the
@@ -534,6 +578,7 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, addressed bool, tr
 		slog.Debug("dispatch run busy — runed at capacity, retry next poll", "folder", folder, "turn_id", turnID)
 		return false, false, true, "", nil
 	}
+	completed = true
 	if out.RunID != "" {
 		_ = l.db.SetTurnRunID(turnID, out.RunID)
 	}
@@ -548,6 +593,24 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, addressed bool, tr
 	// Close the callback surface so a late frame 409s, even if an early
 	// submit_turn already flipped state→done.
 	_ = l.db.SetRunReturned(turnID)
+	current, exists, err := l.db.store().ReadTurnContext(ctx, turnID)
+	if err != nil {
+		return false, false, false, "", err
+	}
+	if !exists {
+		return false, false, false, "", fmt.Errorf("claimed turn %s disappeared", turnID)
+	}
+	if current.ProviderFailureAttempt == tc.AttemptID || current.State == store.TurnHeld {
+		l.pauseProgress(replyJID, out.RunID)
+		return false, false, false, "", store.ErrModelPaused
+	}
+	if probe != nil && !l.db.TurnResultRecorded(folder, turnID) {
+		completed, started = false, false
+		return false, false, false, "", store.ErrModelPaused
+	}
+	if err := l.db.store().CompleteModelProbe(ctx, tc); err != nil {
+		return false, false, false, "", err
+	}
 	if out.Outcome == runedv1.OutcomeError {
 		// A turn that died without a reply retries up to maxTurnRetry. A Terminal
 		// failure never retries: it cannot repair a misconfiguration (spec 5/12).

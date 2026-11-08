@@ -20,6 +20,7 @@ package store
 
 import (
 	"context"
+	"crypto/rand"
 	"fmt"
 	"strconv"
 	"time"
@@ -61,6 +62,7 @@ const (
 	TurnPendingRetry = "pending_retry"
 	TurnDone         = "done"
 	TurnExpired      = "expired"
+	TurnHeld         = "held"
 )
 
 // The ordered declaration is what makes the expiry sweep a time comparison
@@ -69,18 +71,22 @@ func init() { objstore.OrderedAttr(TurnContexts, AttrTurnStartedAt, tsWidth) }
 
 // TurnContext is a turn's bound run-start context.
 type TurnContext struct {
-	TurnID       string
-	StartedAt    time.Time
-	Folder       string
-	Topic        string
-	ChatJID      string
-	Trigger      string
-	TriggerMsgID string
-	ReturnTo     string
-	State        string
-	RunID        string
-	RunReturned  bool
-	RetryCount   int
+	AttemptID              string
+	InputLast              string
+	ProbeEpisode           string
+	ProviderFailureAttempt string
+	TurnID                 string
+	StartedAt              time.Time
+	Folder                 string
+	Topic                  string
+	ChatJID                string
+	Trigger                string
+	TriggerMsgID           string
+	ReturnTo               string
+	State                  string
+	RunID                  string
+	RunReturned            bool
+	RetryCount             int
 	// Addressed: a person put a question to the folder and is owed an answer.
 	// False for a turn bound before the attribute existed.
 	Addressed bool
@@ -99,17 +105,20 @@ func turnKey(turnID string) (objstore.Key, error) {
 // turnFrom reads one item back.
 func turnFrom(it objstore.Item) TurnContext {
 	tc := TurnContext{
-		TurnID:       it.Key.Sort,
-		Folder:       it.Attrs[attrTurnFolder],
-		Topic:        it.Attrs[attrTurnTopic],
-		ChatJID:      it.Attrs[attrTurnChatJID],
-		Trigger:      it.Attrs[attrTurnTrigger],
-		TriggerMsgID: it.Attrs[attrTurnTriggerMsg],
-		ReturnTo:     it.Attrs[attrTurnReturnTo],
-		State:        it.Attrs[attrTurnState],
-		RunID:        it.Attrs[attrTurnRunID],
-		RunReturned:  it.Attrs[attrTurnRunReturned] == flagSet,
-		Addressed:    it.Attrs[attrTurnAddressed] == flagSet,
+		AttemptID: it.Attrs["attempt_id"],
+		InputLast: it.Attrs["input_last"], ProbeEpisode: it.Attrs["probe_episode"],
+		ProviderFailureAttempt: it.Attrs["provider_failure_attempt"],
+		TurnID:                 it.Key.Sort,
+		Folder:                 it.Attrs[attrTurnFolder],
+		Topic:                  it.Attrs[attrTurnTopic],
+		ChatJID:                it.Attrs[attrTurnChatJID],
+		Trigger:                it.Attrs[attrTurnTrigger],
+		TriggerMsgID:           it.Attrs[attrTurnTriggerMsg],
+		ReturnTo:               it.Attrs[attrTurnReturnTo],
+		State:                  it.Attrs[attrTurnState],
+		RunID:                  it.Attrs[attrTurnRunID],
+		RunReturned:            it.Attrs[attrTurnRunReturned] == flagSet,
+		Addressed:              it.Attrs[attrTurnAddressed] == flagSet,
 	}
 	tc.StartedAt, _ = time.Parse(time.RFC3339Nano, it.Attrs[AttrTurnStartedAt])
 	tc.RetryCount, _ = strconv.Atoi(it.Attrs[attrTurnRetryCount])
@@ -126,15 +135,22 @@ func turnFrom(it objstore.Item) TurnContext {
 // guard: when an earlier batch finishes and a later batch in the same poll
 // steers, the cursor does not advance and the next poll re-feeds the
 // completed batch. The decision is the write's own condition, not a read: the
-// create commits when nothing has bound this turn, and its REFUSAL sends the
-// caller to the conditional update. `started_at` is written ONCE, by the
-// create, so the expiry sweep measures from the turn's first attempt.
-func (s *Store) OpenTurnContext(turnID, folder, topic, chatJID, trigger, returnTo string) (bool, error) {
+// create commits when nothing has bound this turn, and its refusal sends the
+// caller to the conditional update. Reopening held input stamps started_at
+// for the new attempt so the expiry sweep does not expire its probe early.
+func (s *Store) OpenTurnContext(turnID, folder, topic, chatJID, trigger, returnTo string, admission *TurnAdmission) (bool, error) {
 	key, err := turnKey(turnID)
 	if err != nil {
 		return false, err
 	}
-	bound := map[string]string{attrTurnState: TurnRunning}
+	bound := map[string]string{attrTurnState: TurnRunning, "attempt_id": rand.Text()}
+	if admission != nil {
+		if admission.AttemptID != "" {
+			bound["attempt_id"] = admission.AttemptID
+		}
+		setAttr(bound, "input_last", admission.InputLast)
+		setAttr(bound, "probe_episode", admission.ProbeEpisode)
+	}
 	setAttr(bound, attrTurnFolder, folder)
 	setAttr(bound, attrTurnTopic, topic)
 	setAttr(bound, attrTurnChatJID, chatJID)
@@ -142,37 +158,66 @@ func (s *Store) OpenTurnContext(turnID, folder, topic, chatJID, trigger, returnT
 	setAttr(bound, attrTurnReturnTo, returnTo)
 
 	ctx := context.Background()
+	checks := []objstore.Check{{Entity: ModelPauses, Key: modelPauseKey,
+		Cond: objstore.Cond{Item: objstore.ItemAbsent}}}
+	var claim []objstore.Write
+	if admission != nil && admission.ProbeEpisode != "" {
+		p, err := s.ReadModelPause(ctx)
+		if err != nil {
+			return false, err
+		}
+		if p == nil || p.OpenedAt != admission.ProbeEpisode || p.NextAttemptAt == "" || p.NextAttemptAt > core.NowTS() {
+			return false, ErrModelPaused
+		}
+		checks = nil
+		claim = []objstore.Write{{Op: objstore.Update, Entity: ModelPauses, Key: modelPauseKey,
+			Attrs:  map[string]string{"probe_turn_id": turnID, "probe_attempt_id": bound["attempt_id"]},
+			Remove: []string{"next_attempt_at"}, Cond: modelPauseCond(p)}}
+	}
 	fresh := map[string]string{AttrTurnStartedAt: core.NowTS()}
 	for k, v := range bound {
 		fresh[k] = v
 	}
-	opened, err := s.TryWriteEntities(ctx, nil, objstore.Write{
+	opened, err := s.TryWriteEntities(ctx, checks, append(claim, objstore.Write{
 		Op: objstore.Put, Entity: TurnContexts, Key: key, Attrs: fresh,
 		Cond: objstore.Cond{Item: objstore.ItemAbsent},
-	})
+	})...)
 	if err != nil {
 		return false, fmt.Errorf("bind turn %s: %w", turnID, err)
 	}
 	if opened {
 		return true, nil
 	}
+	prior, exists, err := s.itemAt(ctx, TurnContexts, key)
+	if err != nil {
+		return false, err
+	}
+	if exists && prior.Attrs[attrTurnState] == TurnDone {
+		return false, nil
+	}
+	if exists && prior.Attrs[attrTurnState] == TurnHeld {
+		bound[AttrTurnStartedAt] = core.NowTS()
+	}
 	// A re-dispatch REPLACES the binding and clears the run-returned flag in
 	// one write: a turn re-opened with the previous attempt's flag still set
 	// answers every late callback with turn_done. The empty fields of `bound`
 	// are removed rather than left: a stale return address would deliver the
 	// next answer to the previous delegator.
-	live, err := s.TryWriteEntities(ctx, nil, objstore.Write{
+	live, err := s.TryWriteEntities(ctx, checks, append(claim, objstore.Write{
 		Op: objstore.Update, Entity: TurnContexts, Key: key, Attrs: bound,
 		Remove: append(missingAttrs(bound, attrTurnFolder, attrTurnTopic, attrTurnChatJID,
-			attrTurnTrigger, attrTurnReturnTo), attrTurnRunReturned),
+			attrTurnTrigger, attrTurnReturnTo, "probe_episode"), attrTurnRunReturned),
 		Cond: objstore.Cond{Where: []objstore.Cmp{
 			{Attr: attrTurnState, Op: objstore.Ne, Value: TurnDone},
 		}},
-	})
+	})...)
 	if err != nil {
 		return false, fmt.Errorf("re-bind turn %s: %w", turnID, err)
 	}
-	return live, nil
+	if !live {
+		return false, ErrModelPaused
+	}
+	return true, nil
 }
 
 // missingAttrs names the attributes of `names` that attrs does not carry, so a
@@ -190,15 +235,20 @@ func missingAttrs(attrs map[string]string, names ...string) []string {
 // TurnContextOf recovers a turn's context by turn id, and whether the turn is
 // bound at all.
 func (s *Store) TurnContextOf(turnID string) (TurnContext, bool) {
+	tc, ok, _ := s.ReadTurnContext(context.Background(), turnID)
+	return tc, ok
+}
+
+func (s *Store) ReadTurnContext(ctx context.Context, turnID string) (TurnContext, bool, error) {
 	key, err := turnKey(turnID)
 	if err != nil {
-		return TurnContext{}, false
+		return TurnContext{}, false, err
 	}
-	it, ok, err := s.itemAt(context.Background(), TurnContexts, key)
+	it, ok, err := s.itemAt(ctx, TurnContexts, key)
 	if err != nil || !ok {
-		return TurnContext{}, false
+		return TurnContext{}, false, err
 	}
-	return turnFrom(it), true
+	return turnFrom(it), true, nil
 }
 
 // setTurnAttrs merges attributes into a bound turn. An Update against a turn

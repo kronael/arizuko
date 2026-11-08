@@ -15,7 +15,7 @@ func TestEngagementRenewalPreservesExplicitDisengage(t *testing.T) {
 	const jid = "slack:T/C"
 	const folder = "eng"
 	until := time.Now().Add(time.Hour)
-	if _, err := s.OpenTurnContext("old", folder, "one", jid, "user", ""); err != nil {
+	if _, err := s.OpenTurnContext("old", folder, "one", jid, "user", "", nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.BumpEngagement(jid, "one", folder, time.Time{}); err != nil {
@@ -29,7 +29,7 @@ func TestEngagementRenewalPreservesExplicitDisengage(t *testing.T) {
 			t.Fatalf("old turn reopened %v", pair)
 		}
 	}
-	if _, err := s.OpenTurnContext("other-topic", folder, "two", jid, "user", ""); err != nil {
+	if _, err := s.OpenTurnContext("other-topic", folder, "two", jid, "user", "", nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.RenewEngagement("other-topic", jid, "two", folder, until); err != nil {
@@ -38,7 +38,7 @@ func TestEngagementRenewalPreservesExplicitDisengage(t *testing.T) {
 	if _, live := s.Engagement(jid, "two"); !live {
 		t.Fatal("disengage leaked into another topic")
 	}
-	if _, err := s.OpenTurnContext("other-jid", folder, "one", "slack:T/OTHER", "user", ""); err != nil {
+	if _, err := s.OpenTurnContext("other-jid", folder, "one", "slack:T/OTHER", "user", "", nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.RenewEngagement("other-jid", "slack:T/OTHER", "one", folder, until); err != nil {
@@ -53,7 +53,7 @@ func TestEngagementRenewalPreservesExplicitDisengage(t *testing.T) {
 	if _, live := s.Engagement(jid, "one"); !live {
 		t.Fatal("explicit engage failed")
 	}
-	if _, err := s.OpenTurnContext("timed", folder, "idle", jid, "timed-isolated:task", ""); err != nil {
+	if _, err := s.OpenTurnContext("timed", folder, "idle", jid, "timed-isolated:task", "", nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.RenewEngagement("timed", jid, "idle", folder, until); err != nil {
@@ -103,7 +103,7 @@ func TestEngagementRenewalLosesToConcurrentDisengage(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			if _, err := s.OpenTurnContext("turn", folder, "root", jid, "user", ""); err != nil {
+			if _, err := s.OpenTurnContext("turn", folder, "root", jid, "user", "", nil); err != nil {
 				t.Fatal(err)
 			}
 			if err := s.SetLastReply(jid, destination, "reply", folder); err != nil {
@@ -140,7 +140,7 @@ func TestFreshEngagementRetiresDisengageAfterExpiry(t *testing.T) {
 						t.Fatal(err)
 					}
 				} else {
-					if _, err := s.OpenTurnContext("fresh", folder, topic, jid, "user", ""); err != nil {
+					if _, err := s.OpenTurnContext("fresh", folder, topic, jid, "user", "", nil); err != nil {
 						t.Fatal(err)
 					}
 					if err := s.RenewEngagement("fresh", jid, topic, folder, until); err != nil {

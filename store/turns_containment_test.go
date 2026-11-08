@@ -92,7 +92,7 @@ func TestActiveProgressScopeLifecycleAndPageCapacity(t *testing.T) {
 	s := openMem(t)
 	jid, topic := "web:tenant-a", "thread"
 	for _, turn := range []string{"live", "retry", "done", "expired"} {
-		if _, err := s.OpenTurnContext(turn, "demo", topic, jid, "u", ""); err != nil {
+		if _, err := s.OpenTurnContext(turn, "demo", topic, jid, "u", "", nil); err != nil {
 			t.Fatal(err)
 		}
 	}

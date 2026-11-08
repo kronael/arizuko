@@ -36,6 +36,7 @@ const mainUsage = `arizuko <command> [-i|--instance name] [arguments]
   talk     [@name] [-g <folder>] [-t <token>] [--thread <name>] [--prompt [text]]  — REPL against a live instance; no DB, config in ~/.config/arizuko/talk.toml
   dump [file] [--quiesced] | apply <dump.tar|rows.yml> [--force] | plan <rows.yml> | get <resource>
   probe    <base-url> [--token|-t T] [--foreign-folder F]  — check a live component against the 6/16 contract
+  model-pauses list | clear [--url|-u URL] [--token|-t T] — manage an instance model pause
   -h, --help  print the usage of arizuko or of one command on stdout`
 
 func main() {
@@ -75,7 +76,7 @@ func main() {
 		"dump":         cmdDump,  // spec 5/8
 		"apply":        cmdApply, // spec 5/8
 	}
-	remote := map[string]func([]string){"talk": cmdTalk, "probe": cmdProbe}
+	remote := map[string]func([]string){"talk": cmdTalk, "probe": cmdProbe, "model-pauses": cmdModelPauses}
 	if fn, ok := remote[os.Args[1]]; ok {
 		fn(os.Args[2:])
 		return

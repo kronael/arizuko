@@ -512,7 +512,7 @@ func (d *DB) LastReplyID(jid, topic string) string {
 // address. live=false when the turn is ALREADY terminal: a re-fed batch whose
 // run completed must NOT be resurrected.
 func (d *DB) PutTurnContext(turnID, folder, topic, chatJID, trigger, returnTo string) (bool, error) {
-	return d.store().OpenTurnContext(turnID, folder, topic, chatJID, trigger, returnTo)
+	return d.store().OpenTurnContext(turnID, folder, topic, chatJID, trigger, returnTo, nil)
 }
 
 // SetTurnAddressed records resolve's fact that a person is owed an answer.

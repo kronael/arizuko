@@ -13,6 +13,7 @@ import (
 	"github.com/kronael/arizuko/ipc"
 	"github.com/kronael/arizuko/obs"
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
+	"github.com/kronael/arizuko/store"
 )
 
 // The turn's outbound lifecycle: explicit delivery tools and progress updates.
@@ -63,7 +64,9 @@ func (s *Server) turnDelivered(tc TurnContext) (bool, error) {
 // callbackClosed reports whether a turn's outbound surface is closed: only
 // AFTER POST /v1/runs returns, so a live run's trailing frames stay valid past
 // an early submit_turn that flipped state→done.
-func (s *Server) callbackClosed(tc TurnContext) bool { return tc.RunReturned }
+func (s *Server) callbackClosed(tc TurnContext) bool {
+	return tc.RunReturned || tc.State == store.TurnHeld
+}
 
 // returnTarget redirects a turn's delivery to the delegation return address
 // (the trigger batch's forwarded_from) when set.
@@ -167,6 +170,24 @@ func (s *Server) recordTurnResult(turnID string, req apiv1.TurnResult) (ipc.Turn
 	tc, ok := s.db.GetTurnContext(turnID)
 	if !ok {
 		return ipc.TurnAck{}, fmt.Errorf("no turn context for turn_id")
+	}
+	if req.ProviderFailure != nil {
+		if req.Status != "error" {
+			return ipc.TurnAck{}, fmt.Errorf("provider failure requires an error result")
+		}
+		reset, _ := time.Parse(time.RFC3339Nano, req.ProviderFailure.ResetAt)
+		p, err := s.db.store().RecordProviderFailure(context.Background(), turnID,
+			tc.AttemptID, req.ProviderFailure.Reason, reset, time.Now())
+		if err != nil {
+			return ipc.TurnAck{}, err
+		}
+		if s.loop != nil {
+			s.loop.pauseProgress(returnTarget(tc, tc.ChatJID), tc.RunID)
+			if err := s.loop.noticeModelPause(p, tc); err != nil {
+				return ipc.TurnAck{}, err
+			}
+		}
+		return ipc.TurnAck{OK: true}, nil
 	}
 	var delivered bool
 	if req.Status == "success" {

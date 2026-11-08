@@ -242,13 +242,13 @@ func (s *Store) PutMessage(m core.Message) error {
 // the instant when the caller's own would bury the row, and a caller that
 // addresses the row afterwards has to hold the one the append took.
 func (s *Store) AppendMessage(m core.Message) (core.Message, error) {
-	return s.putMessage(context.Background(), m, core.MessageStatusSent)
+	return s.putMessage(context.Background(), m, core.MessageStatusSent, false)
 }
 
 // putMessage is PutMessage's body. The status is a parameter because it is not
 // stored on the message: it decides whether a delivery item exists at all.
 // `also` rides the message's own batch (FireProactive's cooldown).
-func (s *Store) putMessage(ctx context.Context, m core.Message, status string,
+func (s *Store) putMessage(ctx context.Context, m core.Message, status string, exact bool,
 	also ...objstore.Write) (core.Message, error) {
 	if m.Timestamp.IsZero() {
 		// The writer stamps the instant; this refuses to invent one, or the
@@ -280,9 +280,11 @@ func (s *Store) putMessage(ctx context.Context, m core.Message, status string,
 	if err != nil {
 		return m, err
 	}
-	m.Timestamp, err = s.appendInstant(ctx, m)
-	if err != nil {
-		return m, err
+	if !exact {
+		m.Timestamp, err = s.appendInstant(ctx, m)
+		if err != nil {
+			return m, err
+		}
 	}
 	key, err := messageKeyOf(m)
 	if err != nil {
@@ -1042,7 +1044,7 @@ func (s *Store) FireProactive(ctx context.Context, jid, id string) error {
 		ID: id, ChatJID: jid, Sender: ProactiveSelfSender, Timestamp: firedAt,
 		Verb: "message",
 	}
-	if _, err := s.putMessage(ctx, row, core.MessageStatusSent, cooldown); err != nil {
+	if _, err := s.putMessage(ctx, row, core.MessageStatusSent, false, cooldown); err != nil {
 		return fmt.Errorf("record the proactive trigger on %s: %w", jid, err)
 	}
 	return nil

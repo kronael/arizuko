@@ -471,6 +471,10 @@ func (l *Loop) maybeScanProactive(now time.Time) {
 // mid-turn re-attempts from the un-advanced cursor (turn_results dedups any
 // submit_turn the old run delivered).
 func (l *Loop) recoverPending() {
+	if err := l.recoverModelProbe(true); err != nil {
+		slog.Error("recover model probe", "err", err)
+		return
+	}
 	tcs, err := l.db.RunningTurns()
 	if err != nil {
 		slog.Warn("recover pending turns", "err", err)
@@ -508,6 +512,10 @@ const pollBatch = 200
 // 24,013 rows every two seconds because one chat's cursor had not moved since
 // March, against 0 rows when each chat is read from its own.
 func (l *Loop) pollOnce() {
+	if err := l.recoverModelProbe(false); err != nil {
+		slog.Error("recover model probe", "err", err)
+		return
+	}
 	jids, err := l.db.ChatJIDs()
 	if err != nil {
 		slog.Warn("poll new messages", "err", err)

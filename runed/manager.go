@@ -437,7 +437,9 @@ func (m *Manager) Kill(ctx context.Context, runID string) error {
 	}
 	live := sp.State == "running" || sp.State == "queued"
 	if live {
-		_ = m.executor(sp.Kind).Kill(sp.ContainerName)
+		if err := m.executor(sp.Kind).Kill(sp.ContainerName); err != nil {
+			return err
+		}
 		// KillSpawn re-checks liveness on the write — a run that completed
 		// normally between the read above and here keeps its terminal state.
 		if kerr := m.db.KillSpawn(ctx, runID); kerr != nil {

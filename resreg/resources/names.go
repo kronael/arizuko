@@ -16,6 +16,7 @@ const (
 	GitHubSourcesName     = "github_sources"
 	GroupsName            = "groups"
 	InstalledPackagesName = "installed_packages"
+	ModelPausesName       = "model_pauses"
 	InvitesName           = "invites"
 	NetworkRulesName      = "network_rules"
 	PendingActionsName    = "pending_actions"

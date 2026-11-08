@@ -37,14 +37,14 @@ import (
 // answers live.
 func TestAFinishedTurnIsNotReopened(t *testing.T) {
 	s := openEntities(t)
-	live, err := s.OpenTurnContext("t1", "demo", "", "tg:1", "u1", "")
+	live, err := s.OpenTurnContext("t1", "demo", "", "tg:1", "u1", "", nil)
 	if err != nil || !live {
 		t.Fatalf("the first open answered live=%v err=%v", live, err)
 	}
 	if err := s.SetTurnState("t1", TurnDone); err != nil {
 		t.Fatal(err)
 	}
-	live, err = s.OpenTurnContext("t1", "demo", "", "tg:1", "u1", "")
+	live, err = s.OpenTurnContext("t1", "demo", "", "tg:1", "u1", "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +62,7 @@ func TestAFinishedTurnIsNotReopened(t *testing.T) {
 	if err := s.SetTurnState("t1", TurnExpired); err != nil {
 		t.Fatal(err)
 	}
-	live, err = s.OpenTurnContext("t1", "demo", "", "tg:1", "u1", "")
+	live, err = s.OpenTurnContext("t1", "demo", "", "tg:1", "u1", "", nil)
 	if err != nil || !live {
 		t.Fatalf("an expired turn answered live=%v err=%v; expired is terminal for crash "+
 			"recovery and NOT for re-dispatch", live, err)
@@ -74,13 +74,13 @@ func TestAFinishedTurnIsNotReopened(t *testing.T) {
 // callback of the new attempt with turn_done.
 func TestAReopenedTurnCarriesNothingFromItsLastAttempt(t *testing.T) {
 	s := openEntities(t)
-	if _, err := s.OpenTurnContext("t1", "demo", "#old", "tg:1", "u1", "tg:origin"); err != nil {
+	if _, err := s.OpenTurnContext("t1", "demo", "#old", "tg:1", "u1", "tg:origin", nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.SetRunReturned("t1"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.OpenTurnContext("t1", "demo", "", "tg:1", "u2", ""); err != nil {
+	if _, err := s.OpenTurnContext("t1", "demo", "", "tg:1", "u2", "", nil); err != nil {
 		t.Fatal(err)
 	}
 	tc, ok := s.TurnContextOf("t1")
@@ -108,7 +108,7 @@ func TestAReopenedTurnCarriesNothingFromItsLastAttempt(t *testing.T) {
 // crash recovery as live.
 func TestARetryMovesTheCountAndTheStateTogether(t *testing.T) {
 	s := openEntities(t)
-	if _, err := s.OpenTurnContext("t1", "demo", "", "tg:1", "u1", ""); err != nil {
+	if _, err := s.OpenTurnContext("t1", "demo", "", "tg:1", "u1", "", nil); err != nil {
 		t.Fatal(err)
 	}
 	for want := 1; want <= 3; want++ {
@@ -130,7 +130,7 @@ func TestARetryMovesTheCountAndTheStateTogether(t *testing.T) {
 		}
 		// The re-dispatch is what puts the turn back in flight, so the next
 		// attempt is counted from a re-bound turn the way dispatch counts it.
-		if _, err := s.OpenTurnContext("t1", "demo", "", "tg:1", "u1", ""); err != nil {
+		if _, err := s.OpenTurnContext("t1", "demo", "", "tg:1", "u1", "", nil); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -143,7 +143,7 @@ func TestARetryMovesTheCountAndTheStateTogether(t *testing.T) {
 func TestARetryWriteGuardedOnAStaleCountIsRefused(t *testing.T) {
 	s := openEntities(t)
 	ctx := context.Background()
-	if _, err := s.OpenTurnContext("t1", "demo", "", "tg:1", "u1", ""); err != nil {
+	if _, err := s.OpenTurnContext("t1", "demo", "", "tg:1", "u1", "", nil); err != nil {
 		t.Fatal(err)
 	}
 	key, err := turnKey("t1")
@@ -212,7 +212,7 @@ func TestTheExpirySweepMovesOnlyTheStaleRunningTurns(t *testing.T) {
 			t.Fatalf("seed the stale turn %s: %v", seed.turnID, err)
 		}
 	}
-	if _, err := s.OpenTurnContext("fresh", "demo", "", "tg:3", "u1", ""); err != nil {
+	if _, err := s.OpenTurnContext("fresh", "demo", "", "tg:3", "u1", "", nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -246,7 +246,7 @@ func TestCrashRecoveryFeedsOnlyTheTwoLiveStates(t *testing.T) {
 	for id, state := range map[string]string{
 		"a": TurnRunning, "b": TurnPendingRetry, "c": TurnDone, "d": TurnExpired,
 	} {
-		if _, err := s.OpenTurnContext(id, "demo", "", "tg:"+id, "u1", ""); err != nil {
+		if _, err := s.OpenTurnContext(id, "demo", "", "tg:"+id, "u1", "", nil); err != nil {
 			t.Fatal(err)
 		}
 		if err := s.SetTurnState(id, state); err != nil {
@@ -273,7 +273,7 @@ func TestCrashRecoveryFeedsOnlyTheTwoLiveStates(t *testing.T) {
 // endpoint reports as a 404 rather than a zero.
 func TestTheGatewayKeyPointerSurvivesTheTurnsWholeLifecycle(t *testing.T) {
 	s := openEntities(t)
-	if _, err := s.OpenTurnContext("t1", "demo", "", "tg:1", "u1", ""); err != nil {
+	if _, err := s.OpenTurnContext("t1", "demo", "", "tg:1", "u1", "", nil); err != nil {
 		t.Fatal(err)
 	}
 	if hash, err := s.TurnGatewayKey("t1"); err != nil || hash != "" {
@@ -289,7 +289,7 @@ func TestTheGatewayKeyPointerSurvivesTheTurnsWholeLifecycle(t *testing.T) {
 	if _, err := s.RecordRetryAttempt("t1"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.OpenTurnContext("t1", "demo", "", "tg:1", "u1", ""); err != nil {
+	if _, err := s.OpenTurnContext("t1", "demo", "", "tg:1", "u1", "", nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.SetTurnState("t1", TurnDone); err != nil {
@@ -309,7 +309,7 @@ func TestTheGatewayKeyPointerSurvivesTheTurnsWholeLifecycle(t *testing.T) {
 // with no id has none.
 func TestATurnWithNoIdIsRefused(t *testing.T) {
 	s := openEntities(t)
-	if _, err := s.OpenTurnContext("", "demo", "", "tg:1", "u1", ""); err == nil {
+	if _, err := s.OpenTurnContext("", "demo", "", "tg:1", "u1", "", nil); err == nil {
 		t.Error("a turn with no id was bound")
 	}
 	if n, err := s.CountTurnContexts(context.Background()); err != nil || n != 0 {
@@ -321,7 +321,7 @@ func TestATurnWithNoIdIsRefused(t *testing.T) {
 // that run through the turn itself.
 func TestATurnReadsBackItsRunID(t *testing.T) {
 	s := openEntities(t)
-	if _, err := s.OpenTurnContext("t1", "demo", "", "tg:1", "u1", ""); err != nil {
+	if _, err := s.OpenTurnContext("t1", "demo", "", "tg:1", "u1", "", nil); err != nil {
 		t.Fatal(err)
 	}
 	if tc, _ := s.TurnContextOf("t1"); tc.RunID != "" {
@@ -341,7 +341,7 @@ func TestATurnReadsBackItsRunID(t *testing.T) {
 // Make turnFrom read the absence as true and the first read answers addressed.
 func TestATurnWithNoAddressedAttributeReadsFalse(t *testing.T) {
 	s := openEntities(t)
-	if _, err := s.OpenTurnContext("old", "demo", "", "web:demo", "u1", ""); err != nil {
+	if _, err := s.OpenTurnContext("old", "demo", "", "web:demo", "u1", "", nil); err != nil {
 		t.Fatal(err)
 	}
 	tc, ok := s.TurnContextOf("old")
@@ -360,7 +360,7 @@ func TestATurnWithNoAddressedAttributeReadsFalse(t *testing.T) {
 
 func TestATurnReadsBackAddressed(t *testing.T) {
 	s := openEntities(t)
-	if _, err := s.OpenTurnContext("t1", "demo", "", "web:demo", "u1", ""); err != nil {
+	if _, err := s.OpenTurnContext("t1", "demo", "", "web:demo", "u1", "", nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.SetTurnAddressed("t1", true); err != nil {
@@ -370,7 +370,7 @@ func TestATurnReadsBackAddressed(t *testing.T) {
 		t.Fatal("a turn marked addressed reads false")
 	}
 
-	if _, err := s.OpenTurnContext("t2", "demo", "", "web:demo", "u1", ""); err != nil {
+	if _, err := s.OpenTurnContext("t2", "demo", "", "web:demo", "u1", "", nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.SetTurnAddressed("t2", false); err != nil {
@@ -385,13 +385,13 @@ func TestATurnReadsBackAddressed(t *testing.T) {
 // from the first attempt must not survive a second that resolves to false.
 func TestARetryReplacesTheAddressedFactOfItsLastAttempt(t *testing.T) {
 	s := openEntities(t)
-	if _, err := s.OpenTurnContext("t1", "demo", "", "web:demo", "u1", ""); err != nil {
+	if _, err := s.OpenTurnContext("t1", "demo", "", "web:demo", "u1", "", nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.SetTurnAddressed("t1", true); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.OpenTurnContext("t1", "demo", "", "web:demo", "u1", ""); err != nil {
+	if _, err := s.OpenTurnContext("t1", "demo", "", "web:demo", "u1", "", nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.SetTurnAddressed("t1", false); err != nil {

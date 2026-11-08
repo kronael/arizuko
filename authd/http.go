@@ -31,7 +31,7 @@ var serviceGrants = map[string][]string{
 	"service:onbod": {"messages:write", "groups:write"},
 	// service:routd dispatches runs, resolves identities at authd, and
 	// federates /invite + /gate to onbod, which OWNS those tables.
-	"service:routd": {"runs:run", "identity:read", "invites:write", "gates:write"},
+	"service:routd": {"runs:run", "runs:kill", "identity:read", "invites:write", "gates:write"},
 	// service:runed holds no grant: runed mints nothing and only VERIFIES its
 	// callers; the turn is credentialed by routd's SO_PEERCRED socket (BUGS
 	// B1/L8).
@@ -62,6 +62,7 @@ var serviceGrants = map[string][]string{
 		"signing_keys:read", "sessions:read", "sessions:write",
 		"pending_actions:read", "pending_actions:write",
 		"dead_letters:read", "dead_letters:write",
+		"model_pauses:read", "model_pauses:write",
 		"tasks:read", "messages:read",
 	},
 }

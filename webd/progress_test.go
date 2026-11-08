@@ -64,7 +64,7 @@ func TestProgress_TurnSnapshotKeepsNormalCursor(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if _, err := st.OpenTurnContext("turn", "main", "tt", "web:main", "u", ""); err != nil {
+	if _, err := st.OpenTurnContext("turn", "main", "tt", "web:main", "u", "", nil); err != nil {
 		t.Fatal(err)
 	}
 	progress, ok := st.MessageByID("web:main", "progress")
@@ -129,7 +129,7 @@ func TestProgress_TurnSSEReplaysStatusWithoutCursor(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if _, err := st.OpenTurnContext("turn", "main", "tt", "web:main", "u", ""); err != nil {
+	if _, err := st.OpenTurnContext("turn", "main", "tt", "web:main", "u", "", nil); err != nil {
 		t.Fatal(err)
 	}
 	server := httptest.NewServer(s.handler())
@@ -162,7 +162,7 @@ func TestProgress_TurnSSEReplaysStatusWithoutCursor(t *testing.T) {
 
 func TestProgress_RecheckUsesLatestAndDropsEndedEvents(t *testing.T) {
 	s, _, st := newTestServer(t)
-	if _, err := st.OpenTurnContext("turn", "main", "tt", "web:main", "u", ""); err != nil {
+	if _, err := st.OpenTurnContext("turn", "main", "tt", "web:main", "u", "", nil); err != nil {
 		t.Fatal(err)
 	}
 	row := core.Message{ID: "progress", ChatJID: "web:main", Topic: "tt", TurnID: "turn", BotMsg: true, Verb: "status", Content: "latest", Timestamp: time.Now()}
@@ -198,7 +198,7 @@ func TestProgress_TopicHistoryAndReconnect(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if _, err := st.OpenTurnContext("turn", "main", "tt", "web:main", "u", ""); err != nil {
+	if _, err := st.OpenTurnContext("turn", "main", "tt", "web:main", "u", "", nil); err != nil {
 		t.Fatal(err)
 	}
 	server := httptest.NewServer(s.handler())

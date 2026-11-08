@@ -531,6 +531,8 @@ func (d *dash) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /dash/usage/", g(d.handleUsage))
 	mux.HandleFunc("GET /dash/proactive/", g(d.handleProactive))
 	mux.HandleFunc("GET /dash/engagement/", g(d.handleEngagement))
+	mux.HandleFunc("GET /dash/model-pauses/", g(d.handleModelPauses))
+	mux.HandleFunc("POST /dash/model-pauses/clear", g(d.handleModelPauseClear))
 	mux.HandleFunc("POST /dash/engagement/disengage", g(d.handleEngagementDisengage))
 	// /dash/routd/ moved to routd itself (spec 6/28, 6/30): proxyd routes the
 	// prefix to routd:8080, so a copy here would be unreachable code rendering
@@ -649,6 +651,7 @@ var navLinks = []struct {
 	{"/dash/usage/", "usage", true},
 	{"/dash/proactive/", "proactive", true},
 	{"/dash/engagement/", "engagement", true},
+	{"/dash/model-pauses/", "model pauses", true},
 	{"/dash/memory/", "memory", false},
 }
 

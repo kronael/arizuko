@@ -112,7 +112,7 @@ func TestEdit_SuffixedChatReachesTurnSSE(t *testing.T) {
 		t.Fatal(err)
 	}
 	putBotRow(t, st, jid, "out-s", "bot-s", "status", "tt", "turnS")
-	if _, err := st.OpenTurnContext("turnS", "main", "tt", jid, "u", ""); err != nil {
+	if _, err := st.OpenTurnContext("turnS", "main", "tt", jid, "u", "", nil); err != nil {
 		t.Fatal(err)
 	}
 

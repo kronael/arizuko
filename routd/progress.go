@@ -1,6 +1,7 @@
 package routd
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -243,6 +244,9 @@ func (l *Loop) beginProgress(jid string) {
 // with no run clears it (advance).
 func (l *Loop) noteParked(chatJID string) {
 	if l.deliver == nil {
+		return
+	}
+	if p, err := l.db.store().ReadModelPause(context.Background()); err != nil || p != nil {
 		return
 	}
 	msgs, err := l.db.NewMessagesForChat(chatJID, l.db.GetAgentCursor(chatJID), pollBatch)

@@ -26,6 +26,7 @@ import (
 // turnMCP is the per-turn binding the in-process fns close over: the
 // turn_context routd stores, narrowed to what the MCP fns read.
 type turnMCP struct {
+	attempt  string
 	folder   string
 	topic    string
 	chatJID  string
@@ -40,6 +41,12 @@ func (s *Server) buildRoutdFns(t turnMCP) ipc.RoutdFns {
 	requireTurn := func(turnID string) error {
 		if turnID != t.turnID {
 			return fmt.Errorf("turn_id does not match this socket")
+		}
+		if t.attempt != "" {
+			tc, ok := s.db.GetTurnContext(turnID)
+			if !ok || tc.AttemptID != t.attempt || tc.RunReturned {
+				return fmt.Errorf("turn attempt is closed")
+			}
 		}
 		return nil
 	}
@@ -712,6 +719,7 @@ func (s *Server) ServeTurnMCP(t turnMCP, ipcDir string) (func(), error) {
 	packages := s.installedPackagesPostBuild(t.folder, callerSub, authorize, visible)
 	auditTools := s.auditPostBuild(t.folder, callerSub, authorize, visible)
 	deadLetters := s.deadLettersPostBuild(t.folder, callerSub, authorize, visible)
+	modelPauses := s.modelPausesPostBuild(t.folder, callerSub, authorize, visible)
 	chats := s.chatsPostBuild(t.folder, callerSub, authorize, visible)
-	return ipc.ServeMCP(sockPath, s.buildRoutdFns(t), s.buildStoreFns(t), t.folder, callerID.IsRoot, expectedUID, callerSub, webRoutes, networkRules, scheduledTasks, routes, acl, routeTokens, githubSources, gdriveFiles, groups, membership, packages, auditTools, deadLetters, chats)
+	return ipc.ServeMCP(sockPath, s.buildRoutdFns(t), s.buildStoreFns(t), t.folder, callerID.IsRoot, expectedUID, callerSub, webRoutes, networkRules, scheduledTasks, routes, acl, routeTokens, githubSources, gdriveFiles, groups, membership, packages, auditTools, deadLetters, chats, modelPauses)
 }

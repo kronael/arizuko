@@ -77,8 +77,22 @@ func (s *Store) PutOutbound(ctx context.Context, m core.Message, status string) 
 			"sweep reads are %q, %q and %q", m.ID, status, core.MessageStatusSent,
 			core.MessageStatusPending, core.MessageStatusFailed)
 	}
-	_, err := s.putMessage(ctx, m, status)
+	_, err := s.putMessage(ctx, m, status, false)
 	return err
+}
+
+// PutOutboundOnce keeps an exact, deterministic coordinate across delivery retries.
+func (s *Store) PutOutboundOnce(ctx context.Context, m core.Message) (bool, error) {
+	key, err := messageKeyOf(m)
+	if err != nil {
+		return false, err
+	}
+	_, exists, err := s.itemAt(ctx, Messages, key)
+	if err != nil || exists {
+		return false, err
+	}
+	_, err = s.putMessage(ctx, m, core.MessageStatusPending, true)
+	return err == nil, err
 }
 
 // PendingOutbound answers the bot rows still owed a delivery whose position is
