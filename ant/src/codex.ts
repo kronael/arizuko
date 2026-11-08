@@ -112,7 +112,6 @@ interface CodexUsage {
 // RESUME_MISS matches codex's stderr when the requested rollout is gone.
 const RESUME_MISS = /no rollout found for thread id/;
 
-//
 // codex answers an unreachable model host (egress refuses the CONNECT with 403)
 // with `Reconnecting... waiting for network` events, forever: no retry knob bounds
 // that loop (measured 2026-11-08, codex-cli 0.167.0; BUGS L717). The turn would run
@@ -135,6 +134,8 @@ export class CodexTurn {
 
   push(obj: Record<string, unknown>): Frame[] {
     const type = obj.type as string | undefined;
+    // Any event that is not an error proves the model host answered again.
+    if (type !== 'error') this.waiting = 0;
     if (type === 'thread.started') {
       const id = obj.thread_id as string | undefined;
       // The thread id is both the platform session id and the whole continuity token.
@@ -144,7 +145,6 @@ export class CodexTurn {
       const item = obj.item as { type?: string; text?: string } | undefined;
       if (item?.type === 'agent_message' && item.text) {
         this.lastText = item.text;
-        this.waiting = 0;
         // The chassis extracts <status> blocks from this text — before the seam
         // inversion it re-parsed claude's raw shape, so codex streamed no interim status.
         return [{ kind: 'status', text: item.text }];

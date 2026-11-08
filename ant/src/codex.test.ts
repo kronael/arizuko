@@ -267,12 +267,12 @@ test('CodexTurn: a refused model host ends the turn with a failure naming the ho
   expect(turn.done).toBe(true);
 });
 
-test('CodexTurn: a reply between waiting events resets the count', () => {
+test('CodexTurn: any event between waiting events resets the count', () => {
   const turn = new CodexTurn();
   const waiting = { type: 'error', message: 'Reconnecting... waiting for network (x)' };
   const frames = play(turn, [
     waiting, waiting,
-    { type: 'item.completed', item: { id: 'i', type: 'agent_message', text: 'hi' } },
+    { type: 'item.completed', item: { id: 'i', type: 'command_execution', command: 'ls' } },
     waiting, waiting,
   ]);
   expect(turn.done).toBe(false);
