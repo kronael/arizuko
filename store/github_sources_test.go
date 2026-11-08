@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -224,6 +225,35 @@ func TestGitHubSourceRemoveKeepsOtherTargets(t *testing.T) {
 		if !strings.HasPrefix(route.Target, "other/sub") {
 			t.Errorf("unexpected route: %+v", route)
 		}
+	}
+}
+
+func TestGitHubSourceRemoveRefusesStaleBatch(t *testing.T) {
+	s := keyedStore(t)
+	ctx := context.Background()
+	if _, err := s.AddGitHubSource(GitHubSource{Source: "app/one", OwnerFolder: "eng"}, "eng"); err != nil {
+		t.Fatal(err)
+	}
+	stale := &WriteSet{}
+	if hit, err := s.RemoveGitHubSourceInto(ctx, stale, "app/one", "eng"); err != nil || !hit {
+		t.Fatalf("buffer removal = %v, %v", hit, err)
+	}
+	if hit, err := s.RemoveGitHubSource("app/one", "eng"); err != nil || !hit {
+		t.Fatalf("remove = %v, %v", hit, err)
+	}
+	if _, err := s.AddGitHubSource(GitHubSource{Source: "app/one", OwnerFolder: "other"}, "other"); err != nil {
+		t.Fatal(err)
+	}
+	before := s.AllRoutes()
+	if err := s.Apply(ctx, stale); !errors.Is(err, objstore.ErrScopeMoved) {
+		t.Fatalf("stale removal = %v, want scope moved", err)
+	}
+	sources, err := s.ListGitHubSources("other")
+	if err != nil || len(sources) != 1 || sources[0].Source != "app/one" {
+		t.Fatalf("new owner's source = %+v, %v", sources, err)
+	}
+	if after := s.AllRoutes(); !reflect.DeepEqual(after, before) {
+		t.Fatalf("routes changed: before %+v, after %+v", before, after)
 	}
 }
 

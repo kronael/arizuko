@@ -230,9 +230,25 @@ func (s *Store) AddGitHubSourceInto(ctx context.Context, ws *WriteSet, src GitHu
 
 // RemoveGitHubSourceInto buffers the deletion of the source owned by ownerFolder
 // and of the route rows its registration seeded. A cross-folder key matches
-// zero rows, and the answer comes from the READ; every write is unconditional,
-// so the batch cannot refuse.
+// zero rows. A concurrent change to the owner scope refuses the batch.
 func (s *Store) RemoveGitHubSourceInto(ctx context.Context, ws *WriteSet, key, ownerFolder string) (bool, error) {
+	var pending WriteSet
+	var hit bool
+	version, err := objstore.ReadConsistent(ctx, s.Obj(), OwnerScope(OwnerRoutd), func(ctx context.Context) error {
+		pending = WriteSet{}
+		var err error
+		hit, err = s.removeGitHubSourceInto(ctx, &pending, key, ownerFolder)
+		return err
+	})
+	if err != nil || !hit {
+		return false, err
+	}
+	ws.Add(pending.writes...)
+	ws.Prove(version)
+	return true, nil
+}
+
+func (s *Store) removeGitHubSourceInto(ctx context.Context, ws *WriteSet, key, ownerFolder string) (bool, error) {
 	it, ok, err := s.githubSourceItem(ctx, key)
 	if err != nil {
 		return false, err
