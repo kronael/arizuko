@@ -470,16 +470,6 @@ that version. A change to which rows reach live data is an auth change.
 - **Status:** open — needs sign-off.
 
 
-## L705 — App-only GitHub setup cannot trigger seeded routes (2026-11-08, open)
-
-`gitd/bot.go:68` leaves the bot login empty without a PAT. The documented App
-setup supplies only App credentials, so mentions and assignments do not match
-`store/github_sources.go:149` seeded trigger routes. Measured by
-`TestVerifyToken_NoTokenSaysTheAgentIsNeverWoken`,
-`TestMapEvent_NoLoginNoMention`, and `TestMapEvent_NoLoginAssignedIsMessage`.
-**Fix:** resolve the App slug with an App JWT at startup and classify events
-using `<slug>[bot]`; test startup through a signed webhook and seeded routes.
-
 ## L699 — anteval cannot run a Codex-backend smoke (2026-11-08, open — proposal, needs sign-off)
 
 MEASURED 2026-11-08 at `269c83f09`, Sol's Codex smoke stopped before creation:
