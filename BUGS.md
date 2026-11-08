@@ -15,7 +15,6 @@
 
 ## What needs you
 
-- `L792` — deletion consumes input rebound to a surviving group before retirement commits.
 - `L793` — delayed admission after group deletion can restore private input for a replacement group.
 - `L790` — `TestHoldE2E_ChannelWithoutButtonsStillGetsAnAnswerablePrompt` fails under host load (fixed 5 s wait).
 - `L721` — group handoffs bounced for an hour; verify bounded turns after deployment with group sends and progress guidance.
@@ -316,22 +315,6 @@ reads those words now.
   `/tmp/arizuko-github-baseline-build.log`. No test — ops.
   **Proposal:** stop the build on the first failed submake. This is an adjacent
   build-gate repair; scope approval is pending.
-
-## L792 — retirement consumes a surviving group's rebound input (2026-11-08, open)
-
-**Severity:** HIGH, correctness. `store/model_pauses.go:253` advances the
-cursor before the guarded retirement at `store/model_pauses.go:268`.
-A dispatch can rebind the snapshot's running turn to surviving group `b`.
-Retirement loses its condition and skips `b`, but its cursor advance remains.
-Measured by the seventh v0.75.5 audit witness
-`release-audit-7-probes_test.go::TestAudit7DeletionConsumesSurvivingReboundInput`
-at HEAD `d808fad9b0c0b279a7d8a9ad5b56258308e976f9`.
-**Fix:** consume the cursor and retire the turn in one guarded batch with
-the same binding conditions. Reload on conflict before consuming input.
-**Regression:** `routd/model_pauses_retirement_test.go::TestDeletionPreservesSurvivingReboundInput`.
-**Measured:** the correct-behavior regression fails before the fix and passes
-after it. The parent overlay restoring the original cursor write fails at
-the empty-cursor assertion (`/tmp/arizuko-audit7-parent/l792-mutation.log`).
 
 ## L793 — admission after deletion restores private input (2026-11-08, open)
 
