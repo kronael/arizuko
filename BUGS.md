@@ -15,7 +15,6 @@
 
 ## What needs you
 
-- `L719` — `send_file` answering a turn lands in the channel root, outside the turn's thread; fix queued.
 - `L720` — an escalate/delegate turn's reply to the origin chat lands in the channel root; fix queued, may need sign-off.
 - `L665` — `unpair` removes the account's denies from the paired identity's turns; needs sign-off.
 - `L664` — `invite_create` mints `admin` the issuing folder cannot delegate; needs sign-off.
@@ -433,33 +432,6 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
   containment (decision 7, `ipc/ipc.go:2267`, `:2334`, `:2387`, `:2426`), and the
   `/root` issuer holds `admin` on `**`, the authority that answers a hold. The defect
   in the same area is who the root turn serves: `L666`.
-
-## L719 — `send_file` answering a turn never joins or starts the turn's thread, so the answer lands in the channel root (2026-11-08, open)
-
-MEASURED 2026-11-08 on sloth (v0.75.3, codex): kronael's message
-`1569029334289612962` in #random (`discord:837270552959516682/870660344358506566`,
-a quote-reply to sloth) started turn `1569029334289612962` in `sloth/discord`
-with an empty topic. The turn's progress status opened a Discord thread on that
-message (the Discord API shows `thread.id = 1569029334289612962` on it). The
-answer went out by `send_file` at 16:46:33 (routd log `send_file … reports/20261108-watermark-removal.md`)
-and landed in the channel root with no message reference, outside that thread.
-The turn called no `reply`.
-
-Cause, read from code: `mcpAppendDoc` (`routd/mcp.go:310`) calls
-`placeTurnDelivery(…, reply=false)`, and only `reply=true` sets `threadRoot` to the
-trigger for a chat that prefers thread replies (`routd/placement.go:43-50`).
-`ipc/ipc.go` `send_file` passes only `activeTopic(db, folder)`, empty here.
-
-- **Severity:** high — on a codex instance most long answers go out as files
-  (`ant/CLAUDE.md` § Response size), so the answer and its status split between
-  the root and a thread; the owner reports "sloth is not opening threads".
-- **Scope:** `routd/mcp.go` `mcpAppendDoc` placement.
-- **Status:** Document delivery uses reply placement for the turn's chat;
-  foreign destinations retain their specified placement.
-- **Fix:** a file sent to the turn's own chat takes the same placement as a reply.
-- **Test:** a turn on a thread-preferring chat with an empty topic sends a file to
-  its chat: the document carries `threadRoot = trigger`; a file sent to another
-  chat does not.
 
 ## L720 — a reply from an escalate or delegate turn to the original chat lands in the channel root (2026-11-08, open)
 
