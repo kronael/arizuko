@@ -182,7 +182,7 @@ func (c *Client) request(ctx context.Context, method, path, jwt string, body []b
 	if err != nil {
 		return fmt.Errorf("github app request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("github app request: %s", resp.Status)
 	}

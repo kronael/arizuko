@@ -30,7 +30,7 @@ func TestRepositoryTokens(t *testing.T) {
 		parts := strings.Split(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "), ".")
 		if len(parts) != 3 {
 			t.Error("missing JWT")
-			http.Error(w, "jwt", 401)
+			http.Error(w, "jwt", http.StatusUnauthorized)
 			return
 		}
 		signature, err := base64.RawURLEncoding.DecodeString(parts[2])

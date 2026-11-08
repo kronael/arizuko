@@ -172,16 +172,8 @@ func statusErr(resp *http.Response, raw []byte) error {
 	return fmt.Errorf("%w: github %s: %s", chanlib.ErrPermanent, resp.Status, bytes.TrimSpace(raw))
 }
 
-// call makes one GitHub request and returns its body, or the refusal
-// statusErr classifies.
-func (b *bot) call(method, url string, body []byte, want []int) ([]byte, error) {
-	return b.callContext(context.Background(), method, url, body, want)
-}
-
-func (b *bot) callContext(ctx context.Context, method, url string, body []byte, want []int) ([]byte, error) {
-	return b.callToken(ctx, method, url, body, want, b.cfg.Token)
-}
-
+// callToken makes one GitHub request with token and returns its body, or the
+// refusal statusErr classifies.
 func (b *bot) callToken(ctx context.Context, method, url string, body []byte, want []int, token string) ([]byte, error) {
 	var rdr io.Reader
 	if body != nil {
