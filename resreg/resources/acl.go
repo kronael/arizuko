@@ -58,10 +58,12 @@ var ACLMCPDoc = map[resreg.Action]string{
 	resreg.ActionList: "List acl rows for a folder (scope matches the folder). Audit what's permitted before changing.",
 }
 
+const aclPrincipalDescription = "For a folder, use folder:<path>; a bare path names a user principal."
+
 // ACLMCPArgs is the agent face's wire shape, overriding RowType reflection.
 var ACLMCPArgs = map[resreg.Action][]resreg.MCPArg{
 	resreg.Action("add"): {
-		{Name: "principal", Type: "string", Required: true},
+		{Name: "principal", Type: "string", Required: true, Description: aclPrincipalDescription},
 		{Name: "scope", Type: "string", Required: true},
 		{Name: "action", Type: "string"},
 		{Name: "effect", Type: "string"},
@@ -71,7 +73,7 @@ var ACLMCPArgs = map[resreg.Action][]resreg.MCPArg{
 			Description: "let the grantee re-grant this row to others; only grantable by a holder who has it"},
 	},
 	resreg.Action("remove"): {
-		{Name: "principal", Type: "string", Required: true},
+		{Name: "principal", Type: "string", Required: true, Description: aclPrincipalDescription},
 		{Name: "scope", Type: "string", Required: true},
 		{Name: "action", Type: "string"},
 		{Name: "effect", Type: "string"},
