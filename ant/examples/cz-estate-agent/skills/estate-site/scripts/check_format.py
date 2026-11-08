@@ -65,11 +65,24 @@ class Parser(HTMLParser):
 
 def numeric(text):
     text = text.strip().lower().replace("\u00a0", " ").replace("\u202f", " ")
-    text = re.sub(r"(?:kč|czk|eur|€|m²|m2|ha|%|ks|rok(?:y|ů)?|měsíc(?:e|ů)?|let|min)", "", text)
+    text = re.sub(r"(?:kč|czk|eur|€|m²|m2|ha|%|ks|rok(?:y|ů)?|měsíc(?:e|ů)?|let|min|m)", "", text)
     return bool(re.search(r"\d", text)) and bool(re.fullmatch(r"[\d\s.,+−–—/\-]+", text))
 
 
-def check_page(root, report):
+def check_page(root, limits, size, report):
+    if size > limits["page_bytes"]:
+        report(root, "N6", "page exceeds byte limit")
+    valuation = any(node.attrs.get("name", "").lower() == "listing" for node in root.descendants("meta"))
+    if valuation and sum(1 for _ in root.descendants("h2")) > limits["valuation_sections"]:
+        report(root, "N7", "valuation exceeds section limit")
+    for cell in root.descendants("td"):
+        if "n" in cell.classes():
+            for number in re.findall(r"(?<![\w])\d[\d.,\u00a0\u202f ]*\d|(?<![\w])\d", cell.text()):
+                number = number.strip().replace("\u00a0", " ").replace("\u202f", " ")
+                if not re.fullmatch(r"(?:\d{1,3}(?: \d{3})+|\d{1,3})(?:,\d+)?", number):
+                    report(cell, "N8", "use spaces for thousands and a decimal comma")
+                    break
+
     for table in root.descendants("table"):
         if table.parent.tag != "div" or "tbl" not in table.parent.classes():
             report(table, "N5", "table requires a .tbl wrapper")
@@ -177,7 +190,7 @@ def main():
             doc.feed(content)
             def report(node, rule, message):
                 failures.append(f"{path}:{node.line}: {rule}: {message}")
-            check_page(doc.root, report)
+            check_page(doc.root, (cfg or gen_site.DEFAULTS)["limits"], path.stat().st_size, report)
             if path.name == "index.html":
                 if cfg is None:
                     raise ValueError(f"{path}: index requires --config")

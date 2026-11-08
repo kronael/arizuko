@@ -106,6 +106,28 @@ class FormatTests(unittest.TestCase):
         self.index.write_text(self.good.replace('🟢 30 min · ', ''))
         self.assertEqual(self.run_check(self.index).returncode, 0)
 
+    def test_page_size_limit_and_override(self):
+        self.val.write_text("x" * 10001)
+        self.assertIn("N6:", self.run_check(self.val).stdout)
+        self.cfg.write_text(json.dumps({"limits": {"page_bytes": 10001}}))
+        self.assertEqual(self.run_check(self.val).returncode, 0)
+
+    def test_valuation_section_limit_and_override(self):
+        self.val.write_text('<meta name="listing" content="1">' + '<h2>Section</h2>' * 9)
+        self.assertIn("N7:", self.run_check(self.val).stdout)
+        self.cfg.write_text(json.dumps({"limits": {"valuation_sections": 9}}))
+        self.assertEqual(self.run_check(self.val).returncode, 0)
+        self.val.write_text('<h2>Section</h2>' * 9)
+        self.assertEqual(self.run_check(self.val).returncode, 0)
+
+    def test_czech_number_format(self):
+        for value in ("1000 Kč", "1.000 Kč", "12.5 %"):
+            with self.subTest(value=value):
+                self.val.write_text(f'<div class="tbl"><table><tr><td>Value</td><td class="n">{value}</td></tr></table></div>')
+                self.assertIn("N8:", self.run_check(self.val).stdout)
+        self.val.write_text('<div class="tbl"><table><tr><td>Value</td><td class="n">1&nbsp;000,5 Kč</td><td class="n">14,69M</td></tr></table></div>')
+        self.assertEqual(self.run_check(self.val).returncode, 0)
+
     def test_missing_empty_and_multiple_inputs_fail(self):
         self.assertNotEqual(self.run_check(self.root / 'missing.html').returncode, 0)
         self.val.write_text('')

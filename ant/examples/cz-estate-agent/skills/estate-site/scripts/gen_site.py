@@ -29,7 +29,7 @@ DEFAULTS = {
     "site": "~/public_html",
     "links": [],  # [{"href": "...", "name": "...", "note": "..."}] cards under "more"
     # zone colour = worst of drive time, area and price; a null limit is ignored
-    "limits": {"minutes_green": 40, "minutes_yellow": 50, "area_green": 10000, "price_red": None},
+    "limits": {"minutes_green": 40, "minutes_yellow": 50, "area_green": 10000, "price_red": None, "page_bytes": 10000, "valuation_sections": 8},
     "labels": {
         "updated": "aktualizováno",
         "active": "aktivních",
