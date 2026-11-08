@@ -454,6 +454,8 @@ trigger for a chat that prefers thread replies (`routd/placement.go:43-50`).
   (`ant/CLAUDE.md` § Response size), so the answer and its status split between
   the root and a thread; the owner reports "sloth is not opening threads".
 - **Scope:** `routd/mcp.go` `mcpAppendDoc` placement.
+- **Status:** Document delivery uses reply placement for the turn's chat;
+  foreign destinations retain their specified placement.
 - **Fix:** a file sent to the turn's own chat takes the same placement as a reply.
 - **Test:** a turn on a thread-preferring chat with an empty topic sends a file to
   its chat: the document carries `threadRoot = trigger`; a file sent to another

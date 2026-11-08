@@ -307,7 +307,7 @@ func (s *Server) mcpAppendDoc(turnID, jid, path, name, caption, replyTo, threadI
 	place := deliveryPlace{jid: jid, threadID: threadID}
 	if tc, ok := s.db.GetTurnContext(turnID); ok {
 		var err error
-		place, err = placeTurnDelivery(s.db, tc, jid, threadID, false)
+		place, err = placeTurnDelivery(s.db, tc, jid, threadID, true)
 		if err != nil {
 			return "", "", err
 		}
