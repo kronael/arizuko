@@ -16,8 +16,9 @@
 ## What needs you
 
 - `L721` — delegate/escalate turns bounced for an hour; tool-text fix ships in v0.75.4, verify on live turns after deploy.
-- `L722` — an agent `reply` carrying a `<status>` block posts raw tags; fix queued.
+- `L722` — an agent `reply` carrying a `<status>` block posts raw tags; manual fix ships in v0.75.4, verify on live codex turns.
 - `L723` — a mention-routed folder cannot read the chat it answers; fix queued.
+- `L724` — the reply length lint does not run on codex turns; fix queued.
 - `L665` — `unpair` removes the account's denies from the paired identity's turns; needs sign-off.
 - `L664` — `invite_create` mints `admin` the issuing folder cannot delegate; needs sign-off.
 - `L660` — a mention by reply engages only the reply chain, not the chat root; proposal, needs sign-off.
@@ -507,6 +508,21 @@ did not admit the first two calls, and how a thread's own JID maps to its parent
 - **Scope:** the read gate's predicate in `routd`/`ipc`; reuse the existing functions.
 - **Test:** a mention-routed folder's turn reads its own chat and thread (parent JID +
   topic, and the thread's own JID); a folder with no route to a chat is still refused.
+
+## L724 — the reply length lint does not run on codex turns (2026-11-08, open)
+
+MEASURED 2026-11-08 by source reading during L722: `ant/hooks/reply_lint.py` (the
+Response Style ceiling, 500 chars / 6 lines) is bound only in
+`ant/.claude/settings.json`, which claude reads. Codex renders its hooks from the
+policy table in `ant/src/policy.ts` (`codexHooksConfig`), and the table holds no
+reply-length row, so a codex `reply` or `send` is never checked.
+
+- **Severity:** medium — codex instances (sloth since 2026-11-08) post replies over
+  the ceiling the manual promises.
+- **Scope:** `ant/src/policy.ts` — bind the existing lint as one policy row so
+  every harness renders it; no second copy of the rule.
+- **Test:** the policy table carries the reply-length row and codex's rendered
+  hooks include it.
 
 ## ✅ FIXED 2026-11-06 d50afcdcd L669 — dashd's group delete purges `acl` rows and edges after only `admin` on the folder (2026-11-06)
 
