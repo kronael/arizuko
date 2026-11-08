@@ -51,8 +51,9 @@ func ResolveSource(sources []store.GitHubSource, owner, repo string) (string, er
 }
 
 type token struct {
-	Value   string    `json:"token"`
-	Expires time.Time `json:"expires_at"`
+	Value        string    `json:"token"`
+	Expires      time.Time `json:"expires_at"`
+	Installation int64     `json:"-"`
 }
 
 type Client struct {
@@ -96,9 +97,8 @@ func (c *Client) Token(ctx context.Context, owner, repo string) (string, error) 
 	defer c.mu.Unlock()
 	name := strings.ToLower(owner + "/" + repo)
 	now := c.now()
-	if cached := c.tokens[name]; cached.Value != "" && now.Add(5*time.Minute).Before(cached.Expires) {
-		return cached.Value, nil
-	}
+	cached := c.tokens[name]
+	delete(c.tokens, name)
 	claims, err := json.Marshal(struct {
 		Iss string `json:"iss"`
 		Iat int64  `json:"iat"`
@@ -116,7 +116,8 @@ func (c *Client) Token(ctx context.Context, owner, repo string) (string, error) 
 	}
 	jwt := unsigned + "." + enc.EncodeToString(signature)
 	var installation struct {
-		ID int64 `json:"id"`
+		ID          int64      `json:"id"`
+		SuspendedAt *time.Time `json:"suspended_at"`
 	}
 	path := "/repos/" + url.PathEscape(owner) + "/" + url.PathEscape(repo) + "/installation"
 	if err := c.request(ctx, http.MethodGet, path, jwt, nil, &installation); err != nil {
@@ -124,6 +125,13 @@ func (c *Client) Token(ctx context.Context, owner, repo string) (string, error) 
 	}
 	if installation.ID <= 0 {
 		return "", fmt.Errorf("github installation has no id")
+	}
+	if installation.SuspendedAt != nil {
+		return "", fmt.Errorf("github installation is suspended")
+	}
+	if cached.Installation == installation.ID && cached.Value != "" && now.Add(5*time.Minute).Before(cached.Expires) {
+		c.tokens[name] = cached
+		return cached.Value, nil
 	}
 	body, err := json.Marshal(struct {
 		Repositories []string `json:"repositories"`
@@ -138,8 +146,25 @@ func (c *Client) Token(ctx context.Context, owner, repo string) (string, error) 
 	if result.Value == "" || !result.Expires.After(now.Add(5*time.Minute)) {
 		return "", fmt.Errorf("github installation token is empty or expires too soon")
 	}
+	result.Installation = installation.ID
 	c.tokens[name] = result
 	return result.Value, nil
+}
+
+func (c *Client) Invalidate(owner, repo string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.tokens, strings.ToLower(owner+"/"+repo))
+}
+
+func (c *Client) InvalidateInstallation(id int64) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for name, cached := range c.tokens {
+		if cached.Installation == id {
+			delete(c.tokens, name)
+		}
+	}
 }
 
 func (c *Client) request(ctx context.Context, method, path, jwt string, body []byte, result any) error {

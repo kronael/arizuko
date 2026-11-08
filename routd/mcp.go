@@ -655,6 +655,9 @@ func (s *Server) derivedConnectorSecrets(t turnMCP, required []string) (map[stri
 		return nil, err
 	}
 	kind, err := githubapp.ResolveSource(sources, j.Owner, j.Repo)
+	if (err != nil || kind != store.GitHubSourceApp) && s.githubApp != nil {
+		s.githubApp.Invalidate(j.Owner, j.Repo)
+	}
 	if err != nil {
 		return nil, err
 	}

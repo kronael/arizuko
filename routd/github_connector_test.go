@@ -197,6 +197,52 @@ func TestGitHubConnectorTrustedRepository(t *testing.T) {
 			if calls.Load() != beforeCalls+1 || installationRequests.Load() <= beforeInstallations {
 				t.Fatal("call did not use the installation credential")
 			}
+			if tc.name == "pr" {
+				before := discoveries.Load()
+				refuseInstallation.Store(true)
+				_, callErr := callToolText(t, groupfolder.IpcSocket(ipcDir), "github_echo_auth", nil)
+				if callErr == "" || calls.Load() != beforeCalls+1 || discoveries.Load() != before {
+					t.Fatal("cached token allowed a connector call after installation removal")
+				}
+				refuseInstallation.Store(false)
+				if _, err := fns.ResolveConnectorSecrets("eng", "github_echo_auth", spec.Secrets); err != nil {
+					t.Fatal(err)
+				}
+				rec := doJSON(t, srv.Handler(), "DELETE", "/v1/github_sources/app/bot?owner_folder=eng", "", nil)
+				if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"deleted":true`) {
+					t.Fatalf("revoke status=%d body=%s", rec.Code, rec.Body.String())
+				}
+				_, callErr = callToolText(t, groupfolder.IpcSocket(ipcDir), "github_echo_auth", nil)
+				if callErr == "" || calls.Load() != beforeCalls+1 || discoveries.Load() != before {
+					t.Fatal("deleted source allowed an existing connector call")
+				}
+				for _, resolve := range []func(string, string, []string) (map[string]string, error){
+					fns.ResolveConnectorSecrets, fns.RefreshConnectorSecrets,
+				} {
+					if _, err := resolve("eng", "github_echo_auth", spec.Secrets); err == nil {
+						t.Fatal("deleted source supplied connector credentials")
+					}
+				}
+				nextDir := t.TempDir()
+				nextStop, err := srv.ServeTurnMCP(turn, nextDir)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer nextStop()
+				if listToolNames(t, groupfolder.IpcSocket(nextDir))["github_echo_auth"] || discoveries.Load() != before {
+					t.Fatal("deleted source allowed connector discovery")
+				}
+				if _, err := st.AddGitHubSource(store.GitHubSource{Source: "app/bot", OwnerFolder: "eng"}, "eng"); err != nil {
+					t.Fatal(err)
+				}
+				beforeInstallations := installationRequests.Load()
+				if _, err := fns.ResolveConnectorSecrets("eng", "github_echo_auth", spec.Secrets); err != nil {
+					t.Fatal(err)
+				}
+				if installationRequests.Load() != beforeInstallations+2 {
+					t.Fatal("source revocation retained cached connector token")
+				}
+			}
 		})
 	}
 }

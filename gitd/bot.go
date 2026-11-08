@@ -249,6 +249,9 @@ func (b *bot) replyToken(j chanlib.GitHubJID) (string, error) {
 		return "", err
 	}
 	kind, err := githubapp.ResolveSource(sources, j.Owner, j.Repo)
+	if (err != nil || kind != store.GitHubSourceApp) && b.app != nil {
+		b.app.Invalidate(j.Owner, j.Repo)
+	}
 	if err != nil {
 		return "", fmt.Errorf("%w: %v", chanlib.ErrPermanent, err)
 	}

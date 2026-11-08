@@ -26,7 +26,6 @@ still needs owner approval, including its public contracts and retention policy.
 
 ## Remaining
 
-- Fence revoked source/install/repository access and invalidate cached tokens before new replies, discovery or calls (`gitd/server.go`, `routd/github_sources_resource.go`, `routd/mcp.go`).
 - Add source dashboard view/control and App setup documentation (`dashd/main.go`, `dashd/routes_admin.go`, `gitd/README.md`, `template/web/pub/arizuko/components/gitd.html`).
 - Prove App bot loop suppression, token renewal, repository bounds, grant/hold behavior and real hosted MCP discovery/calls in a disposable repository (`gitd/bot_test.go`, `gitd/server_test.go`, `anteval/cases/anteval.toml`).
 - Obtain approval for repository bindings, PR group provisioning, lifecycle fences, overlapping-writer exclusion and generated-asset retention (`specs/6/27-git-channel.md`).
@@ -597,7 +596,11 @@ GitHub logins are mutable, so login-based principals can transfer after a rename
 App-token discovery uses the trusted turn repository and refuses missing App authority.
 `github_sources` has REST/MCP and CLI management but no dashboard view and control.
 Source deletion does not uninstall an App or revoke its tool grants.
-Revocation, repository removal, suspension, and uninstall need checks with cached tokens.
+gitd replies and routd's App connector discovery/calls re-read sources before resolving credentials.
+A missing source refuses access and evicts the repository's cached App token.
+`githubapp.Client.Token` checks the repository installation before cache reuse; lookup and token-request failures,
+or a suspended installation, evict the cached token and refuse access without a PAT fallback.
+Verified installation deletion/suspension and repository removal webhooks invalidate gitd's affected tokens.
 
 ## Acceptance boundary
 

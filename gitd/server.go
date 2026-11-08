@@ -1,10 +1,12 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/kronael/arizuko/chanlib"
@@ -72,6 +74,37 @@ func (s *server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	event, delivery := r.Header.Get("X-GitHub-Event"), r.Header.Get("X-GitHub-Delivery")
 	if event == "" {
 		chanlib.WriteErr(w, 400, "missing X-GitHub-Event")
+		return
+	}
+	if kind == store.GitHubSourceApp && (event == "installation" || event == "installation_repositories") {
+		var lifecycle struct {
+			Action       string `json:"action"`
+			Installation struct {
+				ID int64 `json:"id"`
+			} `json:"installation"`
+			RepositoriesRemoved []struct {
+				FullName string `json:"full_name"`
+			} `json:"repositories_removed"`
+		}
+		if err := json.Unmarshal(body, &lifecycle); err != nil || lifecycle.Installation.ID <= 0 {
+			chanlib.WriteErr(w, http.StatusBadRequest, "invalid installation event")
+			return
+		}
+		if s.bot.app != nil {
+			switch {
+			case event == "installation" && (lifecycle.Action == "deleted" || lifecycle.Action == "suspend"):
+				s.bot.app.InvalidateInstallation(lifecycle.Installation.ID)
+			case event == "installation_repositories" && lifecycle.Action == "removed":
+				for _, repository := range lifecycle.RepositoriesRemoved {
+					owner, repo, ok := strings.Cut(repository.FullName, "/")
+					if ok {
+						s.bot.app.Invalidate(owner, repo)
+					}
+				}
+			}
+		}
+		s.bot.markDelivery(key, s.now())
+		chanlib.WriteJSON(w, map[string]any{"ok": true})
 		return
 	}
 	msg, drop, err := mapEvent(kind, name, event, delivery, body, s.now(), s.bot.Login())

@@ -94,3 +94,71 @@ func TestRepositoryTokens(t *testing.T) {
 		t.Fatalf("second repository = %q, %v", got, err)
 	}
 }
+
+func TestRepositoryTokenRevocation(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	privateKey := string(pem.EncodeToMemory(&pem.Block{
+		Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key),
+	}))
+	for _, test := range []struct {
+		name       string
+		lookupCode int
+		tokenCode  int
+		suspended  bool
+	}{
+		{name: "lookup removed", lookupCode: 404},
+		{name: "lookup forbidden", lookupCode: 403},
+		{name: "suspended", suspended: true},
+		{name: "token removed", tokenCode: 404},
+		{name: "token forbidden", tokenCode: 403},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var revoked bool
+			now := time.Now()
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == http.MethodGet {
+					if revoked && test.lookupCode != 0 {
+						w.WriteHeader(test.lookupCode)
+						return
+					}
+					if revoked && test.suspended {
+						fmt.Fprintf(w, `{"id":42,"suspended_at":%q}`, now.Format(time.RFC3339))
+						return
+					}
+					fmt.Fprint(w, `{"id":42}`)
+					return
+				}
+				if revoked && test.tokenCode != 0 {
+					w.WriteHeader(test.tokenCode)
+					return
+				}
+				fmt.Fprintf(w, `{"token":"cached","expires_at":%q}`, now.Add(time.Hour).Format(time.RFC3339))
+			}))
+			defer server.Close()
+			client, err := New("123", privateKey, server.URL, server.Client())
+			if err != nil {
+				t.Fatal(err)
+			}
+			client.now = func() time.Time { return now }
+			if _, err := client.Token(t.Context(), "acme", "one"); err != nil {
+				t.Fatal(err)
+			}
+			if client.tokens["acme/one"].Value == "" {
+				t.Fatal("token was not cached")
+			}
+			revoked = true
+			if test.tokenCode != 0 {
+				now = now.Add(56 * time.Minute)
+			}
+			if got, err := client.Token(t.Context(), "acme", "one"); err == nil || got != "" {
+				t.Fatalf("revoked token = %q, %v", got, err)
+			}
+			if _, ok := client.tokens["acme/one"]; ok {
+				t.Fatal("revoked token remains cached")
+			}
+		})
+	}
+}
