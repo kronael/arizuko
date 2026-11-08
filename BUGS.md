@@ -27,7 +27,7 @@
 - `L768` — approve trip network defaults or grant the requested hosts per folder; current reachability is unmeasured.
 - `L769` — choose whether `/pub/` filters Markdown; forwarding without an extension filter is measured.
 - `L770` — approve persistent web lint through the shared policy; local settings hooks are replaced at spawn.
-- `L771` — a run timeout counts toward automatic turn retry; decide whether exhaustion must end the work.
+- `L771` — a run timeout counts toward automatic turn retry; owner decided no retry + a deadline continuation nudge; fix queued.
 - `L665` — `unpair` removes the account's denies from the paired identity's turns; needs sign-off.
 - `L664` — `invite_create` mints `admin` the issuing folder cannot delegate; needs sign-off.
 - `L660` — a mention by reply engages only the reply chain, not the chat root; proposal, needs sign-off.
@@ -720,6 +720,13 @@ the exhausted deadline can buy another full attempt without a new user request.
   continuation. No regression test — this request permits only BUGS.md edits;
   the journal and source establish the current scheduling behavior.
 - **Status:** open (record only); no retry policy or live setting changed.
+- **Owner decision 2026-11-08:** "i dont really see that this should retry. maybe it
+  should just nudge the model to request a continuation request". So: a timed-out
+  turn is not retried (crash and OOM keep their retry), and before the deadline the
+  harness tells the model to post what it has and ask whether to continue. Claude
+  already receives the `[deadline]` steering note mid-turn; codex reads input only
+  between turns (L570), so ant must stop codex shortly before the deadline and
+  resume the same thread with that one prompt. Changes spec 5/12's retry rule.
 
 ## ✅ FIXED 2026-11-06 d50afcdcd L669 — dashd's group delete purges `acl` rows and edges after only `admin` on the folder (2026-11-06)
 
