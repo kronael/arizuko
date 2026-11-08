@@ -15,6 +15,7 @@
 
 ## What needs you
 
+- `L692` — disposable cleanup requires table enumeration denied by enrolled policies; auth proposal.
 - `L676` — decide whether dashboard group creation must check the creator's new subtree grant.
 - `L675` — the guest's Python is under `/root` (700); fix at the next rootfs build.
 - `L674` — `compose down` fails on a deleted fragment despite `required: false`; proposal.
@@ -48,6 +49,24 @@ It reads the HEADING, because that is what a reader sees and it is the only
 marker every entry carries. Ten entries said open in the heading and carried no
 `- **Status:** open` line, so a Status-only count answered 22 for a queue of
 31 — this section shipped with those ten missing.
+
+## L692 — disposable cleanup cannot enumerate tables with enrolled keys (2026-11-08, open — proposal, needs sign-off)
+
+Measured on the isolated PostgreSQL 17 / ExtendDB 0.1.11 server:
+interrupting `anteval-1794122472148` removed its containers and network,
+then `arizuko rm` returned `AccessDeniedException` for authd's
+`dynamodb:ListTables` on `table/*`. The instance data directory remained.
+Evidence: external `sol-accept-20261108T0720/claude-smoke.log` and
+`store-server.log` at 07:22:07 UTC. No case started.
+
+`cmd/arizuko/store.go:253` enumerates the account with each daemon key;
+`cmd/arizuko/store.go:111` grants each key only its owned table prefixes.
+The enforcing server denies the account-wide enumeration.
+No test yet — ops measurement. A repair needs an enforcing-server regression.
+**Options:** authorize account discovery for removal, or remove the account
+through an administrator-owned removal operation. **Default if nothing is
+decided:** cleanup fails and preserves the data directory. Any authorization
+change needs owner sign-off; this blocks clean disposable acceptance.
 
 **A contract or design decision.** Each names the question in its own Status
 line; none can be answered from the code.
