@@ -15,7 +15,6 @@
 
 ## What needs you
 
-- `L793` — delayed admission after group deletion can restore private input for a replacement group.
 - `L790` — `TestHoldE2E_ChannelWithoutButtonsStillGetsAnAnswerablePrompt` fails under host load (fixed 5 s wait).
 - `L721` — group handoffs bounced for an hour; verify bounded turns after deployment with group sends and progress guidance.
 - `L743` — an instance-wide model pause needs trusted host-side provider evidence; proposal, needs sign-off.
@@ -315,20 +314,6 @@ reads those words now.
   `/tmp/arizuko-github-baseline-build.log`. No test — ops.
   **Proposal:** stop the build on the first failed submake. This is an adjacent
   build-gate repair; scope approval is pending.
-
-## L793 — admission after deletion restores private input (2026-11-08, open)
-
-**Severity:** HIGH, correctness. `store/turn_context.go:161` checks the model
-pause without checking group existence in the admission transaction.
-After dispatch checks the group, deletion can finish its retirement scan
-before admission commits. A valid outage callback then restores held input;
-recreating the folder delivers that private input without a current route.
-Measured by the seventh v0.75.5 audit witness
-`release-audit-7-probes_test.go::TestAudit7AdmissionAfterDeletionRestoresHeldInput`
-at HEAD `d808fad9b0c0b279a7d8a9ad5b56258308e976f9`.
-**Fix:** require the group row in the existing guarded batch for fresh
-admission and rebind. Preserve that check for probe claims.
-**Regression:** `routd/model_pauses_admission_test.go::TestAdmissionCannotRestoreDeletedInput`.
 
 ## L790 — the hold e2e test fails under host load (2026-11-08, open)
 
