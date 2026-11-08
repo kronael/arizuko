@@ -278,3 +278,125 @@ test('CodexTurn: any event between waiting events resets the count', () => {
   expect(turn.done).toBe(false);
   expect(frames.some((f) => f.kind === 'result')).toBe(false);
 });
+
+/** A running Codex thread receives the deadline prompt in one resumed run. */
+test('runCodexStream resumes the interrupted thread once with the deadline note', async () => {
+  const { runCodexStream } = await import('./codex.js');
+  const { DEADLINE_TEXT } = await import('./spool.js');
+  const calls: import('./backend.js').Turn[] = [];
+  const deadline = Date.now() + 60_030;
+  const frames: Frame[] = [];
+  for await (const frame of runCodexStream({ prompt: 'work', cwd: '/tmp', turnID: 't', env: {}, deadline }, async function* (turn) {
+    calls.push(turn);
+    if (calls.length === 1) {
+      yield { kind: 'continuity', token: 'thread', sessionId: 'thread' };
+      await new Promise<void>((resolve) => turn.signal!.addEventListener('abort', () => resolve(), { once: true }));
+      yield { kind: 'result', ok: false, text: 'interrupted' };
+    } else {
+      yield { kind: 'result', ok: true, text: 'posted' };
+    }
+  })) frames.push(frame);
+  expect(calls).toHaveLength(2);
+  expect(calls[1].continuity).toBe('thread');
+  expect(calls[1].prompt).toBe(DEADLINE_TEXT);
+  expect(calls[1].deadline).toBe(deadline);
+  expect(frames.filter((f) => f.kind === 'result')).toEqual([{ kind: 'result', ok: true, text: 'posted' }]);
+});
+
+/** A completed Codex turn does not start a deadline continuation. */
+test('runCodexStream leaves completed turns alone', async () => {
+  const { runCodexStream } = await import('./codex.js');
+  let calls = 0;
+  const frames: Frame[] = [];
+  for await (const frame of runCodexStream({ prompt: 'work', cwd: '/tmp', turnID: 't', env: {}, deadline: Date.now() + 60_030 }, async function* () {
+    calls++;
+    yield { kind: 'continuity', token: 'thread', sessionId: 'thread' };
+    yield { kind: 'result', ok: true, text: 'done' };
+  })) frames.push(frame);
+  expect(calls).toBe(1);
+  expect(frames.at(-1)).toEqual({ kind: 'result', ok: true, text: 'done' });
+});
+
+/** A thread ID arriving after the warning still permits the continuation. */
+test('runCodexStream interrupts when the thread ID arrives after the warning', async () => {
+  const { runCodexStream } = await import('./codex.js');
+  let calls = 0;
+  for await (const _frame of runCodexStream({ prompt: 'work', cwd: '/tmp', turnID: 't', env: {}, deadline: Date.now() + 59_000 }, async function* (turn) {
+    calls++;
+    if (calls === 1) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      yield { kind: 'continuity', token: 'late', sessionId: 'late' };
+      expect(turn.signal?.aborted).toBe(true);
+      yield { kind: 'result', ok: false };
+    } else {
+      expect(turn.continuity).toBe('late');
+      yield { kind: 'result', ok: true };
+    }
+  })) {}
+  expect(calls).toBe(2);
+});
+
+/** External cancellation does not start a deadline continuation. */
+test('runCodexStream respects external cancellation', async () => {
+  const { runCodexStream } = await import('./codex.js');
+  const controller = new AbortController();
+  let calls = 0;
+  for await (const _frame of runCodexStream({ prompt: 'work', cwd: '/tmp', turnID: 't', env: {}, signal: controller.signal, deadline: Date.now() + 60_030 }, async function* () {
+    calls++;
+    yield { kind: 'continuity', token: 'thread', sessionId: 'thread' };
+    controller.abort();
+    yield { kind: 'result', ok: false };
+  })) {}
+  expect(calls).toBe(1);
+});
+
+/** The Codex process stops and a second process resumes its thread with the deadline prompt. */
+test('codexHarness stops the process and resumes the same thread', async () => {
+  const fs = await import('fs');
+  const os = await import('os');
+  const path = await import('path');
+  const { DEADLINE_TEXT } = await import('./spool.js');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-test-'));
+  const capture = path.join(dir, 'capture');
+  fs.writeFileSync(path.join(dir, 'codex'), `#!/bin/bash
+if [ "$2" = resume ]; then
+  printf '%s\\n' "$@" > "$CAPTURE"
+  cat >> "$CAPTURE"
+  printf '%s\\n' '{"type":"turn.completed"}'
+else
+  printf '%s\\n' '{"type":"thread.started","thread_id":"thread-123"}'
+  while :; do read -r -t 1 ignored || :; done
+fi
+`, { mode: 0o755 });
+  const frames: Frame[] = [];
+  for await (const frame of codexHarness.run({ cwd: dir, prompt: 'work', systemPrompt: 'original system', turnID: 't', env: { PATH: `${dir}:/usr/bin:/bin`, CAPTURE: capture }, deadline: Date.now() + 60_200 })) frames.push(frame);
+  const captured = fs.readFileSync(capture, 'utf8');
+  expect(captured).toContain('resume\n');
+  expect(captured).toContain('thread-123\n');
+  expect(captured.endsWith(DEADLINE_TEXT)).toBe(true);
+  expect(captured).not.toContain('original system');
+  expect(frames.filter((f) => f.kind === 'result')).toEqual([{ kind: 'result', ok: true, text: undefined, usage: undefined }]);
+});
+
+/** Cancellation before a run starts does not launch Codex. */
+test('codexHarness does not start after cancellation', async () => {
+  const controller = new AbortController();
+  controller.abort();
+  const frames: Frame[] = [];
+  for await (const frame of codexHarness.run({ cwd: '/tmp', prompt: 'work', turnID: 't', env: {}, signal: controller.signal, deadline: Date.now() + 60_000 })) frames.push(frame);
+  expect(frames).toEqual([]);
+});
+
+/** A stream without a thread ID cannot resume and retains its failure. */
+test('runCodexStream preserves failure without a thread ID', async () => {
+  const { runCodexStream } = await import('./codex.js');
+  let calls = 0;
+  const frames: Frame[] = [];
+  for await (const frame of runCodexStream({ prompt: 'work', cwd: '/tmp', turnID: 't', env: {}, deadline: Date.now() + 59_000 }, async function* () {
+    calls++;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    yield { kind: 'result', ok: false, text: 'no thread' };
+  })) frames.push(frame);
+  expect(calls).toBe(1);
+  expect(frames).toEqual([{ kind: 'result', ok: false, text: 'no thread' }]);
+});

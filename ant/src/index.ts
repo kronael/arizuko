@@ -9,7 +9,8 @@ import { fileURLToPath } from 'url';
 import { submitTurn, submitStatus, type TurnAck } from './mcp.js';
 import { injectMcpEnv } from './mcp-servers.js';
 import { Harness, HarnessProfile, Turn, selectHarness } from './backend.js';
-import { NUDGE_TEXT, STEER_SPOOL, appendLines, drainSteering } from './spool.js';
+import { DEADLINE_NOTE_LEAD_MS, DEADLINE_TEXT, NUDGE_TEXT, STEER_SPOOL, appendLines, drainSteering } from './spool.js';
+export { DEADLINE_TEXT } from './spool.js';
 
 interface ContainerInput {
   prompt: string;
@@ -136,11 +137,6 @@ function nudgeProgress(): void {
 // DEADLINE_TEXT warns the agent that the process deadline is close. Unlike
 // NUDGE_TEXT it is not dropped between turns: it may start a round, so a
 // session that had stopped gets one last chance to post.
-const DEADLINE_NOTE_LEAD_MS = 60_000;
-export const DEADLINE_TEXT =
-  '[deadline] About one minute is left in this run. Post your output to the user now with reply. ' +
-  'Stop background tasks you no longer need with TaskStop; anything not posted before the deadline is lost.';
-
 function noteDeadline(): void {
   appendLines(STEER_SPOOL, [DEADLINE_TEXT]);
   log('Warned agent of the process deadline');
@@ -315,7 +311,7 @@ async function runAttempt(
   // ARIZUKO_PROGRESS only where a progress line can show.
   const nudgeTimer = env.ARIZUKO_PROGRESS === '1' ? setInterval(nudgeProgress, PROGRESS_INTERVAL_MS) : undefined;
   const untilNote = deadline - DEADLINE_NOTE_LEAD_MS - Date.now();
-  const noteTimer = untilNote > 0 ? setTimeout(noteDeadline, untilNote) : undefined;
+  const noteTimer = untilNote > 0 && harness.name !== 'codex' ? setTimeout(noteDeadline, untilNote) : undefined;
 
   const out: TurnResult = { closedDuringQuery: false, retryFresh: false };
   let frameCount = 0;

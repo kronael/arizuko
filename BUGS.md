@@ -719,7 +719,7 @@ the exhausted deadline can buy another full attempt without a new user request.
   existing outcome/retry decision; report exhaustion and require an explicit
   continuation. No regression test — this request permits only BUGS.md edits;
   the journal and source establish the current scheduling behavior.
-- **Status:** open (record only); no retry policy or live setting changed.
+- **Status:** open — Codex deadline continuation implemented; timeout retry policy remains unchanged and requires a separate fix.
 - **Owner decision 2026-11-08:** "i dont really see that this should retry. maybe it
   should just nudge the model to request a continuation request". So: a timed-out
   turn is not retried (crash and OOM keep their retry), and before the deadline the

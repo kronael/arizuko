@@ -26,6 +26,12 @@ export const POLICY_LOG_SPOOL = '/tmp/arizuko-policy';
 export const NUDGE_TEXT =
   'Report progress to the user now. Use <status>what the user gets next</status>: say what the user gets next, not which tool, model or file.';
 
+export const DEADLINE_NOTE_LEAD_MS = 60_000;
+export const DEADLINE_TEXT =
+  '[deadline] About one minute is left in this run. Post your output to the user now with reply. ' +
+  'State what work remains and ask whether the user wants you to continue. ' +
+  'Stop background tasks you no longer need with TaskStop; anything not posted before the deadline is lost.';
+
 // encodeLines is THE batch format: one JSON string per line, so a message
 // containing a newline survives the round trip.
 function encodeLines(lines: string[]): string {
