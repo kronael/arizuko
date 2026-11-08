@@ -500,10 +500,12 @@ your mention, but the thread history returns access_denied".
 Read from code: the reads gate on `JIDRoutedToFolder` (`ipc/ipc.go:2268`, `:2388`,
 `:2427`, `ipc/inspect.go:30`), which is the chat's DEFAULT route target only
 (`routd/reads.go:50`), so a `verb=mention` route never counts. `JIDRoutableToFolder`
-(`routd/reads.go:61`, verb ignored) already exists for the reply path. Not yet measured:
-why the own-chat exception (`routd/mcp.go:515`, `jid == t.chatJID && folder == t.folder`)
-did not admit the first two calls, and how a thread's own JID maps to its parent.
+(`routd/reads.go:61`, verb ignored) already exists for the reply path. The own-chat
+exception admits the exact bound JID and folder in `TestMentionRouteReadAccess`;
+the live socket's binding is not measured. `discordThreadJID` maps the bound
+parent and topic to the thread JID.
 
+- **Status:** local change admits mention routes and the bound Discord thread JID; live report remains unverified.
 - **Severity:** high — every mention-routed sub-folder answers blind to its thread.
 - **Scope:** the read gate's predicate in `routd`/`ipc`; reuse the existing functions.
 - **Test:** a mention-routed folder's turn reads its own chat and thread (parent JID +
