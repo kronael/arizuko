@@ -20,11 +20,12 @@ ends. It never reaches an instance that serves users.
 
 The CLI lifecycle and fake-based tests are implemented.
 The device, artifact, image, memory and allocation checks run before creation.
-Live acceptance remains incomplete.
+Live cleanup acceptance covers case failure and handled interruption,
+including instance files, Compose resources, the store account and its tables.
 
 ## Remaining
 
-- Prove guest callback reachability and disposable smoke/product runs on an isolated external test store, including cleanup after success, failure, partial startup and interruption (`anteval/cmd/anteval/lifecycle_test.go`, `anteval/cases/anteval.toml`; L379).
+- Prove guest callback reachability and disposable smoke/product runs on an isolated external test store, including cleanup after success and partial startup (`anteval/cmd/anteval/lifecycle_test.go`, `anteval/cases/anteval.toml`; L379).
 
 ## Problem — measured on krons 2026-10-21
 
