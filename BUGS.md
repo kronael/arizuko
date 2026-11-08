@@ -1,17 +1,5 @@
 # BUGS.md — open issues queue
 
-## L713 — a stale GitHub source removal deletes a new owner's source (2026-11-08, open)
-
-`store/github_sources.go` reads ownership and route identities before buffering
-unconditional deletes. Two removals by owner A can both read the source; after
-one commits and B registers the same key, the delayed removal deletes B's
-source while leaving B's routes. The audit established this interleaving from
-source; a concurrent exploit has not been run. Measured:
-`store/github_sources_test.go::TestGitHubSourceRemoveRefusesStaleBatch` returned
-no error for the stale batch. **Fix:** read the source and routes with
-`objstore.ReadConsistent` and attach the version with `ws.Prove`. The stale
-batch must refuse without deleting any row.
-
 > **Standing policy — every fix here adheres to WISDOM** (`~/.claude/CLAUDE.md`):
 > minimality (smallest change at the root cause), orthogonality (one concern per
 > fix, no parallel second path — amend the original), fail loud to the user on
