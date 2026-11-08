@@ -9,6 +9,7 @@ when_to_use: 'ocenění, odhad ceny, valuation, comparables, Kč/m2, cena pozemk
 Run a valuation only when the user explicitly requests it for a property.
 Use `guides/research.md` for the evidence and reconciliation procedure.
 Run `zdroje-review` before delivery and use `estate-site` for publication.
+Run the estate-site format check on the valuation and index before delivery.
 
 ALWAYS give every load-bearing number a source: listing URL, sale record or build cost, with its date.
 ALWAYS check that the asking price in the listing belongs to this property.

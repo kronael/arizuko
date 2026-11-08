@@ -179,15 +179,6 @@ def find_valuations(site):
     return found
 
 
-def valuation_card(idn, val, by_id, cfg):
-    lab = cfg["labels"]
-    row = by_id.get(idn)
-    state = lab["alive"] if row and row["active"] else lab["gone"]
-    meta = " · ".join(x for x in (esc(val["verdict"]), f'{lab["valuation"]} {val["date"]}', state, f"ID {idn}") if x)
-    return render("card.html", href=esc(val["href"]), attrs="", name=esc(row["place"] if row else f"ID {idn}"),
-                  badge="", price=esc(row["price"] if row else ""), zone="", meta=meta)
-
-
 def write_page(path, root, cfg, title, body, meta=""):
     with open(path, "w", encoding="utf-8") as f:
         f.write(render("page.html", lang=cfg["lang"], meta=meta, title=esc(title), root=root, body=body))
@@ -204,22 +195,17 @@ def build(cfg, date):
             f.write("/* Tune the look here: override the --variables of estate.css or any rule. */\n")
 
     rows = parse_db(cfg["db"])
-    by_id = {r["id"]: r for r in rows}
     active = [r for r in rows if r["active"]]
     top = order([r for r in active if r["top"]], lim)
     fresh = order([r for r in active if r["fresh"] and not r["top"]], lim)
     rest = order([r for r in active if not r["fresh"] and not r["top"]], lim)
     valuations = find_valuations(site)
-    val_cards = [valuation_card(i, v, by_id, cfg) for i, v in
-                 sorted(valuations.items(), key=lambda kv: kv[1]["date"], reverse=True)]
     reports = sorted(glob.glob(os.path.join(site, "reports", "*.md")), reverse=True)[:8]
 
     body = [f'<div class="nav">{lab["updated"]} {date} · {len(active)} {lab["active"]}</div>',
             f'<h1>{esc(cfg["title"])}</h1>']
     if cfg["intro"]:
         body.append(f'<p class="sub">{esc(cfg["intro"])}</p>')
-    if val_cards:
-        body += [f'<h2>{lab["valuations"]}</h2>'] + val_cards
     for head, group in ((lab["priority"], top), (f'{lab["new"]} ({len(fresh)})', fresh),
                         (f'{lab["listings"]} ({len(rest)})', rest)):
         if group:
@@ -238,7 +224,7 @@ def build(cfg, date):
     out = os.path.join(site, "index.html")
     write_page(out, "", cfg, cfg["title"], "\n".join(body))
     print(f"wrote {out}: {len(active)} active ({len(top)} top, {len(fresh)} new, {len(rest)} rest), "
-          f"{len(val_cards)} valuations, {len(reports)} reports; css: estate.css + local.css")
+          f"{len(valuations)} valuations, {len(reports)} reports; css: estate.css + local.css")
 
 
 def new_page(cfg, rel, title, listing):

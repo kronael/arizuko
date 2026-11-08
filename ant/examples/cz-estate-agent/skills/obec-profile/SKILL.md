@@ -16,4 +16,5 @@ Run it for a shortlisted property only, and only when a zoning change or a build
 
 Write the result to the group's research record. Source every number with a URL. Mark gaps as gaps. NEVER invent an election number.
 Assess zoning feasibility against the actual plan, its changes and council decisions. Use `uredni-deska` for the full notice-board sweep and `zdroje-review` before delivery. Use `estate-site` for publication.
+Run the estate-site format check on the profile and index before delivery.
 A host that returns 403 on every path is the egress allowlist, not proof that the data is absent.

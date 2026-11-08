@@ -71,7 +71,7 @@ class SiteTests(unittest.TestCase):
         self.assertIn('href="../estate.css"', sub)
         self.assertIn('href="../local.css"', sub)
         self.build()
-        self.assertIn('href="oceneni/alpha.html"', (self.site / "index.html").read_text())
+        self.assertEqual((self.site / "index.html").read_text().count('href="oceneni/alpha.html"'), 1)
         with self.assertRaises(subprocess.CalledProcessError):
             run("--config", str(self.cfg), "new", "oceneni/alpha", "Alpha")
 

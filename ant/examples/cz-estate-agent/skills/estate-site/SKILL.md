@@ -38,15 +38,23 @@ curl -sI "https://$WEB_HOST/pub/$ARIZUKO_GROUP_FOLDER/" | head -1
 ALWAYS build after every `db.md` or page change, and at the end of every scan. ALWAYS check that the URL returns 200 before you announce it.
 NEVER edit `index.html`: the next build overwrites it. Change content in `db.md`, `site.json` or a page.
 
+Before delivery, check the index and every changed HTML page:
+
+```sh
+python3 ~/.claude/skills/estate-site/scripts/check_format.py --config ~/estate/site.json ~/public_html/index.html ~/public_html/oceneni/place.html
+```
+
+The check covers numeric tables, headings, valuation placement and colour/dot consistency. It does not verify sources or replace a browser check.
+
 ## Pages
 
 ```sh
 python3 ~/.claude/skills/estate-site/scripts/gen_site.py new oceneni/place "Place (ID 9)" --listing 9
 ```
 
-`new` writes a skeleton that links `estate.css` and `local.css` with the right relative path, and refuses to overwrite a file. Fill the body from `components/parts.html`: the `.big` verdict, `.tbl` and `.stack` tables, `.warn`.
-A page with `<meta name="listing" content="ID">` appears in the "valuations" section of the index. The card shows that page's first `.big` text and the date in its `.nav` line. The newest page for an ID wins.
-Give every table a `.tbl` wrapper. Give a table of 4 or more text columns `class="stack"` and a `data-label` on each cell except the first.
+`new` writes a skeleton that links `estate.css` and `local.css` with the right relative path, and refuses to overwrite a file. Fill the body from `components/parts.html`: the `.big` verdict, numeric tables and `.warn`.
+A page with `<meta name="listing" content="ID">` links from its active listing card. The newest page for an ID wins.
+Use numbered points for prose. Give numeric tables a `.tbl` wrapper, one label column and at most two numeric columns with class `n`.
 ALWAYS check a new page at 390 px width: `document.documentElement.scrollWidth` must not exceed the viewport.
 
 ## Look
