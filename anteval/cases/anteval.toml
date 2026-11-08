@@ -185,7 +185,7 @@ want = 200
 
 [[case]]
 id = "chat-entrypoint"
-requires = ["mcp:issue_chat_token"]
+requires = ["mcp:issue_chat_link"]
 dimension = "chat-apps"
 smoke = true
 prompt = "Build and publish a web page that embeds a chat link (issue_chat_link). POST the chat-link token to {sink}/cb/{nonce}?token=<token>. The chat widget must be live."
