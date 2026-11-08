@@ -461,6 +461,7 @@ max(END − 24h, state.last_end)` and `MISSED=1` (`window.py:6`).
 - **Test:** `--end` of a run that never posted is refused; `--end` equal to the
   posted run's END still works; no `--end` after a dead run gives `MISSED=1`
   and START = the state's `last_end`.
+- **Status:** fix landed in the commit that edits this line; awaiting the owner's verification before FIXED.
 
 ## ✅ FIXED 2026-11-06 d50afcdcd L669 — dashd's group delete purges `acl` rows and edges after only `admin` on the folder (2026-11-06)
 
