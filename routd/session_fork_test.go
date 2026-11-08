@@ -224,6 +224,9 @@ func TestInheritParentSession_ExplicitForkWithNoParentKeepsObservedWindow(t *tes
 func TestReplyIntoBotRootedThreadCopiesParentSession(t *testing.T) {
 	db, loop := newForkLoop(t)
 	folder := "main"
+	if err := db.store().PutGroup(core.Group{Folder: folder}); err != nil {
+		t.Fatal(err)
+	}
 	jid := "telegram:group/100"
 	body := []byte(`{"type":"summary"}` + "\n")
 	projDir := seedParentSession(t, loop, db, folder, "", "main-uuid", body)
