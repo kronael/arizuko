@@ -15,7 +15,6 @@
 
 ## What needs you
 
-- `L720` — an escalate/delegate turn's reply to the origin chat lands in the channel root; fix queued (anchor on `replyToId`).
 - `L721` — delegate/escalate turns bounce between root `sloth` and `sloth/discord` for an hour; cause unmeasured.
 - `L665` — `unpair` removes the account's denies from the paired identity's turns; needs sign-off.
 - `L664` — `invite_create` mints `admin` the issuing folder cannot delegate; needs sign-off.
@@ -433,37 +432,6 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
   containment (decision 7, `ipc/ipc.go:2267`, `:2334`, `:2387`, `:2426`), and the
   `/root` issuer holds `admin` on `**`, the authority that answers a hold. The defect
   in the same area is who the root turn serves: `L666`.
-
-## L720 — a reply from an escalate or delegate turn to the original chat lands in the channel root (2026-11-08, open)
-
-MEASURED 2026-11-08 on sloth: kronael's message `1569000827429847372` in channel
-`discord:837270552959516682/1504474527638224936` (14:49) has a thread on it, but
-sloth's five answers at 15:12:35, 15:24:42, 15:26:38, 15:31:42 and 15:39:09 are
-quote-replies in the channel root (Discord API: `message_reference` set, outside
-the thread). They came from root `sloth` turns with `chat_jid` `sloth` and trigger
-`escalate`, not from the turn bound to that chat.
-
-Cause, read from code: `placeTurnDelivery` (`routd/placement.go:26`) returns
-without thread placement when the reply's JID is neither the turn's `ChatJID`
-nor its return target, and an escalate turn's `ChatJID` is the folder. The
-trigger message id it would thread on belongs to the original turn, which the
-escalate turn does not carry.
-
-- **Severity:** medium — answers to one request scatter between root and thread.
-- **Scope:** `routd/placement.go`, a reply to a chat that is not the turn's own.
-- **Rejected 2026-11-08 by the owner:** storing an "origin" on the handoff. A
-  recovery fan-out answers many old threads from one request, so one stored origin
-  is wrong for most replies ("there is no home or original chat … it would be wrong
-  half the time").
-- **Fix:** anchor on the message the reply names. A `reply` with `replyToId` to a
-  chat that is not the turn's own goes into that message's thread: its stored topic
-  when it has one, else a new thread rooted on it when the chat prefers thread
-  replies. No new stored field; the agent's explicit target decides.
-- **Test:** a reply from a turn whose `ChatJID` is a folder, to a thread-preferring
-  chat with `replyToId` = a root message, carries `threadRoot` = that id; with
-  `replyToId` = a message stored in thread T, it carries `threadID` = T; without
-  `replyToId`, nothing changes.
-- **Status:** cross-chat replies use the named message topic or root according to the chat preference; covered by `TestCrossChatReplyUsesTargetMessageThread`.
 
 ## L721 — delegate and escalate turns bounce between root `sloth` and `sloth/discord` for an hour (2026-11-08, open)
 
