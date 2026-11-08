@@ -16,7 +16,7 @@ test('selectHarness: unset defaults to claude', () => {
 test('selectHarness: each occupant by name', () => {
   expect(selectHarness('claude').name).toBe('claude');
   expect(selectHarness('codex').name).toBe('codex');
-  expect(() => selectHarness('pi')).toThrow('cannot deliver through MCP');
+  expect(selectHarness('pi').name).toBe('pi');
 });
 
 test('selectHarness: unknown value throws — no silent fallback', () => {
@@ -49,7 +49,7 @@ test('profiles declare the measured capability matrix', () => {
   // continuity became native when --session-dir + --session landed.
   expect(piHarness.profile).toEqual({
     continuity: 'native',
-    tools: 'none',
+    tools: 'mcp',
     guard: 'write-time',
     steering: 'between-turn',
     manual: 'rendered',

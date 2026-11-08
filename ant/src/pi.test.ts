@@ -3,7 +3,7 @@
 // is constructed from pi-ai's published types.
 
 import { test, expect } from 'bun:test';
-import { PiTurn, piArgs } from './pi.js';
+import { PiTurn, piArgs, piEnv, piMcpConfig, codexAuth } from './pi.js';
 import type { Frame } from './backend.js';
 
 // Recorded verbatim (trimmed to the load-bearing fields): the codex-serve
@@ -129,7 +129,10 @@ test('piArgs: no self-granted extensions, scanned skills only, @file prompt', ()
   expect(args).toContain('--no-skills');
   // Discovery off, but an explicit -e still loads — that is how arizuko's
   // policy rows run on pi while nothing the agent wrote under ~/.pi does.
-  expect(args[args.indexOf('-e') + 1]).toBe('/tmp/dist/pi-extension.js');
+  expect(args).toContain('/tmp/dist/pi-extension.js');
+  expect(args).toContain('builtin:mcp');
+  expect(args).toContain('--no-approve');
+  expect(args).toContain('--offline');
   const i = args.indexOf('--skill');
   expect(args[i + 1]).toBe('/home/node/.claude/skills/diary');
   expect(args).toContain('claude-serve/sonnet');
@@ -186,4 +189,56 @@ test('PiTurn: an ordinary failure is delivered, not retried', () => {
   expect(r.ok).toBe(false);
   expect(r.retryFresh).toBeUndefined();
   expect(r.text).toBe('provider auth failed');
+});
+
+
+test('pi uses the assembled MCP server without copying secrets', () => {
+  expect(piMcpConfig({ arizuko: { command: 'socat', args: ['STDIO', 'UNIX-CONNECT:/run/ipc/gated.sock'], env: { TOKEN: 'secret' } } })).toEqual({
+    mcpServers: { arizuko: { command: 'socat', args: ['STDIO', 'UNIX-CONNECT:/run/ipc/gated.sock'], exposure: 'direct' } },
+  });
+});
+
+test('pi forwards effort and existing credential aliases', () => {
+  const args = piArgs({ cwd: '/tmp', effort: 'high' }, '/tmp/p', []);
+  expect(args[args.indexOf('--thinking') + 1]).toBe('high');
+  expect(piEnv({ CODEX_API_KEY: 'c', CLAUDE_CODE_OAUTH_TOKEN: 'a' })).toMatchObject({ OPENAI_API_KEY: 'c', ANTHROPIC_OAUTH_TOKEN: 'a' });
+  expect(piEnv({ CODEX_API_KEY: 'c', OPENAI_API_KEY: 'native' }).OPENAI_API_KEY).toBe('native');
+});
+
+test('pi emits split status and accepts a tool-only completion', () => {
+  const turn = new PiTurn();
+  turn.push({ type: 'message_start', message: { role: 'assistant' } });
+  expect(turn.push({ type: 'message_update', assistantMessageEvent: { type: 'text_delta', contentIndex: 0, delta: '<sta' } })).toEqual([{ kind: 'status', text: '<sta' }]);
+  expect(turn.push({ type: 'message_update', assistantMessageEvent: { type: 'text_delta', contentIndex: 0, delta: 'tus>work</status>' } })).toEqual([{ kind: 'status', text: '<status>work</status>' }]);
+  turn.push({ type: 'message_end', message: { role: 'assistant', content: [], stopReason: 'toolUse' } });
+  expect(turn.finish(0, '').ok).toBe(true);
+});
+
+
+test('pi converts the existing Codex login without inventing expiry', () => {
+  const access = `header.${Buffer.from(JSON.stringify({ exp: 1234 })).toString('base64url')}.signature`;
+  expect(codexAuth(JSON.stringify({ tokens: { access_token: access, refresh_token: 'refresh', account_id: 'account' } }))).toEqual({
+    'openai-codex': { type: 'oauth', access, refresh: 'refresh', accountId: 'account', expires: 1234000 },
+  });
+  expect(codexAuth(JSON.stringify({ OPENAI_API_KEY: 'key' }))).toEqual({ openai: { type: 'api_key', key: 'key' } });
+  expect(() => codexAuth(JSON.stringify({ tokens: {} }))).toThrow();
+});
+
+test('pi writes and cleans its per-turn MCP configuration', async () => {
+  const fs = await import('fs');
+  const os = await import('os');
+  const path = await import('path');
+  const { piHarness } = await import('./pi.js');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pi-test-'));
+  const capture = path.join(dir, 'capture');
+  const binary = path.join(dir, 'pi');
+  fs.writeFileSync(binary, '#!/bin/sh\nprintf "%s\\n" "$PI_CODING_AGENT_DIR" > "$CAPTURE"\ncat "$PI_CODING_AGENT_DIR/mcp.json" >> "$CAPTURE"\nprintf \'%s\\n\' \'{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"ok"}],"stopReason":"stop"}}\'\n', { mode: 0o755 });
+  const frames = [];
+  for await (const frame of piHarness.run({ cwd: dir, prompt: 'hi', turnID: 't', deadline: Date.now() + 10000,
+    tools: { arizuko: { command: 'socat', args: ['STDIO', 'UNIX-CONNECT:/run/ipc/gated.sock'], env: { KEY: 'secret' } } },
+    env: { PATH: `${dir}:/usr/bin:/bin`, CAPTURE: capture } })) frames.push(frame);
+  const [agentDir, config] = fs.readFileSync(capture, 'utf8').trim().split('\n');
+  expect(JSON.parse(config)).toEqual(piMcpConfig({ arizuko: { command: 'socat', args: ['STDIO', 'UNIX-CONNECT:/run/ipc/gated.sock'] } }));
+  expect(fs.existsSync(agentDir)).toBe(false);
+  expect(frames.at(-1)).toMatchObject({ kind: 'result', ok: true });
 });

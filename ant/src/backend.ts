@@ -10,6 +10,7 @@ import type { ModelUsage } from './mcp.js';
 import type { McpServerConfig } from './mcp-servers.js';
 import { claudeHarness } from './claude.js';
 import { codexHarness } from './codex.js';
+import { piHarness } from './pi.js';
 
 // Turn is one arizuko turn, in chassis facts only. Anything a single harness
 // needs beyond this is derived inside its own file.
@@ -27,8 +28,7 @@ export interface Turn {
   continuity?: string; // opaque token from the last turn; undefined = fresh
   systemPrompt?: string; // rendered text; absent = the harness's own default
   // tools is the assembled MCP server map (the single declaration). claude renders
-  // it into SDK options; codex into -c mcp_servers.* overrides; pi has no MCP
-  // client and cannot read it.
+  // it into SDK options; codex and pi render their native configuration.
   tools?: Record<string, McpServerConfig>;
   env: Record<string, string>;
   // signal is the platform winding the turn down. The chassis keeps consuming frames.
@@ -75,7 +75,7 @@ export type ResultFrame = Extract<Frame, { kind: 'result' }>;
 // instead of a feature quietly not happening.
 export interface HarnessProfile {
   continuity: 'native' | 'none'; // can a turn resume the last one
-  tools: 'mcp' | 'bridged' | 'none'; // how arizuko verbs arrive
+  tools: 'mcp' | 'none'; // how arizuko verbs arrive
   guard: 'write-time' | 'load-time' | 'none';
   steering: 'mid-turn' | 'between-turn';
   status: 'streaming' | 'terminal-only';
@@ -113,7 +113,7 @@ export function selectHarness(name: string | undefined): Harness {
   switch (name || 'claude') {
     case 'claude': return claudeHarness;
     case 'codex': return codexHarness;
-    case 'pi': throw new Error('pi cannot deliver through MCP; select claude or codex until the bridge ships');
+    case 'pi': return piHarness;
     default:
       throw new Error(`unknown ARIZUKO_BACKEND ${JSON.stringify(name)} (claude|codex|pi)`);
   }
