@@ -171,7 +171,6 @@ ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
 ENV ARIZUKO_MCP_SOCKET=/run/ipc/gated.sock
 
 RUN npm install -g bun agent-browser @anthropic-ai/claude-code @apify/mcpc@0.6.0 @openai/codex \
-    @mariozechner/pi-coding-agent \
     && bun install -g @biomejs/biome prettier svgo \
        @marp-team/marp-cli htmlhint
 
@@ -183,7 +182,7 @@ RUN uv pip install --system --break-system-packages \
 
 WORKDIR /app
 COPY package*.json ./
-RUN npm install
+RUN npm install && ln -s /app/node_modules/.bin/pi /usr/local/bin/pi
 # Anthropic SDK auto-updates to latest on every image build; overrides
 # the version pinned in package-lock.json. System tools above stay pinned
 # for reproducibility — quality regressions in third-party system tools

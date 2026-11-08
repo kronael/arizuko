@@ -4,14 +4,14 @@
 // claude and codex render; the only translation is pi's field names.
 
 import os from 'os';
+import fs from 'fs';
+import { createEditToolDefinition, createWriteToolDefinition } from '@earendil-works/pi-coding-agent';
 import path from 'path';
-import { PolicyContext, ToolEvent, Verdict, bindings, runRows, runnableBy } from './policy.js';
+import { PolicyContext, ToolEvent, Verdict, bindings, matches, runRow, runRows, runnableBy } from './policy.js';
 import { GATEWAY_KEY_ENV, modelGateway } from './gateway.js';
 
-// PI_HONOURS: pi can refuse a call ({block, reason}) and can rewrite a tool
-// RESULT, which is how an injection reaches the model. It has no rewrite of a
-// tool's INPUT, so that row is refused rather than silently skipped.
-const PI_HONOURS: Array<Verdict['kind']> = ['deny', 'inject'];
+// Pi renders denial, input rewrites, and result injection.
+const PI_HONOURS: Array<Verdict['kind']> = ['deny', 'inject', 'rewrite'];
 
 // The two pi events the table binds to, in pi's own shape (docs/extensions.md,
 // pi 0.51.6).
@@ -28,7 +28,7 @@ interface PiToolResultEvent extends PiToolCallEvent {
 
 // PiProviderConfig is the override shape of pi.registerProvider (pi 0.51.6
 // docs/extensions.md): baseUrl alone re-points an existing provider and keeps
-// its models; apiKey is the NAME of an env var pi resolves at call time.
+// its models; apiKey references an env var pi resolves at call time.
 interface PiProviderConfig {
   baseUrl: string;
   apiKey?: string;
@@ -36,6 +36,7 @@ interface PiProviderConfig {
 
 interface PiApi {
   registerProvider(name: string, config: PiProviderConfig): void;
+  registerTool(tool: ReturnType<typeof createEditToolDefinition> | ReturnType<typeof createWriteToolDefinition>): void;
   on(event: 'tool_call', fn: (ev: PiToolCallEvent) => Promise<{ block: boolean; reason: string } | undefined>): void;
   on(event: 'tool_result', fn: (ev: PiToolResultEvent) => Promise<{ content: unknown[] } | undefined>): void;
 }
@@ -46,14 +47,10 @@ interface PiApi {
 // to find the fragment a write carries, so a lower-case name reached the guard
 // with nothing to scan and passed.
 export function canonicalToolName(name: string): string {
-  return name ? name[0].toUpperCase() + name.slice(1) : name;
+  return name.startsWith('mcp__') ? name : name ? name[0].toUpperCase() + name.slice(1) : name;
 }
 
-// canonicalInput maps pi's input keys onto the canonical ones. pi's write is
-// {path, content} and its edit is {path, oldText, newText}, so a guard reading
-// `file_path` got '' and ALLOWED every pi write — a gate that silently did
-// nothing, on the tool the skill-guard exists for. pi also accepts paths
-// relative to the session cwd, and the guard's path check needs them absolute.
+// Translate native paths and edit fragments for the shared policy rows.
 export function canonicalInput(toolName: string, input: Record<string, unknown>): Record<string, unknown> {
   const abs = (p: unknown) => (typeof p === 'string' && p !== '' ? path.resolve(p) : '');
   if (toolName === 'Write' || toolName === 'Read') {
@@ -61,18 +58,18 @@ export function canonicalInput(toolName: string, input: Record<string, unknown>)
     return { ...rest, file_path: abs(p) };
   }
   if (toolName === 'Edit') {
-    const { path: p, oldText, newText, ...rest } = input;
-    return { ...rest, file_path: abs(p), old_string: oldText, new_string: newText };
+    const { path: p, edits, ...rest } = input;
+    return { ...rest, file_path: abs(p), edits: Array.isArray(edits) ? edits.map(({ oldText, newText }) => ({ old_string: oldText, new_string: newText })) : edits };
   }
   return input;
 }
 
 function toToolEvent(ev: PiToolCallEvent, event: ToolEvent['hook_event_name'], response?: unknown): ToolEvent {
-  const toolName = canonicalToolName(ev.toolName);
+  const toolName = ev.toolName === 'edit' ? 'MultiEdit' : canonicalToolName(ev.toolName);
   return {
     hook_event_name: event,
     tool_name: toolName,
-    tool_input: canonicalInput(toolName, ev.input ?? {}),
+    tool_input: canonicalInput(ev.toolName === 'edit' ? 'Edit' : toolName, ev.input ?? {}),
     tool_use_id: ev.toolCallId,
     // pi carries no session id on a tool event. The tool log keys on it only to
     // group lines, so an empty value costs grouping, never a refusal.
@@ -87,13 +84,41 @@ function toToolEvent(ev: PiToolCallEvent, event: ToolEvent['hook_event_name'], r
 export function registerWith(pi: PiApi, ctx: PolicyContext): void {
   const rows = runnableBy(bindings(ctx).filter((row) => {
     if (row.event !== 'Stop') return true;
-    console.error(`[ant:pi] policy ${row.id} not rendered: Stop is unavailable`);
+    console.error(`[ant:pi] policy ${row.id} not rendered: delivery uses submission`);
     return false;
   }), PI_HONOURS, (m) => console.error(`[ant:pi] ${m}`));
 
+  const guard = rows.find((row) => row.id === 'skill-guard')!;
+  const writeFile = async (file_path: string, content: string) => {
+    const verdict = await runRow(guard, {
+      hook_event_name: 'PreToolUse', tool_name: 'Write',
+      tool_input: { file_path, content }, tool_use_id: '', session_id: '',
+    });
+    if (verdict.kind === 'deny') throw new Error(verdict.reason);
+    await fs.promises.writeFile(file_path, content, 'utf8');
+  };
+  pi.registerTool(createEditToolDefinition(process.cwd(), { operations: {
+    readFile: fs.promises.readFile, writeFile,
+    access: (p) => fs.promises.access(p, fs.constants.R_OK | fs.constants.W_OK),
+  } }));
+  pi.registerTool(createWriteToolDefinition(process.cwd(), { operations: {
+    writeFile, mkdir: async (p) => { await fs.promises.mkdir(p, { recursive: true }); },
+  } }));
+
   pi.on('tool_call', async (ev) => {
-    const verdict = await runRows(rows, 'PreToolUse', toToolEvent(ev, 'PreToolUse'));
-    return verdict.kind === 'deny' ? { block: true, reason: verdict.reason } : undefined;
+    const event = toToolEvent(ev, 'PreToolUse');
+    let denial: string | undefined;
+    let rewrite: Record<string, unknown> | undefined;
+    for (const row of rows) {
+      if (row.event !== 'PreToolUse' || !matches(row, event.tool_name)) continue;
+      if (row.id === 'skill-guard' && (ev.toolName === 'edit' || ev.toolName === 'write')) continue;
+      const verdict = await runRow(row, event);
+      if (verdict.kind === 'deny') denial ??= verdict.reason;
+      if (verdict.kind === 'rewrite') rewrite = verdict.input;
+    }
+    if (denial) return { block: true, reason: denial };
+    if (ev.toolName === 'bash' && rewrite && typeof rewrite.command === 'string') ev.input.command = rewrite.command;
+    return undefined;
   });
 
   pi.on('tool_result', async (ev) => {
@@ -119,7 +144,7 @@ export function registerWith(pi: PiApi, ctx: PolicyContext): void {
 export function registerGateway(pi: Pick<PiApi, 'registerProvider'>, env: Record<string, string | undefined>): void {
   const gw = modelGateway(env);
   if (!gw) return;
-  const auth = gw.key ? { apiKey: GATEWAY_KEY_ENV } : {};
+  const auth = gw.key ? { apiKey: `$${GATEWAY_KEY_ENV}` } : {};
   pi.registerProvider('anthropic', { baseUrl: gw.url, ...auth });
   pi.registerProvider('openai', { baseUrl: `${gw.url}/v1`, ...auth });
 }
