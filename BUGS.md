@@ -19,6 +19,7 @@
 - `L687` — decide whether to retire the scheduler's two external write endpoints; proposal, needs sign-off.
 - `L688` — defer folding onbod into routd until measured net savings justify the boundary change; needs sign-off.
 - `L689` — defer folding dashd until measured net savings and reused code justify it; needs sign-off.
+- `L691` — `make rootfs` and `make kernel` reject a complete export when DOCKER uses sudo; record only.
 
 - `L676` — decide whether dashboard group creation must check the creator's new subtree grant.
 - `L675` — the guest's Python is under `/root` (700); fix at the next rootfs build.
