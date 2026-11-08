@@ -5,7 +5,7 @@ status: shipped
 # A provider refusal pauses the reporting folder
 
 One pause per folder holds its turns until a held turn runs without a provider refusal.
-An instance-wide pause needs host-side provider evidence; BUGS proposal `L723` needs sign-off.
+An instance-wide pause needs host-side provider evidence; BUGS proposal `L743` needs sign-off.
 
 Owner measurements, 2026-11-08: rhias/trip exits 78 within eight seconds after
 a spend limit; an eval receives 107 HTTP 429s in ten minutes on a shared token.

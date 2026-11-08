@@ -15,7 +15,7 @@
 
 ## What needs you
 
-- `L723` — an instance-wide model pause needs trusted host-side provider evidence; proposal, needs sign-off.
+- `L743` — an instance-wide model pause needs trusted host-side provider evidence; proposal, needs sign-off.
 
 - `L715` — A1/A2: trusted GitHub sender and source-owner binding; proposal, needs sign-off.
 
@@ -394,7 +394,7 @@ authenticated source ownership through dispatch and credential selection;
 disabled by the operator gate. Supporting tenant-managed sources needs
 sign-off on the new trust contract before implementation.
 
-## L723 — instance-wide model pause requires host provider evidence (2026-11-08, proposal — needs sign-off)
+## L743 — instance-wide model pause requires host provider evidence (2026-11-08, proposal — needs sign-off)
 
 **Severity:** HIGH, design; no test — design. A bound guest socket attests
 the reporting turn, not a provider refusal (`routd/mcp.go:138`).
