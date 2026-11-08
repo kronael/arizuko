@@ -151,7 +151,7 @@ sudo docker compose -p "$project" --project-directory "$data" --env-file "$data/
   -f "$data/docker-compose.yml" --profile onbod --profile timed ps
 printf 'Private bootstrap files remain in %s; protect or remove them after saving the admin credentials.\n' "$proof"</code></pre>
     <p><code>go install github.com/kronael/arizuko/cmd/arizuko@latest</code> installs only the CLI. A full deploy still needs the repository for the images.</p>
-    <p><code>make images</code> is the longest step, several minutes on the first run. It builds the daemon images and <code>arizuko-ant:latest</code>, the agent image. Then it exports the guest rootfs into <code>DATA_DIR</code>. <code>make kernel</code> builds the guest kernel once. Without <code>DATA_DIR</code>, <code>make kernel</code> does not start, and <code>make images</code> builds every image and then fails at the rootfs export. <code>arizuko run</code> starts the stack for initial setup. For later deployments, restart the systemd service. For Kubernetes, read <a href="kubernetes.html">Kubernetes</a>.</p>
+    <p><code>make images</code> is the longest step, several minutes on the first run. It builds the daemon images and <code>arizuko-ant:latest</code>, the agent image. Then it exports the guest rootfs into <code>DATA_DIR</code> and removes <code>arizuko-ant:latest</code>. <code>make kernel</code> builds the guest kernel once. Without <code>DATA_DIR</code>, <code>make kernel</code> does not start, and <code>make images</code> builds every image and then fails at the rootfs export. <code>arizuko run</code> starts the stack for initial setup. For later deployments, restart the systemd service. For Kubernetes, read <a href="kubernetes.html">Kubernetes</a>.</p>
 
     <h2>The instance is one directory under /srv/data</h2>
     <p>Pick a short name. The name becomes the data directory and the systemd unit name. <code>./arizuko create -i demo</code> makes <code>/srv/data/arizuko_demo/</code> with these entries:</p>
@@ -281,7 +281,7 @@ arizuko apply -i demo rows.yml          # write only the rows in the file</code>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/howto/index.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-11-06">2026-11-06</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-08">2026-11-08</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

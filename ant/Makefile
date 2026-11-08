@@ -2,8 +2,7 @@
 
 # The root Makefile calls this with DOCKER="$(DOCKER)" so a host that needs sudo
 # for the daemon socket can say so once. Hardcoding `docker` here made
-# `make images` build every other image and then fail on this one alone, which
-# reads as a finished build until a spawn 403s on the stale arizuko-ant.
+# `make images` build every other image and then fail on this one alone.
 DOCKER ?= docker
 
 image:

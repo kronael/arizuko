@@ -160,7 +160,7 @@ routd ──► adapter ──► platform reply</code></pre>
       <dt>Cause</dt>
       <dd>A release with a changed agent image exports a new <code>images/rootfs-&lt;hash&gt;/</code> tree. <code>make images</code> deletes no tree, because a running turn can use an older tree.</dd>
       <dt>Fix</dt>
-      <dd><code>sudo arizuko images -i &lt;name&gt; --prune</code> removes every unused tree. It keeps the trees that <code>RUNED_ROOTFS_DIR</code> and <code>RUNED_KERNEL_DIR</code> name, and it removes nothing while a tree has a mount. Instances on the same <code>arizuko-ant</code> image can use one <code>DATA_DIR</code> for the artifacts, so the export occurs once. <code>docker builder prune -f</code> removes the build cache. Do not run <code>docker image prune -a</code>: no container holds <code>arizuko-ant</code> between turns, so the prune deletes it, and the next rootfs export fails.</dd>
+      <dd><code>sudo arizuko images -i &lt;name&gt; --prune</code> removes every unused tree. It keeps the trees that <code>RUNED_ROOTFS_DIR</code> and <code>RUNED_KERNEL_DIR</code> name, and it removes nothing while a tree has a mount. Instances on the same agent build can use one <code>DATA_DIR</code> for the artifacts, so the export occurs once. <code>docker builder prune -f</code> removes the build cache.</dd>
       <dt>Source</dt>
       <dd><code>cmd/arizuko/images.go</code> <code>runImages</code>, <code>compose/compose.go:1237</code> <code>hostViewPaths</code></dd>
     </dl>
@@ -234,7 +234,7 @@ routd ──► adapter ──► platform reply</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/howto/operate.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-28">2026-10-28</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-04">2026-11-04</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>
