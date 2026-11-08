@@ -55,6 +55,7 @@ python3 ~/.claude/skills/estate-site/scripts/gen_site.py new oceneni/place "Plac
 `new` writes a skeleton that links `estate.css` and `local.css` with the right relative path, and refuses to overwrite a file. Fill the body from `components/parts.html`: the `.big` verdict, numeric tables and `.warn`.
 A page with `<meta name="listing" content="ID">` links from its active listing card. The newest page for an ID wins.
 Use numbered points for prose. Give numeric tables a `.tbl` wrapper, one label column and at most two numeric columns with class `n`.
+ALWAYS put the main conclusion first, within five short lines. Link each material claim to its source and place each risk beside the action that addresses it. Before publication, remove sentences that do not change the reader's decision. Link to existing detail rather than repeat it across pages.
 ALWAYS check a new page at 390 px width: `document.documentElement.scrollWidth` must not exceed the viewport.
 
 ## Look
