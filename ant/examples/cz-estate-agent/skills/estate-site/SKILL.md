@@ -44,7 +44,7 @@ Before delivery, check the index and every changed HTML page:
 python3 ~/.claude/skills/estate-site/scripts/check_format.py --config ~/estate/site.json ~/public_html/index.html ~/public_html/oceneni/place.html
 ```
 
-The check covers numeric tables, headings, valuation placement and colour/dot consistency. It does not verify sources or replace a browser check.
+Delivery requires the check to exit 0. It covers numeric tables, their mobile wrapper, headings, valuation placement and colour/dot consistency. It does not verify sources or replace a browser check.
 
 ## Pages
 
