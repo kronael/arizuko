@@ -470,6 +470,14 @@ that version. A change to which rows reach live data is an auth change.
 - **Status:** open — needs sign-off.
 
 
+## L709 — anteval requires an image the release cannot build (2026-11-08, open)
+
+`anteval/cmd/anteval/host_preflight.go:163` requires `arizuko-vite:latest`,
+but `Makefile:291` no longer builds that image. Image inspection fails before
+instance creation on a fresh host. `TestPreflightChecksGatewayImages` expects
+the obsolete image; `TestImageInspectCommand` checks inspection failure.
+**Fix:** remove the image from preflight and test the current release inventory.
+
 ## L699 — anteval cannot run a Codex-backend smoke (2026-11-08, open — proposal, needs sign-off)
 
 MEASURED 2026-11-08 at `269c83f09`, Sol's Codex smoke stopped before creation:
