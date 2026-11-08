@@ -1,5 +1,5 @@
 ---
-status: partial
+status: shipped
 depends:
   [
     42-dynamo-over-postgres,
@@ -26,10 +26,6 @@ are absent. `compose/compose_test.go` covers the explicit region requirement;
 Setup, systemd, backup and Kubernetes instructions use the external server
 and scoped enrollment. Generation refuses invalid configuration before output.
 Host and snapshot readers refuse differing operator endpoint or CA overrides.
-
-## Remaining
-
-- Exercise owner-readable enrollment, snapshot copy and stopped-source startup on an isolated external server (`cmd/arizuko/store_test.go`, `cmd/arizuko/create_target_test.go`).
 
 ## One endpoint serves the host and containers
 
@@ -271,4 +267,11 @@ Acceptance checks:
 
 Documentation checks run `go test ./tests/specrefs/ ./tests/webdocs/ -count=1`.
 Implementation also needs the affected compose, CLI and enrollment suites against an isolated endpoint.
-Owner-readable bootstrap, snapshot copy and stopped-source startup remain unmeasured on an isolated external server.
+Measured 2026-11-08 on isolated PostgreSQL 17 + ExtendDB 0.1.11: 12 selected
+CLI tests pass in 25.683 seconds. `TestOwnerReadableEnrollment` enrolls as
+UID 1000, reads every mode-0600 key file and boots the owner store.
+The copy tests cover read-only source credentials, inventory pagination,
+500-item scans, conditional writes, counts and schema/index/stream refusals.
+`TestSnapshotStartupWithSourceStopped` copies, stops the source server,
+regenerates and starts cached `arizuko:latest` routd to HTTP 200 on `/health`.
+It verifies destination rows and unchanged source rows after source restart.
