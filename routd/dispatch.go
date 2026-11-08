@@ -595,6 +595,7 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, addressed bool, tr
 	progress := addressed && canShowProgress(l.deliver, replyJID)
 	started = true
 	out, derr := l.dispatchRun(ctx, folder, topic, replyJID, turnID, last.Sender, rendered, elevated, progress, gwKey.Key)
+	tc.RunID = out.RunID
 	if derr != nil {
 		l.pauseProgress(replyJID, out.RunID)
 		slog.Warn("dispatch run transport failure", "folder", folder, "turn_id", turnID, "err", derr)

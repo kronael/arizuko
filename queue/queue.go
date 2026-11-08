@@ -93,6 +93,16 @@ func (q *GroupQueue) SetParkedFn(fn parkedFn) {
 	q.parked = fn
 }
 
+// WithIdleFolder runs fn while admission to an idle folder is excluded.
+func (q *GroupQueue) WithIdleFolder(folder string, fn func() error) (bool, error) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if _, busy := q.activeFolders[folder]; busy {
+		return false, nil
+	}
+	return true, fn()
+}
+
 // Caller must hold q.mu.
 func (q *GroupQueue) folderOf(jid string) string {
 	if q.folderForJid == nil {

@@ -99,6 +99,9 @@ Probe completion and manual clear condition on the episode and the bound
 attempt, so late callbacks cannot clear a newer pause. Restart reads the row
 before admitting work. Existing running-turn recovery resolves an interrupted
 probe before rearming its due time; it cannot admit a second live probe.
+Recovery and successor admission share the queue's existing lock. Recovery
+stops the captured run ID; without an ID, the folder stop holds that lock.
+Rebinding removes the previous attempt's run ID.
 Store errors hold admission. No second lease or in-memory authority exists.
 ProviderFailure records the attempt and pause atomically, without completing
 `turn_results` or calling `finishTurn` (`routd/turns.go:235`). Held messages keep

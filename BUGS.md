@@ -15,6 +15,7 @@
 
 ## What needs you
 
+- `L735` — stale model probe recovery stops the folder's successor run; approved fix.
 - `L723` — an instance-wide model pause needs trusted host-side provider evidence; proposal, needs sign-off.
 
 - `L715` — A1/A2: trusted GitHub sender and source-owner binding; proposal, needs sign-off.
@@ -393,6 +394,24 @@ authenticated source ownership through dispatch and credential selection;
 **Default if nothing is decided:** keep tenant GitHub ingress management
 disabled by the operator gate. Supporting tenant-managed sources needs
 sign-off on the new trust contract before implementation.
+
+## L735 — stale model probe recovery kills a successor (2026-11-08, open)
+
+**Severity:** HIGH, correctness. Fourth v0.75.4 audit B6.
+`routd/model_pauses.go` reads a probe, then calls unbound `StopFolder` in
+recovery and deferred requeue. `runed/manager.go:405` stops whichever run
+currently owns that folder. A successful probe can finish and release the
+queue while recovery holds its snapshot; a successor then starts before
+the stop. The later conditional pause write cannot undo the wrong kill.
+Evidence: source-level interleaving from the audit; no scheduler-controlled
+reproduction before this repair. **Fix:** stop the captured run/attempt or
+serialize recovery with completion and successor admission. Reuse the
+existing run-ID kill capability; do not widen `runed.Runtime`.
+Measured: `routd/model_pauses_test.go::TestModelPauseRecoveryDoesNotStopActiveFolder`
+and `TestModelPauseRequeueKillsCapturedRun`; queue callback exclusion is covered
+by `queue/queue_test.go::TestWithIdleFolderExcludesAdmission`.
+Parent mutations bypass idle-folder exclusion and replace the captured-ID
+kill with `StopFolder`; each fails its corresponding regression.
 
 ## L723 — instance-wide model pause requires host provider evidence (2026-11-08, proposal — needs sign-off)
 

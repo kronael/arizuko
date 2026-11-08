@@ -33,11 +33,11 @@ func TestCall_PreservesPerMethodDifferences(t *testing.T) {
 	}
 
 	// DELETE carries no body, so it must not claim one.
-	if err := c.ReleaseHold(ctx, "r1"); err != nil {
-		t.Fatalf("ReleaseHold: %v", err)
+	if err := c.Kill(ctx, "r1"); err != nil {
+		t.Fatalf("Kill: %v", err)
 	}
 	if gotCT != "" || gotMethod != http.MethodDelete {
-		t.Fatalf("ReleaseHold sent %s ct=%q, want DELETE with no Content-Type", gotMethod, gotCT)
+		t.Fatalf("Kill sent %s ct=%q, want DELETE with no Content-Type", gotMethod, gotCT)
 	}
 
 	if _, err := c.RecentSessions(ctx, "atlas", 3); err != nil {
@@ -87,7 +87,7 @@ func TestCall_NonOKBecomesAPIError(t *testing.T) {
 	if apiErr.Status != http.StatusForbidden || apiErr.Code != "denied" || apiErr.Msg != "nope" {
 		t.Fatalf("APIError = %+v", apiErr)
 	}
-	if err := c.ReleaseHold(context.Background(), "r1"); !errors.As(err, &apiErr) {
-		t.Fatalf("ReleaseHold err = %T, want *APIError even with no body to decode", err)
+	if err := c.Kill(context.Background(), "r1"); !errors.As(err, &apiErr) {
+		t.Fatalf("Kill err = %T, want *APIError even with no body to decode", err)
 	}
 }

@@ -333,6 +333,12 @@ func TestATurnReadsBackItsRunID(t *testing.T) {
 	if tc, _ := s.TurnContextOf("t1"); tc.RunID != "run-1" {
 		t.Fatalf("run id = %q, want run-1", tc.RunID)
 	}
+	if _, err := s.OpenTurnContext("t1", "demo", "", "tg:1", "u1", "", nil); err != nil {
+		t.Fatal(err)
+	}
+	if tc, _ := s.TurnContextOf("t1"); tc.RunID != "" {
+		t.Fatalf("rebound turn retained run id %q", tc.RunID)
+	}
 }
 
 // A turn bound before the addressed attribute existed carries none, and reads

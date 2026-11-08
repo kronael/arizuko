@@ -183,9 +183,26 @@ func (l *Loop) recoverFolderModelProbe(p *store.ModelPause, startup bool) error 
 	if p.ProbeTurnID == "" {
 		return nil
 	}
+	_, err := l.q.WithIdleFolder(p.Folder, func() error {
+		return l.recoverIdleModelProbe(p, startup)
+	})
+	return err
+}
+
+func (l *Loop) recoverIdleModelProbe(p *store.ModelPause, startup bool) error {
+	current, err := l.db.store().ReadModelPause(context.Background(), p.Folder)
+	if err != nil || current == nil {
+		return err
+	}
+	if current.OpenedAt != p.OpenedAt || current.ProbeTurnID != p.ProbeTurnID || current.ProbeAttemptID != p.ProbeAttemptID {
+		return nil
+	}
 	tc, ok := l.db.GetTurnContext(p.ProbeTurnID)
 	if !ok {
 		return fmt.Errorf("paused probe has no turn %s", p.ProbeTurnID)
+	}
+	if tc.Folder != p.Folder || tc.ProbeEpisode != p.OpenedAt || tc.AttemptID != p.ProbeAttemptID {
+		return nil
 	}
 	if !startup && !tc.RunReturned {
 		return nil
@@ -193,11 +210,7 @@ func (l *Loop) recoverFolderModelProbe(p *store.ModelPause, startup bool) error 
 	if err := l.db.SetRunReturned(tc.TurnID); err != nil {
 		return err
 	}
-	stopper, ok := l.runner.(RunStopper)
-	if !ok {
-		return fmt.Errorf("run recovery cannot stop the interrupted model probe")
-	}
-	if _, err := stopper.StopFolder(context.Background(), tc.Folder); err != nil {
+	if err := l.stopModelProbe(tc); err != nil {
 		return err
 	}
 	if tc.State == store.TurnDone && l.db.TurnResultRecorded(tc.Folder, tc.TurnID) {
@@ -206,13 +219,33 @@ func (l *Loop) recoverFolderModelProbe(p *store.ModelPause, startup bool) error 
 	return l.db.store().RearmModelProbe(context.Background(), *p, time.Now())
 }
 
+func (l *Loop) stopModelProbe(tc TurnContext) error {
+	if tc.RunID != "" {
+		killer, ok := l.runner.(RunKiller)
+		if !ok {
+			return fmt.Errorf("run recovery cannot kill the interrupted model probe")
+		}
+		return killer.Kill(context.Background(), tc.RunID)
+	}
+	stopper, ok := l.runner.(RunStopper)
+	if !ok {
+		return fmt.Errorf("run recovery cannot stop the interrupted model probe")
+	}
+	_, err := stopper.StopFolder(context.Background(), tc.Folder)
+	return err
+}
+
 func (l *Loop) requeueModelProbe(p *store.ModelPause, tc TurnContext, mayBeRunning bool) {
 	if p == nil || tc.ProbeEpisode == "" {
 		return
 	}
 	current, err := l.db.store().ReadModelPause(context.Background(), p.Folder)
 	if err != nil || current == nil || current.OpenedAt != p.OpenedAt ||
-		current.ProbeAttemptID != tc.AttemptID {
+		current.ProbeTurnID != tc.TurnID || current.ProbeAttemptID != tc.AttemptID {
+		return
+	}
+	bound, ok := l.db.GetTurnContext(tc.TurnID)
+	if !ok || bound.Folder != tc.Folder || bound.ProbeEpisode != tc.ProbeEpisode || bound.AttemptID != tc.AttemptID {
 		return
 	}
 	if mayBeRunning {
@@ -220,12 +253,7 @@ func (l *Loop) requeueModelProbe(p *store.ModelPause, tc TurnContext, mayBeRunni
 			slog.Error("close interrupted model probe", "err", err)
 			return
 		}
-		stopper, ok := l.runner.(RunStopper)
-		if !ok {
-			slog.Error("cannot resolve interrupted model probe", "turn_id", tc.TurnID)
-			return
-		}
-		if _, err := stopper.StopFolder(context.Background(), tc.Folder); err != nil {
+		if err := l.stopModelProbe(tc); err != nil {
 			slog.Error("stop interrupted model probe", "err", err)
 			return
 		}

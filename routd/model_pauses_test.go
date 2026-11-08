@@ -13,6 +13,7 @@ import (
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/ipc"
 	"github.com/kronael/arizuko/objstore"
+	"github.com/kronael/arizuko/queue"
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 	"github.com/kronael/arizuko/store"
@@ -29,9 +30,17 @@ type pauseProvider struct {
 	release      chan struct{}
 	stopErr      error
 	stops        int
+	kills        []string
 	busy         bool
 	noSubmission bool
 	localOutcome runedv1.RunOutcome
+}
+
+func (p *pauseProvider) Kill(_ context.Context, runID string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.kills = append(p.kills, runID)
+	return p.stopErr
 }
 
 func (p *pauseProvider) Run(_ context.Context, req runedv1.RunRequest) (runedv1.RunOutcome, error) {
@@ -413,6 +422,64 @@ func TestModelPauseManualClearAndLateCallback(t *testing.T) {
 	}
 	if _, err := fns.SubmitTurn("a", ipc.TurnResult{TurnID: "held", Status: "error", ProviderFailure: &apiv1.ProviderFailure{Reason: "outage"}}); err == nil {
 		t.Fatal("old attempt callback was accepted")
+	}
+}
+
+func TestModelPauseRecoveryDoesNotStopActiveFolder(t *testing.T) {
+	db, l, p, _ := pauseFixture(t, "rate_limit")
+	pauseInput(t, db, "web:a", "held", "u", "keep", time.Now())
+	processPauseChat(t, l, "web:a")
+	modelPauseDue(t, db)
+	pause, _ := db.store().ReadModelPause(t.Context(), "a")
+	if _, err := db.store().OpenTurnContext("held", "a", "", "web:a", "u", "",
+		&store.TurnAdmission{AttemptID: "probe", ProbeEpisode: pause.OpenedAt}); err != nil {
+		t.Fatal(err)
+	}
+	pause, _ = db.store().ReadModelPause(t.Context(), "a")
+	l.q = queue.New(1)
+	l.q.SetFolderForJidFn(func(string) string { return "a" })
+	started, release := make(chan struct{}), make(chan struct{})
+	l.q.SetProcessMessagesFn(func(string) (bool, error) { close(started); <-release; return true, nil })
+	l.q.EnqueueMessageCheck("web:a")
+	<-started
+	if err := l.recoverFolderModelProbe(pause, true); err != nil {
+		t.Fatal(err)
+	}
+	close(release)
+	l.StopQueue()
+	if p.stops != 0 {
+		t.Fatal("recovery stopped the active folder")
+	}
+}
+
+func TestModelPauseRequeueKillsCapturedRun(t *testing.T) {
+	db, l, p, _ := pauseFixture(t, "rate_limit")
+	pauseInput(t, db, "web:a", "held", "u", "keep", time.Now())
+	processPauseChat(t, l, "web:a")
+	modelPauseDue(t, db)
+	pause, _ := db.store().ReadModelPause(t.Context(), "a")
+	if _, err := db.store().OpenTurnContext("held", "a", "", "web:a", "u", "",
+		&store.TurnAdmission{AttemptID: "probe", ProbeEpisode: pause.OpenedAt}); err != nil {
+		t.Fatal(err)
+	}
+	pause, _ = db.store().ReadModelPause(t.Context(), "a")
+	tc, _ := db.GetTurnContext("held")
+	tc.RunID = "captured"
+	p.stopErr = errors.New("runed unreachable")
+	l.requeueModelProbe(pause, tc, true)
+	after, _ := db.store().ReadModelPause(t.Context(), "a")
+	if after.ProbeAttemptID != "probe" || len(p.kills) != 1 || p.kills[0] != "captured" || p.stops != 0 {
+		t.Fatalf("failed kill changed pause or target: pause=%+v kills=%v stops=%d", after, p.kills, p.stops)
+	}
+	p.stopErr = nil
+	l.requeueModelProbe(pause, tc, true)
+	after, _ = db.store().ReadModelPause(t.Context(), "a")
+	if after.ProbeAttemptID != "" || len(p.kills) != 2 || p.kills[1] != "captured" || p.stops != 0 {
+		t.Fatalf("requeue did not kill captured run: pause=%+v kills=%v stops=%d", after, p.kills, p.stops)
+	}
+	l.requeueModelProbe(pause, tc, true)
+	if len(p.kills) != 2 || p.stops != 0 {
+		t.Fatalf("stale requeue stopped a run: kills=%v stops=%d", p.kills, p.stops)
 	}
 }
 

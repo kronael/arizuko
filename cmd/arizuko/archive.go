@@ -173,7 +173,7 @@ func runedHolder(ctx context.Context, dataDir string) (holdFn, error) {
 			// A defer cannot return an error, so surface a failed release
 			// loudly instead of dropping it. runed's RunTTL
 			// (RUNED_RUN_TIMEOUT) is the backstop that frees the folder.
-			if rerr := client.ReleaseHold(context.Background(), out.RunID); rerr != nil {
+			if rerr := client.Kill(context.Background(), out.RunID); rerr != nil {
 				fmt.Fprintf(os.Stderr,
 					"WARNING: failed to release the hold on %q (run %s): %v\n"+
 						"  the folder stays paused until runed's RUNED_RUN_TIMEOUT expires it\n",

@@ -206,7 +206,7 @@ func (s *Store) OpenTurnContext(turnID, folder, topic, chatJID, trigger, returnT
 	live, err := s.TryWriteEntities(ctx, checks, append(claim, objstore.Write{
 		Op: objstore.Update, Entity: TurnContexts, Key: key, Attrs: bound,
 		Remove: append(missingAttrs(bound, attrTurnFolder, attrTurnTopic, attrTurnChatJID,
-			attrTurnTrigger, attrTurnReturnTo, "probe_episode"), attrTurnRunReturned),
+			attrTurnTrigger, attrTurnReturnTo, "probe_episode"), attrTurnRunReturned, attrTurnRunID),
 		Cond: objstore.Cond{Where: []objstore.Cmp{
 			{Attr: attrTurnState, Op: objstore.Ne, Value: TurnDone},
 		}},

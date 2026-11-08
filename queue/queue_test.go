@@ -7,6 +7,36 @@ import (
 	"time"
 )
 
+func TestWithIdleFolderExcludesAdmission(t *testing.T) {
+	q := New(1)
+	q.SetFolderForJidFn(func(string) string { return "a" })
+	started, release, recovered := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	q.SetProcessMessagesFn(func(string) (bool, error) { close(started); return true, nil })
+	go func() {
+		_, err := q.WithIdleFolder("a", func() error {
+			if q.mu.TryLock() {
+				q.mu.Unlock()
+				t.Error("callback does not hold admission lock")
+			}
+			close(recovered)
+			<-release
+			return nil
+		})
+		if err != nil {
+			t.Error(err)
+		}
+	}()
+	<-recovered
+	go q.EnqueueMessageCheck("web:a")
+	select {
+	case <-started:
+		t.Fatal("admitted while recovery held the folder")
+	case <-time.After(25 * time.Millisecond):
+	}
+	close(release)
+	<-started
+}
+
 func TestNewQueue(t *testing.T) {
 	q := New(3)
 	if q.maxConcurrent != 3 {

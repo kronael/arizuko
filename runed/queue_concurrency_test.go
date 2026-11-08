@@ -338,7 +338,7 @@ func TestEndRunDoesNotDisarmTheSuccessor(t *testing.T) {
 // The same asymmetry through the kill path: DELETE /v1/runs/{id} on an
 // already-terminal run kills nothing and returns 200, but used to wipe the
 // FOLDER's callback — which by then belongs to a different, live run.
-// cmd/arizuko/archive.go's ReleaseHold is exactly this shape.
+// cmd/arizuko/archive.go releases its hold through this DELETE route.
 func TestKillingATerminalRunDoesNotDisarmTheLiveOne(t *testing.T) {
 	db, mgr := newMgr(t, FakeRuntime{}, 5)
 

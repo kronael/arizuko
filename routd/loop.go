@@ -34,6 +34,10 @@ type RunStopper interface {
 	StopFolder(ctx context.Context, folder string) (runedv1.StopRunResponse, error)
 }
 
+type RunKiller interface {
+	Kill(ctx context.Context, runID string) error
+}
+
 // Loop is routd's orchestration loop: poll for new messages, resolve each
 // chat's owning group, dispatch a run to runed through the per-folder queue.
 // It is the SOLE driver of turns; routd is the sole appender.

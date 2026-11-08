@@ -148,7 +148,7 @@ func (c *Client) Health(ctx context.Context) error {
 
 // Hold posts to POST /v1/holds — claim folder's run slot for a
 // folder-exclusive external job — and returns as soon as the slot is claimed
-// (NOT at a turn boundary). Release the returned RunID with ReleaseHold.
+// (NOT at a turn boundary). Release the returned RunID with Kill.
 // out.Busy=true means the folder had a live run and nothing was claimed.
 //
 // The bearer needs runs:run to claim and runs:kill to release.
@@ -157,11 +157,8 @@ func (c *Client) Hold(ctx context.Context, folder, reason string) (HoldOutcome, 
 		HoldRequest{Folder: types.Folder(folder), Reason: reason}, true, "hold outcome")
 }
 
-// ReleaseHold frees a hold's run slot. It is literally DELETE
-// /v1/runs/{run_id}, the existing kill route — a hold IS a run, and Kill
-// already dispatches by the spawn's recorded kind, so releasing needs no
-// route of its own. Idempotent: releasing an already-expired hold is a 200.
-func (c *Client) ReleaseHold(ctx context.Context, runID string) error {
+// Kill stops a run or releases a hold. Releasing an expired hold succeeds.
+func (c *Client) Kill(ctx context.Context, runID string) error {
 	_, err := call[struct{}](ctx, c, http.MethodDelete,
 		"/v1/runs/"+url.PathEscape(runID), nil, false, "")
 	return err
