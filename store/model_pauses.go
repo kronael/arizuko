@@ -194,17 +194,24 @@ func (s *Store) RearmModelProbe(ctx context.Context, p ModelPause, now time.Time
 	if err != nil {
 		return err
 	}
-	// A refused rearm belongs to a newer episode or a completed attempt.
+	tc, exists, err := s.ReadTurnContext(ctx, p.ProbeTurnID)
+	if err != nil || !exists {
+		return err
+	}
+	state := TurnHeld
+	if tc.State == TurnDone {
+		state = TurnDone
+	}
 	_, err = s.TryWriteEntities(ctx, nil, objstore.Write{
 		Op: objstore.Update, Entity: ModelPauses, Key: modelPauseKey(p.Folder),
 		Attrs:  map[string]string{"next_attempt_at": core.TS(now)},
 		Remove: []string{"probe_turn_id", "probe_attempt_id"}, Cond: modelPauseCond(&p),
 	}, objstore.Write{
 		Op: objstore.Update, Entity: TurnContexts, Key: key,
-		Attrs: map[string]string{attrTurnState: TurnHeld, attrTurnRunReturned: flagSet},
+		Attrs: map[string]string{attrTurnState: state, attrTurnRunReturned: flagSet},
 		Cond: objstore.Cond{Where: []objstore.Cmp{
 			{Attr: "attempt_id", Op: objstore.Eq, Value: p.ProbeAttemptID},
-			{Attr: attrTurnState, Op: objstore.Ne, Value: TurnDone},
+			{Attr: attrTurnState, Op: objstore.Eq, Value: tc.State},
 		}},
 	})
 	return err

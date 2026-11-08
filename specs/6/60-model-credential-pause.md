@@ -93,6 +93,8 @@ handling. Another `ProviderFailure` retains the episode and increments
 A valid future provider reset time sets the delay instead. New messages and
 repeated reports from the same attempt neither reset nor extend the delay.
 A failure before spawn requeues the probe; it does not prove recovery.
+Completed local failures without submission keep the pause and follow terminal
+and `MAX_TURN_RETRY` handling. Finishing failed input lets the next held input probe.
 Probe completion and manual clear condition on the episode and the bound
 attempt, so late callbacks cannot clear a newer pause. Restart reads the row
 before admitting work. Existing running-turn recovery resolves an interrupted

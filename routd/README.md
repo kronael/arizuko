@@ -133,8 +133,10 @@ delay. New messages and duplicate reports do not extend it. At the due time,
 the Loop selects that folder's oldest input by timestamp, message ID, then chat JID.
 Its guarded claim binds the episode and attempt. `next_attempt_at=null` means
 that this probe owns the pause. The probe uses the normal spawn and timeout
-paths. A submitted result without `ProviderFailure` clears the pause. A busy
-refusal or failure before submission requeues the probe without proving recovery.
+paths. A submitted result without `ProviderFailure` clears the pause. Busy or
+not-started attempts requeue the probe without proving recovery. Completed local
+failures keep the pause and follow `MAX_TURN_RETRY` and terminal handling;
+finished input lets the next held input probe.
 
 Held input keeps its cursor, session, content, local retry count and order.
 New claims check the oldest pending input even after the pause clears.

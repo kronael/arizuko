@@ -30,6 +30,7 @@ type pauseProvider struct {
 	stops        int
 	busy         bool
 	noSubmission bool
+	localOutcome runedv1.RunOutcome
 }
 
 func (p *pauseProvider) Run(_ context.Context, req runedv1.RunRequest) (runedv1.RunOutcome, error) {
@@ -51,7 +52,7 @@ func (p *pauseProvider) Run(_ context.Context, req runedv1.RunRequest) (runedv1.
 		return runedv1.RunOutcome{Busy: true}, nil
 	}
 	if p.noSubmission {
-		return runedv1.RunOutcome{Outcome: runedv1.OutcomeError, Terminal: true}, nil
+		return p.localOutcome, nil
 	}
 	result := ipc.TurnResult{TurnID: req.TurnID, Status: "success", SessionID: "preserved"}
 	if reason == "" {
@@ -449,15 +450,52 @@ func TestModelPauseBusyProbeRequeuesWithoutRecovery(t *testing.T) {
 }
 
 func TestModelPauseFailureBeforeGuestSubmissionDoesNotProveRecovery(t *testing.T) {
-	db, l, p, _ := pauseFixture(t, "rate_limit")
-	pauseInput(t, db, "web:a", "held", "u", "saved", time.Now())
-	processPauseChat(t, l, "web:a")
-	before, _ := db.store().ReadModelPause(t.Context(), "a")
-	modelPauseDue(t, db)
-	p.noSubmission = true
-	processPauseChat(t, l, "web:a")
-	after, _ := db.store().ReadModelPause(t.Context(), "a")
-	if after == nil || after.OpenedAt != before.OpenedAt || after.ProbeAttemptID != "" || after.NextAttemptAt == "" || db.GetAgentCursor("web:a") != "" {
-		t.Fatalf("failed spawn cleared or consumed probe: %+v", after)
+	for _, tc := range []struct {
+		name    string
+		outcome runedv1.RunOutcome
+		retry   bool
+	}{
+		{"terminal", runedv1.RunOutcome{Outcome: runedv1.OutcomeError, Terminal: true}, false},
+		{"exhausted", runedv1.RunOutcome{Outcome: runedv1.OutcomeError}, true},
+		{"silent", runedv1.RunOutcome{Outcome: runedv1.OutcomeOK}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db, l, p, _ := pauseFixture(t, "rate_limit")
+			l.maxTurnRetry = 3
+			pauseChatInFolder(t, db, "web:b", "a")
+			now := time.Now()
+			pauseInput(t, db, "web:a", "held", "u", "saved", now)
+			processPauseChat(t, l, "web:a")
+			pauseInput(t, db, "web:b", "next", "u", "next", now.Add(time.Second))
+			processPauseChat(t, l, "web:b")
+			before, _ := db.store().ReadModelPause(t.Context(), "a")
+			p.noSubmission, p.localOutcome = true, tc.outcome
+			if tc.retry {
+				for count := 1; count <= l.maxTurnRetry; count++ {
+					modelPauseDue(t, db)
+					processPauseChat(t, l, "web:a")
+					turn, _ := db.GetTurnContext("held")
+					if turn.State != store.TurnHeld || turn.RetryCount != count {
+						t.Fatalf("retry %d not held: %+v", count, turn)
+					}
+				}
+			}
+			modelPauseDue(t, db)
+			processPauseChat(t, l, "web:a")
+			after, _ := db.store().ReadModelPause(t.Context(), "a")
+			turn, _ := db.GetTurnContext("held")
+			if after == nil || after.OpenedAt != before.OpenedAt || after.Attempts != before.Attempts || after.ProbeAttemptID != "" || after.NextAttemptAt == "" || turn.State != store.TurnDone {
+				t.Fatalf("local outcome did not finish and rearm: pause=%+v turn=%+v", after, turn)
+			}
+			p.noSubmission = false
+			modelPauseDue(t, db)
+			processPauseChat(t, l, "web:b")
+			if p.runs[len(p.runs)-1].TurnID != "next" {
+				t.Fatalf("next input did not probe: %+v", p.runs)
+			}
+			if pause, err := db.store().ReadModelPause(t.Context(), "a"); err != nil || pause != nil {
+				t.Fatalf("next probe did not recover: %+v %v", pause, err)
+			}
+		})
 	}
 }

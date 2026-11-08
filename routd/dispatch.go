@@ -634,12 +634,13 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, addressed bool, tr
 		l.pauseProgress(replyJID, out.RunID)
 		return false, false, false, "", store.ErrModelPaused
 	}
-	if probe != nil && !l.db.TurnResultRecorded(folder, turnID) {
+	unsubmittedProbe := probe != nil && !l.db.TurnResultRecorded(folder, turnID)
+	if unsubmittedProbe {
 		completed, started = false, false
-		return false, false, false, "", store.ErrModelPaused
-	}
-	if err := l.db.store().CompleteModelProbe(ctx, tc); err != nil {
-		return false, false, false, "", err
+	} else {
+		if err := l.db.store().CompleteModelProbe(ctx, tc); err != nil {
+			return false, false, false, "", err
+		}
 	}
 	if out.Outcome == runedv1.OutcomeError {
 		// A turn that died without a reply retries up to maxTurnRetry. A Terminal
