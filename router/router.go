@@ -259,6 +259,65 @@ func RouteMatches(r core.Route, msg core.Message) bool {
 	return routeMatches(r, msg, false)
 }
 
+func HasGitHubIngress(match string) bool {
+	excludesGitHub := false
+	for token := range strings.FieldsSeq(match) {
+		key, pattern, ok := strings.Cut(token, "=")
+		if !ok {
+			continue
+		}
+		switch key {
+		case "platform", "room", "chat_jid", "sender", "verb", "at":
+		default:
+			if key != "" && pattern != "" {
+				return false
+			}
+		}
+		if key == "platform" {
+			matched, err := path.Match(pattern, "github")
+			if err != nil {
+				return false
+			}
+			if matched {
+				return true
+			}
+			excludesGitHub = true
+		}
+		if key == "room" && !strings.Contains(pattern, "/") {
+			if _, err := path.Match(pattern, ""); err == nil {
+				excludesGitHub = true
+			}
+		}
+		if key == "chat_jid" || key == "sender" {
+			if _, err := path.Match(pattern, ""); err != nil {
+				return false
+			}
+			delimiter := strings.ReplaceAll(pattern, `\:`, ":")
+			delimiter = strings.ReplaceAll(delimiter, "[:]", ":")
+			namespace, _, ok := strings.Cut(delimiter, ":")
+			if !ok {
+				first, _, _ := strings.Cut(pattern, "/")
+				if i := strings.IndexAny(first, `*?[\`); i >= 0 {
+					prefix := first[:i]
+					if strings.HasPrefix("github:", prefix) || strings.HasPrefix(prefix, "github:") {
+						return true
+					}
+				}
+				excludesGitHub = true
+				continue
+			}
+			matched, namespaceErr := path.Match(namespace, "github")
+			if namespaceErr == nil && matched {
+				return true
+			}
+			if namespaceErr == nil {
+				excludesGitHub = true
+			}
+		}
+	}
+	return !excludesGitHub
+}
+
 // RouteMatchesIgnoreVerb is RouteMatches with the verb predicate skipped, so a
 // verb-scoped route (e.g. verb=mention) matches regardless of msg.Verb. Used by
 // send-authorization to recognize a sub-folder that handles a chat only under a

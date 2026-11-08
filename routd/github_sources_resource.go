@@ -112,7 +112,6 @@ func (s *Server) mountGitHubSources(mux *http.ServeMux) {
 			return err
 		}
 		if s.verify != nil && x.Action == githubSourcesActionRegister &&
-			strings.TrimSpace(argString(x.Args, "kind")) == store.GitHubSourceApp &&
 			(x.Caller.Claims["jwt_folder"] != "" || !hasAnyScope(x.Caller.Scopes(), []string{"routes:write"})) {
 			return resreg.Errorf(http.StatusForbidden, "operator access required")
 		}
@@ -129,7 +128,7 @@ func (s *Server) githubSourcesPostBuild(folder, callerSub string, authorize auth
 		name := githubSourcesMCPNames[x.Action]
 		target := folder
 		if x.Action == githubSourcesActionRegister {
-			if strings.TrimSpace(argString(x.Args, "kind")) == store.GitHubSourceApp && !authorize("**", "admin", nil) {
+			if !authorize("**", "admin", nil) {
 				return resreg.Errorf(http.StatusForbidden, "operator access required")
 			}
 			if t := strings.TrimSpace(argString(x.Args, "target_folder")); t != "" {

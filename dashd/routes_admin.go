@@ -12,9 +12,9 @@ import (
 	"strings"
 
 	"github.com/kronael/arizuko/core"
-	"github.com/kronael/arizuko/dashd/dashstore"
 	"github.com/kronael/arizuko/resreg/resources"
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
+	"github.com/kronael/arizuko/router"
 )
 
 func decodeJSONBody(r *http.Request, out any) error {
@@ -228,6 +228,9 @@ func (d *dash) handleRouteCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	folder := core.ParseRouteTarget(body.Target).Folder
+	if router.HasGitHubIngress(body.Match) {
+		folder = "**"
+	}
 	sub, ok := d.requireAdmin(w, r, folder)
 	if !ok {
 		return
@@ -281,17 +284,22 @@ func (d *dash) handleRouteUpdate(w http.ResponseWriter, r *http.Request) {
 	// Authz on the CURRENT row's folder, not just the submitted target — an
 	// admin on folder B must not be able to repoint a route that currently
 	// targets folder A. Load the existing target first; 404 if it's gone.
-	curTarget, err := d.ds().RouteTarget(id)
+	current, found, err := d.routdStore().RouteByID(id)
 	if err != nil {
-		if errors.Is(err, dashstore.ErrRouteMissing) {
-			http.Error(w, "not found", http.StatusNotFound)
-			return
-		}
 		slog.Warn("routes: update lookup", "id", id, "err", err)
 		http.Error(w, "lookup failed", http.StatusInternalServerError)
 		return
 	}
-	curFolder := core.ParseRouteTarget(curTarget).Folder
+	if !found {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	curFolder := core.ParseRouteTarget(current.Target).Folder
+	if router.HasGitHubIngress(current.Match) || router.HasGitHubIngress(body.Match) {
+		if _, ok := d.requireAdmin(w, r, "**"); !ok {
+			return
+		}
+	}
 	sub, ok := d.requireAdmin(w, r, curFolder)
 	if !ok {
 		return
@@ -336,17 +344,20 @@ func (d *dash) handleRouteDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Resolve folder via the existing route row so we can gate admin to scope.
-	target, err := d.ds().RouteTarget(id)
+	current, found, err := d.routdStore().RouteByID(id)
 	if err != nil {
-		if errors.Is(err, dashstore.ErrRouteMissing) {
-			http.Error(w, "not found", http.StatusNotFound)
-			return
-		}
 		slog.Warn("routes: lookup", "id", id, "err", err)
 		http.Error(w, "lookup failed", http.StatusInternalServerError)
 		return
 	}
-	folder := core.ParseRouteTarget(target).Folder
+	if !found {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	folder := core.ParseRouteTarget(current.Target).Folder
+	if router.HasGitHubIngress(current.Match) {
+		folder = "**"
+	}
 	sub, ok := d.requireAdmin(w, r, folder)
 	if !ok {
 		return
@@ -422,7 +433,7 @@ func (d *dash) handleGitHubSources(w http.ResponseWriter, r *http.Request) {
 	}
 	pageTopFor(w, r, "GitHub sources")
 	_, _ = fmt.Fprint(w, `<p>A source connects a repository, organization or GitHub App to a group. `+
-		`Group admins can add repository and organization sources. Only operators can add App sources. `+
+		`Only operators can add sources. `+
 		`Webhook secrets never appear here.</p>`)
 	_, _ = fmt.Fprint(w, htmlTable([]string{"Type", "Name", "Group folder", ""}, rows,
 		"No GitHub sources are registered for your groups."))
@@ -445,11 +456,7 @@ func (d *dash) handleGitHubSourceCreate(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	folder := strings.TrimSpace(r.FormValue("owner_folder"))
-	scope := folder
-	if strings.TrimSpace(r.FormValue("kind")) == "app" {
-		scope = "**"
-	}
-	if _, ok := d.requireAdmin(w, r, scope); !ok {
+	if _, ok := d.requireAdmin(w, r, "**"); !ok {
 		return
 	}
 	body, status, err := d.routdCall(r.Context(), http.MethodPost, "/v1/github_sources", map[string]string{

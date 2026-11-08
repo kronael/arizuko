@@ -8,6 +8,36 @@ import (
 	"github.com/kronael/arizuko/core"
 )
 
+func TestHasGitHubIngress(t *testing.T) {
+	for _, tc := range []struct {
+		match string
+		want  bool
+	}{
+		{"platform=github", true}, {"platform=git*", true}, {"platform=[g]ithub", true}, {"platform=*", true},
+		{"chat_jid=github:owner/repo", true}, {"chat_jid=*:owner/repo", true}, {"sender=*:*/*", true},
+		{"chat_jid=g?thub:*/*", true}, {"sender=[g]ithub:*/*", true},
+		{`chat_jid=github\:victim/private/pr/*`, true}, {"chat_jid=[g]ithub[:]victim/private/pr/*", true},
+		{"chat_jid=*/private/pr/*", true}, {"chat_jid=*/*/pr/*", true},
+		{"platform=[", false}, {"broken", true}, {"platform=slack", false},
+		{"m=3", false}, {"m=", true},
+		{"chat_jid=slack:channel/C1", false}, {"room=hq", false},
+		{"verb=mention", true}, {"", true},
+	} {
+		if got := HasGitHubIngress(tc.match); got != tc.want {
+			t.Errorf("%q: got %v want %v", tc.match, got, tc.want)
+		}
+	}
+}
+
+func TestGitHubIngressGlobWitness(t *testing.T) {
+	msg := core.Message{ChatJID: "github:victim/private/pr/1", Sender: "github:victim", Verb: "mention"}
+	for _, match := range []string{`chat_jid=github\:victim/private/pr/*`, "chat_jid=[g]ithub[:]victim/private/pr/*", "chat_jid=*/private/pr/*", "chat_jid=*/*/pr/*", "verb=mention", ""} {
+		if !RouteMatches(core.Route{Match: match}, msg) || !HasGitHubIngress(match) {
+			t.Errorf("GitHub message not protected by %q", match)
+		}
+	}
+}
+
 func TestFormatMessages(t *testing.T) {
 	ts := time.Date(2025, 3, 7, 12, 0, 0, 0, time.UTC)
 	msgs := []core.Message{

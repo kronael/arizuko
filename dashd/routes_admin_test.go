@@ -10,6 +10,64 @@ import (
 	"github.com/kronael/arizuko/core"
 )
 
+func TestRouteGitHubIngressDenied(t *testing.T) {
+	d, db := splitAdminDash(t, "alice@x")
+	seedFolderAdmin(t, d, "mallory@x", "mallory")
+	form := url.Values{"seq": {"0"}, "match": {"platform=github"}, "target": {"mallory"}}.Encode()
+	w := httptest.NewRecorder()
+	newMux(d).ServeHTTP(w, adminReq("POST", "/dash/routes/", form, "mallory@x"))
+	if w.Code != http.StatusForbidden || countRoutes(t, db, func(r core.Route) bool { return r.Match == "platform=github" }) != 0 {
+		t.Fatalf("status=%d", w.Code)
+	}
+}
+
+func TestRouteScopedAdminCreatesNonGitHub(t *testing.T) {
+	d, db := splitAdminDash(t, "alice@x")
+	seedFolderAdmin(t, d, "mallory@x", "mallory")
+	form := url.Values{"seq": {"0"}, "match": {"platform=slack"}, "target": {"mallory"}}.Encode()
+	w := httptest.NewRecorder()
+	newMux(d).ServeHTTP(w, adminReq("POST", "/dash/routes/", form, "mallory@x"))
+	if w.Code != http.StatusSeeOther || countRoutes(t, db, func(r core.Route) bool { return r.Match == "platform=slack" }) != 1 {
+		t.Fatalf("status=%d", w.Code)
+	}
+}
+
+func TestRouteGitHubOperator(t *testing.T) {
+	d, db := splitAdminDash(t, "alice@x")
+	seedAdmin(t, d.routd, "operator@x", "**")
+	for i, match := range []string{"platform=github", "chat_jid=*:owner/repo", "verb=mention"} {
+		form := url.Values{"seq": {strconv.Itoa(i + 1)}, "match": {match}, "target": {"team"}}.Encode()
+		w := httptest.NewRecorder()
+		newMux(d).ServeHTTP(w, adminReq("POST", "/dash/routes/", form, "operator@x"))
+		if w.Code != http.StatusSeeOther || countRoutes(t, db, func(r core.Route) bool { return r.Match == match }) != 1 {
+			t.Fatalf("%s status=%d", match, w.Code)
+		}
+	}
+}
+
+func TestRouteGitHubRewriteDenied(t *testing.T) {
+	for _, tc := range []struct{ old, next string }{{"platform=github", "platform=slack"}, {"platform=slack", "platform=github"}} {
+		t.Run(tc.old, func(t *testing.T) {
+			d, db := splitAdminDash(t, "alice@x")
+			seedFolderAdmin(t, d, "mallory@x", "mallory")
+			id := seedRoute(t, db, core.Route{Seq: 1, Match: tc.old, Target: "mallory"})
+			form := url.Values{"seq": {"1"}, "match": {tc.next}, "target": {"mallory"}}.Encode()
+			w := httptest.NewRecorder()
+			newMux(d).ServeHTTP(w, adminReq("PATCH", "/dash/routes/"+strconv.FormatInt(id, 10), form, "mallory@x"))
+			if w.Code != 403 || countRoutes(t, db, func(r core.Route) bool { return r.ID == id && r.Match == tc.old }) != 1 {
+				t.Fatalf("update status=%d", w.Code)
+			}
+			if tc.old == "platform=github" {
+				w = httptest.NewRecorder()
+				newMux(d).ServeHTTP(w, adminReq("POST", "/dash/routes/"+strconv.FormatInt(id, 10)+"/delete", "", "mallory@x"))
+				if w.Code != 403 || countRoutes(t, db, func(r core.Route) bool { return r.ID == id }) != 1 {
+					t.Fatalf("delete status=%d", w.Code)
+				}
+			}
+		})
+	}
+}
+
 // seedFolderAdmin grants sub admin on exactly one folder (and creates it), so a
 // caller can be an admin of B while holding nothing on A.
 func seedFolderAdmin(t *testing.T, d *dash, sub, folder string) {

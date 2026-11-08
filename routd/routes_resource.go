@@ -63,6 +63,53 @@ func (s *Server) routesResource(contain containFn) resreg.Resource {
 	return r
 }
 
+func (s *Server) routesNeedGitHubOperator(x resreg.Execution) (bool, error) {
+	switch x.Action {
+	case routesActionAdd:
+		var route core.Route
+		if err := json.Unmarshal([]byte(argJSONString(x.Args, "route")), &route); err != nil {
+			return false, resreg.Errorf(http.StatusBadRequest, "invalid route json")
+		}
+		return router.HasGitHubIngress(route.Match), nil
+	case routesActionDelete:
+		id := argInt64(x.Args, "id")
+		if id == 0 {
+			return false, resreg.Errorf(http.StatusBadRequest, "id required")
+		}
+		route, err := s.db.GetRoute(id)
+		if errors.Is(err, ErrNoRoute) {
+			return false, resreg.Errorf(http.StatusNotFound, "route not found: %d", id)
+		}
+		if errors.Is(err, store.ErrRouteIDAmbiguous) {
+			return false, resreg.Errorf(http.StatusConflict, "%v", err)
+		}
+		if err != nil {
+			return false, resreg.Errorf(http.StatusInternalServerError, "store_error")
+		}
+		return router.HasGitHubIngress(route.Match), nil
+	case routesActionSet:
+		var routes []core.Route
+		if err := json.Unmarshal([]byte(argJSONString(x.Args, "routes")), &routes); err != nil {
+			return false, resreg.Errorf(http.StatusBadRequest, "invalid routes json: %v", err)
+		}
+		for _, route := range routes {
+			if router.HasGitHubIngress(route.Match) {
+				return true, nil
+			}
+		}
+		existing, err := s.db.Routes()
+		if err != nil {
+			return false, resreg.Errorf(http.StatusInternalServerError, "store_error")
+		}
+		for _, route := range existing {
+			if (x.Caller.Folder == "" || routeTargetWithin(route.Target, x.Caller.Folder)) && router.HasGitHubIngress(route.Match) {
+				return true, nil
+			}
+		}
+	}
+	return false, nil
+}
+
 // routesHandler runs add/set/delete/list. Per-target containment is the
 // injected contain seam; the self-default + routeTargetWithin invariants are
 // face-agnostic and stay here.
@@ -213,8 +260,7 @@ func (s *Server) routesHandler(ctx context.Context, x resreg.Execution, contain 
 	return nil, resreg.Errorf(http.StatusBadRequest, "unknown action %q", x.Action)
 }
 
-// routesPostBuild mounts the routing tools on the agent socket. The Gate is a
-// no-op; the containment + self-default caps live in the handler.
+// routesPostBuild mounts the routing tools on the agent socket.
 func (s *Server) routesPostBuild(folder, callerSub string, authorize authorizeFn, visible func(string) bool) func(*mcpserver.MCPServer) {
 	// One evaluator on the resolved target: the caller must hold mcp:<name>
 	// scoped to cover it; /root elevates via authorize's allow-all.
@@ -227,7 +273,16 @@ func (s *Server) routesPostBuild(folder, callerSub string, authorize authorizeFn
 		return nil
 	}
 	res := s.routesResource(contain)
-	res.Gate = agentAllowGate
+	res.Gate = func(x resreg.Execution, _ string, _ map[string]string) error {
+		needed, err := s.routesNeedGitHubOperator(x)
+		if err != nil {
+			return err
+		}
+		if needed && !authorize("**", "admin", nil) {
+			return resreg.Errorf(http.StatusForbidden, "operator access required")
+		}
+		return nil
+	}
 	return mountAgentResource(res, callerSub, folder, visible)
 }
 

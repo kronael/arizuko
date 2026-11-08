@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -24,6 +25,91 @@ import (
 	"github.com/kronael/arizuko/router"
 	"github.com/kronael/arizuko/store"
 )
+
+func TestRESTRouteGitHubIngressDenied(t *testing.T) {
+	db, h := authSrv(t, fakeVerifier{sub: "user:u", scope: []string{"routes:write:own_group"}, folder: "alice"})
+	_ = db.PutGroup(core.Group{Folder: "alice"})
+	r := doJSON(t, h, "POST", "/v1/routes", "", map[string]any{"route": apiv1.Route{Seq: 0, Match: "platform=github", Target: "alice"}})
+	if r.Code != http.StatusForbidden || routeCount(t, db) != 0 {
+		t.Fatalf("status=%d routes=%v", r.Code, mustRoutes(t, db))
+	}
+}
+
+func TestRESTRouteGitHubAppTenantIsolation(t *testing.T) {
+	db, h := authSrv(t, fakeVerifier{sub: "user:u", scope: []string{"routes:write:own_group"}, folder: "alice"})
+	db.SetSecretKeys([]byte("k1"))
+	for _, folder := range []string{"alice", "bob"} {
+		_ = db.PutGroup(core.Group{Folder: folder})
+	}
+	if _, err := db.secretStore().AddGitHubSource(store.GitHubSource{Source: "app/bot", OwnerFolder: "bob"}, "bob"); err != nil {
+		t.Fatal(err)
+	}
+	before := mustRoutes(t, db)
+	r := doJSON(t, h, "POST", "/v1/routes", "", map[string]any{"route": apiv1.Route{Seq: 0, Match: "chat_jid=github:victim/private/pr/*", Target: "alice"}})
+	if r.Code != 403 || !reflect.DeepEqual(before, mustRoutes(t, db)) {
+		t.Fatalf("status=%d routes=%v", r.Code, mustRoutes(t, db))
+	}
+	_, target, ok := router.MatchRoute(core.Message{ChatJID: "github:victim/private/pr/1", Sender: "github:user", Verb: "mention"}, mustRoutes(t, db))
+	if !ok || core.ParseRouteTarget(target).Folder != "bob" {
+		t.Fatalf("target=%q ok=%v", target, ok)
+	}
+	rows, err := db.secretStore().ListGitHubSources("")
+	if err != nil || len(rows) != 1 || rows[0].Source != "app/bot" || rows[0].OwnerFolder != "bob" {
+		t.Fatalf("sources=%v err=%v", rows, err)
+	}
+}
+
+func TestRESTRouteGitHubOperator(t *testing.T) {
+	db, h := authSrv(t, fakeVerifier{sub: "user:u", scope: []string{"routes:write"}})
+	_ = db.PutGroup(core.Group{Folder: "alice"})
+	for i, match := range []string{"platform=github", "chat_jid=*:owner/repo", "verb=mention"} {
+		r := doJSON(t, h, "POST", "/v1/routes", "", map[string]any{"route": apiv1.Route{Seq: i + 1, Match: match, Target: "alice"}})
+		if r.Code != 200 {
+			t.Fatalf("%s status=%d body=%s", match, r.Code, r.Body.String())
+		}
+	}
+}
+
+func TestRESTRouteGitHubReplacementDenied(t *testing.T) {
+	db, h := authSrv(t, fakeVerifier{sub: "user:u", scope: []string{"routes:write:own_group"}, folder: "alice"})
+	_ = db.PutGroup(core.Group{Folder: "alice"})
+	id, err := db.AddRoute(core.Route{Seq: 1, Match: "chat_jid=github:owner/repo", Target: "alice"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := mustRoutes(t, db)
+	for _, routes := range [][]apiv1.Route{
+		{}, {{Seq: 1, Match: "chat_jid=github:owner/repo", Target: "alice"}},
+		{{Seq: 2, Match: "platform=git*", Target: "alice"}},
+	} {
+		r := doJSON(t, h, "PUT", "/v1/routes", "", map[string]any{"routes": routes})
+		if r.Code != 403 || !reflect.DeepEqual(before, mustRoutes(t, db)) {
+			t.Fatalf("set status=%d routes=%v", r.Code, mustRoutes(t, db))
+		}
+	}
+	r := doJSON(t, h, "DELETE", "/v1/routes/"+strconv.FormatInt(id, 10), "", nil)
+	if r.Code != 403 || !reflect.DeepEqual(before, mustRoutes(t, db)) {
+		t.Fatalf("delete status=%d routes=%v", r.Code, mustRoutes(t, db))
+	}
+}
+
+func TestRESTRouteReplacementIgnoresOtherFolderGitHub(t *testing.T) {
+	db, h := authSrv(t, fakeVerifier{sub: "user:u", scope: []string{"routes:write:own_group"}, folder: "alice"})
+	for _, folder := range []string{"alice", "bob"} {
+		_ = db.PutGroup(core.Group{Folder: folder})
+	}
+	id, err := db.AddRoute(core.Route{Seq: 1, Match: "platform=github", Target: "bob"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := doJSON(t, h, "PUT", "/v1/routes", "", map[string]any{"routes": []apiv1.Route{{Seq: 2, Match: "platform=slack", Target: "alice"}}})
+	if r.Code != 200 {
+		t.Fatalf("status=%d body=%s", r.Code, r.Body.String())
+	}
+	if _, err := db.GetRoute(id); err != nil {
+		t.Fatal(err)
+	}
+}
 
 // TestRESTRouteParity: POST add → GET list → GET-one → DELETE all run the shared
 // handler and land the rows an add_route/delete_route MCP call would, with the
@@ -96,7 +182,7 @@ func TestRESTRouteTier0TenantContainment(t *testing.T) {
 		_ = db.PutGroup(core.Group{Folder: f})
 	}
 	// own subtree: allowed.
-	if r := doJSON(t, h, "POST", "/v1/routes", "", map[string]any{"route": apiv1.Route{Seq: 1, Match: "m", Target: "alice/sub"}}); r.Code != 200 {
+	if r := doJSON(t, h, "POST", "/v1/routes", "", map[string]any{"route": apiv1.Route{Seq: 1, Match: "platform=slack", Target: "alice/sub"}}); r.Code != 200 {
 		t.Fatalf("own-subtree add = %d want 200 body=%s", r.Code, r.Body.String())
 	}
 	// sibling folder: 403, no row.
@@ -194,7 +280,7 @@ func TestRESTRouteTier1OwnSubtree(t *testing.T) {
 	}
 	add := func(seq int, target string) int {
 		return doJSON(t, h, "POST", "/v1/routes", "",
-			map[string]any{"route": apiv1.Route{Seq: seq, Match: "m", Target: target}}).Code
+			map[string]any{"route": apiv1.Route{Seq: seq, Match: "platform=slack", Target: target}}).Code
 	}
 	if c := add(1, "alice/team"); c != 200 { // own folder
 		t.Fatalf("own-folder add = %d want 200", c)
@@ -227,7 +313,7 @@ func TestRESTRouteTier2OperatorOwnSubtree(t *testing.T) {
 	}
 	add := func(seq int, target string) int {
 		return doJSON(t, h, "POST", "/v1/routes", "",
-			map[string]any{"route": apiv1.Route{Seq: seq, Match: "m", Target: target}}).Code
+			map[string]any{"route": apiv1.Route{Seq: seq, Match: "platform=slack", Target: target}}).Code
 	}
 	if c := add(1, "alice/team/sub"); c != 200 { // own
 		t.Fatalf("own add = %d want 200", c)

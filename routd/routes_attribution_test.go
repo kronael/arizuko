@@ -76,7 +76,7 @@ func TestRoutesMCP_SetStampsEveryReplacedRow(t *testing.T) {
 	sock := serveRoutesMCP(t, db, "hq", "folder:hq")
 
 	if _, e := callToolOverSock(t, sock, "set_routes", map[string]any{
-		"routes": `[{"seq":0,"match":"","target":"hq"},{"seq":1,"match":"platform=slack","target":"hq"}]`,
+		"routes": `[{"seq":0,"match":"room=hq","target":"hq"},{"seq":1,"match":"platform=slack","target":"hq"}]`,
 	}); e != "" {
 		t.Fatalf("set_routes errored: %s", e)
 	}

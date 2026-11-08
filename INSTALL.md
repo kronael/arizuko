@@ -921,6 +921,59 @@ sudo systemctl restart arizuko_demo               # the service generates and st
   [`.claude/skills/eval/gates.md`](.claude/skills/eval/gates.md). The owner may
   run `anteval` by hand against a throwaway instance to check agent behavior.
 
+### Operators must rotate GitHub secrets disclosed to non-operators
+
+Only instance operators can register GitHub sources or control routes that select
+GitHub ingress. This applies to repository, organization and App sources.
+The registration gate does not invalidate existing secrets.
+
+Before trusting GitHub ingress after this upgrade, rotate every source secret
+disclosed to a non-operator before this release. On sloth, this includes
+`app/sloth`, owned by `sloth/discord`, and `repo/vumilan/morha`, owned by
+`sloth/morha`. Disable the affected webhooks on GitHub during rotation.
+Use `arizuko github -i <instance> list` to inventory sources.
+If the registration authority is uncertain, rotate the secret.
+For each affected source, record its routes and target folder, then run
+`arizuko github -i <instance> rm <kind>/<name> <owner_folder>`.
+Register the source as an operator:
+
+```bash
+arizuko github -i <instance> add <kind> <name> <folder>
+```
+
+The CLI sets both owner and target to the approved `<folder>`.
+Configure GitHub with the newly printed secret before
+enabling deliveries. Verify the seeded routes before restoring any custom routes.
+If removal refuses missing ownership metadata, use the procedure below.
+
+### Operators must remove and recreate skipped legacy GitHub sources
+
+Startup binds a legacy source only when each seed has one matching route at its
+owner folder. Missing, ambiguous or edited seeds can leave the source without
+`target_folder` or `route_ids`. Startup records completion even when it skips a
+source. Editing routes and restarting does not retry the source.
+Normal revocation refuses a source without valid ownership metadata.
+
+1. Disable the affected GitHub webhook. Stop the instance with
+   `sudo systemctl stop arizuko_<instance>` and take a store backup.
+2. Use the instance's operator store credentials and a DynamoDB client to inspect
+   `routd.github_sources` and `routd.routes`. Record the source's `owner_folder`
+   and every candidate route's `part`, `sort`, `id`, match and target. The source
+   key is `{"part":{"S":"routd"},"sort":{"S":"<kind>/<name>"}}`.
+3. Decide which candidate routes belong to this source. Delete only those exact
+   route keys with DynamoDB `DeleteItem`, conditioned on their recorded `id`.
+   Preserve routes owned by other sources or tenants. If ownership remains
+   uncertain, keep the webhook disabled until an operator resolves it.
+4. Delete the exact source key from `routd.github_sources` with `DeleteItem`,
+   conditioned on its recorded `owner_folder`. Leave the
+   `routd.counters` item `github-source-route-ownership` unchanged.
+5. To retain the source, register it with the CLI as above and configure GitHub
+   with its new secret. Verify the owner, target and routes, then restart the
+   instance and enable its webhook. For removal only, leave the webhook deleted.
+
+Do not guess route identities or clear the migration marker to force rebinding.
+Source registration writes the new target and route identities explicitly.
+
 ## A tar or a dump restores an instance
 
 An instance archive holds files and credentials, never server rows.

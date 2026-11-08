@@ -10,7 +10,7 @@ import (
 	"github.com/kronael/arizuko/ipc"
 )
 
-func TestGitHubSourcesAppAuthorizationREST(t *testing.T) {
+func TestGitHubSourcesAuthorizationREST(t *testing.T) {
 	for _, tc := range []struct {
 		kind, folder, scope string
 		want                int
@@ -18,9 +18,11 @@ func TestGitHubSourcesAppAuthorizationREST(t *testing.T) {
 		{"app", "eng", "routes:write:own_group", 403},
 		{"app", "eng", "routes:write", 403},
 		{"app", "", "routes:write:own_group", 403},
-		{"repo", "eng", "routes:write:own_group", 201},
-		{"org", "eng", "routes:write:own_group", 201},
+		{"repo", "eng", "routes:write:own_group", 403},
+		{"org", "eng", "routes:write:own_group", 403},
 		{"app", "", "routes:write", 201},
+		{"repo", "", "routes:write", 201},
+		{"org", "", "routes:write", 201},
 	} {
 		t.Run(tc.kind+tc.scope, func(t *testing.T) {
 			db, h := authSrv(t, fakeVerifier{sub: "user:u", scope: []string{tc.scope}, folder: tc.folder})
@@ -42,12 +44,17 @@ func TestGitHubSourcesAppAuthorizationREST(t *testing.T) {
 				if _, ok, err := db.secretStore().GitHubSourceSecret("app/bot"); err != nil || ok {
 					t.Fatalf("denied registration left secret: ok=%v err=%v", ok, err)
 				}
+			} else {
+				var issued struct{ Secret string }
+				if err := json.Unmarshal(rec.Body.Bytes(), &issued); err != nil || len(issued.Secret) < 40 {
+					t.Fatalf("registration did not disclose a secret: %s", rec.Body.String())
+				}
 			}
 		})
 	}
 }
 
-func TestGitHubSourcesAppAuthorizationMCP(t *testing.T) {
+func TestGitHubSourcesAuthorizationMCP(t *testing.T) {
 	for _, elevated := range []bool{false, true} {
 		t.Run(map[bool]string{false: "scoped", true: "operator"}[elevated], func(t *testing.T) {
 			db, err := OpenMem()
@@ -83,11 +90,17 @@ func TestGitHubSourcesAppAuthorizationMCP(t *testing.T) {
 				if _, ok, err := db.secretStore().GitHubSourceSecret("app/bot"); err != nil || ok {
 					t.Fatalf("denied registration left secret: ok=%v err=%v", ok, err)
 				}
-				for _, source := range []struct{ kind, name string }{{"repo", "owner/repo"}, {"org", "owner"}} {
-					_, failure := callToolText(t, sock, "register_github_source", map[string]any{"kind": source.kind, "name": source.name})
-					if failure != "" {
-						t.Fatalf("%s registration denied: %s", source.kind, failure)
-					}
+			}
+			for _, source := range []struct{ kind, name string }{{"repo", "owner/repo"}, {"org", "owner"}} {
+				text, failure := callToolText(t, sock, "register_github_source", map[string]any{"kind": source.kind, "name": source.name})
+				if (failure == "") != elevated || (elevated && !strings.Contains(text, "secret")) {
+					t.Fatalf("%s elevated=%v text=%s failure=%s", source.kind, elevated, text, failure)
+				}
+			}
+			if !elevated {
+				rows, err := db.secretStore().ListGitHubSources("")
+				if err != nil || len(rows) != 0 || routeCount(t, db) != 0 {
+					t.Fatalf("denied registration left rows=%v err=%v", rows, err)
 				}
 			}
 		})

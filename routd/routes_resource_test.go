@@ -34,6 +34,92 @@ import (
 	"github.com/kronael/arizuko/ipc"
 )
 
+func TestRoutesMCPGitHubIngressDenied(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	_ = db.PutGroup(core.Group{Folder: "alice"})
+	grantMCPTools(t, db, "alice", routeToolNames...)
+	sock := serveRoutesMCP(t, db, "alice", "folder:alice")
+	_, failure := callToolOverSock(t, sock, "add_route", map[string]any{"route": `{"seq":0,"match":"platform=github","target":"alice"}`})
+	if failure == "" || routeCount(t, db) != 0 {
+		t.Fatalf("failure=%q routes=%v", failure, mustRoutes(t, db))
+	}
+}
+
+func TestRoutesMCPGitHubOperator(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	_ = db.PutGroup(core.Group{Folder: "alice"})
+	sock := serveRoutesMCPElevated(t, db, "alice")
+	for _, route := range []string{`{"seq":1,"match":"platform=github","target":"alice"}`, `{"seq":2,"match":"chat_jid=*:owner/repo","target":"alice"}`, `{"seq":3,"match":"verb=mention","target":"alice"}`} {
+		_, failure := callToolOverSock(t, sock, "add_route", map[string]any{"route": route})
+		if failure != "" {
+			t.Fatalf("%s: %s", route, failure)
+		}
+	}
+}
+
+func TestRoutesMCPGitHubReplacementDenied(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	_ = db.PutGroup(core.Group{Folder: "alice"})
+	id, err := db.AddRoute(core.Route{Seq: 1, Match: "chat_jid=github:owner/repo", Target: "alice"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	grantMCPTools(t, db, "alice", routeToolNames...)
+	sock := serveRoutesMCP(t, db, "alice", "folder:alice")
+	for _, routes := range []string{`[]`, `[{"seq":1,"match":"chat_jid=github:owner/repo","target":"alice"}]`, `[{"seq":2,"match":"platform=git*","target":"alice"}]`} {
+		_, failure := callToolOverSock(t, sock, "set_routes", map[string]any{"routes": routes})
+		if failure == "" {
+			t.Fatal("set allowed")
+		}
+		if got := mustRoutes(t, db); len(got) != 1 || got[0].ID != id {
+			t.Fatalf("routes=%v", got)
+		}
+	}
+	_, failure := callToolOverSock(t, sock, "delete_route", map[string]any{"id": float64(id)})
+	if failure == "" {
+		t.Fatal("delete allowed")
+	}
+	if got := mustRoutes(t, db); len(got) != 1 || got[0].ID != id {
+		t.Fatalf("routes=%v", got)
+	}
+}
+
+func TestRoutesMCPReplacementIgnoresOtherFolderGitHub(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	for _, folder := range []string{"alice", "bob"} {
+		_ = db.PutGroup(core.Group{Folder: folder})
+	}
+	id, err := db.AddRoute(core.Route{Seq: 1, Match: "platform=github", Target: "bob"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	grantMCPTools(t, db, "alice", routeToolNames...)
+	sock := serveRoutesMCP(t, db, "alice", "folder:alice")
+	_, failure := callToolOverSock(t, sock, "set_routes", map[string]any{"routes": `[{"seq":2,"match":"platform=slack","target":"alice"}]`})
+	if failure != "" {
+		t.Fatal(failure)
+	}
+	if _, err := db.GetRoute(id); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // routeToolNames is the four routing tools — the set every routes test delegates.
 var routeToolNames = []string{"add_route", "set_routes", "list_routes", "delete_route"}
 

@@ -130,7 +130,7 @@ func TestGitHubSourcesAppRequiresOperator(t *testing.T) {
 	}
 }
 
-func TestGitHubSourcesScopedAdminAddsRepoAndOrg(t *testing.T) {
+func TestGitHubSourcesScopedAdminDenied(t *testing.T) {
 	for _, kind := range []string{"repo", "org"} {
 		t.Run(kind, func(t *testing.T) {
 			u := newRoutdUpstream(t)
@@ -144,8 +144,29 @@ func TestGitHubSourcesScopedAdminAddsRepoAndOrg(t *testing.T) {
 			}
 			form := url.Values{"kind": {kind}, "name": {name}, "owner_folder": {"team"}}
 			newMux(d).ServeHTTP(w, adminReq("POST", "/dash/github_sources/", form.Encode(), "admin@x"))
-			if w.Code != http.StatusOK || u.calls != 1 {
+			if w.Code != http.StatusForbidden || u.calls != 0 {
 				t.Fatalf("status=%d calls=%d", w.Code, u.calls)
+			}
+		})
+	}
+}
+
+func TestGitHubSourcesOperatorAddsEachKind(t *testing.T) {
+	for _, kind := range []string{"repo", "org", "app"} {
+		t.Run(kind, func(t *testing.T) {
+			u := newRoutdUpstream(t)
+			u.status, u.respond = http.StatusCreated, `{"source":"source","secret":"secret"}`
+			d := &dash{routd: routdDB(t), routdURL: u.srv.URL}
+			seedAdmin(t, d.routd, "admin@x", "**")
+			name := "owner"
+			if kind == "repo" {
+				name = "owner/repo"
+			}
+			form := url.Values{"kind": {kind}, "name": {name}, "owner_folder": {"team"}}
+			w := httptest.NewRecorder()
+			newMux(d).ServeHTTP(w, adminReq("POST", "/dash/github_sources/", form.Encode(), "admin@x"))
+			if w.Code != http.StatusOK || u.calls != 1 || !strings.Contains(w.Body.String(), "secret") {
+				t.Fatalf("status=%d calls=%d body=%s", w.Code, u.calls, w.Body.String())
 			}
 		})
 	}

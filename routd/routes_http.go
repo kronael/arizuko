@@ -87,6 +87,13 @@ func (s *Server) routesRESTGate(x resreg.Execution, _ string, _ map[string]strin
 	if !hasAnyScope(held, want) {
 		return resreg.Errorf(http.StatusForbidden, "missing scope %s", strings.Join(want, " or "))
 	}
+	needed, err := s.routesNeedGitHubOperator(x)
+	if err != nil {
+		return err
+	}
+	if needed && (x.Caller.Claims["jwt_folder"] != "" || !hasAnyScope(held, []string{"routes:write"})) {
+		return resreg.Errorf(http.StatusForbidden, "operator access required")
+	}
 	return nil
 }
 
