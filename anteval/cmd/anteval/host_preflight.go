@@ -160,7 +160,7 @@ func preflight(ctx context.Context, host preflightHost, cfg map[string]string) e
 	if err := yaml.Unmarshal(data, &fragment); err != nil {
 		return fmt.Errorf("parse %s: %w", path, err)
 	}
-	images := []string{"arizuko:latest", "arizuko-vite:latest", "arizuko-davd:latest"}
+	images := []string{"arizuko:latest", "arizuko-davd:latest"}
 	for _, name := range []string{"litellm", "litellm_db"} {
 		image := fragment.Services[name].Image
 		if image == "" || strings.ContainsAny(image, "$ \t\r\n") {

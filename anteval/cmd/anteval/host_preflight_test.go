@@ -14,12 +14,13 @@ import (
 )
 
 type fakeHost struct {
-	device       string
-	images       []string
-	imageError   bool
-	inventory    map[string]string
-	commandError string
-	meminfo      string
+	device          string
+	images          []string
+	imageError      bool
+	availableImages map[string]bool
+	inventory       map[string]string
+	commandError    string
+	meminfo         string
 }
 
 func (f *fakeHost) Run(_ context.Context, name string, args ...string) ([]byte, error) {
@@ -59,6 +60,11 @@ func (f *fakeHost) InspectImages(_ context.Context, images []string) error {
 	f.images = images
 	if f.imageError {
 		return errors.New("image unavailable")
+	}
+	for _, image := range images {
+		if f.availableImages != nil && !f.availableImages[image] {
+			return fmt.Errorf("image unavailable: %s", image)
+		}
 	}
 	return nil
 }
@@ -153,11 +159,14 @@ func TestPreflightRefusesBeforeCreation(t *testing.T) {
 
 func TestPreflightChecksGatewayImages(t *testing.T) {
 	_, cfg := preflightFixture(t)
-	host := &fakeHost{}
+	want := []string{"arizuko:latest", "arizuko-davd:latest", "gateway:tag", "db:tag"}
+	host := &fakeHost{availableImages: map[string]bool{}}
+	for _, image := range want {
+		host.availableImages[image] = true
+	}
 	if err := preflight(context.Background(), host, cfg); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"arizuko:latest", "arizuko-vite:latest", "arizuko-davd:latest", "gateway:tag", "db:tag"}
 	if !reflect.DeepEqual(host.images, want) {
 		t.Fatalf("images = %v, want %v", host.images, want)
 	}
