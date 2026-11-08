@@ -54,6 +54,7 @@
 
       <p class="lede">egress is a forward proxy that lets one client reach one fixed list of host names, and runed starts one for each turn.</p>
 
+    <p>Pi supports any provider, including a local model, through the operator's normal provider setup. Add the provider host to <code>network_rules</code>, as for any model endpoint.</p>
     <h2>egress is a forward proxy for one client and one fixed list</h2>
     <p><code>egress</code> is a forward HTTP and CONNECT proxy that allows one fixed list of hosts, for one client. It reads the destination from the request of the client, checks it against the allowlist, and either splices the connection or answers <code>403</code>. The program does nothing more.</p>
 
@@ -181,7 +182,7 @@ HTTPS_PROXY=http://127.0.0.1:3128 curl https://github.com</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/components/egress.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-26">2026-10-26</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-28">2026-10-28</time>
       </div>
     </main>
 

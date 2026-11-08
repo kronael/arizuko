@@ -1,5 +1,5 @@
 ---
-status: draft
+status: partial
 ---
 
 # specs/7/60 — pi is a full ant harness
@@ -14,23 +14,36 @@ The owner requires:
 >
 > "the pi should be able to consume anything"
 
-The base is detached `6d5095d685e8e4aae891df8464b005231fb3a12c`, targeting v0.75.4.
-Every repository line below refers to that base. Proposed files have no base line number.
-The owner chose "release on main now". This draft does not authorize implementation or publication.
+## Implementation status
 
-`ant/src/backend.ts:116` refuses pi. `ant/src/pi.ts:216` declares `tools: 'none'`.
-`ant/Dockerfile:174` installs `@mariozechner/pi-coding-agent` without a version.
-The unpacked `@earendil-works/pi-coding-agent@1.4.0` has its own MCP client, including stdio transport.
-The final evidence table names the files read for every pi API claim.
+The release line selects pi through `ARIZUKO_BACKEND=pi` in `ant/src/backend.ts`.
+`ant/src/pi.ts` renders the assembled MCP map, streams status, forwards effort,
+uses existing credentials and native provider configuration, and applies finite retries.
+`ant/src/pi-extension.ts` guards native edits and writes and applies Bash rewrites.
+The dependency is pinned to `@earendil-works/pi-coding-agent` 1.4.0.
+Pi uses the same tools and explicit delivery as Claude Code and Codex.
 
-The adaptation also lacks parity in four places. `piArgs` ignores effort at `ant/src/pi.ts:43`.
-`PiTurn` reads only completed messages at `ant/src/pi.ts:110`.
-The extension drops input rewrites at `ant/src/pi-extension.ts:14`.
-Its edit mapper reads top-level text fields at `ant/src/pi-extension.ts:63`, while 1.4.0 sends an `edits` array.
+Acceptance remains partial. These items are deferred:
 
-This tree selects a backend instance-wide through `runed/render.go:109`.
-`routd/dispatch.go:833` resolves each group's model and effort.
-A group `harness` document is not the selection contract on this base.
+- The installed-binary image smoke in step 5, including hostile configuration,
+  provider errors, stalled streams, resume, nudge and usage checks. `ant/smoke/`
+  and the `pi-smoke` target are not present.
+- Native edit fixtures in step 1 for fuzzy and disjoint edits, tilde paths and CRLF/BOM input.
+- Pi-specific chassis integration tests in step 4. Reducer fixtures cover split
+  status and tool-only completion; the chassis nudge tests use a fake harness.
+- The real pi turn through routd's `gated.sock`, including delivery, submission,
+  authorization and audit evidence. Local-model reachability and privacy are unmeasured.
+- Borrowed-login renewal ownership. Pi refreshes its temporary snapshot only;
+  durable renewal of the shared login needs an operator decision.
+- Full acceptance gates in step 6, including the image and live checks.
+
+Any pi provider works through its normal operator configuration and a
+`network_rules` row for the provider host. A local model uses that same setup.
+
+The design excerpts below compare base `6d5095d685e8e4aae891df8464b005231fb3a12c`
+with the intended bridge. Their line numbers refer to that base; the status above
+states what the release line implements. The module map defines the full acceptance
+scope, including deferred work. No live acceptance is claimed.
 
 ## Where it fits
 
@@ -294,7 +307,6 @@ steps:
 ```
 
 `specs/6/46-turn-progress.md` has no pi-specific assertion to change on this base.
-The trip-computer page stays outside this change.
 Web changes follow `template/web/CLAUDE.md` at implementation time.
 The work record owns snapshots, execution results, and release actions.
 
@@ -699,15 +711,15 @@ Implementation closeout requires the build, lint, short Go tests, Bun tests, typ
 repo/web documentation checks, and live gate in the map.
 The release record uses v0.75.4 from this main release line and the project's release gates.
 
-## Open questions
+## Deferred credential ownership
 
 1. **OWNER DECISION — acceptance setup and borrowed-login renewal.**
    Recommendation: use a throwaway setup, a valid borrowed Codex snapshot, and an operator-managed native provider declaration.
    Pi refreshes only its temporary credential copy. Rotated credentials do not update the read-only host login.
    Accept snapshot-only borrowing for this release. Durable shared renewal needs a separate ownership contract.
-   No runed change or host credential write belongs in this draft.
+   No runed change or host credential write belongs in this bridge.
 
-Settled: keep pi's default context window; omit pi Stop while submission supplies the nudge; exclude the trip-computer page.
+Settled: keep pi's default context window; omit pi Stop while submission supplies the nudge.
 Settled (owner, 2026-11-08: "pi local is just a way to use it … we dont need to do anything special"): a local model is one of pi's native providers and gets no arizuko mechanism. The operator declares it like any provider and adds its host to `network_rules`; a model reachable only on host loopback is outside this spec.
 The pin is 1.4.0 from the supplied package, not a claim about the latest npm version.
 
@@ -746,4 +758,4 @@ These are files read for this revision. Static verification is not runtime accep
 
 No native import of Codex auth.json, CODEX_API_KEY, or CLAUDE_CODE_OAUTH_TOKEN is assumed.
 Searches covered unpacked coding-agent and pi-ai auth, provider, and runtime JavaScript, excluding bundles and source maps.
-The snapshot conversion and aliases are proposed ant work, with fixture and live gates.
+The snapshot conversion and aliases are implemented in ant with fixtures. Live acceptance remains deferred.

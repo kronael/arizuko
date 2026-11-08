@@ -52,7 +52,7 @@
       <ul>
         <li>A host with Docker.</li>
         <li>The build part of the <a href="../../howto/index.html#install">install</a>: the binary, the images and the guest kernel, with <code>DATA_DIR</code> set to the data directory of this instance. A turn is one KVM guest, so the host needs <code>/dev/kvm</code>.</li>
-        <li>Anthropic API access, <code>ANTHROPIC_API_KEY</code>.</li>
+        <li>A model credential for Claude Code, Codex or pi. See the <a href="../../concepts/ant.html">supported backends</a>.</li>
         <li>A Telegram bot token, <code>TELEGRAM_BOT_TOKEN</code>. The planner is a personal Telegram bot.</li>
         <li>Codex authentication for oracle: a host login, <code>CODEX_API_KEY</code>, or <code>OPENAI_API_KEY</code>. The host login reaches a folder that holds the <code>codex</code> grant; the trip manifest lists <code>CODEX_API_KEY</code> as an optional fallback.</li>
       </ul>
@@ -109,6 +109,12 @@ EOF</code></pre>
         <li>If oracle does not run, run <code>sudo journalctl -u arizuko_travel | grep -i codex</code>. A missing key shows there.</li>
       </ul>
 
+      <h2>Verify the checks and car research</h2>
+      <p>For a published trip, run the static checker over the site and the browser checker over its map links:</p>
+      <pre><code>python3 ~/.claude/skills/itinerary/scripts/trip_lint.py ~/public_html/TRIP
+python3 ~/.claude/skills/itinerary/scripts/link_check.py ~/public_html/TRIP/day*.html</code></pre>
+      <p>Inspect route geometry and the page at 390 px width separately. Recheck affected sources when a stop, date, route or venue changes.</p>
+      <p>Ask for a used-car comparison. May must clarify missing requirements and cite listing dates, specification sources, ownership costs and unknowns.</p>
       <h2>The preferences file is the main control</h2>
       <p>Edit the preferences file directly, or over WebDAV at <code>https://travel.example.com/dav/main/facts/preferences.md</code>. The next planning session uses the change, with no restart.</p>
       <p>To change the voice of May, edit <code>PERSONA.md</code>. To change the structure of the itinerary, the allowed tools or the citation rules, write the rules into a <code>CLAUDE.md</code> in the group.</p>

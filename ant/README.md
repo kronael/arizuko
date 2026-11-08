@@ -1,8 +1,8 @@
 # ant
 
-The agent runtime for arizuko. Wraps Claude Code (via
-`@anthropic-ai/claude-agent-sdk`), injects group identity + skills +
-memory, and exposes MCP tools over routd's unix socket.
+The agent runtime for arizuko. Supports Claude Code, Codex and pi with the
+same arizuko tools and explicit delivery. It supplies group identity, skills
+and memory, and exposes MCP tools over routd's unix socket.
 
 ## What it does
 
@@ -26,7 +26,7 @@ harness, reduce its message stream to frames (`ClaudeTurn`), report the
 turn over `submit_turn`. Only delivery tools send an answer; printed prose
 stays in the transcript. A nonempty `nudge` response resumes the same turn ID
 and continuity token before completion. Claude and Codex Stop hooks ask the
-same `check_turn` decision. Pi is refused until it has delivery tools.
+same `check_turn` decision. Pi uses the submission nudge through `submit_turn`.
 Model calls, tool execution, retries and
 session state are all the harness's, never ant's.
 
@@ -55,11 +55,15 @@ token each harness packs (claude a `sessionId#resumeAt` pair, codex its
 thread id); a result with `retryFresh` retries the turn fresh instead of
 delivering a resume-miss diagnostic. One file per harness — `claude.ts`
 (default), `codex.ts` (`codex exec --json`, MCP via `-c mcp_servers.*`),
-`pi.ts` (`pi -p --mode json`, native skills, no MCP client).
+`pi.ts` (`pi -p --mode json`, native skills and `builtin:mcp`).
 `ARIZUKO_BACKEND` selects; unknown values fail the turn loudly. Skills
 reach codex/pi through the load-time guard in `src/skills-scan.ts` — the
-same skillguard table, a different hook point. Extension recipe in
-`EXTENDING.md` § "Swapping the agent harness".
+same skillguard table, a different hook point.
+
+Any pi provider works, including a local model, through the operator's normal
+provider setup and a `network_rules` row for the provider host. Custom native
+configuration comes from a read-only mount at `/mnt/pi/models.json`.
+Extension recipe in `EXTENDING.md` § "Swapping the agent harness".
 
 - **`arizuko` core server** — socat bridge to `/run/ipc/gated.sock`,
   `alwaysLoad: true` so `send`/`reply`/`inspect_*`/`send_file` stay
@@ -137,7 +141,7 @@ every harness unchanged.
 | --- | --- | --- |
 | claude | `ANTHROPIC_BASE_URL` in the SDK subprocess env (`claudeEnv`) | sent as `ANTHROPIC_AUTH_TOKEN` |
 | codex | `-c model_provider=gateway` with `base_url=<url>/v1` and `wire_api="responses"`; codex rejects `chat` | `env_key=MODEL_GATEWAY_KEY`; with no key, `requires_openai_auth=true` sends codex's own ChatGPT bearer |
-| pi | `registerProvider` re-points `anthropic` at the URL and `openai` at `<url>/v1` (`src/pi-extension.ts:115`) | the key is a fallback pi uses only when no real credential is present |
+| pi | `registerProvider` re-points `anthropic` at the URL and `openai` at `<url>/v1` (`src/pi-extension.ts`) | the key is a fallback pi uses only when no real credential is present |
 
 ## The turn deadline
 
