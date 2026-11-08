@@ -26,6 +26,7 @@ import (
 
 	"github.com/kronael/arizuko/core"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
+	"github.com/kronael/arizuko/store"
 )
 
 // notArizukos are keys ant reads that arizuko does not own, each with the owner
@@ -100,6 +101,12 @@ func TestSpawnEnvCarriesEveryKeyAntReads(t *testing.T) {
 	}
 	req := runedv1.RunRequest{Harness: []byte(`{"backend":"codex"}`), ModelGatewayKey: "sk-virtual"}
 	env := turnEnv(cfg, req, 900000)
+	for k := range store.EnvProfileKeys {
+		t.Setenv(k, "fixture")
+	}
+	for k, v := range spawnSecrets(&core.Config{}, nil) {
+		env[k] = v
+	}
 
 	for _, key := range antEnvReads(t) {
 		if notArizukos[key] != "" {
@@ -143,5 +150,28 @@ func TestSpawnEnvEmitsNothingAntIgnores(t *testing.T) {
 		t.Errorf("the spawn emits %s and nothing in ant/src reads it — either ant lost the "+
 			"read (the key is now dead) or a non-ant consumer owns it, in which case name "+
 			"that consumer in consumedByOthers.", key)
+	}
+}
+
+// Credentials come from the same profile declaration that spawnSecrets reads.
+func TestSpawnSecretsCredentialContract(t *testing.T) {
+	for k := range store.EnvProfileKeys {
+		t.Setenv(k, "operator")
+	}
+	override := map[string]string{}
+	for k := range store.EnvProfileKeys {
+		override[k] = "user"
+	}
+	direct := spawnSecrets(&core.Config{}, override)
+	for k := range store.EnvProfileKeys {
+		if direct[k] != "user" {
+			t.Errorf("%s: user credential was not forwarded", k)
+		}
+	}
+	gateway := spawnSecrets(&core.Config{ModelGatewayURL: "http://gateway"}, override)
+	for k := range store.EnvProfileKeys {
+		if _, ok := gateway[k]; ok {
+			t.Errorf("%s: gateway retained model credential", k)
+		}
 	}
 }

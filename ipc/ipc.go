@@ -1269,7 +1269,7 @@ func buildMCPServer(routd RoutdFns, db StoreFns, folder string, isRoot bool, cal
 		return toolJSON(map[string]any{"ok": true, "delivered": n})
 	}
 
-	registerRaw("send", "Send a notification or a message to an explicit chat or group folder. Use `reply` for answers and `send_file` for files. Sends target the specified chat's main channel. `chatJid` `#issues` queues the text to the operator's issue-notice chats (no grant to them needed) and returns `delivered`, 0 when none is set. Returns the sent message's `id`. Use `<status>` and `TodoWrite` for live progress.",
+	registerRaw("send", "Send a notification or a message to an explicit chat or group folder. Each send to a group queues a turn in that group's session and workspace; include the return address in the text when an answer is needed. Group sends are not for progress reports. Use `reply` for answers and `send_file` for files. Sends to chats target the specified chat's main channel. `chatJid` `#issues` queues the text to the operator's issue-notice chats (no grant to them needed) and returns `delivered`, 0 when none is set. Returns the sent message's `id`. Use `<status>` and `TodoWrite` for live progress.",
 		[]mcp.ToolOption{
 			mcp.WithString("chatJid", mcp.Required()),
 			mcp.WithString("text", mcp.Required()),

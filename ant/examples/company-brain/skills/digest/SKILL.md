@@ -146,7 +146,9 @@ Append this run's row to `metrics.md`. `/diary` one entry: window,
 edited/sent counts, critique defects.
 Redo (same window): `window.py` with the same `--end` and a new `--out` —
 NEVER delete the old run dir — steps 1–4, then `--apply --redo`; the stored
-ids stay, the edit lands on the same message.
+ids stay, the edit lands on the same message. Only for a run that already
+posted: `window.py` refuses any other `--end`; a dead run is never redone at
+its END, the next run without `--end` covers it (`MISSED=1`).
 
 ## Weekly mode (`--week`)
 Same pipeline; START = END − 7d, RUN_ID `YYYY-WNN`, state

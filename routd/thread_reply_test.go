@@ -289,3 +289,33 @@ func TestDocumentThreadsOnTopic(t *testing.T) {
 		t.Fatalf("document threadID: got %+v, want th-9", dl.docs)
 	}
 }
+
+func TestDocumentThreadsOnTrigger(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	dl := &recDeliverer{}
+	srv := NewServer(db, nil, dl, nil, 0, "")
+	jid := "discord:g1/ch-1"
+	if err := db.SetChatIsGroup(jid, true); err != nil {
+		t.Fatal(err)
+	}
+	threadTurn(t, db, "t1", "demo", jid, "root-1")
+	foreign := "discord:g1/ch-2"
+	for _, dest := range []string{jid, foreign} {
+		if _, _, err := srv.mcpAppendDoc("t1", dest, "/tmp/report.pdf", "report.pdf", "", "", "", "file-"+dest); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(dl.docs) != 2 {
+		t.Fatalf("documents = %d, want 2", len(dl.docs))
+	}
+	if dl.docs[0].jid != jid || dl.docs[0].threadRoot != "root-1" {
+		t.Errorf("own chat document = %+v, want thread root root-1", dl.docs[0])
+	}
+	if dl.docs[1].jid != foreign || dl.docs[1].threadRoot != "" || dl.docs[1].threadID != "" {
+		t.Errorf("foreign chat document = %+v, want unthreaded", dl.docs[1])
+	}
+}

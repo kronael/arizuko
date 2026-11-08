@@ -78,10 +78,9 @@ export function bindings(ctx: PolicyContext, send: typeof submitStatus = submitS
     // A skill the agent writes today runs in its NEXT session. Scans the file the
     // write would PRODUCE, not the fragment it carries (BUGS J9).
     { id: 'skill-guard', event: 'PreToolUse', matcher: 'Write|Edit|MultiEdit', returns: ['deny'], run: async (ev) => skillGuard(ev) },
-    // claude-only because it returns 'rewrite', which codex and pi cannot honour
-    // — NOT because they hold no credential. readSecrets ships every
+    // Codex cannot render this rewrite. readSecrets ships every
     // store.EnvProfileKeys value into the container on every backend, so this row
-    // being dropped leaves them readable from those agents' shells (BUGS L131).
+    // being dropped leaves them readable from codex shells (BUGS L131).
     { id: 'bash-scrub', event: 'PreToolUse', matcher: 'Bash', returns: ['rewrite'], run: async (ev) => bashScrub(ev) },
     // Refuses the GitHub writes a folder must not make once it holds a shell
     // credential. 'deny' rather than 'rewrite', so unlike bash-scrub above this

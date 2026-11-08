@@ -40,6 +40,44 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   Explicit `admin` writes an ACL row. Grant listings show stored rows and
   memberships without release defaults.
 
+## [v0.75.4] — 2026-11-08
+
+> arizuko v0.75.4 — thread delivery, pi and research tools
+>
+> Replies count in Discord threads, file and delegated answers keep their thread, and pi supports the same tools and delivery.
+>
+> • Delivery — Discord thread replies count as answers and avoid a false delivery nudge.
+> • Threads — file answers follow the trigger. Delegated replies follow their target message.
+> • Codex and digests — unreachable model hosts end the turn. Stale digest windows are refused.
+> • Delegation — tool guidance reserves escalation for work that needs the parent.
+> • pi — a supported backend with the same tools and delivery, using normal provider setup.
+> • Products — estate research adds pasture and site checks. Trip plans add checks and car research.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Fixed
+
+- L716: a reply to a Discord thread's own JID counts as the turn's delivery.
+- L717: Codex ends repeated network-wait errors; any other event resets the error count.
+- L718: digest recovery refuses an end time that differs from the posted run's end.
+- L719: file answers join or start the thread of the triggering message.
+- L720: delegated and escalated replies use the target message for thread placement.
+- L721: delegation and escalation guidance explains that each call starts a turn.
+
+### Added
+
+- pi uses the shared MCP tools, explicit delivery, native providers and existing credentials.
+- CZ Estate Agent adds listing research, pasture expansion, financing and output checks.
+- Estate research adds zoning history, building costs, municipality and source review methods.
+- Trip computer adds site and map-link checks, shared page assets and used-car research.
+
+### Operator note
+
+Any pi provider works, including a local model. Use the operator's normal pi
+provider setup and a `network_rules` row for the provider host.
+Pi image smoke and live acceptance remain deferred. L721 still needs live
+verification after deployment; the guidance does not enforce a turn limit.
+
 ## [v0.75.3] — 2026-11-06
 
 > arizuko v0.75.3 — one Discord token, safer installs, closed grant holes

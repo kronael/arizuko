@@ -49,15 +49,14 @@
 
 
       <p class="lede">
-        State the brief once. May researches, synthesises, and delivers a
-        day-by-day itinerary with logistics, visa, budget, and packing.
-        Preferences persist across every future trip.
+        Turn a travel brief into a checked day-by-day plan. May keeps your
+        preferences and researches routes, places, logistics and car choices.
       </p>
 
       <p>May is an agent for one user, with your travel profile and your past trips. The template is in <code>ant/examples/trip-computer/</code>.</p>
 
       <h2>The persona tells May to ask before she researches</h2>
-      <p>The persona tells May to cite sources in the text, for example "per the Japan visa gov page" or "per Lonely Planet &sect;Kyoto". It tells her to ask about the dates, the budget and the travel style before the research, and to start the plan only when these are clear. It tells her not to invent visa rules, prices or opening hours, but to check them or say that she is not sure. The output is a day-by-day schedule, a logistics block, a budget estimate and a packing list.</p>
+      <p>The persona tells May to keep sources once at the end of the plan. Each fact keeps its source in the data rows. It tells her to ask about the dates, the budget and the travel style before the research, and to start the plan only when these are clear. It tells her not to invent visa rules, prices or opening hours, but to check them or say that she is not sure. The output is a day-by-day schedule, a logistics block, a budget estimate and a packing list.</p>
 
       <h2>Six parts make the planner</h2>
       <dl>
@@ -107,8 +106,11 @@
       <h2>The planner is a single-user shape</h2>
       <p>The <a href="../reality/">reality agent</a> has the same single-user shape for life context instead of travel. The <a href="../shapes.html#supermarket">supermarket agent</a> has a shared folder and no memory. The team shapes start at <a href="../slack-team/">slack-team</a>.</p>
 
-      <h2>The product lists five skills</h2>
+      <h2>The skills research and check the plan</h2>
       <dl>
+        <dt><code>itinerary</code></dt><dd>Builds day pages from sourced place rows. Static checks cover links, navigation, page structure, map URLs and meal lines. Browser checks cover map links and routes.</dd>
+        <dt><code>weather</code></dt><dd>Checks the forecast and its uncertainty for the travel dates.</dd>
+        <dt><code>find-car</code></dt><dd>Compares used cars, current listings, verified specifications and ownership costs against your requirements.</dd>
         <dt><code>web</code></dt><dd>Live search for visa rules, transport and current prices.</dd>
         <dt><code>oracle</code></dt><dd>Combines the sources into one plan using a Codex login or API key.</dd>
         <dt><code>recall-memories</code> and <code>find</code></dt><dd>Read the preferences and find past trips.</dd>
@@ -118,16 +120,19 @@
       <h2>Telegram is the main channel</h2>
       <p>Telegram fits a personal planner for one user. WhatsApp works for users without Telegram. The asymmetric pattern of the reality agent also works here: route WhatsApp to <code>?observe</code>, and May brings the relevant messages into the Telegram chat. The <a href="../reality/#case-study">reality agent case study</a> shows the route table.</p>
 
-      <h2>Files stay on your server and model calls go to Anthropic</h2>
+      <h2>Files stay on your server</h2>
       <dl>
         <dt>Your server</dt>
         <dd>The preferences, the trip archive and the diary are files under <code>/srv/data/arizuko_&lt;name&gt;/groups/</code>. The conversation history is on the store server of the instance.</dd>
         <dt>Outbound paths</dt>
-        <dd>Telegram for the bot, Anthropic for model calls, and oracle through a Codex login or API key. Web research goes through <a href="../../components/egress.html">egress</a>, and you allow the domains that May can reach.</dd>
+        <dd>Telegram for the bot, your selected Claude Code, Codex or pi provider for model calls, and oracle through a Codex login or API key. Web research goes through <a href="../../components/egress.html">egress</a>, and you allow the domains that May can reach.</dd>
         <dt>One user</dt>
         <dd>The deployment is personal, so no per-user memory files exist. The traveller profile is the whole of <code>facts/preferences.md</code>.</dd>
       </dl>
 
+      <h2>Checks follow changes to the trip</h2>
+      <p>Before delivery, May runs <code>trip_lint.py</code> over the site and <code>link_check.py</code> over day-page map links. The package supplies shared page assets.</p>
+      <p>A changed stop, date, route or venue requires new source and route checks. Static checks cannot verify source truth or route geometry.</p>
       <h2>A package selection installs Telegram</h2>
       <pre><code>arizuko create -i travel --product trip-computer
 $EDITOR /srv/data/arizuko_travel/.env    # TELEGRAM_BOT_TOKEN, CODEX_API_KEY, a model key
@@ -154,7 +159,7 @@ arizuko route -i travel add 'platform=telegram' main</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/trip-computer/index.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-11-04">2026-11-04</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-07">2026-11-07</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

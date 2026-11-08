@@ -258,3 +258,33 @@ test('codexArgs: a gateway without a key sends codex\'s own bearer', () => {
   expect(args).toContain('model_providers.gateway.requires_openai_auth=true');
   expect(args.join(' ')).not.toContain('env_key');
 });
+
+// Recorded 2026-11-08, codex-cli 0.167.0, HTTPS_PROXY answering every CONNECT 403:
+// after the 5 stream retries and the websocket fallback codex loops on
+// "waiting for network" until killed (BUGS L717).
+test('CodexTurn: a refused model host ends the turn with a failure naming the host', () => {
+  const turn = new CodexTurn('api.openai.com or chatgpt.com');
+  const waiting = { type: 'error', message: 'Reconnecting... waiting for network (Connection failed: error sending request)' };
+  const frames = play(turn, [
+    { type: 'thread.started', thread_id: 't1' },
+    { type: 'turn.started' },
+    { type: 'error', message: 'Reconnecting... 5/5 (stream disconnected before completion: URL error: Proxy connection failed: HTTP CONNECT failed with status 403)' },
+    waiting, waiting, waiting,
+  ]);
+  const result = frames.at(-1) as Extract<Frame, { kind: 'result' }>;
+  expect(result.ok).toBe(false);
+  expect(result.text).toContain('api.openai.com');
+  expect(turn.done).toBe(true);
+});
+
+test('CodexTurn: any event between waiting events resets the count', () => {
+  const turn = new CodexTurn();
+  const waiting = { type: 'error', message: 'Reconnecting... waiting for network (x)' };
+  const frames = play(turn, [
+    waiting, waiting,
+    { type: 'item.completed', item: { id: 'i', type: 'command_execution', command: 'ls' } },
+    waiting, waiting,
+  ]);
+  expect(turn.done).toBe(false);
+  expect(frames.some((f) => f.kind === 'result')).toBe(false);
+});

@@ -7,6 +7,7 @@ description: Advanced weather forecasts using official meteorological sources vi
 
 **Any country:** the national meteorological institute is the most accurate
 source. A new region needs fresh research: find its institute first.
+For Portugal, start with IPMA; use a marine forecast for coastal wind and waves.
 
 **Europe (general):**
 - **yr.no** — free, accurate, ECMWF model

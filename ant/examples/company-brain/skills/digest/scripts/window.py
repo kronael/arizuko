@@ -8,6 +8,8 @@ the next one (MISSED=1).
 PREV = run dir of the last posted run (state.posted_run) or the newest
 earlier run with combined.md; empty means use the previous posted
 blocks (state slots) as the baseline.
+--end is only for a redo: it must repeat the posted run's END
+(state.last_end). A dead run is never redone at its END; run without --end.
 """
 import datetime as dt
 import json
@@ -38,6 +40,15 @@ def load_state(state_path):
     return prev, state.get("last_end")
 
 
+def refuse(end_opt, last_end):
+    return (
+        f"window.py: --end {end_opt} is not the posted run's END "
+        f"(state last_end: {last_end}). --end redoes a run that already "
+        "posted; a run that died is covered by the next one: run without "
+        "--end (START = state.last_end, MISSED=1)."
+    )
+
+
 def main():
     args = sys.argv[1:]
     week = "--week" in args
@@ -54,12 +65,16 @@ def main():
     state_path = get_opt(args, "--state") or os.path.join(
         HOME, default_state_name
     )
+    if end_opt and not os.path.exists(state_path):
+        sys.exit(refuse(end_opt, None))
     run_id = end.strftime("%G-W%V") if week else end.strftime("%Y%m%d")
     start = end - span
     missed = 0
     prev = ""
     if os.path.exists(state_path):
         prev, last_end = load_state(state_path)
+        if end_opt and last_end != to_iso(end):
+            sys.exit(refuse(end_opt, last_end))
         if last_end and last_end < to_iso(start):
             start = dt.datetime.fromisoformat(last_end.replace("Z", "+00:00"))
             missed = 1

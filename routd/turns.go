@@ -54,11 +54,27 @@ func lockTurn(turnID string) func() {
 const deliverNudge = "[deliver] You were addressed and delivered nothing. Call reply now (a like counts)."
 
 func (s *Server) turnDelivered(tc TurnContext) (bool, error) {
-	if s.db.TurnHasBotReply(returnTarget(tc, tc.ChatJID), tc.TurnID) {
+	target := returnTarget(tc, tc.ChatJID)
+	if s.db.TurnHasBotReply(target, tc.TurnID) {
+		return true, nil
+	}
+	if tj := discordThreadJID(target, tc.Topic); tj != "" && s.db.TurnHasBotReply(tj, tc.TurnID) {
 		return true, nil
 	}
 	return audit.HasSuccessfulTurnAction(context.Background(), s.db.Obj(), tc.TurnID, tc.Folder, tc.StartedAt,
 		"message.like", "message.dislike", "message.edit", "message.delete", "message.pin", "message.unpin")
+}
+
+// discordThreadJID is the thread's own JID for a Discord turn whose topic is a
+// thread id: discd places a thread under its parent channel's JID with the
+// thread id as topic, while the agent replies to `discord:<guild>/<thread>`
+// (discd/bot.go chatAndTopic). Empty for any other turn.
+func discordThreadJID(jid, topic string) string {
+	guild, _, ok := strings.Cut(jid, "/")
+	if !ok || topic == "" || !strings.HasPrefix(guild, "discord:") {
+		return ""
+	}
+	return guild + "/" + topic
 }
 
 // callbackClosed reports whether a turn's outbound surface is closed: only

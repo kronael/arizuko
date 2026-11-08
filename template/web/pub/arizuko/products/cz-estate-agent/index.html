@@ -45,12 +45,28 @@
     <main class="docs-content">
       <p class="docs-crumb"><a href="../../">arizuko</a> &rsaquo; <a href="../">products</a> &rsaquo; CZ Estate Agent</p>
       <h1>CZ Estate Agent</h1>
-      <p class="lede">A Czech real-estate research agent that checks the cadastre, the zoning plan and the listing against each other.</p>
-      <p>Four skills do the work. <code>katastr</code> inspects one property in the cadastre. <code>parcel-open-data</code> reads open CUZK services and zoning plans. <code>property-valuation</code> values a property by components with cited comparables. <code>obec-profile</code> profiles a municipality when a zoning change matters. The persona in <code>group/PERSONA.md</code> refuses to infer a parcel from an area or to call land buildable from its land type.</p>
-      <p>The skill checks the territory and parcel number on the detail page. It records visible property details, source URL and observation time. Hidden ownership or rights remain unverified.</p>
-      <h2>The lookup uses a controlled browser</h2>
-      <p>The guest browser reaches CUZK through a host SOCKS relay. The skill keeps a quota ledger and stops for a CAPTCHA, login or service refusal. It does not perform bulk downloads.</p>
-      <p>Follow the <a href="setup.html">setup guide</a> to install the package and configure the relay.</p>
+      <p class="lede">Check whether an estate fits your search, especially Czech properties for stables and pasture.</p>
+      <p>The agent checks the cadastre, zoning plans and listings against each other. It records sources, dates and unknowns in the group's files.</p>
+      <h2>One search brief guides the research</h2>
+      <p>The <code>listing-research</code> skill reads the criteria in <code>~/estate/site.json</code>. Location, buildings, pasture and access belong to that group.</p>
+      <p>The package supplies listing research, parcel checks, valuations, municipality profiles, financing calculations and a generated property site. The site checker checks numeric tables, headings and valuation placement before delivery. It does not verify the sources.</p>
+      <h2>Two uses demonstrate the same package</h2>
+      <dl>
+        <dt>Czech estates for stables</dt>
+        <dd>Compare buildings, existing pasture and nearby land against the brief. Check parcel identity, access, zoning and possible pasture expansion separately. Adjacent land does not prove availability.</dd>
+        <dt>A local Portugal search</dt>
+        <dd>Use the listing research and site tools with the group's own criteria and local sources. Keep this variation in the group. Czech cadastral tools apply only to Czech properties.</dd>
+      </dl>
+      <h2>The agent separates evidence from assumptions</h2>
+      <p>The agent asks which property and goal to research. It does not infer a parcel from its area or call land buildable from its land type. Hidden ownership and rights remain unverified.</p>
+      <p>The cadastral lookup uses a controlled browser through a host SOCKS relay. The skill keeps a quota ledger and stops for a CAPTCHA, login or service refusal.</p>
+      <h2>Chat starts the search and the site keeps the results</h2>
+      <p>A personal or shared chat can carry the brief. The group keeps the listing table and property pages on your server.</p>
+      <pre><code>user    Find estates for stables with adjacent pasture.
+agent   Which search area, land requirements and budget should I use?
+user    Use the criteria in our search brief.
+agent   I will compare listings and record the evidence and unknowns.</code></pre>
+      <p>Follow the <a href="setup.html">setup guide</a> to install the package and configure its sources.</p>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/cz-estate-agent/index.html">Edit this page</a>
         &middot; updated <time class="docs-updated" datetime="2026-11-04">2026-11-04</time>

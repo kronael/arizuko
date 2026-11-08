@@ -141,18 +141,15 @@ action, not a management entity, so no resreg resource.
 
 ### Day one, per harness
 
-| Harness | Delivery tools                                   | Early self-correction                                                                                                     | Enforcement                                                                                                                                                              |
-| ------- | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| claude  | MCP (`ant/src/claude.ts:522` `mcpServers`)       | `Stop` binding in `ant/src/policy.ts`, rendered as the SDK hook; ships only if §"Unverified" row 1 measures that it fires | `submit_turn` response round                                                                                                                                             |
-| codex   | MCP (`-c mcp_servers.*`, `ant/src/codex.ts:299`) | the same binding written to `hooks.json` by `codexHooksConfig` (`ant/src/codex.ts:260`); ships only if row 2 measures     | `submit_turn` response round                                                                                                                                             |
-| pi      | none (`ant/src/pi.ts:216` `tools: 'none'`)       | none                                                                                                                      | **refused**: `selectHarness` throws for a profile with no delivery tool, the same shape as `runnableBy` (`ant/src/policy.ts:106`) refusing a row a harness cannot honour |
+| Harness | Delivery tools                                     | Early self-correction                                                                                                     | Enforcement                  |
+| ------- | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- | ---------------------------- |
+| claude  | MCP (`ant/src/claude.ts:522` `mcpServers`)         | `Stop` binding in `ant/src/policy.ts`, rendered as the SDK hook; ships only if §"Unverified" row 1 measures that it fires | `submit_turn` response round |
+| codex   | MCP (`-c mcp_servers.*`, `ant/src/codex.ts:299`)   | the same binding written to `hooks.json` by `codexHooksConfig` (`ant/src/codex.ts:260`); ships only if row 2 measures     | `submit_turn` response round |
+| pi      | MCP (`ant/src/pi.ts` `piMcpConfig`, `builtin:mcp`) | none; delivery uses submission                                                                                            | `submit_turn` response round |
 
-pi cannot satisfy a contract whose only door is a tool it does not have. No
-instance runs it (`/srv/data/arizuko_krons/.env` and
-`/srv/data/arizuko_sloth/.env` carry no `ARIZUKO_BACKEND`; the default is claude, `ant/src/backend.ts:119`). The lift
-is a `tools: 'bridged'` profile — `pi.registerTool` over the socket's
-`tools/list` — and is its own spec; until then a loud refusal beats a harness
-whose every addressed turn ends in a notice.
+Pi uses the same delivery tools over `gated.sock`. Submission supplies its one
+nudge round. Image smoke and live acceptance remain deferred in
+`../7/60-pi-bridge.md`.
 
 ## The nudge
 
@@ -188,7 +185,7 @@ with the nudge as its reason when one comes back, else `allow`. `PolicyEvent`
 | ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `claudeHooks` (`ant/src/claude.ts:275`)     | `{ decision: 'block', reason }` (`ant/node_modules/@anthropic-ai/claude-agent-sdk/sdk.d.ts:9130`); the model continues with the reason as its next input |
 | `codexHooksConfig` (`ant/src/codex.ts:260`) | a `Stop` entry in `hooks.json` running `policy-cli Stop <turnID>`                                                                                        |
-| `pi-extension.ts`                           | not rendered; the row is logged as unrunnable, as today for `rewrite`                                                                                    |
+| `pi-extension.ts`                           | not rendered; the diagnostic states that delivery uses submission                                                                                        |
 
 The hook holds no predicate of its own: it does not count delivery tool calls
 it saw, because that would be a second declaration of **delivered** and would
@@ -260,8 +257,8 @@ in place where the channel can edit, nothing elsewhere. routd's second reader
 (`routd/turns.go:65`) goes with the prose path, so the `L438` shape cannot
 return; no third reader is added. The `TodoWrite` hook
 (`../5/24-live-tasklist-status.md`) is unchanged.
-A `status` tool was declined (§"Declined"): pi has no tools, and a second
-interim path beside the block is the drift `L438` already cost.
+A `status` tool was declined (§"Declined"): a second interim path beside the
+block is the drift `L438` already cost.
 
 The final text is a `reply`; a progress message is never the answer
 (`5/24-live-tasklist-status.md` §"Design", the `verb=status` exclusion).
@@ -324,7 +321,7 @@ existing turn context (`addressed`, `nudged`), owned by routd like
 | the door refuses each format row; mutate the literal and the test goes red                                                                                                       | `ipc/ipc_test.go`                                                                 |
 | a nudge round keeps the turn id and the continuity token                                                                                                                         | `ant/src/index.test.ts`                                                           |
 | a `Stop` row renders to `block` on claude, to `hooks.json` on codex, to a log line on pi                                                                                         | `ant/src/claude.test.ts`, `codex.test.ts`, `pi-extension.test.ts`                 |
-| pi is refused by name                                                                                                                                                            | `ant/src/backend.test.ts`                                                         |
+| pi is selected with an MCP tools profile                                                                                                                                         | `ant/src/backend.test.ts`                                                         |
 | an addressed web turn answers                                                                                                                                                    | `anteval` `rest-roundtrip` (`anteval/cases/anteval.toml:228`), unchanged          |
 | live on sloth: the `L445` comment repeated posts nothing and logs silent-by-design; a mentioned comment answers; a turn told to print its answer is nudged once and then answers | the diary of the deploy, with comment ids and journal lines                       |
 

@@ -101,3 +101,38 @@ func TestTurnDeliveredLooksInTheReturnChat(t *testing.T) {
 		t.Fatalf("turnDelivered = %v, %v; the reply sits in %s", delivered, err, nemoChat)
 	}
 }
+
+// A Discord turn runs on the parent channel with the thread id as topic, and
+// the agent replies to the thread's own JID: that reply is the turn's. A reply
+// to another thread or an unrelated chat is not.
+func TestTurnDeliveredCountsDiscordThreadReply(t *testing.T) {
+	const parent = "discord:g/chan"
+	for _, test := range []struct {
+		name, replyJID string
+		want           bool
+	}{
+		{"thread", "discord:g/th1", true},
+		{"other-thread", "discord:g/th2", false},
+		{"other-chat", "discord:g/elsewhere", false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			db, err := OpenMem()
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { db.Close() })
+			srv := NewServer(db, nil, &recDeliverer{}, nil, 0, "")
+			if _, err := db.PutTurnContext("t-1", "a/b", "th1", parent, "u1", ""); err != nil {
+				t.Fatal(err)
+			}
+			if err := db.PutMessage(core.Message{ID: "out-1", ChatJID: test.replyJID, Sender: "a/b", Content: "hi",
+				Timestamp: time.Now().UTC(), BotMsg: true, FromMe: true, TurnID: "t-1"}); err != nil {
+				t.Fatal(err)
+			}
+			tc, _ := db.GetTurnContext("t-1")
+			if got, err := srv.turnDelivered(tc); err != nil || got != test.want {
+				t.Fatalf("turnDelivered = %v, %v; want %v", got, err, test.want)
+			}
+		})
+	}
+}

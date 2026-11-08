@@ -61,8 +61,12 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">concepts</a> &rsaquo; the ant</p>
 <h1>ant</h1>
 
-    <p class="lede">An ant is the agent you talk to: one Claude Code process in its own KVM guest. Each group has one ant, and the folder of the group on disk is the ant. The diary, the skills and <code>PERSONA.md</code> are files in that folder.</p>
+    <p class="lede">An ant is the agent you talk to: Claude Code, Codex or pi in its own KVM guest. Each group has one ant, and the folder of the group on disk is the ant. The diary, the skills and <code>PERSONA.md</code> are files in that folder.</p>
 
+    <h2>Three supported backends use the same tools and delivery</h2>
+    <p>Set <code>ARIZUKO_BACKEND=claude</code>, <code>codex</code> or <code>pi</code> in the instance <code>.env</code>. Each backend receives the same arizuko tools and delivers through explicit tools such as <code>reply</code>.</p>
+    <p>Any pi provider works, including a local model. Use the operator's normal pi provider setup and add the provider host to <code>network_rules</code>.</p>
+    <p>Custom pi provider configuration uses a read-only <code>models.json</code> mount at <code>/mnt/pi/models.json</code>. See <a href="../components/egress.html">egress</a> for the network rules.</p>
     <h2>The folder is the agent</h2>
     <p>Every group lives at <code>/srv/data/arizuko_&lt;instance&gt;/groups/&lt;folder&gt;/</code> on the host. When a message arrives, <code>runed</code> starts a guest and mounts that folder at <code>/home/node/</code> inside the guest. The agent sees what is in the folder:</p>
     <pre><code>groups/solo/inbox/
@@ -139,7 +143,7 @@ ant    hooks/prompt_context.py, UserPromptSubmit ► additionalContext
     <p>The depth of a folder says nothing about what its ant can do. <code>solo/inbox</code> and <code>corp/eng/sre/oncall</code> start with the same rights: the <code>role:member</code> role. Every folder gets this role at creation, and it carries the messaging verbs and nothing more. Every other right is a row that a principal gave to the folder for a subtree. Examples are the rights to register groups, edit routes, open egress or schedule tasks. If an ant has no row for a tool, the ant does not see the tool at all.</p>
 
     <h2>The agent calls tools over one socket</h2>
-    <p>The agent calls MCP tools, such as <code>send</code> or <code>find_messages</code>, over a unix socket. <code>routd</code> hosts one socket per group at <code>ipc/&lt;folder&gt;/gated.sock</code> on the host. For each turn, <code>runed</code> runs a small bridge that accepts the vsock connection of the guest and connects it to that socket. Inside the guest, the <code>mcpServers</code> config of Claude Code points at a local path. Every tool call is a JSON-RPC message over that socket. <code>routd</code> runs the same grant check on it as on a call to the matching REST endpoint.</p>
+    <p>The agent calls MCP tools, such as <code>send</code> or <code>find_messages</code>, over a unix socket. <code>routd</code> hosts one socket per group at <code>ipc/&lt;folder&gt;/gated.sock</code> on the host. For each turn, <code>runed</code> runs a small bridge that accepts the vsock connection of the guest and connects it to that socket. Inside the guest, the MCP configuration of Claude Code, Codex or pi points at a local path. Every tool call is a JSON-RPC message over that socket. <code>routd</code> runs the same grant check on it as on a call to the matching REST endpoint.</p>
 
     <h2>Selected packages supply the next turn</h2>
     <p>Startup installs the release's core package. <code>arizuko package sync</code> updates selected package sources. The turn renderer mounts their skills, native hooks, tools and combined manual read-only; custom group skills stay writable. Package updates need no agent migration turn.</p>
@@ -166,7 +170,7 @@ ant    hooks/prompt_context.py, UserPromptSubmit ► additionalContext
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/concepts/ant.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-11-04">2026-11-04</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-06">2026-11-06</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

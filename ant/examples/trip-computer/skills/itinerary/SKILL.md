@@ -13,6 +13,10 @@ user-invocable: true
 
 # Itinerary
 
+A finished day page starts with decision cards for the available routes. Each card gives distance, time and suitability and opens its route. Verify named stops and marked paths in a browser. Record photos, ratings, review counts and recent reviews separately for each source; mark missing evidence as unknown.
+
+After a stop, date, route, venue or timing changes, recheck the affected sources, route and page. Run the static and browser checks in `guides/checks.md` before delivery.
+
 One trip = `~/workspace/trips/<trip>/` (`db/` tables, `CLAUDE.md` with
 decisions and vetoes) + `~/public_html/<trip>/` (pages). A place is on a
 page only as a copy of a `db/` row that has a source. Page markup and
@@ -26,7 +30,7 @@ style are not here: `guides/web-deployment.md`.
 | 1 Ask | what `<trip>/CLAUDE.md` and `~/users/` do not answer: pace, interests, budget, food, child age and gear, car, dates, start time — one chat message, 3–4 questions | — |
 | 2 Enrich | for the rows a day uses: hours ON the date, prices, ratings per platform, phone, address, place links per kind, car-park fields, weather (`/weather`), story via `/find` | `guides/census.md` § Row, `guides/mapy-links.md`, `guides/pages.md` § Story |
 | 3 Build | trip type per stop, timeline, arrival block, variants, loops, meal items, routes via `mapyrc.py` | `guides/pages.md`, `guides/mapy-links.md` |
-| 4 Check | `page_check.py` exit 0 (its output goes in the delivery), venue fields, trail facts, live 200 | `guides/checks.md` |
+| 4 Check | `trip_lint.py` exit 0, browser link and route checks, venue fields, trail facts, live 200 | `guides/checks.md` |
 
 Round 0 runs before the first suggestion. Rounds 2–4 repeat on every
 rebuild. A change on the day (start time, closure, rain, a sleeping
@@ -135,7 +139,7 @@ drive-up or on-the-way. The type and the minutes open the stop's text
 - Put planning notes ("why this route works"), host or tool names, or an
   agent's name on a user-facing page. Cost: a weather box
   listed five refused APIs; a source note named the agent's model.
-- Deliver while `page_check.py` fails.
+- Deliver while `trip_lint.py` fails or a required browser check is unresolved.
 - Treat "book in advance" as a reason to drop a place.
 - Re-propose a vetoed or already visited place.
 

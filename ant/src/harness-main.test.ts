@@ -21,7 +21,7 @@ test('invalid harness submits terminal failure before any adapter', async () => 
 });
 
 test('harness document replaces all defaults at the adapter', async () => {
- for (const backend of ['claude', 'codex']) {
+ for (const backend of ['claude', 'codex', 'pi']) {
   const result = await run(JSON.stringify({backend}));
   expect(result.code).toBe(0); expect(result.output).toContain(`ADAPTER {"name":"${backend}"}`);
  }

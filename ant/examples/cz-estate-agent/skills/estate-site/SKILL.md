@@ -26,7 +26,7 @@ The site is a generated index plus hand-written pages. The package owns the gene
 `| ID | Place | URL | Price | Area m² | Minutes | First seen | Verified | Status |`.
 A status with `staženo`, `prodáno`, `neaktivní` or `vyřazeno` removes the row from the site. `★` in the status marks a priority. `nové` marks a new row.
 
-`site.json` holds only what differs from the defaults: `title`, `lang`, `intro`, `db`, `site`, `links` (cards under "more"), `limits` (the colour thresholds: `minutes_green`, `minutes_yellow`, `area_green`, `price_red`) and `labels` (every fixed text, default Czech). The default `db` and `site` paths are in the table above.
+`site.json` holds only what differs from the defaults: `title`, `lang`, `intro`, `db`, `site`, `links` (cards under "more"), `limits` (the colour thresholds: `minutes_green`, `minutes_yellow`, `area_green`, `price_red`), `labels` (every fixed text, default Czech), and `criteria` (the group's listing research brief). The default `db` and `site` paths are in the table above. The listing workflow reads `criteria`; the renderer does not score it.
 
 ## Build
 
@@ -38,15 +38,23 @@ curl -sI "https://$WEB_HOST/pub/$ARIZUKO_GROUP_FOLDER/" | head -1
 ALWAYS build after every `db.md` or page change, and at the end of every scan. ALWAYS check that the URL returns 200 before you announce it.
 NEVER edit `index.html`: the next build overwrites it. Change content in `db.md`, `site.json` or a page.
 
+Before delivery, check the index and every changed HTML page:
+
+```sh
+python3 ~/.claude/skills/estate-site/scripts/check_format.py --config ~/estate/site.json ~/public_html/index.html ~/public_html/oceneni/place.html
+```
+
+The check covers numeric tables, headings, valuation placement and colour/dot consistency. It does not verify sources or replace a browser check.
+
 ## Pages
 
 ```sh
 python3 ~/.claude/skills/estate-site/scripts/gen_site.py new oceneni/place "Place (ID 9)" --listing 9
 ```
 
-`new` writes a skeleton that links `estate.css` and `local.css` with the right relative path, and refuses to overwrite a file. Fill the body from `components/parts.html`: the `.big` verdict, `.tbl` and `.stack` tables, `.warn`.
-A page with `<meta name="listing" content="ID">` appears in the "valuations" section of the index. The card shows that page's first `.big` text and the date in its `.nav` line. The newest page for an ID wins.
-Give every table a `.tbl` wrapper. Give a table of 4 or more text columns `class="stack"` and a `data-label` on each cell except the first.
+`new` writes a skeleton that links `estate.css` and `local.css` with the right relative path, and refuses to overwrite a file. Fill the body from `components/parts.html`: the `.big` verdict, numeric tables and `.warn`.
+A page with `<meta name="listing" content="ID">` links from its active listing card. The newest page for an ID wins.
+Use numbered points for prose. Give numeric tables a `.tbl` wrapper, one label column and at most two numeric columns with class `n`.
 ALWAYS check a new page at 390 px width: `document.documentElement.scrollWidth` must not exceed the viewport.
 
 ## Look

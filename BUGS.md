@@ -15,6 +15,7 @@
 
 ## What needs you
 
+- `L721` — group handoffs bounced for an hour; verify bounded turns after deployment with group sends and progress guidance.
 - `L743` — an instance-wide model pause needs trusted host-side provider evidence; proposal, needs sign-off.
 
 - `L715` — A1/A2: trusted GitHub sender and source-owner binding; proposal, needs sign-off.
@@ -451,6 +452,31 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
   `CheckGrant` with the issuer's policy (`routd/agent_gate.go:26`,
   `routd/acl_resource.go:152`). `isolateElevated` confines the elevated batch
   to the issuer's message (`routd/dispatch.go`).
+
+## L721 — delegate and escalate turns bounce between root `sloth` and `sloth/discord` for an hour (2026-11-08, open)
+
+MEASURED 2026-11-08 on sloth from the journal: after kronael's 14:49 request
+("look back and finish all interrupted sessions"), root `sloth` ran 14 turns with
+`trigger` `escalate` between 15:30:03 and 16:33:21, each 56–423 s, while
+`sloth/discord` ran delegate turns between them (`delegating to child` /
+`escalating to parent` log pairs, e.g. 16:11:31 → 16:13:53 → 16:13:55). Single
+turns read 11–18 M input tokens (`agent self-reported model usage`: `sloth`
+17,933,209 at 16:13:08; `sloth/discord` 11,816,050 at 16:14:02). With
+`MAX_CONCURRENT_CONTAINERS=2` these turns hold both slots. The child's escalations
+were progress reports (rollout: `escalate_group({… prompt:"Progress: …"})`).
+
+- **Severity:** high — one request costs about an hour of both slots and tens of
+  millions of tokens, and user turns wait behind it.
+- **Status:** open — the child sent progress via `escalate_group`, which queues a
+  parent turn for every call; the parent then issued further delegations. The tool
+  descriptions did not state that each call starts a turn or direct progress to
+  `<status>`/`TodoWrite`. Delegated replies return to the caller's `chatJid`.
+- **Test:** a child that reports progress while working does not start a parent
+  turn per report; one request with a delegation ends in a bounded number of turns.
+
+The current tools use `send` for group handoffs. Each group send queues a turn;
+the description directs progress to `<status>` and `TodoWrite`. Live verification
+of bounded handoffs remains open.
 
 ## L540 — dashd's grant form and `POST /v1/acl` write rows without `auth.Delegate` (2026-10-23, open — needs sign-off)
 

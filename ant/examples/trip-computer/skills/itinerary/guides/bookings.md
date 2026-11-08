@@ -26,3 +26,5 @@ Search: GetYourGuide, Viator, provider websites
 - Extract: price, duration, included, cancellation, rating
 
 Format: `Activity | Provider | Price | Duration | Included | Rating`
+
+Check the booking terms and total price for the requested dates. For a rental car, verify pickup and return times, mileage, insurance excess and driver requirements. Record the source and date; mark missing terms as unconfirmed.

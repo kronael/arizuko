@@ -1,6 +1,7 @@
 package routd
 
 import (
+	"github.com/kronael/arizuko/core"
 	"testing"
 	"time"
 )
@@ -40,5 +41,38 @@ func TestDelegationPreservesExplicitForeignTarget(t *testing.T) {
 	if dl.docs[0].jid != foreign || dl.docs[0].threadID != "" || dl.docs[0].threadRoot != "" ||
 		dl.voices[0].jid != foreign || dl.voices[0].threadID != "" || dl.voices[0].threadRoot != "" {
 		t.Fatal("an explicit attachment destination inherited delegation or thread")
+	}
+}
+
+func TestCrossChatReplyUsesTargetMessageThread(t *testing.T) {
+	dl := &recDeliverer{}
+	db, srv := newProgressTurn(t, dl, "")
+	const jid = "discord:guild/channel"
+	if err := db.SetChatIsGroup(jid, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.PutTurnContext("escalated", "demo", "", "demo", "u1", ""); err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range []core.Message{
+		{ID: "root", ChatJID: jid, Timestamp: time.Now()},
+		{ID: "nested", ChatJID: jid, Topic: "thread-1", Timestamp: time.Now()},
+	} {
+		if err := db.PutMessage(m); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, tc := range []struct{ replyTo, threadID, threadRoot string }{
+		{"root", "", "root"},
+		{"nested", "thread-1", ""},
+		{"", "", ""},
+	} {
+		if _, _, err := srv.mcpDeliver("escalated", jid, "answer", tc.replyTo, "id-"+tc.replyTo, true); err != nil {
+			t.Fatal(err)
+		}
+		got := dl.sends[len(dl.sends)-1]
+		if got.threadID != tc.threadID || got.threadRoot != tc.threadRoot {
+			t.Errorf("reply to %q: threadID=%q threadRoot=%q; want %q, %q", tc.replyTo, got.threadID, got.threadRoot, tc.threadID, tc.threadRoot)
+		}
 	}
 }

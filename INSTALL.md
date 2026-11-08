@@ -656,8 +656,14 @@ RUNED_ROOTFS_DIR=/srv/data/arizuko_<name>/images/rootfs-<hash>
 The model keys that arizuko accepts are `ANTHROPIC_API_KEY`,
 `ANTHROPIC_OAUTH_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN`, `OPENAI_API_KEY` and
 `CODEX_API_KEY`, see `store.EnvProfileKeys`. The default agent harness is Claude
-Code. `ARIZUKO_BACKEND=codex` or `pi` selects another harness, and the CLI of
-that harness must be in the agent image.
+Code. `ARIZUKO_BACKEND=codex` or `pi` selects another supported backend.
+All three use the same arizuko tools and explicit delivery. The agent image
+includes their CLIs.
+
+Any pi provider works, including a local model. Use the operator's normal pi
+provider setup and add the provider host to `network_rules`. Custom provider
+configuration uses a read-only `models.json` mount at `/mnt/pi/models.json`,
+as described in [Swapping the agent harness](EXTENDING.md#swapping-the-agent-harness).
 
 To lend the host user's Codex login (ChatGPT sign-in) to chosen folders, set
 `HOST_CODEX_DIR` to that `.codex` directory in `.env`, then grant each folder

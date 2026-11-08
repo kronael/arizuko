@@ -115,11 +115,22 @@ interface CodexUsage {
 // RESUME_MISS matches codex's stderr when the requested rollout is gone.
 const RESUME_MISS = /no rollout found for thread id/;
 
+// codex answers an unreachable model host (egress refuses the CONNECT with 403)
+// with `Reconnecting... waiting for network` events, forever: no retry knob bounds
+// that loop (measured 2026-11-08, codex-cli 0.167.0; BUGS L717). The turn would run
+// to runed's timeout, so WAITING_LIMIT such events in a row end it here instead.
+const WAITING = /^Reconnecting\.\.\. waiting for network/;
+export const WAITING_LIMIT = 3;
+const DEFAULT_MODEL_HOST = 'api.openai.com or chatgpt.com';
+
 export class CodexTurn {
   private lastText: string | undefined;
   private lastError: string | undefined;
   private terminal = false;
   private failure: ProviderFailure | undefined;
+  private waiting = 0;
+
+  constructor(private readonly modelHost = DEFAULT_MODEL_HOST) {}
 
   get done(): boolean {
     return this.terminal;
@@ -127,6 +138,8 @@ export class CodexTurn {
 
   push(obj: Record<string, unknown>): Frame[] {
     const type = obj.type as string | undefined;
+    // Any event that is not an error proves the model host answered again.
+    if (type !== 'error') this.waiting = 0;
     if (type === 'thread.started') {
       const id = obj.thread_id as string | undefined;
       // The thread id is both the platform session id and the whole continuity token.
@@ -164,6 +177,16 @@ export class CodexTurn {
     if (type === 'error') {
       this.lastError = (obj.message as string | undefined) ?? 'codex error';
       this.failure = codexProviderFailure(obj);
+      if (WAITING.test(this.lastError) && ++this.waiting >= WAITING_LIMIT) {
+        this.terminal = true;
+        return [{
+          kind: 'result',
+          ok: false,
+          text: `codex cannot reach its model host (${this.modelHost}): the connection keeps ` +
+            'failing, most likely the egress proxy refuses it (add the host to network_rules). ' +
+            `Last error: ${this.lastError}`,
+        }];
+      }
       return [];
     }
     return [];
@@ -208,6 +231,16 @@ function usageOf(u: CodexUsage): ModelUsage {
   };
 }
 
+// modelHost names the host codex dials, for the failure text only.
+function modelHost(env: Record<string, string>): string | undefined {
+  const gw = modelGateway(env);
+  try {
+    return gw ? new URL(gw.url).host : undefined;
+  } catch {
+    return gw?.url;
+  }
+}
+
 async function* runCodex(turn: Turn): AsyncGenerator<Frame> {
   const scan = scanSkills(`${turn.cwd}/.claude/skills`);
   for (const x of scan.excluded) log(`skill excluded by load-time guard: ${x}`);
@@ -222,7 +255,7 @@ async function* runCodex(turn: Turn): AsyncGenerator<Frame> {
       signal: turn.signal,
       deadline: turn.deadline,
     },
-    new CodexTurn(),
+    new CodexTurn(modelHost(turn.env)),
     log,
   )) {
     // codex swallows a hook's stderr, so the policies spool their log lines to a

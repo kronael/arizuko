@@ -30,6 +30,7 @@ function adapter(name: string) { return { name, profile, run: async function* (t
 } }; }
 mock.module(path.join(source, 'claude.ts'), () => ({claudeHarness: adapter('claude')}));
 mock.module(path.join(source, 'codex.ts'), () => ({codexHarness: adapter('codex')}));
+mock.module(path.join(source, 'pi.ts'), () => ({piHarness: adapter('pi')}));
 mock.module(path.join(source, 'mcp.ts'), () => ({
  submitTurn: async (payload: unknown) => { console.log('SUBMIT ' + JSON.stringify(payload)); return {nudge: ''}; },
  submitStatus: async () => ({ remind: false }),

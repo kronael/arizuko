@@ -910,11 +910,17 @@ runtime half is reused: it parses stdin, steers by IPC, runs the `<status>`
 pipeline and makes `submit_turn` idempotent. The harness half is one interface and one file for each backend. The
 interface takes a `Turn`, returns `Frame`s, and has one `run()` and a capability
 profile. The files are `ant/src/claude.ts`, the default, `codex.ts` and
-`pi.ts`. Select a backend with `ARIZUKO_BACKEND=codex` in the `.env` of
-the instance. ant refuses `pi` until it has a delivery-tool bridge. The CLI of the backend must be baked into the agent image. The
+`pi.ts`. Set `ARIZUKO_BACKEND=claude`, `codex` or `pi` in the instance `.env`.
+All three backends use the same arizuko tools and explicit delivery. The CLI
+of the backend must be baked into the agent image. The
 `HarnessProfile` of each backend in `ant/src/backend.ts` says what it can and
 cannot do with MCP tools, skills and the skill guard. The profile states the
-differences truthfully and does not claim parity.
+differences in native hooks and steering.
+
+Any pi provider works, including a local model. Use the operator's normal pi
+provider setup and add the provider host to `network_rules`. Mount custom
+`models.json` read-only at `/mnt/pi/models.json` through the existing host-mount
+configuration.
 See [`ant/README.md`](ant/README.md) § The harness.
 
 ## Permissions
