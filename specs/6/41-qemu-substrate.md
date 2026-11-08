@@ -1,6 +1,5 @@
 ---
 status: partial
-defects: [L379]
 depends:
   [
     24-crackbox-lightest,
@@ -42,7 +41,7 @@ proxy policy, two-guest CID isolation, the startup sweep after SIGKILL, steering
 
 ## Remaining
 
-- Prove guest-observable smoke through the disposable eval lifecycle, including tools that resolve names locally (`anteval/cases/anteval.toml`; L379).
+- Prove a guest tool that resolves names locally through the disposable eval lifecycle; eight smoke cases already pass on VM guests (`anteval/cases/anteval.toml`).
 - Complete release-image rollout and the declared peak-memory sample before claiming the host budget on deployment (`runed/README.md`, `runed/guestpeak_test.go`).
 
 ## What the design must answer — measured 2026-09-12 on hel1v5 (the krons host)

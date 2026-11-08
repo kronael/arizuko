@@ -814,7 +814,6 @@ ExtendDB.
 ### Remaining
 
 - Run driver conformance on PostgreSQL-backed ExtendDB and DynamoDB Local, including the concurrent bodies with `-race` (`objstore/dynstore/dynstore_test.go`).
-- Prove disposable guest-observable smoke on the PostgreSQL store after callback reachability works (`anteval/cases/anteval.toml`; L379).
 - Record the required twenty-query search comparison and deployment soak evidence (`routd/README.md`, `CHANGELOG.md`).
 
 ## Ties

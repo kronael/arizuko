@@ -25,7 +25,7 @@ including instance files, Compose resources, the store account and its tables.
 
 ## Remaining
 
-- Prove guest callback reachability and disposable smoke/product runs on an isolated external test store, including cleanup after success and partial startup (`anteval/cmd/anteval/lifecycle_test.go`, `anteval/cases/anteval.toml`; L379).
+- Prove passing disposable smoke/product runs on an isolated external test store, including cleanup after success and partial startup (`anteval/cmd/anteval/lifecycle_test.go`, `anteval/cases/anteval.toml`).
 
 ## Problem — measured on krons 2026-10-21
 

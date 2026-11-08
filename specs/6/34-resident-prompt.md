@@ -13,7 +13,7 @@ L188 remains open because static pointers do not prove agent conformance.
 ## Remaining
 
 - Cover the externally unobservable rules listed in L188 when a suitable test surface exists; host-mount procedure is outside anteval scope.
-- Run these cases only through the disposable lifecycle, with guest callback reachability (`anteval/cmd/anteval/lifecycle_test.go`; L379).
+- Run the full catalog, `unknown-addressee` included, through the disposable lifecycle (`anteval/cmd/anteval/lifecycle_test.go`).
 
 ## Problem
 
