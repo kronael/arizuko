@@ -16,6 +16,7 @@
 ## What needs you
 
 - `L721` — group handoffs bounced for an hour; verify bounded turns after deployment with group sends and progress guidance.
+- `L758` — remote probe recovery holds the queue mutex and stalls other folders; authorized N1 fix.
 - `L743` — an instance-wide model pause needs trusted host-side provider evidence; proposal, needs sign-off.
 
 - `L715` — A1/A2: trusted GitHub sender and source-owner binding; proposal, needs sign-off.
@@ -380,6 +381,28 @@ reads those words now.
   **Proposal:** stop the build on the first failed submake. This is an adjacent
   build-gate repair; scope approval is pending.
 
+
+
+## L758 — remote probe recovery stalls other folders' admission (2026-11-08, open)
+
+**Severity:** HIGH, latency. Fifth v0.75.4 audit N1.
+`queue/queue.go:97` holds the global mutex through WithIdleFolder's callback;
+`routd/model_pauses.go:192` performs store operations and remote stop calls in
+that callback. Enqueue, completion bookkeeping, and shutdown need the mutex.
+The stop calls use background contexts; the production client's timeout is
+62 minutes by default (`routd/cmd/routd/main.go:124`, `core/config.go:342`).
+Measured: the existing exclusion test proves admission serialization and
+source review confirms remote I/O inside the lock. No permanent lock cycle
+or lost wakeup was established. `routd/loop.go:517` also skips independent
+polling work when repeated recovery attempts fail.
+**Fix:** reserve only the recovering folder and release the queue mutex during
+its callback; bound recovery stop I/O with a short deadline. Keep same-folder
+exclusion, release/drain the reservation, and let polling scan other chats
+after logging a recovery failure.
+Regressions failed on the unfixed source: queue `TestWithIdleFolderExcludesAdmission`
+and `TestWithIdleFolderShutdown` blocked unrelated admission; routd
+`TestModelPauseStopDeadline` found no deadline on either stop path, and
+`TestModelPausePollContinuesAfterRecoveryError` skipped independent input.
 
 
 ## L715 — tenant GitHub ingress needs trusted sender and source-owner binding (2026-11-08, proposal — needs sign-off)

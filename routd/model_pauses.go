@@ -222,12 +222,14 @@ func (l *Loop) recoverIdleModelProbe(p *store.ModelPause, startup bool) error {
 }
 
 func (l *Loop) stopModelProbe(tc TurnContext) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 	if tc.RunID != "" {
 		killer, ok := l.runner.(RunKiller)
 		if !ok {
 			return fmt.Errorf("run recovery cannot kill the interrupted model probe")
 		}
-		err := killer.Kill(context.Background(), tc.RunID)
+		err := killer.Kill(ctx, tc.RunID)
 		var apiErr *runedv1.APIError
 		if errors.As(err, &apiErr) && apiErr.Status == http.StatusNotFound && apiErr.Code == "unknown_run" {
 			return nil
@@ -238,7 +240,7 @@ func (l *Loop) stopModelProbe(tc TurnContext) error {
 	if !ok {
 		return fmt.Errorf("run recovery cannot stop the interrupted model probe")
 	}
-	_, err := stopper.StopFolder(context.Background(), tc.Folder)
+	_, err := stopper.StopFolder(ctx, tc.Folder)
 	return err
 }
 

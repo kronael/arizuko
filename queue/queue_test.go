@@ -1,40 +1,153 @@
 package queue
 
 import (
+	"errors"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 )
 
-func TestWithIdleFolderExcludesAdmission(t *testing.T) {
+func assertRecoveryDoesNotBlockQueue(t *testing.T) {
+	t.Helper()
 	q := New(1)
-	q.SetFolderForJidFn(func(string) string { return "a" })
-	started, release, recovered := make(chan struct{}), make(chan struct{}), make(chan struct{})
-	q.SetProcessMessagesFn(func(string) (bool, error) { close(started); return true, nil })
-	go func() {
-		_, err := q.WithIdleFolder("a", func() error {
-			if q.mu.TryLock() {
-				q.mu.Unlock()
-				t.Error("callback does not hold admission lock")
-			}
-			close(recovered)
-			<-release
-			return nil
-		})
-		if err != nil {
-			t.Error(err)
-		}
-	}()
-	<-recovered
-	go q.EnqueueMessageCheck("web:a")
+	entered, release, finished := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	unblock := sync.OnceFunc(func() { close(release) })
+	defer unblock()
+	go func() { _, _ = q.WithIdleFolder("a", func() error { close(entered); <-release; return nil }) }()
+	<-entered
+	go func() { q.EnqueueMessageCheck("b"); close(finished) }()
 	select {
-	case <-started:
-		t.Fatal("admitted while recovery held the folder")
-	case <-time.After(25 * time.Millisecond):
+	case <-finished:
+	case <-time.After(5 * time.Second):
+		t.Fatal("recovery blocked queue")
 	}
-	close(release)
-	<-started
+}
+
+func TestWithIdleFolderExcludesAdmission(t *testing.T) {
+	for _, failure := range []bool{false, true} {
+		t.Run(fmt.Sprintf("error=%t", failure), func(t *testing.T) {
+			assertRecoveryDoesNotBlockQueue(t)
+			synctest.Test(t, func(t *testing.T) {
+				release := make(chan struct{})
+				unblock := sync.OnceFunc(func() { close(release) })
+				defer unblock()
+				q := New(1)
+				q.SetFolderForJidFn(func(jid string) string { return jid })
+				started := make(chan string, 4)
+				q.SetProcessMessagesFn(func(jid string) (bool, error) { started <- jid; return true, nil })
+				entered, recovered := make(chan struct{}), make(chan error, 1)
+				want := errors.New("recovery failed")
+				go func() {
+					_, err := q.WithIdleFolder("a", func() error {
+						close(entered)
+						<-release
+						if failure {
+							return want
+						}
+						return nil
+					})
+					recovered <- err
+				}()
+				<-entered
+				go q.EnqueueMessageCheck("a")
+				go q.EnqueueMessageCheck("b")
+				synctest.Wait()
+				select {
+				case <-release:
+					t.Fatal("recovery blocked queue")
+				default:
+				}
+				select {
+				case jid := <-started:
+					if jid != "b" {
+						t.Fatalf("started %s during recovery", jid)
+					}
+				default:
+					t.Fatal("other folder did not start")
+				}
+				duplicate := make(chan bool, 1)
+				go func() { ok, _ := q.WithIdleFolder("a", func() error { return nil }); duplicate <- ok }()
+				synctest.Wait()
+				select {
+				case ok := <-duplicate:
+					if ok {
+						t.Fatal("duplicate recovery started")
+					}
+				default:
+					t.Fatal("duplicate recovery blocked")
+				}
+				select {
+				case jid := <-started:
+					t.Fatalf("started %s during recovery", jid)
+				default:
+				}
+				unblock()
+				synctest.Wait()
+				err := <-recovered
+				if (failure && !errors.Is(err, want)) || (!failure && err != nil) {
+					t.Fatalf("recovery error: %v", err)
+				}
+				select {
+				case jid := <-started:
+					if jid != "a" {
+						t.Fatalf("started %s", jid)
+					}
+				default:
+					t.Fatal("waiting folder did not start")
+				}
+				select {
+				case jid := <-started:
+					t.Fatalf("started twice: %s", jid)
+				default:
+				}
+			})
+		})
+	}
+}
+
+func TestWithIdleFolderShutdown(t *testing.T) {
+	assertRecoveryDoesNotBlockQueue(t)
+	synctest.Test(t, func(t *testing.T) {
+		release := make(chan struct{})
+		unblock := sync.OnceFunc(func() { close(release) })
+		defer unblock()
+		q := New(1)
+		q.SetFolderForJidFn(func(jid string) string { return jid })
+		started := make(chan string, 1)
+		q.SetProcessMessagesFn(func(jid string) (bool, error) { started <- jid; return true, nil })
+		entered, recovered := make(chan struct{}), make(chan struct{})
+		go func() {
+			_, _ = q.WithIdleFolder("a", func() error { close(entered); <-release; return nil })
+			close(recovered)
+		}()
+		<-entered
+		go q.EnqueueMessageCheck("a")
+		synctest.Wait()
+		select {
+		case <-release:
+			t.Fatal("admission blocked")
+		default:
+		}
+		stopped := make(chan struct{})
+		go func() { q.Shutdown(); close(stopped) }()
+		synctest.Wait()
+		select {
+		case <-stopped:
+		default:
+			t.Fatal("shutdown blocked")
+		}
+		unblock()
+		synctest.Wait()
+		<-recovered
+		select {
+		case jid := <-started:
+			t.Fatalf("started after shutdown: %s", jid)
+		default:
+		}
+	})
 }
 
 func TestNewQueue(t *testing.T) {

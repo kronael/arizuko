@@ -516,7 +516,6 @@ const pollBatch = 200
 func (l *Loop) pollOnce() {
 	if err := l.recoverModelProbe(false); err != nil {
 		slog.Error("recover model probe", "err", err)
-		return
 	}
 	jids, err := l.db.ChatJIDs()
 	if err != nil {

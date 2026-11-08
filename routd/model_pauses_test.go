@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/kronael/arizuko/core"
@@ -773,5 +774,82 @@ func TestModelPauseStopCapturedRunErrors(t *testing.T) {
 				t.Fatalf("kills=%v stops=%d", p.kills, p.stops)
 			}
 		})
+	}
+}
+
+type deadlinePauseProvider struct{ pauseProvider }
+
+func (p *deadlinePauseProvider) Kill(ctx context.Context, _ string) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(6 * time.Second):
+		return errors.New("no deadline")
+	}
+}
+func (p *deadlinePauseProvider) StopFolder(ctx context.Context, _ string) (runedv1.StopRunResponse, error) {
+	select {
+	case <-ctx.Done():
+		return runedv1.StopRunResponse{}, ctx.Err()
+	case <-time.After(6 * time.Second):
+		return runedv1.StopRunResponse{}, errors.New("no deadline")
+	}
+}
+
+func TestModelPauseStopDeadline(t *testing.T) {
+	for _, runID := range []string{"captured", ""} {
+		t.Run(fmt.Sprintf("runID=%s", runID), func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				l := &Loop{runner: &deadlinePauseProvider{}}
+				start := time.Now()
+				err := l.stopModelProbe(TurnContext{RunID: runID, Folder: "a"})
+				if !errors.Is(err, context.DeadlineExceeded) || time.Since(start) > 5*time.Second {
+					t.Fatalf("stop error=%v duration=%v", err, time.Since(start))
+				}
+			})
+		})
+	}
+}
+
+func TestModelPausePollContinuesAfterRecoveryError(t *testing.T) {
+	db, l, p, dl := pauseFixture(t, "rate_limit")
+	pauseInput(t, db, "web:a", "held", "u", "saved", time.Now())
+	processPauseChat(t, l, "web:a")
+	modelPauseDue(t, db)
+	pause, err := db.store().ReadModelPause(t.Context(), "a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.store().OpenTurnContext("held", "a", "", "web:a", "u", "", &store.TurnAdmission{AttemptID: "probe", ProbeEpisode: pause.OpenedAt}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetTurnRunID("held", "captured"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetRunReturned("held"); err != nil {
+		t.Fatal(err)
+	}
+	p.stopErr = context.DeadlineExceeded
+	pauseInput(t, db, "web:b", "independent", "v", "run", time.Now())
+	poller := NewLoop(db, p, LoopConfig{Deliver: dl})
+	defer poller.StopQueue()
+	polled := make(chan string, 4)
+	poller.q.SetProcessMessagesFn(func(jid string) (bool, error) { polled <- jid; return false, nil })
+	poller.pollOnce()
+	timeout := time.After(5 * time.Second)
+	for {
+		select {
+		case jid := <-polled:
+			if jid == "web:b" {
+				goto checked
+			}
+		case <-timeout:
+			t.Fatal("independent input did not poll")
+		}
+	}
+checked:
+	after, err := db.store().ReadModelPause(t.Context(), "a")
+	if err != nil || after == nil || after.ProbeTurnID != "held" || after.ProbeAttemptID != "probe" {
+		t.Fatalf("binding changed: %+v %v", after, err)
 	}
 }
