@@ -15,7 +15,7 @@
 
 ## What needs you
 
-- `L720` — an escalate/delegate turn's reply to the origin chat lands in the channel root; fix queued, may need sign-off.
+- `L720` — an escalate/delegate turn's reply to the origin chat lands in the channel root; proposal (origin context on handoff + turn), needs sign-off.
 - `L665` — `unpair` removes the account's denies from the paired identity's turns; needs sign-off.
 - `L664` — `invite_create` mints `admin` the issuing folder cannot delegate; needs sign-off.
 - `L660` — a mention by reply engages only the reply chain, not the chat root; proposal, needs sign-off.
