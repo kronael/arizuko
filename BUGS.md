@@ -15,6 +15,7 @@
 
 ## What needs you
 
+- `L699` — anteval cannot run a Codex smoke: it requires an Anthropic credential and installs an Anthropic-only gateway; proposal.
 - `L676` — decide whether dashboard group creation must check the creator's new subtree grant.
 - `L675` — the guest's Python is under `/root` (700); fix at the next rootfs build.
 - `L674` — `compose down` fails on a deleted fragment despite `required: false`; proposal.
@@ -473,6 +474,32 @@ that version. A change to which rows reach live data is an auth change.
 
 - **Status:** open — needs sign-off.
 
+
+## L699 — anteval cannot run a Codex-backend smoke (2026-11-08, open — proposal, needs sign-off)
+
+MEASURED 2026-11-08 at `269c83f09`, Sol's Codex smoke stopped before creation:
+`anteval/cmd/anteval/lifecycle.go:221` refuses a run without
+`ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN`, and the runner always installs
+the litellm gateway, whose fragment (`template/services/litellm/litellm.yml:27`)
+routes only Anthropic models. A Codex turn takes its login from
+`HOST_CODEX_DIR` only in direct mode (`specs/6/53-per-group-harness.md`
+§"Codex login follows the model-credential policy"), and gateway mode withholds
+that login. So no Codex turn on a disposable instance has a credential path.
+Evidence: job tmp `codex-credential-blocker-20261108T085401Z.json`.
+
+This blocks the 6/47 Codex `reply` smoke and the 6/53 mixed-backend smoke.
+
+- **Severity:** medium for acceptance, zero for the fleet
+- **Scope:** `anteval/cmd/anteval/lifecycle.go`, `template/services/litellm/`
+- **Status:** open — needs sign-off
+- **Options:** (1) a Codex route in the gateway: codex accepts an arbitrary
+  `base_url` with `model_providers.<id>.requires_openai_auth=true` and
+  `wire_api = "responses"`, measured 200 on 2026-09-04 (memory
+  `reference_model_gateway`); the gateway then holds the ChatGPT login. (2) A
+  direct-mode Codex run: no gateway, `HOST_CODEX_DIR` staged, OpenAI endpoints
+  allowlisted for the eval folder; cost and settle checks have no meter in that
+  mode. **Recommendation:** (1), because it keeps one metered path for both
+  backends.
 
 ## L678 — no operator door writes a group's `effort`, and dashd lists only 4.x models (2026-11-07, open — folded into the per-group harness spec)
 
