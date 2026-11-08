@@ -3,7 +3,9 @@ package main
 import (
 	"bytes"
 	"log/slog"
+	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -63,5 +65,41 @@ func TestCreatePackagesWritableByContainer(t *testing.T) {
 	stat := info.Sys().(*syscall.Stat_t)
 	if stat.Uid != containerUID || info.Mode().Perm()&0o200 == 0 {
 		t.Fatalf("packages owner = %d, mode = %v; container uid must write", stat.Uid, info.Mode())
+	}
+}
+
+func TestCreateRuntimeDirectoriesWritable(t *testing.T) {
+	if root := os.Getenv("ARIZUKO_TEST_RUNTIME_ROOT"); root != "" {
+		for _, dir := range []string{"ipc/new-group", "groups/new-group", "web/pub/new-group", "web/priv/new-group"} {
+			if err := os.MkdirAll(filepath.Join(root, dir), 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}
+		sock, err := net.Listen("unix", filepath.Join(root, "ipc/new-group/gated.sock"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := sock.Close(); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+	if os.Geteuid() != 0 {
+		t.Skip("requires root to run as container uid")
+	}
+	base := t.TempDir()
+	for _, dir := range []string{filepath.Dir(base), base} {
+		if err := os.Chmod(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("ARIZUKO_DATA_DIR", base)
+	t.Setenv("DATA_DIR", "")
+	cmdCreate([]string{"runtime"})
+	cmd := exec.Command(os.Args[0], "-test.run=^TestCreateRuntimeDirectoriesWritable$")
+	cmd.Env = append(os.Environ(), "ARIZUKO_TEST_RUNTIME_ROOT="+filepath.Join(base, "arizuko_runtime"))
+	cmd.SysProcAttr = &syscall.SysProcAttr{Credential: &syscall.Credential{Uid: containerUID, Gid: containerGID}}
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("container uid cannot create runtime paths: %v\n%s", err, output)
 	}
 }

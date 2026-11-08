@@ -369,14 +369,16 @@ func cmdCreate(args []string) {
 		die("Failed: make the store dir at %s: %v", storeDir, err)
 	}
 	chownStore(storeDir)
-	packagesDir := filepath.Join(dataDir, "packages")
-	if err := os.MkdirAll(packagesDir, 0o755); err != nil {
-		die("Failed: make the packages dir at %s: %v", packagesDir, err)
-	}
-	if err := os.Chown(packagesDir, containerUID, containerGID); err != nil {
-		slog.Warn("could not chown packages dir to container uid; run as root or fix manually",
-			"dir", packagesDir, "uid", containerUID, "err", err,
-			"fix", fmt.Sprintf("sudo chown %d:%d %s", containerUID, containerGID, packagesDir))
+	for _, dir := range []string{cfg.GroupsDir, cfg.IpcDir,
+		filepath.Join(cfg.WebDir, "pub"), filepath.Join(cfg.WebDir, "priv"), filepath.Join(dataDir, "packages")} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			die("Failed: make runtime dir at %s: %v", dir, err)
+		}
+		if err := os.Chown(dir, containerUID, containerGID); err != nil {
+			slog.Warn("could not chown runtime dir to container uid; run as root or fix manually",
+				"dir", dir, "uid", containerUID, "err", err,
+				"fix", fmt.Sprintf("sudo chown %d:%d %s", containerUID, containerGID, dir))
+		}
 	}
 	if err := container.SetupGroup(cfg, store.DefaultFolder); err != nil {
 		die("Failed: setup group dir: %v", err)
