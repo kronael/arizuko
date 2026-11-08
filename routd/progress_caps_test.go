@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/kronael/arizuko/chanreg"
+	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/ipc"
 )
 
@@ -21,6 +22,9 @@ func TestProgress_GitdCapsPostNoProgress(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
+	if err := db.PutGroup(core.Group{Folder: "demo"}); err != nil {
+		t.Fatal(err)
+	}
 	srv := NewServer(db, nil, newChanDeliverer(reg, nil, nil), nil, 0, "")
 	if _, err := db.PutTurnContext("t1", "demo", "", jid, "u1", ""); err != nil {
 		t.Fatal(err)

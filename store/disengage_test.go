@@ -14,6 +14,9 @@ func TestEngagementRenewalPreservesExplicitDisengage(t *testing.T) {
 	t.Cleanup(func() { s.Close() })
 	const jid = "slack:T/C"
 	const folder = "eng"
+	if err := s.PutGroup(core.Group{Folder: folder}); err != nil {
+		t.Fatal(err)
+	}
 	until := time.Now().Add(time.Hour)
 	if _, err := s.OpenTurnContext("old", folder, "one", jid, "user", "", nil); err != nil {
 		t.Fatal(err)
@@ -98,6 +101,9 @@ func TestEngagementRenewalLosesToConcurrentDisengage(t *testing.T) {
 			t.Cleanup(func() { s.Close() })
 			const jid = "slack:T/C"
 			const folder = "eng"
+			if err := s.PutGroup(core.Group{Folder: folder}); err != nil {
+				t.Fatal(err)
+			}
 			if test.cleared {
 				if err := s.BumpEngagement(jid, "root", folder, time.Time{}); err != nil {
 					t.Fatal(err)
@@ -131,6 +137,9 @@ func TestFreshEngagementRetiresDisengageAfterExpiry(t *testing.T) {
 				t.Cleanup(func() { s.Close() })
 				const jid = "slack:T/C"
 				const folder = "eng"
+				if err := s.PutGroup(core.Group{Folder: folder}); err != nil {
+					t.Fatal(err)
+				}
 				if err := s.BumpEngagement(jid, topic, folder, time.Time{}); err != nil {
 					t.Fatal(err)
 				}

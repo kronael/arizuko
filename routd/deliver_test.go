@@ -233,6 +233,9 @@ func TestServerWiresDelivererViaRegistry(t *testing.T) {
 		t.Fatalf("register status=%d body=%s", rec.Code, rec.Body.String())
 	}
 
+	if err := db.PutGroup(core.Group{Folder: "demo"}); err != nil {
+		t.Fatal(err)
+	}
 	db.PutTurnContext("t1", "demo", "", "slack:T1/C/U", "u1", "")
 	srv.replyForTest(t, "t1", "slack:T1/C/U", "answer")
 	if a.count() != 1 {

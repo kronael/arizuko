@@ -28,6 +28,15 @@ import (
 	"github.com/kronael/arizuko/objstore"
 )
 
+func openTurnEntities(t *testing.T) *Store {
+	t.Helper()
+	s := openEntities(t)
+	if err := s.PutGroup(core.Group{Folder: "demo"}); err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
 // A turn that has already finished must NOT be re-opened. When an earlier batch
 // completes and a later batch in the same poll steers, the cursor does not
 // advance and the next poll re-feeds the completed batch; re-dispatching it
@@ -36,7 +45,7 @@ import (
 // Drop the `state != done` condition in OpenTurnContext and the second open
 // answers live.
 func TestAFinishedTurnIsNotReopened(t *testing.T) {
-	s := openEntities(t)
+	s := openTurnEntities(t)
 	live, err := s.OpenTurnContext("t1", "demo", "", "tg:1", "u1", "", nil)
 	if err != nil || !live {
 		t.Fatalf("the first open answered live=%v err=%v", live, err)
@@ -73,7 +82,7 @@ func TestAFinishedTurnIsNotReopened(t *testing.T) {
 // A turn re-opened with the previous attempt's flag still set answers every late
 // callback of the new attempt with turn_done.
 func TestAReopenedTurnCarriesNothingFromItsLastAttempt(t *testing.T) {
-	s := openEntities(t)
+	s := openTurnEntities(t)
 	if _, err := s.OpenTurnContext("t1", "demo", "#old", "tg:1", "u1", "tg:origin", nil); err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +116,7 @@ func TestAReopenedTurnCarriesNothingFromItsLastAttempt(t *testing.T) {
 // moved but whose state stayed running has burned an attempt and is still fed to
 // crash recovery as live.
 func TestARetryMovesTheCountAndTheStateTogether(t *testing.T) {
-	s := openEntities(t)
+	s := openTurnEntities(t)
 	if _, err := s.OpenTurnContext("t1", "demo", "", "tg:1", "u1", "", nil); err != nil {
 		t.Fatal(err)
 	}
@@ -141,7 +150,7 @@ func TestARetryMovesTheCountAndTheStateTogether(t *testing.T) {
 // then issues the guarded write the loser would have issued. The refusal is what
 // sends the loop back for a fresh count instead of writing one already taken.
 func TestARetryWriteGuardedOnAStaleCountIsRefused(t *testing.T) {
-	s := openEntities(t)
+	s := openTurnEntities(t)
 	ctx := context.Background()
 	if _, err := s.OpenTurnContext("t1", "demo", "", "tg:1", "u1", "", nil); err != nil {
 		t.Fatal(err)
@@ -196,7 +205,7 @@ func TestARetryWriteGuardedOnAStaleCountIsRefused(t *testing.T) {
 // its own sweep. The declaration refuses the short value at write time; this is
 // the sweep working on values that got past it.
 func TestTheExpirySweepMovesOnlyTheStaleRunningTurns(t *testing.T) {
-	s := openEntities(t)
+	s := openTurnEntities(t)
 	ctx := context.Background()
 	// SeedItem is the only writer that can put `started_at` in the past: the
 	// live one stamps the instant itself.
@@ -242,7 +251,7 @@ func TestTheExpirySweepMovesOnlyTheStaleRunningTurns(t *testing.T) {
 // so a state added later stays out of the feed until someone decides it belongs
 // there.
 func TestCrashRecoveryFeedsOnlyTheTwoLiveStates(t *testing.T) {
-	s := openEntities(t)
+	s := openTurnEntities(t)
 	for id, state := range map[string]string{
 		"a": TurnRunning, "b": TurnPendingRetry, "c": TurnDone, "d": TurnExpired,
 	} {
@@ -272,7 +281,7 @@ func TestCrashRecoveryFeedsOnlyTheTwoLiveStates(t *testing.T) {
 // asks the gateway. An empty answer is "no meter holds a number", which the
 // endpoint reports as a 404 rather than a zero.
 func TestTheGatewayKeyPointerSurvivesTheTurnsWholeLifecycle(t *testing.T) {
-	s := openEntities(t)
+	s := openTurnEntities(t)
 	if _, err := s.OpenTurnContext("t1", "demo", "", "tg:1", "u1", "", nil); err != nil {
 		t.Fatal(err)
 	}
@@ -320,7 +329,7 @@ func TestATurnWithNoIdIsRefused(t *testing.T) {
 // finishTurn clears presence on every chat the turn's run owns, and it finds
 // that run through the turn itself.
 func TestATurnReadsBackItsRunID(t *testing.T) {
-	s := openEntities(t)
+	s := openTurnEntities(t)
 	if _, err := s.OpenTurnContext("t1", "demo", "", "tg:1", "u1", "", nil); err != nil {
 		t.Fatal(err)
 	}
@@ -346,7 +355,7 @@ func TestATurnReadsBackItsRunID(t *testing.T) {
 //
 // Make turnFrom read the absence as true and the first read answers addressed.
 func TestATurnWithNoAddressedAttributeReadsFalse(t *testing.T) {
-	s := openEntities(t)
+	s := openTurnEntities(t)
 	if _, err := s.OpenTurnContext("old", "demo", "", "web:demo", "u1", "", nil); err != nil {
 		t.Fatal(err)
 	}
@@ -365,7 +374,7 @@ func TestATurnWithNoAddressedAttributeReadsFalse(t *testing.T) {
 }
 
 func TestATurnReadsBackAddressed(t *testing.T) {
-	s := openEntities(t)
+	s := openTurnEntities(t)
 	if _, err := s.OpenTurnContext("t1", "demo", "", "web:demo", "u1", "", nil); err != nil {
 		t.Fatal(err)
 	}
@@ -390,7 +399,7 @@ func TestATurnReadsBackAddressed(t *testing.T) {
 // A retry resolves the turn again and records the answer it got now: a true
 // from the first attempt must not survive a second that resolves to false.
 func TestARetryReplacesTheAddressedFactOfItsLastAttempt(t *testing.T) {
-	s := openEntities(t)
+	s := openTurnEntities(t)
 	if _, err := s.OpenTurnContext("t1", "demo", "", "web:demo", "u1", "", nil); err != nil {
 		t.Fatal(err)
 	}

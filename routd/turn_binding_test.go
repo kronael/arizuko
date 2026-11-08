@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/ipc"
 )
 
@@ -54,6 +55,11 @@ func TestTurnMethodsCannotMutateForeignExistingContext(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer db.Close()
+			for _, folder := range []string{"demo", "other"} {
+				if err := db.PutGroup(core.Group{Folder: folder}); err != nil {
+					t.Fatal(err)
+				}
+			}
 			dl := &recDeliverer{}
 			srv := NewServer(db, nil, dl, nil, 0, "")
 			if _, err := db.PutTurnContext("bound", "demo", "", "tg:1", "u1", ""); err != nil {

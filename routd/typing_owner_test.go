@@ -3,6 +3,8 @@ package routd
 import (
 	"slices"
 	"testing"
+
+	"github.com/kronael/arizuko/core"
 )
 
 // The T1 orphan: a follow-up steered into a live run lands in a DIFFERENT chat
@@ -15,6 +17,9 @@ func TestTypingJIDsForRunCoversASteeredTurnInAnotherChat(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
+	if err := db.PutGroup(core.Group{Folder: "demo"}); err != nil {
+		t.Fatal(err)
+	}
 
 	if _, err := db.PutTurnContext("parent", "demo", "", "slack:T/A/U", "u1", ""); err != nil {
 		t.Fatalf("seed parent turn: %v", err)
@@ -45,6 +50,9 @@ func TestTypingJIDsForRunUsesTheReturnAddress(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
+	if err := db.PutGroup(core.Group{Folder: "child"}); err != nil {
+		t.Fatal(err)
+	}
 
 	if _, err := db.PutTurnContext("t", "child", "", "child", "u1", "slack:T/ORIGIN/U"); err != nil {
 		t.Fatalf("seed turn: %v", err)
@@ -68,6 +76,9 @@ func TestChatsOwnedByAlwaysIncludesPrimaryAndDeduplicates(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
+	if err := db.PutGroup(core.Group{Folder: "demo"}); err != nil {
+		t.Fatal(err)
+	}
 	if got := db.chatsOwnedBy("slack:T/A/U", ""); len(got) != 1 || got[0] != "slack:T/A/U" {
 		t.Fatalf("no run id: got %v, want [slack:T/A/U]", got)
 	}

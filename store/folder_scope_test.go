@@ -170,6 +170,11 @@ func TestDeleteGroupRefusesAnEmptyFolder(t *testing.T) {
 
 func TestDeleteGroupRetiresOnlyHeldSubtree(t *testing.T) {
 	s := openEntities(t)
+	for _, folder := range []string{"a", "a/child", "ab"} {
+		if err := s.PutGroup(core.Group{Folder: folder}); err != nil {
+			t.Fatal(err)
+		}
+	}
 	now := time.Now()
 	cursor := MessageCursor(core.Message{Timestamp: now, ID: "held"})
 	later := MessageCursor(core.Message{Timestamp: now.Add(time.Second), ID: "later"})

@@ -42,6 +42,9 @@ func newProgressTurn(t *testing.T, dl *recDeliverer, returnTo string) (*DB, *Ser
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
+	if err := db.PutGroup(core.Group{Folder: "demo"}); err != nil {
+		t.Fatal(err)
+	}
 	srv := NewServer(db, nil, dl, nil, 0, "")
 	if _, err := db.PutTurnContext("t1", "demo", "", progressJID, "u1", returnTo); err != nil {
 		t.Fatal(err)
@@ -564,6 +567,9 @@ func TestProgress_RecoveredTurnEditsItsRowWhenItCompletes(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
+	if err := db.PutGroup(core.Group{Folder: "demo"}); err != nil {
+		t.Fatal(err)
+	}
 	before := &recDeliverer{}
 	if _, err := db.PutTurnContext("t1", "demo", "", progressJID, "u1", ""); err != nil {
 		t.Fatal(err)

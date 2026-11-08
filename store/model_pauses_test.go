@@ -15,6 +15,11 @@ import (
 
 func openPause(t *testing.T, s *Store, id string, now time.Time) *ModelPause {
 	t.Helper()
+	if _, exists := s.GroupByFolder("g"); !exists {
+		if err := s.PutGroup(core.Group{Folder: "g"}); err != nil {
+			t.Fatal(err)
+		}
+	}
 	if live, err := s.OpenTurnContext(id, "g", "", "web:g", "u", "", nil); err != nil || !live {
 		t.Fatalf("open turn: %v %v", live, err)
 	}
@@ -143,6 +148,9 @@ func (s pauseFaultStore) GuardedBatch(ctx context.Context, c []objstore.Check, w
 
 func TestModelPauseStoreErrorsHoldAndRefusalIsAtomic(t *testing.T) {
 	s := openEntities(t)
+	if err := s.PutGroup(core.Group{Folder: "g"}); err != nil {
+		t.Fatal(err)
+	}
 	for _, fault := range []pauseFaultStore{{Store: s.Obj(), failRead: true}, {Store: s.Obj(), failWrite: true}} {
 		broken := NewOver(fault)
 		if fault.failRead {
@@ -231,10 +239,15 @@ type refusalBeforeRetire struct {
 }
 
 func (s *refusalBeforeRetire) GuardedBatch(ctx context.Context, checks []objstore.Check, writes []objstore.Write) (bool, error) {
-	if !s.fired && len(writes) == 1 && writes[0].Entity == TurnContexts && writes[0].Attrs[attrTurnState] == TurnDone {
-		s.fired = true
-		if _, err := NewOver(s.Store).RecordProviderFailure(ctx, "running", "attempt", "outage", time.Time{}, time.Now()); err != nil {
-			return false, err
+	if !s.fired {
+		for _, write := range writes {
+			if write.Entity == TurnContexts && write.Attrs[attrTurnState] == TurnDone {
+				s.fired = true
+				if _, err := NewOver(s.Store).RecordProviderFailure(ctx, "running", "attempt", "outage", time.Time{}, time.Now()); err != nil {
+					return false, err
+				}
+				break
+			}
 		}
 	}
 	return s.Store.GuardedBatch(ctx, checks, writes)
@@ -242,6 +255,9 @@ func (s *refusalBeforeRetire) GuardedBatch(ctx context.Context, checks []objstor
 
 func TestDeleteFolderRetriesRefusalAndKeepsCompletedTurn(t *testing.T) {
 	s := openEntities(t)
+	if err := s.PutGroup(core.Group{Folder: "g"}); err != nil {
+		t.Fatal(err)
+	}
 	admission := &TurnAdmission{AttemptID: "attempt", InputLast: MsgStamp(core.NowTS(), "saved-span")}
 	if _, err := s.OpenTurnContext("running", "g", "", "web:g", "u", "", admission); err != nil {
 		t.Fatal(err)
@@ -285,6 +301,9 @@ func (s *deleteBeforeRefusal) GuardedBatch(ctx context.Context, checks []objstor
 
 func TestDeleteFolderDefeatsInFlightRefusal(t *testing.T) {
 	s := openEntities(t)
+	if err := s.PutGroup(core.Group{Folder: "g"}); err != nil {
+		t.Fatal(err)
+	}
 	admission := &TurnAdmission{AttemptID: "attempt", InputLast: MsgStamp(core.NowTS(), "saved-span")}
 	if _, err := s.OpenTurnContext("running", "g", "", "web:g", "u", "", admission); err != nil {
 		t.Fatal(err)
@@ -300,5 +319,74 @@ func TestDeleteFolderDefeatsInFlightRefusal(t *testing.T) {
 	}
 	if pause, err := s.ReadModelPause(t.Context(), "g"); err != nil || pause != nil {
 		t.Fatalf("stale refusal restored pause: %+v %v", pause, err)
+	}
+}
+
+type deleteGroupOnAdmission struct {
+	objstore.Store
+	op    objstore.WriteOp
+	fired bool
+}
+
+func (s *deleteGroupOnAdmission) GuardedBatch(ctx context.Context, checks []objstore.Check, writes []objstore.Write) (bool, error) {
+	for _, w := range writes {
+		if !s.fired && w.Entity == TurnContexts && w.Op == s.op {
+			s.fired = true
+			_, err := s.Store.GuardedBatch(ctx, nil, []objstore.Write{{Op: objstore.Delete, Entity: Groups, Key: objstore.Key{Partition: OwnerRoutd, Sort: "g"}}})
+			if err != nil {
+				return false, err
+			}
+			break
+		}
+	}
+	return s.Store.GuardedBatch(ctx, checks, writes)
+}
+
+// Deleting the group before a rebind or probe must refuse the whole batch.
+func TestAdmissionRequiresGroupDuringRebindAndProbe(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		probe, rebind bool
+	}{
+		{name: "rebind", rebind: true},
+		{name: "probe fresh", probe: true},
+		{name: "probe rebind", probe: true, rebind: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := openEntities(t)
+			if err := s.PutGroup(core.Group{Folder: "g"}); err != nil {
+				t.Fatal(err)
+			}
+			if tc.rebind {
+				if live, err := s.OpenTurnContext("target", "g", "old", "web:g", "u", "", nil); err != nil || !live {
+					t.Fatalf("initial turn: %v %v", live, err)
+				}
+			}
+			var admission *TurnAdmission
+			if tc.probe {
+				p := openPause(t, s, "pause", time.Now().Add(-2*time.Minute))
+				admission = &TurnAdmission{ProbeEpisode: p.OpenedAt}
+			}
+			op := objstore.Put
+			if tc.rebind {
+				op = objstore.Update
+			}
+			gate := &deleteGroupOnAdmission{Store: s.Obj(), op: op}
+			guarded := NewOver(gate)
+			live, err := guarded.OpenTurnContext("target", "g", "new", "web:g", "u", "", admission)
+			if !gate.fired || live || !errors.Is(err, ErrModelPaused) {
+				t.Fatalf("admission: fired=%v live=%v err=%v", gate.fired, live, err)
+			}
+			turn, exists := s.TurnContextOf("target")
+			if exists != tc.rebind || (exists && turn.Topic != "old") {
+				t.Fatalf("turn changed: %+v exists=%v", turn, exists)
+			}
+			if tc.probe {
+				p, err := s.ReadModelPause(t.Context(), "g")
+				if err != nil || p == nil || p.NextAttemptAt == "" || p.ProbeTurnID != "" {
+					t.Fatalf("probe claimed: %+v err=%v", p, err)
+				}
+			}
+		})
 	}
 }
