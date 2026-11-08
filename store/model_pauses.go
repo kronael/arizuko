@@ -202,6 +202,7 @@ func (s *Store) RearmModelProbe(ctx context.Context, p ModelPause, now time.Time
 	if tc.State == TurnDone {
 		state = TurnDone
 	}
+	// A refused rearm belongs to a changed episode, attempt or turn state.
 	_, err = s.TryWriteEntities(ctx, nil, objstore.Write{
 		Op: objstore.Update, Entity: ModelPauses, Key: modelPauseKey(p.Folder),
 		Attrs:  map[string]string{"next_attempt_at": core.TS(now)},
