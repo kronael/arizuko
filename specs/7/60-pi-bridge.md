@@ -540,7 +540,7 @@ Verify the source fixture against the installed Codex format before implementing
 Handle a key-based Codex login through the corresponding native API-key path, not as fabricated OAuth.
 Reject malformed or unusable credentials with a clear auth error.
 Keep credentials out of logs, argv, and MCP config. Native refresh can update only the temporary copy.
-Durable shared renewal needs owner decision 2.
+Durable shared renewal needs owner decision 1.
 
 The existing Go/TypeScript contract test at `runed/env_contract_test.go:95` checks only `turnEnv` emissions.
 Ant's credential aliases also read keys carried in stdin, through `spawnSecrets` at `runed/render.go:75`.
@@ -701,20 +701,14 @@ The release record uses v0.75.4 from this main release line and the project's re
 
 ## Open questions
 
-1. **OWNER DECISION — a model bound only to physical-host loopback.**
-   `egress/address.go:43` blocks proxy loopback. `runed/vmnet.go:248` starts the proxy in runed's namespace.
-   A network row cannot make physical-host `127.0.0.1` reachable there.
-   Recommendation: expose the model on a DNS-named reachable private interface, or use the existing gateway.
-   If loopback-only binding is mandatory, a host-side relay/listener and runed-container reachability configuration are required.
-   Those host/deployment changes need approval. `SetAllowLoopback` alone cannot cross namespaces.
-   No such change is designed or included here.
-2. **OWNER DECISION — acceptance setup and borrowed-login renewal.**
+1. **OWNER DECISION — acceptance setup and borrowed-login renewal.**
    Recommendation: use a throwaway setup, a valid borrowed Codex snapshot, and an operator-managed native provider declaration.
    Pi refreshes only its temporary credential copy. Rotated credentials do not update the read-only host login.
    Accept snapshot-only borrowing for this release. Durable shared renewal needs a separate ownership contract.
    No runed change or host credential write belongs in this draft.
 
 Settled: keep pi's default context window; omit pi Stop while submission supplies the nudge; exclude the trip-computer page.
+Settled (owner, 2026-11-08: "pi local is just a way to use it … we dont need to do anything special"): a local model is one of pi's native providers and gets no arizuko mechanism. The operator declares it like any provider and adds its host to `network_rules`; a model reachable only on host loopback is outside this spec.
 The pin is 1.4.0 from the supplied package, not a claim about the latest npm version.
 
 ## Pi API evidence comes from the pinned package
