@@ -1,7 +1,6 @@
 package queue
 
 import (
-	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -104,63 +103,6 @@ func TestConcurrencyLimit(t *testing.T) {
 
 	close(block)
 	time.Sleep(100 * time.Millisecond)
-}
-
-func TestCircuitBreaker(t *testing.T) {
-	q := New(5)
-
-	var calls atomic.Int32
-	q.SetProcessMessagesFn(func(jid string) (bool, error) {
-		calls.Add(1)
-		return false, fmt.Errorf("boom") // a real processing error
-	})
-
-	// 3 errors to trip breaker
-	for range 3 {
-		q.EnqueueMessageCheck("g1")
-		time.Sleep(50 * time.Millisecond)
-	}
-
-	q.mu.Lock()
-	failures := q.groups["g1"].consecutiveFailures
-	q.mu.Unlock()
-	if failures < circuitBreakerThreshold {
-		t.Fatalf("expected >= %d failures, got %d", circuitBreakerThreshold, failures)
-	}
-
-	// New message resets breaker
-	q.EnqueueMessageCheck("g1")
-	time.Sleep(50 * time.Millisecond)
-
-	q.mu.Lock()
-	failures = q.groups["g1"].consecutiveFailures
-	q.mu.Unlock()
-	// After reset + another failure, should be 1
-	if failures >= circuitBreakerThreshold {
-		t.Fatal("circuit breaker should have been reset")
-	}
-}
-
-// A clean return with no output (silent turn / observe / already-current) is
-// NOT a failure — it must never trip the breaker. Counting no-output as failure
-// false-tripped discord channels after silent turns.
-func TestCircuitBreaker_SilentNoOpDoesNotTrip(t *testing.T) {
-	q := New(5)
-	q.SetProcessMessagesFn(func(jid string) (bool, error) {
-		return false, nil // success with no output (silent no-op)
-	})
-
-	for range circuitBreakerThreshold + 2 {
-		q.EnqueueMessageCheck("g1")
-		time.Sleep(40 * time.Millisecond)
-	}
-
-	q.mu.Lock()
-	failures := q.groups["g1"].consecutiveFailures
-	q.mu.Unlock()
-	if failures != 0 {
-		t.Fatalf("silent no-op tripped breaker: %d failures, want 0", failures)
-	}
 }
 
 func TestShutdownBlocksEnqueue(t *testing.T) {

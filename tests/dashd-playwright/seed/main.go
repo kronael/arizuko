@@ -115,7 +115,7 @@ func main() {
 	// Flag the chat errored so the portal alert banner appears in tests. The
 	// flag is the CHAT's — the banner reads ErroredChatJIDs — so the fixture
 	// writes it where the page looks.
-	if _, err := rst.MarkChatErrored("telegram:user/seed"); err != nil {
+	if err := rst.MarkChatErrored("telegram:user/seed"); err != nil {
 		log.Fatalf("seed: mark chat errored: %v", err)
 	}
 

@@ -20,7 +20,7 @@ func TestClearChatErrored_TakesTheFlagAway(t *testing.T) {
 	if err := s.PutMessage(m); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.MarkChatErrored(jid); err != nil {
+	if err := s.MarkChatErrored(jid); err != nil {
 		t.Fatal(err)
 	}
 	errored, err := s.ErroredChatJIDs()

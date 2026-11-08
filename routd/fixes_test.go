@@ -1297,7 +1297,7 @@ func TestEnsureTopicLineage_InheritsParentObservedCursor(t *testing.T) {
 func TestCleanRunClearsTheErroredFlag(t *testing.T) {
 	db := memDB(t)
 	const jid = "slack:T/C/U"
-	if _, err := db.MarkChatErrored(jid); err != nil {
+	if err := db.MarkChatErrored(jid); err != nil {
 		t.Fatal(err)
 	}
 	if errored, err := db.ErroredChats("", true); err != nil || len(errored) != 1 {

@@ -13,6 +13,10 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+- Provider refusals pause model access across the instance and preserve input.
+  One saved turn probes automatically. Operators can list or clear the pause
+  through REST, MCP, the dashboard or `arizuko model-pauses`.
+
 - Approval pages show routd's rendered request and standing rule. The agent
   waits for the original call's result and never reissues an approved call.
 

@@ -143,7 +143,7 @@ collectors exist either way, so the recording helpers stay cheap when the
 endpoint is off, and `MetricsHandler` answers 404 rather than nothing. Mount it
 BEFORE auth — it is a public endpoint.
 
-Thirteen metrics, declared once in `metrics.go`:
+Metrics are declared once in `metrics.go`:
 
 | metric                                                                                             | what it counts                                               |
 | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
@@ -152,7 +152,6 @@ Thirteen metrics, declared once in `metrics.go`:
 | `arizuko_model_tokens_total`                                                                       | token usage                                                  |
 | `arizuko_container_spawns_total`, `arizuko_container_active`, `arizuko_container_duration_seconds` | the spawn                                                    |
 | `arizuko_requests_total`, `arizuko_request_duration_seconds`                                       | HTTP, per daemon — every daemon emits these two              |
-| `arizuko_circuit_breaker_state`                                                                    | breaker status                                               |
 | `arizuko_token_mints_total`, `arizuko_token_refreshes_total`                                       | authd's issuance                                             |
 
 ## Files

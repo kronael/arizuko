@@ -1,6 +1,6 @@
 package runstore
 
-// import.go writes runed's spawns, session log and circuit breakers as items
+// import.go writes runed's spawns and session log as items
 // from plain values, and owns the item shape.
 //
 // NOTHING IN PRODUCTION CALLS IT. CreateSpawn, StartSpawn and EndSpawn each
@@ -29,7 +29,6 @@ import (
 type Snapshot struct {
 	Spawns   []SpawnRow
 	Sessions []SessionRow
-	Breakers []BreakerRow
 }
 
 // SpawnRow is one legacy `spawns` row. SessionLogID is the old sequence number
@@ -63,18 +62,11 @@ type SessionRow struct {
 	MessageCount int
 }
 
-// BreakerRow is one legacy `circuit_breaker` row.
-type BreakerRow struct {
-	Folder   string
-	Failures int
-}
-
 // Counts is what an import wrote, per entity, for the operator to check against
 // the source.
 type Counts struct {
 	Spawns   int
 	Sessions int
-	Breakers int
 }
 
 // LegacySessionID is the id a migrated session gets: the instant it started at
@@ -238,25 +230,6 @@ func importWrites(snap Snapshot) ([]objstore.Write, Counts, error) {
 			Op: objstore.Put, Entity: Spawns, Key: spawnKey(r.RunID), Attrs: attrs,
 		})
 		counts.Spawns++
-	}
-
-	seenFolder := map[string]bool{}
-	for _, r := range snap.Breakers {
-		switch {
-		case r.Folder == "":
-			refused = append(refused, "a circuit_breaker row names no folder, and the folder "+
-				"is its whole coordinate")
-			continue
-		case seenFolder[r.Folder]:
-			refused = append(refused, fmt.Sprintf("folder %s has two breaker rows", r.Folder))
-			continue
-		}
-		seenFolder[r.Folder] = true
-		writes = append(writes, objstore.Write{
-			Op: objstore.Put, Entity: CircuitBreaker, Key: breakerKey(r.Folder),
-			Attrs: map[string]string{attrFailures: strconv.Itoa(r.Failures)},
-		})
-		counts.Breakers++
 	}
 
 	if len(refused) > 0 {

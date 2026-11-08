@@ -3,6 +3,7 @@ package routd
 import (
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"log/slog"
 	"slices"
@@ -12,14 +13,23 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
-func (l *Loop) modelAdmission(jid string) (*store.ModelPause, error) {
+var errModelInputOrder = errors.New("older model input pending")
+
+func (l *Loop) modelAdmission(candidate core.Message) (*store.ModelPause, error) {
 	p, err := l.db.store().ReadModelPause(context.Background())
-	if err != nil || p == nil || p.NextAttemptAt == "" || p.NextAttemptAt > core.NowTS() {
+	if err != nil || (p != nil && (p.NextAttemptAt == "" || p.NextAttemptAt > core.NowTS())) {
 		return nil, err
 	}
 	oldest, err := l.oldestModelInput()
-	if err != nil || oldest.ChatJID != jid {
+	if err != nil {
 		return nil, err
+	}
+	if p != nil && (oldest.ID == "" || oldest.ID != candidate.ID ||
+		oldest.ChatJID != candidate.ChatJID || !oldest.Timestamp.Equal(candidate.Timestamp)) {
+		return nil, store.ErrModelPaused
+	}
+	if p == nil && oldest.ID != "" && modelInputBefore(oldest, candidate) {
+		return nil, errModelInputOrder
 	}
 	return p, nil
 }

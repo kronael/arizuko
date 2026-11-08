@@ -137,8 +137,7 @@ func TestObservingStampsTheFolderTheScopeReads(t *testing.T) {
 	}
 }
 
-// The breaker's prune is the one path that deletes a message in production
-// (routd/loop.go onCircuitBreakerOpen). A deleted message that goes on
+// Explicit error cleanup deletes messages and their search entries. A deleted message that goes on
 // answering searches reports content nobody can read back.
 func TestAPrunedMessageStopsAnswering(t *testing.T) {
 	db := memDB(t)

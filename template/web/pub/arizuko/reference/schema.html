@@ -51,7 +51,7 @@
     <table>
       <tr><th>owner</th><th>declared in</th><th>holds</th></tr>
       <tr><td><code>routd</code></td><td><code>store/entities.go</code></td><td>messages and their indexes, routing, grants, secrets, scheduling, packages</td></tr>
-      <tr><td><code>runed</code></td><td><code>runed/runstore</code></td><td>spawns, session log, circuit breaker</td></tr>
+      <tr><td><code>runed</code></td><td><code>runed/runstore</code></td><td>spawns, session log</td></tr>
       <tr><td><code>authd</code></td><td><code>authd/authstore</code></td><td>signing keys, accounts, refresh tokens</td></tr>
       <tr><td><code>onbod</code></td><td><code>store/entities.go</code></td><td>onboarding, gates, invites</td></tr>
     </table>
@@ -115,8 +115,9 @@
     <table>
       <tr><th>entity</th><th>addressed by</th><th>carries</th></tr>
       <tr><td><code>secret_use_log</code></td><td>the instant a tool call resolved one</td><td>spawn, caller, folder, tool, key, outcome, latency</td></tr>
-      <tr><td><code>turn_context</code></td><td>the turn id</td><td>folder, topic, chat, trigger sender, run id, state, the hash of the gateway key that turn was metered with</td></tr>
-      <tr><td><code>turn_results</code></td><td>folder and turn id</td><td>session, status, when it was recorded. Create-if-absent is what makes one report one delivery.</td></tr>
+      <tr><td><code>turn_context</code></td><td>the turn id</td><td>folder, topic, chat, trigger sender, run id, state, gateway key hash, <code>attempt_id</code>, saved <code>input_last</code> boundary, <code>probe_episode</code> and <code>provider_failure_attempt</code>. State <code>held</code> preserves refused input</td></tr>
+      <tr><td><code>turn_results</code></td><td>folder and turn id</td><td>session, status, when it was recorded. Create-if-absent makes one terminal result one delivery. Provider refusals hold input without a result row.</td></tr>
+      <tr><td><code>model_pauses</code></td><td>one runtime item, <code>{routd, instance}</code></td><td><code>reason</code>, <code>opened_at</code>, <code>next_attempt_at</code>, <code>attempts</code>, sanitized <code>evidence</code>, <code>probe_turn_id</code> and <code>probe_attempt_id</code>. An absent due time means one probe owns the pause. routd owns writes.</td></tr>
       <tr><td><code>task_run_logs</code></td><td>the instant a task ran</td><td>task, duration, status, result, error</td></tr>
       <tr><td><code>user_profiles</code></td><td>the person's sub</td><td>the username their folder is named after, their daily spend cap</td></tr>
       <tr><td><code>group_watchers</code></td><td>observer and source</td><td>nothing &mdash; the pair is the fact</td></tr>
@@ -130,7 +131,6 @@
       <tr><th>entity</th><th>addressed by</th><th>carries</th></tr>
       <tr><td><code>spawns</code></td><td>one constant partition, then the run id</td><td>folder, topic, container, session, kind, state, outcome, exit code, timestamps. A guarded write names one item, which is why the run id is the whole address.</td></tr>
       <tr><td><code>session_log</code></td><td>the folder, then the instant it started</td><td>session id, end, result, error, message count</td></tr>
-      <tr><td><code>circuit_breaker</code></td><td>the folder, both halves</td><td>consecutive failures and the last one. Every operation is a point operation on one folder.</td></tr>
       <tr><td><code>signing_keys</code></td><td>one partition per daemon, then the kid</td><td>the ES256 keypair and its retirement</td></tr>
       <tr><td><code>signing_key_slot</code></td><td>a single item</td><td>which kid signs now. One item is what makes two signers unrepresentable.</td></tr>
       <tr><td><code>auth_users</code></td><td>the sub</td><td>name, created</td></tr>
@@ -166,7 +166,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/reference/schema.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-11-04">2026-11-04</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-07">2026-11-07</time>
       </div>
     </main>
 

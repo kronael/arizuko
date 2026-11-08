@@ -63,11 +63,29 @@
 
     <p class="lede">Every turn runs in its own short-lived virtual machine. Sometimes that guest stops in the middle of a turn, because it runs out of memory or reaches the run time limit. Then no answer comes back. <code>routd</code> sees the run with no reply and runs the turn again, up to three times, without a message to you. You get one slower reply instead of silence.</p>
 
-    <h2>A turn fails only if no bot message arrived</h2>
+    <h2 id="provider-pause">A provider refusal pauses the instance and saves input</h2>
+    <p>A structured provider error can report a spend limit, rate limit, refused authentication or outage. Then routd holds all new turns, including groups with user keys or another backend. Already-admitted turns may finish.</p>
+    <pre><code>provider refusal ──► saved input ──► due time
+                                       │
+                                       ▼
+                              one oldest normal turn
+                                │              │
+                             refusal        recovery
+                                │              │
+                                ▼              ▼
+                              wait       resume saved input</code></pre>
+    <p>Each destination chat gets one durable notice per pause: <code>Model access is paused: &lt;reason&gt;. Your messages are saved. I will retry automatically.</code> New messages and restarts reuse that notice. Waiting input stops typing.</p>
+    <p>The delay starts at 30 seconds and doubles after each refused probe, up to one hour, with bounded jitter. A future provider reset time overrides the delay. New messages and duplicate reports do not extend the wait.</p>
+    <p>At the due time, one oldest held turn uses the normal guest and timeout paths. A submitted result without a provider refusal clears the pause. A failure before submission does not prove recovery. A restart resolves an interrupted probe before another can start.</p>
+    <p>Held input keeps its cursor, session, content, retry count and order. Later messages stay outside the saved turn boundary. Local crash retries, error marking and retention cleanup do not consume held input.</p>
+    <p>Operators can inspect or clear the pause at <code>/dash/model-pauses/</code>, through <a href="../reference/cli.html#model-pauses"><code>arizuko model-pauses</code></a>, or with <a href="../reference/mcp.html#list_model_pauses">the operator MCP tools</a>. Clear releases saved input. Another refusal opens a new pause.</p>
+    <p>Exit 78 alone, assistant quotations, tool failures and unknown errors do not open a pause. Other turn failures follow the local retry rules below.</p>
+
+    <h2>Local crash retries need a turn without a bot message</h2>
     <p>The test is <strong>&ldquo;did any bot message arrive?&rdquo;</strong>, not &ldquo;did the agent finish without an error?&rdquo;. An agent that posted half an answer and then stopped counts as a success, and <code>routd</code> does not retry it. A partial reply that you can read is better than a wait while the agent does the whole task again. Only a turn with no bot message at all starts a retry.</p>
 
     <h2>You see nothing until a retry succeeds</h2>
-    <p>No scheduler starts the retry. <code>routd</code> does not advance the failed batch, so the next poll of <code>routd</code> takes the same message and starts a new guest. The repeated read <em>is</em> the retry, so no code must move a cursor back. No delay exists between attempts either. The old guest is already gone, and the new one starts from the beginning, so a wait would only make your silence longer.</p>
+    <p>No scheduler starts the retry. <code>routd</code> does not advance the failed batch, so the next poll of <code>routd</code> takes the same message and starts a new guest. The repeated read <em>is</em> the retry, so no code must move a cursor back. If runed reports busy, routd waits before trying again. The wait starts at four seconds and doubles to 60 seconds.</p>
     <p>If every attempt fails, one message arrives:</p>
     <pre><code>&#9888; Agent couldn't complete this request after 3 attempts.</code></pre>
     <p><code>routd</code> also marks the chat as errored, so an operator can find it on the dashboard. A turn that failed <em>without</em> a retry, because the agent had already replied, gets a different notice: <code>Failed: agent error on that message. Try rephrasing or send a different message.</code></p>
@@ -91,7 +109,7 @@ usage.&lt;/system-note&gt;</code></pre>
       <dt>Runs that an operator stopped</dt>
       <dd>A deliberate stop is recorded as killed, not as an error.</dd>
       <dt>Runs that <code>runed</code> marks terminal</dt>
-      <dd>A retry cannot repair these failures: a guest that does not start, or an exhausted model quota. The notice to the chat names the cause.</dd>
+      <dd>A retry cannot repair terminal guest failures. The notice to the chat names the cause. Provider refusals use the pause path above.</dd>
     </dl>
 
     <div class="callout"><strong>A network failure uses a different path.</strong> If the call from <code>routd</code> to <code>runed</code> fails on the network, <code>routd</code> does not know whether the run happened. So it leaves its read cursor in place, and the next poll gives the message to the agent again. Retries apply when <code>runed</code> answered and the answer was &ldquo;the run stopped&rdquo;.</div>

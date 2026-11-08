@@ -99,8 +99,7 @@ func (s *Server) deliverRow(tc TurnContext, jid string, row *core.Message,
 		return core.MessageStatusSent
 	}
 	// A bare-folder jid has no channel (a system/auto turn or a mis-targeted
-	// delegation): a doomed Send trips the per-folder breaker for every such
-	// turn. The row lands `failed`, NOT `sent`: `failed`
+	// delegation). The row lands `failed`, NOT `sent`: `failed`
 	// IS the dead-letter state with delivery_attempts=0, so the content stays
 	// visible in dead_letters instead of recording a delivery that never
 	// happened (BUGS L76).
@@ -162,14 +161,17 @@ const silentTurnNotice = "⚠️ I couldn't produce a reply to that — please r
 
 const timedOutNotice = "⚠️ I ran out of time on that — say 'continue' to resume, or narrow the request."
 
-// recordTurnResult decides whether a successful submission may close the turn
+// recordTurnResultAttempt decides whether a successful submission may close the turn
 // before recording it. A nudge holds the same turn open for one continuation.
-func (s *Server) recordTurnResult(turnID string, req apiv1.TurnResult) (ipc.TurnAck, error) {
+func (s *Server) recordTurnResultAttempt(turnID, attempt string, req apiv1.TurnResult) (ipc.TurnAck, error) {
 	unlock := lockTurn(turnID)
 	defer unlock()
 	tc, ok := s.db.GetTurnContext(turnID)
 	if !ok {
 		return ipc.TurnAck{}, fmt.Errorf("no turn context for turn_id")
+	}
+	if attempt != "" && (tc.AttemptID != attempt || tc.RunReturned) {
+		return ipc.TurnAck{}, fmt.Errorf("turn attempt is closed")
 	}
 	if req.ProviderFailure != nil {
 		if req.Status != "error" {

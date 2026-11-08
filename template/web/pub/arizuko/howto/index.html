@@ -187,8 +187,8 @@ sudo env HOST_APP_DIR="$source_dir" ./arizuko run -i "$flavor"</code></pre>
       <dd>The guest started and never connected back to <code>runed</code>.</dd>
       <dt><code>staging tree: mount source</code></dt>
       <dd>The turn mounts a path that <code>runed</code> itself cannot open.</dd>
-      <dt><code>circuit breaker open</code></dt>
-      <dd>One folder failed too many turns in sequence.</dd>
+      <dt><code>Model access is paused</code></dt>
+      <dd>The provider refused model access. Messages stay saved while one held turn retries automatically. Operators can inspect or clear the pause at <code>/dash/model-pauses/</code>. See <a href="operate.html#model-pause">the pause procedure</a>.</dd>
     </dl>
     <p><a href="operate.html">Operate</a> lists each incident with its log line, its cause and its fix.</p>
 
@@ -263,7 +263,7 @@ arizuko apply -i demo rows.yml          # write only the rows in the file</code>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/howto/index.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-11-07">2026-11-07</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-08">2026-11-08</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

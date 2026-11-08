@@ -32,9 +32,9 @@ func (d *dash) handleModelPauses(w http.ResponseWriter, r *http.Request) {
 		}
 		control := fmt.Sprintf(`<form method="post" action="/dash/model-pauses/clear"><input type="hidden" name="opened_at" value="%s"><input type="hidden" name="probe_attempt_id" value="%s"><button>Clear pause</button></form>`, esc(row.OpenedAt), esc(row.ProbeAttemptID))
 		cells = append(cells, []string{esc(row.Reason), esc(row.OpenedAt), esc(next),
-			fmt.Sprint(row.QueuedCount), control})
+			fmt.Sprint(row.Attempts), fmt.Sprint(row.QueuedCount), control})
 	}
-	_, _ = fmt.Fprint(w, htmlTable([]string{"reason", "opened", "next attempt", "saved messages", "control"}, cells, "model access is available"))
+	_, _ = fmt.Fprint(w, htmlTable([]string{"reason", "opened", "next attempt", "attempts", "saved messages", "control"}, cells, "model access is available"))
 	pageClose(w, r)
 }
 

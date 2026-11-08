@@ -59,7 +59,7 @@
 
     <p>runed is the execution plane. It serves the work queue, starts one KVM guest per turn, and enforces the run timeout. It holds <code>/dev/kvm</code>, <code>/dev/vhost-vsock</code> and <code>/dev/net/tun</code>, and the <code>NET_ADMIN</code> and <code>SYS_ADMIN</code> capabilities. It mounts no Docker socket. It never appends a message, because <a href="routd.html">routd</a> is the only appender. It neither signs nor creates a token. <a href="authd.html">authd</a> is the only signer, and runed reads the public keys of authd only to verify the callers of its own <code>/v1</code>.</p>
 
-    <p>runed owns its tables and creates them: the runtime tables <code>spawns</code>, <code>session_log</code> and <code>circuit_breaker</code>, which have no place in routd.</p>
+    <p>runed owns its tables and creates them: the runtime tables <code>spawns</code> and <code>session_log</code>, which have no place in routd.</p>
 
     <h2>Guest control needs root-level access, so one small daemon holds it</h2>
     <p>A turn is one short-lived KVM guest, as the <a href="../concepts/primitives.html">Turn primitive</a> describes. Some daemon must hold <code>/dev/kvm</code> and the other device nodes that a guest needs, and only one daemon should. That access equals root on the host, so one small daemon keeps the damage of a fault small. runed is that daemon.</p>

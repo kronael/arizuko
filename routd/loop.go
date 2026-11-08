@@ -15,7 +15,6 @@ import (
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
-	"github.com/kronael/arizuko/obs"
 	"github.com/kronael/arizuko/queue"
 	"github.com/kronael/arizuko/router"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
@@ -908,19 +907,6 @@ func (l *Loop) sessionIdleExpired(chatJID string) bool {
 		return false
 	}
 	return time.Since(t) > l.sessionIdle
-}
-
-// onCircuitBreakerOpen prunes the chat's errored rows and clears the folder's
-// root session: a broken session is poison, and the next inbound gets a clean
-// spawn. The chat-visible notice is runTurn's; this is the prune+reset half.
-func (l *Loop) onCircuitBreakerOpen(chatJID, folder string) {
-	obs.SetCircuitBreakerState(folder, 2) // 2=open (spec 5/O-observability)
-	if err := l.db.DeleteErroredMessages(chatJID); err != nil {
-		slog.Warn("prune errored messages failed", "jid", chatJID, "err", err)
-	}
-	if folder != "" {
-		_ = l.db.DeleteSession(folder, "")
-	}
 }
 
 // onboardingAllowed reports whether jid's platform prefix is eligible for

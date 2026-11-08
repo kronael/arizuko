@@ -263,6 +263,10 @@ func TestModelPauseAlreadyAdmittedTurnDoesNotProbeOrClear(t *testing.T) {
 	if err != nil || oldest.ID != "held" {
 		t.Fatalf("already admitted input selected: %+v %v", oldest, err)
 	}
+	processPauseChat(t, l, "web:b")
+	if len(p.runs) != 1 {
+		t.Fatal("already-admitted input stole the probe")
+	}
 	p.srv.replyForTest(t, "admitted", "web:b", "finished")
 	if _, err := p.srv.mcpSubmitTurn("b", ipc.TurnResult{TurnID: "admitted", Status: "success"}); err != nil {
 		t.Fatal(err)

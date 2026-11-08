@@ -1,5 +1,5 @@
 ---
-status: draft
+status: shipped
 ---
 
 # A provider refusal pauses the instance
@@ -147,3 +147,23 @@ This is an estimate; implementation reports actual added/deleted lines.
   episode. Repeated reports and failed notice delivery retain one outbound row.
 - REST/MCP, dashboard and CLI prove operator-only list/clear and audit parity;
   the Go/TS ProviderFailure contract agrees. No runtime port changes occur.
+
+## Contract tests
+
+1. Normal recovery and admission guard:
+   `routd/model_pauses_test.go::TestModelPauseNormalTurns429Then200`;
+   polling and queue order: `routd/model_pause_order_test.go::TestModelPausePollHeldOrder`.
+2. Provider envelopes and negative fixtures: `ant/src/provider-failure.test.ts`;
+   unclassified terminal prose: `routd/failure_notice_test.go::TestFailureNoticePerChat`.
+3. Doubling and reset: `store/model_pauses_test.go::TestModelPauseDuplicateBackoffResetAndLateCompletion`;
+   restart: `routd/model_pauses_test.go::TestModelPauseRestartWaitingAndRunningProbe`
+   and `TestModelPauseRestartAfterSubmissionResolvesTheBoundProbe`.
+4. Clear and held order: `routd/model_pauses_test.go::TestModelPauseManualClearAndLateCallback`;
+   stale completion: `store/model_pauses_test.go::TestModelPauseLateProbeCannotClearNewEpisodeAndHeldSurvivesGC`;
+   callbacks across rebind: `routd/model_pause_race_test.go::TestModelPauseStaleCallbackAcrossRebind`;
+   durable notice: `routd/model_pauses_test.go::TestModelPauseNoticeDurableBeyondAppendWindow`;
+   command and elevation order: `routd/model_pause_order_test.go`.
+5. Operator surfaces and audit: `routd/model_pauses_resource_test.go`,
+   `dashd/model_pauses_test.go`, `cmd/arizuko/model_pauses_test.go`;
+   shared declarations: `tests/contract_ant_test.go::TestProviderFailureFieldsMatchAcrossLanguages`;
+   unchanged runtime port: `runed/model_pause_recovery_test.go::TestModelPauseKeepsRuntimePort`.

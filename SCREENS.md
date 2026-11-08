@@ -198,7 +198,7 @@ and links into per-daemon control planes when built.
 - As an operator, I want to see every daemon's health at once so I can
   identify which one is causing an incident.
 - As an operator, I want to click a daemon tile to reach its control plane
-  so I can act (kill a run, drain a queue, reset a breaker).
+  so I can act (kill a run, drain a queue, clear a model pause).
 
 #### Layout
 

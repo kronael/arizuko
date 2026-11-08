@@ -33,7 +33,7 @@ runed/     execution plane: one KVM guest and one egress proxy per turn
   ├── container, diary    group setup and skills; the diary summary reader
   ├── groupfolder, mountsec  path checks for the guest's mounts
   ├── substrate           the declared ceiling and what a host delivers
-  └── runstore            spawns, session_log, circuit_breaker
+  └── runstore            spawns, session_log
 kernel/    the pinned guest kernel and guest-init, PID 1
 authd/     auth authority: sole ES256 signer, JWKS, OAuth provider
   │
@@ -128,9 +128,9 @@ ttsd and whapd hold no store key.
 
 | Owner                                      | Entities                                                                                                   | Declared in                            | Column detail                                |
 | ------------------------------------------ | ---------------------------------------------------------------------------------------------------------- | -------------------------------------- | -------------------------------------------- |
-| `routd`                                    | messages and their four indexes, routing, grants, secrets, sessions, turns, tasks, packages                | `store/entities.go`                    | `store/README.md` § Every table is an entity |
+| `routd`                                    | messages and their four indexes, routing, grants, secrets, sessions, turns, model_pauses, tasks, packages  | `store/entities.go`                    | `store/README.md` § Every table is an entity |
 | `onbod`                                    | `onboarding`, `onboarding_gates`, `invites`, `invite_redemptions`                                          | `store/entities.go`                    | `store/README.md` § Every table is an entity |
-| `runed`                                    | `spawns`, `session_log`, `circuit_breaker`                                                                 | `runed/runstore`                       | `runed/README.md` § Entities owned           |
+| `runed`                                    | `spawns`, `session_log`                                                                                    | `runed/runstore`                       | `runed/README.md` § Entities owned           |
 | `authd`                                    | `signing_keys`, `signing_key_slot`, `auth_users`, `oauth_identities`, `refresh_tokens`, `refresh_families` | `authd/authstore`                      | `authd/README.md` § Entities owned           |
 | each adapter that calls `OpenAdapterStore` | `outbound_dedup`, `inbound_pending`, `file_urls`, `ack_marks`; emaid adds `email_threads`, `email_msg_ids` | `chanlib/chanstore`, `emaid/emaistore` | `chanlib/README.md` § Storage                |
 
@@ -195,7 +195,7 @@ guest lives in `runed`. One synchronous HTTP call joins them: `POST /v1/runs`.
      │ POST <url>/send        ┌──────────────────────────────────────────┐
      │ the reply rows and     │ bridge ► routd socket: mcpDeliver ►      │
      │ one edited status row  │ chanDeliverer.Send; submit_turn ►        │
-     └────────────────────────┤ recordTurnResult (outcome only)          │
+     └────────────────────────┤ recordTurnResultAttempt (outcome only)   │
                               └──────────────────────────────────────────┘
 ```
 
@@ -285,25 +285,26 @@ and the reason. A change that reverses a row answers the reason first.
 
 ## Where the rest lives
 
-| Concern                                           | Home                                                                                 |
-| ------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| A request through proxyd, the web channel         | [`proxyd/README.md`](proxyd/README.md), [`webd/README.md`](webd/README.md)           |
-| Keys, mints, cookies and logins                   | [`authd/README.md` § Keys, mints and logins](authd/README.md#keys-mints-and-logins)  |
-| `GET /openapi.json` on every daemon               | [`resreg/README.md` § OpenAPI emission](resreg/README.md#openapi-emission)           |
-| The channel protocol, typing, inbound media       | [`chanlib/README.md`](chanlib/README.md), [`chanreg/README.md`](chanreg/README.md)   |
-| Authorization, the operator role                  | [`auth/README.md`](auth/README.md), [GRANTS.md](GRANTS.md)                           |
-| The turn envelope, busy, stop, the guest's mounts | [`runed/README.md`](runed/README.md)                                                 |
-| Secret injection                                  | [`SECURITY.md` § Secret injection](SECURITY.md#secret-injection)                     |
-| The MCP socket and `submit_turn`                  | [`ipc/README.md`](ipc/README.md)                                                     |
-| One turn per folder, the two circuit breakers     | [`queue/README.md`](queue/README.md)                                                 |
-| Routes, topics, replies, autoviv                  | [ROUTING.md](ROUTING.md)                                                             |
-| Compose, profiles, packages                       | [`compose/README.md`](compose/README.md)                                             |
-| Onboarding, pairing, worlds                       | [`onbod/README.md`](onbod/README.md)                                                 |
-| The scheduler                                     | [`routd/README.md`](routd/README.md#routd-fires-scheduled-tasks)                     |
-| The dashboards                                    | [`dashd/README.md`](dashd/README.md)                                                 |
-| The agent's memory layers                         | [`diary/README.md`](diary/README.md)                                                 |
-| Prompt assembly                                   | [`routd/README.md` § Prompt assembly](routd/README.md#prompt-assembly)               |
-| The turn deadline                                 | [`ant/README.md` § The turn deadline](ant/README.md#the-turn-deadline)               |
-| Audit, logs, traces                               | [`obs/README.md`](obs/README.md), [`audit/README.md`](audit/README.md)               |
-| Row types and the config loader                   | [`core/README.md`](core/README.md)                                                   |
-| The guest kernel; what a substrate declares       | [`kernel/README.md`](kernel/README.md), [`substrate/README.md`](substrate/README.md) |
+| Concern                                           | Home                                                                                  |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| A request through proxyd, the web channel         | [`proxyd/README.md`](proxyd/README.md), [`webd/README.md`](webd/README.md)            |
+| Keys, mints, cookies and logins                   | [`authd/README.md` § Keys, mints and logins](authd/README.md#keys-mints-and-logins)   |
+| `GET /openapi.json` on every daemon               | [`resreg/README.md` § OpenAPI emission](resreg/README.md#openapi-emission)            |
+| The channel protocol, typing, inbound media       | [`chanlib/README.md`](chanlib/README.md), [`chanreg/README.md`](chanreg/README.md)    |
+| Authorization, the operator role                  | [`auth/README.md`](auth/README.md), [GRANTS.md](GRANTS.md)                            |
+| The turn envelope, busy, stop, the guest's mounts | [`runed/README.md`](runed/README.md)                                                  |
+| Secret injection                                  | [`SECURITY.md` § Secret injection](SECURITY.md#secret-injection)                      |
+| The MCP socket and `submit_turn`                  | [`ipc/README.md`](ipc/README.md)                                                      |
+| One turn per folder                               | [`queue/README.md`](queue/README.md)                                                  |
+| Provider pause and held input                     | [`routd/README.md`](routd/README.md#provider-refusals-hold-input-across-the-instance) |
+| Routes, topics, replies, autoviv                  | [ROUTING.md](ROUTING.md)                                                              |
+| Compose, profiles, packages                       | [`compose/README.md`](compose/README.md)                                              |
+| Onboarding, pairing, worlds                       | [`onbod/README.md`](onbod/README.md)                                                  |
+| The scheduler                                     | [`routd/README.md`](routd/README.md#routd-fires-scheduled-tasks)                      |
+| The dashboards                                    | [`dashd/README.md`](dashd/README.md)                                                  |
+| The agent's memory layers                         | [`diary/README.md`](diary/README.md)                                                  |
+| Prompt assembly                                   | [`routd/README.md` § Prompt assembly](routd/README.md#prompt-assembly)                |
+| The turn deadline                                 | [`ant/README.md` § The turn deadline](ant/README.md#the-turn-deadline)                |
+| Audit, logs, traces                               | [`obs/README.md`](obs/README.md), [`audit/README.md`](audit/README.md)                |
+| Row types and the config loader                   | [`core/README.md`](core/README.md)                                                    |
+| The guest kernel; what a substrate declares       | [`kernel/README.md`](kernel/README.md), [`substrate/README.md`](substrate/README.md)  |

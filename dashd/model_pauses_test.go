@@ -57,6 +57,9 @@ func TestModelPausesDashboardOperatorClearAndAudit(t *testing.T) {
 	if get.Code != 200 || !strings.Contains(get.Body.String(), "Clear pause") || !strings.Contains(get.Body.String(), pause.OpenedAt) {
 		t.Fatalf("page=%d %s", get.Code, get.Body.String())
 	}
+	if !strings.Contains(get.Body.String(), ">attempts</th>") || !strings.Contains(get.Body.String(), ">1</td>") {
+		t.Fatalf("pause attempt count missing: %s", get.Body.String())
+	}
 	for _, operator := range []bool{false, true} {
 		for _, foreign := range []bool{false, true} {
 			form := url.Values{"opened_at": {pause.OpenedAt}, "probe_attempt_id": {""}}

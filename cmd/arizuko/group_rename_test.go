@@ -94,7 +94,6 @@ func TestGroupRenameClassifiedRows(t *testing.T) {
 		{"onbod", store.InviteRedemptions, "discord:123", "instant", "discord:123", "instant", map[string]string{"target_glob": "main/main/*"}, map[string]string{"target_glob": "sloth/discord/*"}},
 		{"authd", "refresh_tokens", "authd", "main-hash", "authd", "main-hash", map[string]string{"sub": "main", "scope": "tasks:read,folder:main/*"}, map[string]string{"sub": "main", "scope": "tasks:read,folder:sloth/*"}},
 		{"runed", runstore.SessionLog, "main/main", "main-session", "sloth/discord", "main-session", map[string]string{"session_id": "main-uuid", "result": "main/main text"}, nil},
-		{"runed", runstore.CircuitBreaker, "main", "main", "sloth", "sloth", map[string]string{"failures": "5"}, nil},
 		{"runed", runstore.Spawns, "spawn", "main-run", "spawn", "main-run", map[string]string{"folder": "main/main", "state": "exited", "container_name": "main-container"}, map[string]string{"folder": "sloth/discord", "state": "exited", "container_name": "main-container"}},
 		{"discd", "outbound_dedup", "main-dedup", "main-dedup", "main-dedup", "main-dedup", map[string]string{"chat_jid": "main/main", "state": "sent", "platform_id": "main-id"}, map[string]string{"chat_jid": "sloth/discord", "state": "sent", "platform_id": "main-id"}},
 		{"slakd", "inbound_pending", "inbound", "main-id", "inbound", "main-id", map[string]string{"payload": `{"chat_jid":"web:main","content":"main/main"}`, "attempts": "3"}, map[string]string{"payload": `{"chat_jid":"web:sloth","content":"main/main"}`, "attempts": "3"}},

@@ -172,42 +172,6 @@ func TestFolderBusySteerFailReturnsBusy(t *testing.T) {
 	}
 }
 
-// TestBreakerPersistsToDB: a failed run increments the circuit_breaker table,
-// a successful run resets it, and the count survives a manager restart.
-func TestBreakerPersistsToDB(t *testing.T) {
-	db, mgr := newMgr(t, FakeRuntime{Fn: func(_ context.Context, _ Turn) RunResult {
-		return RunResult{Outcome: runedv1.OutcomeError, Error: "boom"}
-	}}, 5)
-
-	// Two failures → count is 2 in DB.
-	mgr.Run(context.Background(), runedv1.RunRequest{Packages: []string{"core"}, Folder: "demo", MessageBatch: "m"})
-	mgr.Run(context.Background(), runedv1.RunRequest{Packages: []string{"core"}, Folder: "demo", MessageBatch: "m"})
-
-	got, err := db.FailureStreak(t.Context(), "demo")
-	if err != nil {
-		t.Fatalf("GetFailures: %v", err)
-	}
-	if got != 2 {
-		t.Fatalf("failure count=%d want 2", got)
-	}
-
-	// Simulate restart: create a new manager with the same DB.
-	cfg, folders := renderWiring(t)
-	mgr2 := NewManager(db, FakeRuntime{Fn: func(_ context.Context, _ Turn) RunResult {
-		return RunResult{Outcome: runedv1.OutcomeOK}
-	}}, ManagerConfig{
-		Instance: "test", MaxConcurrent: 5,
-		Cfg: cfg, Folders: folders,
-	})
-
-	// New manager reads existing failure count. A successful run resets it.
-	mgr2.Run(context.Background(), runedv1.RunRequest{Packages: []string{"core"}, Folder: "demo", MessageBatch: "m"})
-	got, _ = db.FailureStreak(t.Context(), "demo")
-	if got != 0 {
-		t.Fatalf("failure count after success=%d want 0 (reset)", got)
-	}
-}
-
 // TestActiveSpawnsPersistAcrossRestart: spawns in 'running' state are visible
 // to a new manager (simulated restart), enabling correct cap enforcement and
 // folder exclusivity without in-memory state.
@@ -364,7 +328,7 @@ func TestEndRunDoesNotDisarmTheSuccessor(t *testing.T) {
 	_ = db.CreateSpawn(t.Context(), Spawn{RunID: "B", Folder: "demo", ContainerName: "cb", State: "running", SessionID: "s"})
 	mgr.SetSteer("B", func(string) bool { return true })
 
-	mgr.endRun(t.Context(), "demo", "A", false, KindAgent)
+	mgr.endRun("A")
 
 	if !steerFor(t, mgr, "demo") {
 		t.Fatal("run A's exit deleted run B's steer callback; B is live and un-steerable")
@@ -398,7 +362,7 @@ func TestEndRunClearsItsOwnSteer(t *testing.T) {
 	_ = db.CreateSpawn(t.Context(), Spawn{RunID: "A", Folder: "demo", ContainerName: "ca", State: "running", SessionID: "s"})
 	mgr.SetSteer("A", func(string) bool { return true })
 
-	mgr.endRun(t.Context(), "demo", "A", false, KindAgent)
+	mgr.endRun("A")
 
 	mgr.mu.Lock()
 	defer mgr.mu.Unlock()

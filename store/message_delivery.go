@@ -134,7 +134,7 @@ func (s *Store) pendingFrom(ctx context.Context, items []objstore.Item) ([]Pendi
 }
 
 // messageBehindDelivery fetches the message one delivery item points at. A
-// pointer with no message is a row the circuit breaker pruned, and it drops
+// pointer with no message is a row removed by cleanup, and it drops
 // out of the feed rather than failing it.
 func (s *Store) messageBehindDelivery(ctx context.Context,
 	it objstore.Item) (core.Message, bool, error) {

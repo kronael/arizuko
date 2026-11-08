@@ -369,7 +369,7 @@ func TestActivity_ReadsRoutdDB(t *testing.T) {
 // routd.db's messages.errored flags, not the frozen messages.db twin.
 func TestErroredCount_ReadsRoutdDB(t *testing.T) {
 	d, routd := splitAdminDash(t, "alice@x")
-	if _, err := store.NewOver(routd).MarkChatErrored("web:liveerr"); err != nil {
+	if err := store.NewOver(routd).MarkChatErrored("web:liveerr"); err != nil {
 		t.Fatal(err)
 	}
 	if n := d.countVisibleErroredChats(testPolicy(t, routd, "alice@x")); n != 1 {

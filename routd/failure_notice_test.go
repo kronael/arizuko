@@ -45,12 +45,12 @@ func TestFailureNoticePerChat(t *testing.T) {
 		want       []string
 	}{
 		{"slack:T/A/U", "Monthly spend limit reached", []string{"slack:T/A/U"}},
-		{"slack:T/A/U", "Organization spend limit reached", []string{"slack:T/A/U"}},
-		{"slack:T/A/U", "container failed", []string{"slack:T/A/U"}},
-		{"slack:T/B/U", "usage limit reached", []string{"slack:T/A/U", "slack:T/B/U"}},
-		{"slack:T/A/U", "", []string{"slack:T/A/U", "slack:T/B/U"}},
-		{"slack:T/A/U", "usage limit reached", []string{"slack:T/A/U", "slack:T/B/U", "slack:T/A/U"}},
-		{"slack:T/B/U", "spend limit reached", []string{"slack:T/A/U", "slack:T/B/U", "slack:T/A/U", "slack:T/B/U"}},
+		{"slack:T/A/U", "Organization spend limit reached", []string{"slack:T/A/U", "slack:T/A/U"}},
+		{"slack:T/A/U", "container failed", []string{"slack:T/A/U", "slack:T/A/U", "slack:T/A/U"}},
+		{"slack:T/B/U", "usage limit reached", []string{"slack:T/A/U", "slack:T/A/U", "slack:T/A/U", "slack:T/B/U"}},
+		{"slack:T/A/U", "", []string{"slack:T/A/U", "slack:T/A/U", "slack:T/A/U", "slack:T/B/U"}},
+		{"slack:T/A/U", "usage limit reached", []string{"slack:T/A/U", "slack:T/A/U", "slack:T/A/U", "slack:T/B/U", "slack:T/A/U"}},
+		{"slack:T/B/U", "spend limit reached", []string{"slack:T/A/U", "slack:T/A/U", "slack:T/A/U", "slack:T/B/U", "slack:T/A/U", "slack:T/B/U"}},
 	}
 	for i, step := range steps {
 		if i == 2 {
@@ -64,6 +64,12 @@ func TestFailureNoticePerChat(t *testing.T) {
 		if _, err := loop.processGroupMessages(step.jid); err != nil {
 			t.Fatalf("step %d: %v", i, err)
 		}
+		if _, err := loop.processGroupMessages(step.jid); err != nil {
+			t.Fatal(err)
+		}
+		if pause, err := db.store().ReadModelPause(t.Context()); err != nil || pause != nil {
+			t.Fatalf("raw failure prose paused the instance: %+v %v", pause, err)
+		}
 		var got []string
 		for _, send := range dl.sentMsgs() {
 			got = append(got, send.jid)
@@ -71,6 +77,13 @@ func TestFailureNoticePerChat(t *testing.T) {
 		if !slices.Equal(got, step.want) {
 			t.Fatalf("step %d: recipients=%v, want %v", i, got, step.want)
 		}
+	}
+	keys := map[string]bool{}
+	for _, send := range dl.sentMsgs() {
+		if send.idem == "" || keys[send.idem] {
+			t.Fatalf("per-turn notice key reused: %q", send.idem)
+		}
+		keys[send.idem] = true
 	}
 }
 
@@ -99,7 +112,8 @@ func TestFailureNoticeDoesNotRetryFailedDelivery(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if len(recorded.sends) != 1 || recorded.sends[0].jid != "slack:T/A/U" {
-		t.Fatalf("delivery attempts=%+v, want one to slack:T/A/U", recorded.sends)
+	if len(recorded.sends) != 2 || recorded.sends[0].jid != "slack:T/A/U" ||
+		recorded.sends[0].idem == recorded.sends[1].idem {
+		t.Fatalf("delivery attempts=%+v, want two turns with distinct keys", recorded.sends)
 	}
 }

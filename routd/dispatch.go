@@ -81,7 +81,19 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 	steerConsumed := false
 	steerIdx := steerRowIdx(msgs)
 	steerMsg := msgs[steerIdx]
-	if pause == nil && l.steer(chatJID, steerMsg, folder, b.rows[steerIdx].AtName) {
+	var deferredSteer *core.Message
+	if steerIdx > 0 && l.canSteer(chatJID, steerMsg, folder, b.rows[steerIdx].AtName) {
+		for i, candidate := range msgs[:steerIdx] {
+			if candidate.BotMsg || !b.rows[i].ok {
+				continue
+			}
+			deferredSteer = &steerMsg
+			msgs = msgs[:steerIdx]
+			last = msgs[len(msgs)-1]
+			break
+		}
+	}
+	if deferredSteer == nil && pause == nil && l.steer(chatJID, steerMsg, folder, b.rows[steerIdx].AtName) {
 		// Consumed HERE, exactly once, before anything else can fail: no steer
 		// handler may run a second time because a later dispatch was refused.
 		l.advance(chatJID, steerMsg)
@@ -157,6 +169,12 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 		// unaddressed rows (CI under ?engaged) run beside it in their own turns.
 		owed := slices.ContainsFunc(batch, func(m core.Message) bool { return addressed[m.ID] })
 		had, steered, busy, mark, derr := l.runTurn(folder, topic, chatJID, bl.ID, owed, batch, ambient)
+		if errors.Is(derr, errModelInputOrder) {
+			if gi > 0 {
+				l.advanceFinished(chatJID, folder, msgs, batch[0], marks)
+			}
+			return hadAny, nil
+		}
 		if errors.Is(derr, store.ErrModelPaused) {
 			if gi > 0 {
 				l.advanceFinished(chatJID, folder, msgs, batch[0], marks)
@@ -178,8 +196,7 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 			return hadAny, derr
 		}
 		if busy {
-			// Not consumed: do NOT return an err (it would trip the queue breaker);
-			// this turn re-feeds after the busy backoff.
+			// This turn re-feeds after the busy backoff.
 			if !steerConsumed && gi > 0 {
 				l.advanceFinished(chatJID, folder, msgs, batch[0], marks)
 			}
@@ -199,10 +216,23 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 			marks = append(marks, observedAdvance{topic: topic, ts: mark})
 		}
 		hadAny = hadAny || had
+		if gi+1 < len(groups) && !steerConsumed {
+			l.advanceFinished(chatJID, folder, msgs, groups[gi+1][0], marks)
+		}
 	}
 	l.advance(chatJID, last)
 	hadAny = hadAny || steerConsumed
 	l.advanceObserved(folder, marks)
+	if deferredSteer != nil {
+		pause, err := l.db.store().ReadModelPause(context.Background())
+		if err != nil {
+			return hadAny, err
+		}
+		if pause == nil && l.steer(chatJID, *deferredSteer, folder, b.rows[steerIdx].AtName) {
+			l.advance(chatJID, *deferredSteer)
+			hadAny = true
+		}
+	}
 	return hadAny, nil
 }
 
@@ -372,11 +402,6 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, addressed bool, tr
 	// re-elevates; the whole batch is scanned so batching with a sibling cannot
 	// drop the signal.
 	elevated := false
-	for i := range trigger {
-		if _, ok := l.pendingElevation.LoadAndDelete(trigger[i].ID); ok {
-			elevated = true
-		}
-	}
 	// The trace id derives from the turn id so every daemon handling this turn
 	// shares one trace (spec 5/O-observability).
 	ctx := obs.WithTurn(context.Background(), l.instanceName, turnID)
@@ -400,7 +425,7 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, addressed bool, tr
 		}
 		return true, false, false, "", nil
 	}
-	probe, err := l.modelAdmission(chatJID)
+	probe, err := l.modelAdmission(trigger[0])
 	if err != nil {
 		return false, false, false, "", err
 	}
@@ -409,14 +434,21 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, addressed bool, tr
 	if probe != nil {
 		admission.ProbeEpisode = probe.OpenedAt
 	}
+	unlock := lockTurn(turnID)
 	prior, _, err := l.db.store().ReadTurnContext(ctx, turnID)
-	if err != nil {
-		return false, false, false, "", err
+	var live bool
+	if err == nil {
+		live, err = l.db.store().OpenTurnContext(turnID, folder, topic, chatJID,
+			last.Sender, last.ForwardedFrom, &admission)
 	}
-	live, err := l.db.store().OpenTurnContext(turnID, folder, topic, chatJID,
-		last.Sender, last.ForwardedFrom, &admission)
+	unlock()
 	if err != nil || !live {
 		return false, false, false, "", err
+	}
+	for i := range trigger {
+		if _, ok := l.pendingElevation.LoadAndDelete(trigger[i].ID); ok {
+			elevated = true
+		}
 	}
 	tc := TurnContext{TurnID: turnID, Folder: folder, AttemptID: admission.AttemptID,
 		ProbeEpisode: admission.ProbeEpisode}
@@ -430,7 +462,7 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, addressed bool, tr
 		}
 	}()
 	// A gateway that will not answer fails the turn as a dependency outage (the
-	// batch re-feeds, the breaker streak is untouched); spawning anyway would
+	// batch re-feeds); spawning anyway would
 	// run a turn no cap can stop.
 	msg, gerr := l.budgetGate(ctx, folder, turnCallerSub(last.Sender))
 	if gerr != nil {
@@ -518,7 +550,7 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, addressed bool, tr
 	// ceiling, attributed to the folder and the caller, revoked by the deferred
 	// delete. The alias ends in random hex because a retry re-dispatches the
 	// SAME turn_id. A gateway that will not mint is a dependency outage: the
-	// batch re-feeds, the breaker streak is untouched.
+	// batch re-feeds without starting a guest.
 	var gwKey turnKey
 	if l.gateway != nil {
 		k, gerr := l.gateway.mint(ctx, "arizuko-"+turnID+"-"+randHex(4),
@@ -560,8 +592,6 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, addressed bool, tr
 		l.pauseProgress(replyJID, out.RunID)
 		slog.Warn("dispatch run transport failure", "folder", folder, "turn_id", turnID, "err", derr)
 		if runedUnreachable(derr) {
-			// Nothing ran: the queue's breaker leaves the folder's streak alone
-			// (BUGS C9); the batch re-feeds next poll either way.
 			derr = fmt.Errorf("%w: %w", queue.ErrDependencyDown, derr)
 		}
 		return false, false, false, "", derr
@@ -574,7 +604,7 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, addressed bool, tr
 		// Typing stays on: the batch re-feeds. End or a drop of the chat clears it.
 		l.waiting.Store(chatJID, replyJID)
 		// runed keeps no internal queue: leave turn_context running and the
-		// cursor un-advanced, not counted toward the breaker.
+		// cursor un-advanced.
 		slog.Debug("dispatch run busy — runed at capacity, retry next poll", "folder", folder, "turn_id", turnID)
 		return false, false, true, "", nil
 	}
@@ -653,12 +683,11 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, addressed bool, tr
 			// chat. The idempotency key is per destination, or the adapter dedups
 			// the fan-out into one delivery.
 			for _, jid := range l.db.chatsOwnedBy(chatJID, out.RunID) {
-				already, err := l.db.MarkChatErrored(jid)
-				if err != nil {
+				if err := l.db.MarkChatErrored(jid); err != nil {
 					slog.Error("flag chat errored", "jid", jid, "err", err)
 					continue
 				}
-				if already || l.deliver == nil {
+				if l.deliver == nil {
 					continue
 				}
 				thread := ""
@@ -669,10 +698,6 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, addressed bool, tr
 			}
 		}
 		finishTurn(l.db, l.deliver, turnID, endFailed)
-		// The breaker rides only on the run that trips it.
-		if out.BreakerOpen {
-			l.onCircuitBreakerOpen(chatJID, folder)
-		}
 		return false, false, false, "", nil
 	}
 	end := endDone
@@ -701,7 +726,6 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, addressed bool, tr
 			l.sendNotice(turnID, chatJID, silentTurnNotice, topic, "silent-"+turnID)
 		}
 	}
-	obs.SetCircuitBreakerState(folder, 0) // 0=closed: a clean run clears the breaker
 	finishTurn(l.db, l.deliver, turnID, end)
 	return out.Outcome != runedv1.OutcomeSilent, false, false, observedMark, nil
 }

@@ -76,11 +76,6 @@ var (
 		Buckets: bucketsHTTP,
 	}, []string{"daemon", "method", "path"})
 
-	circuitBreakerState = prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Name: "arizuko_circuit_breaker_state",
-		Help: "0=closed, 1=half-open, 2=open.",
-	}, []string{"folder"})
-
 	tokenMints = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "arizuko_token_mints_total",
 		Help: "Tokens minted (access/refresh).",
@@ -106,7 +101,6 @@ func reg() *prometheus.Registry {
 			modelTokens,
 			containerSpawns, containerActive, containerDuration,
 			requestsTotal, requestDuration,
-			circuitBreakerState,
 			tokenMints, tokenRefreshes,
 		)
 	})
@@ -171,11 +165,6 @@ func ContainerActiveDec() { containerActive.Dec() }
 func RecordRequest(daemon, method, status, path string, seconds float64) {
 	requestsTotal.WithLabelValues(daemon, method, status).Inc()
 	requestDuration.WithLabelValues(daemon, method, path).Observe(seconds)
-}
-
-// SetCircuitBreakerState sets the breaker gauge for a folder (0/1/2).
-func SetCircuitBreakerState(folder string, state int) {
-	circuitBreakerState.WithLabelValues(folder).Set(float64(state))
 }
 
 // RecordTokenMint counts a minted token by type (access/refresh).

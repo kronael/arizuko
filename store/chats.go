@@ -168,28 +168,18 @@ func (s *Store) CountChats(ctx context.Context) (int, error) {
 // MarkChatErrored records that a run on this chat failed outright. The flag
 // surfaces in inspection; it does not block a re-feed, because the cursor
 // advancing past the failed batch is the starvation guard.
-func (s *Store) MarkChatErrored(jid string) (bool, error) {
+func (s *Store) MarkChatErrored(jid string) error {
 	key, err := chatKey(jid)
 	if err != nil {
-		return false, err
+		return err
 	}
-	ctx := context.Background()
-	attrs := map[string]string{attrChatErrored: flagSet}
-	created, err := s.TryWriteEntities(ctx, nil, objstore.Write{
-		Op: objstore.Put, Entity: Chats, Key: key, Attrs: attrs,
-		Cond: objstore.Cond{Item: objstore.ItemAbsent},
-	})
-	if err != nil || created {
-		return false, err
+	if err := s.WriteEntities(context.Background(), nil, objstore.Write{
+		Op: objstore.Merge, Entity: Chats, Key: key,
+		Attrs: map[string]string{attrChatErrored: flagSet},
+	}); err != nil {
+		return fmt.Errorf("flag %s errored: %w", jid, err)
 	}
-	updated, err := s.TryWriteEntities(ctx, nil, objstore.Write{
-		Op: objstore.Update, Entity: Chats, Key: key, Attrs: attrs,
-		Cond: objstore.Cond{Where: []objstore.Cmp{{Attr: attrChatErrored, Op: objstore.Absent}}},
-	})
-	if err != nil {
-		return false, fmt.Errorf("flag %s errored: %w", jid, err)
-	}
-	return !updated, nil
+	return nil
 }
 
 // ClearChatErrored takes the flag away. It runs at the clean turn-boundary

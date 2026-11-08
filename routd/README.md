@@ -80,27 +80,85 @@ in `schedule_test.go` cover firing and retry behavior.
 - **Resolution.** `ROUTING.md` section "routd resolves a chat in two stages" gives the order. A batch resolves by its newest user row that dispatches on its own, so a mention starts a turn even when a newer row of the batch matches only `?observe`. The other user rows the turn consumes are stored observed under the batch folder before the prompt is built. Only a `message` or `mention` rides engagement, and a route target `?engaged` extends it to other verbs. If routd cannot read the route table, it logs an ERROR and treats the read as a miss, because a retry risks a poison-message loop.
 - **The run contract.** `POST /v1/runs` is synchronous. routd waits `RUNED_RUN_TIMEOUT` plus two minutes, so that routd outlasts the kill deadline in runed. With equal deadlines, routd could time out first and feed the same turn to a second guest.
 
-  | runed answers                                      | routd does                                                                              |
+  | Run result or callback                             | routd does                                                                              |
   | -------------------------------------------------- | --------------------------------------------------------------------------------------- |
   | `ok`                                               | advances the cursor and the observed cursor, ends the turn                              |
   | `silent`                                           | does the same and counts no output                                                      |
   | `ok` with no result and no bot row                 | tells the chat and never retries, because a clean run that delivered nothing is a fault |
+  | `submit_turn.provider_failure`                     | holds input and opens the instance pause before generic error handling                  |
   | `error`, no reply, not `terminal`                  | retries, up to `MAX_TURN_RETRY`                                                         |
-  | `error` with a reply, retries spent, or `terminal` | marks the rows errored, sends one notice to every chat the run owed, advances           |
-  | `busy`                                             | does not advance, does not charge the breaker, applies the busy backoff                 |
+  | `error` with a reply, retries spent, or `terminal` | marks the rows errored, sends a per-turn notice to every chat the run owed, advances    |
+  | `busy`                                             | does not advance, applies the busy backoff                                              |
   | `steered`                                          | ends this turn, because the live run owns the batch                                     |
   | a transport failure                                | does not advance; the next poll feeds the batch again                                   |
 
 - **Busy backoff.** After a busy refusal, routd parks the batch for 4 s. Each repeat refusal of the same batch doubles the wait up to 60 s (`dispatch.go`). A new user message clears the wait. The running turn's own bot rows do not clear it. A retry after a failed turn returns through the same busy branch, so it waits on this backoff too. A transport failure and a dependency outage do not wait: the next poll feeds the batch again.
 - **Terminal.** runed decides whether a failure is terminal. routd never parses runed's text to decide. A terminal notice names the cause: the agent's own reported failure, otherwise the error text from runed.
 - **Retry count.** `MAX_TURN_RETRY` set to 0 means 3 retries, and -1 disables retries (`loop.go`). `turn_context.retry_count` and `state='pending_retry'` survive a routd restart. A retry turn starts with a note that it is a retry.
-- **Turn lifecycle.** `submit_turn` is hidden from `tools/list` and recorded once. The `turn_results` key removes duplicates, so the first terminal signal wins the cursor and the delivery. A `running` turn older than the run timeout moves to `expired`, never `done`. Crash recovery looks for `running`, and the guard against a second live run looks for `done`.
+- **Turn lifecycle.** `submit_turn` is hidden from `tools/list`. A provider refusal records the attempt and holds input without a `turn_results` row or final delivery. For other results, the `turn_results` key removes duplicates, so the first terminal result wins the cursor and delivery. A `running` turn older than the run timeout moves to `expired`, never `done`. Crash recovery looks for `running`, and the guard against a second live run looks for `done`.
 - **One turn per folder.** A new inbound message for a busy folder waits. runed answers `busy`, and routd keeps the batch. After the run ends, routd feeds the batch again with its own turn context and MCP binding. The observed cursor is at-least-once. It advances on the same success path as the message cursor. So a turn that routd feeds again sees the context of the failed attempt.
 - **Outbound.** The pending bot row is the outbox. `chanreg` and the adapters hold no queue. A sweep every 30 s sends `pending` rows again, and each row waits its own gap. The gap starts at 30 s and doubles per failure up to a cap of 1 h. A flat 30 s gap would spend ten attempts in five minutes, and a routine adapter restart lasts longer. A 4xx answer dead-letters the row at once with `delivery_attempts` 0. A transient failure spends one attempt, up to `MAX_OUTBOUND_RETRY`. An age rule would discard rows that the sweep never tried, so routd uses no age bound.
 - **A failed send writes its row.** The MCP tools `send`, `reply` and `send_file` return the error to the agent and record the undelivered row. The row is `pending` after a transient failure and `failed` after a permanent one. A failed `send_file` always dead-letters (`recordOutboundFailure` in `ipc/ipc.go`).
 - **Delivery dedup belongs to the adapter.** `chanlib/README.md` section "Delivery is claimed before the platform call" describes it.
 - **A row names its source and its writer.** `messages.source` holds the adapter of record that ingest carries. An outbound reply reads it with `LatestSource(jid)`, so a reply leaves through the bot that received the message. A turn's delivery rows and its progress row take an `out-<hex>` id (`outboundRow` in `turns.go`). An MCP send takes `mcp-<unix nanos>` (`core.MsgID`). Inbound polling filters bot rows.
 - **A proactive turn starts from a synthetic row.** The scanner in `proactive.go` appends an inbound row with sender `timed-proactive` (`store.ProactiveSelfSender`). That row never resets the chat's silence clock, because the trigger must not feed itself. The `timed-` prefix puts the turn on the path of every task turn: it renews no engagement, runs no slash command and carries no caller sub.
+
+## Provider refusals hold input across the instance
+
+`ProviderFailure` comes from an attempt-ending provider error. Its `reason`
+is `spend_limit`, `rate_limit`, `authentication` or `outage`. `reset_at` is
+optional. Exit 78, assistant text, tool errors and unknown errors alone do
+not open a pause. Local crashes keep the `MAX_TURN_RETRY` path above.
+
+```text
+provider refusal ──► model_pauses ──► normal turn claims held
+                           │
+                      due time
+                           ▼
+                   oldest held turn ──► normal runed run
+                                              │
+                         refusal ◄────────────┤
+                         rearm                └──► submitted, no refusal: clear
+```
+
+One durable `model_pauses` row holds all new turns, including user model credentials
+and groups on another backend. `OpenTurnContext` guards normal admission and
+probe claims in the same batch. Already-admitted turns may finish, but their
+success cannot clear the pause. A store error holds admission.
+
+The first delay is 30 seconds. Each refused probe doubles the delay up to one
+hour, with bounded jitter. A valid future provider reset time overrides the
+delay. New messages and duplicate reports do not extend it. At the due time,
+the Loop selects one oldest input by timestamp, message ID, then chat JID.
+Its guarded claim binds the episode and attempt. `next_attempt_at=null` means
+that this probe owns the pause. The probe uses the normal spawn and timeout
+paths. A submitted result without `ProviderFailure` clears the pause. A busy
+refusal or failure before submission requeues the probe without proving recovery.
+
+Held input keeps its cursor, session, content, local retry count and order.
+New claims check the oldest pending input even after the pause clears.
+Commands wait for earlier input in the chat to finish. Completed batches
+advance their cursor before the next batch is admitted.
+The saved input boundary excludes later messages from the held turn.
+Held turns bypass error marking,
+busy backoff and retention GC. Waiting input stops typing. After a restart,
+routd resolves an interrupted probe through existing running-turn recovery
+before rearming it. Old callback bindings cannot affect the current attempt.
+
+Each destination chat gets one durable notice per episode:
+`Model access is paused: <reason>. Your messages are saved. I will retry automatically.`
+Forwarded input uses the reply destination. The outbound row keeps its ID
+through send failures and restarts, and the existing delivery backoff applies.
+Ordinary failure notices use per-turn IDs. `chats.errored` remains diagnostic.
+
+Operators list or clear the pause through one audited REST/MCP resource:
+`GET /v1/model_pauses` returns an empty or singleton list with queued input
+count. `POST /v1/model_pauses/clear` requires the listed `opened_at` and the
+current `probe_attempt_id` when a probe is bound. A changed episode or attempt
+returns a conflict. The MCP tools are `list_model_pauses` and
+`clear_model_pause`. Members and folder-scoped grants cannot use these controls.
+The dashboard at `/dash/model-pauses/` and remote `arizuko model-pauses list|clear`
+use the same API. Clear releases input. Another refusal opens a new episode.
 
 ## Prompt assembly
 
@@ -161,7 +219,7 @@ To add a block, emit it from the builder that holds its input, keep it XML-shape
 The index is an in-memory BM25 index over the `messages` entity (`msgsearch/`). The store is the record, and the index is derived from it.
 
 - **Built at boot.** The process that answers searches, which is `main` of routd, calls `StartSearch`. It walks every chat into the index in the background. A search before the walk ends fails with `index_warming`. It never returns an empty hit list, because an agent would repeat "no message says that" as fact.
-- **Fed by four writes.** routd is the only appender, so the feed is one line beside each write that touches an indexed attribute. The four writes are the append, the media rewrite, the observe stamp and the prune by the breaker. Each runs after the store write commits. A write by another process appears at the next boot walk. Such writes are `arizuko send`, an archive import and a group delete.
+- **Fed by message writes.** routd is the only appender, so the feed is one line beside each write that touches an indexed attribute. The writes are append, media rewrite, observe stamp and explicit message cleanup. Each runs after the store write commits. A write by another process appears at the next boot walk. Such writes are `arizuko send`, an archive import and a group delete.
 - **Tokens.** A term is a run of Unicode letters and digits in lower case, with diacritics dropped after NFD. So `uroven` finds `úroveň` from a plain keyboard. Each token keeps its byte offsets, so the snippet marks the hit in the bytes that the writer wrote.
 - **Rank and snippet.** BM25 uses the constants of SQLite FTS5, `k1` 1.2 and `b` 0.75, negated as FTS5 negates them. Ascending rank therefore lists the best hit first (`parity_test.go`). A hit returns a window of at most 32 tokens around the first match, with each hit inside `«` and `»`. The default is 20 hits and the maximum is 200.
 - **Grammar.** Terms are all required. `"phrases"` match adjacent terms in order. A `-` before a term or phrase excludes it. The grammar has no OR, no prefix and no NEAR. A malformed query is an error and never an empty list.
@@ -181,7 +239,7 @@ When `MODEL_GATEWAY_URL` is set, the gateway holds the model credential and keep
 - **One `GET /team/info` per turn.** The gate before spawn creates the team when the gateway has none. A key that names an unknown team is accepted, and then every model call answers 404. The same call sets the team budget to the cap of the operator and reads the spend that the refusal quotes.
 - **The gate runs when `COST_CAPS_ENABLED` is off.** The gate then reports both caps as uncapped and clears them at the gateway. Otherwise the gateway would keep refusing turns that arizuko does not cap.
 - **A spent cap refuses the next turn.** The refusal goes to the chat and consumes the batch. There is no budget notice during a turn. An over-cap turn runs to its end, and the gate of the next turn refuses. A call outside the gateway is a log line and never a row.
-- **A gateway failure is a dependency outage.** When a gate read or a key mint fails, routd returns `queue.ErrDependencyDown` (`dispatch.go`). No guest starts, routd feeds the batch again, and the breaker streak of the folder stays as it was. A turn never runs without a meter. A failed spend read is an error and never an empty spend.
+- **A gateway failure is a dependency outage.** When a gate read or a key mint fails, routd returns `queue.ErrDependencyDown` (`dispatch.go`). No guest starts, and routd feeds the batch again. A turn never runs without a meter. A failed spend read is an error and never an empty spend.
 - **One limit.** A gateway drops the model key of a user, with a warning in the runed log, because nothing translates it into a gateway key. BUGS `L404` tracks this limit.
 - **No gateway means no meter.** The dashboard says so, and shows no number that the agent chose. A cap on such an instance is enforced by nothing, and the gate logs that fact on every turn.
 
@@ -193,7 +251,7 @@ routd is the `routd` owner. Each table below is an objstore entity. routd create
 
 - Messages: `messages`, the four read-shaped indexes that an append fans out into (`message_folders`, `message_folder_counts`, `message_activity`, `message_delivery`), `chats`, `chat_reply_state` and `chat_proactive`. Ranked search keeps no table, because the index lives in memory (`msgsearch/`).
 - Routing: `routes`, `web_routes` and `route_tokens`. A `route_tokens` row has `kind='route'` for a delivery bearer or `kind='pair'` for an identity-pairing link.
-- Orchestration: `turn_context`, `turn_results`, `sessions`, `system_messages`, `group_watchers` and `groups`.
+- Orchestration: `turn_context`, `turn_results`, `model_pauses`, `sessions`, `system_messages`, `group_watchers` and `groups`.
 - Authorization and secrets: `acl`, `acl_membership`, `secrets` and `secret_use_log`.
 - Scheduler: `scheduled_tasks` and `task_run_logs`.
 - Slack pane: `pane_sessions`.
@@ -213,6 +271,7 @@ routd reads no table of another owner. Data of other daemons arrives over HTTP: 
 `/openapi.json` comes from the mux that routd mounts (`resreg.OpenAPIHandler` in `cmd/routd/main.go`), so the document lists what routd serves and nothing else. `resreg/README.md` explains the emission.
 
 - `secrets` has write-only endpoints, create and key-delete, and no read. So `enc_value` cannot leak through a `GET`.
+- `model_pauses` is an operator-only runtime resource. Its list and guarded clear share one handler and atomic audit.
 - `installed_packages` serves only its two `GET` endpoints. `arizuko package add`, `rm` and `sync` write the rows.
 - `scheduled_tasks` is the one resource whose REST path is not `/v1/<name>`. It serves `/v1/tasks`.
 - An agent-only action is declared `MCPOnly` on the single `Endpoints` slice of its resource. Mounting and emission read the same list, so the document cannot advertise an endpoint that routd does not serve. The `MCPOnly` actions are `schedule`, `pause` and `resume` of `scheduled_tasks`, `issue_pair` of `route_tokens`, `list` of `acl` with the tool `list_acl`, and `register` of `groups` with the tool `register_group`. Group creation stays in `SetupGroup` of dashd.
@@ -267,6 +326,10 @@ Tasks:
 - `POST /v1/tasks/runlog` and `POST /v1/tasks/{id}/reschedule` record logs and reschedule [`tasks:write`]. Reschedule with no `next_run` reads the task's own cron: the next instant (`active`), `completed` for a one-shot, `error` for a cron that will not parse. `next_run` in the body retries the same fire.
 - `reschedule_task(taskId, next_run)` is the agent face of `PATCH /v1/tasks/{taskId}`: it sets the next run to an RFC3339 time, under the same owner containment as `pause_task`. routd re-arms a task when it enqueues the prompt, so a job that calls it in its own turn writes last and its time stands.
 - `GET /v1/tasks/runs` and `GET /v1/tasks/{id}/runs` read run logs [`tasks:read`].
+
+Model access:
+
+- `GET /v1/model_pauses` and `POST /v1/model_pauses/clear` list and clear the instance pause. The operator-only control and arguments are described above.
 
 Dead letters and cost:
 
@@ -367,6 +430,7 @@ The audit source of truth is the `audit_log` entity in the tables of routd. Ever
 - `loop.go` is the orchestration loop: poll, claim and dispatch.
 - `dispatch.go` dispatches the turn to runed, enriches it and applies the budget gate.
 - `turns.go` handles the end of a turn: the check for an explicit delivery, the one shared nudge decision and `submit_turn` recording.
+- `model_pauses.go` holds provider admission, oldest-input selection, notices and restart recovery. `model_pauses_resource.go` serves the operator REST/MCP resource.
 - `progress.go` owns the turn's summary, progress message and `finishTurn`. `placement.go` places each delivery of the turn.
 - `deliver.go` is the channel Deliverer, the egress fan-out through `chanreg`.
 - `mcp.go` is the in-process per-turn MCP socket (`ServeTurnMCP`, `buildRoutdFns`).
@@ -376,7 +440,7 @@ The audit source of truth is the `audit_log` entity in the tables of routd. Ever
 - `*_resource.go` define one resreg resource each: `acl`, `audit`, `chats`, `dead_letters`, `gdrive_files`, `github_sources`, `groups`, `membership`, `network_rules`, `packages`, `route_tokens`, `routes`, `scheduled_tasks`, `secrets` and `web_routes`. One handler serves each. Agent MCP and operator REST use the same handler with a different injected Gate.
 - `packages_store.go` implements `installed_packages` CRUD. It is the record that `arizuko package add|rm|sync` reads and writes.
 - `db.go` holds the writes of the owner, such as `PutMessage`, turn claims and routing, and the boot that dials the endpoint.
-- `search.go` and `msgsearch/` implement ranked message search: the index, its boot walk and the four writes that feed it.
+- `search.go` and `msgsearch/` implement ranked message search: the index, its boot walk and the message writes that feed it.
 - `reads.go` holds the reads of the owner for messages. The reads of chats, sessions and reply state go through `store`.
 - `session.go`, `identity.go` and `onbod.go` federate to runed, authd and onbod.
 - `connectors.go` loads the MCP connector catalog.

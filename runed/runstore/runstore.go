@@ -1,11 +1,10 @@
 // Package runstore is runed's storage layer. It holds no SQL and no DDL: every
 // method is objstore's two primitives, and the driver is chosen by whoever
-// opens runed's store (spec 6/37). Three entities, three partition choices,
+// opens runed's store (spec 6/37). Two entities, two partition choices,
 // and they disagree on purpose (6/37 rule 5): `spawns` is mutable state
 // addressed by run id, so it takes ONE partition and the run id as its sort
 // key; `session_log` is history read a folder at a time, so the FOLDER is the
-// partition and a time key the sort key; `circuit_breaker` is one flag per
-// folder under a compare-and-swap, so the FOLDER is the whole coordinate.
+// partition and a time key the sort key.
 package runstore
 
 import (
@@ -23,13 +22,11 @@ const (
 	// SessionLog holds one item per agent session, addressed by the folder it
 	// ran in and the instant it started.
 	SessionLog = "session_log"
-	// CircuitBreaker holds one item per folder whose last agent runs failed.
-	CircuitBreaker = "circuit_breaker"
 )
 
 // Entities is the set a driver must serve before runed boots, applied by
 // whoever holds the driver (runed's opener, the import tool).
-var Entities = []string{Spawns, SessionLog, CircuitBreaker}
+var Entities = []string{Spawns, SessionLog}
 
 // EntityMaker is a driver that needs its entities declared before they answer.
 // An engine with no DDL implements it as a no-op, which is why it is not on

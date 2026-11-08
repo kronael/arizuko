@@ -38,7 +38,7 @@ type RunRequest struct {
 	// 5/8 "Filesystem restore claims the folder's run slot"). Empty = 'agent'
 	// (the column default), so every existing caller is unaffected. A
 	// non-agent kind carries no MessageBatch and must never be steered into
-	// a live agent's running container, nor count toward its breaker.
+	// a live agent's running container.
 	Kind string `json:"kind,omitempty"`
 	// Elevated is the operator /root elevation signal: routd sets it true ONLY
 	// for a turn an operator raised via /root (steer.go cmdRoot). The renderer
@@ -86,26 +86,24 @@ type RunRequest struct {
 // RunOutcome is the synchronous response of POST /v1/runs, returned when the run
 // completes. Frames arrive out-of-band during the run via the callbacks.
 //
-// Outcome ∈ ok|error|silent. Three orthogonal discriminators each mean "this is
+// Outcome ∈ ok|error|silent. Two orthogonal discriminators each mean "this is
 // NOT a turn-boundary outcome — do not treat Outcome as authoritative":
 //   - Steered=true: a steer ack; routd does NOT advance the cursor.
 //   - Busy=true: nothing ran, either because runed did not admit the run or
 //     because a DELETE killed it before launch. routd MUST NOT advance the cursor
-//     and MUST NOT count it toward the circuit breaker.
-//   - BreakerOpen=true: rides only on the run that trips the breaker.
+//     and MUST NOT consume the input.
 //
 // Terminal=true qualifies Outcome=error: runed decided a retry cannot repair the
 // failure. The DECISION travels, not the raw exit code — runed owns the container
 // and routd must never classify runed's error prose (spec 5/12, BUGS F73). The
 // zero value means retryable, so an older runed keeps today's behavior.
 type RunOutcome struct {
-	RunID       string `json:"run_id"`
-	Outcome     string `json:"outcome"` // ok|error|silent
-	Error       string `json:"error"`
-	Steered     bool   `json:"steered"`
-	Busy        bool   `json:"busy"`
-	BreakerOpen bool   `json:"breaker_open"`
-	Terminal    bool   `json:"terminal,omitempty"`
+	RunID    string `json:"run_id"`
+	Outcome  string `json:"outcome"` // ok|error|silent
+	Error    string `json:"error"`
+	Steered  bool   `json:"steered"`
+	Busy     bool   `json:"busy"`
+	Terminal bool   `json:"terminal,omitempty"`
 }
 
 // Outcome values (the contract routd keys on).

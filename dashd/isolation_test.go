@@ -356,7 +356,7 @@ func TestIso_PortalCounts_Scoped(t *testing.T) {
 		{"e-sales", "web:" + folderSales},
 		{"e-orphan", "tel:99999"}, // no route → jidFolder "" → invisible to non-op
 	} {
-		if _, err := store.NewOver(inst.Store.Obj()).MarkChatErrored(m.jid); err != nil {
+		if err := store.NewOver(inst.Store.Obj()).MarkChatErrored(m.jid); err != nil {
 			t.Fatal(err)
 		}
 	}

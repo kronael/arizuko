@@ -459,11 +459,8 @@ func (failingRunner) Run(_ context.Context, _ runedv1.RunRequest) (runedv1.RunOu
 	return runedv1.RunOutcome{}, context.DeadlineExceeded
 }
 
-// TestPollOnceGatesCurrentChat: pollOnce feeds from the GLOBAL min cursor, so a
-// chat whose OWN cursor is already current shows up when another chat holds the
-// min back. It must NOT be enqueued — else processGroupMessages returns
-// (false,nil) and the shared queue counts a circuit-breaker failure (the split
-// cutover's breaker churn). Mirrors gateway, which never enqueues an empty chat.
+// A global poll can return a chat whose own cursor is current. It must not
+// enqueue work for that chat.
 func TestPollOnceGatesCurrentChat(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
@@ -507,12 +504,8 @@ func TestPollOnceGatesCurrentChat(t *testing.T) {
 	}
 }
 
-// TestSteeredPartialBatchNoRedispatch is the partial-batch double-dispatch fix:
-// in a multi-sender poll the FIRST batch's turn completes and a LATER batch
-// steers (another chat holds the folder), so processGroupMessages returns
-// without advancing the cursor. On the next poll the same groups rebuild and
-// the COMPLETED batch is re-fed — its turn must NOT re-dispatch (PutTurnContext
-// refuses to resurrect a state='done' turn), or the agent's output replays.
+// A completed prefix advances before a later batch steers. Only the unfinished
+// batch re-feeds, so the completed batch cannot replay its output.
 func TestSteeredPartialBatchNoRedispatch(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
@@ -542,22 +535,21 @@ func TestSteeredPartialBatchNoRedispatch(t *testing.T) {
 	_ = db.PutMessage(core.Message{ID: "m-u2", ChatJID: "slack:T/C/U", Sender: "u2",
 		Content: "from two", Timestamp: now.Add(time.Second), Verb: "message"})
 
-	// poll 1: u1 completes, u2 steers → no advance (cursor stays empty).
+	// The completed prefix advances before the later turn is admitted.
 	if _, err := loop.processGroupMessages("slack:T/C/U"); err != nil {
 		t.Fatalf("poll 1: %v", err)
 	}
 	if len(dispatched) != 2 || dispatched[0] != "m-u1" || dispatched[1] != "m-u2" {
 		t.Fatalf("poll 1 dispatched=%v want [m-u1 m-u2]", dispatched)
 	}
-	if db.GetAgentCursor("slack:T/C/U") != "" {
-		t.Fatal("poll 1 advanced cursor despite a steered later batch")
+	if db.GetAgentCursor("slack:T/C/U") != store.MessageCursor(core.Message{ID: "m-u1", Timestamp: now}) {
+		t.Fatal("poll 1 did not preserve the completed prefix before the steered batch")
 	}
 	if tc, _ := db.GetTurnContext("m-u1"); tc.State != "done" {
 		t.Fatalf("u1 turn state=%q want done", tc.State)
 	}
 
-	// poll 2: same groups rebuild; the completed u1 batch is re-fed. It must
-	// NOT re-dispatch — only u2 (still not done) dispatches again.
+	// Only the unfinished u2 batch re-feeds.
 	if _, err := loop.processGroupMessages("slack:T/C/U"); err != nil {
 		t.Fatalf("poll 2: %v", err)
 	}

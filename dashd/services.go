@@ -41,7 +41,7 @@ type service struct {
 // This list is the set of daemons the hub KNOWS ABOUT and probes. It does not
 // decide which of them are reachable — the route table does.
 var services = []service{
-	{"routd", "routd", "/dash/routd/", "message router, route table, breakers", ""},
+	{"routd", "routd", "/dash/routd/", "message router, route table, model pause", ""},
 	{"runed", "runed", "/dash/runed/", "agent container runs and tokens", ""},
 	{"authd", "authd", "/dash/authd/", "signing keys and who is signed in", ""},
 	{"proxyd", "proxyd", "/dash/proxyd/", "auth-gated reverse proxy", ""},

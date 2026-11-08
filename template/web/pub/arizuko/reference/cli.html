@@ -43,7 +43,7 @@
 
     <p class="lede">The subcommands of the <code>arizuko</code> binary, grouped by concern. Each entry shows the signature, the flags, the state that the command changes, and the source file. The dispatch map is in <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go"><code>cmd/arizuko/main.go</code></a>. The <a href="#other">last section</a> names the subcommands that this page does not describe.</p>
 
-    <p>The CLI uses the standard Go <code>flag</code> package and a small positional dispatcher. The first argument is the command. Every command except <code>talk</code> and <code>probe</code> takes <code>-i/--instance NAME</code> anywhere before <code>--</code>; without it the command uses the configured default instance. The short letters mean the same in every command: <code>-i</code> instance, <code>-g</code> group folder, <code>-f</code> force, <code>-t</code> token, <code>-p</code> product. <code>-s</code> is the scope of a token. <code>-h/--help</code> prints the usage of a command to stdout and exits 0. A few flags have no short form: <code>--thread</code> and <code>--prompt</code> of <code>talk</code>, and <code>--seq</code> of <code>route add</code>. <code>&lt;instance&gt;</code> is the suffix of the data directory: <code>$ARIZUKO_DATA_DIR/arizuko_&lt;name&gt;</code>, else <code>${PREFIX:-/srv}/data/arizuko_&lt;name&gt;</code> (<a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go"><code>main.go</code></a>).</p>
+    <p>The CLI uses the standard Go <code>flag</code> package and a small positional dispatcher. The first argument is the command. Every command except <code>talk</code>, <code>probe</code> and <code>model-pauses</code> takes <code>-i/--instance NAME</code> anywhere before <code>--</code>; without it the command uses the configured default instance. The short letters mean the same in every command: <code>-i</code> instance, <code>-g</code> group folder, <code>-f</code> force, <code>-t</code> token, <code>-p</code> product. <code>-s</code> is the scope of a token. <code>-h/--help</code> prints the usage of a command to stdout and exits 0. A few flags have no short form: <code>--thread</code> and <code>--prompt</code> of <code>talk</code>, and <code>--seq</code> of <code>route add</code>. <code>&lt;instance&gt;</code> is the suffix of the data directory: <code>$ARIZUKO_DATA_DIR/arizuko_&lt;name&gt;</code>, else <code>${PREFIX:-/srv}/data/arizuko_&lt;name&gt;</code> (<a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go"><code>main.go</code></a>).</p>
 
     <div class="toc">
       <h2>Index</h2>
@@ -59,7 +59,7 @@
         <li><a href="#network">Network allowlist</a> &mdash; <code>network allow|deny|list|resolve</code></li>
         <li><a href="#route">Routes</a> &mdash; <code>route list|add|rm</code></li>
         <li><a href="#secret">Secrets (folder &amp; user)</a> &mdash; <code>secret</code>, <code>user-secret</code></li>
-        <li><a href="#other">Other subcommands</a> &mdash; <code>proxy-config</code>, <code>github</code>, <code>gdrive</code>, <code>talk</code>, <code>probe</code></li>
+        <li><a href="#other">Other subcommands</a> &mdash; <code>proxy-config</code>, <code>github</code>, <code>gdrive</code>, <code>talk</code>, <code>probe</code>, <code>model-pauses</code></li>
       </ul>
     </div>
 
@@ -463,6 +463,13 @@ arizuko secret -i demo set main CF_API_TOKEN --value cf_xxxxxxxx</code></pre>
     <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/secret.go"><code>cmd/arizuko/secret.go</code></a></p>
 
     <h2 id="other" class="group-h2">Other subcommands</h2>
+
+    <h3 id="model-pauses"><span class="sig">arizuko model-pauses list|clear [--url|-u URL] [--token|-t BEARER]</span></h3>
+    <p>List or clear the instance model pause through routd. <code>ROUTER_URL</code> and <code>ARIZUKO_TOKEN</code> supply the defaults. The bearer must identify an operator. The command runs remotely without <code>-i</code> or a store connection.</p>
+    <p><code>list</code> reads <code>GET /v1/model_pauses</code> and prints an empty or singleton JSON list. <code>clear</code> reads the row first, then posts its <code>opened_at</code> and <code>probe_attempt_id</code> to <code>/v1/model_pauses/clear</code>. A changed pause returns a conflict. Clear releases saved input. Another provider refusal opens a new episode.</p>
+    <pre><code>arizuko model-pauses list --url "$ROUTER_URL" --token "$ARIZUKO_TOKEN"
+arizuko model-pauses clear --url "$ROUTER_URL" --token "$ARIZUKO_TOKEN"</code></pre>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/48eeefc6a953a56a955baef471ce60e35137b6dd/cmd/arizuko/model_pauses.go#L16-L78">[model_pauses.go]</a>.</p>
     <p>These subcommands exist in the binary. Their usage line is the reference; run the subcommand without arguments to print it.</p>
     <table>
       <tr><th>Subcommand</th><th>What it does</th></tr>
@@ -490,7 +497,7 @@ arizuko secret -i demo set main CF_API_TOKEN --value cf_xxxxxxxx</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/reference/cli.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-11-04">2026-11-04</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-07">2026-11-07</time>
       </div>
     </main>
 

@@ -16,14 +16,10 @@ import (
 	"github.com/kronael/arizuko/types"
 )
 
-const (
-	circuitBreakerThreshold = 3
-	defaultMaxConcurrent    = 5
-)
+const defaultMaxConcurrent = 5
 
 // Manager owns the execution plane's run lifecycle: per-folder serialization
-// (one live spawn per folder), the global concurrency cap, the circuit breaker
-// and the Runtime envelope
+// (one live spawn per folder), the global concurrency cap and the Runtime envelope
 // (spec 5/P-runed). Admission is a pure claim-or-reject decision off the DB; runed
 // keeps NO internal admission queue, and a caller that cannot be admitted
 // gets a retryable busy outcome and routd re-feeds it. The only in-memory
@@ -134,23 +130,6 @@ func (m *Manager) Run(ctx context.Context, req runedv1.RunRequest) (runedv1.RunO
 	if err := m.requireExecutor(kind); err != nil {
 		return runedv1.RunOutcome{}, err
 	}
-	folder := string(req.Folder)
-
-	// A new inbound resets the breaker (spec 5/P-runed). Scoped to KindAgent: a
-	// hold is not an agent inbound. Done before admission so a retry after 3
-	// failures actually spawns.
-	if kind == KindAgent {
-		failures, err := m.db.FailureStreak(ctx, folder)
-		if err != nil {
-			return runedv1.RunOutcome{}, fmt.Errorf("read the failure streak: %w", err)
-		}
-		if failures >= circuitBreakerThreshold {
-			if err := m.db.ClearFailures(ctx, folder); err != nil {
-				return runedv1.RunOutcome{}, fmt.Errorf("reset the breaker: %w", err)
-			}
-		}
-	}
-
 	claim, out, ok, err := m.admit(ctx, req, kind)
 	if err != nil || !ok {
 		return out, err
@@ -258,7 +237,7 @@ func (m *Manager) spawn(ctx context.Context, req runedv1.RunRequest, runID, sess
 	// launching anyway would put a second container on one folder's mount,
 	// open a session_log row nothing will close, and run endRun against the
 	// folder's NEXT run. Reported as Busy, so routd leaves the cursor
-	// un-advanced without counting a deliberate kill toward the breaker.
+	// un-advanced.
 	started, err := m.db.StartSpawn(ctx, runID, sessionID)
 	if err != nil {
 		// The row stays 'queued' and holds the folder until runed restarts
@@ -320,21 +299,12 @@ func (m *Manager) spawn(ctx context.Context, req runedv1.RunRequest, runID, sess
 			slog.Error("runed: CloseSession failed", "log_id", logID, "err", err)
 		}
 	}
-	breakerTripped := m.endRun(ctx, folder, runID, failed, kind)
+	m.endRun(runID)
 
-	out := runedv1.RunOutcome{
+	return runedv1.RunOutcome{
 		RunID: runID, Outcome: res.Outcome, Error: res.Error,
 		Terminal: res.Terminal,
 	}
-	// The run that pushes the folder to the threshold reports breaker_open on
-	// the response the caller awaits (spec 5/P-runed § circuit breaker).
-	if breakerTripped {
-		out.BreakerOpen = true
-		if out.Error == "" {
-			out.Error = "circuit breaker open"
-		}
-	}
-	return out
 }
 
 // execute renders this turn's envelope and hands it to the kind's executor.
@@ -385,37 +355,12 @@ func (m *Manager) execute(
 	return exec.Run(ctx, turn)
 }
 
-// endRun clears the steer callback and updates the breaker counter. Returns
-// true when this exit trips the breaker. Breaker accounting is scoped to
-// KindAgent (spec 5/8): a failed hold must never stop the agent spawning.
-func (m *Manager) endRun(ctx context.Context, folder, runID string, failed bool, kind string) bool {
-	var tripped bool
-	if kind == KindAgent {
-		if failed {
-			newCount, err := m.db.RecordFailure(ctx, folder)
-			if err != nil {
-				// The streak is what opens the breaker, so a count that did not
-				// land is a wedge nobody sees: the folder keeps failing and the
-				// caller is never told to stop.
-				slog.Error("runed: could not count a failure against the breaker",
-					"folder", folder, "run_id", runID, "err", err)
-			}
-			tripped = newCount == circuitBreakerThreshold
-		} else {
-			// Any clean exit resets the breaker (silent included); a folder
-			// alternating error/silent must never creep to the threshold.
-			if err := m.db.ClearFailures(ctx, folder); err != nil {
-				slog.Error("runed: could not clear the breaker", "folder", folder, "err", err)
-			}
-		}
-	}
-
+func (m *Manager) endRun(runID string) {
 	// Clear this run's steer callback (its container is gone). Deleting by
 	// run_id cannot disarm a successor that already claimed the folder.
 	m.mu.Lock()
 	delete(m.steerFns, runID)
 	m.mu.Unlock()
-	return tripped
 }
 
 // SetSteer records the substrate's guest-input callback for the run's lifetime.
@@ -429,7 +374,7 @@ func (m *Manager) SetSteer(runID string, steer func(batch string) bool) {
 // Kill stops a run (DELETE /v1/runs/{id}) and frees its slot; the spawn's
 // recorded kind selects which executor's Kill runs (spec 5/8). Idempotent:
 // killing an already-exited run is a no-op 200. A deliberate kill records
-// state=killed WITHOUT outcome=error and does NOT count toward the breaker.
+// state=killed WITHOUT outcome=error.
 func (m *Manager) Kill(ctx context.Context, runID string) error {
 	sp, err := m.db.SpawnByRunID(ctx, runID)
 	if err != nil {

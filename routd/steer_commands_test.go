@@ -209,7 +209,7 @@ func TestCmdStatusErroredCount(t *testing.T) {
 	loop.deliver = dl
 	_ = db.PutGroup(core.Group{Folder: "demo"})
 	_ = addMembership(db, "u", "role:operator", "test")
-	_, _ = db.MarkChatErrored("tg:99")
+	_ = db.MarkChatErrored("tg:99")
 	_ = steerOne(loop, "web:demo", "demo", "/status")
 	if !strings.Contains(lastAck(t, dl), "errored chats: 1") {
 		t.Fatalf("/status ack=%q want errored chats: 1", lastAck(t, dl))
@@ -831,12 +831,7 @@ func TestStopLeavesTheBacklogRunning(t *testing.T) {
 	}
 }
 
-// Until BUGS L347 is settled, the ERROR log is the ONLY record that a person's
-// question was dropped. "first" named one row of N and no person, so an
-// operator could not tell whose message vanished or go find it. This pins the
-// ids and the senders — and pins that the CONTENT stays out, because a dropped
-// message is still the sender's.
-func TestTheLostRowsLogNamesWhoseTheyWere(t *testing.T) {
+func TestSteerBusyKeepsInputAndCommand(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
 		t.Fatal(err)
@@ -870,29 +865,23 @@ func TestTheLostRowsLogNamesWhoseTheyWere(t *testing.T) {
 		t.Fatalf("process: %v", err)
 	}
 
-	out := logs()
-	// The assertion has to read the LOSS line, not the whole capture: the
-	// dispatch INFO line names the trigger sender too, so a whole-log Contains
-	// passes even when the loss line names nobody.
-	var line string
-	for _, l := range strings.Split(out, "\n") {
-		if strings.Contains(l, "not re-fed") {
-			line = l
-			break
+	if cursor := db.GetAgentCursor("tg:1"); cursor != "" {
+		t.Fatalf("busy turn advanced cursor to %q", cursor)
+	}
+	pending, err := db.NewMessagesForChat("tg:1", "", 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"q1", "s1"} {
+		if !slices.ContainsFunc(pending, func(m core.Message) bool { return m.ID == id }) {
+			t.Errorf("busy turn lost pending row %s", id)
 		}
 	}
-	if line == "" {
-		t.Fatalf("the dropped rows were not reported at all:\n%s", out)
-	}
-	if !strings.Contains(line, "q1") {
-		t.Errorf("the loss line does not name the lost row, so it cannot be found "+
-			"again:\n%s", line)
-	}
-	if !strings.Contains(line, "telegram:user/7") {
-		t.Errorf("the loss line does not name whose message was lost:\n%s", line)
+	out := logs()
+	if strings.Contains(out, "not re-fed") {
+		t.Errorf("busy turn reported input loss:\n%s", out)
 	}
 	if strings.Contains(out, "the secret question") {
-		t.Errorf("the log copied the message CONTENT; a dropped message is still "+
-			"the sender's:\n%s", out)
+		t.Errorf("the log copied message content:\n%s", out)
 	}
 }

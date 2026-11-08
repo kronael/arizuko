@@ -494,8 +494,7 @@ func failureReason(out string) string {
 }
 
 // turnResult maps how a turn ended onto what routd reads. One place, because
-// each of these four answers means something different to the dispatcher: a
-// retry, a fresh spawn, a breaker trip, or nothing at all.
+// each answer determines whether the dispatcher retries, starts fresh or stops.
 func turnResult(end turnEnd, elapsed time.Duration, console, tail string) RunResult {
 	if end.timedOut {
 		return RunResult{Outcome: runedv1.OutcomeError,

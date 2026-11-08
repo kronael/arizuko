@@ -202,7 +202,7 @@ func (s *Store) KillSpawn(ctx context.Context, runID string) error {
 			attrEndedAt:  core.NowTS(),
 		},
 		// A kill is operator intent, not a run failure, so it deliberately
-		// leaves no outcome behind for the breaker to read.
+		// leaves no error outcome behind.
 		Remove: []string{attrOutcome},
 		Cond:   objstore.Cond{Where: live()},
 	}})

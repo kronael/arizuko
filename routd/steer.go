@@ -31,6 +31,23 @@ func (l *Loop) steer(chatJID string, last core.Message, folder string, at bool) 
 	return l.tryExternalRoute(chatJID, last, folder, at)
 }
 
+func (l *Loop) canSteer(chatJID string, msg core.Message, folder string, at bool) bool {
+	if IsSteerCommand(msg) {
+		return true
+	}
+	if !msg.BotMsg && !strings.HasPrefix(msg.Sender, "timed-") {
+		_, text := typedText(msg.Content)
+		if isStickyCommand(text) || rePrefixHash.MatchString(text) {
+			return true
+		}
+	}
+	if at {
+		return false
+	}
+	target := l.resolveTarget(chatJID, msg, folder)
+	return target != "" && router.IsAuthorizedRoutingTarget(folder, target)
+}
+
 // ack sends a steering acknowledgement to the chat; no-op without a Deliverer.
 func (l *Loop) ack(chatJID, text string) {
 	if l.deliver != nil {

@@ -300,7 +300,7 @@ func (d *DB) ClearChatErrored(chatJID string) error {
 
 // MarkChatErrored flags a chat as errored. The flag surfaces in inspection; it
 // does not block re-feed (the cursor advance is the starvation guard).
-func (d *DB) MarkChatErrored(chatJID string) (bool, error) {
+func (d *DB) MarkChatErrored(chatJID string) error {
 	return d.store().MarkChatErrored(chatJID)
 }
 
@@ -310,8 +310,7 @@ func (d *DB) ClearErrored(chatJID string) (int64, error) {
 	return d.store().ClearErrored(context.Background(), chatJID)
 }
 
-// MarkMessagesErrored flags a failed run's trigger rows so the circuit breaker
-// can prune them; they stay visible to a later run until it trips.
+// MarkMessagesErrored flags a failed run's trigger rows for inspection and cleanup.
 func (d *DB) MarkMessagesErrored(msgs []core.Message) error {
 	return d.store().MarkMessagesErrored(context.Background(), msgs)
 }
@@ -331,7 +330,7 @@ func (d *DB) DeleteErroredMessages(chatJID string) error {
 }
 
 // CountErroredChats counts chats flagged errored — the /status surface.
-// chats.errored is the coarse flag; messages.errored is the breaker's prune
+// chats.errored is the coarse flag; messages.errored is the per-message
 // target.
 func (d *DB) CountErroredChats() int {
 	jids, err := d.store().ErroredChatJIDs()

@@ -94,7 +94,7 @@ func TestTheHotTierRoundTripsEveryAttributeItCarries(t *testing.T) {
 		if err := s.SetChatIsGroup(jid, true); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := s.MarkChatErrored(jid); err != nil {
+		if err := s.MarkChatErrored(jid); err != nil {
 			t.Fatal(err)
 		}
 		if flagged, _ := s.ErroredChatJIDs(); len(flagged) != 1 || flagged[0] != jid {

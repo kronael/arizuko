@@ -68,8 +68,6 @@ line; none can be answered from the code.
 - `L571` — measure a two-sender batch under a `{sender}` route.
 - `L472` — must a scheduled turn state its own success or failure, and may
   the run log stop calling a queued prompt a success?
-- `L347` — may the cursor stay put when a steered turn does not run? Changes
-  the consume contract (`L104`).
 - `L317` — may `/stop` drop the backlog older than itself, and is that drop
   sender-scoped? No other command eats a row it did not author.
 - `L273` — audit and remove stored copies of ACL defaults after deployment.
@@ -4024,34 +4022,6 @@ guards come back because the invariant still needs holding.
   `tmp/_sqlprobe/` and proved nothing, because the go tool ignores a directory whose
   name starts with `_` — the project's own convention, and it makes a probe invisible as
   readily as it makes scratch invisible.
-
-## L347 — rows behind a steered command are never re-fed (2026-09-21, open)
-
-`routd/dispatch.go` consumes the steered row and advances the cursor TO it, so
-the rows behind it are below the cursor and are owed a turn. On the `derr` and
-`busy` paths that turn does not run: the rows are logged at ERROR and nothing
-re-feeds them. A user who asks a question and then sends `/status` loses the
-question when runed refuses the turn.
-
-The ERROR log is a symptom marker — it names the loss without ending it.
-
-**The observability half ships 2026-09-22.** While this waits, the ERROR log is
-the ONLY record that a person's question vanished, and it read `rows: 3,
-first: m1` — one row of N and no person. It names every id and every distinct
-sender now, so an operator can find what was dropped and whose it was. The
-CONTENT stays out on purpose, and `TestTheLostRowsLogNamesWhoseTheyWere` pins
-both halves of that.
-
-That changes no behaviour and settles nothing: the rows are still not re-fed.
-
-- **Severity:** medium (a user message silently dropped, on a path that
-  already knows it happened)
-- **Scope:** dispatch
-- **Affected:** routd
-- **Source:** `routd/dispatch.go` (the steer branch's `derr` and `busy` arms)
-- **Status:** open. The cause fix is to leave the cursor where it was when the
-  turn does not run, so the next poll re-reads the batch — which is a change to
-  the consume contract (`L104`) and needs sign-off.
 
 ## L339 — a sourced fragment can interpolate any `.env` key, so the `L201` bound stops at the mount (2026-09-21, open — proposal, needs sign-off)
 

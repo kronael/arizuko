@@ -42,7 +42,7 @@ objstore implements the object store interface that every arizuko daemon address
 
 A registered `resreg` resource is an entity too. A resource declares its shape, and the engine dispatches on the declaration (`resreg/entity.go`).
 
-Partitions are per entity and not per daemon. The three entities of runed take three different partitions, because they answer three different questions. `spawns` uses a constant, `session_log` uses the folder, and `circuit_breaker` uses the folder as the whole coordinate. authd uses one constant partition for the whole daemon, so every read there that is not a point read is a whole-partition read.
+Partitions are per entity and not per daemon. The two entities in `runed/runstore` take different partitions. `spawns` uses a constant, and `session_log` uses the folder. authd uses one constant partition for the whole daemon, so every read there that is not a point read is a whole-partition read.
 
 ## Why the store has this shape
 

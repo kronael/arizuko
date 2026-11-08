@@ -66,7 +66,7 @@
 │   routd   │
 └─────┬─────┘
       ▼
-┌───────────┐  preconditions met, breaker shut  journal: "cannot run turns"
+┌───────────┐  preconditions met, run slot free  journal: "cannot run turns"
 │   runed   │
 └─────┬─────┘
       ▼
@@ -213,12 +213,24 @@ routd ──► adapter ──► platform reply</code></pre>
       <dd><code>chanlib/chanlib.go:180</code>, <code>chanreg/chanreg.go:203</code></dd>
     </dl>
 
+    <h3 id="model-pause">A provider refusal saves messages until access returns</h3>
+    <dl>
+      <dt>Read</dt>
+      <dd>The chat says <code>Model access is paused: &lt;reason&gt;. Your messages are saved. I will retry automatically.</code> Open <code>/dash/model-pauses/</code> for the reason, next attempt, attempt count and queued input count.</dd>
+      <dt>Cause</dt>
+      <dd>The provider reports a spend limit, rate limit, refused authentication or outage. The pause holds all new turns, including other backends and user keys. Already-admitted turns may finish.</dd>
+      <dt>Fix</dt>
+      <dd>Restore provider access or wait for the next automatic attempt. After restoring access, choose <strong>Clear pause</strong> to release saved input now. The remote CLI also supports <a href="../reference/cli.html#model-pauses"><code>arizuko model-pauses list|clear</code></a>. A new refusal opens another pause.</dd>
+      <dt>Source</dt>
+      <dd><a href="../concepts/retries.html#provider-pause">Provider pauses</a> describes the saved input and probe rules. <a href="../reference/mcp.html#list_model_pauses">Operator MCP tools</a> share the same resource.</dd>
+    </dl>
+
     <h3 id="unanswered">A chat without a matching route gets no reply</h3>
     <dl>
       <dt>Read</dt>
       <dd><code>/dash/activity/</code> shows the newest message in and out of the chat. The unrouted section of <code>/dash/routes/</code> lists every chat that routd drops. <code>./arizuko route -i &lt;name&gt; list</code> prints the route table by seq.</dd>
       <dt>Cause</dt>
-      <dd>When no route matches, routd marks the messages as seen and starts no turn. An <code>?observe</code> route above the answering route has the same result: the first match wins, and an observe route has no verb, so it takes every message, mentions included. BUGS entry <code>L327</code> records this. The cursor moves, the breaker stays closed, and no error occurs.</dd>
+      <dd>When no route matches, routd marks the messages as seen and starts no turn. An <code>?observe</code> route above the answering route has the same result: the first match wins, and an observe route has no verb, so it takes every message, mentions included. BUGS entry <code>L327</code> records this. The cursor moves, and no error occurs.</dd>
       <dt>Fix</dt>
       <dd>Add the route, or give the answering route a lower seq than its <code>?observe</code> pair. A route row is operator data: change it with <code>arizuko route</code>.</dd>
       <dt>Source</dt>
@@ -234,7 +246,7 @@ routd ──► adapter ──► platform reply</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/howto/operate.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-11-07">2026-11-07</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-08">2026-11-08</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

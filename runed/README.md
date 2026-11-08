@@ -29,21 +29,19 @@ runed does these jobs:
 A live folder returns `busy=true`; routd retains the batch for refeed after
 the active run ends, then dispatches it with its own turn identity.
 
-The `runed` owner is separate from routd. It owns `spawns`, `session_log`, `circuit_breaker` and `audit_log`. These tables hold runtime state that has no home in routd. They are not configuration that a manifest addresses, so `/openapi.json` exposes only the read path of `audit`.
+The `runed` owner is separate from routd. It owns `spawns`, `session_log` and `audit_log`. These tables hold runtime state that has no home in routd. They are not configuration that a manifest addresses, so `/openapi.json` exposes only the read path of `audit`.
 
-Each table is an objstore entity, declared beside the code that reads it: `runed/runstore` for the first three and `audit` for the fourth. The driver that the opener holds creates the tables, so a second engine is a second driver and no handler changes. The `runed` package holds no SQL statement, and `runstore` holds none either.
+Each table is an objstore entity, declared beside the code that reads it: `runed/runstore` for the first two and `audit` for the third. The driver that the opener holds creates the tables, so a second engine is a second driver and no handler changes. The `runed` package holds no SQL statement, and `runstore` holds none either.
 
 The file of each entity states its own coordinate and what that choice costs.
 
 - `spawns` takes one partition and the run id as sort key. Six operations address a spawn by run id with no folder in hand, and three of them are guarded transitions.
 - `session_log` takes the folder and a time key, because every read asks for the n newest rows of one folder and nothing sweeps the table.
-- `circuit_breaker` takes the folder as the whole coordinate.
 
-| Entity            | Coordinate                                                          | Attributes                                                                                                                          |
-| ----------------- | ------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `spawns`          | one constant partition, then the run id                             | folder, topic, container name, `session_log_id`, `session_id`, kind, state, outcome, exit code, created, started and ended instants |
-| `session_log`     | the folder, then the start instant at `core.TS` width plus a suffix | `session_id`, ended instant, result, error, message count                                                                           |
-| `circuit_breaker` | the folder, as both halves                                          | consecutive failures, the last failure; it survives a restart                                                                       |
+| Entity        | Coordinate                                                          | Attributes                                                                                                                          |
+| ------------- | ------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `spawns`      | one constant partition, then the run id                             | folder, topic, container name, `session_log_id`, `session_id`, kind, state, outcome, exit code, created, started and ended instants |
+| `session_log` | the folder, then the start instant at `core.TS` width plus a suffix | `session_id`, ended instant, result, error, message count                                                                           |
 
 ## Endpoints
 
@@ -59,7 +57,7 @@ The binary is `runed/cmd/runed/main.go`. It listens on `LISTEN_ADDR`, default `:
 - `GET /dash/runed/` and `POST /dash/runed/kill` are the operator page of runed: active runs with a kill button per folder, and recent spawns. The identity that proxyd stamps for the operator gates them, and a bearer does not.
 - `GET /openapi.json` and `GET /health` are public. With `METRICS_ENABLED=true`, `GET /metrics` serves the metrics.
 
-A kill is the one revoke that runed has, because runed mints nothing. `Manager.Kill` (`manager.go`) is idempotent. A kill on a run that already exited answers 200 and changes no row. The state of a killed run is `killed`. It carries no `error` outcome and does not count toward the breaker of the folder, because a deliberate stop is not a failure.
+A kill is the one revoke that runed has, because runed mints nothing. `Manager.Kill` (`manager.go`) is idempotent. A kill on a run that already exited answers 200 and changes no row. The state of a killed run is `killed`. It carries no `error` outcome, because a deliberate stop is not a failure.
 
 ## Dependencies
 
@@ -200,15 +198,14 @@ Core is required. Package selection is an input to the renderer, outside the
 
 `Manager.Run` (`manager.go`) answers in one of two ways and keeps no queue. A second queue inside runed would drift from the queue of routd, which already holds the batch.
 
-| Folder state                         | Answer                                     | routd then                                                     |
-| ------------------------------------ | ------------------------------------------ | -------------------------------------------------------------- |
-| a live guest or spawn row            | `busy`                                     | re-feeds the batch later, no cursor advance, no breaker charge |
-| cap `MAX_CONCURRENT_CONTAINERS` full | `busy`                                     | the same                                                       |
-| idle, under the cap                  | a `spawns` row in `queued`, then the guest | waits for the outcome                                          |
+| Folder state                         | Answer                                     | routd then                                  |
+| ------------------------------------ | ------------------------------------------ | ------------------------------------------- |
+| a live guest or spawn row            | `busy`                                     | re-feeds the batch later, no cursor advance |
+| cap `MAX_CONCURRENT_CONTAINERS` full | `busy`                                     | the same                                    |
+| idle, under the cap                  | a `spawns` row in `queued`, then the guest | waits for the outcome                       |
 
 - runed keeps no state outside the store. Every admission decision reads the `spawns` rows under one mutex for check and claim. A map in memory would lie after a restart: a folder would stay wedged, or the cap would reset. At boot, `ExpireOrphans` ends every row that a dead runed left live, as `exited` with outcome `error` and never `killed` (`runstore/spawns.go`).
 - `StartSpawn` takes the claim with a condition on `state='queued'`. A `DELETE` that lands between the claim and the launch wins, and the run answers `busy`. A `killed` row makes the folder read free, so a launch without this guard would put two guests on one mount.
-- A new inbound message clears a breaker streak at the threshold of 3, so a retry after three failures does spawn. The run that reaches the threshold reports `breaker_open`.
 - routd owns session lineage. It mints the id and sends it on the request. runed mints an id only for a request that carries none, which is an isolated task. `spawns.session_id` is an echo.
 - Readiness is spawn success. There is no `/readyz` probe, because a probe on the spawn path adds a failure mode. `Manager.spawn` arms the one deadline from `RUNED_RUN_TIMEOUT`. The substrate keeps no timer. ant sends the wrap-up warning five minutes before its query deadline.
 
@@ -360,7 +357,7 @@ The substrate adds `HTTP_PROXY` and its five companion variables to the environm
 - `cmd/runed/main.go` wires the daemon: verifier bootstrap and shutdown.
 - `server.go` is the HTTP surface and the bearer and scope gate.
 - `audit.go` renders the run-slot audit rows: what runed records, and why it does not record turns.
-- `manager.go` is the Manager: run lifecycle, concurrency, queue and circuit breaker.
+- `manager.go` is the Manager: run lifecycle, folder exclusion and concurrency.
 - `runtime.go` is the port: the `Runtime` interface (`Run`, `Kill`) and the `Turn` that it carries.
 - `render.go` is the one renderer: a wire request in, one `Turn` out. It works with `mounts.go` for the mount table, `settings.go` for `settings.json`, and `secrets.go` for the credential that a guest receives.
 - `runtimes.go` holds `FakeRuntime`, the test seam.
@@ -374,4 +371,4 @@ The substrate adds `HTTP_PROXY` and its five companion variables to the environm
 - `hold.go` serves `POST /v1/holds`, the claim on the run slot of a folder.
 - `dash.go` serves `/dash/runed/` and its kill form.
 - `db.go` persists spawns and sessions, and it holds the boot that dials the store endpoint.
-- `runstore/` holds the three entities and their coordinates, with no SQL.
+- `runstore/` holds the two entities and their coordinates, with no SQL.

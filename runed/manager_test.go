@@ -151,43 +151,20 @@ func TestConcurrencyCap(t *testing.T) {
 	}
 }
 
-// TestCircuitBreakerTripAndReset: 3 consecutive failures trip the breaker on
-// the 3rd run (which DID run); a new inbound resets and retries successfully
-// (spec 5/P-runed § circuit breaker).
-func TestCircuitBreakerTripAndReset(t *testing.T) {
-	var calls int32
-	failNext := atomic.Bool{}
-	failNext.Store(true)
-	rt := FakeRuntime{Fn: func(ctx context.Context, turn Turn) RunResult {
-		atomic.AddInt32(&calls, 1)
-		if failNext.Load() {
-			return RunResult{Outcome: runedv1.OutcomeError, Error: "boom"}
+func TestRepeatedRunFailuresKeepAdmission(t *testing.T) {
+	outcome := runedv1.OutcomeError
+	runs := 0
+	_, mgr := newMgr(t, FakeRuntime{Fn: func(context.Context, Turn) RunResult {
+		runs++
+		return RunResult{Outcome: outcome}
+	}}, 1)
+	for i, next := range []string{runedv1.OutcomeError, runedv1.OutcomeError,
+		runedv1.OutcomeError, runedv1.OutcomeError, runedv1.OutcomeSilent, runedv1.OutcomeOK} {
+		outcome = next
+		out, err := mgr.Run(t.Context(), runedv1.RunRequest{Packages: []string{"core"}, Folder: "demo", MessageBatch: "saved"})
+		if err != nil || out.Busy || out.Outcome != next || runs != i+1 || mgr.ActiveCount(t.Context()) != 0 {
+			t.Fatalf("attempt %d: outcome=%+v runs=%d err=%v", i, out, runs, err)
 		}
-		return RunResult{Outcome: runedv1.OutcomeOK}
-	}}
-	_, mgr := newMgr(t, rt, 5)
-
-	for i := 1; i <= 3; i++ {
-		out, _ := mgr.Run(context.Background(), runedv1.RunRequest{Packages: []string{"core"}, Folder: "demo", MessageBatch: "m"})
-		if out.Outcome != runedv1.OutcomeError {
-			t.Fatalf("run %d outcome=%q want error", i, out.Outcome)
-		}
-		if want := i == 3; out.BreakerOpen != want {
-			t.Fatalf("run %d breaker_open=%v want %v (trips only on the 3rd)", i, out.BreakerOpen, want)
-		}
-	}
-	if atomic.LoadInt32(&calls) != 3 {
-		t.Fatalf("calls=%d want 3 (the tripping run actually ran)", calls)
-	}
-
-	// new inbound resets the breaker and retries; this one succeeds.
-	failNext.Store(false)
-	out, _ := mgr.Run(context.Background(), runedv1.RunRequest{Packages: []string{"core"}, Folder: "demo", MessageBatch: "m"})
-	if out.Outcome != runedv1.OutcomeOK || out.BreakerOpen {
-		t.Fatalf("post-reset run outcome=%q breaker_open=%v want ok,false", out.Outcome, out.BreakerOpen)
-	}
-	if atomic.LoadInt32(&calls) != 4 {
-		t.Fatalf("calls=%d want 4 (reset retried the run)", calls)
 	}
 }
 
@@ -284,35 +261,6 @@ func (ctxWatchingRuntime) Run(ctx context.Context, _ Turn) RunResult {
 }
 func (ctxWatchingRuntime) Kill(string) error { return nil }
 
-// TestBreakerResetsOnSilent: gated resets the breaker on ANY clean exit
-// (runForGroup success=true), silent included. A folder alternating
-// error/silent must never creep to the threshold (gap 2 — runed used to
-// reset only on OutcomeOK, so silent left failures>0 and the next error
-// could trip).
-func TestBreakerResetsOnSilent(t *testing.T) {
-	var outcome atomic.Value
-	outcome.Store(runedv1.OutcomeError)
-	rt := FakeRuntime{Fn: func(ctx context.Context, turn Turn) RunResult {
-		return RunResult{Outcome: outcome.Load().(string)}
-	}}
-	_, mgr := newMgr(t, rt, 5)
-
-	// Two errors, then a silent run, then a third error: without the silent
-	// reset this would be the 3rd consecutive failure and trip.
-	for _, oc := range []string{runedv1.OutcomeError, runedv1.OutcomeError, runedv1.OutcomeSilent} {
-		outcome.Store(oc)
-		out, _ := mgr.Run(context.Background(), runedv1.RunRequest{Packages: []string{"core"}, Folder: "demo", MessageBatch: "m"})
-		if out.BreakerOpen {
-			t.Fatalf("outcome=%q tripped breaker early (silent must reset)", oc)
-		}
-	}
-	outcome.Store(runedv1.OutcomeError)
-	out, _ := mgr.Run(context.Background(), runedv1.RunRequest{Packages: []string{"core"}, Folder: "demo", MessageBatch: "m"})
-	if out.BreakerOpen {
-		t.Fatalf("breaker tripped after a silent reset cleared the failure count")
-	}
-}
-
 func TestKillDoesNotRelabelCompletedRun(t *testing.T) {
 	db, mgr := newMgr(t, FakeRuntime{}, 5)
 	_ = db.CreateSpawn(t.Context(), Spawn{RunID: "r", Folder: "demo", ContainerName: "c", State: "queued"})
@@ -358,27 +306,6 @@ func TestIsolatedRunNoSessionLineage(t *testing.T) {
 	mgr.Run(context.Background(), runedv1.RunRequest{Packages: []string{"core"}, Folder: "demo", MessageBatch: "m"})
 	if rows, _ := db.RecentSessions(t.Context(), "demo", 10); len(rows) != 1 {
 		t.Fatalf("non-isolated run wrote %d session_log rows, want 1", len(rows))
-	}
-}
-
-// TestTrippingRunEmitsBreakerOpen: the run that pushes a folder to the failure
-// threshold returns BreakerOpen=true on its synchronous response (gap 5 —
-// routd keys the user-notification + session-delete on this signal).
-func TestTrippingRunEmitsBreakerOpen(t *testing.T) {
-	rt := FakeRuntime{Fn: func(context.Context, Turn) RunResult {
-		return RunResult{Outcome: runedv1.OutcomeError, Error: "boom"}
-	}}
-	_, mgr := newMgr(t, rt, 5)
-
-	for i := 1; i <= circuitBreakerThreshold; i++ {
-		out, _ := mgr.Run(context.Background(), runedv1.RunRequest{Packages: []string{"core"}, Folder: "demo", MessageBatch: "m"})
-		want := i == circuitBreakerThreshold
-		if out.BreakerOpen != want {
-			t.Fatalf("run %d breaker_open=%v want %v (trips only on the threshold run)", i, out.BreakerOpen, want)
-		}
-		if want && out.Error == "" {
-			t.Fatalf("tripping run carries empty error; want a breaker message")
-		}
 	}
 }
 

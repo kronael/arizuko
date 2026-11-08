@@ -181,14 +181,10 @@ func TestSecondHoldRefused(t *testing.T) {
 	}
 }
 
-// TestHoldDoesNotTripBreaker: the circuit breaker is agent-only accounting.
-// A hold that ends in outcome=error (an expired one) must not add to the
-// folder's failure streak — three expired holds would otherwise open the
-// breaker and stop the agent spawning for a folder that never failed a turn.
-func TestHoldDoesNotTripBreaker(t *testing.T) {
+func TestExpiredHoldsReleaseAdmission(t *testing.T) {
 	db, mgr := newHoldMgr(t, FakeRuntime{}, 5, 20*time.Millisecond)
 
-	for i := 0; i < circuitBreakerThreshold; i++ {
+	for i := range 3 {
 		held, err := mgr.Hold(context.Background(), types.Folder("demo"), "expiring hold")
 		if err != nil {
 			t.Fatalf("hold %d: %v", i, err)
@@ -196,16 +192,12 @@ func TestHoldDoesNotTripBreaker(t *testing.T) {
 		waitSpawnState(t, db, held.RunID, "error", "exited")
 	}
 
-	if failures, err := db.FailureStreak(t.Context(), "demo"); err != nil || failures != 0 {
-		t.Fatalf("failures=%d err=%v after %d expired holds; want 0 (breaker is agent-only)",
-			failures, err, circuitBreakerThreshold)
-	}
 	out, err := mgr.Run(context.Background(), runedv1.RunRequest{Packages: []string{"core"}, Folder: "demo", MessageBatch: "hi"})
 	if err != nil {
 		t.Fatalf("run after expired holds: %v", err)
 	}
-	if out.BreakerOpen {
-		t.Error("expired holds opened the agent's circuit breaker")
+	if out.Busy || out.Outcome != runedv1.OutcomeSilent {
+		t.Fatalf("run after expired holds=%+v", out)
 	}
 }
 

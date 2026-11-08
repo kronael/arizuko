@@ -623,8 +623,8 @@ own Claude session, reply chain and message history.
                                               │ submit_turn
                                               ▼
                     ┌──────────────────────────────────────────────────┐
-                    │ recordTurnResult: PutSession with the id the     │
-                    │ harness ran under; a killed turn reports none,   │
+                    │ recordTurnResultAttempt: PutSession with the id  │
+                    │ the harness ran under; killed turns report none, │
                     │ and the next turn resumes the id routd minted    │
                     └──────────────────────────────────────────────────┘
 ```

@@ -109,7 +109,7 @@
      │ POST &lt;url&gt;/send        ┌──────────────────────────────────────────┐
      │ the reply rows and     │ bridge ► routd socket: mcpDeliver ►      │
      │ one edited status row  │ chanDeliverer.Send; submit_turn ►        │
-     └────────────────────────┤ recordTurnResult (outcome only)          │
+     └────────────────────────┤ recordTurnResultAttempt (outcome only)   │
                               └──────────────────────────────────────────┘
 </code></pre>
 
@@ -159,7 +159,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/concepts/turn.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-21">2026-10-21</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-07">2026-11-07</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

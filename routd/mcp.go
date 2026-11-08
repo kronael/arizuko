@@ -139,7 +139,7 @@ func (s *Server) buildRoutdFns(t turnMCP) ipc.RoutdFns {
 			if err := requireTurn(result.TurnID); err != nil {
 				return ipc.TurnAck{}, err
 			}
-			return s.mcpSubmitTurn(folder, result)
+			return s.mcpSubmitTurnAttempt(result, t.attempt)
 		},
 		CheckTurn: func(_ string, turnID string) (ipc.TurnCheck, error) {
 			if err := requireTurn(turnID); err != nil {
@@ -387,9 +387,7 @@ func (s *Server) checkTurn(tc TurnContext) (ipc.TurnCheck, error) {
 	return check, nil
 }
 
-// mcpSubmitTurn maps the ipc.TurnResult agent payload onto routd's apiv1
-// shape and records it through recordTurnResult (turns.go).
-func (s *Server) mcpSubmitTurn(_ string, t ipc.TurnResult) (ipc.TurnAck, error) {
+func (s *Server) mcpSubmitTurnAttempt(t ipc.TurnResult, attempt string) (ipc.TurnAck, error) {
 	req := apiv1.TurnResult{
 		TurnID: t.TurnID, SessionID: t.SessionID, Status: t.Status,
 		Error: t.Error, TimedOut: t.TimedOut, ProviderFailure: t.ProviderFailure,
@@ -400,7 +398,7 @@ func (s *Server) mcpSubmitTurn(_ string, t ipc.TurnResult) (ipc.TurnAck, error) 
 			req.Models[m] = apiv1.ModelCost{Input: u.Input, Output: u.Output, CostCents: u.CostCents}
 		}
 	}
-	return s.recordTurnResult(t.TurnID, req)
+	return s.recordTurnResultAttempt(t.TurnID, attempt, req)
 }
 
 // submitStatus hands a mid-turn declaration to the progress renderer

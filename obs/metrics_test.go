@@ -25,7 +25,6 @@ func TestMetricsHandler_EnabledExposesFamilies(t *testing.T) {
 	RecordContainerSpawn("solo/inbox", "success", 3.0)
 	ContainerActiveInc()
 	RecordRequest("routd", "POST", "200", "/v1/messages", 0.01)
-	SetCircuitBreakerState("solo/inbox", 2)
 	RecordTokenMint("access")
 	RecordTokenRefresh("success")
 
@@ -44,7 +43,6 @@ func TestMetricsHandler_EnabledExposesFamilies(t *testing.T) {
 		"arizuko_container_duration_seconds",
 		"arizuko_requests_total",
 		"arizuko_request_duration_seconds",
-		"arizuko_circuit_breaker_state",
 		"arizuko_token_mints_total",
 		"arizuko_token_refreshes_total",
 	}

@@ -735,9 +735,7 @@ func (s *Store) RoutedToByMessageID(chatJID, id string) string {
 	return m.RoutedTo
 }
 
-// MarkMessagesErrored flags a failed run's trigger rows so the circuit breaker
-// can prune them. The rows stay visible to a later successful run until it
-// trips.
+// MarkMessagesErrored flags a failed run's trigger rows for inspection and cleanup.
 func (s *Store) MarkMessagesErrored(ctx context.Context, msgs []core.Message) error {
 	writes := make([]objstore.Write, 0, len(msgs))
 	for _, m := range msgs {
