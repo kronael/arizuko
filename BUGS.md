@@ -17,6 +17,7 @@
 
 - `L721` — delegate/escalate turns bounced for an hour; tool-text fix ships in v0.75.4, verify on live turns after deploy.
 - `L722` — an agent `reply` carrying a `<status>` block posts raw tags; fix queued.
+- `L723` — a mention-routed folder cannot read the chat it answers; fix queued.
 - `L665` — `unpair` removes the account's denies from the paired identity's turns; needs sign-off.
 - `L664` — `invite_create` mints `admin` the issuing folder cannot delegate; needs sign-off.
 - `L660` — a mention by reply engages only the reply chain, not the chat root; proposal, needs sign-off.
@@ -476,6 +477,31 @@ Cause: the `<status>` grammar is the turn's progress channel (`ant/README.md`
   error that says status belongs in the turn's own text, not in a message.
 - **Test:** `reply` with a `<status>…</status>` text is refused and nothing is
   delivered; a text that only mentions the word status still goes out.
+
+## L723 — a mention-routed folder cannot read the chat it answers: history reads refuse with `jid not routed to your group` (2026-11-08, open)
+
+MEASURED 2026-11-08 on sloth: kronael mentioned sloth in thread `1567944066765824111`
+of `discord:837270552959516682/920916162416635944`; routd dispatched `sloth/trading`
+(19:46:11, the route `platform=discord room=837270552959516682/920916162416635944
+verb=mention` → `sloth/trading`). In rollout
+`groups/sloth/trading/.codex/sessions/2026/11/08/rollout-2026-11-08T19-47-03-…`
+three reads were refused with `access_denied: jid not routed to your group`:
+`get_thread(chat_jid=…/920916162416635944, topic=1567944066765824111)`,
+`fetch_history(chat_jid=…/920916162416635944, before=…)` and
+`fetch_history(chat_jid=…/1567944066765824111)`. The agent told the owner "I can read
+your mention, but the thread history returns access_denied".
+
+Read from code: the reads gate on `JIDRoutedToFolder` (`ipc/ipc.go:2268`, `:2388`,
+`:2427`, `ipc/inspect.go:30`), which is the chat's DEFAULT route target only
+(`routd/reads.go:50`), so a `verb=mention` route never counts. `JIDRoutableToFolder`
+(`routd/reads.go:61`, verb ignored) already exists for the reply path. Not yet measured:
+why the own-chat exception (`routd/mcp.go:515`, `jid == t.chatJID && folder == t.folder`)
+did not admit the first two calls, and how a thread's own JID maps to its parent.
+
+- **Severity:** high — every mention-routed sub-folder answers blind to its thread.
+- **Scope:** the read gate's predicate in `routd`/`ipc`; reuse the existing functions.
+- **Test:** a mention-routed folder's turn reads its own chat and thread (parent JID +
+  topic, and the thread's own JID); a folder with no route to a chat is still refused.
 
 ## ✅ FIXED 2026-11-06 d50afcdcd L669 — dashd's group delete purges `acl` rows and edges after only `admin` on the folder (2026-11-06)
 
