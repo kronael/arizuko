@@ -106,6 +106,8 @@ cursor, session, content, retry count and order. They bypass error marking,
 breaker pruning, busy backoff and retention GC. Commands cannot advance a
 cursor across held input (`routd/dispatch.go:79`). Recovery reuses the existing
 turn rebind and closes each old run's callback surface.
+Worker dispatch, polling, queue folder selection and oldest-input selection
+consult the held turn's durable binding before fresh routes or engagement.
 
 ### One notice and one operator control
 

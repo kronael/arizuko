@@ -7,6 +7,7 @@ import (
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/resreg/resources"
+	"github.com/kronael/arizuko/store"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 )
 
@@ -65,18 +66,21 @@ func (s *Server) modelPausesHandler(ctx context.Context, x resreg.Execution) (an
 		for _, p := range pauses {
 			n := 0
 			for _, jid := range jids {
-				msgs, err := s.db.NewMessagesForChat(jid, s.db.GetAgentCursor(jid), 0)
-				if err != nil {
-					return nil, err
-				}
-				if newestUserIdx(msgs) < 0 {
-					continue
-				}
-				batch := loop.resolveBatch(jid, msgs)
-				for i, m := range msgs {
-					if !m.BotMsg && batch.rows[i].ok && batch.rows[i].Folder == p.Folder {
-						n++
+				cursor := s.db.GetAgentCursor(jid)
+				for {
+					msgs, batch, _, err := loop.pendingBatch(jid, cursor, 0)
+					if err != nil {
+						return nil, err
 					}
+					if len(msgs) == 0 {
+						break
+					}
+					for i, m := range msgs {
+						if !m.BotMsg && batch.rows[i].ok && batch.rows[i].Folder == p.Folder {
+							n++
+						}
+					}
+					cursor = store.MessageCursor(msgs[len(msgs)-1])
 				}
 			}
 			row := resources.ModelPauseRow{Folder: p.Folder, Reason: p.Reason, OpenedAt: p.OpenedAt,

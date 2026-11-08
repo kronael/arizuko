@@ -143,6 +143,8 @@ New claims check the oldest pending input even after the pause clears.
 Commands wait for earlier input in the chat to finish. Completed batches
 advance their cursor before the next batch is admitted.
 The saved input boundary excludes later messages from the held turn.
+Worker dispatch, polling and oldest-input selection use the held turn's saved
+folder, topic, trigger and return address before fresh routing or engagement.
 Held turns bypass error marking,
 busy backoff and retention GC. Waiting input stops typing. After a restart,
 routd resolves an interrupted probe through existing running-turn recovery

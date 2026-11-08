@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/audit"
+	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/ipc"
 	"github.com/kronael/arizuko/objstore"
@@ -17,6 +18,28 @@ import (
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
 	"github.com/kronael/arizuko/store"
 )
+
+func TestModelPausesListCountsHeldAndLaterInput(t *testing.T) {
+	db, l, p, _ := pauseFixture(t, "rate_limit")
+	jid := "telegram:group/count"
+	doSetRoutes(t, db, []core.Route{{Match: "chat_jid=" + jid, Target: "a?engaged"}})
+	if err := db.SetEngagement(jid, "", "a", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	pauseInput(t, db, jid, "count-held", "sender", "saved", now)
+	processPauseChat(t, l, jid)
+	if err := db.SetEngagement(jid, "", "a", -time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	doSetRoutes(t, db, []core.Route{{Match: "chat_jid=" + jid, Target: "a"}})
+	pauseInput(t, db, jid, "count-later", "sender", "later", now.Add(time.Second))
+	w := doJSON(t, p.srv.Handler(), "GET", "/v1/model_pauses", "", nil)
+	var rows []resources.ModelPauseRow
+	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &rows) != nil || len(rows) != 1 || rows[0].QueuedCount != 2 {
+		t.Fatalf("list=%d %s", w.Code, w.Body.String())
+	}
+}
 
 func TestModelPausesRESTMCPOperatorAndAuditParity(t *testing.T) {
 	for _, surface := range []string{"rest", "mcp"} {

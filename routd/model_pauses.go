@@ -45,14 +45,13 @@ func (l *Loop) oldestModelInput(folder string) (core.Message, error) {
 	}
 	var oldest core.Message
 	for _, jid := range jids {
-		msgs, err := l.db.NewMessagesForChat(jid, l.db.GetAgentCursor(jid), pollBatch)
+		msgs, batch, _, err := l.pendingBatch(jid, l.db.GetAgentCursor(jid), pollBatch)
 		if err != nil {
 			return core.Message{}, err
 		}
 		if newestUserIdx(msgs) < 0 {
 			continue
 		}
-		batch := l.resolveBatch(jid, msgs)
 		if !batch.ok || batch.Folder != folder {
 			continue
 		}
@@ -82,19 +81,44 @@ func modelInputBefore(a, b core.Message) bool {
 	return a.ChatJID < b.ChatJID
 }
 
-func (l *Loop) heldInput(jid string, msgs []core.Message) ([]core.Message, error) {
+func (l *Loop) heldInput(jid string, msgs []core.Message) ([]core.Message, *TurnContext, error) {
 	turns, err := l.db.store().HeldTurns(context.Background(), jid)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	for _, tc := range turns {
+	var held *TurnContext
+	for i := range turns {
+		tc := &turns[i]
 		if i := slices.IndexFunc(msgs, func(m core.Message) bool {
 			return store.MessageCursor(m) == tc.InputLast
 		}); i >= 0 {
 			msgs = msgs[:i+1]
+			held = tc
 		}
 	}
-	return msgs, nil
+	return msgs, held, nil
+}
+
+func (l *Loop) pendingBatch(jid, cursor string, limit int) ([]core.Message, batchResolution, *TurnContext, error) {
+	msgs, err := l.db.NewMessagesForChat(jid, cursor, limit)
+	if err != nil {
+		return nil, batchResolution{}, nil, err
+	}
+	msgs, held, err := l.heldInput(jid, msgs)
+	if err != nil || newestUserIdx(msgs) < 0 {
+		return msgs, batchResolution{}, held, err
+	}
+	if held == nil {
+		return msgs, l.resolveBatch(jid, msgs), nil, nil
+	}
+	r := resolution{Folder: held.Folder, Addressed: held.Addressed, ok: true}
+	b := batchResolution{resolution: r, rows: make([]resolution, len(msgs))}
+	for i, m := range msgs {
+		if !m.BotMsg && m.Sender == held.Trigger {
+			b.rows[i] = r
+		}
+	}
+	return msgs, b, held, nil
 }
 
 func (l *Loop) noticeModelPause(p *store.ModelPause, tc TurnContext) error {

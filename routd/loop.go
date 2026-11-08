@@ -489,11 +489,10 @@ func (l *Loop) recoverPending() {
 // JIDs. It reads the batch the worker reads and decides it with the worker's
 // resolveBatch: a key from any other row lets two chats run in one folder.
 func (l *Loop) folderForJid(chatJID string) string {
-	msgs, err := l.db.NewMessagesForChat(chatJID, l.db.GetAgentCursor(chatJID), pollBatch)
+	msgs, b, _, err := l.pendingBatch(chatJID, l.db.GetAgentCursor(chatJID), pollBatch)
 	if err != nil || newestUserIdx(msgs) < 0 {
 		return chatJID
 	}
-	b := l.resolveBatch(chatJID, msgs)
 	if !b.ok {
 		return chatJID
 	}
@@ -521,7 +520,7 @@ func (l *Loop) pollOnce() {
 		return
 	}
 	for _, chatJID := range jids {
-		chatMsgs, err := l.db.NewMessagesForChat(chatJID, l.db.GetAgentCursor(chatJID), pollBatch)
+		chatMsgs, b, _, err := l.pendingBatch(chatJID, l.db.GetAgentCursor(chatJID), pollBatch)
 		if err != nil {
 			slog.Warn("poll new messages", "jid", chatJID, "err", err)
 			continue
@@ -531,7 +530,7 @@ func (l *Loop) pollOnce() {
 		}
 		// An all-bot batch is the agent's own output: the worker owns that advance.
 		if newestUserIdx(chatMsgs) >= 0 {
-			if b := l.resolveBatch(chatJID, chatMsgs); !b.ok {
+			if !b.ok {
 				l.routeMiss(chatJID, chatMsgs, b.resolution)
 				continue
 			}

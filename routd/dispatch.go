@@ -25,19 +25,14 @@ import (
 // the batch, dispatches one run to runed and records the outcome. Returns
 // (hadOutput, err) per the queue's processMessagesFn.
 func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
-	cursor := l.db.GetAgentCursor(chatJID)
-	msgs, err := l.db.NewMessagesForChat(chatJID, cursor, pollBatch)
+	msgs, b, held, err := l.pendingBatch(chatJID, l.db.GetAgentCursor(chatJID), pollBatch)
 	if err != nil {
 		return false, err
 	}
 	if len(msgs) == 0 {
 		return false, nil
 	}
-	msgs, err = l.heldInput(chatJID, msgs)
-	if err != nil {
-		return false, err
-	}
-	pause, err := l.db.store().ReadModelPause(context.Background(), l.folderForJid(chatJID))
+	pause, err := l.db.store().ReadModelPause(context.Background(), b.Folder)
 	if err != nil {
 		return false, err
 	}
@@ -67,7 +62,6 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 	if pause == nil && l.busyDeferred(chatJID, msgs[busyIdx].ID) {
 		return false, nil
 	}
-	b := l.resolveBatch(chatJID, msgs)
 	if !b.ok {
 		l.routeMiss(chatJID, msgs, b.resolution)
 		return false, nil
@@ -82,7 +76,7 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 	steerIdx := steerRowIdx(msgs)
 	steerMsg := msgs[steerIdx]
 	var deferredSteer *core.Message
-	if steerIdx > 0 && l.canSteer(chatJID, steerMsg, folder, b.rows[steerIdx].AtName) {
+	if held == nil && steerIdx > 0 && l.canSteer(chatJID, steerMsg, folder, b.rows[steerIdx].AtName) {
 		for i, candidate := range msgs[:steerIdx] {
 			if candidate.BotMsg || !b.rows[i].ok {
 				continue
@@ -93,7 +87,7 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 			break
 		}
 	}
-	if deferredSteer == nil && pause == nil && l.steer(chatJID, steerMsg, folder, b.rows[steerIdx].AtName) {
+	if held == nil && deferredSteer == nil && pause == nil && l.steer(chatJID, steerMsg, folder, b.rows[steerIdx].AtName) {
 		// Consumed HERE, exactly once, before anything else can fail: no steer
 		// handler may run a second time because a later dispatch was refused.
 		l.advance(chatJID, steerMsg)
@@ -136,6 +130,9 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 	web := strings.HasPrefix(chatJID, "web:")
 	_, pin := l.db.StickyState(chatJID)
 	turnTopic := func(m core.Message) string {
+		if held != nil {
+			return held.Topic
+		}
 		if pinned[m.ID] {
 			return m.Topic
 		}
@@ -149,7 +146,9 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 	// topic. Keying on sender alone answered an older Discord thread inside a
 	// newer one (BUGS L305).
 	var groups [][]core.Message
-	if web {
+	if held != nil {
+		groups = [][]core.Message{trigger}
+	} else if web {
 		groups = groupByTopic(trigger)
 	} else {
 		groups = consecutiveRuns(trigger, func(m core.Message) string {
@@ -157,7 +156,9 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 		})
 	}
 
-	groups = l.isolateElevated(groups)
+	if held == nil {
+		groups = l.isolateElevated(groups)
+	}
 
 	hadAny := false
 	// Applied only with the cursor advance past the turns that set them (BUGS L58).
@@ -168,7 +169,13 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 		// A person is owed an answer by the turn that holds their row, however many
 		// unaddressed rows (CI under ?engaged) run beside it in their own turns.
 		owed := slices.ContainsFunc(batch, func(m core.Message) bool { return addressed[m.ID] })
-		had, steered, busy, mark, derr := l.runTurn(folder, topic, chatJID, bl.ID, owed, batch, ambient)
+		turnID := bl.ID
+		if held != nil {
+			turnID = held.TurnID
+			batch[len(batch)-1].Sender = held.Trigger
+			batch[len(batch)-1].ForwardedFrom = held.ReturnTo
+		}
+		had, steered, busy, mark, derr := l.runTurn(folder, topic, chatJID, turnID, owed, batch, ambient)
 		if errors.Is(derr, errModelInputOrder) {
 			if gi > 0 {
 				l.advanceFinished(chatJID, folder, msgs, batch[0], marks)

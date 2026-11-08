@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -190,6 +191,74 @@ func TestModelPauseNormalTurns429Then200(t *testing.T) {
 	processPauseChat(t, l, "web:a")
 	if len(p.runs) < 4 || p.runs[2].TurnID != "b-later" || p.runs[3].TurnID != "a-new" {
 		t.Fatalf("saved order changed: %+v", p.runs)
+	}
+}
+
+func TestModelPauseHeldBindingSurvivesRouteChange(t *testing.T) {
+	db, l, p, _ := pauseFixture(t, "rate_limit")
+	jid := "telegram:group/held"
+	doSetRoutes(t, db, []core.Route{{Match: "chat_jid=" + jid, Target: "a"}})
+	if err := db.SetEngagement(jid, "", "a", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetStickyTopic(jid, "original"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.PutMessage(core.Message{ChatJID: jid, ID: "held-binding", Sender: "sender",
+		Content: "saved", Timestamp: time.Now(), Verb: "message", ForwardedFrom: "telegram:group/origin"}); err != nil {
+		t.Fatal(err)
+	}
+	processPauseChat(t, l, jid)
+	before, ok := db.GetTurnContext("held-binding")
+	if !ok || before.State != store.TurnHeld || !before.Addressed || before.ReturnTo != "telegram:group/origin" {
+		t.Fatalf("held turn: %+v", before)
+	}
+	doSetRoutes(t, db, []core.Route{{Match: "chat_jid=" + jid, Target: "b"}})
+	if err := db.SetEngagement(jid, "", "a", -time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetStickyTopic(jid, "changed"); err != nil {
+		t.Fatal(err)
+	}
+	pauseInput(t, db, jid, "later-binding", "sender", "later", time.Now().Add(time.Second))
+	modelPauseDue(t, db)
+	processPauseChat(t, l, jid)
+	after, _ := db.GetTurnContext("held-binding")
+	if len(p.runs) != 2 || p.runs[1].Folder != "a" || p.runs[1].TurnID != before.TurnID ||
+		p.runs[1].Topic != before.Topic || p.runs[1].SessionID != p.runs[0].SessionID ||
+		after.Trigger != before.Trigger || after.ReturnTo != before.ReturnTo || after.Addressed != before.Addressed ||
+		strings.Contains(p.runs[1].MessageBatch, "later") {
+		t.Fatalf("held binding changed: before=%+v runs=%+v", before, p.runs)
+	}
+}
+
+func TestModelPauseExpiredEngagementPollsHeldInput(t *testing.T) {
+	db, setup, p, dl := pauseFixture(t, "rate_limit")
+	jid := "telegram:group/expiry"
+	doSetRoutes(t, db, []core.Route{{Match: "chat_jid=" + jid, Target: "a?engaged"}})
+	if err := db.SetEngagement(jid, "", "a", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	pauseInput(t, db, jid, "expiry-held", "sender", "saved", time.Now())
+	processPauseChat(t, setup, jid)
+	if err := db.SetEngagement(jid, "", "a", -time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	modelPauseDue(t, db)
+	l := NewLoop(db, p, LoopConfig{Deliver: dl, MaxRuns: 1})
+	p.srv = NewServer(db, l, dl, nil, 0, "")
+	t.Cleanup(l.StopQueue)
+	if got := l.folderForJid(jid); got != "a" {
+		t.Fatalf("queue folder = %q", got)
+	}
+	l.pollOnce()
+	for l.q.ActiveCount() != 0 {
+		runtime.Gosched()
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if len(p.runs) != 2 || p.runs[1].TurnID != "expiry-held" || p.runs[1].Folder != "a" {
+		t.Fatalf("held input did not probe: %+v cursor=%q", p.runs, db.GetAgentCursor(jid))
 	}
 }
 

@@ -15,6 +15,7 @@
 
 ## What needs you
 
+- `L731` — fresh engagement and routing resolution consumes durable held input; approved fix.
 - `L723` — an instance-wide model pause needs trusted host-side provider evidence; proposal, needs sign-off.
 
 - `L715` — A1/A2: trusted GitHub sender and source-owner binding; proposal, needs sign-off.
@@ -393,6 +394,24 @@ authenticated source ownership through dispatch and credential selection;
 **Default if nothing is decided:** keep tenant GitHub ingress management
 disabled by the operator gate. Supporting tenant-managed sources needs
 sign-off on the new trust contract before implementation.
+
+## L731 — engagement expiry consumes held model input (2026-11-08, open)
+
+**Severity:** HIGH, correctness. Fourth v0.75.4 audit B4.
+`routd/model_pauses.go:85` only truncates at the held input boundary.
+`routd/dispatch.go:70` and `routd/loop.go:534` resolve today's engagement
+before admission; `routeMiss` consumes the cursor after engagement expires.
+`oldestModelInput` also skips the held input when fresh resolution fails.
+Measured: audit witness `TestAudit4ExpiredEngagementConsumesHeldInput`
+admitted an engagement-only Telegram turn, recorded refusal, expired the
+engagement, and observed cursor advancement while the turn stayed held.
+**Fix:** consult the durable held dispatch binding before fresh routing in
+the worker, poller and oldest selection. Retain its folder, topic, input
+boundary, turn, trigger, return address and addressed state.
+Measured: `routd/model_pauses_test.go::TestModelPauseHeldBindingSurvivesRouteChange`
+fails before the fix when replay changes the saved topic and session.
+`TestModelPauseExpiredEngagementPollsHeldInput` drives the real polling queue.
+Parent mutation restores fresh routing for held spans and fails both regressions.
 
 ## L723 — instance-wide model pause requires host provider evidence (2026-11-08, proposal — needs sign-off)
 
