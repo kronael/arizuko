@@ -11,6 +11,26 @@ from unittest.mock import patch
 SCRIPTS = Path(__file__).resolve().parents[1] / 'skills/itinerary/scripts'
 LINT = SCRIPTS / 'trip_lint.py'
 LINK = SCRIPTS / 'link_check.py'
+CENSUS = SCRIPTS / 'osm_census.py'
+
+
+def load(path):
+    spec = importlib.util.spec_from_file_location(path.stem, path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def osm_tile(cache, elements, lat=50.0, lon=14.0, radius=0.1):
+    census = load(CENSUS)
+    (bbox,) = [census.bbstr(t) for t in census.tiles_for(lat, lon, radius)]
+    body = f'<?xml version="1.0"?><osm>{elements}</osm>'.ljust(1200)
+    (cache / (bbox.replace(',', '_') + '.xml')).write_text(body)
+
+
+def run_census(out, cache, *extra):
+    args = ['--lat', '50.0', '--lon', '14.0', '--radius', '0.1', '--out', str(out), '--cache', str(cache), *extra]
+    return subprocess.run([sys.executable, '-B', str(CENSUS), *args], capture_output=True, text=True)
 
 
 class ItineraryToolsTests(unittest.TestCase):
@@ -140,6 +160,18 @@ class ItineraryToolsTests(unittest.TestCase):
         with patch.object(module.subprocess, 'run', side_effect=subprocess.TimeoutExpired('agent-browser', 60)):
             with self.assertRaises(subprocess.TimeoutExpired):
                 module.ab('snapshot')
+
+    def test_census_rerun_keeps_enriched_rows(self):
+        out, cache = self.site / 'db', self.site / 'tiles'
+        out.mkdir(); cache.mkdir()
+        cafe = '<node id="{}" lat="50.0" lon="14.000{}"><tag k="amenity" v="cafe"/><tag k="name" v="{}"/></node>'
+        osm_tile(cache, cafe.format(1, 1, 'Cafe A') + cafe.format(2, 2, 'Cafe B'))
+        (out / 'food.md').write_text('| km | name | osm |\n|---|---|---|\n| 0.0 | Cafe A VERIFIED ENRICHMENT | node/1 |\n')
+        self.assertEqual(run_census(out, cache).returncode, 0)
+        food = (out / 'food.md').read_text()
+        self.assertIn('VERIFIED ENRICHMENT', food)
+        self.assertEqual(food.count('Cafe A'), 1)
+        self.assertEqual(food.count('Cafe B'), 1)
 
 
 if __name__ == '__main__':

@@ -53,6 +53,9 @@ with reasons · one-line verdict. An empty mandatory field reads
    `python3 ~/.claude/skills/itinerary/scripts/osm_census.py --lat … --lon … --radius 10 --out …/db`
    Named objects with coordinates, OSM address, phone, hours, fee,
    capacity, trail colour and length — candidates, nothing verified.
+   Each row keeps its `osm` id through enrichment: a rerun into the
+   same `db/` keeps every existing row and appends only the places whose
+   id is not in the table yet.
    The radius covers every planned stop: a stop outside it gets
    `--also LAT,LON` (a 2 km circle; `km` stays from the base) and steps
    3 and 4 around itself before its page. A car park row carries

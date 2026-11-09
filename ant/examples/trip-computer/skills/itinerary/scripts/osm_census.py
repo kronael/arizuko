@@ -2,11 +2,12 @@
 """OSM census around a base point: sights, food, parking, kids, trails.
 Usage: osm_census.py --lat 50.0875 --lon 14.4208 --radius 10 --out DIR [--cache DIR] [--also LAT,LON[,LAT,LON...] --also-radius 2]
 Writes census.json + sights.md food.md parking.md kids.md trails.md (sorted by distance, mapy links).
+A table that exists keeps its rows; a rerun appends only the places whose OSM id is not in it yet.
 --also adds extra census circles (planned stops outside the radius, e.g. a town at 11.4 km) to the same tables.
 Tiles the bbox in 0.055° x 0.04° pieces (api.openstreetmap.org map call, 50k-node limit); a tile that
 answers HTTP 400 is split in four and retried. Trail km_in_area sums whole member ways returned per tile
 (a way crossing a tile edge is counted in both tiles) — an upper bound, use osm_trails.py for one walk."""
-import argparse, json, math, os, subprocess, urllib.parse, xml.etree.ElementTree as ET
+import argparse, json, math, os, re, subprocess, urllib.parse, xml.etree.ElementTree as ET
 from collections import defaultdict
 UA='arizuko-trip-planner/1.0 (osm_census)'
 def hav(a,b):
@@ -110,14 +111,20 @@ def main():
     out={'base':{'name':a.base_name,'lat':a.lat,'lon':a.lon,'radius_km':a.radius},'tiles':tiles,'counts':{k:len(v) for k,v in rows.items()},**rows,'trails':sorted(trails.values(),key=lambda r:-r['km_in_area'])}
     json.dump(out,open(os.path.join(a.out,'census.json'),'w'),ensure_ascii=False,indent=1)
     def mapy(r): return f'https://mapy.com/en/turisticka?source=coor&id={r["lon"]}%2C{r["lat"]}&x={r["lon"]}&y={r["lat"]}&z=17'  # exact pin; ?q= searches the name and jumps elsewhere
+    def append(name,header,lines):
+        path=os.path.join(a.out,name); old=open(path,encoding='utf-8').read() if os.path.exists(path) else ''
+        with open(path,'a',encoding='utf-8') as f:
+            if not old: f.write(header)
+            elif not old.endswith('\n'): f.write('\n')
+            for osm,line in lines:
+                if not re.search(rf'\b{re.escape(osm)}\b',old): f.write(line)
     for cat,title in [('sights','Sights'),('food','Restaurants, cafés, bakeries'),('parking','Car parks'),('kids','Playgrounds, toilets, pools')]:
-        with open(os.path.join(a.out,f'{cat}.md'),'w') as f:
-            f.write(f'# {title} within {a.radius} km of {a.base_name} ({a.lat},{a.lon}) — OSM census\n\n| km | name | type | address | phone | hours | notes | map |\n|---|---|---|---|---|---|---|---|\n')
-            for r in rows[cat]:
-                notes=' '.join(x for x in [r['cuisine'] and 'cuisine:'+r['cuisine'], r['fee'] and 'fee:'+r['fee'], r.get('charge') and 'charge:'+r['charge'], r.get('maxstay') and 'maxstay:'+r['maxstay'], r['capacity'] and 'cap:'+r['capacity'], r['access'] and 'access:'+r['access'], r.get('surface') and 'surface:'+r['surface'], r.get('operator') and 'operator:'+r['operator'], r.get('near') and 'near:'+r['near'], r['ele'] and r['ele']+' m', r['web'] or ''] if x)
-                f.write(f"| {r['km']} | {r['name']} | {r['type']} | {r['addr'] or ''} | {r['phone'] or ''} | {r['hours'] or ''} | {notes} | [mapy]({mapy(r)}) |\n")
-    with open(os.path.join(a.out,'trails.md'),'w') as f:
-        f.write(f'# Marked hiking routes crossing the area — OSM census\n\n| km in area | colour | osmc | name | osm |\n|---|---|---|---|---|\n')
-        for r in out['trails']: f.write(f"| {r['km_in_area']} | {r['colour'] or ''} | {r['osmc'] or ''} | {r['name'] or ''} | https://www.openstreetmap.org/{r['osm']} |\n")
+        lines=[]
+        for r in rows[cat]:
+            notes=' '.join(x for x in [r['cuisine'] and 'cuisine:'+r['cuisine'], r['fee'] and 'fee:'+r['fee'], r.get('charge') and 'charge:'+r['charge'], r.get('maxstay') and 'maxstay:'+r['maxstay'], r['capacity'] and 'cap:'+r['capacity'], r['access'] and 'access:'+r['access'], r.get('surface') and 'surface:'+r['surface'], r.get('operator') and 'operator:'+r['operator'], r.get('near') and 'near:'+r['near'], r['ele'] and r['ele']+' m', r['web'] or ''] if x)
+            lines.append((r['osm'],f"| {r['km']} | {r['name']} | {r['type']} | {r['addr'] or ''} | {r['phone'] or ''} | {r['hours'] or ''} | {notes} | [mapy]({mapy(r)}) | {r['osm']} |\n"))
+        append(f'{cat}.md',f'# {title} within {a.radius} km of {a.base_name} ({a.lat},{a.lon}) — OSM census\n\n| km | name | type | address | phone | hours | notes | map | osm |\n|---|---|---|---|---|---|---|---|---|\n',lines)
+    append('trails.md','# Marked hiking routes crossing the area — OSM census\n\n| km in area | colour | osmc | name | osm |\n|---|---|---|---|---|\n',
+        [(r['osm'],f"| {r['km_in_area']} | {r['colour'] or ''} | {r['osmc'] or ''} | {r['name'] or ''} | https://www.openstreetmap.org/{r['osm']} |\n") for r in out['trails']])
     print(json.dumps(out['counts']), 'trails', len(out['trails']), '->', a.out)
 if __name__=='__main__': main()
