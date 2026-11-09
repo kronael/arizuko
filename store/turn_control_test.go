@@ -156,6 +156,15 @@ func TestControlledProviderFailureGuards(t *testing.T) {
 	if ok, err := s.RecordControlledProviderFailure(ctx, wrong, nil, &pause, &before, &after); err != nil || ok {
 		t.Fatalf("attempt guard: %v %v", ok, err)
 	}
+	if err := s.SetTurnState(tc.TurnID, TurnPendingRetry); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := s.RecordControlledProviderFailure(ctx, tc, nil, &pause, &before, &after); err != nil || ok {
+		t.Fatalf("state guard: %v %v", ok, err)
+	}
+	if err := s.SetTurnState(tc.TurnID, TurnRunning); err != nil {
+		t.Fatal(err)
+	}
 	if err := s.DeleteGroupRow(tc.Folder); err != nil {
 		t.Fatal(err)
 	}
@@ -220,6 +229,16 @@ func TestControlledMigrationGuards(t *testing.T) {
 	wrong.Turn.AttemptID = "stale"
 	if ok, err := s.MigrateDeferredTurn(ctx, wrong); err != nil || ok {
 		t.Fatalf("attempt guard: %v %v", ok, err)
+	}
+	wrong = d
+	wrong.Turn.State = TurnHeld
+	if ok, err := s.MigrateDeferredTurn(ctx, wrong); err != nil || ok {
+		t.Fatalf("state guard: %v %v", ok, err)
+	}
+	wrong = d
+	wrong.Turn.RetryCount++
+	if ok, err := s.MigrateDeferredTurn(ctx, wrong); err != nil || ok {
+		t.Fatalf("count guard: %v %v", ok, err)
 	}
 	if err := s.DeleteGroupRow(tc.Folder); err != nil {
 		t.Fatal(err)
