@@ -198,23 +198,30 @@ Two consequences the design turns on:
 The probe re-runs on the credential retry tick, so enabling an API in the
 console returns its capability without a restart.
 
-## Decision 3 — one verb, the thread reply
+## Decision 3 — the thread reply, and changes to the agent's own replies
 
-`capsFor` advertises `send_text` alone, and only when the Drive probe earned
-it. `Send` is `replies.create` on the
-thread the JID names, with `fields=id`. A send to a file-level JID returns
-`ErrInvalidRequest`, as gitd's does for a repository JID (`gitd/bot.go:104`).
-The adapter never sets `action`, never calls `comments.create`, never edits a
-document. Resolving or reopening a thread, opening a new (anchored) thread
-through `insertComment`, and every edit are state changes and go through an MCP
-connector under per-tool grants and holds — `specs/5/13-ext-mcp.md` §"Shape 2 —
-MCP HTTP connector (shipped)", `specs/5/19-hitl-firewall.md` — exactly the
-line `specs/6/27-git-channel.md` §"Channel messages and repository tools"
-holds for GitHub.
+`capsFor` advertises `send_text`, `edit` and `delete`, and only while the
+credential works. `Send` is `replies.create` on the thread the JID names, with
+`fields=id`. A send to a file-level JID returns `ErrInvalidRequest`, as gitd's
+does for a repository JID. `Edit` (`PATCH …/replies/{id}?fields=id`) and
+`Delete` change only a reply the adapter posted: the target must be the
+`gd-r<fileId>.<commentId>.<replyId>` id `Send` returned for the same thread,
+and a different thread's id returns `ErrInvalidRequest`. routd uses them for
+the turn status reply: it posts the reply, edits it with progress, retries and
+the final cause, and deletes it when the turn succeeds
+(`specs/6/46-turn-progress.md`). The adapter never sets `action`, never calls
+`comments.create`, never edits a document or a person's reply. Resolving or
+reopening a thread, opening a new (anchored) thread through `insertComment`,
+and every document edit are state changes and go through an MCP connector
+under per-tool grants and holds — `specs/5/13-ext-mcp.md` §"Shape 2 — MCP HTTP
+connector (shipped)", `specs/5/19-hitl-firewall.md` — exactly the line
+`specs/6/27-git-channel.md` §"Channel messages and repository tools" holds for
+GitHub.
 
-Why the line holds here too: a thread reply is the one action whose authority
-is "the agent was addressed in this thread". A resolve closes a human's
-question; a new thread interrupts a document; an edit changes the artefact.
+Why the line holds here too: a thread reply, and a change to that reply, is
+the one action whose authority is "the agent was addressed in this thread". A
+resolve closes a human's question; a new thread interrupts a document; a
+document edit changes the artefact.
 Each deserves its own `acl` row and, where the operator wants it, a `hold:`.
 A second channel verb would bypass that boundary and would have to be
 re-implemented in every adapter that grows one.
@@ -451,12 +458,12 @@ and the design is chosen so that each answer changes at most one line.
 
 ## Not built
 
-| Shape                                             | Why not now                                                                                                     | Build when                                                                                       |
-| ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| Workspace Events wake-up                          | Developer Preview, Pub/Sub, shared drives only, 7-day renewals, ids-only payload                                | GA, My Drive files covered; the poll stays the correctness path and events only shorten the wait |
-| `files.watch` push                                | empty body, no comment reason, 1-day channels, public HTTPS endpoint                                            | never for this surface                                                                           |
-| per-user OAuth as the daemon credential           | replies as a human, 7-day test tokens, verification                                                             | never; the surrogate token is the connector's                                                    |
-| document edits as messages                        | the body is context the connector reads at turn time                                                            | a case that needs edit events as context names itself                                            |
-| a child folder per document                       | the per-PR workspace of `specs/6/27-git-channel.md` is itself unapproved; a document has no checkout to isolate | a document that needs its own files, grants or budget                                            |
-| a second channel verb (resolve, new thread, edit) | each is a state change with its own grant and hold                                                              | never; that is what the connector is for                                                         |
-| Drive Activity API                                | restricted scope, still a poll, no comment id                                                                   | never                                                                                            |
+| Shape                                                      | Why not now                                                                                                     | Build when                                                                                       |
+| ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| Workspace Events wake-up                                   | Developer Preview, Pub/Sub, shared drives only, 7-day renewals, ids-only payload                                | GA, My Drive files covered; the poll stays the correctness path and events only shorten the wait |
+| `files.watch` push                                         | empty body, no comment reason, 1-day channels, public HTTPS endpoint                                            | never for this surface                                                                           |
+| per-user OAuth as the daemon credential                    | replies as a human, 7-day test tokens, verification                                                             | never; the surrogate token is the connector's                                                    |
+| document edits as messages                                 | the body is context the connector reads at turn time                                                            | a case that needs edit events as context names itself                                            |
+| a child folder per document                                | the per-PR workspace of `specs/6/27-git-channel.md` is itself unapproved; a document has no checkout to isolate | a document that needs its own files, grants or budget                                            |
+| a second channel verb (resolve, new thread, document edit) | each is a state change with its own grant and hold                                                              | never; that is what the connector is for                                                         |
+| Drive Activity API                                         | restricted scope, still a poll, no comment id                                                                   | never                                                                                            |

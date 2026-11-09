@@ -36,8 +36,10 @@ still needs owner approval, including its public contracts and retention policy.
 
 A comment is a message in the conversation. A merge, label, or review changes repository
 state. `gitd/bot.go` implements `send_text`, `send_file` and the typing indicator below;
-`gitd/main.go:capsFor` advertises those three, and no `edit`, when a PAT or App ID is set. The selected identity posts the comment and the returned identity
+`gitd/main.go:capsFor` advertises those three plus `edit` and `delete` when a PAT or App ID is set. The selected identity posts the comment and the returned identity
 is `gh-c<id>`, or `gh-rc<id>` for an inline review comment, matching inbound comment IDs.
+`Edit` and `Delete` address the same IDs with the same identity; GitHub refuses a change to
+another account's comment, and a delete of an absent comment counts as done.
 Without either credential, gitd is ingress-only.
 Other channel verbs return Unsupported.
 
@@ -46,10 +48,10 @@ Other channel verbs return Unsupported.
 > merge, label, a new thread, the document body — is the connector's, under
 > its own grant and hold.
 
-gitd advertises no `edit`, so routd posts no progress comment on GitHub
-(`specs/6/46-turn-progress.md` §"The sink's declaration"). The `👀` mark below is the
-whole progress display. The `edit` tool is still registered on every turn; on GitHub
-it returns unsupported (`chanlib.NoSocial`).
+gitd advertises `edit` and `delete`, so routd keeps one turn status comment on GitHub:
+it posts the comment, edits it with progress, retries and the final cause, and deletes it
+when the turn succeeds (`specs/6/46-turn-progress.md` §"The sink's declaration"). The `👀`
+mark below shows that the turn started.
 
 `SendFile` posts a text file as a fenced block in a comment under the same rules as
 `send_text`, because GitHub has no API that attaches a file to a comment. A binary file is

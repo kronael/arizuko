@@ -61,7 +61,7 @@ Parent status and calls (changed) ─┘                   under lockTurn
                                               bounded text       reminder decision
                                                          │       │ RPC response
                                                          ▼       ▼
-                                              routd/progress.go  nudgeProgress
+                                           routd/turn_status.go  nudgeProgress
                                                   one message   STEER_SPOOL
                                                          │       │
                                                          ▼       ▼
@@ -116,7 +116,7 @@ ant checklist renderer and independent text suppression (removed)
   job: reduces submit_status inputs under lockTurn and gates public snapshots
   names: [submitStatus]
   never: trusts checklist labels as authorization
-- path: routd/progress.go (changed)
+- path: routd/turn_status.go (changed)
   job: owns parent checklist state, bounded rendering, reminder decisions and message lifecycle
   names:
     [
@@ -186,8 +186,8 @@ The receiver gate is checked at `dda72103a266faaff0a2ae19a1b192907bf164b3`.
 
 | Contract                                                              | State        | Evidence or remaining work                                                  |
 | --------------------------------------------------------------------- | ------------ | --------------------------------------------------------------------------- |
-| Presence, persisted ID, equal-text suppression, edit and End deletion | built        | `routd/progress.go`                                                         |
-| Shared acknowledgement mark and GitHub exception                      | built        | `chanlib/mark.go`, `gitd/main.go`                                           |
+| Presence, persisted ID, equal-text suppression, edit and End deletion | built        | `routd/turn_status.go`                                                      |
+| Shared acknowledgement mark                                           | built        | `chanlib/mark.go`, `gitd/main.go`                                           |
 | Web edit/delete server and widget SDK callback                        | built        | `webd/channel.go`, `webd/assets/arizuko-client.js`                          |
 | Built-in browser deletion and active reconnect replay                 | built        | `webd/progress_test.go`, `store/turns_containment_test.go`                  |
 | One parent-scoped producer across Claude and Codex                    | built        | `routd/progress_reducer_test.go` merges raw snapshots through submit_status |
@@ -196,7 +196,7 @@ The receiver gate is checked at `dda72103a266faaff0a2ae19a1b192907bf164b3`.
 | One reminder at eight calls or 180 seconds                            | built        | `routd/progress_reminder_test.go`, `ant/src/claude.test.ts`                 |
 | Progress skill, manual sentence and solve routing                     | present      | adoption requires measurement                                               |
 | D3 Typing port change                                                 | declined     | no port change                                                              |
-| Drive edit/delete                                                     | not built    | §"Unverified"                                                               |
+| GitHub and Drive edit/delete                                          | built        | `gitd/bot.go`, `googd/main.go`, `routd/turn_status_test.go`                 |
 | pi checklist                                                          | unavailable  | backend selection rejects pi until its MCP bridge ships                     |
 | Cross-harness acceptance and krons adoption                           | not measured | §"Acceptance"                                                               |
 
@@ -345,7 +345,7 @@ first send through its Markdown-to-HTML helper; edits use plain text.
 The rendering tests must check that labels stay plain and safe on both paths.
 The web server, built-in browser and widget SDK support deletion.
 Active replay uses the turn lifecycle independently of message cursors.
-GitHub keeps the D1 exception. pi remains disabled until its MCP bridge ships.
+GitHub and Drive show one status comment or reply. pi remains disabled until its MCP bridge ships.
 
 An adapter's capability map says what it renders. routd reads it; it never
 probes a platform error to find out.
@@ -370,8 +370,8 @@ render no presence. A sink with a native indicator does not add a mark.
 | discd  | yes             | —    | yes, and `delete`                            | typing          | same                       | same                                                       |
 | whapd  | yes             | —    | yes, and `delete`                            | typing          | same                       | same                                                       |
 | slakd  | no              | `👀` | yes, and `delete`                            | `👀` on trigger | same                       | `👀` removed, line deleted                                 |
-| gitd   | no              | `👀` | no                                           | `👀` on trigger | dropped                    | `👀` removed                                               |
-| googd  | no              | none | no; Drive needs `edit` and `delete`          | nothing         | dropped                    | nothing                                                    |
+| gitd   | no              | `👀` | yes, and `delete`                            | `👀` on trigger | one `⏳` comment, edited   | `👀` removed, comment deleted                              |
+| googd  | no              | none | yes, and `delete`                            | nothing         | one `⏳` reply, edited     | reply deleted                                              |
 | reditd | no              | none | yes, no `delete`                             | nothing         | dropped                    | nothing                                                    |
 | webd   | no              | none | server edit/delete; browser removal required | nothing         | one status frame, replaced | server emits delete; built-in browser must remove the node |
 | bskyd  | no              | none | no                                           | nothing         | dropped                    | nothing                                                    |
@@ -381,9 +381,9 @@ render no presence. A sink with a native indicator does not add a mark.
 
 `typing` is not in webd's map: webd renders no presence, and a declared
 capability with a no-op behind it is the drift `CapImplReport` exists to catch,
-`typing` being the one verb it does not probe. googd advertises `send_text` alone
-today, so routd drops its updates and Drive shows nothing between the question
-and the answer; Drive requires both `edit` and `delete` to show a line.
+`typing` being the one verb it does not probe. googd and gitd edit and delete
+only the reply or comment they posted (`specs/6/45-gdrive-comments-channel.md`
+§"Decision 3", `specs/6/27-git-channel.md`).
 
 ## The nudge
 
@@ -480,13 +480,10 @@ measured 1–2 per GitHub turn on 2026-10-16.
 | B — one message, edited, deleted at end                      | 1 when the turn reports, else 0 | none                          | renderer (~200 lines, deletes the five sites); `edit` and `delete` on webd |
 | C — artefact channels render the mark only; statuses dropped | 0                               | none                          | B's renderer; gitd and googd do not advertise `edit`                       |
 
-Decided: **B** on a channel with `edit` and **C** on gitd and googd, which
-leave `edit` out of their capability maps. B is strictly quieter than A on
-every channel. C is the answer for a channel where any extra post is unwanted;
-the owner ruled on 2026-10-24 that GitHub gets no progress comment. Its cost
-is that the agent's own `edit` tool, which ipc registers on every turn, returns
-unsupported there (`chanlib.NoSocial`). `specs/6/27-git-channel.md` and
-`specs/6/45-gdrive-comments-channel.md` accept this.
+Decided 2026-11-09: **B** on every channel that can edit and delete, gitd and
+googd included; only email keeps its two-post exception. B is strictly quieter
+than A on every channel. C hid retry and failure status on a pull request or a
+document, where a person waits for the answer as on any chat.
 
 What this does not build: a per-folder switch (`progress_messages`, the shape
 of `thread_replies`). The capability map decides per channel; a folder that
@@ -532,7 +529,7 @@ The two channel specs disagree about what the channel may do to a thread.
 post AND react; `specs/6/45-gdrive-comments-channel.md §"Decision 3 — one
 verb, the thread reply"` has googd post and nothing else, with `Typing` a
 no-op and a test that the capability map holds exactly one entry. Both get
-one line, and it is the same line (`6/27` carries it; `6/45` takes it when the Drive probe passes):
+one line, and it is the same line:
 
 > The channel creates, edits and reacts to ITS OWN posts in the thread it was
 > addressed in. Every change to another party's state — resolve, reopen,
@@ -543,18 +540,17 @@ Under that line a progress message, its edits and deletion, and the `👀` mark 
 plumbing with the authority the reply already has; `comments.update` on a
 human's comment and `action=resolve` are not. Concretely:
 
-- `6/27`: `capsFor` advertises `send_text`, `send_file` and `typing` with the
-  token, and no `edit`, so GitHub shows the `👀` mark and no progress comment.
-  §"Typing indicator" there is the rendering (`👀` through the shared helper,
-  the two reaction endpoints) and points here for the mechanism.
-- `6/45`, with Drive editing (not built): `capsFor` advertises `send_text` and, when the probe below passes,
-  `edit`; `Edit` is `replies.update` on a reply whose id googd minted
-  (`gd-r<fileId>.<commentId>.<replyId>`), `{"content"}` only, and the
-  one-verb test becomes "the serialized body of every call has no `action`
-  key". `Typing` stays a no-op and `typing` stays out of the map: there is
-  nothing to render. The §"Not built" row "a second channel verb" names
-  resolve, reopen, a new thread and the body, not an edit of the agent's own
-  reply.
+- `6/27`: `capsFor` advertises `send_text`, `send_file`, `typing`, `edit` and
+  `delete` with the token, so GitHub shows the `👀` mark and one status
+  comment. §"Typing indicator" there is the rendering (`👀` through the shared
+  helper, the two reaction endpoints) and points here for the mechanism.
+- `6/45`: `capsFor` advertises `send_text`, `edit` and `delete` while the
+  credential works; `Edit` is `replies.update` on a reply whose id googd
+  minted (`gd-r<fileId>.<commentId>.<replyId>`), `{"content"}` only, and
+  `Delete` removes that reply. `Typing` stays a no-op and `typing` stays out
+  of the map: there is nothing to render. The §"Not built" row "a second
+  channel verb" names resolve, reopen, a new thread and the body, not a change
+  to the agent's own reply.
 
 ## Tier
 
@@ -579,7 +575,7 @@ A lint result does not satisfy these requirements.
 | Publication gate     | Unaddressed, muted, closed and unsupported turns publish no progress. A forged or mismatched turn ID fails the bound callback.                                                                                                                                                                                                                                                                                                                                               |
 | Web clients          | The built-in browser removes the node on delete. Turn replay, topic replay, and history-on-open return only active progress, including a snapshot edited before the cursor. Reload after End shows no progress, including after failed deletion. A disconnect spanning End deletion leaves no stale node after reconnect.                                                                                                                                                    |
 | Cleanup              | End deletes once after success. Failed deletion preserves row text, logs an error, and still ends the turn. An outbound send racing End either finishes before deletion or is cancelled; no status appears after End. An unsent status never posts after End.                                                                                                                                                                                                                |
-| Sink exceptions      | GitHub posts no progress comment and removes its eyes mark at End. pi remains rejected. Drive remains blocked on §"Unverified".                                                                                                                                                                                                                                                                                                                                              |
+| Sink exceptions      | GitHub and Drive keep one status comment or reply, edited and deleted at End; GitHub removes its eyes mark at End. Email posts first and final status only. pi remains rejected.                                                                                                                                                                                                                                                                                             |
 
 Retain the lifecycle checks in `routd/progress_test.go`, `routd/typing_test.go`
 and `routd/fixes_test.go`. Retain the mark checks in `chanlib/mark_test.go`,
@@ -610,10 +606,11 @@ No live acceptance or image build is claimed by this spec amendment.
 
 ## Unverified
 
-| Claim                                                                                                                             | Probe                                              | If false                                                                    |
-| --------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- | --------------------------------------------------------------------------- |
-| `replies.update` changes a reply's `content` (the guide says the creator "can … edit … a reply"; the method page lists no fields) | PATCH one reply googd posted, then list the thread | googd keeps `send_text` alone and renders nothing, which is its state today |
+| Claim                                                                                                                             | Probe                                              | If false                                                               |
+| --------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- | ---------------------------------------------------------------------- |
+| `replies.update` changes a reply's `content` (the guide says the creator "can … edit … a reply"; the method page lists no fields) | PATCH one reply googd posted, then list the thread | googd withdraws `edit` and `delete`, and Drive renders no status reply |
 
-The probe has not run: it waits on the Drive API being enabled in the Cloud
-project of the service-account key. Until it runs and passes, googd renders
-nothing for progress.
+googd's `Edit` and `Delete` are tested against an HTTP fake
+(`googd` `TestEditReply`, `TestDeleteReply`). The live probe has not run: it
+waits on the Drive API being enabled in the Cloud project of the
+service-account key.
