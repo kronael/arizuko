@@ -23,10 +23,12 @@ Before a trail, car park or walking distance goes on a page:
 python3 ~/.claude/skills/itinerary/scripts/osm_trails.py LAT1 LON1 LAT2 LON2
 ```
 Lists every marked route in the box between the two points (`[BOTH]` =
-passes both) with colour (`osmc:symbol`), length of the member ways in
+some member way passes within 300 m of each point; it does not prove one
+connected walk) with colour (`osmc:symbol`), length of the member ways in
 the box, surface mix, and car parks (ways and nodes) with `fee=` /
-`charge=` / `capacity=`. Write colour, length and relation id from that
-output; climb from the mapy.com route profile; when mapy.com is
+`charge=` / `capacity=`. Write colour and relation id from that output;
+the walk's length and climb from the rendered mapy.com route, never the
+member-way length; when mapy.com is
 reachable, confirm the marking there and cite both. A source that
 disagrees with the map is named as disagreeing in the row.
 

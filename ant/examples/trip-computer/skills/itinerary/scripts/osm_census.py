@@ -5,8 +5,8 @@ Writes census.json + sights.md food.md parking.md kids.md trails.md (sorted by d
 A table that exists keeps its rows; a rerun appends only the places whose OSM id is not in it yet.
 --also adds extra census circles (planned stops outside the radius, e.g. a town at 11.4 km) to the same tables.
 Tiles the bbox in 0.055° x 0.04° pieces (api.openstreetmap.org map call, 50k-node limit); a tile that
-answers HTTP 400 is split in four and retried. A cached tile older than 7 days is fetched again. Trail km_in_area sums whole member ways returned per tile
-(a way crossing a tile edge is counted in both tiles) — an upper bound, use osm_trails.py for one walk."""
+answers HTTP 400 is split in four and retried. A cached tile older than 7 days is fetched again. Trail km_in_area sums each member way returned for the area once,
+whole ways included — relation coverage, not the length of a walk."""
 import argparse, json, math, os, re, subprocess, time, urllib.parse, xml.etree.ElementTree as ET
 from collections import defaultdict
 UA='arizuko-trip-planner/1.0 (osm_census)'
@@ -57,7 +57,7 @@ def main():
     if not all(-90<=la<=90 and -180<=lo<=180 and r>0 for la,lo,r in centres): raise SystemExit('each circle needs LAT -90..90, LON -180..180 and a radius over 0 km')
     os.makedirs(a.out,exist_ok=True); cache=a.cache or os.path.join(a.out,'tiles'); os.makedirs(cache,exist_ok=True)
     todo=[t for c in centres for t in tiles_for(*c)]; tiles=[]
-    base=(a.lat,a.lon); seen=set(); rows=defaultdict(list); trails={}
+    base=(a.lat,a.lon); seen=set(); rows=defaultdict(list); trails={}; counted=set()
     def inside(p): return any(hav((la,lo),p)<=r for la,lo,r in centres)
     while todo:
         tl=todo.pop(0); bb=bbstr(tl)
@@ -101,7 +101,8 @@ def main():
             if tg.get('route') not in ('hiking','foot'): continue
             rid=rel.get('id'); L=0.0
             for m in rel.findall('member'):
-                if m.get('type')=='way' and m.get('ref') in ways:
+                if m.get('type')=='way' and m.get('ref') in ways and (rid,m.get('ref')) not in counted:
+                    counted.add((rid,m.get('ref')))
                     pts=[nodes[n.get('ref')] for n in ways[m.get('ref')].findall('nd') if n.get('ref') in nodes]
                     L+=sum(hav(pts[i],pts[i+1]) for i in range(len(pts)-1))
             r=trails.setdefault(rid,{'osm':f'relation/{rid}','name':tg.get('name'),'colour':tg.get('colour'),'osmc':tg.get('osmc:symbol'),'km_in_area':0.0})

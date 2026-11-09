@@ -63,7 +63,7 @@ end-to-end so the day can be re-planned on the spot:
 ```
 
 - The `park:` line of each variant is the arrival block above.
-- Walk variant: marked path, OSM distance, climb, minutes at 3 km/h
+- Walk variant: marked path, mapy route distance, climb, minutes at 3 km/h
   + 15 min per 100 m, stroller yes/no, turnaround point.
 
 ## Loops and hiking POIs

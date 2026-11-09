@@ -1,4 +1,5 @@
 import importlib.util
+import json
 import os
 import re
 import runpy
@@ -219,6 +220,16 @@ class ItineraryToolsTests(unittest.TestCase):
         with patch.object(census.subprocess, 'run', side_effect=curl):
             census.fetch(bbox, str(self.site))
         self.assertEqual(len(calls), 1)
+
+    def test_census_counts_a_trail_way_once_across_tiles(self):
+        out, cache = self.site / 'db', self.site / 'tiles'
+        out.mkdir(); cache.mkdir()
+        osm_tile(cache, '<node id="1" lat="50.0" lon="14.0"/><node id="2" lat="50.001" lon="14.0"/>'
+                 '<way id="10"><nd ref="1"/><nd ref="2"/></way>'
+                 '<relation id="20"><member type="way" ref="10" role=""/><tag k="type" v="route"/><tag k="route" v="hiking"/></relation>')
+        self.assertEqual(run_census(out, cache, '--also', '50.0,14.0', '--also-radius', '0.1').returncode, 0)
+        trails = json.loads((out / 'census.json').read_text())['trails']
+        self.assertEqual([t['km_in_area'] for t in trails], [0.11])
 
     def test_trails_connection_failure_is_not_called_a_refusal(self):
         failure = urllib.error.URLError('Connection refused')

@@ -134,7 +134,8 @@ Verdict: "park here, 8.00/day, card" / "free, 7 places, arrive before 10".
 
 **Trail (walks)**
 - Marking: colour and OSM relation id; mapy confirmation.
-- Length one way (OSM-measured) and climb.
+- Length one way and climb from the rendered mapy.com route; `km in
+  area` from the census is relation coverage, not a walk length.
 - Surface shares: asphalt / gravel / path / rock / boardwalk.
 - Stroller: yes / partly (to where) / no.
 - Time at child pace (3 km/h + 15 min per 100 m climb) and the safe

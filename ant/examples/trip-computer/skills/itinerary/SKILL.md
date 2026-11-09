@@ -49,7 +49,7 @@ rooms, tours): `guides/bookings.md`.
 | type | what the page must contain |
 | --- | --- |
 | drive-up stop | arrival block (`guides/pages.md` § Arrival by car), minutes on site |
-| stop + short walk | lower car park, marked path up, OSM distance, climb, minutes |
+| stop + short walk | lower car park, marked path up, mapy route distance, climb, minutes |
 | walk-around loop | circular foot route from the car park around the sight on mapy.com (`mapyrc.py`, mode hike): length, child-pace time, stroller yes/no |
 | town stroll | arrival block for the start car park, the loop on foot with sights in order, Coffee item, toilets |
 | day loop by car | roundtrip route (mapy + Google), stops in road order, fuel, toilets |
