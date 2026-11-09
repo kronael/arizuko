@@ -96,7 +96,10 @@ with reasons · one-line verdict. An empty mandatory field reads
 9. **Score every row** with its table's system, write the verdict, mark
    `checked <date>`.
 10. **Publish `places.html`** and keep the tables as the only source
-    for day pages: a day page copies its venues from rows.
+    for day pages: a day page copies only rows marked `checked <date>`
+    (a census row without it is a candidate); a change goes into the row
+    first, then into the page; a field still `not found` reads `unknown`
+    on the page.
 
 ## Rating systems
 

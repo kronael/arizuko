@@ -127,7 +127,8 @@ drive-up or on-the-way. The type and the minutes open the stop's text
 
 - Propose a place that is not a `db/` row with a source.
 - Guess coordinates, hours, phones or prices.
-- Write "park at X" without fee, capacity, walk time and fallback.
+- Write "park at X" without fee, capacity, walk time and fallback, or
+  drop the research's doubt about it (`pages.md` § Arrival by car).
 - Hand-write an `rc=` route string, a short link, or a `?q=` pin; build
   a mapy `source=osm&id=` from an OSM id (mapy's id is its own).
 - Use mapy.com for car routing without the Google route beside it.
