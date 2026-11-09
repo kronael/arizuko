@@ -329,7 +329,16 @@ posts nothing unless the script exits non-zero.
 - **Owner decision 2026-11-09:** "Run it without an agent": a task kind that
   runs a command in the folder with no model call; the agent runs only when
   the command exits non-zero.
-- **Status:** open
+- **Rejected build 2026-11-09:** `1bb91c8a9` (worktree `l796`, not merged)
+  ran `sh -c <command>` inside routd, and the agent-facing `schedule_task`
+  tool accepted `command`. Any agent could then run code as routd, outside
+  its VM, next to the stores and tokens; the run also held `scheduleMu` up to
+  60 s. The command must run inside the group's own sandbox.
+- **Owner question:** where does the command run — (a) a guest run with no
+  model through runed (widens the runed port: needs an approved plan), or
+  (b) operator-only commands from a fixed host allowlist, never from the
+  group folder. Agents never set a command in either option.
+- **Status:** open — proposal, needs sign-off
 
 
 
