@@ -114,6 +114,7 @@ func (s *server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if drop != "" {
+		slog.Debug("github webhook: dropped", "source", key, "event", event, "reason", drop)
 		s.bot.markDelivery(key, s.now())
 		chanlib.WriteJSON(w, map[string]any{"ok": true, "dropped": drop})
 		return

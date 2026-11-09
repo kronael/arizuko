@@ -340,6 +340,9 @@ func mapEvent(kind, name, event, delivery string, body []byte, now time.Time, bo
 	if err := checkSource(kind, name, event, &p); err != nil {
 		return msg, "", err
 	}
+	if event == "security_advisory" {
+		return msg, "unsubscribed", nil
+	}
 	if p.Sender.Login == "" && event != "ping" {
 		return msg, "", errors.New("payload has no sender")
 	}

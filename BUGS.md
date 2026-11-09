@@ -17,6 +17,7 @@
 
 - `L799` — tap teardown deletes six absent rules after an early guest start failure.
 - `L800` — Codex topic forks attempt to copy a Claude session and lose parent context.
+- `L801` — senderless security advisory webhooks emit rejection warnings.
 - `L796` — a silent cron script costs a full agent turn (macrohype-monitor, 48 turns a week); owner chose a command task with no model call; where the command runs needs sign-off.
 - `L794` — a failed turn retries 3 times within ~40 s, too fast for a host fault (full disk) to clear; owner wants 3 retries with longer gaps, about 4 h for cron tasks; design needs sign-off.
 - `L790` — `TestHoldE2E_ChannelWithoutButtonsStillGetsAnAnswerablePrompt` fails under host load (fixed 5 s wait).
@@ -318,6 +319,20 @@ reads those words now.
   `/tmp/arizuko-github-baseline-build.log`. No test — ops.
   **Proposal:** stop the build on the first failed submake. This is an adjacent
   build-gate repair; scope approval is pending.
+
+## L801 — senderless security advisory webhooks emit rejection warnings (2026-11-09, open)
+
+MEASURED in `/tmp/claude-1001/sl/j24.log` for 2026-11-08 18:45Z ..
+2026-11-09 18:45Z: 28 `github webhook: rejected` WARNs, all
+`event=security_advisory`, `err=payload has no sender`.
+`gitd/event.go::mapEvent` requires a sender before classifying the event.
+
+- **Severity:** low — expected, unsubscribed events produce rejection noise.
+- **Status:** open — drop `security_advisory` as unsubscribed with DEBUG
+  logging, while preserving signature and source validation.
+- **Test:** `gitd/advisory_test.go::TestWebhook_SenderlessSecurityAdvisory`
+  checks success, no forwarding, DEBUG without WARN and signature/source
+  rejection; removing event classification fails the response and log checks.
 
 ## L800 — Codex topic forks look for a Claude transcript (2026-11-09, open)
 
