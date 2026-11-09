@@ -647,6 +647,11 @@ func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed boo
 	}
 	if derr != nil {
 		l.pauseProgress(replyJID, out.RunID)
+		if errors.Is(derr, context.Canceled) || errors.Is(derr, context.DeadlineExceeded) {
+			_ = l.db.SetRunReturned(turnID)
+			finishTurn(l.db, l.deliver, turnID, endFailed)
+			return false, false, false, "", nil
+		}
 		slog.Warn("dispatch run transport failure", "folder", folder, "turn_id", turnID, "err", derr)
 		if runedUnreachable(derr) {
 			derr = fmt.Errorf("%w: %w", ErrDependencyDown, derr)
@@ -701,32 +706,17 @@ func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed boo
 			return false, false, false, "", err
 		}
 	}
+	deferred, err := l.q.complete(l, current, out, nil)
+	if err != nil {
+		return false, false, false, "", err
+	}
+	if deferred {
+		l.pauseProgress(replyJID, out.RunID)
+		return false, false, false, "", nil
+	}
 	if out.Outcome == runedv1.OutcomeError {
-		// A turn that died without a reply retries up to maxTurnRetry. A Terminal
-		// failure never retries: it cannot repair a misconfiguration (spec 5/12).
 		tc, _ := l.db.GetTurnContext(turnID)
 		hasBotReply := l.db.TurnHasBotReply(returnTarget(tc, tc.ChatJID), turnID)
-		if !out.Terminal && !hasBotReply && tc.RetryCount < l.maxTurnRetry {
-			if saved != nil {
-				tc.NextAttemptAt = retryAt(l.q.now(), tc.Trigger, tc.RetryCount+1)
-				ok, err := l.db.store().DeferTurn(ctx, store.DeferredTurn{Turn: tc,
-					PriorCursor: l.db.GetAgentCursor(tc.ChatJID)})
-				if err == nil && !ok {
-					err = fmt.Errorf("defer turn %s refused", turnID)
-				}
-				l.pauseProgress(replyJID, out.RunID)
-				return false, false, false, "", err
-			}
-			newCount, err := l.db.IncrementRetryCount(turnID)
-			if err == nil {
-				slog.Warn("turn failed without reply, scheduling retry",
-					"folder", folder, "turn_id", turnID, "retry", newCount, "max", l.maxTurnRetry)
-				// The re-feed IS the retry: busy=true holds the cursor on this batch.
-				// Advancing first woke a poll with nothing left to retry (BUGS L75a).
-				l.pauseProgress(replyJID, out.RunID)
-				return false, false, true, "", nil
-			}
-		}
 		// Final failure: retries exhausted, or a partial reply exists.
 		slog.Warn("run outcome error", "folder", folder, "turn_id", turnID, "err", out.Error,
 			"retry_count", tc.RetryCount)
@@ -932,8 +922,7 @@ const ghostGroupNotice = "⚠️ This chat routes to a group that isn't set up �
 // retryNoteBlock renders the system note injected on retry attempts.
 func retryNoteBlock(attempt, max int) string {
 	return fmt.Sprintf("<system-note>This is retry attempt %d of %d. "+
-		"The previous attempt was killed before completing. "+
-		"Be conservative with resource usage.</system-note>\n", attempt+1, max)
+		"The previous attempt did not complete.</system-note>\n", attempt, max)
 }
 
 // jidScheme returns the JID scheme — the per-surface output-style selector —

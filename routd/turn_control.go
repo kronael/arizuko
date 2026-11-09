@@ -10,10 +10,50 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/core"
+	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 	"github.com/kronael/arizuko/store"
 )
 
 const deferredWorkPrefix = "\x00turn:"
+
+type turnDecision struct {
+	retry bool
+	trip  bool
+	cause string
+}
+
+func classifyTurn(out runedv1.RunOutcome, err error, result store.TurnInfo, replied bool) turnDecision {
+	if out.Busy || out.Steered || errors.Is(err, context.Canceled) {
+		return turnDecision{}
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return turnDecision{trip: true, cause: "Time limit reached"}
+	}
+	if err == nil && out.Outcome != runedv1.OutcomeError {
+		return turnDecision{}
+	}
+	return turnDecision{trip: true, cause: "Agent could not complete the request",
+		retry: !out.Terminal && !replied && (result.Status == "pending" || result.Status == "")}
+}
+
+func (q *turnControl) complete(l *Loop, tc TurnContext, out runedv1.RunOutcome, runErr error) (bool, error) {
+	result, err := l.db.store().GetTurnResult(tc.Folder, tc.TurnID)
+	if err != nil {
+		return false, err
+	}
+	decision := classifyTurn(out, runErr, result, l.db.TurnHasBotReply(returnTarget(tc, tc.ChatJID), tc.TurnID))
+	if !decision.retry || tc.State != store.TurnRunning || tc.RetryCount >= l.maxTurnRetry {
+		return false, nil
+	}
+	tc.NextAttemptAt = retryAt(q.now(), tc.Trigger, tc.RetryCount+1)
+	tc.FailureCause = decision.cause
+	ok, err := l.db.store().DeferTurn(context.Background(), store.DeferredTurn{Turn: tc,
+		PriorCursor: l.db.GetAgentCursor(tc.ChatJID)})
+	if err == nil && !ok {
+		err = fmt.Errorf("defer turn %s refused", tc.TurnID)
+	}
+	return ok, err
+}
 
 func retryAt(now time.Time, sender string, retry int) time.Time {
 	delays := [...]time.Duration{30 * time.Second, 2 * time.Minute, 5 * time.Minute}

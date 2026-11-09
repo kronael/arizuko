@@ -556,18 +556,15 @@ func TestTurnRetry_SchedulesRetryOnError(t *testing.T) {
 	if len(dl.sends) != 0 {
 		t.Fatalf("expected no notice on retry schedule, got %+v", dl.sends)
 	}
-	// THE RETRY IS THE RE-FEED, so the cursor must still sit behind the batch.
-	// Advancing it leaves the next poll nothing to dispatch and the retry is a
-	// no-op: every retry the fleet logged in a week died that way (BUGS L75a).
-	if cur := db.GetAgentCursor("slack:T/C/U"); cur != "" {
-		t.Fatalf("cursor advanced to %q past the batch the retry re-feeds", cur)
+	if cur := db.GetAgentCursor("slack:T/C/U"); cur != tc.InputLast || tc.NextAttemptAt.IsZero() {
+		t.Fatalf("deferred cursor=%q binding=%+v", cur, tc)
 	}
 
 	loop.busyWait.Delete("slack:T/C/U")
 	_, _ = loop.processGroupMessages("slack:T/C/U")
 	tc, _ = db.GetTurnContext("r1")
 	if tc.NextAttemptAt.IsZero() || db.GetAgentCursor(tc.ChatJID) != tc.InputLast || attempts != 1 {
-		t.Fatalf("migration: attempts=%d turn=%+v", attempts, tc)
+		t.Fatalf("deferred retry: attempts=%d turn=%+v", attempts, tc)
 	}
 	loop.q.now = func() time.Time { return tc.NextAttemptAt }
 	if _, err := loop.replay(tc.TurnID); err != nil {

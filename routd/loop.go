@@ -190,6 +190,10 @@ func NewLoop(db *DB, runner Runner, cfg LoopConfig) *Loop {
 	} else if maxRetry == 0 {
 		maxRetry = 3
 	}
+	if maxRetry > 3 {
+		slog.Warn("MAX_TURN_RETRY capped at three", "configured", maxRetry)
+		maxRetry = 3
+	}
 	maxOutRetry := cfg.MaxOutboundRetry
 	if maxOutRetry < 0 {
 		maxOutRetry = 1 // explicit disable via -1: the first transient failure dead-letters
