@@ -392,7 +392,7 @@ never noticed the approval" (`routd/hold_e2e_test.go:207`) while the host had
 3/3 in 2.2 s. The test waits a fixed `time.After(5 * time.Second)` at
 `routd/hold_e2e_test.go:206`.
 
-MEASURED again 2026-11-09 at `105eb9d28` (full `go test -race -short ./...`,
+MEASURED again 2026-11-09 at `a24ecf639` (full `go test -race -short ./...`,
 routd 994.3 s): `TestHoldE2E_RejectPressKeepsTheCallUnrun` failed with "the
 gate never noticed the rejection" at the same fixed 5 s wait
 (`routd/hold_e2e_test.go:163`). `-run TestHoldE2E -count=3` alone passes in
