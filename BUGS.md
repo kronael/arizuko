@@ -15,6 +15,9 @@
 
 ## What needs you
 
+- `L796` — a silent cron script costs a full agent turn (macrohype-monitor, 48 turns a week); owner chose a command task with no model call.
+- `L797` — the agent `issues` skill files findings about the user's own projects; owner wants it limited to arizuko and internal issues, renamed to say so.
+- `L798` — agents schedule their own one-shot retry tasks when a digest post fails; duplicate posts and extra turns.
 - `L794` — a failed turn retries 3 times within ~40 s, too fast for a host fault (full disk) to clear; owner wants 3 retries with longer gaps, about 4 h for cron tasks; design needs sign-off.
 - `L795` — the exhausted-retry notice names no cause; owner wants a short plain cause, no internals.
 - `L790` — `TestHoldE2E_ChannelWithoutButtonsStillGetsAnAnswerablePrompt` fails under host load (fixed 5 s wait).
@@ -316,6 +319,55 @@ reads those words now.
   `/tmp/arizuko-github-baseline-build.log`. No test — ops.
   **Proposal:** stop the build on the first failed submake. This is an adjacent
   build-gate repair; scope approval is pending.
+
+## L796 — a silent cron script costs a full agent turn (2026-11-09, open)
+
+MEASURED 2026-11-09: sloth `sloth/trading` task `macrohype-monitor`
+(`0 */3 * * *`, isolated) ran 48 agent turns between 2026-11-02 and
+2026-11-09 (`journalctl -u arizuko_sloth`, "dispatch run" with trigger
+`timed-isolated:macrohype-monitor`). Its prompt only runs `macrohype` and
+posts nothing unless the script exits non-zero.
+
+- **Severity:** medium — model credits spent on a script runner.
+- **Owner decision 2026-11-09:** "Run it without an agent": a task kind that
+  runs a command in the folder with no model call; the agent runs only when
+  the command exits non-zero.
+- **Status:** open
+
+## L797 — the agent issues skill files findings about the user's own projects (2026-11-09, open)
+
+MEASURED 2026-11-09: sloth recorded issue
+`[sloth/sloth/20261108/websocket-identity-auth]` about MORHA's
+`/v1/register` (a user project, source `17c2344a4`) through the `issues`
+skill (`ant/skills/issues/SKILL.md`).
+
+- **Severity:** low — the arizuko issue queue fills with unrelated items.
+- **Owner decision 2026-11-09:** "issues should be for arizuko and internal
+  stuff only, so maybe rename the skill to arizuko issue or so."
+- **Fix:** rename the skill and narrow its description and trigger to
+  arizuko and platform-internal problems; user-project findings stay in the
+  group's own files.
+- **Status:** open
+
+## L798 — agents schedule their own retry tasks when a digest post fails (2026-11-09, open)
+
+MEASURED 2026-11-09 from the sloth tasks resource: after the 2026-11-05
+daily digest failed (discd down), `sloth/discord` agents created one-shot
+tasks `task-1793870360431-cf138ea6` ("retry of the 2026-11-05 … daily
+digest"), `task-1793891819962-71e68d19`, and two tasks that both post "the
+already-composed digest run 20261106" (`task-1793956563094-44953492`,
+`task-1793978405100-949d08c5`). The weekly digest W46 could not edit the
+W45 message (another account authored it) and posted a second message
+(`groups/sloth/tmp/digest/2026-W46/delivery.md`). The daily `/digest`
+task `task-1792430980437-7f9c2512` and the weekly `/weekly-digest`
+posted overlapping windows to the same channel; the owner chose weekly
+only and the daily task was deleted 2026-11-09.
+
+- **Severity:** medium — duplicate posts and extra turns.
+- **Fix:** the platform retries a failed turn (L794 controller); the digest
+  skill must not schedule its own retry tasks, and a post that cannot be
+  edited replaces the old one only after it is deleted.
+- **Status:** open
 
 ## L794 — a failed turn retries too fast for a host fault to clear (2026-11-09, proposal — needs sign-off)
 
