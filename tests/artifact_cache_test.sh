@@ -8,8 +8,8 @@ cleanup() {
   do
     [[ -d "$dir" ]] || continue
     rm -f -- "$dir/bzImage" "$dir/initrd.gz" "$dir/kernel.config" \
-      "$dir/usr/local/bin/node" "$dir/app/entrypoint.sh" "$dir/.image-env.json"
-    for leaf in usr/local/bin usr/local usr app
+      "$dir/usr/local/bin/node" "$dir/app/src/index.ts" "$dir/.image-env.json"
+    for leaf in usr/local/bin usr/local usr app/src app
     do
       if [[ -d "$dir/$leaf" ]]
       then
@@ -23,13 +23,13 @@ cleanup() {
 }
 trap cleanup EXIT
 mkdir -p "$fixture/fixtures/kernel" "$fixture/fixtures/rootfs/usr/local/bin" \
-  "$fixture/fixtures/rootfs/app" "$fixture/fixtures/rootfs-partial/usr/local/bin" \
+  "$fixture/fixtures/rootfs/app/src" "$fixture/fixtures/rootfs-partial/usr/local/bin" \
   "$fixture/data/images"
 printf 'kernel\n' > "$fixture/fixtures/kernel/bzImage"
 printf 'CONFIG_TEST=y\n' > "$fixture/fixtures/kernel/kernel.config"
 printf 'initrd\n' | gzip > "$fixture/fixtures/kernel/initrd.gz"
 printf 'node\n' > "$fixture/fixtures/rootfs/usr/local/bin/node"
-printf 'entrypoint\n' > "$fixture/fixtures/rootfs/app/entrypoint.sh"
+printf 'ant\n' > "$fixture/fixtures/rootfs/app/src/index.ts"
 printf 'node\n' > "$fixture/fixtures/rootfs-partial/usr/local/bin/node"
 
 cat > "$fixture/docker" <<'EOF'
@@ -183,9 +183,9 @@ case "${1:-all}" in
     ;;&
   rootfs_hit|all)
     dir="$fixture/data/images/rootfs-hit"
-    mkdir -p "$dir/usr/local/bin" "$dir/app"
+    mkdir -p "$dir/usr/local/bin" "$dir/app/src"
     cp "$fixture/fixtures/rootfs/usr/local/bin/node" "$dir/usr/local/bin/"
-    cp "$fixture/fixtures/rootfs/app/entrypoint.sh" "$dir/app/"
+    cp "$fixture/fixtures/rootfs/app/src/index.ts" "$dir/app/src/"
     printf '["A=B"]\n' > "$dir/.image-env.json"
     run_make rootfs "$dir"
     if rg -q '^(create|export) ' "$FAKE_CALLS"
@@ -211,9 +211,9 @@ case "${1:-all}" in
     ;;&
   rootfs_invalid_metadata|all)
     dir="$fixture/data/images/rootfs-invalid"
-    mkdir -p "$dir/usr/local/bin" "$dir/app"
+    mkdir -p "$dir/usr/local/bin" "$dir/app/src"
     cp "$fixture/fixtures/rootfs/usr/local/bin/node" "$dir/usr/local/bin/"
-    cp "$fixture/fixtures/rootfs/app/entrypoint.sh" "$dir/app/"
+    cp "$fixture/fixtures/rootfs/app/src/index.ts" "$dir/app/src/"
     printf '["OTHER=1"]\n' > "$dir/.image-env.json"
     if run_make rootfs "$dir"
     then
@@ -290,7 +290,7 @@ case "${1:-all}" in
   rootfs_fresh|all)
     dir="$fixture/data/images/rootfs-fresh"
     run_make rootfs "$dir"
-    [[ -s "$dir/app/entrypoint.sh" && -s "$dir/usr/local/bin/node" &&
+    [[ -s "$dir/app/src/index.ts" && -s "$dir/usr/local/bin/node" &&
       -s "$dir/.image-env.json" ]]
     [[ ${1:-all} != all ]] && exit 0
     ;;&
