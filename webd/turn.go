@@ -21,7 +21,7 @@ type frame struct {
 	TurnID    string `json:"turn_id"`
 }
 
-// verbStatus is the verb of a turn's progress row (routd/progress.go). The
+// verbStatus is the verb of a turn's progress row (routd/turn_status.go). The
 // row's verb, not its text, says it is progress: the text is the agent's.
 const verbStatus = "status"
 
@@ -73,7 +73,7 @@ func bufferedProgress(ch <-chan string, active []frame) ([]string, []frame) {
 			}
 			queued = append(queued, msg)
 			event, data := splitSSEFrame(msg)
-			if event != "delete" && event != "round_done" {
+			if event != "delete" {
 				continue
 			}
 			var p struct {
@@ -85,7 +85,7 @@ func bufferedProgress(ch <-chan string, active []frame) ([]string, []frame) {
 			}
 			kept := active[:0]
 			for _, f := range active {
-				if (event != "delete" || f.ID != p.ID || f.TurnID != p.TurnID) && (event != "round_done" || f.TurnID != p.TurnID) {
+				if f.ID != p.ID || f.TurnID != p.TurnID {
 					kept = append(kept, f)
 				}
 			}

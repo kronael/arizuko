@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -108,11 +109,11 @@ func TestProgress_BufferedDeletePrecedesSnapshot(t *testing.T) {
 	ch <- "event: delete\ndata: {\"id\":\"a\",\"turn_id\":\"t\"}\n\n"
 	ch <- "event: round_done\ndata: {\"turn_id\":\"u\"}\n\n"
 	queued, active := bufferedProgress(ch, []frame{{ID: "a", TurnID: "t"}, {ID: "b", TurnID: "u"}})
-	if len(queued) != 2 || len(active) != 0 {
+	if len(queued) != 2 || len(active) != 1 || active[0].ID != "b" {
 		t.Fatalf("queued %v active %v", queued, active)
 	}
-	if !strings.Contains(progressEvent(active), `"frames":[]`) {
-		t.Fatal("empty snapshot missing")
+	if !strings.Contains(progressEvent(active), `"id":"b"`) {
+		t.Fatal("retained snapshot missing")
 	}
 }
 
@@ -240,5 +241,92 @@ func TestProgress_TopicHistoryAndReconnect(t *testing.T) {
 	}
 	if !strings.Contains(data.String(), `"id":"progress"`) {
 		t.Fatalf("reconnect: %s", data.String())
+	}
+}
+
+func TestTurnStatusFinalSurvivesCompletion(t *testing.T) {
+	s, _, st := newTestServer(t)
+	seedGroup(t, st, "main", "Main")
+	token := seedChatToken(t, st, "main")
+	if _, err := st.OpenTurnContext("turn", "main", "tt", "web:main", "u", "", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.PutMessage(core.Message{ID: "turn", ChatJID: "web:main", Topic: "tt", Content: "question", Timestamp: time.Now().Add(-time.Minute)}); err != nil {
+		t.Fatal(err)
+	}
+	row := core.Message{ID: "status", ChatJID: "web:main", Topic: "tt", TurnID: "turn", Verb: "status", BotMsg: true, Timestamp: time.Now()}
+	if err := st.QueueStatus(t.Context(), row, "Server storage is full. Stopped after 3 retries.", "final"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetTurnState("turn", "done"); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest("GET", "/", nil)
+	req.SetPathValue("token", token)
+	req.SetPathValue("id", "turn")
+	w := httptest.NewRecorder()
+	s.handleTurnSnapshot(w, req)
+	if !strings.Contains(w.Body.String(), "Stopped after 3 retries") {
+		t.Fatalf("final missing on reconnect: %s", w.Body.String())
+	}
+	ch := make(chan string, 1)
+	ch <- "event: round_done\ndata: {\"turn_id\":\"turn\"}\n\n"
+	rows, err := st.ActiveProgress("web:main", "tt", "turn")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, frames := bufferedProgress(ch, messageFrames(rows))
+	if len(frames) != 1 {
+		t.Fatalf("buffered completion removed final: %+v", frames)
+	}
+	row, _ = st.MessageByID(row.ChatJID, row.ID)
+	if err := st.QueueStatus(t.Context(), row, "completed", "cleared"); err != nil {
+		t.Fatal(err)
+	}
+	rows, err = st.ActiveProgress("web:main", "tt", "turn")
+	if err != nil || len(rows) != 0 {
+		t.Fatalf("pending delete still visible: %+v %v", rows, err)
+	}
+}
+
+func TestTurnStatusLiveBrowserRetainsFinal(t *testing.T) {
+	text := chatWidgetHTML
+	start := strings.Index(text, "function connect(topic){")
+	end := strings.Index(text[start:], "\nasync function send")
+	if start < 0 || end < 0 {
+		t.Fatal("missing live browser handler")
+	}
+	script := `var reconnectTimer,es,cur={topic:'tt'},token='token',folder='main';
+ var handlers={},removed=0;globalThis.EventSource=class{addEventListener(name,fn){handlers[name]=fn}close(){}};
+ var node={dataset:{turn:'turn'},remove(){removed++}};
+ globalThis.document={querySelectorAll(){return[node]},getElementById(){return node}};
+ ` + text[start:start+end] + `
+ connect('tt');if(handlers.round_done)handlers.round_done({data:JSON.stringify({turn_id:'turn'})});
+ if(removed)throw Error('completion deleted retained final');
+ handlers.delete({data:JSON.stringify({id:'status',turn_id:'turn'})});
+ if(removed!==1)throw Error('explicit delete did not remove status');`
+	out, err := exec.Command("bun", "-e", script).CombinedOutput()
+	if err != nil {
+		t.Fatalf("live browser status: %v\n%s", err, out)
+	}
+}
+
+func TestTurnStatusWebResendIdentity(t *testing.T) {
+	s, _, st := newTestServer(t)
+	row := core.Message{ID: "status", StatusSendKey: "status-3", ChatJID: "web:main", TurnID: "turn", Verb: "status", BotMsg: true, Timestamp: time.Now()}
+	if err := st.QueueStatus(t.Context(), row, "Agent stopped unexpectedly.", "final"); err != nil {
+		t.Fatal(err)
+	}
+	ch, unsub := s.hub.subscribe(row.ChatJID, "")
+	defer unsub()
+	w := httptest.NewRecorder()
+	s.handleSend(w, httptest.NewRequest("POST", "/send", strings.NewReader(`{"chat_jid":"web:main","content":"Agent stopped unexpectedly.","idempotency_key":"status-3"}`)))
+	select {
+	case frame := <-ch:
+		if !strings.Contains(frame, `"kind":"status"`) || !strings.Contains(frame, `"id":"status"`) || !strings.Contains(frame, `"turn_id":"turn"`) {
+			t.Fatalf("resend lost status identity: %s", frame)
+		}
+	default:
+		t.Fatalf("missing resend frame: %s", w.Body.String())
 	}
 }

@@ -701,7 +701,6 @@ function connect(topic){
   });
   stream.addEventListener('delete',function(e){if(es!==stream||!cur||cur.topic!==topic)return;try{var m=JSON.parse(e.data),n=document.getElementById('msg-'+m.id);if(n)n.remove()}catch(x){}});
   stream.addEventListener('progress',function(e){if(es!==stream||!cur||cur.topic!==topic)return;try{var a=JSON.parse(e.data).frames,ids=new Set(a.map(function(m){return m.id}));document.querySelectorAll('[data-status="1"]').forEach(function(n){if(!ids.has(n.id.slice(4)))n.remove()});a.forEach(function(m){addMsg('assistant',m.content,m.id,'status',m.turn_id)})}catch(x){}});
-  stream.addEventListener('round_done',function(e){if(es!==stream||!cur||cur.topic!==topic)return;try{var m=JSON.parse(e.data);document.querySelectorAll('[data-status="1"]').forEach(function(n){if(n.dataset.turn===m.turn_id)n.remove()})}catch(x){}});
   stream.onerror=function(){if(es!==stream)return;stream.close();reconnectTimer=setTimeout(function(){if(es===stream)connect(topic)},3000)};
 }
 
