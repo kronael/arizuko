@@ -301,6 +301,28 @@ func TestControlledFinishGuards(t *testing.T) {
 	if ok, err := s.FinishControlledTurn(ctx, tc, &after, nil); err != nil || ok {
 		t.Fatalf("duplicate finish: %v %v", ok, err)
 	}
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	msg, err := s.AppendMessage(core.Message{ID: "input", ChatJID: "web:cancel", Timestamp: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	key, err := messageKeyOf(msg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pending := TurnContext{TurnID: "cancel", Folder: "demo", ChatJID: msg.ChatJID,
+		InputLast: MessageCursor(msg), InputKeys: []objstore.Key{key}, NextAttemptAt: now}
+	if ok, err := s.SavePendingTurn(ctx, pending, ""); err != nil || !ok {
+		t.Fatalf("save: %v %v", ok, err)
+	}
+	pending, _ = s.TurnContextOf(pending.TurnID)
+	if ok, err := s.FinishControlledTurn(ctx, pending, &after, nil); err != nil || !ok {
+		t.Fatalf("cancel: %v %v", ok, err)
+	}
+	cancelled, _ := s.TurnContextOf(pending.TurnID)
+	if cancelled.State != TurnDone || !cancelled.RunReturned || !cancelled.NextAttemptAt.IsZero() {
+		t.Fatalf("cancelled: %+v", cancelled)
+	}
 }
 
 func TestDeferredTurnCursorNeverRewinds(t *testing.T) {
