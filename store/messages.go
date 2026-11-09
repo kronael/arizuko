@@ -62,6 +62,7 @@ const (
 	attrMsgChatName      = "chat_name"
 	attrMsgErrored       = "errored"
 	attrMsgLinkContext   = "link_context"
+	attrMsgHops          = "hops"
 	// AttrMsgPlatformID is the platform's own id for a delivered row. Exported
 	// because the delivery sweep stamps it and the archive carries it.
 	AttrMsgPlatformID = "platform_id"
@@ -156,6 +157,9 @@ func messageAttrs(m core.Message) map[string]string {
 	if m.StatusRevision > 0 {
 		attrs["status_revision"] = strconv.Itoa(m.StatusRevision)
 	}
+	if m.Hops > 0 {
+		attrs[attrMsgHops] = strconv.Itoa(m.Hops)
+	}
 	setAttr(attrs, attrMsgSender, m.Sender)
 	setAttr(attrs, attrMsgSenderName, m.Name)
 	setAttr(attrs, attrMsgContent, m.Content)
@@ -209,6 +213,7 @@ func messageFrom(it objstore.Item) core.Message {
 		Errored:       it.Attrs[attrMsgErrored] == flagSet,
 	}
 	m.StatusRevision, _ = strconv.Atoi(it.Attrs["status_revision"])
+	m.Hops, _ = strconv.Atoi(it.Attrs[attrMsgHops])
 	m.Timestamp, _ = time.Parse(time.RFC3339Nano, ts)
 	return m
 }
@@ -399,6 +404,12 @@ const DelegateSender = "delegate"
 var SyntheticSenders = []string{
 	ProactiveSelfSender, SystemSender, "escalate", DelegateSender,
 }
+
+// MaxHops bounds agent-to-agent turns: a message an agent turn writes to start
+// another turn is one hop further than the turn's furthest input, and one that
+// would reach MaxHops is refused. 2 allows one delegation: a person asks A, A
+// sends to B, and B can answer but cannot start another turn (BUGS L807).
+const MaxHops = 2
 
 func PostGroup(putMessage func(core.Message) error, folder, text, origin string) (string, error) {
 	id := core.MsgID("send")

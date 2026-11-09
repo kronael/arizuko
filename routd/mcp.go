@@ -35,6 +35,33 @@ type turnMCP struct {
 	elevated bool // operator /root turn: the socket authorizes every call
 }
 
+// putAgentMessage is the one write by which an agent turn starts another turn:
+// `send` to a group and `inject_message`. The row is one hop further from a
+// person than the turn's furthest input, read from the turn's saved input so a
+// retry or a restart counts the same; a row that reaches store.MaxHops is
+// refused (BUGS L807).
+func (s *Server) putAgentMessage(t turnMCP, m core.Message) error {
+	hops := 0
+	if t.turnID != "" {
+		tc, ok := s.db.GetTurnContext(t.turnID)
+		if !ok {
+			return fmt.Errorf("no turn context for turn %q", t.turnID)
+		}
+		inputs, err := s.db.store().DeferredMessages(context.Background(), tc.InputKeys)
+		if err != nil {
+			return err
+		}
+		for _, in := range inputs {
+			hops = max(hops, in.Hops)
+		}
+	}
+	m.Hops = hops + 1
+	if m.Hops >= store.MaxHops {
+		return fmt.Errorf("refused: a turn started from this one would be %d agent hops from a person, and the limit is %d; answer with send to the platform chat that the request names", m.Hops, store.MaxHops)
+	}
+	return s.db.PutMessage(m)
+}
+
 // buildRoutdFns wires the write-side agent tools to routd's Deliverer;
 // execution-plane tools stay nil and ipc.ServeMCP registers only the non-nil.
 func (s *Server) buildRoutdFns(t turnMCP) ipc.RoutdFns {
@@ -128,7 +155,7 @@ func (s *Server) buildRoutdFns(t turnMCP) ipc.RoutdFns {
 		RemoveGroupWatcher:    s.db.RemoveGroupWatcher,
 		InjectMessage: func(jid, content, sender, senderName string) (string, error) {
 			id := "in-" + randHex(8)
-			err := s.db.PutMessage(core.Message{
+			err := s.putAgentMessage(t, core.Message{
 				ID: id, ChatJID: jid, Sender: sender, Name: senderName,
 				Content: content, Timestamp: time.Now().UTC(), Verb: "message",
 			})
@@ -571,7 +598,7 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 			}
 			return out
 		},
-		PutMessage:     s.db.PutMessage,
+		PutMessage:     func(m core.Message) error { return s.putAgentMessage(t, m) },
 		PutOutbound:    s.db.PutOutbound,
 		GetLastReplyID: s.db.LastReplyID,
 		SetLastReply:   s.db.SetLastReply,

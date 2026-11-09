@@ -42,6 +42,7 @@ type Message struct {
 	TurnID         string // for outbound: the inbound message id that triggered the run; for inbound: empty
 	ChatName       string // human-readable channel/group name set by the adapter (e.g. "#general", "My Group")
 	LinkContext    string // route-token context snapshotted at ingest (spec 5/W); rendered as <link-context> in the prompt
+	Hops           int    // agent turns between this row and the last person or external input; 0 for a person, a channel or a scheduled task
 }
 
 type FoundMessage struct {
