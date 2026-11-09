@@ -51,12 +51,3 @@ func placeTurnDelivery(db *DB, tc TurnContext, jid, explicitThread string, reply
 	}
 	return p, nil
 }
-
-func (s *Server) sendTurnNotice(tc TurnContext, text string) error {
-	p, err := placeTurnDelivery(s.db, tc, tc.ChatJID, "", true)
-	if err != nil {
-		return err
-	}
-	_, err = s.deliver.Send(p.jid, text, "", p.threadID, p.threadRoot, "silent-"+tc.TurnID)
-	return err
-}

@@ -2,10 +2,8 @@ package routd
 
 import (
 	"context"
-	"crypto/sha256"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"slices"
 	"time"
@@ -107,49 +105,13 @@ func (l *Loop) pendingBatch(jid, cursor string, limit int) ([]core.Message, batc
 	return msgs, b, held, nil
 }
 
-func (l *Loop) noticeModelPause(p *store.ModelPause, tc TurnContext) error {
-	if p == nil {
-		return nil
-	}
-	jid := returnTarget(tc, tc.ChatJID)
-	at, err := time.Parse(time.RFC3339Nano, p.OpenedAt)
-	if err != nil {
-		return err
-	}
-	labels := map[string]string{"spend_limit": "provider spend limit", "rate_limit": "provider rate limit",
-		"authentication": "provider authentication refused", "outage": "provider outage"}
-	row := core.Message{
-		ID:      fmt.Sprintf("model-pause-%x", sha256.Sum256([]byte(p.Folder+"\x00"+p.OpenedAt+"\x00"+jid))),
-		ChatJID: jid, Timestamp: at, Sender: tc.Folder, BotMsg: true, FromMe: true,
-		Topic: tc.Topic, RoutedTo: tc.Folder,
-		Content: "Model access is paused: " + labels[p.Reason] +
-			". Your messages are saved. I will retry automatically.",
-	}
-	created, err := l.db.store().PutOutboundOnce(context.Background(), row)
-	if err != nil || !created || l.deliver == nil {
-		return err
-	}
-	pid, err := l.deliver.Send(jid, row.Content, "", tc.Topic, "", row.ID)
-	if err == nil {
-		return l.db.store().MarkDelivered(context.Background(), row, pid)
-	}
-	slog.Warn("model pause notice queued for delivery", "jid", jid, "err", err)
-	return nil
-}
-
 func (l *Loop) holdModelInput(chatJID string, trigger []core.Message) error {
 	l.waiting.Delete(chatJID)
 	l.q.busyWait.Delete(chatJID)
 	if l.deliver != nil {
 		clearPresence(l.deliver, []string{replyChat(chatJID, trigger[len(trigger)-1])})
 	}
-	p, err := l.db.store().ReadModelPause(context.Background(), l.folderForJid(chatJID))
-	if err != nil || p == nil {
-		return err
-	}
-	last := trigger[len(trigger)-1]
-	return l.noticeModelPause(p, TurnContext{ChatJID: chatJID, ReturnTo: last.ForwardedFrom,
-		Folder: l.folderForJid(chatJID), Topic: last.Topic})
+	return nil
 }
 
 func (l *Loop) stopModelProbe(tc TurnContext) error {

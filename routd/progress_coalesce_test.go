@@ -79,8 +79,8 @@ func TestProgress_CoalescesLatestAndRetries(t *testing.T) {
 	}
 	dl.editErr = errors.New("edit failed")
 	srv.flushProgress(time.Now().Add(progressInterval))
-	if rows := statusRows(t, db, progressJID); !strings.Contains(rows[0].Content, "A") {
-		t.Fatalf("failed edit changed row: %+v", rows)
+	if rows := statusRows(t, db, progressJID); !strings.Contains(rows[0].Content, "C") {
+		t.Fatalf("failed edit lost desired content: %+v", rows)
 	}
 	dl.editErr = nil
 	srv.flushProgress(time.Now().Add(2 * progressInterval))
@@ -119,7 +119,9 @@ func TestProgress_FailedEditWaitsBeforeRetry(t *testing.T) {
 		t.Fatal("retried before interval")
 	}
 	dl.editErr = nil
-	srv.flushProgress(attempt.Add(progressInterval))
+	loop := NewLoop(db, &recRunner{}, LoopConfig{Deliver: dl})
+	loop.StopQueue()
+	loop.maybeRetryOutbound(attempt.Add(time.Hour))
 	if len(dl.edits) != 2 || dl.edits[1].content != progressMark+"second" {
 		t.Fatalf("retry: %+v", dl.edits)
 	}

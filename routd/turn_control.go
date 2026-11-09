@@ -101,12 +101,19 @@ func (q *turnControl) cancel(l *Loop, folder string) error {
 					after = &next
 				}
 			}
+			tc.StatusOwed = "stopped"
+			tc.FailureCause = ""
 			ok, err := l.db.store().FinishControlledTurn(context.Background(), tc, prior, after)
 			if err != nil {
 				return err
 			}
 			current, exists := l.db.GetTurnContext(tc.TurnID)
 			if ok || !exists {
+				if ok {
+					if err := l.publishOwedStatus(current); err != nil {
+						return err
+					}
+				}
 				break
 			}
 			tc = current
@@ -251,7 +258,7 @@ func classifyTurn(out runedv1.RunOutcome, err error, result store.TurnInfo, repl
 	if err == nil && out.Outcome != runedv1.OutcomeError {
 		return turnDecision{}
 	}
-	return turnDecision{trip: true, cause: "Agent could not complete the request",
+	return turnDecision{trip: true, cause: turnFailureCause(out, err),
 		retry: !out.Terminal && !replied && (result.Status == "pending" || result.Status == "")}
 }
 
@@ -323,6 +330,8 @@ func (q *turnControl) complete(l *Loop, tc TurnContext, out runedv1.RunOutcome, 
 				PriorCursor: l.db.GetAgentCursor(tc.ChatJID), ControlBefore: prior, ControlAfter: after})
 		} else if after != nil && (tc.State == store.TurnRunning || tc.State == store.TurnPendingRetry) {
 			ok, err = l.db.store().FinishControlledTurn(context.Background(), tc, prior, after)
+		} else if after != nil && decision.trip {
+			ok, err = l.db.store().RecordControlledStatus(context.Background(), tc, prior, *after)
 		} else if after != nil {
 			ok, err = l.db.store().WriteTurnControl(context.Background(), prior, *after)
 		} else {
@@ -331,6 +340,12 @@ func (q *turnControl) complete(l *Loop, tc TurnContext, out runedv1.RunOutcome, 
 		if err != nil || ok {
 			if ok && after != nil && after.Phase == "closed" {
 				err = l.db.store().ClearControlledModelPauses(context.Background(), *after)
+			}
+			if ok {
+				current, _ := l.db.GetTurnContext(tc.TurnID)
+				if statusErr := l.publishOwedStatus(current); err == nil {
+					err = statusErr
+				}
 			}
 			return retry && ok, err
 		}
@@ -374,6 +389,7 @@ func (q *turnControl) refuse(l *Loop, tc TurnContext, reason string, reset time.
 		}
 		after := before
 		after.Episode = randHex(16)
+		current.FailureCause = "Model unavailable"
 		current.NextAttemptAt = reset
 		if !exists || before.Phase == "closed" ||
 			(before.ProbeTurnID == tc.TurnID && before.ProbeAttemptID == tc.AttemptID) {

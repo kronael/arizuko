@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strings"
 	"sync"
 	"testing"
 	"testing/synctest"
@@ -138,13 +137,12 @@ func TestModelPauseNoticeDurableBeyondAppendWindow(t *testing.T) {
 	dl.failSend = true
 	pauseInput(t, db, "web:a", "held", "u", "keep", time.Now())
 	processPauseChat(t, l, "web:a")
-	pause, _ := db.store().ReadModelPause(t.Context(), "a")
 	tc, _ := db.GetTurnContext("held")
 	for i := range 260 {
 		pauseInput(t, db, "web:a", fmt.Sprintf("extra-%d", i), "u", "extra", time.Now())
 	}
 	for range 3 {
-		if err := l.noticeModelPause(pause, tc); err != nil {
+		if err := l.publishStatus(tc, turnStatus{phase: "waiting", cause: "Model unavailable", retry: 1, max: 3, at: l.q.now().Add(time.Minute)}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -154,7 +152,7 @@ func TestModelPauseNoticeDurableBeyondAppendWindow(t *testing.T) {
 	}
 	n := 0
 	for _, m := range msgs {
-		if strings.HasPrefix(m.ID, "model-pause-") {
+		if m.Verb == "status" {
 			n++
 		}
 	}

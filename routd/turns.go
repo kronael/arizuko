@@ -169,12 +169,6 @@ func logSelfReportedCost(metered bool, folder, turnID string, models map[string]
 	}
 }
 
-// silentTurnNotice closes an owed turn that remained silent after its one nudge,
-// or a clean run that failed to submit any result at all.
-const silentTurnNotice = "⚠️ I couldn't produce a reply to that — please re-send."
-
-const timedOutNotice = "⚠️ I ran out of time on that — say 'continue' to resume, or narrow the request."
-
 // recordTurnResultAttempt decides whether a successful submission may close the turn
 // before recording it. A nudge holds the same turn open for one continuation.
 func (s *Server) recordTurnResultAttempt(turnID, attempt string, req apiv1.TurnResult) (ipc.TurnAck, error) {
@@ -195,14 +189,17 @@ func (s *Server) recordTurnResultAttempt(turnID, attempt string, req apiv1.TurnR
 		if s.loop == nil {
 			return ipc.TurnAck{}, fmt.Errorf("turn controller unavailable")
 		}
-		p, err := s.loop.q.refuse(s.loop, tc, req.ProviderFailure.Reason, reset)
+		_, err := s.loop.q.refuse(s.loop, tc, req.ProviderFailure.Reason, reset)
 		if err != nil {
 			return ipc.TurnAck{}, err
 		}
 		s.loop.pauseProgress(returnTarget(tc, tc.ChatJID), tc.RunID)
-		if err := s.loop.noticeModelPause(p, tc); err != nil {
+		if err := s.loop.publishOwedStatusLocked(tc); err != nil {
 			return ipc.TurnAck{}, err
 		}
+		return ipc.TurnAck{OK: true}, nil
+	}
+	if s.db.TurnResultRecorded(tc.Folder, turnID) {
 		return ipc.TurnAck{OK: true}, nil
 	}
 	var delivered bool
@@ -217,10 +214,10 @@ func (s *Server) recordTurnResultAttempt(turnID, attempt string, req apiv1.TurnR
 	if req.Status == "error" {
 		end = endFailed
 	}
-	notice := ""
-	if req.Status == "success" && !s.db.TurnResultRecorded(tc.Folder, turnID) {
+	var notice *turnStatus
+	if req.Status == "success" {
 		if req.TimedOut {
-			notice = timedOutNotice
+			notice = &turnStatus{phase: "timeout"}
 			end = endFailed
 		} else if !delivered {
 			check, err := s.checkTurn(tc)
@@ -231,16 +228,24 @@ func (s *Server) recordTurnResultAttempt(turnID, attempt string, req apiv1.TurnR
 				return ipc.TurnAck{OK: true, Nudge: check.Nudge}, nil
 			}
 			if check.Owed {
-				notice = silentTurnNotice
+				notice = &turnStatus{phase: "silent"}
 				end = endFailed
 			} else {
 				slog.Info("turn completed deliberately silent", "folder", tc.Folder, "turn_id", turnID)
 			}
 		}
 	}
+	if end == endFailed && notice == nil {
+		notice = &turnStatus{phase: "final", cause: "Agent could not complete the request"}
+	}
+	if notice != nil {
+		if err := applyStatus(s.db, s.deliver, tc, returnTarget(tc, tc.ChatJID), *notice); err != nil {
+			return ipc.TurnAck{}, err
+		}
+	}
 	status, failure := req.Status, req.Error
-	if notice != "" {
-		status, failure = "error", notice
+	if notice != nil {
+		status, failure = "error", renderTurnStatus(*notice)
 	}
 	first, err := s.db.RecordTurnResult(tc.Folder, turnID, req.SessionID, status, failure)
 	if err != nil {
@@ -257,11 +262,7 @@ func (s *Server) recordTurnResultAttempt(turnID, attempt string, req apiv1.TurnR
 			}
 			obs.RecordNudgedTurn(tc.Folder, outcome)
 		}
-		if notice != "" && s.deliver != nil {
-			if err := s.sendTurnNotice(tc, notice); err != nil {
-				slog.Error("turn completion notice failed", "folder", tc.Folder, "turn_id", turnID, "err", err)
-			}
-		}
+
 		// Isolated turns never replace the chat's session lineage (BUGS L54).
 		if req.SessionID != "" && !strings.HasPrefix(tc.Trigger, core.IsolatedSenderPrefix) {
 			if err := s.db.PutSession(tc.Folder, tc.Topic, req.SessionID); err != nil {

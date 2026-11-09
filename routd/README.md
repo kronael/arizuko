@@ -36,7 +36,7 @@ the local `acl` rows.
 
 ### Progress has one writer
 
-`progress.go` is the only code that calls `Typing` or creates or edits a `verb="status"` row. The hidden method `submit_status` receives raw harness snapshots and fallback text. `progress_reducer.go` merges parent checklists under the turn lock; an active checklist owns the text until End. `placement.go` gives every delivery of the turn one destination.
+`turn_status.go` is the only code that calls `Typing` or creates or edits a `verb="status"` row. The hidden method `submit_status` receives raw harness snapshots and fallback text. `progress_reducer.go` merges parent checklists under the turn lock; an active checklist owns the text until End. `placement.go` gives every delivery of the turn one destination.
 
 - A channel that advertises `edit` and `delete` gets one `⏳` progress line where the reply will go. An existing thread wins; without one, the reply's own rule applies.
 - A channel that lacks either gets no progress line. gitd advertises no `edit`, so GitHub shows the `👀` mark and no progress comment.
@@ -443,7 +443,7 @@ The audit source of truth is the `audit_log` entity in the tables of routd. Ever
 - `dispatch.go` dispatches the turn to runed, enriches it and applies the budget gate.
 - `turns.go` handles the end of a turn: the check for an explicit delivery, the one shared nudge decision and `submit_turn` recording.
 - `model_pauses.go` holds provider admission, oldest-input selection, notices and restart recovery. `model_pauses_resource.go` serves the operator REST/MCP resource.
-- `progress.go` owns the turn's summary, progress message and `finishTurn`. `placement.go` places each delivery of the turn.
+- `turn_status.go` owns the turn's summary, progress message and `finishTurn`. `placement.go` places each delivery of the turn.
 - `deliver.go` is the channel Deliverer, the egress fan-out through `chanreg`.
 - `mcp.go` is the in-process per-turn MCP socket (`ServeTurnMCP`, `buildRoutdFns`).
 - `prompt.go` and `prompt_db.go` build the message string of the turn, as "Prompt assembly" describes.

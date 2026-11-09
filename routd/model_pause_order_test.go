@@ -11,7 +11,7 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
-func TestModelPauseDueProbeKeepsOtherChatNotice(t *testing.T) {
+func TestModelPauseDueProbeDoesNotPostForWaitingInput(t *testing.T) {
 	db, l, p, _ := pauseFixture(t, "rate_limit")
 	pauseChatInFolder(t, db, "web:b", "a")
 	now := time.Now()
@@ -28,11 +28,11 @@ func TestModelPauseDueProbeKeepsOtherChatNotice(t *testing.T) {
 	}
 	notices := 0
 	for _, row := range rows {
-		if strings.HasPrefix(row.ID, "model-pause-") {
+		if row.Verb == "status" {
 			notices++
 		}
 	}
-	if len(p.runs) != 1 || notices != 1 || db.GetAgentCursor("web:b") != "" {
+	if len(p.runs) != 1 || notices != 0 || db.GetAgentCursor("web:b") != "" {
 		t.Fatalf("due pause: runs=%d notices=%d cursor=%q", len(p.runs), notices, db.GetAgentCursor("web:b"))
 	}
 }

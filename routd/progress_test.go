@@ -159,7 +159,7 @@ func TestProgress_HardEditErrorSurfaces(t *testing.T) {
 	if len(dl.sends) != 1 {
 		t.Fatalf("hard edit error re-posted: sends=%+v", dl.sends)
 	}
-	if rows := statusRows(t, db, progressJID); rows[0].Content != "⏳ a" {
+	if rows := statusRows(t, db, progressJID); rows[0].Content != "⏳ b" {
 		t.Fatalf("row rewritten although the platform edit failed: %q", rows[0].Content)
 	}
 }
@@ -202,7 +202,7 @@ func TestProgress_RefusedEditPostsNothing(t *testing.T) {
 	if len(dl.sends) != 1 {
 		t.Fatalf("ErrUnsupported fell back to a fresh send: %+v", dl.sends)
 	}
-	if rows := statusRows(t, db, progressJID); len(rows) != 1 || rows[0].Content != "⏳ a" {
+	if rows := statusRows(t, db, progressJID); len(rows) != 1 || rows[0].Content != "⏳ b" {
 		t.Fatalf("rows=%+v, want the single row unchanged", rows)
 	}
 }
@@ -294,7 +294,7 @@ func TestProgress_IsTheOnlyProgressWriter(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, f := range files {
-		if f == "progress.go" || strings.HasSuffix(f, "_test.go") {
+		if f == "turn_status.go" || strings.HasSuffix(f, "_test.go") {
 			continue
 		}
 		src, err := os.ReadFile(f)
@@ -306,7 +306,7 @@ func TestProgress_IsTheOnlyProgressWriter(t *testing.T) {
 			regexp.MustCompile(`\b(deliver|dl)\.Typing\(`),
 		} {
 			if m := banned.Find(src); m != nil {
-				t.Errorf("%s holds %q: progress is declared in progress.go only", f, m)
+				t.Errorf("%s holds %q: progress is declared in turn_status.go only", f, m)
 			}
 		}
 	}
@@ -361,12 +361,12 @@ func TestProgress_EndDeletesTheLine(t *testing.T) {
 	dl := &recDeliverer{}
 	db, srv := progressWithRow(t, dl)
 
+	platformID := statusRows(t, db, progressJID)[0].PlatformID
 	srv.replyForTest(t, "t1", progressJID, "done")
 	ack, err := srv.recordTurnResult("t1", apiv1.TurnResult{TurnID: "t1", SessionID: "s", Status: "success"})
 	if err != nil || !ack.OK || ack.Nudge != "" {
 		t.Fatalf("delivered completion: ack=%+v err=%v", ack, err)
 	}
-	platformID := statusRows(t, db, progressJID)[0].PlatformID
 	if len(dl.deletes) != 1 || dl.deletes[0] != (sentEdit{jid: progressJID, platformID: platformID}) || len(dl.edits) != 0 {
 		t.Fatalf("deletes=%+v edits=%+v, want one delete of %s and no edit", dl.deletes, dl.edits, platformID)
 	}
@@ -474,10 +474,10 @@ func TestProgress_FailedDeleteStillFinishesTheTurn(t *testing.T) {
 	if tc, _ := db.GetTurnContext("t1"); tc.State != store.TurnDone {
 		t.Fatalf("a failed delete left the turn %q, want done", tc.State)
 	}
-	if rows := statusRows(t, db, progressJID); rows[0].Content != "⏳ working" {
-		t.Fatalf("row = %q, want it to keep what the user still sees", rows[0].Content)
+	if rows := statusRows(t, db, progressJID); rows[0].StatusPhase != "cleared" {
+		t.Fatalf("row lost desired delete: %+v", rows[0])
 	}
-	if !strings.Contains(logs.String(), "level=ERROR") || !strings.Contains(logs.String(), "turn_id=t1") {
+	if !strings.Contains(logs.String(), "level=WARN") || !strings.Contains(logs.String(), "turn_id=t1") {
 		t.Fatalf("the failed delete was not logged at Error with the turn: %s", logs.String())
 	}
 }
@@ -526,8 +526,8 @@ func TestProgress_DispatchEndsTheLineByOutcome(t *testing.T) {
 		notice     string
 	}{
 		{"ok", "✓ building", ""},
-		{"silent", "✗ building", silentTurnNotice},
-		{"error", "✗ building", runFailureNotice},
+		{"silent", renderTurnStatus(turnStatus{phase: "silent"}), renderTurnStatus(turnStatus{phase: "silent"})},
+		{"error", renderTurnStatus(turnStatus{phase: "final", cause: "Agent could not complete the request"}), renderTurnStatus(turnStatus{phase: "final", cause: "Agent could not complete the request"})},
 	} {
 		t.Run(tc.mode, func(t *testing.T) {
 			dl := &recDeliverer{}
@@ -544,7 +544,7 @@ func TestProgress_DispatchEndsTheLineByOutcome(t *testing.T) {
 			if len(rows) != 1 || rows[0].Content != tc.mark {
 				t.Fatalf("status rows = %+v, want one reading %q", rows, tc.mark)
 			}
-			if len(dl.deletes) != 1 || len(dl.edits) != 0 {
+			if (tc.notice == "" && (len(dl.deletes) != 1 || len(dl.edits) != 0)) || (tc.notice != "" && (len(dl.deletes) != 0 || len(dl.edits) != 1)) {
 				t.Fatalf("deletes=%+v edits=%+v, want one delete and no edit", dl.deletes, dl.edits)
 			}
 			sent := dl.sentMsgs()
@@ -554,8 +554,8 @@ func TestProgress_DispatchEndsTheLineByOutcome(t *testing.T) {
 				}
 				return
 			}
-			if len(sent) != 2 || sent[1].text != tc.notice {
-				t.Fatalf("sends=%+v, want the status message and then %q as its own message", sent, tc.notice)
+			if len(sent) != 1 || len(dl.edits) != 1 || dl.edits[0].content != tc.notice {
+				t.Fatalf("notice did not replace progress: sends=%+v edits=%+v", sent, dl.edits)
 			}
 		})
 	}
@@ -708,8 +708,8 @@ func TestProgress_RefusedDeleteIsNotRetriedAsAnEdit(t *testing.T) {
 	if len(dl.deletes) != 1 || len(dl.edits) != 0 {
 		t.Fatalf("deletes=%+v edits=%+v, want one attempt and no edit", dl.deletes, dl.edits)
 	}
-	if rows := statusRows(t, db, progressJID); rows[0].Content != "⏳ working" {
-		t.Fatalf("row = %q, want it to keep what the user still sees", rows[0].Content)
+	if rows := statusRows(t, db, progressJID); rows[0].StatusPhase != "cleared" {
+		t.Fatalf("row lost desired delete: %+v", rows[0])
 	}
 }
 

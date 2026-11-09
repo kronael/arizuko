@@ -424,8 +424,8 @@ func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed boo
 	// never replies: refuse loud, tell the chat, consume the batch.
 	if !l.db.GroupExists(folder) {
 		slog.Error("dispatch refused: unregistered group", "folder", folder, "jid", chatJID, "turn_id", turnID)
-		if l.deliver != nil {
-			l.sendNotice(turnID, chatJID, ghostGroupNotice, topic, "ghost-"+turnID)
+		if err := l.publishStatus(TurnContext{TurnID: turnID, Folder: folder, ChatJID: chatJID, ReturnTo: last.ForwardedFrom, Topic: topic}, turnStatus{phase: "setup"}); err != nil {
+			return false, false, false, "", err
 		}
 		return true, false, false, "", nil
 	}
@@ -518,9 +518,10 @@ func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed boo
 			ErrDependencyDown, gerr)
 	}
 	// A spent cap delivers a refusal and consumes the batch.
-	if msg != "" {
-		if l.deliver != nil {
-			l.sendNotice(turnID, chatJID, msg, topic, "budget-"+turnID)
+	if msg != nil {
+		current, _ := l.db.GetTurnContext(turnID)
+		if err := l.publishStatus(current, *msg); err != nil {
+			return false, false, false, "", err
 		}
 		finishTurn(l.db, l.deliver, turnID, endDone)
 		return true, false, false, "", nil
@@ -629,6 +630,10 @@ func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed boo
 	// The agent nudges for a progress line only where a person is owed an answer
 	// and the reply chat can show and remove one.
 	progress := addressed && canShowProgress(l.deliver, replyJID)
+	currentStatus, _ := l.db.GetTurnContext(turnID)
+	if err := l.publishOwedStatus(currentStatus); err != nil {
+		return false, false, false, "", err
+	}
 	started = true
 	launched = true
 	out, derr := l.dispatchRun(ctx, folder, topic, replyJID, turnID, last.Sender, rendered, elevated, progress, gwKey.Key)
@@ -715,45 +720,13 @@ func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed boo
 	}
 	if out.Outcome == runedv1.OutcomeError {
 		tc, _ := l.db.GetTurnContext(turnID)
-		hasBotReply := l.db.TurnHasBotReply(returnTarget(tc, tc.ChatJID), turnID)
 		// Final failure: retries exhausted, or a partial reply exists.
 		slog.Warn("run outcome error", "folder", folder, "turn_id", turnID, "err", out.Error,
 			"retry_count", tc.RetryCount)
 		_ = l.db.MarkMessagesErrored(trigger)
-		{
-			notice := runFailureNotice
-			if !hasBotReply && tc.RetryCount > 0 && tc.RetryCount >= l.maxTurnRetry {
-				notice = retryExhaustedNotice(l.maxTurnRetry)
-			}
-			// A terminal failure names the real cause (spec 5/12). The agent's
-			// OWN report is preferred: out.Error is the container's stderr
-			// tail, truncated mid-word and carrying ant's log lines, so a user
-			// was shown "ake says no" for an API Error: 400 (BUGS L349).
-			if out.Terminal {
-				cause := l.db.TurnFailure(folder, turnID)
-				if cause == "" {
-					cause = out.Error
-				}
-				notice = terminalFailureNotice(cause)
-			}
-			// Every chat this run owed an answer to: a follow-up steered into the
-			// live container was marked done long before the run died (BUGS T2).
-			// Only the primary carries the topic — a thread id is local to its
-			// chat. The idempotency key is per destination, or the adapter dedups
-			// the fan-out into one delivery.
-			for _, jid := range l.db.chatsOwnedBy(chatJID, out.RunID) {
-				if err := l.db.MarkChatErrored(jid); err != nil {
-					slog.Error("flag chat errored", "jid", jid, "err", err)
-					continue
-				}
-				if l.deliver == nil {
-					continue
-				}
-				thread := ""
-				if jid == chatJID {
-					thread = topic
-				}
-				l.sendNotice(turnID, jid, notice, thread, "fail-"+turnID+"-"+jid)
+		for _, jid := range l.db.chatsOwnedBy(returnTarget(tc, chatJID), out.RunID) {
+			if err := l.db.MarkChatErrored(jid); err != nil {
+				slog.Error("flag chat errored", "jid", jid, "err", err)
 			}
 		}
 		finishTurn(l.db, l.deliver, turnID, endFailed)
@@ -781,8 +754,9 @@ func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed boo
 			"folder", folder, "turn_id", turnID, "jid", chatJID)
 		obs.RecordSilentTurn(folder)
 		end = endFailed
-		if l.deliver != nil {
-			l.sendNotice(turnID, chatJID, silentTurnNotice, topic, "silent-"+turnID)
+		current, _ := l.db.GetTurnContext(turnID)
+		if err := l.publishStatus(current, turnStatus{phase: "silent"}); err != nil {
+			return false, false, false, "", err
 		}
 	}
 	finishTurn(l.db, l.deliver, turnID, end)
@@ -799,16 +773,6 @@ func turnMessageKeys(messages []core.Message) ([]objstore.Key, error) {
 		keys = append(keys, key)
 	}
 	return keys, nil
-}
-
-// sendNotice tells a chat the turn could not answer. A failed send leaves no
-// outbound row, so the log line is the only trace that the notice was owed.
-func (l *Loop) sendNotice(turnID, jid, text, thread, idempotencyKey string) bool {
-	if _, err := l.deliver.Send(jid, text, "", thread, "", idempotencyKey); err != nil {
-		slog.Warn("turn notice not sent", "jid", jid, "turn_id", turnID, "err", err)
-		return false
-	}
-	return true
 }
 
 // forkParent answers the topic a new topic forks lineage from: the topic of
@@ -899,24 +863,6 @@ func consecutiveRuns(msgs []core.Message, key func(core.Message) string) [][]cor
 func groupByTopic(msgs []core.Message) [][]core.Message {
 	return consecutiveRuns(msgs, func(m core.Message) string { return m.Topic })
 }
-
-// runFailureNotice is sent when a run returns outcome:error with no usable output.
-const runFailureNotice = "Failed: agent error on that message. Try rephrasing or send a different message."
-
-// retryExhaustedNotice is sent when every retry ended without a reply (spec
-// 5/12). The count is the value that governs the retries, never a literal.
-func retryExhaustedNotice(attempts int) string {
-	return fmt.Sprintf("⚠️ Agent couldn't complete this request after %d attempts.", attempts)
-}
-
-// terminalFailureNotice carries runed's error text: a retry cannot repair a
-// terminal failure, so the notice names the cause (spec 5/12, BUGS F73).
-func terminalFailureNotice(cause string) string {
-	return "⚠️ Agent run failed and a retry cannot fix it: " + cause
-}
-
-// ghostGroupNotice is sent when a chat routes to a folder with no group row.
-const ghostGroupNotice = "⚠️ This chat routes to a group that isn't set up — an operator needs to register it."
 
 // retryNoteBlock renders the system note injected on retry attempts.
 func retryNoteBlock(attempt, max int) string {

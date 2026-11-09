@@ -80,7 +80,13 @@ func TestTurnControlCommandsPreserveQueuedInput(t *testing.T) {
 	if _, err := l.replay(tc.TurnID); err != nil {
 		t.Fatal(err)
 	}
-	if launches != 2 || db.GetAgentCursor(tc.ChatJID) != cursor || len(dl.sends) != 1 {
+	commands := 0
+	for _, send := range dl.sends {
+		if strings.HasPrefix(send.text, "pong") {
+			commands++
+		}
+	}
+	if launches != 2 || db.GetAgentCursor(tc.ChatJID) != cursor || commands != 1 {
 		t.Fatal("failed probe rewound cursor, launched fresh work or repeated command")
 	}
 }

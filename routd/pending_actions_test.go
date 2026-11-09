@@ -233,10 +233,10 @@ func TestHoldGate_NoRuleNoOverhead(t *testing.T) {
 // while MAX_TURN_RETRY is configurable, so an operator running 2 was told the
 // agent had tried three times.
 func TestRetryExhaustedNotice_UsesConfiguredCount(t *testing.T) {
-	if got := retryExhaustedNotice(2); !strings.Contains(got, "2 attempts") {
+	if got := renderTurnStatus(turnStatus{phase: "final", cause: "Agent could not complete the request", retry: 2}); !strings.Contains(got, "2 retries") {
 		t.Fatalf("notice = %q, want the configured count", got)
 	}
-	if got := retryExhaustedNotice(5); !strings.Contains(got, "5 attempts") {
+	if got := renderTurnStatus(turnStatus{phase: "final", cause: "Agent could not complete the request", retry: 5}); !strings.Contains(got, "5 retries") {
 		t.Fatalf("notice = %q, want the configured count", got)
 	}
 }

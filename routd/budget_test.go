@@ -38,8 +38,8 @@ func TestBudgetGate_HonorsOperatorSetCaps(t *testing.T) {
 		t.Fatalf("SetFolderCap: %v", err)
 	}
 	fake.setTeam("team", 40, 40)
-	if msg, _ := loop.budgetGate(context.Background(), "team", ""); !strings.Contains(msg, "channel spent 40 of 40") {
-		t.Errorf("operator folder cap not enforced: budgetGate = %q", msg)
+	if msg, _ := loop.budgetGate(context.Background(), "team", ""); !strings.Contains(renderTurnStatus(*msg), "channel spent 40 of 40") {
+		t.Errorf("operator folder cap not enforced: budgetGate = %v", msg)
 	}
 
 	// And `arizuko budget set user google:bob --daily 10`.
@@ -47,8 +47,8 @@ func TestBudgetGate_HonorsOperatorSetCaps(t *testing.T) {
 	seedUser(t, db, "google:bob", 10)
 	fake.setTeam("wide", 0, 0)
 	fake.setUser("google:bob", 10, 10)
-	if msg, _ := loop.budgetGate(context.Background(), "wide", "google:bob"); !strings.Contains(msg, "you spent 10 of 10") {
-		t.Errorf("operator user cap not enforced: budgetGate = %q", msg)
+	if msg, _ := loop.budgetGate(context.Background(), "wide", "google:bob"); !strings.Contains(renderTurnStatus(*msg), "you spent 10 of 10") {
+		t.Errorf("operator user cap not enforced: budgetGate = %v", msg)
 	}
 }
 
@@ -67,8 +67,8 @@ func TestBudgetGate_UserCapBindsLower(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(msg, "you spent 50 of 50") {
-		t.Errorf("expected user-scope refusal, got %q", msg)
+	if !strings.Contains(renderTurnStatus(*msg), "you spent 50 of 50") {
+		t.Errorf("expected user-scope refusal, got %v", msg)
 	}
 }
 
@@ -86,8 +86,8 @@ func TestBudgetGate_JWTSenderActivatesUserCap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(msg, "you spent 25 of 25") {
-		t.Errorf("expected user-scope refusal, got %q", msg)
+	if !strings.Contains(renderTurnStatus(*msg), "you spent 25 of 25") {
+		t.Errorf("expected user-scope refusal, got %v", msg)
 	}
 }
 
@@ -105,8 +105,8 @@ func TestBudgetGate_AdapterSenderFolderOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(msg, "channel spent 100 of 100") {
-		t.Errorf("expected channel-scope refusal, got %q", msg)
+	if !strings.Contains(renderTurnStatus(*msg), "channel spent 100 of 100") {
+		t.Errorf("expected channel-scope refusal, got %v", msg)
 	}
 }
 
@@ -139,8 +139,8 @@ func TestBudgetGate_DisablingCapsClearsTheGatewaysBudget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if msg != "" {
-		t.Errorf("caps disabled but the gate refused: %q", msg)
+	if msg != nil {
+		t.Errorf("caps disabled but the gate refused: %v", msg)
 	}
 	if cap, _ := fake.teamCap("demo"); cap != 0 {
 		t.Errorf("gateway still enforcing %d cents after caps were disabled", cap)
@@ -171,7 +171,7 @@ func TestBudgetGate_UserCapDispatchParity(t *testing.T) {
 	}
 	want := "Budget reached for today (you spent 30 of 30 cents). Resumes at 00:00 UTC."
 	if got := lastAck(t, dl); got != want {
-		t.Fatalf("refusal=%q want %q", got, want)
+		t.Fatalf("refusal=%v want %q", got, want)
 	}
 }
 
@@ -238,8 +238,8 @@ func TestBudgetGate_RemovingAUserCapClearsItAtTheGateway(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if msg != "" {
-		t.Errorf("the cap is removed and the gate still refused: %q", msg)
+	if msg != nil {
+		t.Errorf("the cap is removed and the gate still refused: %v", msg)
 	}
 	if cap, _ := fake.userCap("google:dave"); cap != 0 {
 		t.Errorf("gateway still enforcing %d cents after the cap was removed", cap)
@@ -259,8 +259,8 @@ func TestBudgetGate_AnUncappedPersonGetsNoGatewayRow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if msg != "" {
-		t.Errorf("an uncapped person was refused: %q", msg)
+	if msg != nil {
+		t.Errorf("an uncapped person was refused: %v", msg)
 	}
 	if _, ok := fake.userCap("google:erin"); ok {
 		t.Error("a row was created for someone who holds no cap")

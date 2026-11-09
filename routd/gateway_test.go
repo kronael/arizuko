@@ -352,8 +352,8 @@ func TestGateCreatesTheTeamWhenTheGatewayHasNone(t *testing.T) {
 	}
 
 	refusal, err := loop.budgetGate(context.Background(), "demo", "user:a")
-	if err != nil || refusal != "" {
-		t.Fatalf("gate = (%q, %v), want the turn allowed", refusal, err)
+	if err != nil || refusal != nil {
+		t.Fatalf("gate = (%v, %v), want the turn allowed", refusal, err)
 	}
 	cap, ok := fake.teamCap("demo")
 	if !ok {
@@ -433,8 +433,8 @@ func TestGateRefusesOnTheGatewaysFolderMeter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("gate: %v", err)
 	}
-	if !strings.Contains(refusal, "channel spent 700 of 500 cents") {
-		t.Errorf("refusal = %q, want the gateway's own spend and cap in it", refusal)
+	if !strings.Contains(renderTurnStatus(*refusal), "channel spent 700 of 500 cents") {
+		t.Errorf("refusal = %v, want the gateway's own spend and cap in it", refusal)
 	}
 }
 
@@ -450,8 +450,8 @@ func TestGateRefusesOnTheGatewaysUserMeter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("gate: %v", err)
 	}
-	if !strings.Contains(refusal, "you spent 300 of 200 cents") {
-		t.Errorf("refusal = %q, want the gateway's per-person numbers", refusal)
+	if !strings.Contains(renderTurnStatus(*refusal), "you spent 300 of 200 cents") {
+		t.Errorf("refusal = %v, want the gateway's per-person numbers", refusal)
 	}
 }
 
@@ -572,8 +572,8 @@ func TestNoGatewaySpawnsAndEnforcesNothing(t *testing.T) {
 		Content: "q", Timestamp: time.Now().UTC()})
 
 	refusal, err := loop.budgetGate(context.Background(), "demo", "user:a")
-	if err != nil || refusal != "" {
-		t.Fatalf("gate = (%q, %v); with no meter there is nothing to refuse on", refusal, err)
+	if err != nil || refusal != nil {
+		t.Fatalf("gate = (%v, %v); with no meter there is nothing to refuse on", refusal, err)
 	}
 	if _, err := loop.processGroupMessages("web:demo"); err != nil {
 		t.Fatalf("an instance with no gateway must still run turns: %v", err)

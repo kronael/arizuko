@@ -15,7 +15,7 @@ import (
 type noticeFailingDeliverer struct{ *recDeliverer }
 
 func (d *noticeFailingDeliverer) Send(jid, text, replyTo, threadID, threadRoot, idem string) (string, error) {
-	for _, prefix := range []string{"ghost-", "budget-", "fail-", "silent-"} {
+	for _, prefix := range []string{"status-"} {
 		if strings.HasPrefix(idem, prefix) {
 			_, _ = d.recDeliverer.Send(jid, text, replyTo, threadID, threadRoot, idem)
 			return "", errSend
@@ -37,7 +37,7 @@ func assertNoticeLogged(t *testing.T, logs *syncBuf, jid string) {
 	t.Helper()
 	var line string
 	for _, l := range strings.Split(logs.String(), "\n") {
-		if strings.Contains(l, "turn notice not sent") {
+		if strings.Contains(l, "status operation queued") {
 			line = l
 		}
 	}
@@ -73,7 +73,7 @@ func TestNoticeSend_FailureIsLogged(t *testing.T) {
 
 		_, _ = loop.processGroupMessages("slack:T/C/U")
 
-		if sent := dl.sentMsgs(); len(sent) != 1 || sent[0].text != ghostGroupNotice {
+		if sent := dl.sentMsgs(); len(sent) != 1 || sent[0].text != renderTurnStatus(turnStatus{phase: "setup"}) {
 			t.Fatalf("sends=%+v, want the ghost-group notice", sent)
 		}
 		assertNoticeLogged(t, logs, "slack:T/C/U")
@@ -103,8 +103,8 @@ func TestNoticeSend_FailureIsLogged(t *testing.T) {
 	})
 
 	for _, tc := range []struct{ mode, notice string }{
-		{"silent", silentTurnNotice},
-		{"error", runFailureNotice},
+		{"silent", renderTurnStatus(turnStatus{phase: "silent"})},
+		{"error", renderTurnStatus(turnStatus{phase: "final", cause: "Agent could not complete the request"})},
 	} {
 		t.Run(tc.mode, func(t *testing.T) {
 			logs := captureWarnings(t)
@@ -122,8 +122,9 @@ func TestNoticeSend_FailureIsLogged(t *testing.T) {
 			for _, m := range dl.sentMsgs() {
 				tried = tried || m.text == tc.notice
 			}
-			if !tried {
-				t.Fatalf("sends=%+v, want the %s notice attempted", dl.sentMsgs(), tc.mode)
+			row, ok := db.LastStatusRow(jid, "tm1")
+			if !tried && (!ok || row.Content != tc.notice) {
+				t.Fatalf("sends=%+v status=%+v, want the %s notice owed", dl.sentMsgs(), row, tc.mode)
 			}
 			assertNoticeLogged(t, logs, jid)
 		})

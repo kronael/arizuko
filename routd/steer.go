@@ -272,7 +272,7 @@ func (l *Loop) cmdStop(chatJID, folder string) {
 		return
 	}
 	if res.Killed {
-		l.ack(chatJID, "Turn stopped.")
+		l.ack(chatJID, renderTurnStatus(turnStatus{phase: "stopped"}))
 	} else {
 		l.ack(chatJID, "No active turn for this chat.")
 	}

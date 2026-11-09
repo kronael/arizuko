@@ -312,6 +312,7 @@ func (l *Loop) Run(ctx context.Context) {
 	}
 	now := time.Now()
 	l.nextRetryAt = now.Add(outboundRetryEvery)
+	l.recoverStatuses()
 	l.nextGCAt = now.Add(gcEvery)
 	t := time.NewTicker(l.pollEvery)
 	defer t.Stop()
@@ -387,6 +388,7 @@ func (l *Loop) maybeRetryOutbound(now time.Time) {
 		return
 	}
 	l.nextRetryAt = now.Add(outboundRetryEvery)
+	l.recoverStatuses()
 	rows, err := l.db.PendingOutbound(now.Add(-outboundRetryAfter), 200)
 	if err != nil {
 		slog.Warn("retry outbound: list pending", "err", err)

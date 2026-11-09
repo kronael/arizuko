@@ -451,7 +451,7 @@ func TestRunErrorMarksAndNotifies(t *testing.T) {
 	if db.GetAgentCursor("slack:T/C/U") == "" {
 		t.Fatal("outcome:error did not advance cursor (starvation hazard)")
 	}
-	if len(dl.sends) != 1 || dl.sends[0].text != runFailureNotice {
+	if len(dl.sends) != 1 || dl.sends[0].text != renderTurnStatus(turnStatus{phase: "final", cause: "Agent could not complete the request"}) {
 		t.Fatalf("expected one failure notice, got %+v", dl.sends)
 	}
 	errored, eerr := db.ErroredChats("", true)
@@ -509,7 +509,7 @@ func TestRunErrorNotifiesEveryChatTheRunOwned(t *testing.T) {
 		idem[s.jid] = s.idem
 	}
 	for _, jid := range []string{"slack:T/A/U", "slack:T/B/U"} {
-		if text[jid] != runFailureNotice {
+		if text[jid] != renderTurnStatus(turnStatus{phase: "final", cause: "Agent could not complete the request"}) {
 			t.Errorf("chat %s got %q, want the failure notice: the run it was "+
 				"waiting on died, so silence there is the bug", jid, text[jid])
 		}
@@ -553,8 +553,8 @@ func TestTurnRetry_SchedulesRetryOnError(t *testing.T) {
 	if tc.State != "pending_retry" {
 		t.Fatalf("expected state=pending_retry, got %q", tc.State)
 	}
-	if len(dl.sends) != 0 {
-		t.Fatalf("expected no notice on retry schedule, got %+v", dl.sends)
+	if len(dl.sends) != 1 || !strings.Contains(dl.sends[0].text, "Retry 1/2 at") {
+		t.Fatalf("expected first failure status, got %+v", dl.sends)
 	}
 	if cur := db.GetAgentCursor("slack:T/C/U"); cur != tc.InputLast || tc.NextAttemptAt.IsZero() {
 		t.Fatalf("deferred cursor=%q binding=%+v", cur, tc)
@@ -618,11 +618,11 @@ func TestTurnRetry_TerminalNotRetried(t *testing.T) {
 	if len(dl.sends) != 1 {
 		t.Fatalf("expected one failure notice, got %+v", dl.sends)
 	}
-	if got := dl.sends[0].text; got != terminalFailureNotice(cause) {
+	if got := dl.sends[0].text; got != renderTurnStatus(turnStatus{phase: "final", cause: "Agent could not complete the request"}) {
 		t.Fatalf("notice=%q want terminalFailureNotice with the cause", got)
 	}
-	if !strings.Contains(dl.sends[0].text, "code 125") {
-		t.Fatalf("notice does not name the real cause: %q", dl.sends[0].text)
+	if strings.Contains(dl.sends[0].text, "code 125") {
+		t.Fatalf("notice leaked the runtime diagnostic: %q", dl.sends[0].text)
 	}
 }
 
@@ -653,7 +653,8 @@ func TestTurnRetry_ExhaustsAndNotifies(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if len(dl.sends) != 1 || dl.sends[0].text != retryExhaustedNotice(loop.maxTurnRetry) {
+	row, _ := db.LastStatusRow("slack:T/C/U", "r2")
+	if len(dl.sends) != 1 || row.Content != renderTurnStatus(turnStatus{phase: "final", cause: "Agent could not complete the request", retry: loop.maxTurnRetry}) {
 		t.Fatalf("expected retry exhausted notice, got %+v", dl.sends)
 	}
 	tc, _ := db.GetTurnContext("r2")
@@ -689,7 +690,7 @@ func TestGhostGroup_RefusesUnregistered(t *testing.T) {
 	if spawned {
 		t.Fatal("ghost group must not spawn a container")
 	}
-	if len(dl.sends) != 1 || dl.sends[0].text != ghostGroupNotice {
+	if len(dl.sends) != 1 || dl.sends[0].text != renderTurnStatus(turnStatus{phase: "setup"}) {
 		t.Fatalf("expected ghost-group notice, got %+v", dl.sends)
 	}
 }
@@ -1418,7 +1419,7 @@ func TestInvalidGroupAgentFailsOnce(t *testing.T) {
 	if tc.State != "done" || tc.RetryCount != 0 || attempts != 0 {
 		t.Fatalf("turn=%+v runner calls=%d", tc, attempts)
 	}
-	if len(dl.sends) != 1 || !strings.Contains(dl.sends[0].text, "demo") || !strings.Contains(dl.sends[0].text, "../bad") {
+	if len(dl.sends) != 1 || strings.Contains(dl.sends[0].text, "../bad") || strings.Contains(dl.sends[0].text, "demo") {
 		t.Fatalf("notices = %+v", dl.sends)
 	}
 	if got := db.GetAgentCursor("slack:T/C/U"); !strings.HasSuffix(got, "\x1fbad-agent") {

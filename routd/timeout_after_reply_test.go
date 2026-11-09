@@ -22,16 +22,16 @@ func TestTimeoutAfterReplyRecordsFailureAndNotifiesOnce(t *testing.T) {
 		}
 	}
 	result, err := db.store().GetTurnResult("demo", "t1")
-	if err != nil || result.Status != "error" || db.TurnFailure("demo", "t1") != timedOutNotice {
+	if err != nil || result.Status != "error" || db.TurnFailure("demo", "t1") != renderTurnStatus(turnStatus{phase: "timeout"}) {
 		t.Fatalf("timeout completion = %+v, %v", result, err)
 	}
 	row, ok := db.LastStatusRow(progressJID, "t1")
-	if !ok || row.Content != "✗ working" {
+	if !ok || row.Content != renderTurnStatus(turnStatus{phase: "timeout"}) {
 		t.Fatalf("timeout progress = %+v, found=%v", row, ok)
 	}
 	notices := 0
-	for _, send := range dl.sends {
-		if send.text == timedOutNotice {
+	for _, edit := range dl.edits {
+		if edit.content == renderTurnStatus(turnStatus{phase: "timeout"}) {
 			notices++
 		}
 	}
@@ -57,7 +57,7 @@ func TestTimeoutAfterReplyKeepsRecordedCompletion(t *testing.T) {
 		t.Fatalf("recorded completion = %+v, %v", result, err)
 	}
 	for _, send := range dl.sentMsgs() {
-		if send.text == timedOutNotice {
+		if send.text == renderTurnStatus(turnStatus{phase: "timeout"}) {
 			t.Fatal("late timeout sent a notice")
 		}
 	}

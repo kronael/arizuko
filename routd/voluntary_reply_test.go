@@ -228,11 +228,11 @@ func TestSubmitTurnCompletionOutcomes(t *testing.T) {
 		name, status, trigger, notice            string
 		addressed, progress, stopCheck, timedOut bool
 	}{
-		{name: "addressed silent", status: "success", addressed: true, stopCheck: true, notice: silentTurnNotice},
+		{name: "addressed silent", status: "success", addressed: true, stopCheck: true, notice: renderTurnStatus(turnStatus{phase: "silent"})},
 		{name: "ambient", status: "success"},
 		{name: "isolated", status: "success", trigger: "timed-isolated:cron"},
 		{name: "error", status: "error", addressed: true, progress: true},
-		{name: "timeout", status: "success", addressed: true, timedOut: true, notice: timedOutNotice},
+		{name: "timeout", status: "success", addressed: true, timedOut: true, notice: renderTurnStatus(turnStatus{phase: "timeout"})},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			db, err := OpenMem()
@@ -288,7 +288,7 @@ func TestSubmitTurnCompletionOutcomes(t *testing.T) {
 			}
 			if tt.progress {
 				row, ok := db.LastStatusRow("tg:1", "t1")
-				if !ok || row.Content != "✗ working" {
+				if !ok || row.Content != renderTurnStatus(turnStatus{phase: "final", cause: "Agent could not complete the request"}) {
 					t.Fatalf("progress=%+v exists=%v", row, ok)
 				}
 			}
