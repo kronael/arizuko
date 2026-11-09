@@ -153,14 +153,17 @@ not "go left after the bridge".
   `db/food.md` (bakeries → Breakfast, cafés → Coffee, restaurants on the
   route → Lunch, near home → Dinner). Never empty when the census has rows.
 - One `<li>` per place, at most 10 words before the first `·`:
-  `<a href="…/maps/place/…">Name</a> — what it is, open to 18:00 · Google 4.6 · <a href="tel:+00…">+00 …</a> · <a class="alt" href="…source=osm&id=…">mapy</a>`
+  `<a href="…/maps/place/…">Name</a> — what it is, open to 18:00 · mapy 4.8 · 123 reviews · 6 recent · <a href="tel:+00…">+00 …</a> · <a class="alt" href="…source=osm&id=…">mapy</a>`
   The venue name links Google; the `class="alt"` chip links mapy
   (`mapy-links.md` § By kind); phone missing after
-  the Google check → `phone: not found`. Address, hours, price and
-  counts stay in the row.
-- Rating = the platform that was opened + score. `unrated` only after
-  Google Maps was opened and showed no rating (a café
-  "unrated"; Google had 4.5).
+  the Google check → `phone: not found`. Address, hours and price stay
+  in the row.
+- Rating, reviews and recent are the row's derived fields
+  (`census.md` § Rating arithmetic): the higher score with its platform,
+  the summed count, the 2-month count. A missing count is named:
+  `mapy 4.8 · 77 mapy reviews, Google count unknown`. `unrated` only
+  after Google Maps was opened and showed no rating (a café "unrated";
+  Google had 4.5).
 - Select, do not list: the best-rated venues AT the spot where the meal
   happens (the park café for a park walk, the square for a town lunch),
   sorted by rating; caps Lunch 3, Breakfast 2, Coffee 2, Dinner 2. A

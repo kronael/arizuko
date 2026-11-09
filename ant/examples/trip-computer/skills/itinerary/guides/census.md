@@ -177,3 +177,16 @@ available research and mark the refused source as unchecked:
 ## Photos and reviews
 
 Record each platform's rating, review count, observation date and recent reviews separately. Inspect photos for practical details such as access and seating. Mark missing counts or photos as unknown.
+
+## Rating arithmetic
+
+The row keeps the Google and mapy numbers apart and adds three derived
+fields, each dated:
+- `rating` = the higher of the two scores, with the platform it came from.
+- `reviews` = Google count + mapy count: platform totals, not people.
+- `recent` = reviews of both platforms dated within the 2 months before
+  the observation date (open the list sorted by newest).
+
+When a platform's count is unavailable (Google's limited view), the sum
+is incomplete: the row and the page say which count is missing, never a
+bare total. The page shows them as `pages.md` § Meals gives.
