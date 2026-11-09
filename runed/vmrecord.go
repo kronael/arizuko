@@ -217,7 +217,7 @@ func allocateCID(used map[uint32]bool, cap int, base uint32) (uint32, error) {
 			return cid, nil
 		}
 	}
-	return 0, fmt.Errorf("no free guest CID in [%d,%d): %d live guests at MAX_CONCURRENT_CONTAINERS=%d",
+	return 0, fmt.Errorf("no free guest CID in [%d,%d): %d live guests at MAX_CONCURRENT_AGENTS=%d",
 		base, base+uint32(cap), len(used), cap)
 }
 
@@ -229,7 +229,7 @@ func allocateCID(used map[uint32]bool, cap int, base uint32) (uint32, error) {
 // denial into a guest talking to whoever answered.
 //
 // THE SLOT, not the CID. A slot is `cid - RUNED_VSOCK_CID_BASE`, so it runs 0 to
-// MAX_CONCURRENT_CONTAINERS-1 whatever window the instance owns. Deriving from the
+// MAX_CONCURRENT_AGENTS-1 whatever window the instance owns. Deriving from the
 // absolute CID instead tied the two bases together: an instance at CID base 20 with
 // port base 5655 got ports 5689 upward, neither number where the operator put it,
 // and the tap subnet's index ran off the end of a /24 at any CID base over 64 —
@@ -356,7 +356,7 @@ func reapVM(rec *vmRecord, p procs, grace, poll time.Duration, tree *turnTree, n
 	// holds a file it did not create, and a guest holds a WRITABLE export by
 	// design, so any guest can leave one — step 0's own uid-clamp probe does. A
 	// kept record costs a CID forever, because `liveCIDs` reads the records on
-	// disk and `allocateCID` searches only MAX_CONCURRENT_CONTAINERS of them, so
+	// disk and `allocateCID` searches only MAX_CONCURRENT_AGENTS of them, so
 	// five such turns leave every later spawn with no CID and no live guest.
 	//
 	// The record's job is to name the processes a dead runed must reap. Once every

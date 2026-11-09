@@ -46,12 +46,11 @@ type Manager struct {
 	steerFns map[string]func(batch string) bool
 }
 
-// ManagerConfig wires the Manager. MaxConcurrent caps total live spawns
-// (MAX_CONCURRENT_CONTAINERS).
+// ManagerConfig wires the renderer, deadline and concurrent agent cap.
 type ManagerConfig struct {
-	RunTTL        time.Duration
-	Instance      string
-	MaxConcurrent int
+	RunTTL    time.Duration
+	Instance  string
+	MaxAgents int
 	// Cfg + Folders wire the turn renderer. An agent run refuses without them:
 	// there is no envelope to hand a substrate.
 	Cfg     *core.Config
@@ -63,15 +62,15 @@ func NewManager(db *DB, runtime Runtime, cfg ManagerConfig) *Manager {
 	if cfg.RunTTL == 0 {
 		cfg.RunTTL = core.RunTimeout()
 	}
-	if cfg.MaxConcurrent <= 0 {
-		cfg.MaxConcurrent = defaultMaxConcurrent
+	if cfg.MaxAgents <= 0 {
+		cfg.MaxAgents = defaultMaxConcurrent
 	}
 	return &Manager{
 		db:        db,
 		executors: map[string]Runtime{KindAgent: runtime},
 		runTTL:    cfg.RunTTL,
 		instance:  cfg.Instance,
-		maxRun:    cfg.MaxConcurrent,
+		maxRun:    cfg.MaxAgents,
 		cfg:       cfg.Cfg,
 		folders:   cfg.Folders,
 		steerFns:  map[string]func(batch string) bool{},
@@ -188,7 +187,7 @@ func (m *Manager) admit(ctx context.Context, req runedv1.RunRequest, kind string
 		return claim{}, runedv1.RunOutcome{Busy: true}, false, nil
 	}
 
-	// The global cap is scoped to KindAgent (spec 5/8): MaxConcurrent bounds
+	// The global cap is scoped to KindAgent (spec 5/8): MaxAgents bounds
 	// container resources, which a containerless kind does not consume; its
 	// serialization is the per-folder exclusivity above.
 	if kind == KindAgent {

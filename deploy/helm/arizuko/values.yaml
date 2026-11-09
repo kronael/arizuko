@@ -71,7 +71,7 @@ config:
   webHost: '' # WEB_HOST (required) — the public hostname
   tz: UTC
   logLevel: info
-  maxConcurrentContainers: '3' # MAX_CONCURRENT_CONTAINERS — live guests at once
+  maxConcurrentAgents: '3' # MAX_CONCURRENT_AGENTS — live agents at once
   otelEndpoint: '' # OTEL_EXPORTER_OTLP_ENDPOINT; empty = stderr-only logging
   onboardingEnabled: false # ONBOARDING_ENABLED
   webdavEnabled: true # WEBDAV_ENABLED (davd)

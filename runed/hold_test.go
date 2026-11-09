@@ -21,7 +21,7 @@ func newHoldMgr(t *testing.T, rt Runtime, max int, ttl time.Duration) (*DB, *Man
 	t.Cleanup(func() { db.Close() })
 	cfg, folders := renderWiring(t)
 	mgr := NewManager(db, rt, ManagerConfig{
-		Instance: "test", MaxConcurrent: max, RunTTL: ttl,
+		Instance: "test", MaxAgents: max, RunTTL: ttl,
 		Cfg: cfg, Folders: folders,
 	})
 	mgr.RegisterExecutor(KindHold, NewHoldRuntime())
@@ -201,7 +201,7 @@ func TestExpiredHoldsReleaseAdmission(t *testing.T) {
 	}
 }
 
-// TestHoldDoesNotConsumeContainerCap: MAX_CONCURRENT_CONTAINERS bounds
+// TestHoldDoesNotConsumeContainerCap: MAX_CONCURRENT_AGENTS bounds
 // container/host resources, which a containerless hold does not consume.
 // Holds on other folders must never make an agent turn 503-busy on capacity
 // it is not using. maxRun=1 makes the accounting unambiguous.
@@ -304,7 +304,7 @@ func holdServer(t *testing.T, v Verifier) (*DB, *Server) {
 	t.Cleanup(func() { db.Close() })
 	cfg, folders := renderWiring(t)
 	mgr := NewManager(db, FakeRuntime{}, ManagerConfig{
-		Instance: "test", MaxConcurrent: 5, RunTTL: time.Minute,
+		Instance: "test", MaxAgents: 5, RunTTL: time.Minute,
 		Cfg: cfg, Folders: folders,
 	})
 	mgr.RegisterExecutor(KindHold, NewHoldRuntime())

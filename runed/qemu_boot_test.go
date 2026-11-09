@@ -38,7 +38,7 @@ func TestGuestBootsAndReportsOverCtl(t *testing.T) {
 	}
 	cfg, _ := renderWiring(t)
 	cfg.Name = os.Getenv("RUNED_BENCH_ID")
-	cfg.MaxContainers = 5
+	cfg.MaxAgents = 5
 	if err := os.Chmod(filepath.Dir(cfg.ProjectRoot), 0o755); err != nil {
 		t.Fatal(err)
 	}

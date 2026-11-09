@@ -33,7 +33,7 @@ data:
   {{- with .Values.store.ca }}
   STORE_CA: {{ . | quote }}
   {{- end }}
-  MAX_CONCURRENT_CONTAINERS: {{ .Values.config.maxConcurrentContainers | quote }}
+  MAX_CONCURRENT_AGENTS: {{ .Values.config.maxConcurrentAgents | quote }}
   ONBOARDING_ENABLED: {{ .Values.config.onboardingEnabled | quote }}
   WEBDAV_ENABLED: {{ .Values.config.webdavEnabled | quote }}
   {{- with .Values.config.otelEndpoint }}

@@ -199,7 +199,7 @@ func qemuPreconditions(cfg *core.Config) (qemuPaths, error) {
 	checkClamp(p, miss)
 	if total, err := hostMemTotal(); err != nil {
 		miss("%s", err)
-	} else if err := memoryFits(p.Mem, cfg.MaxContainers, total); err != nil {
+	} else if err := memoryFits(p.Mem, cfg.MaxAgents, total); err != nil {
 		miss("%s", err)
 	}
 	// EVERY slot the cap allows, not slot 0. A subnet that holds the first guest and
@@ -207,10 +207,10 @@ func qemuPreconditions(cfg *core.Config) (qemuPaths, error) {
 	// turn, and checking one arbitrary point is how the CID-base defect reached a
 	// live instance (BUGS `L382`). This is the shape `memoryFits` already uses: the
 	// guest size times the cap, not one guest.
-	for slot := 0; slot < max(cfg.MaxContainers, 1); slot++ {
+	for slot := 0; slot < max(cfg.MaxAgents, 1); slot++ {
 		if _, _, err := tapNet(p.TapSubnet, slot); err != nil {
-			miss("%s=%s cannot hold MAX_CONCURRENT_CONTAINERS=%d guests: %v",
-				envTapSubnet, p.TapSubnet, cfg.MaxContainers, err)
+			miss("%s=%s cannot hold MAX_CONCURRENT_AGENTS=%d guests: %v",
+				envTapSubnet, p.TapSubnet, cfg.MaxAgents, err)
 			break
 		}
 	}
@@ -324,7 +324,7 @@ func memoryFits(mem string, maxContainers int, total int64) error {
 		maxContainers = 1
 	}
 	if guest*int64(maxContainers) > total {
-		return fmt.Errorf("%s=%s × MAX_CONCURRENT_CONTAINERS=%d is %d MiB, over this host's MemTotal of %d MiB: lower either",
+		return fmt.Errorf("%s=%s × MAX_CONCURRENT_AGENTS=%d is %d MiB, over this host's MemTotal of %d MiB: lower either",
 			envGuestMem, mem, maxContainers, guest*int64(maxContainers)>>20, total>>20)
 	}
 	return nil

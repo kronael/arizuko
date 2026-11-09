@@ -21,9 +21,9 @@ func newMgr(t *testing.T, rt Runtime, max int) (*DB, *Manager) {
 	t.Cleanup(func() { db.Close() })
 	cfg, folders := renderWiring(t)
 	mgr := NewManager(db, rt, ManagerConfig{
-		Instance:      "test",
-		MaxConcurrent: max,
-		Cfg:           cfg, Folders: folders,
+		Instance:  "test",
+		MaxAgents: max,
+		Cfg:       cfg, Folders: folders,
 	})
 	return db, mgr
 }
@@ -189,7 +189,7 @@ func TestRunTTLBecomesTheCtxDeadline(t *testing.T) {
 	t.Cleanup(func() { db.Close() })
 	cfg, folders := renderWiring(t)
 	mgr := NewManager(db, rt, ManagerConfig{
-		Instance: "test", MaxConcurrent: 5, RunTTL: 20 * time.Millisecond,
+		Instance: "test", MaxAgents: 5, RunTTL: 20 * time.Millisecond,
 		Cfg: cfg, Folders: folders,
 	})
 
@@ -219,7 +219,7 @@ func TestManagerAppliesRunTTLDeadline(t *testing.T) {
 	t.Cleanup(func() { db.Close() })
 	cfg, folders := renderWiring(t)
 	mgr := NewManager(db, rt, ManagerConfig{
-		Instance: "test", MaxConcurrent: 5, RunTTL: 20 * time.Millisecond,
+		Instance: "test", MaxAgents: 5, RunTTL: 20 * time.Millisecond,
 		Cfg: cfg, Folders: folders,
 	})
 
@@ -328,7 +328,7 @@ func TestGatewaySpawnWithoutAKeyIsRefused(t *testing.T) {
 	cfg, folders := renderWiring(t)
 	cfg.ModelGatewayURL = "http://litellm:4000"
 	mgr := NewManager(db, rt, ManagerConfig{
-		Instance: "test", MaxConcurrent: 5,
+		Instance: "test", MaxAgents: 5,
 		Cfg: cfg, Folders: folders,
 	})
 
@@ -363,7 +363,7 @@ func TestAgentRunWithoutARendererIsRefused(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	mgr := NewManager(db, rt, ManagerConfig{Instance: "test", MaxConcurrent: 5})
+	mgr := NewManager(db, rt, ManagerConfig{Instance: "test", MaxAgents: 5})
 
 	out, _ := mgr.Run(context.Background(), runedv1.RunRequest{Packages: []string{"core"}, Folder: "demo", MessageBatch: "m"})
 	if out.Outcome != runedv1.OutcomeError || !out.Terminal {

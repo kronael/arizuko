@@ -184,13 +184,9 @@ func main() {
 
 	engagementTTL := core.DurOr("ENGAGEMENT_TTL", routd.DefaultEngagementTTL)
 	loop := routd.NewLoop(db, runedClient, routd.LoopConfig{
-		RunTimeout: runedWait,
-		IpcDir:     filepath.Join(dataDir, "ipc"),
-		// The SAME variable runed reads for its own ceiling. routd's queue
-		// paces the work and runed admits it, so the two must agree: while
-		// this was unwired, routd held a hardcoded 5 and an operator raising
-		// MAX_CONCURRENT_CONTAINERS moved one cap and not the other (BUGS F71).
-		MaxRuns:       core.EnvInt("MAX_CONCURRENT_CONTAINERS", 5),
+		RunTimeout:    runedWait,
+		IpcDir:        filepath.Join(dataDir, "ipc"),
+		MaxAgents:     cfg.MaxAgents,
 		EngagementTTL: engagementTTL,
 		Deliver:       deliver,
 		Proactive:     routd.LoadProactiveConfig(os.Getenv),

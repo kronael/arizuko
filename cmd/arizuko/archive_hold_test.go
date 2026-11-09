@@ -185,7 +185,7 @@ func liveRuned(t *testing.T) (*runed.DB, string) {
 	}
 	t.Cleanup(func() { db.Close() })
 	mgr := runed.NewManager(db, runed.FakeRuntime{}, runed.ManagerConfig{
-		Instance: "test", MaxConcurrent: 5, RunTTL: time.Minute,
+		Instance: "test", MaxAgents: 5, RunTTL: time.Minute,
 	})
 	mgr.RegisterExecutor(runed.KindHold, runed.NewHoldRuntime())
 	srv := httptest.NewServer(runed.NewServer(mgr, db, nil).Handler())

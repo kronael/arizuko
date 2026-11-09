@@ -72,7 +72,7 @@ A kill is the one revoke that runed has, because runed mints nothing. `Manager.K
 - `RUNED_RUN_TIMEOUT` is the run ceiling. The default is 60m. It bounds the hard kill of the guest and the query timeout of the agent inside the guest. The query timeout is `ARIZUKO_QUERY_TIMEOUT_MS`, which equals `RUNED_RUN_TIMEOUT` minus 30 s with a floor of 60 s (`queryTimeoutMs` in `render.go`). So the agent aborts and delivers a summary before runed kills the guest.
 - `RUNED_SHUTDOWN_GRACE` is the wait for in-flight handlers on graceful shutdown. The default is the value of `RUNED_RUN_TIMEOUT`.
 - `LISTEN_ADDR` is the HTTP listener. The default is `:8080`.
-- `MAX_CONCURRENT_CONTAINERS` is the cap on live guests. The default is 5. It comes from `core.LoadConfig`, together with the directory settings `GroupsDir`, `IpcDir`, `StoreDir` and others.
+- `MAX_CONCURRENT_AGENTS` is the cap on live agents. The default is 5. It comes from `core.LoadConfig`, together with the directory settings `GroupsDir`, `IpcDir`, `StoreDir` and others.
 
 ### The turn substrate
 
@@ -86,7 +86,7 @@ runed refuses to start unless every precondition below holds. The refusal names 
 - `RUNED_ROOTFS_DIR` is the release rootfs that `make images` exports once per release.
 - `RUNED_VIRTIOFSD` advertises `--uid-map` and `--gid-map`. The default is `/usr/libexec/virtiofsd`, where the Rust daemon of Alpine lands. runed does not send those flags. It uses them to tell the Rust build from the C build of QEMU. The C build needs real root, and runed refuses it.
 - `RUNED_EGRESS_BIN`, `RUNED_FIREWALL_BIN` and `RUNED_IP_BIN` are executable. Their defaults are `egress`, `iptables` and `ip`.
-- `RUNED_GUEST_MEM` times `MAX_CONCURRENT_CONTAINERS` fits the `MemTotal` of the host. The default guest size is `2G`. The guest size and the cap are one setting.
+- `RUNED_GUEST_MEM` times `MAX_CONCURRENT_AGENTS` fits the `MemTotal` of the host. The default guest size is `2G`. The guest size and the cap are one setting.
 - `RUNED_TAP_SUBNET` holds one `/30` for every slot that the cap allows.
 
 **The clamp is the uid of the daemon.** A child that runs as the uid of the agent exports the writable share. So the daemon cannot create a host file owned by anyone else, whatever uid the guest states. Without the clamp, a guest as uid 0 writes files owned by host root into the folder, and they outlive the turn. This was measured on 2026-09-24. An id map cannot replace the clamp here. It is legal only under `--sandbox namespace`, and docker refuses the `/proc` mount of that sandbox.
@@ -198,11 +198,11 @@ Core is required. Package selection is an input to the renderer, outside the
 
 `Manager.Run` (`manager.go`) answers in one of two ways and keeps no queue. A second queue inside runed would drift from the queue of routd, which already holds the batch.
 
-| Folder state                         | Answer                                     | routd then                                  |
-| ------------------------------------ | ------------------------------------------ | ------------------------------------------- |
-| a live guest or spawn row            | `busy`                                     | re-feeds the batch later, no cursor advance |
-| cap `MAX_CONCURRENT_CONTAINERS` full | `busy`                                     | the same                                    |
-| idle, under the cap                  | a `spawns` row in `queued`, then the guest | waits for the outcome                       |
+| Folder state                     | Answer                                     | routd then                                  |
+| -------------------------------- | ------------------------------------------ | ------------------------------------------- |
+| a live guest or spawn row        | `busy`                                     | re-feeds the batch later, no cursor advance |
+| cap `MAX_CONCURRENT_AGENTS` full | `busy`                                     | the same                                    |
+| idle, under the cap              | a `spawns` row in `queued`, then the guest | waits for the outcome                       |
 
 - runed keeps no state outside the store. Every admission decision reads the `spawns` rows under one mutex for check and claim. A map in memory would lie after a restart: a folder would stay wedged, or the cap would reset. At boot, `ExpireOrphans` ends every row that a dead runed left live, as `exited` with outcome `error` and never `killed` (`runstore/spawns.go`).
 - `StartSpawn` takes the claim with a condition on `state='queued'`. A `DELETE` that lands between the claim and the launch wins, and the run answers `busy`. A `killed` row makes the folder read free, so a launch without this guard would put two guests on one mount.

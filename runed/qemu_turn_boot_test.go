@@ -137,7 +137,7 @@ func TestGuestMCPBridgeRejectsOtherGuest(t *testing.T) {
 	cfg := &core.Config{
 		Name: os.Getenv("RUNED_BENCH_ID"), ProjectRoot: root,
 		GroupsDir: filepath.Join(root, "groups"), IpcDir: filepath.Join(root, "ipc"),
-		MaxContainers: 2,
+		MaxAgents: 2,
 	}
 	for _, dir := range []string{
 		filepath.Join(root, "app"), filepath.Join(cfg.IpcDir, "solo", "victim"),
@@ -254,7 +254,7 @@ func TestGuestTurnOverCtl(t *testing.T) {
 	cfg := &core.Config{
 		Name: os.Getenv("RUNED_BENCH_ID"), ProjectRoot: root,
 		GroupsDir: filepath.Join(root, "groups"), IpcDir: filepath.Join(root, "ipc"),
-		MaxContainers: 1,
+		MaxAgents: 1,
 	}
 	for _, dir := range []string{
 		filepath.Join(root, "app"), filepath.Join(cfg.IpcDir, "solo", "inbox"),

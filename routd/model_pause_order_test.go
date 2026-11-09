@@ -162,7 +162,7 @@ func TestModelPausePollHeldOrder(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			l := NewLoop(db, p, LoopConfig{Deliver: dl, MaxRuns: 1})
+			l := NewLoop(db, p, LoopConfig{Deliver: dl, MaxAgents: 1})
 			modelPauseDue(t, l)
 			p.srv = NewServer(db, l, dl, nil, 0, "")
 			t.Cleanup(l.StopQueue)

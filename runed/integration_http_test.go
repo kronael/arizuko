@@ -265,7 +265,7 @@ func TestHTTPUnauthorizedWhenVerifyFails(t *testing.T) {
 	t.Cleanup(func() { db.Close() })
 	cfg, folders := renderWiring(t)
 	mgr := NewManager(db, &turnRecorder{}, ManagerConfig{
-		Instance: "test", MaxConcurrent: 5,
+		Instance: "test", MaxAgents: 5,
 		Cfg: cfg, Folders: folders,
 	})
 	srv := NewServer(mgr, db, errVerifier{})

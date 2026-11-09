@@ -56,7 +56,7 @@ type Config struct {
 	ModelGatewayURL     string
 	ModelGatewayKey     string
 	AgentEnv            map[string]string
-	MaxContainers       int
+	MaxAgents           int
 	Timezone            string
 	AuthSecret          string
 	WebHost             string
@@ -223,6 +223,9 @@ func LoadInstanceEnv(dir string) error {
 
 func LoadConfig() (*Config, error) {
 	_ = godotenv.Load(".env")
+	if _, exists := os.LookupEnv("MAX_CONCURRENT_CONTAINERS"); exists {
+		return nil, fmt.Errorf("MAX_CONCURRENT_CONTAINERS is not supported; run arizuko migrate -i <instance>")
+	}
 
 	root := EnvOr("DATA_DIR", mustCwd())
 	hostRoot := EnvOr("HOST_DATA_DIR", root)
@@ -239,7 +242,7 @@ func LoadConfig() (*Config, error) {
 		},
 		ModelGatewayURL:     EnvOr("MODEL_GATEWAY_URL", ""),
 		ModelGatewayKey:     EnvOr("MODEL_GATEWAY_KEY", ""),
-		MaxContainers:       EnvInt("MAX_CONCURRENT_CONTAINERS", 5),
+		MaxAgents:           EnvInt("MAX_CONCURRENT_AGENTS", 5),
 		Timezone:            Timezone(),
 		AuthSecret:          EnvOr("AUTH_SECRET", ""),
 		WebHost:             EnvOr("WEB_HOST", ""),

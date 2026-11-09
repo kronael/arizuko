@@ -201,7 +201,7 @@ func TestLifecycleFreshNameAndSetup(t *testing.T) {
 		}
 	}
 	for key, want := range map[string]string{
-		"APP_SRC_DEV": "", "MAX_CONCURRENT_CONTAINERS": "1", "RUNED_GUEST_MEM": "2G",
+		"APP_SRC_DEV": "", "MAX_CONCURRENT_AGENTS": "1", "RUNED_GUEST_MEM": "2G",
 		"AUTH_SECRET": "seed", "ASSISTANT_NAME": f.name,
 		"ONBOARDING_ENABLED": "true", "ANTHROPIC_API_KEY": "x",
 		"ARIZUKO_BACKEND": "codex",

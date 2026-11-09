@@ -187,7 +187,7 @@ func TestActiveSpawnsPersistAcrossRestart(t *testing.T) {
 	// New manager reads state from DB.
 	cfg, folders := renderWiring(t)
 	mgr2 := NewManager(db, FakeRuntime{}, ManagerConfig{
-		Instance: "test", MaxConcurrent: 3,
+		Instance: "test", MaxAgents: 3,
 		Cfg: cfg, Folders: folders,
 	})
 

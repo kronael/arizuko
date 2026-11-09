@@ -87,7 +87,7 @@ func TestTurnControlExpiredEngagementPollsSavedInput(t *testing.T) {
 	if err := db.SetEngagement(jid, "", "a", -time.Hour); err != nil {
 		t.Fatal(err)
 	}
-	poller := NewLoop(db, p, LoopConfig{Deliver: dl, MaxRuns: 1})
+	poller := NewLoop(db, p, LoopConfig{Deliver: dl, MaxAgents: 1})
 	t.Cleanup(poller.StopQueue)
 	p.srv = NewServer(db, poller, dl, nil, 0, "")
 	modelPauseDue(t, poller)

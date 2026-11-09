@@ -177,7 +177,7 @@ func TestMemoryFitsIsTheGuestSizeTimesTheCap(t *testing.T) {
 	if err := memoryFits("4G", 5, total); err == nil {
 		t.Fatal("4G x 5 = 20 GiB on a 15.6 GiB host must refuse")
 	} else {
-		for _, want := range []string{"RUNED_GUEST_MEM", "MAX_CONCURRENT_CONTAINERS"} {
+		for _, want := range []string{"RUNED_GUEST_MEM", "MAX_CONCURRENT_AGENTS"} {
 			if !strings.Contains(err.Error(), want) {
 				t.Errorf("refusal must name %s: %v", want, err)
 			}
@@ -451,7 +451,7 @@ func fakeHelpBinary(t *testing.T, help string) string {
 func cfgFor(t *testing.T) *core.Config {
 	t.Helper()
 	cfg, _ := renderWiring(t)
-	cfg.MaxContainers = 5
+	cfg.MaxAgents = 5
 	return cfg
 }
 

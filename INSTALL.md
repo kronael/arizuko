@@ -42,10 +42,15 @@ grep MemTotal /proc/meminfo
 ```
 
 Check the memory before you set the guest cap. `runed` refuses to start when
-`RUNED_GUEST_MEM` times `MAX_CONCURRENT_CONTAINERS` is more than `MemTotal`, see
+`RUNED_GUEST_MEM` times `MAX_CONCURRENT_AGENTS` is more than `MemTotal`, see
 `memoryFits` in `runed/qemuhost.go`. The defaults are 2 GiB and 5, so they need
 10 GiB. Each release rootfs needs about 7 GB of disk, and `make images` removes
 no old tree.
+
+`MAX_CONCURRENT_AGENTS` caps concurrent agents in both routd and runed. Run
+`sudo arizuko migrate -i <instance>` before `arizuko generate -i <instance>`
+to migrate instance configuration. Migration preserves the configured limit
+and refuses a file containing both limit keys.
 
 ## Fix a failed check
 

@@ -314,7 +314,7 @@ func doLifecycle(ctx context.Context, cli lifecycleCLI, opts lifecycleOptions) (
 	cfg["API_PORT"] = strconv.Itoa(apiPort)
 	cfg["WEB_PORT"] = strconv.Itoa(webPort)
 	cfg["APP_SRC_DEV"] = ""
-	cfg["MAX_CONCURRENT_CONTAINERS"] = "1"
+	cfg["MAX_CONCURRENT_AGENTS"] = "1"
 	cfg["ONBOARDING_ENABLED"] = "true"
 	path := filepath.Join(private, "arizuko_"+name, ".env")
 	seed, err := godotenv.Read(path)

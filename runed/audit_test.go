@@ -23,8 +23,8 @@ func auditServer(t *testing.T, rt Runtime, v Verifier) (*DB, *Server) {
 	t.Cleanup(func() { db.Close() })
 	cfg, folders := renderWiring(t)
 	mgr := NewManager(db, rt, ManagerConfig{
-		Instance:      "test",
-		MaxConcurrent: 5, RunTTL: time.Minute,
+		Instance:  "test",
+		MaxAgents: 5, RunTTL: time.Minute,
 		Cfg: cfg, Folders: folders,
 	})
 	mgr.RegisterExecutor(KindHold, NewHoldRuntime())

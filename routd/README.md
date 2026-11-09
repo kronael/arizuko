@@ -385,7 +385,7 @@ Behaviour:
 - `SESSION_IDLE_EXPIRY` is the session reset threshold. The default is 2d.
 - `ARIZUKO_DEFAULT_PRODUCT` records the product on the default group row when routd boots on an empty store. The same boot writes one `installed_packages` row for `main` with the source `ant/examples/<product>`.
 - `COST_CAPS_ENABLED` turns on the budget gate before spawn. The default is `true`.
-- `MAX_CONCURRENT_CONTAINERS` limits concurrent runs in the queue. The default is 5.
+- `MAX_CONCURRENT_AGENTS` limits concurrent agents. The default is 5.
 - `MAX_TURN_RETRY` is the retry ceiling for a turn that dies without a reply, for example after SIGKILL, OOM or a timeout. The default is 3, `0` means 3, and `-1` disables retries.
 - `MAX_OUTBOUND_RETRY` is the number of transient delivery failures that a `pending` bot row absorbs before the sweep dead-letters it to `failed`. The default is 10, and `-1` dead-letters on the first transient failure. A permanent refusal (4xx) dead-letters at once and spends no attempt.
 - `OBSERVE_WINDOW_MESSAGES` is the message count of the prompt context. The default is 10.

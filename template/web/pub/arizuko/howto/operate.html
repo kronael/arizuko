@@ -96,11 +96,11 @@ routd ──► adapter ──► platform reply</code></pre>
     <h3 id="memory">runed refuses a guest size that the host memory cannot hold</h3>
     <dl>
       <dt>Read</dt>
-      <dd>The precondition message contains <code>RUNED_GUEST_MEM=&hellip; × MAX_CONCURRENT_CONTAINERS=&hellip; is &hellip; MiB, over this host's MemTotal</code>.</dd>
+      <dd>The precondition message contains <code>RUNED_GUEST_MEM=&hellip; × MAX_CONCURRENT_AGENTS=&hellip; is &hellip; MiB, over this host's MemTotal</code>.</dd>
       <dt>Cause</dt>
       <dd>Each concurrent turn is a guest with its own memory. The host must hold the guest size multiplied by the cap. runed refuses this pair at start, before a second turn fails.</dd>
       <dt>Fix</dt>
-      <dd>Decrease <code>RUNED_GUEST_MEM</code>, default <code>2G</code>, or <code>MAX_CONCURRENT_CONTAINERS</code> in <code>.env</code>. Then restart.</dd>
+      <dd>Decrease <code>RUNED_GUEST_MEM</code>, default <code>2G</code>, or <code>MAX_CONCURRENT_AGENTS</code> in <code>.env</code>. Then restart.</dd>
       <dt>Source</dt>
       <dd><code>runed/qemuhost.go:318</code> <code>memoryFits</code></dd>
     </dl>
@@ -146,7 +146,7 @@ routd ──► adapter ──► platform reply</code></pre>
       <dt>Read</dt>
       <dd>The second instance logs <code>vsock bind port 5555: address already in use</code> at its first turn.</dd>
       <dt>Cause</dt>
-      <dd>The vsock CIDs and ports belong to the host, not to one instance. Two instances with the default settings both use CID 3 and port 5555 and up. One instance uses <code>MAX_CONCURRENT_CONTAINERS</code> CIDs and two ports for each CID.</dd>
+      <dd>The vsock CIDs and ports belong to the host, not to one instance. Two instances with the default settings both use CID 3 and port 5555 and up. One instance uses <code>MAX_CONCURRENT_AGENTS</code> CIDs and two ports for each CID.</dd>
       <dt>Fix</dt>
       <dd>In the <code>.env</code> of the second instance, set <code>RUNED_VSOCK_CID_BASE</code> to the first base plus the cap or more. Set <code>RUNED_VSOCK_PORT_BASE</code> to the first base plus two times the cap or more. Also set a different <code>RUNED_TAP_SUBNET</code>, because runed derives the tap addresses from the subnet and the slot only. No check finds an overlap, so record the windows.</dd>
       <dt>Source</dt>

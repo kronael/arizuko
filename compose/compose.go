@@ -109,7 +109,7 @@ var daemonKeys = map[string][]string{
 	"routd": {
 		"GITHUB_APP_ID", "GITHUB_APP_PRIVATE_KEY", "GITHUB_API_URL",
 		"AUTHD_URL", "AUTHD_SERVICE_KEY", "ONBOD_URL",
-		"MAX_CONCURRENT_CONTAINERS",
+		"MAX_CONCURRENT_AGENTS",
 		// routd detects the route miss that fires chat-initiated onboarding;
 		// without these a new group is stored, never onboarded.
 		"ONBOARDING_ENABLED", "ONBOARDING_PLATFORMS",
@@ -156,7 +156,7 @@ var daemonKeys = map[string][]string{
 		// (runed/cmd/runed/main.go). It lives in the daemon's main, which is why the
 		// guard that should have caught its absence could not see it (BUGS `L388`).
 		"RUNED_SHUTDOWN_GRACE",
-		"MAX_CONCURRENT_CONTAINERS",
+		"MAX_CONCURRENT_AGENTS",
 		// Gates per-group host mounts; absent from runed's env they are
 		// default-denied.
 		"MOUNT_ALLOWED_ROOTS",
@@ -737,6 +737,9 @@ func Generate(dataDir, instance string) (string, []ProxydRoute, error) {
 		env = map[string]string{}
 	}
 	seedSharedDefaults(env)
+	if _, exists := env["MAX_CONCURRENT_CONTAINERS"]; exists {
+		return "", nil, fmt.Errorf("MAX_CONCURRENT_CONTAINERS is not supported; run arizuko migrate -i %s", instance)
+	}
 	if !identRE.MatchString(instance) {
 		return "", nil, fmt.Errorf("invalid instance name %q (pass -i <name>)", instance)
 	}

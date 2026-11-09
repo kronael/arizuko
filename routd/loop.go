@@ -114,7 +114,7 @@ func (l *Loop) SetOnbodClient(c OnbodClient) { l.onbod = c }
 type LoopConfig struct {
 	PollEvery  time.Duration
 	RunTimeout time.Duration
-	MaxRuns    int
+	MaxAgents  int
 	IpcDir     string
 
 	// Prompt-envelope inputs (buildAgentPrompt). The observe window is the cfg
@@ -173,8 +173,8 @@ func NewLoop(db *DB, runner Runner, cfg LoopConfig) *Loop {
 	if cfg.PollEvery == 0 {
 		cfg.PollEvery = 2 * time.Second
 	}
-	if cfg.MaxRuns == 0 {
-		cfg.MaxRuns = 5
+	if cfg.MaxAgents == 0 {
+		cfg.MaxAgents = 5
 	}
 	if cfg.SessionIdle == 0 {
 		cfg.SessionIdle = sessionIdleExpiry
@@ -222,7 +222,7 @@ func NewLoop(db *DB, runner Runner, cfg LoopConfig) *Loop {
 	if cfg.Proactive.Enabled {
 		l.modes = newModeCache(cfg.GroupsDir)
 	}
-	l.q = newTurnControl(cfg.MaxRuns)
+	l.q = newTurnControl(cfg.MaxAgents)
 	l.q.SetProcessMessagesFn(l.processGroupMessages)
 	l.q.SetFolderForJidFn(l.folderForJid)
 	l.q.SetParkedFn(l.noteParked)

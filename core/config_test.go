@@ -14,7 +14,7 @@ func TestLoadConfigDefaults(t *testing.T) {
 	// Clear env to test defaults
 	for _, k := range []string{
 		"ASSISTANT_NAME",
-		"MAX_CONCURRENT_CONTAINERS", "TZ",
+		"MAX_CONCURRENT_AGENTS", "TZ",
 	} {
 		os.Unsetenv(k)
 	}
@@ -31,8 +31,8 @@ func TestLoadConfigDefaults(t *testing.T) {
 	if cfg.Name != DefaultAssistantName {
 		t.Fatalf("expected the shared default %q, got %q", DefaultAssistantName, cfg.Name)
 	}
-	if cfg.MaxContainers != 5 {
-		t.Fatalf("expected 5 max containers, got %d", cfg.MaxContainers)
+	if cfg.MaxAgents != 5 {
+		t.Fatalf("expected 5 max containers, got %d", cfg.MaxAgents)
 	}
 	if cfg.Timezone != "UTC" {
 		t.Fatalf("expected UTC timezone, got %q", cfg.Timezone)
@@ -41,11 +41,11 @@ func TestLoadConfigDefaults(t *testing.T) {
 
 func TestLoadConfigFromEnv(t *testing.T) {
 	os.Setenv("ASSISTANT_NAME", "TestBot")
-	os.Setenv("MAX_CONCURRENT_CONTAINERS", "10")
+	os.Setenv("MAX_CONCURRENT_AGENTS", "10")
 	os.Setenv("ARIZUKO_DEV", "true")
 	defer func() {
 		os.Unsetenv("ASSISTANT_NAME")
-		os.Unsetenv("MAX_CONCURRENT_CONTAINERS")
+		os.Unsetenv("MAX_CONCURRENT_AGENTS")
 		os.Unsetenv("ARIZUKO_DEV")
 	}()
 
@@ -57,8 +57,18 @@ func TestLoadConfigFromEnv(t *testing.T) {
 	if cfg.Name != "TestBot" {
 		t.Fatalf("expected TestBot, got %q", cfg.Name)
 	}
-	if cfg.MaxContainers != 10 {
-		t.Fatalf("expected 10, got %d", cfg.MaxContainers)
+	if cfg.MaxAgents != 10 {
+		t.Fatalf("expected 10, got %d", cfg.MaxAgents)
+	}
+}
+
+func TestLoadConfigRejectsAgentLimitAlias(t *testing.T) {
+	t.Setenv("MAX_CONCURRENT_CONTAINERS", "1")
+	for _, value := range []string{"", "2"} {
+		t.Setenv("MAX_CONCURRENT_AGENTS", value)
+		if _, err := LoadConfig(); err == nil || !strings.Contains(err.Error(), "arizuko migrate") {
+			t.Fatalf("retired key accepted with new value %q: %v", value, err)
+		}
 	}
 }
 

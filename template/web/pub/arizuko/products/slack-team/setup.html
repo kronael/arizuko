@@ -201,7 +201,7 @@ arizuko route -i acme add 'chat_jid=slack:T123/channel/C456' 'main/support?obser
       </dl>
       <h3>More children use the same pattern</h3>
       <p>Add <code>main/eng</code> with <code>-p pm</code> for project management in the engineering channel, or <code>main/marketing</code> with <code>-p creator</code>. Each child is one <code>arizuko group add</code> and one route. A child copies nothing from the slack-team parent, because groups are isolated by design.</p>
-      <p>Each child group runs its own guest for each turn, so the concurrency limit applies: <code>MAX_CONCURRENT_CONTAINERS</code>, default 5. For the agent to make child groups itself, it needs <code>mcp:register_group</code> with a scope that covers the child folder. No other limit on the number of children exists.</p>
+      <p>Each child group runs its own guest for each turn, so the concurrency limit applies: <code>MAX_CONCURRENT_AGENTS</code>, default 5. For the agent to make child groups itself, it needs <code>mcp:register_group</code> with a scope that covers the child folder. No other limit on the number of children exists.</p>
       <h3>A small team needs no child group</h3>
       <p>For a small team with one busy channel, the slack-team persona is enough. A support child adds a folder, a route and a <code>facts/</code> directory to maintain. Add it when you can name the channel that needs a different behaviour, for example when you keep changing <code>main/SYSTEM.md</code> for one channel.</p>
 
@@ -236,7 +236,7 @@ arizuko route -i acme add 'chat_jid=slack:T123/channel/C456' 'main/support?obser
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/slack-team/setup.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-11-07">2026-11-07</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-08">2026-11-08</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

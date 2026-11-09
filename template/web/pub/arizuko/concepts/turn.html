@@ -133,7 +133,7 @@
       <li><code>register_group</code> creates a child folder and its first route. The caller needs a grant on <code>mcp:register_group</code> with a scope that covers the new folder. No count limits the children of a folder.</li>
       <li><code>send(chatJid="&lt;folder&gt;", text="...")</code> writes an inbound message to the target folder. <code>routd</code> starts that folder's turn through <code>runed</code>. The target has its own guest and session. The post records the calling folder as its return address.</li>
     </ul>
-    <p>The parent turn and the child turn run at the same time, in two guests. <code>MAX_CONCURRENT_CONTAINERS</code>, default 5, caps the live guests of the whole instance. Past the cap, <code>runed</code> answers busy and <code>routd</code> tries again.</p>
+    <p>The parent turn and the child turn run at the same time, in two guests. <code>MAX_CONCURRENT_AGENTS</code>, default 5, caps the live agents of the whole instance. Past the cap, <code>runed</code> answers busy and <code>routd</code> tries again.</p>
     <p>Two more limits apply:</p>
     <ul>
       <li>Each group post checks <code>mcp:send</code> on the target folder. The default member role includes <code>send</code>; local ACL rows can restrict access.</li>
@@ -159,7 +159,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/concepts/turn.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-11-07">2026-11-07</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-08">2026-11-08</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

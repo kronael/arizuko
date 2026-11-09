@@ -184,7 +184,7 @@ func crashProofConfig(root string) *core.Config {
 	return &core.Config{
 		Name: os.Getenv("RUNED_BENCH_ID"), ProjectRoot: root,
 		GroupsDir: filepath.Join(root, "groups"), IpcDir: filepath.Join(root, "ipc"),
-		MaxContainers: 1,
+		MaxAgents: 1,
 	}
 }
 

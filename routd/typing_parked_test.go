@@ -42,7 +42,7 @@ func TestTyping_ParkedChatTypesWhileItWaits(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	loop := NewLoop(db, runner, LoopConfig{Deliver: dl, MaxRuns: 5})
+	loop := NewLoop(db, runner, LoopConfig{Deliver: dl, MaxAgents: 5})
 	release := sync.OnceFunc(func() { close(runner.release) })
 	t.Cleanup(func() { release(); loop.StopQueue() })
 	srv := NewServer(db, loop, dl, nil, 0, "https://example.test")

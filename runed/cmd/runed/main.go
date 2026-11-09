@@ -128,11 +128,11 @@ func main() {
 	}
 
 	mgr := runed.NewManager(db, runtime, runed.ManagerConfig{
-		RunTTL:        runTTL,
-		Instance:      cfg.Name,
-		MaxConcurrent: cfg.MaxContainers,
-		Cfg:           cfg,
-		Folders:       folders,
+		RunTTL:    runTTL,
+		Instance:  cfg.Name,
+		MaxAgents: cfg.MaxAgents,
+		Cfg:       cfg,
+		Folders:   folders,
 	})
 	// POST /v1/holds: let an external process (arizuko apply, and any
 	// future folder-exclusive job) claim a folder's run slot (spec 5/8).
