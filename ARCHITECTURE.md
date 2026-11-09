@@ -158,7 +158,8 @@ guest lives in `runed`. One synchronous HTTP call joins them: `POST /v1/runs`.
      │                        └────────────────────┬─────────────────────┘
      │                                             ▼
      │                        ┌──────────────────────────────────────────┐
-     │                        │ GroupQueue: one worker per folder        │
+     │                        │ turn control: one turn per folder,       │
+     │                        │ agent limit, instance breaker, retries   │
      │                        │ resolve: direct ► routes ► engagement    │
      │                        │ steer: sticky, /command, @child          │
      │                        └────────────────────┬─────────────────────┘

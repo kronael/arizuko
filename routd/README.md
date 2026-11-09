@@ -75,7 +75,7 @@ in `schedule_test.go` cover firing and retry behavior.
 `ARCHITECTURE.md` section "Message Flow" shows the whole turn. These rules describe routd's half.
 
 - **One cursor.** routd is the only appender of `messages`, so one cursor, `chats.agent_cursor`, means "what the agent has seen". A second writer would need a second cursor.
-- **One process.** routd runs as one process per instance. Two routd processes on one store are not supported. The in-memory `GroupQueue` allows one turn per folder, and `agent_cursor` recovers a crash.
+- **One process.** routd runs as one process per instance. Two routd processes on one store are not supported. The turn controller (`turn_control.go`) allows one turn per folder and at most `MAX_CONCURRENT_AGENTS` agents, one of them a scheduled task; `agent_cursor` and the saved `turn_context` rows recover a crash.
 - **Ingress.** `POST /v1/messages` honours `X-Idempotency-Key` only when the body has no `id`. routd then mints `id=<adapter>-<key>`, so a re-sent event lands on the same row. A body with both returns `400 ambiguous_idempotency` (`server.go`). routd does not claim engagement at ingress, because the folder is unknown until resolution, and a claim with an empty folder would misroute.
 - **Resolution.** `ROUTING.md` section "routd resolves a chat in two stages" gives the order. A batch resolves by its newest user row that dispatches on its own, so a mention starts a turn even when a newer row of the batch matches only `?observe`. The other user rows the turn consumes are stored observed under the batch folder before the prompt is built. Only a `message` or `mention` rides engagement, and a route target `?engaged` extends it to other verbs. If routd cannot read the route table, it logs an ERROR and treats the read as a miss, because a retry risks a poison-message loop.
 - **The run contract.** `POST /v1/runs` is synchronous. routd waits `RUNED_RUN_TIMEOUT` plus two minutes, so that routd outlasts the kill deadline in runed. With equal deadlines, routd could time out first and feed the same turn to a second guest.
@@ -85,92 +85,51 @@ in `schedule_test.go` cover firing and retry behavior.
   | `ok`                                               | advances the cursor and the observed cursor, ends the turn                              |
   | `silent`                                           | does the same and counts no output                                                      |
   | `ok` with no result and no bot row                 | tells the chat and never retries, because a clean run that delivered nothing is a fault |
-  | `submit_turn.provider_failure`                     | holds input and opens the reporting folder's pause before generic error handling        |
-  | `error`, no reply, not `terminal`                  | retries, up to `MAX_TURN_RETRY`                                                         |
-  | `error` with a reply, retries spent, or `terminal` | marks the rows errored, sends a per-turn notice to every chat the run owed, advances    |
+  | `submit_turn.provider_failure`                     | saves the input, opens the instance breaker and retries no earlier than the reset time  |
+  | `error`, no reply, not `terminal`                  | saves the input, opens the instance breaker, retries on the schedule below              |
+  | `error` with a reply, retries spent, or `terminal` | edits the turn status to the final cause, advances                                      |
+  | timeout                                            | edits the turn status to "Time limit reached", never retries                            |
   | `busy`                                             | does not advance, applies the busy backoff                                              |
   | `steered`                                          | ends this turn, because the live run owns the batch                                     |
   | a transport failure                                | does not advance; the next poll feeds the batch again                                   |
 
-- **Busy backoff.** After a busy refusal, routd parks the batch for 4 s. Each repeat refusal of the same batch doubles the wait up to 60 s (`dispatch.go`). A new user message clears the wait. The running turn's own bot rows do not clear it. A retry after a failed turn returns through the same busy branch, so it waits on this backoff too. A transport failure and a dependency outage do not wait: the next poll feeds the batch again.
-- **Terminal.** runed decides whether a failure is terminal. routd never parses runed's text to decide. A terminal notice names the cause: the agent's own reported failure, otherwise the error text from runed.
-- **Retry count.** `MAX_TURN_RETRY` set to 0 means 3 retries, and -1 disables retries (`loop.go`). `turn_context.retry_count` and `state='pending_retry'` survive a routd restart. A retry turn starts with a note that it is a retry.
+- **Busy backoff.** After a busy refusal, routd parks the batch for 4 s. Each repeat refusal of the same batch doubles the wait up to 60 s (`turn_control.go`). A new user message clears the wait. The running turn's own bot rows do not clear it. Busy spends no retry.
+- **Terminal.** runed decides whether a failure is terminal; a run timeout is terminal. routd never parses runed's text to decide. The status names a short cause from a fixed list (`turnFailureCause` in `turn_status.go`); no error prose reaches the chat.
+- **Retry schedule.** A failed turn retries three times: 30 s, 2 min, 5 min for chat, 15, 45 and 180 min for a scheduled task (`retryAt`). `MAX_TURN_RETRY` set to 0 means 3, -1 disables retries, and a value above 3 is capped at 3. A waiting retry saves its input keys and due time on `turn_context` (`state='pending_retry'`) and releases the chat cursor, so new input keeps flowing; the poll replays due turns from the saved binding. A retry turn starts with a note that it is a retry. Spec: `specs/5/12-turn-retry.md`.
+- **Instance breaker.** A failed execution opens the `turn_control` singleton: no new agent launches until the failed turn's due retry, the one probe, runs without failure. After the probe turn exhausts its retries the breaker stays open one hour, then the oldest waiting turn probes. An intentional stop never opens it.
 - **Turn lifecycle.** `submit_turn` is hidden from `tools/list`. A provider refusal records the attempt and holds input without a `turn_results` row or final delivery. For other results, the `turn_results` key removes duplicates, so the first terminal result wins the cursor and delivery. A `running` turn older than the run timeout moves to `expired`, never `done`. Crash recovery looks for `running`, and the guard against a second live run looks for `done`.
 - **One turn per folder.** A new inbound message for a busy folder waits. runed answers `busy`, and routd keeps the batch. After the run ends, routd feeds the batch again with its own turn context and MCP binding. The observed cursor is at-least-once. It advances on the same success path as the message cursor. So a turn that routd feeds again sees the context of the failed attempt.
 - **Outbound.** The pending bot row is the outbox. `chanreg` and the adapters hold no queue. A sweep every 30 s sends `pending` rows again, and each row waits its own gap. The gap starts at 30 s and doubles per failure up to a cap of 1 h. A flat 30 s gap would spend ten attempts in five minutes, and a routine adapter restart lasts longer. A 4xx answer dead-letters the row at once with `delivery_attempts` 0. A transient failure spends one attempt, up to `MAX_OUTBOUND_RETRY`. An age rule would discard rows that the sweep never tried, so routd uses no age bound.
 - **A failed send writes its row.** The MCP tools `send`, `reply` and `send_file` return the error to the agent and record the undelivered row. The row is `pending` after a transient failure and `failed` after a permanent one. A failed `send_file` always dead-letters (`recordOutboundFailure` in `ipc/ipc.go`).
 - **Delivery dedup belongs to the adapter.** `chanlib/README.md` section "Delivery is claimed before the platform call" describes it.
-- **A row names its source and its writer.** `messages.source` holds the adapter of record that ingest carries. An outbound reply reads it with `LatestSource(jid)`, so a reply leaves through the bot that received the message. A turn's delivery rows and its progress row take an `out-<hex>` id (`outboundRow` in `turns.go`). An MCP send takes `mcp-<unix nanos>` (`core.MsgID`). Inbound polling filters bot rows.
+- **A row names its source and its writer.** `messages.source` holds the adapter of record that ingest carries. An outbound reply reads it with `LatestSource(jid)`, so a reply leaves through the bot that received the message. A turn's status row takes `status-<sha256(turn id, chat)>` (`turn_status.go`), one row per turn and chat. An operator `POST /v1/outbound` row takes `out-<hex>`. An MCP send takes `mcp-<unix nanos>` (`core.MsgID`). Inbound polling filters bot rows.
 - **A proactive turn starts from a synthetic row.** The scanner in `proactive.go` appends an inbound row with sender `timed-proactive` (`store.ProactiveSelfSender`). That row never resets the chat's silence clock, because the trigger must not feed itself. The `timed-` prefix puts the turn on the path of every task turn: it renews no engagement, runs no slash command and carries no caller sub.
 
-## Provider refusals hold input in the reporting folder
+## Provider refusals pause the instance
 
 `ProviderFailure` comes from an attempt-ending provider error. Its `reason`
 is `spend_limit`, `rate_limit`, `authentication` or `outage`. `reset_at` is
 optional. Exit 78, assistant text, tool errors and unknown errors alone do
-not open a pause. Local crashes keep the `MAX_TURN_RETRY` path above.
+not count.
 
-```text
-provider refusal ──► model_pauses ──► normal turn claims held
-                           │
-                      due time
-                           ▼
-                   oldest held turn ──► normal runed run
-                                              │
-                         refusal ◄────────────┤
-                         rearm                └──► submitted, no refusal: clear
-```
+One guarded batch saves the refused turn for retry no earlier than `reset_at`,
+records the reporting folder's `model_pauses` row (reason, attempts,
+evidence) and opens the instance breaker with that turn as its probe. Later
+callbacks from the refused attempt are closed. The status message says "Model
+unavailable" with the retry time. A probe that completes without a refusal
+closes the breaker and clears the episode's `model_pauses` rows. The guest
+report is untrusted; it is bound to the reporting turn's attempt.
 
-One durable `model_pauses` row per folder holds that folder's new turns.
-The guest report is untrusted; the durable turn binding supplies the folder.
-`OpenTurnContext` guards normal admission and
-probe claims in the same batch. Already-admitted turns may finish, but their
-success cannot clear the pause. A store error holds admission.
-
-The first delay is 30 seconds. Each refused probe doubles the delay up to one
-hour, with bounded jitter. A valid future provider reset time overrides the
-delay. New messages and duplicate reports do not extend it. At the due time,
-the Loop selects that folder's oldest input by timestamp, message ID, then chat JID.
-Its guarded claim binds the episode and attempt. `next_attempt_at=null` means
-that this probe owns the pause. The probe uses the normal spawn and timeout
-paths. A submitted result without `ProviderFailure` clears the pause. Busy or
-not-started attempts requeue the probe without proving recovery. Completed local
-failures keep the pause and follow `MAX_TURN_RETRY` and terminal handling;
-finished input lets the next held input probe.
-
-Held input keeps its cursor, session, content, local retry count and order.
-New claims check the oldest pending input even after the pause clears.
-Commands wait for earlier input in the chat to finish. Completed batches
-advance their cursor before the next batch is admitted.
-The saved input boundary excludes later messages from the held turn.
-Deleting a group subtree retires its held turns through that boundary.
-Worker dispatch, polling and oldest-input selection use the held turn's saved
-folder, topic, trigger and return address before fresh routing or engagement.
-Held turns bypass error marking,
-busy backoff and retention GC. Waiting input stops typing. After a restart,
-routd resolves an interrupted probe through existing running-turn recovery
-before rearming it. Old callback bindings cannot affect the current attempt.
-Recovery reserves the idle folder and releases the queue mutex during I/O.
-It kills the captured run ID; an interrupted request without an ID uses the
-folder stop. Stop requests time out after five seconds. A confirmed missing
-captured run counts as stopped. Recovery errors leave polling enabled for
-other chats. Rebinding clears the previous attempt's run ID.
-
-Each destination chat gets one durable notice per folder and episode:
-`Model access is paused: <reason>. Your messages are saved. I will retry automatically.`
-Forwarded input uses the reply destination. The outbound row keeps its ID
-through send failures and restarts, and the existing delivery backoff applies.
-Ordinary failure notices use per-turn IDs. `chats.errored` remains diagnostic.
-
-Operators list or clear the pause through one audited REST/MCP resource:
-`GET /v1/model_pauses` returns each folder's pause with its queued input
-count. `POST /v1/model_pauses/clear` requires the listed `folder`, `opened_at` and the
-current `probe_attempt_id` when a probe is bound. A changed episode or attempt
-returns a conflict. The MCP tools are `list_model_pauses` and
-`clear_model_pause`. Members and folder-scoped grants cannot use these controls.
-The dashboard at `/dash/model-pauses/` and remote `arizuko model-pauses list|clear`
-use the same API. CLI clear requires `--folder FOLDER`. Clear releases that
-folder's input. Another refusal opens a new episode.
+Operators list or clear the folder rows through one audited REST/MCP resource:
+`GET /v1/model_pauses` returns each folder's row with its queued input count
+and the breaker's probe and next attempt. `POST /v1/model_pauses/clear`
+requires the listed `folder`, `opened_at` and the current `probe_attempt_id`
+when a probe is bound; a changed episode or attempt returns a conflict. Clear
+removes the folder row and leaves the breaker to its probe. The MCP tools are
+`list_model_pauses` and `clear_model_pause`. Members and folder-scoped grants
+cannot use these controls. The dashboard at `/dash/model-pauses/` and remote
+`arizuko model-pauses list|clear` use the same API. Spec:
+`specs/6/60-model-credential-pause.md`.
 
 ## Prompt assembly
 
@@ -341,7 +300,7 @@ Tasks:
 
 Model access:
 
-- `GET /v1/model_pauses` and `POST /v1/model_pauses/clear` list and clear folder pauses. The operator-only control and arguments are described above.
+- `GET /v1/model_pauses` and `POST /v1/model_pauses/clear` list and clear the folder rows of provider refusals. The operator-only control and arguments are described above.
 
 Dead letters and cost:
 
@@ -442,7 +401,7 @@ The audit source of truth is the `audit_log` entity in the tables of routd. Ever
 - `loop.go` is the orchestration loop: poll, claim and dispatch.
 - `dispatch.go` dispatches the turn to runed, enriches it and applies the budget gate.
 - `turns.go` handles the end of a turn: the check for an explicit delivery, the one shared nudge decision and `submit_turn` recording.
-- `model_pauses.go` holds provider admission, oldest-input selection, notices and restart recovery. `model_pauses_resource.go` serves the operator REST/MCP resource.
+- `turn_control.go` owns admission, agent limits, retry deferral, the instance breaker and provider refusals. `model_pauses.go` holds oldest-input selection and restart recovery. `model_pauses_resource.go` serves the operator REST/MCP resource.
 - `turn_status.go` owns the turn's summary, progress message and `finishTurn`. `placement.go` places each delivery of the turn.
 - `deliver.go` is the channel Deliverer, the egress fan-out through `chanreg`.
 - `mcp.go` is the in-process per-turn MCP socket (`ServeTurnMCP`, `buildRoutdFns`).

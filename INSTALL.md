@@ -48,6 +48,15 @@ Check the memory before you set the guest cap. `runed` refuses to start when
 no old tree.
 
 `MAX_CONCURRENT_AGENTS` caps concurrent agents in both routd and runed.
+Scheduled tasks use at most one of those slots. `arizuko generate` and the
+daemons refuse a `.env` that sets `MAX_CONCURRENT_CONTAINERS`.
+
+`RUNED_RUN_TIMEOUT` (default 60m) ends a run. A turn that runs out of time is
+not retried; its status says "Time limit reached." Another failed turn
+retries three times: 30 s, 2 min and 5 min for chat, 15, 45 and 180 min for a
+scheduled task. `MAX_TURN_RETRY` lowers that (`-1` disables retries). While a
+retry waits, no new agent starts on the instance; the retry is the probe. A
+`/stop` in the chat ends the folder's turn and posts "Turn stopped."
 
 ## Fix a failed check
 
@@ -920,6 +929,9 @@ sudo systemctl restart arizuko_demo               # the service generates and st
 - `make kernel` builds only when `kernel/Dockerfile`, `kernel/arizuko.fragment`,
   `kernel/check-config.sh` or `kernel/guest-init/*.go` changed. Otherwise it
   prints `is current` and `RUNED_KERNEL_DIR` stays as it is.
+- `arizuko generate` refuses `MAX_CONCURRENT_CONTAINERS`. Rename the key in
+  `.env` before you generate:
+  `sudo sed -i 's/^MAX_CONCURRENT_CONTAINERS=/MAX_CONCURRENT_AGENTS=/' /srv/data/arizuko_demo/.env`.
 - `arizuko generate` names every fragment that is frozen and every daemon that
   has no store key. Fix both before the restart. A daemon without a store key
   restarts the whole instance in a loop.

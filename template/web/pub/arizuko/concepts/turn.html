@@ -72,7 +72,8 @@
      │                        └────────────────────┬─────────────────────┘
      │                                             ▼
      │                        ┌──────────────────────────────────────────┐
-     │                        │ GroupQueue: one worker per folder        │
+     │                        │ turn control: one turn per folder,       │
+     │                        │ agent limit, instance breaker, retries   │
      │                        │ resolve: direct ► routes ► engagement    │
      │                        │ steer: sticky, /command, @child          │
      │                        └────────────────────┬─────────────────────┘
@@ -159,7 +160,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/concepts/turn.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-11-08">2026-11-08</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-09">2026-11-09</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>
