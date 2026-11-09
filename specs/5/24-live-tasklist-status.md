@@ -29,7 +29,7 @@ should not be something the model can forget.
 `ant` owns one progress producer for native checklist changes and planless
 `<status>` fallback. The producer, rendering, reminder, and native-tool contracts
 are defined in `../6/46-turn-progress.md` §"The declaration" and §"The nudge".
-`routd/progress.go` owns placement, edits, and deletion of the temporary message.
+`routd/turn_status.go` owns placement, edits, and deletion of the temporary message.
 
 The renderer keeps these boundaries:
 

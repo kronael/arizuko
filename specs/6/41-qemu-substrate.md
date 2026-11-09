@@ -62,7 +62,7 @@ is not shipped.
 | Packages the runed image needs | Alpine carries `qemu-system-x86_64`, `virtiofsd`, `socat` (`apk search` from `arizuko:latest`, 2026-09-12); none of the three is installed in `arizuko:latest` today, so the image gains them (§"The runed deploy topology"). `nftables`/`iptables` verified at build, §Open.                                                                                                                                                                          |
 | Host disk                      | hel1v5: **9.4 GB free of 256 GB** after `docker builder prune -f` recovered 4.37 GB of layer cache (2026-09-23); before it, 5.2 GB. `arizuko-ant` holds `latest` at 7.85 GB and two release tags at 8.26 GB. One rootfs export fits, and the operator reclaims (§"The host budget").                                                                                                                                                                   |
 | virtiofsd and the uid clamp    | The packaged daemon is QEMU's C build at `/usr/lib/qemu/virtiofsd` (not on `PATH`), with NO id-mapping flags, and it needs real root: `setgroups()` fails in a user namespace, unprivileged, and in both sandbox modes. `mount_setattr(MOUNT_ATTR_IDMAP)` works on this 6.1 kernel but translates the caller, so it refuses a root caller with `EOVERFLOW`. The clamp is therefore the Rust `virtiofsd` (§"The peer credential"), measured 2026-09-24. |
-| Host memory and concurrency    | `MAX_CONCURRENT_CONTAINERS` defaults to **5** (`core/config.go:229`) and caps total live spawns (`runed/manager.go:47-53`). Five guests at `-m 4G` is 20 GB against 15 GB total and ~5 GB free, so the guest size and the cap are one budget (§"The host budget").                                                                                                                                                                                     |
+| Host memory and concurrency    | `MAX_CONCURRENT_AGENTS` defaults to **5** (`core/config.go:229`) and caps total live spawns (`runed/manager.go:47-53`). Five guests at `-m 4G` is 20 GB against 15 GB total and ~5 GB free, so the guest size and the cap are one budget (§"The host budget").                                                                                                                                                                                         |
 
 ## The engine: `qemu-system-x86_64`, owned by arizuko
 
@@ -148,6 +148,9 @@ it (§"Steer and stop").
 The deadline is `ctx`. `Manager.spawn` arms it from `RunTTL`, and the group's
 `RUNED_RUN_TIMEOUT` is that one deadline, never a
 substrate's timer. A substrate with a timer of its own reads `ctx.Deadline()`.
+A run that reaches the deadline returns `RunResult.Terminal`: routd does not
+spend a retry on an exhausted deadline (`specs/5/12-turn-retry.md`). A
+substrate that fails to start returns a retryable error.
 
 **The renderer.** The envelope half of `container.Run` — `prepareInput`,
 `buildMounts`, `seedSettings`, `spawnSecrets`, `pickOutputStyle`, the
@@ -622,12 +625,12 @@ Three host resources bound this substrate, and the guest size is not free in
 any of them. Measured on hel1v5 (the krons host) 2026-09-23.
 
 - **Memory is the guest size times the concurrency cap.** `-m 4G` with
-  `MAX_CONCURRENT_CONTAINERS` at its default 5 (`core/config.go:229`,
+  `MAX_CONCURRENT_AGENTS` at its default 5 (`core/config.go:229`,
   `runed/manager.go:47-53`) is a 20 GB ceiling on a 15 GB host with ~5 GB free.
   `memory-backend-memfd` commits pages on touch, so the ceiling is not a
   reservation — but two guests that each touch 2 GB already exceed what is
   free, and the host has no swap headroom to hide it. **`-m` and the cap are
-  one setting**: runed refuses to start when `guest_mem × MAX_CONCURRENT_CONTAINERS`
+  one setting**: runed refuses to start when `guest_mem × MAX_CONCURRENT_AGENTS`
   exceeds the host's `MemTotal`, and the pair is set from Open question 4's
   peak-RSS measurement rather than from the 4 GB placeholder.
 - **The guest returns freed pages during a turn.** The machine has a
@@ -775,7 +778,7 @@ a guest, a tap or a pid. Six files hold it, one concern each.
   a fleet that looks healthy and answers nothing. `checkClamp` refuses while the
   uid clamp is absent, because a guest as uid 0 writes host-root-owned files
   into the folder (§"The peer credential"). `memoryFits` multiplies
-  `RUNED_GUEST_MEM` by `MAX_CONCURRENT_CONTAINERS` against this host's
+  `RUNED_GUEST_MEM` by `MAX_CONCURRENT_AGENTS` against this host's
   `MemTotal`, because the guest size and the cap are one setting (§"The host
   budget").
 - **`runed/qemu.go` — the machine and the turn.** `qemuArgs` is pure, so a test
@@ -958,7 +961,7 @@ example.com` fails; a raw `nc` to any address off the tap times out.
   substrate to record WHY a rule exists, and this project keeps a line that
   documents a past failure. A string ban would have deleted the reasons along
   with the code.
-- **runed refuses to start** when `guest_mem × MAX_CONCURRENT_CONTAINERS`
+- **runed refuses to start** when `guest_mem × MAX_CONCURRENT_AGENTS`
   exceeds the host's `MemTotal`, and the refusal names both settings
   (§"The host budget").
 - ❌ **A `SIGKILL` of runed mid-turn leaves nothing running.** Start a turn, kill
@@ -991,7 +994,7 @@ example.com` fails; a raw `nc` to any address off the tap times out.
 3. **Peak guest memory, which sets `-m` AND the concurrency cap.** Sample
    `docker stats` on krons over seven days for the ant container's peak RSS.
    `-m 4G` is a placeholder and the pair must satisfy
-   `guest_mem × MAX_CONCURRENT_CONTAINERS ≤ MemTotal` (§"The host budget"), so
+   `guest_mem × MAX_CONCURRENT_AGENTS ≤ MemTotal` (§"The host budget"), so
    this measurement decides two settings, not one.
 4. **`nftables` versus `iptables` in the Alpine image.** `apk search`
    listed `qemu-system-x86_64`, `virtiofsd`, `socat`; the rule renderer

@@ -4,72 +4,92 @@ status: shipped
 
 # Turn retry on failed completion
 
-A turn that dies mid-execution (SIGKILL/OOM, `RUNED_RUN_TIMEOUT`) never
-reaches `submit_turn` or `reply`. The user sees silence, the guard
-against re-feeding a terminal turn blocks re-dispatch, and the only
-recovery is a fresh @mention. Motivating incident: BUGS 2026-06-14
-"deep-dive replies cut off".
+A turn whose execution fails without an answer — a crash, a launch fault,
+a provider refusal — is retried from its saved input on a fixed schedule,
+and one status message in the chat says what happened. A turn that ran out
+of time is not retried. Motivating incidents: BUGS 2026-06-14 "deep-dive
+replies cut off"; BUGS `L794` (a full host disk met four launches 11–15 s
+apart); BUGS `L771` (a one-hour timeout bought another full attempt).
 
-Retry fires on a clean `200 {outcome:"error"}` from runed
-(`routd/dispatch.go:307`). A _transport_ failure is a different case
-already handled by the loop — routd doesn't know whether the run
-happened, so it leaves the cursor un-advanced and the poll re-feeds
-([`E-routd.md`](E-routd.md) § routd↔runed).
+`routd/turn_control.go` owns the decision (`classifyTurn`, `complete`), the
+schedule (`retryAt`) and the instance breaker. `store/turn_control.go` owns
+the durable rows.
 
 ## Decisions
 
 **"Did a bot row land?" is the success test, not "did `submit_turn`
-fire?"** routd already tracks `TurnHasBotReply`. A partial reply that
-reached the channel beats a retry that re-does the work, so an agent that
-posted a `reply` and then died counts as success. No bot row at all is
-the failure.
+fire?"** A partial reply that reached the channel beats a retry that re-does
+the work, so an agent that posted a `reply` and then died counts as success.
+A status row never counts as that reply.
 
-**Automatic and silent, bounded at `MAX_TURN_RETRY` (default 3)**
-(`core/config.go:250`, `routd/cmd/routd/main.go:188`). From the user's
-side this is one slightly slower reply; only the final failure surfaces,
-as an error notice. Each chat receives one failure notice until a successful
-turn clears its stored errored flag. Retry state is `turn_context.retry_count` +
-`state='pending_retry'` (`routd/migrations/0013-retry-count.sql`,
-`store/turn_control.go` `DeferTurn`), so it survives a routd restart
-and `RunningTurns` re-feeds `running` and `pending_retry` alike
-(`routd/db.go:929`).
+**Three retries on a schedule, four launches in all.** An interactive turn
+waits 30 s, 2 min and 5 min after successive failures; a scheduled task's
+turn waits 15 min, 45 min and 180 min, so a host fault such as a full disk
+has about four hours to clear. `MAX_TURN_RETRY` lowers the budget (`-1`
+disables retry); a value above 3 is capped at 3 with a startup warning.
+Global config only — a retry budget is a property of the runtime, not of a
+tenant's content.
 
-**The re-feed IS the retry: the failed batch stays un-advanced and the
-poll re-dispatches it on the busy backoff** (4s, doubling to a 60s cap,
-cleared by a fresh inbound row). A retry that owns a timer has to rewind
-the cursor its own return value moved; the poll re-feed is the one
-serialization point that does both, as the runed-Busy path already does.
+**A waiting retry is durable and releases the cursor.** One guarded batch
+saves the turn's input and ambient message keys, its due time
+(`next_attempt_at`) and its failure cause on `turn_context`, sets
+`state='pending_retry'` and advances the chat cursor past exactly that batch
+(`store/turn_control.go` `DeferTurn`). The poll selects due turns and replays
+the saved keys with the saved folder, topic, sender and return address
+(`routd/turn_control.go` `replay`); it does not resolve current routes. New
+input keeps flowing while a retry waits. Fresh input never resets a due
+time. A retry does not re-elevate a `/root` turn. Deleting the group retires
+its waiting turns.
 
-**Global config only** — no per-folder or per-skill override. A retry
-budget is a property of the runtime, not of a tenant's content.
+**What is not retried:** turns that replied, turns the agent explicitly
+errored via `submit_turn`, user-cancelled or stopped turns, a turn that ran
+out of time, and failures runed marked terminal. Busy consumes no retry.
 
-**The retry turn is told it is a retry.** A system note ("attempt N of M,
-the previous attempt was killed before completing, be conservative with
-resource usage") is injected into the prompt, because the most common
-cause is OOM and the most useful response is for the agent to do less.
+**runed decides terminal-vs-retryable; the decision travels, not the exit
+code.** Container exit 125/126/127, a failed start of a misconfigured
+substrate and a run timeout are terminal: the site that produces the exit
+classifies it, the decision rides `RunOutcome.Terminal`
+(`runed/api/v1/types.go`), and routd obeys. The zero value means retryable.
+routd never classifies runed's error prose. (BUGS F73, `L771`)
 
-**What is retried**: the same input message and attachments, a fresh
-container, the same conversation context. **What is not**: turns that
-replied, turns the agent explicitly errored via `submit_turn`,
-user-cancelled turns, and failures runed marked terminal.
+**One status message per turn and chat.** The first failure posts one line
+with a short cause and the retry time ("Server storage is full. Retry 1/3 at
+03:15:00 UTC."). The retry edits it ("Retry 1/3 is running."), a later failure
+edits the cause and time, success deletes it, and exhaustion edits it to the
+final cause ("… Stopped after 3 retries."). The cause comes from a short
+allowlist (`turnFailureCause`): storage full, model unavailable, time limit
+reached, agent could not start, agent stopped unexpectedly, setup needs
+attention, or "Agent could not complete the request". No error prose, path or
+stderr reaches the chat. The message lifecycle is
+[`6/46-turn-progress.md`](../6/46-turn-progress.md); a channel that cannot
+edit and delete (email) gets the first and the final post only.
 
-**runed decides terminal-vs-retryable; the decision travels, not the
-exit code.** Not every `outcome:error` is transient: container exit
-125/126/127 and a failed `docker` start are configuration faults, and
-a retry only spawns `MAX_TURN_RETRY` more doomed containers. The site
-that produces the exit code classifies it (`container/runner.go`
-`terminalExit`), the decision rides the pinned response as
-`RunOutcome.Terminal` (`runed/api/v1/types.go`), and routd obeys
-(`routd/dispatch.go`): no retry, and the failure notice carries runed's
-error text so the user sees the real cause. The raw exit code stays
-inside the daemon that owns the container — if routd classified runed's
-error prose instead, that would be a second classification path built
-on a format string. The zero value means retryable, so an older runed
-keeps the old retry behavior. (BUGS F73)
+**The retry turn is told it is a retry.** A system note ("This is retry
+attempt N of M. The previous attempt did not complete.") opens the prompt.
+It does not guess the cause.
 
-**Retry does not extend engagement.** From the user's side the turn is
-still in progress — they are waiting — so the window is naturally alive.
-Three backoff delays are negligible against `ENGAGEMENT_TTL` either way.
+**One breaker per instance.** A failed execution — crash, launch fault,
+timeout, transport outage or provider refusal — opens the `turn_control`
+singleton (`phase` closed/open/probe, `episode`, `next_probe_at`,
+`probe_turn_id`, `probe_attempt_id`). While it is open no new agent launches;
+runs already admitted may finish, and their success cannot close it. The
+failed turn's next retry is the one probe. A probe that runs without a
+failure closes the breaker; another failure applies the next delay. When the
+probing turn exhausts its budget, the breaker stays open for one hour and the
+oldest eligible waiting turn probes next. Startup reads the breaker before
+admitting work. A provider refusal also sets the turn's due time no earlier
+than the provider's reset time and records the reporting folder's
+`model_pauses` row ([`6/60-model-credential-pause.md`](../6/60-model-credential-pause.md)).
+An intentional stop never opens the breaker. The breaker is automatic runtime
+state with no operator write API.
+
+**Agent limits.** `MAX_CONCURRENT_AGENTS` (default 5) bounds the agents that
+run at once on the instance. Scheduled tasks hold at most one of those slots,
+so a free slot still serves another folder's chat. One folder runs one turn
+at a time.
+
+**Retry does not extend engagement.** The user is still waiting, and the
+saved return address delivers the eventual answer where they asked.
 
 ## Related
 

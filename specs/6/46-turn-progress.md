@@ -524,12 +524,9 @@ retention and keeps the two-messages-in-one-chat guess.
 
 ## What this changes in 6/27 and 6/45
 
-The two channel specs disagree about what the channel may do to a thread.
-`specs/6/27-git-channel.md §"Channel messages and repository tools"` has gitd
-post AND react; `specs/6/45-gdrive-comments-channel.md §"Decision 3 — one
-verb, the thread reply"` has googd post and nothing else, with `Typing` a
-no-op and a test that the capability map holds exactly one entry. Both get
-one line, and it is the same line:
+`specs/6/27-git-channel.md §"Channel messages and repository tools"` and
+`specs/6/45-gdrive-comments-channel.md §"Decision 3 — the thread reply, and
+changes to the agent's own replies"` carry the same line:
 
 > The channel creates, edits and reacts to ITS OWN posts in the thread it was
 > addressed in. Every change to another party's state — resolve, reopen,

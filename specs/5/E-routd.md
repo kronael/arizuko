@@ -332,7 +332,7 @@ Three discriminators on the response, each meaning something different:
   advance past the batch, mark errored, notify), `silent` (ran, nothing
   to deliver — logged, not an error).
 - **`busy`** — runed did **not** admit the run (folder busy, or the global
-  `MAX_CONCURRENT_CONTAINERS` cap) and keeps no
+  `MAX_CONCURRENT_AGENTS` cap) and keeps no
   internal queue. A **retryable reject, not a turn boundary and not a
   failure**: do not advance the cursor, do not count it toward the queue
   circuit breaker, leave `turn_context` running so the re-dispatch is

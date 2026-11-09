@@ -51,7 +51,7 @@ into every core daemon (`compose/compose.go`), so any daemon could open
 
 `runed` keeps **no in-memory runtime state**. Every admission decision
 reads the DB, none is cached: exclusivity (`GetActiveSpawn`), the
-concurrency cap (`ActiveCount` vs `MAX_CONCURRENT_CONTAINERS`, default
+concurrency cap (`ActiveCount` vs `MAX_CONCURRENT_AGENTS`, default
 5), and the circuit breaker (`GetFailures` over the `circuit_breaker`
 table, 3 consecutive failures opens it). Admission is one atomic claim
 under `m.mu`, a Go mutex critical section around the read-decide-insert

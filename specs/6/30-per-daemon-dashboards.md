@@ -87,25 +87,16 @@ by the dashboard.
 
 ## Daemon-specific notes
 
-### routd — two breakers, not one
+### routd — one breaker, per instance
 
-The split has **two** circuit breakers and a reader who sees only one
-page will conflate them:
-
-- **routd's queue breaker** counts consecutive `processGroupMessages`
-  failures per **chat JID** (`circuitBreakerThreshold = 3`,
-  [`queue/queue.go:20,303`](../../queue/queue.go)) and auto-resets on
-  the next inbound ([`queue/queue.go:117`](../../queue/queue.go)).
-- **runed's spawn breaker** counts spawn failures per **folder**
-  ([`runed/manager.go:97,225`](../../runed/manager.go)) and reports
-  `breaker_open` on the run outcome, which routd consumes in
-  `onCircuitBreakerOpen` ([`routd/dispatch.go:347`](../../routd/dispatch.go),
-  [`routd/loop.go:720`](../../routd/loop.go)).
-
-runed's counters render on runed's overview. Because the breaker
-auto-resets, "reset breaker" and "retry" are ONE verb — resetting without
-re-enqueuing is a no-op state, and re-enqueuing resets by construction. One
-code path.
+The split has **one** execution breaker: routd's `turn_control` singleton
+([`routd/turn_control.go`](../../routd/turn_control.go),
+[`specs/5/12-turn-retry.md`](../5/12-turn-retry.md)). A failed execution
+opens it for the whole instance, and the failed turn's due retry is the one
+probe that closes it. runed counts no failures and holds no breaker. The
+breaker is automatic runtime state; the operator view is the `model_pauses`
+resource, whose clear removes a folder's provider row and leaves the breaker
+to its probe.
 
 ### runed — kill-run IS the revoke
 

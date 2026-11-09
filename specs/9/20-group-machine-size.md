@@ -87,7 +87,7 @@ map. No `acl` row type, no resolver and no new resource.
   job: start-time preconditions
   names:
     - 'memoryFits (removed); RUNED_GUEST_MEM must fit MemTotal'
-  never: multiplies a size by MAX_CONCURRENT_CONTAINERS
+  never: multiplies a size by MAX_CONCURRENT_AGENTS
 - path: kernel/guest-init/main.go (changed)
   job: mounts the guest's tmpfs
   names:
@@ -199,7 +199,7 @@ Proposed:
   `hostMemTotal` does today (`runed/qemuhost.go:356`).
 - At start, runed checks only that `RUNED_GUEST_MEM` fits `MemTotal`. The
   tap-subnet loop (`runed/qemuhost.go:210-216`) stays, because
-  `MAX_CONCURRENT_CONTAINERS` still sizes the tap subnet, the CID window and
+  `MAX_CONCURRENT_AGENTS` still sizes the tap subnet, the CID window and
   routd's dispatch slots.
 
 The caveat: the check sees memory as it is, not as it becomes. A guest
