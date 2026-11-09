@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"sync"
 	"testing"
 	"testing/synctest"
@@ -279,7 +280,7 @@ func TestDeleteFolderRetriesRefusalAndKeepsCompletedTurn(t *testing.T) {
 		t.Fatalf("refusal survived retirement: fired=%v turn=%+v cursor=%q", gate.fired, turn, cursor)
 	}
 	after, ok := s.TurnContextOf("completed")
-	if !ok || after != before {
+	if !ok || !reflect.DeepEqual(after, before) {
 		t.Fatalf("completed history changed: before=%+v after=%+v", before, after)
 	}
 }

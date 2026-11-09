@@ -166,6 +166,7 @@ var folderScopeKeep = map[string]keepReason{
 	// Turn history.
 	"turn_context": keep("history; unfinished turns retire before the subtree is purged"),
 	"turn_results": keep("keyed by turn_id; a re-created folder mints new ones"),
+	"turn_control": keep("instance-wide execution state"),
 
 	// No folder coordinate at all.
 	"chat_proactive":   keep("keyed by chat jid"),

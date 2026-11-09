@@ -60,6 +60,23 @@ func TestGroupRenameOriginalCoordinates(t *testing.T) {
 	}
 }
 
+func TestGroupRenameDeferredMessageKeys(t *testing.T) {
+	mapping := renameTestMap(t)
+	before := objstore.Item{Key: objstore.Key{Partition: "routd", Sort: "turn"}, Attrs: map[string]string{
+		"state": store.TurnPendingRetry, "next_attempt_at": "2026-01-01T01:00:00Z", "folder": "main", "input_keys": `[{"Partition":"web:main","Sort":"one"}]`, "ambient_keys": `[{"Partition":"web:main/main","Sort":"two"}]`,
+	}}
+	after, err := mapping.row(store.OwnerRoutd, store.TurnContexts, before, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, want := range map[string]string{"input_keys": "web:sloth", "ambient_keys": "web:sloth/discord"} {
+		var keys []objstore.Key
+		if err := json.Unmarshal([]byte(after.Attrs[name]), &keys); err != nil || len(keys) != 1 || keys[0].Partition != want {
+			t.Fatalf("%s: %s, %v", name, after.Attrs[name], err)
+		}
+	}
+}
+
 func TestGroupRenameClassifiedRows(t *testing.T) {
 	mapping := renameTestMap(t)
 	sep := store.KeySep

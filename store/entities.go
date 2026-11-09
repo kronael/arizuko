@@ -104,6 +104,7 @@ const (
 	// its turn id, the only handle a late callback carries.
 	TurnContexts = "turn_context"
 	ModelPauses  = "model_pauses"
+	TurnControl  = "turn_control"
 
 	// Messages holds one item per message routd has appended, addressed by the
 	// chat and by `core.TS(timestamp) + KeySep + id` inside it. The id is in the
@@ -165,7 +166,7 @@ var EntitiesByOwner = map[string][]string{
 		PendingActions, NetworkRules, ProxydRoutes, WebRoutes, InstalledPackages,
 		GitHubSources, GDriveFiles,
 		Chats, Sessions, ChatReplyState, ChatProactive, SystemMessages, UserProfiles,
-		TurnResults, GroupWatchers, TaskRunLogs, TurnContexts, ModelPauses,
+		TurnResults, GroupWatchers, TaskRunLogs, TurnContexts, ModelPauses, TurnControl,
 		Messages, MessageFolders, MessageFolderCounts, MessageActivity, MessageDelivery,
 	},
 	OwnerOnbod: {Onboarding, OnboardingGates, Invites, InviteRedemptions},

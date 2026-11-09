@@ -11,7 +11,7 @@ package store
 // the one hot-tier entity with no drainage and a per-turn arrival (2,954 items
 // on krons, about thirty a day, 2,846 of them `done`).
 //
-// started_at IS THE ONE ORDERED ATTRIBUTE: the expiry sweep compares it with
+// started_at is ordered: the expiry sweep compares it with
 // `<`, and the live rows carried FOUR widths, so a stale turn survived its own
 // sweep (BUGS L97). gateway_key_hash IS A POINTER AND THE ONLY ONE: arizuko
 // stores WHICH key metered a turn and never the number; `GET /v1/cost?turn_id=`
@@ -21,6 +21,7 @@ package store
 import (
 	"context"
 	"crypto/rand"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -46,7 +47,7 @@ const (
 	attrTurnAddressed   = "addressed"
 	attrTurnNudged      = "nudged"
 	// AttrTurnStartedAt is when the turn was dispatched, the only attribute
-	// here compared by order. Exported because the move that carries these
+	// used by the expiry sweep. Exported because the move that carries these
 	// rows names the instant it re-renders.
 	AttrTurnStartedAt = "started_at"
 )
@@ -70,7 +71,10 @@ const (
 
 // The ordered declaration is what makes the expiry sweep a time comparison
 // rather than a width comparison (BUGS L97).
-func init() { objstore.OrderedAttr(TurnContexts, AttrTurnStartedAt, tsWidth) }
+func init() {
+	objstore.OrderedAttr(TurnContexts, AttrTurnStartedAt, tsWidth)
+	objstore.OrderedAttr(TurnContexts, "next_attempt_at", tsWidth)
+}
 
 // TurnContext is a turn's bound run-start context.
 type TurnContext struct {
@@ -92,8 +96,12 @@ type TurnContext struct {
 	RetryCount             int
 	// Addressed: a person put a question to the folder and is owed an answer.
 	// False for a turn bound before the attribute existed.
-	Addressed bool
-	Nudged    int
+	Addressed     bool
+	Nudged        int
+	InputKeys     []objstore.Key
+	AmbientKeys   []objstore.Key
+	NextAttemptAt time.Time
+	FailureCause  string
 }
 
 // turnKey is the coordinate of one turn.
@@ -126,6 +134,10 @@ func turnFrom(it objstore.Item) TurnContext {
 	tc.StartedAt, _ = time.Parse(time.RFC3339Nano, it.Attrs[AttrTurnStartedAt])
 	tc.RetryCount, _ = strconv.Atoi(it.Attrs[attrTurnRetryCount])
 	tc.Nudged, _ = strconv.Atoi(it.Attrs[attrTurnNudged])
+	_ = json.Unmarshal([]byte(it.Attrs["input_keys"]), &tc.InputKeys)
+	_ = json.Unmarshal([]byte(it.Attrs["ambient_keys"]), &tc.AmbientKeys)
+	tc.NextAttemptAt, _ = time.Parse(time.RFC3339Nano, it.Attrs["next_attempt_at"])
+	tc.FailureCause = it.Attrs["failure_cause"]
 	return tc
 }
 
@@ -224,6 +236,7 @@ func (s *Store) OpenTurnContext(turnID, folder, topic, chatJID, trigger, returnT
 			attrTurnTrigger, attrTurnReturnTo, "probe_episode"), attrTurnRunReturned, attrTurnRunID),
 		Cond: objstore.Cond{Where: []objstore.Cmp{
 			{Attr: attrTurnState, Op: objstore.Ne, Value: TurnDone},
+			{Attr: "next_attempt_at", Op: objstore.Absent},
 		}},
 	})...)
 	if err != nil {
