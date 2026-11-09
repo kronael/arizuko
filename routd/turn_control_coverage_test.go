@@ -92,7 +92,7 @@ func TestTurnControlExpiredEngagementPollsSavedInput(t *testing.T) {
 	p.srv = NewServer(db, poller, dl, nil, 0, "")
 	modelPauseDue(t, poller)
 	poller.pollOnce()
-	for poller.q.ActiveCount() != 0 {
+	for queueHasWorker(poller.q) {
 		runtime.Gosched()
 	}
 	p.mu.Lock()
@@ -233,7 +233,7 @@ func TestTurnControlMissingCapturedRunRecovery(t *testing.T) {
 				return false, nil
 			})
 			poller.pollOnce()
-			for poller.q.ActiveCount() != 0 {
+			for queueHasWorker(poller.q) {
 				runtime.Gosched()
 			}
 			after, _ := db.GetTurnContext("refused")

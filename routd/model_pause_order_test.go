@@ -161,7 +161,7 @@ func TestModelPausePollHeldOrder(t *testing.T) {
 			// Poll and ingress use the same queue; drain each round before refeeding.
 			for range 5 {
 				l.pollOnce()
-				for l.q.ActiveCount() != 0 {
+				for queueHasWorker(l.q) {
 					runtime.Gosched()
 				}
 			}

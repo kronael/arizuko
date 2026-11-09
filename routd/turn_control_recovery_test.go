@@ -52,7 +52,7 @@ func TestTurnControlPollContinuesAfterProviderRecoveryError(t *testing.T) {
 		return false, nil
 	})
 	poller.pollOnce()
-	for poller.q.ActiveCount() != 0 {
+	for queueHasWorker(poller.q) {
 		runtime.Gosched()
 	}
 	poller.StopQueue()

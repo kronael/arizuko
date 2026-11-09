@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 )
 
@@ -13,7 +14,7 @@ func TestActiveCount_AfterConcurrentRuns(t *testing.T) {
 	q := newTurnControl(4)
 
 	gate := make(chan struct{})
-	q.SetProcessMessagesFn(func(jid string) (bool, error) {
+	setExecutionProcessor(q, func(jid string) (bool, error) {
 		<-gate
 		return true, nil
 	})
@@ -35,36 +36,40 @@ func TestActiveCount_AfterConcurrentRuns(t *testing.T) {
 // A chat parked behind its folder's run, or behind the run cap, is reported to
 // the parked fn; a chat that starts is not.
 func TestEnqueueReportsParkedChats(t *testing.T) {
-	q := newTurnControl(1)
-	q.SetFolderForJidFn(func(jid string) string {
-		if jid == "c" {
-			return ""
-		}
-		return "f"
-	})
-	var mu sync.Mutex
-	var parked []string
-	q.SetParkedFn(func(jid string) {
+	synctest.Test(t, func(t *testing.T) {
+		q := newTurnControl(1)
+		q.SetFolderForJidFn(func(jid string) string {
+			if jid == "c" {
+				return ""
+			}
+			return "f"
+		})
+		var mu sync.Mutex
+		var parked []string
+		q.SetParkedFn(func(jid string) {
+			mu.Lock()
+			parked = append(parked, jid)
+			mu.Unlock()
+		})
+		gate := make(chan struct{})
+		started := make(chan struct{}, 3)
+		setExecutionProcessor(q, func(string) (bool, error) {
+			started <- struct{}{}
+			<-gate
+			return true, nil
+		})
+		q.EnqueueMessageCheck("a")
+		<-started
+		q.EnqueueMessageCheck("b") // folder f held by a
+		synctest.Wait()
+		q.EnqueueMessageCheck("c") // run cap full
+		synctest.Wait()
 		mu.Lock()
-		parked = append(parked, jid)
+		got := append([]string(nil), parked...)
 		mu.Unlock()
+		if len(got) != 2 || got[0] != "b" || got[1] != "c" {
+			t.Fatalf("parked = %v, want [b c]", got)
+		}
+		close(gate)
 	})
-	gate := make(chan struct{})
-	started := make(chan struct{}, 3)
-	q.SetProcessMessagesFn(func(string) (bool, error) {
-		started <- struct{}{}
-		<-gate
-		return true, nil
-	})
-	q.EnqueueMessageCheck("a")
-	<-started
-	q.EnqueueMessageCheck("b") // folder f held by a
-	q.EnqueueMessageCheck("c") // run cap full
-	mu.Lock()
-	got := append([]string(nil), parked...)
-	mu.Unlock()
-	if len(got) != 2 || got[0] != "b" || got[1] != "c" {
-		t.Fatalf("parked = %v, want [b c]", got)
-	}
-	close(gate)
 }

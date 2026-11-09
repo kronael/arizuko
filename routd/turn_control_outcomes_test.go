@@ -14,7 +14,7 @@ func TestRepeatedOutcomesReleaseAdmission(t *testing.T) {
 				q := newTurnControl(1)
 				q.SetFolderForJidFn(func(string) string { return "same-folder" })
 				calls := 0
-				q.SetProcessMessagesFn(func(string) (bool, error) {
+				setExecutionProcessor(q, func(string) (bool, error) {
 					calls++
 					return false, failure
 				})

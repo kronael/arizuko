@@ -68,7 +68,7 @@ func TestApprovalIngressWhileChatIsBusy(t *testing.T) {
 						}
 					}
 					release()
-					awaitCond(t, "queue did not release busy turn", func() bool { return loop.q.ActiveCount() == 0 })
+					awaitCond(t, "queue did not release busy turn", func() bool { return !queueHasWorker(loop.q) })
 				})
 				ingress := http.HandlerFunc(srv.handleMessages)
 				post := func(id, actor, text string) {
@@ -145,7 +145,7 @@ func TestApprovalIngressWhileChatIsBusy(t *testing.T) {
 					t.Fatalf("standing rows=%d, want %d", skip, expected)
 				}
 				release()
-				awaitCond(t, "original turn did not return", func() bool { return loop.q.ActiveCount() == 0 })
+				awaitCond(t, "original turn did not return", func() bool { return !queueHasWorker(loop.q) })
 				loop.pollOnce()
 				select {
 				case batch := <-runner.batches:

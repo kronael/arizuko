@@ -658,6 +658,11 @@ type groupState struct {
 	active bool
 }
 
+type turnReservation struct {
+	folder string
+	cron   bool
+}
+
 type processMessagesFn func(groupJid string) (bool, error)
 type folderForJidFn func(groupJid string) string
 
@@ -669,7 +674,10 @@ type turnControl struct {
 	mu              sync.Mutex
 	groups          map[string]*groupState
 	activeCount     int
+	activeCron      int
 	activeFolders   map[string]string
+	reservations    map[string]turnReservation
+	pending         map[string]turnReservation
 	maxConcurrent   int
 	waitingGroups   []string
 	processMessages processMessagesFn
@@ -693,6 +701,8 @@ func newTurnControl(maxConcurrent int) *turnControl {
 	return &turnControl{
 		groups:        make(map[string]*groupState),
 		activeFolders: make(map[string]string),
+		reservations:  make(map[string]turnReservation),
+		pending:       make(map[string]turnReservation),
 		maxConcurrent: maxConcurrent,
 		now:           time.Now,
 	}
@@ -744,7 +754,6 @@ func (q *turnControl) WithIdleFolder(folder string, fn func() error) (bool, erro
 	return true, fn()
 }
 
-// Caller must hold q.mu.
 func (q *turnControl) folderOf(jid string) string {
 	if q.folderForJid == nil {
 		return ""
@@ -752,14 +761,71 @@ func (q *turnControl) folderOf(jid string) string {
 	return q.folderForJid(jid)
 }
 
-// Caller must hold q.mu.
-func (q *turnControl) activateLocked(jid, folder string) {
-	s := q.getGroup(jid)
-	s.active = true
+func (q *turnControl) activateLocked(jid string) {
+	q.getGroup(jid).active = true
+}
+
+func (q *turnControl) canReserve(r turnReservation) bool {
+	_, busy := q.activeFolders[r.folder]
+	return !busy && q.activeCount < q.maxConcurrent && (!r.cron || q.activeCron == 0)
+}
+
+func (q *turnControl) reserveLocked(jid string, r turnReservation) {
+	q.reservations[jid] = r
 	q.activeCount++
-	if folder != "" {
-		q.activeFolders[folder] = jid
+	if r.cron {
+		q.activeCron++
 	}
+	q.activeFolders[r.folder] = jid
+}
+
+func (q *turnControl) reserve(jid, folder string, cron bool) bool {
+	q.mu.Lock()
+	r := turnReservation{folder: folder, cron: cron}
+	prior, reserved := q.reservations[jid]
+	if reserved && prior != r {
+		q.releaseLocked(jid)
+		reserved = false
+	}
+	if reserved || q.canReserve(r) {
+		delete(q.pending, jid)
+		q.waitingGroups = slices.DeleteFunc(q.waitingGroups, func(key string) bool { return key == jid })
+		if !reserved {
+			q.reserveLocked(jid, r)
+		}
+		q.mu.Unlock()
+		return true
+	}
+	q.pending[jid] = r
+	if !slices.Contains(q.waitingGroups, jid) {
+		q.waitingGroups = append(q.waitingGroups, jid)
+	}
+	fn := q.parked
+	q.mu.Unlock()
+	if fn != nil {
+		fn(jid)
+	}
+	return false
+}
+
+func (q *turnControl) releaseLocked(jid string) {
+	r, ok := q.reservations[jid]
+	if !ok {
+		return
+	}
+	delete(q.reservations, jid)
+	delete(q.activeFolders, r.folder)
+	q.activeCount--
+	if r.cron {
+		q.activeCron--
+	}
+}
+
+func (q *turnControl) release(jid string) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.releaseLocked(jid)
+	q.drainWaitingLocked()
 }
 
 func (q *turnControl) EnqueueMessageCheck(groupJid string) {
@@ -777,38 +843,7 @@ func (q *turnControl) EnqueueMessageCheck(groupJid string) {
 		return
 	}
 
-	folder := q.folderOf(groupJid)
-	if folder != "" {
-		if other, busy := q.activeFolders[folder]; busy && other != groupJid {
-			if !slices.Contains(q.waitingGroups, groupJid) {
-				q.waitingGroups = append(q.waitingGroups, groupJid)
-			}
-			slog.Debug("folder already active, queued",
-				"groupJid", groupJid, "folder", folder, "active_jid", other)
-			fn := q.parked
-			q.mu.Unlock()
-			if fn != nil {
-				fn(groupJid)
-			}
-			return
-		}
-	}
-
-	if q.activeCount >= q.maxConcurrent {
-		if !slices.Contains(q.waitingGroups, groupJid) {
-			q.waitingGroups = append(q.waitingGroups, groupJid)
-		}
-		slog.Debug("at concurrency limit, queued for drain",
-			"groupJid", groupJid, "activeCount", q.activeCount)
-		fn := q.parked
-		q.mu.Unlock()
-		if fn != nil {
-			fn(groupJid)
-		}
-		return
-	}
-
-	q.activateLocked(groupJid, folder)
+	q.activateLocked(groupJid)
 	q.mu.Unlock()
 
 	go q.runForGroup(groupJid)
@@ -880,13 +915,7 @@ func (q *turnControl) runForGroup(groupJid string) {
 	}
 
 	s.active = false
-	q.activeCount--
-	for f, owner := range q.activeFolders {
-		if owner == groupJid {
-			delete(q.activeFolders, f)
-			break
-		}
-	}
+	q.releaseLocked(groupJid)
 	if !q.shuttingDown {
 		q.drainWaitingLocked()
 	}
@@ -895,17 +924,17 @@ func (q *turnControl) runForGroup(groupJid string) {
 
 func (q *turnControl) drainWaitingLocked() {
 	i := 0
-	for i < len(q.waitingGroups) && q.activeCount < q.maxConcurrent {
+	for !q.shuttingDown && i < len(q.waitingGroups) && q.activeCount < q.maxConcurrent {
 		jid := q.waitingGroups[i]
-		folder := q.folderOf(jid)
-		if folder != "" {
-			if other, busy := q.activeFolders[folder]; busy && other != jid {
-				i++
-				continue
-			}
+		r := q.pending[jid]
+		if q.getGroup(jid).active || !q.canReserve(r) {
+			i++
+			continue
 		}
 		q.waitingGroups = append(q.waitingGroups[:i], q.waitingGroups[i+1:]...)
-		q.activateLocked(jid, folder)
+		delete(q.pending, jid)
+		q.reserveLocked(jid, r)
+		q.activateLocked(jid)
 		go q.runForGroup(jid)
 	}
 }

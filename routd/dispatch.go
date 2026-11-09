@@ -163,6 +163,16 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 	}
 
 	if held == nil {
+		var occurrences [][]core.Message
+		for _, group := range groups {
+			occurrences = append(occurrences, consecutiveRuns(group, func(m core.Message) string {
+				if core.IsScheduledSender(m.Sender) {
+					return m.ID
+				}
+				return ""
+			})...)
+		}
+		groups = occurrences
 		groups = l.isolateElevated(groups)
 	}
 
@@ -213,7 +223,6 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 			if !steerConsumed && gi > 0 {
 				l.advanceFinished(chatJID, folder, msgs, batch[0], marks)
 			}
-			l.noteBusy(chatJID, steerMsg.ID)
 			if steerConsumed {
 				slog.Error("runed refused the rows a steer left behind; they are not re-fed",
 					"jid", chatJID, "rows", len(batch), "ids", lostIDs(batch),
@@ -453,6 +462,14 @@ func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed boo
 	if oldest.ID != "" && modelInputBefore(oldest, trigger[0]) {
 		return false, false, false, "", errModelInputOrder
 	}
+	workKey := chatJID
+	if saved != nil {
+		workKey = deferredWorkPrefix + turnID
+	}
+	if !l.q.reserve(workKey, folder, core.IsScheduledSender(last.Sender)) {
+		return false, false, true, "", nil
+	}
+	defer l.q.release(workKey)
 	ambientKeys, err := turnMessageKeys(ambient)
 	if err != nil {
 		return false, false, false, "", err
@@ -672,6 +689,7 @@ func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed boo
 		return false, false, false, "", derr
 	}
 	if out.Busy {
+		l.noteBusy(chatJID, last.ID)
 		launched = false
 		started = false
 		if saved != nil {
