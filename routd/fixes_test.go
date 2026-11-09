@@ -563,10 +563,16 @@ func TestTurnRetry_SchedulesRetryOnError(t *testing.T) {
 		t.Fatalf("cursor advanced to %q past the batch the retry re-feeds", cur)
 	}
 
-	// Second attempt: the batch is held on the busy backoff, which a fresh
-	// inbound message clears — expire it by hand and poll again.
 	loop.busyWait.Delete("slack:T/C/U")
 	_, _ = loop.processGroupMessages("slack:T/C/U")
+	tc, _ = db.GetTurnContext("r1")
+	if tc.NextAttemptAt.IsZero() || db.GetAgentCursor(tc.ChatJID) != tc.InputLast || attempts != 1 {
+		t.Fatalf("migration: attempts=%d turn=%+v", attempts, tc)
+	}
+	loop.q.now = func() time.Time { return tc.NextAttemptAt }
+	if _, err := loop.replay(tc.TurnID); err != nil {
+		t.Fatal(err)
+	}
 	if attempts != 2 {
 		t.Fatalf("the retry never re-dispatched: attempts = %d, want 2", attempts)
 	}
@@ -648,6 +654,11 @@ func TestTurnRetry_ExhaustsAndNotifies(t *testing.T) {
 	db.IncrementRetryCount("r2") // now retry_count=2, at max
 
 	_, _ = loop.processGroupMessages("slack:T/C/U")
+	pending, _ := db.GetTurnContext("r2")
+	loop.q.now = func() time.Time { return pending.NextAttemptAt }
+	if _, err := loop.replay("r2"); err != nil {
+		t.Fatal(err)
+	}
 	if len(dl.sends) != 1 || dl.sends[0].text != retryExhaustedNotice(loop.maxTurnRetry) {
 		t.Fatalf("expected retry exhausted notice, got %+v", dl.sends)
 	}

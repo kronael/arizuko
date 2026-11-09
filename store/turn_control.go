@@ -213,6 +213,14 @@ func (s *Store) MigrateDeferredTurn(ctx context.Context, d DeferredTurn) (bool, 
 	if d.PriorCursor == "" {
 		cursor.Op = objstore.Absent
 	}
+	prior, _, err := s.itemAt(ctx, TurnContexts, key)
+	if err != nil {
+		return false, err
+	}
+	inputGuard := objstore.Cmp{Attr: "input_keys", Op: objstore.Absent}
+	if value, ok := prior.Attrs["input_keys"]; ok {
+		inputGuard.Op, inputGuard.Value = objstore.Eq, value
+	}
 	checks, writes := controlAdmission(d.ControlBefore, d.ControlAfter)
 	checks = append(checks, objstore.Check{Entity: Groups, Key: group, Cond: objstore.Cond{Item: objstore.ItemPresent}})
 	writes = append(writes, objstore.Write{Op: objstore.Update, Entity: TurnContexts, Key: key,
@@ -222,7 +230,7 @@ func (s *Store) MigrateDeferredTurn(ctx context.Context, d DeferredTurn) (bool, 
 			{Attr: attrTurnState, Op: objstore.Eq, Value: tc.State},
 			{Attr: attrTurnFolder, Op: objstore.Eq, Value: tc.Folder},
 			{Attr: attrTurnChatJID, Op: objstore.Eq, Value: tc.ChatJID},
-			{Attr: "input_keys", Op: objstore.Absent}, attempt, count,
+			{Attr: "next_attempt_at", Op: objstore.Absent}, inputGuard, attempt, count,
 		}}}, objstore.Write{Op: objstore.Update, Entity: Chats, Key: chat,
 		Attrs: map[string]string{AttrChatAgentCursor: max(d.PriorCursor, tc.InputLast)},
 		Cond:  objstore.Cond{Where: []objstore.Cmp{cursor}}})
@@ -337,6 +345,27 @@ func (s *Store) DeferTurn(ctx context.Context, d DeferredTurn) (bool, error) {
 
 func (s *Store) ClaimDeferredTurn(ctx context.Context, tc TurnContext, attemptID string, now time.Time) (bool, error) {
 	return s.claimDeferredTurn(ctx, tc, attemptID, now, nil, nil)
+}
+
+func (s *Store) RequeueDeferredTurn(ctx context.Context, tc TurnContext, due time.Time) (bool, error) {
+	key, err := turnKey(tc.TurnID)
+	if err != nil {
+		return false, err
+	}
+	group, err := groupKey(tc.Folder)
+	if err != nil {
+		return false, err
+	}
+	return s.TryWriteEntities(ctx, []objstore.Check{{Entity: Groups, Key: group,
+		Cond: objstore.Cond{Item: objstore.ItemPresent}}}, objstore.Write{
+		Op: objstore.Update, Entity: TurnContexts, Key: key,
+		Attrs: map[string]string{attrTurnState: TurnPendingRetry, "next_attempt_at": core.TS(due)},
+		Cond: objstore.Cond{Where: []objstore.Cmp{
+			{Attr: attrTurnState, Op: objstore.Eq, Value: TurnRunning},
+			{Attr: "attempt_id", Op: objstore.Eq, Value: tc.AttemptID},
+			{Attr: attrTurnFolder, Op: objstore.Eq, Value: tc.Folder},
+		}},
+	})
 }
 
 func (s *Store) ClaimControlledTurn(ctx context.Context, tc TurnContext, attemptID string, now time.Time, before, after *TurnControlState) (bool, error) {

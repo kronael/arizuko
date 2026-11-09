@@ -483,8 +483,16 @@ func (l *Loop) recoverPending() {
 		return
 	}
 	for _, tc := range tcs {
+		if tc.State == store.TurnPendingRetry || l.isSavedExecution(tc) {
+			continue
+		}
 		l.Enqueue(tc.ChatJID)
 	}
+	if err := l.q.recover(l); err != nil {
+		slog.Error("recover deferred turns", "err", err)
+		return
+	}
+	l.q.tick(l)
 }
 
 // folderForJid resolves a chat JID to the folder its pending batch dispatches
@@ -492,6 +500,10 @@ func (l *Loop) recoverPending() {
 // JIDs. It reads the batch the worker reads and decides it with the worker's
 // resolveBatch: a key from any other row lets two chats run in one folder.
 func (l *Loop) folderForJid(chatJID string) string {
+	if turnID, ok := strings.CutPrefix(chatJID, deferredWorkPrefix); ok {
+		tc, _ := l.db.GetTurnContext(turnID)
+		return tc.Folder
+	}
 	msgs, b, _, err := l.pendingBatch(chatJID, l.db.GetAgentCursor(chatJID), pollBatch)
 	if err != nil || newestUserIdx(msgs) < 0 {
 		return chatJID
@@ -513,6 +525,11 @@ const pollBatch = 200
 // 24,013 rows every two seconds because one chat's cursor had not moved since
 // March, against 0 rows when each chat is read from its own.
 func (l *Loop) pollOnce() {
+	if err := l.q.recover(l); err != nil {
+		slog.Error("recover deferred turns", "err", err)
+		return
+	}
+	l.q.tick(l)
 	if err := l.recoverModelProbe(false); err != nil {
 		slog.Error("recover model probe", "err", err)
 	}

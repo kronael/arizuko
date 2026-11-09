@@ -25,6 +25,12 @@ import (
 // the batch, dispatches one run to runed and records the outcome. Returns
 // (hadOutput, err) per the queue's processMessagesFn.
 func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
+	if turnID, ok := strings.CutPrefix(chatJID, deferredWorkPrefix); ok {
+		return l.replay(turnID)
+	}
+	if err := l.migrateRetries(chatJID); err != nil {
+		return false, err
+	}
 	msgs, b, held, err := l.pendingBatch(chatJID, l.db.GetAgentCursor(chatJID), pollBatch)
 	if err != nil {
 		return false, err
@@ -404,6 +410,10 @@ func (l *Loop) isolateElevated(groups [][]core.Message) [][]core.Message {
 // outcome. It never advances the agent_cursor; busy=true means the batch was
 // not consumed and the caller must re-feed it, not advance.
 func (l *Loop) runTurn(folder, topic, chatJID, turnID string, addressed bool, trigger, ambient []core.Message) (hadOutput, steered, busy bool, observedMark string, rerr error) {
+	return l.runBoundTurn(folder, topic, chatJID, turnID, addressed, trigger, ambient, nil)
+}
+
+func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed bool, trigger, ambient []core.Message, saved *TurnContext) (hadOutput, steered, busy bool, observedMark string, rerr error) {
 	last := trigger[len(trigger)-1]
 	// Elevation is one-shot and consumed here, so a re-fed batch never
 	// re-elevates; the whole batch is scanned so batching with a sibling cannot
@@ -432,7 +442,16 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, addressed bool, tr
 		}
 		return true, false, false, "", nil
 	}
-	probe, err := l.modelAdmission(folder, trigger[0])
+	var probe *store.ModelPause
+	var err error
+	if saved == nil {
+		probe, err = l.modelAdmission(folder, trigger[0])
+	} else {
+		probe, err = l.db.store().ReadModelPause(ctx, folder)
+		if probe != nil {
+			return false, false, false, "", store.ErrModelPaused
+		}
+	}
 	if err != nil {
 		return false, false, false, "", err
 	}
@@ -453,16 +472,34 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, addressed bool, tr
 	prior, _, err := l.db.store().ReadTurnContext(ctx, turnID)
 	var live bool
 	if err == nil {
-		live, err = l.db.store().OpenTurnContext(turnID, folder, topic, chatJID,
-			last.Sender, last.ForwardedFrom, &admission)
+		if saved != nil {
+			live, err = l.db.store().ClaimDeferredTurn(ctx, *saved, admission.AttemptID, l.q.now())
+		} else {
+			live, err = l.db.store().OpenTurnContext(turnID, folder, topic, chatJID,
+				last.Sender, last.ForwardedFrom, &admission)
+		}
 	}
 	unlock()
 	if err != nil || !live {
 		return false, false, false, "", err
 	}
-	for i := range trigger {
-		if _, ok := l.pendingElevation.LoadAndDelete(trigger[i].ID); ok {
-			elevated = true
+	launched := false
+	if saved != nil {
+		defer func() {
+			current, ok := l.db.GetTurnContext(turnID)
+			if ok && current.State == store.TurnRunning && current.AttemptID == admission.AttemptID && !launched {
+				_, err := l.db.store().RequeueDeferredTurn(ctx, current, l.q.now().Add(busyBackoffBase))
+				if err != nil {
+					rerr = err
+				}
+			}
+		}()
+	}
+	if saved == nil {
+		for i := range trigger {
+			if _, ok := l.pendingElevation.LoadAndDelete(trigger[i].ID); ok {
+				elevated = true
+			}
 		}
 	}
 	tc := TurnContext{TurnID: turnID, Folder: folder, AttemptID: admission.AttemptID,
@@ -508,7 +545,7 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, addressed bool, tr
 			l.enrichAttachments(ctx, &trigger[i], folder)
 		}
 	}
-	rendered, observedMark := l.buildAgentPrompt(folder, topic, trigger, ambient)
+	rendered, observedMark := l.buildBoundPrompt(folder, topic, trigger, ambient, saved != nil)
 	// Dropped once consumed, so a re-fed turn does not re-attach a stale reason.
 	if v, ok := l.pendingReason.LoadAndDelete(turnID); ok {
 		pr := v.(proactiveResult)
@@ -602,8 +639,12 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, addressed bool, tr
 	// and the reply chat can show and remove one.
 	progress := addressed && canShowProgress(l.deliver, replyJID)
 	started = true
+	launched = true
 	out, derr := l.dispatchRun(ctx, folder, topic, replyJID, turnID, last.Sender, rendered, elevated, progress, gwKey.Key)
 	tc.RunID = out.RunID
+	if out.RunID != "" {
+		_ = l.db.SetTurnRunID(turnID, out.RunID)
+	}
 	if derr != nil {
 		l.pauseProgress(replyJID, out.RunID)
 		slog.Warn("dispatch run transport failure", "folder", folder, "turn_id", turnID, "err", derr)
@@ -613,7 +654,12 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, addressed bool, tr
 		return false, false, false, "", derr
 	}
 	if out.Busy {
+		launched = false
 		started = false
+		if saved != nil {
+			l.pauseProgress(replyJID, out.RunID)
+			return false, false, true, "", nil
+		}
 		if probe != nil {
 			return false, false, false, "", store.ErrModelPaused
 		}
@@ -625,9 +671,6 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, addressed bool, tr
 		return false, false, true, "", nil
 	}
 	completed = true
-	if out.RunID != "" {
-		_ = l.db.SetTurnRunID(turnID, out.RunID)
-	}
 	if out.Steered {
 		// The original run owns the batch and submits under ITS turn_id. THIS
 		// turn is done, or a re-fed poll / recoverPending re-spawns it and
@@ -664,6 +707,16 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, addressed bool, tr
 		tc, _ := l.db.GetTurnContext(turnID)
 		hasBotReply := l.db.TurnHasBotReply(returnTarget(tc, tc.ChatJID), turnID)
 		if !out.Terminal && !hasBotReply && tc.RetryCount < l.maxTurnRetry {
+			if saved != nil {
+				tc.NextAttemptAt = retryAt(l.q.now(), tc.Trigger, tc.RetryCount+1)
+				ok, err := l.db.store().DeferTurn(ctx, store.DeferredTurn{Turn: tc,
+					PriorCursor: l.db.GetAgentCursor(tc.ChatJID)})
+				if err == nil && !ok {
+					err = fmt.Errorf("defer turn %s refused", turnID)
+				}
+				l.pauseProgress(replyJID, out.RunID)
+				return false, false, false, "", err
+			}
 			newCount, err := l.db.IncrementRetryCount(turnID)
 			if err == nil {
 				slog.Warn("turn failed without reply, scheduling retry",

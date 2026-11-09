@@ -24,6 +24,10 @@ import (
 // caller advances it on the same success path as the message cursor —
 // at-least-once, benign because the manual tells the agent not to act on observed rows.
 func (l *Loop) buildAgentPrompt(folder, topic string, trigger, ambient []core.Message) (string, string) {
+	return l.buildBoundPrompt(folder, topic, trigger, ambient, false)
+}
+
+func (l *Loop) buildBoundPrompt(folder, topic string, trigger, ambient []core.Message, saved bool) (string, string) {
 	sysMsgs := l.db.FlushSysMsgs(folder)
 	maxN, maxC := l.observeWindow(folder)
 
@@ -31,12 +35,15 @@ func (l *Loop) buildAgentPrompt(folder, topic string, trigger, ambient []core.Me
 	if line, ok := l.db.store().TopicLineage(folder, topic); ok {
 		cursor = line.ObservedCursor
 	}
-	observed := l.db.ObservedSince(folder, cursor, maxN, maxC)
+	observed := ambient
 	mark := ""
-	if len(observed) > 0 {
-		mark = core.TS(observed[len(observed)-1].Timestamp)
+	if !saved {
+		observed = l.db.ObservedSince(folder, cursor, maxN, maxC)
+		if len(observed) > 0 {
+			mark = core.TS(observed[len(observed)-1].Timestamp)
+		}
+		observed = append(atOrBeforeCursor(ambient, cursor), withoutTrigger(observed, trigger)...)
 	}
-	observed = append(atOrBeforeCursor(ambient, cursor), withoutTrigger(observed, trigger)...)
 
 	envelope := `<topic name="` + topic + `" />` + "\n" + l.paneHints(trigger) + linkContextBlock(trigger)
 	return sysMsgs +

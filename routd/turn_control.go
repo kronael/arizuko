@@ -1,12 +1,174 @@
 package routd
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"slices"
 	"sync"
 	"time"
+
+	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/store"
 )
+
+const deferredWorkPrefix = "\x00turn:"
+
+func retryAt(now time.Time, sender string, retry int) time.Time {
+	delays := [...]time.Duration{30 * time.Second, 2 * time.Minute, 5 * time.Minute}
+	if core.IsScheduledSender(sender) {
+		delays = [...]time.Duration{15 * time.Minute, 45 * time.Minute, 180 * time.Minute}
+	}
+	return now.Add(delays[min(max(retry, 1), len(delays))-1])
+}
+
+func (q *turnControl) tick(l *Loop) {
+	turns, err := l.db.store().DeferredTurns(context.Background(), q.now())
+	if err != nil {
+		slog.Error("select deferred turns", "err", err)
+		return
+	}
+	for _, tc := range turns {
+		l.Enqueue(deferredWorkPrefix + tc.TurnID)
+	}
+}
+
+func (l *Loop) replay(turnID string) (bool, error) {
+	ctx := context.Background()
+	tc, ok, err := l.db.store().ReadTurnContext(ctx, turnID)
+	if err != nil || !ok || tc.State != store.TurnPendingRetry || l.q.now().Before(tc.NextAttemptAt) {
+		return false, err
+	}
+	trigger, err := l.db.store().DeferredMessages(ctx, tc.InputKeys)
+	if err != nil {
+		return false, fmt.Errorf("replay turn %s: %w", turnID, err)
+	}
+	if len(trigger) == 0 {
+		return false, fmt.Errorf("replay turn %s: no saved input", turnID)
+	}
+	ambient, err := l.db.store().DeferredMessages(ctx, tc.AmbientKeys)
+	if err != nil {
+		return false, fmt.Errorf("replay turn %s: %w", turnID, err)
+	}
+	last := &trigger[len(trigger)-1]
+	last.Sender, last.ForwardedFrom = tc.Trigger, tc.ReturnTo
+	had, _, _, mark, err := l.runBoundTurn(tc.Folder, tc.Topic, tc.ChatJID,
+		tc.TurnID, tc.Addressed, trigger, ambient, &tc)
+	if err == nil && mark != "" {
+		l.advanceObserved(tc.Folder, []observedAdvance{{topic: tc.Topic, ts: mark}})
+	}
+	return had, err
+}
+
+func (l *Loop) migrateRetries(chatJID string) error {
+	turns, err := l.db.RunningTurns()
+	if err != nil {
+		return err
+	}
+	for _, tc := range turns {
+		if tc.ChatJID != chatJID || tc.State != store.TurnPendingRetry || !tc.NextAttemptAt.IsZero() {
+			continue
+		}
+		cursor := l.db.GetAgentCursor(chatJID)
+		if len(tc.InputKeys) > 0 {
+			tc.NextAttemptAt = retryAt(l.q.now(), tc.Trigger, tc.RetryCount)
+			ok, err := l.db.store().MigrateDeferredTurn(context.Background(), store.DeferredTurn{Turn: tc, PriorCursor: cursor})
+			if err != nil || !ok {
+				return fmt.Errorf("migrate turn %s: saved binding refused: %v", tc.TurnID, err)
+			}
+			continue
+		}
+		msgs, _, _, err := l.pendingBatch(chatJID, cursor, pollBatch)
+		if err != nil {
+			return err
+		}
+		end := slices.IndexFunc(msgs, func(m core.Message) bool { return m.ID == tc.TurnID })
+		if end < 0 {
+			return fmt.Errorf("migrate turn %s: input boundary is missing", tc.TurnID)
+		}
+		msgs = msgs[:end+1]
+		batch := l.resolveBatch(chatJID, msgs)
+		_, pinnedTopic := l.db.StickyState(chatJID)
+		var trigger, ambient []core.Message
+		for i, msg := range msgs {
+			if msg.BotMsg {
+				continue
+			}
+			if !batch.rows[i].ok {
+				ambient = append(ambient, msg)
+				continue
+			}
+			topic := msg.Topic
+			if !batch.rows[i].TopicPinned && pinnedTopic != "" {
+				topic = pinnedTopic
+			}
+			if batch.rows[i].Folder != tc.Folder || msg.Sender != tc.Trigger || topic != tc.Topic || IsSteerCommand(msg) {
+				return fmt.Errorf("migrate turn %s: ambiguous input binding", tc.TurnID)
+			}
+			trigger = append(trigger, msg)
+		}
+		if len(trigger) == 0 {
+			return fmt.Errorf("migrate turn %s: no resolved input", tc.TurnID)
+		}
+		tc.InputKeys, err = turnMessageKeys(trigger)
+		if err != nil {
+			return err
+		}
+		tc.AmbientKeys, err = turnMessageKeys(ambient)
+		if err != nil {
+			return err
+		}
+		tc.InputLast = store.MessageCursor(msgs[len(msgs)-1])
+		tc.NextAttemptAt = retryAt(l.q.now(), tc.Trigger, tc.RetryCount)
+		ok, err := l.db.store().MigrateDeferredTurn(context.Background(), store.DeferredTurn{Turn: tc, PriorCursor: cursor})
+		if err != nil || !ok {
+			return fmt.Errorf("migrate turn %s: binding refused: %v", tc.TurnID, err)
+		}
+	}
+	return nil
+}
+
+func (l *Loop) isSavedExecution(tc TurnContext) bool {
+	return len(tc.InputKeys) > 0 && tc.InputLast != "" && tc.InputLast <= l.db.GetAgentCursor(tc.ChatJID)
+}
+
+func (q *turnControl) recover(l *Loop) error {
+	turns, err := l.db.RunningTurns()
+	if err != nil {
+		return err
+	}
+	for _, tc := range turns {
+		if tc.State == store.TurnPendingRetry && tc.NextAttemptAt.IsZero() {
+			if err := l.migrateRetries(tc.ChatJID); err != nil {
+				return err
+			}
+		}
+		if tc.State != store.TurnRunning || !l.isSavedExecution(tc) {
+			continue
+		}
+		_, err := q.WithIdleFolder(tc.Folder, func() error {
+			if err := l.db.SetRunReturned(tc.TurnID); err != nil {
+				return err
+			}
+			if err := l.stopModelProbe(tc); err != nil {
+				return err
+			}
+			if tc.RetryCount >= l.maxTurnRetry {
+				finishTurn(l.db, l.deliver, tc.TurnID, endFailed)
+				return nil
+			}
+			tc.NextAttemptAt = retryAt(q.now(), tc.Trigger, tc.RetryCount+1)
+			_, err := l.db.store().DeferTurn(context.Background(), store.DeferredTurn{
+				Turn: tc, PriorCursor: l.db.GetAgentCursor(tc.ChatJID)})
+			return err
+		})
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
 // dependencyDownGrace is how long the execution plane may be unreachable before
 // the queue calls it an outage rather than a restart. A deploy restarts routd
