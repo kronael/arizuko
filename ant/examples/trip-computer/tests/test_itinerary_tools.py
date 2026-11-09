@@ -1,3 +1,4 @@
+import html
 import importlib.util
 import json
 import os
@@ -79,6 +80,16 @@ class ItineraryToolsTests(unittest.TestCase):
         result = self.run_lint('--rule', 'mapy-links')
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('has no id', result.stdout)
+
+    def test_mapy_entity_and_route_urls(self):
+        base = 'https://mapy.com/en/turisticka?'
+        valid = [base + 'source=stre&id=106188&x=16.165&y=50.414&z=17', base + 'source=traf&id=55208&x=16.16&y=50.41&z=17']
+        invalid = [base + 'source=firm&x=14&y=50&z=17', base + 'x=500&y=999&z=17',
+                   base + 'planovani-trasy&rc=&x=14&y=50', base + 'planovani-trasy&rc=00&rs=coor&ri=&x=14&y=50']
+        for url, ok in [(u, True) for u in valid] + [(u, False) for u in invalid]:
+            (self.site / 'index.html').write_text(f'<a href="{html.escape(url)}">Place</a>')
+            result = self.run_lint('--rule', 'mapy-links')
+            self.assertEqual(result.returncode == 0, ok, (url, result.stdout))
 
     def test_phone_outside_link_fails_for_any_country(self):
         (self.site / 'index.html').write_text('<title>Trip</title><h1>Trip</h1>+351 123 456 789')

@@ -180,17 +180,21 @@ def _(site):
         if host_is(l, 'mapy.cz'): yield 'ERROR', l.page, f'line {l.line}: use mapy.com'; continue
         q = parse_qs(urlparse(l.url).query, keep_blank_values=True); where = f'line {l.line}'
         if 'q' in q: yield 'ERROR', l.page, f'{where}: ?q= opens a search, not the place'; continue
-        if _num(q, 'x') is None or _num(q, 'y') is None: yield 'ERROR', l.page, f'{where}: missing or bad x/y'
+        x, y = _num(q, 'x'), _num(q, 'y')
+        if x is None or y is None or not (-180 <= x <= 180 and -90 <= y <= 90): yield 'ERROR', l.page, f'{where}: missing or bad x/y'
         if 'planovani-trasy' in l.url:
             rs, ri = q.get('rs', []), q.get('ri', [])
             try: n = len(mapyrc.decode(q.get('rc', [''])[0]))
             except Exception as e: yield 'ERROR', l.page, f'{where}: rc= does not decode ({e})'; continue
-            if not (n == len(rs) == len(ri)): yield 'ERROR', l.page, f'{where}: {n} points, {len(rs)} rs, {len(ri)} ri'
+            if n < 2: yield 'ERROR', l.page, f'{where}: route has {n} points'
+            elif not (n == len(rs) == len(ri)): yield 'ERROR', l.page, f'{where}: {n} points, {len(rs)} rs, {len(ri)} ri'
             if any(source != 'coor' and not ident for source, ident in zip(rs, ri)): yield 'ERROR', l.page, f'{where}: named route point has no id'
             if sum(r == 'coor' for r in rs) > 1: yield 'WARN', l.page, f'{where}: route has unnamed (coor) stops'
-        elif 'source' not in q: continue                                   # plain map view at x/y
-        elif q.get('source', [''])[0] not in ('osm', 'base', 'firm', 'pubt', 'coor'):
+        elif 'source' not in q: continue
+        elif q.get('source', [''])[0] not in ('osm', 'base', 'firm', 'pubt', 'coor', 'stre', 'traf'):
             yield 'ERROR', l.page, f'{where}: unknown source= "{q.get("source", [""])[0]}"'
+        elif not q.get('id', [''])[0]:
+            yield 'ERROR', l.page, f'{where}: source= without id='
         elif q.get('source') == ['coor']:
             yield 'WARN', l.page, f'{where}: GPS pin, not a place ("{l.text}")'
 
