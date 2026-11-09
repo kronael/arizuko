@@ -56,4 +56,5 @@ specs/res/mox/
 # Compiled binaries left by `make -C <dir> build`
 mcpfw/mcpfw
 gitd/gitd
+googd/googd
 kernel/guest-init/guestinit
