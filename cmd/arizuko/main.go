@@ -31,7 +31,7 @@ import (
 const mainUsage = `arizuko <command> [-i|--instance name] [arguments]
   package  sync | add <source> | rm <name>  [-g|--group folder] [-f|--force]
 	  create [-i instance] [-p product] | run | rm | generate | status
-  group | gate | invite | network | images | route | token
+  group | gate | invite | network | images | route | token | task
   chat | send | pair | secret | user-secret | budget | store
   talk     [@name] [-g <folder>] [-t <token>] [--thread <name>] [--prompt [text]]  — REPL against a live instance; no DB, config in ~/.config/arizuko/talk.toml
   dump [file] [--quiesced] | apply <dump.tar|rows.yml> [--force] | plan <rows.yml> | get <resource>
@@ -60,6 +60,7 @@ func main() {
 		"invite":       cmdInvite,
 		"chat":         cmdChat,
 		"send":         cmdSend,
+		"task":         cmdTask,
 		"status":       cmdStatus,
 		"pair":         cmdPair,
 		"network":      cmdNetwork,

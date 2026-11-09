@@ -59,6 +59,7 @@ Secrets and tokens:
 
 Routing and packages:
 
+- `arizuko task run [-i NAME] <task-id>` schedules an active task for the next routd tick without a token.
 - `arizuko route [-i NAME] list | add <match> <target> [--seq N] | rm <id>` manages the message-routing table. Writes go through the audited `AddRoute` and `DeleteRoute`, so the route and its audit row commit together. `AsCLI` attributes the row to the invoking operator, because the CLI has no `X-User-*` header to learn a sub from.
 - `arizuko package [-i NAME] add [-g|--group <folder>] [-f|--force] <source>` installs one package and records its selection in the `installed_packages` resource. Without `-g` the selection covers the whole instance. With `-g` it covers that group only.
 - `arizuko package [-i NAME] rm [-g|--group <folder>] <name>` withdraws one selection with its rows and services. It deletes the package's `services/*.yml` and regenerates `docker-compose.yml`, so it is the way to remove a service fragment; never delete one by hand. The generated `include:` marks each fragment `required: false`, so a fragment deleted by hand does not stop `docker compose down` or `up`. The `core` package cannot be withdrawn.
