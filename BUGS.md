@@ -15,6 +15,8 @@
 
 ## What needs you
 
+- `L807` — a group send carries no distance from its human input, so two groups sent each other turns for 80 minutes.
+- `L806` — the Codex harness reports the session's cumulative token total as each turn's usage.
 - `L803` — morha repeats recovery reports and replies to an old GitHub comment; cause unmeasured.
 - `L804` — Codex topic forks do not inherit the parent's model context; observed messages remain available.
 - `L796` — a silent cron script costs a full agent turn (macrohype-monitor, 48 turns a week); owner chose a command task with no model call; where the command runs needs sign-off.
@@ -330,6 +332,48 @@ reads those words now.
   `/tmp/arizuko-github-baseline-build.log`. No test — ops.
   **Proposal:** stop the build on the first failed submake. This is an adjacent
   build-gate repair; scope approval is pending.
+
+## L807 — a group send carries no distance from its human input (2026-11-09, open)
+
+MEASURED on live sloth (v0.75.4) 2026-11-09 18:42–20:02Z: sloth delegated
+to its 8 children, then sloth and sloth/trading started turns in each other
+about every 9 minutes (`escalate-1794252697017994395` →
+`delegate-1794253471422480880` → `escalate-1794253747318606677` →
+`delegate-1794254034928432919` → `escalate-1794254298528678790`): 15 turns,
+about 1,336 Codex credits. The depth cap counted one hop and reset to 0 in
+every new turn. This line has no delegation tools; `send` to a group folder
+(`ipc/ipc.go`, `store.PostGroup`) and `inject_message` still write an
+inbound row that starts a turn in the target, and neither row records how
+far it is from a person, so A→B→A is not refused.
+
+- **Severity:** high — an unbounded agent loop spends model credit with no
+  person in it.
+- **Owner decision 2026-11-09:** every message carries its distance from the
+  last human or external input; a turn's distance is the maximum over its
+  inputs; an agent write that starts a turn gets that distance + 1 and is
+  refused at the limit, 2 (one delegation).
+- **Status:** open — fix in progress.
+
+## L806 — the Codex harness reports the cumulative session total as turn usage (2026-11-09, open)
+
+MEASURED on live sloth 2026-11-09: routd logged `agent self-reported model
+usage` input 24,903,877 for turn `escalate-1794253747318606677` (19:54:17Z).
+The rollout
+`/srv/data/arizuko_sloth/groups/sloth/.codex/sessions/2026/11/08/rollout-2026-11-08T14-49-24-01a1bba2-b010-7db2-aff7-1582f4ec543c.jsonl`
+has `total_token_usage.input_tokens` 24,903,877 at 19:54:14.847Z; the
+turn's three requests (19:53:31–19:54:14) have `last_token_usage.input_tokens`
+146,378 + 147,091 + 147,644 = 441,113, which is also the change in the total
+since the previous turn ended (24,462,764 at 19:45:03.469Z). `codex exec
+--json` puts the thread's running total in `turn.completed.usage`, and
+`ant/src/codex.ts::usageOf` reports it as the turn's usage. Codex resumes
+one thread across turns, so the value grows without end, and the token
+metrics, `cost_cents` readers and budget caps over-count.
+
+- **Severity:** medium — usage metrics over-count by orders of magnitude on
+  a long Codex thread.
+- **Fix:** subtract the thread's total at the end of the previous turn,
+  read from the rollout, from the `turn.completed` usage.
+- **Status:** open — fix in progress.
 
 ## L804 — Codex topic forks do not inherit the parent's model context (2026-11-09, open — record only)
 
