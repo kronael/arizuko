@@ -22,7 +22,8 @@ def _ser(delta, orig):
 def encode(points):  # points: [(lat, lon), ...]
     ox = oy = 0; out = ''
     for lat, lon in points:
-        x = round((lon + 180) * (1 << 28) / 360); y = round((lat + 90) * (1 << 28) / 180)
+        x = min(round((lon + 180) * (1 << 28) / 360), (1 << 28) - 1)
+        y = min(round((lat + 90) * (1 << 28) / 180), (1 << 28) - 1)
         out += _ser(x - ox, x) + _ser(y - oy, y); ox, oy = x, y
     return out
 
@@ -47,6 +48,8 @@ def decode(s):
         if i:
             res.append((c[1] * 180 / (1 << 28) - 90, c[0] * 360 / (1 << 28) - 180))
         i = (i + 1) % 2
+    if i:
+        raise ValueError('rc= ends inside a point')
     return res
 
 MODES = {'car': 111, 'foot': 131, 'hike': 132, 'bike': 121}

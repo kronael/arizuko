@@ -231,6 +231,16 @@ class ItineraryToolsTests(unittest.TestCase):
         trails = json.loads((out / 'census.json').read_text())['trails']
         self.assertEqual([t['km_in_area'] for t in trails], [0.11])
 
+    def test_mapy_codec_round_trips_boundaries_and_rejects_half_points(self):
+        mapyrc = load(SCRIPTS / 'mapyrc.py')
+        for points in ([(90, 180), (0, 0)], [(-90, -180), (50.08, 14.42)], [(50.0875, 14.4208), (50.1, 14.5)]):
+            back = mapyrc.decode(mapyrc.encode(points))
+            self.assertEqual(len(back), len(points))
+            for (lat, lon), (blat, blon) in zip(points, back):
+                self.assertLess(max(abs(lat - blat), abs(lon - blon)), 1e-5, points)
+        with self.assertRaises(ValueError):
+            mapyrc.decode('00')
+
     def test_trails_connection_failure_is_not_called_a_refusal(self):
         failure = urllib.error.URLError('Connection refused')
         with patch.object(sys, 'argv', ['osm_trails.py', '50', '14', '50.01', '14.01']), patch('urllib.request.urlopen', side_effect=failure):
