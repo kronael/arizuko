@@ -31,8 +31,8 @@
 - `L674` — `compose down` fails on a deleted fragment despite `required: false`; proposal.
 - `L672` — a spend-limit failure: retry silently, one `#issues` notice to the operator; approved, queued after L670.
 - `L760` — an agent `reply` carrying a `<status>` block posts raw tags; manual fix ships in v0.75.4, verify on live codex turns.
-- `L761` — a mention-routed folder cannot read the chat it answers; fix 6832c16ce ships in v0.75.5, verify the live report.
-- `L762` — the reply length lint does not run on codex turns; fix 9be919983 ships in v0.75.5, verify on live codex turns.
+- `L761` — a mention-routed folder cannot read the chat it answers; fix 6832c16ce is in v0.75.4, verify the live report.
+- `L762` — the reply length lint does not run on codex turns; fix 9be919983 is in v0.75.4, verify on live codex turns.
 - `L763` — reproduce Nemo's intermittent approval failures and dead buttons before choosing a fix.
 - `L764` — decide how Telegram supergroup migration updates route identity; live route and schedule repair stays with the operator.
 - `L765` — choose whether cached property search results get a global warning or block; proposal, needs sign-off.
