@@ -13,7 +13,7 @@ user-invocable: true
 
 # Itinerary
 
-A finished day page starts with decision cards for the available routes. Each card gives distance, time and suitability and opens its route. Verify named stops and marked paths in a browser. Record photos, ratings, review counts and recent reviews separately for each source; mark missing evidence as unknown.
+A finished day page starts with decision cards for the available routes while the route is undecided; once the user decides, it starts with the chosen route and its fallback. Each card gives distance, time and suitability and opens its route. Verify named stops and marked paths in a browser. Record photos, ratings, review counts and recent reviews separately for each source; mark missing evidence as unknown.
 
 After a stop, date, route, venue or timing changes, recheck the affected sources, route and page. Before delivery, both commands must exit 0:
 
@@ -91,8 +91,9 @@ drive-up or on-the-way. The type and the minutes open the stop's text
 - A hiking POI = short loop + long loop as mapy.com hike routes; a sight
   with trails around it gets a walk-around loop (`pages.md` § Loops).
   Cost: the castle page had a point, not a loop.
-- At least five census POIs per day page, each with its kind as the
-  first words of its text. Cost: "three POIs is not a day".
+- At least five census POIs per full day page as candidates, each with
+  its kind as the first words of its text; the timeline schedules only
+  the stops that fit the day's hours. Cost: "three POIs is not a day".
 - Every POI on a page gets a story block with reference links from
   `/find` — verified facts only (`pages.md` § Story).
 - A place link opens the place's own entry, by kind (`mapy-links.md`):
