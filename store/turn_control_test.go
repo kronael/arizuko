@@ -135,6 +135,7 @@ func TestControlledProviderFailureGuards(t *testing.T) {
 		t.Fatalf("open: %v %v", ok, err)
 	}
 	tc, _ := s.TurnContextOf("provider")
+	tc.NextAttemptAt = now.Add(4 * time.Hour)
 	before := TurnControlState{Phase: "closed", Episode: "one"}
 	if ok, err := s.WriteTurnControl(ctx, nil, before); err != nil || !ok {
 		t.Fatalf("control: %v %v", ok, err)
@@ -180,11 +181,39 @@ func TestControlledProviderFailureGuards(t *testing.T) {
 	current, _ = s.TurnContextOf(tc.TurnID)
 	p, err = s.ReadModelPause(ctx, tc.Folder)
 	control, exists, controlErr := s.ReadTurnControl(ctx)
-	if err != nil || p == nil || p.Reason != "outage" || current.State != TurnRunning || current.ProviderFailureAttempt != tc.AttemptID || controlErr != nil || !exists || control.Episode != after.Episode {
+	if err != nil || p == nil || p.Reason != "outage" || current.State != TurnRunning || current.ProviderFailureAttempt != tc.AttemptID || !current.NextAttemptAt.Equal(tc.NextAttemptAt) || controlErr != nil || !exists || control.Episode != after.Episode {
 		t.Fatalf("refusal: %+v %+v %+v %v %v", current, p, control, err, controlErr)
 	}
 	if ok, err := s.RecordControlledProviderFailure(ctx, tc, &pause, &pause, &after, &after); err != nil || ok {
 		t.Fatalf("duplicate guard: %v %v", ok, err)
+	}
+}
+
+func TestControlledHeldMigrationReservesRetryOnce(t *testing.T) {
+	s := openTurnEntities(t)
+	now := time.Now().UTC()
+	msg, err := s.AppendMessage(core.Message{ID: "input", ChatJID: "web:held", Timestamp: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	key, _ := messageKeyOf(msg)
+	if err := s.SeedItem(t.Context(), TurnContexts, []string{"held"}, map[string]string{
+		"folder": "demo", "chat_jid": msg.ChatJID, "state": TurnHeld, "attempt_id": "legacy", "retry_count": "2",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	tc, _ := s.TurnContextOf("held")
+	tc.InputLast, tc.InputKeys, tc.NextAttemptAt = MessageCursor(msg), []objstore.Key{key}, now.Add(time.Hour)
+	d := DeferredTurn{Turn: tc, ReserveRetry: true}
+	if ok, err := s.MigrateDeferredTurn(t.Context(), d); err != nil || !ok {
+		t.Fatalf("migrate held: %v %v", ok, err)
+	}
+	saved, _ := s.TurnContextOf("held")
+	if saved.State != TurnPendingRetry || saved.RetryCount != 3 {
+		t.Fatalf("outstanding refusal did not reserve one retry: %+v", saved)
+	}
+	if ok, err := s.MigrateDeferredTurn(t.Context(), d); err != nil || ok {
+		t.Fatalf("migration reserved twice: %v %v", ok, err)
 	}
 }
 
