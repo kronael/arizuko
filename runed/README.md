@@ -260,7 +260,7 @@ The run deadline sends `stop`. `guest-init` sends SIGTERM to the agent and power
 | QEMU did not start                                           | `error`, retryable                        |
 | no renderer; a gateway and no key                            | `error`, `terminal`                       |
 
-runed decides whether a failure is terminal or retryable. The decision rides `RunOutcome.Terminal`, and its zero value is retryable. routd then skips the retry and shows a short cause from its own list (`specs/5/12-turn-retry.md`). The raw exit code never leaves runed. If routd classified the prose of runed, it would need a second classification path on a format string. `guest-init` reports its own failures as 71 and never as 78, so it cannot impersonate the verdict of the agent.
+runed decides whether a failure is terminal or retryable. The decision rides `RunOutcome.Terminal`, and its zero value is retryable. routd then skips the retry and shows a short cause from its own list. The raw exit code never leaves runed. If routd classified the prose of runed, it would need a second classification path on a format string. `guest-init` reports its own failures as 71 and never as 78, so it cannot impersonate the verdict of the agent.
 
 ### Reaping a turn
 
