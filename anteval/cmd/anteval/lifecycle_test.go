@@ -181,7 +181,7 @@ func TestLifecycleFreshNameAndSetup(t *testing.T) {
 	}
 	_, writeErr := input.WriteString("DATA_DIR=/serving-instance\n" +
 		"RUNED_VM_DIR=/serving-instance/vms\nAPP_SRC_DEV=1\n" +
-		"AUTH_SECRET=serving-secret\nARIZUKO_BACKEND=codex\n")
+		"AUTH_SECRET=serving-secret\nARIZUKO_BACKEND=claude\n")
 	if err := errors.Join(writeErr, input.Close()); err != nil {
 		t.Fatal(err)
 	}
@@ -204,7 +204,7 @@ func TestLifecycleFreshNameAndSetup(t *testing.T) {
 		"APP_SRC_DEV": "", "MAX_CONCURRENT_AGENTS": "1", "RUNED_GUEST_MEM": "2G",
 		"AUTH_SECRET": "seed", "ASSISTANT_NAME": f.name,
 		"ONBOARDING_ENABLED": "true", "ANTHROPIC_API_KEY": "x",
-		"ARIZUKO_BACKEND": "codex",
+		"ARIZUKO_BACKEND": "claude",
 	} {
 		if f.config[key] != want {
 			t.Errorf("%s = %q, want %q", key, f.config[key], want)
@@ -378,5 +378,69 @@ func TestLifecycleCanceledCleanup(t *testing.T) {
 	}
 	if f.calls[len(f.calls)-1] != "rm -i anteval-test" {
 		t.Fatal(f.calls)
+	}
+}
+
+func TestLifecycleModelCredentialFollowsBackend(t *testing.T) {
+	login := t.TempDir()
+	if err := os.WriteFile(filepath.Join(login, "auth.json"), []byte("{}"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name, backend, codexDir, refusal string
+		hasAnthropic                     bool
+	}{
+		{"claude without key", "", "", "backend claude needs ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN", false},
+		{"codex without login dir", "codex", "", "backend codex needs HOST_CODEX_DIR", true},
+		{"codex without auth.json", "codex", t.TempDir(), "backend codex needs a Codex login", true},
+		{"codex with login", "codex", login, "", false},
+		{"claude with key", "claude", "", "", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			opts := lifecycleFixture(t)
+			cfg, err := godotenv.Read(opts.envFile)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !tc.hasAnthropic {
+				delete(cfg, "ANTHROPIC_API_KEY")
+			}
+			cfg["ARIZUKO_BACKEND"], cfg["HOST_CODEX_DIR"] = tc.backend, tc.codexDir
+			if err := godotenv.Write(cfg, opts.envFile); err != nil {
+				t.Fatal(err)
+			}
+			f := &fakeLifecycle{}
+			err = doLifecycle(context.Background(), f, opts)
+			if tc.refusal != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.refusal) {
+					t.Fatalf("err = %v, want %q", err, tc.refusal)
+				}
+				if len(f.calls) != 0 {
+					t.Fatalf("refused run mutated: %v", f.calls)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			calls := strings.Join(f.calls, "\n")
+			isGateway := tc.backend != "codex"
+			if strings.Contains(calls, "package -i anteval-test add catalog:litellm") != isGateway {
+				t.Errorf("gateway installed = %v, want %v: %v", !isGateway, isGateway, f.calls)
+			}
+			if !isGateway {
+				if len(f.ready) != 1 || len(f.ready[0]) != 6 {
+					t.Errorf("service readiness = %v, want one start without the gateway", f.ready)
+				}
+				if f.config["HOST_CODEX_DIR"] != login {
+					t.Errorf("HOST_CODEX_DIR = %q, want %q", f.config["HOST_CODEX_DIR"], login)
+				}
+				for _, host := range []string{"chatgpt.com", "auth.openai.com"} {
+					if !strings.Contains(calls, "network -i anteval-test allow eval "+host) {
+						t.Errorf("missing egress for %s: %v", host, f.calls)
+					}
+				}
+			}
+		})
 	}
 }

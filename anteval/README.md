@@ -33,6 +33,10 @@ Use an external test store and a separate vsock, tap and proxy allocation.
 Supply `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` explicitly.
 `ARIZUKO_DEFAULT_MODEL` and `ARIZUKO_BACKEND` are optional. The runner never reads another instance's
 configuration or credentials.
+`ARIZUKO_BACKEND=codex` instead needs `HOST_CODEX_DIR`, the absolute path of
+a Codex login directory holding `auth.json`, such as the operator's `~/.codex`. That run installs no gateway: it runs direct,
+allows `chatgpt.com` and `auth.openai.com` for the eval folder, and each case
+waits out its settle bound because no meter reports the turn.
 
 The sink hostname must reach this host from the guests. The runner binds its
 declared port and allows that hostname through the eval folder's egress rules.
@@ -50,7 +54,8 @@ against host inventory. These checks are point-in-time; another process can
 occupy a resource after the checks.
 Each run uses a private data base under `ARIZUKO_DATA_DIR`, or `/srv/data`.
 The CLI lifecycle creates the instance, enrolls its store account, starts its
-services, installs the model gateway, and sets up the group, grants and tokens.
+services, installs the model gateway (not for Codex), and sets up the group,
+grants and tokens.
 
 ```text
 create → store enroll → run → package add → restart run

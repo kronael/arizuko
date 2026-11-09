@@ -207,6 +207,27 @@ func tokenValue(out string) (string, error) {
 	}
 	return token, nil
 }
+func modelRoute(cfg map[string]string) (bool, []string, error) {
+	if cfg["ARIZUKO_BACKEND"] == "codex" {
+		dir := cfg["HOST_CODEX_DIR"]
+		if dir == "" {
+			return false, nil, errors.New("backend codex needs HOST_CODEX_DIR naming a Codex login")
+		}
+		if _, err := os.Stat(filepath.Join(dir, "auth.json")); err != nil {
+			return false, nil, fmt.Errorf("backend codex needs a Codex login in HOST_CODEX_DIR: %w", err)
+		}
+		return false, []string{"chatgpt.com", "auth.openai.com"}, nil
+	}
+	if cfg["ANTHROPIC_API_KEY"] == "" && cfg["CLAUDE_CODE_OAUTH_TOKEN"] == "" {
+		backend := cfg["ARIZUKO_BACKEND"]
+		if backend == "" {
+			backend = "claude"
+		}
+		return false, nil, fmt.Errorf("backend %s needs ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN", backend)
+	}
+	return true, nil, nil
+}
+
 func doLifecycle(ctx context.Context, cli lifecycleCLI, opts lifecycleOptions) (err error) {
 	cfg, err := godotenv.Read(opts.envFile)
 	if err != nil {
@@ -217,8 +238,9 @@ func doLifecycle(ctx context.Context, cli lifecycleCLI, opts lifecycleOptions) (
 			return fmt.Errorf("%s is required", key)
 		}
 	}
-	if cfg["ANTHROPIC_API_KEY"] == "" && cfg["CLAUDE_CODE_OAUTH_TOKEN"] == "" {
-		return errors.New("model credential is required")
+	isGateway, modelHosts, err := modelRoute(cfg)
+	if err != nil {
+		return err
 	}
 	sink, err := url.Parse(opts.sinkURL)
 	if err != nil || sink.Scheme != "http" || sink.Hostname() == "" ||
@@ -303,7 +325,7 @@ func doLifecycle(ctx context.Context, cli lifecycleCLI, opts lifecycleOptions) (
 		return err
 	}
 	allowed := map[string]string{}
-	for _, key := range []string{"DYNAMODB_URL", "STORE_CA", "AWS_REGION", "HOST_APP_DIR", "RUNED_KERNEL_DIR", "RUNED_ROOTFS_DIR", "RUNED_GUEST_MEM", "RUNED_VSOCK_CID_BASE", "RUNED_VSOCK_PORT_BASE", "RUNED_TAP_SUBNET", "RUNED_PROXY_PORT", "ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN", "ARIZUKO_DEFAULT_MODEL", "ARIZUKO_BACKEND"} {
+	for _, key := range []string{"DYNAMODB_URL", "STORE_CA", "AWS_REGION", "HOST_APP_DIR", "RUNED_KERNEL_DIR", "RUNED_ROOTFS_DIR", "RUNED_GUEST_MEM", "RUNED_VSOCK_CID_BASE", "RUNED_VSOCK_PORT_BASE", "RUNED_TAP_SUBNET", "RUNED_PROXY_PORT", "ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN", "HOST_CODEX_DIR", "ARIZUKO_DEFAULT_MODEL", "ARIZUKO_BACKEND"} {
 		if cfg[key] != "" {
 			allowed[key] = cfg[key]
 		}
@@ -342,16 +364,18 @@ func doLifecycle(ctx context.Context, cli lifecycleCLI, opts lifecycleOptions) (
 	if err = start(services); err != nil {
 		return err
 	}
-	if _, err = command(ctx, "package", "add", "catalog:litellm"); err != nil {
-		return err
-	}
-	if err = process.Stop(); err != nil {
+	if isGateway {
+		if _, err = command(ctx, "package", "add", "catalog:litellm"); err != nil {
+			return err
+		}
+		if err = process.Stop(); err != nil {
+			process = nil
+			return err
+		}
 		process = nil
-		return err
-	}
-	process = nil
-	if err = start(append(services, "litellm", "litellm_db")); err != nil {
-		return err
+		if err = start(append(services, "litellm", "litellm_db")); err != nil {
+			return err
+		}
 	}
 	if _, err = command(ctx, append([]string{"group", "add", "web:eval", "eval"}, productArgs...)...); err != nil {
 		return err
@@ -379,8 +403,10 @@ func doLifecycle(ctx context.Context, cli lifecycleCLI, opts lifecycleOptions) (
 			}
 		}
 	}
-	if _, err = command(ctx, "network", "allow", "eval", sink.Hostname()); err != nil {
-		return err
+	for _, host := range append([]string{sink.Hostname()}, modelHosts...) {
+		if _, err = command(ctx, "network", "allow", "eval", host); err != nil {
+			return err
+		}
 	}
 	walls := make([]int, 0, len(opts.cases))
 	for _, c := range opts.cases {

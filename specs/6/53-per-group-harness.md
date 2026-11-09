@@ -14,7 +14,7 @@ Codex effort and model-credential delivery have implementation tests in
 ## Remaining
 
 - Review flat overrides and Codex grant/deny rows before rollout (`cmd/arizuko/README.md`; operator data).
-- Build the packaged agent image and prove Claude and Codex replies on one disposable instance with explicit egress (`Makefile`, `anteval/cases/anteval.toml`).
+- Build the packaged agent image and prove Claude and Codex replies on one disposable instance with explicit egress (`Makefile`, `anteval/cases/anteval.toml`). anteval selects one backend per run (`ARIZUKO_BACKEND`), so this needs a per-case harness selector in anteval first.
 
 ## The platform must carry the document without interpreting it
 
