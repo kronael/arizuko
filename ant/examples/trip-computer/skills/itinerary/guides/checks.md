@@ -16,7 +16,8 @@ Every restaurant, café, museum, attraction and car park on the page is
 a `db/` row with address and postcode, phone, website or listing when
 one exists, place links per kind (`mapy-links.md`) — or `not found`
 written out after two sources tried. Compare the page facts with the private rows.
-Keep database files, decisions and personal contacts outside `~/public_html/`.
+No `db/` table, decision or personal contact is under `~/public_html/<trip>/`
+(`SKILL.md` § ALWAYS).
 
 ## Trails
 

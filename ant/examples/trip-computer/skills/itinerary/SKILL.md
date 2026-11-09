@@ -68,10 +68,9 @@ drive-up or on-the-way. The type and the minutes open the stop's text
 - Take trail colour, length, surface and car-park fee from map data
   (`osm_trails.py`, mapy.com). Cost: trail colour and car-park fee
   published from a blog, wrong.
-- Open Google Maps in the browser for every venue (consent cookies:
-  `mapy-links.md` § Disambiguation); drop "permanently / temporarily
-  closed"; match the entry to the row by phone or address — a
-  guesthouse and its restaurant are two entries. Cost: two venues
+- Open Google Maps in the browser for every venue; drop "permanently /
+  temporarily closed"; match the entry to the row by phone or address
+  (matching and consent cookies: `mapy-links.md` § Disambiguation). Cost: two venues
   recommended were closed; a restaurant linked to its guesthouse.
 - Name the platform a number came from. Cost: TripAdvisor
   snippets labelled Google — "how are you checking Google Maps if you
@@ -104,8 +103,9 @@ drive-up or on-the-way. The type and the minutes open the stop's text
   closed for the season on arrival; a café "unrated", Google had 4.5.
 - State hours ON the trip date; prices exact; count, date and source
   stay in the row.
-- Keep decisions and vetoes in `~/workspace/trips/<trip>/CLAUDE.md`, never
-  under `~/public_html/` (that tree is public). Once the user decides, the
+- Keep `db/` tables, personal contacts, and decisions and vetoes (in
+  `<trip>/CLAUDE.md`) under `~/workspace/trips/<trip>/`, never under
+  `~/public_html/` (that tree is public). Once the user decides, the
   day page is one plan. Cost: an options page for a day the user had
   already decided.
 - Send the result in the chat; the page URL alone is not a delivery.
@@ -121,8 +121,8 @@ drive-up or on-the-way. The type and the minutes open the stop's text
 - Use mapy.com for car routing without the Google route beside it.
 - Recommend a restaurant under 4.0 (café 4.5) except as a labelled
   fallback.
-- Put a café or restaurant inside a sight's item or `.map-links` row;
-  a link row holds one stop's pins and route only. Cost:
+- Put a café or restaurant inside a sight's item or `.map-links` row
+  (`pages.md` § Timeline). Cost:
   "why is pizza next to the spring walk".
 - Narrate the road when a route link exists. Cost: three
   pages of "east on road 8 through X" nobody read.

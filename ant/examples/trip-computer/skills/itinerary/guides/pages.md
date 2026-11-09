@@ -14,8 +14,10 @@ the blocks. Every fact is a copy of a `db/` row (`census.md`).
   minutes ("Drive-up stop, 20 min." / "Walk-around loop, 1 h 20."), then
   entry price, the two variants (below), the story box (below), per-item
   `.map-links` last.
-- Meal item: § Meals below. A sight's `.map-links` row holds that stop's
-  pins and route only; food links live only in meal items.
+- Meal item: § Meals below. A café or restaurant never sits inside a
+  sight's item: a sight's `.map-links` row holds that stop's pins and
+  route only; food links live only in meal items (a café inside a walk
+  item, pizza next to a spring walk).
 - Durations: photo stop 5–10 min · viewpoint + coffee 20–40 · church
   15–45 · lunch 1–1.5 h · museum 1–2 h.
 - Times add up: each item starts no earlier than the previous item's
@@ -145,8 +147,7 @@ not "go left after the bridge".
   runs to 18:00. A part-day page (a return drive 11:30–17:30) carries
   only the meals inside its hours. The heading names the meal in the
   page's language ("Late lunch", "Oběd"). Never a separate Food
-  section, never a café inside a sight's item (a café inside a walk
-  item, pizza next to a spring walk).
+  section.
 - A meal with no venue to pick says `self-catered` in its text; never an
   invented venue to fill the slot.
 - Each meal item = `timeline-date`, optional one-line text (walk from
@@ -179,9 +180,6 @@ not "go left after the bridge".
   confirmed. Open at the meal time: a café from 10:30 is not Breakfast
   at 8:45. Cost: a café with Google 4.8, no hours shown,
   listed first — closed for the season on arrival.
-- The Google entry matches the row's phone or address, not the name
-  alone: a guesthouse and its restaurant are two entries (a restaurant
-  and its guesthouse). Details: `mapy-links.md` § Disambiguation.
 - A spa town, promenade or town stroll ALWAYS has a Coffee item.
 
 ## On the day — the group changes the plan

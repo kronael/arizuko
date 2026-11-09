@@ -9,8 +9,8 @@ whole trip is planned from. Rule set and costs: `../SKILL.md`.
 
 `~/workspace/trips/<trip>/db/` — five tables, one row per place — and
 `~/public_html/<trip>/places.html` published from them (sights by
-distance band, then the full list). Keep the tables in the private workspace.
-Publish only the selected place facts; exclude private decisions and personal contacts.
+distance band, then the full list). What stays out of `~/public_html/`:
+`../SKILL.md` § ALWAYS.
 
 | file | rows | score |
 | --- | --- | --- |
@@ -73,9 +73,8 @@ with reasons · one-line verdict. An empty mandatory field reads
 4. **Google Maps.** Open each sight, restaurant, café and car park:
    rating, review count, hours for the exact trip dates, phone,
    "permanently / temporarily closed", price level, car-park photos
-   (surface, barrier, pay machine). Match the entry to the row by phone
-   or address (a guesthouse and its restaurant are two entries); cookies
-   and the limited view: `mapy-links.md` § Disambiguation.
+   (surface, barrier, pay machine). Matching the entry to the row,
+   cookies and the limited view: `mapy-links.md` § Disambiguation.
 5. **TripAdvisor.** Every restaurant and paid attraction: rating, count,
    rank in town, last three review dates, mentions of children (high
    chair, play corner, pram space). Restaurant Guru and Yelp when
