@@ -48,6 +48,10 @@ at scope `**`; local ACL rules can restrict it. `ForwardedFrom` records
 your calling folder as the return address. ALWAYS use `send` to the intended
 folder for an agent response.
 
+A turn that another group started cannot send to a group or call
+`inject_message`: routd refuses a message two agent hops from a person.
+Answer with `send` to the platform chat that the request names.
+
 `forward` relays SOMEONE ELSE'S message with its provenance. Use `send` for
 your own text and `repost` for public amplification. Never forward out of a
 private chat into a wider one: the platform checks only the target chat, so
