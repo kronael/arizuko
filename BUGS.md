@@ -18,7 +18,7 @@
 - `L803` — morha repeats recovery reports and replies to an old GitHub comment; cause unmeasured.
 - `L804` — Codex topic forks do not inherit the parent's model context; observed messages remain available.
 - `L796` — a silent cron script costs a full agent turn (macrohype-monitor, 48 turns a week); owner chose a command task with no model call; where the command runs needs sign-off.
-- `L790` — `TestHoldE2E_ChannelWithoutButtonsStillGetsAnAnswerablePrompt` fails under host load (fixed 5 s wait).
+- `L790` — the hold e2e tests fail under host load on a fixed 5 s wait (two tests seen).
 - `L721` — group handoffs bounced for an hour; verify bounded turns after deployment with group sends and progress guidance.
 - `L715` — A1/A2: trusted GitHub sender and source-owner binding; proposal, needs sign-off.
 - `L699` — anteval cannot run a Codex smoke; owner chose the local `~/.codex` login (direct mode); not built.
@@ -391,6 +391,12 @@ never noticed the approval" (`routd/hold_e2e_test.go:207`) while the host had
 3.2 GB free and three Codex workers ran; routd took 544.8 s. Alone it passes
 3/3 in 2.2 s. The test waits a fixed `time.After(5 * time.Second)` at
 `routd/hold_e2e_test.go:206`.
+
+MEASURED again 2026-11-09 at `105eb9d28` (full `go test -race -short ./...`,
+routd 994.3 s): `TestHoldE2E_RejectPressKeepsTheCallUnrun` failed with "the
+gate never noticed the rejection" at the same fixed 5 s wait
+(`routd/hold_e2e_test.go:163`). `-run TestHoldE2E -count=3` alone passes in
+6.4 s.
 
 - **Severity:** low — a test flake, no product effect measured
 - **Fix:** wait on the gate's own signal, or bound the wait by the test deadline
