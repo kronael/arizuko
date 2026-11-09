@@ -141,6 +141,40 @@ func (s *Store) SavePendingTurn(ctx context.Context, tc TurnContext, priorCursor
 		objstore.Write{Op: objstore.Update, Entity: Chats, Key: chat, Attrs: map[string]string{AttrChatAgentCursor: max(priorCursor, tc.InputLast)}, Cond: objstore.Cond{Where: []objstore.Cmp{cursor}}})
 }
 
+func (s *Store) RecordControlledProviderFailure(ctx context.Context, tc TurnContext, before, after *ModelPause, controlBefore, controlAfter *TurnControlState) (bool, error) {
+	key, err := turnKey(tc.TurnID)
+	if err != nil {
+		return false, err
+	}
+	group, err := groupKey(tc.Folder)
+	if err != nil {
+		return false, err
+	}
+	if tc.AttemptID == "" || tc.ProviderFailureAttempt == tc.AttemptID || after == nil || after.Folder != tc.Folder || controlAfter == nil {
+		return false, fmt.Errorf("record provider failure %s: invalid binding", tc.TurnID)
+	}
+	marker := objstore.Cmp{Attr: "provider_failure_attempt", Op: objstore.Eq, Value: tc.ProviderFailureAttempt}
+	if tc.ProviderFailureAttempt == "" {
+		marker.Op = objstore.Absent
+	}
+	pause := modelPauseWrite(after)
+	pause.Cond = modelPauseCond(before)
+	if before != nil {
+		pause.Op = objstore.Update
+		pause.Remove = missingAttrs(pause.Attrs, "next_attempt_at", "probe_turn_id", "probe_attempt_id")
+	}
+	return s.TryWriteEntities(ctx, []objstore.Check{{Entity: Groups, Key: group, Cond: objstore.Cond{Item: objstore.ItemPresent}}},
+		pause, controlWrite(controlBefore, *controlAfter), objstore.Write{
+			Op: objstore.Update, Entity: TurnContexts, Key: key,
+			Attrs: map[string]string{"provider_failure_attempt": tc.AttemptID},
+			Cond: objstore.Cond{Where: []objstore.Cmp{
+				{Attr: attrTurnState, Op: objstore.Eq, Value: TurnRunning},
+				{Attr: attrTurnFolder, Op: objstore.Eq, Value: tc.Folder},
+				{Attr: "attempt_id", Op: objstore.Eq, Value: tc.AttemptID}, marker,
+			}},
+		})
+}
+
 func (s *Store) DeferredTurns(ctx context.Context, now time.Time) ([]TurnContext, error) {
 	items, err := s.Obj().Query(ctx, objstore.Query{Entity: TurnContexts, Partition: OwnerRoutd,
 		Where: []objstore.Cmp{{Attr: attrTurnState, Op: objstore.Eq, Value: TurnPendingRetry},

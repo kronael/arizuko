@@ -127,6 +127,58 @@ func TestSavePendingTurnGuards(t *testing.T) {
 	}
 }
 
+func TestControlledProviderFailureGuards(t *testing.T) {
+	ctx := t.Context()
+	s := openTurnEntities(t)
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	if ok, err := s.OpenTurnContext("provider", "demo", "", "web:provider", "u", "", nil); err != nil || !ok {
+		t.Fatalf("open: %v %v", ok, err)
+	}
+	tc, _ := s.TurnContextOf("provider")
+	before := TurnControlState{Phase: "closed", Episode: "one"}
+	if ok, err := s.WriteTurnControl(ctx, nil, before); err != nil || !ok {
+		t.Fatalf("control: %v %v", ok, err)
+	}
+	after := TurnControlState{Phase: "open", Episode: "two", NextProbeAt: now}
+	pause := ModelPause{Folder: tc.Folder, Reason: "outage", Evidence: "outage", OpenedAt: core.TS(now), Attempts: 1}
+	stale := before
+	stale.Episode = "stale"
+	if ok, err := s.RecordControlledProviderFailure(ctx, tc, nil, &pause, &stale, &after); err != nil || ok {
+		t.Fatalf("singleton guard: %v %v", ok, err)
+	}
+	current, _ := s.TurnContextOf(tc.TurnID)
+	p, err := s.ReadModelPause(ctx, tc.Folder)
+	if err != nil || p != nil || current.ProviderFailureAttempt != "" {
+		t.Fatalf("partial refusal: %+v %+v %v", current, p, err)
+	}
+	wrong := tc
+	wrong.AttemptID = "stale"
+	if ok, err := s.RecordControlledProviderFailure(ctx, wrong, nil, &pause, &before, &after); err != nil || ok {
+		t.Fatalf("attempt guard: %v %v", ok, err)
+	}
+	if err := s.DeleteGroupRow(tc.Folder); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := s.RecordControlledProviderFailure(ctx, tc, nil, &pause, &before, &after); err != nil || ok {
+		t.Fatalf("group guard: %v %v", ok, err)
+	}
+	if err := s.PutGroup(core.Group{Folder: tc.Folder}); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := s.RecordControlledProviderFailure(ctx, tc, nil, &pause, &before, &after); err != nil || !ok {
+		t.Fatalf("record: %v %v", ok, err)
+	}
+	current, _ = s.TurnContextOf(tc.TurnID)
+	p, err = s.ReadModelPause(ctx, tc.Folder)
+	control, exists, controlErr := s.ReadTurnControl(ctx)
+	if err != nil || p == nil || p.Reason != "outage" || current.State != TurnRunning || current.ProviderFailureAttempt != tc.AttemptID || controlErr != nil || !exists || control.Episode != after.Episode {
+		t.Fatalf("refusal: %+v %+v %+v %v %v", current, p, control, err, controlErr)
+	}
+	if ok, err := s.RecordControlledProviderFailure(ctx, tc, &pause, &pause, &after, &after); err != nil || ok {
+		t.Fatalf("duplicate guard: %v %v", ok, err)
+	}
+}
+
 func TestDeferredTurnCursorNeverRewinds(t *testing.T) {
 	ctx := t.Context()
 	s := openTurnEntities(t)
