@@ -1,6 +1,8 @@
 package container
 
 import (
+	"bytes"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -115,5 +117,31 @@ func TestCopySession_CreatesProjDirOnDemand(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(projDir, "c.jsonl")); err != nil {
 		t.Errorf("child not created: %v", err)
+	}
+}
+
+func TestCopySession_CodexRolloutSkipsFork(t *testing.T) {
+	dir := t.TempDir()
+	rolloutDir := filepath.Join(dir, ".codex", "sessions", "2026", "11", "09")
+	if err := os.MkdirAll(rolloutDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(rolloutDir, "rollout-2026-11-09T12-00-00-parent-uuid.jsonl"), []byte("parent\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var logs bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+
+	copied, err := CopySession(dir, "parent-uuid", "child-uuid")
+	if err != nil || copied {
+		t.Errorf("CopySession = %v, %v; want false, nil", copied, err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".claude", "projects", "-home-node", "child-uuid.jsonl")); !os.IsNotExist(err) {
+		t.Errorf("child transcript exists: %v", err)
+	}
+	if got := logs.String(); !strings.Contains(got, "level=INFO") || !strings.Contains(got, "Codex") || strings.Contains(got, "level=WARN") {
+		t.Errorf("want Codex INFO without warning, got %s", got)
 	}
 }

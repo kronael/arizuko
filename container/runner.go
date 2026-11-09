@@ -200,8 +200,8 @@ func WriteGatewayCaps(groupDir string, cfg *core.Config) {
 // Slug is fixed (`-home-node`) because every container mounts groupDir
 // at $HOME=/home/node — Claude Code slugifies that path identically
 // across folders. Pure file op: rename-after-write for atomicity.
-// Returns nil with WARN log when src is missing (caller gets a fresh
-// session, no parent context). Used by spec 5/F-topic-lineage fork path.
+// A missing source returns false with WARN, or INFO for a Codex rollout.
+// Codex parent context is not copied. Used by spec 5/F-topic-lineage fork path.
 func CopySession(groupDir, srcUUID, dstUUID string) (bool, error) {
 	projDir := filepath.Join(groupDir, ".claude", "projects", "-home-node")
 	src := filepath.Join(projDir, srcUUID+".jsonl")
@@ -209,6 +209,15 @@ func CopySession(groupDir, srcUUID, dstUUID string) (bool, error) {
 	data, err := os.ReadFile(src)
 	if err != nil {
 		if os.IsNotExist(err) {
+			rollouts, err := filepath.Glob(filepath.Join(groupDir,
+				".codex", "sessions", "*", "*", "*", "rollout-*-"+srcUUID+".jsonl"))
+			if err != nil {
+				return false, fmt.Errorf("find Codex rollout: %w", err)
+			}
+			if len(rollouts) > 0 {
+				slog.Info("CopySession: skipping Codex session fork", "groupDir", groupDir, "parent", srcUUID)
+				return false, nil
+			}
 			slog.Warn("CopySession: parent session file missing",
 				"src", src, "groupDir", groupDir)
 			return false, nil

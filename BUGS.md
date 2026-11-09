@@ -16,6 +16,7 @@
 ## What needs you
 
 - `L799` — tap teardown deletes six absent rules after an early guest start failure.
+- `L800` — Codex topic forks attempt to copy a Claude session and lose parent context.
 - `L796` — a silent cron script costs a full agent turn (macrohype-monitor, 48 turns a week); owner chose a command task with no model call; where the command runs needs sign-off.
 - `L794` — a failed turn retries 3 times within ~40 s, too fast for a host fault (full disk) to clear; owner wants 3 retries with longer gaps, about 4 h for cron tasks; design needs sign-off.
 - `L790` — `TestHoldE2E_ChannelWithoutButtonsStillGetsAnAnswerablePrompt` fails under host load (fixed 5 s wait).
@@ -317,6 +318,26 @@ reads those words now.
   `/tmp/arizuko-github-baseline-build.log`. No test — ops.
   **Proposal:** stop the build on the first failed submake. This is an adjacent
   build-gate repair; scope approval is pending.
+
+## L800 — Codex topic forks look for a Claude transcript (2026-11-09, open)
+
+MEASURED in `/tmp/claude-1001/sl/j24.log` for 2026-11-08 18:45Z ..
+2026-11-09 18:45Z: seven `CopySession: parent session file missing`
+warnings, including `sloth/trading` at 19:46:10.996Z before its blind
+thread turn. `routd/dispatch.go::copyParentSession` calls
+`container/runner.go::CopySession`, which only reads
+`.claude/projects/-home-node/<uuid>.jsonl`. `ant/src/codex.ts` resumes
+a native Codex thread ID under `CODEX_HOME`; the census file list records
+dated `.codex/sessions/.../rollout-<timestamp>-<uuid>.jsonl` files.
+
+- **Severity:** medium — a new thread loses the parent's model context.
+- **Status:** open — the harness uses native resume, and its native fork
+  generates a new thread ID rather than accepting routd's child UUID.
+  Skip the Claude copy for Codex with an INFO line; keep the observed-window
+  recovery. Full Codex parent-context inheritance remains a separate gap.
+- **Test:** `container/session_copy_test.go::TestCopySession_CodexRolloutSkipsFork`
+  checks INFO without WARN and false for observed-window recovery; disabling
+  rollout detection fails the log assertion.
 
 ## L799 — tap teardown deletes rules that an early guest failure never installed (2026-11-09, open)
 
