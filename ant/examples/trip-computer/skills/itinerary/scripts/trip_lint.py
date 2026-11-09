@@ -10,9 +10,10 @@ A rule is one function `check(site)` that yields (level, page, message);
 register it with @rule("name"). Pages are parsed once; links are resolved
 once into Link(page, line, url, host, path, target, frag, text).
 """
-import argparse, html, math, os, re, sys  # noqa: F401
+import argparse, html, math, os, re, sys
 from dataclasses import dataclass
 from html.parser import HTMLParser
+from pathlib import Path
 from urllib.parse import urlparse, parse_qs, unquote
 
 RULES = {}
@@ -31,24 +32,35 @@ VOID = set('area base br col embed hr img input link meta param source track wbr
 class _Parser(HTMLParser):
     def __init__(self):
         super().__init__(convert_charrefs=True)
-        self.tags, self.ids, self.links, self._a, self._t = [], set(), [], None, []
-        self.heads, self._h, self.nav_lines = {}, None, []
-        self.stack, self.balance = [], []
+        self.tags = []
+        self.ids = set()
+        self.links = []
+        self._a = None
+        self._t = []
+        self.heads = {}
+        self._h = None
+        self._nav = False
+        self.stack = []
+        self.balance = []
     def handle_starttag(self, tag, attrs):
         a = dict(attrs); self.tags.append((tag, a, self.getpos()[0]))
         if tag not in VOID: self.stack.append((tag, self.getpos()[0]))
         if a.get('id'): self.ids.add(a['id'])
         if tag == 'link' and a.get('href'): self.links.append((a['href'], self.getpos()[0], '', False))
         if tag in ('script', 'img') and a.get('src'): self.links.append((a['src'], self.getpos()[0], '', False))
-        if tag == 'a' and 'href' in a: self._a, self._t = (a['href'] or '', self.getpos()[0], a.get('class') or ''), []
-        if tag in ('title', 'h1') and tag not in self.heads: self._h, self.heads[tag] = tag, ''
+        if tag == 'a' and 'href' in a:
+            self._a = (a['href'] or '', self.getpos()[0], a.get('class') or '')
+            self._t = []
+        if tag in ('title', 'h1') and tag not in self.heads:
+            self._h = tag
+            self.heads[tag] = ''
         if tag == 'nav': self._nav = True
     def handle_startendtag(self, tag, attrs):
         self.handle_starttag(tag, attrs)
         if tag not in VOID: self.handle_endtag(tag)
-    def handle_data(self, d):
-        if self._a: self._t.append(d)
-        if self._h: self.heads[self._h] += d
+    def handle_data(self, data):
+        if self._a: self._t.append(data)
+        if self._h: self.heads[self._h] += data
     def handle_endtag(self, tag):
         if tag in VOID: self.balance.append(f'line {self.getpos()[0]}: unexpected </{tag}>')
         elif not self.stack or self.stack[-1][0] != tag:
@@ -56,15 +68,18 @@ class _Parser(HTMLParser):
         else: self.stack.pop()
         if tag == 'a' and self._a:
             href, line, cls = self._a
-            self.links.append((href, line, ' '.join(''.join(self._t).split()), getattr(self, '_nav', False), cls)); self._a = None
+            self.links.append((href, line, ' '.join(''.join(self._t).split()), self._nav, cls)); self._a = None
         if tag == self._h: self._h = None
         if tag == 'nav': self._nav = False
 
 class Page:
     def __init__(self, root, rel):
-        self.name = rel; self.src = open(os.path.join(root, rel), encoding='utf-8').read()
+        self.name = rel
+        with open(os.path.join(root, rel), encoding='utf-8') as f: self.src = f.read()
         p = _Parser(); p.feed(self.src); p.close()
-        self.tags, self.ids, self.raw_links = p.tags, p.ids, p.links
+        self.tags = p.tags
+        self.ids = p.ids
+        self.raw_links = p.links
         self.balance = p.balance + [f'line {line}: unclosed <{tag}>' for tag, line in p.stack]
         self.heads = {k: ' '.join(v.split()) for k, v in p.heads.items()}
     def has_class(self, c): return any(c in (a.get('class') or '').split() for _, a, _ in self.tags)
@@ -101,7 +116,7 @@ def _minutes(m): return int(m[1]) * 60 + int(m[2])
 
 def timeline(page):
     heads = list(re.finditer(r'<[^>]+class=["\'][^"\']*\btimeline-date\b[^"\']*["\'][^>]*>(.*?)</[^>]+>', page.src, re.S | re.I))
-    items = [(None, None, page.src[:heads[0].start()] if heads else page.src)]
+    items: list[tuple[int | None, str | None, str]] = [(None, None, page.src[:heads[0].start()] if heads else page.src)]
     for h, end in zip(heads, [h.start() for h in heads[1:]] + [len(page.src)]):
         title = _text(h.group(1)); at = re.match(r'(\d{1,2}):(\d{2})', title)
         meal = next((MEALS[w] for w in re.findall(r'\w+', title.lower()) if w in MEALS), None)
@@ -149,7 +164,8 @@ def _(site):
 @rule('title-h1')
 def _(site):
     for p in site.pages.values():
-        t, h = p.heads.get('title'), p.heads.get('h1')
+        t = p.heads.get('title')
+        h = p.heads.get('h1')
         if not t or not h: yield 'ERROR', p.name, 'missing <title> or <h1>'
         elif t != h: yield 'ERROR', p.name, f'title "{t}" ≠ h1 "{h}"'
 
@@ -195,8 +211,10 @@ def _(site):
                 yield 'ERROR', idx, f'{n} has no card'
 
 def _num(q, k):
-    try: v = float(q.get(k, [''])[0]); return v if math.isfinite(v) else None
+    try: v = float(q.get(k, [''])[0])
     except ValueError: return None
+    if not math.isfinite(v): return None
+    return v
 
 @rule('mapy-links')
 def _(site):
@@ -206,12 +224,14 @@ def _(site):
         if host_is(l, 'mapy.cz'): yield 'ERROR', l.page, f'line {l.line}: use mapy.com'; continue
         q = parse_qs(urlparse(l.url).query, keep_blank_values=True); where = f'line {l.line}'
         if 'q' in q: yield 'ERROR', l.page, f'{where}: ?q= opens a search, not the place'; continue
-        x, y = _num(q, 'x'), _num(q, 'y')
+        x = _num(q, 'x')
+        y = _num(q, 'y')
         if x is None or y is None or not (-180 <= x <= 180 and -90 <= y <= 90): yield 'ERROR', l.page, f'{where}: missing or bad x/y'
         if 'planovani-trasy' in l.url:
-            rs, ri = q.get('rs', []), q.get('ri', [])
+            rs = q.get('rs', [])
+            ri = q.get('ri', [])
             try: n = len(mapyrc.decode(q.get('rc', [''])[0]))
-            except Exception as e: yield 'ERROR', l.page, f'{where}: rc= does not decode ({e})'; continue
+            except (ValueError, IndexError) as err: yield 'ERROR', l.page, f'{where}: rc= does not decode ({err})'; continue
             if n < 2: yield 'ERROR', l.page, f'{where}: route has {n} points'
             elif not (n == len(rs) == len(ri)): yield 'ERROR', l.page, f'{where}: {n} points, {len(rs)} rs, {len(ri)} ri'
             if any(source != 'coor' and not ident for source, ident in zip(rs, ri)): yield 'ERROR', l.page, f'{where}: named route point has no id'
@@ -290,7 +310,7 @@ def _(site):
             if meal and not venues(body) and 'self-catered' not in _text(body).lower(): yield 'ERROR', n, f'{meal} has no venue and is not self-catered'
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap = argparse.ArgumentParser(description=__doc__ and __doc__.splitlines()[0])
     ap.add_argument('dir'); ap.add_argument('--root'); ap.add_argument('--rule', action='append', default=[])
     ap.add_argument('--quiet', action='store_true', help='errors only')
     a = ap.parse_args(argv)
@@ -298,7 +318,7 @@ def main(argv=None):
     if unknown: ap.error(f'unknown rule(s): {", ".join(sorted(unknown))}; known: {", ".join(RULES)}')
     if not os.path.isdir(a.dir): ap.error(f'not a directory: {a.dir}')
     root = a.root or a.dir
-    if os.path.relpath(os.path.abspath(a.dir), os.path.abspath(root)).split(os.sep)[0] == '..': ap.error(f'{a.dir} is not inside --root {root}')
+    if os.path.relpath(Path(a.dir), Path(root)).split(os.sep)[0] == '..': ap.error(f'{a.dir} is not inside --root {root}')
     site = Site(a.dir, root); out = []
     if not site.pages: ap.error("site has no HTML pages")
     for name in a.rule or RULES:

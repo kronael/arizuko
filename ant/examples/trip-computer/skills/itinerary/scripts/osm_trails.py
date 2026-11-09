@@ -9,9 +9,10 @@ with fee/capacity/charge tags. Climb is NOT here: read it from the mapy.com
 route elevation profile. Source: https://api.openstreetmap.org/api/0.6/map
 (limit: 50 000 nodes and 0.25 deg^2 per call; HTTP 400 = too big, use closer points or a smaller pad)."""
 import sys, math, urllib.request, urllib.error, xml.etree.ElementTree as ET
+from typing import NoReturn
 
-def usage(msg=''):
-    print(__doc__.strip());
+def usage(msg='') -> NoReturn:
+    print(__doc__)
     if msg: print(f'\nerror: {msg}')
     sys.exit(2)
 
@@ -19,7 +20,7 @@ args = sys.argv[1:]
 if len(args) < 4 or args[0] in ('-h', '--help'): usage()
 try:
     lat1, lon1, lat2, lon2 = map(float, args[:4]); pad = float(args[4]) if len(args) > 4 else 0.006
-except ValueError as e: usage(str(e))
+except ValueError as err: usage(str(err))
 if not (-90 <= lat1 <= 90 and -90 <= lat2 <= 90 and -180 <= lon1 <= 180 and -180 <= lon2 <= 180): usage('LAT LON order: latitude first')
 bbox = f"{min(lon1,lon2)-pad:.6f},{min(lat1,lat2)-pad:.6f},{max(lon1,lon2)+pad:.6f},{max(lat1,lat2)+pad:.6f}"
 area = (abs(lon1-lon2)+2*pad)*(abs(lat1-lat2)+2*pad)
@@ -27,15 +28,17 @@ if area > 0.25: usage(f'bbox area {area:.3f} deg^2 exceeds the OSM limit of 0.25
 req = urllib.request.Request(f"https://api.openstreetmap.org/api/0.6/map?bbox={bbox}", headers={"User-Agent": "arizuko-trip-planner/1.0"})
 try:
     root = ET.fromstring(urllib.request.urlopen(req, timeout=120).read())
-except urllib.error.HTTPError as e:
-    sys.exit(f'OSM map call failed: HTTP {e.code} for bbox={bbox} ({e.read()[:160].decode(errors="replace")!r}); 400 = over 50 000 nodes, reduce pad or distance')
-except urllib.error.URLError as e:
-    sys.exit(f'OSM map call failed: {e.reason}')
-nodes = {n.get('id'): (float(n.get('lat')), float(n.get('lon'))) for n in root.findall('node')}
+except urllib.error.HTTPError as err:
+    sys.exit(f'OSM map call failed: HTTP {err.code} for bbox={bbox} ({err.read()[:160].decode(errors="replace")!r}); 400 = over 50 000 nodes, reduce pad or distance')
+except urllib.error.URLError as err:
+    sys.exit(f'OSM map call failed: {err.reason}')
+nodes = {n.get('id'): (float(n.attrib['lat']), float(n.attrib['lon'])) for n in root.findall('node')}
 ways = {w.get('id'): w for w in root.findall('way')}
 tags = lambda e: {t.get('k'): t.get('v') for t in e.findall('tag')}
 def hav(a, b):
-    p1, p2 = math.radians(a[0]), math.radians(b[0]); dl = math.radians(b[1]-a[1])
+    p1 = math.radians(a[0])
+    p2 = math.radians(b[0])
+    dl = math.radians(b[1]-a[1])
     h = math.sin((p2-p1)/2)**2 + math.cos(p1)*math.cos(p2)*math.sin(dl/2)**2
     return 2*6371000*math.asin(math.sqrt(h))
 def wnodes(w): return [nodes[n.get('ref')] for n in ways[w].findall('nd') if n.get('ref') in nodes]
@@ -63,4 +66,4 @@ for w, el in ways.items():
         c = wnodes(w); park('way', w, t, (sum(p[0] for p in c)/len(c), sum(p[1] for p in c)/len(c)) if c else None)
 for n in root.findall('node'):
     t = tags(n)
-    if t.get('amenity') == 'parking': park('node', n.get('id'), t, (float(n.get('lat')), float(n.get('lon'))))
+    if t.get('amenity') == 'parking': park('node', n.get('id'), t, (float(n.attrib['lat']), float(n.attrib['lon'])))

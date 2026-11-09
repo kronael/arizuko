@@ -26,7 +26,9 @@ def encode(points):
     for lat, lon in points:
         x = min(round((lon + 180) * (1 << 28) / 360), (1 << 28) - 1)
         y = min(round((lat + 90) * (1 << 28) / 180), (1 << 28) - 1)
-        out += _ser(x - ox, x) + _ser(y - oy, y); ox, oy = x, y
+        out += _ser(x - ox, x) + _ser(y - oy, y)
+        ox = x
+        oy = y
     return out
 
 def decode(s):
@@ -69,8 +71,8 @@ def url(points, mode, places):
 
 if __name__ == '__main__':
     if len(sys.argv) != 2 or sys.argv[1] in ('-h', '--help'):
-        sys.exit(__doc__.strip())
-    routes = json.load(open(sys.argv[1]))
+        sys.exit(__doc__)
+    with open(sys.argv[1]) as f: routes = json.load(f)
     for name, r in routes.items():
         if any(len(p) not in (2, 4) for p in r['points']): sys.exit(f'{name}: a point is [LAT, LON] or [LAT, LON, SOURCE, ID]')
         pts = [(float(p[0]), float(p[1])) for p in r['points']]

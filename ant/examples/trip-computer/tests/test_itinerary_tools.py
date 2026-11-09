@@ -1,18 +1,18 @@
 import contextlib
 import html
-import importlib.util
 import io
 import json
 import os
 import re
-import runpy
 import subprocess
 import sys
 import tempfile
 import time
+import types
 import unittest
 import urllib.error
 import urllib.parse
+from importlib.machinery import SourceFileLoader
 from pathlib import Path
 from unittest.mock import patch
 
@@ -23,9 +23,9 @@ CENSUS = SCRIPTS / 'osm_census.py'
 
 
 def load(path):
-    spec = importlib.util.spec_from_file_location(path.stem, path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    loader = SourceFileLoader(path.stem, str(path))
+    module = types.ModuleType(path.stem)
+    loader.exec_module(module)
     return module
 
 
@@ -83,12 +83,7 @@ class ItineraryToolsTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout)
 
     def test_named_route_needs_id(self):
-        sys.path.insert(0, str(SCRIPTS))
-        try:
-            import mapyrc
-            rc = mapyrc.encode([(50, 14), (50.01, 14.01)])
-        finally:
-            sys.path.pop(0)
+        rc = load(SCRIPTS / 'mapyrc.py').encode([(50, 14), (50.01, 14.01)])
         (self.site / 'index.html').write_text(f'<title>Trip</title><h1>Trip</h1><a href="https://mapy.com/planovani-trasy?rc={rc}&amp;rs=base&amp;rs=coor&amp;ri=&amp;ri=&amp;x=14&amp;y=50">route</a>')
         result = self.run_lint('--rule', 'mapy-links')
         self.assertNotEqual(result.returncode, 0)
@@ -168,7 +163,7 @@ class ItineraryToolsTests(unittest.TestCase):
         result = self.run_lint('--rule', 'empty-href')
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('empty href', result.stdout)
-        parser = runpy.run_path(str(LINT))['_Parser']()
+        parser = load(LINT)._Parser()
         parser.feed('<img src="missing.jpg"><a href="">empty</a>')
         self.assertEqual([link[0] for link in parser.links], ['missing.jpg', ''])
 
@@ -262,9 +257,7 @@ class ItineraryToolsTests(unittest.TestCase):
         self.assertIn('FAIL browser', result.stderr)
 
     def test_browser_timeout_is_not_success(self):
-        spec = importlib.util.spec_from_file_location('link_check', LINK)
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
+        module = load(LINK)
         with patch.object(module.subprocess, 'run', side_effect=subprocess.TimeoutExpired('agent-browser', 60)):
             with self.assertRaises(subprocess.TimeoutExpired):
                 module.ab('snapshot')
@@ -329,7 +322,8 @@ class ItineraryToolsTests(unittest.TestCase):
         self.assertRegex(frontmatter, r'(?m)^summary: \|\n  \S')
 
     def test_census_rerun_keeps_enriched_rows(self):
-        out, cache = self.site / 'db', self.site / 'tiles'
+        out = self.site / 'db'
+        cache = self.site / 'tiles'
         out.mkdir(); cache.mkdir()
         cafe = '<node id="{}" lat="50.0" lon="14.000{}"><tag k="amenity" v="cafe"/><tag k="name" v="{}"/></node>'
         osm_tile(cache, cafe.format(1, 1, 'Cafe A') + cafe.format(2, 2, 'Cafe B'))
@@ -341,7 +335,8 @@ class ItineraryToolsTests(unittest.TestCase):
         self.assertEqual(food.count('Cafe B'), 1)
 
     def test_census_cell_text_stays_in_its_cell(self):
-        out, cache = self.site / 'db', self.site / 'tiles'
+        out = self.site / 'db'
+        cache = self.site / 'tiles'
         out.mkdir(); cache.mkdir()
         osm_tile(cache, '<node id="1" lat="50.0" lon="14.0001"><tag k="amenity" v="cafe"/><tag k="name" v="Cafe | A"/><tag k="opening_hours" v="Mo 8-12&#10;Tu off"/></node>')
         self.assertEqual(run_census(out, cache).returncode, 0)
@@ -385,7 +380,8 @@ class ItineraryToolsTests(unittest.TestCase):
         self.assertEqual(len(calls), 1)
 
     def test_census_counts_a_trail_way_once_across_tiles(self):
-        out, cache = self.site / 'db', self.site / 'tiles'
+        out = self.site / 'db'
+        cache = self.site / 'tiles'
         out.mkdir(); cache.mkdir()
         osm_tile(cache, '<node id="1" lat="50.0" lon="14.0"/><node id="2" lat="50.001" lon="14.0"/>'
                  '<way id="10"><nd ref="1"/><nd ref="2"/></way>'
@@ -418,7 +414,7 @@ class ItineraryToolsTests(unittest.TestCase):
         failure = urllib.error.URLError('Connection refused')
         with patch.object(sys, 'argv', ['osm_trails.py', '50', '14', '50.01', '14.01']), patch('urllib.request.urlopen', side_effect=failure):
             with self.assertRaises(SystemExit) as raised:
-                runpy.run_path(str(SCRIPTS / 'osm_trails.py'))
+                load(SCRIPTS / 'osm_trails.py')
         self.assertIn('Connection refused', str(raised.exception.code))
         self.assertNotIn('allowlist', str(raised.exception.code))
 

@@ -1,23 +1,30 @@
 #!/usr/bin/env python3
 """Open every map link of a trip page in the browser and fail on broken ones.
 Usage: link_check.py PAGE.html [PAGE2.html ...]   (exit 1 on any FAIL)
-Checks: mapy place links open a named entry (not "Position on the map" /
-"search results"); mapy route links render a route with km and every
-waypoint named; openstreetmap.org links
-open an object whose name matches the link text when the text is a name.
-An "Access denied", consent or error page fails on every host.
+Checks: mapy.cz and goo.gl links FAIL (use mapy.com). A mapy place link must
+open a named entry: "search results" FAILs, "Position on the map" (a GPS pin)
+and a title that shares no word with the link text are WARN. A mapy route link
+must render a route with km (FAIL) and an unnamed waypoint is a WARN.
+openstreetmap.org links must open an object (FAIL); a name that shares no word
+with a short link text is a WARN. An "Access denied", consent or error title
+FAILs mapy place, openstreetmap.org and Google links; a mapy route link FAILs
+when no route renders.
 Google links are opened with consent cookies: a place must open its card
-named as in the URL or the link text, a
-directions link must show a travel time, a search link is a WARN."""
+named as in the URL or the link text, a directions link must show a travel
+time, a search link is a WARN."""
 import argparse, re, sys, html, subprocess, time, unicodedata, urllib.parse
 from html.parser import HTMLParser
 
 class Links(HTMLParser):
     def __init__(self):
         super().__init__()
-        self.links, self.href, self.text = [], None, []
+        self.links = []
+        self.href = None
+        self.text = []
     def handle_starttag(self, tag, attrs):
-        if tag == 'a': self.href, self.text = dict(attrs).get('href'), []
+        if tag == 'a':
+            self.href = dict(attrs).get('href')
+            self.text = []
     def handle_data(self, data):
         if self.href is not None: self.text.append(data)
     def handle_endtag(self, tag):
@@ -45,7 +52,8 @@ def main():
     seen=set()
     try:
         for page in args.pages:
-            parsed=Links(); parsed.feed(open(page, encoding='utf-8').read())
+            parsed=Links()
+            with open(page, encoding='utf-8') as f: parsed.feed(f.read())
             for u,t in parsed.links:
                 u=html.unescape(u); t=re.sub('<[^>]+>','',t).strip()
                 if re.search(r'mapy\.cz|goo\.gl', u):
@@ -73,7 +81,7 @@ def main():
                         else:
                             res=('WARN google search page, not a place: '+title) if not re.search(r'heading "[^"]+" \[level=1', sn) or 'Results' in sn[:3000] else 'ok '+title
                 else:
-                    ab('open',u); time.sleep(5); title=ab('get','title').splitlines()[0] if ab('get','title') else ''
+                    ab('open',u); time.sleep(5); title=(ab('get','title').splitlines() or [''])[0]
                     if 'planovani-trasy' in u:
                         sn=snap(); km=re.search(r'([0-9.,]+ ?k?m) • ([0-9:]+ ?h|[0-9]+ ?min)', sn)
                         raw=re.findall(r'heading "(\d+\.\d+N, \d+\.\d+E)" \[level=4', sn); raw=raw[1:-1] if len(raw)>=2 and raw[0]==raw[-1] else raw

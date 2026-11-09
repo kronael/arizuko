@@ -7,20 +7,28 @@ A table that exists keeps its rows; a rerun appends only the places whose OSM id
 Tiles the bbox in 0.055° x 0.04° pieces (api.openstreetmap.org map call, 50k-node limit); a tile that
 answers HTTP 400 is split in four and retried. A cached tile older than 7 days is fetched again. Trail km_in_area sums each member way returned for the area once,
 whole ways included — relation coverage, not the length of a walk."""
-import argparse, json, math, os, re, subprocess, time, urllib.parse, xml.etree.ElementTree as ET
+import argparse, json, math, os, re, subprocess, time, xml.etree.ElementTree as ET
 from collections import defaultdict
 UA='arizuko-trip-planner/1.0 (osm_census)'
 CACHE_DAYS=7
 def hav(a,b):
-    R=6371; p1,p2=math.radians(a[0]),math.radians(b[0]); dl=math.radians(b[1]-a[1])
+    R=6371
+    p1=math.radians(a[0])
+    p2=math.radians(b[0])
+    dl=math.radians(b[1]-a[1])
     return 2*R*math.asin(math.sqrt(math.sin((p2-p1)/2)**2+math.cos(p1)*math.cos(p2)*math.sin(dl/2)**2))
+def centre(pts):
+    if not pts: return None
+    return (sum(p[0] for p in pts)/len(pts), sum(p[1] for p in pts)/len(pts))
+def read(path,n=-1,errors='strict'):
+    with open(path,encoding='utf-8',errors=errors) as f: return f.read(n)
 class TileTooBig(Exception): pass
 def fetch(bb,cache):
     f=os.path.join(cache,bb.replace(',','_')+'.xml')
-    if not (os.path.exists(f) and os.path.getsize(f)>1000 and time.time()-os.path.getmtime(f)<CACHE_DAYS*86400 and open(f,errors='replace').read(200).lstrip().startswith('<?xml')):
+    if not (os.path.exists(f) and os.path.getsize(f)>1000 and time.time()-os.path.getmtime(f)<CACHE_DAYS*86400 and read(f,200,errors='replace').lstrip().startswith('<?xml')):
         tmp=f+'.part'
         r=subprocess.run(['curl','-sS','--connect-timeout','20','--max-time','180','-A',UA,'-o',tmp,'-w','%{http_code}',f'https://api.openstreetmap.org/api/0.6/map?bbox={bb}'],capture_output=True,text=True)
-        code=r.stdout.strip(); body=open(tmp,errors='replace').read(160) if os.path.exists(tmp) else ''
+        code=r.stdout.strip(); body=read(tmp,160,errors='replace') if os.path.exists(tmp) else ''
         if code=='400' and 'node' in body.lower(): os.remove(tmp); raise TileTooBig(bb)
         if code!='200':
             if os.path.exists(tmp): os.remove(tmp)
@@ -29,7 +37,10 @@ def fetch(bb,cache):
     return f
 def tiles_for(lat,lon,radius):
     dlat=radius/111.0; dlon=radius/(111.0*math.cos(math.radians(lat)))
-    lon0,lon1,lat0,lat1=lon-dlon,lon+dlon,lat-dlat,lat+dlat
+    lon0=lon-dlon
+    lon1=lon+dlon
+    lat0=lat-dlat
+    lat1=lat+dlat
     out=[]; x=lon0
     while x<lon1:
         y=lat0
@@ -67,21 +78,21 @@ def main():
             todo=split(tl)+todo; continue
         tiles.append(bb)
         t=ET.parse(f).getroot()
-        nodes={n.get('id'):(float(n.get('lat')),float(n.get('lon'))) for n in t.findall('node')}
+        nodes={n.get('id'):(float(n.attrib['lat']),float(n.attrib['lon'])) for n in t.findall('node')}
         ways={w.get('id'):w for w in t.findall('way')}
         def tags(e): return {x.get('k'):x.get('v') for x in e.findall('tag')}
         def pos(e):
-            if e.tag=='node': return float(e.get('lat')),float(e.get('lon'))
+            if e.tag=='node': return float(e.attrib['lat']),float(e.attrib['lon'])
             if e.tag=='relation': return relpos(e)
             pts=[nodes[n.get('ref')] for n in e.findall('nd') if n.get('ref') in nodes]
-            return (sum(p[0] for p in pts)/len(pts), sum(p[1] for p in pts)/len(pts)) if pts else None
+            return centre(pts)
         def relpos(rel):
             pts=[]
             for m in rel.findall('member'):
                 if m.get('type')=='way' and m.get('ref') in ways: pts+=[nodes[n.get('ref')] for n in ways[m.get('ref')].findall('nd') if n.get('ref') in nodes]
                 elif m.get('type')=='node' and m.get('ref') in nodes: pts.append(nodes[m.get('ref')])
-            return (sum(p[0] for p in pts)/len(pts), sum(p[1] for p in pts)/len(pts)) if pts else None
-        for e in list(t.findall('node'))+list(t.findall('way'))+[r for r in t.findall('relation') if r.find("tag[@k='type']") is not None and r.find("tag[@k='type']").get('v')=='multipolygon']:
+            return centre(pts)
+        for e in list(t.findall('node'))+list(t.findall('way'))+[r for r in t.findall('relation') if r.find("tag[@k='type'][@v='multipolygon']") is not None]:
             tg=tags(e)
             if not tg: continue
             for cat,rules in CATS.items():
@@ -113,11 +124,11 @@ def main():
         best=min(((hav((r['lat'],r['lon']),(x['lat'],x['lon'])),x['name']) for x in named),default=None)
         r['near']=f"{best[1]} {round(best[0]*1000)} m" if best and best[0]<=0.6 else None
     out={'base':{'name':a.base_name,'lat':a.lat,'lon':a.lon,'radius_km':a.radius},'tiles':tiles,'counts':{k:len(v) for k,v in rows.items()},**rows,'trails':sorted(trails.values(),key=lambda r:-r['km_in_area'])}
-    json.dump(out,open(os.path.join(a.out,'census.json'),'w'),ensure_ascii=False,indent=1)
+    with open(os.path.join(a.out,'census.json'),'w') as f: json.dump(out,f,ensure_ascii=False,indent=1)
     def mapy(r): return f'https://mapy.com/en/turisticka?source=coor&id={r["lon"]}%2C{r["lat"]}&x={r["lon"]}&y={r["lat"]}&z=17'
     def cell(v): return ' '.join(str(v or '').split()).replace('|','\\|')
     def append(name,header,lines):
-        path=os.path.join(a.out,name); old=open(path,encoding='utf-8').read() if os.path.exists(path) else ''
+        path=os.path.join(a.out,name); old=read(path) if os.path.exists(path) else ''
         with open(path,'a',encoding='utf-8') as f:
             if not old: f.write(header)
             elif not old.endswith('\n'): f.write('\n')
