@@ -5,6 +5,7 @@ import runpy
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -188,6 +189,35 @@ class ItineraryToolsTests(unittest.TestCase):
             result = run_census(out, self.site / 'tiles', *extra)
             self.assertNotEqual(result.returncode, 0, extra)
             self.assertFalse(out.exists(), extra)
+
+    def test_census_fetch_is_bounded_and_reports_what_it_saw(self):
+        census = load(CENSUS)
+        calls = []
+        def curl(args, **_):
+            calls.append(args)
+            return subprocess.CompletedProcess(args, 28, '000', 'curl: (28) Connection timed out')
+        with patch.object(census.subprocess, 'run', side_effect=curl):
+            with self.assertRaises(SystemExit) as raised:
+                census.fetch('14.0000,50.0000,14.0100,50.0100', str(self.site))
+        self.assertIn('--max-time', calls[0])
+        self.assertIn('Connection timed out', str(raised.exception))
+        self.assertNotIn('allowlist', str(raised.exception))
+
+    def test_census_refetches_an_old_tile(self):
+        census = load(CENSUS)
+        bbox = '14.0000,50.0000,14.0100,50.0100'
+        tile = self.site / (bbox.replace(',', '_') + '.xml')
+        tile.write_text('<?xml version="1.0"?><osm></osm>'.ljust(1200))
+        old = time.time() - 30 * 86400
+        os.utime(tile, (old, old))
+        calls = []
+        def curl(args, **_):
+            calls.append(args)
+            Path(args[args.index('-o') + 1]).write_text('<?xml version="1.0"?><osm></osm>')
+            return subprocess.CompletedProcess(args, 0, '200', '')
+        with patch.object(census.subprocess, 'run', side_effect=curl):
+            census.fetch(bbox, str(self.site))
+        self.assertEqual(len(calls), 1)
 
 
 if __name__ == '__main__':

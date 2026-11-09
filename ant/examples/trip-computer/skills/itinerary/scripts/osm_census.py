@@ -5,25 +5,26 @@ Writes census.json + sights.md food.md parking.md kids.md trails.md (sorted by d
 A table that exists keeps its rows; a rerun appends only the places whose OSM id is not in it yet.
 --also adds extra census circles (planned stops outside the radius, e.g. a town at 11.4 km) to the same tables.
 Tiles the bbox in 0.055° x 0.04° pieces (api.openstreetmap.org map call, 50k-node limit); a tile that
-answers HTTP 400 is split in four and retried. Trail km_in_area sums whole member ways returned per tile
+answers HTTP 400 is split in four and retried. A cached tile older than 7 days is fetched again. Trail km_in_area sums whole member ways returned per tile
 (a way crossing a tile edge is counted in both tiles) — an upper bound, use osm_trails.py for one walk."""
-import argparse, json, math, os, re, subprocess, urllib.parse, xml.etree.ElementTree as ET
+import argparse, json, math, os, re, subprocess, time, urllib.parse, xml.etree.ElementTree as ET
 from collections import defaultdict
 UA='arizuko-trip-planner/1.0 (osm_census)'
+CACHE_DAYS=7
 def hav(a,b):
     R=6371; p1,p2=math.radians(a[0]),math.radians(b[0]); dl=math.radians(b[1]-a[1])
     return 2*R*math.asin(math.sqrt(math.sin((p2-p1)/2)**2+math.cos(p1)*math.cos(p2)*math.sin(dl/2)**2))
 class TileTooBig(Exception): pass
 def fetch(bb,cache):
     f=os.path.join(cache,bb.replace(',','_')+'.xml')
-    if not (os.path.exists(f) and os.path.getsize(f)>1000 and open(f,errors='replace').read(200).lstrip().startswith('<?xml')):
+    if not (os.path.exists(f) and os.path.getsize(f)>1000 and time.time()-os.path.getmtime(f)<CACHE_DAYS*86400 and open(f,errors='replace').read(200).lstrip().startswith('<?xml')):
         tmp=f+'.part'
-        r=subprocess.run(['curl','-s','-A',UA,'-o',tmp,'-w','%{http_code}',f'https://api.openstreetmap.org/api/0.6/map?bbox={bb}'],capture_output=True,text=True)
+        r=subprocess.run(['curl','-sS','--connect-timeout','20','--max-time','180','-A',UA,'-o',tmp,'-w','%{http_code}',f'https://api.openstreetmap.org/api/0.6/map?bbox={bb}'],capture_output=True,text=True)
         code=r.stdout.strip(); body=open(tmp,errors='replace').read(160) if os.path.exists(tmp) else ''
         if code=='400' and 'node' in body.lower(): os.remove(tmp); raise TileTooBig(bb)
         if code!='200':
             if os.path.exists(tmp): os.remove(tmp)
-            raise SystemExit(f'tile {bb} -> HTTP {code} {body!r}; 403/000 on every path = api.openstreetmap.org not on the egress allowlist')
+            raise SystemExit(f'tile {bb} -> HTTP {code} {body!r} {r.stderr.strip()}')
         os.replace(tmp,f)
     return f
 def tiles_for(lat,lon,radius):
