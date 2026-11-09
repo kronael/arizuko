@@ -15,6 +15,7 @@
 
 ## What needs you
 
+- `L805` — `make lint` fails on five golangci-lint findings in routd and gitd.
 - `L803` — morha repeats recovery reports and replies to an old GitHub comment; cause unmeasured.
 - `L804` — Codex topic forks do not inherit the parent's model context; observed messages remain available.
 - `L796` — a silent cron script costs a full agent turn (macrohype-monitor, 48 turns a week); owner chose a command task with no model call; where the command runs needs sign-off.
@@ -318,6 +319,24 @@ reads those words now.
   `/tmp/arizuko-github-baseline-build.log`. No test — ops.
   **Proposal:** stop the build on the first failed submake. This is an adjacent
   build-gate repair; scope approval is pending.
+
+## L805 — `make lint` fails on five golangci-lint findings (2026-11-09, open — record only)
+
+MEASURED with golangci-lint on PATH at `60bd9ed5f`: `make lint` exits 2.
+The findings predate step 4 of the turn-failure plan; none of the five
+files changed after `526174e49`:
+
+- `routd/turn_control_probe_test.go:16` — ineffectual assignment to `now`.
+- `gitd/bot_test.go:88` — QF1003, a tagged switch on `r.Method`.
+- `routd/turn_control.go:88` — QF1006, lift the check into the loop condition.
+- `routd/turn_control.go:713` — QF1001, De Morgan's law.
+- `routd/turns.go:95` — `(*Server).outboundRow` is unused.
+
+The webdocs, specrefs and bugsindex steps after golangci-lint pass when run
+directly. Earlier gates passed only because golangci-lint was absent from PATH.
+
+- **Severity:** low — lint only; no runtime effect.
+- **Status:** open — record only.
 
 ## L804 — Codex topic forks do not inherit the parent's model context (2026-11-09, open — record only)
 
