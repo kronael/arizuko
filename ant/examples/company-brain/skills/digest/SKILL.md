@@ -133,6 +133,13 @@ Full report `~/reports/digest-<RUN_ID>.md` = message, `combined.md`,
 Gate: `scripts/check_format.py <run>` must print `OK`.
 
 ### 5. Deliver + checkpoint
+
+Before editing a stored message, ALWAYS verify that the current posting
+account authored it, using the platform author ID. If authorship is
+different or unknown, ALWAYS report it and stop; NEVER post a replacement.
+If a post or edit fails, ALWAYS report the failure and stop. NEVER schedule
+retry tasks; the platform owns turn retries.
+
 Preview (caller says "do not post to #main yet"): `scripts/post_blocks.py
 <run> --preview <chat-jid>` sends once to that chat, writes no state, refuses
 #main; stop.

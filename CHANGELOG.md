@@ -13,6 +13,9 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+- Digests stop after delivery failures without scheduling retries. They edit
+  only messages authored by the current posting account.
+
 - `/arizuko-issue` records arizuko and platform-internal problems. User-project
   findings stay in the group's own files.
 
