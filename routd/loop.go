@@ -527,7 +527,6 @@ const pollBatch = 200
 func (l *Loop) pollOnce() {
 	if err := l.q.recover(l, false); err != nil {
 		slog.Error("recover deferred turns", "err", err)
-		return
 	}
 	l.q.tick(l)
 	jids, err := l.db.ChatJIDs()
