@@ -19,7 +19,6 @@
 - `L797` — the agent `issues` skill files findings about the user's own projects; owner wants it limited to arizuko and internal issues, renamed to say so.
 - `L798` — agents schedule their own one-shot retry tasks when a digest post fails; duplicate posts and extra turns.
 - `L794` — a failed turn retries 3 times within ~40 s, too fast for a host fault (full disk) to clear; owner wants 3 retries with longer gaps, about 4 h for cron tasks; design needs sign-off.
-- `L795` — the exhausted-retry notice names no cause; owner wants a short plain cause, no internals.
 - `L790` — `TestHoldE2E_ChannelWithoutButtonsStillGetsAnAnswerablePrompt` fails under host load (fixed 5 s wait).
 - `L721` — group handoffs bounced for an hour; verify bounded turns after deployment with group sends and progress guidance.
 - `L743` — an instance-wide model pause needs trusted host-side provider evidence; proposal, needs sign-off.
@@ -392,24 +391,6 @@ A held cursor blocks the group's queue, so a long gap cannot use this path.
   cursor, so the group keeps serving chat. Changes spec 5/12's retry rule.
 - **Status:** proposal — needs sign-off on the delay schedule and the
   interactive-turn delay.
-
-## L795 — the exhausted-retry notice names no cause (2026-11-09, open)
-
-MEASURED 2026-11-09: each failed task at 03:00 sent "⚠️ Agent couldn't
-complete this request after 3 attempts." (`routd/dispatch.go:737`). Each
-group got two notices, one per failed task (`mem-1` and `mem-3`). The text
-does not say that the host ran out of disk, so the user cannot tell a host
-fault from an agent fault. Most sends failed with "no channel for jid
-<folder>"; telegram `group/5161994241` (rhias) failed with a permanent send
-error.
-
-- **Severity:** medium — the user sees noise with no cause.
-- **Owner decision 2026-11-09:** inform the user with a better message that
-  does not leak internals and is not long.
-- **Fix:** routd classifies the last error into a short plain cause (host
-  disk full, model unavailable, timeout) and names it in the notice; paths,
-  socket names and stderr stay in the log.
-- **Status:** open
 
 ## L790 — the hold e2e test fails under host load (2026-11-08, open)
 
