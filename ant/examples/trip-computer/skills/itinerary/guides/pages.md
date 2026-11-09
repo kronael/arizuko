@@ -198,8 +198,8 @@ Edit the page in place; Rounds 2–4 run on the changed items only.
   walk variant waits. Both times are already on the item.
 - The base moves: Round 0 around the new base (`--also` for the old
   stops), `km` recomputed; the pages keep their stops.
-- A forecast host is down: the last forecast with its date in the
-  weather box; never the hosts tried.
+- A forecast host is down: `/weather` § Freshness decides what the
+  weather box shows; never the hosts tried.
 
 ## First screen
 
