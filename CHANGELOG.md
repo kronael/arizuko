@@ -13,43 +13,47 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
-- Digests stop after delivery failures without scheduling retries. They edit
-  only messages authored by the current posting account.
-
-- `/arizuko-issue` records arizuko and platform-internal problems. User-project
-  findings stay in the group's own files.
-
 ## [v0.75.5] — 2026-11-09
 
-> arizuko v0.75.5 — group models and saved messages
+> arizuko v0.75.5 — retries you can see, group models and saved messages
 >
-> Groups select their models, provider refusals preserve messages, and GitHub Apps and Google Drive support replies.
+> A failed turn keeps your message, retries on a schedule and shows one status line that it edits; groups select their models; GitHub Apps and Google Drive support replies.
 >
-> • Provider limits — the affected folder saves your messages and retries automatically.
+> • Retries — a failed turn shows one status line, retries three times and deletes the line when it succeeds.
+> • Provider limits — the instance pauses new turns, saves your messages and retries after the provider's reset.
+> • Group messages — one group can ask another once; a second hop is refused, so groups cannot loop.
 > • Group models — each group selects its backend, model and effort through harness settings.
 > • GitHub Apps — replies and repository tools use tokens limited to the turn's repository.
 > • Google Drive — bound documents receive comment replies and report their connection state.
-> • Group messages — send reaches another group when the caller holds a target grant.
 > • Progress — native checklists reach chat and web clients, including after reconnection.
 >
 > Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
 
 ### Features
 
-- Provider spend limits, rate limits, authentication refusals and outages pause
-  model turns in the reporting folder under specs/6/60-model-credential-pause.md.
-  Other folders continue normally.
-- Held messages retain their content, cursor, session, retry count and order.
-  The oldest held turn probes automatically through the normal run path.
-  Repeated refusals double the delay from 30 seconds to one hour, with jitter.
-  A provider reset time sets the delay when available.
-- Each affected chat receives one pause notice per episode, including across
-  restarts and delivery retries. Operators list or clear pauses through REST,
-  MCP, the dashboard or `arizuko model-pauses`.
-- Pause recovery preserves the saved dispatch binding through route changes.
-  Probe claims, recovery and guarded clears prevent concurrent probes and stale
-  callbacks from clearing another episode. Local failures keep bounded retries.
-  Probe recovery preserves successor runs and isolates stalled recovery to its folder.
+- A failed turn keeps its input and retries three times: 30 s, 2 min and 5 min
+  for chat, 15, 45 and 180 min for a scheduled task. The retry waits as a saved
+  `turn_context` row and releases the chat cursor, so new messages keep flowing.
+  `MAX_TURN_RETRY` lowers the budget and is capped at 3 (specs/5/12-turn-retry.md).
+- One status message per turn and chat names a short cause and the retry time,
+  is edited as the retry runs, is deleted on success and is edited to the final
+  cause on exhaustion. No error prose, path or stderr reaches the chat.
+  Email gets the first and the final post only.
+- A failed execution opens one instance breaker: no new agent launches until
+  the failed turn's retry, the probe, runs without failure. After the probe turn
+  exhausts its retries the breaker stays open one hour.
+- Provider spend limits, rate limits, authentication refusals and outages open
+  the same breaker for the whole instance. The refused turn retries no earlier
+  than the provider's reset time. Operators list the reporting folders and clear
+  their rows through REST, MCP, the dashboard or `arizuko model-pauses`
+  (specs/6/60-model-credential-pause.md).
+- `MAX_CONCURRENT_AGENTS` bounds the agents that run at once; scheduled tasks
+  hold at most one of those slots. One folder runs one turn at a time.
+- GitHub and Google Drive edit and delete the comments and replies they posted,
+  so both show the turn status as one comment that routd edits and deletes.
+- Every message carries `hops`, its distance in agent turns from a person.
+  `send` to a group and `inject_message` are refused at two hops, so a person
+  can ask A, A can ask B, and B answers on a platform chat (BUGS L807).
 - Group deletion retires unfinished turns and consumes their saved input atomically.
   Admission checks group existence in the same transaction.
   Late provider reports cannot restore deleted input. Completed turn history remains available.
@@ -127,6 +131,27 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   task ticker, Bun ant launch and group handler selection.
   The bug queue records deferred process folds, contract proposals and existing test failures.
 
+### Fixed
+
+- L806: Codex turns report their own token usage, not the resumed thread's
+  running total (sloth logged 24,903,877 input tokens for a turn that used 441,113).
+- L807: a group cannot start a turn in another group from a turn that a group
+  started; sloth and sloth/trading had sent each other turns for 80 minutes.
+- L771: a timed-out run is not retried.
+- L797: `/arizuko-issue` records arizuko and platform-internal problems.
+  User-project findings stay in the group's own files.
+- L798: digests stop after delivery failures without scheduling retries, and
+  edit only messages that the current posting account wrote.
+- L799: runed checks tap rules before teardown, so an early guest failure does
+  not delete rules it never installed.
+- L800: a skipped Codex topic fork logs at info, not as a missing Claude transcript.
+- L801: gitd drops senderless security-advisory webhooks as unsubscribed events.
+- L802: ant recovers linked-channel history through the current thread.
+- L691: `make images` and `make kernel` stage their exports readable by the
+  caller, so a complete export is kept.
+- Trip computer and CZ estate packages tighten their page, map-link, census
+  and output checks.
+
 ### Removals
 
 - Remove `vited` and live reload. Proxyd serves the web tree directly with
@@ -136,13 +161,20 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 - Remove the shell ant entrypoint and emitted TypeScript build tree.
 - Remove the bundled private-store deployment, private host-address synthesis,
   flat group `model` and `effort` readers, and retired component pages.
-- Remove per-chat and per-folder circuit breakers and separate failure-notice
-  suppression. Folder provider pauses own admission and pause notices.
+- Remove per-chat and per-folder circuit breakers, separate failure-notice
+  suppression and the `queue` package. The instance breaker in routd owns
+  admission after a failure.
 
 ### Breaking changes
 
 - Replace delegation and escalation calls with `send` to the target folder.
-  A reply between groups requires an explicit send back.
+  A group that another group started cannot send to a group; it answers on a
+  platform chat.
+- A run that reaches `RUNED_RUN_TIMEOUT` is not retried; its status says
+  "Time limit reached".
+- `MAX_CONCURRENT_CONTAINERS` is refused. Rename it to `MAX_CONCURRENT_AGENTS`
+  in `.env` by hand before `arizuko generate`; no command renames it.
+- runed's `POST /v1/runs` accepts only `service:routd`.
 - Flat group `model` and `effort` overrides do not apply.
   A present `harness` document replaces instance defaults as a whole.
   Omitted model or effort selects the adapter's native default.
@@ -176,6 +208,8 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   `GOOGD_CONNECTOR_TOKEN` and `GDRIVE_POLL_INTERVAL`, which defaults to 30s with
   a 10s minimum. `GDRIVE_API_URL` and `SHEETS_API_URL` select API endpoints.
 - `RUNED_RUN_TIMEOUT` defaults to `60m`.
+- `MAX_CONCURRENT_AGENTS` (default 5) replaces `MAX_CONCURRENT_CONTAINERS`.
+  `MAX_TURN_RETRY` above 3 is capped at 3.
   `RUNED_ROOTFS_DIR` and `RUNED_KERNEL_DIR` select the matching guest artifacts.
 - Anteval requires explicit model credentials, an external test store and
   separate vsock, tap and proxy allocations. Its credential preflight requires
@@ -214,16 +248,20 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
    Configure GitHub with each new secret before enabling deliveries.
 4. For App access, set `GITHUB_APP_ID` and `GITHUB_APP_PRIVATE_KEY`.
    Install the App on selected repositories and configure the connector token slot.
-5. Ship the daemon image, ant rootfs and kernel/initrd together.
+5. Rename `MAX_CONCURRENT_CONTAINERS` to `MAX_CONCURRENT_AGENTS` in each
+   instance's `.env` before generation:
+   `sudo sed -i 's/^MAX_CONCURRENT_CONTAINERS=/MAX_CONCURRENT_AGENTS=/' /srv/data/arizuko_<instance>/.env`.
+   `arizuko generate` and the daemons refuse the old key.
+6. Ship the daemon image, ant rootfs and kernel/initrd together.
    Run `sudo make images DATA_DIR=<data-dir>` and
    `sudo make kernel DATA_DIR=<data-dir>`.
    Update both `RUNED_ROOTFS_DIR` and `RUNED_KERNEL_DIR` before generation and restart.
    The old initrd selects the removed shell entrypoint.
-6. Regenerate Compose with `arizuko generate -i <instance>` and resolve frozen
+7. Regenerate Compose with `arizuko generate -i <instance>` and resolve frozen
    fragments and missing daemon keys. Use INSTALL.md's shared-store systemd unit
    and the release image. Reload systemd after unit changes.
    Normal startup removes orphaned `timed` and `vited` containers.
-7. Restart krons first with `sudo systemctl restart arizuko_krons`.
+8. Restart krons first with `sudo systemctl restart arizuko_krons`.
    Verify real replies and post-deploy gates 1–4.
    Run anteval only by explicit operator action on a disposable instance.
    Verify the generated operator docs and their version stamp.
