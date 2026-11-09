@@ -114,7 +114,7 @@ def main():
         r['near']=f"{best[1]} {round(best[0]*1000)} m" if best and best[0]<=0.6 else None
     out={'base':{'name':a.base_name,'lat':a.lat,'lon':a.lon,'radius_km':a.radius},'tiles':tiles,'counts':{k:len(v) for k,v in rows.items()},**rows,'trails':sorted(trails.values(),key=lambda r:-r['km_in_area'])}
     json.dump(out,open(os.path.join(a.out,'census.json'),'w'),ensure_ascii=False,indent=1)
-    def mapy(r): return f'https://mapy.com/en/turisticka?source=coor&id={r["lon"]}%2C{r["lat"]}&x={r["lon"]}&y={r["lat"]}&z=17'  # exact pin; ?q= searches the name and jumps elsewhere
+    def mapy(r): return f'https://mapy.com/en/turisticka?source=coor&id={r["lon"]}%2C{r["lat"]}&x={r["lon"]}&y={r["lat"]}&z=17'
     def cell(v): return ' '.join(str(v or '').split()).replace('|','\\|')
     def append(name,header,lines):
         path=os.path.join(a.out,name); old=open(path,encoding='utf-8').read() if os.path.exists(path) else ''

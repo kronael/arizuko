@@ -21,7 +21,7 @@ def _ser(delta, orig):
     v = 805306368 | (orig & 268435455)
     return ''.join(A[(v >> s) & 63] for s in (24, 18, 12, 6, 0))
 
-def encode(points):  # points: [(lat, lon), ...]
+def encode(points):
     ox = oy = 0; out = ''
     for lat, lon in points:
         x = min(round((lon + 180) * (1 << 28) / 360), (1 << 28) - 1)
@@ -56,7 +56,7 @@ def decode(s):
 
 MODES = {'car': 111, 'foot': 131, 'hike': 132, 'bike': 121}
 
-def gurl(points):  # Google Maps directions through the same coordinates
+def gurl(points):
     return 'https://www.google.com/maps/dir/' + '/'.join(f'{lat:.6f},{lon:.6f}' for lat, lon in points)
 
 def url(points, mode, places):

@@ -111,7 +111,6 @@ def venues(body):
     lists = re.findall(r'<ul\b[^>]*class=["\'][^"\']*\bfood-list\b[^"\']*["\'][^>]*>(.*?)</ul>', body, re.S | re.I)
     return [li for ul in lists for li in re.findall(r'<li\b[^>]*>(.*?)</li>', ul, re.S | re.I)]
 
-# ---------------------------------------------------------------- rules
 @rule('html-balance')
 def _(site):
     for p in site.pages.values():
@@ -289,7 +288,6 @@ def _(site):
         for _, meal, body in items:
             if meal and not venues(body) and 'self-catered' not in _text(body).lower(): yield 'ERROR', n, f'{meal} has no venue and is not self-catered'
 
-# ---------------------------------------------------------------- runner
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument('dir'); ap.add_argument('--root'); ap.add_argument('--rule', action='append', default=[])
