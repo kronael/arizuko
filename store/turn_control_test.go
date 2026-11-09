@@ -442,6 +442,19 @@ func TestControlledFinishGuards(t *testing.T) {
 	if cancelled.State != TurnDone || !cancelled.RunReturned || !cancelled.NextAttemptAt.IsZero() {
 		t.Fatalf("cancelled: %+v", cancelled)
 	}
+	if ok, err := s.OpenTurnContext("submitted", "demo", "", "web:submitted", "u", "", nil); err != nil || !ok {
+		t.Fatalf("open submitted: %v %v", ok, err)
+	}
+	if err := s.SetTurnState("submitted", TurnDone); err != nil {
+		t.Fatal(err)
+	}
+	submitted, _ := s.TurnContextOf("submitted")
+	if ok, err := s.FinishControlledTurn(ctx, submitted, &after, nil); err != nil || !ok {
+		t.Fatalf("close submitted execution: %v %v", ok, err)
+	}
+	if ok, err := s.FinishControlledTurn(ctx, submitted, &after, nil); err != nil || ok {
+		t.Fatalf("closed execution accepted duplicate finish: %v %v", ok, err)
+	}
 }
 
 func TestDeferredTurnCursorNeverRewinds(t *testing.T) {

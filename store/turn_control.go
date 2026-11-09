@@ -264,18 +264,22 @@ func (s *Store) FinishControlledTurn(ctx context.Context, tc TurnContext, before
 	if err != nil {
 		return false, err
 	}
-	if tc.AttemptID == "" || (tc.State != TurnRunning && tc.State != TurnPendingRetry) {
+	if tc.AttemptID == "" || (tc.State != TurnRunning && tc.State != TurnPendingRetry && tc.State != TurnDone) {
 		return false, fmt.Errorf("finish turn %s: invalid binding", tc.TurnID)
 	}
 	checks, writes := controlAdmission(before, after)
 	checks = append(checks, objstore.Check{Entity: Groups, Key: group, Cond: objstore.Cond{Item: objstore.ItemPresent}})
-	writes = append(writes, objstore.Write{Op: objstore.Update, Entity: TurnContexts, Key: key,
+	write := objstore.Write{Op: objstore.Update, Entity: TurnContexts, Key: key,
 		Attrs:  map[string]string{attrTurnState: TurnDone, attrTurnRunReturned: flagSet},
 		Remove: []string{"next_attempt_at"}, Cond: objstore.Cond{Where: []objstore.Cmp{
 			{Attr: attrTurnState, Op: objstore.Eq, Value: tc.State},
 			{Attr: attrTurnFolder, Op: objstore.Eq, Value: tc.Folder},
 			{Attr: "attempt_id", Op: objstore.Eq, Value: tc.AttemptID},
-		}}})
+		}}}
+	if tc.State == TurnDone {
+		write.Cond.Where = append(write.Cond.Where, objstore.Cmp{Attr: attrTurnRunReturned, Op: objstore.Absent})
+	}
+	writes = append(writes, write)
 	return s.TryWriteEntities(ctx, checks, writes...)
 }
 
