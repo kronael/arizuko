@@ -463,6 +463,7 @@ func (s *Store) FailStatus(ctx context.Context, pending PendingMessage, permanen
 	if target == core.MessageStatusFailed {
 		writes = append(writes, objstore.Write{Op: objstore.Delete, Entity: MessageDelivery, Key: deliveryKey(core.MessageStatusPending, key), Cond: cond})
 	}
+	// Resolved or superseded operations need no failure update.
 	_, err = s.TryWriteEntities(ctx, nil, writes...)
 	return err
 }
