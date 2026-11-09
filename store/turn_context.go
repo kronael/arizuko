@@ -21,6 +21,7 @@ package store
 import (
 	"context"
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"strconv"
 	"time"
@@ -49,6 +50,8 @@ const (
 	// rows names the instant it re-renders.
 	AttrTurnStartedAt = "started_at"
 )
+
+var ErrGroupMissing = errors.New("group is missing")
 
 func IsActiveTurnState(state string) bool {
 	return state == TurnRunning || state == TurnPendingRetry
@@ -171,6 +174,9 @@ func (s *Store) OpenTurnContext(turnID, folder, topic, chatJID, trigger, returnT
 			return false, err
 		}
 		if p == nil || p.OpenedAt != admission.ProbeEpisode || p.NextAttemptAt == "" || p.NextAttemptAt > core.NowTS() {
+			if err := s.checkAdmissionGroup(ctx, group); err != nil {
+				return false, err
+			}
 			return false, ErrModelPaused
 		}
 		claim = []objstore.Write{{Op: objstore.Update, Entity: ModelPauses, Key: modelPauseKey(folder),
@@ -193,6 +199,9 @@ func (s *Store) OpenTurnContext(turnID, folder, topic, chatJID, trigger, returnT
 	}
 	if opened {
 		return true, nil
+	}
+	if err := s.checkAdmissionGroup(ctx, group); err != nil {
+		return false, err
 	}
 	prior, exists, err := s.itemAt(ctx, TurnContexts, key)
 	if err != nil {
@@ -221,9 +230,23 @@ func (s *Store) OpenTurnContext(turnID, folder, topic, chatJID, trigger, returnT
 		return false, fmt.Errorf("re-bind turn %s: %w", turnID, err)
 	}
 	if !live {
+		if err := s.checkAdmissionGroup(ctx, group); err != nil {
+			return false, err
+		}
 		return false, ErrModelPaused
 	}
 	return true, nil
+}
+
+func (s *Store) checkAdmissionGroup(ctx context.Context, group objstore.Key) error {
+	_, exists, err := s.itemAt(ctx, Groups, group)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return ErrGroupMissing
+	}
+	return nil
 }
 
 // missingAttrs names the attributes of `names` that attrs does not carry, so a

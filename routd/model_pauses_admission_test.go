@@ -2,6 +2,7 @@ package routd
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -56,7 +57,9 @@ func TestAdmissionCannotRestoreDeletedInput(t *testing.T) {
 	pauseInput(t, db, jid, "private", "sender", "private prior tenant input", time.Now())
 	gate := &admissionDeleteStore{Store: db.Obj()}
 	db.obj = gate
-	processPauseChat(t, l, jid)
+	if _, err := l.processGroupMessages(jid); !errors.Is(err, store.ErrGroupMissing) {
+		t.Fatalf("admission: %v", err)
+	}
 	tc, ok := db.GetTurnContext("private")
 	if !gate.fired || db.GroupExists("a") || ok {
 		t.Fatalf("late admission state: %+v exists=%v", tc, ok)

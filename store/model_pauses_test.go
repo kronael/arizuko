@@ -374,7 +374,7 @@ func TestAdmissionRequiresGroupDuringRebindAndProbe(t *testing.T) {
 			gate := &deleteGroupOnAdmission{Store: s.Obj(), op: op}
 			guarded := NewOver(gate)
 			live, err := guarded.OpenTurnContext("target", "g", "new", "web:g", "u", "", admission)
-			if !gate.fired || live || !errors.Is(err, ErrModelPaused) {
+			if !gate.fired || live || !errors.Is(err, ErrGroupMissing) {
 				t.Fatalf("admission: fired=%v live=%v err=%v", gate.fired, live, err)
 			}
 			turn, exists := s.TurnContextOf("target")
@@ -388,5 +388,21 @@ func TestAdmissionRequiresGroupDuringRebindAndProbe(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestAdmissionMissingGroup(t *testing.T) {
+	s := openEntities(t)
+	for _, admission := range []*TurnAdmission{nil, {ProbeEpisode: "missing"}} {
+		live, err := s.OpenTurnContext("target", "g", "", "web:g", "u", "", admission)
+		if live || !errors.Is(err, ErrGroupMissing) {
+			t.Fatalf("admission: live=%v err=%v", live, err)
+		}
+	}
+	if _, exists := s.TurnContextOf("target"); exists {
+		t.Fatal("turn created for missing group")
+	}
+	if p, err := s.ReadModelPause(t.Context(), "g"); err != nil || p != nil {
+		t.Fatalf("pause: %+v err=%v", p, err)
 	}
 }

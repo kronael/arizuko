@@ -925,3 +925,39 @@ func TestModelPauseDeleteClosesRunningCallbacks(t *testing.T) {
 		})
 	}
 }
+
+type deleteGroupAtAdmission struct {
+	objstore.Store
+	fired bool
+}
+
+func (s *deleteGroupAtAdmission) GuardedBatch(ctx context.Context, checks []objstore.Check, writes []objstore.Write) (bool, error) {
+	for _, w := range writes {
+		if !s.fired && w.Entity == store.TurnContexts && w.Op == objstore.Put {
+			s.fired = true
+			_, err := s.Store.GuardedBatch(ctx, nil, []objstore.Write{{Op: objstore.Delete, Entity: store.Groups, Key: objstore.Key{Partition: store.OwnerRoutd, Sort: "a"}}})
+			if err != nil {
+				return false, err
+			}
+			break
+		}
+	}
+	return s.Store.GuardedBatch(ctx, checks, writes)
+}
+
+func TestMissingGroupAtAdmissionLeavesInputUnanswered(t *testing.T) {
+	db, loop, provider, deliver := pauseFixture(t)
+	pauseInput(t, db, "web:a", "input", "u", "question", time.Now())
+	gate := &deleteGroupAtAdmission{Store: db.obj}
+	db.obj = gate
+	_, err := loop.processGroupMessages("web:a")
+	if !gate.fired || !errors.Is(err, store.ErrGroupMissing) {
+		t.Fatalf("admission: fired=%v err=%v", gate.fired, err)
+	}
+	if db.GetAgentCursor("web:a") != "" || len(provider.runs) != 0 || len(deliver.sentMsgs()) != 0 {
+		t.Fatalf("input consumed or answered: cursor=%q runs=%d notices=%v", db.GetAgentCursor("web:a"), len(provider.runs), deliver.sentMsgs())
+	}
+	if p, err := db.store().ReadModelPause(t.Context(), "a"); err != nil || p != nil {
+		t.Fatalf("pause: %+v err=%v", p, err)
+	}
+}
