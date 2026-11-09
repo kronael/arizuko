@@ -16,8 +16,17 @@ import (
 )
 
 func TestTurnStatusLifecycle(t *testing.T) {
-	for _, progress := range []bool{false, true} {
-		t.Run(map[bool]string{false: "first-failure", true: "progress-to-failure"}[progress], func(t *testing.T) {
+	for _, tc := range []struct {
+		jid      string
+		progress bool
+	}{
+		{progressJID, false},
+		{progressJID, true},
+		{"github:kronael/arizuko/pr/12", false},
+		{"gdrive:file/c/thread", false},
+	} {
+		jid, progress := tc.jid, tc.progress
+		t.Run(jid+"/"+map[bool]string{false: "first-failure", true: "progress-to-failure"}[progress], func(t *testing.T) {
 			db, err := OpenMem()
 			if err != nil {
 				t.Fatal(err)
@@ -48,22 +57,22 @@ func TestTurnStatusLifecycle(t *testing.T) {
 			loop.StopQueue()
 			now := time.Date(2026, 11, 9, 3, 0, 0, 0, time.UTC)
 			loop.q.now = func() time.Time { return now }
-			doSetRoutes(t, db, []core.Route{{Match: "platform=slack", Target: "demo"}})
-			if err := db.PutMessage(core.Message{ID: "turn", ChatJID: progressJID, Sender: "u", Content: "hi", Verb: "mention", Timestamp: now}); err != nil {
+			doSetRoutes(t, db, []core.Route{{Match: "platform=" + jidScheme(jid), Target: "demo"}})
+			if err := db.PutMessage(core.Message{ID: "turn", ChatJID: jid, Sender: "u", Content: "hi", Verb: "mention", Timestamp: now}); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := loop.processGroupMessages(progressJID); err != nil {
+			if _, err := loop.processGroupMessages(jid); err != nil {
 				t.Fatal(err)
 			}
-			row, ok := db.LastStatusRow(progressJID, "turn")
+			row, ok := db.LastStatusRow(jid, "turn")
 			if !ok || len(dl.sends) != 1 || row.Content != "Server storage is full. Retry 1/3 at 03:00:30 UTC." {
 				t.Fatalf("first failure row=%+v sends=%+v", row, dl.sends)
 			}
-			if _, err := loop.processGroupMessages(progressJID); err != nil {
+			if _, err := loop.processGroupMessages(jid); err != nil {
 				t.Fatal(err)
 			}
 			parked, _ := db.GetTurnContext("turn")
-			if db.GetAgentCursor(progressJID) != parked.InputLast {
+			if db.GetAgentCursor(jid) != parked.InputLast {
 				t.Fatal("status advanced the input cursor")
 			}
 			pid := row.PlatformID
@@ -71,7 +80,7 @@ func TestTurnStatusLifecycle(t *testing.T) {
 			if _, err := srv.submitStatus(ipc.TurnStatus{TurnID: "turn", Text: "late old attempt"}); err != nil {
 				t.Fatal(err)
 			}
-			afterLate, _ := db.LastStatusRow(progressJID, "turn")
+			afterLate, _ := db.LastStatusRow(jid, "turn")
 			if afterLate.Content != row.Content || len(dl.edits) != beforeLate {
 				t.Fatal("late progress replaced waiting status")
 			}
