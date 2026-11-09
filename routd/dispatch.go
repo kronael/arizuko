@@ -14,6 +14,7 @@ import (
 
 	"github.com/kronael/arizuko/container"
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/obs"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 	"github.com/kronael/arizuko/store"
@@ -435,8 +436,16 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, addressed bool, tr
 	if err != nil {
 		return false, false, false, "", err
 	}
+	inputKeys, err := turnMessageKeys(trigger)
+	if err != nil {
+		return false, false, false, "", err
+	}
+	ambientKeys, err := turnMessageKeys(ambient)
+	if err != nil {
+		return false, false, false, "", err
+	}
 	admission := store.TurnAdmission{AttemptID: randHex(16),
-		InputLast: store.MessageCursor(last)}
+		InputLast: store.MessageCursor(last), InputKeys: inputKeys, AmbientKeys: ambientKeys}
 	if probe != nil {
 		admission.ProbeEpisode = probe.OpenedAt
 	}
@@ -736,6 +745,18 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, addressed bool, tr
 	}
 	finishTurn(l.db, l.deliver, turnID, end)
 	return out.Outcome != runedv1.OutcomeSilent, false, false, observedMark, nil
+}
+
+func turnMessageKeys(messages []core.Message) ([]objstore.Key, error) {
+	keys := make([]objstore.Key, 0, len(messages))
+	for _, message := range messages {
+		key, err := store.MessageKey(message.ChatJID, core.TS(message.Timestamp), message.ID)
+		if err != nil {
+			return nil, err
+		}
+		keys = append(keys, key)
+	}
+	return keys, nil
 }
 
 // sendNotice tells a chat the turn could not answer. A failed send leaves no
