@@ -1,13 +1,7 @@
 ---
 name: itinerary
-description: >
-  Plan trips and day itineraries from a verified place database: census
-  of sights, restaurants, car parks and trails around the base, then day
-  pages with timelines, map links and routes. USE for "plan a trip to X",
-  "what to see near Y", "suggest trips for Friday", "build the day page",
-  "lunch options", "which trail", "walk-around loop", Google Maps or
-  mapy.com links the user shares. NOT for weather forecasts alone (use
-  weather) or car buying (use find-car).
+description: Plan and revise trips and day itineraries from a verified place database. NOT for standalone forecasts (use weather) or car purchases (use find-car).
+when_to_use: 'plan a trip to X, what to see near Y, suggest trips for Friday, build the day page, rebuild the day, start later, the place is closed, child asleep, lunch options, where to park, which trail, walk-around loop, day route, a Google Maps or mapy.com link the user sends, výlet, kam na výlet, trasa, parkování, oběd'
 user-invocable: true
 ---
 

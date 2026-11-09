@@ -1,6 +1,7 @@
 ---
 name: weather
-description: Advanced weather forecasts using official meteorological sources via browser automation. Use when asked for weather, forecast, or conditions for a specific location/date.
+description: Forecast for a place and date from official meteorological sources. NOT for building a trip plan (use itinerary).
+when_to_use: 'weather, forecast, will it rain, rain timing, wind, temperature, sea temperature, waves, mountain conditions, snow, počasí, předpověď, bude pršet'
 ---
 
 ## Weather Sources — Best by Region

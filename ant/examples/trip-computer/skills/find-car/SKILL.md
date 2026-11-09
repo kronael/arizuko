@@ -1,6 +1,7 @@
 ---
 name: find-car
 description: Research and compare used cars, listings, specifications and ownership costs. NOT for trip routes (use itinerary).
+when_to_use: 'find a car, buy a used car, compare cars, compare the cars from before, car listings, Sauto, Tipcars, Bazoš, total cost of ownership, TCO, fuel consumption, towing, najdi auto, porovnej auta, ojeté auto, spotřeba, tahání'
 ---
 
 # Car research
