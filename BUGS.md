@@ -18,6 +18,7 @@
 - `L799` — tap teardown deletes six absent rules after an early guest start failure.
 - `L800` — Codex topic forks attempt to copy a Claude session and lose parent context.
 - `L801` — senderless security advisory webhooks emit rejection warnings.
+- `L802` — linked-channel history refusal makes an agent ask for platform-held context.
 - `L796` — a silent cron script costs a full agent turn (macrohype-monitor, 48 turns a week); owner chose a command task with no model call; where the command runs needs sign-off.
 - `L794` — a failed turn retries 3 times within ~40 s, too fast for a host fault (full disk) to clear; owner wants 3 retries with longer gaps, about 4 h for cron tasks; design needs sign-off.
 - `L790` — `TestHoldE2E_ChannelWithoutButtonsStillGetsAnAnswerablePrompt` fails under host load (fixed 5 s wait).
@@ -319,6 +320,23 @@ reads those words now.
   `/tmp/arizuko-github-baseline-build.log`. No test — ops.
   **Proposal:** stop the build on the first failed submake. This is an adjacent
   build-gate repair; scope approval is pending.
+
+## L802 — linked-channel history refusal makes an agent ask for platform-held context (2026-11-09, open)
+
+MEASURED in sloth's 2026-11-08 census (`/tmp/claude-1001/sl/replies.txt`,
+`t1947.txt`): `sloth/trading` receives `access_denied: jid not routed to
+your group` from `fetch_history` for a linked channel and asks the user for
+the reference. Its parent `sloth` supplies the reference at 19:57:08;
+the child reports `Reference found` at 20:00:56. The census also records
+the parent answer already available in the current thread when the child
+asks for pasted context. `ant/skills/recall-messages/SKILL.md` gives no
+recovery order for a linked channel outside the folder's route scope.
+
+- **Severity:** low — the user repeats information the platform holds.
+- **Status:** open — after access denial, read the current thread for an
+  answer first; otherwise ask the parent folder to retrieve the linked history.
+  Never ask the user to paste platform-held messages.
+- **Test:** no test — docs; the authorized change is skill text only.
 
 ## L801 — senderless security advisory webhooks emit rejection warnings (2026-11-09, open)
 

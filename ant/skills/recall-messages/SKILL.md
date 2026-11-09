@@ -28,6 +28,10 @@ arg: <question>
      scrollback predates the agent): `fetch_history({ chat_jid: "<jid>",
      limit: 200 })` — calls the adapter, caches into the local DB.
 
+   On `access_denied` for a linked channel, ALWAYS read the current thread for an answer first.
+   If the thread has no answer, ALWAYS ask the parent folder to retrieve the linked history.
+   NEVER ask the user to paste messages the platform holds; ALWAYS follow this recovery order.
+
    Write the result to `~/tmp/messages.json`.
 
 2. Spawn Explore subagent:
