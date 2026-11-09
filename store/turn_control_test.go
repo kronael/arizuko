@@ -250,6 +250,59 @@ func TestControlledMigrationGuards(t *testing.T) {
 	}
 }
 
+func TestControlledFinishGuards(t *testing.T) {
+	ctx := t.Context()
+	s := openTurnEntities(t)
+	if ok, err := s.OpenTurnContext("finish", "demo", "", "web:finish", "u", "", nil); err != nil || !ok {
+		t.Fatalf("open: %v %v", ok, err)
+	}
+	tc, _ := s.TurnContextOf("finish")
+	before := TurnControlState{Phase: "probe", Episode: "one", ProbeTurnID: tc.TurnID, ProbeAttemptID: tc.AttemptID}
+	if ok, err := s.WriteTurnControl(ctx, nil, before); err != nil || !ok {
+		t.Fatalf("control: %v %v", ok, err)
+	}
+	after := TurnControlState{Phase: "closed", Episode: "one"}
+	stale := before
+	stale.Episode = "stale"
+	if ok, err := s.FinishControlledTurn(ctx, tc, &stale, &after); err != nil || ok {
+		t.Fatalf("singleton guard: %v %v", ok, err)
+	}
+	current, _ := s.TurnContextOf(tc.TurnID)
+	if current.State != TurnRunning {
+		t.Fatalf("partial finish: %+v", current)
+	}
+	wrong := tc
+	wrong.AttemptID = "stale"
+	if ok, err := s.FinishControlledTurn(ctx, wrong, &before, &after); err != nil || ok {
+		t.Fatalf("attempt guard: %v %v", ok, err)
+	}
+	wrong = tc
+	wrong.State = TurnPendingRetry
+	if ok, err := s.FinishControlledTurn(ctx, wrong, &before, &after); err != nil || ok {
+		t.Fatalf("state guard: %v %v", ok, err)
+	}
+	if err := s.DeleteGroupRow(tc.Folder); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := s.FinishControlledTurn(ctx, tc, &before, &after); err != nil || ok {
+		t.Fatalf("group guard: %v %v", ok, err)
+	}
+	if err := s.PutGroup(core.Group{Folder: tc.Folder}); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := s.FinishControlledTurn(ctx, tc, &before, &after); err != nil || !ok {
+		t.Fatalf("finish: %v %v", ok, err)
+	}
+	current, _ = s.TurnContextOf(tc.TurnID)
+	control, exists, err := s.ReadTurnControl(ctx)
+	if current.State != TurnDone || !current.RunReturned || err != nil || !exists || control.Phase != "closed" {
+		t.Fatalf("finished: %+v %+v %v", current, control, err)
+	}
+	if ok, err := s.FinishControlledTurn(ctx, tc, &after, nil); err != nil || ok {
+		t.Fatalf("duplicate finish: %v %v", ok, err)
+	}
+}
+
 func TestDeferredTurnCursorNeverRewinds(t *testing.T) {
 	ctx := t.Context()
 	s := openTurnEntities(t)

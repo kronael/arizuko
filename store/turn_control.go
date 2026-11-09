@@ -229,6 +229,30 @@ func (s *Store) MigrateDeferredTurn(ctx context.Context, d DeferredTurn) (bool, 
 	return s.TryWriteEntities(ctx, checks, writes...)
 }
 
+func (s *Store) FinishControlledTurn(ctx context.Context, tc TurnContext, before, after *TurnControlState) (bool, error) {
+	key, err := turnKey(tc.TurnID)
+	if err != nil {
+		return false, err
+	}
+	group, err := groupKey(tc.Folder)
+	if err != nil {
+		return false, err
+	}
+	if tc.AttemptID == "" || (tc.State != TurnRunning && tc.State != TurnPendingRetry) {
+		return false, fmt.Errorf("finish turn %s: invalid binding", tc.TurnID)
+	}
+	checks, writes := controlAdmission(before, after)
+	checks = append(checks, objstore.Check{Entity: Groups, Key: group, Cond: objstore.Cond{Item: objstore.ItemPresent}})
+	writes = append(writes, objstore.Write{Op: objstore.Update, Entity: TurnContexts, Key: key,
+		Attrs:  map[string]string{attrTurnState: TurnDone, attrTurnRunReturned: flagSet},
+		Remove: []string{"next_attempt_at"}, Cond: objstore.Cond{Where: []objstore.Cmp{
+			{Attr: attrTurnState, Op: objstore.Eq, Value: tc.State},
+			{Attr: attrTurnFolder, Op: objstore.Eq, Value: tc.Folder},
+			{Attr: "attempt_id", Op: objstore.Eq, Value: tc.AttemptID},
+		}}})
+	return s.TryWriteEntities(ctx, checks, writes...)
+}
+
 func (s *Store) DeferredTurns(ctx context.Context, now time.Time) ([]TurnContext, error) {
 	items, err := s.Obj().Query(ctx, objstore.Query{Entity: TurnContexts, Partition: OwnerRoutd,
 		Where: []objstore.Cmp{{Attr: attrTurnState, Op: objstore.Eq, Value: TurnPendingRetry},
