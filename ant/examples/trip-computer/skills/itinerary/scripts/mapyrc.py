@@ -2,7 +2,9 @@
 """Mapy.com route-planner coordinate string (rc=) encoder/decoder.
 Port of jamhed/mapy src/coords.ts (same algorithm as SMap.Coords).
 Usage: mapyrc.py routes.json
-  routes.json: {"name": {"mode": "car|foot|hike|bike", "points": [[LAT, LON], ...]}, ...}
+  routes.json: {"name": {"mode": "car|foot|hike|bike", "points": [[LAT, LON], [LAT, LON, SOURCE, ID], ...]}, ...}
+  SOURCE, ID: the mapy entity of a named point (source= and id= of its mapy.com URL);
+  a point without them is a coordinate (rs=coor), e.g. a private base.
   prints one line per route: name, mode, max_err, mapy.com URL, Google Maps dir URL (same points).
 Modes (mapy mrp "c", browser-checked): car 111 = fastest, foot 131 = "Fast" (shortest on foot),
 hike 132 = "Outdoor" (prefers marked trails; use it for loops and trail walks), bike 121."""
@@ -57,9 +59,9 @@ MODES = {'car': 111, 'foot': 131, 'hike': 132, 'bike': 121}
 def gurl(points):  # Google Maps directions through the same coordinates
     return 'https://www.google.com/maps/dir/' + '/'.join(f'{lat:.6f},{lon:.6f}' for lat, lon in points)
 
-def url(points, mode):  # mode: key of MODES
+def url(points, mode, places):
     rc = encode(points); n = len(points)
-    q = 'planovani-trasy&rc=' + rc + ''.join('&rs=coor' for _ in range(n)) + ''.join('&ri=' for _ in range(n))
+    q = 'planovani-trasy&rc=' + rc + ''.join(f'&rs={s}' for s, _ in places) + ''.join(f'&ri={i}' for _, i in places)
     crit = MODES[mode]
     q += '&mrp=' + urllib.parse.quote(json.dumps({'c': crit}, separators=(',', ':')))
     lat = sum(p[0] for p in points) / n; lon = sum(p[1] for p in points) / n
@@ -70,11 +72,13 @@ if __name__ == '__main__':
         sys.exit(__doc__.strip())
     routes = json.load(open(sys.argv[1]))
     for name, r in routes.items():
-        pts = [tuple(map(float, p)) for p in r['points']]
+        if any(len(p) not in (2, 4) for p in r['points']): sys.exit(f'{name}: a point is [LAT, LON] or [LAT, LON, SOURCE, ID]')
+        pts = [(float(p[0]), float(p[1])) for p in r['points']]
+        places = [(p[2], str(p[3])) if len(p) == 4 else ('coor', '') for p in r['points']]
         if r.get('mode') not in MODES: sys.exit(f'{name}: mode must be one of {sorted(MODES)}, got {r.get("mode")!r}')
         if len(pts) < 2: sys.exit(f'{name}: at least two points')
         if any(not (-90 <= lat <= 90 and -180 <= lon <= 180) for lat, lon in pts): sys.exit(f'{name}: points are [LAT, LON]')
-        u = url(pts, r['mode'])
+        u = url(pts, r['mode'], places)
         back = decode(encode(pts))
         err = max(max(abs(a - b[0]), abs(c - b[1])) for (a, c), b in zip(pts, back))
         print(f'{name}\t{r["mode"]}\tmax_err={err:.6f}\t{u}\t{gurl(pts)}')

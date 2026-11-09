@@ -9,6 +9,7 @@ import tempfile
 import time
 import unittest
 import urllib.error
+import urllib.parse
 from pathlib import Path
 from unittest.mock import patch
 
@@ -240,6 +241,16 @@ class ItineraryToolsTests(unittest.TestCase):
                 self.assertLess(max(abs(lat - blat), abs(lon - blon)), 1e-5, points)
         with self.assertRaises(ValueError):
             mapyrc.decode('00')
+
+    def test_route_keeps_named_mapy_points(self):
+        routes = self.site / 'routes.json'
+        routes.write_text(json.dumps({'r': {'mode': 'car', 'points': [[50.0, 14.0], [50.01, 14.01, 'stre', 106188]]}}))
+        result = subprocess.run([sys.executable, '-B', str(SCRIPTS / 'mapyrc.py'), str(routes)], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        query = urllib.parse.parse_qs(urllib.parse.urlparse(result.stdout.split('\t')[3]).query, keep_blank_values=True)
+        self.assertEqual(query['rs'], ['coor', 'stre'])
+        self.assertEqual(query['ri'], ['', '106188'])
+        self.assertEqual(len(load(SCRIPTS / 'mapyrc.py').decode(query['rc'][0])), 2)
 
     def test_trails_connection_failure_is_not_called_a_refusal(self):
         failure = urllib.error.URLError('Connection refused')

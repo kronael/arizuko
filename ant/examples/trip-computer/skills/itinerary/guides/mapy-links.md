@@ -63,10 +63,16 @@ exact result, read `x=`/`y=` from the address bar; fallback
 Route-planner URL, generated — never typed:
 ```bash
 python3 ~/.claude/skills/itinerary/scripts/mapyrc.py routes.json
-# routes.json: {"fri_car": {"mode": "car", "points": [[LAT, LON], [LAT, LON], …]},
-#               "fri_walk": {"mode": "hike", "points": [[LAT, LON], …]}}
+# routes.json: {"fri_car": {"mode": "car", "points": [[LAT, LON], [LAT, LON, "stre", 106188], …]},
+#               "fri_walk": {"mode": "hike", "points": [[LAT, LON, SOURCE, ID], …]}}
 # → one line per route: name, mode, max_err, URL (rc= encoder, port of jamhed/mapy coords.ts)
 ```
+- A named point carries its mapy entity: `SOURCE` and `ID` are the
+  `source=` and `id=` of the place's mapy.com URL (§ Place links). A point
+  with coordinates only is for a place with no entity, such as the
+  private base; the row says so.
+- A route is a loop only when it is closed and no stretch is walked
+  twice; open the rendered route to see it.
 - Modes (`mrp={"c":…}`, browser-checked): `car` 111; `foot`
   131 = mapy "Fast" (road-first); `hike` 132 = "Outdoor" (marked
   trails) — loops and trail walks use `hike`; `bike` 121. Open the URL
