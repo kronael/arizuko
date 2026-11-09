@@ -6,11 +6,11 @@ replies. The protocol it speaks is [`chanlib/README.md`](../chanlib/README.md).
 
 ## What runs today
 
-- **Registration.** googd registers `gdrive:` and advertises `send_text`
+- **Registration.** googd registers `gdrive:` and advertises `send_text`, `edit` and `delete`
   only when the Drive probe succeeds before registration (`capsFor`, `prepareBot`). A
   missing or unparseable `GDRIVE_SA_KEY_JSON` is final until the operator
   fixes it. Drive and Sheets are probed every 30 s with separate API scopes. A Drive
-  probe that recovers puts `send_text` back. The Sheets probe enables the
+  probe that recovers puts these verbs back. The Sheets probe enables the
   `sheets` passthrough prefix only while the API is on.
 - **It never exits on a bad key**: a daemon that exits at boot restarts the
   whole compose project.
@@ -20,6 +20,8 @@ replies. The protocol it speaks is [`chanlib/README.md`](../chanlib/README.md).
   reaches every file the account can access, so connector tools and grants
   must limit access. It is not published through proxyd.
 - **Thread replies.** `send_text` posts a reply to the thread named by its JID.
+  `edit` updates that reply; `delete` removes it. Turn statuses edit on retry
+  and delete on success, using the reply ID returned by `send_text`.
 - **Inbound.** The poll delivers comment threads from bound files to routd.
   It stores each file cursor only after routd accepts the page.
 - **Dashboard.** A **Service account** section shows the credential state and
@@ -34,7 +36,7 @@ The bundled `googd` package starts the adapter and exposes its dashboard.
 
 ## Not built
 
-- Resolving, reopening and editing a comment are connector tools, not channel verbs.
+- Resolving, reopening and editing root comments are connector tools.
 - Push wake-ups. The poll stays the correctness path: per Google's
   documentation as read on 2026-10-16, `files.watch` and Workspace Events
   deliver no comment content, only that something changed.

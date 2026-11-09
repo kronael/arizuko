@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -17,12 +18,8 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
-// capsFor advertises send_text only while the service-account key can post the
-// reply; every other verb is Unsupported. Resolving, reopening and editing go
-// through an MCP connector (specs/6/45-gdrive-comments-channel.md
-// §"Decision 3 — one verb, the thread reply").
 func capsFor(credentialed bool) map[string]bool {
-	return map[string]bool{"send_text": credentialed}
+	return map[string]bool{"send_text": credentialed, "edit": credentialed, "delete": credentialed}
 }
 
 func main() {
@@ -151,9 +148,6 @@ func (b *bot) Send(msg chanlib.SendRequest) (string, error) {
 	if !ok || jid.CommentID == "" {
 		return "", fmt.Errorf("%w: thread JID required", chanlib.ErrInvalidRequest)
 	}
-	if b.cred.http == nil {
-		return "", fmt.Errorf("%w: credential unavailable", chanlib.ErrNotDelivered)
-	}
 	body, err := json.Marshal(struct {
 		Content string `json:"content"`
 	}{msg.Content})
@@ -161,35 +155,79 @@ func (b *bot) Send(msg chanlib.SendRequest) (string, error) {
 		return "", err
 	}
 	url := b.cred.apiBase + "/drive/v3/files/" + jid.FileID + "/comments/" + jid.CommentID + "/replies?fields=id"
-	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
+	raw, err := b.call(http.MethodPost, url, body)
 	if err != nil {
 		return "", err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := b.cred.http.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("drive reply: %w", err)
-	}
-	defer resp.Body.Close() //nolint:errcheck
-	if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
-		return "", fmt.Errorf("%w: drive reply: %s", chanlib.ErrNotDelivered, resp.Status)
-	}
-	if resp.StatusCode >= 400 && resp.StatusCode < 500 {
-		return "", fmt.Errorf("%w: drive reply: %s", chanlib.ErrPermanent, resp.Status)
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", fmt.Errorf("drive reply: %s", resp.Status)
 	}
 	var reply struct {
 		ID string `json:"id"`
 	}
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&reply); err != nil {
+	if err := json.Unmarshal(raw, &reply); err != nil {
 		return "", fmt.Errorf("drive reply response: %w", err)
 	}
 	if reply.ID == "" {
 		return "", fmt.Errorf("drive reply response has no id")
 	}
 	return "gd-r" + jid.FileID + "." + jid.CommentID + "." + reply.ID, nil
+}
+
+func (b *bot) Edit(req chanlib.EditRequest) error {
+	body, _ := json.Marshal(map[string]string{"content": req.Content})
+	return b.changeReply(http.MethodPatch, req.ChatJID, req.TargetID, body)
+}
+
+func (b *bot) Delete(req chanlib.DeleteRequest) error {
+	return b.changeReply(http.MethodDelete, req.ChatJID, req.TargetID, nil)
+}
+
+func (b *bot) changeReply(method, jid, targetID string, body []byte) error {
+	thread, ok := chanlib.ParseGDriveJID(jid)
+	if !ok || thread.CommentID == "" {
+		return fmt.Errorf("%w: thread JID required", chanlib.ErrInvalidRequest)
+	}
+	replyID, ok := strings.CutPrefix(targetID, "gd-r"+thread.FileID+"."+thread.CommentID+".")
+	_, valid := chanlib.ParseGDriveJID("gdrive:" + thread.FileID + "/c/" + replyID)
+	if !ok || !valid {
+		return fmt.Errorf("%w: reply id does not belong to thread", chanlib.ErrInvalidRequest)
+	}
+	endpoint := b.cred.apiBase + "/drive/v3/files/" + thread.FileID + "/comments/" + thread.CommentID + "/replies/" + replyID
+	if method == http.MethodPatch {
+		endpoint += "?fields=id"
+	}
+	_, err := b.call(method, endpoint, body)
+	return err
+}
+
+func (b *bot) call(method, url string, body []byte) ([]byte, error) {
+	if b.cred.http == nil {
+		return nil, fmt.Errorf("%w: credential unavailable", chanlib.ErrNotDelivered)
+	}
+	req, err := http.NewRequest(method, url, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	resp, err := b.cred.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("drive reply: %w", err)
+	}
+	// The caller consumes the response; closing cannot change the operation.
+	defer resp.Body.Close() //nolint:errcheck
+	if method == http.MethodDelete && resp.StatusCode == http.StatusNotFound {
+		return nil, nil
+	}
+	if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
+		return nil, fmt.Errorf("%w: drive reply: %s", chanlib.ErrNotDelivered, resp.Status)
+	}
+	if resp.StatusCode >= 400 && resp.StatusCode < 500 {
+		return nil, fmt.Errorf("%w: drive reply: %s", chanlib.ErrPermanent, resp.Status)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("drive reply: %s", resp.Status)
+	}
+	return io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 }
 
 func (b *bot) Typing(string, bool) {}
