@@ -61,67 +61,78 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">concepts</a> &rsaquo; retries</p>
 <h1>retries</h1>
 
-    <p class="lede">Every turn runs in its own short-lived virtual machine. Sometimes that guest stops in the middle of a turn, because it runs out of memory or reaches the run time limit. Then no answer comes back. <code>routd</code> sees the run with no reply and runs the turn again, up to three times, without a message to you. You get one slower reply instead of silence.</p>
+    <p class="lede">Every turn runs in its own short-lived virtual machine. A turn can fail without an answer: the guest stops, the guest does not start, or the model provider refuses. Then <code>routd</code> keeps the input, retries on a fixed schedule and shows one status message in the chat. You get a slower reply or a short cause, never silence.</p>
 
-    <h2 id="provider-pause">A provider refusal pauses its folder and saves input</h2>
-    <p>A structured provider error can report a spend limit, rate limit, refused authentication or outage. Then routd holds new turns in the reporting folder. Other folders keep running. Already-admitted turns may finish.</p>
-    <pre><code>provider refusal ──► saved input ──► due time
-                                       │
-                                       ▼
-                              one oldest normal turn
-                                │              │
-                             refusal        recovery
-                                │              │
-                                ▼              ▼
-                              wait       resume saved input</code></pre>
-    <p>Each destination chat gets one durable notice per pause: <code>Model access is paused: &lt;reason&gt;. Your messages are saved. I will retry automatically.</code> New messages and restarts reuse that notice. Waiting input stops typing.</p>
-    <p>The delay starts at 30 seconds and doubles after each refused probe, up to one hour, with bounded jitter. A future provider reset time overrides the delay. New messages and duplicate reports do not extend the wait.</p>
-    <p>At the due time, the folder's oldest held turn uses the normal guest and timeout paths. A submitted result without a provider refusal clears that folder's pause. A failure before submission does not prove recovery. A restart resolves an interrupted probe before another can start.</p>
-    <p>Held input keeps its cursor, session, content, retry count and order. Later messages stay outside the saved turn boundary. A completed probe without a result follows the local failure rules below. Terminal or exhausted input finishes so another saved input can probe. The provider pause stays open until recovery.</p>
-    <p>Operators can inspect or clear the pause at <code>/dash/model-pauses/</code>, through <a href="../reference/cli.html#model-pauses"><code>arizuko model-pauses</code></a>, or with <a href="../reference/mcp.html#list_model_pauses">the operator MCP tools</a>. Clear releases saved input. Another refusal opens a new pause.</p>
-    <p>Exit 78 alone, assistant quotations, tool failures and unknown errors do not open a pause. Other turn failures follow the local retry rules below.</p>
+    <h2>A turn without a bot message counts as failed</h2>
+    <p>The test is <strong>&ldquo;did any bot message arrive?&rdquo;</strong>, not &ldquo;did the agent finish without an error?&rdquo;. An agent that posted half an answer and then stopped counts as a success, and <code>routd</code> does not retry it. A partial reply that you can read is better than a wait while the agent does the whole task again. A status message never counts as that reply.</p>
 
-    <h2>Local crash retries need a turn without a bot message</h2>
-    <p>The test is <strong>&ldquo;did any bot message arrive?&rdquo;</strong>, not &ldquo;did the agent finish without an error?&rdquo;. An agent that posted half an answer and then stopped counts as a success, and <code>routd</code> does not retry it. A partial reply that you can read is better than a wait while the agent does the whole task again. Only a turn with no bot message at all starts a retry.</p>
+    <h2>A failed turn retries three times on a fixed schedule</h2>
+    <p>A failed turn gets three retries, so the input runs four times in all. The gap before each retry depends on the sender of the turn:</p>
+    <table>
+      <thead><tr><th>turn</th><th>retry 1</th><th>retry 2</th><th>retry 3</th></tr></thead>
+      <tbody>
+        <tr><td>chat message</td><td>30 s</td><td>2 min</td><td>5 min</td></tr>
+        <tr><td>scheduled task</td><td>15 min</td><td>45 min</td><td>180 min</td></tr>
+      </tbody>
+    </table>
+    <p>The long task schedule gives a host fault, such as a full disk, about four hours to clear. <code>routd</code> saves the waiting retry in the <code>turn_context</code> row: the input message keys, the due time, the failure cause and <code>state='pending_retry'</code>. In the same write, <code>routd</code> moves the chat cursor past that batch, so new messages keep flowing while the retry waits. The row survives a restart of <code>routd</code>, with the correct count of attempts already used.</p>
+    <p>At the due time, <code>routd</code> replays the saved input with the saved folder, topic, sender and return address. It does not resolve the current routes again. New messages do not move the due time. Deleting the group retires its waiting turns. If <code>runed</code> answers busy, the attempt does not count. <code>routd</code> waits four seconds, doubles the wait up to 60 seconds and tries again.</p>
 
-    <h2>You see nothing until a retry succeeds</h2>
-    <p>No scheduler starts the retry. <code>routd</code> does not advance the failed batch, so the next poll of <code>routd</code> takes the same message and starts a new guest. The repeated read <em>is</em> the retry, so no code must move a cursor back. If runed reports busy, routd waits before trying again. The wait starts at four seconds and doubles to 60 seconds.</p>
-    <p>If every attempt fails, one message arrives:</p>
-    <pre><code>&#9888; Agent couldn't complete this request after 3 attempts.</code></pre>
-    <p><code>routd</code> also marks the chat as errored, so an operator can find it on the dashboard. A turn that failed <em>without</em> a retry, because the agent had already replied, gets a different notice: <code>Failed: agent error on that message. Try rephrasing or send a different message.</code></p>
+    <h2>One status message shows the failure and the retry</h2>
+    <p>Each failed turn gets one status message in each chat that waits for it. The first failure posts a short cause and the retry time. The retry edits the same message, and a success deletes it:</p>
+    <pre><code>Server storage is full. Retry 1/3 at 03:15:00 UTC.
+Retry 1/3 is running.</code></pre>
+    <p>If every retry fails, the message changes to the final cause:</p>
+    <pre><code>Server storage is full. Stopped after 3 retries.</code></pre>
+    <p>The cause comes from a short fixed list: server storage is full, model unavailable, time limit reached, agent could not start, agent stopped unexpectedly, agent setup needs attention, or agent could not complete the request. No error text, path or stderr reaches the chat. <code>routd</code> also marks the chat as errored, so an operator can find it on the dashboard.</p>
+    <p>A channel that cannot edit and delete gets the first post and the final post only. Email is such a channel. If a retry succeeds there, the final post says <code>The request completed.</code> GitHub and Google Drive edit and delete their own comments, so they show one status comment, like a chat.</p>
+
+    <h2 id="breaker">One failure stops new launches on the whole instance</h2>
+    <p>A failed execution opens one breaker for the whole instance. A crash, a launch fault, a time limit, a network failure between <code>routd</code> and <code>runed</code> and a provider refusal all open it. While it is open, no new agent starts. Runs that already started can finish, but their success does not close the breaker.</p>
+    <p>The next retry of the failed turn is the probe. A probe that runs without a failure closes the breaker. A probe that fails applies the next gap of the schedule. When the probe turn has used all its retries, the breaker stays open for one hour. Then the oldest waiting turn probes next.</p>
+    <p>The breaker is the singleton <code>turn_control</code> row, so it survives a restart. Startup reads it before <code>routd</code> admits work. An operator stop never opens it. No operator command writes it: only a probe closes it.</p>
+
+    <h2 id="provider-pause">A provider refusal uses the same breaker</h2>
+    <p>A structured provider error can report a spend limit, a rate limit, refused authentication or an outage. Every folder of an instance shares the provider credential, so the refusal opens the instance breaker. The refused turn keeps its input and retries on the normal schedule. The first retry is never earlier than the reset time that the provider reports. The status message names the cause <code>Model unavailable</code>.</p>
+    <pre><code>provider refusal ──► breaker open, input saved, due no earlier than reset
+                                   │
+                                   ▼
+                     the refused turn retries: the probe
+                         │                    │
+                     refusal              no refusal
+                         │                    │
+                         ▼                    ▼
+               next gap, or one hour     breaker closed,
+               after the last retry      pause rows cleared</code></pre>
+    <p>The refusal also writes a <code>model_pauses</code> row for the folder that reported it. Operators list these rows at <code>/dash/model-pauses/</code>, through <a href="../reference/cli.html#model-pauses"><code>arizuko model-pauses</code></a>, or with <a href="../reference/mcp.html#list_model_pauses">the operator MCP tools</a>. Clear removes the row of one folder. It does not close the breaker or start the saved input: only a probe without a refusal does that.</p>
+    <p>Exit code 78 alone, assistant quotations, tool failures and unknown errors are not provider refusals. They are ordinary failures and follow the same retry schedule.</p>
 
     <h2>The agent knows that a run is a retry</h2>
     <p>Before the agent sees the prompt of a retry, <code>routd</code> adds a note at the start:</p>
-    <pre><code>&lt;system-note&gt;This is retry attempt 2 of 3. The previous attempt was
-killed before completing. Be conservative with resource
-usage.&lt;/system-note&gt;</code></pre>
-    <p>The rest stays the same: the same message and attachments and the same conversation history, in a new guest.</p>
+    <pre><code>&lt;system-note&gt;This is retry attempt 2 of 3. The previous attempt
+did not complete.&lt;/system-note&gt;</code></pre>
+    <p>The note does not guess the cause. The rest stays the same: the same messages and attachments and the same conversation history, in a new guest.</p>
 
-    <h2>The retry count survives a restart</h2>
-    <p>The attempt count is not in memory. Each retry increments <code>turn_context.retry_count</code> and sets the turn to <code>state='pending_retry'</code>. The crash-recovery sweep of <code>routd</code> picks up <code>pending_retry</code> turns in the same way as running ones. If <code>routd</code> restarts during a retry, the turn still gets its attempt, with the correct count of attempts already used.</p>
-
-    <h2>Four kinds of turn never retry</h2>
+    <h2>Five kinds of turn never retry</h2>
     <dl>
       <dt>Turns that replied</dt>
       <dd>Any bot message, even a partial one, counts as done.</dd>
       <dt>Turns that the agent failed on purpose</dt>
-      <dd>If the agent reports its own failure and the guest then powers off normally, the run is clean, and it never reaches the retry path.</dd>
-      <dt>Runs that an operator stopped</dt>
-      <dd>A deliberate stop is recorded as killed, not as an error.</dd>
+      <dd>The agent reported its own failure through <code>submit_turn</code>.</dd>
+      <dt>Turns that a person stopped</dt>
+      <dd>An explicit <code>/stop</code> or an operator kill ends the turn. The status says <code>Turn stopped.</code></dd>
+      <dt>Turns that reached the time limit</dt>
+      <dd>A run that reaches <a href="../reference/env.html#RUNED_RUN_TIMEOUT"><code>RUNED_RUN_TIMEOUT</code></a> ends with the status <code>Time limit reached</code>. Another full attempt would cost the same time again.</dd>
       <dt>Runs that <code>runed</code> marks terminal</dt>
-      <dd>A retry cannot repair terminal guest failures. The notice to the chat names the cause. Provider refusals use the pause path above.</dd>
+      <dd>Container exit 125, 126 or 127 and a substrate that cannot start are terminal. <code>runed</code> makes this decision and <code>routd</code> obeys it. A retry cannot repair these failures.</dd>
     </dl>
 
-    <div class="callout"><strong>A network failure uses a different path.</strong> If the call from <code>routd</code> to <code>runed</code> fails on the network, <code>routd</code> does not know whether the run happened. So it leaves its read cursor in place, and the next poll gives the message to the agent again. Retries apply when <code>runed</code> answered and the answer was &ldquo;the run stopped&rdquo;.</div>
-
-    <h2>One instance-wide setting controls retries</h2>
-    <p>The setting is <a href="../reference/env.html#MAX_TURN_RETRY"><code>MAX_TURN_RETRY</code></a>, and the default is <code>3</code>. Set it to <code>-1</code> to turn retries off and get the failure notice on the first failed run.</p>
-    <p>The setting applies to the whole instance, by design. No folder or skill can override it. The number of guests the runtime starts again is a property of the host, not of the content of a tenant. If turns stop because of memory and not because of content, change the instance-wide <a href="../reference/env.html#RUNED_GUEST_MEM"><code>RUNED_GUEST_MEM</code></a>, not the retry count. No folder can set its own guest size.</p>
-    <p>The final notice reports the value you set. If you set the limit to <code>5</code>, it says &ldquo;after 5 attempts&rdquo;.</p>
+    <h2>Two instance-wide settings control retries</h2>
+    <p><a href="../reference/env.html#MAX_TURN_RETRY"><code>MAX_TURN_RETRY</code></a> sets the number of retries. The default is <code>3</code>, and a higher value is capped at <code>3</code> with a startup warning. Set it to <code>-1</code> to turn retries off and get the final status on the first failure. No folder or skill can override it, because the number of guests the runtime starts again is a property of the host, not of the content of a tenant.</p>
+    <p><a href="../reference/env.html#MAX_CONCURRENT_AGENTS"><code>MAX_CONCURRENT_AGENTS</code></a>, default 5, bounds the agents that run at once. Scheduled tasks hold at most one of those slots, so a free slot still serves a chat. One folder runs one turn at a time. If turns stop because of memory and not because of content, change <a href="../reference/env.html#RUNED_GUEST_MEM"><code>RUNED_GUEST_MEM</code></a>, not the retry count.</p>
 
     <h2>Related pages cover the guest and the progress</h2>
-    <p>The guest and its time limit belong to <a href="../components/runed.html">runed</a>. <a href="turn.html">a turn, end to end</a> shows where the retry fits in the turn. <a href="progress.html">live progress</a> shows what you see <em>while</em> a turn is still running.</p>
-
+    <p>The guest and its time limit belong to <a href="../components/runed.html">runed</a>. <a href="turn.html">a turn, end to end</a> shows where the retry fits in the turn. <a href="progress.html">live progress</a> shows what you see <em>while</em> a turn is still running. The code is in <a href="https://github.com/kronael/arizuko/blob/main/routd/turn_control.go">[routd/turn_control.go]</a> and <a href="https://github.com/kronael/arizuko/blob/main/routd/turn_status.go">[routd/turn_status.go]</a>.</p>
       <nav class="docs-pager" aria-label="Pager">
         <a rel="prev" href="progress.html">&larr; Live progress</a>
         <a rel="next" href="onboarding.html">Onboarding &rarr;</a>

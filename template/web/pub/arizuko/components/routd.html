@@ -103,7 +103,7 @@
       <dd><a href="runed.html">runed</a> at <code>$RUNED_URL</code> to run turns. The JWKS of <a href="authd.html">authd</a> to verify tokens offline: routd verifies and never signs. Channel adapters register their delivery URL and their JID prefixes with <code>POST /v1/channels/register</code>.</dd>
     </dl>
 
-    <p>Provider reports pause new turns in the reporting folder. routd saves input and runs one held turn when that folder's retry is due. See <a href="../concepts/retries.html#provider-pause">provider pauses</a> for recovery and operator controls.</p>
+    <p>routd is the only caller of runed: <code>POST /v1/runs</code> accepts only the <code>service:routd</code> token. routd admits at most <code>MAX_CONCURRENT_AGENTS</code> agents at once, one turn per folder and at most one scheduled task. A failed turn keeps its input and retries on a fixed schedule, and one failure stops new launches on the whole instance until a probe succeeds. A provider refusal uses the same breaker. See <a href="../concepts/retries.html">retries</a> for the schedule, the status message and the operator controls.</p>
 
     <h2>routd recovers stranded tasks at startup</h2>
     <p>At startup, routd re-arms scheduled tasks that a crash left in <code>firing</code>, so a restart during a turn does not strand a cron task. An operator uses the route table and its endpoints to point a channel, a thread or a public <code>/chat/&lt;token&gt;/</code> URL at a folder. The endpoints are <code>/v1/routes</code>, <code>/v1/web_routes</code> and <code>/v1/route_tokens/*</code>.</p>

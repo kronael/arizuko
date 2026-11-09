@@ -465,8 +465,8 @@ arizuko secret -i demo set main CF_API_TOKEN --value cf_xxxxxxxx</code></pre>
     <h2 id="other" class="group-h2">Other subcommands</h2>
 
     <h3 id="model-pauses"><span class="sig">arizuko model-pauses list|clear [--folder FOLDER] [--url|-u URL] [--token|-t BEARER]</span></h3>
-    <p>List folder pauses or clear one through routd. <code>ROUTER_URL</code> and <code>ARIZUKO_TOKEN</code> supply the defaults. The bearer must identify an operator. The command runs remotely without <code>-i</code> or a store connection.</p>
-    <p><code>list</code> reads <code>GET /v1/model_pauses</code> and prints a JSON list. <code>clear</code> requires <code>--folder FOLDER</code>. It reads that folder's row, then posts its <code>folder</code>, <code>opened_at</code> and <code>probe_attempt_id</code> to <code>/v1/model_pauses/clear</code>. A changed pause returns a conflict. Clear releases the folder's saved input. Another provider refusal opens a new episode.</p>
+    <p>List or clear the rows of folders that reported a provider refusal, through routd. <code>ROUTER_URL</code> and <code>ARIZUKO_TOKEN</code> supply the defaults. The bearer must identify an operator. The command runs remotely without <code>-i</code> or a store connection.</p>
+    <p><code>list</code> reads <code>GET /v1/model_pauses</code> and prints a JSON list. <code>clear</code> requires <code>--folder FOLDER</code>. It reads that folder's row, then posts its <code>folder</code>, <code>opened_at</code> and <code>probe_attempt_id</code> to <code>/v1/model_pauses/clear</code>. A changed pause returns a conflict. Clear removes the folder's row. It does not close the instance breaker or start saved input; only a probe without a refusal does that.</p>
     <pre><code>arizuko model-pauses list --url "$ROUTER_URL" --token "$ARIZUKO_TOKEN"
 arizuko model-pauses clear --folder rhias/trip --url "$ROUTER_URL" --token "$ARIZUKO_TOKEN"</code></pre>
     <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/48eeefc6a953a56a955baef471ce60e35137b6dd/cmd/arizuko/model_pauses.go#L16-L78">[model_pauses.go]</a>.</p>

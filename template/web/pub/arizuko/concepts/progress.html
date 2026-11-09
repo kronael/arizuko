@@ -81,7 +81,7 @@
       <dt>&#9744;</dt>
       <dd>Not started.</dd>
     </dl>
-    <p>When the turn ends, arizuko deletes the line: Telegram, Discord, WhatsApp, Slack and the web chat all do so. Nothing of the progress stays above the answer. A channel that cannot both edit and delete shows no progress line.</p>
+    <p>When the turn ends, arizuko deletes the line: Telegram, Discord, WhatsApp, Slack and the web chat all do so. On GitHub the line is one comment, and on Google Drive it is one reply in the comment thread. Both adapters edit and delete what they posted. Nothing of the progress stays above the answer. A channel that cannot both edit and delete shows no progress line.</p>
 
     <h2>Claude tasks and Codex plans share one checklist</h2>
     <p>Claude uses its task tools or <code>TodoWrite</code>; Codex uses <code>update_plan</code>. Hooks send the parent agent's native snapshots to <code>routd</code>, which keeps the checklist and renders its text. Child-agent calls do not change it. An active checklist owns the progress line; <code>&lt;status&gt;</code> text cannot overwrite it.</p>
@@ -95,8 +95,7 @@
     <p>The channel also shows that the agent is busy. Telegram, Discord and WhatsApp use their own typing indicator. Slack and GitHub have no such indicator, so they put an eyes reaction, &#128064;, on the message that started the turn. The indicator stays on until the turn ends, not until the first reply. So an agent that answers and then continues to work still looks busy. If the adapter restarts during the turn, the reaction stays: the adapter records it and removes it when the turn ends.</p>
 
     <h2>Channels that cannot edit and delete show only the answer</h2>
-    <p>GitHub cannot edit the comments of the agent here, so a pull request gets no progress comment. The eyes reaction on the comment that started the turn is the whole display.</p>
-    <p>Email cannot edit a sent message. On these channels, arizuko drops the status updates, and you get only the answer. A stream of separate &ldquo;still working&rdquo; posts is what the checklist exists to avoid, so these channels get no fallback. Google Drive comments behave the same way, because the Drive adapter does not edit its replies.</p>
+    <p>Email cannot edit a sent message. On such a channel, arizuko drops the progress updates, and you get only the answer. A stream of separate &ldquo;still working&rdquo; posts is what the checklist exists to avoid, so such a channel gets no fallback. A failed turn still reaches email: the first failure and the final result each get one post, as <a href="retries.html">retries</a> shows.</p>
     <p>An edit failure appears as an error. <code>routd</code> never posts a replacement message to hide it.</p>
 
     <h2>The checklist never counts as the answer</h2>
@@ -118,7 +117,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/concepts/progress.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-11-03">2026-11-03</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-07">2026-11-07</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

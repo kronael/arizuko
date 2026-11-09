@@ -148,7 +148,7 @@
     <p class="returns"><strong>Returns:</strong> JSON <code>{"ok": true, "id": "&lt;platformId&gt;"}</code>; <code>routd</code> records the outbound row in <code>messages</code> with that id. Pass the id to <code>edit</code> to change the message in place.</p>
 
     <h3 id="send"><code>send</code></h3>
-    <p>Use <code>send</code> for a notification, a platform chat or a group folder. A platform target receives the message in its main channel. A bare folder target receives an inbound message that starts its own turn. The post records the calling folder as its return address. Use <code>reply</code> for answers in a platform chat and <code>send_file</code> for files.</p>
+    <p>Use <code>send</code> for a notification, a platform chat or a group folder. A platform target receives the message in its main channel. A bare folder target receives an inbound message that starts its own turn. The post records the calling folder as its return address. The new message carries <code>hops</code>, one more than the furthest input of the calling turn. A post that would reach two hops is refused, so a group that another group started answers on a platform chat. Use <code>reply</code> for answers in a platform chat and <code>send_file</code> for files.</p>
     <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1312"><code>ipc/ipc.go:1312</code></a> &middot; Grant action: <code>mcp:send</code>, checked on the target folder for a group post &middot; In <code>role:member</code>, granted to every folder at create.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
@@ -467,7 +467,7 @@
     <p class="returns"><strong>Params:</strong> none. <strong>Returns:</strong> JSON <code>{content, exists}</code>.</p>
 
     <h3 id="inject_message"><code>inject_message</code></h3>
-    <p>Write a synthetic inbound message into the store as if received from chat, triggering the normal agent loop. Use for programmatic prompts, tests, or scheduling one-off runs from tool code.</p>
+    <p>Write a synthetic inbound message into the store as if received from chat, triggering the normal agent loop. Use for programmatic prompts, tests, or scheduling one-off runs from tool code. The <code>hops</code> limit of <a href="#send"><code>send</code></a> applies: a message that would reach two hops is refused.</p>
     <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1972"><code>ipc/ipc.go:1972</code></a> &middot; Grant action: <code>inject_message</code></p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
@@ -833,12 +833,12 @@
     </table>
     <p class="returns"><strong>Returns:</strong> JSON <code>{sub, identity, subs}</code>.</p>
 
-    <h2 id="model-pauses">Operators control folder pauses</h2>
+    <h2 id="model-pauses">Operators list the folders that reported a provider refusal</h2>
 
     <h3 id="list_model_pauses"><code>list_model_pauses</code></h3>
-    <p>List folder pauses with no arguments. Each row contains <code>folder</code>, <code>reason</code>, <code>opened_at</code>, <code>next_attempt_at</code>, <code>attempts</code>, sanitized <code>evidence</code>, <code>probe_turn_id</code>, <code>probe_attempt_id</code> and <code>queued_count</code>. A null next attempt means a probe owns that folder's pause.</p>
+    <p>A provider refusal opens the instance breaker and writes one row for the reporting folder. List those rows with no arguments. Each row contains <code>folder</code>, <code>reason</code>, <code>opened_at</code>, <code>next_attempt_at</code>, <code>attempts</code>, sanitized <code>evidence</code>, <code>probe_turn_id</code>, <code>probe_attempt_id</code> and <code>queued_count</code>. The next attempt, probe turn and probe attempt come from the instance breaker. A null next attempt means a probe is running.</p>
     <h3 id="clear_model_pause"><code>clear_model_pause</code></h3>
-    <p>Release one folder's saved input. Required strings <code>folder</code> and <code>opened_at</code> identify the listed episode. Optional string <code>probe_attempt_id</code> must match the listed attempt when a probe is bound. A changed pause returns a conflict. Success returns <code>{"ok":true}</code>.</p>
+    <p>Remove one folder's row. Clear does not close the breaker or start saved input; only a probe without a refusal does that. Required strings <code>folder</code> and <code>opened_at</code> identify the listed episode. Optional string <code>probe_attempt_id</code> must match the listed attempt when a probe is bound. A changed pause returns a conflict. Success returns <code>{"ok":true}</code>.</p>
     <p>Both tools require instance-wide operator authority through the injected gate. Members and folder-scoped grants do not confer access. REST uses the same handler at <code>GET /v1/model_pauses</code> and <code>POST /v1/model_pauses/clear</code>. Clear and its audit row commit together.</p>
     <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/48eeefc6a953a56a955baef471ce60e35137b6dd/resreg/resources/model_pauses.go#L10-L46">[resource declaration]</a> and <a href="https://github.com/kronael/arizuko/blob/48eeefc6a953a56a955baef471ce60e35137b6dd/routd/model_pauses_resource.go#L13-L93">[handler and authorization]</a>.</p>
 

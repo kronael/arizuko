@@ -133,8 +133,9 @@
     <ul>
       <li><code>register_group</code> creates a child folder and its first route. The caller needs a grant on <code>mcp:register_group</code> with a scope that covers the new folder. No count limits the children of a folder.</li>
       <li><code>send(chatJid="&lt;folder&gt;", text="...")</code> writes an inbound message to the target folder. <code>routd</code> starts that folder's turn through <code>runed</code>. The target has its own guest and session. The post records the calling folder as its return address.</li>
+      <li>Every message carries <code>hops</code>, its distance in agent turns from a person or an external input. A group post or <code>inject_message</code> that would reach two hops is refused. So a person can ask A, A can ask B, and B answers on a platform chat. Two groups cannot start turns in each other in a loop.</li>
     </ul>
-    <p>The parent turn and the child turn run at the same time, in two guests. <code>MAX_CONCURRENT_AGENTS</code>, default 5, caps the live agents of the whole instance. Past the cap, <code>runed</code> answers busy and <code>routd</code> tries again.</p>
+    <p>The parent turn and the child turn run at the same time, in two guests. <code>MAX_CONCURRENT_AGENTS</code>, default 5, caps the live agents of the whole instance. Scheduled tasks hold at most one of those slots. Past the cap, the turn waits in <code>routd</code>.</p>
     <p>Two more limits apply:</p>
     <ul>
       <li>Each group post checks <code>mcp:send</code> on the target folder. The default member role includes <code>send</code>; local ACL rows can restrict access.</li>
@@ -143,7 +144,7 @@
 
     <h2>The reply goes out through the adapter</h2>
     <p>The agent calls <code>reply</code> or <code>send</code>, and <code>routd</code> delivers the message through the <code>/send</code> endpoint of the adapter. Only an explicit delivery tool (<code>reply</code>, <code>send</code>, <code>send_file</code> or <code>send_voice</code>) reaches the user. The text of the final result stays in the transcript. If an addressed turn ends without a delivery, <code>routd</code> asks the agent once more through the <code>submit_turn</code> response. While the agent works, the chat shows typing. On a channel that can edit messages, one status line changes in place. When the guest powers off, <code>runed</code> returns the outcome on the same HTTP call that started the turn.</p>
-    <p>A failed delivery stays as a <code>pending</code> row, and a sweep tries it again with a longer gap each time. A turn that stops without a reply runs again up to three times. The exception is a failure that <code>runed</code> marks terminal, because a retry cannot fix it. Examples are a VMM that does not start and an exhausted model quota.</p>
+    <p>A failed delivery stays as a <code>pending</code> row, and a sweep tries it again with a longer gap each time. A turn that stops without a reply keeps its input and runs again up to three times, on a fixed schedule. One status message in the chat shows the cause and the retry time. A run that reaches the time limit, an explicit stop and a failure that <code>runed</code> marks terminal never retry. <a href="retries.html">retries</a> has the schedule and the instance breaker.</p>
 
     <h2>Five pages explain the parts of the figure</h2>
     <ul>

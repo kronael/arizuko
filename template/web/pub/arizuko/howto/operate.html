@@ -216,11 +216,11 @@ routd ──► adapter ──► platform reply</code></pre>
     <h3 id="model-pause">A provider refusal saves messages until access returns</h3>
     <dl>
       <dt>Read</dt>
-      <dd>The chat says <code>Model access is paused: &lt;reason&gt;. Your messages are saved. I will retry automatically.</code> Open <code>/dash/model-pauses/</code> for the reason, next attempt, attempt count and queued input count.</dd>
+      <dd>The chat says <code>Model unavailable. Retry 1/3 at &lt;time&gt; UTC.</code> Open <code>/dash/model-pauses/</code> for the reporting folder, reason, next attempt, attempt count and queued input count.</dd>
       <dt>Cause</dt>
-      <dd>The provider reports a spend limit, rate limit, refused authentication or outage. The pause holds all new turns, including other backends and user keys. Already-admitted turns may finish.</dd>
+      <dd>The provider reports a spend limit, rate limit, refused authentication or outage. The refusal opens the instance breaker, so no new agent starts in any folder. Already-admitted turns may finish. The first retry is never earlier than the provider's reset time.</dd>
       <dt>Fix</dt>
-      <dd>Restore provider access or wait for the next automatic attempt. After restoring access, choose <strong>Clear pause</strong> to release saved input now. The remote CLI also supports <a href="../reference/cli.html#model-pauses"><code>arizuko model-pauses list|clear</code></a>. A new refusal opens another pause.</dd>
+      <dd>Restore provider access and wait for the next automatic attempt. A retry without a refusal closes the breaker and runs the saved input. <strong>Clear pause</strong> removes a folder's row only; it does not close the breaker. The remote CLI also supports <a href="../reference/cli.html#model-pauses"><code>arizuko model-pauses list|clear</code></a>. A new refusal opens another pause.</dd>
       <dt>Source</dt>
       <dd><a href="../concepts/retries.html#provider-pause">Provider pauses</a> describes the saved input and probe rules. <a href="../reference/mcp.html#list_model_pauses">Operator MCP tools</a> share the same resource.</dd>
     </dl>

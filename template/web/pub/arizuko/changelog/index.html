@@ -30,6 +30,22 @@
 
       <p>What shipped, dated, terse. Reverse chronological. The chat broadcast for each release lives at the top of every block; the bullets below expand it for operators.</p>
 
+      <h2>arizuko v0.75.5 <span class="dim">&mdash; 9 November 2026</span></h2>
+      <p>A failed turn keeps your message, retries on a schedule and shows one status line that it edits; groups select their models; GitHub Apps and Google Drive support replies.</p>
+      <ul>
+        <li><strong>Retries</strong> &mdash; a failed turn retries three times, after 30 s, 2 min and 5 min in a chat and 15, 45 and 180 min for a scheduled task. One status line shows the cause, is edited on each retry and is deleted on success. Email gets the first and the final post only.</li>
+        <li><strong>Instance breaker</strong> &mdash; one failure stops new launches on the whole instance until the failed turn's retry succeeds. After the last retry the breaker stays open one hour.</li>
+        <li><strong>Provider limits</strong> &mdash; a spend limit, rate limit or outage opens the same breaker and retries no earlier than the provider's reset time.</li>
+        <li><strong>Time limit and stop</strong> &mdash; a run that reaches <code>RUNED_RUN_TIMEOUT</code> and an explicit <code>/stop</code> never retry.</li>
+        <li><strong>Group messages</strong> &mdash; <code>delegate_group</code> and <code>escalate_group</code> are removed; groups use <code>send</code>. A message that would be two agent hops from a person is refused, so one hand-off works and the receiving group answers on the platform chat.</li>
+        <li><strong>Group models</strong> &mdash; each group selects its backend, model and effort with one <code>harness</code> document.</li>
+        <li><strong>GitHub and Drive</strong> &mdash; GitHub App replies use repository-scoped tokens. Both adapters edit and delete their own comments, so they show one status comment.</li>
+        <li><strong>Codex</strong> &mdash; each turn reports its own token usage. <code>anteval</code> runs a Codex smoke with the local login in <code>HOST_CODEX_DIR</code>.</li>
+        <li><strong>Skills</strong> &mdash; the issue skill is now <code>arizuko-issue</code> and records only arizuko and platform problems.</li>
+      </ul>
+      <p>Before you restart, rename <code>MAX_CONCURRENT_CONTAINERS</code> to <code>MAX_CONCURRENT_AGENTS</code> in <code>.env</code> by hand: <code>arizuko generate</code> refuses the old key. runed now accepts runs only from routd. The full notes list the store enrollment, harness conversion and GitHub source steps.</p>
+      <p class="note">Full notes: <a href="https://github.com/kronael/arizuko/blob/main/CHANGELOG.md#v0755--2026-11-09">CHANGELOG &sect; v0.75.5</a>. Placement: <a href="../concepts/retries.html">retries</a>.</p>
+
       <h2>arizuko v0.75.4 <span class="dim">&mdash; 8 November 2026</span></h2>
       <p>Replies count in Discord threads, file and delegated answers keep their thread, and pi supports the same tools and delivery.</p>
       <ul>
@@ -502,7 +518,7 @@
 
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/changelog/index.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-11-07">2026-11-07</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-08">2026-11-08</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>
