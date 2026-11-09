@@ -130,7 +130,12 @@ export class CodexTurn {
   private failure: ProviderFailure | undefined;
   private waiting = 0;
 
-  constructor(private readonly modelHost = DEFAULT_MODEL_HOST) {}
+  // prior is the thread's running total when the turn started: codex reports
+  // the thread total in turn.completed, so the turn's own usage is the difference.
+  constructor(
+    private readonly modelHost = DEFAULT_MODEL_HOST,
+    private readonly prior?: CodexUsage,
+  ) {}
 
   get done(): boolean {
     return this.terminal;
@@ -162,7 +167,7 @@ export class CodexTurn {
         kind: 'result',
         ok: true,
         text: this.lastText,
-        usage: usage ? { codex: usageOf(usage) } : undefined,
+        usage: usage ? { codex: usageOf(usageSince(usage, this.prior)) } : undefined,
       }];
     }
     if (type === 'turn.failed') {
@@ -218,6 +223,41 @@ export function codexProviderFailure(value: unknown) {
   const match = /^unexpected status (\d{3})\b/.exec(error.message ?? '');
   return providerFailure(match ? Number(match[1]) : 0, error.code ?? '',
     error.message ?? '', error.reset_at);
+}
+
+// usageSince subtracts the thread total recorded before the turn. `codex exec
+// --json` reports the thread's running total in turn.completed, and a resumed
+// thread carries every earlier turn in it (BUGS L806).
+function usageSince(total: CodexUsage, prior: CodexUsage | undefined): CodexUsage {
+  if (!prior) return total;
+  const less = (a?: number, b?: number) => Math.max(0, (a ?? 0) - (b ?? 0));
+  return {
+    input_tokens: less(total.input_tokens, prior.input_tokens),
+    cached_input_tokens: less(total.cached_input_tokens, prior.cached_input_tokens),
+    cache_write_input_tokens: less(total.cache_write_input_tokens, prior.cache_write_input_tokens),
+    output_tokens: less(total.output_tokens, prior.output_tokens),
+  };
+}
+
+// threadTotal reads a thread's running total from the last token_count event in
+// its rollout under <codexHome>/sessions. undefined when no rollout or no count
+// exists: the thread is new.
+export function threadTotal(codexHome: string, threadID: string): CodexUsage | undefined {
+  let names: string[];
+  try {
+    names = fs.readdirSync(path.join(codexHome, 'sessions'), { recursive: true }) as string[];
+  } catch {
+    return undefined;
+  }
+  const name = names.find((n) => n.endsWith(`-${threadID}.jsonl`));
+  if (!name) return undefined;
+  const lines = fs.readFileSync(path.join(codexHome, 'sessions', name), 'utf8').split('\n');
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (!lines[i].includes('"token_count"')) continue;
+    const payload = JSON.parse(lines[i]).payload as { type?: string; info?: { total_token_usage?: CodexUsage } };
+    if (payload?.type === 'token_count' && payload.info?.total_token_usage) return payload.info.total_token_usage;
+  }
+  return undefined;
 }
 
 // codex reports no cost; tokens land, cost_cents stays 0 — honest, not derived.
@@ -283,6 +323,8 @@ async function* runCodex(turn: Turn): AsyncGenerator<Frame> {
   const scan = scanSkills(`${turn.cwd}/.claude/skills`);
   for (const x of scan.excluded) log(`skill excluded by load-time guard: ${x}`);
   writeCodexHooks(turn.cwd, turn.turnID, turn.env);
+  // Read once: a deadline continuation resumes the same thread inside this turn.
+  const prior = turn.continuity ? threadTotal(codexHomeDir(turn.cwd, turn.env), turn.continuity) : undefined;
   yield* runCodexStream(turn, async function* (current, deadlineNote) {
     for await (const frame of driveCli(
       'codex',
@@ -294,7 +336,7 @@ async function* runCodex(turn: Turn): AsyncGenerator<Frame> {
         signal: current.signal,
         deadline: current.deadline,
       },
-      new CodexTurn(modelHost(current.env)),
+      new CodexTurn(modelHost(current.env), prior),
       log,
     )) {
       for (const line of drainLines(POLICY_LOG_SPOOL)) console.error(line);

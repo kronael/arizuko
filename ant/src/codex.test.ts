@@ -4,8 +4,11 @@
 
 import { test, expect } from 'bun:test';
 import {
-  CodexTurn, codexArgs, codexHarness, codexPrompt, tomlValue,
+  CodexTurn, codexArgs, codexHarness, codexPrompt, threadTotal, tomlValue,
 } from './codex.js';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
 import { buildSystemPrompt, statusBlocks } from './index.js';
 import type { Frame } from './backend.js';
 
@@ -51,6 +54,37 @@ test('CodexTurn: the recorded stream yields continuity, status, then one ok resu
   expect(turn.done).toBe(true);
   // The terminal already fired; process exit must not add a second result.
   expect(turn.finish(0, '')).toBeNull();
+});
+
+// BUGS L806, measured on sloth 2026-11-09: a resumed thread's turn.completed
+// carried the thread total (input 24,903,877) while the turn's own requests
+// summed 441,113 — the change since the previous turn's last token_count.
+test('a resumed turn reports its usage since the thread total it started from', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-home-'));
+  const thread = '01a1bba2-b010-7db2-aff7-1582f4ec543c';
+  const dir = path.join(home, 'sessions', '2026', '11', '08');
+  fs.mkdirSync(dir, { recursive: true });
+  const count = (input: number, cached: number, output: number) => JSON.stringify({
+    type: 'event_msg',
+    payload: { type: 'token_count', info: {
+      total_token_usage: { input_tokens: input, cached_input_tokens: cached, cache_write_input_tokens: 0, output_tokens: output },
+      last_token_usage: { input_tokens: 1, cached_input_tokens: 0, cache_write_input_tokens: 0, output_tokens: 1 },
+    } },
+  });
+  fs.writeFileSync(path.join(dir, `rollout-2026-11-08T14-49-24-${thread}.jsonl`),
+    [count(24_329_717, 24_000_000, 90_000), count(24_462_764, 24_100_000, 91_000), '{"type":"event_msg","payload":{"type":"task_complete"}}', ''].join('\n'));
+  const prior = threadTotal(home, thread);
+  expect(prior?.input_tokens).toBe(24_462_764);
+  expect(threadTotal(home, 'other-thread')).toBeUndefined();
+  const frames = play(new CodexTurn(undefined, prior), [{
+    type: 'turn.completed',
+    usage: { input_tokens: 24_903_877, cached_input_tokens: 24_500_000, cache_write_input_tokens: 0, output_tokens: 92_500 },
+  }]);
+  const result = frames[0];
+  if (result.kind !== 'result') throw new Error('expected result frame');
+  expect(result.usage).toEqual({
+    codex: { input: 441_113, output: 1_500, cache_read: 400_000, cache_write: 0, cost_cents: 0 },
+  });
 });
 
 // The live <status> bug (spec 6/16): the pre-seam runtime parsed claude's raw
