@@ -120,11 +120,17 @@ not "go left after the bridge".
 
 ## Meals — timeline items at their time
 
-- Four meal items per day, where they happen: `Breakfast` before
-  leaving, `Lunch` at the lunch stop, `Coffee` right after lunch or at
-  the café stop, `Dinner` after the return. Never a separate Food
+- The meals the day's timeline reaches, where they happen: `Breakfast`
+  before leaving when the day starts before 10:00, `Lunch` at the lunch
+  stop when it spans 11:30–14:00, `Coffee` right after lunch or at the
+  café stop when it spans 14:00–17:00, `Dinner` after the return when it
+  runs to 18:00. A part-day page (a return drive 11:30–17:30) carries
+  only the meals inside its hours. The heading names the meal in the
+  page's language ("Late lunch", "Oběd"). Never a separate Food
   section, never a café inside a sight's item (a café inside a walk
   item, pizza next to a spring walk).
+- A meal with no venue to pick says `self-catered` in its text; never an
+  invented venue to fill the slot.
 - Each meal item = `timeline-date`, optional one-line text (walk from
   the car park, cheap fallback), then `<ul class="food-list">` from
   `db/food.md` (bakeries → Breakfast, cafés → Coffee, restaurants on the
@@ -139,7 +145,8 @@ not "go left after the bridge".
   "unrated"; Google had 4.5).
 - Select, do not list: the best-rated venues AT the spot where the meal
   happens (the park café for a park walk, the square for a town lunch),
-  sorted by rating; caps Lunch 3, Breakfast 2, Coffee 2, Dinner 2.
+  sorted by rating; caps Lunch 3, Breakfast 2, Coffee 2, Dinner 2. A
+  venue under 4.0 (Coffee under 4.5) carries `fallback` in its line.
   Breakfast and Dinner follow the day's route, not the previous page
   (three pages carried the same four lines). Cost: three
   cafés, none in the park walked.

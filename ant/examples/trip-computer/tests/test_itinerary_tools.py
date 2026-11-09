@@ -174,6 +174,50 @@ class ItineraryToolsTests(unittest.TestCase):
         (self.site / 'index.html').write_text('<ul class="food-list"><li>Cafe · Google 4.7</li></ul>')
         self.assertIn('without opening time', self.run_lint('--rule', 'meal-lines').stdout)
 
+    def test_valid_fixture_passes_every_rule(self):
+        valid = SCRIPTS.parents[2] / 'tests/fixtures/valid'
+        result = subprocess.run([sys.executable, '-B', str(LINT), str(valid)], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertNotIn('WARN', result.stdout)
+
+    def write_day(self, timeline):
+        blocks = '<p class="checked-line">c</p><div class="route-overview">r</div><div class="map-links">m</div><p class="source-note">s</p>'
+        (self.site / 'day1.html').write_text(f'{blocks}<div class="timeline">{timeline}</div>')
+
+    def meal(self, time, title, line):
+        venue = f'{line} · <a href="tel:+420491000000">+420 491 000 000</a> · <a href="https://www.google.com/maps/place/x">x</a> · <a class="alt" href="https://mapy.com/x">mapy</a>'
+        return f'<p class="timeline-date">{time} — {title}</p><ul class="food-list"><li>{venue}</li></ul>'
+
+    def test_full_day_needs_every_meal(self):
+        self.write_day(self.meal('08:00', 'Breakfast', 'Bakery, from 7:00 · Google 4.6') + '<p class="timeline-date">19:00 — Dinner</p><p>Self-catered.</p>')
+        result = self.run_lint('--rule', 'day-blocks')
+        self.assertIn('missing meal item: lunch', result.stdout)
+        self.assertIn('missing meal item: coffee', result.stdout)
+        self.assertNotIn('breakfast', result.stdout)
+        self.assertNotIn('dinner', result.stdout)
+
+    def test_meal_without_venue_fails(self):
+        self.write_day('<p class="timeline-date">12:30 — Lunch</p><p class="timeline-date">14:30 — Coffee</p><p>Self-catered.</p>')
+        result = self.run_lint('--rule', 'day-blocks')
+        self.assertIn('lunch has no venue', result.stdout)
+        self.assertNotIn('coffee', result.stdout)
+
+    def test_meal_venue_closed_at_meal_time_fails(self):
+        self.write_day(self.meal('08:45', 'Breakfast', 'Cafe, from 10:30 · Google 4.8') + self.meal('19:00', 'Dinner', 'Pub, open to 18:00 · Google 4.4'))
+        result = self.run_lint('--rule', 'meal-lines')
+        self.assertIn('opens 10:30', result.stdout)
+        self.assertIn('closes 18:00', result.stdout)
+
+    def test_meal_rating_below_threshold_needs_fallback_label(self):
+        self.write_day(self.meal('12:30', 'Lunch', 'Pub, open to 22:00 · Google 1.0') + self.meal('15:00', 'Coffee', 'Cafe, open to 18:00 · mapy 4.2'))
+        self.assertEqual(self.run_lint('--rule', 'meal-lines').stdout.count('below'), 2)
+        self.write_day(self.meal('12:30', 'Lunch', 'Pub fallback, open to 22:00 · Google 3.9'))
+        self.assertEqual(self.run_lint('--rule', 'meal-lines').returncode, 0)
+
+    def test_czech_meal_heading_counts(self):
+        self.write_day('<p class="timeline-date">12:30 — Oběd</p><ul class="food-list"><li>A</li><li>B</li><li>C</li><li>D</li></ul>')
+        self.assertIn('lunch has 4 selections', self.run_lint('--rule', 'meal-cap').stdout)
+
     def test_meal_selection_cap(self):
         (self.site / 'index.html').write_text('<div class="timeline-date">08:00 — Breakfast</div><ul class="food-list"><li>A</li><li>B</li><li>C</li></ul>')
         result = self.run_lint('--rule', 'meal-cap')

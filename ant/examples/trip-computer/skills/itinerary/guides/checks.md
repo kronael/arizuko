@@ -1,6 +1,6 @@
 # Checks — before every delivery (Round 4)
 
-Run `python3 ~/.claude/skills/itinerary/scripts/trip_lint.py ~/public_html/<trip> --root ~/public_html` for the whole trip; `--root` lets links to shared assets and sibling trips resolve. It checks HTML tag balance, local pages and assets, empty links, stylesheet classes, navigation, page structure, Mapy and OSM URLs, phone links, meal ratings and opening-time text, and meal selection caps. Inline styles are permitted for minimal layout. The `page_check.py` entry point delegates to this same checker.
+Run `python3 ~/.claude/skills/itinerary/scripts/trip_lint.py ~/public_html/<trip> --root ~/public_html` for the whole trip; `--root` lets links to shared assets and sibling trips resolve. It checks HTML tag balance, local pages and assets, empty links, stylesheet classes, navigation, page structure, Mapy and OSM URLs, phone links, the meals the timeline reaches, meal ratings and fallback labels, opening hours against the meal time, and meal selection caps. Inline styles are permitted for minimal layout. The `page_check.py` entry point delegates to this same checker.
 
 Run `python3 ~/.claude/skills/itinerary/scripts/link_check.py ~/public_html/<trip>/day*.html` to inspect map links in the browser. A browser error or timeout is a failed check. Inspect rendered routes and a 390 px page separately; static checks cannot verify route geometry or source truth.
 

@@ -90,6 +90,25 @@ class Site:
 
 def host_is(link, *domains): return any(link.host == d or link.host.endswith('.' + d) for d in domains)
 DAY = re.compile(r'(^|/)day\d+(-[\w-]+)?\.html$')
+MEALS = {'breakfast': 'breakfast', 'snídaně': 'breakfast', 'lunch': 'lunch', 'oběd': 'lunch',
+         'coffee': 'coffee', 'káva': 'coffee', 'dinner': 'dinner', 'večeře': 'dinner'}
+MEAL_HOURS = {'breakfast': (0, 600), 'lunch': (690, 840), 'coffee': (840, 1020), 'dinner': (1080, 1440)}
+
+def _text(s): return ' '.join(html.unescape(re.sub(r'<[^>]+>', '', s)).split())
+def _minutes(m): return int(m[1]) * 60 + int(m[2])
+
+def timeline(page):
+    heads = list(re.finditer(r'<[^>]+class=["\'][^"\']*\btimeline-date\b[^"\']*["\'][^>]*>(.*?)</[^>]+>', page.src, re.S | re.I))
+    items = [(None, None, page.src[:heads[0].start()] if heads else page.src)]
+    for h, end in zip(heads, [h.start() for h in heads[1:]] + [len(page.src)]):
+        title = _text(h.group(1)); at = re.match(r'(\d{1,2}):(\d{2})', title)
+        meal = next((MEALS[w] for w in re.findall(r'\w+', title.lower()) if w in MEALS), None)
+        items.append((_minutes(at) if at else None, meal, page.src[h.end():end]))
+    return items
+
+def venues(body):
+    lists = re.findall(r'<ul\b[^>]*class=["\'][^"\']*\bfood-list\b[^"\']*["\'][^>]*>(.*?)</ul>', body, re.S | re.I)
+    return [li for ul in lists for li in re.findall(r'<li\b[^>]*>(.*?)</li>', ul, re.S | re.I)]
 
 # ---------------------------------------------------------------- rules
 @rule('html-balance')
@@ -220,13 +239,18 @@ def _(site):
 @rule('meal-lines')
 def _(site):
     for p in site.pages.values():
-        for ul in re.findall(r'<ul\b[^>]*class=["\'][^"\']*\bfood-list\b[^"\']*["\'][^>]*>(.*?)</ul>', p.src, re.S):
-            for li in re.findall(r'<li\b[^>]*>(.*?)</li>', ul, re.S):
-                t = ' '.join(html.unescape(re.sub(r'<[^>]+>', '', li)).split()); head = t.split('·')[0]
+        for at, meal, body in timeline(p):
+            for li in venues(body):
+                t = _text(li); head = t.split('·')[0]
                 hrefs = re.findall(r'href=["\']([^"\']+)', li)
                 if len(head.split()) > 10: yield 'ERROR', p.name, f'meal line {len(head.split())} words: {head[:40]}'
-                if not re.search(r'·\s*(?:Google|TripAdvisor)\s+[1-5]\.\d\b|\bunrated\b', t, re.I): yield 'ERROR', p.name, f'meal line without rating: {head[:40]}'
+                rating = re.search(r'·\s*(?:Google|TripAdvisor|mapy)\s+([1-5]\.\d)\b', t, re.I); floor = 4.5 if meal == 'coffee' else 4.0
+                if not rating and not re.search(r'\bunrated\b', t, re.I): yield 'ERROR', p.name, f'meal line without rating: {head[:40]}'
+                elif rating and float(rating[1]) < floor and 'fallback' not in head.lower(): yield 'ERROR', p.name, f'meal line rated {rating[1]}, below {floor} and not labelled fallback: {head[:40]}'
                 if not re.search(r'\b(?:open|from|until|to)\b[^·]*\b\d{1,2}:\d{2}\b', head, re.I): yield 'ERROR', p.name, f'meal line without opening time: {head[:40]}'
+                opens = re.search(r'\bfrom (\d{1,2}):(\d{2})', head, re.I); closes = re.search(r'\b(?:to|until) (\d{1,2}):(\d{2})', head, re.I)
+                if at is not None and opens and _minutes(opens) > at: yield 'ERROR', p.name, f'meal line opens {opens[1]}:{opens[2]}, after the meal at {at // 60:02}:{at % 60:02}: {head[:40]}'
+                if at is not None and closes and _minutes(closes) <= at: yield 'ERROR', p.name, f'meal line closes {closes[1]}:{closes[2]}, before the meal at {at // 60:02}:{at % 60:02}: {head[:40]}'
                 if not any(h.startswith('tel:') for h in hrefs) and 'phone: not found' not in t: yield 'ERROR', p.name, f'meal line without tel: link: {head[:40]}'
                 if not any('google.com/maps/' in h for h in hrefs): yield 'ERROR', p.name, f'meal line without Google link: {head[:40]}'
                 if not any('mapy.com/' in h for h in hrefs): yield 'ERROR', p.name, f'meal line without mapy link: {head[:40]}'
@@ -235,17 +259,9 @@ def _(site):
 @rule('meal-cap')
 def _(site):
     for p in site.pages.values():
-        pattern = r'<[^>]+class=["\'][^"\']*\btimeline-date\b[^"\']*["\'][^>]*>(.*?)</[^>]+>|<ul\b[^>]*class=["\'][^"\']*\bfood-list\b[^"\']*["\'][^>]*>(.*?)</ul>'
-        meal = None; count = 0
-        for match in re.finditer(pattern, p.src, re.S | re.I):
-            heading, food = match.groups()
-            if heading is not None:
-                found = re.search(r'\b(Breakfast|Lunch|Coffee|Dinner)\b', re.sub(r'<[^>]+>', '', heading), re.I)
-                meal = found.group(1).lower() if found else None; count = 0
-            elif meal:
-                count += len(re.findall(r'<li\b', food, re.I))
-                cap = 3 if meal == 'lunch' else 2
-                if count > cap: yield 'ERROR', p.name, f'{meal} has {count} selections; maximum {cap}'
+        for _, meal, body in timeline(p):
+            count = len(venues(body)); cap = 3 if meal == 'lunch' else 2
+            if meal and count > cap: yield 'ERROR', p.name, f'{meal} has {count} selections; maximum {cap}'
 
 @rule('day-blocks')
 def _(site):
@@ -257,9 +273,13 @@ def _(site):
             if t == 'iframe' and a.get('loading') == 'lazy': yield 'ERROR', n, f'line {ln}: lazy iframe renders blank on phones'
         if sum(1 for _, a, _ in p.tags if 'checked-line' in (a.get('class') or '').split()) != 1: yield 'ERROR', n, 'expected one checked-line'
         if re.search(r'<h[23]>\s*(Food|Breakfast|Lunch|Coffee|Dinner)\b', p.src): yield 'ERROR', n, 'meal heading outside timeline'
-        for meal in ('Breakfast', 'Lunch', 'Coffee', 'Dinner'):
-            if not re.search(r'class=["\'][^"\']*\btimeline-date\b[^"\']*["\'][^>]*>\s*\d{1,2}:\d{2}\s*[—–-]\s*' + meal + r'\b', p.src):
-                yield 'ERROR', n, f'missing meal item: {meal}'
+        items = timeline(p)[1:]
+        times = [at for at, _, _ in items if at is not None]
+        present = {meal for _, meal, _ in items}
+        for meal, (start, end) in MEAL_HOURS.items():
+            if times and start <= max(times) and min(times) < end and meal not in present: yield 'ERROR', n, f'missing meal item: {meal}'
+        for _, meal, body in items:
+            if meal and not venues(body) and 'self-catered' not in _text(body).lower(): yield 'ERROR', n, f'{meal} has no venue and is not self-catered'
 
 # ---------------------------------------------------------------- runner
 def main(argv=None):
