@@ -30,12 +30,6 @@ type ModelPause struct {
 	ProbeAttemptID string
 }
 
-type TurnAdmission struct {
-	AttemptID    string
-	InputLast    string
-	ProbeEpisode string
-}
-
 func (s *Store) ReadModelPause(ctx context.Context, folder string) (*ModelPause, error) {
 	it, ok, err := s.itemAt(ctx, ModelPauses, modelPauseKey(folder))
 	if err != nil || !ok {

@@ -101,6 +101,54 @@ func TestDeferredTurnCursorNeverRewinds(t *testing.T) {
 	}
 }
 
+func TestControlledAdmissionGuards(t *testing.T) {
+	ctx := t.Context()
+	s := openTurnEntities(t)
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	if _, err := s.AppendMessage(core.Message{ID: "last", ChatJID: "web:admit", Timestamp: now}); err != nil {
+		t.Fatal(err)
+	}
+	before := TurnControlState{Phase: "open", Episode: "one", NextProbeAt: now}
+	if ok, err := s.WriteTurnControl(ctx, nil, before); err != nil || !ok {
+		t.Fatalf("control: %v %v", ok, err)
+	}
+	stale := before
+	stale.Episode = "stale"
+	after := TurnControlState{Phase: "probe", Episode: "one", ProbeTurnID: "admit", ProbeAttemptID: "attempt"}
+	admission := &TurnAdmission{Controlled: true, AttemptID: "attempt", InputLast: MsgStamp(core.TS(now), "last"),
+		InputKeys:   []objstore.Key{{Partition: "input", Sort: "one"}},
+		AmbientKeys: []objstore.Key{{Partition: "ambient", Sort: "one"}}, ControlBefore: &stale, ControlAfter: &after}
+	if ok, _ := s.OpenTurnContext("admit", "demo", "", "web:admit", "u", "", admission); ok {
+		t.Fatal("stale singleton admitted")
+	}
+	admission.ControlBefore = &before
+	if ok, err := s.OpenTurnContext("admit", "demo", "", "web:admit", "u", "", admission); err != nil || !ok {
+		t.Fatalf("admit: %v %v", ok, err)
+	}
+	tc, ok := s.TurnContextOf("admit")
+	if !ok || len(tc.InputKeys) != 1 || tc.InputKeys[0] != admission.InputKeys[0] || len(tc.AmbientKeys) != 1 || tc.AmbientKeys[0] != admission.AmbientKeys[0] {
+		t.Fatalf("binding: %+v", tc)
+	}
+	got, exists, err := s.ReadTurnControl(ctx)
+	if err != nil || !exists || got.Phase != "probe" || got.ProbeAttemptID != "attempt" {
+		t.Fatalf("probe: %+v %v", got, err)
+	}
+	tc.NextAttemptAt = now.Add(time.Hour)
+	if ok, err := s.DeferTurn(ctx, DeferredTurn{Turn: tc}); err != nil || !ok {
+		t.Fatalf("defer: %v %v", ok, err)
+	}
+	saved, _ := s.TurnContextOf(tc.TurnID)
+	if ok, err := s.ClaimControlledTurn(ctx, saved, "next", tc.NextAttemptAt, &stale, nil); err != nil || ok {
+		t.Fatalf("stale control claim: %v %v", ok, err)
+	}
+	if ok, err := s.ClaimControlledTurn(ctx, saved, "next", now, &after, nil); err != nil || ok {
+		t.Fatalf("early claim: %v %v", ok, err)
+	}
+	if ok, err := s.ClaimControlledTurn(ctx, saved, "next", tc.NextAttemptAt, &after, nil); err != nil || !ok {
+		t.Fatalf("claim: %v %v", ok, err)
+	}
+}
+
 func TestDeferredTurnRetirementFencesLateWrites(t *testing.T) {
 	ctx := t.Context()
 	s := openTurnEntities(t)

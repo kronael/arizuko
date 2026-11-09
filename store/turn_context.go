@@ -169,6 +169,20 @@ func (s *Store) OpenTurnContext(turnID, folder, topic, chatJID, trigger, returnT
 		}
 		setAttr(bound, "input_last", admission.InputLast)
 		setAttr(bound, "probe_episode", admission.ProbeEpisode)
+		if admission.InputKeys != nil {
+			input, err := json.Marshal(admission.InputKeys)
+			if err != nil {
+				return false, err
+			}
+			bound["input_keys"] = string(input)
+		}
+		if admission.AmbientKeys != nil {
+			ambient, err := json.Marshal(admission.AmbientKeys)
+			if err != nil {
+				return false, err
+			}
+			bound["ambient_keys"] = string(ambient)
+		}
 	}
 	setAttr(bound, attrTurnFolder, folder)
 	setAttr(bound, attrTurnTopic, topic)
@@ -180,7 +194,11 @@ func (s *Store) OpenTurnContext(turnID, folder, topic, chatJID, trigger, returnT
 	checks := []objstore.Check{{Entity: Groups, Key: group,
 		Cond: objstore.Cond{Item: objstore.ItemPresent}}}
 	var claim []objstore.Write
-	if admission != nil && admission.ProbeEpisode != "" {
+	if admission != nil && admission.Controlled {
+		controlChecks, controlWrites := controlAdmission(admission.ControlBefore, admission.ControlAfter)
+		checks = append(checks, controlChecks...)
+		claim = append(claim, controlWrites...)
+	} else if admission != nil && admission.ProbeEpisode != "" {
 		p, err := s.ReadModelPause(ctx, folder)
 		if err != nil {
 			return false, err

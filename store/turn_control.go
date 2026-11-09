@@ -19,6 +19,25 @@ type TurnControlState struct {
 	ProbeAttemptID string
 }
 
+type TurnAdmission struct {
+	AttemptID     string
+	InputLast     string
+	ProbeEpisode  string
+	InputKeys     []objstore.Key
+	AmbientKeys   []objstore.Key
+	Controlled    bool
+	ControlBefore *TurnControlState
+	ControlAfter  *TurnControlState
+}
+
+func controlAdmission(before, after *TurnControlState) ([]objstore.Check, []objstore.Write) {
+	if after != nil {
+		return nil, []objstore.Write{controlWrite(before, *after)}
+	}
+	cond := controlWrite(before, TurnControlState{}).Cond
+	return []objstore.Check{{Entity: TurnControl, Key: turnControlKey(), Cond: cond}}, nil
+}
+
 func turnControlKey() objstore.Key { return objstore.Key{Partition: OwnerRoutd, Sort: "singleton"} }
 
 func (s *Store) ReadTurnControl(ctx context.Context) (TurnControlState, bool, error) {
@@ -157,6 +176,15 @@ func (s *Store) DeferTurn(ctx context.Context, d DeferredTurn) (bool, error) {
 }
 
 func (s *Store) ClaimDeferredTurn(ctx context.Context, tc TurnContext, attemptID string, now time.Time) (bool, error) {
+	return s.claimDeferredTurn(ctx, tc, attemptID, now, nil, nil)
+}
+
+func (s *Store) ClaimControlledTurn(ctx context.Context, tc TurnContext, attemptID string, now time.Time, before, after *TurnControlState) (bool, error) {
+	checks, writes := controlAdmission(before, after)
+	return s.claimDeferredTurn(ctx, tc, attemptID, now, checks, writes)
+}
+
+func (s *Store) claimDeferredTurn(ctx context.Context, tc TurnContext, attemptID string, now time.Time, checks []objstore.Check, writes []objstore.Write) (bool, error) {
 	key, err := turnKey(tc.TurnID)
 	if err != nil {
 		return false, err
@@ -168,7 +196,8 @@ func (s *Store) ClaimDeferredTurn(ctx context.Context, tc TurnContext, attemptID
 	if attemptID == "" || tc.AttemptID == "" {
 		return false, fmt.Errorf("claim turn %s: missing attempt", tc.TurnID)
 	}
-	return s.TryWriteEntities(ctx, []objstore.Check{{Entity: Groups, Key: group, Cond: objstore.Cond{Item: objstore.ItemPresent}}}, objstore.Write{
+	checks = append(checks, objstore.Check{Entity: Groups, Key: group, Cond: objstore.Cond{Item: objstore.ItemPresent}})
+	writes = append(writes, objstore.Write{
 		Op: objstore.Update, Entity: TurnContexts, Key: key,
 		Attrs:  map[string]string{attrTurnState: TurnRunning, "attempt_id": attemptID, AttrTurnStartedAt: core.TS(now)},
 		Remove: []string{attrTurnRunReturned, attrTurnRunID, "next_attempt_at"},
@@ -179,4 +208,5 @@ func (s *Store) ClaimDeferredTurn(ctx context.Context, tc TurnContext, attemptID
 			{Attr: "next_attempt_at", Op: objstore.Le, Value: core.TS(now)},
 		}},
 	})
+	return s.TryWriteEntities(ctx, checks, writes...)
 }
