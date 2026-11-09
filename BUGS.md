@@ -15,17 +15,13 @@
 
 ## What needs you
 
-- `L807` — a group send carries no distance from its human input, so two groups sent each other turns for 80 minutes.
-- `L806` — the Codex harness reports the session's cumulative token total as each turn's usage.
 - `L803` — morha repeats recovery reports and replies to an old GitHub comment; cause unmeasured.
 - `L804` — Codex topic forks do not inherit the parent's model context; observed messages remain available.
 - `L796` — a silent cron script costs a full agent turn (macrohype-monitor, 48 turns a week); owner chose a command task with no model call; where the command runs needs sign-off.
-- `L794` — a failed turn retries 3 times within ~40 s, too fast for a host fault (full disk) to clear; owner wants 3 retries with longer gaps, about 4 h for cron tasks; design needs sign-off.
 - `L790` — `TestHoldE2E_ChannelWithoutButtonsStillGetsAnAnswerablePrompt` fails under host load (fixed 5 s wait).
 - `L721` — group handoffs bounced for an hour; verify bounded turns after deployment with group sends and progress guidance.
-- `L743` — an instance-wide model pause needs trusted host-side provider evidence; proposal, needs sign-off.
 - `L715` — A1/A2: trusted GitHub sender and source-owner binding; proposal, needs sign-off.
-- `L699` — anteval cannot run a Codex smoke: it requires an Anthropic credential and installs an Anthropic-only gateway; proposal.
+- `L699` — anteval cannot run a Codex smoke; owner chose the local `~/.codex` login (direct mode); not built.
 - `L686` — decide whether to retire the four duplicated top-level creative skill names; proposal, needs sign-off.
 - `L687` — decide whether to retire the scheduler's two external write endpoints; proposal, needs sign-off.
 - `L688` — defer folding onbod into routd until measured net savings justify the boundary change; needs sign-off.
@@ -35,8 +31,8 @@
 - `L674` — `compose down` fails on a deleted fragment despite `required: false`; proposal.
 - `L672` — a spend-limit failure: retry silently, one `#issues` notice to the operator; approved, queued after L670.
 - `L760` — an agent `reply` carrying a `<status>` block posts raw tags; manual fix ships in v0.75.4, verify on live codex turns.
-- `L761` — a mention-routed folder cannot read the chat it answers; fix queued.
-- `L762` — the reply length lint does not run on codex turns; fix queued.
+- `L761` — a mention-routed folder cannot read the chat it answers; fix 6832c16ce ships in v0.75.5, verify the live report.
+- `L762` — the reply length lint does not run on codex turns; fix 9be919983 ships in v0.75.5, verify on live codex turns.
 - `L763` — reproduce Nemo's intermittent approval failures and dead buttons before choosing a fix.
 - `L764` — decide how Telegram supergroup migration updates route identity; live route and schedule repair stays with the operator.
 - `L765` — choose whether cached property search results get a global warning or block; proposal, needs sign-off.
@@ -45,7 +41,6 @@
 - `L768` — approve trip network defaults or grant the requested hosts per folder; current reachability is unmeasured.
 - `L769` — choose whether `/pub/` filters Markdown; forwarding without an extension filter is measured.
 - `L770` — approve persistent web lint through the shared policy; local settings hooks are replaced at spawn.
-- `L771` — a run timeout counts toward automatic turn retry; owner decided no retry + a deadline continuation nudge; fix queued.
 - `L772` — agent image removal breaks a second instance's rootfs; trees duplicate; fix queued.
 - `L660` — a mention by reply engages only the reply chain, not the chat root; proposal, needs sign-off.
 - `L655` — products as full packages (`catalog:<name>`) and persona layering (`PERSONA.local.md`); proposal, needs sign-off.
@@ -333,48 +328,6 @@ reads those words now.
   **Proposal:** stop the build on the first failed submake. This is an adjacent
   build-gate repair; scope approval is pending.
 
-## L807 — a group send carries no distance from its human input (2026-11-09, open)
-
-MEASURED on live sloth (v0.75.4) 2026-11-09 18:42–20:02Z: sloth delegated
-to its 8 children, then sloth and sloth/trading started turns in each other
-about every 9 minutes (`escalate-1794252697017994395` →
-`delegate-1794253471422480880` → `escalate-1794253747318606677` →
-`delegate-1794254034928432919` → `escalate-1794254298528678790`): 15 turns,
-about 1,336 Codex credits. The depth cap counted one hop and reset to 0 in
-every new turn. This line has no delegation tools; `send` to a group folder
-(`ipc/ipc.go`, `store.PostGroup`) and `inject_message` still write an
-inbound row that starts a turn in the target, and neither row records how
-far it is from a person, so A→B→A is not refused.
-
-- **Severity:** high — an unbounded agent loop spends model credit with no
-  person in it.
-- **Owner decision 2026-11-09:** every message carries its distance from the
-  last human or external input; a turn's distance is the maximum over its
-  inputs; an agent write that starts a turn gets that distance + 1 and is
-  refused at the limit, 2 (one delegation).
-- **Status:** open — fix in progress.
-
-## L806 — the Codex harness reports the cumulative session total as turn usage (2026-11-09, open)
-
-MEASURED on live sloth 2026-11-09: routd logged `agent self-reported model
-usage` input 24,903,877 for turn `escalate-1794253747318606677` (19:54:17Z).
-The rollout
-`/srv/data/arizuko_sloth/groups/sloth/.codex/sessions/2026/11/08/rollout-2026-11-08T14-49-24-01a1bba2-b010-7db2-aff7-1582f4ec543c.jsonl`
-has `total_token_usage.input_tokens` 24,903,877 at 19:54:14.847Z; the
-turn's three requests (19:53:31–19:54:14) have `last_token_usage.input_tokens`
-146,378 + 147,091 + 147,644 = 441,113, which is also the change in the total
-since the previous turn ended (24,462,764 at 19:45:03.469Z). `codex exec
---json` puts the thread's running total in `turn.completed.usage`, and
-`ant/src/codex.ts::usageOf` reports it as the turn's usage. Codex resumes
-one thread across turns, so the value grows without end, and the token
-metrics, `cost_cents` readers and budget caps over-count.
-
-- **Severity:** medium — usage metrics over-count by orders of magnitude on
-  a long Codex thread.
-- **Fix:** subtract the thread's total at the end of the previous turn,
-  read from the rollout, from the `turn.completed` usage.
-- **Status:** open — fix in progress.
-
 ## L804 — Codex topic forks do not inherit the parent's model context (2026-11-09, open — record only)
 
 MEASURED by L800's seven missing-Claude-file warnings in sloth's 24-hour
@@ -430,30 +383,6 @@ posts nothing unless the script exits non-zero.
 
 
 
-## L794 — a failed turn retries too fast for a host fault to clear (2026-11-09, proposal — needs sign-off)
-
-MEASURED 2026-11-09 on krons and sloth (`journalctl -u arizuko_<instance>
---since "2026-11-09 02:59" --until "2026-11-09 06:30"`): the host disk was
-full at 03:00 UTC. virtiofsd failed with "Error creating pid file
-…/turn.sock.pid: No space left on device", so no guest started. Every
-scheduled memory task (`<group>-mem-1`, `<group>-mem-3`, and the
-`sched-task-*` rows) in 11 krons and 10 sloth groups failed four launches:
-sloth `sched-eval-mem-1` at 03:00:17, :29, :41 and :56. The retries came
-11-15 s apart, so all four met the same full disk.
-
-Source: `routd/dispatch.go:553` retries a nonterminal error by holding the
-cursor (`busy=true`, `:561`), and the re-feed runs after the busy backoff.
-A held cursor blocks the group's queue, so a long gap cannot use this path.
-
-- **Severity:** high — a short host fault drops a whole night of scheduled work.
-- **Owner decision 2026-11-09:** keep 3 retries, but space them so a temporary
-  fault can recover; "maybe 4h for cron tasks".
-- **Fix (proposal):** a retry waits a growing delay instead of the busy
-  backoff; a timed task re-schedules itself at the delay and releases the
-  cursor, so the group keeps serving chat. Changes spec 5/12's retry rule.
-- **Status:** proposal — needs sign-off on the delay schedule and the
-  interactive-turn delay.
-
 ## L790 — the hold e2e test fails under host load (2026-11-08, open)
 
 MEASURED 2026-11-08 on fec94801c: `go test ./... -short` failed
@@ -481,16 +410,6 @@ authenticated source ownership through dispatch and credential selection;
 **Default if nothing is decided:** keep tenant GitHub ingress management
 disabled by the operator gate. Supporting tenant-managed sources needs
 sign-off on the new trust contract before implementation.
-
-## L743 — instance-wide model pause requires host provider evidence (2026-11-08, proposal — needs sign-off)
-
-**Severity:** HIGH, design; no test — design. A bound guest socket attests
-the reporting turn, not a provider refusal (`routd/mcp.go:138`).
-**Options:** (a) define trusted host-side provider evidence before opening
-an instance-wide pause; (b) retain reporting-folder pauses only.
-**Default if nothing is decided:** keep guest reports scoped to their
-reporting folder. An instance-wide pause needs sign-off on host evidence;
-the two-method runtime port stays unchanged.
 
 ## Design invariants — intentional, do not re-report
 
@@ -792,41 +711,6 @@ The claimed live root ownership and reseeding of hook scripts are unmeasured.
   checks. **Default if nothing is decided:** mandatory product commands remain;
   no workflow requirement is loosened and no local hook is installed.
 
-## L771 — a run timeout counts toward automatic turn retry (2026-11-08, open)
-
-MEASURED 2026-11-08 on sloth: `journalctl -u arizuko_sloth --since
-"2026-11-08 19:40" --until "2026-11-08 21:05"` records `sloth/morha` exiting
-at 21:02:38 UTC with `code=143`, `timedOut=true` and duration
-`3599911137634` ns (about 3,599.9 seconds). At 21:02:39 routd logs
-"turn failed without reply, scheduling retry", retry 1, max 3, for
-`delegate-1794168081354411585`. The next dispatch at 21:02:51 is
-`gh-c6726928796`, topic `pr/420`: a different turn, not proof that the same
-timed-out turn ran again.
-
-The retry classification is confirmed in source: `runed/qemu.go:500` returns
-OutcomeError for a timeout without Terminal. `routd/dispatch.go:548` retries
-an error when it is nonterminal, has no bot reply and remains below
-`maxTurnRetry` (`:553`); it increments RetryCount and holds the cursor for a
-re-feed (`:554`, `:561`). `routd/loop.go:174` explicitly includes timeouts;
-`:195` makes zero mean the default 3 and a negative value disable retries.
-`routd/cmd/routd/main.go:227` reads `MAX_TURN_RETRY`. Timeouts therefore count;
-the exhausted deadline can buy another full attempt without a new user request.
-
-- **Severity:** high — automatic attempts can repeat an hour of work and spend.
-- **Scope:** runed timeout outcome and routd turn retry classification.
-- **Fix:** distinguish deadline exhaustion from a transient failure at the
-  existing outcome/retry decision; report exhaustion and require an explicit
-  continuation. No regression test — this request permits only BUGS.md edits;
-  the journal and source establish the current scheduling behavior.
-- **Status:** open — Codex deadline continuation implemented; timeout retry policy remains unchanged and requires a separate fix.
-- **Owner decision 2026-11-08:** "i dont really see that this should retry. maybe it
-  should just nudge the model to request a continuation request". So: a timed-out
-  turn is not retried (crash and OOM keep their retry), and before the deadline the
-  harness tells the model to post what it has and ask whether to continue. Claude
-  already receives the `[deadline]` steering note mid-turn; codex reads input only
-  between turns (L570), so ant must stop codex shortly before the deadline and
-  resume the same thread with that one prompt. Changes spec 5/12's retry rule.
-
 ## L772 — removing the agent image after export breaks the second instance's rootfs, and each instance stores its own 7.3 GB tree (2026-11-08, open)
 
 MEASURED 2026-11-08 on hel1v5: `make rootfs` exports into one `DATA_DIR`
@@ -891,7 +775,7 @@ that version. A change to which rows reach live data is an auth change.
 - **Status:** open — needs sign-off.
 
 
-## L699 — anteval cannot run a Codex-backend smoke (2026-11-08, open — proposal, needs sign-off)
+## L699 — anteval cannot run a Codex-backend smoke (2026-11-08, open — owner decided, not built)
 
 MEASURED 2026-11-08 at `269c83f09`, Sol's Codex smoke stopped before creation:
 `anteval/cmd/anteval/lifecycle.go:221` refuses a run without
@@ -907,7 +791,9 @@ This blocks the 6/47 Codex `reply` smoke and the 6/53 mixed-backend smoke.
 
 - **Severity:** medium for acceptance, zero for the fleet
 - **Scope:** `anteval/cmd/anteval/lifecycle.go`, `template/services/litellm/`
-- **Status:** open — needs sign-off
+- **Status:** open — not built.
+- **Owner decision 2026-11-09:** a Codex smoke uses the local `~/.codex` login
+  (direct mode, option 2).
 - **Options:** (1) a Codex route in the gateway: codex accepts an arbitrary
   `base_url` with `model_providers.<id>.requires_openai_auth=true` and
   `wire_api = "responses"`, measured 200 on 2026-09-04 (memory
