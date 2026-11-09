@@ -133,6 +133,9 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ### Fixed
 
+- L699: `anteval` runs a Codex smoke. `ARIZUKO_BACKEND=codex` takes the local
+  Codex login from `HOST_CODEX_DIR`, runs direct without the Anthropic-only
+  gateway and allows `chatgpt.com` and `auth.openai.com` for the eval folder.
 - L806: Codex turns report their own token usage, not the resumed thread's
   running total (sloth logged 24,903,877 input tokens for a turn that used 441,113).
 - L807: a group cannot start a turn in another group from a turn that a group
@@ -213,8 +216,8 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   `RUNED_ROOTFS_DIR` and `RUNED_KERNEL_DIR` select the matching guest artifacts.
 - Anteval requires explicit model credentials, an external test store and
   separate vsock, tap and proxy allocations. Its credential preflight requires
-  `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN`.
-  Codex credential setup remains incomplete.
+  `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN`; `ARIZUKO_BACKEND=codex`
+  requires a `HOST_CODEX_DIR` that holds `auth.json` instead.
 
 ### Migrations
 
