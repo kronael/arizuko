@@ -151,6 +151,7 @@ func messageKeyOf(m core.Message) (objstore.Key, error) {
 // value is LEFT OFF: absent is the only null this model has.
 func messageAttrs(m core.Message) map[string]string {
 	attrs := map[string]string{}
+	setAttr(attrs, "status_send_key", m.StatusSendKey)
 	setAttr(attrs, "status_phase", m.StatusPhase)
 	if m.StatusRevision > 0 {
 		attrs["status_revision"] = strconv.Itoa(m.StatusRevision)
@@ -185,6 +186,7 @@ func messageFrom(it objstore.Item) core.Message {
 	m := core.Message{
 		ID:            id,
 		StatusPhase:   it.Attrs["status_phase"],
+		StatusSendKey: it.Attrs["status_send_key"],
 		ChatJID:       it.Key.Partition,
 		Sender:        it.Attrs[attrMsgSender],
 		Name:          it.Attrs[attrMsgSenderName],
@@ -444,6 +446,7 @@ func (s *Store) NewMessagesForChat(ctx context.Context, jid, cursor string,
 	}
 	items, err := s.Obj().Query(ctx, objstore.Query{
 		Entity: Messages, Partition: jid, Key: key, Limit: limit,
+		Where: []objstore.Cmp{{Attr: attrMsgVerb, Op: objstore.Ne, Value: verbStatus}},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("read new messages in %s: %w", jid, err)
@@ -681,8 +684,8 @@ func (s *Store) messageAt(ctx context.Context, jid, id string) (objstore.Item, b
 	return objstore.Item{}, false, nil
 }
 
-// MessageByID answers one message of a chat named by its OWN id or by the
-// platform's id for it. THE CHAT BOUND IS NOT OPTIONAL: `platform_id` is a
+// MessageByID answers a chat message by its message, platform or status send id.
+// THE CHAT BOUND IS NOT OPTIONAL: `platform_id` is a
 // per-platform value, so an unscoped lookup resolves a reply id to a row in
 // another folder and the caller copies that row's sender, text and topic. The
 // partition makes that impossible rather than checked.
@@ -699,7 +702,7 @@ func (s *Store) MessageByID(chatJID, id string) (core.Message, bool) {
 	bare := strings.TrimPrefix(id, chatJID+"/")
 	for _, it := range items {
 		_, own, ok := MsgCoord(it.Key.Sort)
-		if ok && own == id {
+		if ok && (own == id || it.Attrs["status_send_key"] == id) {
 			return messageFrom(it), true
 		}
 	}
@@ -883,7 +886,7 @@ func (s *Store) TurnHasBotReply(chatJID, turnID string) bool {
 	return false
 }
 
-// verbStatus is the verb of a turn's progress row (routd/progress.go).
+// verbStatus is the verb of a turn's progress row (routd/turn_status.go).
 const verbStatus = "status"
 
 // LastStatusRow answers the newest status row of one turn, delivered or not.
@@ -1205,4 +1208,22 @@ func (s *Store) LastBotMessage(ctx context.Context, jid string) (core.Message, b
 			{Attr: attrMsgBot, Op: objstore.Present},
 			{Attr: attrMsgVerb, Op: objstore.Ne, Value: verbStatus},
 		})
+}
+
+func (s *Store) TurnStatusChats(ctx context.Context, turnID string) ([]string, error) {
+	chats, err := s.ChatJIDs(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, jid := range chats {
+		rows, err := s.Obj().Query(ctx, objstore.Query{Entity: Messages, Partition: jid, Where: []objstore.Cmp{{Attr: attrMsgTurnID, Op: objstore.Eq, Value: turnID}, {Attr: attrMsgVerb, Op: objstore.Eq, Value: verbStatus}}, Limit: 1, Project: []string{}})
+		if err != nil {
+			return nil, err
+		}
+		if len(rows) > 0 {
+			out = append(out, jid)
+		}
+	}
+	return out, nil
 }

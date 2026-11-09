@@ -19,6 +19,7 @@ import (
 type Message struct {
 	StatusPhase    string
 	StatusRevision int
+	StatusSendKey  string
 	ID             string
 	ChatJID        string
 	Sender         string

@@ -44,3 +44,41 @@ func TestStatusIntentFenced(t *testing.T) {
 		t.Fatalf("intent not acknowledged: %+v", got)
 	}
 }
+
+func TestStatusFinalIntentWinsCompletion(t *testing.T) {
+	s := openTurnEntities(t)
+	if ok, err := s.OpenTurnContext("final-turn", "demo", "", "web:demo", "u", "", nil); err != nil || !ok {
+		t.Fatalf("open %v %v", ok, err)
+	}
+	if err := s.SetTurnState("final-turn", TurnDone); err != nil {
+		t.Fatal(err)
+	}
+	stale, _ := s.TurnContextOf("final-turn")
+	current := stale
+	current.FailureCause = "Agent stopped unexpectedly"
+	if ok, err := s.RecordControlledStatus(t.Context(), current, nil, TurnControlState{Phase: "open", Episode: "failure"}); err != nil || !ok {
+		t.Fatalf("failure %v %v", ok, err)
+	}
+	if ok, err := s.FinishTurnStatus(t.Context(), stale); err != nil || ok {
+		t.Fatalf("stale cleanup replaced final: %v %v", ok, err)
+	}
+	current, _ = s.TurnContextOf(stale.TurnID)
+	for _, field := range []string{"attempt", "state"} {
+		old := current
+		if field == "attempt" {
+			old.AttemptID = "old"
+		} else {
+			old.State = TurnRunning
+		}
+		if ok, err := s.FinishTurnStatus(t.Context(), old); err != nil || ok {
+			t.Fatalf("stale completion %s accepted: %v %v", field, ok, err)
+		}
+	}
+	if ok, err := s.FinishTurnStatus(t.Context(), current); err != nil || !ok {
+		t.Fatalf("completion %v %v", ok, err)
+	}
+	current, _ = s.TurnContextOf(stale.TurnID)
+	if current.StatusOwed != "final" {
+		t.Fatalf("completion cleared failure intent: %+v", current)
+	}
+}

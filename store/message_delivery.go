@@ -12,7 +12,7 @@ package store
 //
 // It carries a POINTER, like the folder feed: a second copy of the body is a
 // second thing `EnrichMessage` would rewrite. platform_id is NOT here: it is
-// written once when the adapter confirms delivery, and `MessageByID` resolves
+// confirmed on delivery and removed on status deletion. `MessageByID` resolves
 // a reply's parent by it inside one chat partition.
 
 import (
@@ -124,6 +124,9 @@ func (s *Store) pendingFrom(ctx context.Context, items []objstore.Item) ([]Pendi
 			return nil, err
 		}
 		if !ok {
+			continue
+		}
+		if m.StatusRevision > 0 && it.Attrs["revision"] != strconv.Itoa(m.StatusRevision) {
 			continue
 		}
 		n, err := parseCount(it.Attrs[attrDelAttempts])
@@ -262,6 +265,9 @@ func (s *Store) DeadLetters(ctx context.Context, folder string, limit int) ([]Pe
 		if folder != "" && !groupfolder.Contains(folder, m.RoutedTo) {
 			continue
 		}
+		if m.StatusRevision > 0 && it.Attrs["revision"] != strconv.Itoa(m.StatusRevision) {
+			continue
+		}
 		n, err := parseCount(it.Attrs[attrDelAttempts])
 		if err != nil {
 			return nil, fmt.Errorf("%s's attempt count: %w", it.Key.Sort, err)
@@ -371,11 +377,21 @@ func (s *Store) QueueStatus(ctx context.Context, m core.Message, content, phase 
 	if err != nil {
 		return err
 	}
+	guard := statusRevisionGuard(m)
+	platform := objstore.Cmp{Attr: AttrMsgPlatformID, Op: objstore.Eq, Value: m.PlatformID}
+	if m.PlatformID == "" {
+		platform.Op = objstore.Absent
+	}
+	guard.Where = append(guard.Where, platform)
 	next := m
 	next.Content, next.StatusPhase, next.StatusRevision = content, phase, m.StatusRevision+1
+	attrs := map[string]string{attrMsgContent: content, "status_phase": phase, "status_revision": strconv.Itoa(next.StatusRevision)}
+	if m.StatusPhase == "cleared" && m.PlatformID == "" && phase != "cleared" {
+		attrs["status_send_key"] = m.ID + "-" + strconv.Itoa(next.StatusRevision)
+	}
 	return s.WriteEntities(ctx, nil,
 		objstore.Write{Op: objstore.Update, Entity: Messages, Key: key,
-			Attrs: map[string]string{attrMsgContent: content, "status_phase": phase, "status_revision": strconv.Itoa(next.StatusRevision)}, Cond: statusRevisionGuard(m)},
+			Attrs: attrs, Cond: guard},
 		objstore.Write{Op: objstore.Update, Entity: MessageActivity, Key: activityKey(key), Attrs: map[string]string{attrActPreview: truncateRunes(content, activityPreviewChars)}},
 		objstore.Write{Op: objstore.Delete, Entity: MessageDelivery, Key: deliveryKey(core.MessageStatusFailed, key)},
 		objstore.Write{Op: objstore.Put, Entity: MessageDelivery, Key: deliveryKey(core.MessageStatusPending, key), Attrs: statusDeliveryAttrs(next)})
@@ -393,6 +409,9 @@ func (s *Store) ackStatus(ctx context.Context, m core.Message, platformID string
 		}
 		current := messageFrom(it)
 		writes := []objstore.Write{{Op: objstore.Update, Entity: Messages, Key: key, Cond: statusRevisionGuard(current)}}
+		if current.StatusPhase == "cleared" && current.StatusRevision == m.StatusRevision {
+			writes[0].Remove = []string{AttrMsgPlatformID}
+		}
 		if platformID != "" {
 			writes[0].Attrs = map[string]string{AttrMsgPlatformID: platformID}
 		}
@@ -421,22 +440,30 @@ func (s *Store) FailStatus(ctx context.Context, pending PendingMessage, permanen
 	n := pending.Attempts + 1
 	attrs := statusDeliveryAttrs(pending.Message)
 	attrs[attrDelAttempts] = strconv.Itoa(n)
+	if permanent {
+		delete(attrs, attrDelAttempts)
+	}
 	attrs["queued_at"] = core.TS(pending.QueuedAt)
 	target := core.MessageStatusPending
 	if permanent || n >= maxAttempts {
 		target = core.MessageStatusFailed
 	}
-	guard := objstore.Check{Entity: Messages, Key: key, Cond: statusRevisionGuard(pending.Message)}
 	cond := objstore.Cond{Item: objstore.ItemPresent, Where: []objstore.Cmp{{Attr: "revision", Op: objstore.Eq, Value: strconv.Itoa(pending.StatusRevision)}}}
+	count := objstore.Cmp{Attr: attrDelAttempts, Op: objstore.Eq, Value: strconv.Itoa(pending.Attempts)}
+	if pending.Attempts == 0 {
+		count.Op = objstore.Absent
+	}
+	cond.Where = append(cond.Where, count)
 	write := objstore.Write{Op: objstore.Put, Entity: MessageDelivery, Key: deliveryKey(target, key), Attrs: attrs}
 	if target == core.MessageStatusPending {
+		write.Op = objstore.Update
 		write.Cond = cond
 	}
 	writes := []objstore.Write{write}
 	if target == core.MessageStatusFailed {
 		writes = append(writes, objstore.Write{Op: objstore.Delete, Entity: MessageDelivery, Key: deliveryKey(core.MessageStatusPending, key), Cond: cond})
 	}
-	_, err = s.TryWriteEntities(ctx, []objstore.Check{guard}, writes...)
+	_, err = s.TryWriteEntities(ctx, nil, writes...)
 	return err
 }
 
