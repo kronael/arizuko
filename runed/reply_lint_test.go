@@ -18,8 +18,7 @@ import (
 
 const replyHook = "reply_lint.py"
 
-// The reply ceiling hook reaches the guest like the other core hooks, and the
-// merged settings.json runs it before the two chat-sending MCP tools only.
+// The reply ceiling hook reaches the guest like the other core hooks.
 func TestCorePackageShipsReplyLint(t *testing.T) {
 	cfg, folders := renderWiring(t)
 	if _, _, err := container.InstallPackage(cfg.ProjectRoot, "../ant", false); err != nil {
@@ -32,26 +31,6 @@ func TestCorePackageShipsReplyLint(t *testing.T) {
 	guest := core.ContainerHome + "/.claude/hooks/" + replyHook
 	if mount := findMount(turn.Mounts, guest); mount == nil || !mount.RO {
 		t.Fatalf("reply hook not mounted read-only at %s", guest)
-	}
-	data, err := os.ReadFile(filepath.Join(cfg.GroupsDir, "main", ".claude/settings.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var settings struct {
-		Hooks map[string][]struct {
-			Matcher string `json:"matcher"`
-			Hooks   []struct {
-				Command string `json:"command"`
-			} `json:"hooks"`
-		} `json:"hooks"`
-	}
-	if err := json.Unmarshal(data, &settings); err != nil {
-		t.Fatal(err)
-	}
-	pre := settings.Hooks["PreToolUse"]
-	if len(pre) != 1 || pre[0].Matcher != "mcp__arizuko__reply|mcp__arizuko__send" ||
-		len(pre[0].Hooks) != 1 || pre[0].Hooks[0].Command != "python3 "+guest {
-		t.Fatalf("settings.json PreToolUse = %+v, want one entry running python3 %s for the reply and send tools: %s", pre, guest, data)
 	}
 }
 

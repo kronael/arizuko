@@ -14,10 +14,19 @@ the blocks. Every fact is a copy of a `db/` row (`census.md`).
   minutes ("Drive-up stop, 20 min." / "Walk-around loop, 1 h 20."), then
   entry price, the two variants (below), the story box (below), per-item
   `.map-links` last.
-- Meal item: § Meals below. A sight's `.map-links` row holds that stop's
-  pins and route only; food links live only in meal items.
+- Meal item: § Meals below. A café or restaurant never sits inside a
+  sight's item: a sight's `.map-links` row holds that stop's pins and
+  route only; food links live only in meal items (a café inside a walk
+  item, pizza next to a spring walk).
 - Durations: photo stop 5–10 min · viewpoint + coffee 20–40 · church
   15–45 · lunch 1–1.5 h · museum 1–2 h.
+- Times add up: each item starts no earlier than the previous item's
+  start + its duration + the transfer between them, and inside the
+  place's opening hours on the date. A 45-min stop at 13:45 is not
+  followed by lunch at 13:50. Two items that exclude each other are one
+  choice item, never two entries of the chronology.
+- The `.route-overview`, the decision cards and the items read the same
+  selected schedule: one distance and one time per leg everywhere.
 - Order: group by area, uphill in the morning, lunch at the view,
   closure days noted (Mondays), scenic over shortest when time allows.
 - Optional blocks after the last fixed stop and before the drive home,
@@ -31,6 +40,11 @@ the blocks. Every fact is a copy of a `db/` row (`census.md`).
 
 Every item where the car stops ends with the arrival block. No field
 may be missing; no `db/parking.md` row → no stop (census first).
+The block tells the car where to stop only when the row verifies legal
+parking at a named place and a fallback. When the research left it
+open (no car park found, a roadside pull-off not seen at street level),
+the block says `parking unconfirmed` and what is unknown, and the plan
+never sends the car to that shoulder, bus stop or verge as if verified.
 
 ```
 12:10 — Drive to <Town>, park at the town hall
@@ -63,7 +77,7 @@ end-to-end so the day can be re-planned on the spot:
 ```
 
 - The `park:` line of each variant is the arrival block above.
-- Walk variant: marked path, OSM distance, climb, minutes at 3 km/h
+- Walk variant: marked path, mapy route distance, climb, minutes at 3 km/h
   + 15 min per 100 m, stroller yes/no, turnaround point.
 
 ## Loops and hiking POIs
@@ -107,39 +121,56 @@ not "go left after the bridge".
 
 ## Exposition
 
+- Pages are in English by default; in Czech when the user writes Czech.
 - The plan says what to do, where, when, how much. No inline citations,
   no "(estimate)" tails, no "one listing says", no "by the OSM outline",
   no host, tool or agent names; an uncertain number is written with "~"
   or "about".
+- Citations leave the plan text; uncertainty that changes what the
+  traveller does stays beside its stop: `parking unconfirmed`, `hours
+  unknown`, `fee unknown`.
 - Under the subtitle, one line:
   `<p class="checked-line">Facts checked <date>; sources at the end of the page.</p>`
-- All sources once, in the `.source-note` at the end; the `db/` row
+  When a fact the plan depends on is still unverified, the line says
+  so: `Facts checked <date>, except parking at <stop>; sources at the end of the page.`
+- All sources once, in the `.source-note` at the end — the reference
+  links of a Story box (§ Story) are the one exception; the `db/` row
   keeps the per-fact source for the next edit.
 - Two readers: the travellers on a phone in the car (plan text) and the next
   agent (`db/` rows). Never mix the two on the page.
 
 ## Meals — timeline items at their time
 
-- Four meal items per day, where they happen: `Breakfast` before
-  leaving, `Lunch` at the lunch stop, `Coffee` right after lunch or at
-  the café stop, `Dinner` after the return. Never a separate Food
-  section, never a café inside a sight's item (a café inside a walk
-  item, pizza next to a spring walk).
+- The meals the day's timeline reaches, where they happen: `Breakfast`
+  before leaving when the day starts before 10:00, `Lunch` at the lunch
+  stop when it spans 11:30–14:00, `Coffee` right after lunch or at the
+  café stop when it spans 14:00–17:00, `Dinner` after the return when it
+  runs to 18:00. A part-day page (a return drive 11:30–17:30) carries
+  only the meals inside its hours. The heading names the meal in the
+  page's language ("Late lunch", "Oběd"). Never a separate Food
+  section.
+- A meal with no venue to pick says `self-catered` in its text; never an
+  invented venue to fill the slot.
 - Each meal item = `timeline-date`, optional one-line text (walk from
   the car park, cheap fallback), then `<ul class="food-list">` from
   `db/food.md` (bakeries → Breakfast, cafés → Coffee, restaurants on the
   route → Lunch, near home → Dinner). Never empty when the census has rows.
 - One `<li>` per place, at most 10 words before the first `·`:
-  `Name — what it is, open to 18:00 · Google 4.6 · <a href="tel:+00…">+00 …</a> · <a href="…/maps/place/…">google</a> · <a href="…source=osm&id=…">mapy</a>`
-  Links in that order (`mapy-links.md` § By kind); phone missing after
-  the Google check → `phone: not found`. Address, hours, price and
-  counts stay in the row.
-- Rating = the platform that was opened + score. `unrated` only after
-  Google Maps was opened and showed no rating (a café
-  "unrated"; Google had 4.5).
+  `<a href="…/maps/place/…">Name</a> — what it is, open to 18:00 · mapy 4.8 · 123 reviews · 6 recent · <a href="tel:+00…">+00 …</a> · <a class="alt" href="…source=osm&id=…">mapy</a>`
+  The venue name links Google; the `class="alt"` chip links mapy
+  (`mapy-links.md` § By kind); phone missing after
+  the Google check → `phone: not found`. Address, hours and price stay
+  in the row.
+- Rating, reviews and recent are the row's derived fields
+  (`census.md` § Rating arithmetic): the higher score with its platform,
+  the summed count, the 2-month count. A missing count is named:
+  `mapy 4.8 · 77 mapy reviews, Google count unknown`. `unrated` only
+  after Google Maps was opened and showed no rating (a café "unrated";
+  Google had 4.5).
 - Select, do not list: the best-rated venues AT the spot where the meal
   happens (the park café for a park walk, the square for a town lunch),
-  sorted by rating; caps Lunch 3, Breakfast 2, Coffee 2, Dinner 2.
+  sorted by rating; caps Lunch 3, Breakfast 2, Coffee 2, Dinner 2. A
+  venue under 4.0 (Coffee under 4.5) carries `fallback` in its line.
   Breakfast and Dinner follow the day's route, not the previous page
   (three pages carried the same four lines). Cost: three
   cafés, none in the park walked.
@@ -150,9 +181,6 @@ not "go left after the bridge".
   confirmed. Open at the meal time: a café from 10:30 is not Breakfast
   at 8:45. Cost: a café with Google 4.8, no hours shown,
   listed first — closed for the season on arrival.
-- The Google entry matches the row's phone or address, not the name
-  alone: a guesthouse and its restaurant are two entries (a restaurant
-  and its guesthouse). Details: `mapy-links.md` § Disambiguation.
 - A spa town, promenade or town stroll ALWAYS has a Coffee item.
 
 ## On the day — the group changes the plan
@@ -161,7 +189,9 @@ Edit the page in place; Rounds 2–4 run on the changed items only.
 
 - Start time moves ("rebuild Fri start at 11:30"): keep every duration,
   shift every time, recompute the cut-off line, drop the optional blocks
-  that now end after sunset.
+  that now end after sunset. A shifted item that now falls outside its
+  place's hours takes the next feasible row, or the reply names the
+  conflict; the same holds when a variant or duration changes.
 - A place is closed on the date (call, Google, official site): the next
   row of the same table by rating, with its car park; the swap goes in
   `<trip>/CLAUDE.md`; the closed row keeps `closed <date>`.
@@ -169,11 +199,11 @@ Edit the page in place; Rounds 2–4 run on the changed items only.
   `indoor` sights or `kids.md` fallbacks — hours on the date, tickets.
 - Child asleep in the car: the drive-up variant of the next stop; the
   walk variant waits. Both times are already on the item.
-- The base moves: Round 0 around the new base (`--also` for the old
+- The base moves: Round 1 around the new base (`--also` for the old
   stops), `km` recomputed; the pages keep their stops.
-- A forecast host is down: the last forecast with its date in the
-  weather box; never the hosts tried.
+- A forecast host is down: `/weather` § Freshness decides what the
+  weather box shows; never the hosts tried.
 
 ## First screen
 
-Place the day decision first. Show route choices as cards with distance, time and suitability, and link each card to its verified route. Keep rating and review counts tied to their named source.
+Place the day decision first. While the route is open, show the choices as cards with distance, time and suitability, and link each card to its verified route; once the user has chosen, show the chosen route and its fallback, not the dropped options. Keep rating and review counts tied to their named source. On a 390×844 phone screen the first choice card is fully visible: above it stand only the back link, the one-line day nav, the title, one subtitle line and the checked line; introductory prose follows the cards.

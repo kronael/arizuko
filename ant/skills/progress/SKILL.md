@@ -20,3 +20,10 @@ when_to_use: "multi-step task, longer task, investigation, implementation, deleg
 - NEVER add a checklist to a one-shot answer; ALWAYS answer directly.
 - ALWAYS use the checklist internally when the platform cannot display it.
 - NEVER invent an unavailable tool; ALWAYS report the missing capability.
+
+## Planless turns and unsupported platforms
+
+- Print `<status>` blocks outside `reply` and `send` for progress without a checklist.
+  Say what the user gets next, never which tool, model or file.
+  End with `reply` containing the answer, not a copy of the status.
+- A channel that cannot both edit and delete shows no checklist.

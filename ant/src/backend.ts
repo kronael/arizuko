@@ -247,6 +247,7 @@ export async function* driveCli(
   }, Math.max(0, opts.deadline - Date.now()));
   const onAbort = () => child.kill('SIGTERM');
   opts.signal?.addEventListener('abort', onAbort, { once: true });
+  if (opts.signal?.aborted) onAbort();
 
   try {
     try {

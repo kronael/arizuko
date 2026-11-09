@@ -1,20 +1,23 @@
 # Checks — before every delivery (Round 4)
 
-Run `python3 ~/.claude/skills/itinerary/scripts/trip_lint.py ~/public_html/<trip>` for the whole site. It checks local links, navigation, page structure, map URLs and meal lines. The `page_check.py` entry point delegates to this same checker.
+Run `python3 ~/.claude/skills/itinerary/scripts/trip_lint.py ~/public_html/<trip> --root ~/public_html` for the whole trip; `--root` lets links to shared assets and sibling trips resolve. It checks HTML tag balance, local pages and assets, empty links, stylesheet classes, navigation, page structure, Mapy and OSM URLs, map link text, phone links, the meals the timeline reaches, meal ratings and fallback labels, opening hours against the meal time, and meal selection caps. Inline styles are permitted for minimal layout.
 
-Run `python3 ~/.claude/skills/itinerary/scripts/link_check.py ~/public_html/<trip>/day*.html` to inspect map links in the browser. A browser error or timeout is a failed check. Inspect rendered routes and a 390 px page separately; static checks cannot verify route geometry or source truth.
+Run `python3 ~/.claude/skills/itinerary/scripts/link_check.py <pages>` to inspect map links in the browser: after an edit, the pages the change touched; on a first build or a full audit, every page of the trip, `places.html` included. It opens a link shared by several pages once and fails on `mapy.cz` and short links. A browser error or timeout is a failed check. Inspect rendered routes and a 390 px page separately; static checks cannot verify route geometry or source truth.
 
-When a stop, date, route or venue changes, recheck its hours, route, affected links and pages. When only text changes, rerun the static checker. For independent judgment use core `oracle` with Codex model `gpt-6-astra` and reasoning effort `high`.
+At 390×844, read a screenshot top to bottom: the first choice card is fully visible (`pages.md` § First screen). Measure link heights with one DOM query over `document.querySelectorAll('a')`, minus only the inline exception of `web-deployment.md` § Links. NEVER say "all links" after measuring a narrower selector — ALWAYS name the measured selector with the result.
 
-Run all of it after every change, not only the first build.
+When a stop, date, route or venue changes, recheck its hours, route, affected links and pages. For independent judgment use core `oracle` with Codex model `gpt-6-astra` and reasoning effort `high`.
+
+Run all of it after every change, not only the first build. After a page or directory moves, lint every trip that links to it, archived pages included.
 
 ## Venues and car parks
 
 Every restaurant, café, museum, attraction and car park on the page is
 a `db/` row with address and postcode, phone, website or listing when
 one exists, place links per kind (`mapy-links.md`) — or `not found`
-written out after two sources tried. Public copies: `diff -q ~/workspace/trips/<trip>/db/*.md
-~/public_html/<trip>/db/` is empty.
+written out after two sources tried. Compare the page facts with the private rows.
+No `db/` table, decision or personal contact is under `~/public_html/<trip>/`
+(`SKILL.md` § ALWAYS).
 
 ## Trails
 
@@ -23,10 +26,12 @@ Before a trail, car park or walking distance goes on a page:
 python3 ~/.claude/skills/itinerary/scripts/osm_trails.py LAT1 LON1 LAT2 LON2
 ```
 Lists every marked route in the box between the two points (`[BOTH]` =
-passes both) with colour (`osmc:symbol`), length of the member ways in
+some member way passes within 300 m of each point; it does not prove one
+connected walk) with colour (`osmc:symbol`), length of the member ways in
 the box, surface mix, and car parks (ways and nodes) with `fee=` /
-`charge=` / `capacity=`. Write colour, length and relation id from that
-output; climb from the mapy.com route profile; when mapy.com is
+`charge=` / `capacity=`. Write colour and relation id from that output;
+the walk's length and climb from the rendered mapy.com route, never the
+member-way length; when mapy.com is
 reachable, confirm the marking there and cite both. A source that
 disagrees with the map is named as disagreeing in the row.
 

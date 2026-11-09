@@ -8,12 +8,6 @@
         ]
       }
     ],
-    "PreToolUse": [
-      {
-        "matcher": "mcp__arizuko__reply|mcp__arizuko__send",
-        "hooks": [{ "type": "command", "command": "python3 /home/node/.claude/hooks/reply_lint.py" }]
-      }
-    ],
     "PostToolUse": [
       {
         "hooks": [{ "type": "command", "command": "python3 /home/node/.claude/hooks/issues_notify.py" }]

@@ -1,6 +1,6 @@
 # Web Deployment Guide
 
-Copy `components/hub-lavender.css` and `components/hub.js` from the installed itinerary skill into the site’s `assets/` directory before publishing. Use relative asset links.
+Copy `components/hub-lavender.css` and `components/hub.js` from the installed itinerary skill into the trip's `assets/` directory before publishing. A page links every local file relative to its own directory: `assets/hub-lavender.css` from `<trip>/`, `../assets/hub-lavender.css` from `<trip>/<dir>/`. NEVER a root-relative `/pub/...` path — ALWAYS the relative one.
 
 ## File Structure
 
@@ -15,36 +15,32 @@ Copy `components/hub-lavender.css` and `components/hub.js` from the installed it
 
 ## Consistency Checks
 
-Run `scripts/page_check.py` after EVERY change (`checks.md`). It reads
-these classes: `timeline-date` (`HH:MM — <title>`), `food-list`,
-`checked-line`, `source-note`, `info-box`, `map-links`; the stylesheet
-defines them.
-
-**Manual Checks:**
-- Index card headers match page titles exactly
-- Index card descriptions match day page content
-- Map links follow `mapy-links.md` (no `?q=`)
-- Timeline timing realistic (no overlaps)
-- Cross-references valid (Plan A ↔ Plan B)
-- Transport info consistent across mentions
+Run `trip_lint.py` after EVERY change (`checks.md`). It finds the
+blocks by these classes: `timeline-date` (`HH:MM — <title>`; a meal
+word in the title makes a meal item) and the `<li>` lines of the
+`food-list` under it; on a day page, one `checked-line` and the
+`route-overview`, `map-links`, `timeline` and `source-note` blocks; an
+`alt` chip may read "mapy". Every class a page uses is defined in its
+linked stylesheet. The manual page checks are in `checks.md` § Page.
 
 ## Design Rules
 
-**NO vertical accent borders** — use background color instead:
-```css
-/* Good */
-background: rgba(255, 183, 77, 0.08);
-padding: 1em;
-border-radius: 8px;
-
-/* Bad */
-border-left: 4px solid var(--accent);
-```
-
 **Styling:**
 - ALWAYS use `assets/hub-lavender.css` + `assets/hub.js` (the site can add local styles)
-- NEVER inline styles except minimal layout (nav flex, spacing)
+- ALWAYS use the stylesheet's classes and colour tokens; keep its 2px radii and 760px column.
+- NEVER add a page theme or vertical accent borders — ALWAYS use the existing box classes.
+- NEVER inline a style beyond minimal layout — ALWAYS limit inline styles to nav flex and spacing.
 - Clean titles (NO unnecessary suffixes)
+
+## Links
+
+`hub-lavender.css` appends a "mapy", "google" or "osm" badge to every map
+link, so the link text only names the place or route (`mapy-links.md`).
+Every link in `.map-links`, `.food-list` and `<nav>`, every `a.alt` chip
+and the back link is a 40 px tap target. References inside a Story box
+and the `.source-note` stay inline text links; they are the one
+exception. NEVER restyle these per page — ALWAYS change the one
+stylesheet.
 
 ## HTML Template
 
@@ -52,14 +48,16 @@ border-left: 4px solid var(--accent);
 <!DOCTYPE html>
 <html lang="en">
 <head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Page Title</title>
   <link rel="stylesheet" href="assets/hub-lavender.css">
 </head>
 <body>
   <a href="index.html" class="back-btn">&larr; overview</a>
-  <button class="theme-toggle"></button>
+  <button class="theme-toggle" aria-label="Toggle theme"></button>
 
-  <nav style="max-width: 900px; margin: 1.5em auto 0; padding: 0 1.5em; display: flex; gap: 0.5em; flex-wrap: wrap; font-size: 0.9em;">
+  <nav style="max-width: 760px; margin: 1.5em auto 0; padding: 0 1.5em; display: flex; gap: 0.5em; flex-wrap: wrap; font-size: 0.9em;">
     <a href="day1.html" style="color: var(--dim); text-decoration: none;">Day 1</a>
     <span style="color: var(--border);">•</span>
     <a href="day2.html" style="color: var(--dim); text-decoration: none;">Day 2</a>
@@ -68,7 +66,7 @@ border-left: 4px solid var(--accent);
   </nav>
 
   <div class="hub-container">
-    <h1>Title</h1>
+    <h1>Page Title</h1>
     <!-- Content -->
   </div>
 

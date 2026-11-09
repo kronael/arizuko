@@ -544,10 +544,13 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 		DefaultFolderForJID: s.db.DefaultFolderForJID,
 		RouteTokenTarget:    s.db.RouteTokenTarget,
 		JIDRoutedToFolder: func(jid, folder string) bool {
+			if folder == t.folder && jid != "" && jid == discordThreadJID(t.chatJID, t.topic) {
+				jid = t.chatJID
+			}
 			if t.chatJID != "" && jid == t.chatJID && folder == t.folder {
 				return true
 			}
-			return s.db.JIDRoutedToFolder(jid, folder)
+			return s.db.JIDRoutableToFolder(jid, folder)
 		},
 		JIDRoutableToFolder: s.db.JIDRoutableToFolder,
 		MessagesBefore: func(jid string, before time.Time, limit int) ([]core.Message, error) {

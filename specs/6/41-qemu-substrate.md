@@ -564,12 +564,10 @@ explicit `size=` (§"The host budget").
 
 ## The image and the guest kernel
 
-**A release is still an image.** `ant/Dockerfile` builds `arizuko-ant` as it
-does today; the turn substrate consumes it as a directory. `make images`
-gains one step: `docker create` + `docker export` of the image into
-`<data>/images/ant-<version>/rootfs/`, once per release on the deploy host,
-and `arizuko run` (initial setup) does the same. The 8.26 GB moves once. The
-`root` share is that directory; nothing per turn copies or converts it.
+`ant/Dockerfile` builds `arizuko-ant` as a build input. `make images` exports
+it to `<data>/images/rootfs-<id>/` and removes `arizuko-ant:latest` after a
+successful export or reuse. The `root` share is that directory; nothing per
+turn copies or converts it.
 
 **The guest kernel is its own artifact, not a stage of the ant image.** It is
 built by `make kernel` into `<data>/images/kernel-<version>-<confighash>/`, and
@@ -666,16 +664,13 @@ any of them. Measured on hel1v5 (the krons host) 2026-09-23.
   per-instance tunables, so an instance that raises `-m` does not raise them;
   Open question 4's peak-RSS measurement is what says whether they should move
   onto the command line beside `ARIZUKO_CTL` and `ARIZUKO_MCP`.
-- **Disk is one rootfs per release, and a release deletes.** The export is
+- **Disk holds rootfs trees.** The export is
   8.26 GB uncompressed. Free space is the operator's, not a guard in the build:
   `docker builder prune -f` is the lever and it recovered 4.37 GB on krons
   (`docker system df` reported the layer cache 100 % reclaimable, 2026-09-23),
   taking free space from 5.2 GB to 9.4 GB. `make images` carries no free-space
-  check — a build that cannot write fails on the write, which is loud enough. **Never `docker image prune -a` on an
-  arizuko host**: it deletes `arizuko-ant` and every spawn then fails. What the
-  export DOES own is not growing without bound: it keeps exactly two unpacked
-  trees — the running release and one previous, so a rollback needs no
-  re-export — and deletes every older one by name.
+  check — a build that cannot write fails on the write, which is loud enough.
+  `arizuko images --prune` removes unused trees; the export removes no tree.
 
 ## The runed deploy topology
 

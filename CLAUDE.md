@@ -320,7 +320,7 @@ The existing outbound queue delivers them without an agent turn.
 ## Tagging a new version
 
 1. Move CHANGELOG.md [Unreleased] to `[vX.Y.Z] — YYYY-MM-DD`
-2. `git tag vX.Y.Z`, tag docker images (`arizuko:vX.Y.Z`, `arizuko-ant:vX.Y.Z`)
+2. `git tag vX.Y.Z`, tag the Docker image `arizuko:vX.Y.Z`; `rootfs-<id>` records the agent build
 3. Run the post-deploy gates 1-4; gate 5 runs only on a throwaway instance.
 4. **Release the docs too**: bump `ARIZUKO_VERSION` in
    `template/web/pub/arizuko/assets/hub.js` (the only copy), update any page

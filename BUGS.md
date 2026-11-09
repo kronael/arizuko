@@ -28,11 +28,23 @@
 - `L687` — decide whether to retire the scheduler's two external write endpoints; proposal, needs sign-off.
 - `L688` — defer folding onbod into routd until measured net savings justify the boundary change; needs sign-off.
 - `L689` — defer folding dashd until measured net savings and reused code justify it; needs sign-off.
-- `L691` — `make rootfs` and `make kernel` reject a complete export when DOCKER uses sudo; record only.
 - `L676` — decide whether dashboard group creation must check the creator's new subtree grant.
 - `L675` — the guest's Python is under `/root` (700); fix at the next rootfs build.
 - `L674` — `compose down` fails on a deleted fragment despite `required: false`; proposal.
 - `L672` — a spend-limit failure: retry silently, one `#issues` notice to the operator; approved, queued after L670.
+- `L760` — an agent `reply` carrying a `<status>` block posts raw tags; manual fix ships in v0.75.4, verify on live codex turns.
+- `L761` — a mention-routed folder cannot read the chat it answers; fix queued.
+- `L762` — the reply length lint does not run on codex turns; fix queued.
+- `L763` — reproduce Nemo's intermittent approval failures and dead buttons before choosing a fix.
+- `L764` — decide how Telegram supergroup migration updates route identity; live route and schedule repair stays with the operator.
+- `L765` — choose whether cached property search results get a global warning or block; proposal, needs sign-off.
+- `L766` — choose how package updates preserve custom files; replacement with backups is measured, Nemo's overwrite is not.
+- `L767` — decide whether migration notices need a broadcast surface beyond release announcements; proposal, needs sign-off.
+- `L768` — approve trip network defaults or grant the requested hosts per folder; current reachability is unmeasured.
+- `L769` — choose whether `/pub/` filters Markdown; forwarding without an extension filter is measured.
+- `L770` — approve persistent web lint through the shared policy; local settings hooks are replaced at spawn.
+- `L771` — a run timeout counts toward automatic turn retry; owner decided no retry + a deadline continuation nudge; fix queued.
+- `L772` — agent image removal breaks a second instance's rootfs; trees duplicate; fix queued.
 - `L660` — a mention by reply engages only the reply chain, not the chat root; proposal, needs sign-off.
 - `L655` — products as full packages (`catalog:<name>`) and persona layering (`PERSONA.local.md`); proposal, needs sign-off.
 - `L650` — an `extenddb` reached 10 GB and was OOM-killed; the host reset 8 times on 11-03; cause unmeasured.
@@ -58,7 +70,7 @@ marker every entry carries. Ten entries said open in the heading and carried no
 **A contract or design decision.** Each names the question in its own Status
 line; none can be answered from the code.
 - `L570` — may routd steer rows into a running turn? Adds a verb to the
-  runed boundary.
+  runed boundary; today's Sloth Codex turn ran 3,568 seconds without the reported stop message reaching it.
 - `L571` — measure a two-sender batch under a `{sender}` route.
 - `L472` — must a scheduled turn state its own success or failure, and may
   the run log stop calling a queued prompt a success?
@@ -509,6 +521,287 @@ The current tools use `send` for group handoffs. Each group send queues a turn;
 the description directs progress to `<status>` and `TodoWrite`. Live verification
 of bounded handoffs remains open.
 
+## L760 — an agent `reply` carrying a `<status>` block posts the raw tags to the chat (2026-11-08, open)
+
+MEASURED 2026-11-08 on sloth (codex `gpt-6.1-sol`): in thread `1569000827429847372`
+of `discord:837270552959516682/1504474527638224936`, root `sloth` posted the status
+correctly as message `1569075404684140708` ("⏳ You get answers in the original
+threads, …", 19:45:28), then the same line again as message `1569075413961940993`
+with the literal text `<status>You get answers … questions.</status>` (19:45:30;
+Discord API). The rollout shows the agent printed the status and then called
+`mcp__arizuko__reply({chatJid:"discord:837270552959516682/1504474527638224936",
+text:"<status>…</status>"})`. The owner asked "wtf is this".
+
+Cause: the `<status>` grammar is the turn's progress channel (`ant/README.md`
+§ Contracts with the Go side); nothing stops the same block from going out through
+`reply` or `send`, so a model that mixes them posts the tags verbatim.
+
+- **Severity:** medium — raw protocol text in the user's chat.
+- **Scope:** `ipc/ipc.go` `refuseText` (shared by `reply` and `send`).
+- **Fix:** refuse a `reply`/`send` text that contains a `<status>` block, with an
+  error that says status belongs in the turn's own text, not in a message.
+- **Test:** `reply` with a `<status>…</status>` text is refused and nothing is
+  delivered; a text that only mentions the word status still goes out.
+- **Status:** Source check found conflicting wording about private printed text
+  and closing a status with `reply`. The wording now separates printed progress
+  from the answer in `reply` and excludes status blocks from `reply` and `send`.
+  The Python reply linter runs through Claude settings only, outside the Codex
+  policy bindings. No test — docs.
+
+## L761 — a mention-routed folder cannot read the chat it answers: history reads refuse with `jid not routed to your group` (2026-11-08, open)
+
+MEASURED 2026-11-08 on sloth: kronael mentioned sloth in thread `1567944066765824111`
+of `discord:837270552959516682/920916162416635944`; routd dispatched `sloth/trading`
+(19:46:11, the route `platform=discord room=837270552959516682/920916162416635944
+verb=mention` → `sloth/trading`). In rollout
+`groups/sloth/trading/.codex/sessions/2026/11/08/rollout-2026-11-08T19-47-03-…`
+three reads were refused with `access_denied: jid not routed to your group`:
+`get_thread(chat_jid=…/920916162416635944, topic=1567944066765824111)`,
+`fetch_history(chat_jid=…/920916162416635944, before=…)` and
+`fetch_history(chat_jid=…/1567944066765824111)`. The agent told the owner "I can read
+your mention, but the thread history returns access_denied".
+
+Read from code: the reads gate on `JIDRoutedToFolder` (`ipc/ipc.go:2268`, `:2388`,
+`:2427`, `ipc/inspect.go:30`), which is the chat's DEFAULT route target only
+(`routd/reads.go:50`), so a `verb=mention` route never counts. `JIDRoutableToFolder`
+(`routd/reads.go:61`, verb ignored) already exists for the reply path. The own-chat
+exception admits the exact bound JID and folder in `TestMentionRouteReadAccess`;
+the live socket's binding is not measured. `discordThreadJID` maps the bound
+parent and topic to the thread JID.
+
+- **Status:** local change admits mention routes and the bound Discord thread JID; live report remains unverified.
+- **Severity:** high — every mention-routed sub-folder answers blind to its thread.
+- **Scope:** the read gate's predicate in `routd`/`ipc`; reuse the existing functions.
+- **Test:** a mention-routed folder's turn reads its own chat and thread (parent JID +
+  topic, and the thread's own JID); a folder with no route to a chat is still refused.
+
+## L762 — the reply length lint does not run on codex turns (2026-11-08, open)
+
+MEASURED 2026-11-08 by source reading during L760: `ant/hooks/reply_lint.py` (the
+Response Style ceiling, 500 chars / 6 lines) is bound only in
+`ant/.claude/settings.json`, which claude reads. Codex renders its hooks from the
+policy table in `ant/src/policy.ts` (`codexHooksConfig`), and the table holds no
+reply-length row, so a codex `reply` or `send` is never checked.
+
+- **Severity:** medium — codex instances (sloth since 2026-11-08) post replies over
+  the ceiling the manual promises.
+- **Scope:** `ant/src/policy.ts` — bind the existing lint as one policy row so
+  every harness renders it; no second copy of the rule.
+- **Test:** the policy table carries the reply-length row and codex's rendered
+  hooks include it.
+- **Status:** implementation shared across claude, codex and pi; awaiting release.
+
+## L763 — Nemo reports intermittent approval refusals and dead approval buttons (2026-11-08, open — unmeasured)
+
+FOUND 2026-11-08, premise unmeasured: N10/N26/N30/N32 in
+`/srv/data/arizuko_krons/groups/rhias/nemo/issues.md:32`, `:56`, `:61` and `:78`
+report blocked writes, unanswered button presses and batches of refused tools.
+The current code does persist held calls (`routd/pending_actions.go:73`, `:87`)
+and reads their verdicts (`:150`). Telegram polls callbacks (`teled/bot.go:215`,
+`:232`) and forwards their data as inbound messages (`:279`, `:303`). Those
+paths do not prove delivery of the reported presses or explain the refusals.
+
+- **Severity:** high — reported approvals block edits and replies.
+- **Scope:** routd pending actions and teled callback delivery.
+- **Fix:** capture one failed call, pending-action row, callback and verdict
+  together before prescribing a persistence or transport change.
+- **Status:** open (record only). No regression test — the current failure is
+  unmeasured and this request permits only BUGS.md edits.
+
+## L764 — Telegram supergroup migration does not carry the old route identity forward (2026-11-08, open — proposal, needs sign-off)
+
+MEASURED 2026-11-08 in code: `teled/bot.go:331` derives the inbound JID from
+the current chat ID; `:341` drops messages without text or extracted media.
+The handler does not process Telegram's migration fields. `:770` mechanically
+renders negative IDs as positive `telegram:group/` IDs. Route writes are explicit
+resource actions (`routd/routes_resource.go:94`, `:123`), not a migration mapping.
+N31 reports the dead old JID in
+`/srv/data/arizuko_krons/groups/rhias/nemo/issues.md:69`; `:91` records the new
+JID as `telegram:group/1004358948112`. Current live routes were not checked;
+do not infer the new identity by adding a `-100` prefix.
+
+- **Severity:** high — replies can target a chat Telegram retired.
+- **Scope:** teled identity and routd routes; no test — design.
+- **Status:** open — proposal, needs sign-off. **Options:** (a) handle an
+  attested migration and update explicitly identified route references;
+  (b) retain operator-managed migration. **Default if nothing is decided:**
+  explicit route repair. N33's scheduled rows (`issues.md:88`, owner
+  `routd/scheduled_tasks.go`) need a separate operator check; no live writes.
+
+## L765 — a global warning or block for cached property listings needs a policy decision (2026-11-08, open — proposal, needs sign-off)
+
+MEASURED 2026-11-08 in code: the complete binding table at
+`ant/src/policy.ts:67` contains no property-search cache warning or block.
+`runed/settings.go:36` takes settings hooks from selected packages and `:40`
+replaces the local hooks map. N35's residual request is in
+`/srv/data/arizuko_krons/groups/rhias/nemo/issues.md:102`: a cached search snippet
+misstated listing availability, and a local WebSearch/WebFetch warning was
+reported. That historical result and the live local hook were not reproduced.
+Product live-verification guidance does not establish a global enforced gate.
+
+- **Severity:** medium — stale listings can reach a property recommendation.
+- **Scope:** shared ant policy and runed settings; no test — design.
+- **Status:** open — proposal, needs sign-off. **Options:** (a) add the agreed
+  warning to the existing shared policy; (b) block the agreed search calls.
+  Define the tools and domain scope before implementation.
+  **Default if nothing is decided:** product live-verification guidance applies;
+  no new global warning or block.
+
+## L766 — package blending replaces custom bytes at managed paths after making a backup (2026-11-08, open — proposal, needs sign-off)
+
+MEASURED 2026-11-08 in code: `container/blend.go:181` writes every selected
+package file through `writeIfDifferent`; `:270` backs up different local bytes
+and `:283` writes the package bytes. `UnmanagedPaths` (`:151`) identifies
+existing paths outside the previous receipt; it does not preserve edits at
+already managed paths. Backups expire after 30 days (`:39`, `:43`).
+N40/N43 request custom-file preservation in
+`/srv/data/arizuko_krons/groups/rhias/nemo/issues.md:129` and `:132`, naming
+`public_html/{CLAUDE.md,README.md,gen_web.py}`. A current receipt or update that
+overwrites those Nemo files is unmeasured; the source confirms replacement
+semantics, not that those files are managed by today's package.
+
+- **Severity:** medium — updates can replace local changes at managed paths.
+- **Scope:** container package blending; no test — design.
+- **Status:** open — proposal, needs sign-off. **Options:** (a) keep project
+  files outside package-managed paths; (b) approve a preservation contract in
+  the existing installer. **Default if nothing is decided:** package bytes win
+  at managed paths, with the existing backups; no exemption format is added.
+
+## L767 — arbitrary migration broadcasts need a contract beyond release notices (2026-11-08, open — proposal, needs sign-off)
+
+FOUND 2026-11-08, historical failure unmeasured: T01 in
+`/srv/data/arizuko_krons/groups/rhias/trip/issues.md:5` requests migration
+announcements across folders after an agent send refused the destination.
+`routd/announcements.go:17` already selects `#announce` routes and `:59` queues
+release notices as outbound bot messages. `:109` derives their content from a
+released changelog entry. `:84` separately queues issue notices to `#issues`.
+These paths do not prove that arbitrary migration notices fit either contract;
+the old agent-send refusal was not replayed.
+
+- **Severity:** low — migration notices can remain unsent.
+- **Scope:** routd announcements; no test — design.
+- **Status:** open — proposal, needs sign-off. **Options:** (a) approve
+  operator-issued migration notices through the existing outbound queue with
+  explicit destinations; (b) keep announcements limited to their existing
+  purposes. **Default if nothing is decided:** release and issue notices keep
+  their current tags; agent sends retain folder containment.
+
+## L768 — trip network defaults and host grants need an operator decision (2026-11-08, open — proposal, needs sign-off)
+
+FOUND 2026-11-08, current refusal unmeasured: T10.6/T11.1/T12.1–2/T16.3 in
+`/srv/data/arizuko_krons/groups/rhias/trip/issues.md:25`, `:33`, `:43`, `:44`
+and `:51` request OSM/Mapy/Google hosts, TripAdvisor, weather and destination
+sites. Google dependencies include `maps.gstatic.com`, `www.gstatic.com`,
+`lh3.googleusercontent.com` and `consent.google.com`; the reported effect is
+missing review counts and hours. No current egress probe or live rule read
+establishes which hosts still fail, or whether any failure is policy refusal.
+
+The management path exists: `routd/network_rules_resource.go:59` validates and
+writes an allow rule; `:110` authorizes its target folder.
+`resreg/resources/network_rules.go:22` declares allow/deny/list as MCP-only;
+`:38` documents inheritance. A missing live allow is operator data, not proof
+that the management handler is broken.
+
+- **Severity:** medium — missing network access can prevent venue verification.
+- **Scope:** network rules and grant policy; no test — config/design.
+- **Status:** open — proposal, needs sign-off. **Options:** (a) approve a
+  common trip host set through the existing rules; (b) grant measured needs per
+  folder. **Default if nothing is decided:** default-deny and existing delegated
+  management apply; destination-specific allows remain operator data.
+
+## L769 — the public web path has no blanket Markdown filter (2026-11-08, open — proposal, needs sign-off)
+
+MEASURED 2026-11-08 in code: `proxyd/main.go:508` handles `/pub/` without an
+extension check. A reachable public redirect runs first (`:516`); otherwise
+prefix web routes can deny or require auth (`:522`), and the default forwards
+to vite (`:539`). T11.2's residual request in
+`/srv/data/arizuko_krons/groups/rhias/trip/issues.md:34` reports public 200s for
+CLAUDE.md, design files and database Markdown containing private trip notes.
+Those URLs were not fetched today; the source confirms the missing blanket
+filter, not their current content or HTTP status.
+
+- **Severity:** high — private notes placed in the public tree can be served.
+- **Scope:** proxyd public serving policy; no test — design.
+- **Status:** open — proposal, needs sign-off. **Options:** (a) filter the
+  agreed Markdown names or extensions on every public serving path, including
+  redirects; (b) retain public Markdown and keep private notes outside the
+  public tree. **Default if nothing is decided:** existing prefix rules apply;
+  product instructions keep private notes outside public_html.
+
+## L770 — persistent automatic web lint needs a shared policy binding (2026-11-08, open — proposal, needs sign-off)
+
+MEASURED 2026-11-08 in code: `runed/settings.go:36` reads selected package hooks
+and `:40` replaces the local settings hooks on spawn; `:109` writes the settings
+file. `ant/src/policy.ts:67` declares Stop/PostToolUse policies but no web lint.
+Codex writes its hooks from that table (`ant/src/codex.ts:315`), so a local
+Claude settings edit alone does not establish enforcement on every harness.
+T16.2/T17–T20 in
+`/srv/data/arizuko_krons/groups/rhias/trip/issues.md:51` and `:53`–`:56` request
+generic publication lint and blocking feedback from Stop or PostToolUse.
+The claimed live root ownership and reseeding of hook scripts are unmeasured.
+
+- **Severity:** medium — an agent can finish with unchecked public pages.
+- **Scope:** ant shared policy and runed settings; no test — design.
+- **Status:** open — proposal, needs sign-off. **Options:** (a) bind the agreed
+  checker and blocking feedback through the existing shared policy, with scope
+  and behavior verified on every supported harness; (b) retain explicit product
+  checks. **Default if nothing is decided:** mandatory product commands remain;
+  no workflow requirement is loosened and no local hook is installed.
+
+## L771 — a run timeout counts toward automatic turn retry (2026-11-08, open)
+
+MEASURED 2026-11-08 on sloth: `journalctl -u arizuko_sloth --since
+"2026-11-08 19:40" --until "2026-11-08 21:05"` records `sloth/morha` exiting
+at 21:02:38 UTC with `code=143`, `timedOut=true` and duration
+`3599911137634` ns (about 3,599.9 seconds). At 21:02:39 routd logs
+"turn failed without reply, scheduling retry", retry 1, max 3, for
+`delegate-1794168081354411585`. The next dispatch at 21:02:51 is
+`gh-c6726928796`, topic `pr/420`: a different turn, not proof that the same
+timed-out turn ran again.
+
+The retry classification is confirmed in source: `runed/qemu.go:500` returns
+OutcomeError for a timeout without Terminal. `routd/dispatch.go:548` retries
+an error when it is nonterminal, has no bot reply and remains below
+`maxTurnRetry` (`:553`); it increments RetryCount and holds the cursor for a
+re-feed (`:554`, `:561`). `routd/loop.go:174` explicitly includes timeouts;
+`:195` makes zero mean the default 3 and a negative value disable retries.
+`routd/cmd/routd/main.go:227` reads `MAX_TURN_RETRY`. Timeouts therefore count;
+the exhausted deadline can buy another full attempt without a new user request.
+
+- **Severity:** high — automatic attempts can repeat an hour of work and spend.
+- **Scope:** runed timeout outcome and routd turn retry classification.
+- **Fix:** distinguish deadline exhaustion from a transient failure at the
+  existing outcome/retry decision; report exhaustion and require an explicit
+  continuation. No regression test — this request permits only BUGS.md edits;
+  the journal and source establish the current scheduling behavior.
+- **Status:** open — Codex deadline continuation implemented; timeout retry policy remains unchanged and requires a separate fix.
+- **Owner decision 2026-11-08:** "i dont really see that this should retry. maybe it
+  should just nudge the model to request a continuation request". So: a timed-out
+  turn is not retried (crash and OOM keep their retry), and before the deadline the
+  harness tells the model to post what it has and ask whether to continue. Claude
+  already receives the `[deadline]` steering note mid-turn; codex reads input only
+  between turns (L570), so ant must stop codex shortly before the deadline and
+  resume the same thread with that one prompt. Changes spec 5/12's retry rule.
+
+## L772 — removing the agent image after export breaks the second instance's rootfs, and each instance stores its own 7.3 GB tree (2026-11-08, open)
+
+MEASURED 2026-11-08 on hel1v5: `make rootfs` exports into one `DATA_DIR`
+(`Makefile` `ROOTFS_DIR ?= $(DATA_DIR)/images/rootfs-$(ROOTFS_KEY)`), and since
+`47186b354` it runs `docker image rm arizuko-ant:latest` after the export. A second
+`make rootfs DATA_DIR=<other instance>` then stops with "no arizuko-ant:latest image".
+Both instances hold an identical tree: `du -sh` gives 7.3G for
+`/srv/data/arizuko_krons/images/rootfs-417487f600e2` and 7.3G for the sloth twin, on a
+disk with 10–12 GB free during this release.
+
+- **Severity:** medium — a multi-instance host cannot finish a release, and two copies
+  of one read-only tree cost 7.3 GB.
+- **Scope:** `Makefile` `rootfs` target.
+- **Fix:** when another instance on the host already holds the tree for the same key,
+  link it (`cp -al`; the guest mounts the tree read-only) instead of exporting again;
+  remove the image only after the last instance has its tree.
+- **Test:** `make -n rootfs` for a second `DATA_DIR` with an existing same-key tree
+  shows the link, not an export.
+
 ## L540 — dashd's grant form and `POST /v1/acl` write rows without `auth.Delegate` (2026-10-23, open — needs sign-off)
 
 READ at `491204eb`: `add_acl` runs `auth.Delegate` for a writer that is not
@@ -660,20 +953,6 @@ The fixture values and case comments do not describe the current deployment.
 - **Fix:** align fixture backend and service expectations with proxyd static serving and routd scheduling.
 - **Test:** run the affected Playwright suites with the fixture update; TypeScript and TOML edits are outside this documentation pass.
 - **Status:** ✅ FIXED — fixtures and case comments use current services.
-
-## L691 — `make rootfs` and `make kernel` reject a complete export when DOCKER uses sudo (2026-11-08, open — record only)
-
-With `DOCKER='sudo docker'`, `DOCKER_SUDO` extracts the export as root into a
-`700` root-owned stage directory. The completeness checks then run `test -s`
-as the calling user, cannot enter the stage, and report "incomplete export".
-Seen 2026-11-08 for both targets; the exports themselves were complete when
-read as root.
-
-- **Severity:** low — blocks the build only when docker needs sudo.
-- **Affected:** `Makefile` targets `rootfs` and `kernel` (stage checks).
-- **Measured:** `make rootfs DATA_DIR=<scratch> DOCKER='sudo docker'` → "incomplete export"; `sudo test -s` on each checked file passes.
-- **Fix:** run the stage checks with `$(DOCKER_SUDO)`, or create the stage readable by the caller.
-- **Status:** open — record only.
 
 ## L678 — no operator door writes a group's `effort`, and dashd lists only 4.x models (2026-11-07, open — folded into the per-group harness spec)
 
@@ -2098,12 +2377,35 @@ Nothing sets `RunOutcome.Steered`, so `routd/dispatch.go:454` and `endSteered`
 never run. The owner expects rows that arrive while a turn runs to reach it
 (2026-10-24).
 
+MEASURED again 2026-11-08 on sloth: `journalctl -u arizuko_sloth --since
+"2026-11-08 19:40" --until "2026-11-08 21:05"` records root `sloth` dispatching
+at 19:41:53 UTC, turn `1569074500555907123`, topic `1569000827429847372`.
+The guest exits at 20:41:27 with code 0 and duration `3568427773761` ns
+(about 3,568.4 seconds). The owner reports sending "disengage" during that
+turn and the agent later saying "I found your disengage message in the history
+late". The journal confirms the run interval; it does not expose those message
+bodies, so their timing and wording rely on the owner's report.
+
+Current source still confirms the delivery gap: `runed/manager.go:202` checks
+for a live spawn and `:207` returns Busy without forwarding the new batch.
+`ant/src/codex.ts:337` declares `steering: 'between-turn'`; `:227` starts the
+CLI with an initial prompt and `ant/src/backend.ts:191` closes that stdin.
+The profile alone is not proof that Codex cannot accept injected context:
+`ant/src/policy.ts:91` registers PostToolUse steering, `:122` drains its spool,
+and `ant/src/codex.ts:269` renders additionalContext. No measurement here proves
+that the reported user message reached that spool. This is further evidence
+for this entry, not a separate Codex root cause.
+
 - **Fix (proposal):** when a batch dispatches to a folder with a live run,
   routd hands the batch to runed, which calls the run's steer callback; on ack
   the rows are consumed, on refusal they wait as today. This adds a verb to the
   runed boundary (`runed.Runtime` is `Run` + `Kill`, CLAUDE.md port rule), so it
   needs an approved plan first.
-- **Status:** open — needs sign-off (runed port change).
+- **Status:** open — needs sign-off (runed port change); no test — design.
+  **Options:** (a) approve forwarding through the existing guest steering path
+  and verify delivery on every harness; (b) retain queued delivery after the
+  active run. **Default if nothing is decided:** new user messages wait;
+  the existing command handling remains unchanged.
 
 ## L571 — a batch runs every sender in one folder, even under a `{sender}` route (2026-10-24, open — unmeasured)
 

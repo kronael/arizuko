@@ -19,7 +19,11 @@ By kind (rule per kind): restaurants, cafés, bakeries,
 museums and shops link to **Google Maps first** (reviews, hours, photos),
 then a mapy entity with a rating; never an OSM object. Trails, rocks,
 viewpoints, peaks, car parks and trailheads link to **mapy first**, then
-OSM, then Google. Meal lines carry both: `· google · mapy`. Record the
+OSM, then Google. The link text is the place or route name ("Zielony
+Staw", "ponds loop, 2.2 km"), never "google", "mapy" or "(mapy)"; the
+stylesheet badges the map (`web-deployment.md` § Links). The one
+exception is the secondary map of a meal line: the venue name links
+Google and a `class="alt"` chip reads "mapy". Record the
 kind in the row (`link_kind`). Cost: every link was a GPS
 pin, so the reader saw "Position on the map" instead of the place, its
 photos, hours and phone.
@@ -33,11 +37,10 @@ photos, hours and phone.
   before taking an entity URL.
 - mapy `source=osm&id=NNN` is mapy's own id, not the OSM node/way id
   ; take it from the browser address bar only.
-- Google Maps needs consent cookies: set `CONSENT` and `SOCS` on
-  google.com from a plain page (`robots.txt`) in `agent-browser`
-  (`consent.google.com` is off the allowlist). Without the gstatic /
-  googleusercontent hosts the card hides review counts and shows
-  today's hours only — write that in the row.
+- Open Google Maps and complete its consent flow in the browser. If consent
+  or static hosts are refused, request access using `census.md` § Egress.
+  If the limited view hides review counts or hours for the trip date,
+  record those fields as unverified; verify them from another live source.
 
 ## GPS pin (last resort)
 
@@ -64,10 +67,16 @@ exact result, read `x=`/`y=` from the address bar; fallback
 Route-planner URL, generated — never typed:
 ```bash
 python3 ~/.claude/skills/itinerary/scripts/mapyrc.py routes.json
-# routes.json: {"fri_car": {"mode": "car", "points": [[LAT, LON], [LAT, LON], …]},
-#               "fri_walk": {"mode": "hike", "points": [[LAT, LON], …]}}
+# routes.json: {"fri_car": {"mode": "car", "points": [[LAT, LON], [LAT, LON, "stre", 106188], …]},
+#               "fri_walk": {"mode": "hike", "points": [[LAT, LON, SOURCE, ID], …]}}
 # → one line per route: name, mode, max_err, URL (rc= encoder, port of jamhed/mapy coords.ts)
 ```
+- A named point carries its mapy entity: `SOURCE` and `ID` are the
+  `source=` and `id=` of the place's mapy.com URL (§ Place links). A point
+  with coordinates only is for a place with no entity, such as the
+  private base; the row says so.
+- A route is a loop only when it is closed and no stretch is walked
+  twice; open the rendered route to see it.
 - Modes (`mrp={"c":…}`, browser-checked): `car` 111; `foot`
   131 = mapy "Fast" (road-first); `hike` 132 = "Outdoor" (marked
   trails) — loops and trail walks use `hike`; `bike` 121. Open the URL

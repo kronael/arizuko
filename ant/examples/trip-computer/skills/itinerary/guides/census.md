@@ -1,7 +1,7 @@
-# Census — the trip database (Round 0)
+# Census — the trip database (Round 1)
 
 The census is a research workflow, not a script. A script produces the
-skeleton (step 1); every other step is work in the browser and the
+skeleton (step 2); every other step is work in the browser and the
 search engine, as a person would do it. The result is the database the
 whole trip is planned from. Rule set and costs: `../SKILL.md`.
 
@@ -9,7 +9,8 @@ whole trip is planned from. Rule set and costs: `../SKILL.md`.
 
 `~/workspace/trips/<trip>/db/` — five tables, one row per place — and
 `~/public_html/<trip>/places.html` published from them (sights by
-distance band, then the full list; links to the tables).
+distance band, then the full list). What stays out of `~/public_html/`:
+`../SKILL.md` § ALWAYS.
 
 | file | rows | score |
 | --- | --- | --- |
@@ -48,18 +49,22 @@ with reasons · one-line verdict. An empty mandatory field reads
 
 ## Steps
 
-1. **Skeleton from OpenStreetMap.**
+1. **The user's own links.** Resolve every map link the user sent
+   (`curl -sIL` a `maps.app.goo.gl` link, read the place from the final
+   URL) before any other discovery; its coordinates set the base or an
+   `--also` circle of step 2.
+2. **Skeleton from OpenStreetMap.**
    `python3 ~/.claude/skills/itinerary/scripts/osm_census.py --lat … --lon … --radius 10 --out …/db`
    Named objects with coordinates, OSM address, phone, hours, fee,
    capacity, trail colour and length — candidates, nothing verified.
+   Each row keeps its `osm` id through enrichment: a rerun into the
+   same `db/` keeps every existing row and appends only the places whose
+   id is not in the table yet.
    The radius covers every planned stop: a stop outside it gets
    `--also LAT,LON` (a 2 km circle; `km` stays from the base) and steps
    3 and 4 around itself before its page. A car park row carries
    `near:` = the nearest named sight within 600 m — the `serves`
-   candidate.
-2. **The user's own links.** Resolve every map link the user sent
-   (`curl -sIL` a `maps.app.goo.gl` link, read the place from the final
-   URL). Each becomes a row marked `user pick` before any other work.
+   candidate. Each place of step 1 is a row marked `user pick`.
 3. **mapy.com.** Open each sight and trail on
    `https://mapy.com/en/turisticka` (`agent-browser`): confirm trail
    colour and marking, read mapy's rating and description, take the
@@ -68,9 +73,8 @@ with reasons · one-line verdict. An empty mandatory field reads
 4. **Google Maps.** Open each sight, restaurant, café and car park:
    rating, review count, hours for the exact trip dates, phone,
    "permanently / temporarily closed", price level, car-park photos
-   (surface, barrier, pay machine). Match the entry to the row by phone
-   or address (a guesthouse and its restaurant are two entries); cookies
-   and the limited view: `mapy-links.md` § Disambiguation.
+   (surface, barrier, pay machine). Matching the entry to the row,
+   cookies and the limited view: `mapy-links.md` § Disambiguation.
 5. **TripAdvisor.** Every restaurant and paid attraction: rating, count,
    rank in town, last three review dates, mentions of children (high
    chair, play corner, pram space). Restaurant Guru and Yelp when
@@ -92,7 +96,10 @@ with reasons · one-line verdict. An empty mandatory field reads
 9. **Score every row** with its table's system, write the verdict, mark
    `checked <date>`.
 10. **Publish `places.html`** and keep the tables as the only source
-    for day pages: a day page copies its venues from rows.
+    for day pages: a day page copies only rows marked `checked <date>`
+    (a census row without it is a candidate); a change goes into the row
+    first, then into the page; a field still `not found` reads `unknown`
+    on the page.
 
 ## Rating systems
 
@@ -130,7 +137,8 @@ Verdict: "park here, 8.00/day, card" / "free, 7 places, arrive before 10".
 
 **Trail (walks)**
 - Marking: colour and OSM relation id; mapy confirmation.
-- Length one way (OSM-measured) and climb.
+- Length one way and climb from the rendered mapy.com route; `km in
+  area` from the census is relation coverage, not a walk length.
 - Surface shares: asphalt / gravel / path / rock / boardwalk.
 - Stroller: yes / partly (to where) / no.
 - Time at child pace (3 km/h + 15 min per 100 m climb) and the safe
@@ -155,16 +163,30 @@ refuse). This is the only egress list in the skill.
 
 Precheck before step 3 and again before Round 2:
 ```bash
-for h in api.openstreetmap.org nominatim.openstreetmap.org mapy.com www.google.com maps.app.goo.gl www.tripadvisor.com en.wikipedia.org api.met.no api.open-meteo.com; do
+for h in api.openstreetmap.org nominatim.openstreetmap.org mapy.com www.google.com maps.google.com maps.app.goo.gl goo.gl maps.gstatic.com www.gstatic.com lh3.googleusercontent.com consent.google.com www.tripadvisor.com en.wikipedia.org api.met.no api.open-meteo.com; do
   printf '%s ' "$h"; curl -s -o /dev/null -w '%{http_code}\n' "https://$h/"
 done
 ```
-`403` on every path or `000` = the host is not on the allowlist. Send
-the user the exact ask in the same message, then continue with OSM and
-label the page "corroborated on OSM, not Mapy":
+Inspect the proxy response for an allowlist refusal. A `000` result means
+the connection failed; it does not identify the cause. For a confirmed
+refusal, send the user the exact ask in the same message. Continue the
+available research and mark the refused source as unchecked:
 `/root network_allow('<folder>', '<host>')` (folder from
 `$ARIZUKO_GROUP_FOLDER`).
 
 ## Photos and reviews
 
 Record each platform's rating, review count, observation date and recent reviews separately. Inspect photos for practical details such as access and seating. Mark missing counts or photos as unknown.
+
+## Rating arithmetic
+
+The row keeps the Google and mapy numbers apart and adds three derived
+fields, each dated:
+- `rating` = the higher of the two scores, with the platform it came from.
+- `reviews` = Google count + mapy count: platform totals, not people.
+- `recent` = reviews of both platforms dated within the 2 months before
+  the observation date (open the list sorted by newest).
+
+When a platform's count is unavailable (Google's limited view), the sum
+is incomplete: the row and the page say which count is missing, never a
+bare total. The page shows them as `pages.md` § Meals gives.

@@ -66,6 +66,18 @@ describe('pi runs the same policy rows claude and codex do', () => {
     expect(canonicalToolName('mcp__arizuko__reply')).toBe('mcp__arizuko__reply');
   });
 
+  test('pi denies an overlong reply through the shared lint', async () => {
+    const hook = path.join(SANDBOX_HOME, '.claude/hooks/reply_lint.py');
+    fs.mkdirSync(path.dirname(hook), { recursive: true });
+    fs.copyFileSync('hooks/reply_lint.py', hook);
+    const verdict = await fakePi().onCall({
+      toolName: 'mcp__arizuko__reply', toolCallId: 'tc',
+      input: { text: 'x'.repeat(501) },
+    });
+    expect(verdict?.block).toBe(true);
+    expect(verdict?.reason).toContain('501 chars / 1 lines');
+  });
+
   test('a clean write is not blocked', async () => {
     const home = SANDBOX_HOME;
     const verdict = await fakePi().onCall({
