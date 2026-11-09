@@ -255,13 +255,18 @@ func (l *Loop) cmdPing(chatJID, folder string) {
 // The answers name the TURN. A turn is a KVM guest now, and an operator who reads
 // "container" goes looking for one with `docker ps` (BUGS `L389`).
 func (l *Loop) cmdStop(chatJID, folder string) {
-	if err := l.q.cancel(l, folder); err != nil {
+	canceled, err := l.q.cancel(l, folder)
+	if err != nil {
 		slog.Error("cancel turns", "folder", folder, "err", err)
 		l.ack(chatJID, "Failed to stop the turn.")
 		return
 	}
+	notified := hasStoppedStatus(l.db, chatJID, canceled)
 	stopper, ok := l.runner.(RunStopper)
 	if !ok {
+		if notified {
+			return
+		}
 		l.ack(chatJID, "No active turn for this chat.")
 		return
 	}
@@ -269,6 +274,9 @@ func (l *Loop) cmdStop(chatJID, folder string) {
 	if err != nil {
 		slog.Warn("cmdStop: runed stop failed", "jid", chatJID, "folder", folder, "err", err)
 		l.ack(chatJID, "No active turn for this chat.")
+		return
+	}
+	if notified {
 		return
 	}
 	if res.Killed {

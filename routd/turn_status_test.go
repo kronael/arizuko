@@ -417,3 +417,28 @@ func TestTurnStatusRetiredIntentDoesNotRetry(t *testing.T) {
 		t.Fatalf("retired turn advertised retry: %+v edits=%+v", row, dl.edits)
 	}
 }
+
+func TestTurnStatusStopPostsOnce(t *testing.T) {
+	for _, sample := range []struct {
+		name, returnTo string
+		killed         bool
+	}{{"active", "", true}, {"pending", "", false}, {"forwarded", "telegram:2", true}} {
+		t.Run(sample.name, func(t *testing.T) {
+			dl := &recDeliverer{}
+			db, _ := newProgressTurn(t, dl, sample.returnTo)
+			runner := &stopRunner{resp: runedv1.StopRunResponse{Killed: sample.killed}}
+			loop := NewLoop(db, runner, LoopConfig{Deliver: dl})
+			loop.StopQueue()
+			loop.cmdStop(progressJID, "demo")
+			var messages []sentMsg
+			for _, sent := range dl.sends {
+				if sent.jid == progressJID {
+					messages = append(messages, sent)
+				}
+			}
+			if len(messages) != 1 || messages[0].text != renderTurnStatus(turnStatus{phase: "stopped"}) {
+				t.Fatalf("stop did not post once to command chat: %+v", dl.sends)
+			}
+		})
+	}
+}

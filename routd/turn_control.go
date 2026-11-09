@@ -60,10 +60,11 @@ func (q *turnControl) savePending(l *Loop, tc TurnContext, input, ambient []core
 	return nil
 }
 
-func (q *turnControl) cancel(l *Loop, folder string) error {
+func (q *turnControl) cancel(l *Loop, folder string) ([]string, error) {
+	var canceled []string
 	turns, err := l.db.RunningTurns()
 	if err != nil {
-		return err
+		return canceled, err
 	}
 	q.mu.Lock()
 	activeID := ""
@@ -89,7 +90,7 @@ func (q *turnControl) cancel(l *Loop, folder string) error {
 			}
 			before, exists, err := l.db.store().ReadTurnControl(context.Background())
 			if err != nil {
-				return err
+				return canceled, err
 			}
 			var prior, after *store.TurnControlState
 			if exists {
@@ -105,13 +106,14 @@ func (q *turnControl) cancel(l *Loop, folder string) error {
 			tc.FailureCause = ""
 			ok, err := l.db.store().FinishControlledTurn(context.Background(), tc, prior, after)
 			if err != nil {
-				return err
+				return canceled, err
 			}
 			current, exists := l.db.GetTurnContext(tc.TurnID)
 			if ok || !exists {
 				if ok {
+					canceled = append(canceled, current.TurnID)
 					if err := l.publishOwedStatus(current); err != nil {
-						return err
+						return canceled, err
 					}
 				}
 				break
@@ -119,7 +121,7 @@ func (q *turnControl) cancel(l *Loop, folder string) error {
 			tc = current
 		}
 	}
-	return nil
+	return canceled, nil
 }
 
 func (q *turnControl) admit(l *Loop, tc TurnContext, admission *store.TurnAdmission, saved *TurnContext) (turnWork, bool, error) {

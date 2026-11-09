@@ -637,3 +637,13 @@ func statusDestinations(db *DB, tc TurnContext) ([]string, error) {
 	}
 	return jids, nil
 }
+
+func hasStoppedStatus(db *DB, jid string, turnIDs []string) bool {
+	for _, id := range turnIDs {
+		row, ok := db.LastStatusRow(jid, id)
+		if ok && row.StatusPhase == "final" && row.Content == renderTurnStatus(turnStatus{phase: "stopped"}) {
+			return true
+		}
+	}
+	return false
+}
