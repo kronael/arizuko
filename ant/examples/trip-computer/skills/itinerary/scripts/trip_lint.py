@@ -93,6 +93,7 @@ def host_is(link, *domains): return any(link.host == d or link.host.endswith('.'
 DAY = re.compile(r'(^|/)day\d+(-[\w-]+)?\.html$')
 MEALS = {'breakfast': 'breakfast', 'snídaně': 'breakfast', 'lunch': 'lunch', 'oběd': 'lunch',
          'coffee': 'coffee', 'káva': 'coffee', 'dinner': 'dinner', 'večeře': 'dinner'}
+MEAL_HEADING = re.compile(r'<h[23]>\s*(?:food|' + '|'.join(MEALS) + r')\b', re.I)
 MEAL_HOURS = {'breakfast': (0, 600), 'lunch': (690, 840), 'coffee': (840, 1020), 'dinner': (1080, 1440)}
 
 def _text(s): return ' '.join(html.unescape(re.sub(r'<[^>]+>', '', s)).split())
@@ -279,7 +280,7 @@ def _(site):
         for t, a, ln in p.tags:
             if t == 'iframe' and a.get('loading') == 'lazy': yield 'ERROR', n, f'line {ln}: lazy iframe renders blank on phones'
         if sum(1 for _, a, _ in p.tags if 'checked-line' in (a.get('class') or '').split()) != 1: yield 'ERROR', n, 'expected one checked-line'
-        if re.search(r'<h[23]>\s*(Food|Breakfast|Lunch|Coffee|Dinner)\b', p.src): yield 'ERROR', n, 'meal heading outside timeline'
+        if MEAL_HEADING.search(p.src): yield 'ERROR', n, 'meal heading outside timeline'
         items = timeline(p)[1:]
         times = [at for at, _, _ in items if at is not None]
         present = {meal for _, meal, _ in items}

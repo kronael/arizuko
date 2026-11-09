@@ -243,6 +243,10 @@ class ItineraryToolsTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('internal-links', result.stdout)
 
+    def test_czech_meal_heading_outside_timeline_fails(self):
+        self.write_day('<h2>Oběd</h2>')
+        self.assertIn('meal heading outside timeline', self.run_lint('--rule', 'day-blocks').stdout)
+
     def test_link_help_does_not_start_browser(self):
         result = subprocess.run([sys.executable, '-B', str(LINK), '--help'], capture_output=True, text=True, env={**os.environ, 'PATH': ''})
         self.assertEqual(result.returncode, 0)
