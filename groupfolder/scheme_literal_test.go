@@ -19,7 +19,7 @@ import (
 var schemeLiteralKeepers = map[string]string{
 	// scheme tests: "which surface is this JID?", never "which folder?"
 	"dashd/authz.go:jidFolder":                "decides whether a token lookup applies; the folder is then READ from the row, JidFolder last",
-	"routd/dispatch.go:processGroupMessages":  "a web chat ignores the route's pinned topic; no folder is derived",
+	"routd/dispatch.go:processChat":           "a web chat ignores the route's pinned topic; no folder is derived",
 	"routd/server.go:isChannelJID":            "exempts web:/hook: from the channel ingress-ownership check",
 	"store/route_tokens.go:RouteTokenJIDKind": "classifies a token row by surface (chat|hook)",
 	"webd/ratelimit.go:ceiling":               "picks the hook vs web rate cap",
