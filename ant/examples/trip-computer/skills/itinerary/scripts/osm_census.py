@@ -111,6 +111,7 @@ def main():
     out={'base':{'name':a.base_name,'lat':a.lat,'lon':a.lon,'radius_km':a.radius},'tiles':tiles,'counts':{k:len(v) for k,v in rows.items()},**rows,'trails':sorted(trails.values(),key=lambda r:-r['km_in_area'])}
     json.dump(out,open(os.path.join(a.out,'census.json'),'w'),ensure_ascii=False,indent=1)
     def mapy(r): return f'https://mapy.com/en/turisticka?source=coor&id={r["lon"]}%2C{r["lat"]}&x={r["lon"]}&y={r["lat"]}&z=17'  # exact pin; ?q= searches the name and jumps elsewhere
+    def cell(v): return ' '.join(str(v or '').split()).replace('|','\\|')
     def append(name,header,lines):
         path=os.path.join(a.out,name); old=open(path,encoding='utf-8').read() if os.path.exists(path) else ''
         with open(path,'a',encoding='utf-8') as f:
@@ -122,9 +123,9 @@ def main():
         lines=[]
         for r in rows[cat]:
             notes=' '.join(x for x in [r['cuisine'] and 'cuisine:'+r['cuisine'], r['fee'] and 'fee:'+r['fee'], r.get('charge') and 'charge:'+r['charge'], r.get('maxstay') and 'maxstay:'+r['maxstay'], r['capacity'] and 'cap:'+r['capacity'], r['access'] and 'access:'+r['access'], r.get('surface') and 'surface:'+r['surface'], r.get('operator') and 'operator:'+r['operator'], r.get('near') and 'near:'+r['near'], r['ele'] and r['ele']+' m', r['web'] or ''] if x)
-            lines.append((r['osm'],f"| {r['km']} | {r['name']} | {r['type']} | {r['addr'] or ''} | {r['phone'] or ''} | {r['hours'] or ''} | {notes} | [mapy]({mapy(r)}) | {r['osm']} |\n"))
+            lines.append((r['osm'],f"| {r['km']} | {cell(r['name'])} | {cell(r['type'])} | {cell(r['addr'])} | {cell(r['phone'])} | {cell(r['hours'])} | {cell(notes)} | [mapy]({mapy(r)}) | {r['osm']} |\n"))
         append(f'{cat}.md',f'# {title} within {a.radius} km of {a.base_name} ({a.lat},{a.lon}) — OSM census\n\n| km | name | type | address | phone | hours | notes | map | osm |\n|---|---|---|---|---|---|---|---|---|\n',lines)
     append('trails.md','# Marked hiking routes crossing the area — OSM census\n\n| km in area | colour | osmc | name | osm |\n|---|---|---|---|---|\n',
-        [(r['osm'],f"| {r['km_in_area']} | {r['colour'] or ''} | {r['osmc'] or ''} | {r['name'] or ''} | https://www.openstreetmap.org/{r['osm']} |\n") for r in out['trails']])
+        [(r['osm'],f"| {r['km_in_area']} | {cell(r['colour'])} | {cell(r['osmc'])} | {cell(r['name'])} | https://www.openstreetmap.org/{r['osm']} |\n") for r in out['trails']])
     print(json.dumps(out['counts']), 'trails', len(out['trails']), '->', a.out)
 if __name__=='__main__': main()

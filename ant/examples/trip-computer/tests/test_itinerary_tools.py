@@ -1,5 +1,6 @@
 import importlib.util
 import os
+import re
 import runpy
 import subprocess
 import sys
@@ -172,6 +173,14 @@ class ItineraryToolsTests(unittest.TestCase):
         self.assertIn('VERIFIED ENRICHMENT', food)
         self.assertEqual(food.count('Cafe A'), 1)
         self.assertEqual(food.count('Cafe B'), 1)
+
+    def test_census_cell_text_stays_in_its_cell(self):
+        out, cache = self.site / 'db', self.site / 'tiles'
+        out.mkdir(); cache.mkdir()
+        osm_tile(cache, '<node id="1" lat="50.0" lon="14.0001"><tag k="amenity" v="cafe"/><tag k="name" v="Cafe | A"/><tag k="opening_hours" v="Mo 8-12&#10;Tu off"/></node>')
+        self.assertEqual(run_census(out, cache).returncode, 0)
+        header, _, row = (out / 'food.md').read_text().splitlines()[2:5]
+        self.assertEqual(len(re.findall(r'(?<!\\)\|', row)), header.count('|'))
 
 
 if __name__ == '__main__':
