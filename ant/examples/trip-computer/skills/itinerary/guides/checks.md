@@ -4,6 +4,8 @@ Run `python3 ~/.claude/skills/itinerary/scripts/trip_lint.py ~/public_html/<trip
 
 Run `python3 ~/.claude/skills/itinerary/scripts/link_check.py <pages>` to inspect map links in the browser: after an edit, the pages the change touched; on a first build or a full audit, every page of the trip, `places.html` included. It opens a link shared by several pages once and fails on `mapy.cz` and short links. A browser error or timeout is a failed check. Inspect rendered routes and a 390 px page separately; static checks cannot verify route geometry or source truth.
 
+At 390×844, read a screenshot top to bottom: the first choice card is fully visible (`pages.md` § First screen). Measure link heights with one DOM query over `document.querySelectorAll('a')`, minus only the inline exception of `web-deployment.md` § Links; report the selector with the result. NEVER say "all links" after measuring a narrower selector.
+
 When a stop, date, route or venue changes, recheck its hours, route, affected links and pages. For independent judgment use core `oracle` with Codex model `gpt-6-astra` and reasoning effort `high`.
 
 Run all of it after every change, not only the first build. After a page or directory moves, lint every trip that links to it, archived pages included.

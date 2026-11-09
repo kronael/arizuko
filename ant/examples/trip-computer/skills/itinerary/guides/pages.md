@@ -206,4 +206,4 @@ Edit the page in place; Rounds 2–4 run on the changed items only.
 
 ## First screen
 
-Place the day decision first. Show route choices as cards with distance, time and suitability, and link each card to its verified route. Keep rating and review counts tied to their named source.
+Place the day decision first. Show route choices as cards with distance, time and suitability, and link each card to its verified route. Keep rating and review counts tied to their named source. On a 390×844 phone screen the first choice card is fully visible: above it stand only the back link, the one-line day nav, the title, one subtitle line and the checked line; introductory prose follows the cards.

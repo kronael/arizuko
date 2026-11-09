@@ -1386,4 +1386,6 @@ a.hub-card::after { content: none !important; }
 .food-list a.alt, .food-list a[href^="tel:"] { font-weight: 400; }
 .map-links strong { display: block; margin-top: 0.4em; }
 .map-links strong:first-child { margin-top: 0; }
+nav { align-items: center; }
+nav a, a.back-btn { display: inline-flex; align-items: center; min-height: 40px; box-sizing: border-box; }
 a.alt { display: inline-block; min-height: 40px; padding: 0.45em 0.75em; margin: 0.2em 0.3em 0.2em 0; border: 1px solid var(--border); background: rgba(201,178,255,0.08); border-radius: 2px; font-weight: 600; line-height: 1.5; }
