@@ -1,7 +1,7 @@
-# Census — the trip database (Round 0)
+# Census — the trip database (Round 1)
 
 The census is a research workflow, not a script. A script produces the
-skeleton (step 1); every other step is work in the browser and the
+skeleton (step 2); every other step is work in the browser and the
 search engine, as a person would do it. The result is the database the
 whole trip is planned from. Rule set and costs: `../SKILL.md`.
 
@@ -49,7 +49,11 @@ with reasons · one-line verdict. An empty mandatory field reads
 
 ## Steps
 
-1. **Skeleton from OpenStreetMap.**
+1. **The user's own links.** Resolve every map link the user sent
+   (`curl -sIL` a `maps.app.goo.gl` link, read the place from the final
+   URL) before any other discovery; its coordinates set the base or an
+   `--also` circle of step 2.
+2. **Skeleton from OpenStreetMap.**
    `python3 ~/.claude/skills/itinerary/scripts/osm_census.py --lat … --lon … --radius 10 --out …/db`
    Named objects with coordinates, OSM address, phone, hours, fee,
    capacity, trail colour and length — candidates, nothing verified.
@@ -60,10 +64,7 @@ with reasons · one-line verdict. An empty mandatory field reads
    `--also LAT,LON` (a 2 km circle; `km` stays from the base) and steps
    3 and 4 around itself before its page. A car park row carries
    `near:` = the nearest named sight within 600 m — the `serves`
-   candidate.
-2. **The user's own links.** Resolve every map link the user sent
-   (`curl -sIL` a `maps.app.goo.gl` link, read the place from the final
-   URL). Each becomes a row marked `user pick` before any other work.
+   candidate. Each place of step 1 is a row marked `user pick`.
 3. **mapy.com.** Open each sight and trail on
    `https://mapy.com/en/turisticka` (`agent-browser`): confirm trail
    colour and marking, read mapy's rating and description, take the

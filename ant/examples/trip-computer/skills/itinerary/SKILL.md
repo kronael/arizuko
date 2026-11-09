@@ -33,14 +33,14 @@ style are not here: `guides/web-deployment.md`.
 
 | round | do | guide |
 | --- | --- | --- |
-| 0 Census | OSM skeleton → the user's links → mapy.com → Google Maps → TripAdvisor → official sites → tourist office → trail data → score → `places.html` | `guides/census.md` |
-| 1 Ask | what `<trip>/CLAUDE.md` and `~/users/` do not answer: pace, interests, budget, food, child age and gear, car, dates, start time — one chat message, 3–4 questions | — |
+| 0 Ask | before any browser or network work: what `<trip>/CLAUDE.md`, `~/facts/preferences.md` and `~/users/` do not answer: destination, dates, pace, interests, budget, food, child age and gear, car, start time — one chat message, 3–4 questions; none when the brief is complete | — |
+| 1 Census | the user's links → OSM skeleton → mapy.com → Google Maps → TripAdvisor → official sites → tourist office → trail data → score → `places.html` | `guides/census.md` |
 | 2 Enrich | for the rows a day uses: hours ON the date, prices, ratings per platform, phone, address, place links per kind, car-park fields, weather (`/weather`), story via `/find` | `guides/census.md` § Row, `guides/mapy-links.md`, `guides/pages.md` § Story |
 | 3 Build | trip type per stop, timeline, arrival block, variants, loops, meal items, routes via `mapyrc.py` | `guides/pages.md`, `guides/mapy-links.md` |
 | 4 Check | `trip_lint.py` exit 0, browser link and route checks, venue fields, trail facts, live 200 | `guides/checks.md` |
 
-Round 0 runs before the first suggestion. Rounds 2–4 repeat on every
-rebuild. A change on the day (start time, closure, rain, a sleeping
+Round 1 runs once per new trip or base, before the first suggestion;
+a small edit does not rerun it. Rounds 2–4 repeat on every rebuild. A change on the day (start time, closure, rain, a sleeping
 child, a new base): `guides/pages.md` § On the day. Bookings (cars,
 rooms, tours): `guides/bookings.md`.
 
@@ -64,7 +64,7 @@ drive-up or on-the-way. The type and the minutes open the stop's text
 ## ALWAYS
 
 - Run the census before the first suggestion; the radius covers every
-  planned stop (`census.md` step 1). Cost: four sights within 8 km of
+  planned stop (`census.md` step 2). Cost: four sights within 8 km of
   the base missed until the user sent links; a town at 11.4 km (radius
   10) had no car-park row.
 - Resolve every map link the user sends into a row before other work.

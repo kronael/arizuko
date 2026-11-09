@@ -199,7 +199,7 @@ Edit the page in place; Rounds 2–4 run on the changed items only.
   `indoor` sights or `kids.md` fallbacks — hours on the date, tickets.
 - Child asleep in the car: the drive-up variant of the next stop; the
   walk variant waits. Both times are already on the item.
-- The base moves: Round 0 around the new base (`--also` for the old
+- The base moves: Round 1 around the new base (`--also` for the old
   stops), `km` recomputed; the pages keep their stops.
 - A forecast host is down: `/weather` § Freshness decides what the
   weather box shows; never the hosts tried.
