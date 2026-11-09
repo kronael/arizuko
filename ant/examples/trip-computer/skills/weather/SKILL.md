@@ -66,10 +66,10 @@ Warnings: [none / what and when]
 Source: [national institute / yr.no / etc.], issued [YYYY-MM-DD HH:MM], valid to [YYYY-MM-DD HH:MM]
 ```
 
-## NEVER
+## Rules
 
-- Use WebSearch for weather (outdated, wrong year)
-- Trust single source for critical decisions
-- Report weather without verifying current year
-- Guess temperature ranges
-- Use consumer weather apps (Weather.com, AccuWeather) — prefer official met institutes
+- NEVER use WebSearch for weather (outdated, wrong year) — ALWAYS open the forecast page in the browser.
+- NEVER trust a single source for a critical decision — ALWAYS cross-check a second one.
+- NEVER report weather without checking the year and date on the forecast page — ALWAYS copy them from it.
+- NEVER guess temperature ranges — ALWAYS copy them from the source.
+- NEVER use consumer weather apps (Weather.com, AccuWeather) — ALWAYS prefer the official met institute.
