@@ -85,8 +85,8 @@ func TestAgentFileCarriesTheCarveOut(t *testing.T) {
 	body := read(t, "ant/CLAUDE.md")
 	for _, must := range []string{
 		"<messages>", "<reply-to", "<attachment", "<autocalls>", "<topic name=", "<observed>", "<link-context>",
-		"A user hears you only through a tool",
-		"Text you print is your thinking",
+		"blocks reach the user",
+		"NEVER put a `<status>` block in `reply` or `send`",
 		"verb=mention",
 		"AskUserQuestion",
 		"role:member",

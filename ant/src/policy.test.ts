@@ -14,6 +14,7 @@ describe('the binding table is the whole capability surface', () => {
   test('every row is named, placed and bounded', () => {
     expect(bindings(ctx).map((b) => [b.id, b.event, b.matcher ?? '*', b.returns.join('|')])).toEqual([
       ['reply-owed', 'Stop', '*', 'deny'],
+      ['reply-length', 'PreToolUse', 'mcp__arizuko__reply|mcp__arizuko__send', 'deny'],
       ['skill-guard', 'PreToolUse', 'Write|Edit|MultiEdit', 'deny'],
       ['bash-scrub', 'PreToolUse', 'Bash', 'rewrite'],
       ['gh-write-gate', 'PreToolUse', 'Bash', 'deny'],
@@ -94,6 +95,26 @@ describe('the codex renderer refuses what codex cannot honour', () => {
     expect(cfg.hooks.PreToolUse[0].hooks[0].command).toBe('/usr/local/bin/bun /app/src/policy-cli.ts PreToolUse turn-9');
     expect(cfg.hooks.PostToolUse[0].hooks[0].command).toBe('/usr/local/bin/bun /app/src/policy-cli.ts PostToolUse turn-9');
   });
+});
+
+test('codex runs reply length lint for reply and send, but not send_file', async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'reply-lint-'));
+  const hook = path.join(home, '.claude/hooks/reply_lint.py');
+  fs.mkdirSync(path.dirname(hook), { recursive: true });
+  fs.copyFileSync('hooks/reply_lint.py', hook);
+  const rows = codexRows(bindings({ home, turnID: 'turn-1' }));
+  const config = codexHooksConfig(rows, 'turn-1') as { hooks: Record<string, unknown[]> };
+  expect(config.hooks.PreToolUse).toHaveLength(1);
+  const lint = rows.filter((row) => row.id === 'reply-length');
+  expect(lint).toHaveLength(1);
+  for (const tool_name of ['mcp__arizuko__reply', 'mcp__arizuko__send']) {
+    const ev = { hook_event_name: 'PreToolUse', tool_name, tool_input: { text: 'x'.repeat(501) }, tool_use_id: '', session_id: '' } as const;
+    const verdict = await runRows(lint, 'PreToolUse', ev);
+    expect(verdict.kind).toBe('deny');
+    expect(verdict.kind === 'deny' && verdict.reason).toContain('501 chars / 1 lines');
+  }
+  const file = { hook_event_name: 'PreToolUse', tool_name: 'mcp__arizuko__send_file', tool_input: { caption: 'x'.repeat(501), text: 'x'.repeat(501) }, tool_use_id: '', session_id: '' } as const;
+  expect(await runRows(lint, 'PreToolUse', file)).toEqual({ kind: 'allow' });
 });
 
 // Rewriting the file every turn is what makes the system layer authoritative:

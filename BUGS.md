@@ -15,6 +15,13 @@
 
 ## What needs you
 
+- `L318` — verify per-daemon store key isolation.
+- `L347` — decide whether rows behind a steered command must be re-fed.
+- `L379` — verify anteval callback access from a guest.
+- `L435` — check whether source revocation removes bound routes.
+- `L498` — reconcile hold documentation with the implementation.
+- `L503` — check the group delegation depth cap.
+
 - `L790` — `TestHoldE2E_ChannelWithoutButtonsStillGetsAnAnswerablePrompt` fails under host load (fixed 5 s wait).
 - `L721` — group handoffs bounced for an hour; verify bounded turns after deployment with group sends and progress guidance.
 - `L743` — an instance-wide model pause needs trusted host-side provider evidence; proposal, needs sign-off.
@@ -28,6 +35,21 @@
 - `L675` — the guest's Python is under `/root` (700); fix at the next rootfs build.
 - `L674` — `compose down` fails on a deleted fragment despite `required: false`; proposal.
 - `L672` — a spend-limit failure: retry silently, one `#issues` notice to the operator; approved, queued after L670.
+- `L760` — an agent `reply` carrying a `<status>` block posts raw tags; manual fix ships in v0.75.4, verify on live codex turns.
+- `L761` — a mention-routed folder cannot read the chat it answers; fix queued.
+- `L762` — the reply length lint does not run on codex turns; fix queued.
+- `L763` — reproduce Nemo's intermittent approval failures and dead buttons before choosing a fix.
+- `L764` — decide how Telegram supergroup migration updates route identity; live route and schedule repair stays with the operator.
+- `L765` — choose whether cached property search results get a global warning or block; proposal, needs sign-off.
+- `L766` — choose how package updates preserve custom files; replacement with backups is measured, Nemo's overwrite is not.
+- `L767` — decide whether migration notices need a broadcast surface beyond release announcements; proposal, needs sign-off.
+- `L768` — approve trip network defaults or grant the requested hosts per folder; current reachability is unmeasured.
+- `L769` — choose whether `/pub/` filters Markdown; forwarding without an extension filter is measured.
+- `L770` — approve persistent web lint through the shared policy; local settings hooks are replaced at spawn.
+- `L771` — a run timeout counts toward automatic turn retry; owner decided no retry + a deadline continuation nudge; fix queued.
+- `L772` — agent image removal breaks a second instance's rootfs; trees duplicate; fix queued.
+- `L665` — `unpair` removes the account's denies from the paired identity's turns; needs sign-off.
+- `L664` — `invite_create` mints `admin` the issuing folder cannot delegate; needs sign-off.
 - `L660` — a mention by reply engages only the reply chain, not the chat root; proposal, needs sign-off.
 - `L655` — products as full packages (`catalog:<name>`) and persona layering (`PERSONA.local.md`); proposal, needs sign-off.
 - `L650` — an `extenddb` reached 10 GB and was OOM-killed; the host reset 8 times on 11-03; cause unmeasured.
@@ -53,7 +75,7 @@ marker every entry carries. Ten entries said open in the heading and carried no
 **A contract or design decision.** Each names the question in its own Status
 line; none can be answered from the code.
 - `L570` — may routd steer rows into a running turn? Adds a verb to the
-  runed boundary.
+  runed boundary; today's Sloth Codex turn ran 3,568 seconds without the reported stop message reaching it.
 - `L571` — measure a two-sender batch under a `{sender}` route.
 - `L472` — must a scheduled turn state its own success or failure, and may
   the run log stop calling a queued prompt a success?
@@ -424,6 +446,289 @@ were progress reports (rollout: `escalate_group({… prompt:"Progress: …"})`).
 The current tools use `send` for group handoffs. Each group send queues a turn;
 the description directs progress to `<status>` and `TodoWrite`. Live verification
 of bounded handoffs remains open.
+
+## L760 — an agent `reply` carrying a `<status>` block posts the raw tags to the chat (2026-11-08, open)
+
+MEASURED 2026-11-08 on sloth (codex `gpt-6.1-sol`): in thread `1569000827429847372`
+of `discord:837270552959516682/1504474527638224936`, root `sloth` posted the status
+correctly as message `1569075404684140708` ("⏳ You get answers in the original
+threads, …", 19:45:28), then the same line again as message `1569075413961940993`
+with the literal text `<status>You get answers … questions.</status>` (19:45:30;
+Discord API). The rollout shows the agent printed the status and then called
+`mcp__arizuko__reply({chatJid:"discord:837270552959516682/1504474527638224936",
+text:"<status>…</status>"})`. The owner asked "wtf is this".
+
+Cause: the `<status>` grammar is the turn's progress channel (`ant/README.md`
+§ Contracts with the Go side); nothing stops the same block from going out through
+`reply` or `send`, so a model that mixes them posts the tags verbatim.
+
+- **Severity:** medium — raw protocol text in the user's chat.
+- **Scope:** `ipc/ipc.go` `refuseText` (shared by `reply` and `send`).
+- **Fix:** refuse a `reply`/`send` text that contains a `<status>` block, with an
+  error that says status belongs in the turn's own text, not in a message.
+- **Test:** `reply` with a `<status>…</status>` text is refused and nothing is
+  delivered; a text that only mentions the word status still goes out.
+- **Status:** Source check found conflicting wording about private printed text
+  and closing a status with `reply`. The wording now separates printed progress
+  from the answer in `reply` and excludes status blocks from `reply` and `send`.
+  The Python reply linter runs through Claude settings only, outside the Codex
+  policy bindings. No test — docs.
+
+## L761 — a mention-routed folder cannot read the chat it answers: history reads refuse with `jid not routed to your group` (2026-11-08, open)
+
+MEASURED 2026-11-08 on sloth: kronael mentioned sloth in thread `1567944066765824111`
+of `discord:837270552959516682/920916162416635944`; routd dispatched `sloth/trading`
+(19:46:11, the route `platform=discord room=837270552959516682/920916162416635944
+verb=mention` → `sloth/trading`). In rollout
+`groups/sloth/trading/.codex/sessions/2026/11/08/rollout-2026-11-08T19-47-03-…`
+three reads were refused with `access_denied: jid not routed to your group`:
+`get_thread(chat_jid=…/920916162416635944, topic=1567944066765824111)`,
+`fetch_history(chat_jid=…/920916162416635944, before=…)` and
+`fetch_history(chat_jid=…/1567944066765824111)`. The agent told the owner "I can read
+your mention, but the thread history returns access_denied".
+
+Read from code: the reads gate on `JIDRoutedToFolder` (`ipc/ipc.go:2268`, `:2388`,
+`:2427`, `ipc/inspect.go:30`), which is the chat's DEFAULT route target only
+(`routd/reads.go:50`), so a `verb=mention` route never counts. `JIDRoutableToFolder`
+(`routd/reads.go:61`, verb ignored) already exists for the reply path. The own-chat
+exception admits the exact bound JID and folder in `TestMentionRouteReadAccess`;
+the live socket's binding is not measured. `discordThreadJID` maps the bound
+parent and topic to the thread JID.
+
+- **Status:** local change admits mention routes and the bound Discord thread JID; live report remains unverified.
+- **Severity:** high — every mention-routed sub-folder answers blind to its thread.
+- **Scope:** the read gate's predicate in `routd`/`ipc`; reuse the existing functions.
+- **Test:** a mention-routed folder's turn reads its own chat and thread (parent JID +
+  topic, and the thread's own JID); a folder with no route to a chat is still refused.
+
+## L762 — the reply length lint does not run on codex turns (2026-11-08, open)
+
+MEASURED 2026-11-08 by source reading during L760: `ant/hooks/reply_lint.py` (the
+Response Style ceiling, 500 chars / 6 lines) is bound only in
+`ant/.claude/settings.json`, which claude reads. Codex renders its hooks from the
+policy table in `ant/src/policy.ts` (`codexHooksConfig`), and the table holds no
+reply-length row, so a codex `reply` or `send` is never checked.
+
+- **Severity:** medium — codex instances (sloth since 2026-11-08) post replies over
+  the ceiling the manual promises.
+- **Scope:** `ant/src/policy.ts` — bind the existing lint as one policy row so
+  every harness renders it; no second copy of the rule.
+- **Test:** the policy table carries the reply-length row and codex's rendered
+  hooks include it.
+- **Status:** implementation shared across claude, codex and pi; awaiting release.
+
+## L763 — Nemo reports intermittent approval refusals and dead approval buttons (2026-11-08, open — unmeasured)
+
+FOUND 2026-11-08, premise unmeasured: N10/N26/N30/N32 in
+`/srv/data/arizuko_krons/groups/rhias/nemo/issues.md:32`, `:56`, `:61` and `:78`
+report blocked writes, unanswered button presses and batches of refused tools.
+The current code does persist held calls (`routd/pending_actions.go:73`, `:87`)
+and reads their verdicts (`:150`). Telegram polls callbacks (`teled/bot.go:215`,
+`:232`) and forwards their data as inbound messages (`:279`, `:303`). Those
+paths do not prove delivery of the reported presses or explain the refusals.
+
+- **Severity:** high — reported approvals block edits and replies.
+- **Scope:** routd pending actions and teled callback delivery.
+- **Fix:** capture one failed call, pending-action row, callback and verdict
+  together before prescribing a persistence or transport change.
+- **Status:** open (record only). No regression test — the current failure is
+  unmeasured and this request permits only BUGS.md edits.
+
+## L764 — Telegram supergroup migration does not carry the old route identity forward (2026-11-08, open — proposal, needs sign-off)
+
+MEASURED 2026-11-08 in code: `teled/bot.go:331` derives the inbound JID from
+the current chat ID; `:341` drops messages without text or extracted media.
+The handler does not process Telegram's migration fields. `:770` mechanically
+renders negative IDs as positive `telegram:group/` IDs. Route writes are explicit
+resource actions (`routd/routes_resource.go:94`, `:123`), not a migration mapping.
+N31 reports the dead old JID in
+`/srv/data/arizuko_krons/groups/rhias/nemo/issues.md:69`; `:91` records the new
+JID as `telegram:group/1004358948112`. Current live routes were not checked;
+do not infer the new identity by adding a `-100` prefix.
+
+- **Severity:** high — replies can target a chat Telegram retired.
+- **Scope:** teled identity and routd routes; no test — design.
+- **Status:** open — proposal, needs sign-off. **Options:** (a) handle an
+  attested migration and update explicitly identified route references;
+  (b) retain operator-managed migration. **Default if nothing is decided:**
+  explicit route repair. N33's scheduled rows (`issues.md:88`, owner
+  `routd/scheduled_tasks.go`) need a separate operator check; no live writes.
+
+## L765 — a global warning or block for cached property listings needs a policy decision (2026-11-08, open — proposal, needs sign-off)
+
+MEASURED 2026-11-08 in code: the complete binding table at
+`ant/src/policy.ts:67` contains no property-search cache warning or block.
+`runed/settings.go:36` takes settings hooks from selected packages and `:40`
+replaces the local hooks map. N35's residual request is in
+`/srv/data/arizuko_krons/groups/rhias/nemo/issues.md:102`: a cached search snippet
+misstated listing availability, and a local WebSearch/WebFetch warning was
+reported. That historical result and the live local hook were not reproduced.
+Product live-verification guidance does not establish a global enforced gate.
+
+- **Severity:** medium — stale listings can reach a property recommendation.
+- **Scope:** shared ant policy and runed settings; no test — design.
+- **Status:** open — proposal, needs sign-off. **Options:** (a) add the agreed
+  warning to the existing shared policy; (b) block the agreed search calls.
+  Define the tools and domain scope before implementation.
+  **Default if nothing is decided:** product live-verification guidance applies;
+  no new global warning or block.
+
+## L766 — package blending replaces custom bytes at managed paths after making a backup (2026-11-08, open — proposal, needs sign-off)
+
+MEASURED 2026-11-08 in code: `container/blend.go:181` writes every selected
+package file through `writeIfDifferent`; `:270` backs up different local bytes
+and `:283` writes the package bytes. `UnmanagedPaths` (`:151`) identifies
+existing paths outside the previous receipt; it does not preserve edits at
+already managed paths. Backups expire after 30 days (`:39`, `:43`).
+N40/N43 request custom-file preservation in
+`/srv/data/arizuko_krons/groups/rhias/nemo/issues.md:129` and `:132`, naming
+`public_html/{CLAUDE.md,README.md,gen_web.py}`. A current receipt or update that
+overwrites those Nemo files is unmeasured; the source confirms replacement
+semantics, not that those files are managed by today's package.
+
+- **Severity:** medium — updates can replace local changes at managed paths.
+- **Scope:** container package blending; no test — design.
+- **Status:** open — proposal, needs sign-off. **Options:** (a) keep project
+  files outside package-managed paths; (b) approve a preservation contract in
+  the existing installer. **Default if nothing is decided:** package bytes win
+  at managed paths, with the existing backups; no exemption format is added.
+
+## L767 — arbitrary migration broadcasts need a contract beyond release notices (2026-11-08, open — proposal, needs sign-off)
+
+FOUND 2026-11-08, historical failure unmeasured: T01 in
+`/srv/data/arizuko_krons/groups/rhias/trip/issues.md:5` requests migration
+announcements across folders after an agent send refused the destination.
+`routd/announcements.go:17` already selects `#announce` routes and `:59` queues
+release notices as outbound bot messages. `:109` derives their content from a
+released changelog entry. `:84` separately queues issue notices to `#issues`.
+These paths do not prove that arbitrary migration notices fit either contract;
+the old agent-send refusal was not replayed.
+
+- **Severity:** low — migration notices can remain unsent.
+- **Scope:** routd announcements; no test — design.
+- **Status:** open — proposal, needs sign-off. **Options:** (a) approve
+  operator-issued migration notices through the existing outbound queue with
+  explicit destinations; (b) keep announcements limited to their existing
+  purposes. **Default if nothing is decided:** release and issue notices keep
+  their current tags; agent sends retain folder containment.
+
+## L768 — trip network defaults and host grants need an operator decision (2026-11-08, open — proposal, needs sign-off)
+
+FOUND 2026-11-08, current refusal unmeasured: T10.6/T11.1/T12.1–2/T16.3 in
+`/srv/data/arizuko_krons/groups/rhias/trip/issues.md:25`, `:33`, `:43`, `:44`
+and `:51` request OSM/Mapy/Google hosts, TripAdvisor, weather and destination
+sites. Google dependencies include `maps.gstatic.com`, `www.gstatic.com`,
+`lh3.googleusercontent.com` and `consent.google.com`; the reported effect is
+missing review counts and hours. No current egress probe or live rule read
+establishes which hosts still fail, or whether any failure is policy refusal.
+
+The management path exists: `routd/network_rules_resource.go:59` validates and
+writes an allow rule; `:110` authorizes its target folder.
+`resreg/resources/network_rules.go:22` declares allow/deny/list as MCP-only;
+`:38` documents inheritance. A missing live allow is operator data, not proof
+that the management handler is broken.
+
+- **Severity:** medium — missing network access can prevent venue verification.
+- **Scope:** network rules and grant policy; no test — config/design.
+- **Status:** open — proposal, needs sign-off. **Options:** (a) approve a
+  common trip host set through the existing rules; (b) grant measured needs per
+  folder. **Default if nothing is decided:** default-deny and existing delegated
+  management apply; destination-specific allows remain operator data.
+
+## L769 — the public web path has no blanket Markdown filter (2026-11-08, open — proposal, needs sign-off)
+
+MEASURED 2026-11-08 in code: `proxyd/main.go:508` handles `/pub/` without an
+extension check. A reachable public redirect runs first (`:516`); otherwise
+prefix web routes can deny or require auth (`:522`), and the default forwards
+to vite (`:539`). T11.2's residual request in
+`/srv/data/arizuko_krons/groups/rhias/trip/issues.md:34` reports public 200s for
+CLAUDE.md, design files and database Markdown containing private trip notes.
+Those URLs were not fetched today; the source confirms the missing blanket
+filter, not their current content or HTTP status.
+
+- **Severity:** high — private notes placed in the public tree can be served.
+- **Scope:** proxyd public serving policy; no test — design.
+- **Status:** open — proposal, needs sign-off. **Options:** (a) filter the
+  agreed Markdown names or extensions on every public serving path, including
+  redirects; (b) retain public Markdown and keep private notes outside the
+  public tree. **Default if nothing is decided:** existing prefix rules apply;
+  product instructions keep private notes outside public_html.
+
+## L770 — persistent automatic web lint needs a shared policy binding (2026-11-08, open — proposal, needs sign-off)
+
+MEASURED 2026-11-08 in code: `runed/settings.go:36` reads selected package hooks
+and `:40` replaces the local settings hooks on spawn; `:109` writes the settings
+file. `ant/src/policy.ts:67` declares Stop/PostToolUse policies but no web lint.
+Codex writes its hooks from that table (`ant/src/codex.ts:315`), so a local
+Claude settings edit alone does not establish enforcement on every harness.
+T16.2/T17–T20 in
+`/srv/data/arizuko_krons/groups/rhias/trip/issues.md:51` and `:53`–`:56` request
+generic publication lint and blocking feedback from Stop or PostToolUse.
+The claimed live root ownership and reseeding of hook scripts are unmeasured.
+
+- **Severity:** medium — an agent can finish with unchecked public pages.
+- **Scope:** ant shared policy and runed settings; no test — design.
+- **Status:** open — proposal, needs sign-off. **Options:** (a) bind the agreed
+  checker and blocking feedback through the existing shared policy, with scope
+  and behavior verified on every supported harness; (b) retain explicit product
+  checks. **Default if nothing is decided:** mandatory product commands remain;
+  no workflow requirement is loosened and no local hook is installed.
+
+## L771 — a run timeout counts toward automatic turn retry (2026-11-08, open)
+
+MEASURED 2026-11-08 on sloth: `journalctl -u arizuko_sloth --since
+"2026-11-08 19:40" --until "2026-11-08 21:05"` records `sloth/morha` exiting
+at 21:02:38 UTC with `code=143`, `timedOut=true` and duration
+`3599911137634` ns (about 3,599.9 seconds). At 21:02:39 routd logs
+"turn failed without reply, scheduling retry", retry 1, max 3, for
+`delegate-1794168081354411585`. The next dispatch at 21:02:51 is
+`gh-c6726928796`, topic `pr/420`: a different turn, not proof that the same
+timed-out turn ran again.
+
+The retry classification is confirmed in source: `runed/qemu.go:500` returns
+OutcomeError for a timeout without Terminal. `routd/dispatch.go:548` retries
+an error when it is nonterminal, has no bot reply and remains below
+`maxTurnRetry` (`:553`); it increments RetryCount and holds the cursor for a
+re-feed (`:554`, `:561`). `routd/loop.go:174` explicitly includes timeouts;
+`:195` makes zero mean the default 3 and a negative value disable retries.
+`routd/cmd/routd/main.go:227` reads `MAX_TURN_RETRY`. Timeouts therefore count;
+the exhausted deadline can buy another full attempt without a new user request.
+
+- **Severity:** high — automatic attempts can repeat an hour of work and spend.
+- **Scope:** runed timeout outcome and routd turn retry classification.
+- **Fix:** distinguish deadline exhaustion from a transient failure at the
+  existing outcome/retry decision; report exhaustion and require an explicit
+  continuation. No regression test — this request permits only BUGS.md edits;
+  the journal and source establish the current scheduling behavior.
+- **Status:** open — Codex deadline continuation implemented; timeout retry policy remains unchanged and requires a separate fix.
+- **Owner decision 2026-11-08:** "i dont really see that this should retry. maybe it
+  should just nudge the model to request a continuation request". So: a timed-out
+  turn is not retried (crash and OOM keep their retry), and before the deadline the
+  harness tells the model to post what it has and ask whether to continue. Claude
+  already receives the `[deadline]` steering note mid-turn; codex reads input only
+  between turns (L570), so ant must stop codex shortly before the deadline and
+  resume the same thread with that one prompt. Changes spec 5/12's retry rule.
+
+## L772 — removing the agent image after export breaks the second instance's rootfs, and each instance stores its own 7.3 GB tree (2026-11-08, open)
+
+MEASURED 2026-11-08 on hel1v5: `make rootfs` exports into one `DATA_DIR`
+(`Makefile` `ROOTFS_DIR ?= $(DATA_DIR)/images/rootfs-$(ROOTFS_KEY)`), and since
+`47186b354` it runs `docker image rm arizuko-ant:latest` after the export. A second
+`make rootfs DATA_DIR=<other instance>` then stops with "no arizuko-ant:latest image".
+Both instances hold an identical tree: `du -sh` gives 7.3G for
+`/srv/data/arizuko_krons/images/rootfs-417487f600e2` and 7.3G for the sloth twin, on a
+disk with 10–12 GB free during this release.
+
+- **Severity:** medium — a multi-instance host cannot finish a release, and two copies
+  of one read-only tree cost 7.3 GB.
+- **Scope:** `Makefile` `rootfs` target.
+- **Fix:** when another instance on the host already holds the tree for the same key,
+  link it (`cp -al`; the guest mounts the tree read-only) instead of exporting again;
+  remove the image only after the last instance has its tree.
+- **Test:** `make -n rootfs` for a second `DATA_DIR` with an existing same-key tree
+  shows the link, not an export.
+
+## ✅ FIXED 2026-11-06 d50afcdcd L669 — dashd's group delete purges `acl` rows and edges after only `admin` on the folder (2026-11-06)
 
 ## L540 — dashd's grant form and `POST /v1/acl` write rows without `auth.Delegate` (2026-10-23, open — needs sign-off)
 
@@ -1991,12 +2296,35 @@ Nothing sets `RunOutcome.Steered`, so `routd/dispatch.go:454` and `endSteered`
 never run. The owner expects rows that arrive while a turn runs to reach it
 (2026-10-24).
 
+MEASURED again 2026-11-08 on sloth: `journalctl -u arizuko_sloth --since
+"2026-11-08 19:40" --until "2026-11-08 21:05"` records root `sloth` dispatching
+at 19:41:53 UTC, turn `1569074500555907123`, topic `1569000827429847372`.
+The guest exits at 20:41:27 with code 0 and duration `3568427773761` ns
+(about 3,568.4 seconds). The owner reports sending "disengage" during that
+turn and the agent later saying "I found your disengage message in the history
+late". The journal confirms the run interval; it does not expose those message
+bodies, so their timing and wording rely on the owner's report.
+
+Current source still confirms the delivery gap: `runed/manager.go:202` checks
+for a live spawn and `:207` returns Busy without forwarding the new batch.
+`ant/src/codex.ts:337` declares `steering: 'between-turn'`; `:227` starts the
+CLI with an initial prompt and `ant/src/backend.ts:191` closes that stdin.
+The profile alone is not proof that Codex cannot accept injected context:
+`ant/src/policy.ts:91` registers PostToolUse steering, `:122` drains its spool,
+and `ant/src/codex.ts:269` renders additionalContext. No measurement here proves
+that the reported user message reached that spool. This is further evidence
+for this entry, not a separate Codex root cause.
+
 - **Fix (proposal):** when a batch dispatches to a folder with a live run,
   routd hands the batch to runed, which calls the run's steer callback; on ack
   the rows are consumed, on refusal they wait as today. This adds a verb to the
   runed boundary (`runed.Runtime` is `Run` + `Kill`, CLAUDE.md port rule), so it
   needs an approved plan first.
-- **Status:** open — needs sign-off (runed port change).
+- **Status:** open — needs sign-off (runed port change); no test — design.
+  **Options:** (a) approve forwarding through the existing guest steering path
+  and verify delivery on every harness; (b) retain queued delivery after the
+  active run. **Default if nothing is decided:** new user messages wait;
+  the existing command handling remains unchanged.
 
 ## L571 — a batch runs every sender in one folder, even under a `{sender}` route (2026-10-24, open — unmeasured)
 
@@ -9183,3 +9511,416 @@ Three shapes, one decision:
   **Fix:** measure instruction/tool exposure and completion behavior, then improve
   the existing declaration so an unambiguous completed task calls the stop tool.
   Do not add a second lifecycle policy or unconditional platform stop hook.
+
+## L92 — the HITL hold gate fails OPEN when the `acl` read fails (2026-08-24, proposal)
+
+`auth.CheckHold` (`auth/authorize.go:392`) logs and returns `false` when
+`policyRows` errors:
+
+```go
+slog.Error("check hold: acl read failed; holding NOTHING", ...)
+return false
+```
+
+Nothing is held, and every `hold:mcp:<tool>` the operator configured stops
+gating until the read recovers. The comment argues it matches "Authorize's
+deny", but it does not: Authorize failing closed REFUSES the call, while
+CheckHold failing "open" LETS IT RUN. The two branches of `5/19` disagree with
+each other, too — a hold that cannot be RECORDED blocks the call anyway
+(`routd.holdGate`, BUGS `J3`), precisely so a storage failure cannot silently
+defeat the gate. A read failure defeats it silently.
+
+Found by an oracle review of the four-verdict design (`specs/6/26` § Decision
+5), not by an incident.
+
+**Proposal, not a fix.** Reversing it means an acl read error blocks every
+held-eligible tool call — an availability decision with a real blast radius,
+and the kind of cross-cutting change `CLAUDE.md` says needs sign-off. The two
+candidate shapes: return an error the ipc layer renders as a blocked call with
+a chat notice (mirrors `J3`), or keep failing open but alert loudly. Whoever
+signs off should also decide whether `5/19`'s two branches must agree.
+
+## L318 — every daemon's store key carries `dynamodb:* on *`, so 19 per-daemon keys give attribution and not isolation (2026-09-20, open)
+
+MEASURED on sloth 2026-09-20. The instance mints one IAM user and one access
+key per daemon — 19 of them, each in its own scoped env file (`routd.env`,
+`teled.env`, …) and none in `.env`, so a daemon reads only its own key. The
+separation stops there. Every one of those users carries the same `tables`
+policy:
+
+```json
+{"Version":"2012-10-17","Statement":[
+ {"Action":"dynamodb:*","Effect":"Allow","Resource":"*"}]}
+```
+
+So `ttsd`'s key can read `routd.messages`, and `teled`'s can drop
+`routd.audit_log`. The key answers "who wrote this row", never "may you". The
+account boundary is real — `tables` is keyed `(account_id, table_name)` and a
+request authenticates into one account — but inside an account there is no
+boundary at all.
+
+This costs little today, where every daemon is ours and the blast radius is one
+instance. It costs more under a SHARED store server, because the account then
+becomes the only isolation left: the per-instance PostgreSQL role, which today
+is a superuser owning that instance's own server, no longer exists.
+
+- **Severity:** medium — an adapter compromise reaches every owner's tables in that instance
+- **Scope:** `extenddb init`'s per-daemon `put-user-policy`; `INSTALL.md` § The store server
+- **Affected:** sloth is the drift, krons is the template. Re-measured by the
+  operator 2026-09-20: sloth holds 19 `tables` policies with ONE distinct
+  document, `{"Action":"dynamodb:*","Resource":"*"}`; krons holds 9 `owners`
+  policies genuinely bounded to `routd.*`, `onbod.*`, `teled.*` and so on. The
+  original "Affected: krons" was backwards. marinade unverified. (Live-instance
+  figures are the operator's measurement, not this repo's.)
+- **Source:** `iam_policies` on sloth, 38 rows: one `SelfServicePolicy` and one `tables` policy per user, the latter identical for all 19
+**The owner map exists — this entry first claimed it did not.** `store/owners.go`
+registers four owners (`authd`, `onbod`, `routd`, `runed`), `dynstore.Prefix`
+puts the owner in front of every entity name, and `chanlib/dedup.go` gives each
+adapter a `<service>` prefix of its own. sloth's catalog agrees: `routd.*` 33
+tables, `authd.*` 7, `onbod.*` 6, `runed.*` 4, `discd.*` 2, `teled.*` 2. So a
+policy CAN name what a daemon may reach; nothing had to be invented.
+
+Measured from the call sites, not from the `OpenOwner` comment above them:
+
+| daemon | owners it opens |
+| --- | --- |
+| `routd` / `runed` / `authd` | its own, only |
+| `onbod` | `onbod`, `routd` |
+| `dashd` | `onbod`, `routd` |
+| `webd` / `proxyd` / `gitd` / `slakd` | `routd` |
+| the operator CLI | `authd`, `onbod`, `routd` |
+| every adapter | its own `<service>` dedup prefix |
+
+`timed` opens none: it writes through the owner's HTTP API, which is the split
+write-discipline working.
+
+**The code half is DONE 2026-09-20; the rollout is not.** Nothing in the repo
+generated, documented or checked these policies — the only mention was one
+sentence in `INSTALL.md` § The store server, and it had already drifted: it gave
+`dashd` a policy on `runed.*`, which dashd has never opened. A shape that lives
+in prose beside no check is a shape that is already wrong.
+
+Now declared and checked:
+
+- `store/owner_reach.go` `StoreReach` declares daemon → owner prefixes, beside
+  the owner registry that the prefix comes from.
+- `store/owner_reach_test.go` `TestStoreReachMatchesTheCallSites` walks the
+  module for the store doors and fails on either direction — a daemon that opens
+  an owner the map omits, and a daemon declared for an owner it never opens. The
+  measured map matched the declaration on the first run, which independently
+  confirms the table this entry already carried.
+- `TestInstallDocumentsTheReach` asserts `INSTALL.md` carries the same rows, and
+  prints the rows to paste when it does not. One declaration, two readers: the
+  test and the operator.
+- `INSTALL.md` § The store server now carries the table, the bounded policy
+  document, and the `create-user` / `put-user-policy` / `create-access-key`
+  commands, replacing the sentence that described them.
+
+**The two the rollout must not get wrong**, and the reason the table beats
+"adapters get their own prefix": `gitd` and `slakd` open `routd` directly
+(`gitd/main.go`, `slakd/main.go`) ON TOP of their own adapter prefix, so an
+adapter-prefix-only policy leaves them authenticated and unable to read
+anything. `timed` and `ttsd` need no key at all. A too-narrow policy does not
+fail at deploy — it fails the first time the daemon touches the table, which is
+why the rollout is one daemon at a time and watched.
+
+Each assertion was mutation-checked: declaring `runed.*` for dashd, dropping
+`routd.*` from gitd, removing slakd from the map, giving ttsd a key it does not
+use, and drifting the INSTALL.md row each turn the matching test red.
+
+**RE-VERIFIED 2026-09-21 at `f5851f94`.** The code half holds: `StoreReach`
+(`store/owner_reach.go:32`) declares 18 daemons, and both tests pass —
+
+```
+=== RUN   TestStoreReachMatchesTheCallSites
+--- PASS: TestStoreReachMatchesTheCallSites (0.09s)
+=== RUN   TestInstallDocumentsTheReach
+--- PASS: TestInstallDocumentsTheReach (0.00s)
+```
+
+The test binds in THREE directions, not two: a daemon that opens an owner the
+map omits also fails (`owner_reach_test.go:173`), so `whapd` and
+`kokoro` being absent from the map is verified — they open no store — rather
+than forgotten.
+
+**Nothing here is bounded as code.** No Go code builds or applies the policy
+document; the JSON body exists only as literal text in `INSTALL.md`. So the
+remaining work is an operator rollout, in full, and the commands belong here
+rather than in a fix.
+
+**The Status line below used to say "`gitd` first, which reads `routd` and
+nothing else". That is WRONG, and it contradicts this entry's own body four
+paragraphs up.** `gitd` opens TWO prefixes: `store.OpenOwner(store.OwnerRoutd)`
+at `gitd/main.go:34` AND `chanlib.OpenAdapterStore("gitd")` at `gitd/main.go:45`
+— which is exactly what `StoreReach` declares, `"gitd": {OwnerRoutd, "gitd"}`.
+An operator who copied that sentence would write a policy one resource short,
+and `gitd` would authenticate and then fail on its own dedup table — the
+too-narrow failure this entry already warns does not surface at deploy.
+
+**The rollout, per daemon** (`gitd` shown, and it is still the right one to go
+first — two resources, no other daemon reads its tables). `STORE_ACCOUNT_ID` and
+`STORE_ADMIN_PASSWORD` come from the instance `.env`:
+
+```bash
+sudo docker exec -e EXTENDDB_PASSWORD=$STORE_ADMIN_PASSWORD arizuko_extenddb_<name> \
+  extenddb manage -c /var/lib/extenddb/extenddb.toml --user admin \
+  create-user --account $STORE_ACCOUNT_ID --name gitd
+
+sudo docker exec -e EXTENDDB_PASSWORD=$STORE_ADMIN_PASSWORD arizuko_extenddb_<name> \
+  extenddb manage -c /var/lib/extenddb/extenddb.toml --user admin \
+  put-user-policy --account $STORE_ACCOUNT_ID --name gitd --policy-name tables \
+  --policy '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"dynamodb:*","Resource":["arn:aws:dynamodb:*:*:table/routd.*","arn:aws:dynamodb:*:*:table/gitd.*"]}]}'
+
+sudo docker exec -e EXTENDDB_PASSWORD=$STORE_ADMIN_PASSWORD arizuko_extenddb_<name> \
+  extenddb manage -c /var/lib/extenddb/extenddb.toml --user admin \
+  create-access-key --account $STORE_ACCOUNT_ID --name gitd
+```
+
+Write the printed pair into `env/gitd.env` as `AWS_ACCESS_KEY_ID` /
+`AWS_SECRET_ACCESS_KEY` — the only place `generate` will read it back from
+(`compose/compose.go:882-901`). Then restart that one daemon and watch it before
+the next. The resource array for every other daemon is `StoreReach`'s row for it,
+one `arn:aws:dynamodb:*:*:table/<prefix>.*` per entry.
+
+**Headcount: the repo's design says 16 keys, not 19.** `StoreReach` has 18
+entries, of which `timed` and `ttsd` are empty — 15 daemons plus the operator
+CLI need one. The "19" in this entry's title and body is the operator's LIVE
+measurement on sloth and is not derivable from this repo; do not use it as a
+rollout headcount.
+
+- **Status:** open — the ROLLOUT only; the resource list is declared and checked,
+  so the work is not the design, and no code change is pending. It rewrites live
+  IAM policies on a running fleet, so it ships one daemon at a time against krons
+  — `gitd` first, whose policy carries BOTH `routd.*` and `gitd.*` — each proven
+  before the next. `slakd` is the same two-prefix shape; `timed` and `ttsd` get
+  no key at all.
+- **Fix:**
+
+## L347 — rows behind a steered command are never re-fed (2026-09-21, open)
+
+`routd/dispatch.go` consumes the steered row and advances the cursor TO it, so
+the rows behind it are below the cursor and are owed a turn. On the `derr` and
+`busy` paths that turn does not run: the rows are logged at ERROR and nothing
+re-feeds them. A user who asks a question and then sends `/status` loses the
+question when runed refuses the turn.
+
+The ERROR log is a symptom marker — it names the loss without ending it.
+
+**The observability half ships 2026-09-22.** While this waits, the ERROR log is
+the ONLY record that a person's question vanished, and it read `rows: 3,
+first: m1` — one row of N and no person. It names every id and every distinct
+sender now, so an operator can find what was dropped and whose it was. The
+CONTENT stays out on purpose, and `TestTheLostRowsLogNamesWhoseTheyWere` pins
+both halves of that.
+
+That changes no behaviour and settles nothing: the rows are still not re-fed.
+
+- **Severity:** medium (a user message silently dropped, on a path that
+  already knows it happened)
+- **Scope:** dispatch
+- **Affected:** routd
+- **Source:** `routd/dispatch.go` (the steer branch's `derr` and `busy` arms)
+- **Status:** open. The cause fix is to leave the cursor where it was when the
+  turn does not run, so the next poll re-reads the batch — which is a change to
+  the consume contract (`L104`) and needs sign-off.
+
+## L379 — anteval's callback sink is unreachable from a guest, so eight of nine cases time out on a working substrate (2026-09-27, open)
+
+`anteval --smoke` on sloth, on the VM substrate, quiet host, two run slots, a 3 h
+bearer: **1/9**. The one pass is `rest-roundtrip` (20 s), and it is the only case
+that needs NO callback — it checks that a message appeared in `web:eval`.
+
+Every other case fails the same way: `no callback for <case>`, or an empty URL
+(`Get "": unsupported protocol scheme ""`) because the value the callback would
+have carried never arrived.
+
+**The substrate is not the cause, and the proxy's own log says so.** From the same
+run:
+
+```
+egress: allow connect src=10.97.0.69 host=api.anthropic.com
+egress: allow connect src=10.97.0.69 host=http-intake.logs.us5.datadoghq.com
+```
+
+The guest reaches the model through its tap's proxy, 16 model-usage reports landed
+in 12 minutes, and one hand-timed turn on the same instance was **43 s** inject to
+reply. What the proxy log does NOT contain is a single connect to the sink.
+
+**The sink is a docker-network address.** The gate runs it on the compose network's
+gateway (`--sink http://$GW:9099`), which worked when the turn was a container ON
+that network. A guest's only interface is one tap whose rule set accepts its own
+proxy and drops everything else, so a direct dial to `192.168.160.1:9099` is
+dropped below the guest's kernel — and routing it through the proxy would not help,
+because the allowlist matches NAMES and the matcher skips IP entries
+(`egress/address.go`).
+
+- **Severity:** high for the eval, zero for the fleet (the substrate works; the
+  harness cannot observe it)
+- **Scope:** `anteval/pkg/run`, `.claude/skills/eval/gates.md`
+- **Affected:** every case whose verdict needs an agent callback — 8 of 9 in smoke
+- **Source:** measured on sloth 2026-09-27: 1/9, the proxy's allow-connect lines,
+  and no sink connect in the same window
+- **Status:** open
+- **Fix — one of three, and the choice is a decision:**
+  1. **A name the proxy can dial.** Give the sink a hostname the host resolves and
+     allowlist it for the eval folder. Smallest change, and it keeps the callback on
+     the one path a guest has.
+  2. **A tap rule for the sink.** One explicit accept beside the proxy rule, for the
+     eval folder only. Widens a guest's egress by one address, which is what the
+     rule set exists to prevent.
+  3. **Callback over MCP.** The guest already has one authenticated channel to the
+     platform; a case's result could arrive as a tool call rather than an HTTP POST.
+     Largest change, and the only one that needs no network reachability at all.
+
+## L435 — a github source bound below its owner keeps its routes after a revoke (2026-10-17, open)
+
+Found while writing `store/gdrive_files.go` against `github_sources` as the
+model. `AddGitHubSourceInto` renders the seeded rules from its `target`
+parameter (`store/github_sources.go:177`), and `RemoveGitHubSourceInto`
+renders them from `ownerFolder` (`store/github_sources.go:238`). The removal
+deletes rules BY MATCH, so when the target differs from the owner the two
+renderings disagree and the delete matches nothing.
+
+The row holds no target, which is why the remove path has nothing better to
+use. A revoke then reports success, drops the source item, and leaves four
+route rules pointing at a folder nobody bound any more; a later inbound event
+for that repository still routes.
+
+`gdrive_files` does not inherit this: the item carries `target_folder` and the
+remove path renders from the row.
+
+- **Severity:** medium — a revoked binding keeps routing, and the CLI says it
+  worked
+- **Scope:** `store/github_sources.go` `AddGitHubSourceInto` /
+  `RemoveGitHubSourceInto`
+- **Measurement:** read both call sites 2026-10-17; the add takes `target`, the
+  remove takes `ownerFolder`, and `deleteRoutesMatchingInto` matches on the
+  rendered `match` string
+- **Status:** open — the fix is to store the target on the row, as
+  `gdrive_files` does, and migrate the existing items
+- **Related:** `L417` (the github seed's reach), `specs/7/50-gdrive-comments-channel.md`
+
+## L503 — `delegate_group` and `escalate_group` say "Depth capped at 1", and the cap reads an argument the caller sets (2026-10-21, open — needs sign-off)
+
+FOUND 2026-10-21 by the product-docs pass, read at `a3015fcf`. Both tool
+descriptions end "Depth capped at 1." (`ipc/ipc.go:1941`, `:1996`), and
+`reference/mcp.html` copies them. Each handler reads `depth :=
+req.GetInt("depth", 0)` and refuses `depth >= 1` (`:1961-1964`, `:2013-2016`).
+The delegation row carries only the prompt (`:2019-2025`), and
+`grep -rn '"depth"' --include=*.go --include=*.ts .` finds no other reader or
+writer. So a child turn starts with no depth, calls `delegate_group` with the
+default 0, and passes. A chain parent → child → grandchild runs as far as the
+grants of each folder reach, and a parent and a child that hold both tools
+can hand one prompt back and forth with no bound. `concepts/routing.html`
+said "Both tools refuse to go more than one level"; this pass corrected the
+page, and the tool descriptions are code.
+
+- **Severity:** low — grants still bound every hop; the stated limit is false.
+- **Scope:** agent hand-off tools.
+- **Affected:** ipc (`delegate_group`, `escalate_group`).
+- **Status:** open — needs sign-off. A real cap is a hop count carried on the
+  delegation row into the child turn, which changes the message contract (`L2`
+  names the same bound for `send`). The other fix drops the sentence from both
+  descriptions. No test — a test would pin the current gap.
+
+## L498 — `specs/5/19` describes an `async` hold and a waiter that flips its row at `HITL_WAIT`, and neither exists (2026-10-20, open)
+
+FOUND 2026-10-20 by the docs fold. § "Blocking is the default"
+(`specs/5/19-hitl-firewall.md:239-267`) has a table of two hold effects, one of
+them `async` ("returns at once … the agent, re-issuing"), and says a waiter
+that reaches `HITL_WAIT` "flips its row to `async` before giving up" so that
+`resolveHoldTx` writes the re-issue trigger for a late approval. The code has
+one effect: `auth.EffectHoldBlock`, and the writer refuses every spelling but
+`allow` and `deny` (`auth/checkhold_test.go:240-243`). `awaitVerdict`
+(`routd/pending_actions.go:444-483`) expires the row at the deadline
+(`expirePendingAction`, `:380`) and answers `NOT RUN … nobody answered in time`;
+the row is closed as `expired`. The function the spec names is
+`resolveHoldInto` (`routd/pending_actions.go:337`); `resolveHoldTx` survives in
+`dashd/approvals_page.go:20`, `dashd/README.md:125` and `specs/5/19:223,237,256`.
+`specs/5/19` is `status: shipped`.
+
+**Fix:** rewrite the section to the one blocking effect and the expiry; per
+`specs/CLAUDE.md` the spec carries `status: defected` until then. No test —
+docs.
+
+- **Status:** open (record only).
+
+## L664 — `invite_create` mints `admin` the issuing folder cannot delegate (2026-11-06, open — needs sign-off)
+
+MEASURED at `684b3eeed` with a scratch probe
+(`TestProbeInviteMintsAdminTheIssuerCannotDelegate`, not committed) against the
+real store. A folder holding `folder:w mcp:* w/**`, the row onbod's
+`writeWorld` writes for every world (`onbod/main.go:926-929`), passes the only
+gate `invite_create` has: `authzStructural`, which is
+`Authorize(mcp:invite_create, target)` (`ipc/ipc.go:2160`, `:1205-1214`).
+`auth.Delegate` refuses the same row on `add_acl`: "not held WITH GRANT
+OPTION". Redeeming the invite writes `admin` on `w/x` for the redeemer
+(`store/invites.go:438-449`, and `onbod/main.go:1217-1222` on the split store),
+and the redeemer then holds `admin` on `w/x`. A subgroup invite (`w/`) leads to
+`create_world`, which writes `admin` on the new child.
+
+So an invitation is a grant door with no containment. The agent hands out
+`admin`, which answers the folder's holds and covers `mcp:*`, where delegation
+(`specs/5/33-paths-roles.md` decision 3) refuses it. The tool's description says
+"you can't issue access you don't have"; the code checks only that the agent
+may call the tool. For a world the call is held, and the person who answers
+holds `admin` on `w/**` without the option (`store/acl.go:187-191`), so that
+person cannot delegate it either. A folder with no hold row issues the invite
+with no person in the path. dashd (`dashd/invites.go:121`) and the `/invite`
+command (`routd/steer.go`, `denyNonOperator`) need an operator, so the agent
+door is the hole.
+
+**Fix** (`specs/6/52-acl-layers.md` §"Invitations, worlds and unpairing are
+grant writes"): the row the redemption writes passes `CheckGrant` at issue, with the
+turn as granter, and the invite records the identity that check read (in an
+elevated turn the `/root` issuer, not `agent:<folder>`). The check runs again,
+with that identity, before the redemption's consume and, for a subgroup
+invite, before `create_world` spends the redemption, which records the issuer.
+`create_world` checks the rows the creation writes (`store.WorldGrantRows`,
+`admin` on `<folder>/**`), and refuses a redemption with no recorded issuer. The check runs in onbod, since `auth` imports `store`, and the routd
+write that follows carries its version on routd's handle. A redemption whose
+issuer no longer holds it is refused and the invite stays unspent.
+
+- **Status:** open — needs sign-off (auth change). **Options:** (a) the fix: a
+  world's agent no longer issues invites, because neither the folder nor its
+  creator holds `admin` with the option; an operator issues them, or grants a
+  folder `admin` with the option; (b) `invite_create` also asks `admin` on the
+  target: it stops a folder that holds only `mcp:*`, and an `admin` holder
+  without the option still hands out `admin`. **Default if nothing is
+  decided:** unchanged.
+
+## L665 — `unpair` removes the account's denies from the paired identity's turns (2026-11-06, open — needs sign-off)
+
+MEASURED at `684b3eeed` with a scratch probe (`TestProbeUnpairDropsAnInheritedDeny`,
+not committed): `telegram:1` paired to `google:bob` (edge `added_by=pairing`), a
+deny `google:bob mcp:schedule_task **`, and `folder:f mcp:schedule_task f/**`. A
+turn in `f` triggered by `telegram:1` is refused `schedule_task` before the
+unpair and admitted after it.
+
+The turn's sender expands through the pairing edge, and a deny is never
+confined (`auth/authorize.go:57-58`), so the account's deny refuses every turn
+the paired identity triggers. `UnpairInto` (`store/pairing.go:186-198`) deletes
+the edge after `contain` only: on REST the caller must be the edge's parent
+(`routd/membership_resource.go:99-110`), on the agent socket the turn must hold
+`mcp:unpair` on the chat's folder (`:83-90`). The file's claim "Both directions
+are de-escalation" (`:7-8`) is false when the parent holds a deny: the person
+sheds a deny an operator wrote on them, or the agent of the folder the deny
+restrained sheds it for them.
+
+The bound: after the unpair the identity is an unpaired sender, so its turns
+hold what any unpaired sender's turns hold in that folder.
+
+**Fix** (`specs/6/52-acl-layers.md` §"Invitations, worlds and unpairing are
+grant writes"): unpair is an edge removal and passes `CheckGrant` like every
+other. It moves every deny the parent holds, so it is contained only when the
+remover could grant each of them as an allow. It also takes the parent's local
+allows away, and the spec checks every removed local allow as a grant of it
+with the option (§"The containment tests"). An account with no deny and no
+local allow unpairs as today.
+
+- **Status:** open — needs sign-off (auth change). **Options:** (a) the fix: a
+  person whose account holds a deny, or an allow without the option (every
+  invited person's `admin`), cannot unpair; an operator, whose `*` on `**`
+  covers every row, can; (b) rule it intentional: an account's deny
+  restrains only the identities linked to it, and move this to Design
+  invariants. **Default if nothing is decided:** unchanged.

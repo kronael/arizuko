@@ -65,12 +65,27 @@ class Parser(HTMLParser):
 
 def numeric(text):
     text = text.strip().lower().replace("\u00a0", " ").replace("\u202f", " ")
-    text = re.sub(r"(?:kč|czk|eur|€|m²|m2|ha|%|ks|rok(?:y|ů)?|měsíc(?:e|ů)?|let|min)", "", text)
+    text = re.sub(r"(?:kč|czk|eur|€|m²|m2|ha|%|ks|rok(?:y|ů)?|měsíc(?:e|ů)?|let|min|m)", "", text)
     return bool(re.search(r"\d", text)) and bool(re.fullmatch(r"[\d\s.,+−–—/\-]+", text))
 
 
-def check_page(root, report):
+def check_page(root, limits, size, report):
+    if size > limits["page_bytes"]:
+        report(root, "N6", "page exceeds byte limit")
+    valuation = any(node.attrs.get("name", "").lower() == "listing" for node in root.descendants("meta"))
+    if valuation and sum(1 for _ in root.descendants("h2")) > limits["valuation_sections"]:
+        report(root, "N7", "valuation exceeds section limit")
+    for cell in root.descendants("td"):
+        if "n" in cell.classes():
+            for number in re.findall(r"(?<![\w])\d[\d.,\u00a0\u202f ]*\d|(?<![\w])\d", cell.text()):
+                number = number.strip().replace("\u00a0", " ").replace("\u202f", " ")
+                if not re.fullmatch(r"(?:\d{1,3}(?: \d{3})+|\d{1,3})(?:,\d+)?", number):
+                    report(cell, "N8", "use spaces for thousands and a decimal comma")
+                    break
+
     for table in root.descendants("table"):
+        if table.parent.tag != "div" or "tbl" not in table.parent.classes():
+            report(table, "N5", "table requires a .tbl wrapper")
         rows = list(table.descendants("tr"))
         body = []
         invalid = "stack" in table.classes()
@@ -83,12 +98,16 @@ def check_page(root, report):
             if not cells or all(c.tag == "th" for c in cells):
                 continue
             body.append(cells)
+            if not cells[0].text().strip():
+                invalid = True
             if len(cells) < 2 or any(c.tag != "td" or "n" not in c.classes() or not numeric(c.text()) for c in cells[1:]):
                 invalid = True
         if not body or invalid:
             report(table, "N1", "table must contain a label and numeric columns, at most three columns")
     for node in root.descendants():
-        if node.tag in {"h1", "h2", "h3", "h4", "h5", "h6"}:
+        heading = node.tag in {"h1", "h2", "h3", "h4", "h5", "h6"}
+        list_label = node.tag in {"strong", "b"} and node.parent.tag == "li"
+        if heading or list_label:
             title = " ".join(node.text().split()).casefold()
             if title.startswith(("co nedělat", "co nežádat")):
                 report(node, "N2", "put restrictions in the relevant action")
@@ -100,6 +119,11 @@ def check_index(root, cfg, site, report):
     href_to_id = {entry["href"]: idn for idn, entry in valuations.items()}
     seen = set()
     for node in root.descendants():
+        if "item" in node.classes():
+            links = {a.attrs.get("href") for a in node.descendants("a")}
+            listing = any(row["active"] and row["url"] in links for row in rows.values())
+            if listing and not any("meta" in child.classes() for child in node.descendants()):
+                report(node, "N4", "listing requires metadata")
         if node.tag in {"h1", "h2", "h3", "h4", "h5", "h6"} and " ".join(node.text().split()).casefold() == cfg["labels"]["valuations"].casefold():
             report(node, "N3", "standalone valuation section")
         if node.tag == "a":
@@ -125,6 +149,12 @@ def check_index(root, cfg, site, report):
             text = node.text()
             match = re.search(r"\bID\s+(\d+)\b", text)
             row = rows.get(match.group(1)) if match else None
+            if row:
+                zone, dot = gen_site.ZONES.get(
+                    gen_site.zone_rank(row, cfg["limits"]), ("", "")
+                )
+                if zone and zone not in classes:
+                    report(node, "N4", "listing colour disagrees with its data")
             if row and gen_site.digits(row["minutes"]) is not None and not any(dot in text for _, dot in gen_site.ZONES.values()):
                 report(node, "N4", "listing with minutes requires a dot")
             for zone, dot in gen_site.ZONES.values():
@@ -160,7 +190,7 @@ def main():
             doc.feed(content)
             def report(node, rule, message):
                 failures.append(f"{path}:{node.line}: {rule}: {message}")
-            check_page(doc.root, report)
+            check_page(doc.root, (cfg or gen_site.DEFAULTS)["limits"], path.stat().st_size, report)
             if path.name == "index.html":
                 if cfg is None:
                     raise ValueError(f"{path}: index requires --config")

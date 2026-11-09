@@ -33,11 +33,10 @@ photos, hours and phone.
   before taking an entity URL.
 - mapy `source=osm&id=NNN` is mapy's own id, not the OSM node/way id
   ; take it from the browser address bar only.
-- Google Maps needs consent cookies: set `CONSENT` and `SOCS` on
-  google.com from a plain page (`robots.txt`) in `agent-browser`
-  (`consent.google.com` is off the allowlist). Without the gstatic /
-  googleusercontent hosts the card hides review counts and shows
-  today's hours only — write that in the row.
+- Open Google Maps and complete its consent flow in the browser. If consent
+  or static hosts are refused, request access using `census.md` § Egress.
+  If the limited view hides review counts or hours for the trip date,
+  record those fields as unverified; verify them from another live source.
 
 ## GPS pin (last resort)
 

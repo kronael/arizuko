@@ -23,23 +23,34 @@ def rule(name):
 class Link:
     page: str; line: int; url: str; host: str; path: str; target: str; frag: str; text: str; in_nav: bool = False
 
+VOID = set('area base br col embed hr img input link meta param source track wbr'.split())
+
 class _Parser(HTMLParser):
     def __init__(self):
         super().__init__(convert_charrefs=True)
         self.tags, self.ids, self.links, self._a, self._t = [], set(), [], None, []
         self.heads, self._h, self.nav_lines = {}, None, []
+        self.stack, self.balance = [], []
     def handle_starttag(self, tag, attrs):
         a = dict(attrs); self.tags.append((tag, a, self.getpos()[0]))
+        if tag not in VOID: self.stack.append((tag, self.getpos()[0]))
         if a.get('id'): self.ids.add(a['id'])
         if tag == 'link' and a.get('href'): self.links.append((a['href'], self.getpos()[0], '', False))
-        if tag == 'script' and a.get('src'): self.links.append((a['src'], self.getpos()[0], '', False))
-        if tag == 'a' and a.get('href'): self._a, self._t = (a['href'], self.getpos()[0]), []
+        if tag in ('script', 'img') and a.get('src'): self.links.append((a['src'], self.getpos()[0], '', False))
+        if tag == 'a' and 'href' in a: self._a, self._t = (a['href'] or '', self.getpos()[0]), []
         if tag in ('title', 'h1') and tag not in self.heads: self._h, self.heads[tag] = tag, ''
         if tag == 'nav': self._nav = True
+    def handle_startendtag(self, tag, attrs):
+        self.handle_starttag(tag, attrs)
+        if tag not in VOID: self.handle_endtag(tag)
     def handle_data(self, d):
         if self._a: self._t.append(d)
         if self._h: self.heads[self._h] += d
     def handle_endtag(self, tag):
+        if tag in VOID: self.balance.append(f'line {self.getpos()[0]}: unexpected </{tag}>')
+        elif not self.stack or self.stack[-1][0] != tag:
+            self.balance.append(f'line {self.getpos()[0]}: unexpected </{tag}>')
+        else: self.stack.pop()
         if tag == 'a' and self._a:
             self.links.append((*self._a, ' '.join(''.join(self._t).split()), getattr(self, '_nav', False))); self._a = None
         if tag == self._h: self._h = None
@@ -50,6 +61,7 @@ class Page:
         self.name = rel; self.src = open(os.path.join(root, rel), encoding='utf-8').read()
         p = _Parser(); p.feed(self.src); p.close()
         self.tags, self.ids, self.raw_links = p.tags, p.ids, p.links
+        self.balance = p.balance + [f'line {line}: unclosed <{tag}>' for tag, line in p.stack]
         self.heads = {k: ' '.join(v.split()) for k, v in p.heads.items()}
     def has_class(self, c): return any(c in (a.get('class') or '').split() for _, a, _ in self.tags)
 
@@ -77,6 +89,39 @@ def host_is(link, *domains): return any(link.host == d or link.host.endswith('.'
 DAY = re.compile(r'(^|/)day\d+(-[\w-]+)?\.html$')
 
 # ---------------------------------------------------------------- rules
+@rule('html-balance')
+def _(site):
+    for p in site.pages.values():
+        for error in p.balance: yield 'ERROR', p.name, error
+
+@rule('css-class')
+def _(site):
+    shipped = os.path.join(os.path.dirname(__file__), '..', 'components', 'hub-lavender.css')
+    for p in site.pages.values():
+        paths = [shipped] + [os.path.join(site.root, l.target) for l in site.links
+            if l.page == p.name and l.target.endswith('.css') and not l.target.startswith('..')]
+        css = ''
+        for path in paths:
+            if os.path.isfile(path):
+                with open(path, encoding='utf-8') as f: css += f.read()
+        defined = set(re.findall(r'\.([a-zA-Z_][\w-]*)', re.sub(r'/\*.*?\*/', '', css, flags=re.S)))
+        for tag, attrs, line in p.tags:
+            for name in (attrs.get('class') or '').split():
+                if name not in defined: yield 'ERROR', p.name, f'line {line}: undefined class {name}'
+
+@rule('empty-href')
+def _(site):
+    for p in site.pages.values():
+        for tag, attrs, line in p.tags:
+            if 'href' in attrs and not (attrs['href'] or '').strip():
+                yield 'ERROR', p.name, f'line {line}: empty href'
+
+@rule('osm-links')
+def _(site):
+    for l in site.links:
+        if host_is(l, 'openstreetmap.org') and l.path != '/' and not re.fullmatch(r'/(?:node|way|relation)/[1-9][0-9]*/?', l.path):
+            yield 'ERROR', l.page, f'line {l.line}: invalid OSM object URL {l.url}'
+
 @rule('title-h1')
 def _(site):
     for p in site.pages.values():
@@ -170,11 +215,27 @@ def _(site):
                 t = ' '.join(html.unescape(re.sub(r'<[^>]+>', '', li)).split()); head = t.split('·')[0]
                 hrefs = re.findall(r'href=["\']([^"\']+)', li)
                 if len(head.split()) > 10: yield 'ERROR', p.name, f'meal line {len(head.split())} words: {head[:40]}'
-                if not re.search(r'·\s*(?:Google\s+)?[1-5]\.\d\b|\bunrated\b', t): yield 'ERROR', p.name, f'meal line without rating: {head[:40]}'
+                if not re.search(r'·\s*(?:Google|TripAdvisor)\s+[1-5]\.\d\b|\bunrated\b', t, re.I): yield 'ERROR', p.name, f'meal line without rating: {head[:40]}'
+                if not re.search(r'\b(?:open|from|until|to)\b[^·]*\b\d{1,2}:\d{2}\b', head, re.I): yield 'ERROR', p.name, f'meal line without opening time: {head[:40]}'
                 if not any(h.startswith('tel:') for h in hrefs) and 'phone: not found' not in t: yield 'ERROR', p.name, f'meal line without tel: link: {head[:40]}'
                 if not any('google.com/maps/' in h for h in hrefs): yield 'ERROR', p.name, f'meal line without Google link: {head[:40]}'
                 if not any('mapy.com/' in h for h in hrefs): yield 'ERROR', p.name, f'meal line without mapy link: {head[:40]}'
                 if any('source=coor' in h for h in hrefs): yield 'ERROR', p.name, f'meal line uses GPS pin: {head[:40]}'
+
+@rule('meal-cap')
+def _(site):
+    for p in site.pages.values():
+        pattern = r'<[^>]+class=["\'][^"\']*\btimeline-date\b[^"\']*["\'][^>]*>(.*?)</[^>]+>|<ul\b[^>]*class=["\'][^"\']*\bfood-list\b[^"\']*["\'][^>]*>(.*?)</ul>'
+        meal = None; count = 0
+        for match in re.finditer(pattern, p.src, re.S | re.I):
+            heading, food = match.groups()
+            if heading is not None:
+                found = re.search(r'\b(Breakfast|Lunch|Coffee|Dinner)\b', re.sub(r'<[^>]+>', '', heading), re.I)
+                meal = found.group(1).lower() if found else None; count = 0
+            elif meal:
+                count += len(re.findall(r'<li\b', food, re.I))
+                cap = 3 if meal == 'lunch' else 2
+                if count > cap: yield 'ERROR', p.name, f'{meal} has {count} selections; maximum {cap}'
 
 @rule('day-blocks')
 def _(site):
@@ -184,9 +245,7 @@ def _(site):
             if not p.has_class(c): yield 'ERROR', n, f'missing .{c}'
         for t, a, ln in p.tags:
             if t == 'iframe' and a.get('loading') == 'lazy': yield 'ERROR', n, f'line {ln}: lazy iframe renders blank on phones'
-        if len(re.findall(r'<div\b', p.src)) != p.src.count('</div>'): yield 'ERROR', n, 'unbalanced div elements'
         if sum(1 for _, a, _ in p.tags if 'checked-line' in (a.get('class') or '').split()) != 1: yield 'ERROR', n, 'expected one checked-line'
-        if any(t == 'a' and a.get('href') == '' for t, a, _ in p.tags): yield 'ERROR', n, 'empty href'
         if re.search(r'<h[23]>\s*(Food|Breakfast|Lunch|Coffee|Dinner)\b', p.src): yield 'ERROR', n, 'meal heading outside timeline'
         for meal in ('Breakfast', 'Lunch', 'Coffee', 'Dinner'):
             if not re.search(r'class=["\'][^"\']*\btimeline-date\b[^"\']*["\'][^>]*>\s*\d{1,2}:\d{2}\s*[—–-]\s*' + meal + r'\b', p.src):

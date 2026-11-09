@@ -26,7 +26,7 @@ The site is a generated index plus hand-written pages. The package owns the gene
 `| ID | Place | URL | Price | Area m² | Minutes | First seen | Verified | Status |`.
 A status with `staženo`, `prodáno`, `neaktivní` or `vyřazeno` removes the row from the site. `★` in the status marks a priority. `nové` marks a new row.
 
-`site.json` holds only what differs from the defaults: `title`, `lang`, `intro`, `db`, `site`, `links` (cards under "more"), `limits` (the colour thresholds: `minutes_green`, `minutes_yellow`, `area_green`, `price_red`), `labels` (every fixed text, default Czech), and `criteria` (the group's listing research brief). The default `db` and `site` paths are in the table above. The listing workflow reads `criteria`; the renderer does not score it.
+`site.json` holds only what differs from the defaults: `title`, `lang`, `intro`, `db`, `site`, `links` (cards under "more"), `limits` (colour thresholds `minutes_green`, `minutes_yellow`, `area_green`, `price_red`, and check limits `page_bytes`, `valuation_sections`), `labels` (every fixed text, default Czech), and `criteria` (the group's listing research brief). The default `db` and `site` paths are in the table above. The listing workflow reads `criteria`; the renderer does not score it.
 
 ## Build
 
@@ -44,7 +44,7 @@ Before delivery, check the index and every changed HTML page:
 python3 ~/.claude/skills/estate-site/scripts/check_format.py --config ~/estate/site.json ~/public_html/index.html ~/public_html/oceneni/place.html
 ```
 
-The check covers numeric tables, headings, valuation placement and colour/dot consistency. It does not verify sources or replace a browser check.
+Delivery requires the check to exit 0. It covers page size, valuation section count, Czech number formatting in numeric table cells, numeric tables, their wrapper, headings, valuation placement and colour/dot consistency. Defaults are 10,000 bytes and eight valuation sections. It does not check rendered or mobile behaviour or verify sources; use a browser for those checks.
 
 ## Pages
 
@@ -55,6 +55,7 @@ python3 ~/.claude/skills/estate-site/scripts/gen_site.py new oceneni/place "Plac
 `new` writes a skeleton that links `estate.css` and `local.css` with the right relative path, and refuses to overwrite a file. Fill the body from `components/parts.html`: the `.big` verdict, numeric tables and `.warn`.
 A page with `<meta name="listing" content="ID">` links from its active listing card. The newest page for an ID wins.
 Use numbered points for prose. Give numeric tables a `.tbl` wrapper, one label column and at most two numeric columns with class `n`.
+ALWAYS put the main conclusion first, within five short lines. Link each material claim to its source and place each risk beside the action that addresses it. Before publication, remove sentences that do not change the reader's decision. Link to existing detail rather than repeat it across pages.
 ALWAYS check a new page at 390 px width: `document.documentElement.scrollWidth` must not exceed the viewport.
 
 ## Look

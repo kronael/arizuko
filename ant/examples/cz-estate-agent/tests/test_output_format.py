@@ -15,7 +15,7 @@ class FormatTests(unittest.TestCase):
         self.site = self.root / "site"
         self.site.mkdir()
         self.db = self.root / "db.md"
-        self.db.write_text("| 1 | Example | https://example.test/1 | 100 | 200 | 30 | 2026-01-01 | 2026-01-01 | active |\n")
+        self.db.write_text("| 1 | Example | https://example.test/1 | 100 | 20000 | 30 | 2026-01-01 | 2026-01-01 | active |\n")
         self.cfg = self.root / "site.json"
         self.cfg.write_text(json.dumps({"site": str(self.site), "db": str(self.db), "labels": {"valuations": "My valuations"}}))
         self.val = self.site / "valuation.html"
@@ -42,15 +42,33 @@ class FormatTests(unittest.TestCase):
             self.assertIn('N1:', result.stdout)
 
     def test_n1_accepts_numeric_formats(self):
-        self.val.write_text('<table><tr><td>Price</td><td class="n">1 000–2 000 Kč</td><td class="n">12,5 %</td></tr></table>')
+        self.val.write_text('<div class="tbl"><table><tr><td>Price</td><td class="n">1 000–2 000 Kč</td><td class="n">12,5 %</td></tr></table></div>')
         self.assertEqual(self.run_check(self.val).returncode, 0)
 
     def test_n1_accepts_row_header_label(self):
-        self.val.write_text('<table><tr><th>Item</th><th>Value</th></tr><tr><th>Price</th><td class="n">1 000 Kč</td></tr></table>')
+        self.val.write_text('<div class="tbl"><table><tr><th>Item</th><th>Value</th></tr><tr><th>Price</th><td class="n">1 000 Kč</td></tr></table></div>')
         self.assertEqual(self.run_check(self.val).returncode, 0)
+
+    def test_n5_requires_table_wrapper(self):
+        for wrapper in ('{}', '<span class="tbl">{}</span>'):
+            table = '<table><tr><td>Price</td><td class="n">1</td></tr></table>'
+            self.val.write_text(wrapper.format(table))
+            result = self.run_check(self.val)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('N5:', result.stdout)
+
+    def test_n1_requires_label(self):
+        self.val.write_text('<div class="tbl"><table><tr><td></td><td class="n">1</td></tr></table></div>')
+        self.assertIn('N1:', self.run_check(self.val).stdout)
 
     def test_n2_negative_heading(self):
         self.val.write_text('<h2>  Co nežádat: omezení </h2>')
+        result = self.run_check(self.val)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('N2:', result.stdout)
+
+    def test_n2_negative_list_label(self):
+        self.val.write_text('<ul><li><strong>Co nedělat</strong></li></ul>')
         result = self.run_check(self.val)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('N2:', result.stdout)
@@ -73,10 +91,42 @@ class FormatTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('N4:', result.stdout)
 
+    def test_n4_colour_must_match_listing_data(self):
+        self.db.write_text(self.db.read_text().replace('| 20000 |', '| 200 |'))
+        result = self.run_check(self.index)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('N4:', result.stdout)
+
+    def test_n4_listing_requires_metadata(self):
+        self.index.write_text('<div class="item"><a href="https://example.test/1">Example</a></div>')
+        self.assertIn('N4:', self.run_check(self.index).stdout)
+
     def test_missing_minutes_permits_no_dot(self):
         self.db.write_text(self.db.read_text().replace('| 30 |', '|  |'))
         self.index.write_text(self.good.replace('🟢 30 min · ', ''))
         self.assertEqual(self.run_check(self.index).returncode, 0)
+
+    def test_page_size_limit_and_override(self):
+        self.val.write_text("x" * 10001)
+        self.assertIn("N6:", self.run_check(self.val).stdout)
+        self.cfg.write_text(json.dumps({"limits": {"page_bytes": 10001}}))
+        self.assertEqual(self.run_check(self.val).returncode, 0)
+
+    def test_valuation_section_limit_and_override(self):
+        self.val.write_text('<meta name="listing" content="1">' + '<h2>Section</h2>' * 9)
+        self.assertIn("N7:", self.run_check(self.val).stdout)
+        self.cfg.write_text(json.dumps({"limits": {"valuation_sections": 9}}))
+        self.assertEqual(self.run_check(self.val).returncode, 0)
+        self.val.write_text('<h2>Section</h2>' * 9)
+        self.assertEqual(self.run_check(self.val).returncode, 0)
+
+    def test_czech_number_format(self):
+        for value in ("1000 Kč", "1.000 Kč", "12.5 %"):
+            with self.subTest(value=value):
+                self.val.write_text(f'<div class="tbl"><table><tr><td>Value</td><td class="n">{value}</td></tr></table></div>')
+                self.assertIn("N8:", self.run_check(self.val).stdout)
+        self.val.write_text('<div class="tbl"><table><tr><td>Value</td><td class="n">1&nbsp;000,5 Kč</td><td class="n">14,69M</td></tr></table></div>')
+        self.assertEqual(self.run_check(self.val).returncode, 0)
 
     def test_missing_empty_and_multiple_inputs_fail(self):
         self.assertNotEqual(self.run_check(self.root / 'missing.html').returncode, 0)

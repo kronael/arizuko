@@ -1,10 +1,10 @@
 # Checks — before every delivery (Round 4)
 
-Run `python3 ~/.claude/skills/itinerary/scripts/trip_lint.py ~/public_html/<trip>` for the whole site. It checks local links, navigation, page structure, map URLs and meal lines. The `page_check.py` entry point delegates to this same checker.
+Run `python3 ~/.claude/skills/itinerary/scripts/trip_lint.py ~/public_html/<trip>` for the whole site. It checks HTML tag balance, local pages and assets, empty links, stylesheet classes, navigation, page structure, Mapy and OSM URLs, phone links, meal ratings and opening-time text, and meal selection caps. Inline styles are permitted for minimal layout. The `page_check.py` entry point delegates to this same checker.
 
 Run `python3 ~/.claude/skills/itinerary/scripts/link_check.py ~/public_html/<trip>/day*.html` to inspect map links in the browser. A browser error or timeout is a failed check. Inspect rendered routes and a 390 px page separately; static checks cannot verify route geometry or source truth.
 
-When a stop, date, route or venue changes, recheck its hours, route, affected links and pages. When only text changes, rerun the static checker. For independent judgment use core `oracle` with Codex model `gpt-6-astra` and reasoning effort `high`.
+When a stop, date, route or venue changes, recheck its hours, route, affected links and pages. For independent judgment use core `oracle` with Codex model `gpt-6-astra` and reasoning effort `high`.
 
 Run all of it after every change, not only the first build.
 
@@ -13,8 +13,8 @@ Run all of it after every change, not only the first build.
 Every restaurant, café, museum, attraction and car park on the page is
 a `db/` row with address and postcode, phone, website or listing when
 one exists, place links per kind (`mapy-links.md`) — or `not found`
-written out after two sources tried. Public copies: `diff -q ~/workspace/trips/<trip>/db/*.md
-~/public_html/<trip>/db/` is empty.
+written out after two sources tried. Compare the page facts with the private rows.
+Keep database files, decisions and personal contacts outside `~/public_html/`.
 
 ## Trails
 

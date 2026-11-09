@@ -16,7 +16,7 @@ import {
 } from './backend.js';
 import { renderSkillsIndex, scanSkills } from './skills-scan.js';
 import { Binding, PolicyEvent, Verdict, bindings, runnableBy } from './policy.js';
-import { POLICY_LOG_SPOOL, drainLines } from './spool.js';
+import { DEADLINE_NOTE_LEAD_MS, DEADLINE_TEXT, POLICY_LOG_SPOOL, drainLines } from './spool.js';
 import fs from 'fs';
 import path from 'path';
 import type { ModelUsage } from './mcp.js';
@@ -241,29 +241,67 @@ function modelHost(env: Record<string, string>): string | undefined {
   }
 }
 
+export async function* runCodexStream(turn: Turn, run: (turn: Turn, deadlineNote?: boolean) => AsyncIterable<Frame>): AsyncGenerator<Frame> {
+  if (turn.signal?.aborted) return;
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  if (turn.signal?.aborted) controller.abort();
+  turn.signal?.addEventListener('abort', abort, { once: true });
+  let token = turn.continuity;
+  let interrupted = false;
+  let finished = false;
+  let due = false;
+  const interrupt = () => {
+    if (token && !controller.signal.aborted && !finished) {
+      interrupted = true;
+      controller.abort();
+    }
+  };
+  const timer = setTimeout(() => { due = true; interrupt(); }, Math.max(0, turn.deadline - DEADLINE_NOTE_LEAD_MS - Date.now()));
+  try {
+    for await (const frame of run({ ...turn, signal: controller.signal })) {
+      if (frame.kind === 'continuity') {
+        token = frame.token;
+        if (due) interrupt();
+      }
+      if (frame.kind === 'result') {
+        finished = true;
+        if (interrupted) continue;
+      }
+      yield frame;
+    }
+    if (interrupted && token && !turn.signal?.aborted) {
+      yield* run({ ...turn, prompt: DEADLINE_TEXT, continuity: token }, true);
+    }
+  } finally {
+    clearTimeout(timer);
+    turn.signal?.removeEventListener('abort', abort);
+  }
+}
+
 async function* runCodex(turn: Turn): AsyncGenerator<Frame> {
   const scan = scanSkills(`${turn.cwd}/.claude/skills`);
   for (const x of scan.excluded) log(`skill excluded by load-time guard: ${x}`);
   writeCodexHooks(turn.cwd, turn.turnID, turn.env);
-  for await (const frame of driveCli(
-    'codex',
-    codexArgs(turn),
-    {
-      cwd: turn.cwd,
-      env: turn.env,
-      stdin: codexPrompt(turn, renderSkillsIndex(scan.clean)),
-      signal: turn.signal,
-      deadline: turn.deadline,
-    },
-    new CodexTurn(modelHost(turn.env)),
-    log,
-  )) {
-    // codex swallows a hook's stderr, so the policies spool their log lines to a
-    // file instead. Drain as frames arrive: near-live, and no line is lost.
+  yield* runCodexStream(turn, async function* (current, deadlineNote) {
+    for await (const frame of driveCli(
+      'codex',
+      codexArgs(current),
+      {
+        cwd: current.cwd,
+        env: current.env,
+        stdin: deadlineNote ? current.prompt : codexPrompt(current, renderSkillsIndex(scan.clean)),
+        signal: current.signal,
+        deadline: current.deadline,
+      },
+      new CodexTurn(modelHost(current.env)),
+      log,
+    )) {
+      for (const line of drainLines(POLICY_LOG_SPOOL)) console.error(line);
+      yield frame;
+    }
     for (const line of drainLines(POLICY_LOG_SPOOL)) console.error(line);
-    yield frame;
-  }
-  for (const line of drainLines(POLICY_LOG_SPOOL)) console.error(line);
+  });
 }
 
 // The image owns the policy code, outside the agent's writable home.

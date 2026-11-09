@@ -298,9 +298,7 @@ images: check-skills
 	# rebuild on a busy host dies at 99% disk — twice on 2026-08-18, twice more
 	# on 2026-08-20. --keep-storage caps it WITHOUT going cold: an unbounded
 	# `builder prune -f` would reclaim the same space and then make every
-	# subsequent build recompile every layer. `builder prune` is also the safe
-	# verb: `image prune -a` deletes arizuko-ant, which has no container
-	# between turns to protect it, and every spawn then 403s.
+	# subsequent build recompile every layer.
 	$(DOCKER) builder prune -f --keep-storage 8GB
 	$(DOCKER_BUILD) -t arizuko .
 	$(DOCKER_BUILD) -t arizuko-whatsapp -f whapd/Dockerfile .
@@ -341,7 +339,8 @@ rootfs:
 	      [ -s "$(ROOTFS_DIR)/usr/local/bin/node" ] && [ -s "$(ROOTFS_DIR)/.image-env.json" ] && \
 	      [ "$$(cat "$(ROOTFS_DIR)/.image-env.json")" = "$$image_env" ]; then \
 	      echo "rootfs: $(ROOTFS_DIR) is current for $(ROOTFS_KEY)"; \
-	      echo "rootfs: free old trees with: arizuko images -i <instance> --prune"; exit 0; fi; \
+	      echo "rootfs: free old trees with: arizuko images -i <instance> --prune"; \
+	      $(DOCKER) image rm arizuko-ant:latest; exit 0; fi; \
 	    echo "rootfs: $(ROOTFS_DIR) is incomplete; keep it for inspection" >&2; exit 1; fi; \
 	  $(DOCKER_SUDO) mkdir -p "$(dir $(ROOTFS_DIR))"; \
 	  stage=$$($(DOCKER_SUDO) mktemp -d "$(dir $(ROOTFS_DIR)).rootfs-partial.XXXXXX"); \
@@ -361,7 +360,8 @@ rootfs:
 	    echo "rootfs: $(ROOTFS_DIR) appeared during export; $$stage kept" >&2; exit 1; fi; \
 	  $(DOCKER_SUDO) mv -T "$$stage" "$(ROOTFS_DIR)"; \
 	  echo "rootfs: $(ROOTFS_DIR)"; \
-	  echo "rootfs: free old trees with: arizuko images -i <instance> --prune"
+	  echo "rootfs: free old trees with: arizuko images -i <instance> --prune"; \
+	  $(DOCKER) image rm arizuko-ant:latest
 
 # Old rootfs trees are ~7 GB each and fill the volume (BUGS L359). Freeing them
 # is runtime state of an instance, so the operator CLI owns it: `arizuko images`.

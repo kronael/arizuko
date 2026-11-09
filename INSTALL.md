@@ -227,14 +227,15 @@ make test                   # go test ./... -short
 The bootstrap builds both artifacts. To rebuild them, `DATA_DIR` names the
 instance directory that receives the guest kernel and the release rootfs,
 `/srv/data/arizuko_<name>`.
-Instances that run the same `arizuko-ant` image can share one `DATA_DIR`, so
+Instances that use the same agent build can share one `DATA_DIR`, so
 the export runs once. [`kernel/README.md`](kernel/README.md) says what
 `make kernel` builds and why it is a separate artifact.
 
 ```bash
 sudo make images DATA_DIR=/srv/data/arizuko_<name>
 # builds arizuko:latest, arizuko-ant:latest and the adapter images, then exports
-# the release rootfs that the guest boots (DATA_DIR/images/rootfs-<hash>/)
+# the release rootfs that the guest boots (DATA_DIR/images/rootfs-<id>/)
+# and removes arizuko-ant:latest after a successful export
 sudo make kernel DATA_DIR=/srv/data/arizuko_<name>
 # builds the pinned guest kernel and initrd (DATA_DIR/images/kernel-<hash>/).
 # It rebuilds only when kernel/Dockerfile, kernel/arizuko.fragment,
@@ -258,9 +259,7 @@ set `RUNED_ROOTFS_DIR` to it first, or do not prune. The listed size adds the
 size of every file name in a tree, so a hard-linked file counts once for each
 name, and the sizes can add up to more than a prune frees.
 
-Never run `docker image prune -a` on an arizuko host. No container holds
-`arizuko-ant` between turns, so the prune deletes it, and the rootfs export
-reads that image. To free the build cache, run `docker builder prune -f`.
+To free the build cache, run `docker builder prune -f`.
 
 `make images` builds the complete image set, the adapter images included. To
 rebuild one image only, use these targets:
@@ -912,7 +911,8 @@ sudo systemctl restart arizuko_demo               # the service generates and st
 ```
 
 - `make images` exports a new rootfs tree only when the `arizuko-ant` image
-  changed. It removes no tree. To roll back the guest, set `RUNED_ROOTFS_DIR`
+  changed. It removes `arizuko-ant:latest` after a successful export or reuse.
+  It removes no tree. To roll back the guest, set `RUNED_ROOTFS_DIR`
   to an older tree that is still on disk and restart. `arizuko images -i <name>
 --prune` removes every tree that `.env` does not name.
 - `make kernel` builds only when `kernel/Dockerfile`, `kernel/arizuko.fragment`,

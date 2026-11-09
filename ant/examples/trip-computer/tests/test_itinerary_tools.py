@@ -1,5 +1,6 @@
 import importlib.util
 import os
+import runpy
 import subprocess
 import sys
 import tempfile
@@ -60,8 +61,56 @@ class ItineraryToolsTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
 
     def test_meal_rating_with_review_count(self):
-        (self.site / 'index.html').write_text('<title>Trip</title><h1>Trip</h1><ul class="food-list"><li>Cafe · Google 4.7 (123 reviews) · <a href="tel:+351123456789">phone</a> · <a href="https://google.com/maps/place/x">google</a> · <a href="https://mapy.com/x">mapy</a></li></ul>')
+        (self.site / 'index.html').write_text('<title>Trip</title><h1>Trip</h1><ul class="food-list"><li>Cafe open to 18:00 · Google 4.7 (123 reviews) · <a href="tel:+351123456789">phone</a> · <a href="https://google.com/maps/place/x">google</a> · <a href="https://mapy.com/x">mapy</a></li></ul>')
         self.assertEqual(self.run_lint('--rule', 'meal-lines').returncode, 0)
+
+    def test_html_balance(self):
+        (self.site / 'index.html').write_text('<main><p>text</main>')
+        result = self.run_lint('--rule', 'html-balance')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('unexpected </main>', result.stdout)
+
+    def test_missing_image_stylesheet_and_script(self):
+        (self.site / 'index.html').write_text('<img src="missing.jpg"><link rel="stylesheet" href="missing.css"><script src="missing.js"></script>')
+        result = self.run_lint('--rule', 'internal-links')
+        for name in ('missing.jpg', 'missing.css', 'missing.js'):
+            self.assertIn(name, result.stdout)
+        self.assertNotEqual(result.returncode, 0)
+
+    def test_undefined_css_class(self):
+        (self.site / 'index.html').write_text('<div class="not-a-real-class"></div>')
+        result = self.run_lint('--rule', 'css-class')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('not-a-real-class', result.stdout)
+
+    def test_empty_href_outside_day(self):
+        (self.site / 'index.html').write_text('<a href="">empty</a>')
+        result = self.run_lint('--rule', 'empty-href')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('empty href', result.stdout)
+        parser = runpy.run_path(str(LINT))['_Parser']()
+        parser.feed('<img src="missing.jpg"><a href="">empty</a>')
+        self.assertEqual([link[0] for link in parser.links], ['missing.jpg', ''])
+
+    def test_osm_object_url(self):
+        (self.site / 'index.html').write_text('<a href="https://www.openstreetmap.org/node/nope">place</a>')
+        result = self.run_lint('--rule', 'osm-links')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('invalid OSM', result.stdout)
+
+    def test_meal_rating_names_platform(self):
+        (self.site / 'index.html').write_text('<ul class="food-list"><li>Cafe open to 18:00 · 4.7</li></ul>')
+        self.assertIn('without rating', self.run_lint('--rule', 'meal-lines').stdout)
+
+    def test_meal_opening_time(self):
+        (self.site / 'index.html').write_text('<ul class="food-list"><li>Cafe · Google 4.7</li></ul>')
+        self.assertIn('without opening time', self.run_lint('--rule', 'meal-lines').stdout)
+
+    def test_meal_selection_cap(self):
+        (self.site / 'index.html').write_text('<div class="timeline-date">08:00 — Breakfast</div><ul class="food-list"><li>A</li><li>B</li><li>C</li></ul>')
+        result = self.run_lint('--rule', 'meal-cap')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('maximum 2', result.stdout)
 
     def test_compatibility_entry_uses_site_checker(self):
         page = self.site / 'index.html'

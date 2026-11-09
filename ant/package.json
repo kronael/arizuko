@@ -5,6 +5,7 @@
   "description": "Container-side agent runner for Arizuko",
   "scripts": {
     "build": "bunx tsc --noEmit",
+    "typecheck": "bunx tsc --noEmit",
     "start": "bun src/index.ts",
     "test": "bun test src/"
   },
