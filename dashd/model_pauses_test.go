@@ -12,6 +12,7 @@ import (
 
 	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/auth"
+	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/routd"
 	"github.com/kronael/arizuko/store"
 )
@@ -30,6 +31,9 @@ func TestModelPausesDashboardOperatorClearAndAudit(t *testing.T) {
 	obj := routdDB(t)
 	db := routd.OpenOver(obj)
 	st := store.NewOver(obj)
+	if err := st.PutGroup(core.Group{Folder: "a"}); err != nil {
+		t.Fatal(err)
+	}
 	_, err := st.OpenTurnContext("held", "a", "", "web:a", "u", "", nil)
 	if err != nil {
 		t.Fatal(err)

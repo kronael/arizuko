@@ -11,6 +11,7 @@ import (
 
 	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/auth"
+	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/routd"
 )
 
@@ -26,6 +27,9 @@ func (v pauseCLIVerifier) Verify(r *http.Request) (string, []string, string, err
 
 func TestModelPausesCLIUsesOperatorResourceAndAudit(t *testing.T) {
 	st := routdStore(t)
+	if err := st.PutGroup(core.Group{Folder: "a"}); err != nil {
+		t.Fatal(err)
+	}
 	_, err := st.OpenTurnContext("held", "a", "", "web:a", "u", "", nil)
 	if err != nil {
 		t.Fatal(err)

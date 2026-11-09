@@ -162,6 +162,7 @@ func TestProgress_TurnSSEReplaysStatusWithoutCursor(t *testing.T) {
 
 func TestProgress_RecheckUsesLatestAndDropsEndedEvents(t *testing.T) {
 	s, _, st := newTestServer(t)
+	seedGroup(t, st, "main", "Main")
 	if _, err := st.OpenTurnContext("turn", "main", "tt", "web:main", "u", "", nil); err != nil {
 		t.Fatal(err)
 	}
