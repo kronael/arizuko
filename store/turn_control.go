@@ -169,7 +169,7 @@ func (s *Store) RecordControlledProviderFailure(ctx context.Context, tc TurnCont
 		pause.Op = objstore.Update
 		pause.Remove = missingAttrs(pause.Attrs, "next_attempt_at", "probe_turn_id", "probe_attempt_id")
 	}
-	attrs := map[string]string{"provider_failure_attempt": tc.AttemptID}
+	attrs := map[string]string{"provider_failure_attempt": tc.AttemptID, "status_owed": "waiting", "failure_cause": tc.FailureCause}
 	var remove []string
 	if tc.NextAttemptAt.IsZero() {
 		remove = []string{"next_attempt_at"}
@@ -269,8 +269,16 @@ func (s *Store) FinishControlledTurn(ctx context.Context, tc TurnContext, before
 	}
 	checks, writes := controlAdmission(before, after)
 	checks = append(checks, objstore.Check{Entity: Groups, Key: group, Cond: objstore.Cond{Item: objstore.ItemPresent}})
+	attrs := map[string]string{attrTurnState: TurnDone, attrTurnRunReturned: flagSet}
+	if tc.FailureCause != "" {
+		attrs["failure_cause"] = tc.FailureCause
+		attrs["status_owed"] = "final"
+	}
+	if tc.StatusOwed == "stopped" {
+		attrs["status_owed"] = "stopped"
+	}
 	write := objstore.Write{Op: objstore.Update, Entity: TurnContexts, Key: key,
-		Attrs:  map[string]string{attrTurnState: TurnDone, attrTurnRunReturned: flagSet},
+		Attrs:  attrs,
 		Remove: []string{"next_attempt_at"}, Cond: objstore.Cond{Where: []objstore.Cmp{
 			{Attr: attrTurnState, Op: objstore.Eq, Value: tc.State},
 			{Attr: attrTurnFolder, Op: objstore.Eq, Value: tc.Folder},
@@ -349,7 +357,7 @@ func (s *Store) DeferTurn(ctx context.Context, d DeferredTurn) (bool, error) {
 		{Op: objstore.Update, Entity: TurnContexts, Key: key, Attrs: map[string]string{
 			attrTurnState: TurnPendingRetry, attrTurnRetryCount: strconv.Itoa(tc.RetryCount + 1),
 			"input_keys": string(input), "ambient_keys": string(ambient), "input_last": tc.InputLast,
-			"next_attempt_at": core.TS(tc.NextAttemptAt), "failure_cause": tc.FailureCause,
+			"next_attempt_at": core.TS(tc.NextAttemptAt), "failure_cause": tc.FailureCause, "status_owed": "waiting",
 		}, Cond: objstore.Cond{Where: []objstore.Cmp{
 			{Attr: attrTurnState, Op: objstore.Eq, Value: TurnRunning},
 			{Attr: "attempt_id", Op: objstore.Eq, Value: tc.AttemptID},
@@ -408,9 +416,13 @@ func (s *Store) claimDeferredTurn(ctx context.Context, tc TurnContext, attemptID
 		return false, fmt.Errorf("claim turn %s: missing attempt", tc.TurnID)
 	}
 	checks = append(checks, objstore.Check{Entity: Groups, Key: group, Cond: objstore.Cond{Item: objstore.ItemPresent}})
+	attrs := map[string]string{attrTurnState: TurnRunning, "attempt_id": attemptID, AttrTurnStartedAt: core.TS(now)}
+	if tc.RetryCount > 0 {
+		attrs["status_owed"] = "running"
+	}
 	writes = append(writes, objstore.Write{
 		Op: objstore.Update, Entity: TurnContexts, Key: key,
-		Attrs:  map[string]string{attrTurnState: TurnRunning, "attempt_id": attemptID, AttrTurnStartedAt: core.TS(now)},
+		Attrs:  attrs,
 		Remove: []string{attrTurnRunReturned, attrTurnRunID, "next_attempt_at", "probe_episode"},
 		Cond: objstore.Cond{Where: []objstore.Cmp{
 			{Attr: attrTurnState, Op: objstore.Eq, Value: TurnPendingRetry},
@@ -420,4 +432,49 @@ func (s *Store) claimDeferredTurn(ctx context.Context, tc TurnContext, attemptID
 		}},
 	})
 	return s.TryWriteEntities(ctx, checks, writes...)
+}
+
+// OwedTurnStatuses includes completed turns whose lifecycle status still needs publication.
+func (s *Store) OwedTurnStatuses(ctx context.Context) ([]TurnContext, error) {
+	items, err := s.Obj().Query(ctx, objstore.Query{Entity: TurnContexts, Partition: OwnerRoutd, Where: []objstore.Cmp{{Attr: "status_owed", Op: objstore.Present}}})
+	if err != nil {
+		return nil, err
+	}
+	var turns []TurnContext
+	for _, it := range items {
+		turns = append(turns, turnFrom(it))
+	}
+	return turns, nil
+}
+
+func (s *Store) AcknowledgeTurnStatus(ctx context.Context, tc TurnContext) error {
+	key, err := turnKey(tc.TurnID)
+	if err != nil {
+		return err
+	}
+	count := objstore.Cmp{Attr: attrTurnRetryCount, Op: objstore.Eq, Value: strconv.Itoa(tc.RetryCount)}
+	if tc.RetryCount == 0 {
+		count.Op = objstore.Absent
+	}
+	_, err = s.TryWriteEntities(ctx, nil, objstore.Write{Op: objstore.Update, Entity: TurnContexts, Key: key, Remove: []string{"status_owed"}, Cond: objstore.Cond{Item: objstore.ItemPresent, Where: []objstore.Cmp{
+		{Attr: "attempt_id", Op: objstore.Eq, Value: tc.AttemptID}, {Attr: "status_owed", Op: objstore.Eq, Value: tc.StatusOwed}, {Attr: attrTurnState, Op: objstore.Eq, Value: tc.State}, count,
+	}}})
+	return err
+}
+
+func (s *Store) RecordControlledStatus(ctx context.Context, tc TurnContext, before *TurnControlState, after TurnControlState) (bool, error) {
+	key, err := turnKey(tc.TurnID)
+	if err != nil {
+		return false, err
+	}
+	group, err := groupKey(tc.Folder)
+	if err != nil {
+		return false, err
+	}
+	return s.TryWriteEntities(ctx, []objstore.Check{{Entity: Groups, Key: group, Cond: objstore.Cond{Item: objstore.ItemPresent}}},
+		controlWrite(before, after),
+		objstore.Write{Op: objstore.Update, Entity: TurnContexts, Key: key, Attrs: map[string]string{"status_owed": "final", "failure_cause": tc.FailureCause}, Cond: objstore.Cond{Item: objstore.ItemPresent, Where: []objstore.Cmp{
+			{Attr: "attempt_id", Op: objstore.Eq, Value: tc.AttemptID}, {Attr: attrTurnState, Op: objstore.Eq, Value: tc.State},
+		}}},
+	)
 }

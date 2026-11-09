@@ -102,6 +102,7 @@ type TurnContext struct {
 	AmbientKeys   []objstore.Key
 	NextAttemptAt time.Time
 	FailureCause  string
+	StatusOwed    string
 }
 
 // turnKey is the coordinate of one turn.
@@ -138,6 +139,7 @@ func turnFrom(it objstore.Item) TurnContext {
 	_ = json.Unmarshal([]byte(it.Attrs["ambient_keys"]), &tc.AmbientKeys)
 	tc.NextAttemptAt, _ = time.Parse(time.RFC3339Nano, it.Attrs["next_attempt_at"])
 	tc.FailureCause = it.Attrs["failure_cause"]
+	tc.StatusOwed = it.Attrs["status_owed"]
 	return tc
 }
 
