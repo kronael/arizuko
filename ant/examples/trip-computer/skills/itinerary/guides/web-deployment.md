@@ -37,6 +37,14 @@ defines them.
 - NEVER inline styles except minimal layout (nav flex, spacing).
 - Clean titles (NO unnecessary suffixes)
 
+## Links
+
+`hub-lavender.css` appends a "mapy", "google" or "osm" badge to every map
+link, so the link text only names the place or route (`mapy-links.md`).
+Every link in `.map-links`, `.food-list` and every `a.alt` chip is a
+40 px tap target. NEVER restyle these per page — ALWAYS change the one
+stylesheet.
+
 ## HTML Template
 
 ```html

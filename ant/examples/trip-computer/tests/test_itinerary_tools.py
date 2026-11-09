@@ -123,6 +123,16 @@ class ItineraryToolsTests(unittest.TestCase):
             result = self.run_lint('--rule', 'mapy-links')
             self.assertEqual(result.returncode == 0, ok, (url, result.stdout))
 
+    def test_map_link_text_names_the_place(self):
+        mapy = 'https://mapy.com/en/turisticka?source=firm&amp;id=1&amp;x=14&amp;y=50'
+        ok = [f'<a href="{mapy}">Zielony Staw</a>', '<a href="https://www.google.com/maps/dir/50,14/50.1,14.1">ponds loop, 2.2 km</a>',
+              f'<a class="alt" href="{mapy}">mapy</a>', '<a href="tel:+420491000000">+420 491 000 000</a>']
+        bad = ['<a href="https://www.google.com/maps/place/x">google</a>', f'<a href="{mapy}">(mapy)</a>',
+               '<a href="https://www.openstreetmap.org/node/1">osm</a>']
+        for link, passes in [(x, True) for x in ok] + [(x, False) for x in bad]:
+            (self.site / 'index.html').write_text(link)
+            self.assertEqual(self.run_lint('--rule', 'link-text').returncode == 0, passes, link)
+
     def test_phone_outside_link_fails_for_any_country(self):
         (self.site / 'index.html').write_text('<title>Trip</title><h1>Trip</h1>+351 123 456 789')
         result = self.run_lint('--rule', 'tel-links')

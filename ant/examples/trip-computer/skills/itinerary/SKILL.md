@@ -105,8 +105,7 @@ drive-up or on-the-way. The type and the minutes open the stop's text
 - Meals are timeline items at their time — Breakfast, Lunch, Coffee,
   Dinner — each a `<ul class="food-list">` of the best-rated venues AT
   that spot, open at that hour, caps Lunch 3 / Breakfast 2 / Coffee 2 /
-  Dinner 2; one `<li>` ≤ 10 words + `Google x.x` + tel link +
-  `google · mapy` (`pages.md` § Meals). Cost: pizza next to a
+  Dinner 2; one `<li>` per venue (`pages.md` § Meals). Cost: pizza next to a
   spring walk; three cafés, none in the park walked.
 - Open-today proof in every meal line ("open to 18:00": Google hours ON
   the date, the website, or a call). No hours = unconfirmed, never first;

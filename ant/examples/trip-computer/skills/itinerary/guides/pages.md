@@ -136,8 +136,9 @@ not "go left after the bridge".
   `db/food.md` (bakeries → Breakfast, cafés → Coffee, restaurants on the
   route → Lunch, near home → Dinner). Never empty when the census has rows.
 - One `<li>` per place, at most 10 words before the first `·`:
-  `Name — what it is, open to 18:00 · Google 4.6 · <a href="tel:+00…">+00 …</a> · <a href="…/maps/place/…">google</a> · <a href="…source=osm&id=…">mapy</a>`
-  Links in that order (`mapy-links.md` § By kind); phone missing after
+  `<a href="…/maps/place/…">Name</a> — what it is, open to 18:00 · Google 4.6 · <a href="tel:+00…">+00 …</a> · <a class="alt" href="…source=osm&id=…">mapy</a>`
+  The venue name links Google; the `class="alt"` chip links mapy
+  (`mapy-links.md` § By kind); phone missing after
   the Google check → `phone: not found`. Address, hours, price and
   counts stay in the row.
 - Rating = the platform that was opened + score. `unrated` only after

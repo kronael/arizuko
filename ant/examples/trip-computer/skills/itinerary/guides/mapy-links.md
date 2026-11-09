@@ -19,7 +19,11 @@ By kind (rule per kind): restaurants, cafés, bakeries,
 museums and shops link to **Google Maps first** (reviews, hours, photos),
 then a mapy entity with a rating; never an OSM object. Trails, rocks,
 viewpoints, peaks, car parks and trailheads link to **mapy first**, then
-OSM, then Google. Meal lines carry both: `· google · mapy`. Record the
+OSM, then Google. The link text is the place or route name ("Zielony
+Staw", "ponds loop, 2.2 km"), never "google", "mapy" or "(mapy)"; the
+stylesheet badges the map (`web-deployment.md` § Links). The one
+exception is the secondary map of a meal line: the venue name links
+Google and a `class="alt"` chip reads "mapy". Record the
 kind in the row (`link_kind`). Cost: every link was a GPS
 pin, so the reader saw "Position on the map" instead of the place, its
 photos, hours and phone.

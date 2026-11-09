@@ -24,7 +24,7 @@ def rule(name):
 
 @dataclass
 class Link:
-    page: str; line: int; url: str; host: str; path: str; target: str; frag: str; text: str; in_nav: bool = False
+    page: str; line: int; url: str; host: str; path: str; target: str; frag: str; text: str; in_nav: bool = False; cls: str = ''
 
 VOID = set('area base br col embed hr img input link meta param source track wbr'.split())
 
@@ -40,7 +40,7 @@ class _Parser(HTMLParser):
         if a.get('id'): self.ids.add(a['id'])
         if tag == 'link' and a.get('href'): self.links.append((a['href'], self.getpos()[0], '', False))
         if tag in ('script', 'img') and a.get('src'): self.links.append((a['src'], self.getpos()[0], '', False))
-        if tag == 'a' and 'href' in a: self._a, self._t = (a['href'] or '', self.getpos()[0]), []
+        if tag == 'a' and 'href' in a: self._a, self._t = (a['href'] or '', self.getpos()[0], a.get('class') or ''), []
         if tag in ('title', 'h1') and tag not in self.heads: self._h, self.heads[tag] = tag, ''
         if tag == 'nav': self._nav = True
     def handle_startendtag(self, tag, attrs):
@@ -55,7 +55,8 @@ class _Parser(HTMLParser):
             self.balance.append(f'line {self.getpos()[0]}: unexpected </{tag}>')
         else: self.stack.pop()
         if tag == 'a' and self._a:
-            self.links.append((*self._a, ' '.join(''.join(self._t).split()), getattr(self, '_nav', False))); self._a = None
+            href, line, cls = self._a
+            self.links.append((href, line, ' '.join(''.join(self._t).split()), getattr(self, '_nav', False), cls)); self._a = None
         if tag == self._h: self._h = None
         if tag == 'nav': self._nav = False
 
@@ -77,7 +78,7 @@ class Site:
                 if f.endswith('.html'):
                     rel = os.path.relpath(os.path.join(dp, f), self.root); self.pages[rel] = Page(self.root, rel)
         self.links = [self._resolve(p, *l) for p in self.pages.values() for l in p.raw_links]
-    def _resolve(self, page, url, line, text, in_nav=False):
+    def _resolve(self, page, url, line, text, in_nav=False, cls=''):
         try: u = urlparse(url); host = (u.hostname or '').lower()
         except ValueError: return Link(page.name, line, url, 'invalid', '', '', '', text)
         target = ''
@@ -86,7 +87,7 @@ class Site:
             target = os.path.normpath(os.path.join(base, unquote(u.path).lstrip('/')))
             if url.endswith('/') or os.path.isdir(os.path.join(self.root, target)): target = os.path.join(target, 'index.html')
         elif not u.scheme and not u.netloc and u.fragment: target = page.name
-        return Link(page.name, line, url, host, u.path, target, unquote(u.fragment), text, in_nav)
+        return Link(page.name, line, url, host, u.path, target, unquote(u.fragment), text, in_nav, cls)
 
 def host_is(link, *domains): return any(link.host == d or link.host.endswith('.' + d) for d in domains)
 DAY = re.compile(r'(^|/)day\d+(-[\w-]+)?\.html$')
@@ -228,6 +229,13 @@ def _(site):
     for l in site.links:
         if not host_is(l, 'google.com') or not l.path.startswith('/maps'): continue
         if l.path.startswith('/maps/search/'): yield 'WARN', l.page, f'line {l.line}: search link, not a place ("{l.text}")'
+
+@rule('link-text')
+def _(site):
+    for l in site.links:
+        is_map = host_is(l, 'mapy.com', 'openstreetmap.org') or (host_is(l, 'google.com') and l.path.startswith('/maps'))
+        if is_map and 'alt' not in l.cls.split() and re.fullmatch(r'\W*(?:google|mapy|osm|maps?)\W*', l.text, re.I):
+            yield 'ERROR', l.page, f'line {l.line}: link text "{l.text}" names the map, not the place'
 
 @rule('tel-links')
 def _(site):
