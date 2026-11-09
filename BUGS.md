@@ -15,6 +15,8 @@
 
 ## What needs you
 
+- `L794` — a failed turn retries 3 times within ~40 s, too fast for a host fault (full disk) to clear; owner wants 3 retries with longer gaps, about 4 h for cron tasks; design needs sign-off.
+- `L795` — the exhausted-retry notice names no cause; owner wants a short plain cause, no internals.
 - `L790` — `TestHoldE2E_ChannelWithoutButtonsStillGetsAnAnswerablePrompt` fails under host load (fixed 5 s wait).
 - `L721` — group handoffs bounced for an hour; verify bounded turns after deployment with group sends and progress guidance.
 - `L743` — an instance-wide model pause needs trusted host-side provider evidence; proposal, needs sign-off.
@@ -314,6 +316,48 @@ reads those words now.
   `/tmp/arizuko-github-baseline-build.log`. No test — ops.
   **Proposal:** stop the build on the first failed submake. This is an adjacent
   build-gate repair; scope approval is pending.
+
+## L794 — a failed turn retries too fast for a host fault to clear (2026-11-09, proposal — needs sign-off)
+
+MEASURED 2026-11-09 on krons and sloth (`journalctl -u arizuko_<instance>
+--since "2026-11-09 02:59" --until "2026-11-09 06:30"`): the host disk was
+full at 03:00 UTC. virtiofsd failed with "Error creating pid file
+…/turn.sock.pid: No space left on device", so no guest started. Every
+scheduled memory task (`<group>-mem-1`, `<group>-mem-3`, and the
+`sched-task-*` rows) in 11 krons and 10 sloth groups failed four launches:
+sloth `sched-eval-mem-1` at 03:00:17, :29, :41 and :56. The retries came
+11-15 s apart, so all four met the same full disk.
+
+Source: `routd/dispatch.go:553` retries a nonterminal error by holding the
+cursor (`busy=true`, `:561`), and the re-feed runs after the busy backoff.
+A held cursor blocks the group's queue, so a long gap cannot use this path.
+
+- **Severity:** high — a short host fault drops a whole night of scheduled work.
+- **Owner decision 2026-11-09:** keep 3 retries, but space them so a temporary
+  fault can recover; "maybe 4h for cron tasks".
+- **Fix (proposal):** a retry waits a growing delay instead of the busy
+  backoff; a timed task re-schedules itself at the delay and releases the
+  cursor, so the group keeps serving chat. Changes spec 5/12's retry rule.
+- **Status:** proposal — needs sign-off on the delay schedule and the
+  interactive-turn delay.
+
+## L795 — the exhausted-retry notice names no cause (2026-11-09, open)
+
+MEASURED 2026-11-09: each failed task at 03:00 sent "⚠️ Agent couldn't
+complete this request after 3 attempts." (`routd/dispatch.go:737`). Each
+group got two notices, one per failed task (`mem-1` and `mem-3`). The text
+does not say that the host ran out of disk, so the user cannot tell a host
+fault from an agent fault. Most sends failed with "no channel for jid
+<folder>"; telegram `group/5161994241` (rhias) failed with a permanent send
+error.
+
+- **Severity:** medium — the user sees noise with no cause.
+- **Owner decision 2026-11-09:** inform the user with a better message that
+  does not leak internals and is not long.
+- **Fix:** routd classifies the last error into a short plain cause (host
+  disk full, model unavailable, timeout) and names it in the notice; paths,
+  socket names and stderr stay in the log.
+- **Status:** open
 
 ## L790 — the hold e2e test fails under host load (2026-11-08, open)
 
