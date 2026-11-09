@@ -78,9 +78,11 @@ drive-up or on-the-way. The type and the minutes open the stop's text
 - Precheck egress before research; on a refusal send the exact
   `network_allow` ask at once (`census.md` § Egress). Cost: mapy.com
   found outside egress after the page was live.
-- Where the car stops: arrival block from the parking row, then two
-  timed variants, drive-up and with a walk (`pages.md`). Cost:
-  a castle with one 3-car spot at the gate, no plan B.
+- Where the car stops: write the arrival block from the parking row —
+  fee, capacity, walk time, fallback and the research's doubt — then two
+  timed variants, drive-up and with a walk (`pages.md` § Arrival by
+  car); NEVER a bare "park at X". Cost: a castle with one 3-car spot at
+  the gate, no plan B.
 - A hiking POI = short loop + long loop as mapy.com hike routes; a sight
   with trails around it gets a walk-around loop (`pages.md` § Loops).
   Cost: the castle page had a point, not a loop.
@@ -112,30 +114,40 @@ drive-up or on-the-way. The type and the minutes open the stop's text
 
 ## NEVER
 
-- Propose a place that is not a `db/` row with a source.
-- Guess coordinates, hours, phones or prices.
-- Write "park at X" without fee, capacity, walk time and fallback, or
-  drop the research's doubt about it (`pages.md` § Arrival by car).
-- Hand-write an `rc=` route string, a short link, or a `?q=` pin; build
-  a mapy `source=osm&id=` from an OSM id (mapy's id is its own).
-- Use mapy.com for car routing without the Google route beside it.
-- Recommend a restaurant under 4.0 (café 4.5) except as a labelled
-  fallback.
-- Put a café or restaurant inside a sight's item or `.map-links` row
-  (`pages.md` § Timeline). Cost:
-  "why is pizza next to the spring walk".
-- Narrate the road when a route link exists. Cost: three
-  pages of "east on road 8 through X" nobody read.
-- Cite sources inline in plan text or add "(estimate)" tails; one
-  "Facts checked <date>" line and the `.source-note` carry them
-  (`pages.md` § Exposition). Cost: 4,400 chars stripped.
-- Write a story from memory or copy a blog paragraph.
+- Propose a place that is not a `db/` row with a source — ALWAYS add
+  the sourced `db/` row first, then propose the place.
+- Guess coordinates, hours, phones or prices — ALWAYS copy them from a
+  source, or write "not found".
+- Hand-write an `rc=` route string, a short link, or a `?q=` pin, or
+  build a mapy `source=osm&id=` from an OSM id — ALWAYS build routes
+  with `mapyrc.py` and link a place by mapy's own entity
+  (`mapy-links.md`).
+- Use mapy.com for car routing alone — ALWAYS put the Google route
+  beside every mapy car route.
+- Recommend a restaurant under 4.0 (café 4.5) — ALWAYS pick at or above
+  the floor; label anything lower `fallback`.
+- Put a café or restaurant inside a sight's item or `.map-links` row —
+  ALWAYS give every meal its own timeline item (`pages.md` § Timeline).
+  Cost: "why is pizza next to the spring walk".
+- Narrate the road when a route link exists — ALWAYS give the route
+  link, the distance and the drive time. Cost: three pages of "east on
+  road 8 through X" nobody read.
+- Cite sources inline in plan text or add "(estimate)" tails — ALWAYS
+  carry them in the one "Facts checked <date>" line and the
+  `.source-note` (`pages.md` § Exposition). Cost: 4,400 chars stripped.
+- Write a story from memory or copy a blog paragraph — ALWAYS write it
+  from `/find` results, with reference links.
 - Put planning notes ("why this route works"), host or tool names, or an
-  agent's name on a user-facing page. Cost: a weather box
-  listed five refused APIs; a source note named the agent's model.
-- Deliver while `trip_lint.py` fails or a required browser check is unresolved.
-- Treat "book in advance" as a reason to drop a place.
-- Re-propose a vetoed or already visited place.
+  agent's name on a user-facing page — ALWAYS keep planning notes in
+  `<trip>/CLAUDE.md`. Cost: a weather box listed five refused APIs; a
+  source note named the agent's model.
+- Deliver while `trip_lint.py` fails or a required browser check is
+  unresolved — ALWAYS run both commands to exit 0 and resolve every
+  browser check first.
+- Treat "book in advance" as a reason to drop a place — ALWAYS keep the
+  place and state the booking step.
+- Re-propose a vetoed or already visited place — ALWAYS read the
+  decisions and vetoes in `<trip>/CLAUDE.md` before proposing.
 
 ## Files
 

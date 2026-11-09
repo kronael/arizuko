@@ -28,8 +28,8 @@ linked stylesheet. The manual page checks are in `checks.md` § Page.
 **Styling:**
 - ALWAYS use `assets/hub-lavender.css` + `assets/hub.js` (the site can add local styles)
 - ALWAYS use the stylesheet's classes and colour tokens; keep its 2px radii and 760px column.
-- NEVER add a page theme or vertical accent borders; use the existing box classes.
-- NEVER inline styles except minimal layout (nav flex, spacing).
+- NEVER add a page theme or vertical accent borders — ALWAYS use the existing box classes.
+- NEVER inline a style beyond minimal layout — ALWAYS limit inline styles to nav flex and spacing.
 - Clean titles (NO unnecessary suffixes)
 
 ## Links
