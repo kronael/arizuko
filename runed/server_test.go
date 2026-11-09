@@ -114,7 +114,7 @@ func TestStopFolderKillsActiveRun(t *testing.T) {
 		<-release
 		return RunResult{Outcome: runedv1.OutcomeOK}
 	}}}
-	db, srv := serverWith(t, rec, fakeVerifier{scope: []string{"runs:run", "runs:kill"}, folder: "demo"})
+	db, srv := serverWith(t, rec, fakeVerifier{sub: "service:routd", scope: []string{"runs:run", "runs:kill"}})
 	h := srv.Handler()
 
 	// stand up a live run so the folder has an active spawn to stop.
@@ -277,7 +277,7 @@ func TestRecentSessionsRequiresScope(t *testing.T) {
 // 403; a wildcard runs:* grant satisfies it (wildcard scope match, not exact).
 func TestRunRequiresScope(t *testing.T) {
 	post := func(scope []string) int {
-		_, srv := serverWith(t, FakeRuntime{}, fakeVerifier{scope: scope, folder: "demo"})
+		_, srv := serverWith(t, FakeRuntime{}, fakeVerifier{sub: "service:routd", scope: scope})
 		rec := httptest.NewRecorder()
 		srv.Handler().ServeHTTP(rec, httptest.NewRequest("POST", "/v1/runs",
 			strings.NewReader(`{"folder":"demo","message_batch":"m"}`)))
@@ -288,6 +288,23 @@ func TestRunRequiresScope(t *testing.T) {
 	}
 	if got := post([]string{"runs:*"}); got == 403 {
 		t.Fatalf("run with runs:* wildcard = 403, want accepted (wildcard scope match broken)")
+	}
+}
+
+func TestRunRequiresRoutdService(t *testing.T) {
+	for _, subject := range []string{"service:routd", "service:runed", "service:dashd", "user:operator", "folder:demo", ""} {
+		t.Run(subject, func(t *testing.T) {
+			runtime := &turnRecorder{res: RunResult{Outcome: runedv1.OutcomeOK}}
+			_, srv := serverWith(t, runtime, fakeVerifier{sub: subject, scope: []string{"runs:run"}})
+			got := postJSON(t, srv.Handler(), "/v1/runs", `{"packages":["core"],"folder":"demo","message_batch":"m"}`)
+			if subject == "service:routd" {
+				if got.Code != http.StatusOK || runtime.last.Load() == nil {
+					t.Fatalf("routd refused: %d %s", got.Code, got.Body.String())
+				}
+			} else if got.Code != http.StatusForbidden || runtime.last.Load() != nil || srv.mgr.ActiveCount(t.Context()) != 0 {
+				t.Fatalf("direct launch accepted: status=%d started=%v", got.Code, runtime.last.Load() != nil)
+			}
+		})
 	}
 }
 

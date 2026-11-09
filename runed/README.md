@@ -47,7 +47,7 @@ The file of each entity states its own coordinate and what that choice costs.
 
 The binary is `runed/cmd/runed/main.go`. It listens on `LISTEN_ADDR`, default `:8080`. The routes are in `server.go`, and the scope in brackets is the one that the route requires.
 
-- `POST /v1/runs` starts a run [`runs:run`].
+- `POST /v1/runs` starts a run [`service:routd` with `runs:run`].
 - `POST /v1/holds` claims the run slot of a folder and returns the handle at once [`runs:run`]. `DELETE /v1/runs/{run_id}` releases it.
 - `POST /v1/runs/stop` is the operator kill by folder [`runs:kill`].
 - `GET /v1/runs/{run_id}` returns the status of a run. `DELETE /v1/runs/{run_id}` kills it [`runs:kill`].

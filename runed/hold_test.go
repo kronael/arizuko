@@ -348,7 +348,7 @@ func TestHoldEndpointFolderBound(t *testing.T) {
 // agent turns, then release over the EXISTING DELETE /v1/runs/{run_id} route
 // — the wire shape arizuko apply uses.
 func TestHoldEndpointRoundTrip(t *testing.T) {
-	_, srv := holdServer(t, fakeVerifier{scope: []string{"runs:run", "runs:kill"}})
+	_, srv := holdServer(t, fakeVerifier{sub: "service:routd", scope: []string{"runs:run", "runs:kill"}})
 	h := srv.Handler()
 
 	rec := postJSON(t, h, "/v1/holds", `{"folder":"demo","reason":"archive apply"}`)

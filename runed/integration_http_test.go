@@ -46,7 +46,7 @@ func (*turnRecorder) Kill(string) error { return nil }
 func TestHTTPRunThreadsFullTurn(t *testing.T) {
 	rec := &turnRecorder{res: RunResult{Outcome: runedv1.OutcomeOK}}
 	// service:routd drives runs (folder=""), so any target folder is allowed.
-	_, srv := serverWith(t, rec, fakeVerifier{scope: []string{"runs:run"}})
+	_, srv := serverWith(t, rec, fakeVerifier{sub: "service:routd", scope: []string{"runs:run"}})
 	h := srv.Handler()
 
 	got := doRun(t, h, runedv1.RunRequest{Packages: []string{"core"}, Folder: "acme/eng", Topic: "incident", ChatJID: "telegram:42",
@@ -138,7 +138,7 @@ func mountAt(t *testing.T, turn Turn, guest string) core.Mount {
 
 func TestHTTPRunMissingFolder(t *testing.T) {
 	rec := &turnRecorder{res: RunResult{Outcome: runedv1.OutcomeOK}}
-	_, srv := serverWith(t, rec, fakeVerifier{scope: []string{"runs:run"}})
+	_, srv := serverWith(t, rec, fakeVerifier{sub: "service:routd", scope: []string{"runs:run"}})
 	got := postJSON(t, srv.Handler(), "/v1/runs", `{"message_batch":"m"}`)
 	if got.Code != 400 {
 		t.Fatalf("missing folder = %d want 400 (body=%s)", got.Code, got.Body.String())
@@ -155,7 +155,7 @@ func TestHTTPRunMissingFolder(t *testing.T) {
 
 // TestHTTPRunMalformedBody: a non-JSON body is 400 bad_request.
 func TestHTTPRunMalformedBody(t *testing.T) {
-	_, srv := serverWith(t, &turnRecorder{}, fakeVerifier{scope: []string{"runs:run"}})
+	_, srv := serverWith(t, &turnRecorder{}, fakeVerifier{sub: "service:routd", scope: []string{"runs:run"}})
 	if got := postJSON(t, srv.Handler(), "/v1/runs", `{not json`); got.Code != 400 {
 		t.Fatalf("malformed body = %d want 400", got.Code)
 	}
@@ -173,7 +173,7 @@ func TestHTTPRunLifecycle(t *testing.T) {
 		<-release
 		return RunResult{Outcome: runedv1.OutcomeOK}
 	}}}
-	db, srv := serverWith(t, rec, fakeVerifier{scope: []string{"runs:run", "runs:kill"}})
+	db, srv := serverWith(t, rec, fakeVerifier{sub: "service:routd", scope: []string{"runs:run", "runs:kill"}})
 	h := srv.Handler()
 
 	done := make(chan *httptest.ResponseRecorder, 1)
@@ -221,7 +221,7 @@ func TestHTTPRunStopLifecycle(t *testing.T) {
 		<-release
 		return RunResult{Outcome: runedv1.OutcomeOK}
 	}}}
-	_, srv := serverWith(t, rec, fakeVerifier{scope: []string{"runs:run", "runs:kill"}})
+	_, srv := serverWith(t, rec, fakeVerifier{sub: "service:routd", scope: []string{"runs:run", "runs:kill"}})
 	h := srv.Handler()
 
 	done := make(chan *httptest.ResponseRecorder, 1)

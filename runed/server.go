@@ -53,7 +53,7 @@ func (s *Server) SetDashKeySet(ks *auth.KeySet) { s.dashKeys = ks }
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, 200, map[string]any{"ok": true}) })
-	mux.HandleFunc("POST /v1/runs", s.handleRun)
+	mux.Handle("POST /v1/runs", s.bindService("service:routd", "runs:run", s.handleRun))
 	mux.HandleFunc("POST /v1/holds", s.handleHold)
 	mux.HandleFunc("POST /v1/runs/stop", s.handleRunStop)
 	mux.HandleFunc("GET /v1/runs/{run_id}", s.handleRunStatus)
@@ -89,6 +89,20 @@ func (s *Server) authz(w http.ResponseWriter, r *http.Request, needScope string)
 	return sub, folder, true
 }
 
+func (s *Server) bindService(subject, scope string, next http.HandlerFunc) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sub, _, ok := s.authz(w, r, scope)
+		if !ok {
+			return
+		}
+		if s.verify != nil && sub != subject {
+			writeErr(w, http.StatusForbidden, "forbidden", "requires "+subject)
+			return
+		}
+		next(w, r)
+	})
+}
+
 // ownsFolder reports whether a token scoped to tokenFolder may act on a run in
 // target's folder. Empty tokenFolder (root, service:routd) owns everything; a
 // folder-scoped token is confined to its own subtree. Mirrors routd.ownsFolder.
@@ -99,14 +113,7 @@ func ownsFolder(tokenFolder, target string) bool {
 	return groupfolder.Contains(tokenFolder, target)
 }
 
-// handleRun is the routd→runed contract (POST /v1/runs), gated on runs:run: a
-// scope check, not a bare bearer, so a stray agent/user token that reaches
-// this internal service cannot start arbitrary runs (spec 5/P-runed § Auth).
 func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
-	_, folder, ok := s.authz(w, r, "runs:run")
-	if !ok {
-		return
-	}
 	var req runedv1.RunRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, 400, "bad_request", err.Error())
@@ -114,13 +121,6 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Folder == "" {
 		writeErr(w, 400, "missing_field", "folder required")
-		return
-	}
-	// Bind the spawn to the caller's folder: a folder-scoped runs:run holder
-	// must not spawn in another tenant's folder, which would run the agent
-	// with that folder's secrets + network.
-	if !ownsFolder(folder, string(req.Folder)) {
-		writeErr(w, 403, "forbidden", "folder outside caller subtree: "+string(req.Folder))
 		return
 	}
 	out, err := s.mgr.Run(r.Context(), req)
