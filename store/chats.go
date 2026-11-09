@@ -122,6 +122,19 @@ func (s *Store) SetAgentCursor(jid, cursor string) error {
 	return nil
 }
 
+func (s *Store) AdvanceAgentCursor(jid, cursor string) error {
+	if err := requireMessageCursor(cursor); err != nil {
+		return err
+	}
+	key, err := chatKey(jid)
+	if err != nil {
+		return err
+	}
+	// A newer watermark already covers this batch.
+	_, err = s.advanceCursor(context.Background(), Chats, key, AttrChatAgentCursor, cursor, nil)
+	return err
+}
+
 // ChatJIDs answers every chat the instance has seen, in jid order. IT IS THE
 // PARTITION LIST every whole-history reader walks: PutMessage opens a chat item
 // before the first message of a chat, so no message sits in a partition this

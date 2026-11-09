@@ -29,6 +29,75 @@ type turnWork struct {
 	successor bool
 }
 
+func (q *turnControl) savePending(l *Loop, tc TurnContext, input, ambient []core.Message) error {
+	var err error
+	tc.InputKeys, err = turnMessageKeys(input)
+	if err != nil {
+		return err
+	}
+	tc.AmbientKeys, err = turnMessageKeys(ambient)
+	if err != nil {
+		return err
+	}
+	tc.NextAttemptAt = q.now()
+	ctx := context.Background()
+	prior, exists := l.db.GetTurnContext(tc.TurnID)
+	if exists && prior.State == store.TurnRunning {
+		v, busy := l.busyWait.Load(tc.ChatJID)
+		if !busy || v.(busyState).lastMsgID != tc.TurnID || prior.RunID != "" || prior.RetryCount != 0 {
+			return fmt.Errorf("turn %s still owns execution", tc.TurnID)
+		}
+		ok, err := l.db.store().RequeueDeferredTurn(ctx, prior, tc.NextAttemptAt)
+		if err != nil || !ok {
+			return fmt.Errorf("save pending turn %s: requeue refused: %v", tc.TurnID, err)
+		}
+		return l.db.store().AdvanceAgentCursor(tc.ChatJID, prior.InputLast)
+	}
+	ok, err := l.db.store().SavePendingTurn(ctx, tc, l.db.GetAgentCursor(tc.ChatJID))
+	if err != nil || !ok {
+		return fmt.Errorf("save pending turn %s refused: %v", tc.TurnID, err)
+	}
+	return nil
+}
+
+func (q *turnControl) cancel(l *Loop, folder string) error {
+	turns, err := l.db.RunningTurns()
+	if err != nil {
+		return err
+	}
+	for _, tc := range turns {
+		if tc.Folder != folder || (tc.State != store.TurnRunning && tc.State != store.TurnPendingRetry) {
+			continue
+		}
+		for {
+			before, exists, err := l.db.store().ReadTurnControl(context.Background())
+			if err != nil {
+				return err
+			}
+			var prior, after *store.TurnControlState
+			if exists {
+				prior = &before
+				if before.ProbeTurnID == tc.TurnID {
+					next := before
+					next.Phase, next.Episode = "open", randHex(16)
+					next.ProbeTurnID, next.ProbeAttemptID = "", ""
+					after = &next
+				}
+			}
+			ok, err := l.db.store().FinishControlledTurn(context.Background(), tc, prior, after)
+			if err != nil {
+				return err
+			}
+			current, exists := l.db.GetTurnContext(tc.TurnID)
+			if ok || !exists || current.State == store.TurnDone {
+				break
+			}
+			tc = current
+		}
+	}
+	return nil
+}
+
 func (q *turnControl) admit(l *Loop, tc TurnContext, admission *store.TurnAdmission, saved *TurnContext) (turnWork, bool, error) {
 	ctx := context.Background()
 	legacy, err := l.db.store().HeldTurns(ctx, "")
@@ -173,6 +242,9 @@ func (q *turnControl) complete(l *Loop, tc TurnContext, out runedv1.RunOutcome, 
 	result, err := l.db.store().GetTurnResult(tc.Folder, tc.TurnID)
 	if err != nil {
 		return false, err
+	}
+	if tc.State == store.TurnDone && tc.RunReturned && result.Status == "pending" {
+		return false, nil
 	}
 	replied := l.db.TurnHasBotReply(returnTarget(tc, tc.ChatJID), tc.TurnID)
 	decision := classifyTurn(out, runErr, result, replied)
@@ -661,6 +733,7 @@ type groupState struct {
 type turnReservation struct {
 	folder string
 	cron   bool
+	turnID string
 }
 
 type processMessagesFn func(groupJid string) (bool, error)
@@ -779,9 +852,9 @@ func (q *turnControl) reserveLocked(jid string, r turnReservation) {
 	q.activeFolders[r.folder] = jid
 }
 
-func (q *turnControl) reserve(jid, folder string, cron bool) bool {
+func (q *turnControl) reserve(jid, folder string, cron bool, turnID string) bool {
 	q.mu.Lock()
-	r := turnReservation{folder: folder, cron: cron}
+	r := turnReservation{folder: folder, cron: cron, turnID: turnID}
 	prior, reserved := q.reservations[jid]
 	if reserved && prior != r {
 		q.releaseLocked(jid)

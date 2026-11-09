@@ -760,24 +760,15 @@ func TestBudgetGateDisabledBypasses(t *testing.T) {
 	}
 }
 
-// TestStopLeavesTheBacklogRunning is BUGS L317's measurement, held in code so
-// the decision it waits on rests on what the loop does TODAY and not on a table
-// somebody typed once. It asserts the DEFECT, deliberately: `/stop` kills the
-// container and a question typed just before it still dispatches. Whichever way
-// the contract is settled, this test is what has to change, which is the point.
-//
-// Row 3 is the part L336 made worse: the steered row is now the OLDEST command,
-// so `do Y` — typed deliberately AFTER the cancel — sits above the cursor and
-// is owed a turn, while `do X` still runs.
-func TestStopLeavesTheBacklogRunning(t *testing.T) {
+func TestStopCancelsQueuedInput(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
 		contents []string
 		wantRuns []string
 	}{
-		{"a question then the cancel", []string{"do X", "/stop"}, []string{"do X"}},
-		{"the cancel then a question", []string{"/stop", "do Y"}, nil},
-		{"a question either side", []string{"do X", "/stop", "do Y"}, []string{"do X"}},
+		{"a question then the cancel", []string{"do X", "/stop"}, nil},
+		{"the cancel then a question", []string{"/stop", "do Y"}, []string{"do Y"}},
+		{"a question either side", []string{"do X", "/stop", "do Y"}, []string{"do Y"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			db, err := OpenMem()
@@ -811,6 +802,9 @@ func TestStopLeavesTheBacklogRunning(t *testing.T) {
 			if sr.folder != "demo" {
 				t.Errorf("/stop did not reach runed: folder=%q", sr.folder)
 			}
+			if _, err := loop.processGroupMessages("tg:1"); err != nil {
+				t.Fatal(err)
+			}
 			// The batch is the RENDERED prompt, so the question is which
 			// contents reached a turn at all.
 			var got []string
@@ -823,9 +817,7 @@ func TestStopLeavesTheBacklogRunning(t *testing.T) {
 				}
 			}
 			if !slices.Equal(got, tc.wantRuns) {
-				t.Errorf("dispatched %v, want %v (turns=%d) — if this changed, BUGS "+
-					"L317's table is stale and the decision it waits on rests on it",
-					got, tc.wantRuns, len(sr.runs))
+				t.Errorf("dispatched %v, want %v (turns=%d)", got, tc.wantRuns, len(sr.runs))
 			}
 		})
 	}
@@ -854,6 +846,11 @@ func TestSteerBusyKeepsInputAndCommand(t *testing.T) {
 		{"q1", "telegram:user/7", "the secret question"},
 		{"s1", "telegram:user/7", "/ping"},
 	} {
+		if m.id == "s1" {
+			if _, err := loop.processGroupMessages("tg:1"); err != nil {
+				t.Fatal(err)
+			}
+		}
 		if err := db.PutMessage(core.Message{
 			ID: m.id, ChatJID: "tg:1", Sender: m.sender, Content: m.content,
 			Timestamp: base.Add(time.Duration(i) * time.Second), Verb: "message",
@@ -865,8 +862,12 @@ func TestSteerBusyKeepsInputAndCommand(t *testing.T) {
 		t.Fatalf("process: %v", err)
 	}
 
-	if cursor := db.GetAgentCursor("tg:1"); cursor != "" {
-		t.Fatalf("busy turn advanced cursor to %q", cursor)
+	queued, ok := db.GetTurnContext("q1")
+	if !ok || queued.State != "pending_retry" || queued.RetryCount != 0 {
+		t.Fatalf("command did not preserve unlaunched input: %+v", queued)
+	}
+	if cursor := db.GetAgentCursor("tg:1"); !strings.HasSuffix(cursor, "\x1fs1") {
+		t.Fatalf("command cursor=%q", cursor)
 	}
 	pending, err := db.NewMessagesForChat("tg:1", "", 100)
 	if err != nil {

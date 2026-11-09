@@ -16,7 +16,7 @@ func setExecutionProcessor(q *turnControl, fn processMessagesFn) {
 		if folder == "" {
 			folder = jid
 		}
-		if !q.reserve(jid, folder, false) {
+		if !q.reserve(jid, folder, false, jid) {
 			return false, nil
 		}
 		return fn(jid)

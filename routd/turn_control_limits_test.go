@@ -21,7 +21,7 @@ func TestTurnControlLimits(t *testing.T) {
 				release := make(chan struct{})
 				defer close(release)
 				q.SetProcessMessagesFn(func(jid string) (bool, error) {
-					if !q.reserve(jid, jid, jid != "chat") {
+					if !q.reserve(jid, jid, jid != "chat", jid) {
 						return false, nil
 					}
 					started <- jid

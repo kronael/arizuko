@@ -255,6 +255,11 @@ func (l *Loop) cmdPing(chatJID, folder string) {
 // The answers name the TURN. A turn is a KVM guest now, and an operator who reads
 // "container" goes looking for one with `docker ps` (BUGS `L389`).
 func (l *Loop) cmdStop(chatJID, folder string) {
+	if err := l.q.cancel(l, folder); err != nil {
+		slog.Error("cancel turns", "folder", folder, "err", err)
+		l.ack(chatJID, "Failed to stop the turn.")
+		return
+	}
 	stopper, ok := l.runner.(RunStopper)
 	if !ok {
 		l.ack(chatJID, "No active turn for this chat.")
@@ -338,7 +343,7 @@ func (l *Loop) cmdRoot(chatJID, folder, arg, sender string) {
 		l.ack(chatJID, "Failed to raise root turn.")
 		return
 	}
-	l.Enqueue(chatJID)
+	l.q.EnqueueMessageCheck(chatJID)
 }
 
 // cmdInvite mints an invite via onbod's POST /v1/invites, operator-only. The
@@ -482,7 +487,7 @@ func (l *Loop) cmdNew(chatJID, folder, arg string) {
 		Content:   followup,
 		Timestamp: time.Now().UTC(),
 	})
-	l.Enqueue(chatJID)
+	l.q.EnqueueMessageCheck(chatJID)
 	l.ack(chatJID, label+" Processing your message...")
 }
 
@@ -548,7 +553,7 @@ func (l *Loop) handlePrefixLayer(chatJID string, msg core.Message) bool {
 		Topic:     "#" + name,
 		Timestamp: time.Now().UTC(),
 	})
-	l.Enqueue(chatJID)
+	l.q.EnqueueMessageCheck(chatJID)
 	return true
 }
 
@@ -639,7 +644,7 @@ func (l *Loop) delegate(targetFolder, prompt, originJID string) {
 		l.ack(originJID, err.Error())
 		return
 	}
-	l.Enqueue(targetFolder)
+	l.q.EnqueueMessageCheck(targetFolder)
 }
 
 // cmdResolveHold records a human's verdict on a held tool call (spec 5/19).

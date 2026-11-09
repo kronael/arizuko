@@ -45,6 +45,15 @@ func deferredFixture(t *testing.T) (*DB, *Loop, *recRunner, TurnContext, time.Ti
 
 func TestTurnControlSavedReplay(t *testing.T) {
 	db, loop, runner, tc, now := deferredFixture(t)
+	if ok, err := db.store().ClaimDeferredTurn(t.Context(), tc, "failed", tc.NextAttemptAt); err != nil || !ok {
+		t.Fatalf("claim: %v %v", ok, err)
+	}
+	tc, _ = db.GetTurnContext(tc.TurnID)
+	tc.NextAttemptAt = now.Add(2 * time.Minute)
+	if ok, err := db.store().DeferTurn(t.Context(), store.DeferredTurn{Turn: tc, PriorCursor: tc.InputLast}); err != nil || !ok {
+		t.Fatalf("defer: %v %v", ok, err)
+	}
+	tc, _ = db.GetTurnContext(tc.TurnID)
 	if _, err := loop.replay(tc.TurnID); err != nil || len(runner.runs) != 0 {
 		t.Fatalf("early replay: runs=%d err=%v", len(runner.runs), err)
 	}

@@ -73,11 +73,7 @@ type Loop struct {
 	pendingElevation sync.Map // message_id → struct{}
 	engagementTTL    time.Duration
 	nextScanAt       time.Time
-
-	// busyWait backs off the re-dispatch of a batch nothing consumed; without
-	// it every 2s re-feed does the FULL pre-dispatch setup before runed refuses
-	// again (BUGS L55). A new inbound bypasses it; any cursor advance clears it.
-	busyWait sync.Map // chatJID → busyState
+	busyWait         sync.Map
 
 	// waiting is the chats whose typing is on while no run owns it: parked
 	// behind another run, or refused Busy. Value is the chat that shows it.
@@ -252,6 +248,14 @@ func (l *Loop) recentSessions(folder string, n int) []core.SessionRecord {
 func (l *Loop) Enqueue(chatJID string) {
 	if l == nil || l.q == nil {
 		return
+	}
+	l.q.mu.Lock()
+	active := l.q.getGroup(chatJID).active
+	l.q.mu.Unlock()
+	if active && !strings.HasPrefix(chatJID, deferredWorkPrefix) {
+		if _, err := l.processChat(chatJID, true); err != nil {
+			slog.Error("process commands", "jid", chatJID, "err", err)
+		}
 	}
 	l.q.EnqueueMessageCheck(chatJID)
 }
@@ -901,7 +905,9 @@ func (l *Loop) advance(chatJID string, last core.Message) {
 	if reply, ok := l.waiting.LoadAndDelete(chatJID); ok {
 		l.pauseProgress(reply.(string), "")
 	}
-	_ = l.db.SetAgentCursor(chatJID, store.MessageCursor(last))
+	if err := l.db.store().AdvanceAgentCursor(chatJID, store.MessageCursor(last)); err != nil {
+		slog.Error("advance chat cursor", "jid", chatJID, "err", err)
+	}
 }
 
 // sessionIdleExpiry is the default spawn-time stale-session threshold;

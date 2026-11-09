@@ -9,6 +9,7 @@ import (
 	"net"
 	"slices"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -21,13 +22,16 @@ import (
 	"github.com/kronael/arizuko/types"
 )
 
-// processGroupMessages is the queue's per-folder-serialized worker: it renders
-// the batch, dispatches one run to runed and records the outcome. Returns
-// (hadOutput, err) per the queue's processMessagesFn.
 func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 	if turnID, ok := strings.CutPrefix(chatJID, deferredWorkPrefix); ok {
 		return l.replay(turnID)
 	}
+	return l.processChat(chatJID, false)
+}
+
+func (l *Loop) processChat(chatJID string, commandsOnly bool) (bool, error) {
+	unlock := sync.OnceFunc(lockTurn("\x00chat:" + chatJID))
+	defer unlock()
 	if err := l.migrateRetries(chatJID, false); err != nil {
 		return false, err
 	}
@@ -38,9 +42,8 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 	if len(msgs) == 0 {
 		return false, nil
 	}
-	pause, err := l.db.store().ReadModelPause(context.Background(), b.Folder)
-	if err != nil {
-		return false, err
+	if commandsOnly && !slices.ContainsFunc(msgs, IsSteerCommand) {
+		return false, nil
 	}
 	last := msgs[len(msgs)-1]
 	// Three questions, three rows. The busy key is the newest user row; the steer
@@ -63,11 +66,6 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 		l.advance(chatJID, last)
 		return false, nil
 	}
-	// The busy key is the newest USER row: a person's next message clears the
-	// backoff, the running turn's own bot rows do not (BUGS L298, L55).
-	if pause == nil && l.busyDeferred(chatJID, msgs[busyIdx].ID) {
-		return false, nil
-	}
 	if !b.ok {
 		l.routeMiss(chatJID, msgs, b.resolution)
 		return false, nil
@@ -81,10 +79,25 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 	steerConsumed := false
 	steerIdx := steerRowIdx(msgs)
 	steerMsg := msgs[steerIdx]
+	owned := map[string]bool{}
+	if commandsOnly {
+		l.q.mu.Lock()
+		turnID := l.q.reservations[chatJID].turnID
+		l.q.mu.Unlock()
+		tc, ok := l.db.GetTurnContext(turnID)
+		if ok && !tc.RunReturned {
+			for _, key := range tc.InputKeys {
+				owned[key.Sort] = true
+			}
+		}
+	}
+	isOwned := func(msg core.Message) bool {
+		return owned[store.MessageCursor(msg)]
+	}
 	var deferredSteer *core.Message
 	if held == nil && steerIdx > 0 && l.canSteer(chatJID, steerMsg, folder, b.rows[steerIdx].AtName) {
 		for i, candidate := range msgs[:steerIdx] {
-			if candidate.BotMsg || !b.rows[i].ok {
+			if candidate.BotMsg || !b.rows[i].ok || isOwned(candidate) {
 				continue
 			}
 			deferredSteer = &steerMsg
@@ -93,7 +106,7 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 			break
 		}
 	}
-	if held == nil && deferredSteer == nil && pause == nil && l.steer(chatJID, steerMsg, folder, b.rows[steerIdx].AtName) {
+	if held == nil && deferredSteer == nil && l.steer(chatJID, steerMsg, folder, b.rows[steerIdx].AtName) {
 		// Consumed HERE, exactly once, before anything else can fail: no steer
 		// handler may run a second time because a later dispatch was refused.
 		l.advance(chatJID, steerMsg)
@@ -103,6 +116,12 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 		steerConsumed = true
 		msgs, last = msgs[:steerIdx], steerMsg
 	}
+	if commandsOnly && deferredSteer == nil && !steerConsumed {
+		return false, nil
+	}
+	if deferredSteer == nil && !steerConsumed && l.busyDeferred(chatJID, msgs[busyIdx].ID) {
+		return false, nil
+	}
 	// Bot rows stay out of the trigger but in the rendered context. A user row
 	// that does not dispatch on its own is observed under the batch folder before
 	// the prompt is built, so this turn renders it as context.
@@ -111,7 +130,7 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 	pinned := map[string]bool{}
 	for i, m := range msgs {
 		switch {
-		case m.BotMsg:
+		case m.BotMsg || isOwned(m):
 		case b.rows[i].ok:
 			if b.rows[i].AtName {
 				m = l.takeAtName(chatJID, m, b.rows[i].Folder)
@@ -175,6 +194,24 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 		groups = occurrences
 		groups = l.isolateElevated(groups)
 	}
+	if deferredSteer != nil {
+		for _, batch := range groups {
+			last := batch[len(batch)-1]
+			tc := TurnContext{TurnID: last.ID, ChatJID: chatJID, Folder: folder,
+				Topic: turnTopic(last), Trigger: last.Sender, ReturnTo: last.ForwardedFrom,
+				TriggerMsgID: last.ID, InputLast: store.MessageCursor(last),
+				Addressed: slices.ContainsFunc(batch, func(m core.Message) bool { return addressed[m.ID] })}
+			if err := l.q.savePending(l, tc, batch, ambient); err != nil {
+				return false, err
+			}
+		}
+		if l.steer(chatJID, *deferredSteer, folder, b.rows[steerIdx].AtName) {
+			l.advance(chatJID, *deferredSteer)
+			return true, nil
+		}
+		return false, nil
+	}
+	unlock()
 
 	hadAny := false
 	// Applied only with the cursor advance past the turns that set them (BUGS L58).
@@ -245,16 +282,6 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 	l.advance(chatJID, last)
 	hadAny = hadAny || steerConsumed
 	l.advanceObserved(folder, marks)
-	if deferredSteer != nil {
-		pause, err := l.db.store().ReadModelPause(context.Background(), folder)
-		if err != nil {
-			return hadAny, err
-		}
-		if pause == nil && l.steer(chatJID, *deferredSteer, folder, b.rows[steerIdx].AtName) {
-			l.advance(chatJID, *deferredSteer)
-			hadAny = true
-		}
-	}
 	return hadAny, nil
 }
 
@@ -466,7 +493,7 @@ func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed boo
 	if saved != nil {
 		workKey = deferredWorkPrefix + turnID
 	}
-	if !l.q.reserve(workKey, folder, core.IsScheduledSender(last.Sender)) {
+	if !l.q.reserve(workKey, folder, core.IsScheduledSender(last.Sender), turnID) {
 		return false, false, true, "", nil
 	}
 	defer l.q.release(workKey)
@@ -505,7 +532,7 @@ func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed boo
 			}
 		}()
 	}
-	if saved == nil {
+	if saved == nil || saved.RetryCount == 0 {
 		for i := range trigger {
 			if _, ok := l.pendingElevation.LoadAndDelete(trigger[i].ID); ok {
 				elevated = true
