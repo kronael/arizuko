@@ -30,7 +30,7 @@ try:
 except urllib.error.HTTPError as e:
     sys.exit(f'OSM map call failed: HTTP {e.code} for bbox={bbox} ({e.read()[:160].decode(errors="replace")!r}); 400 = over 50 000 nodes, reduce pad or distance')
 except urllib.error.URLError as e:
-    sys.exit(f'OSM map call failed: {e.reason}; 403/000 on every path = api.openstreetmap.org is not on the egress allowlist')
+    sys.exit(f'OSM map call failed: {e.reason}')
 nodes = {n.get('id'): (float(n.get('lat')), float(n.get('lon'))) for n in root.findall('node')}
 ways = {w.get('id'): w for w in root.findall('way')}
 tags = lambda e: {t.get('k'): t.get('v') for t in e.findall('tag')}

@@ -7,6 +7,7 @@ import sys
 import tempfile
 import time
 import unittest
+import urllib.error
 from pathlib import Path
 from unittest.mock import patch
 
@@ -218,6 +219,14 @@ class ItineraryToolsTests(unittest.TestCase):
         with patch.object(census.subprocess, 'run', side_effect=curl):
             census.fetch(bbox, str(self.site))
         self.assertEqual(len(calls), 1)
+
+    def test_trails_connection_failure_is_not_called_a_refusal(self):
+        failure = urllib.error.URLError('Connection refused')
+        with patch.object(sys, 'argv', ['osm_trails.py', '50', '14', '50.01', '14.01']), patch('urllib.request.urlopen', side_effect=failure):
+            with self.assertRaises(SystemExit) as raised:
+                runpy.run_path(str(SCRIPTS / 'osm_trails.py'))
+        self.assertIn('Connection refused', str(raised.exception.code))
+        self.assertNotIn('allowlist', str(raised.exception.code))
 
 
 if __name__ == '__main__':
