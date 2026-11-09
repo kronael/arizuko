@@ -18,7 +18,7 @@ func TestModelPauseDueProbeKeepsOtherChatNotice(t *testing.T) {
 	pauseInput(t, db, "web:a", "old", "u", "first", now)
 	processPauseChat(t, l, "web:a")
 	pauseInput(t, db, "web:b", "later", "v", "second", now.Add(time.Second))
-	modelPauseDue(t, db)
+	modelPauseDue(t, l)
 	for range 2 {
 		processPauseChat(t, l, "web:b")
 	}
@@ -60,6 +60,7 @@ func TestModelPauseOrderedCommandKeepsInput(t *testing.T) {
 	if cursor := db.GetAgentCursor("web:a"); cursor != before {
 		t.Fatalf("command crossed waiting input: cursor=%q, want %q", cursor, before)
 	}
+	providerDue(t, l, "held")
 	processPauseChat(t, l, "web:b")
 	processPauseChat(t, l, "web:a")
 	if len(p.runs) != 4 || p.runs[2].TurnID != "older" || p.runs[3].TurnID != "question" {
@@ -152,10 +153,9 @@ func TestModelPausePollHeldOrder(t *testing.T) {
 				if err := db.store().Apply(t.Context(), ws); err != nil {
 					t.Fatal(err)
 				}
-			} else {
-				modelPauseDue(t, db)
 			}
 			l := NewLoop(db, p, LoopConfig{Deliver: dl, MaxRuns: 1})
+			modelPauseDue(t, l)
 			p.srv = NewServer(db, l, dl, nil, 0, "")
 			t.Cleanup(l.StopQueue)
 			// Poll and ingress use the same queue; drain each round before refeeding.

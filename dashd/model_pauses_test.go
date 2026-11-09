@@ -39,7 +39,9 @@ func TestModelPausesDashboardOperatorClearAndAudit(t *testing.T) {
 		t.Fatal(err)
 	}
 	tc, _ := st.TurnContextOf("held")
-	pause, err := st.RecordProviderFailure(t.Context(), "held", tc.AttemptID, "rate_limit", time.Time{}, time.Now())
+	pause := &store.ModelPause{Folder: "a", Reason: "rate_limit", Evidence: "rate_limit", OpenedAt: core.NowTS(), Attempts: 1}
+	_, err = st.RecordControlledProviderFailure(t.Context(), tc, nil, pause, nil,
+		&store.TurnControlState{Phase: "open", Episode: "refusal", NextProbeAt: time.Now().Add(time.Minute)})
 	if err != nil {
 		t.Fatal(err)
 	}

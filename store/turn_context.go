@@ -151,8 +151,7 @@ func turnFrom(it objstore.Item) TurnContext {
 // steers, the cursor does not advance and the next poll re-feeds the
 // completed batch. The decision is the write's own condition, not a read: the
 // create commits when nothing has bound this turn, and its refusal sends the
-// caller to the conditional update. Reopening held input stamps started_at
-// for the new attempt so the expiry sweep does not expire its probe early.
+// caller to the conditional update.
 func (s *Store) OpenTurnContext(turnID, folder, topic, chatJID, trigger, returnTo string, admission *TurnAdmission) (bool, error) {
 	key, err := turnKey(turnID)
 	if err != nil {
@@ -199,24 +198,6 @@ func (s *Store) OpenTurnContext(turnID, folder, topic, chatJID, trigger, returnT
 		checks = append(checks, controlChecks...)
 		claim = append(claim, controlWrites...)
 	}
-	if admission != nil && admission.ProbeEpisode != "" {
-		p, err := s.ReadModelPause(ctx, folder)
-		if err != nil {
-			return false, err
-		}
-		if p == nil || p.OpenedAt != admission.ProbeEpisode || p.NextAttemptAt == "" || p.NextAttemptAt > core.NowTS() {
-			if err := s.checkAdmissionGroup(ctx, group); err != nil {
-				return false, err
-			}
-			return false, ErrModelPaused
-		}
-		claim = append(claim, objstore.Write{Op: objstore.Update, Entity: ModelPauses, Key: modelPauseKey(folder),
-			Attrs:  map[string]string{"probe_turn_id": turnID, "probe_attempt_id": bound["attempt_id"]},
-			Remove: []string{"next_attempt_at"}, Cond: modelPauseCond(p)})
-	} else {
-		checks = append(checks, objstore.Check{Entity: ModelPauses, Key: modelPauseKey(folder),
-			Cond: objstore.Cond{Item: objstore.ItemAbsent}})
-	}
 	fresh := map[string]string{AttrTurnStartedAt: core.NowTS()}
 	for k, v := range bound {
 		fresh[k] = v
@@ -241,9 +222,6 @@ func (s *Store) OpenTurnContext(turnID, folder, topic, chatJID, trigger, returnT
 	if exists && prior.Attrs[attrTurnState] == TurnDone {
 		return false, nil
 	}
-	if exists && prior.Attrs[attrTurnState] == TurnHeld {
-		bound[AttrTurnStartedAt] = core.NowTS()
-	}
 	// A re-dispatch REPLACES the binding and clears the run-returned flag in
 	// one write: a turn re-opened with the previous attempt's flag still set
 	// answers every late callback with turn_done. The empty fields of `bound`
@@ -255,6 +233,7 @@ func (s *Store) OpenTurnContext(turnID, folder, topic, chatJID, trigger, returnT
 			attrTurnTrigger, attrTurnReturnTo, "probe_episode"), attrTurnRunReturned, attrTurnRunID),
 		Cond: objstore.Cond{Where: []objstore.Cmp{
 			{Attr: attrTurnState, Op: objstore.Ne, Value: TurnDone},
+			{Attr: attrTurnState, Op: objstore.Ne, Value: TurnHeld},
 			{Attr: "next_attempt_at", Op: objstore.Absent},
 		}},
 	})...)

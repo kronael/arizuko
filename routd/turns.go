@@ -77,11 +77,9 @@ func discordThreadJID(jid, topic string) string {
 	return guild + "/" + topic
 }
 
-// callbackClosed reports whether a turn's outbound surface is closed: only
-// AFTER POST /v1/runs returns, so a live run's trailing frames stay valid past
-// an early submit_turn that flipped state→done.
 func (s *Server) callbackClosed(tc TurnContext) bool {
-	return tc.RunReturned || tc.State == store.TurnHeld
+	return tc.RunReturned || tc.State == store.TurnHeld ||
+		(tc.AttemptID != "" && tc.ProviderFailureAttempt == tc.AttemptID)
 }
 
 // returnTarget redirects a turn's delivery to the delegation return address
@@ -186,7 +184,7 @@ func (s *Server) recordTurnResultAttempt(turnID, attempt string, req apiv1.TurnR
 	if !ok {
 		return ipc.TurnAck{}, fmt.Errorf("no turn context for turn_id")
 	}
-	if attempt != "" && (tc.AttemptID != attempt || tc.RunReturned) {
+	if s.callbackClosed(tc) || (attempt != "" && tc.AttemptID != attempt) {
 		return ipc.TurnAck{}, fmt.Errorf("turn attempt is closed")
 	}
 	if req.ProviderFailure != nil {
@@ -194,16 +192,16 @@ func (s *Server) recordTurnResultAttempt(turnID, attempt string, req apiv1.TurnR
 			return ipc.TurnAck{}, fmt.Errorf("provider failure requires an error result")
 		}
 		reset, _ := time.Parse(time.RFC3339Nano, req.ProviderFailure.ResetAt)
-		p, err := s.db.store().RecordProviderFailure(context.Background(), turnID,
-			tc.AttemptID, req.ProviderFailure.Reason, reset, time.Now())
+		if s.loop == nil {
+			return ipc.TurnAck{}, fmt.Errorf("turn controller unavailable")
+		}
+		p, err := s.loop.q.refuse(s.loop, tc, req.ProviderFailure.Reason, reset)
 		if err != nil {
 			return ipc.TurnAck{}, err
 		}
-		if s.loop != nil {
-			s.loop.pauseProgress(returnTarget(tc, tc.ChatJID), tc.RunID)
-			if err := s.loop.noticeModelPause(p, tc); err != nil {
-				return ipc.TurnAck{}, err
-			}
+		s.loop.pauseProgress(returnTarget(tc, tc.ChatJID), tc.RunID)
+		if err := s.loop.noticeModelPause(p, tc); err != nil {
+			return ipc.TurnAck{}, err
 		}
 		return ipc.TurnAck{OK: true}, nil
 	}

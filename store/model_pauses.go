@@ -4,11 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math/rand/v2"
 	"strconv"
-	"time"
 
-	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/objstore"
 )
@@ -94,75 +91,6 @@ func modelPauseWrite(p *ModelPause) objstore.Write {
 	return objstore.Write{Op: objstore.Put, Entity: ModelPauses, Key: modelPauseKey(p.Folder), Attrs: attrs}
 }
 
-func modelRetryAt(now time.Time, attempts int, reset time.Time) string {
-	if reset.After(now) {
-		return core.TS(reset)
-	}
-	delay := min(30*time.Second*time.Duration(1<<min(attempts-1, 7)), time.Hour)
-	delay = min(delay+time.Duration(rand.Int64N(int64(delay/10)+1)), time.Hour)
-	return core.TS(now.Add(delay))
-}
-
-func (s *Store) RecordProviderFailure(ctx context.Context, turnID, attempt, reason string,
-	reset, now time.Time) (*ModelPause, error) {
-	switch reason {
-	case "spend_limit", "rate_limit", "authentication", "outage":
-	default:
-		return nil, fmt.Errorf("unknown provider failure %q", reason)
-	}
-	key, err := turnKey(turnID)
-	if err != nil {
-		return nil, err
-	}
-	for range retryRounds {
-		it, ok, err := s.itemAt(ctx, TurnContexts, key)
-		if err != nil {
-			return nil, err
-		}
-		if !ok {
-			return nil, fmt.Errorf("no provider attempt %s", turnID)
-		}
-		folder := it.Attrs[attrTurnFolder]
-		p, err := s.ReadModelPause(ctx, folder)
-		if err != nil {
-			return nil, err
-		}
-		if it.Attrs["attempt_id"] != attempt || it.Attrs["provider_failure_attempt"] == attempt ||
-			it.Attrs[attrTurnState] != TurnRunning {
-			return p, nil
-		}
-		before := modelPauseCond(p)
-		if p == nil {
-			p = &ModelPause{Folder: folder, Reason: reason, OpenedAt: core.TS(now), Attempts: 1, Evidence: reason}
-			p.NextAttemptAt = modelRetryAt(now, p.Attempts, reset)
-		} else if p.ProbeTurnID == turnID && p.ProbeAttemptID == attempt {
-			p.Attempts++
-			p.Reason, p.Evidence = reason, reason
-			p.NextAttemptAt = modelRetryAt(now, p.Attempts, reset)
-			p.ProbeTurnID, p.ProbeAttemptID = "", ""
-		}
-		write := modelPauseWrite(p)
-		if before.Item == objstore.ItemAbsent {
-			write.Cond = before
-		} else {
-			write.Op, write.Cond = objstore.Update, before
-			write.Remove = missingAttrs(write.Attrs, "next_attempt_at", "probe_turn_id", "probe_attempt_id")
-		}
-		moved, err := s.TryWriteEntities(ctx, nil, write, objstore.Write{
-			Op: objstore.Update, Entity: TurnContexts, Key: key,
-			Attrs: map[string]string{attrTurnState: TurnHeld, "provider_failure_attempt": attempt},
-			Cond: objstore.Cond{Where: []objstore.Cmp{
-				{Attr: "attempt_id", Op: objstore.Eq, Value: attempt},
-				{Attr: attrTurnState, Op: objstore.Eq, Value: TurnRunning},
-			}},
-		})
-		if err != nil || moved {
-			return p, err
-		}
-	}
-	return nil, fmt.Errorf("provider refusal changed during %d writes", retryRounds)
-}
-
 func modelPauseDelete(p ModelPause) objstore.Write {
 	return objstore.Write{Op: objstore.Delete, Entity: ModelPauses,
 		Key: modelPauseKey(p.Folder), Cond: modelPauseCond(&p)}
@@ -172,47 +100,42 @@ func (s *Store) ClearModelPauseInto(ws *WriteSet, p ModelPause, refused error) e
 	return ws.AddGuarded(refused, modelPauseDelete(p))
 }
 
-func (s *Store) CompleteModelProbe(ctx context.Context, tc TurnContext) error {
-	if tc.ProbeEpisode == "" {
-		return nil
-	}
-	p, err := s.ReadModelPause(ctx, tc.Folder)
-	if err != nil || p == nil || p.OpenedAt != tc.ProbeEpisode ||
-		p.ProbeTurnID != tc.TurnID || p.ProbeAttemptID != tc.AttemptID {
-		return err
-	}
-	// A newer episode or attempt owns the row when this deletion is refused.
-	_, err = s.TryWriteEntities(ctx, nil, modelPauseDelete(*p))
-	return err
-}
-
-func (s *Store) RearmModelProbe(ctx context.Context, p ModelPause, now time.Time) error {
-	key, err := turnKey(p.ProbeTurnID)
+func (s *Store) RetireModelProbe(ctx context.Context, p ModelPause, tc TurnContext) error {
+	key, err := turnKey(tc.TurnID)
 	if err != nil {
 		return err
 	}
-	tc, exists, err := s.ReadTurnContext(ctx, p.ProbeTurnID)
-	if err != nil || !exists {
+	state := tc.State
+	if state == TurnRunning {
+		state = TurnHeld
+	}
+	ok, err := s.TryWriteEntities(ctx, nil, objstore.Write{Op: objstore.Update,
+		Entity: ModelPauses, Key: modelPauseKey(p.Folder),
+		Remove: []string{"probe_turn_id", "probe_attempt_id"}, Cond: modelPauseCond(&p)},
+		objstore.Write{Op: objstore.Update, Entity: TurnContexts, Key: key,
+			Attrs: map[string]string{attrTurnState: state, attrTurnRunReturned: flagSet},
+			Cond: objstore.Cond{Where: []objstore.Cmp{
+				{Attr: attrTurnState, Op: objstore.Eq, Value: tc.State},
+				{Attr: "attempt_id", Op: objstore.Eq, Value: tc.AttemptID},
+			}}})
+	if err == nil && !ok {
+		return fmt.Errorf("legacy model probe changed")
+	}
+	return err
+}
+
+func (s *Store) ClearControlledModelPauses(ctx context.Context, control TurnControlState) error {
+	pauses, err := s.ListModelPauses(ctx)
+	if err != nil {
 		return err
 	}
-	state := TurnHeld
-	if tc.State == TurnDone {
-		state = TurnDone
+	checks, _ := controlAdmission(&control, nil)
+	for _, p := range pauses {
+		if _, err := s.TryWriteEntities(ctx, checks, modelPauseDelete(p)); err != nil {
+			return err
+		}
 	}
-	// A refused rearm belongs to a changed episode, attempt or turn state.
-	_, err = s.TryWriteEntities(ctx, nil, objstore.Write{
-		Op: objstore.Update, Entity: ModelPauses, Key: modelPauseKey(p.Folder),
-		Attrs:  map[string]string{"next_attempt_at": core.TS(now)},
-		Remove: []string{"probe_turn_id", "probe_attempt_id"}, Cond: modelPauseCond(&p),
-	}, objstore.Write{
-		Op: objstore.Update, Entity: TurnContexts, Key: key,
-		Attrs: map[string]string{attrTurnState: state, attrTurnRunReturned: flagSet},
-		Cond: objstore.Cond{Where: []objstore.Cmp{
-			{Attr: "attempt_id", Op: objstore.Eq, Value: p.ProbeAttemptID},
-			{Attr: attrTurnState, Op: objstore.Eq, Value: tc.State},
-		}},
-	})
-	return err
+	return nil
 }
 
 func (s *Store) HeldTurns(ctx context.Context, chatJID string) ([]TurnContext, error) {

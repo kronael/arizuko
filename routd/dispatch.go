@@ -28,7 +28,7 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 	if turnID, ok := strings.CutPrefix(chatJID, deferredWorkPrefix); ok {
 		return l.replay(turnID)
 	}
-	if err := l.migrateRetries(chatJID); err != nil {
+	if err := l.migrateRetries(chatJID, false); err != nil {
 		return false, err
 	}
 	msgs, b, held, err := l.pendingBatch(chatJID, l.db.GetAgentCursor(chatJID), pollBatch)
@@ -186,7 +186,7 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 			if gi > 0 {
 				l.advanceFinished(chatJID, folder, msgs, batch[0], marks)
 			}
-			return hadAny, nil
+			return hadAny, l.holdModelInput(chatJID, batch)
 		}
 		if errors.Is(derr, store.ErrModelPaused) {
 			if gi > 0 {
@@ -442,22 +442,16 @@ func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed boo
 		}
 		return true, false, false, "", nil
 	}
-	var probe *store.ModelPause
-	var err error
-	if saved == nil {
-		probe, err = l.modelAdmission(folder, trigger[0])
-	} else {
-		probe, err = l.db.store().ReadModelPause(ctx, folder)
-		if probe != nil {
-			return false, false, false, "", store.ErrModelPaused
-		}
-	}
-	if err != nil {
-		return false, false, false, "", err
-	}
 	inputKeys, err := turnMessageKeys(trigger)
 	if err != nil {
 		return false, false, false, "", err
+	}
+	oldest, err := l.oldestModelInput(folder)
+	if err != nil {
+		return false, false, false, "", err
+	}
+	if oldest.ID != "" && modelInputBefore(oldest, trigger[0]) {
+		return false, false, false, "", errModelInputOrder
 	}
 	ambientKeys, err := turnMessageKeys(ambient)
 	if err != nil {
@@ -465,9 +459,6 @@ func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed boo
 	}
 	admission := store.TurnAdmission{AttemptID: randHex(16),
 		InputLast: store.MessageCursor(last), InputKeys: inputKeys, AmbientKeys: ambientKeys}
-	if probe != nil {
-		admission.ProbeEpisode = probe.OpenedAt
-	}
 	unlock := lockTurn(turnID)
 	prior, _, err := l.db.store().ReadTurnContext(ctx, turnID)
 	var live bool
@@ -479,6 +470,7 @@ func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed boo
 	}
 	unlock()
 	if errors.Is(err, errTurnBlocked) {
+		l.pauseProgress(replyChat(chatJID, last), "")
 		return false, false, true, "", nil
 	}
 	if err != nil || !live {
@@ -503,22 +495,15 @@ func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed boo
 			}
 		}
 	}
-	tc := TurnContext{TurnID: turnID, Folder: folder, AttemptID: admission.AttemptID,
-		ProbeEpisode: admission.ProbeEpisode}
-	if probe != nil {
-		probe.ProbeTurnID, probe.ProbeAttemptID, probe.NextAttemptAt = turnID, tc.AttemptID, ""
-	}
-	started, completed := false, false
+	tc := TurnContext{TurnID: turnID, Folder: folder, AttemptID: admission.AttemptID}
+	started := false
 	defer func() {
-		if !started && probe == nil && errors.Is(rerr, ErrDependencyDown) {
+		if !started && errors.Is(rerr, ErrDependencyDown) {
 			current, _ := l.db.GetTurnContext(turnID)
 			_, err := l.q.complete(l, current, runedv1.RunOutcome{}, rerr, work)
 			if err != nil {
 				rerr = err
 			}
-		}
-		if !completed {
-			l.requeueModelProbe(probe, tc, started)
 		}
 		if work.probe != nil && (!started || rerr == nil || errors.Is(rerr, store.ErrModelPaused)) {
 			if err := l.q.rearm(l, *work.probe); err != nil {
@@ -538,9 +523,6 @@ func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed boo
 	}
 	// A spent cap delivers a refusal and consumes the batch.
 	if msg != "" {
-		if probe != nil {
-			return false, false, false, "", store.ErrModelPaused
-		}
 		if l.deliver != nil {
 			l.sendNotice(turnID, chatJID, msg, topic, "budget-"+turnID)
 		}
@@ -664,20 +646,13 @@ func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed boo
 			return false, false, false, "", err
 		}
 		current, _ := l.db.GetTurnContext(turnID)
-		if probe != nil || current.ProviderFailureAttempt == tc.AttemptID || current.State == store.TurnHeld {
-			if work.probe != nil {
-				if err := l.q.rearm(l, *work.probe); err != nil {
-					return false, false, false, "", err
-				}
-			}
-			return false, false, false, "", derr
-		}
 		if !errors.Is(derr, context.Canceled) {
 			if _, err := l.q.interrupt(l, current); err != nil {
 				return false, false, false, "", err
 			}
 			var apiErr *runedv1.APIError
-			if !runedUnreachable(derr) && !errors.As(derr, &apiErr) {
+			if current.ProviderFailureAttempt == tc.AttemptID ||
+				(!runedUnreachable(derr) && !errors.As(derr, &apiErr)) {
 				if err := l.stopModelProbe(current); err != nil {
 					return false, false, false, "", err
 				}
@@ -703,9 +678,6 @@ func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed boo
 			l.pauseProgress(replyJID, out.RunID)
 			return false, false, true, "", nil
 		}
-		if probe != nil {
-			return false, false, false, "", store.ErrModelPaused
-		}
 		// Typing stays on: the batch re-feeds. End or a drop of the chat clears it.
 		l.waiting.Store(chatJID, replyJID)
 		// runed keeps no internal queue: leave turn_context running and the
@@ -713,7 +685,6 @@ func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed boo
 		slog.Debug("dispatch run busy — runed at capacity, retry next poll", "folder", folder, "turn_id", turnID)
 		return false, false, true, "", nil
 	}
-	completed = true
 	if out.Steered {
 		// The original run owns the batch and submits under ITS turn_id. THIS
 		// turn is done, or a re-fed poll / recoverPending re-spawns it and
@@ -731,18 +702,6 @@ func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed boo
 	}
 	if !exists {
 		return false, false, false, "", fmt.Errorf("claimed turn %s disappeared", turnID)
-	}
-	if current.ProviderFailureAttempt == tc.AttemptID || current.State == store.TurnHeld {
-		l.pauseProgress(replyJID, out.RunID)
-		return false, false, false, "", store.ErrModelPaused
-	}
-	unsubmittedProbe := probe != nil && !l.db.TurnResultRecorded(folder, turnID)
-	if unsubmittedProbe {
-		completed, started = false, false
-	} else {
-		if err := l.db.store().CompleteModelProbe(ctx, tc); err != nil {
-			return false, false, false, "", err
-		}
 	}
 	deferred, err := l.q.complete(l, current, out, nil, work)
 	if err != nil {

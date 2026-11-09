@@ -39,6 +39,11 @@ func TestModelPausesListCountsHeldAndLaterInput(t *testing.T) {
 	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &rows) != nil || len(rows) != 1 || rows[0].QueuedCount != 2 {
 		t.Fatalf("list=%d %s", w.Code, w.Body.String())
 	}
+	control, _, _ := db.store().ReadTurnControl(t.Context())
+	if rows[0].NextAttemptAt == nil || *rows[0].NextAttemptAt != core.TS(control.NextProbeAt) ||
+		rows[0].ProbeTurnID != control.ProbeTurnID || rows[0].ProbeAttemptID != control.ProbeAttemptID {
+		t.Fatalf("list did not project the instance breaker: %+v", rows[0])
+	}
 }
 
 func TestModelPausesRESTMCPOperatorAndAuditParity(t *testing.T) {
@@ -47,6 +52,7 @@ func TestModelPausesRESTMCPOperatorAndAuditParity(t *testing.T) {
 			db, l, p, _ := pauseFixture(t, "rate_limit")
 			pauseInput(t, db, "web:a", "held", "u", "saved", time.Now())
 			processPauseChat(t, l, "web:a")
+			control, _, _ := db.store().ReadTurnControl(t.Context())
 			pause, _ := db.store().ReadModelPause(t.Context(), "a")
 			req := map[string]any{"folder": "a", "opened_at": pause.OpenedAt, "probe_attempt_id": ""}
 			if surface == "rest" {
@@ -113,6 +119,10 @@ func TestModelPausesRESTMCPOperatorAndAuditParity(t *testing.T) {
 			if pause, err := db.store().ReadModelPause(t.Context(), "a"); err != nil || pause != nil {
 				t.Fatalf("clear failed: %+v %v", pause, err)
 			}
+			after, _, _ := db.store().ReadTurnControl(t.Context())
+			if after != control {
+				t.Fatal("audited metadata clear changed the breaker")
+			}
 			rows := auditRowsFor(t, db, "model_pauses:clear")
 			n := 0
 			for _, row := range rows {
@@ -162,7 +172,8 @@ func TestModelPausesListCountsAndClearByFolder(t *testing.T) {
 	if err != nil || a == nil {
 		t.Fatalf("pause a=%+v %v", a, err)
 	}
-	w = doJSON(t, p.srv.Handler(), "POST", "/v1/model_pauses/clear", "", map[string]string{"folder": "a", "opened_at": a.OpenedAt})
+	control, _, _ := db.store().ReadTurnControl(t.Context())
+	w = doJSON(t, p.srv.Handler(), "POST", "/v1/model_pauses/clear", "", map[string]string{"folder": "a", "opened_at": a.OpenedAt, "probe_attempt_id": control.ProbeAttemptID})
 	if w.Code != 200 {
 		t.Fatalf("clear=%d %s", w.Code, w.Body.String())
 	}

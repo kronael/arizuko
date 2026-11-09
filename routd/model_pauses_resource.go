@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/kronael/arizuko/auth"
+	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/resreg/resources"
 	"github.com/kronael/arizuko/store"
@@ -55,6 +56,14 @@ func (s *Server) modelPausesHandler(ctx context.Context, x resreg.Execution) (an
 		if err != nil {
 			return nil, err
 		}
+		control, _, err := s.db.store().ReadTurnControl(ctx)
+		if err != nil {
+			return nil, err
+		}
+		pending, err := s.db.RunningTurns()
+		if err != nil {
+			return nil, err
+		}
 		jids, err := s.db.ChatJIDs()
 		if err != nil {
 			return nil, err
@@ -65,6 +74,11 @@ func (s *Server) modelPausesHandler(ctx context.Context, x resreg.Execution) (an
 		}
 		for _, p := range pauses {
 			n := 0
+			for _, tc := range pending {
+				if tc.Folder == p.Folder && tc.State == store.TurnPendingRetry {
+					n += len(tc.InputKeys)
+				}
+			}
 			for _, jid := range jids {
 				cursor := s.db.GetAgentCursor(jid)
 				for {
@@ -84,21 +98,26 @@ func (s *Server) modelPausesHandler(ctx context.Context, x resreg.Execution) (an
 				}
 			}
 			row := resources.ModelPauseRow{Folder: p.Folder, Reason: p.Reason, OpenedAt: p.OpenedAt,
-				Attempts: p.Attempts, Evidence: p.Evidence, ProbeTurnID: p.ProbeTurnID,
-				ProbeAttemptID: p.ProbeAttemptID, QueuedCount: n}
-			if p.NextAttemptAt != "" {
-				row.NextAttemptAt = &p.NextAttemptAt
+				Attempts: p.Attempts, Evidence: p.Evidence, ProbeTurnID: control.ProbeTurnID,
+				ProbeAttemptID: control.ProbeAttemptID, QueuedCount: n}
+			if control.Phase != "closed" && !control.NextProbeAt.IsZero() {
+				at := core.TS(control.NextProbeAt)
+				row.NextAttemptAt = &at
 			}
 			rows = append(rows, row)
 		}
 		return rows, nil
 	case resreg.Action("clear"):
+		control, _, err := s.db.store().ReadTurnControl(ctx)
+		if err != nil {
+			return nil, err
+		}
 		p, err := s.db.store().ReadModelPause(ctx, x.Args.Str("folder"))
 		if err != nil {
 			return nil, err
 		}
 		if p == nil || p.OpenedAt != x.Args.Str("opened_at") ||
-			p.ProbeAttemptID != x.Args.Str("probe_attempt_id") {
+			control.ProbeAttemptID != x.Args.Str("probe_attempt_id") {
 			return nil, resreg.Errorf(http.StatusConflict, "model pause changed; list it again")
 		}
 		err = s.db.store().ClearModelPauseInto(x.Writes, *p,

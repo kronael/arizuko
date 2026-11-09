@@ -44,7 +44,7 @@ func (s *Server) buildRoutdFns(t turnMCP) ipc.RoutdFns {
 		}
 		if t.attempt != "" {
 			tc, ok := s.db.GetTurnContext(turnID)
-			if !ok || tc.AttemptID != t.attempt || tc.RunReturned {
+			if !ok || tc.AttemptID != t.attempt || s.callbackClosed(tc) {
 				return fmt.Errorf("turn attempt is closed")
 			}
 		}
@@ -394,7 +394,7 @@ func (s *Server) checkTurn(tc TurnContext) (ipc.TurnCheck, error) {
 		Delivered: delivered,
 		Owed:      tc.Addressed,
 	}
-	if !check.Delivered && check.Owed && tc.Nudged == 0 && tc.State == "running" && !tc.RunReturned {
+	if !check.Delivered && check.Owed && tc.Nudged == 0 && tc.State == "running" && !s.callbackClosed(tc) {
 		check.Nudge = deliverNudge
 		if err := s.db.IncrementNudged(tc.TurnID); err != nil {
 			return ipc.TurnCheck{}, err

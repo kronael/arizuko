@@ -17,56 +17,40 @@ import (
 
 var errModelInputOrder = errors.New("older model input pending")
 
-func (l *Loop) modelAdmission(folder string, candidate core.Message) (*store.ModelPause, error) {
-	p, err := l.db.store().ReadModelPause(context.Background(), folder)
-	if err != nil || (p != nil && (p.NextAttemptAt == "" || p.NextAttemptAt > core.NowTS())) {
-		return nil, err
-	}
-	oldest, err := l.oldestModelInput(folder)
-	if err != nil {
-		return nil, err
-	}
-	if p != nil && (oldest.ID == "" || oldest.ID != candidate.ID ||
-		oldest.ChatJID != candidate.ChatJID || !oldest.Timestamp.Equal(candidate.Timestamp)) {
-		return nil, store.ErrModelPaused
-	}
-	if p == nil && oldest.ID != "" && modelInputBefore(oldest, candidate) {
-		return nil, errModelInputOrder
-	}
-	return p, nil
-}
-
 func (l *Loop) oldestModelInput(folder string) (core.Message, error) {
-	running, err := l.db.RunningTurns()
+	turns, err := l.db.RunningTurns()
 	if err != nil {
 		return core.Message{}, err
+	}
+	var oldest core.Message
+	for _, tc := range turns {
+		if tc.Folder != folder || tc.State != store.TurnPendingRetry {
+			continue
+		}
+		msgs, err := l.db.store().DeferredMessages(context.Background(), tc.InputKeys)
+		if err != nil {
+			return core.Message{}, err
+		}
+		if len(msgs) > 0 && (oldest.ID == "" || modelInputBefore(msgs[0], oldest)) {
+			oldest = msgs[0]
+		}
 	}
 	jids, err := l.db.ChatJIDs()
 	if err != nil {
 		return core.Message{}, err
 	}
-	var oldest core.Message
 	for _, jid := range jids {
 		msgs, batch, _, err := l.pendingBatch(jid, l.db.GetAgentCursor(jid), pollBatch)
 		if err != nil {
 			return core.Message{}, err
 		}
-		if newestUserIdx(msgs) < 0 {
-			continue
-		}
-		if !batch.ok || batch.Folder != folder {
-			continue
-		}
-		for i, m := range msgs {
-			admitted := slices.ContainsFunc(running, func(tc TurnContext) bool {
-				return tc.State == store.TurnRunning && !tc.RunReturned &&
-					tc.ChatJID == jid && tc.InputLast >= store.MessageCursor(m)
+		for i, msg := range msgs {
+			admitted := slices.ContainsFunc(turns, func(tc TurnContext) bool {
+				return tc.State == store.TurnRunning && !tc.RunReturned && tc.ChatJID == jid && tc.InputLast >= store.MessageCursor(msg)
 			})
-			if admitted {
-				continue
-			}
-			if !m.BotMsg && batch.rows[i].ok && (oldest.ID == "" || modelInputBefore(m, oldest)) {
-				oldest = m
+			if !msg.BotMsg && !admitted && batch.rows[i].ok && batch.rows[i].Folder == folder &&
+				(oldest.ID == "" || modelInputBefore(msg, oldest)) {
+				oldest = msg
 			}
 		}
 	}
@@ -168,59 +152,6 @@ func (l *Loop) holdModelInput(chatJID string, trigger []core.Message) error {
 		Folder: l.folderForJid(chatJID), Topic: last.Topic})
 }
 
-func (l *Loop) recoverModelProbe(startup bool) error {
-	pauses, err := l.db.store().ListModelPauses(context.Background())
-	if err != nil {
-		return err
-	}
-	for i := range pauses {
-		if err := l.recoverFolderModelProbe(&pauses[i], startup); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (l *Loop) recoverFolderModelProbe(p *store.ModelPause, startup bool) error {
-	if p.ProbeTurnID == "" {
-		return nil
-	}
-	_, err := l.q.WithIdleFolder(p.Folder, func() error {
-		return l.recoverIdleModelProbe(p, startup)
-	})
-	return err
-}
-
-func (l *Loop) recoverIdleModelProbe(p *store.ModelPause, startup bool) error {
-	current, err := l.db.store().ReadModelPause(context.Background(), p.Folder)
-	if err != nil || current == nil {
-		return err
-	}
-	if current.OpenedAt != p.OpenedAt || current.ProbeTurnID != p.ProbeTurnID || current.ProbeAttemptID != p.ProbeAttemptID {
-		return nil
-	}
-	tc, ok := l.db.GetTurnContext(p.ProbeTurnID)
-	if !ok {
-		return fmt.Errorf("paused probe has no turn %s", p.ProbeTurnID)
-	}
-	if tc.Folder != p.Folder || tc.ProbeEpisode != p.OpenedAt || tc.AttemptID != p.ProbeAttemptID {
-		return nil
-	}
-	if !startup && !tc.RunReturned {
-		return nil
-	}
-	if err := l.db.SetRunReturned(tc.TurnID); err != nil {
-		return err
-	}
-	if err := l.stopModelProbe(tc); err != nil {
-		return err
-	}
-	if tc.State == store.TurnDone && l.db.TurnResultRecorded(tc.Folder, tc.TurnID) {
-		return l.db.store().CompleteModelProbe(context.Background(), tc)
-	}
-	return l.db.store().RearmModelProbe(context.Background(), *p, time.Now())
-}
-
 func (l *Loop) stopModelProbe(tc TurnContext) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -242,32 +173,4 @@ func (l *Loop) stopModelProbe(tc TurnContext) error {
 	}
 	_, err := stopper.StopFolder(ctx, tc.Folder)
 	return err
-}
-
-func (l *Loop) requeueModelProbe(p *store.ModelPause, tc TurnContext, mayBeRunning bool) {
-	if p == nil || tc.ProbeEpisode == "" {
-		return
-	}
-	current, err := l.db.store().ReadModelPause(context.Background(), p.Folder)
-	if err != nil || current == nil || current.OpenedAt != p.OpenedAt ||
-		current.ProbeTurnID != tc.TurnID || current.ProbeAttemptID != tc.AttemptID {
-		return
-	}
-	bound, ok := l.db.GetTurnContext(tc.TurnID)
-	if !ok || bound.Folder != tc.Folder || bound.ProbeEpisode != tc.ProbeEpisode || bound.AttemptID != tc.AttemptID {
-		return
-	}
-	if mayBeRunning {
-		if err := l.db.SetRunReturned(tc.TurnID); err != nil {
-			slog.Error("close interrupted model probe", "err", err)
-			return
-		}
-		if err := l.stopModelProbe(tc); err != nil {
-			slog.Error("stop interrupted model probe", "err", err)
-			return
-		}
-	}
-	if err := l.db.store().RearmModelProbe(context.Background(), *p, time.Now()); err != nil {
-		slog.Error("requeue model probe", "err", err)
-	}
 }

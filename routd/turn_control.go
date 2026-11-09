@@ -31,6 +31,20 @@ type turnWork struct {
 
 func (q *turnControl) admit(l *Loop, tc TurnContext, admission *store.TurnAdmission, saved *TurnContext) (turnWork, bool, error) {
 	ctx := context.Background()
+	legacy, err := l.db.store().HeldTurns(ctx, "")
+	if err != nil {
+		return turnWork{}, false, err
+	}
+	if len(legacy) > 0 {
+		return turnWork{}, false, errTurnBlocked
+	}
+	pauses, err := l.db.store().ListModelPauses(ctx)
+	if err != nil {
+		return turnWork{}, false, err
+	}
+	if slices.ContainsFunc(pauses, func(p store.ModelPause) bool { return p.ProbeTurnID != "" }) {
+		return turnWork{}, false, errTurnBlocked
+	}
 	if prior, ok := l.db.GetTurnContext(tc.TurnID); ok && prior.State == store.TurnDone {
 		return turnWork{}, false, nil
 	}
@@ -48,14 +62,10 @@ func (q *turnControl) admit(l *Loop, tc TurnContext, admission *store.TurnAdmiss
 			return work, false, errTurnBlocked
 		}
 		owner, ok := l.db.GetTurnContext(before.ProbeTurnID)
-		var pause *store.ModelPause
-		if ok {
-			pause, err = l.db.store().ReadModelPause(ctx, owner.Folder)
-			if err != nil {
-				return work, false, err
-			}
+		if ok && owner.State == store.TurnRunning {
+			return work, false, errTurnBlocked
 		}
-		if ok && owner.State == store.TurnPendingRetry && l.db.GroupExists(owner.Folder) && pause == nil {
+		if ok && owner.State == store.TurnPendingRetry && l.db.GroupExists(owner.Folder) {
 			if owner.TurnID != tc.TurnID {
 				return work, false, errTurnBlocked
 			}
@@ -75,10 +85,6 @@ func (q *turnControl) admit(l *Loop, tc TurnContext, admission *store.TurnAdmiss
 		work.probe, work.successor = &after, after.Successor
 	}
 	if saved != nil {
-		pause, err := l.db.store().ReadModelPause(ctx, tc.Folder)
-		if err != nil || pause != nil {
-			return work, false, err
-		}
 		ok, err := l.db.store().ClaimControlledTurn(ctx, *saved, admission.AttemptID, q.now(), admission.ControlBefore, admission.ControlAfter)
 		return work, ok, err
 	}
@@ -103,20 +109,6 @@ func (q *turnControl) oldest(l *Loop, candidate TurnContext) (string, error) {
 		_, active := q.activeFolders[folder]
 		q.mu.Unlock()
 		if active && id != candidate.TurnID {
-			return nil
-		}
-		probe, err := l.modelAdmission(folder, msg)
-		if errors.Is(err, store.ErrModelPaused) || errors.Is(err, errModelInputOrder) {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		pause, err := l.db.store().ReadModelPause(ctx, folder)
-		if err != nil {
-			return err
-		}
-		if pause != nil && probe == nil {
 			return nil
 		}
 		if oldest.ID == "" || modelInputBefore(msg, oldest) {
@@ -182,9 +174,19 @@ func (q *turnControl) complete(l *Loop, tc TurnContext, out runedv1.RunOutcome, 
 	if err != nil {
 		return false, err
 	}
-	decision := classifyTurn(out, runErr, result, l.db.TurnHasBotReply(returnTarget(tc, tc.ChatJID), tc.TurnID))
+	replied := l.db.TurnHasBotReply(returnTarget(tc, tc.ChatJID), tc.TurnID)
+	decision := classifyTurn(out, runErr, result, replied)
+	if work.probe != nil && !out.Busy && !out.Steered && runErr == nil && out.Outcome == runedv1.OutcomeOK &&
+		result.Status == "pending" && !replied {
+		decision = turnDecision{trip: true, cause: "Agent could not complete the request"}
+	}
+	if tc.ProviderFailureAttempt == tc.AttemptID && !out.Busy && !out.Steered &&
+		!errors.Is(runErr, context.Canceled) && !errors.Is(runErr, context.DeadlineExceeded) {
+		decision = turnDecision{trip: true, retry: !replied, cause: "Model unavailable"}
+	}
 	retry := decision.retry && tc.State == store.TurnRunning && tc.RetryCount < l.maxTurnRetry
-	tc.NextAttemptAt = retryAt(q.now(), tc.Trigger, tc.RetryCount+1)
+	resetAt := tc.NextAttemptAt
+	tc.NextAttemptAt = maxTime(tc.NextAttemptAt, retryAt(q.now(), tc.Trigger, tc.RetryCount+1))
 	if work.successor {
 		tc.NextAttemptAt = maxTime(tc.NextAttemptAt, q.now().Add(time.Hour))
 	}
@@ -198,13 +200,14 @@ func (q *turnControl) complete(l *Loop, tc TurnContext, out runedv1.RunOutcome, 
 		if exists {
 			prior = &before
 		}
-		owned := before.ProbeTurnID == tc.TurnID && before.ProbeAttemptID == tc.AttemptID
+		owned := before.ProbeTurnID == tc.TurnID &&
+			(before.ProbeAttemptID == tc.AttemptID || before.ProbeAttemptID == "")
 		if decision.trip {
 			next := before
 			next.Episode = randHex(16)
 			if !exists || before.Phase == "closed" || owned {
 				next.Phase, next.ProbeTurnID, next.ProbeAttemptID = "open", "", ""
-				next.NextProbeAt = q.now().Add(time.Hour)
+				next.NextProbeAt = maxTime(resetAt, q.now().Add(time.Hour))
 				if retry {
 					next.NextProbeAt = tc.NextAttemptAt
 					if !work.successor {
@@ -229,7 +232,7 @@ func (q *turnControl) complete(l *Loop, tc TurnContext, out runedv1.RunOutcome, 
 		if retry {
 			ok, err = l.db.store().DeferTurn(context.Background(), store.DeferredTurn{Turn: tc,
 				PriorCursor: l.db.GetAgentCursor(tc.ChatJID), ControlBefore: prior, ControlAfter: after})
-		} else if after != nil && tc.State == store.TurnRunning {
+		} else if after != nil && (tc.State == store.TurnRunning || tc.State == store.TurnPendingRetry) {
 			ok, err = l.db.store().FinishControlledTurn(context.Background(), tc, prior, after)
 		} else if after != nil {
 			ok, err = l.db.store().WriteTurnControl(context.Background(), prior, *after)
@@ -237,11 +240,60 @@ func (q *turnControl) complete(l *Loop, tc TurnContext, out runedv1.RunOutcome, 
 			return false, nil
 		}
 		if err != nil || ok {
+			if ok && after != nil && after.Phase == "closed" {
+				err = l.db.store().ClearControlledModelPauses(context.Background(), *after)
+			}
 			return retry && ok, err
 		}
 		current, ok := l.db.GetTurnContext(tc.TurnID)
 		if !ok || current.State != tc.State || current.AttemptID != tc.AttemptID {
 			return false, fmt.Errorf("complete turn %s refused", tc.TurnID)
+		}
+	}
+}
+
+func (q *turnControl) refuse(l *Loop, tc TurnContext, reason string, reset time.Time) (*store.ModelPause, error) {
+	ctx := context.Background()
+	switch reason {
+	case "spend_limit", "rate_limit", "authentication", "outage":
+	default:
+		return nil, fmt.Errorf("unknown provider failure %q", reason)
+	}
+	for {
+		current, ok := l.db.GetTurnContext(tc.TurnID)
+		if !ok || !l.db.GroupExists(tc.Folder) || current.AttemptID != tc.AttemptID || current.RunReturned ||
+			current.State != store.TurnRunning || current.ProviderFailureAttempt == tc.AttemptID {
+			return nil, fmt.Errorf("turn attempt is closed")
+		}
+		p, err := l.db.store().ReadModelPause(ctx, tc.Folder)
+		if err != nil {
+			return nil, err
+		}
+		next := store.ModelPause{Folder: tc.Folder, OpenedAt: core.TS(q.now())}
+		if p != nil {
+			next = *p
+		}
+		next.Reason, next.Evidence, next.Attempts = reason, reason, next.Attempts+1
+		next.NextAttemptAt, next.ProbeTurnID, next.ProbeAttemptID = "", "", ""
+		before, exists, err := l.db.store().ReadTurnControl(ctx)
+		if err != nil {
+			return nil, err
+		}
+		var prior *store.TurnControlState
+		if exists {
+			prior = &before
+		}
+		after := before
+		after.Episode = randHex(16)
+		current.NextAttemptAt = reset
+		if !exists || before.Phase == "closed" ||
+			(before.ProbeTurnID == tc.TurnID && before.ProbeAttemptID == tc.AttemptID) {
+			after.Phase, after.NextProbeAt = "open", maxTime(reset, retryAt(q.now(), tc.Trigger, tc.RetryCount+1))
+			after.ProbeTurnID, after.ProbeAttemptID = tc.TurnID, tc.AttemptID
+		}
+		ok, err = l.db.store().RecordControlledProviderFailure(ctx, current, p, &next, prior, &after)
+		if err != nil || ok {
+			return &next, err
 		}
 	}
 }
@@ -274,6 +326,9 @@ func (q *turnControl) interrupt(l *Loop, tc TurnContext) (store.TurnControlState
 		if !exists || before.Phase == "closed" {
 			after = store.TurnControlState{NextProbeAt: q.now().Add(time.Hour),
 				ProbeTurnID: tc.TurnID, ProbeAttemptID: tc.AttemptID}
+			if tc.State == store.TurnHeld || tc.ProbeEpisode != "" {
+				after.NextProbeAt = retryAt(q.now(), tc.Trigger, tc.RetryCount+1)
+			}
 		}
 		after.Phase, after.Episode = "probe", randHex(16)
 		ok, err := l.db.store().WriteTurnControl(context.Background(), prior, after)
@@ -329,42 +384,45 @@ func (l *Loop) replay(turnID string) (bool, error) {
 	return had, err
 }
 
-func (l *Loop) migrateRetries(chatJID string) error {
-	control, exists, err := l.db.store().ReadTurnControl(context.Background())
-	if err != nil {
-		return err
-	}
-	var before *store.TurnControlState
-	if exists {
-		before = &control
-	}
+func (l *Loop) migrateRetries(chatJID string, includeHeld bool) error {
 	turns, err := l.db.RunningTurns()
 	if err != nil {
 		return err
 	}
+	if includeHeld {
+		held, err := l.db.store().HeldTurns(context.Background(), chatJID)
+		if err != nil {
+			return err
+		}
+		turns = append(turns, held...)
+	}
 	for _, tc := range turns {
-		if tc.ChatJID != chatJID || tc.State != store.TurnPendingRetry || !tc.NextAttemptAt.IsZero() {
+		if tc.ChatJID != chatJID || (tc.State != store.TurnPendingRetry && tc.State != store.TurnHeld) || !tc.NextAttemptAt.IsZero() {
 			continue
 		}
 		cursor := l.db.GetAgentCursor(chatJID)
+		if tc.State == store.TurnHeld && !tc.RunReturned {
+			return fmt.Errorf("legacy provider execution %s is unresolved", tc.TurnID)
+		}
 		if len(tc.InputKeys) > 0 {
 			tc.NextAttemptAt = retryAt(l.q.now(), tc.Trigger, tc.RetryCount)
-			ok, err := l.db.store().MigrateDeferredTurn(context.Background(), store.DeferredTurn{Turn: tc, PriorCursor: cursor, ControlBefore: before})
+			ok, err := l.migrateBoundTurn(tc, cursor)
 			if err != nil || !ok {
 				return fmt.Errorf("migrate turn %s: saved binding refused: %v", tc.TurnID, err)
 			}
 			continue
 		}
-		msgs, _, _, err := l.pendingBatch(chatJID, cursor, pollBatch)
+		msgs, batch, _, err := l.pendingBatch(chatJID, cursor, pollBatch)
 		if err != nil {
 			return err
 		}
-		end := slices.IndexFunc(msgs, func(m core.Message) bool { return m.ID == tc.TurnID })
+		end := slices.IndexFunc(msgs, func(m core.Message) bool {
+			return m.ID == tc.TurnID || (tc.State == store.TurnHeld && store.MessageCursor(m) == tc.InputLast)
+		})
 		if end < 0 {
 			return fmt.Errorf("migrate turn %s: input boundary is missing", tc.TurnID)
 		}
 		msgs = msgs[:end+1]
-		batch := l.resolveBatch(chatJID, msgs)
 		_, pinnedTopic := l.db.StickyState(chatJID)
 		var trigger, ambient []core.Message
 		for i, msg := range msgs {
@@ -378,6 +436,9 @@ func (l *Loop) migrateRetries(chatJID string) error {
 			topic := msg.Topic
 			if !batch.rows[i].TopicPinned && pinnedTopic != "" {
 				topic = pinnedTopic
+			}
+			if tc.State == store.TurnHeld {
+				topic = tc.Topic
 			}
 			if batch.rows[i].Folder != tc.Folder || msg.Sender != tc.Trigger || topic != tc.Topic || IsSteerCommand(msg) {
 				return fmt.Errorf("migrate turn %s: ambiguous input binding", tc.TurnID)
@@ -397,9 +458,111 @@ func (l *Loop) migrateRetries(chatJID string) error {
 		}
 		tc.InputLast = store.MessageCursor(msgs[len(msgs)-1])
 		tc.NextAttemptAt = retryAt(l.q.now(), tc.Trigger, tc.RetryCount)
-		ok, err := l.db.store().MigrateDeferredTurn(context.Background(), store.DeferredTurn{Turn: tc, PriorCursor: cursor, ControlBefore: before})
+		ok, err := l.migrateBoundTurn(tc, cursor)
 		if err != nil || !ok {
 			return fmt.Errorf("migrate turn %s: binding refused: %v", tc.TurnID, err)
+		}
+	}
+	return nil
+}
+
+func (l *Loop) migrateBoundTurn(tc TurnContext, cursor string) (bool, error) {
+	control, exists, err := l.db.store().ReadTurnControl(context.Background())
+	if err != nil {
+		return false, err
+	}
+	var before *store.TurnControlState
+	if exists {
+		before = &control
+	}
+	d := store.DeferredTurn{Turn: tc, PriorCursor: cursor, ControlBefore: before}
+	if tc.State == store.TurnHeld {
+		d.ReserveRetry = tc.RetryCount < l.maxTurnRetry
+		d.Turn.NextAttemptAt = retryAt(l.q.now(), tc.Trigger, tc.RetryCount+1)
+		p, err := l.db.store().ReadModelPause(context.Background(), tc.Folder)
+		if err != nil {
+			return false, err
+		}
+		if p != nil && p.NextAttemptAt != "" {
+			reset, err := time.Parse(time.RFC3339Nano, p.NextAttemptAt)
+			if err != nil {
+				return false, err
+			}
+			d.Turn.NextAttemptAt = maxTime(d.Turn.NextAttemptAt, reset)
+		}
+		if before == nil || before.Phase == "closed" || before.ProbeTurnID == tc.TurnID {
+			d.ControlAfter = &store.TurnControlState{Phase: "open", Episode: randHex(16),
+				ProbeTurnID: tc.TurnID, NextProbeAt: d.Turn.NextAttemptAt}
+		}
+	}
+	ok, err := l.db.store().MigrateDeferredTurn(context.Background(), d)
+	if err == nil && ok && tc.State == store.TurnHeld && !d.ReserveRetry {
+		current, _ := l.db.GetTurnContext(tc.TurnID)
+		_, err = l.q.complete(l, current, runedv1.RunOutcome{Outcome: runedv1.OutcomeError, Terminal: true}, nil, turnWork{})
+	}
+	return ok, err
+}
+
+func (q *turnControl) recoverProvider(l *Loop, startup bool) error {
+	pauses, err := l.db.store().ListModelPauses(context.Background())
+	if err != nil {
+		return err
+	}
+	for _, p := range pauses {
+		if p.ProbeTurnID == "" {
+			continue
+		}
+		tc, ok := l.db.GetTurnContext(p.ProbeTurnID)
+		if !ok || tc.AttemptID != p.ProbeAttemptID || tc.ProbeEpisode != p.OpenedAt {
+			return fmt.Errorf("legacy model probe %s has no matching attempt", p.ProbeTurnID)
+		}
+		_, err := q.WithIdleFolder(tc.Folder, func() error {
+			control, err := q.interrupt(l, tc)
+			if err != nil {
+				return err
+			}
+			if !startup && !tc.RunReturned {
+				return nil
+			}
+			if err := l.db.SetRunReturned(tc.TurnID); err != nil {
+				return err
+			}
+			if err := l.stopModelProbe(tc); err != nil {
+				return err
+			}
+			if err := l.db.store().RetireModelProbe(context.Background(), p, tc); err != nil {
+				return err
+			}
+			if tc.State == store.TurnRunning {
+				if err := l.migrateRetries(tc.ChatJID, true); err != nil {
+					return err
+				}
+			}
+			return q.rearm(l, control)
+		})
+		if err != nil {
+			return err
+		}
+	}
+	held, err := l.db.store().HeldTurns(context.Background(), "")
+	if err != nil {
+		return err
+	}
+	for _, tc := range held {
+		_, err := q.WithIdleFolder(tc.Folder, func() error {
+			if _, err := q.interrupt(l, tc); err != nil {
+				return err
+			}
+			if err := l.db.SetRunReturned(tc.TurnID); err != nil {
+				return err
+			}
+			if err := l.stopModelProbe(tc); err != nil {
+				return err
+			}
+			return l.migrateRetries(tc.ChatJID, true)
+		})
+		if err != nil {
+			return err
 		}
 	}
 	return nil
@@ -410,6 +573,9 @@ func (l *Loop) isSavedExecution(tc TurnContext) bool {
 }
 
 func (q *turnControl) recover(l *Loop, startup bool) error {
+	if err := q.recoverProvider(l, startup); err != nil {
+		return err
+	}
 	control, _, err := l.db.store().ReadTurnControl(context.Background())
 	if err != nil {
 		return err
@@ -431,14 +597,11 @@ func (q *turnControl) recover(l *Loop, startup bool) error {
 	recovery := control
 	for _, tc := range turns {
 		if tc.State == store.TurnPendingRetry && tc.NextAttemptAt.IsZero() {
-			if err := l.migrateRetries(tc.ChatJID); err != nil {
+			if err := l.migrateRetries(tc.ChatJID, false); err != nil {
 				return err
 			}
 		}
 		isProbe := control.Phase == "probe" && control.ProbeTurnID == tc.TurnID && control.ProbeAttemptID == tc.AttemptID
-		if tc.ProbeEpisode != "" && !isProbe {
-			continue
-		}
 		if !isProbe && (tc.State != store.TurnRunning ||
 			(!l.isSavedExecution(tc) && !tc.RunReturned && !(startup && len(tc.InputKeys) > 0))) {
 			continue
@@ -455,7 +618,7 @@ func (q *turnControl) recover(l *Loop, startup bool) error {
 			if err := l.stopModelProbe(tc); err != nil {
 				return err
 			}
-			if tc.State == store.TurnDone || tc.ProviderFailureAttempt == tc.AttemptID || tc.State == store.TurnHeld {
+			if tc.State == store.TurnDone {
 				return nil
 			}
 			deferred, err := q.complete(l, tc, runedv1.RunOutcome{Outcome: runedv1.OutcomeError}, nil,

@@ -481,10 +481,6 @@ func (l *Loop) recoverPending() {
 		slog.Error("recover deferred turns", "err", err)
 		return
 	}
-	if err := l.recoverModelProbe(true); err != nil {
-		slog.Error("recover model probe", "err", err)
-		return
-	}
 	tcs, err := l.db.RunningTurns()
 	if err != nil {
 		slog.Warn("recover pending turns", "err", err)
@@ -534,9 +530,6 @@ func (l *Loop) pollOnce() {
 		return
 	}
 	l.q.tick(l)
-	if err := l.recoverModelProbe(false); err != nil {
-		slog.Error("recover model probe", "err", err)
-	}
 	jids, err := l.db.ChatJIDs()
 	if err != nil {
 		slog.Warn("poll new messages", "err", err)

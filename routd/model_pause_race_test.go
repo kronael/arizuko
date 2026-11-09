@@ -10,6 +10,7 @@ import (
 	"github.com/kronael/arizuko/ipc"
 	"github.com/kronael/arizuko/objstore"
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
+	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -44,7 +45,8 @@ func TestModelPauseStaleCallbackAcrossRebind(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			live, err := db.store().OpenTurnContext("held", "a", "", "web:a", "u", "", &store.TurnAdmission{AttemptID: "old", InputLast: store.MessageCursor(msgs[0])})
+			keys, _ := turnMessageKeys(msgs)
+			live, err := db.store().OpenTurnContext("held", "a", "", "web:a", "u", "", &store.TurnAdmission{AttemptID: "old", InputLast: store.MessageCursor(msgs[0]), InputKeys: keys})
 			if err != nil || !live {
 				t.Fatalf("open: %v %v", live, err)
 			}
@@ -63,6 +65,11 @@ func TestModelPauseStaleCallbackAcrossRebind(t *testing.T) {
 			if err := db.store().Apply(t.Context(), ws); err != nil {
 				t.Fatal(err)
 			}
+			old, _ := db.GetTurnContext("held")
+			if _, err := l.q.complete(l, old, runedv1.RunOutcome{Outcome: runedv1.OutcomeError}, nil, turnWork{}); err != nil {
+				t.Fatal(err)
+			}
+			modelPauseDue(t, l)
 			p.blockAt, p.started, p.release = 1, make(chan struct{}), make(chan struct{})
 			gate := &callbackReadGate{Store: db.obj, read: make(chan struct{}), release: make(chan struct{})}
 			db.obj = gate
@@ -75,7 +82,7 @@ func TestModelPauseStaleCallbackAcrossRebind(t *testing.T) {
 			go func() { _, err := fns.SubmitTurn("a", result); done <- err }()
 			<-gate.read
 			runDone := make(chan error, 1)
-			go func() { _, err := l.processGroupMessages("web:a"); runDone <- err }()
+			go func() { _, err := l.replay("held"); runDone <- err }()
 			<-p.started
 			close(gate.release)
 			callbackErr := <-done

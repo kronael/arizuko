@@ -13,6 +13,7 @@ import (
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/routd"
+	"github.com/kronael/arizuko/store"
 )
 
 type pauseCLIVerifier struct{ keys *auth.KeySet }
@@ -35,7 +36,9 @@ func TestModelPausesCLIUsesOperatorResourceAndAudit(t *testing.T) {
 		t.Fatal(err)
 	}
 	tc, _ := st.TurnContextOf("held")
-	_, err = st.RecordProviderFailure(t.Context(), "held", tc.AttemptID, "spend_limit", time.Time{}, time.Now())
+	pause := &store.ModelPause{Folder: "a", Reason: "spend_limit", Evidence: "spend_limit", OpenedAt: core.NowTS(), Attempts: 1}
+	_, err = st.RecordControlledProviderFailure(t.Context(), tc, nil, pause, nil,
+		&store.TurnControlState{Phase: "open", Episode: "refusal", NextProbeAt: time.Now().Add(time.Minute)})
 	if err != nil {
 		t.Fatal(err)
 	}
