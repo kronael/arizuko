@@ -97,19 +97,11 @@ drive-up or on-the-way. The type and the minutes open the stop's text
   under every timeline item; roundtrip and walk routes from `mapyrc.py`
   in the top box. Cost: `?q=` pins opened on the wrong place;
   GPS pins showed "Position on the map" instead of the venue.
-- Meals are timeline items at their time — Breakfast, Lunch, Coffee,
-  Dinner — each a `<ul class="food-list">` of the best-rated venues AT
-  that spot, open at that hour, caps Lunch 3 / Breakfast 2 / Coffee 2 /
-  Dinner 2; one `<li>` per venue (`pages.md` § Meals). Cost: pizza next to a
-  spring walk; three cafés, none in the park walked.
-- Open-today proof in every meal line ("open to 18:00": Google hours ON
-  the date, the website, or a call). No hours = unconfirmed, never first;
-  a spa or mountain town Nov–Mar = seasonal closure until confirmed.
-  Cost: a café with Google 4.8 and no hours, listed first —
-  closed for the season on arrival.
-- A rating = the platform that was opened + score; `unrated` only after
-  Google Maps was opened and showed none. Cost: a café
-  "unrated", Google had 4.5.
+- Meals are timeline items at their time: the best-rated venues AT that
+  spot, open at that hour, with open-today proof and the rating
+  arithmetic in every line (`pages.md` § Meals). Cost: pizza next to a
+  spring walk; a café with Google 4.8 and no hours, listed first —
+  closed for the season on arrival; a café "unrated", Google had 4.5.
 - State hours ON the trip date; prices exact; count, date and source
   stay in the row.
 - Keep decisions and vetoes in `~/workspace/trips/<trip>/CLAUDE.md`, never

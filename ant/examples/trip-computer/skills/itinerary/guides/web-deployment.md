@@ -18,15 +18,7 @@ Copy `components/hub-lavender.css` and `components/hub.js` from the installed it
 Run `trip_lint.py` after EVERY change (`checks.md`). It reads
 these classes: `timeline-date` (`HH:MM — <title>`), `food-list`,
 `checked-line`, `source-note`, `info-box`, `map-links`; the stylesheet
-defines them.
-
-**Manual Checks:**
-- Each page's `<title>` matches its `<h1>`; index cards use "Day N — Weekday, Mon D"
-- Index card descriptions match day page content
-- Map links follow `mapy-links.md` (no `?q=`)
-- Timeline timing realistic (no overlaps)
-- Cross-references valid (Plan A ↔ Plan B)
-- Transport info consistent across mentions
+defines them. The manual page checks are in `checks.md` § Page.
 
 ## Design Rules
 

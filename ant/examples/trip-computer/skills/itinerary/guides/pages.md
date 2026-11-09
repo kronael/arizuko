@@ -130,7 +130,8 @@ not "go left after the bridge".
   `<p class="checked-line">Facts checked <date>; sources at the end of the page.</p>`
   When a fact the plan depends on is still unverified, the line says
   so: `Facts checked <date>, except parking at <stop>; sources at the end of the page.`
-- All sources once, in the `.source-note` at the end; the `db/` row
+- All sources once, in the `.source-note` at the end — the reference
+  links of a Story box (§ Story) are the one exception; the `db/` row
   keeps the per-fact source for the next edit.
 - Two readers: the travellers on a phone in the car (plan text) and the next
   agent (`db/` rows). Never mix the two on the page.
