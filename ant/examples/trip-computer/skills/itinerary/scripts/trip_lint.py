@@ -151,7 +151,7 @@ def _(site):
 
 @rule('nav')
 def _(site):
-    days = sorted(n for n in site.pages if DAY.search(n))
+    days = sorted(n for n in site.pages if re.search(r'(^|/)day\d+\.html$', n))
     labels = {}
     for n in days:
         p = site.pages[n]; navs = [ln for t, a, ln in p.tags if t == 'nav']
@@ -161,7 +161,7 @@ def _(site):
             if l.page == n and l.in_nav and l.target in site.pages:
                 seen.add(l.target); labels.setdefault(l.target, set()).add(l.text)
         for other in days:
-            if other not in seen: yield 'ERROR', n, f'nav has no link to {other}'
+            if os.path.dirname(other) == os.path.dirname(n) and other not in seen: yield 'ERROR', n, f'nav has no link to {other}'
     for target, labs in labels.items():
         if len(labs) > 1: yield 'ERROR', target, f'nav label differs between pages: {sorted(labs)}'
 

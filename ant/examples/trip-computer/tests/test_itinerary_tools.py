@@ -69,6 +69,17 @@ class ItineraryToolsTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('nav has no link', result.stdout)
 
+    def test_navigation_stays_inside_one_trip(self):
+        for trip in ('t1', 't2'):
+            (self.site / trip).mkdir()
+        nav = '<title>D</title><h1>D</h1><nav><a href="day1.html">1</a> <a href="day2.html">2</a></nav>'
+        (self.site / 't1/day1.html').write_text(nav)
+        (self.site / 't1/day2.html').write_text(nav)
+        (self.site / 't1/day4-alternative.html').write_text('<title>A</title><h1>A</h1><a href="day1.html">back</a>')
+        (self.site / 't2/day1.html').write_text('<title>D</title><h1>D</h1><nav></nav>')
+        result = self.run_lint('--rule', 'nav')
+        self.assertEqual(result.returncode, 0, result.stdout)
+
     def test_named_route_needs_id(self):
         sys.path.insert(0, str(SCRIPTS))
         try:
