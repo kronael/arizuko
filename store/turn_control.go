@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"strconv"
@@ -91,6 +92,53 @@ type DeferredTurn struct {
 	PriorCursor   string
 	ControlBefore *TurnControlState
 	ControlAfter  *TurnControlState
+}
+
+func (s *Store) SavePendingTurn(ctx context.Context, tc TurnContext, priorCursor string) (bool, error) {
+	key, err := turnKey(tc.TurnID)
+	if err != nil {
+		return false, err
+	}
+	group, err := groupKey(tc.Folder)
+	if err != nil {
+		return false, err
+	}
+	chat, err := chatKey(tc.ChatJID)
+	if err != nil {
+		return false, err
+	}
+	if tc.InputLast == "" || tc.NextAttemptAt.IsZero() || len(tc.InputKeys) == 0 {
+		return false, fmt.Errorf("save pending turn %s: missing input or due time", tc.TurnID)
+	}
+	input, err := json.Marshal(tc.InputKeys)
+	if err != nil {
+		return false, err
+	}
+	ambient, err := json.Marshal(tc.AmbientKeys)
+	if err != nil {
+		return false, err
+	}
+	attrs := map[string]string{
+		attrTurnState: TurnPendingRetry, "attempt_id": rand.Text(),
+		attrTurnFolder: tc.Folder, attrTurnChatJID: tc.ChatJID,
+		"input_last": tc.InputLast, "input_keys": string(input),
+		"ambient_keys": string(ambient), "next_attempt_at": core.TS(tc.NextAttemptAt),
+		AttrTurnStartedAt: core.TS(tc.NextAttemptAt),
+	}
+	setAttr(attrs, attrTurnTopic, tc.Topic)
+	setAttr(attrs, attrTurnTrigger, tc.Trigger)
+	setAttr(attrs, attrTurnTriggerMsg, tc.TriggerMsgID)
+	setAttr(attrs, attrTurnReturnTo, tc.ReturnTo)
+	if tc.Addressed {
+		attrs[attrTurnAddressed] = flagSet
+	}
+	cursor := objstore.Cmp{Attr: AttrChatAgentCursor, Op: objstore.Eq, Value: priorCursor}
+	if priorCursor == "" {
+		cursor.Op = objstore.Absent
+	}
+	return s.TryWriteEntities(ctx, []objstore.Check{{Entity: Groups, Key: group, Cond: objstore.Cond{Item: objstore.ItemPresent}}},
+		objstore.Write{Op: objstore.Put, Entity: TurnContexts, Key: key, Attrs: attrs, Cond: objstore.Cond{Item: objstore.ItemAbsent}},
+		objstore.Write{Op: objstore.Update, Entity: Chats, Key: chat, Attrs: map[string]string{AttrChatAgentCursor: max(priorCursor, tc.InputLast)}, Cond: objstore.Cond{Where: []objstore.Cmp{cursor}}})
 }
 
 func (s *Store) DeferredTurns(ctx context.Context, now time.Time) ([]TurnContext, error) {

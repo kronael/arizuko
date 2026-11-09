@@ -76,6 +76,57 @@ func TestDeferredTurnGuards(t *testing.T) {
 	}
 }
 
+func TestSavePendingTurnGuards(t *testing.T) {
+	ctx := t.Context()
+	s := openTurnEntities(t)
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	msg, err := s.AppendMessage(core.Message{ID: "input", ChatJID: "web:pending", Timestamp: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	key, err := messageKeyOf(msg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tc := TurnContext{TurnID: "pending", Folder: "demo", ChatJID: msg.ChatJID,
+		InputLast: MessageCursor(msg), InputKeys: []objstore.Key{key}, NextAttemptAt: now,
+		RetryCount: 3, FailureCause: "ignored", ReturnTo: "web:return"}
+	wrong := MsgStamp(core.TS(now), "wrong")
+	if ok, err := s.SavePendingTurn(ctx, tc, wrong); err != nil || ok {
+		t.Fatalf("cursor guard: %v %v", ok, err)
+	}
+	if _, exists := s.TurnContextOf(tc.TurnID); exists {
+		t.Fatal("partial save")
+	}
+	if err := s.DeleteGroupRow("demo"); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := s.SavePendingTurn(ctx, tc, ""); err != nil || ok {
+		t.Fatalf("group guard: %v %v", ok, err)
+	}
+	if err := s.PutGroup(core.Group{Folder: "demo"}); err != nil {
+		t.Fatal(err)
+	}
+	prior := MsgStamp(core.TS(now.Add(time.Minute)), "later")
+	if err := s.SetAgentCursor(msg.ChatJID, prior); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := s.SavePendingTurn(ctx, tc, prior); err != nil || !ok {
+		t.Fatalf("save: %v %v", ok, err)
+	}
+	saved, exists := s.TurnContextOf(tc.TurnID)
+	if !exists || saved.State != TurnPendingRetry || saved.AttemptID == "" || saved.RetryCount != 0 ||
+		saved.FailureCause != "" || saved.ReturnTo != tc.ReturnTo || len(saved.InputKeys) != 1 || saved.InputKeys[0] != key || !saved.NextAttemptAt.Equal(now) {
+		t.Fatalf("binding: %+v", saved)
+	}
+	if cursor, _ := s.AgentCursor(msg.ChatJID); cursor != prior {
+		t.Fatalf("cursor rewound: %q", cursor)
+	}
+	if ok, err := s.SavePendingTurn(ctx, tc, prior); err != nil || ok {
+		t.Fatalf("duplicate save: %v %v", ok, err)
+	}
+}
+
 func TestDeferredTurnCursorNeverRewinds(t *testing.T) {
 	ctx := t.Context()
 	s := openTurnEntities(t)
