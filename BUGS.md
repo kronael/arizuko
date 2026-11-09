@@ -21,7 +21,6 @@
 - `L790` — the hold e2e tests fail under host load on a fixed 5 s wait (two tests seen).
 - `L721` — group handoffs bounced for an hour; verify bounded turns after deployment with group sends and progress guidance.
 - `L715` — A1/A2: trusted GitHub sender and source-owner binding; proposal, needs sign-off.
-- `L699` — anteval cannot run a Codex smoke; owner chose the local `~/.codex` login (direct mode); not built.
 - `L686` — decide whether to retire the four duplicated top-level creative skill names; proposal, needs sign-off.
 - `L687` — decide whether to retire the scheduler's two external write endpoints; proposal, needs sign-off.
 - `L688` — defer folding onbod into routd until measured net savings justify the boundary change; needs sign-off.
@@ -780,34 +779,6 @@ that version. A change to which rows reach live data is an auth change.
 
 - **Status:** open — needs sign-off.
 
-
-## L699 — anteval cannot run a Codex-backend smoke (2026-11-08, open — owner decided, not built)
-
-MEASURED 2026-11-08 at `269c83f09`, Sol's Codex smoke stopped before creation:
-`anteval/cmd/anteval/lifecycle.go:221` refuses a run without
-`ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN`, and the runner always installs
-the litellm gateway, whose fragment (`template/services/litellm/litellm.yml:27`)
-routes only Anthropic models. A Codex turn takes its login from
-`HOST_CODEX_DIR` only in direct mode (`specs/6/53-per-group-harness.md`
-§"Codex login follows the model-credential policy"), and gateway mode withholds
-that login. So no Codex turn on a disposable instance has a credential path.
-Evidence: job tmp `codex-credential-blocker-20261108T085401Z.json`.
-
-This blocks the 6/47 Codex `reply` smoke and the 6/53 mixed-backend smoke.
-
-- **Severity:** medium for acceptance, zero for the fleet
-- **Scope:** `anteval/cmd/anteval/lifecycle.go`, `template/services/litellm/`
-- **Status:** open — not built.
-- **Owner decision 2026-11-09:** a Codex smoke uses the local `~/.codex` login
-  (direct mode, option 2).
-- **Options:** (1) a Codex route in the gateway: codex accepts an arbitrary
-  `base_url` with `model_providers.<id>.requires_openai_auth=true` and
-  `wire_api = "responses"`, measured 200 on 2026-09-04 (memory
-  `reference_model_gateway`); the gateway then holds the ChatGPT login. (2) A
-  direct-mode Codex run: no gateway, `HOST_CODEX_DIR` staged, OpenAI endpoints
-  allowlisted for the eval folder; cost and settle checks have no meter in that
-  mode. **Recommendation:** (1), because it keeps one metered path for both
-  backends.
 
 ## L686 — four exposed creative skill names duplicate the create payload (2026-11-07, open — proposal, needs sign-off)
 
