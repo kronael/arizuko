@@ -121,6 +121,7 @@ not "go left after the bridge".
 
 ## Exposition
 
+- Pages are in English by default; in Czech when the user writes Czech.
 - The plan says what to do, where, when, how much. No inline citations,
   no "(estimate)" tails, no "one listing says", no "by the OSM outline",
   no host, tool or agent names; an uncertain number is written with "~"
