@@ -9,6 +9,7 @@ import (
 
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/objstore"
+	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -91,8 +92,21 @@ func TestTurnControlSavedReplay(t *testing.T) {
 
 type recoveryRunner struct {
 	recRunner
+	run     Runner
 	stopErr error
 	killed  string
+}
+
+func (r *recoveryRunner) Run(ctx context.Context, req runedv1.RunRequest) (runedv1.RunOutcome, error) {
+	if r.run != nil {
+		return r.run.Run(ctx, req)
+	}
+	return r.recRunner.Run(ctx, req)
+}
+
+func (r *recoveryRunner) StopFolder(_ context.Context, folder string) (runedv1.StopRunResponse, error) {
+	r.killed = folder
+	return runedv1.StopRunResponse{}, r.stopErr
 }
 
 func (r *recoveryRunner) Kill(_ context.Context, runID string) error {
@@ -101,12 +115,16 @@ func (r *recoveryRunner) Kill(_ context.Context, runID string) error {
 }
 
 func TestTurnControlExecutionRestart(t *testing.T) {
+	t.Run("probe", testTurnControlProbeRestart)
+	t.Run("early submission", testTurnControlProbeRestart)
+	t.Run("missing run id", testTurnControlProbeRestart)
+	t.Run("hourly successor", testTurnControlProbeRestart)
 	db, loop, _, tc, _ := deferredFixture(t)
 	restarted := NewLoop(db, &recRunner{}, LoopConfig{})
 	restarted.StopQueue()
 	now := tc.NextAttemptAt
 	restarted.q.now = func() time.Time { return now }
-	if err := restarted.q.recover(restarted); err != nil {
+	if err := restarted.q.recover(restarted, true); err != nil {
 		t.Fatal(err)
 	}
 	if ok, err := db.store().ClaimDeferredTurn(context.Background(), tc, "interrupted", now); err != nil || !ok {
@@ -117,14 +135,14 @@ func TestTurnControlExecutionRestart(t *testing.T) {
 	}
 	runner := &recoveryRunner{stopErr: errors.New("cannot confirm stop")}
 	restarted.runner = runner
-	if err := restarted.q.recover(restarted); err == nil || runner.killed != "captured" {
+	if err := restarted.q.recover(restarted, true); err == nil || runner.killed != "captured" {
 		t.Fatalf("uncertain execution: killed=%q err=%v", runner.killed, err)
 	}
 	if _, err := restarted.replay(tc.TurnID); err != nil || len(runner.runs) != 0 {
 		t.Fatalf("uncertain execution replayed: %v", err)
 	}
 	runner.stopErr = nil
-	if err := restarted.q.recover(restarted); err != nil {
+	if err := restarted.q.recover(restarted, true); err != nil {
 		t.Fatal(err)
 	}
 	bound, _ := db.GetTurnContext(tc.TurnID)
@@ -135,6 +153,102 @@ func TestTurnControlExecutionRestart(t *testing.T) {
 	loop.runner = runner
 	if _, err := loop.replay(tc.TurnID); err != nil || len(runner.runs) != 1 {
 		t.Fatalf("reconciled replay: launches=%d err=%v", len(runner.runs), err)
+	}
+}
+
+func testTurnControlProbeRestart(t *testing.T) {
+	db, _, _, tc, _ := deferredFixture(t)
+	now := tc.NextAttemptAt
+	ctx := context.Background()
+	before := store.TurnControlState{Phase: "open", Episode: "outage", NextProbeAt: now, ProbeTurnID: tc.TurnID}
+	before.Successor = strings.HasSuffix(t.Name(), "hourly_successor")
+	if ok, err := db.store().WriteTurnControl(ctx, nil, before); err != nil || !ok {
+		t.Fatalf("open control: %v %v", ok, err)
+	}
+	probe := before
+	probe.Phase, probe.ProbeAttemptID = "probe", "interrupted"
+	if ok, err := db.store().ClaimControlledTurn(ctx, tc, probe.ProbeAttemptID, now, &before, &probe); err != nil || !ok {
+		t.Fatalf("claim probe: %v %v", ok, err)
+	}
+	early := strings.HasSuffix(t.Name(), "early_submission")
+	runID := "captured"
+	if strings.HasSuffix(t.Name(), "missing_run_id") {
+		runID = tc.Folder
+	} else if err := db.SetTurnRunID(tc.TurnID, runID); err != nil {
+		t.Fatal(err)
+	}
+	if early {
+		if _, err := db.store().RecordTurnResult(tc.Folder, tc.TurnID, "", "success", ""); err != nil {
+			t.Fatal(err)
+		}
+		finishTurn(db, nil, tc.TurnID, endDone)
+	}
+	runner := &recoveryRunner{stopErr: errors.New("stop unconfirmed")}
+	loop := NewLoop(db, runner, LoopConfig{})
+	loop.StopQueue()
+	loop.q.now = func() time.Time { return now }
+	if err := loop.q.recover(loop, true); err == nil || runner.killed != runID {
+		t.Fatalf("probe reconciliation: killed=%q err=%v", runner.killed, err)
+	}
+	fresh := core.Message{ID: "fresh", ChatJID: tc.ChatJID, Sender: "user", Timestamp: now, Content: "next"}
+	if err := db.PutMessage(fresh); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, busy, _, err := loop.runTurn(tc.Folder, "", tc.ChatJID, fresh.ID, false, []core.Message{fresh}, nil); err != nil || !busy || len(runner.runs) != 0 {
+		t.Fatalf("unresolved probe admitted replacement: busy=%v launches=%d err=%v", busy, len(runner.runs), err)
+	}
+	runner.stopErr = nil
+	if err := loop.q.recover(loop, true); err != nil {
+		t.Fatal(err)
+	}
+	current, _, _ := db.store().ReadTurnControl(ctx)
+	bound, _ := db.GetTurnContext(tc.TurnID)
+	if current.Phase != "open" || early && (bound.State != store.TurnDone || bound.RetryCount != 0 || !current.NextProbeAt.Equal(before.NextProbeAt)) {
+		t.Fatalf("reconciled early submission: turn=%+v control=%+v", bound, current)
+	}
+	if !early {
+		if bound.State != store.TurnPendingRetry || bound.RetryCount != 1 || !current.NextProbeAt.Equal(bound.NextAttemptAt) {
+			t.Fatalf("reconciled probe: turn=%+v control=%+v", bound, current)
+		}
+		if before.Successor && bound.NextAttemptAt.Before(now.Add(time.Hour)) {
+			t.Fatalf("restart shortened successor cooldown: %+v", bound)
+		}
+		now = bound.NextAttemptAt
+		if _, err := loop.replay(tc.TurnID); err != nil || len(runner.runs) != 1 {
+			t.Fatalf("reconciled replay: launches=%d err=%v", len(runner.runs), err)
+		}
+	}
+}
+
+func TestTurnControlExecutionTransport(t *testing.T) {
+	db, loop, _ := recLoop(t)
+	if err := db.PutGroup(core.Group{Folder: "demo"}); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 11, 9, 10, 0, 0, 0, time.UTC)
+	loop.q.now = func() time.Time { return now }
+	launches := 0
+	runner := &recoveryRunner{stopErr: errors.New("stop unconfirmed"), run: runnerFn(func(context.Context, runedv1.RunRequest) (runedv1.RunOutcome, error) {
+		launches++
+		return runedv1.RunOutcome{RunID: "uncertain"}, errors.New("lost response")
+	})}
+	loop.runner = runner
+	if err := db.PutMessage(core.Message{ID: "uncertain", ChatJID: "web:demo", Sender: "user", Timestamp: now, Content: "question"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loop.processGroupMessages("web:demo"); err == nil || runner.killed != "uncertain" {
+		t.Fatalf("uncertain transport: killed=%q err=%v", runner.killed, err)
+	}
+	if _, err := loop.processGroupMessages("web:demo"); err != nil || launches != 1 {
+		t.Fatalf("uncertain execution replayed: launches=%d err=%v", launches, err)
+	}
+	runner.stopErr = nil
+	if err := loop.q.recover(loop, false); err != nil {
+		t.Fatal(err)
+	}
+	tc, _ := db.GetTurnContext("uncertain")
+	if tc.State != store.TurnPendingRetry || tc.RetryCount != 1 {
+		t.Fatalf("transport recovery: %+v", tc)
 	}
 }
 

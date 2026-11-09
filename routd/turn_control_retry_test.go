@@ -21,12 +21,12 @@ func TestTurnControlExecutionRetry(t *testing.T) {
 			now := time.Date(2026, 11, 9, 10, 0, 0, 0, time.UTC)
 			loop.q.now = func() time.Time { return now }
 			launches := 0
-			loop.runner = runnerFn(func(_ context.Context, req runedv1.RunRequest) (runedv1.RunOutcome, error) {
+			loop.runner = &recoveryRunner{run: runnerFn(func(_ context.Context, req runedv1.RunRequest) (runedv1.RunOutcome, error) {
 				if req.TurnID == "retry" {
 					launches++
 				}
 				return runedv1.RunOutcome{Outcome: runedv1.OutcomeError}, nil
-			})
+			})}
 			if err := db.PutMessage(core.Message{ID: "retry", ChatJID: "web:demo", Sender: sender,
 				Timestamp: now, Content: "question"}); err != nil {
 				t.Fatal(err)
@@ -80,7 +80,7 @@ func TestTurnControlExecutionRetry(t *testing.T) {
 				t.Fatal(err)
 			}
 			now := time.Now().UTC()
-			loop.runner = runnerFn(func(_ context.Context, req runedv1.RunRequest) (runedv1.RunOutcome, error) {
+			loop.runner = &recoveryRunner{run: runnerFn(func(_ context.Context, req runedv1.RunRequest) (runedv1.RunOutcome, error) {
 				out := runedv1.RunOutcome{Outcome: runedv1.OutcomeError}
 				switch exclusion {
 				case "terminal":
@@ -104,7 +104,7 @@ func TestTurnControlExecutionRetry(t *testing.T) {
 					out.Busy = true
 				}
 				return out, nil
-			})
+			})}
 			if err := db.PutMessage(core.Message{ID: "excluded", ChatJID: "web:demo", Sender: "user",
 				Timestamp: now, Content: "question"}); err != nil {
 				t.Fatal(err)

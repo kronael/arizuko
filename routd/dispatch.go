@@ -510,10 +510,17 @@ func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed boo
 	}
 	started, completed := false, false
 	defer func() {
+		if !started && probe == nil && errors.Is(rerr, ErrDependencyDown) {
+			current, _ := l.db.GetTurnContext(turnID)
+			_, err := l.q.complete(l, current, runedv1.RunOutcome{}, rerr, work)
+			if err != nil {
+				rerr = err
+			}
+		}
 		if !completed {
 			l.requeueModelProbe(probe, tc, started)
 		}
-		if work.probe != nil && (!started || rerr == nil) {
+		if work.probe != nil && (!started || rerr == nil || errors.Is(rerr, store.ErrModelPaused)) {
 			if err := l.q.rearm(l, *work.probe); err != nil {
 				rerr = err
 			}
@@ -653,8 +660,28 @@ func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed boo
 	}
 	if derr != nil {
 		l.pauseProgress(replyJID, out.RunID)
+		if err := l.db.SetRunReturned(turnID); err != nil {
+			return false, false, false, "", err
+		}
+		current, _ := l.db.GetTurnContext(turnID)
+		if current.ProviderFailureAttempt == tc.AttemptID || current.State == store.TurnHeld {
+			return false, false, false, "", store.ErrModelPaused
+		}
+		if !errors.Is(derr, context.Canceled) {
+			if _, err := l.q.interrupt(l, current); err != nil {
+				return false, false, false, "", err
+			}
+			var apiErr *runedv1.APIError
+			if !runedUnreachable(derr) && !errors.As(derr, &apiErr) {
+				if err := l.stopModelProbe(current); err != nil {
+					return false, false, false, "", err
+				}
+			}
+		}
+		if _, err := l.q.complete(l, current, out, derr, work); err != nil {
+			return false, false, false, "", err
+		}
 		if errors.Is(derr, context.Canceled) || errors.Is(derr, context.DeadlineExceeded) {
-			_ = l.db.SetRunReturned(turnID)
 			finishTurn(l.db, l.deliver, turnID, endFailed)
 			return false, false, false, "", nil
 		}

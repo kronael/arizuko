@@ -477,6 +477,10 @@ func (l *Loop) maybeScanProactive(now time.Time) {
 // mid-turn re-attempts from the un-advanced cursor (turn_results dedups any
 // submit_turn the old run delivered).
 func (l *Loop) recoverPending() {
+	if err := l.q.recover(l, true); err != nil {
+		slog.Error("recover deferred turns", "err", err)
+		return
+	}
 	if err := l.recoverModelProbe(true); err != nil {
 		slog.Error("recover model probe", "err", err)
 		return
@@ -491,10 +495,6 @@ func (l *Loop) recoverPending() {
 			continue
 		}
 		l.Enqueue(tc.ChatJID)
-	}
-	if err := l.q.recover(l); err != nil {
-		slog.Error("recover deferred turns", "err", err)
-		return
 	}
 	l.q.tick(l)
 }
@@ -529,7 +529,7 @@ const pollBatch = 200
 // 24,013 rows every two seconds because one chat's cursor had not moved since
 // March, against 0 rows when each chat is read from its own.
 func (l *Loop) pollOnce() {
-	if err := l.q.recover(l); err != nil {
+	if err := l.q.recover(l, false); err != nil {
 		slog.Error("recover deferred turns", "err", err)
 		return
 	}

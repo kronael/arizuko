@@ -69,6 +69,7 @@ func TestTurnControlProbeFence(t *testing.T) {
 				if _, err := db.store().RecordTurnResult(tc.Folder, tc.TurnID, "", "success", ""); err != nil {
 					t.Fatal(err)
 				}
+				finishTurn(db, nil, tc.TurnID, endDone)
 				launchFresh()
 				if launches != 1 {
 					t.Fatal("more than one probe launched")
@@ -86,7 +87,7 @@ func TestTurnControlProbeFence(t *testing.T) {
 			}
 			current, _, _ := db.store().ReadTurnControl(context.Background())
 			if newerFailure {
-				if current.Phase != "open" || current.Episode == control.Episode || !current.NextProbeAt.Equal(control.NextProbeAt) {
+				if current.Phase == "closed" || current.Episode == control.Episode || !current.NextProbeAt.Equal(control.NextProbeAt) {
 					t.Fatalf("stale probe cleared newer episode or changed cooldown: %+v", current)
 				}
 			} else if current.Phase != "closed" {

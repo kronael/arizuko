@@ -18,6 +18,7 @@ type TurnControlState struct {
 	NextProbeAt    time.Time
 	ProbeTurnID    string
 	ProbeAttemptID string
+	Successor      bool
 }
 
 type TurnAdmission struct {
@@ -51,7 +52,8 @@ func (s *Store) ReadTurnControl(ctx context.Context) (TurnControlState, bool, er
 		return TurnControlState{}, false, err
 	}
 	return TurnControlState{Phase: it.Attrs["phase"], Episode: it.Attrs["episode"], NextProbeAt: at,
-		ProbeTurnID: it.Attrs["probe_turn_id"], ProbeAttemptID: it.Attrs["probe_attempt_id"]}, true, nil
+		ProbeTurnID: it.Attrs["probe_turn_id"], ProbeAttemptID: it.Attrs["probe_attempt_id"],
+		Successor: it.Attrs["successor"] == flagSet}, true, nil
 }
 
 func controlAttrs(state TurnControlState) map[string]string {
@@ -61,6 +63,9 @@ func controlAttrs(state TurnControlState) map[string]string {
 	}
 	setAttr(attrs, "probe_turn_id", state.ProbeTurnID)
 	setAttr(attrs, "probe_attempt_id", state.ProbeAttemptID)
+	if state.Successor {
+		attrs["successor"] = flagSet
+	}
 	return attrs
 }
 
@@ -71,14 +76,14 @@ func controlWrite(before *TurnControlState, after TurnControlState) objstore.Wri
 		write.Op = objstore.Update
 		write.Cond = objstore.Cond{}
 		old := controlAttrs(*before)
-		for _, name := range []string{"phase", "episode", "next_probe_at", "probe_turn_id", "probe_attempt_id"} {
+		for _, name := range []string{"phase", "episode", "next_probe_at", "probe_turn_id", "probe_attempt_id", "successor"} {
 			cmp := objstore.Cmp{Attr: name, Op: objstore.Eq, Value: old[name]}
 			if _, ok := old[name]; !ok {
 				cmp.Op = objstore.Absent
 			}
 			write.Cond.Where = append(write.Cond.Where, cmp)
 		}
-		write.Remove = missingAttrs(attrs, "next_probe_at", "probe_turn_id", "probe_attempt_id")
+		write.Remove = missingAttrs(attrs, "next_probe_at", "probe_turn_id", "probe_attempt_id", "successor")
 	}
 	return write
 }

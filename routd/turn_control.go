@@ -70,8 +70,9 @@ func (q *turnControl) admit(l *Loop, tc TurnContext, admission *store.TurnAdmiss
 		}
 		after := before
 		after.Phase, after.ProbeTurnID, after.ProbeAttemptID = "probe", tc.TurnID, admission.AttemptID
+		after.Successor = before.Successor || before.ProbeTurnID != tc.TurnID
 		admission.ControlAfter = &after
-		work.probe, work.successor = &after, before.ProbeTurnID != tc.TurnID
+		work.probe, work.successor = &after, after.Successor
 	}
 	if saved != nil {
 		pause, err := l.db.store().ReadModelPause(ctx, tc.Folder)
@@ -215,6 +216,9 @@ func (q *turnControl) complete(l *Loop, tc TurnContext, out runedv1.RunOutcome, 
 		} else if owned && work.probe != nil {
 			next := before
 			next.Phase, next.ProbeAttemptID = "open", ""
+			if before.Episode != work.probe.Episode {
+				next = before
+			}
 			if before.Episode == work.probe.Episode && runErr == nil &&
 				(out.Outcome == runedv1.OutcomeOK || out.Outcome == runedv1.OutcomeSilent) {
 				next = store.TurnControlState{Phase: "closed", Episode: before.Episode}
@@ -254,6 +258,29 @@ func (q *turnControl) rearm(l *Loop, probe store.TurnControlState) error {
 	after.Phase, after.ProbeAttemptID = "open", ""
 	_, err := l.db.store().WriteTurnControl(context.Background(), &probe, after)
 	return err
+}
+
+func (q *turnControl) interrupt(l *Loop, tc TurnContext) (store.TurnControlState, error) {
+	for {
+		before, exists, err := l.db.store().ReadTurnControl(context.Background())
+		if err != nil {
+			return store.TurnControlState{}, err
+		}
+		after := before
+		var prior *store.TurnControlState
+		if exists {
+			prior = &before
+		}
+		if !exists || before.Phase == "closed" {
+			after = store.TurnControlState{NextProbeAt: q.now().Add(time.Hour),
+				ProbeTurnID: tc.TurnID, ProbeAttemptID: tc.AttemptID}
+		}
+		after.Phase, after.Episode = "probe", randHex(16)
+		ok, err := l.db.store().WriteTurnControl(context.Background(), prior, after)
+		if err != nil || ok {
+			return after, err
+		}
+	}
 }
 
 func retryAt(now time.Time, sender string, retry int) time.Time {
@@ -382,39 +409,66 @@ func (l *Loop) isSavedExecution(tc TurnContext) bool {
 	return len(tc.InputKeys) > 0 && tc.InputLast != "" && tc.InputLast <= l.db.GetAgentCursor(tc.ChatJID)
 }
 
-func (q *turnControl) recover(l *Loop) error {
+func (q *turnControl) recover(l *Loop, startup bool) error {
+	control, _, err := l.db.store().ReadTurnControl(context.Background())
+	if err != nil {
+		return err
+	}
 	turns, err := l.db.RunningTurns()
 	if err != nil {
 		return err
 	}
+	if control.Phase == "probe" && control.ProbeAttemptID != "" {
+		probe, ok := l.db.GetTurnContext(control.ProbeTurnID)
+		if !ok {
+			return fmt.Errorf("interrupted probe has no turn %s", control.ProbeTurnID)
+		}
+		if !slices.ContainsFunc(turns, func(tc TurnContext) bool { return tc.TurnID == probe.TurnID }) {
+			turns = append(turns, probe)
+		}
+	}
+	blocked := false
+	recovery := control
 	for _, tc := range turns {
 		if tc.State == store.TurnPendingRetry && tc.NextAttemptAt.IsZero() {
 			if err := l.migrateRetries(tc.ChatJID); err != nil {
 				return err
 			}
 		}
-		if tc.State != store.TurnRunning || !l.isSavedExecution(tc) {
+		isProbe := control.Phase == "probe" && control.ProbeTurnID == tc.TurnID && control.ProbeAttemptID == tc.AttemptID
+		if !isProbe && (tc.State != store.TurnRunning ||
+			(!l.isSavedExecution(tc) && !tc.RunReturned && !(startup && len(tc.InputKeys) > 0))) {
 			continue
 		}
-		_, err := q.WithIdleFolder(tc.Folder, func() error {
+		ok, err := q.WithIdleFolder(tc.Folder, func() error {
+			var err error
+			recovery, err = q.interrupt(l, tc)
+			if err != nil {
+				return err
+			}
 			if err := l.db.SetRunReturned(tc.TurnID); err != nil {
 				return err
 			}
 			if err := l.stopModelProbe(tc); err != nil {
 				return err
 			}
-			if tc.RetryCount >= l.maxTurnRetry {
-				finishTurn(l.db, l.deliver, tc.TurnID, endFailed)
+			if tc.State == store.TurnDone || tc.ProviderFailureAttempt == tc.AttemptID || tc.State == store.TurnHeld {
 				return nil
 			}
-			tc.NextAttemptAt = retryAt(q.now(), tc.Trigger, tc.RetryCount+1)
-			_, err := l.db.store().DeferTurn(context.Background(), store.DeferredTurn{
-				Turn: tc, PriorCursor: l.db.GetAgentCursor(tc.ChatJID)})
+			deferred, err := q.complete(l, tc, runedv1.RunOutcome{Outcome: runedv1.OutcomeError}, nil,
+				turnWork{successor: isProbe && control.Successor})
+			if err == nil && !deferred {
+				finishTurn(l.db, l.deliver, tc.TurnID, endFailed)
+			}
 			return err
 		})
 		if err != nil {
 			return err
 		}
+		blocked = blocked || !ok
+	}
+	if !blocked && recovery.Phase == "probe" {
+		return q.rearm(l, recovery)
 	}
 	return nil
 }
