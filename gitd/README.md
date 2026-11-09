@@ -231,9 +231,10 @@ backstop.
 
 ## Reply
 
-`send_text` and `send_file` are the verbs, with `typing`, advertised only when
-`GITHUB_TOKEN` or `GITHUB_APP_ID` is set. gitd advertises no `edit`, so routd posts no progress
-comment on GitHub and the `👀` mark is the whole progress display.
+`send_text`, `send_file`, `typing`, `edit` and `delete` are advertised only when
+`GITHUB_TOKEN` or `GITHUB_APP_ID` is set. Turn statuses edit the posted comment
+on retry and delete it on success. Both issue comments and inline review replies
+use their returned comment IDs.
 The typing mark follows the same source and credential rule as replies.
 `send_text` posts the agent's reply as a comment on the PR or issue the JID
 names and returns the id the same comment carries inbound.

@@ -326,6 +326,38 @@ func (b *bot) Send(req chanlib.SendRequest) (string, error) {
 
 const maxCommentChars = 65536
 
+func (b *bot) Edit(req chanlib.EditRequest) error {
+	body, _ := json.Marshal(map[string]string{"body": req.Content})
+	return b.changeComment(http.MethodPatch, req.ChatJID, req.TargetID, body, []int{http.StatusOK})
+}
+
+func (b *bot) Delete(req chanlib.DeleteRequest) error {
+	return b.changeComment(http.MethodDelete, req.ChatJID, req.TargetID, nil, []int{http.StatusNoContent, http.StatusNotFound})
+}
+
+func (b *bot) changeComment(method, jid, targetID string, body []byte, want []int) error {
+	j, ok := chanlib.ParseGitHubJID(jid)
+	if !ok || j.Kind == "" {
+		return fmt.Errorf("%w: github comment thread required", chanlib.ErrInvalidRequest)
+	}
+	id, ok := issueCommentID(targetID)
+	kind := "issues"
+	if !ok && j.Kind == "pr" {
+		id, ok = reviewCommentID(targetID)
+		kind = "pulls"
+	}
+	if !ok {
+		return fmt.Errorf("%w: invalid github comment id %q", chanlib.ErrInvalidRequest, targetID)
+	}
+	token, err := b.replyToken(j)
+	if err != nil {
+		return err
+	}
+	url := fmt.Sprintf("%s/repos/%s/%s/%s/comments/%d", b.cfg.APIBase, j.Owner, j.Repo, kind, id)
+	_, err = b.callToken(context.Background(), method, url, body, want, token)
+	return err
+}
+
 const uploadHint = "commit it to a branch with the github connector and link it here"
 
 // SendFile posts a text file as a comment: the caption, the file name, then
