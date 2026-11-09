@@ -1,4 +1,4 @@
-package queue
+package routd
 
 // BUGS L161: every deploy restarts routd before runed listens, so the first
 // polls always fail and the work re-feeds. At ERROR that was 26 lines in one
@@ -50,9 +50,9 @@ func captureQueueLogs(t *testing.T) *levelBuf {
 
 // downQueue returns a queue whose processMessages always reports the plane
 // unreachable, plus a clock the test advances by hand.
-func downQueue(t *testing.T) (*GroupQueue, *atomic.Int64, *atomic.Int32) {
+func downQueue(t *testing.T) (*turnControl, *atomic.Int64, *atomic.Int32) {
 	t.Helper()
-	q := New(20)
+	q := newTurnControl(20)
 	var nanos atomic.Int64
 	base := time.Date(2026, 9, 5, 12, 0, 0, 0, time.UTC)
 	q.now = func() time.Time { return base.Add(time.Duration(nanos.Load())) }
@@ -66,7 +66,7 @@ func downQueue(t *testing.T) (*GroupQueue, *atomic.Int64, *atomic.Int32) {
 }
 
 // runGroups enqueues one poll's worth of groups and waits for them to finish.
-func runGroups(t *testing.T, q *GroupQueue, calls *atomic.Int32, n int) {
+func runGroups(t *testing.T, q *turnControl, calls *atomic.Int32, n int) {
 	t.Helper()
 	want := calls.Load() + int32(n)
 	for i := range n {
@@ -121,7 +121,7 @@ func TestDependencyDownOutageErrorsExactlyOnce(t *testing.T) {
 // suppressed by the last one's state.
 func TestDependencyDownRecoveryReopensTheOutage(t *testing.T) {
 	logs := captureQueueLogs(t)
-	q := New(20)
+	q := newTurnControl(20)
 	var nanos atomic.Int64
 	base := time.Date(2026, 9, 5, 12, 0, 0, 0, time.UTC)
 	q.now = func() time.Time { return base.Add(time.Duration(nanos.Load())) }

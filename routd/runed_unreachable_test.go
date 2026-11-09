@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kronael/arizuko/queue"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 )
 
@@ -61,8 +60,8 @@ func TestRunedUnreachableClassification(t *testing.T) {
 // and must still see the underlying cause for the log line.
 func TestDependencyDownWrapKeepsBothSides(t *testing.T) {
 	cause := syscall.ECONNREFUSED
-	wrapped := fmt.Errorf("%w: %w", queue.ErrDependencyDown, cause)
-	if !errors.Is(wrapped, queue.ErrDependencyDown) {
+	wrapped := fmt.Errorf("%w: %w", ErrDependencyDown, cause)
+	if !errors.Is(wrapped, ErrDependencyDown) {
 		t.Error("queue cannot recognise the dependency-down tag")
 	}
 	if !errors.Is(wrapped, cause) {

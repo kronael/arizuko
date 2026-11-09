@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/core"
-	"github.com/kronael/arizuko/queue"
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 )
@@ -488,7 +487,7 @@ func TestGateRefusesToSpawnWhenTheGatewayIsSilent(t *testing.T) {
 	if err == nil {
 		t.Fatal("a silent gateway must fail the turn, not spawn against a meter nobody read")
 	}
-	if !errors.Is(err, queue.ErrDependencyDown) {
+	if !errors.Is(err, ErrDependencyDown) {
 		t.Errorf("err = %v, want a dependency outage so the batch re-feeds "+
 			"and the folder's breaker streak is left alone", err)
 	}

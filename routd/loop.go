@@ -15,7 +15,6 @@ import (
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
-	"github.com/kronael/arizuko/queue"
 	"github.com/kronael/arizuko/router"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 	"github.com/kronael/arizuko/store"
@@ -43,7 +42,7 @@ type RunKiller interface {
 // It is the SOLE driver of turns; routd is the sole appender.
 type Loop struct {
 	db         *DB
-	q          *queue.GroupQueue
+	q          *turnControl
 	runner     Runner
 	deliver    Deliverer
 	pollEvery  time.Duration
@@ -224,7 +223,7 @@ func NewLoop(db *DB, runner Runner, cfg LoopConfig) *Loop {
 	if cfg.Proactive.Enabled {
 		l.modes = newModeCache(cfg.GroupsDir)
 	}
-	l.q = queue.New(cfg.MaxRuns)
+	l.q = newTurnControl(cfg.MaxRuns)
 	l.q.SetProcessMessagesFn(l.processGroupMessages)
 	l.q.SetFolderForJidFn(l.folderForJid)
 	l.q.SetParkedFn(l.noteParked)

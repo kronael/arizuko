@@ -26,7 +26,7 @@ resreg/ chanlib/   layer 5: resource registry; the adapter library
 routd/     router plane: sole message appender, routing, prompt, MCP host
   │
   ├── router, chanreg     formatting and rules; registry and delivery
-  ├── queue, proactive    one turn per folder; the silence scanner
+  ├── turn control, proactive    one turn per folder; the silence scanner
   └── ipc                 the per-turn agent MCP socket, in-process
 runed/     execution plane: one KVM guest and one egress proxy per turn
   │
@@ -295,7 +295,7 @@ and the reason. A change that reverses a row answers the reason first.
 | The turn envelope, busy, stop, the guest's mounts | [`runed/README.md`](runed/README.md)                                                  |
 | Secret injection                                  | [`SECURITY.md` § Secret injection](SECURITY.md#secret-injection)                      |
 | The MCP socket and `submit_turn`                  | [`ipc/README.md`](ipc/README.md)                                                      |
-| One turn per folder                               | [`queue/README.md`](queue/README.md)                                                  |
+| One turn per folder                               | [`routd/README.md`](routd/README.md)                                                  |
 | Provider pause and held input                     | [`routd/README.md`](routd/README.md#provider-refusals-hold-input-across-the-instance) |
 | Routes, topics, replies, autoviv                  | [ROUTING.md](ROUTING.md)                                                              |
 | Compose, profiles, packages                       | [`compose/README.md`](compose/README.md)                                              |

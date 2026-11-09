@@ -1,4 +1,4 @@
-package queue
+package routd
 
 import (
 	"errors"
@@ -11,7 +11,7 @@ func TestRepeatedOutcomesReleaseAdmission(t *testing.T) {
 	for _, failure := range []error{nil, errors.New("local failure"), fmt.Errorf("runed: %w", ErrDependencyDown)} {
 		t.Run(fmt.Sprint(failure), func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
-				q := New(1)
+				q := newTurnControl(1)
 				q.SetFolderForJidFn(func(string) string { return "same-folder" })
 				calls := 0
 				q.SetProcessMessagesFn(func(string) (bool, error) {

@@ -1,4 +1,4 @@
-package queue
+package routd
 
 import (
 	"errors"
@@ -12,7 +12,7 @@ import (
 
 func assertRecoveryDoesNotBlockQueue(t *testing.T) {
 	t.Helper()
-	q := New(1)
+	q := newTurnControl(1)
 	entered, release, finished := make(chan struct{}), make(chan struct{}), make(chan struct{})
 	unblock := sync.OnceFunc(func() { close(release) })
 	defer unblock()
@@ -34,7 +34,7 @@ func TestWithIdleFolderExcludesAdmission(t *testing.T) {
 				release := make(chan struct{})
 				unblock := sync.OnceFunc(func() { close(release) })
 				defer unblock()
-				q := New(1)
+				q := newTurnControl(1)
 				q.SetFolderForJidFn(func(jid string) string { return jid })
 				started := make(chan string, 4)
 				q.SetProcessMessagesFn(func(jid string) (bool, error) { started <- jid; return true, nil })
@@ -114,7 +114,7 @@ func TestWithIdleFolderShutdown(t *testing.T) {
 		release := make(chan struct{})
 		unblock := sync.OnceFunc(func() { close(release) })
 		defer unblock()
-		q := New(1)
+		q := newTurnControl(1)
 		q.SetFolderForJidFn(func(jid string) string { return jid })
 		started := make(chan string, 1)
 		q.SetProcessMessagesFn(func(jid string) (bool, error) { started <- jid; return true, nil })
@@ -151,7 +151,7 @@ func TestWithIdleFolderShutdown(t *testing.T) {
 }
 
 func TestNewQueue(t *testing.T) {
-	q := New(3)
+	q := newTurnControl(3)
 	if q.maxConcurrent != 3 {
 		t.Fatalf("expected maxConcurrent 3, got %d", q.maxConcurrent)
 	}
@@ -161,7 +161,7 @@ func TestNewQueue(t *testing.T) {
 }
 
 func TestEnqueueMessageCheckStartsContainer(t *testing.T) {
-	q := New(5)
+	q := newTurnControl(5)
 
 	var called atomic.Bool
 	q.SetProcessMessagesFn(func(jid string) (bool, error) {
@@ -180,7 +180,7 @@ func TestEnqueueMessageCheckStartsContainer(t *testing.T) {
 // running turn drains whatever arrived, and routd's poll re-feeds anything
 // left. The queue never self-restarts a group it just finished.
 func TestEnqueueMessageCheckCollapsesWhileActive(t *testing.T) {
-	q := New(5)
+	q := newTurnControl(5)
 
 	var calls atomic.Int32
 	started := make(chan struct{}, 1)
@@ -213,7 +213,7 @@ func TestEnqueueMessageCheckCollapsesWhileActive(t *testing.T) {
 }
 
 func TestConcurrencyLimit(t *testing.T) {
-	q := New(1)
+	q := newTurnControl(1)
 
 	started := make(chan struct{})
 	block := make(chan struct{})
@@ -249,7 +249,7 @@ func TestConcurrencyLimit(t *testing.T) {
 }
 
 func TestShutdownBlocksEnqueue(t *testing.T) {
-	q := New(5)
+	q := newTurnControl(5)
 	q.SetProcessMessagesFn(func(jid string) (bool, error) {
 		return true, nil
 	})
@@ -275,7 +275,7 @@ func TestShutdownBlocksEnqueue(t *testing.T) {
 // would enqueue different JIDs (telegram:..., atlas) for the same
 // folder, spawning two parallel containers that double-narrated logs.
 func TestEnqueueSerializesByFolder(t *testing.T) {
-	q := New(5)
+	q := newTurnControl(5)
 	q.SetFolderForJidFn(func(jid string) string {
 		switch jid {
 		case "telegram:atlas", "atlas":

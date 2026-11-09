@@ -15,7 +15,6 @@ import (
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/ipc"
 	"github.com/kronael/arizuko/objstore"
-	"github.com/kronael/arizuko/queue"
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 	"github.com/kronael/arizuko/store"
@@ -483,7 +482,7 @@ func TestModelPauseRecoveryDoesNotStopActiveFolder(t *testing.T) {
 		t.Fatal(err)
 	}
 	pause, _ = db.store().ReadModelPause(t.Context(), "a")
-	l.q = queue.New(1)
+	l.q = newTurnControl(1)
 	l.q.SetFolderForJidFn(func(string) string { return "a" })
 	started, release := make(chan struct{}), make(chan struct{})
 	l.q.SetProcessMessagesFn(func(string) (bool, error) { close(started); <-release; return true, nil })

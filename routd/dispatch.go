@@ -15,7 +15,6 @@ import (
 	"github.com/kronael/arizuko/container"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/obs"
-	"github.com/kronael/arizuko/queue"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 	"github.com/kronael/arizuko/store"
 	"github.com/kronael/arizuko/types"
@@ -476,7 +475,7 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, addressed bool, tr
 		slog.Error("model gateway did not answer the budget gate; no spawn",
 			"folder", folder, "turn_id", turnID, "err", gerr)
 		return false, false, false, "", fmt.Errorf("%w: model gateway budget gate: %w",
-			queue.ErrDependencyDown, gerr)
+			ErrDependencyDown, gerr)
 	}
 	// A spent cap delivers a refusal and consumes the batch.
 	if msg != "" {
@@ -566,7 +565,7 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, addressed bool, tr
 			slog.Error("model gateway refused to mint this turn's key; no spawn",
 				"folder", folder, "turn_id", turnID, "err", gerr)
 			return false, false, false, "", fmt.Errorf("%w: model gateway mint: %w",
-				queue.ErrDependencyDown, gerr)
+				ErrDependencyDown, gerr)
 		}
 		gwKey = k
 		// GET /v1/cost?turn_id= resolves this. Recorded before the spawn: a routd
@@ -600,7 +599,7 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, addressed bool, tr
 		l.pauseProgress(replyJID, out.RunID)
 		slog.Warn("dispatch run transport failure", "folder", folder, "turn_id", turnID, "err", derr)
 		if runedUnreachable(derr) {
-			derr = fmt.Errorf("%w: %w", queue.ErrDependencyDown, derr)
+			derr = fmt.Errorf("%w: %w", ErrDependencyDown, derr)
 		}
 		return false, false, false, "", derr
 	}

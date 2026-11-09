@@ -1,4 +1,4 @@
-package queue
+package routd
 
 import (
 	"errors"
@@ -34,7 +34,7 @@ type folderForJidFn func(groupJid string) string
 // behind another run (its folder is held, or the run cap is full).
 type parkedFn func(groupJid string)
 
-type GroupQueue struct {
+type turnControl struct {
 	mu              sync.Mutex
 	groups          map[string]*groupState
 	activeCount     int
@@ -58,8 +58,8 @@ type GroupQueue struct {
 	now func() time.Time
 }
 
-func New(maxConcurrent int) *GroupQueue {
-	return &GroupQueue{
+func newTurnControl(maxConcurrent int) *turnControl {
+	return &turnControl{
 		groups:        make(map[string]*groupState),
 		activeFolders: make(map[string]string),
 		maxConcurrent: maxConcurrent,
@@ -67,7 +67,7 @@ func New(maxConcurrent int) *GroupQueue {
 	}
 }
 
-func (q *GroupQueue) getGroup(groupJid string) *groupState {
+func (q *turnControl) getGroup(groupJid string) *groupState {
 	s := q.groups[groupJid]
 	if s == nil {
 		s = &groupState{}
@@ -76,25 +76,25 @@ func (q *GroupQueue) getGroup(groupJid string) *groupState {
 	return s
 }
 
-func (q *GroupQueue) SetProcessMessagesFn(fn processMessagesFn) {
+func (q *turnControl) SetProcessMessagesFn(fn processMessagesFn) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	q.processMessages = fn
 }
-func (q *GroupQueue) SetFolderForJidFn(fn folderForJidFn) {
+func (q *turnControl) SetFolderForJidFn(fn folderForJidFn) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	q.folderForJid = fn
 }
 
-func (q *GroupQueue) SetParkedFn(fn parkedFn) {
+func (q *turnControl) SetParkedFn(fn parkedFn) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	q.parked = fn
 }
 
 // WithIdleFolder runs fn while admission to an idle folder is excluded.
-func (q *GroupQueue) WithIdleFolder(folder string, fn func() error) (bool, error) {
+func (q *turnControl) WithIdleFolder(folder string, fn func() error) (bool, error) {
 	q.mu.Lock()
 	if _, busy := q.activeFolders[folder]; busy {
 		q.mu.Unlock()
@@ -114,7 +114,7 @@ func (q *GroupQueue) WithIdleFolder(folder string, fn func() error) (bool, error
 }
 
 // Caller must hold q.mu.
-func (q *GroupQueue) folderOf(jid string) string {
+func (q *turnControl) folderOf(jid string) string {
 	if q.folderForJid == nil {
 		return ""
 	}
@@ -122,7 +122,7 @@ func (q *GroupQueue) folderOf(jid string) string {
 }
 
 // Caller must hold q.mu.
-func (q *GroupQueue) activateLocked(jid, folder string) {
+func (q *turnControl) activateLocked(jid, folder string) {
 	s := q.getGroup(jid)
 	s.active = true
 	q.activeCount++
@@ -131,7 +131,7 @@ func (q *GroupQueue) activateLocked(jid, folder string) {
 	}
 }
 
-func (q *GroupQueue) EnqueueMessageCheck(groupJid string) {
+func (q *turnControl) EnqueueMessageCheck(groupJid string) {
 	q.mu.Lock()
 	if q.shuttingDown {
 		q.mu.Unlock()
@@ -185,7 +185,7 @@ func (q *GroupQueue) EnqueueMessageCheck(groupJid string) {
 
 // Shutdown stops admitting work. A live container is runed's to reap: the
 // queue paces dispatch and holds no container handle.
-func (q *GroupQueue) Shutdown() {
+func (q *turnControl) Shutdown() {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	q.shuttingDown = true
@@ -195,7 +195,7 @@ func (q *GroupQueue) Shutdown() {
 
 // logDependencyDown reports one unreachable-plane outcome at the level the
 // OUTAGE deserves. Caller holds q.mu.
-func (q *GroupQueue) logDependencyDown(groupJid string, err error) {
+func (q *turnControl) logDependencyDown(groupJid string, err error) {
 	now := q.now()
 	if q.depDownSince.IsZero() {
 		q.depDownSince = now
@@ -216,7 +216,7 @@ func (q *GroupQueue) logDependencyDown(groupJid string, err error) {
 }
 
 // clearDependencyDown ends the outage: the plane answered. Caller holds q.mu.
-func (q *GroupQueue) clearDependencyDown() {
+func (q *turnControl) clearDependencyDown() {
 	if q.depDownLoud {
 		slog.Info("execution plane reachable again", "down", q.now().Sub(q.depDownSince))
 	}
@@ -224,7 +224,7 @@ func (q *GroupQueue) clearDependencyDown() {
 	q.depDownLoud = false
 }
 
-func (q *GroupQueue) runForGroup(groupJid string) {
+func (q *turnControl) runForGroup(groupJid string) {
 	q.mu.Lock()
 	fn := q.processMessages
 	slog.Debug("starting container for group", "groupJid", groupJid, "activeCount", q.activeCount)
@@ -262,7 +262,7 @@ func (q *GroupQueue) runForGroup(groupJid string) {
 	q.mu.Unlock()
 }
 
-func (q *GroupQueue) drainWaitingLocked() {
+func (q *turnControl) drainWaitingLocked() {
 	i := 0
 	for i < len(q.waitingGroups) && q.activeCount < q.maxConcurrent {
 		jid := q.waitingGroups[i]
@@ -279,7 +279,7 @@ func (q *GroupQueue) drainWaitingLocked() {
 	}
 }
 
-func (q *GroupQueue) ActiveCount() int {
+func (q *turnControl) ActiveCount() int {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	return q.activeCount

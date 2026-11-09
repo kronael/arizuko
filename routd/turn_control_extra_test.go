@@ -1,4 +1,4 @@
-package queue
+package routd
 
 import (
 	"fmt"
@@ -10,7 +10,7 @@ import (
 // TestActiveCount_AfterConcurrentRuns ensures activeCount returns to 0 after
 // multiple concurrent runs finish, so no phantom-active leak.
 func TestActiveCount_AfterConcurrentRuns(t *testing.T) {
-	q := New(4)
+	q := newTurnControl(4)
 
 	gate := make(chan struct{})
 	q.SetProcessMessagesFn(func(jid string) (bool, error) {
@@ -35,7 +35,7 @@ func TestActiveCount_AfterConcurrentRuns(t *testing.T) {
 // A chat parked behind its folder's run, or behind the run cap, is reported to
 // the parked fn; a chat that starts is not.
 func TestEnqueueReportsParkedChats(t *testing.T) {
-	q := New(1)
+	q := newTurnControl(1)
 	q.SetFolderForJidFn(func(jid string) string {
 		if jid == "c" {
 			return ""
