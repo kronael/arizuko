@@ -471,15 +471,16 @@ func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed boo
 	unlock := lockTurn(turnID)
 	prior, _, err := l.db.store().ReadTurnContext(ctx, turnID)
 	var live bool
+	var work turnWork
 	if err == nil {
-		if saved != nil {
-			live, err = l.db.store().ClaimDeferredTurn(ctx, *saved, admission.AttemptID, l.q.now())
-		} else {
-			live, err = l.db.store().OpenTurnContext(turnID, folder, topic, chatJID,
-				last.Sender, last.ForwardedFrom, &admission)
-		}
+		work, live, err = l.q.admit(l, TurnContext{TurnID: turnID, Folder: folder, Topic: topic,
+			ChatJID: chatJID, Trigger: last.Sender, ReturnTo: last.ForwardedFrom,
+			InputLast: admission.InputLast}, &admission, saved)
 	}
 	unlock()
+	if errors.Is(err, errTurnBlocked) {
+		return false, false, true, "", nil
+	}
 	if err != nil || !live {
 		return false, false, false, "", err
 	}
@@ -511,6 +512,11 @@ func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed boo
 	defer func() {
 		if !completed {
 			l.requeueModelProbe(probe, tc, started)
+		}
+		if work.probe != nil && (!started || rerr == nil) {
+			if err := l.q.rearm(l, *work.probe); err != nil {
+				rerr = err
+			}
 		}
 	}()
 	// A gateway that will not answer fails the turn as a dependency outage (the
@@ -706,7 +712,7 @@ func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed boo
 			return false, false, false, "", err
 		}
 	}
-	deferred, err := l.q.complete(l, current, out, nil)
+	deferred, err := l.q.complete(l, current, out, nil, work)
 	if err != nil {
 		return false, false, false, "", err
 	}

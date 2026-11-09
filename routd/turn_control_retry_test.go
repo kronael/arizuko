@@ -55,6 +55,9 @@ func TestTurnControlExecutionRetry(t *testing.T) {
 					if bound.RetryCount != tc.RetryCount || !bound.NextAttemptAt.Equal(tc.NextAttemptAt) {
 						t.Fatalf("fresh input reset retry: %+v", bound)
 					}
+					if launches != 1 || db.GetAgentCursor(tc.ChatJID) != tc.InputLast {
+						t.Fatalf("global admission consumed fresh input: launches=%d cursor=%q", launches, db.GetAgentCursor(tc.ChatJID))
+					}
 				}
 				if _, err := loop.replay("retry"); err != nil || launches != i+1 {
 					t.Fatalf("early replay: launches=%d err=%v", launches, err)

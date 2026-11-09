@@ -198,7 +198,8 @@ func (s *Store) OpenTurnContext(turnID, folder, topic, chatJID, trigger, returnT
 		controlChecks, controlWrites := controlAdmission(admission.ControlBefore, admission.ControlAfter)
 		checks = append(checks, controlChecks...)
 		claim = append(claim, controlWrites...)
-	} else if admission != nil && admission.ProbeEpisode != "" {
+	}
+	if admission != nil && admission.ProbeEpisode != "" {
 		p, err := s.ReadModelPause(ctx, folder)
 		if err != nil {
 			return false, err
@@ -209,9 +210,9 @@ func (s *Store) OpenTurnContext(turnID, folder, topic, chatJID, trigger, returnT
 			}
 			return false, ErrModelPaused
 		}
-		claim = []objstore.Write{{Op: objstore.Update, Entity: ModelPauses, Key: modelPauseKey(folder),
+		claim = append(claim, objstore.Write{Op: objstore.Update, Entity: ModelPauses, Key: modelPauseKey(folder),
 			Attrs:  map[string]string{"probe_turn_id": turnID, "probe_attempt_id": bound["attempt_id"]},
-			Remove: []string{"next_attempt_at"}, Cond: modelPauseCond(p)}}
+			Remove: []string{"next_attempt_at"}, Cond: modelPauseCond(p)})
 	} else {
 		checks = append(checks, objstore.Check{Entity: ModelPauses, Key: modelPauseKey(folder),
 			Cond: objstore.Cond{Item: objstore.ItemAbsent}})
