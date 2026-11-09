@@ -131,6 +131,7 @@ func (s *Store) ClearControlledModelPauses(ctx context.Context, control TurnCont
 	}
 	checks, _ := controlAdmission(&control, nil)
 	for _, p := range pauses {
+		// A newer refusal or breaker episode keeps its metadata.
 		if _, err := s.TryWriteEntities(ctx, checks, modelPauseDelete(p)); err != nil {
 			return err
 		}

@@ -80,7 +80,7 @@ func TestTurnControlSavedReplay(t *testing.T) {
 	t.Run("missing keys", func(t *testing.T) {
 		db, loop, runner, tc, _ := deferredFixture(t)
 		loop.q.now = func() time.Time { return tc.NextAttemptAt }
-		if _, err := db.store().TryWriteEntities(context.Background(), nil,
+		if err := db.store().WriteEntities(context.Background(), nil,
 			objstore.Write{Op: objstore.Delete, Entity: store.Messages, Key: tc.InputKeys[0]}); err != nil {
 			t.Fatal(err)
 		}
