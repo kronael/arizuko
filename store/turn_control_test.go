@@ -76,6 +76,31 @@ func TestDeferredTurnGuards(t *testing.T) {
 	}
 }
 
+func TestDeferredTurnCursorNeverRewinds(t *testing.T) {
+	ctx := t.Context()
+	s := openTurnEntities(t)
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	msg, err := s.AppendMessage(core.Message{ID: "input", ChatJID: "web:cursor", Timestamp: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := s.OpenTurnContext("cursor", "demo", "", msg.ChatJID, "u", "", nil); err != nil || !ok {
+		t.Fatalf("open: %v %v", ok, err)
+	}
+	tc, _ := s.TurnContextOf("cursor")
+	tc.InputLast, tc.NextAttemptAt = MessageCursor(msg), now.Add(time.Hour)
+	prior := MsgStamp(core.TS(now.Add(time.Minute)), "later")
+	if err := s.SetAgentCursor(msg.ChatJID, prior); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := s.DeferTurn(ctx, DeferredTurn{Turn: tc, PriorCursor: prior}); err != nil || !ok {
+		t.Fatalf("defer: %v %v", ok, err)
+	}
+	if cursor, _ := s.AgentCursor(msg.ChatJID); cursor != prior {
+		t.Fatalf("cursor rewound: got %q want %q", cursor, prior)
+	}
+}
+
 func TestDeferredTurnRetirementFencesLateWrites(t *testing.T) {
 	ctx := t.Context()
 	s := openTurnEntities(t)

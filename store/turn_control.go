@@ -148,7 +148,7 @@ func (s *Store) DeferTurn(ctx context.Context, d DeferredTurn) (bool, error) {
 			{Attr: attrTurnChatJID, Op: objstore.Eq, Value: tc.ChatJID},
 			count,
 		}}},
-		{Op: objstore.Update, Entity: Chats, Key: chat, Attrs: map[string]string{AttrChatAgentCursor: tc.InputLast}, Cond: objstore.Cond{Where: []objstore.Cmp{cursor}}},
+		{Op: objstore.Update, Entity: Chats, Key: chat, Attrs: map[string]string{AttrChatAgentCursor: max(d.PriorCursor, tc.InputLast)}, Cond: objstore.Cond{Where: []objstore.Cmp{cursor}}},
 	}
 	if d.ControlAfter != nil {
 		writes = append(writes, controlWrite(d.ControlBefore, *d.ControlAfter))
