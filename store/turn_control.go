@@ -175,6 +175,60 @@ func (s *Store) RecordControlledProviderFailure(ctx context.Context, tc TurnCont
 		})
 }
 
+func (s *Store) MigrateDeferredTurn(ctx context.Context, d DeferredTurn) (bool, error) {
+	tc := d.Turn
+	key, err := turnKey(tc.TurnID)
+	if err != nil {
+		return false, err
+	}
+	group, err := groupKey(tc.Folder)
+	if err != nil {
+		return false, err
+	}
+	chat, err := chatKey(tc.ChatJID)
+	if err != nil {
+		return false, err
+	}
+	if (tc.State != TurnPendingRetry && tc.State != TurnHeld) || tc.InputLast == "" || len(tc.InputKeys) == 0 || tc.NextAttemptAt.IsZero() {
+		return false, fmt.Errorf("migrate turn %s: invalid binding", tc.TurnID)
+	}
+	input, err := json.Marshal(tc.InputKeys)
+	if err != nil {
+		return false, err
+	}
+	ambient, err := json.Marshal(tc.AmbientKeys)
+	if err != nil {
+		return false, err
+	}
+	attempt := objstore.Cmp{Attr: "attempt_id", Op: objstore.Eq, Value: tc.AttemptID}
+	if tc.AttemptID == "" {
+		attempt.Op = objstore.Absent
+		tc.AttemptID = rand.Text()
+	}
+	count := objstore.Cmp{Attr: attrTurnRetryCount, Op: objstore.Eq, Value: strconv.Itoa(tc.RetryCount)}
+	if tc.RetryCount == 0 {
+		count.Op = objstore.Absent
+	}
+	cursor := objstore.Cmp{Attr: AttrChatAgentCursor, Op: objstore.Eq, Value: d.PriorCursor}
+	if d.PriorCursor == "" {
+		cursor.Op = objstore.Absent
+	}
+	checks, writes := controlAdmission(d.ControlBefore, d.ControlAfter)
+	checks = append(checks, objstore.Check{Entity: Groups, Key: group, Cond: objstore.Cond{Item: objstore.ItemPresent}})
+	writes = append(writes, objstore.Write{Op: objstore.Update, Entity: TurnContexts, Key: key,
+		Attrs: map[string]string{attrTurnState: TurnPendingRetry, "attempt_id": tc.AttemptID, "input_last": tc.InputLast,
+			"input_keys": string(input), "ambient_keys": string(ambient), "next_attempt_at": core.TS(tc.NextAttemptAt)},
+		Cond: objstore.Cond{Where: []objstore.Cmp{
+			{Attr: attrTurnState, Op: objstore.Eq, Value: tc.State},
+			{Attr: attrTurnFolder, Op: objstore.Eq, Value: tc.Folder},
+			{Attr: attrTurnChatJID, Op: objstore.Eq, Value: tc.ChatJID},
+			{Attr: "input_keys", Op: objstore.Absent}, attempt, count,
+		}}}, objstore.Write{Op: objstore.Update, Entity: Chats, Key: chat,
+		Attrs: map[string]string{AttrChatAgentCursor: max(d.PriorCursor, tc.InputLast)},
+		Cond:  objstore.Cond{Where: []objstore.Cmp{cursor}}})
+	return s.TryWriteEntities(ctx, checks, writes...)
+}
+
 func (s *Store) DeferredTurns(ctx context.Context, now time.Time) ([]TurnContext, error) {
 	items, err := s.Obj().Query(ctx, objstore.Query{Entity: TurnContexts, Partition: OwnerRoutd,
 		Where: []objstore.Cmp{{Attr: attrTurnState, Op: objstore.Eq, Value: TurnPendingRetry},

@@ -179,6 +179,77 @@ func TestControlledProviderFailureGuards(t *testing.T) {
 	}
 }
 
+func TestControlledMigrationGuards(t *testing.T) {
+	ctx := t.Context()
+	s := openTurnEntities(t)
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	msg, err := s.AppendMessage(core.Message{ID: "input", ChatJID: "web:migrate", Timestamp: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	key, err := messageKeyOf(msg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := s.OpenTurnContext("migrate", "demo", "", msg.ChatJID, "u", "", nil); err != nil || !ok {
+		t.Fatalf("open: %v %v", ok, err)
+	}
+	if _, err := s.RecordRetryAttempt("migrate"); err != nil {
+		t.Fatal(err)
+	}
+	tc, _ := s.TurnContextOf("migrate")
+	tc.InputLast, tc.InputKeys, tc.NextAttemptAt = MessageCursor(msg), []objstore.Key{key}, now.Add(time.Hour)
+	control := TurnControlState{Phase: "open", Episode: "one"}
+	if ok, err := s.WriteTurnControl(ctx, nil, control); err != nil || !ok {
+		t.Fatalf("control: %v %v", ok, err)
+	}
+	d := DeferredTurn{Turn: tc, ControlBefore: &control}
+	stale := control
+	stale.Episode = "stale"
+	d.ControlBefore = &stale
+	if ok, err := s.MigrateDeferredTurn(ctx, d); err != nil || ok {
+		t.Fatalf("singleton guard: %v %v", ok, err)
+	}
+	d.ControlBefore = &control
+	d.PriorCursor = MsgStamp(core.TS(now), "wrong")
+	if ok, err := s.MigrateDeferredTurn(ctx, d); err != nil || ok {
+		t.Fatalf("cursor guard: %v %v", ok, err)
+	}
+	d.PriorCursor = ""
+	wrong := d
+	wrong.Turn.AttemptID = "stale"
+	if ok, err := s.MigrateDeferredTurn(ctx, wrong); err != nil || ok {
+		t.Fatalf("attempt guard: %v %v", ok, err)
+	}
+	if err := s.DeleteGroupRow(tc.Folder); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := s.MigrateDeferredTurn(ctx, d); err != nil || ok {
+		t.Fatalf("group guard: %v %v", ok, err)
+	}
+	if err := s.PutGroup(core.Group{Folder: tc.Folder}); err != nil {
+		t.Fatal(err)
+	}
+	prior := MsgStamp(core.TS(now.Add(time.Minute)), "later")
+	if err := s.SetAgentCursor(msg.ChatJID, prior); err != nil {
+		t.Fatal(err)
+	}
+	d.PriorCursor = prior
+	if ok, err := s.MigrateDeferredTurn(ctx, d); err != nil || !ok {
+		t.Fatalf("migrate: %v %v", ok, err)
+	}
+	saved, _ := s.TurnContextOf(tc.TurnID)
+	if saved.RetryCount != 1 || len(saved.InputKeys) != 1 || saved.InputKeys[0] != key || !saved.NextAttemptAt.Equal(tc.NextAttemptAt) {
+		t.Fatalf("binding: %+v", saved)
+	}
+	if cursor, _ := s.AgentCursor(msg.ChatJID); cursor != prior {
+		t.Fatalf("cursor rewound: %q", cursor)
+	}
+	if ok, err := s.MigrateDeferredTurn(ctx, d); err != nil || ok {
+		t.Fatalf("duplicate migration: %v %v", ok, err)
+	}
+}
+
 func TestDeferredTurnCursorNeverRewinds(t *testing.T) {
 	ctx := t.Context()
 	s := openTurnEntities(t)
