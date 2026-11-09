@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """trip_lint — minimal static linter for a static site (default: ~/public_html/<trip>).
 
-Usage: trip_lint.py DIR [--rule NAME ...] [--quiet]     exit 1 on any ERROR
+Usage: trip_lint.py DIR [--root PUBLIC_DIR] [--rule NAME ...] [--quiet]     exit 1 on any ERROR
+
+DIR holds the pages to check. Local links resolve inside --root (default DIR),
+the public directory DIR is published under, e.g. ~/public_html.
 
 A rule is one function `check(site)` that yields (level, page, message);
 register it with @rule("name"). Pages are parsed once; links are resolved
@@ -66,10 +69,10 @@ class Page:
     def has_class(self, c): return any(c in (a.get('class') or '').split() for _, a, _ in self.tags)
 
 class Site:
-    def __init__(self, root):
+    def __init__(self, scope, root):
         self.root = os.path.abspath(root)
         self.pages = {}
-        for dp, _, fs in os.walk(self.root):
+        for dp, _, fs in os.walk(os.path.abspath(scope)):
             for f in fs:
                 if f.endswith('.html'):
                     rel = os.path.relpath(os.path.join(dp, f), self.root); self.pages[rel] = Page(self.root, rel)
@@ -96,18 +99,19 @@ def _(site):
 
 @rule('css-class')
 def _(site):
-    shipped = os.path.join(os.path.dirname(__file__), '..', 'components', 'hub-lavender.css')
     for p in site.pages.values():
-        paths = [shipped] + [os.path.join(site.root, l.target) for l in site.links
+        paths = [os.path.join(site.root, l.target) for l in site.links
             if l.page == p.name and l.target.endswith('.css') and not l.target.startswith('..')]
         css = ''
         for path in paths:
             if os.path.isfile(path):
                 with open(path, encoding='utf-8') as f: css += f.read()
         defined = set(re.findall(r'\.([a-zA-Z_][\w-]*)', re.sub(r'/\*.*?\*/', '', css, flags=re.S)))
-        for tag, attrs, line in p.tags:
-            for name in (attrs.get('class') or '').split():
-                if name not in defined: yield 'ERROR', p.name, f'line {line}: undefined class {name}'
+        used = [(line, name) for _, attrs, line in p.tags for name in (attrs.get('class') or '').split()]
+        if used and not css:
+            yield 'ERROR', p.name, f'classes used but no linked stylesheet found: {", ".join(sorted({n for _, n in used})[:5])}'; continue
+        for line, name in used:
+            if name not in defined: yield 'ERROR', p.name, f'line {line}: undefined class {name}'
 
 @rule('empty-href')
 def _(site):
@@ -134,9 +138,11 @@ def _(site):
     for l in site.links:
         if l.host == 'invalid': yield 'ERROR', l.page, f'line {l.line}: malformed URL {l.url}'; continue
         if not l.target: continue
+        if l.path.startswith('/'):
+            yield 'ERROR', l.page, f'line {l.line}: root-relative link {l.url}; link relative to the page'; continue
         if l.target.split(os.sep)[0] == '..':
             yield 'ERROR', l.page, f'line {l.line}: link leaves site root: {l.url}'; continue
-        if l.target.endswith('.html') and l.target not in site.pages:
+        if l.target.endswith('.html') and not os.path.isfile(os.path.join(site.root, l.target)):
             yield 'ERROR', l.page, f'line {l.line}: {l.url} → no such page'
         elif not l.target.endswith('.html') and not os.path.exists(os.path.join(site.root, l.target)):
             yield 'ERROR', l.page, f'line {l.line}: {l.url} → no such file'
@@ -258,13 +264,15 @@ def _(site):
 # ---------------------------------------------------------------- runner
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument('dir'); ap.add_argument('--rule', action='append', default=[])
+    ap.add_argument('dir'); ap.add_argument('--root'); ap.add_argument('--rule', action='append', default=[])
     ap.add_argument('--quiet', action='store_true', help='errors only')
     a = ap.parse_args(argv)
     unknown = set(a.rule) - set(RULES)
     if unknown: ap.error(f'unknown rule(s): {", ".join(sorted(unknown))}; known: {", ".join(RULES)}')
     if not os.path.isdir(a.dir): ap.error(f'not a directory: {a.dir}')
-    site = Site(a.dir); out = []
+    root = a.root or a.dir
+    if os.path.relpath(os.path.abspath(a.dir), os.path.abspath(root)).split(os.sep)[0] == '..': ap.error(f'{a.dir} is not inside --root {root}')
+    site = Site(a.dir, root); out = []
     if not site.pages: ap.error("site has no HTML pages")
     for name in a.rule or RULES:
         out += [(lvl, page, name, msg) for lvl, page, msg in RULES[name](site)]

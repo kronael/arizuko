@@ -15,7 +15,7 @@ Copy `components/hub-lavender.css` and `components/hub.js` from the installed it
 
 ## Consistency Checks
 
-Run `scripts/page_check.py` after EVERY change (`checks.md`). It reads
+Run `trip_lint.py` after EVERY change (`checks.md`). It reads
 these classes: `timeline-date` (`HH:MM — <title>`), `food-list`,
 `checked-line`, `source-note`, `info-box`, `map-links`; the stylesheet
 defines them.

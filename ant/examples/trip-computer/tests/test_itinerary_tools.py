@@ -81,6 +81,27 @@ class ItineraryToolsTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('has no id', result.stdout)
 
+    def test_links_resolve_against_the_public_root(self):
+        (self.site / 'assets').mkdir()
+        (self.site / 'assets/site.css').write_text('.hub-container {}')
+        for trip in ('t1', 't2'):
+            (self.site / trip).mkdir()
+            (self.site / trip / 'index.html').write_text('<title>T</title><h1>T</h1>')
+        page = self.site / 't1/index.html'
+        lint = [sys.executable, '-B', str(LINT), str(self.site / 't1'), '--root', str(self.site), '--rule', 'internal-links', '--rule', 'css-class']
+        page.write_text('<link rel="stylesheet" href="../assets/site.css"><div class="hub-container"><a href="../t2/">t2</a></div>')
+        result = subprocess.run(lint, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stdout)
+        for href in ('/pub/x/t1/assets/site.css', '..//pub/x/assets/site.css'):
+            page.write_text(f'<link rel="stylesheet" href="{href}">')
+            self.assertNotEqual(subprocess.run(lint, capture_output=True, text=True).returncode, 0, href)
+
+    def test_class_needs_a_linked_stylesheet(self):
+        (self.site / 'index.html').write_text('<div class="hub-container"></div>')
+        result = self.run_lint('--rule', 'css-class')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('hub-container', result.stdout)
+
     def test_mapy_entity_and_route_urls(self):
         base = 'https://mapy.com/en/turisticka?'
         valid = [base + 'source=stre&id=106188&x=16.165&y=50.414&z=17', base + 'source=traf&id=55208&x=16.16&y=50.41&z=17']
