@@ -231,13 +231,6 @@ class ItineraryToolsTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('maximum 2', result.stdout)
 
-    def test_compatibility_entry_uses_site_checker(self):
-        page = self.site / 'index.html'
-        page.write_text('<title>Trip</title><h1>Trip</h1><a href="missing.html">missing</a>')
-        result = subprocess.run([sys.executable, '-B', str(SCRIPTS / 'page_check.py'), str(page)], capture_output=True, text=True)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn('internal-links', result.stdout)
-
     def test_czech_meal_heading_outside_timeline_fails(self):
         self.write_day('<h2>Oběd</h2>')
         self.assertIn('meal heading outside timeline', self.run_lint('--rule', 'day-blocks').stdout)

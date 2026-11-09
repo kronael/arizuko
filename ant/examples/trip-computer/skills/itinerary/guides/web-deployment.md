@@ -15,10 +15,13 @@ Copy `components/hub-lavender.css` and `components/hub.js` from the installed it
 
 ## Consistency Checks
 
-Run `trip_lint.py` after EVERY change (`checks.md`). It reads
-these classes: `timeline-date` (`HH:MM — <title>`), `food-list`,
-`checked-line`, `source-note`, `info-box`, `map-links`; the stylesheet
-defines them. The manual page checks are in `checks.md` § Page.
+Run `trip_lint.py` after EVERY change (`checks.md`). It finds the
+blocks by these classes: `timeline-date` (`HH:MM — <title>`; a meal
+word in the title makes a meal item) and the `<li>` lines of the
+`food-list` under it; on a day page, one `checked-line` and the
+`route-overview`, `map-links`, `timeline` and `source-note` blocks; an
+`alt` chip may read "mapy". Every class a page uses is defined in its
+linked stylesheet. The manual page checks are in `checks.md` § Page.
 
 ## Design Rules
 

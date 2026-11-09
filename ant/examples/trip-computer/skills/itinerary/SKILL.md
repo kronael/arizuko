@@ -142,7 +142,7 @@ drive-up or on-the-way. The type and the minutes open the stop's text
 - `guides/census.md` — workflow, five tables, row fields, rating systems, egress
 - `guides/pages.md` — what each timeline item carries: arrival, variants, loops, story, meals, exposition
 - `guides/mapy-links.md` — place-link order per kind, disambiguation, pin and route URLs
-- `guides/checks.md` — pre-delivery checklist: `page_check.py`, venues, trails, page
+- `guides/checks.md` — pre-delivery checklist: `trip_lint.py`, `link_check.py`, venues, trails, page
 - `guides/bookings.md` — car rental, accommodation, tours
-- `guides/web-deployment.md` — page skeleton, classes `page_check.py` reads
-- `scripts/` (`~/.claude/skills/itinerary/scripts/`) — `osm_census.py`, `osm_trails.py`, `mapyrc.py`, `page_check.py` (`--help`)
+- `guides/web-deployment.md` — page skeleton, links, the classes `trip_lint.py` reads
+- `scripts/` (`~/.claude/skills/itinerary/scripts/`) — `osm_census.py`, `osm_trails.py`, `mapyrc.py`, `trip_lint.py`, `link_check.py`; each prints its usage with `--help`
