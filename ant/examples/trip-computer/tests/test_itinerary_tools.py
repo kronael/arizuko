@@ -319,6 +319,11 @@ class ItineraryToolsTests(unittest.TestCase):
         _, calls = self.check_links([f'<a href="{mapy}">Place</a>'], {}, fail_on='get')
         self.assertEqual(calls[-1], ('close',))
 
+    def test_persona_frontmatter_has_the_summary_routd_reads(self):
+        persona = (SCRIPTS.parents[2] / 'group/PERSONA.md').read_text()
+        frontmatter = persona.split('---')[1]
+        self.assertRegex(frontmatter, r'(?m)^summary: \|\n  \S')
+
     def test_census_rerun_keeps_enriched_rows(self):
         out, cache = self.site / 'db', self.site / 'tiles'
         out.mkdir(); cache.mkdir()
