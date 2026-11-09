@@ -1380,7 +1380,8 @@ a[href^="tel:"]::after { content: none; }
 a[href*="mapy.com"]::after, a[href*="mapy.cz"]::after, a[href*="google."]::after, a[href*="openstreetmap.org"]::after { font-size: 0.72em; font-weight: 400; opacity: 0.65; }
 a.alt::after { content: ' \2197' !important; }
 a.hub-card::after { content: none !important; }
-.map-links a, .food-list a { display: inline-block; min-height: 40px; padding: 0.45em 0.75em; margin: 0.2em 0.3em 0.2em 0; border: 1px solid var(--border); background: rgba(201,178,255,0.08); border-radius: 2px; font-weight: 600; line-height: 1.5; white-space: normal; text-decoration: none; }
+.map-links a, .food-list a, a.alt { display: inline-block; min-height: 40px; padding: 0.45em 0.75em; margin: 0.2em 0.3em 0.2em 0; border: 1px solid var(--border); background: rgba(201,178,255,0.08); border-radius: 2px; font-weight: 600; line-height: 1.5; }
+.map-links a, .food-list a { text-decoration: none; }
 .map-links a:hover, .food-list a:hover { border-color: var(--accent); text-decoration: none; }
 .food-list li > a:first-child { font-weight: 700; }
 .food-list a.alt, .food-list a[href^="tel:"] { font-weight: 400; }
@@ -1388,4 +1389,3 @@ a.hub-card::after { content: none !important; }
 .map-links strong:first-child { margin-top: 0; }
 nav { align-items: center; }
 nav a, a.back-btn { display: inline-flex; align-items: center; min-height: 40px; box-sizing: border-box; }
-a.alt { display: inline-block; min-height: 40px; padding: 0.45em 0.75em; margin: 0.2em 0.3em 0.2em 0; border: 1px solid var(--border); background: rgba(201,178,255,0.08); border-radius: 2px; font-weight: 600; line-height: 1.5; }
