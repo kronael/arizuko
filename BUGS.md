@@ -15,10 +15,8 @@
 
 ## What needs you
 
-- `L799` — tap teardown deletes six absent rules after an early guest start failure.
-- `L800` — Codex topic forks attempt to copy a Claude session and lose parent context.
-- `L801` — senderless security advisory webhooks emit rejection warnings.
-- `L802` — linked-channel history refusal makes an agent ask for platform-held context.
+- `L803` — morha repeats recovery reports and replies to an old GitHub comment; cause unmeasured.
+- `L804` — Codex topic forks do not inherit the parent's model context; observed messages remain available.
 - `L796` — a silent cron script costs a full agent turn (macrohype-monitor, 48 turns a week); owner chose a command task with no model call; where the command runs needs sign-off.
 - `L794` — a failed turn retries 3 times within ~40 s, too fast for a host fault (full disk) to clear; owner wants 3 retries with longer gaps, about 4 h for cron tasks; design needs sign-off.
 - `L790` — `TestHoldE2E_ChannelWithoutButtonsStillGetsAnAnswerablePrompt` fails under host load (fixed 5 s wait).
@@ -321,69 +319,35 @@ reads those words now.
   **Proposal:** stop the build on the first failed submake. This is an adjacent
   build-gate repair; scope approval is pending.
 
-## L802 — linked-channel history refusal makes an agent ask for platform-held context (2026-11-09, open)
+## L804 — Codex topic forks do not inherit the parent's model context (2026-11-09, open — record only)
 
-MEASURED in sloth's 2026-11-08 census (`/tmp/claude-1001/sl/replies.txt`,
-`t1947.txt`): `sloth/trading` receives `access_denied: jid not routed to
-your group` from `fetch_history` for a linked channel and asks the user for
-the reference. Its parent `sloth` supplies the reference at 19:57:08;
-the child reports `Reference found` at 20:00:56. The census also records
-the parent answer already available in the current thread when the child
-asks for pasted context. `ant/skills/recall-messages/SKILL.md` gives no
-recovery order for a linked channel outside the folder's route scope.
+MEASURED by L800's seven missing-Claude-file warnings in sloth's 24-hour
+journal ending 2026-11-09 18:45Z. `ant/src/codex.ts` resumes native Codex
+thread IDs; `container/runner.go::CopySession` recognizes the dated rollout
+and returns false without copying it. Routd clears the child's observed
+cursor, but the parent's model transcript does not transfer.
 
-- **Severity:** low — the user repeats information the platform holds.
-- **Status:** open — after access denial, read the current thread for an
-  answer first; otherwise ask the parent folder to retrieve the linked history.
-  Never ask the user to paste platform-held messages.
-- **Test:** no test — docs; the authorized change is skill text only.
+- **Severity:** medium — observed messages cannot supply all model context.
+- **Status:** open — record only; no test — design.
+- **Options:** wire native Codex forking through the harness, or retain
+  observed-message recovery without transcript inheritance.
+- **Default if nothing is decided:** keep observed-message recovery and the
+  INFO skip; no native Codex fork.
 
-## L801 — senderless security advisory webhooks emit rejection warnings (2026-11-09, open)
+## L803 — morha repeats recovery reports and replies to an old GitHub comment (2026-11-09, open — record only)
 
-MEASURED in `/tmp/claude-1001/sl/j24.log` for 2026-11-08 18:45Z ..
-2026-11-09 18:45Z: 28 `github webhook: rejected` WARNs, all
-`event=security_advisory`, `err=payload has no sender`.
-`gitd/event.go::mapEvent` requires a sender before classifying the event.
+MEASURED in `/tmp/claude-1001/sl/replies.txt` and `j24.log`:
+`sloth/morha` sends the same `Recovery incomplete…` report three times at
+2026-11-08 21:37:43, 21:37:48 and 21:38:01Z. At 21:38:23 it tries the
+invented JID `discord:channel/1569000827429847372`; the platform refuses it.
+The turn dispatched at 23:18:53 (`gh-c6727910528`) replies to old comment
+`gh-c6726928796` at 23:20:15 and 23:23:58. That old comment has exactly one
+`dispatch run` line, at 21:02:51, and an earlier reply at 21:06:12.
 
-- **Severity:** low — expected, unsubscribed events produce rejection noise.
-- **Status:** open — drop `security_advisory` as unsubscribed with DEBUG
-  logging, while preserving signature and source validation.
-- **Test:** `gitd/advisory_test.go::TestWebhook_SenderlessSecurityAdvisory`
-  checks success, no forwarding, DEBUG without WARN and signature/source
-  rejection; removing event classification fails the response and log checks.
-
-## L800 — Codex topic forks look for a Claude transcript (2026-11-09, open)
-
-MEASURED in `/tmp/claude-1001/sl/j24.log` for 2026-11-08 18:45Z ..
-2026-11-09 18:45Z: seven `CopySession: parent session file missing`
-warnings, including `sloth/trading` at 19:46:10.996Z before its blind
-thread turn. `routd/dispatch.go::copyParentSession` calls
-`container/runner.go::CopySession`, which only reads
-`.claude/projects/-home-node/<uuid>.jsonl`. `ant/src/codex.ts` resumes
-a native Codex thread ID under `CODEX_HOME`; the census file list records
-dated `.codex/sessions/.../rollout-<timestamp>-<uuid>.jsonl` files.
-
-- **Severity:** medium — a new thread loses the parent's model context.
-- **Status:** open — the harness uses native resume, and its native fork
-  generates a new thread ID rather than accepting routd's child UUID.
-  Skip the Claude copy for Codex with an INFO line; keep the observed-window
-  recovery. Full Codex parent-context inheritance remains a separate gap.
-- **Test:** `container/session_copy_test.go::TestCopySession_CodexRolloutSkipsFork`
-  checks INFO without WARN and false for observed-window recovery; disabling
-  rollout detection fails the log assertion.
-
-## L799 — tap teardown deletes rules that an early guest failure never installed (2026-11-09, open)
-
-MEASURED in sloth's 2026-11-08 18:45Z .. 2026-11-09 18:45Z journal
-(`/tmp/claude-1001/sl/j24.log`): 528 `tap rule delete` warnings with
-`iptables: Bad rule` between 03:00 and 06:01Z, six per failed start across
-88 starts. `runed/qemu.go` fails virtiofsd before `rulesUp`, but teardown
-calls `runed/vmnet.go` `rulesDown` for all six rules.
-
-- **Severity:** low — absent rules produce misleading teardown warnings.
-- **Status:** open — check each rule with `-C` before deleting it with `-D`.
-- **Test:** `runed/vmnet_teardown_test.go::TestRulesDown` checks absent,
-  partial and installed rule sets; removing the check fails all three cases.
+- **Severity:** medium — repeated reports and stale replies confuse users.
+- **Status:** open — record only; agent behavior and platform cause are not
+  isolated. Related to L721's repeated group handoffs; a shared cause is
+  unmeasured. No test — ops; no reproducible platform defect measured.
 
 ## L796 — a silent cron script costs a full agent turn (2026-11-09, open)
 
@@ -1140,6 +1104,15 @@ left no OOM line, so memory as their cause is unmeasured.
 MEASURED 2026-11-08 08:50 UTC: the shared `extenddb.service` (started
 2026-11-07 07:25) holds 6.3 GiB RSS, and the host has 4.0 GB available. Growth
 over time, and which instance's traffic causes it, is not measured.
+
+MEASURED 2026-11-09 14:41–14:53Z (`/tmp/claude-1001/sl/host-stall.log`,
+read-only host journal): slow SQL precedes a journald watchdog timeout at
+14:45:20 and SIGABRT at 14:45:21. `extenddb.service` exits with status 137
+at 14:53:12, then starts and listens at 14:53:14. Sloth's `j24.log` records
+54 `proxyd: read proxyd_routes` failures with exhausted store attempts from
+14:53:09.979 to 14:53:14.482, plus gitd, runed and teled store errors.
+The host stall and kill cause are unmeasured; status 137 alone does not
+establish OOM. No test — ops.
 
 ## ✅ FIXED 2026-11-03 52df9d517 L649 — `group rename` refused any instance with a `node_modules` tree under `web/`
 
