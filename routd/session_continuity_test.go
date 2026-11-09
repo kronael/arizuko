@@ -10,10 +10,6 @@ import (
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 )
 
-// A turn killed before submit_turn — a restart, a deadline, a crash — reports
-// no session id. The id is declared and persisted before the run, so the
-// re-fed turn resumes the transcript the killed attempt wrote instead of
-// starting a session nothing will ever resume.
 func TestKilledTurnResumesItsOwnSession(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
@@ -23,13 +19,13 @@ func TestKilledTurnResumesItsOwnSession(t *testing.T) {
 	_ = db.PutGroup(core.Group{Folder: "demo"})
 
 	var sent []string
-	runner := runnerFn(func(_ context.Context, req runedv1.RunRequest) (runedv1.RunOutcome, error) {
+	runner := &recoveryRunner{run: runnerFn(func(_ context.Context, req runedv1.RunRequest) (runedv1.RunOutcome, error) {
 		sent = append(sent, req.SessionID)
 		if len(sent) == 1 {
 			return runedv1.RunOutcome{}, errors.New("read: connection reset by peer")
 		}
 		return runedv1.RunOutcome{Outcome: runedv1.OutcomeOK}, nil
-	})
+	})}
 	loop := NewLoop(db, runner, LoopConfig{})
 	loop.StopQueue()
 	doSetRoutes(t, db, []core.Route{{Match: "platform=slack", Target: "demo"}})
@@ -39,7 +35,12 @@ func TestKilledTurnResumesItsOwnSession(t *testing.T) {
 	if _, err := loop.processGroupMessages("slack:T/C/U"); err == nil {
 		t.Fatal("the killed run must surface as an error so the batch re-feeds")
 	}
-	if _, err := loop.processGroupMessages("slack:T/C/U"); err != nil {
+	tc, ok := db.GetTurnContext("m1")
+	if !ok || tc.State != "pending_retry" || tc.RetryCount != 1 {
+		t.Fatalf("interrupted turn not deferred: %+v", tc)
+	}
+	loop.q.now = func() time.Time { return tc.NextAttemptAt }
+	if _, err := loop.replay("m1"); err != nil {
 		t.Fatalf("re-fed dispatch: %v", err)
 	}
 	if len(sent) != 2 {

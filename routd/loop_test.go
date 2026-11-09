@@ -166,10 +166,11 @@ func TestRouteMissCarriesSenderOverHTTP(t *testing.T) {
 		_, _ = w.Write([]byte(`{"ok":true,"created":true}`))
 	}))
 	t.Cleanup(srv.Close)
-	loop := &Loop{db: db, onboardingEnabled: true,
-		onbod: NewOnbodClient(srv.URL, func(context.Context) (string, error) {
-			return "service", nil
-		})}
+	loop := NewLoop(db, nopRunner{}, LoopConfig{OnboardingEnabled: true})
+	loop.StopQueue()
+	loop.SetOnbodClient(NewOnbodClient(srv.URL, func(context.Context) (string, error) {
+		return "service", nil
+	}))
 	const chat = "discord:dm/456"
 	msgs := []core.Message{
 		{ID: "first", ChatJID: chat, Sender: "discord:user/earlier", Timestamp: time.Now()},

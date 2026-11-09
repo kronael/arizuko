@@ -65,7 +65,8 @@ func TestAdvanceRecordsTheBatchItFedAndNotTheClock(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	l := &Loop{db: db}
+	l := NewLoop(db, nopRunner{}, LoopConfig{})
+	l.StopQueue()
 	const jid = "slack:T/C/U"
 	fed := seedPollChat(t, db, jid, 3)
 
@@ -106,7 +107,8 @@ func TestAdvanceLeavesAMessageOfTheCursorsOwnInstantUnfed(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	l := &Loop{db: db}
+	l := NewLoop(db, nopRunner{}, LoopConfig{})
+	l.StopQueue()
 	const jid = "slack:T/C/U"
 	at := time.Date(2026, 9, 12, 11, 0, 0, 250, time.UTC)
 

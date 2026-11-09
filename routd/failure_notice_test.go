@@ -58,6 +58,12 @@ func TestFailureNoticePerChat(t *testing.T) {
 			loop.StopQueue()
 		}
 		cause = step.cause
+		control, _, err := db.store().ReadTurnControl(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		now := maxTime(time.Now().UTC(), control.NextProbeAt)
+		loop.q.now = func() time.Time { return now }
 		if err := db.PutMessage(core.Message{ID: fmt.Sprintf("m%d", i), ChatJID: step.jid, Sender: "u", Content: "hi", Timestamp: time.Now().UTC().Add(time.Duration(i) * time.Second), Verb: "message"}); err != nil {
 			t.Fatal(err)
 		}
@@ -105,6 +111,12 @@ func TestFailureNoticeDoesNotRetryFailedDelivery(t *testing.T) {
 	loop.StopQueue()
 	doSetRoutes(t, db, []core.Route{{Match: "platform=slack", Target: "demo"}})
 	for i := range 2 {
+		control, _, err := db.store().ReadTurnControl(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		now := maxTime(time.Now().UTC(), control.NextProbeAt)
+		loop.q.now = func() time.Time { return now }
 		if err := db.PutMessage(core.Message{ID: fmt.Sprintf("failed%d", i), ChatJID: "slack:T/A/U", Sender: "u", Content: "hi", Timestamp: time.Now().UTC().Add(time.Duration(i) * time.Second), Verb: "message"}); err != nil {
 			t.Fatal(err)
 		}

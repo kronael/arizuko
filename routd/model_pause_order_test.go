@@ -52,17 +52,20 @@ func TestModelPauseOrderedCommandKeepsInput(t *testing.T) {
 		t.Fatalf("clear=%d %s", w.Code, w.Body.String())
 	}
 	processPauseChat(t, l, "web:a")
-	before := db.GetAgentCursor("web:a")
 	pauseInput(t, db, "web:b", "older", "v", "first", now.Add(time.Second))
 	pauseInput(t, db, "web:a", "question", "u", "second", now.Add(2*time.Second))
 	pauseInput(t, db, "web:a", "command", "u", "/new", now.Add(3*time.Second))
 	processPauseChat(t, l, "web:a")
-	if cursor := db.GetAgentCursor("web:a"); cursor != before {
-		t.Fatalf("command crossed waiting input: cursor=%q, want %q", cursor, before)
+	question, ok := db.GetTurnContext("question")
+	if !ok || question.State != store.TurnPendingRetry || question.RetryCount != 0 ||
+		!strings.HasSuffix(db.GetAgentCursor("web:a"), "command") {
+		t.Fatalf("command lost waiting input: %+v", question)
 	}
 	providerDue(t, l, "held")
 	processPauseChat(t, l, "web:b")
-	processPauseChat(t, l, "web:a")
+	if _, err := l.replay("question"); err != nil {
+		t.Fatal(err)
+	}
 	if len(p.runs) != 4 || p.runs[2].TurnID != "older" || p.runs[3].TurnID != "question" {
 		t.Fatalf("ordered command lost input: %+v", p.runs)
 	}
@@ -79,11 +82,16 @@ func TestModelPauseOrderedCommandRunsOnceAfterAllBatches(t *testing.T) {
 	}
 	pauseInput(t, db, "web:a", "command", "u", "/new", now.Add(3*time.Second))
 	processPauseChat(t, l, "web:a")
-	if cursor := db.GetAgentCursor("web:a"); !strings.HasSuffix(cursor, "first") {
-		t.Fatalf("command crossed later batch: cursor=%q", cursor)
+	if cursor := db.GetAgentCursor("web:a"); !strings.HasSuffix(cursor, "command") || len(p.runs) != 0 {
+		t.Fatalf("command waited for a launch: cursor=%q runs=%d", cursor, len(p.runs))
+	}
+	if _, err := l.replay("first"); err != nil {
+		t.Fatal(err)
 	}
 	processPauseChat(t, l, "web:b")
-	processPauseChat(t, l, "web:a")
+	if _, err := l.replay("third"); err != nil {
+		t.Fatal(err)
+	}
 	processPauseChat(t, l, "web:a")
 	if len(p.runs) != 3 || p.runs[0].TurnID != "first" || p.runs[1].TurnID != "second" || p.runs[2].TurnID != "third" {
 		t.Fatalf("command changed batch order: %+v", p.runs)

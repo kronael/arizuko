@@ -2,6 +2,7 @@ package routd
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -42,8 +43,23 @@ func TestTyping_ParkedChatTypesWhileItWaits(t *testing.T) {
 	}
 	t.Cleanup(func() { db.Close() })
 	loop := NewLoop(db, runner, LoopConfig{Deliver: dl, MaxRuns: 5})
+	release := sync.OnceFunc(func() { close(runner.release) })
+	t.Cleanup(func() { release(); loop.StopQueue() })
 	srv := NewServer(db, loop, dl, nil, 0, "https://example.test")
 	const a, b = "slack:T/C/A", "slack:T/C/B"
+	parked := make(chan struct{}, 1)
+	loop.q.SetParkedFn(func(jid string) {
+		loop.noteParked(jid)
+		if jid == b {
+			parked <- struct{}{}
+		}
+	})
+	finished := make(chan struct{}, 3)
+	loop.q.SetProcessMessagesFn(func(jid string) (bool, error) {
+		had, err := loop.processGroupMessages(jid)
+		finished <- struct{}{}
+		return had, err
+	})
 	seedTypingMsg(t, db, srv, a)
 	select {
 	case got := <-runner.started:
@@ -57,10 +73,22 @@ func TestTyping_ParkedChatTypesWhileItWaits(t *testing.T) {
 	if rec.Code != 200 {
 		t.Fatalf("ingest status=%d", rec.Code)
 	}
+	select {
+	case <-parked:
+	case <-time.After(5 * time.Second):
+		t.Fatal("chat B did not park")
+	}
 	if !hasTyping(dl, b, true) {
 		t.Fatalf("chat B waits behind A and shows no typing: events=%+v", dl.snapshot())
 	}
-	close(runner.release)
+	release()
+	for range 3 {
+		select {
+		case <-finished:
+		case <-time.After(5 * time.Second):
+			t.Fatal("parked work did not drain")
+		}
+	}
 }
 
 // A chat that stops waiting without a run (its batch is dropped) must not

@@ -150,6 +150,12 @@ func TestSteerLeavesOlderMessagesTheirTurn(t *testing.T) {
 	if !ponged {
 		t.Fatalf("sends=%+v; /ping was not steered", dl.sends)
 	}
+	if len(rr.runs) != 0 {
+		t.Fatal("preceding input launched before its command")
+	}
+	if _, err := loop.replay("q1"); err != nil {
+		t.Fatal(err)
+	}
 	// And the question the user asked first reaches a turn.
 	if len(rr.runs) != 1 {
 		t.Fatalf("runs=%d want 1; the older question was skipped by the steer", len(rr.runs))
