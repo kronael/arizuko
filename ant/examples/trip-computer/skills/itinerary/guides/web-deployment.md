@@ -1,6 +1,6 @@
 # Web Deployment Guide
 
-Copy `components/hub-lavender.css` and `components/hub.js` from the installed itinerary skill into the site’s `assets/` directory before publishing. Use relative asset links.
+Copy `components/hub-lavender.css` and `components/hub.js` from the installed itinerary skill into the trip's `assets/` directory before publishing. A page links every local file relative to its own directory: `assets/hub-lavender.css` from `<trip>/`, `../assets/hub-lavender.css` from `<trip>/<dir>/`. NEVER a root-relative `/pub/...` path — ALWAYS the relative one.
 
 ## File Structure
 

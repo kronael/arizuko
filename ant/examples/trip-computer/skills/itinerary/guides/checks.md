@@ -6,7 +6,7 @@ Run `python3 ~/.claude/skills/itinerary/scripts/link_check.py ~/public_html/<tri
 
 When a stop, date, route or venue changes, recheck its hours, route, affected links and pages. For independent judgment use core `oracle` with Codex model `gpt-6-astra` and reasoning effort `high`.
 
-Run all of it after every change, not only the first build.
+Run all of it after every change, not only the first build. After a page or directory moves, lint every trip that links to it, archived pages included.
 
 ## Venues and car parks
 
