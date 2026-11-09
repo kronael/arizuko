@@ -1223,6 +1223,13 @@ func TestRoutdAndRunedReadOneRunCap(t *testing.T) {
 	}
 }
 
+func TestGenerateRefusesContainerCapKey(t *testing.T) {
+	dir := seed(t, "MAX_CONCURRENT_CONTAINERS=2\n")
+	if _, _, err := Generate(dir, "test"); err == nil || !strings.Contains(err.Error(), "MAX_CONCURRENT_AGENTS") {
+		t.Fatalf("stale cap accepted: %v", err)
+	}
+}
+
 func TestGenerateTakesIdentityFromTheName(t *testing.T) {
 	source := seed(t, "ASSISTANT_NAME=test\n")
 	dir := filepath.Join(t.TempDir(), "zzapp_zzflavor")

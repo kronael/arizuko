@@ -47,10 +47,7 @@ Check the memory before you set the guest cap. `runed` refuses to start when
 10 GiB. Each release rootfs needs about 7 GB of disk, and `make images` removes
 no old tree.
 
-`MAX_CONCURRENT_AGENTS` caps concurrent agents in both routd and runed. Run
-`sudo arizuko migrate -i <instance>` before `arizuko generate -i <instance>`
-to migrate instance configuration. Migration preserves the configured limit
-and refuses a file containing both limit keys.
+`MAX_CONCURRENT_AGENTS` caps concurrent agents in both routd and runed.
 
 ## Fix a failed check
 

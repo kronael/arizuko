@@ -1,6 +1,7 @@
 package compose
 
 import (
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -738,7 +739,7 @@ func Generate(dataDir, instance string) (string, []ProxydRoute, error) {
 	}
 	seedSharedDefaults(env)
 	if _, exists := env["MAX_CONCURRENT_CONTAINERS"]; exists {
-		return "", nil, fmt.Errorf("MAX_CONCURRENT_CONTAINERS is not supported; run arizuko migrate -i %s", instance)
+		return "", nil, errors.New("MAX_CONCURRENT_CONTAINERS is not supported; rename it to MAX_CONCURRENT_AGENTS in .env")
 	}
 	if !identRE.MatchString(instance) {
 		return "", nil, fmt.Errorf("invalid instance name %q (pass -i <name>)", instance)

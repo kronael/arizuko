@@ -224,7 +224,7 @@ func LoadInstanceEnv(dir string) error {
 func LoadConfig() (*Config, error) {
 	_ = godotenv.Load(".env")
 	if _, exists := os.LookupEnv("MAX_CONCURRENT_CONTAINERS"); exists {
-		return nil, fmt.Errorf("MAX_CONCURRENT_CONTAINERS is not supported; run arizuko migrate -i <instance>")
+		return nil, errors.New("MAX_CONCURRENT_CONTAINERS is not supported; rename it to MAX_CONCURRENT_AGENTS in the instance .env and run arizuko generate")
 	}
 
 	root := EnvOr("DATA_DIR", mustCwd())

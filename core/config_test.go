@@ -66,7 +66,7 @@ func TestLoadConfigRejectsAgentLimitAlias(t *testing.T) {
 	t.Setenv("MAX_CONCURRENT_CONTAINERS", "1")
 	for _, value := range []string{"", "2"} {
 		t.Setenv("MAX_CONCURRENT_AGENTS", value)
-		if _, err := LoadConfig(); err == nil || !strings.Contains(err.Error(), "arizuko migrate") {
+		if _, err := LoadConfig(); err == nil || !strings.Contains(err.Error(), "rename it to MAX_CONCURRENT_AGENTS") {
 			t.Fatalf("retired key accepted with new value %q: %v", value, err)
 		}
 	}
