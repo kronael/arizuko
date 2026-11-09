@@ -126,6 +126,9 @@ func (q *qemuRuntime) rulesDown(rec *vmRecord) {
 		return
 	}
 	for _, r := range tapRules(rec) {
+		if exec.Command(q.paths.Firewall, append([]string{"-C", r[0]}, r[1:]...)...).Run() != nil {
+			continue
+		}
 		args := append([]string{"-D", r[0]}, r[1:]...)
 		if out, err := exec.Command(q.paths.Firewall, args...).CombinedOutput(); err != nil {
 			slog.Warn("tap rule delete", "rule", strings.Join(args, " "),

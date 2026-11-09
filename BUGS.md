@@ -15,6 +15,7 @@
 
 ## What needs you
 
+- `L799` — tap teardown deletes six absent rules after an early guest start failure.
 - `L796` — a silent cron script costs a full agent turn (macrohype-monitor, 48 turns a week); owner chose a command task with no model call; where the command runs needs sign-off.
 - `L794` — a failed turn retries 3 times within ~40 s, too fast for a host fault (full disk) to clear; owner wants 3 retries with longer gaps, about 4 h for cron tasks; design needs sign-off.
 - `L790` — `TestHoldE2E_ChannelWithoutButtonsStillGetsAnAnswerablePrompt` fails under host load (fixed 5 s wait).
@@ -316,6 +317,19 @@ reads those words now.
   `/tmp/arizuko-github-baseline-build.log`. No test — ops.
   **Proposal:** stop the build on the first failed submake. This is an adjacent
   build-gate repair; scope approval is pending.
+
+## L799 — tap teardown deletes rules that an early guest failure never installed (2026-11-09, open)
+
+MEASURED in sloth's 2026-11-08 18:45Z .. 2026-11-09 18:45Z journal
+(`/tmp/claude-1001/sl/j24.log`): 528 `tap rule delete` warnings with
+`iptables: Bad rule` between 03:00 and 06:01Z, six per failed start across
+88 starts. `runed/qemu.go` fails virtiofsd before `rulesUp`, but teardown
+calls `runed/vmnet.go` `rulesDown` for all six rules.
+
+- **Severity:** low — absent rules produce misleading teardown warnings.
+- **Status:** open — check each rule with `-C` before deleting it with `-D`.
+- **Test:** `runed/vmnet_teardown_test.go::TestRulesDown` checks absent,
+  partial and installed rule sets; removing the check fails all three cases.
 
 ## L796 — a silent cron script costs a full agent turn (2026-11-09, open)
 
