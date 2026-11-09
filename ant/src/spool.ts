@@ -33,6 +33,7 @@ export function nudgeProgress(): void {
 export const DEADLINE_NOTE_LEAD_MS = 5 * 60_000;
 export const DEADLINE_TEXT =
   '[deadline] About five minutes are left in this run. Post your output to the user with reply and end the turn. ' +
+  'State what work remains and ask whether the user wants you to continue. ' +
   'Stop background tasks you no longer need with TaskStop; anything not posted before the deadline is lost.';
 
 // encodeLines is THE batch format: one JSON string per line, so a message

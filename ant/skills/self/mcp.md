@@ -2,7 +2,7 @@
 
 Live in your session — callable directly, no skill invocation needed.
 
-ALWAYS call `reply` for an answer. A successful `like` counts as a reply when
+ALWAYS call `reply` for an answer in the current platform conversation. A successful `like` counts as a reply when
 a reaction conveys the answer. Printed `<status>` blocks report progress as
 described in the resident manual's § Unattended. Other printed prose stays
 in the transcript.
