@@ -671,6 +671,13 @@ func TestModelPauseFailureBeforeGuestSubmissionDoesNotProveRecovery(t *testing.T
 			}
 			p.noSubmission = false
 			modelPauseDue(t, db)
+			control, exists, err := db.store().ReadTurnControl(t.Context())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if exists {
+				l.q.now = func() time.Time { return control.NextProbeAt }
+			}
 			processPauseChat(t, l, "web:b")
 			if p.runs[len(p.runs)-1].TurnID != "next" {
 				t.Fatalf("next input did not probe: %+v", p.runs)

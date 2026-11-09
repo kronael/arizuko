@@ -85,7 +85,9 @@ func TestModelPauseStaleCallbackAcrossRebind(t *testing.T) {
 				t.Fatal(err)
 			}
 			recorded := db.TurnResultRecorded("a", "held")
-			close(p.release)
+			if _, err := p.StopFolder(t.Context(), "a"); err != nil {
+				t.Fatal(err)
+			}
 			<-runDone
 			if callbackErr == nil || !ok || tc.AttemptID == "old" || tc.State != store.TurnRunning || recorded || currentPause != nil {
 				t.Fatalf("stale callback: err=%v context=%+v pause=%+v", callbackErr, tc, currentPause)

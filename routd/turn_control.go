@@ -436,6 +436,9 @@ func (q *turnControl) recover(l *Loop, startup bool) error {
 			}
 		}
 		isProbe := control.Phase == "probe" && control.ProbeTurnID == tc.TurnID && control.ProbeAttemptID == tc.AttemptID
+		if tc.ProbeEpisode != "" && !isProbe {
+			continue
+		}
 		if !isProbe && (tc.State != store.TurnRunning ||
 			(!l.isSavedExecution(tc) && !tc.RunReturned && !(startup && len(tc.InputKeys) > 0))) {
 			continue

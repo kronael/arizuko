@@ -664,8 +664,13 @@ func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed boo
 			return false, false, false, "", err
 		}
 		current, _ := l.db.GetTurnContext(turnID)
-		if current.ProviderFailureAttempt == tc.AttemptID || current.State == store.TurnHeld {
-			return false, false, false, "", store.ErrModelPaused
+		if probe != nil || current.ProviderFailureAttempt == tc.AttemptID || current.State == store.TurnHeld {
+			if work.probe != nil {
+				if err := l.q.rearm(l, *work.probe); err != nil {
+					return false, false, false, "", err
+				}
+			}
+			return false, false, false, "", derr
 		}
 		if !errors.Is(derr, context.Canceled) {
 			if _, err := l.q.interrupt(l, current); err != nil {
