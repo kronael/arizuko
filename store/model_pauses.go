@@ -13,6 +13,8 @@ import (
 	"github.com/kronael/arizuko/objstore"
 )
 
+const retryRounds = 8
+
 var ErrModelPaused = errors.New("model access is paused")
 
 func modelPauseKey(folder string) objstore.Key {

@@ -579,13 +579,6 @@ func (d *DB) chatsOwnedBy(primary, runID string) []string {
 	return jids
 }
 
-// IncrementRetryCount moves a turn to its next attempt and returns which. The
-// count and the pending_retry state land in ONE write, or a turn burns an
-// attempt and is still fed to crash recovery as live.
-func (d *DB) IncrementRetryCount(turnID string) (int, error) {
-	return d.store().RecordRetryAttempt(turnID)
-}
-
 // RunningTurns lists turns still in state=running or pending_retry — the
 // crash-recovery feed.
 func (d *DB) RunningTurns() ([]TurnContext, error) {

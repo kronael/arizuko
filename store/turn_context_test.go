@@ -1,23 +1,5 @@
 package store
 
-// turn_context_test.go proves the three properties a turn's lifecycle rests on:
-// a finished turn is never re-opened, a retry moves its count and its state
-// together, and the expiry sweep measures time rather than width.
-//
-// THE INTERLEAVES ARE WRITTEN OUT rather than raced, and that is stronger than
-// a race rather than weaker: every decision here is a write's own condition, so
-// two writers are serialised by the engine and not by a read either performed —
-// one call commits, the next is the one that lost, and each attempt is its own
-// transaction.
-//
-// WHY THERE IS NO SLIP DOUBLE. conformance.SlipAt forces an interleave by firing
-// between a read and the write that follows it, and it wraps an objstore.Store —
-// which this package builds per call from its own pool (store.Obj) rather than
-// holding, so there is nowhere to hand it one. The single body that reads before
-// it writes is RecordRetryAttempt, and its window is driven below by moving the
-// count between the read this test performs and the guarded write it then
-// issues: the same interleave, named rather than injected.
-
 import (
 	"context"
 	"errors"
@@ -112,23 +94,40 @@ func TestAReopenedTurnCarriesNothingFromItsLastAttempt(t *testing.T) {
 	}
 }
 
-// The retry count and the pending_retry state are ONE write. A turn whose count
-// moved but whose state stayed running has burned an attempt and is still fed to
-// crash recovery as live.
-func TestARetryMovesTheCountAndTheStateTogether(t *testing.T) {
+func deferTurnForTest(t *testing.T, s *Store, turnID string) TurnContext {
+	t.Helper()
+	tc, _ := s.TurnContextOf(turnID)
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	if len(tc.InputKeys) == 0 {
+		msg, err := s.AppendMessage(core.Message{ID: turnID, ChatJID: tc.ChatJID, Timestamp: now})
+		if err != nil {
+			t.Fatal(err)
+		}
+		key, err := messageKeyOf(msg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		tc.InputKeys, tc.InputLast = []objstore.Key{key}, MessageCursor(msg)
+	}
+	tc.NextAttemptAt = now.Add(time.Duration(tc.RetryCount+1) * time.Hour)
+	cursor, err := s.AgentCursor(tc.ChatJID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := s.DeferTurn(t.Context(), DeferredTurn{Turn: tc, PriorCursor: cursor}); err != nil || !ok {
+		t.Fatalf("defer: %v %v", ok, err)
+	}
+	tc, _ = s.TurnContextOf(turnID)
+	return tc
+}
+
+func TestDeferredTurnCountAndState(t *testing.T) {
 	s := openTurnEntities(t)
 	if _, err := s.OpenTurnContext("t1", "demo", "", "tg:1", "u1", "", nil); err != nil {
 		t.Fatal(err)
 	}
 	for want := 1; want <= 3; want++ {
-		got, err := s.RecordRetryAttempt("t1")
-		if err != nil {
-			t.Fatal(err)
-		}
-		if got != want {
-			t.Fatalf("attempt %d reported as %d", want, got)
-		}
-		tc, _ := s.TurnContextOf("t1")
+		tc := deferTurnForTest(t, s, "t1")
 		if tc.State != TurnPendingRetry {
 			t.Fatalf("after attempt %d the turn is %q, want %q: the count moved without the "+
 				"state, so crash recovery still feeds it as live", want, tc.State,
@@ -137,66 +136,33 @@ func TestARetryMovesTheCountAndTheStateTogether(t *testing.T) {
 		if tc.RetryCount != want {
 			t.Fatalf("the turn reads back %d attempts, want %d", tc.RetryCount, want)
 		}
-		// The re-dispatch is what puts the turn back in flight, so the next
-		// attempt is counted from a re-bound turn the way dispatch counts it.
-		if _, err := s.OpenTurnContext("t1", "demo", "", "tg:1", "u1", "", nil); err != nil {
-			t.Fatal(err)
+		if ok, err := s.ClaimDeferredTurn(t.Context(), tc, tc.AttemptID+"next", tc.NextAttemptAt); err != nil || !ok {
+			t.Fatalf("claim: %v %v", ok, err)
 		}
 	}
 }
 
-// The retry is the one body here that READS before it writes, so this drives
-// that window by hand: it takes the read, lets a competing attempt commit, and
-// then issues the guarded write the loser would have issued. The refusal is what
-// sends the loop back for a fresh count instead of writing one already taken.
-func TestARetryWriteGuardedOnAStaleCountIsRefused(t *testing.T) {
+func TestDeferredTurnStaleCount(t *testing.T) {
 	s := openTurnEntities(t)
-	ctx := context.Background()
 	if _, err := s.OpenTurnContext("t1", "demo", "", "tg:1", "u1", "", nil); err != nil {
 		t.Fatal(err)
 	}
-	key, err := turnKey("t1")
+	tc := deferTurnForTest(t, s, "t1")
+	if ok, err := s.ClaimDeferredTurn(t.Context(), tc, "next", tc.NextAttemptAt); err != nil || !ok {
+		t.Fatalf("claim: %v %v", ok, err)
+	}
+	tc, _ = s.TurnContextOf("t1")
+	tc.RetryCount, tc.NextAttemptAt = 0, time.Date(2026, 1, 1, 2, 0, 0, 0, time.UTC)
+	cursor, err := s.AgentCursor(tc.ChatJID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The read a losing attempt would have taken: no count yet.
-	it, ok, err := s.itemAt(ctx, TurnContexts, key)
-	if err != nil || !ok {
-		t.Fatalf("read the turn: ok=%v err=%v", ok, err)
+	if ok, err := s.DeferTurn(t.Context(), DeferredTurn{Turn: tc, PriorCursor: cursor}); err != nil || ok {
+		t.Fatalf("stale count committed: %v %v", ok, err)
 	}
-	if _, has := it.Attrs[attrTurnRetryCount]; has {
-		t.Fatal("a fresh turn already carries a retry count")
-	}
-	// The competitor commits inside the window.
-	if got, err := s.RecordRetryAttempt("t1"); err != nil || got != 1 {
-		t.Fatalf("the winning attempt reported %d err=%v", got, err)
-	}
-	// The write the loser was about to issue, with the guard it read.
-	moved, err := s.TryWriteEntities(ctx, nil, objstore.Write{
-		Op: objstore.Update, Entity: TurnContexts, Key: key,
-		Attrs: map[string]string{
-			attrTurnRetryCount: "1",
-			attrTurnState:      TurnPendingRetry,
-		},
-		Cond: objstore.Cond{Where: []objstore.Cmp{
-			{Attr: attrTurnRetryCount, Op: objstore.Absent},
-		}},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if moved {
-		t.Fatal("a retry guarded on a count that had already moved committed anyway; two " +
-			"attempts claim one number and one of them is lost")
-	}
-	// The loop's answer to that refusal is a fresh read, so the next attempt is
-	// the next number and not a repeat.
-	next, err := s.RecordRetryAttempt("t1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if next != 2 {
-		t.Fatalf("the attempt after a lost race reported %d, want 2", next)
+	next := deferTurnForTest(t, s, "t1")
+	if next.RetryCount != 2 {
+		t.Fatalf("the attempt after a lost race reported %d, want 2", next.RetryCount)
 	}
 }
 
@@ -295,11 +261,9 @@ func TestTheGatewayKeyPointerSurvivesTheTurnsWholeLifecycle(t *testing.T) {
 	if err := s.SetTurnRunID("t1", "run-1"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.RecordRetryAttempt("t1"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.OpenTurnContext("t1", "demo", "", "tg:1", "u1", "", nil); err != nil {
-		t.Fatal(err)
+	tc := deferTurnForTest(t, s, "t1")
+	if ok, err := s.ClaimDeferredTurn(t.Context(), tc, "next", tc.NextAttemptAt); err != nil || !ok {
+		t.Fatalf("claim: %v %v", ok, err)
 	}
 	if err := s.SetTurnState("t1", TurnDone); err != nil {
 		t.Fatal(err)

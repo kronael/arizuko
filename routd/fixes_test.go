@@ -645,16 +645,13 @@ func TestTurnRetry_ExhaustsAndNotifies(t *testing.T) {
 	_ = db.PutMessage(core.Message{ID: "r2", ChatJID: "slack:T/C/U", Sender: "u1",
 		Content: "hi", Timestamp: time.Now().UTC(), Verb: "message"})
 
-	// Simulate retry_count already at max.
-	_, _ = db.PutTurnContext("r2", "demo", "", "slack:T/C/U", "u1", "")
-	db.IncrementRetryCount("r2")
-	db.IncrementRetryCount("r2") // now retry_count=2, at max
-
 	_, _ = loop.processGroupMessages("slack:T/C/U")
-	pending, _ := db.GetTurnContext("r2")
-	loop.q.now = func() time.Time { return pending.NextAttemptAt }
-	if _, err := loop.replay("r2"); err != nil {
-		t.Fatal(err)
+	for range 2 {
+		pending, _ := db.GetTurnContext("r2")
+		loop.q.now = func() time.Time { return pending.NextAttemptAt }
+		if _, err := loop.replay("r2"); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if len(dl.sends) != 1 || dl.sends[0].text != retryExhaustedNotice(loop.maxTurnRetry) {
 		t.Fatalf("expected retry exhausted notice, got %+v", dl.sends)

@@ -404,60 +404,6 @@ func (s *Store) TurnGatewayKey(turnID string) (string, error) {
 	return it.Attrs[attrTurnGatewayKey], nil
 }
 
-// retryRounds bounds RecordRetryAttempt's compare-and-swap. A refusal is a lost
-// race and nothing else, so it is the transient class that may be retried.
-const retryRounds = 8
-
-// RecordRetryAttempt moves a turn to its next attempt and answers which attempt
-// that is. THE COUNT AND THE STATE ARE ONE WRITE: a turn whose count moved but
-// whose state stayed `running` has burned an attempt and is still fed to crash
-// recovery as live. objstore.Increment cannot carry them together (a batch
-// holds one action per item), so the compare-and-swap is written here, guarded
-// on the count this call read.
-func (s *Store) RecordRetryAttempt(turnID string) (int, error) {
-	key, err := turnKey(turnID)
-	if err != nil {
-		return 0, err
-	}
-	ctx := context.Background()
-	for range retryRounds {
-		it, ok, err := s.itemAt(ctx, TurnContexts, key)
-		if err != nil {
-			return 0, err
-		}
-		if !ok {
-			return 0, fmt.Errorf("record a retry of %s: no such turn", turnID)
-		}
-		was := it.Attrs[attrTurnRetryCount]
-		count, err := strconv.Atoi(was)
-		if was != "" && err != nil {
-			return 0, fmt.Errorf("the retry count of %s is %q, which is not a number: %w",
-				turnID, was, err)
-		}
-		next := count + 1
-		guard := objstore.Cmp{Attr: attrTurnRetryCount, Op: objstore.Eq, Value: was}
-		if was == "" {
-			guard = objstore.Cmp{Attr: attrTurnRetryCount, Op: objstore.Absent}
-		}
-		moved, err := s.TryWriteEntities(ctx, nil, objstore.Write{
-			Op: objstore.Update, Entity: TurnContexts, Key: key,
-			Attrs: map[string]string{
-				attrTurnRetryCount: strconv.Itoa(next),
-				attrTurnState:      TurnPendingRetry,
-			},
-			Cond: objstore.Cond{Where: []objstore.Cmp{guard}},
-		})
-		if err != nil {
-			return 0, fmt.Errorf("record a retry of %s: %w", turnID, err)
-		}
-		if moved {
-			return next, nil
-		}
-	}
-	return 0, fmt.Errorf("record a retry of %s: %d guarded writes were all refused, so the "+
-		"turn is being retried faster than this can read it", turnID, retryRounds)
-}
-
 // TypingJIDsForRun answers the chats whose typing indicator a run owns: one per
 // turn recorded against the run, resolved the way dispatch picks the
 // indicator's chat. A follow-up that arrives mid-run is STEERED into the live

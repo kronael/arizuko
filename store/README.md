@@ -149,7 +149,7 @@ Primary methods (by domain):
 - Tasks: `CreateTask`, `GetTask`, `ListTasks`
 - Task runs: `RecordTaskRun`, `TaskRunLogs`, `AllRunLogs`, `FailedRunsSince`
 - Model pause: `ReadModelPause`, `RecordProviderFailure`, `CompleteModelProbe`, `ClearModelPauseInto` — guarded batches control turn admission and episode changes.
-- Turns: `OpenTurnContext`, `TurnContextOf`, `RecordRetryAttempt`, `SweepExpiredRunning`, `RunningTurns`, `TurnGatewayKey`, `RecordTurnResult`, `GetTurnResult`
+- Turns: `OpenTurnContext`, `TurnContextOf`, `DeferTurn`, `ClaimControlledTurn`, `SweepExpiredRunning`, `RunningTurns`, `TurnGatewayKey`, `RecordTurnResult`, `GetTurnResult`
 - Secrets: `SetSecret`, `GetSecret`, `ListSecrets`, `SecretKeysIn`,
   `DeleteSecret`, `FolderSecretsResolved` (walk parents → root),
   `CountPlaintextSecrets` + `EncryptPlaintextSecrets`

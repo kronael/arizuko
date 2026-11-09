@@ -200,10 +200,10 @@ func TestControlledMigrationGuards(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ok, err := s.OpenTurnContext("migrate", "demo", "", msg.ChatJID, "u", "", nil); err != nil || !ok {
-		t.Fatalf("open: %v %v", ok, err)
-	}
-	if _, err := s.RecordRetryAttempt("migrate"); err != nil {
+	if err := s.SeedItem(ctx, TurnContexts, []string{"migrate"}, map[string]string{
+		"folder": "demo", "chat_jid": msg.ChatJID, "trigger": "u", "state": TurnPendingRetry,
+		"attempt_id": "legacy", "retry_count": "1", "started_at": core.TS(now),
+	}); err != nil {
 		t.Fatal(err)
 	}
 	tc, _ := s.TurnContextOf("migrate")
