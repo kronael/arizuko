@@ -2,7 +2,7 @@
 
 Run `python3 ~/.claude/skills/itinerary/scripts/trip_lint.py ~/public_html/<trip> --root ~/public_html` for the whole trip; `--root` lets links to shared assets and sibling trips resolve. It checks HTML tag balance, local pages and assets, empty links, stylesheet classes, navigation, page structure, Mapy and OSM URLs, map link text, phone links, the meals the timeline reaches, meal ratings and fallback labels, opening hours against the meal time, and meal selection caps. Inline styles are permitted for minimal layout. The `page_check.py` entry point delegates to this same checker.
 
-Run `python3 ~/.claude/skills/itinerary/scripts/link_check.py ~/public_html/<trip>/day*.html` to inspect map links in the browser. A browser error or timeout is a failed check. Inspect rendered routes and a 390 px page separately; static checks cannot verify route geometry or source truth.
+Run `python3 ~/.claude/skills/itinerary/scripts/link_check.py <pages>` to inspect map links in the browser: after an edit, the pages the change touched; on a first build or a full audit, every page of the trip, `places.html` included. It opens a link shared by several pages once and fails on `mapy.cz` and short links. A browser error or timeout is a failed check. Inspect rendered routes and a 390 px page separately; static checks cannot verify route geometry or source truth.
 
 When a stop, date, route or venue changes, recheck its hours, route, affected links and pages. For independent judgment use core `oracle` with Codex model `gpt-6-astra` and reasoning effort `high`.
 

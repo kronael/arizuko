@@ -1,5 +1,7 @@
+import contextlib
 import html
 import importlib.util
+import io
 import json
 import os
 import re
@@ -297,6 +299,25 @@ class ItineraryToolsTests(unittest.TestCase):
         translated = 'https://www.google.com/maps/place/Pra%C5%BEsk%C3%BD+hrad/@50,14,17z'
         code, _ = self.check_links([f'<a href="{translated}">Prague Castle</a>'], {'google.com': 'Prague Castle - Google Maps'})
         self.assertEqual(code, 0)
+
+    def test_link_check_opens_a_shared_link_once_and_reports_coverage(self):
+        mapy = 'https://mapy.com/en/turisticka?source=firm&amp;id=1&amp;x=14&amp;y=50'
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code, calls = self.check_links([f'<a href="{mapy}">Place</a>'] * 2, {})
+        self.assertEqual(code, 0)
+        self.assertEqual(sum(c[0] == 'open' for c in calls), 1)
+        self.assertIn('1 checked, 0 failed, 0 unsupported', out.getvalue())
+
+    def test_link_check_fails_on_an_unsupported_map_link(self):
+        mapy = 'https://mapy.com/en/turisticka?source=firm&amp;id=1&amp;x=14&amp;y=50'
+        code, _ = self.check_links([f'<a href="{mapy}">Place</a> <a href="https://mapy.cz/s/abc">Old</a>'], {})
+        self.assertEqual(code, 1)
+
+    def test_link_check_closes_its_browser_on_failure(self):
+        mapy = 'https://mapy.com/en/turisticka?source=firm&amp;id=1&amp;x=14&amp;y=50'
+        _, calls = self.check_links([f'<a href="{mapy}">Place</a>'], {}, fail_on='get')
+        self.assertEqual(calls[-1], ('close',))
 
     def test_census_rerun_keeps_enriched_rows(self):
         out, cache = self.site / 'db', self.site / 'tiles'

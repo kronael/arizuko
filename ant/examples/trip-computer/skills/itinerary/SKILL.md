@@ -19,7 +19,7 @@ After a stop, date, route, venue or timing changes, recheck the affected sources
 
 ```sh
 python3 ~/.claude/skills/itinerary/scripts/trip_lint.py ~/public_html/<trip> --root ~/public_html
-python3 ~/.claude/skills/itinerary/scripts/link_check.py ~/public_html/<trip>/day*.html
+python3 ~/.claude/skills/itinerary/scripts/link_check.py <the changed pages>
 ```
 
 Complete the remaining checks in `guides/checks.md` before delivery.
