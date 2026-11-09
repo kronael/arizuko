@@ -182,6 +182,13 @@ class ItineraryToolsTests(unittest.TestCase):
         header, _, row = (out / 'food.md').read_text().splitlines()[2:5]
         self.assertEqual(len(re.findall(r'(?<!\\)\|', row)), header.count('|'))
 
+    def test_census_rejects_bad_area_before_writing(self):
+        for extra in (['--radius', '0'], ['--lat', '91'], ['--also', '50,200']):
+            out = self.site / 'db'
+            result = run_census(out, self.site / 'tiles', *extra)
+            self.assertNotEqual(result.returncode, 0, extra)
+            self.assertFalse(out.exists(), extra)
+
 
 if __name__ == '__main__':
     unittest.main()

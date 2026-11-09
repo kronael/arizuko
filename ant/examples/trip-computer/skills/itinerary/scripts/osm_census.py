@@ -49,10 +49,12 @@ CATS={
 def main():
     ap=argparse.ArgumentParser(); ap.add_argument('--lat',type=float,required=True); ap.add_argument('--lon',type=float,required=True)
     ap.add_argument('--radius',type=float,default=10); ap.add_argument('--out',required=True); ap.add_argument('--cache',default=None); ap.add_argument('--base-name',default='base'); ap.add_argument('--also',default='',help='LAT,LON[,LAT,LON...] extra circles'); ap.add_argument('--also-radius',type=float,default=2.0)
-    a=ap.parse_args(); os.makedirs(a.out,exist_ok=True); cache=a.cache or os.path.join(a.out,'tiles'); os.makedirs(cache,exist_ok=True)
+    a=ap.parse_args()
     nums=[float(v) for v in a.also.replace(';',',').split(',') if v.strip()]
     if len(nums)%2: raise SystemExit('--also needs LAT,LON pairs')
     centres=[(a.lat,a.lon,a.radius)]+[(nums[i],nums[i+1],a.also_radius) for i in range(0,len(nums),2)]
+    if not all(-90<=la<=90 and -180<=lo<=180 and r>0 for la,lo,r in centres): raise SystemExit('each circle needs LAT -90..90, LON -180..180 and a radius over 0 km')
+    os.makedirs(a.out,exist_ok=True); cache=a.cache or os.path.join(a.out,'tiles'); os.makedirs(cache,exist_ok=True)
     todo=[t for c in centres for t in tiles_for(*c)]; tiles=[]
     base=(a.lat,a.lon); seen=set(); rows=defaultdict(list); trails={}
     def inside(p): return any(hav((la,lo),p)<=r for la,lo,r in centres)
