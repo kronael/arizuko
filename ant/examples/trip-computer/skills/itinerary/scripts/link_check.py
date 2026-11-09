@@ -5,9 +5,11 @@ Checks: mapy place links open a named entry (not "Position on the map" /
 "search results"); mapy route links render a route with km and every
 waypoint named; openstreetmap.org links
 open an object whose name matches the link text when the text is a name.
-Google links are opened with consent cookies: a place must open its card, a
+An "Access denied", consent or error page fails on every host.
+Google links are opened with consent cookies: a place must open its card
+named as in the URL or the link text, a
 directions link must show a travel time, a search link is a WARN."""
-import argparse, re, sys, html, subprocess, time
+import argparse, re, sys, html, subprocess, time, unicodedata, urllib.parse
 from html.parser import HTMLParser
 
 class Links(HTMLParser):
@@ -22,6 +24,12 @@ class Links(HTMLParser):
         if tag == 'a' and self.href is not None:
             self.links.append((self.href, ''.join(self.text)))
             self.href = None
+
+BLOCKED = re.compile(r'access denied|forbidden|captcha|consent|error', re.I)
+
+def words(s):
+    plain = ''.join(c for c in unicodedata.normalize('NFKD', s) if not unicodedata.combining(c))
+    return {w.lower() for w in re.findall(r'\w{4,}', plain)}
 
 def ab(*a):
     return subprocess.run(['agent-browser',*a],capture_output=True,text=True,timeout=60,check=True).stdout.strip()
@@ -53,7 +61,9 @@ def main():
                         m=re.search(r'(\d+ ?(?:h|hr|hod)[^"]{0,8}\d* ?min|\d+ ?min)', sn)
                         res=f'ok {m.group(0)}' if m else f'FAIL google route not found: {title}'
                     elif '/maps/place/' in u:
+                        expected=words(urllib.parse.unquote_plus(u.split('/maps/place/')[1].split('/')[0]))|words(t)
                         if title.strip() in ('Google Maps','') or title.startswith('Results'): res=f'FAIL google place not opened: {title}'
+                        elif expected and not words(title)&expected: res=f'FAIL google place differs: {title}'
                         else: res='ok '+title.split(' - ')[0].split(' – ')[0]
                     else:
                         res=('WARN google search page, not a place: '+title) if not re.search(r'heading "[^"]+" \[level=1', sn) or 'Results' in sn[:3000] else 'ok '+title
@@ -67,10 +77,11 @@ def main():
                     else: res=f'ok {km.group(0)}'
                 elif 'mapy.com' in u:
                     if 'Position on the map' in title: res='WARN gps pin, not a place'
-                    elif 'search results' in title or not title: res=f'FAIL no place: {title}'
+                    elif 'search results' in title or not title or BLOCKED.search(title): res=f'FAIL no place: {title}'
+                    elif words(t) and not words(title)&words(t): res=f'WARN mapy name differs: {title}'
                     else: res='ok '+title.split(' • ')[0]
                 else:
-                    if 'not found' in title.lower() or not title: res='FAIL osm object missing'
+                    if 'not found' in title.lower() or not title or BLOCKED.search(title): res=f'FAIL osm object missing: {title}'
                     elif t and len(t.split())<=4 and not any(w.lower() in title.lower() for w in re.findall(r'\w{4,}',t)): res=f'WARN osm name differs: {title}'
                     else: res='ok '+title[:50]
             if res.startswith('FAIL'): fails+=1

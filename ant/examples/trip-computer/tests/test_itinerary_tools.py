@@ -263,6 +263,41 @@ class ItineraryToolsTests(unittest.TestCase):
             with self.assertRaises(subprocess.TimeoutExpired):
                 module.ab('snapshot')
 
+    def check_links(self, pages, titles, fail_on=None):
+        module = load(LINK)
+        calls = []
+        def browser(*args):
+            calls.append(args)
+            if args[0] == fail_on:
+                raise subprocess.CalledProcessError(1, ['agent-browser', *args])
+            if args[:2] == ('get', 'title'):
+                opened = [c[1] for c in calls if c[0] == 'open']
+                return next((t for key, t in titles.items() if key in opened[-1]), 'Place • Mapy.com')
+            return ''
+        paths = []
+        for i, body in enumerate(pages):
+            path = self.site / f'day{i + 1}.html'
+            path.write_text(body)
+            paths.append(str(path))
+        with patch.object(module, 'ab', side_effect=browser), patch.object(module.time, 'sleep'), \
+                patch.object(sys, 'argv', ['link_check.py', *paths]):
+            try:
+                code = module.main()
+            except subprocess.CalledProcessError:
+                code = None
+        return code, calls
+
+    def test_link_check_fails_on_a_refused_or_wrong_place(self):
+        mapy = 'https://mapy.com/en/turisticka?source=firm&id=1&x=14&y=50'
+        code, _ = self.check_links([f'<a href="{mapy}">Hospoda</a>'], {'mapy.com': 'Access denied'})
+        self.assertEqual(code, 1)
+        google = 'https://www.google.com/maps/place/Expected+Inn/@50,14,17z'
+        code, _ = self.check_links([f'<a href="{google}">Expected Inn</a>'], {'google.com': 'Wrong Hotel - Google Maps'})
+        self.assertEqual(code, 1)
+        translated = 'https://www.google.com/maps/place/Pra%C5%BEsk%C3%BD+hrad/@50,14,17z'
+        code, _ = self.check_links([f'<a href="{translated}">Prague Castle</a>'], {'google.com': 'Prague Castle - Google Maps'})
+        self.assertEqual(code, 0)
+
     def test_census_rerun_keeps_enriched_rows(self):
         out, cache = self.site / 'db', self.site / 'tiles'
         out.mkdir(); cache.mkdir()
