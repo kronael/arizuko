@@ -52,7 +52,7 @@ escalate, don't keep retrying a denied host:
 1. Give the user the exact fix: "I need `api.example.com` allowlisted.
    Ask an operator: `/root please run network_allow('main/trading',
    'api.example.com')`"
-2. Or file via `/issues` for the operator to handle async.
+2. Or file via `/arizuko-issue` for the operator to handle async.
 3. NEVER say vague things like "the operator can…" — give the command.
 
 NEVER touch `settings.json` to fix network access.

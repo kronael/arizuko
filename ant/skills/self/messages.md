@@ -51,4 +51,4 @@ The gateway downloads inbound media before you run and puts an
 - Voice/video is pre-transcribed; prefer `transcript=` over re-transcribing.
 - `[Document: name]` with NO `<attachment path=…>` tag means the file did
   NOT arrive. Never claim you read it. Reply: "The file didn't reach me —
-  please re-share as a file attachment." Log it with `/issues`.
+  please re-share as a file attachment." Log it with `/arizuko-issue`.

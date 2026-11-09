@@ -54,7 +54,7 @@
 
       <h2>Atlas answers from your files and cites the path</h2>
       <p>Atlas searches <code>facts/</code> and <code>refs/</code> before anything else. Training data is the last source. Every answer starts with the answer and names the path that it came from.</p>
-      <p>The persona sets a dry, lowercase voice. When the files hold no answer, the persona tells Atlas to say "I don't have that recorded", and <code>CLAUDE.md</code> tells it to log the question to <code>~/issues.md</code>.</p>
+      <p>The persona sets a dry, lowercase voice. When the files hold no answer, the persona tells Atlas to say "I don't have that recorded", and <code>CLAUDE.md</code> tells it to log the question to <code>~/questions.md</code>.</p>
 
       <h2>Helpdesk classifies messages, and Atlas cites documents</h2>
       <p>Both products sort inbound questions. <a href="../helpdesk/">Helpdesk</a> ships a <code>triage</code> skill that classifies a message as billing, technical or account, and one file of every kind a product can ship. Atlas ships no <code>skills/</code> directory. It searches <code>facts/</code> and <code>refs/</code> and cites the path.</p>

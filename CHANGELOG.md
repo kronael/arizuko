@@ -13,6 +13,9 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+- `/arizuko-issue` records arizuko and platform-internal problems. User-project
+  findings stay in the group's own files.
+
 ## [v0.75.5] — 2026-11-09
 
 > arizuko v0.75.5 — group models and saved messages
@@ -5523,14 +5526,14 @@ the v0.33.4 skill was built around. Both now coexist.
 > arizuko v0.33.8 — 03 May 2026
 >
 > • Issues skill — clearer how/where to log unresolved user-reported bugs
-> • Agent now exposes `/issues` as a discoverable skill instead of buried CLAUDE.md prose
+> • Agent now exposes `/arizuko-issue` as a discoverable skill instead of buried CLAUDE.md prose
 > • Leaner `ant/CLAUDE.md` — procedure moved to its own page
 >
 > Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
 
 ### Added
 
-- [`ant/skills/issues/SKILL.md`](https://github.com/kronael/arizuko/blob/v0.33.8/ant/skills/issues/SKILL.md) — dedicated skill owning the
+- [`ant/skills/arizuko-issue/SKILL.md`](https://github.com/kronael/arizuko/blob/main/ant/skills/arizuko-issue/SKILL.md) — dedicated skill owning the
   user-reported-bug recording workflow. Frontmatter `description`
   surfaces it on `/dispatch`; body covers when to log, format, and
   the operator-consolidation contract.
@@ -5538,7 +5541,7 @@ the v0.33.4 skill was built around. Both now coexist.
 ### Changed
 
 - [`ant/CLAUDE.md`](https://github.com/kronael/arizuko/blob/v0.33.8/ant/CLAUDE.md) "Recording user-reported issues" section reduced
-  to a one-line pointer at `~/.claude/skills/issues/SKILL.md`.
+  to a one-line pointer at `~/.claude/skills/arizuko-issue/SKILL.md`.
   CLAUDE.md is seeded into every group on spawn, so trimming
   procedure-heavy prose keeps the per-group bootstrap lean.
 

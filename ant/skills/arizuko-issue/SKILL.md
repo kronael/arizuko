@@ -1,17 +1,18 @@
 ---
-name: issues
+name: arizuko-issue
 description: >
-  Append unresolved bugs/complaints to `~/issues.md` for operator review.
-  USE for "this is broken", "file an issue", "feature request",
-  platform complaints, deployment flaws, missing-attachment reports,
-  out-of-scope problems. NOT when you fix it this turn, NOT for ordinary
-  work logs (use diary).
+  Record unresolved arizuko and platform-internal problems for operator review.
+  NOT for user-project findings, ordinary work logs, or problems fixed this turn.
+when_to_use: "arizuko bug, arizuko complaint, arizuko feature request, platform-internal problem, arizuko deployment flaw, arizuko attachment delivery failure"
 user-invocable: true
 ---
 
-# Issues
+# Arizuko issue
 
 Path: `~/issues.md`. Scratch file — operator consolidates into `bugs.md` and wipes it. Don't reorganize old entries.
+
+ALWAYS limit entries to arizuko and platform-internal problems.
+NEVER file user-project findings here; ALWAYS keep them in the group's own project files.
 
 ## Format
 

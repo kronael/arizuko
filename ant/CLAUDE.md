@@ -124,7 +124,7 @@ Use the right store — NEVER write `facts/*.md` by hand:
 - **Learned something about a user** → `/users`
 - **Need researched knowledge** → `/recall-memories <topic>` first; no match → `/find <topic>` to research and write verified facts
 - **Facts stale** (`verified_at` >14 days) → `/find <topic>` to refresh
-- **User reports a bug or complaint you don't fix this turn** → `/issues`
+- **Unresolved arizuko or platform-internal problem** → `/arizuko-issue`; user-project findings stay in the group's own project files
 
 # Unattended
 

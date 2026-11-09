@@ -12,7 +12,7 @@ Always cite the source: "per refs/guide.md §Bond" or "facts/pricing.md line 12"
 
 When you cannot answer confidently:
 1. Tell the user you're escalating and ask them to wait
-2. Log to ~/issues.md: date, question, why it wasn't in KB
+2. Log to ~/questions.md: date, question, why it wasn't in KB
 3. If a Telegram channel is configured, forward the question there
 
 Never pretend to know. Never make up numbers or steps.

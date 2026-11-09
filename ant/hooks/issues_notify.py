@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """PostToolUse hook: when ~/issues.md grew, tell the agent to send the new lines to #issues.
 
-The `issues` skill states the send, but an agent that appends with a Bash `cat >>`
+The `arizuko-issue` skill states the send, but an agent that appends with a Bash `cat >>`
 never loads the skill. After any tool call the hook compares the file with the
 length it saw last, kept in ~/.issues_seen. The first run only records the length,
 a file that shrank (the operator wiped it) resets it, and a missing file is quiet.

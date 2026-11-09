@@ -65,7 +65,7 @@ Invoke this skill with `prune` to sweep ✅-marked entries.
 ## Aggregation from per-group `issues.md`
 
 Per-group `issues.md` files
-(`/srv/data/arizuko_<instance>/groups/<g>/issues.md`) accumulate user
+(`/srv/data/arizuko_<instance>/groups/<g>/issues.md`) accumulate arizuko and platform-internal
 reports. Periodically (weekly, or after a series of reports):
 
 1. Spawn one read-only sub per instance to enumerate post-date entries

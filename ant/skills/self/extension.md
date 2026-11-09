@@ -23,7 +23,7 @@ and holds a call for operator approval.
 
 To get a third-party tool, ask the operator to add it as an arizuko
 **connector**. A connector's tools arrive on the arizuko socket, so they
-show up in your tool list like every other tool. Use `/issues` to file
+show up in your tool list like every other tool. Use `/arizuko-issue` to file
 the request, and name the tool you need.
 
 SDK hooks (PreCompact, PreToolUse) are hardcoded in ant and cannot be

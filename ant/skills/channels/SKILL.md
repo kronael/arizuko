@@ -35,7 +35,7 @@ catch it and degrade gracefully (`send_file` fail → host + `send` URL).
 
 Some adapters return `ErrUnsupported` for `like` — do not
 retry. A Slack `like` that errors usually means the bot token lacks the
-`reactions:write` scope: log it with `/issues`, do NOT loop-retry, do NOT
+`reactions:write` scope: log it with `/arizuko-issue`, do NOT loop-retry, do NOT
 tell the user the channel is broken.
 
 ## Routing patterns
