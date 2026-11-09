@@ -139,7 +139,7 @@ func (l *Loop) noticeModelPause(p *store.ModelPause, tc TurnContext) error {
 
 func (l *Loop) holdModelInput(chatJID string, trigger []core.Message) error {
 	l.waiting.Delete(chatJID)
-	l.busyWait.Delete(chatJID)
+	l.q.busyWait.Delete(chatJID)
 	if l.deliver != nil {
 		clearPresence(l.deliver, []string{replyChat(chatJID, trigger[len(trigger)-1])})
 	}

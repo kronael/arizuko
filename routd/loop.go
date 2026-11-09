@@ -73,7 +73,6 @@ type Loop struct {
 	pendingElevation sync.Map // message_id → struct{}
 	engagementTTL    time.Duration
 	nextScanAt       time.Time
-	busyWait         sync.Map
 
 	// waiting is the chats whose typing is on while no run owns it: parked
 	// behind another run, or refused Busy. Value is the chat that shows it.
@@ -901,7 +900,7 @@ func (l *Loop) directFolder(jid string) string {
 // advance moves the chat's agent_cursor past the last seen row.
 func (l *Loop) advance(chatJID string, last core.Message) {
 	// Any cursor advance is progress past the batch a Busy refusal parked.
-	l.busyWait.Delete(chatJID)
+	l.q.busyWait.Delete(chatJID)
 	if reply, ok := l.waiting.LoadAndDelete(chatJID); ok {
 		l.pauseProgress(reply.(string), "")
 	}

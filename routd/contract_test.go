@@ -187,7 +187,7 @@ func TestBusyOutcomeRetriesWithoutAdvanceOrBreaker(t *testing.T) {
 	if db.GetAgentCursor("slack:T/C/U") == cursorBefore {
 		t.Fatal("cursor did not advance after the successful retry")
 	}
-	if _, ok := srv.loop.busyWait.Load("slack:T/C/U"); ok {
+	if _, ok := srv.loop.q.busyWait.Load("slack:T/C/U"); ok {
 		t.Fatal("busy backoff entry survived the successful retry; want cleared on advance")
 	}
 }
@@ -196,13 +196,13 @@ func TestBusyOutcomeRetriesWithoutAdvanceOrBreaker(t *testing.T) {
 // without sleeping.
 func expireBusyWait(t *testing.T, l *Loop, chatJID string) {
 	t.Helper()
-	v, ok := l.busyWait.Load(chatJID)
+	v, ok := l.q.busyWait.Load(chatJID)
 	if !ok {
 		t.Fatalf("no busy backoff recorded for %s", chatJID)
 	}
 	st := v.(busyState)
 	st.until = time.Now().Add(-time.Millisecond)
-	l.busyWait.Store(chatJID, st)
+	l.q.busyWait.Store(chatJID, st)
 }
 
 // TestBusyBackoffGrowsAndNewMessageBypasses: a consecutive refusal of the
@@ -305,7 +305,7 @@ func TestABotRowDoesNotClearTheBusyBackoff(t *testing.T) {
 // loadBusyState fetches a chat's recorded busy backoff, failing when absent.
 func loadBusyState(t *testing.T, l *Loop, chatJID string) busyState {
 	t.Helper()
-	v, ok := l.busyWait.Load(chatJID)
+	v, ok := l.q.busyWait.Load(chatJID)
 	if !ok {
 		t.Fatalf("no busy backoff recorded for %s", chatJID)
 	}

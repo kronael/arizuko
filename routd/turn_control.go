@@ -43,7 +43,7 @@ func (q *turnControl) savePending(l *Loop, tc TurnContext, input, ambient []core
 	ctx := context.Background()
 	prior, exists := l.db.GetTurnContext(tc.TurnID)
 	if exists && prior.State == store.TurnRunning {
-		v, busy := l.busyWait.Load(tc.ChatJID)
+		v, busy := q.busyWait.Load(tc.ChatJID)
 		if !busy || v.(busyState).lastMsgID != tc.TurnID || prior.RunID != "" || prior.RetryCount != 0 {
 			return fmt.Errorf("turn %s still owns execution", tc.TurnID)
 		}
@@ -65,11 +65,28 @@ func (q *turnControl) cancel(l *Loop, folder string) error {
 	if err != nil {
 		return err
 	}
+	q.mu.Lock()
+	activeID := ""
+	for _, r := range q.reservations {
+		if r.folder == folder {
+			activeID = r.turnID
+			break
+		}
+	}
+	q.mu.Unlock()
+	active, ok := l.db.GetTurnContext(activeID)
+	if ok && active.Folder == folder && active.State == store.TurnDone && !active.RunReturned &&
+		!slices.ContainsFunc(turns, func(tc TurnContext) bool { return tc.TurnID == activeID }) {
+		turns = append(turns, active)
+	}
 	for _, tc := range turns {
-		if tc.Folder != folder || (tc.State != store.TurnRunning && tc.State != store.TurnPendingRetry) {
+		if tc.Folder != folder {
 			continue
 		}
 		for {
+			if tc.State == store.TurnDone && tc.RunReturned {
+				break
+			}
 			before, exists, err := l.db.store().ReadTurnControl(context.Background())
 			if err != nil {
 				return err
@@ -89,7 +106,7 @@ func (q *turnControl) cancel(l *Loop, folder string) error {
 				return err
 			}
 			current, exists := l.db.GetTurnContext(tc.TurnID)
-			if ok || !exists || current.State == store.TurnDone {
+			if ok || !exists {
 				break
 			}
 			tc = current
@@ -711,19 +728,6 @@ func (q *turnControl) recover(l *Loop, startup bool) error {
 	return nil
 }
 
-// dependencyDownGrace is how long the execution plane may be unreachable before
-// the queue calls it an outage rather than a restart. A deploy restarts routd
-// before runed listens, so the first polls always fail and the work re-feeds:
-// 26 ERROR lines in one krons restart, which trains the reader to filter the
-// line that would carry a real outage (BUGS L161). The grace cannot be a
-// FAILURE COUNT — every group fails in the same poll, so a fleet of 26 crosses
-// any count on the first one.
-const dependencyDownGrace = 60 * time.Second
-
-// ErrDependencyDown marks a failure the GROUP did not cause: the execution
-// plane was never reached, so no work was attempted on this group's behalf.
-// The caller wraps its transport error with it so the queue reports the
-// execution-plane outage once after the restart grace period.
 var ErrDependencyDown = errors.New("execution plane unreachable")
 
 type groupState struct {
@@ -734,6 +738,42 @@ type turnReservation struct {
 	folder string
 	cron   bool
 	turnID string
+}
+
+const (
+	busyBackoffBase = 4 * time.Second
+	busyBackoffCap  = 60 * time.Second
+)
+
+type busyState struct {
+	until     time.Time
+	delay     time.Duration
+	lastMsgID string
+}
+
+func (q *turnControl) busyDeferred(chatJID, lastMsgID string) bool {
+	v, ok := q.busyWait.Load(chatJID)
+	if !ok {
+		return false
+	}
+	st := v.(busyState)
+	if st.lastMsgID != lastMsgID {
+		q.busyWait.Delete(chatJID)
+		return false
+	}
+	return q.now().Before(st.until)
+}
+
+func (q *turnControl) noteBusy(chatJID, lastMsgID string) time.Time {
+	delay := busyBackoffBase
+	if v, ok := q.busyWait.Load(chatJID); ok {
+		if st := v.(busyState); st.lastMsgID == lastMsgID {
+			delay = min(st.delay*2, busyBackoffCap)
+		}
+	}
+	until := q.now().Add(delay)
+	q.busyWait.Store(chatJID, busyState{until: until, delay: delay, lastMsgID: lastMsgID})
+	return until
 }
 
 type processMessagesFn func(groupJid string) (bool, error)
@@ -757,17 +797,8 @@ type turnControl struct {
 	folderForJid    folderForJidFn
 	parked          parkedFn
 	shuttingDown    bool
-
-	// depDownSince is when the execution plane was first found unreachable in
-	// the current outage (zero when it is reachable); depDownLoud records that
-	// the outage was already reported at ERROR, so it is said once, not once
-	// per group per poll. Queue-wide, because the plane is.
-	depDownSince time.Time
-	depDownLoud  bool
-
-	// now is the clock, injectable so a test can cross dependencyDownGrace
-	// without waiting a minute.
-	now func() time.Time
+	busyWait        sync.Map
+	now             func() time.Time
 }
 
 func newTurnControl(maxConcurrent int) *turnControl {
@@ -932,37 +963,6 @@ func (q *turnControl) Shutdown() {
 		"activeCount", q.activeCount)
 }
 
-// logDependencyDown reports one unreachable-plane outcome at the level the
-// OUTAGE deserves. Caller holds q.mu.
-func (q *turnControl) logDependencyDown(groupJid string, err error) {
-	now := q.now()
-	if q.depDownSince.IsZero() {
-		q.depDownSince = now
-	}
-	down := now.Sub(q.depDownSince)
-	switch {
-	case down < dependencyDownGrace:
-		slog.Warn("execution plane unreachable; group work re-feeds on next poll",
-			"groupJid", groupJid, "down", down, "err", err)
-	case !q.depDownLoud:
-		q.depDownLoud = true
-		slog.Error("execution plane unreachable past the restart window; no group work is running",
-			"groupJid", groupJid, "down", down, "err", err)
-	default:
-		slog.Warn("execution plane still unreachable",
-			"groupJid", groupJid, "down", down, "err", err)
-	}
-}
-
-// clearDependencyDown ends the outage: the plane answered. Caller holds q.mu.
-func (q *turnControl) clearDependencyDown() {
-	if q.depDownLoud {
-		slog.Info("execution plane reachable again", "down", q.now().Sub(q.depDownSince))
-	}
-	q.depDownSince = time.Time{}
-	q.depDownLoud = false
-}
-
 func (q *turnControl) runForGroup(groupJid string) {
 	q.mu.Lock()
 	fn := q.processMessages
@@ -974,19 +974,12 @@ func (q *turnControl) runForGroup(groupJid string) {
 		_, err = fn(groupJid)
 	}
 
-	q.mu.Lock()
-	s := q.getGroup(groupJid)
-	switch {
-	case err == nil:
-		q.clearDependencyDown()
-	case errors.Is(err, ErrDependencyDown):
-		q.logDependencyDown(groupJid, err)
-	default:
-		q.clearDependencyDown()
+	if err != nil {
 		slog.Error("error processing messages for group",
 			"groupJid", groupJid, "err", err)
 	}
-
+	q.mu.Lock()
+	s := q.getGroup(groupJid)
 	s.active = false
 	q.releaseLocked(groupJid)
 	if !q.shuttingDown {

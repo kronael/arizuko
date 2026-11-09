@@ -91,15 +91,16 @@ func TestTurnControlCommandsWhileActive(t *testing.T) {
 		t.Fatal(err)
 	}
 	entered, release, done := make(chan struct{}), make(chan struct{}), make(chan struct{})
-	l.runner = runnerFn(func(_ context.Context, req runedv1.RunRequest) (runedv1.RunOutcome, error) {
+	runner := &recoveryRunner{run: runnerFn(func(_ context.Context, req runedv1.RunRequest) (runedv1.RunOutcome, error) {
 		if _, err := db.store().RecordTurnResult("demo", req.TurnID, "", "success", ""); err != nil {
 			t.Error(err)
 		}
 		finishTurn(db, nil, req.TurnID, endDone)
 		close(entered)
 		<-release
-		return runedv1.RunOutcome{Outcome: runedv1.OutcomeSilent}, nil
-	})
+		return runedv1.RunOutcome{Outcome: runedv1.OutcomeError}, nil
+	})}
+	l.runner = runner
 	l.q.shuttingDown, l.q.maxConcurrent = false, 1
 	l.q.SetProcessMessagesFn(func(jid string) (bool, error) {
 		had, err := l.processGroupMessages(jid)
@@ -127,11 +128,25 @@ func TestTurnControlCommandsWhileActive(t *testing.T) {
 		len(dl.sends) != 1 || l.q.ActiveCount() != 1 {
 		t.Errorf("command waited for active execution: fresh=%+v sends=%v", fresh, dl.sends)
 	}
+	put("topic", "#next", 3*time.Second)
+	l.Enqueue("web:demo")
+	if _, topic := db.StickyState("web:demo"); topic != "next" || len(dl.sends) != 2 {
+		t.Error("navigation command waited for active execution")
+	}
+	l.cmdStop("web:demo", "demo")
+	closed, _ := db.GetTurnContext("active")
+	if !closed.RunReturned || runner.killed != "demo" || l.q.ActiveCount() != 1 {
+		t.Error("stop did not close the submitted attempt before kill")
+	}
 	cursor := db.GetAgentCursor("web:demo")
 	close(release)
 	<-done
 	if db.GetAgentCursor("web:demo") != cursor {
 		t.Fatal("active completion rewound command cursor")
+	}
+	control, exists, err := db.store().ReadTurnControl(t.Context())
+	if err != nil || (exists && control.Phase != "closed") {
+		t.Fatalf("intentional stop opened breaker: %+v %v", control, err)
 	}
 	l.StopQueue()
 }

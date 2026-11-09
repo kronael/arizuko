@@ -83,3 +83,23 @@ func TestTurnControlOccurrenceIsolation(t *testing.T) {
 		t.Fatalf("scheduled occurrences combined: %v", ids)
 	}
 }
+
+func TestTurnControlBusyBackoff(t *testing.T) {
+	q := newTurnControl(1)
+	now := time.Date(2026, 11, 9, 12, 0, 0, 0, time.UTC)
+	q.now = func() time.Time { return now }
+	for _, delay := range []time.Duration{4, 8, 16, 32, 60, 60} {
+		until := q.noteBusy("chat", "input")
+		if until.Sub(now) != delay*time.Second || !q.busyDeferred("chat", "input") {
+			t.Fatalf("Busy delay: %s, want %s seconds", until.Sub(now), delay)
+		}
+		now = until
+		if q.busyDeferred("chat", "input") {
+			t.Fatal("Busy remained deferred after its due time")
+		}
+	}
+	q.noteBusy("chat", "input")
+	if q.busyDeferred("chat", "fresh") || q.noteBusy("chat", "fresh").Sub(now) != 4*time.Second {
+		t.Fatal("fresh input retained Busy backoff")
+	}
+}

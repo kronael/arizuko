@@ -289,7 +289,7 @@ func TestBatchResolve_ABusyReFeedDoesNotRerunAFinishedTurn(t *testing.T) {
 	if _, err := loop.processGroupMessages(prJID); err != nil {
 		t.Fatalf("first pass: %v", err)
 	}
-	loop.busyWait.Delete(prJID)
+	loop.q.busyWait.Delete(prJID)
 	if _, err := loop.processGroupMessages(prJID); err != nil {
 		t.Fatalf("re-feed: %v", err)
 	}

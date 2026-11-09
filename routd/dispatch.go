@@ -42,9 +42,6 @@ func (l *Loop) processChat(chatJID string, commandsOnly bool) (bool, error) {
 	if len(msgs) == 0 {
 		return false, nil
 	}
-	if commandsOnly && !slices.ContainsFunc(msgs, IsSteerCommand) {
-		return false, nil
-	}
 	last := msgs[len(msgs)-1]
 	// Three questions, three rows. The busy key is the newest user row; the steer
 	// offer takes the oldest slash command; the folder comes from the newest row
@@ -79,6 +76,9 @@ func (l *Loop) processChat(chatJID string, commandsOnly bool) (bool, error) {
 	steerConsumed := false
 	steerIdx := steerRowIdx(msgs)
 	steerMsg := msgs[steerIdx]
+	if commandsOnly && !l.canSteer(chatJID, steerMsg, folder, b.rows[steerIdx].AtName) {
+		return false, nil
+	}
 	owned := map[string]bool{}
 	if commandsOnly {
 		l.q.mu.Lock()
@@ -119,7 +119,7 @@ func (l *Loop) processChat(chatJID string, commandsOnly bool) (bool, error) {
 	if commandsOnly && deferredSteer == nil && !steerConsumed {
 		return false, nil
 	}
-	if deferredSteer == nil && !steerConsumed && l.busyDeferred(chatJID, msgs[busyIdx].ID) {
+	if deferredSteer == nil && !steerConsumed && l.q.busyDeferred(chatJID, msgs[busyIdx].ID) {
 		return false, nil
 	}
 	// Bot rows stay out of the trigger but in the rendered context. A user row
@@ -360,55 +360,6 @@ func newestUserIdx(msgs []core.Message) int {
 	return -1
 }
 
-// Busy re-dispatch backoff: doubles per consecutive refusal of the same batch,
-// capped so a starved chat probes runed once a minute, not once per poll
-// (BUGS L55).
-const (
-	busyBackoffBase = 4 * time.Second
-	busyBackoffCap  = 60 * time.Second
-)
-
-// busyState is one chat's re-dispatch backoff after a runed Busy refusal.
-type busyState struct {
-	until time.Time
-	delay time.Duration
-	// A different newest id means fresh inbound activity: the backoff no
-	// longer applies.
-	lastMsgID string
-}
-
-// busyDeferred reports whether the chat's batch is inside its busy backoff
-// window. A changed newest-message id clears the backoff; an expired window
-// keeps the entry so a repeat refusal doubles.
-func (l *Loop) busyDeferred(chatJID, lastMsgID string) bool {
-	v, ok := l.busyWait.Load(chatJID)
-	if !ok {
-		return false
-	}
-	st := v.(busyState)
-	if st.lastMsgID != lastMsgID {
-		l.busyWait.Delete(chatJID)
-		return false
-	}
-	return time.Now().Before(st.until)
-}
-
-// noteBusy records a runed Busy refusal for the chat's current batch, doubling
-// the backoff on a consecutive refusal of the same batch.
-func (l *Loop) noteBusy(chatJID, lastMsgID string) {
-	delay := busyBackoffBase
-	if v, ok := l.busyWait.Load(chatJID); ok {
-		if st := v.(busyState); st.lastMsgID == lastMsgID {
-			delay = min(st.delay*2, busyBackoffCap)
-		}
-	}
-	l.busyWait.Store(chatJID, busyState{
-		until:     time.Now().Add(delay),
-		delay:     delay,
-		lastMsgID: lastMsgID,
-	})
-}
-
 // replyChat is the chat that RECEIVES a turn's reply: the origin for a
 // forwarded row.
 func replyChat(chatJID string, last core.Message) string {
@@ -521,11 +472,12 @@ func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed boo
 		return false, false, false, "", err
 	}
 	launched := false
+	requeueAt := l.q.now().Add(busyBackoffBase)
 	if saved != nil {
 		defer func() {
 			current, ok := l.db.GetTurnContext(turnID)
 			if ok && current.State == store.TurnRunning && current.AttemptID == admission.AttemptID && !launched {
-				_, err := l.db.store().RequeueDeferredTurn(ctx, current, l.q.now().Add(busyBackoffBase))
+				_, err := l.db.store().RequeueDeferredTurn(ctx, current, requeueAt)
 				if err != nil {
 					rerr = err
 				}
@@ -680,6 +632,11 @@ func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed boo
 	started = true
 	launched = true
 	out, derr := l.dispatchRun(ctx, folder, topic, replyJID, turnID, last.Sender, rendered, elevated, progress, gwKey.Key)
+	closed, closedOK := l.db.GetTurnContext(turnID)
+	if closedOK && closed.State == store.TurnDone && closed.RunReturned {
+		finishTurn(l.db, l.deliver, turnID, endSteered)
+		return false, false, false, "", nil
+	}
 	tc.RunID = out.RunID
 	if out.RunID != "" {
 		_ = l.db.SetTurnRunID(turnID, out.RunID)
@@ -716,7 +673,7 @@ func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed boo
 		return false, false, false, "", derr
 	}
 	if out.Busy {
-		l.noteBusy(chatJID, last.ID)
+		requeueAt = l.q.noteBusy(chatJID, last.ID)
 		launched = false
 		started = false
 		if saved != nil {

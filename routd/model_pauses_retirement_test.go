@@ -40,7 +40,7 @@ func TestDeletionPreservesSurvivingReboundInput(t *testing.T) {
 	}
 	doSetRoutes(t, db, []core.Route{{Match: "chat_jid=" + jid, Target: "b"}})
 	gate := &retirementSnapshot{Store: db.Obj(), after: func() {
-		l.busyWait.Delete(jid)
+		l.q.busyWait.Delete(jid)
 		processPauseChat(t, l, jid)
 		tc, _ := db.GetTurnContext("input")
 		if tc.Folder != "b" || tc.State != store.TurnRunning || tc.AttemptID == before.AttemptID {
@@ -58,7 +58,7 @@ func TestDeletionPreservesSurvivingReboundInput(t *testing.T) {
 		t.Fatalf("surviving input cursor = %q, want empty", got)
 	}
 	p.busy = false
-	l.busyWait.Delete(jid)
+	l.q.busyWait.Delete(jid)
 	n := len(p.runs)
 	processPauseChat(t, l, jid)
 	if len(p.runs) != n+1 || string(p.runs[n].Folder) != "b" || !strings.Contains(p.runs[n].MessageBatch, "surviving private input") {

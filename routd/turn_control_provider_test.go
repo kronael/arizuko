@@ -74,7 +74,7 @@ func TestTurnControlProviderInstancePause(t *testing.T) {
 		t.Fatal("refused attempt accepted a delivery check")
 	}
 	now = reset.Add(time.Minute)
-	l.busyWait.Delete("web:b")
+	l.q.busyWait.Delete("web:b")
 	processPauseChat(t, l, "web:b")
 	if len(p.runs) != 0 {
 		t.Fatal("provider callback admitted another run before runtime return")
@@ -128,7 +128,7 @@ func TestTurnControlProviderExhaustion(t *testing.T) {
 			}
 			now = control.NextProbeAt
 			l.q.now = func() time.Time { return now }
-			l.busyWait.Delete("web:b")
+			l.q.busyWait.Delete("web:b")
 			processPauseChat(t, l, "web:b")
 			control, _, _ = db.store().ReadTurnControl(t.Context())
 			if len(p.runs) != 5 || control.Phase != "closed" {
