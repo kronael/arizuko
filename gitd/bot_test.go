@@ -85,11 +85,12 @@ func fakeGitHubAPI(t *testing.T, bodies map[string]string) (*httptest.Server, *[
 			_, _ = w.Write([]byte(`{"message":"Not Found"}`))
 			return
 		}
-		if r.Method == "POST" {
+		switch r.Method {
+		case "POST":
 			w.WriteHeader(http.StatusCreated)
-		} else if r.Method == "DELETE" {
+		case "DELETE":
 			w.WriteHeader(http.StatusNoContent)
-		} else {
+		default:
 			w.WriteHeader(http.StatusOK)
 		}
 		_, _ = w.Write([]byte(body))

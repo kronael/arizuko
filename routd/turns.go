@@ -91,16 +91,6 @@ func returnTarget(tc TurnContext, jid string) string {
 	return jid
 }
 
-// outboundRow builds a fresh pending bot row for the turn's folder/topic.
-func (s *Server) outboundRow(tc TurnContext, jid, content, replyToID string) core.Message {
-	return core.Message{
-		ID: "out-" + randHex(8), ChatJID: jid, Sender: tc.Folder, Content: content,
-		Timestamp: time.Now().UTC(), BotMsg: true, FromMe: true,
-		ReplyToID: replyToID, Topic: tc.Topic, RoutedTo: tc.Folder,
-		TurnID: tc.TurnID,
-	}
-}
-
 // deliverRow attempts the send, stamps platform_id on success, and ANSWERS the
 // status the caller stores the row under: `sent` is the absence of a delivery
 // item, so the status decides whether an item is written at all

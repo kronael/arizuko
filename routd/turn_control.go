@@ -84,10 +84,7 @@ func (q *turnControl) cancel(l *Loop, folder string) ([]string, error) {
 		if tc.Folder != folder {
 			continue
 		}
-		for {
-			if tc.State == store.TurnDone && tc.RunReturned {
-				break
-			}
+		for tc.State != store.TurnDone || !tc.RunReturned {
 			before, exists, err := l.db.store().ReadTurnControl(context.Background())
 			if err != nil {
 				return canceled, err
@@ -710,7 +707,7 @@ func (q *turnControl) recover(l *Loop, startup bool) error {
 		}
 		isProbe := control.Phase == "probe" && control.ProbeTurnID == tc.TurnID && control.ProbeAttemptID == tc.AttemptID
 		if !isProbe && (tc.State != store.TurnRunning ||
-			(!l.isSavedExecution(tc) && !tc.RunReturned && !(startup && len(tc.InputKeys) > 0))) {
+			(!l.isSavedExecution(tc) && !tc.RunReturned && (!startup || len(tc.InputKeys) == 0))) {
 			continue
 		}
 		ok, err := q.WithIdleFolder(tc.Folder, func() error {

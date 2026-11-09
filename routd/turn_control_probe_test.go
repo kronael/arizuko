@@ -13,8 +13,8 @@ import (
 func TestTurnControlProbeFence(t *testing.T) {
 	for _, newerFailure := range []bool{false, true} {
 		t.Run(map[bool]string{false: "one probe", true: "episode"}[newerFailure], func(t *testing.T) {
-			db, loop, _, tc, now := deferredFixture(t)
-			now = tc.NextAttemptAt
+			db, loop, _, tc, _ := deferredFixture(t)
+			now := tc.NextAttemptAt
 			loop.q.now = func() time.Time { return now }
 			loop.runner = runnerFn(func(context.Context, runedv1.RunRequest) (runedv1.RunOutcome, error) {
 				return runedv1.RunOutcome{Outcome: runedv1.OutcomeError}, nil
