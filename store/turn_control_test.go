@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"strconv"
 	"testing"
 	"time"
 
@@ -36,6 +37,49 @@ func TestControlledRefusalExpiry(t *testing.T) {
 		if tc.State != sample.want {
 			t.Fatalf("%s state=%s, want %s", sample.id, tc.State, sample.want)
 		}
+	}
+}
+
+func TestControlledEightConcurrentProbeClaims(t *testing.T) {
+	s := openTurnEntities(t)
+	now := time.Now().UTC()
+	before := TurnControlState{Phase: "open", Episode: "outage", NextProbeAt: now}
+	if ok, err := s.WriteTurnControl(t.Context(), nil, before); err != nil || !ok {
+		t.Fatalf("open breaker: %v %v", ok, err)
+	}
+	start := make(chan struct{})
+	results := make(chan bool, 8)
+	for i := range 8 {
+		id := "candidate-" + strconv.Itoa(i)
+		if err := s.SeedItem(t.Context(), TurnContexts, []string{id}, map[string]string{
+			"folder": "demo", "state": TurnPendingRetry, "attempt_id": "waiting",
+			"next_attempt_at": core.TS(now),
+		}); err != nil {
+			t.Fatal(err)
+		}
+		go func() {
+			<-start
+			after := before
+			after.Phase, after.ProbeTurnID, after.ProbeAttemptID = "probe", id, "probe"
+			ok, err := s.ClaimControlledTurn(t.Context(), TurnContext{
+				TurnID: id, Folder: "demo", AttemptID: "waiting",
+			}, "probe", now, &before, &after)
+			if err != nil {
+				t.Errorf("claim %s: %v", id, err)
+			}
+			results <- ok
+		}()
+	}
+	close(start)
+	winners := 0
+	for range 8 {
+		if <-results {
+			winners++
+		}
+	}
+	control, _, err := s.ReadTurnControl(t.Context())
+	if err != nil || winners != 1 || control.Phase != "probe" || control.ProbeTurnID == "" {
+		t.Fatalf("probe winners=%d control=%+v err=%v", winners, control, err)
 	}
 }
 
