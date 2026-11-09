@@ -364,10 +364,8 @@ func (q *qemuRuntime) spawn(ctx context.Context, t Turn) RunResult {
 	qemu.Stderr = newPrefixWriter("qemu", t.Folder)
 	bootStart := time.Now()
 	if err := qemu.Start(); err != nil {
-		// The VMM did not launch. A retry spawns nothing, so the turn is
-		// terminal rather than re-fed.
 		return RunResult{Outcome: runedv1.OutcomeError,
-			Error: "qemu start: " + err.Error(), Terminal: true}
+			Error: "qemu start: " + err.Error()}
 	}
 	rec.QemuPid = qemu.Process.Pid
 	if err := rec.save(); err != nil {
@@ -499,7 +497,7 @@ func turnResult(end turnEnd, elapsed time.Duration, console, tail string) RunRes
 	if end.timedOut {
 		return RunResult{Outcome: runedv1.OutcomeError,
 			Error:    fmt.Sprintf("Guest timed out after %s", elapsed.Round(time.Second)),
-			ExitCode: end.code}
+			ExitCode: end.code, Terminal: true}
 	}
 	if !end.framed {
 		// No exit frame is no result. QEMU's status says the VMM ended, never

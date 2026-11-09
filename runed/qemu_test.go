@@ -7,17 +7,23 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"testing/synctest"
 	"time"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/objstore"
+	"github.com/kronael/arizuko/routd"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
+	"github.com/kronael/arizuko/store"
 	"golang.org/x/sys/unix"
 )
 
@@ -620,7 +626,7 @@ func TestTurnResultMapsEveryEnding(t *testing.T) {
 		{"agent config failure is terminal", turnEnd{code: 78, framed: true}, runedv1.OutcomeError, 78, true, "code 78"},
 		{"a docker reserve is not terminal here", turnEnd{code: 125, framed: true}, runedv1.OutcomeError, 125, false, "code 125"},
 		{"no exit frame", turnEnd{code: 0}, runedv1.OutcomeError, 0, false, "without an exit frame"},
-		{"timeout", turnEnd{timedOut: true}, runedv1.OutcomeError, 0, false, "timed out"},
+		{"timeout", turnEnd{timedOut: true}, runedv1.OutcomeError, 0, true, "timed out"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -646,6 +652,129 @@ func TestTurnResultMapsEveryEnding(t *testing.T) {
 	// a guest that said nothing left anything behind.
 	if e := turnResult(turnEnd{}, time.Second, console, ""); !strings.Contains(e.Error, console) {
 		t.Errorf("an unframed turn must name the console: %q", e.Error)
+	}
+}
+
+type cursorCompletion struct {
+	objstore.Store
+	cursor string
+	done   chan struct{}
+	read   atomic.Bool
+}
+
+func (s *cursorCompletion) GuardedBatch(ctx context.Context, checks []objstore.Check, writes []objstore.Write) (bool, error) {
+	advance := false
+	for _, write := range writes {
+		if write.Entity == store.Chats && write.Attrs[store.AttrChatAgentCursor] == s.cursor && s.read.Load() {
+			advance = true
+		}
+		for _, condition := range write.Cond.Where {
+			if write.Entity == store.Chats && write.Attrs[store.AttrChatAgentCursor] == s.cursor &&
+				condition.Attr == store.AttrChatAgentCursor && condition.Op == objstore.Lt {
+				advance = true
+			}
+		}
+	}
+	ok, err := s.Store.GuardedBatch(ctx, checks, writes)
+	if advance && err == nil {
+		if ok {
+			s.read.Store(false)
+			s.done <- struct{}{}
+		} else {
+			s.read.Store(true)
+		}
+	}
+	return ok, err
+}
+
+func (s *cursorCompletion) Query(ctx context.Context, query objstore.Query) ([]objstore.Item, error) {
+	items, err := s.Store.Query(ctx, query)
+	if query.Entity == store.Chats && s.read.Swap(false) {
+		s.done <- struct{}{}
+	}
+	return items, err
+}
+
+func TestTurnEndingThroughManagerAndRouter(t *testing.T) {
+	for _, name := range []string{"timeout", "crash", "stop", "renderer"} {
+		t.Run(name, func(t *testing.T) {
+			baseDB, err := routd.OpenMem()
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { baseDB.Close() })
+			base := time.Now().UTC().Add(-time.Minute)
+			input := core.Message{ID: "ending", ChatJID: "web:demo", Sender: "user", Content: "question", Timestamp: base}
+			completion := &cursorCompletion{Store: baseDB.Obj(), cursor: store.MessageCursor(input), done: make(chan struct{}, 1)}
+			routerDB := routd.OpenOver(completion)
+			if err := routerDB.PutGroup(core.Group{Folder: "demo"}); err != nil {
+				t.Fatal(err)
+			}
+			var launches atomic.Int32
+			started, release := make(chan struct{}), make(chan struct{})
+			unblock := sync.OnceFunc(func() { close(release) })
+			defer unblock()
+			runtime := FakeRuntime{Fn: func(context.Context, Turn) RunResult {
+				launches.Add(1)
+				if name == "stop" {
+					close(started)
+					<-release
+				}
+				return turnResult(turnEnd{timedOut: name == "timeout"}, time.Minute, "console", "")
+			}}
+			runDB, manager := newMgr(t, runtime, 1)
+			if name == "renderer" {
+				manager.cfg = nil
+			}
+			httpServer := httptest.NewServer(NewServer(manager, runDB, nil).Handler())
+			t.Cleanup(httpServer.Close)
+			loop := routd.NewLoop(routerDB, runedv1.NewClient(httpServer.URL, "", time.Minute), routd.LoopConfig{})
+			t.Cleanup(loop.StopQueue)
+			if err := routerDB.PutMessage(input); err != nil {
+				t.Fatal(err)
+			}
+			loop.Enqueue("web:demo")
+			if name == "stop" {
+				select {
+				case <-started:
+				case <-time.After(10 * time.Second):
+					t.Fatal("runtime did not start")
+				}
+				if err := routerDB.PutMessage(core.Message{ID: "stop", ChatJID: "web:demo", Sender: "user",
+					Content: "/stop", Timestamp: base.Add(time.Second)}); err != nil {
+					t.Fatal(err)
+				}
+				loop.Enqueue("web:demo")
+				unblock()
+			}
+			select {
+			case <-completion.done:
+			case <-time.After(10 * time.Second):
+				t.Fatal("router did not finish consuming the input")
+			}
+			tc, _ := routerDB.GetTurnContext("ending")
+			want := store.TurnDone
+			if name == "crash" {
+				want = store.TurnPendingRetry
+			}
+			if tc.State != want || !tc.RunReturned || (name == "crash" && tc.RetryCount != 1) ||
+				(name != "crash" && tc.RetryCount != 0) {
+				t.Fatalf("ending %s: %+v", name, tc)
+			}
+			if name == "stop" {
+				control, exists, err := store.NewOver(routerDB.Obj()).ReadTurnControl(t.Context())
+				if err != nil || (exists && control.Phase != "closed") {
+					t.Fatalf("stop opened breaker: %+v %v", control, err)
+				}
+			}
+			wantLaunches := int32(1)
+			if name == "renderer" {
+				wantLaunches = 0
+			}
+			if launches.Load() != wantLaunches {
+				t.Fatalf("runtime launches=%d want=%d", launches.Load(), wantLaunches)
+			}
+		})
 	}
 }
 

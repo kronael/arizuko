@@ -93,10 +93,8 @@ type RunRequest struct {
 //     because a DELETE killed it before launch. routd MUST NOT advance the cursor
 //     and MUST NOT consume the input.
 //
-// Terminal=true qualifies Outcome=error: runed decided a retry cannot repair the
-// failure. The DECISION travels, not the raw exit code — runed owns the container
-// and routd must never classify runed's error prose (spec 5/12, BUGS F73). The
-// zero value means retryable, so an older runed keeps today's behavior.
+// Terminal=true qualifies Outcome=error and forbids automatic retry, including
+// after a run timeout. routd uses this decision without parsing Error.
 type RunOutcome struct {
 	RunID    string `json:"run_id"`
 	Outcome  string `json:"outcome"` // ok|error|silent

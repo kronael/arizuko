@@ -67,8 +67,6 @@ type RunResult struct {
 	Error        string
 	ExitCode     int
 	MessageCount int
-	// Terminal reports a failure that a retry cannot repair (the
-	// guest invocation itself failed). The zero value means
-	// retryable (spec 5/12).
+	// Terminal forbids automatic retry, including after a run timeout.
 	Terminal bool
 }

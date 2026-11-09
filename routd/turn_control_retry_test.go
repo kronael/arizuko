@@ -3,13 +3,66 @@ package routd
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/groupfolder"
+	"github.com/kronael/arizuko/runed"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 	"github.com/kronael/arizuko/store"
 )
+
+func TestTurnControlRetriesManagerCrash(t *testing.T) {
+	db, loop, _ := recLoop(t)
+	if err := db.PutGroup(core.Group{Folder: "demo"}); err != nil {
+		t.Fatal(err)
+	}
+	runDB, err := runed.OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { runDB.Close() })
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "packages/core"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "packages/core/arizuko.yml"), []byte("name: core\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &core.Config{Name: "test", ProjectRoot: root, HostAppDir: root,
+		GroupsDir: filepath.Join(root, "groups"), IpcDir: filepath.Join(root, "ipc"),
+		WebDir: filepath.Join(root, "web"), Timezone: "UTC"}
+	launches := 0
+	runtime := runed.FakeRuntime{Fn: func(context.Context, runed.Turn) runed.RunResult {
+		launches++
+		return runed.RunResult{Outcome: runedv1.OutcomeError, Error: "guest ended without an exit frame"}
+	}}
+	loop.runner = runed.NewManager(runDB, runtime, runed.ManagerConfig{Instance: "test", Cfg: cfg,
+		Folders: &groupfolder.Resolver{GroupsDir: cfg.GroupsDir, IpcDir: cfg.IpcDir}})
+	now := time.Date(2026, 11, 9, 10, 0, 0, 0, time.UTC)
+	loop.q.now = func() time.Time { return now }
+	if err := db.PutMessage(core.Message{ID: "crash", ChatJID: "web:demo", Sender: "user",
+		Content: "question", Timestamp: now}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loop.processGroupMessages("web:demo"); err != nil {
+		t.Fatal(err)
+	}
+	tc, _ := db.GetTurnContext("crash")
+	if tc.State != store.TurnPendingRetry || tc.RetryCount != 1 || launches != 1 {
+		t.Fatalf("crash did not defer: %+v launches=%d", tc, launches)
+	}
+	if _, err := loop.replay("crash"); err != nil || launches != 1 {
+		t.Fatalf("early retry: launches=%d err=%v", launches, err)
+	}
+	now = tc.NextAttemptAt
+	if _, err := loop.replay("crash"); err != nil || launches != 2 {
+		t.Fatalf("due retry: launches=%d err=%v", launches, err)
+	}
+}
 
 func TestTurnControlExecutionRetry(t *testing.T) {
 	for _, sender := range []string{"user", core.ScheduledSender} {
