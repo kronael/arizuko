@@ -17,28 +17,30 @@ import (
 // (types.UserSub / Folder / Tier / Scope) — see specs/5/A-primitives-framing.md.
 
 type Message struct {
-	ID            string
-	ChatJID       string
-	Sender        string
-	Name          string
-	Content       string
-	Timestamp     time.Time
-	FromMe        bool
-	BotMsg        bool
-	ForwardedFrom string
-	ReplyToID     string
-	ReplyToText   string
-	ReplyToSender string
-	PlatformID    string // platform-native message ID (Slack TS, Telegram msg_id, etc.) for outbound messages
-	Topic         string
-	RoutedTo      string
-	Verb          string // event type: "message" (default), "join", "edit", "delete", etc.
-	Attachments   string // JSON-encoded []chanlib.InboundAttachment
-	Source        string // adapter name that handled this row (inbound: receiver; outbound: deliverer)
-	Errored       bool   // set when a previous agent run failed on this message; re-fed tagged for retry
-	TurnID        string // for outbound: the inbound message id that triggered the run; for inbound: empty
-	ChatName      string // human-readable channel/group name set by the adapter (e.g. "#general", "My Group")
-	LinkContext   string // route-token context snapshotted at ingest (spec 5/W); rendered as <link-context> in the prompt
+	StatusPhase    string
+	StatusRevision int
+	ID             string
+	ChatJID        string
+	Sender         string
+	Name           string
+	Content        string
+	Timestamp      time.Time
+	FromMe         bool
+	BotMsg         bool
+	ForwardedFrom  string
+	ReplyToID      string
+	ReplyToText    string
+	ReplyToSender  string
+	PlatformID     string // platform-native message ID (Slack TS, Telegram msg_id, etc.) for outbound messages
+	Topic          string
+	RoutedTo       string
+	Verb           string // event type: "message" (default), "join", "edit", "delete", etc.
+	Attachments    string // JSON-encoded []chanlib.InboundAttachment
+	Source         string // adapter name that handled this row (inbound: receiver; outbound: deliverer)
+	Errored        bool   // set when a previous agent run failed on this message; re-fed tagged for retry
+	TurnID         string // for outbound: the inbound message id that triggered the run; for inbound: empty
+	ChatName       string // human-readable channel/group name set by the adapter (e.g. "#general", "My Group")
+	LinkContext    string // route-token context snapshotted at ingest (spec 5/W); rendered as <link-context> in the prompt
 }
 
 type FoundMessage struct {

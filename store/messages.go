@@ -30,6 +30,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -150,6 +151,10 @@ func messageKeyOf(m core.Message) (objstore.Key, error) {
 // value is LEFT OFF: absent is the only null this model has.
 func messageAttrs(m core.Message) map[string]string {
 	attrs := map[string]string{}
+	setAttr(attrs, "status_phase", m.StatusPhase)
+	if m.StatusRevision > 0 {
+		attrs["status_revision"] = strconv.Itoa(m.StatusRevision)
+	}
 	setAttr(attrs, attrMsgSender, m.Sender)
 	setAttr(attrs, attrMsgSenderName, m.Name)
 	setAttr(attrs, attrMsgContent, m.Content)
@@ -179,6 +184,7 @@ func messageFrom(it objstore.Item) core.Message {
 	ts, id, _ := MsgCoord(it.Key.Sort)
 	m := core.Message{
 		ID:            id,
+		StatusPhase:   it.Attrs["status_phase"],
 		ChatJID:       it.Key.Partition,
 		Sender:        it.Attrs[attrMsgSender],
 		Name:          it.Attrs[attrMsgSenderName],
@@ -200,6 +206,7 @@ func messageFrom(it objstore.Item) core.Message {
 		BotMsg:        it.Attrs[attrMsgBot] == flagSet,
 		Errored:       it.Attrs[attrMsgErrored] == flagSet,
 	}
+	m.StatusRevision, _ = strconv.Atoi(it.Attrs["status_revision"])
 	m.Timestamp, _ = time.Parse(time.RFC3339Nano, ts)
 	return m
 }
@@ -556,7 +563,7 @@ func (s *Store) ActiveProgress(chatJID, topic, turnID string) ([]core.Message, e
 		if err != nil {
 			return nil, err
 		}
-		if ok && IsActiveTurnState(item.Attrs[attrTurnState]) {
+		if msg.StatusPhase == "final" || (ok && IsActiveTurnState(item.Attrs[attrTurnState]) && msg.StatusPhase != "cleared") {
 			out = append(out, msg)
 		}
 	}

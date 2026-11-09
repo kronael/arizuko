@@ -48,7 +48,7 @@ func deliveryWrite(msgKey objstore.Key, m core.Message, status string,
 	if status == "" || status == core.MessageStatusSent {
 		return objstore.Write{}, false
 	}
-	attrs := map[string]string{attrDelChatJID: m.ChatJID}
+	attrs := statusDeliveryAttrs(m)
 	if attempts > 0 {
 		attrs[attrDelAttempts] = strconv.Itoa(attempts)
 	}
@@ -62,7 +62,9 @@ func deliveryWrite(msgKey objstore.Key, m core.Message, status string,
 // how many attempts it has already spent.
 type PendingMessage struct {
 	core.Message
-	Attempts int
+	Attempts  int
+	Operation string
+	QueuedAt  time.Time
 }
 
 // PutOutbound appends one outbound row and the delivery state it owes. A door
@@ -128,7 +130,7 @@ func (s *Store) pendingFrom(ctx context.Context, items []objstore.Item) ([]Pendi
 		if err != nil {
 			return nil, fmt.Errorf("%s's attempt count: %w", it.Key.Sort, err)
 		}
-		out = append(out, PendingMessage{Message: m, Attempts: n})
+		out = append(out, PendingMessage{Message: m, Attempts: n, Operation: it.Attrs["operation"], QueuedAt: deliveryQueuedAt(it, m)})
 	}
 	return out, nil
 }
@@ -153,6 +155,9 @@ func (s *Store) messageBehindDelivery(ctx context.Context,
 // MarkDelivered records that the platform accepted a row: the delivery item goes
 // and the platform's own id lands on the message, in one batch.
 func (s *Store) MarkDelivered(ctx context.Context, m core.Message, platformID string) error {
+	if m.StatusRevision > 0 {
+		return s.ackStatus(ctx, m, platformID)
+	}
 	key, err := messageKeyOf(m)
 	if err != nil {
 		return err
@@ -178,7 +183,7 @@ func (s *Store) DeadLetter(ctx context.Context, m core.Message, attempts int) er
 	if err != nil {
 		return err
 	}
-	attrs := map[string]string{attrDelChatJID: m.ChatJID}
+	attrs := statusDeliveryAttrs(m)
 	if attempts > 0 {
 		attrs[attrDelAttempts] = strconv.Itoa(attempts)
 	}
@@ -261,7 +266,7 @@ func (s *Store) DeadLetters(ctx context.Context, folder string, limit int) ([]Pe
 		if err != nil {
 			return nil, fmt.Errorf("%s's attempt count: %w", it.Key.Sort, err)
 		}
-		out = append(out, PendingMessage{Message: m, Attempts: n})
+		out = append(out, PendingMessage{Message: m, Attempts: n, Operation: it.Attrs["operation"], QueuedAt: deliveryQueuedAt(it, m)})
 	}
 	return out, nil
 }
@@ -302,13 +307,17 @@ func (s *Store) ReplayDeadLetter(ctx context.Context, m core.Message) (bool, err
 	if err != nil {
 		return false, err
 	}
-	return s.TryWriteEntities(ctx, nil,
+	checks := []objstore.Check{}
+	if m.StatusRevision > 0 {
+		checks = append(checks, objstore.Check{Entity: Messages, Key: key, Cond: statusRevisionGuard(m)})
+	}
+	return s.TryWriteEntities(ctx, checks,
 		objstore.Write{Op: objstore.Delete, Entity: MessageDelivery,
 			Key:  deliveryKey(core.MessageStatusFailed, key),
 			Cond: objstore.Cond{Item: objstore.ItemPresent}},
 		objstore.Write{Op: objstore.Put, Entity: MessageDelivery,
 			Key:   deliveryKey(core.MessageStatusPending, key),
-			Attrs: map[string]string{attrDelChatJID: m.ChatJID}})
+			Attrs: statusDeliveryAttrs(m)})
 }
 
 // CountPendingOutbound answers how many rows still owe a delivery: the /status
@@ -318,4 +327,140 @@ func (s *Store) CountPendingOutbound(ctx context.Context) (int, error) {
 		Entity: MessageDelivery, Partition: core.MessageStatusPending, Project: []string{},
 	})
 	return len(items), err
+}
+
+func statusDeliveryAttrs(m core.Message) map[string]string {
+	attrs := map[string]string{attrDelChatJID: m.ChatJID}
+	if m.StatusRevision > 0 {
+		attrs["queued_at"] = core.TS(time.Now())
+		attrs["revision"] = strconv.Itoa(m.StatusRevision)
+		switch {
+		case m.StatusPhase == "cleared":
+			attrs["operation"] = "delete"
+		case m.PlatformID != "":
+			attrs["operation"] = "edit"
+		default:
+			attrs["operation"] = "send"
+		}
+	}
+	return attrs
+}
+
+func statusRevisionGuard(m core.Message) objstore.Cond {
+	cmp := objstore.Cmp{Attr: "status_revision", Op: objstore.Absent}
+	if m.StatusRevision > 0 {
+		cmp.Op, cmp.Value = objstore.Eq, strconv.Itoa(m.StatusRevision)
+	}
+	return objstore.Cond{Item: objstore.ItemPresent, Where: []objstore.Cmp{cmp}}
+}
+
+// QueueStatus saves desired content and its delivery operation in one batch.
+// The caller serializes updates for the turn. An absent row is appended once.
+func (s *Store) QueueStatus(ctx context.Context, m core.Message, content, phase string) error {
+	if m.StatusRevision == 0 {
+		if _, exists := s.MessageByID(m.ChatJID, m.ID); !exists {
+			m.Content, m.StatusPhase, m.StatusRevision = content, phase, 1
+			_, err := s.putMessage(ctx, m, core.MessageStatusPending, true)
+			return err
+		}
+	}
+	if m.Content == content && m.StatusPhase == phase {
+		return nil
+	}
+	key, err := messageKeyOf(m)
+	if err != nil {
+		return err
+	}
+	next := m
+	next.Content, next.StatusPhase, next.StatusRevision = content, phase, m.StatusRevision+1
+	return s.WriteEntities(ctx, nil,
+		objstore.Write{Op: objstore.Update, Entity: Messages, Key: key,
+			Attrs: map[string]string{attrMsgContent: content, "status_phase": phase, "status_revision": strconv.Itoa(next.StatusRevision)}, Cond: statusRevisionGuard(m)},
+		objstore.Write{Op: objstore.Update, Entity: MessageActivity, Key: activityKey(key), Attrs: map[string]string{attrActPreview: truncateRunes(content, activityPreviewChars)}},
+		objstore.Write{Op: objstore.Delete, Entity: MessageDelivery, Key: deliveryKey(core.MessageStatusFailed, key)},
+		objstore.Write{Op: objstore.Put, Entity: MessageDelivery, Key: deliveryKey(core.MessageStatusPending, key), Attrs: statusDeliveryAttrs(next)})
+}
+
+func (s *Store) ackStatus(ctx context.Context, m core.Message, platformID string) error {
+	key, err := messageKeyOf(m)
+	if err != nil {
+		return err
+	}
+	for {
+		it, exists, err := s.itemAt(ctx, Messages, key)
+		if err != nil || !exists {
+			return err
+		}
+		current := messageFrom(it)
+		writes := []objstore.Write{{Op: objstore.Update, Entity: Messages, Key: key, Cond: statusRevisionGuard(current)}}
+		if platformID != "" {
+			writes[0].Attrs = map[string]string{AttrMsgPlatformID: platformID}
+		}
+		if current.StatusRevision != m.StatusRevision {
+			if m.PlatformID != "" || platformID == "" {
+				return nil
+			}
+			current.PlatformID = platformID
+			writes = append(writes, objstore.Write{Op: objstore.Put, Entity: MessageDelivery, Key: deliveryKey(core.MessageStatusPending, key), Attrs: statusDeliveryAttrs(current)})
+		} else {
+			writes = append(writes, objstore.Write{Op: objstore.Delete, Entity: MessageDelivery, Key: deliveryKey(core.MessageStatusPending, key)})
+		}
+		ok, err := s.TryWriteEntities(ctx, nil, writes...)
+		if err != nil || ok {
+			return err
+		}
+	}
+}
+
+// FailStatus counts only the attempted revision and retains the operation on dead letters.
+func (s *Store) FailStatus(ctx context.Context, pending PendingMessage, permanent bool, maxAttempts int) error {
+	key, err := messageKeyOf(pending.Message)
+	if err != nil {
+		return err
+	}
+	n := pending.Attempts + 1
+	attrs := statusDeliveryAttrs(pending.Message)
+	attrs[attrDelAttempts] = strconv.Itoa(n)
+	attrs["queued_at"] = core.TS(pending.QueuedAt)
+	target := core.MessageStatusPending
+	if permanent || n >= maxAttempts {
+		target = core.MessageStatusFailed
+	}
+	guard := objstore.Check{Entity: Messages, Key: key, Cond: statusRevisionGuard(pending.Message)}
+	cond := objstore.Cond{Item: objstore.ItemPresent, Where: []objstore.Cmp{{Attr: "revision", Op: objstore.Eq, Value: strconv.Itoa(pending.StatusRevision)}}}
+	write := objstore.Write{Op: objstore.Put, Entity: MessageDelivery, Key: deliveryKey(target, key), Attrs: attrs}
+	if target == core.MessageStatusPending {
+		write.Cond = cond
+	}
+	writes := []objstore.Write{write}
+	if target == core.MessageStatusFailed {
+		writes = append(writes, objstore.Write{Op: objstore.Delete, Entity: MessageDelivery, Key: deliveryKey(core.MessageStatusPending, key), Cond: cond})
+	}
+	_, err = s.TryWriteEntities(ctx, []objstore.Check{guard}, writes...)
+	return err
+}
+
+func deliveryQueuedAt(it objstore.Item, m core.Message) time.Time {
+	at, err := time.Parse(time.RFC3339Nano, it.Attrs["queued_at"])
+	if err != nil {
+		return m.Timestamp
+	}
+	return at
+}
+
+// PendingDelivery reads the currently owed operation at a message's coordinate.
+func (s *Store) PendingDelivery(ctx context.Context, m core.Message) (PendingMessage, bool, error) {
+	key, err := messageKeyOf(m)
+	if err != nil {
+		return PendingMessage{}, false, err
+	}
+	it, ok, err := s.itemAt(ctx, MessageDelivery, deliveryKey(core.MessageStatusPending, key))
+	if err != nil || !ok {
+		return PendingMessage{}, ok, err
+	}
+	rows, err := s.pendingFrom(ctx, []objstore.Item{it})
+	if err != nil || len(rows) == 0 {
+		return PendingMessage{}, false, err
+	}
+	return rows[0], true, nil
 }
