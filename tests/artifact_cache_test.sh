@@ -3,6 +3,7 @@ set -Eeuo pipefail
 
 fixture=$(mktemp -d)
 cleanup() {
+  chmod -f 755 "$fixture"/data/images/* "$fixture"/data/images/.*-partial.* || true
   for dir in "$fixture"/data/images/* \
     "$fixture"/data/images/.*-partial.* "$fixture"/fixtures/*
   do
@@ -18,11 +19,11 @@ cleanup() {
     done
     rmdir -- "$dir"
   done
-  rm -f -- "$fixture/docker" "$fixture/calls" "$fixture/output"
-  rmdir -- "$fixture/fixtures" "$fixture/data/images" "$fixture/data" "$fixture"
+  rm -f -- "$fixture/docker" "$fixture/calls" "$fixture/output" "$fixture/bin/sudo"
+  rmdir -- "$fixture/fixtures" "$fixture/data/images" "$fixture/data" "$fixture/bin" "$fixture"
 }
 trap cleanup EXIT
-mkdir -p "$fixture/fixtures/kernel" "$fixture/fixtures/rootfs/usr/local/bin" \
+mkdir -p "$fixture/bin" "$fixture/fixtures/kernel" "$fixture/fixtures/rootfs/usr/local/bin" \
   "$fixture/fixtures/rootfs/app" "$fixture/fixtures/rootfs-partial/usr/local/bin" \
   "$fixture/data/images"
 printf 'kernel\n' > "$fixture/fixtures/kernel/bzImage"
@@ -75,7 +76,7 @@ case "$1" in
   export)
     if [[ ${FAKE_MODE:-} == export_fail ]]
     then
-      tar -cf - -C "$FAKE_FIXTURES/rootfs" .
+      tar -cf - -C "$FAKE_FIXTURES/rootfs" usr app
       exit 7
     fi
     if [[ ${FAKE_MODE:-} == bad_tar ]]
@@ -89,10 +90,10 @@ case "$1" in
     fi
     if [[ ${FAKE_MODE:-} == rootfs_partial_success ]]
     then
-      tar -cf - -C "$FAKE_FIXTURES/rootfs-partial" .
+      tar -cf - -C "$FAKE_FIXTURES/rootfs-partial" usr
       exit 0
     fi
-    tar -cf - -C "$FAKE_FIXTURES/rootfs" .
+    tar -cf - -C "$FAKE_FIXTURES/rootfs" usr app
     ;;
   rm)
     if [[ ${FAKE_MODE:-} == cleanup_fail ]]
@@ -107,6 +108,26 @@ case "$1" in
 esac
 EOF
 chmod +x "$fixture/docker"
+
+# A 700 tree under images/ belongs to root, as `sudo mktemp -d` makes it, so
+# between privileged calls the caller cannot enter it.
+cat > "$fixture/bin/sudo" <<'EOF'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+for d in "$FAKE_IMAGES"/* "$FAKE_IMAGES"/.*-partial.*
+do
+  if [[ -d "$d" && $(stat -c %a "$d") == 0 ]]; then chmod 700 "$d"; fi
+done
+rc=0
+"$@" || rc=$?
+for d in "$FAKE_IMAGES"/* "$FAKE_IMAGES"/.*-partial.*
+do
+  if [[ -d "$d" && $(stat -c %a "$d") == 700 ]]; then chmod 000 "$d"; fi
+done
+exit "$rc"
+EOF
+chmod +x "$fixture/bin/sudo"
+export FAKE_IMAGES="$fixture/data/images"
 export FAKE_FIXTURES="$fixture/fixtures"
 export FAKE_CALLS="$fixture/calls"
 
@@ -290,6 +311,27 @@ case "${1:-all}" in
   rootfs_fresh|all)
     dir="$fixture/data/images/rootfs-fresh"
     run_make rootfs "$dir"
+    [[ -s "$dir/app/entrypoint.sh" && -s "$dir/usr/local/bin/node" &&
+      -s "$dir/.image-env.json" ]]
+    [[ ${1:-all} != all ]] && exit 0
+    ;;&
+  kernel_sudo|all)
+    dir="$fixture/data/images/kernel-sudo"
+    : > "$FAKE_CALLS"
+    PATH="$fixture/bin:$PATH" make --no-print-directory -s kernel \
+      DATA_DIR="$fixture/data" KERNEL_DIR="$dir" KERNEL_KEY=fixture \
+      DOCKER="sudo $fixture/docker" > "$fixture/output" 2>&1 ||
+      { cat "$fixture/output"; exit 1; }
+    [[ -s "$dir/bzImage" && -s "$dir/initrd.gz" && -s "$dir/kernel.config" ]]
+    [[ ${1:-all} != all ]] && exit 0
+    ;;&
+  rootfs_sudo|all)
+    dir="$fixture/data/images/rootfs-sudo"
+    : > "$FAKE_CALLS"
+    PATH="$fixture/bin:$PATH" make --no-print-directory -s rootfs \
+      DATA_DIR="$fixture/data" ROOTFS_DIR="$dir" ROOTFS_KEY=fixture \
+      DOCKER="sudo $fixture/docker" > "$fixture/output" 2>&1 ||
+      { cat "$fixture/output"; exit 1; }
     [[ -s "$dir/app/entrypoint.sh" && -s "$dir/usr/local/bin/node" &&
       -s "$dir/.image-env.json" ]]
     [[ ${1:-all} != all ]] && exit 0
