@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/objstore"
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
 	"github.com/kronael/arizuko/store"
 )
@@ -62,5 +63,34 @@ func TestTurnControlPollContinuesAfterProviderRecoveryError(t *testing.T) {
 	control, _, _ := db.store().ReadTurnControl(t.Context())
 	if after.State != store.TurnRunning || control.Phase != "probe" || len(p.kills) != 1 {
 		t.Fatalf("failed recovery released ownership: turn=%+v control=%+v kills=%v", after, control, p.kills)
+	}
+}
+
+func TestTurnControlRefusedInputSurvivesGCBeforeRuntimeReturn(t *testing.T) {
+	db, l, p, _ := pauseFixture(t)
+	tc := providerRefusal(t, db, p)
+	if err := db.store().WriteEntities(t.Context(), nil, objstore.Write{
+		Op: objstore.Update, Entity: store.TurnContexts,
+		Key:   objstore.Key{Partition: store.OwnerRoutd, Sort: tc.TurnID},
+		Attrs: map[string]string{"started_at": core.TS(time.Now().Add(-24 * time.Hour))},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.store().SweepExpiredRunning(time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.q.recover(l, true); err != nil {
+		t.Fatal(err)
+	}
+	after, _ := db.GetTurnContext(tc.TurnID)
+	control, _, _ := db.store().ReadTurnControl(t.Context())
+	l.q.now = func() time.Time { return control.NextProbeAt }
+	processPauseChat(t, l, tc.ChatJID)
+	if after.State == store.TurnExpired || len(p.kills) == 0 || len(p.runs) != 0 {
+		t.Fatalf("refused input expired and replayed without reconciliation: state=%s kills=%v runs=%d",
+			after.State, p.kills, len(p.runs))
+	}
+	if after.State != store.TurnPendingRetry || after.RetryCount != 1 || p.kills[0] != "captured" {
+		t.Fatalf("refusal recovery lost ownership: turn=%+v kills=%v", after, p.kills)
 	}
 }

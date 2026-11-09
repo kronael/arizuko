@@ -12,6 +12,33 @@ import (
 	"github.com/kronael/arizuko/objstore/dynstore/dyntest"
 )
 
+func TestControlledRefusalExpiry(t *testing.T) {
+	s := openTurnEntities(t)
+	for _, sample := range []struct{ id, marker, want string }{
+		{"refused", "current", TurnRunning},
+		{"old-refusal", "previous", TurnExpired},
+		{"ordinary", "", TurnExpired},
+	} {
+		attrs := map[string]string{
+			"folder": "demo", "chat_jid": "web:1", "state": TurnRunning,
+			"started_at": core.TS(time.Now().Add(-24 * time.Hour)), "attempt_id": "current",
+		}
+		if sample.marker != "" {
+			attrs["provider_failure_attempt"] = sample.marker
+		}
+		if err := s.SeedItem(t.Context(), TurnContexts, []string{sample.id}, attrs); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.SweepExpiredRunning(time.Hour); err != nil {
+			t.Fatal(err)
+		}
+		tc, _ := s.TurnContextOf(sample.id)
+		if tc.State != sample.want {
+			t.Fatalf("%s state=%s, want %s", sample.id, tc.State, sample.want)
+		}
+	}
+}
+
 func TestDeferredTurnGuards(t *testing.T) {
 	ctx := context.Background()
 	s := openTurnEntities(t)

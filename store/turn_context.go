@@ -460,8 +460,8 @@ func (s *Store) TurnsSince(since time.Time) ([]TurnContext, error) {
 	return out, nil
 }
 
-// SweepExpiredRunning moves every turn that has been running longer than the
-// run timeout to `expired`, and answers how many moved. `expired` is DISTINCT
+// SweepExpiredRunning expires stale running turns without a provider refusal
+// and answers how many moved. `expired` is DISTINCT
 // from `done` on purpose: it stops crash recovery re-feeding the turn without
 // tripping the done-guard against a legitimate re-dispatch. Each write carries
 // the state it read as its own condition, so a turn that finished between the
@@ -481,11 +481,19 @@ func (s *Store) SweepExpiredRunning(timeout time.Duration) (int64, error) {
 	}
 	var swept int64
 	for _, it := range items {
+		marker := objstore.Cmp{Attr: "provider_failure_attempt", Op: objstore.Eq,
+			Value: it.Attrs["provider_failure_attempt"]}
+		if marker.Value == "" {
+			marker.Op = objstore.Absent
+		} else if marker.Value == it.Attrs["attempt_id"] {
+			continue
+		}
 		moved, err := s.TryWriteEntities(ctx, nil, objstore.Write{
 			Op: objstore.Update, Entity: TurnContexts, Key: it.Key,
 			Attrs: map[string]string{attrTurnState: TurnExpired},
 			Cond: objstore.Cond{Where: []objstore.Cmp{
 				{Attr: attrTurnState, Op: objstore.Eq, Value: TurnRunning},
+				marker,
 			}},
 		})
 		if err != nil {
