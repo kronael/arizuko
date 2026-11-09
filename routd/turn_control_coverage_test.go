@@ -103,9 +103,10 @@ func TestTurnControlExpiredEngagementPollsSavedInput(t *testing.T) {
 }
 
 func TestTurnControlForwardedNoticeAndOldestTies(t *testing.T) {
-	db, l, _, dl := pauseFixture(t, "spend_limit")
+	db, l, provider, dl := pauseFixture(t, "spend_limit")
 	pauseChatInFolder(t, db, "web:b", "a")
-	now := time.Now()
+	now := time.Date(2026, 11, 9, 3, 0, 0, 0, time.UTC)
+	l.q.now = func() time.Time { return now }
 	if err := db.PutMessage(core.Message{ID: "held", ChatJID: "web:a", Sender: "u",
 		Content: "forwarded", Timestamp: now, ForwardedFrom: "slack:origin"}); err != nil {
 		t.Fatal(err)
@@ -120,7 +121,7 @@ func TestTurnControlForwardedNoticeAndOldestTies(t *testing.T) {
 		}
 		n := 0
 		for _, m := range msgs {
-			if strings.HasPrefix(m.ID, "model-pause-") {
+			if m.Verb == "status" && m.StatusPhase == "waiting" {
 				n++
 			}
 		}
@@ -130,9 +131,17 @@ func TestTurnControlForwardedNoticeAndOldestTies(t *testing.T) {
 				stopped = true
 			}
 		}
-		if n != 1 || !stopped {
+		want := 0
+		if jid == "slack:origin" {
+			want = 1
+		}
+		if n != want || !stopped {
 			t.Fatalf("notice/typing destination %s: notices=%d stopped=%v", jid, n, stopped)
 		}
+	}
+	pending, err := db.NewMessagesForChat("web:b", db.GetAgentCursor("web:b"), 10)
+	if err != nil || len(pending) != 1 || pending[0].ID != "later" || db.GetAgentCursor("web:b") != "" || len(provider.runs) != 1 {
+		t.Fatalf("blocked input: pending=%+v runs=%d cursor=%q err=%v", pending, len(provider.runs), db.GetAgentCursor("web:b"), err)
 	}
 	a := core.Message{ID: "same", ChatJID: "web:a", Timestamp: now}
 	b := core.Message{ID: "same", ChatJID: "web:b", Timestamp: now}

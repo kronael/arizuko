@@ -639,8 +639,8 @@ func TestFinishTurn_IsTheOnlyDoneWriter(t *testing.T) {
 			sites = append(sites, f)
 		}
 	}
-	if len(sites) != 1 || sites[0] != "progress.go" {
-		t.Fatalf("a turn is marked done at %v, want finishTurn in progress.go alone", sites)
+	if len(sites) != 1 || sites[0] != "turn_status.go" {
+		t.Fatalf("a turn is marked done at %v, want finishTurn in turn_status.go alone", sites)
 	}
 }
 
