@@ -13,6 +13,28 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+### Changed
+
+- Product packages live in `packages/<name>` at the repository root, and
+  `ant/examples/` is gone. `catalog:<name>` resolves a product there under the
+  same name; a name that is also a service package in `template/services`
+  stays an error. `arizuko create -p` and `arizuko group add -p` record the
+  source `packages/<name>`.
+
+### Deploy steps
+
+An `installed_packages` row whose source is a path under `ant/examples/` names
+a directory that no longer exists, and every `arizuko package` verb on that
+instance stops at `Failed: read <source>`. Select the product from the catalog
+before the first package operation on this release:
+
+```sh
+arizuko package rm -g FOLDER NAME && arizuko package add -g FOLDER catalog:NAME
+```
+
+`TestMovedPathSourceIsRepairedFromTheCatalog` covers both the refusal and the
+repair.
+
 ## [v0.75.7] — 2026-11-10
 
 > arizuko v0.75.7 — old saved turns close once

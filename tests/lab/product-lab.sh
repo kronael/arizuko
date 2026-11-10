@@ -39,7 +39,7 @@ GROUP="$DATA/groups/main"
 say "author a product (the corpus reference, copied out so you can edit it)"
 PROD="$WORK/products/helpdesk"
 mkdir -p "$(dirname "$PROD")"
-cp -r "$REPO/ant/examples/helpdesk" "$PROD"
+cp -r "$REPO/packages/helpdesk" "$PROD"
 find "$PROD" -type f | sed "s|$PROD/|   |" | sort
 
 say "apply it as a one-product mix"
@@ -171,7 +171,7 @@ if command -v go >/dev/null && [ -d "$REPO/anteval" ]; then
   # TestEveryProductShipsEvalCases locks that a suite EXISTS, and this checks the
   # harness actually accepts each one.
   missing=0; rejected=0; total=0
-  for d in "$REPO"/ant/examples/*/; do
+  for d in "$REPO"/packages/*/; do
     n=$(basename "$d"); total=$((total + 1))
     if [ ! -d "$d/eval" ]; then
       bad "product $n ships no eval/ suite"; missing=$((missing + 1)); continue

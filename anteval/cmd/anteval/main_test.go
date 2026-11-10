@@ -68,7 +68,7 @@ text = "bye"
 // stops parsing is a product whose behaviour nothing checks any more —
 // silently, because the harness simply finds no cases.
 func TestEveryShippedProductSuiteValidates(t *testing.T) {
-	products, err := os.ReadDir("../../../ant/examples")
+	products, err := os.ReadDir("../../../packages")
 	if err != nil {
 		t.Fatalf("read the product corpus: %v", err)
 	}
@@ -77,7 +77,7 @@ func TestEveryShippedProductSuiteValidates(t *testing.T) {
 		if !p.IsDir() {
 			continue
 		}
-		dir := filepath.Join("../../../ant/examples", p.Name(), "eval")
+		dir := filepath.Join("../../../packages", p.Name(), "eval")
 		if _, err := os.Stat(dir); err != nil {
 			continue
 		}

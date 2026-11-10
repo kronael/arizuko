@@ -44,7 +44,7 @@ func tgzOf(t *testing.T, entries ...tarEntry) []byte {
 
 func TestCatalogResolvesProduct(t *testing.T) {
 	_, db := seedPackageInstance(t, "prod", map[string]string{})
-	mustWrite(t, filepath.Join(os.Getenv("APP_SRC_DIR"), "ant", "examples", "brain", "arizuko.yml"), "name: brain\n")
+	mustWrite(t, filepath.Join(os.Getenv("APP_SRC_DIR"), "packages", "brain", "arizuko.yml"), "name: brain\n")
 	packageRuns(t, "prod", "add", "catalog:brain")
 	rec, found, err := db.InstalledPackage("", "brain")
 	if err != nil || !found || rec.Source != "catalog:brain" {
@@ -52,9 +52,35 @@ func TestCatalogResolvesProduct(t *testing.T) {
 	}
 }
 
+// A selection recorded by path stops every package verb once the directory
+// moves; withdrawing it and selecting the catalog name repairs the instance.
+func TestMovedPathSourceIsRepairedFromTheCatalog(t *testing.T) {
+	_, db := seedPackageInstance(t, "moved", map[string]string{})
+	old := filepath.Join(t.TempDir(), "brain")
+	mustWrite(t, filepath.Join(old, "arizuko.yml"), "name: brain\n")
+	packageRuns(t, "moved", "add", "-g", "main", old)
+	catalog := filepath.Join(os.Getenv("APP_SRC_DIR"), "packages")
+	if err := os.MkdirAll(catalog, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(old, filepath.Join(catalog, "brain")); err != nil {
+		t.Fatal(err)
+	}
+	if out := packageRefuses(t, "moved", "sync"); !strings.Contains(out, "Failed: read "+old) {
+		t.Fatalf("output %q does not name the missing source", out)
+	}
+	packageRuns(t, "moved", "rm", "-g", "main", "brain")
+	packageRuns(t, "moved", "add", "-g", "main", "catalog:brain")
+	rec, found, err := db.InstalledPackage("main", "brain")
+	if err != nil || !found || rec.Source != "catalog:brain" {
+		t.Fatalf("brain record: %+v found=%v err=%v", rec, found, err)
+	}
+	packageRuns(t, "moved", "sync")
+}
+
 func TestCatalogNameInBothPlacesErrors(t *testing.T) {
 	_, db := seedPackageInstance(t, "both", map[string]string{"dup.yml": "services:\n  dup:\n    image: x\n"})
-	mustWrite(t, filepath.Join(os.Getenv("APP_SRC_DIR"), "ant", "examples", "dup", "arizuko.yml"), "name: dup\n")
+	mustWrite(t, filepath.Join(os.Getenv("APP_SRC_DIR"), "packages", "dup", "arizuko.yml"), "name: dup\n")
 	if out := packageRefuses(t, "both", "add", "catalog:dup"); !strings.Contains(out, "ambiguous") {
 		t.Fatalf("output %q lacks ambiguous", out)
 	}
@@ -137,7 +163,7 @@ func TestGitSourcesStayGit(t *testing.T) {
 		"http://h/a/b":           true,
 		"https://h/a/b.tgz":      true, // classified git; resolveProductSource routes archives first
 		"/abs/path":              false,
-		"ant/examples/x":         false,
+		"packages/x":             false,
 		"catalog:teled":          false,
 	} {
 		if isGitURL(src) != git {

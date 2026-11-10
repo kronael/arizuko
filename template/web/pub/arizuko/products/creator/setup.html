@@ -62,7 +62,7 @@
       <h2>The style file comes first</h2>
       <p><code>facts/style.md</code> is the core of the product. It ships as an instruction to the operator and not as content, because a generic voice file gives generic drafts. Record formal or casual, first or third person, the topics in scope, the topics out of scope, length and format, and the rules for each platform, for example short Bluesky posts and the thread shape on X.</p>
       <p>The <code>facts/</code> files of the product are examples, not package files, so <code>arizuko package sync</code> never rewrites them. Copy them once from the repository checkout:</p>
-      <pre><code>cp -r ant/examples/creator/facts /srv/data/arizuko_&lt;instance&gt;/groups/content/</code></pre>
+      <pre><code>cp -r packages/creator/facts /srv/data/arizuko_&lt;instance&gt;/groups/content/</code></pre>
       <div class="callout"><strong>The draft quality follows this one file.</strong> If the drafts read as if nobody wrote them, fix this file. The fix is not in the prompt and not in the model.</div>
 
       <h2>A publish adapter lets the agent post</h2>

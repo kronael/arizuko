@@ -24,7 +24,7 @@ into the router — the same broker-connector seam other MCP integrations use
   ([5/19](../5/19-hitl-firewall.md)) target **chat channels only**
   (telegram/discord/slack/whatsapp/email); socials are out of scope for
   buttons/HITL prompts.
-- The `socials` product (`ant/examples/socials/`) consumes this daemon, not
+- The `socials` product (`packages/socials/`) consumes this daemon, not
   raw adapters.
 - Existing social adapters (bskyd/twitd/reditd/linkd; there is no mastd)
   migrate under the daemon; the channel-vs-social split becomes explicit in

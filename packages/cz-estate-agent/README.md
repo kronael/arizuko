@@ -70,7 +70,7 @@ The [skill](skills/katastr/SKILL.md) defines pacing, evidence requirements, chal
 Run the local tests from the repository root:
 
 ```sh
-uv run --with numpy --with pillow --with scipy python -B -X dev -W error -m unittest discover -s ant/examples/cz-estate-agent/tests
+uv run --with numpy --with pillow --with scipy python -B -X dev -W error -m unittest discover -s packages/cz-estate-agent/tests
 ```
 The fixtures start no Chromium and send no CUZK requests.
 Verify guest browser access separately; an HTTP response does not prove ownership details are visible.

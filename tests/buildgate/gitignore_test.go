@@ -14,10 +14,10 @@ func TestPackageScriptsAreNotIgnored(t *testing.T) {
 		t.Skip("git not on PATH")
 	}
 	for _, path := range []string{
-		"ant/examples/p/skills/s/scripts/x.py",
+		"packages/p/skills/s/scripts/x.py",
 		"ant/skills/s/scripts/x.py",
 		"ant/hooks/x.py",
-		"ant/examples/p/skills/s/scripts/x.sh",
+		"packages/p/skills/s/scripts/x.sh",
 	} {
 		cmd := exec.Command("git", "check-ignore", "--no-index", path)
 		cmd.Dir = repoRoot

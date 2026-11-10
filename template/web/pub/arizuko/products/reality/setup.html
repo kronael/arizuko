@@ -46,7 +46,7 @@
       <p class="docs-crumb"><a href="../../">arizuko</a> &rsaquo; <a href="../">products</a> &rsaquo; Reality agent &mdash; setup</p>
       <h1>Reality agent — setup</h1>
 
-      <p class="lede">The setup deploys Rhias on Telegram, with WhatsApp as an optional input: the instance, the group from <code>ant/examples/reality/</code>, the first <code>facts/threads/</code> and the monthly sweep.</p>
+      <p class="lede">The setup deploys Rhias on Telegram, with WhatsApp as an optional input: the instance, the group from <code>packages/reality/</code>, the first <code>facts/threads/</code> and the monthly sweep.</p>
 
       <h2>Rhias needs KVM, a bot and a model key</h2>
       <ul>
@@ -82,12 +82,12 @@ OBSERVE_WINDOW_CHARS=8000</code></pre>
       <pre><code>sudo systemctl restart arizuko_demo</code></pre>
 
       <h2>group add makes the assistant group from the template</h2>
-      <p>The template in <code>ant/examples/reality/</code> holds the persona in <code>group/SOUL.md</code>, <code>group/BRANDING.md</code>, the first <code>facts/</code> and the tests. At the first turn, <code>runed</code> renames <code>SOUL.md</code> to <code>PERSONA.md</code>. One command makes the group, selects the template and routes your Telegram DM to it. <code>package sync</code> writes the files of the template:</p>
+      <p>The template in <code>packages/reality/</code> holds the persona in <code>group/SOUL.md</code>, <code>group/BRANDING.md</code>, the first <code>facts/</code> and the tests. At the first turn, <code>runed</code> renames <code>SOUL.md</code> to <code>PERSONA.md</code>. One command makes the group, selects the template and routes your Telegram DM to it. <code>package sync</code> writes the files of the template:</p>
       <pre><code>arizuko group -i demo add 'telegram:&lt;bot-id&gt;/user/&lt;your-tg-id&gt;' assistant -p reality
 arizuko package sync -i demo
 # to change the persona, edit group/SOUL.md in the template source, then sync again</code></pre>
       <p>The <code>facts/</code> files of the template are examples, not package files, so <code>package sync</code> never rewrites them. Copy them once from the repository checkout:</p>
-      <pre><code>cp -r ant/examples/reality/facts /srv/data/arizuko_demo/groups/assistant/</code></pre>
+      <pre><code>cp -r packages/reality/facts /srv/data/arizuko_demo/groups/assistant/</code></pre>
 
       <h2>One file for each situation goes into facts/threads</h2>
       <p>Threads hold ongoing context across weeks. Make one file for each current situation in <code>groups/assistant/facts/threads/</code>:</p>
@@ -146,7 +146,7 @@ facts/threads/relationship-alice.md</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/reality/setup.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-11-07">2026-11-07</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-08">2026-11-08</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

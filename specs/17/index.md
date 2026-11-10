@@ -26,11 +26,11 @@ control API; the API ships before the products that depend on it.
 
 ## Product catalog
 
-The shipped catalog lives in `ant/examples/`. [EXTENDING.md](../../EXTENDING.md#installing-packages) describes package selection. The catalog is **not** restated here. Per-product truth lives in three places, none of which is a
+The shipped catalog lives in `packages/`. [EXTENDING.md](../../EXTENDING.md#installing-packages) describes package selection. The catalog is **not** restated here. Per-product truth lives in three places, none of which is a
 spec file:
 
-- `ant/examples/<name>/arizuko.yml` — skills, `env`, operator setup.
-- `ant/examples/<name>/{PERSONA,SOUL,BRANDING}.md` — voice and register.
+- `packages/<name>/arizuko.yml` — skills, `env`, operator setup.
+- `packages/<name>/{PERSONA,SOUL,BRANDING}.md` — voice and register.
 - `template/web/pub/arizuko/products/<name>/` — the public pitch.
 
 A product earns a spec file here only when it carries a design decision
@@ -39,7 +39,7 @@ decision, gitd, is a platform spec: [6/27](../6/27-git-channel.md)).
 
 ### Unshipped product ideas
 
-No `ant/examples/` template, no page — intent only, kept as lines:
+No `packages/` template, no page — intent only, kept as lines:
 
 - **ops** — DevOps/SRE with runbooks in `facts/` + scoped `bash`; daily
   health digest via `timed`. Superseded in practice by later products,
@@ -71,7 +71,7 @@ gate `support` and `socials`.
 - `P-product-templates.md` — **deleted**. A pointer stub to
   `EXTENDING.md`; authoring instructions live there.
 - `5-authoring-product.md` — **deleted**. It was an earlier name for what
-  shipped as the `creator` product (`ant/examples/creator/`); the index
+  shipped as the `creator` product (`packages/creator/`); the index
   already said "see product-creator.md". Its one non-duplicate idea —
   each authoring group renders drafts to a `content_target` under `/pub/`,
   preview vs permanent — is recorded here and nowhere else; it needs a

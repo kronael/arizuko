@@ -67,7 +67,7 @@ arizuko route -i &lt;instance&gt; list</code></pre>
 
       <h2>package add selects a product for an existing group</h2>
       <p>A group can run several products. Select each one for the group, then sync:</p>
-      <pre><code>arizuko package add -i &lt;instance&gt; -g acme/support ant/examples/helpdesk
+      <pre><code>arizuko package add -i &lt;instance&gt; -g acme/support packages/helpdesk
 arizuko package sync -i &lt;instance&gt;</code></pre>
 
       <h2>Send an unanswered question to the billing group</h2>
@@ -84,7 +84,7 @@ arizuko package sync -i &lt;instance&gt;</code></pre>
       <h2>The facts folder holds what your team promises</h2>
       <p><code>facts/sla.md</code> ships with one line, so the shape is clear. Replace it with what your team promises, and add one file for each topic, for example the refund window, the supported versions and the escalation rota. The agent answers from these files. It escalates every question that the files do not answer.</p>
       <p>The <code>facts/</code> files of the product are examples, not package files, so <code>arizuko package sync</code> never rewrites them. Copy them once from the repository checkout:</p>
-      <pre><code>cp -r ant/examples/helpdesk/facts /srv/data/arizuko_&lt;instance&gt;/groups/acme/support/</code></pre>
+      <pre><code>cp -r packages/helpdesk/facts /srv/data/arizuko_&lt;instance&gt;/groups/acme/support/</code></pre>
 
       <h2>A billing question must escalate</h2>
       <pre><code>arizuko send -i &lt;instance&gt; acme/support "I was charged twice for March, ticket 4417" --wait</code></pre>
@@ -108,7 +108,7 @@ arizuko package sync -i &lt;instance&gt;</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/helpdesk/setup.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-11-04">2026-11-04</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-07">2026-11-07</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

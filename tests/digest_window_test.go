@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-const digestWindow = "../ant/examples/company-brain/skills/digest/scripts/window.py"
+const digestWindow = "../packages/company-brain/skills/digest/scripts/window.py"
 
 // runWindow runs window.py against a temp HOME and state file. state "" means
 // no state file.

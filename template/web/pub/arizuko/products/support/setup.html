@@ -64,7 +64,7 @@
       <p>The command selects the product for <code>support</code> and writes the route. A Telegram group ID is negative, and the JID drops the minus sign. Sync to install the product files into <code>groups/support/</code>:</p>
       <pre><code>arizuko package sync -i &lt;instance&gt;</code></pre>
       <p>Or select the product for a group that you already have, next to other products:</p>
-      <pre><code>arizuko package add -i &lt;instance&gt; -g support ant/examples/support</code></pre>
+      <pre><code>arizuko package add -i &lt;instance&gt; -g support packages/support</code></pre>
 
       <h2>.env holds the channel token</h2>
       <pre><code>TELEGRAM_BOT_TOKEN=REPLACE_ME
@@ -74,7 +74,7 @@ OPENAI_API_KEY=REPLACE_ME   # optional: the oracle skill</code></pre>
       <h2>One file for each topic fills the knowledge base</h2>
       <p><code>facts/kb.md</code> ships as a seed. Replace it, then add one file for each topic, for example <code>facts/api.md</code>, <code>facts/billing.md</code> and <code>facts/limits.md</code>. Longer reference documents go under <code>refs/</code>. The agent reads both before it answers and cites the path, so users see the file names. Name the files as you want to see them quoted.</p>
       <p>The <code>facts/</code> files of the product are examples, not package files, so <code>arizuko package sync</code> never rewrites them. Copy them once from the repository checkout:</p>
-      <pre><code>cp -r ant/examples/support/facts /srv/data/arizuko_&lt;instance&gt;/groups/support/</code></pre>
+      <pre><code>cp -r packages/support/facts /srv/data/arizuko_&lt;instance&gt;/groups/support/</code></pre>
       <div class="callout"><strong>A fact file is not a knowledge dump.</strong> The agent quotes what it finds, so a stale line is a wrong answer with a citation, which is worse than no answer. Treat stale facts as bugs, as the persona already does.</div>
 
       <h2>The answer must cite a path or say that nothing is recorded</h2>
@@ -102,7 +102,7 @@ OPENAI_API_KEY=REPLACE_ME   # optional: the oracle skill</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/support/setup.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-11-04">2026-11-04</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-07">2026-11-07</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

@@ -64,7 +64,7 @@ arizuko package sync -i &lt;instance&gt;</code></pre>
       <h2>Two files define the domain and the sources</h2>
       <p><code>facts/domain.md</code> says what the domain is, who the main players are and what counts as important. <code>facts/watchlist.md</code> says where to look: sources, companies and topics. Both ship as instructions to the operator and not as content, because a researcher without a subject writes a newsletter about nothing.</p>
       <p>The <code>facts/</code> files of the product are examples, not package files, so <code>arizuko package sync</code> never rewrites them. Copy them once from the repository checkout:</p>
-      <pre><code>cp -r ant/examples/strategy/facts /srv/data/arizuko_&lt;instance&gt;/groups/research/</code></pre>
+      <pre><code>cp -r packages/strategy/facts /srv/data/arizuko_&lt;instance&gt;/groups/research/</code></pre>
 
       <h2>A scheduled task delivers the briefing</h2>
       <p>Ask in the chat, for example "brief me every Monday at 07:00", and the agent makes the <a href="../../concepts/tasks.html">scheduled task</a>. Products ship no task files. The task tool makes the row, so you can list, pause and cancel it like any other task.</p>
@@ -89,7 +89,7 @@ arizuko package sync -i &lt;instance&gt;</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/strategy/setup.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-11-04">2026-11-04</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-06">2026-11-06</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

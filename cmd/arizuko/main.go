@@ -290,10 +290,10 @@ func cmdCreate(args []string) {
 	var productDir string
 	var manifest *container.ProductManifest
 	if product != "" {
-		productDir = filepath.Join(cfg.HostAppDir, "ant", "examples", product)
+		productDir = filepath.Join(cfg.HostAppDir, "packages", product)
 		manifestPath := filepath.Join(productDir, container.ManifestFile)
 		if _, err := os.Stat(manifestPath); err != nil {
-			entries, _ := os.ReadDir(filepath.Join(cfg.HostAppDir, "ant", "examples"))
+			entries, _ := os.ReadDir(filepath.Join(cfg.HostAppDir, "packages"))
 			var known []string
 			for _, e := range entries {
 				if e.IsDir() {
@@ -473,12 +473,12 @@ func cmdGroup(args []string) {
 		}
 		productDir := ""
 		if *productFlag != "" {
-			productDir = filepath.Join(cfg.HostAppDir, "ant", "examples", *productFlag)
+			productDir = filepath.Join(cfg.HostAppDir, "packages", *productFlag)
 			if _, err := os.Stat(filepath.Join(productDir, container.ManifestFile)); err != nil {
 				die("Failed: unknown product %q (looked for %s/%s)", *productFlag, productDir, container.ManifestFile)
 			}
 			if err := routd.OpenOver(s.Obj()).PutInstalledPackage(routd.InstalledPackage{Folder: folder, Name: *productFlag,
-				Source: "ant/examples/" + *productFlag, InstalledAt: core.TS(time.Now())}); err != nil {
+				Source: "packages/" + *productFlag, InstalledAt: core.TS(time.Now())}); err != nil {
 				die("Failed: select product: %v", err)
 			}
 		}

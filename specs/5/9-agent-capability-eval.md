@@ -120,7 +120,7 @@ string the answer must contain is the usual shape. An agent that replies
 politely and offers the refund has regressed even though every daemon is
 healthy and all 35 platform cases pass.
 
-Reference product: `ant/examples/helpdesk/eval/helpdesk.toml` (4 cases).
+Reference product: `packages/helpdesk/eval/helpdesk.toml` (4 cases).
 One of them — the triage skill being loaded — doubles as the live check
 for `L37`, which is the intended pattern: a platform bug becomes visible
 as a product behaviour failure rather than a file-placement detail.

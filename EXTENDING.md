@@ -221,7 +221,7 @@ first `next_run` from the cron on its next poll. The file never selects a packag
 Only the `installed_packages` rows select packages.
 
 `catalog:<name>` selects a bundled service package (`template/services/<name>`)
-or a product (`ant/examples/<name>`); a name in both places is an error. Other
+or a product (`packages/<name>`); a name in both places is an error. Other
 sources: an absolute path, a path relative to `HOST_APP_DIR`, a Git source
 (`github.com/...`, `git@...`, `git+...`, or another `://` URL that is not an
 archive), or a `.tgz` archive, local or `http(s)://`. An archive unpacks into a
@@ -339,7 +339,7 @@ that file unless the operator passes `-f`.
 `mcpServers`, `tasks.toml` and package migrations refuse installation because
 no package reader executes them. Configure connectors and scheduled tasks
 through their owning resources.
-[The CZ Estate Agent package](ant/examples/cz-estate-agent/README.md) provides a complete group example.
+[The CZ Estate Agent package](packages/cz-estate-agent/README.md) provides a complete group example.
 
 `runed/packages_test.go` covers native assets and read-only mounts.
 

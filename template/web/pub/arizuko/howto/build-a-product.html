@@ -48,7 +48,7 @@
 
       <p class="lede">A product is a package with workspace identity and initial facts. Select it for a group with <code>arizuko package add -g FOLDER</code>.</p>
       <h2>The helpdesk template supplies a working example</h2>
-      <p><code>ant/examples/helpdesk/</code> supplies a persona, operating rules, example facts, a triage skill and evaluation cases. Its manifest is:</p>
+      <p><code>packages/helpdesk/</code> supplies a persona, operating rules, example facts, a triage skill and evaluation cases. Its manifest is:</p>
       <pre><code>name: helpdesk
 brand: Helpdesk
 tagline: Triage inbound support, answer what it can, escalate what it cannot.
@@ -57,7 +57,7 @@ env:
     hint: Folder that billing/account escalations are routed to</code></pre>
       <p>Directory contents supply skills. The manifest declares name, optional brand and tagline, and environment requirements. The manifest defines this one package. It never selects a package.</p>
       <h2>The operator selects a package for a group</h2>
-      <pre><code>arizuko package add -g FOLDER ant/examples/helpdesk
+      <pre><code>arizuko package add -g FOLDER packages/helpdesk
 arizuko package sync</code></pre>
       <p><code>add</code> installs the package and records the selection in the <code>installed_packages</code> resource. <code>sync</code> installs every selected package again. Use <code>-i/--instance NAME</code> for another configured instance. Relative sources resolve under <code>HOST_APP_DIR</code>. The group must exist, and the files of a group in <code>groups/FOLDER/</code> are not a selection.</p>
       <p><code>group add -p helpdesk</code> writes the same selection row for the new folder, and the files arrive on the next <code>package sync</code>. <code>create -p helpdesk</code> records the product as <code>ARIZUKO_DEFAULT_PRODUCT</code> in <code>.env</code>; the first boot of <code>routd</code> writes the same selection row for <code>main</code>.</p>
@@ -72,14 +72,14 @@ arizuko package sync</code></pre>
       <p>Check that <code>package sync</code> restores a <code>group/</code> file after an edit, that <code>package rm</code> removes the files of the package, and that packaged tools execute through their standard guest paths.</p>
       <h2>Resource rows belong to instance packages</h2>
       <p>A group package cannot install service fragments or resource rows. Configure connectors, grants and scheduled tasks through their owning resources. A skills-only environment requirement is a setup hint; scoped credentials belong in group secrets.</p>
-      <p class="src">Source: <a href="https://github.com/kronael/arizuko/tree/main/ant/examples/helpdesk">helpdesk template</a>, <a href="https://github.com/kronael/arizuko/blob/main/EXTENDING.md#installing-packages">package guide</a>, <a href="../reference/packages.html">package reference</a>.</p>
+      <p class="src">Source: <a href="https://github.com/kronael/arizuko/tree/main/packages/helpdesk">helpdesk template</a>, <a href="https://github.com/kronael/arizuko/blob/main/EXTENDING.md#installing-packages">package guide</a>, <a href="../reference/packages.html">package reference</a>.</p>
       <nav class="docs-pager" aria-label="Pager">
         <a rel="prev" href="talking-to-agents.html">&larr; Talking to agents</a>
         <a rel="next" href="slack.html">Slack &rarr;</a>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/howto/build-a-product.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-25">2026-10-25</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-28">2026-10-28</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

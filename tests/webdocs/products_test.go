@@ -7,13 +7,13 @@ import (
 	"testing"
 )
 
-const examplesDir = "../../ant/examples"
+const packagesDir = "../../packages"
 
 // shapeMarker is how products/shapes.html declares that its products are
 // assembled from the primitives and ship no tree.
 const shapeMarker = "This is a shape, not a template"
 
-// TestProductCatalogMatchesCorpus is BUGS L38: `ant/examples/` shipped 11
+// TestProductCatalogMatchesCorpus is BUGS L38: the product tree shipped 11
 // products, the catalog documented 9, and only 5 were in both. A shipped
 // product needs a page pair, because `products list` prints its name. A
 // product with no tree is a section of shapes.html, which says so, and never
@@ -21,9 +21,9 @@ const shapeMarker = "This is a shape, not a template"
 func TestProductCatalogMatchesCorpus(t *testing.T) {
 	productsDir := filepath.Join(pubDir, siteRoot, "products")
 	shipped := map[string]bool{}
-	entries, err := os.ReadDir(examplesDir)
+	entries, err := os.ReadDir(packagesDir)
 	if err != nil {
-		t.Fatalf("read %s: %v", examplesDir, err)
+		t.Fatalf("read %s: %v", packagesDir, err)
 	}
 	for _, e := range entries {
 		if e.IsDir() {
@@ -55,7 +55,7 @@ func TestProductCatalogMatchesCorpus(t *testing.T) {
 	}
 	for name := range documented {
 		if !shipped[name] {
-			t.Errorf("products/%s/ has no tree in ant/examples/ — a shape is a section of products/shapes.html", name)
+			t.Errorf("products/%s/ has no tree in packages/ — a shape is a section of products/shapes.html", name)
 		}
 	}
 

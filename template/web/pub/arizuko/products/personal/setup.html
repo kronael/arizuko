@@ -72,7 +72,7 @@ sudo systemctl restart arizuko_fiu</code></pre>
       <h2>The preferences file holds what Fiu must know</h2>
       <p><code>facts/preferences.md</code> makes the difference between a generic assistant and your assistant. Write what you would otherwise repeat: how you like drafts, what you work on, your timezone and the names that come up often. It is a file, so edit it when it is wrong.</p>
       <p>The <code>facts/</code> files of the product are examples, not package files, so <code>arizuko package sync</code> never rewrites them. Copy them once from the repository checkout:</p>
-      <pre><code>cp -r ant/examples/personal/facts /srv/data/arizuko_fiu/groups/main/</code></pre>
+      <pre><code>cp -r packages/personal/facts /srv/data/arizuko_fiu/groups/main/</code></pre>
       <div class="callout"><strong>Memory belongs to one folder.</strong> The diary and <code>facts/</code> belong to the group, so a second group has a second memory, and nothing is shared. That is the containment guarantee, not a limit to work around. <a href="../../concepts/scopes.html">Scopes</a> explains it.</div>
 
       <h2>The assistant must quote your preferences</h2>

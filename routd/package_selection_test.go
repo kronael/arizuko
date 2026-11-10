@@ -91,7 +91,7 @@ func TestOpenSelectsDefaultProductOnce(t *testing.T) {
 		return record
 	}
 	first := boot()
-	if first.Source != "ant/examples/pm" || first.InstalledAt == "" {
+	if first.Source != "packages/pm" || first.InstalledAt == "" {
 		t.Fatalf("first boot selection: %+v", first)
 	}
 	if second := boot(); !reflect.DeepEqual(second, first) {

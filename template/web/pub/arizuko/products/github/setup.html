@@ -96,7 +96,7 @@ arizuko group -i &lt;inst&gt; grant folder:dev dev "mcp:github_&lt;tool&gt;"</co
       <h2>facts/repo.md must hold your real commands</h2>
       <p><code>facts/repo.md</code> ships as a placeholder, and you must replace it. Write the exact build, test and lint commands, name the generated directories that nobody edits by hand, and write what "done" means for a change.</p>
       <p>The <code>facts/</code> files of the product are examples, not package files, so <code>arizuko package sync</code> never rewrites them. Copy them once from the repository checkout:</p>
-      <pre><code>cp -r ant/examples/github/facts /srv/data/arizuko_&lt;inst&gt;/groups/dev/</code></pre>
+      <pre><code>cp -r packages/github/facts /srv/data/arizuko_&lt;inst&gt;/groups/dev/</code></pre>
       <p>A wrong fact is worse than a missing one, because the agent cites it. A stale line in <code>facts/</code> is a bug with a file name.</p>
 
       <h2>The agent must quote facts/repo.md</h2>
@@ -110,7 +110,7 @@ arizuko group -i &lt;inst&gt; grant folder:dev dev "mcp:github_&lt;tool&gt;"</co
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/github/setup.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-11-04">2026-11-04</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-07">2026-11-07</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

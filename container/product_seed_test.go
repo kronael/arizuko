@@ -13,7 +13,7 @@ import (
 )
 
 // examplesDir is the shipped product corpus.
-const examplesDir = "../ant/examples"
+const examplesDir = "../packages"
 
 func TestCoreHasNoGroupPayload(t *testing.T) {
 	group := t.TempDir()

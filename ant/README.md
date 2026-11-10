@@ -279,6 +279,5 @@ ant/
   CLAUDE.md              the resident file (§ The resident file)
   PERSONA.md             Default persona
   skills/                Stock skills
-  examples/              workspace templates, including cz-estate-agent/README.md
   Dockerfile             Builds arizuko-ant:latest (TS)
 ```

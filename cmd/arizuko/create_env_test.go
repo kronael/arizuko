@@ -89,7 +89,7 @@ func TestCreateProductShowsStoreSetup(t *testing.T) {
 	t.Setenv("DATA_DIR", "")
 	t.Setenv("HOST_APP_DIR", app)
 	seedCoreSource(t, app)
-	mustWrite(t, filepath.Join(app, "ant", "examples", "sample", "arizuko.yml"), "name: sample\n")
+	mustWrite(t, filepath.Join(app, "packages", "sample", "arizuko.yml"), "name: sample\n")
 	output := captureStdout(t, func() { cmdCreate([]string{"-p", "sample", "new"}) })
 	for _, want := range []string{"DYNAMODB_URL", "STORE_CA", "AWS_REGION", "arizuko store -i new enroll", "INSTALL.md"} {
 		if !strings.Contains(output, want) {

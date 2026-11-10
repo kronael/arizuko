@@ -50,7 +50,7 @@
 
       <div class="callout">
         <strong>This is a shape, not a template.</strong> No tree ships for
-        these four in <code>ant/examples/</code>, so <code>arizuko create
+        these four in <code>packages/</code>, so <code>arizuko create
         --product</code> refuses their names. The <a href="./">catalog</a>
         marks which products ship as templates.
       </div>
@@ -163,7 +163,7 @@ arizuko network -i shop allow supermarket lidl.co.uk</code></pre>
       <pre><code>$EDITOR /srv/data/arizuko_acme/.env    # WEB_HOST, WEB_PORT, DISCORD_TOKEN, a model key
 arizuko group -i acme add discord:123456789/987654321 main
 </code></pre>
-      <p>No <code>discord-team</code> template exists, so the <code>main</code> group starts with the generic persona. The nearest start is <code>ant/examples/slack-team/</code>: copy its <code>PERSONA.md</code> into <code>groups/main/</code> and adapt the package's <code>CLAUDE.md</code> as that group's <code>SYSTEM.md</code>. For linked identities, add <code>GITHUB_CLIENT_ID</code>, <code>GOOGLE_CLIENT_ID</code> or <code>DISCORD_CLIENT_ID</code> with its secret to <code>.env</code>.</p>
+      <p>No <code>discord-team</code> template exists, so the <code>main</code> group starts with the generic persona. The nearest start is <code>packages/slack-team/</code>: copy its <code>PERSONA.md</code> into <code>groups/main/</code> and adapt the package's <code>CLAUDE.md</code> as that group's <code>SYSTEM.md</code>. For linked identities, add <code>GITHUB_CLIENT_ID</code>, <code>GOOGLE_CLIENT_ID</code> or <code>DISCORD_CLIENT_ID</code> with its secret to <code>.env</code>.</p>
       <p>At <a href="https://discord.com/developers/applications">discord.com/developers/applications</a>, make the application and its bot, copy the token, and enable the Message Content Intent. Without that intent, the bot gets message events with no text. Invite the bot with the OAuth2 URL generator: scope <code>bot</code>, and the permissions Send Messages, Read Message History, Add Reactions and Attach Files. <a href="../howto/discord.html">Discord</a> has each step.</p>
       <p>A guild bot usually answers every DM and stays quiet in channels until someone mentions it. These rows do that for every guild, with <code>arizuko route -i acme add &lt;match&gt; &lt;target&gt; --seq N</code>:</p>
       <pre><code>seq  match                                target
@@ -289,7 +289,7 @@ arizuko token -i &lt;instance&gt; issue chat &lt;folder&gt;    # the public chat
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/shapes.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-11-08">2026-11-08</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-09">2026-11-09</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

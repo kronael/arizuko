@@ -66,10 +66,10 @@
     <h2 id="lifecycle" class="group-h2">Instance lifecycle</h2>
 
     <h3 id="create"><span class="sig">arizuko create [-i NAME] [-p|--product &lt;product&gt;]</span></h3>
-    <p>Seed an instance data dir: write <code>.env</code> with a generated <code>AUTH_SECRET</code> and <code>SECRETS_KEY</code>, make <code>services/</code>, <code>surrogate/</code> and <code>store/</code>, and set up the default group's folder. It writes files and no row &mdash; there is no store server yet. If <code>--product</code> is given, it reads <code>ant/examples/&lt;product&gt;/arizuko.yml</code>, writes the choice to <code>.env</code> as <code>ARIZUKO_DEFAULT_PRODUCT</code>, prints the env checklist. It copies no workspace file. At its first boot <code>routd</code> writes the <code>main</code> group row with that product and one <code>installed_packages</code> row for <code>main</code>; the next <code>arizuko package sync</code> installs the files.</p>
+    <p>Seed an instance data dir: write <code>.env</code> with a generated <code>AUTH_SECRET</code> and <code>SECRETS_KEY</code>, make <code>services/</code>, <code>surrogate/</code> and <code>store/</code>, and set up the default group's folder. It writes files and no row &mdash; there is no store server yet. If <code>--product</code> is given, it reads <code>packages/&lt;product&gt;/arizuko.yml</code>, writes the choice to <code>.env</code> as <code>ARIZUKO_DEFAULT_PRODUCT</code>, prints the env checklist. It copies no workspace file. At its first boot <code>routd</code> writes the <code>main</code> group row with that product and one <code>installed_packages</code> row for <code>main</code>; the next <code>arizuko package sync</code> installs the files.</p>
     <table>
       <tr><th>Flag</th><th>Type</th><th>Default</th><th>Effect</th></tr>
-      <tr><td><code>-p</code>, <code>--product</code></td><td>string</td><td><code>""</code></td><td>Product template name; looked up under <code>$HostAppDir/ant/examples/&lt;product&gt;/arizuko.yml</code>. On miss, prints known products and exits non-zero.</td></tr>
+      <tr><td><code>-p</code>, <code>--product</code></td><td>string</td><td><code>""</code></td><td>Product template name; looked up under <code>$HostAppDir/packages/&lt;product&gt;/arizuko.yml</code>. On miss, prints known products and exits non-zero.</td></tr>
     </table>
     <p><strong>State touched:</strong> creates <code>${PREFIX:-/srv}/data/arizuko_&lt;name&gt;/</code>, writes <code>.env</code> (mode 0600), makes the <code>services/</code>, <code>surrogate/</code> and <code>store/</code> dirs, calls <code>container.SetupGroup</code> for the <code>main</code> folder skeleton. No row: routd seeds the ACL floor and the <code>main</code> group row at its first boot. Idempotent on <code>.env</code> (only written when missing).</p>
     <pre><code>arizuko create -i solo
@@ -153,7 +153,7 @@ arizuko apply -i demo demo-backup.tar --force</code></pre>
     </table>
     <p><strong>State touched:</strong> one <code>installed_packages</code> row, the package directory under <code>&lt;data-dir&gt;/packages/</code>, service files, package-owned rows, the <code>group/</code> files of the group and <code>docker-compose.yml</code>.</p>
     <pre><code>arizuko package add -i demo catalog:teled
-arizuko package add -i demo -g support ant/examples/support</code></pre>
+arizuko package add -i demo -g support packages/support</code></pre>
     <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/sync.go"><code>cmd/arizuko/sync.go</code></a></p>
 
     <h3 id="package-rm"><span class="sig">arizuko package [-i NAME] rm [-g|--group &lt;folder&gt;] &lt;name&gt;</span></h3>
@@ -227,7 +227,7 @@ arizuko token -i demo revoke web:support</code></pre>
     <p>Create a group bound to a channel JID. Folder is validated via <code>groupfolder.IsValidFolder</code>. Calls <code>container.SetupGroup</code> for the folder skeleton seeds default tasks, inserts the group row, then adds a route <code>room=&lt;JidRoom(jid)&gt; -&gt; &lt;folder&gt;</code>. For Discord guild channels (jid prefix <code>discord:</code> but not <code>discord:dm/</code>) the command writes two routes: <code>room=&lt;room&gt; verb=mention</code> at seq -1 to the folder, and <code>room=&lt;room&gt;</code> at seq 0 to <code>&lt;folder&gt;?observe</code>. So only mentions start a turn.</p>
     <table>
       <tr><th>Flag</th><th>Type</th><th>Default</th><th>Effect</th></tr>
-      <tr><td><code>-p</code>, <code>--product</code></td><td>string</td><td><code>""</code></td><td>Product to select for this group (same set as <code>arizuko create --product</code>). The command writes one <code>installed_packages</code> row for the folder with the source <code>ant/examples/&lt;product&gt;</code>; the files arrive on the next <code>arizuko package sync</code>. On miss, errors with the expected <code>arizuko.yml</code> path.</td></tr>
+      <tr><td><code>-p</code>, <code>--product</code></td><td>string</td><td><code>""</code></td><td>Product to select for this group (same set as <code>arizuko create --product</code>). The command writes one <code>installed_packages</code> row for the folder with the source <code>packages/&lt;product&gt;</code>; the files arrive on the next <code>arizuko package sync</code>. On miss, errors with the expected <code>arizuko.yml</code> path.</td></tr>
     </table>
     <p><strong>State touched:</strong> filesystem (group skeleton), <code>groups</code>, <code>routes</code>, default-task seed, and with <code>-p</code> one <code>installed_packages</code> row.</p>
     <pre><code>arizuko group -i demo add whatsapp:120363042@g.us standup
@@ -497,7 +497,7 @@ arizuko model-pauses clear --folder rhias/trip --url "$ROUTER_URL" --token "$ARI
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/reference/cli.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-11-08">2026-11-08</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-09">2026-11-09</time>
       </div>
     </main>
 

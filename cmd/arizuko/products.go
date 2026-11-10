@@ -61,7 +61,7 @@ func archiveExt(src string) string {
 
 // resolveProductSource turns a package source into a local directory and a
 // revision. Forms: catalog:<name> (a service fragment under template/services
-// or a product under ant/examples; a name in both is an error), an absolute
+// or a product under packages; a name in both is an error), an absolute
 // path, a path under HOST_APP_DIR, a git source, and a .tgz archive (local
 // file or http(s) URL). cleanup removes any temp dir this call made.
 func resolveProductSource(cfg *core.Config, src string) (dir, revision string, cleanup func()) {
@@ -69,7 +69,7 @@ func resolveProductSource(cfg *core.Config, src string) (dir, revision string, c
 	if name, ok := strings.CutPrefix(src, "catalog:"); ok {
 		mustPkgName(name)
 		svc := filepath.Join(compose.CatalogDir(cfg.HostAppDir), name)
-		prod := filepath.Join(cfg.EffectiveAppSrcDir(), "ant", "examples", name)
+		prod := filepath.Join(cfg.EffectiveAppSrcDir(), "packages", name)
 		inSvc, inProd := isDir(svc), isDir(prod)
 		switch {
 		case inSvc && inProd:
