@@ -618,6 +618,36 @@ with `load core configuration … permission denied`.
 - **Test:** `TestOnlyTheCLILoadsTheOperatorEnv` (`tests/components/operator_env_test.go`).
 - **Status:** fixed in 7fa98f38b.
 
+## L809 — a nudged round's model usage is dropped (2026-11-10, open)
+
+MEASURED in `routd/turns.go` `recordTurnResultAttempt` at v0.75.5: a
+submission routd answers with a nudge returns before `RecordTurnResult` and
+before `logSelfReportedCost`, so its `models` reach no log line and no row.
+`ant/src/index.ts` `runTurn` then runs the nudge round on the same turn id and
+submits only that round's usage. A nudged turn reports its last round alone.
+
+- **Severity:** medium — every nudged turn under-reports its usage.
+- **Fix:** ant carries the nudged round's usage into the next submission of
+  the same turn; test `runTurn carries a nudged round usage into the turn
+  record`.
+
+## L808 — a resumed Claude session reports the session total as the turn's usage (2026-11-10, open)
+
+MEASURED in `@anthropic-ai/claude-agent-sdk` 0.3.278 `sdk.d.ts`
+(`SDKResultSuccess.modelUsage`): "a resumed or forked session continues from the
+totals its transcript saved … so the first result already carries the earlier
+turns". The transcript saves them as a `cost-state` line; a local session
+transcript on 2026-11-10 carries `totalCostUSD` 67.85 across four models.
+`ant/src/claude.ts` `extractModelUsage` reported the result's `modelUsage`
+as is, so every resumed Claude turn reported its session's running total: the
+Claude twin of L806.
+
+- **Severity:** high for accounting — per-folder sums count every earlier turn
+  again on each resumed turn.
+- **Fix:** read the last `cost-state` of the transcript the turn resumes and
+  report the difference; test `ClaudeTurn on a resumed session reports the turn,
+  not the session total`.
+
 ## L804 — Codex topic forks do not inherit the parent's model context (2026-11-09, open — record only)
 
 MEASURED by L800's seven missing-Claude-file warnings in sloth's 24-hour
