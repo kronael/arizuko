@@ -493,8 +493,12 @@ func (s *Store) FinishTurnStatus(ctx context.Context, tc TurnContext) (bool, err
 	if tc.StatusOwed == "" {
 		owed.Op = objstore.Absent
 	}
+	attempt := objstore.Cmp{Attr: "attempt_id", Op: objstore.Eq, Value: tc.AttemptID}
+	if tc.AttemptID == "" {
+		attempt.Op = objstore.Absent
+	}
 	return s.TryWriteEntities(ctx, nil, objstore.Write{Op: objstore.Update, Entity: TurnContexts, Key: key,
 		Attrs: map[string]string{attrTurnState: TurnDone, "status_owed": phase}, Cond: objstore.Cond{Item: objstore.ItemPresent, Where: []objstore.Cmp{
-			{Attr: attrTurnState, Op: objstore.Eq, Value: tc.State}, {Attr: "attempt_id", Op: objstore.Eq, Value: tc.AttemptID}, owed,
+			{Attr: attrTurnState, Op: objstore.Eq, Value: tc.State}, attempt, owed,
 		}}})
 }

@@ -1,6 +1,10 @@
 package store
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/kronael/arizuko/objstore"
+)
 
 func TestStatusIntentFenced(t *testing.T) {
 	s := openTurnEntities(t)
@@ -80,5 +84,33 @@ func TestStatusFinalIntentWinsCompletion(t *testing.T) {
 	current, _ = s.TurnContextOf(stale.TurnID)
 	if current.StatusOwed != "final" {
 		t.Fatalf("completion cleared failure intent: %+v", current)
+	}
+}
+
+func TestFinishTurnStatusClosesLegacyRowWithoutAttempt(t *testing.T) {
+	s := openTurnEntities(t)
+	if ok, err := s.OpenTurnContext("legacy-turn", "demo", "", "web:demo", "u", "", nil); err != nil || !ok {
+		t.Fatalf("open %v %v", ok, err)
+	}
+	if err := s.SetTurnState("legacy-turn", TurnPendingRetry); err != nil {
+		t.Fatal(err)
+	}
+	key, err := turnKey("legacy-turn")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := s.TryWriteEntities(t.Context(), nil, objstore.Write{Op: objstore.Update, Entity: TurnContexts, Key: key, Remove: []string{"attempt_id"}}); err != nil || !ok {
+		t.Fatalf("drop attempt %v %v", ok, err)
+	}
+	tc, _ := s.TurnContextOf("legacy-turn")
+	if tc.AttemptID != "" {
+		t.Fatalf("fixture has an attempt: %q", tc.AttemptID)
+	}
+	if ok, err := s.FinishTurnStatus(t.Context(), tc); err != nil || !ok {
+		t.Fatalf("legacy finish %v %v", ok, err)
+	}
+	got, _ := s.TurnContextOf("legacy-turn")
+	if got.State != TurnDone {
+		t.Fatalf("legacy turn left %s", got.State)
 	}
 }
