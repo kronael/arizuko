@@ -16,7 +16,6 @@
 ## What needs you
 
 - `L816` — gitd loses GitHub webhooks while the store is unreachable; retention lives in that store; proposal, needs sign-off.
-- `L814` — `group ungrant` refuses to remove a stored row whose action is outside the grant vocabulary; fix queued.
 - `L803` — morha repeats recovery reports and replies to an old GitHub comment; cause unmeasured.
 - `L804` — Codex topic forks do not inherit the parent's model context; observed messages remain available.
 - `L796` — a silent cron script costs a full agent turn (macrohype-monitor, 48 turns a week); owner chose a command task with no model call; where the command runs needs sign-off.
@@ -383,7 +382,7 @@ the default member role covers a group send.
   and learn otherwise from a refusal.
 - **Fix:** state the current rule in each doc and show the operator grant.
 - **Status:** fixed in 1c56f2800. No test — docs.
-## L814 — `arizuko group ungrant` cannot remove a stored row whose action is outside the grant vocabulary (2026-11-10, open)
+## ✅ FIXED 2026-11-10 4ad71c925 L814 — `arizuko group ungrant` cannot remove a stored row whose action is outside the grant vocabulary (2026-11-10)
 
 MEASURED on sloth 2026-11-10: `arizuko group -i sloth ungrant folder:coach coach codex`
 answered `Failed: ungrant: unknown action "codex" — one of admin, *, ...`.
@@ -400,7 +399,8 @@ row that exists must always be removable.
   row, remove it. With no such row, the refusal stands, so a typo still fails
   loud. Valid actions, the operator shortcut and the key separator checks are
   unchanged.
-- **Status:** open
+- **Test:** `TestUngrantRemovesAStoredRowOutsideTheVocabulary` (`cmd/arizuko/grant_action_test.go`).
+- **Status:** fixed in 4ad71c925.
 
 ## ✅ FIXED 2026-11-10 2ab375c76 L811 — one unmigratable legacy retry turn blocks recovery of every other turn, forever (2026-11-10)
 
