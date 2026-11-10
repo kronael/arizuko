@@ -24,6 +24,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"time"
 
@@ -103,6 +104,8 @@ type TurnContext struct {
 	NextAttemptAt time.Time
 	FailureCause  string
 	StatusOwed    string
+	// StatusChats are the chats this turn's status reached, in first-post order.
+	StatusChats []string
 }
 
 // turnKey is the coordinate of one turn.
@@ -140,7 +143,28 @@ func turnFrom(it objstore.Item) TurnContext {
 	tc.NextAttemptAt, _ = time.Parse(time.RFC3339Nano, it.Attrs["next_attempt_at"])
 	tc.FailureCause = it.Attrs["failure_cause"]
 	tc.StatusOwed = it.Attrs["status_owed"]
+	_ = json.Unmarshal([]byte(it.Attrs["status_chats"]), &tc.StatusChats)
 	return tc
+}
+
+// AddTurnStatusChat records that turnID's status reached jid, so a later status
+// operation finds every chat it posted to without reading message partitions.
+// The caller holds the turn's lock.
+func (s *Store) AddTurnStatusChat(ctx context.Context, turnID, jid string) error {
+	tc, ok := s.TurnContextOf(turnID)
+	if !ok || slices.Contains(tc.StatusChats, jid) {
+		return nil
+	}
+	chats, err := json.Marshal(append(tc.StatusChats, jid))
+	if err != nil {
+		return err
+	}
+	key, err := turnKey(turnID)
+	if err != nil {
+		return err
+	}
+	return s.WriteEntities(ctx, nil, objstore.Write{Op: objstore.Update, Entity: TurnContexts, Key: key,
+		Attrs: map[string]string{"status_chats": string(chats)}})
 }
 
 // OpenTurnContext binds a turn to the (folder, topic, chat) it came from, so a

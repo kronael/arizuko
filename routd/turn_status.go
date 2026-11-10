@@ -470,6 +470,11 @@ func applyStatus(db *DB, dl Deliverer, tc TurnContext, jid string, status turnSt
 	if err := db.store().QueueStatus(context.Background(), row, content, phase); err != nil {
 		return err
 	}
+	if !exists {
+		if err := db.store().AddTurnStatusChat(context.Background(), tc.TurnID, place.jid); err != nil {
+			return err
+		}
+	}
 	if exists && row.PlatformID == "" && row.StatusRevision > 0 && row.StatusPhase != "cleared" && status.phase != "cleared" {
 		return nil
 	}
@@ -626,11 +631,8 @@ func (l *Loop) recoverStatuses() {
 func statusDestinations(db *DB, tc TurnContext) ([]string, error) {
 	jids := db.chatsOwnedBy(returnTarget(tc, tc.ChatJID), tc.RunID)
 	if tc.RetryCount > 0 {
-		prior, err := db.store().TurnStatusChats(context.Background(), tc.TurnID)
-		if err != nil {
-			return nil, err
-		}
-		for _, jid := range prior {
+		fresh, _ := db.GetTurnContext(tc.TurnID)
+		for _, jid := range fresh.StatusChats {
 			if !slices.Contains(jids, jid) {
 				jids = append(jids, jid)
 			}

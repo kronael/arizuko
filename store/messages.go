@@ -1220,21 +1220,3 @@ func (s *Store) LastBotMessage(ctx context.Context, jid string) (core.Message, b
 			{Attr: attrMsgVerb, Op: objstore.Ne, Value: verbStatus},
 		})
 }
-
-func (s *Store) TurnStatusChats(ctx context.Context, turnID string) ([]string, error) {
-	chats, err := s.ChatJIDs(ctx)
-	if err != nil {
-		return nil, err
-	}
-	var out []string
-	for _, jid := range chats {
-		rows, err := s.Obj().Query(ctx, objstore.Query{Entity: Messages, Partition: jid, Where: []objstore.Cmp{{Attr: attrMsgTurnID, Op: objstore.Eq, Value: turnID}, {Attr: attrMsgVerb, Op: objstore.Eq, Value: verbStatus}}, Limit: 1, Project: []string{}})
-		if err != nil {
-			return nil, err
-		}
-		if len(rows) > 0 {
-			out = append(out, jid)
-		}
-	}
-	return out, nil
-}
