@@ -16,9 +16,7 @@ const HELD = 'seedheld';
 const RESOLVED = 'seedgone';
 
 async function stubResolved(request: {
-  get: (
-    u: string,
-  ) => Promise<{
+  get: (u: string) => Promise<{
     json: () => Promise<{
       resolved: Array<{ id: string; verdict: string; body: string }>;
     }>;

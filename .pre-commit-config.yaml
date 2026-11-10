@@ -19,7 +19,7 @@ repos:
       - id: prettier
         language_version: system
         files: \.(ts|js|json|yaml|yml|md)$
-        exclude: ^(\.refs/|package-lock\.json|ant/|\.claude/|\.diary/|BUGS\.md$|deploy/helm/.*/templates/)
+        exclude: ^(\.refs/|package-lock\.json|ant/|packages/|\.claude/|\.diary/|BUGS\.md$|deploy/helm/.*/templates/)
 
   - repo: local
     hooks:
