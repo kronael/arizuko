@@ -148,7 +148,7 @@ func (s *Server) gateway() *modelGateway {
 // copy could only disagree; without one, a number the spender chose is not one
 // a cap can be enforced on. A self-report that disagrees with the meter is the
 // shape a bypassed gateway takes.
-func logSelfReportedCost(metered bool, folder, turnID string, models map[string]apiv1.ModelCost) {
+func logSelfReportedCost(metered bool, folder, turnID string, models map[string]apiv1.ModelUsage) {
 	for model, c := range models {
 		slog.Info("agent self-reported model usage",
 			"folder", folder, "turn_id", turnID, "model", model,

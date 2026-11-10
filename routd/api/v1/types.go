@@ -57,15 +57,16 @@ type OK struct {
 	OK bool `json:"ok"`
 }
 
-// TurnResult is the submit_turn payload. The cost breakdown is the agent
-// runtime's own report, which routd logs and never stores — the model gateway
-// is the ledger (spec 6/39).
+// TurnResult is the submit_turn payload. Models is the harness's own report of
+// the turn's usage, which routd stores as the turn's usage rows (spec 6/39
+// § The turn usage record).
 type TurnResult struct {
-	TurnID    string               `json:"turn_id"`
-	SessionID string               `json:"session_id"`
-	Status    string               `json:"status"` // success|error
-	Error     string               `json:"error"`
-	Models    map[string]ModelCost `json:"models"`
+	TurnID    string                `json:"turn_id"`
+	SessionID string                `json:"session_id"`
+	Status    string                `json:"status"` // success|error
+	Error     string                `json:"error"`
+	Harness   string                `json:"harness"`
+	Models    map[string]ModelUsage `json:"models"`
 	// TimedOut reports harness time or turn-limit exhaustion.
 	TimedOut        bool             `json:"timed_out"`
 	ProviderFailure *ProviderFailure `json:"provider_failure,omitempty"`
@@ -76,11 +77,21 @@ type ProviderFailure struct {
 	ResetAt string `json:"reset_at,omitempty"`
 }
 
-// ModelCost is one model's self-reported usage in TurnResult.Models.
-type ModelCost struct {
-	Input     int `json:"input"`
-	Output    int `json:"output"`
-	CostCents int `json:"cost_cents"`
+// ModelUsage is one model's usage for one turn, as the harness reports it in
+// TurnResult.Models. CostCents is round(costUSD × 100). The credit fields are
+// codex's account facts and nil where the harness has no credit account:
+// CreditsBalance after the turn, CreditsSpent the balance drop across it,
+// WindowUsedPercent the plan window's used share.
+type ModelUsage struct {
+	Input             int      `json:"input"`
+	Output            int      `json:"output"`
+	CacheRead         int      `json:"cache_read"`
+	CacheWrite        int      `json:"cache_write"`
+	CostCents         int      `json:"cost_cents"`
+	CreditsSpent      *float64 `json:"credits_spent,omitempty"`
+	CreditsBalance    *float64 `json:"credits_balance,omitempty"`
+	WindowUsedPercent *float64 `json:"window_used_percent,omitempty"`
+	PlanType          string   `json:"plan_type,omitempty"`
 }
 
 // OutboundRequest is POST /v1/outbound (onbod → routd → adapter).

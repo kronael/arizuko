@@ -19,6 +19,7 @@ import {
   packContinuity,
   permanentAPIError,
   resolveResumeSession,
+  savedUsage,
   transcriptPath,
   unpackContinuity,
 } from './claude.js';
@@ -139,6 +140,42 @@ test('ClaudeTurn: a success result is an ok frame with usage', () => {
   expect(r.usage?.['claude-opus-5']).toEqual({
     input: 100, output: 20, cache_read: 7, cache_write: 3, cost_cents: 5,
   });
+});
+
+/**
+ * A resumed session's result modelUsage continues from the totals the
+ * transcript saved (SDK 0.3.278 sdk.d.ts, SDKResultSuccess.modelUsage), so the
+ * turn reports the difference: the turn's own tokens and cost, and no entry for
+ * a model only earlier turns called. The cost-state line is the recorded shape.
+ */
+test('ClaudeTurn on a resumed session reports the turn, not the session total', () => {
+  const dir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'claude-usage-'));
+  const transcript = path.join(dir, `${UUID}.jsonl`);
+  const saved = {
+    'claude-opus-5-5': { inputTokens: 137665, outputTokens: 468330, cacheReadInputTokens: 181011281,
+      cacheCreationInputTokens: 2039220, webSearchRequests: 0, costUSD: 58.4034392 },
+    'claude-haiku-5-5': { inputTokens: 81295, outputTokens: 8650, cacheReadInputTokens: 0,
+      cacheCreationInputTokens: 0, webSearchRequests: 0, costUSD: 0.0124545 },
+  };
+  fs.writeFileSync(transcript, [
+    JSON.stringify({ type: 'user', message: { content: 'hi' } }),
+    JSON.stringify({ type: 'cost-state', sessionId: UUID, totalCostUSD: 58.4158937, modelUsage: saved }),
+    '',
+  ].join('\n'));
+  const frames = new ClaudeTurn(savedUsage(transcript)).push({
+    type: 'result', subtype: 'success', result: 'ok',
+    modelUsage: {
+      'claude-opus-5-5': { inputTokens: 137765, outputTokens: 468350, cacheReadInputTokens: 181011288,
+        cacheCreationInputTokens: 2039223, costUSD: 58.4490392 },
+      'claude-haiku-5-5': { ...saved['claude-haiku-5-5'] },
+    },
+  });
+  const r = frames[0];
+  if (r.kind !== 'result') throw new Error('expected result frame');
+  expect(r.usage).toEqual({
+    'claude-opus-5-5': { input: 100, output: 20, cache_read: 7, cache_write: 3, cost_cents: 5 },
+  });
+  expect(savedUsage(path.join(dir, 'absent.jsonl'))).toBeUndefined();
 });
 
 test('ClaudeTurn: error_during_execution is a retryFresh error frame — never a reply', () => {

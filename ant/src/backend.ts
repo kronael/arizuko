@@ -44,6 +44,23 @@ export interface ProviderFailure {
   reset_at?: string;
 }
 
+// addUsage sums two reports of one model: tokens, cost and credits spent add,
+// and the account state is the later report's.
+export function addUsage(a: ModelUsage | undefined, b: ModelUsage): ModelUsage {
+  if (!a) return b;
+  const sum = {
+    ...a,
+    ...b,
+    input: a.input + b.input,
+    output: a.output + b.output,
+    cache_read: a.cache_read + b.cache_read,
+    cache_write: a.cache_write + b.cache_write,
+    cost_cents: a.cost_cents + b.cost_cents,
+  };
+  if (a.credits_spent != null && b.credits_spent != null) sum.credits_spent = a.credits_spent + b.credits_spent;
+  return sum;
+}
+
 export function providerFailure(status: number, code: string, message: string,
   reset?: unknown): ProviderFailure | undefined {
   let reason: ProviderFailure['reason'];

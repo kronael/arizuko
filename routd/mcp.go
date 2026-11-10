@@ -437,12 +437,7 @@ func (s *Server) mcpSubmitTurnAttempt(t ipc.TurnResult, attempt string) (ipc.Tur
 	req := apiv1.TurnResult{
 		TurnID: t.TurnID, SessionID: t.SessionID, Status: t.Status,
 		Error: t.Error, TimedOut: t.TimedOut, ProviderFailure: t.ProviderFailure,
-	}
-	if len(t.Models) > 0 {
-		req.Models = make(map[string]apiv1.ModelCost, len(t.Models))
-		for m, u := range t.Models {
-			req.Models[m] = apiv1.ModelCost{Input: u.Input, Output: u.Output, CostCents: u.CostCents}
-		}
+		Harness: t.Harness, Models: t.Models,
 	}
 	return s.recordTurnResultAttempt(t.TurnID, attempt, req)
 }

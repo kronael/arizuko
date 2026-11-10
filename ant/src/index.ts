@@ -6,9 +6,9 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { submitTurn, submitStatus, type TurnAck } from './mcp.js';
+import { submitTurn, submitStatus, type ModelUsage, type TurnAck } from './mcp.js';
 import { injectMcpEnv } from './mcp-servers.js';
-import { Harness, HarnessProfile, Turn, HarnessConfigError, parseHarness, selectHarness } from './backend.js';
+import { Harness, HarnessProfile, Turn, HarnessConfigError, addUsage, parseHarness, selectHarness } from './backend.js';
 import { DEADLINE_NOTE_LEAD_MS, DEADLINE_TEXT, STEER_SPOOL, appendLines, drainSteering, nudgeProgress } from './spool.js';
 export { DEADLINE_TEXT } from './spool.js';
 
@@ -29,8 +29,8 @@ interface ContainerOutput {
   status: 'success' | 'error';
   newSessionId?: string;
   error?: string;
-  // Per-model usage harvested from the harness's result frame (spec 6/39).
-  models?: Record<string, import('./mcp.js').ModelUsage>;
+  harness?: string;
+  models?: Record<string, ModelUsage>;
   // timedOut marks a result that is the graceful query-timeout summary.
   timedOut?: boolean;
   providerFailure?: import('./backend.js').ProviderFailure;
@@ -112,6 +112,7 @@ async function deliverTurn(turnID: string, output: ContainerOutput) {
       session_id: output.newSessionId,
       status: output.status,
       error: output.error,
+      harness: output.harness,
       models: output.models,
       timed_out: output.timedOut,
       provider_failure: output.providerFailure,
@@ -330,6 +331,7 @@ async function runAttempt(
               : frame.retryFresh
                 ? 'harness could not complete the turn on a fresh session'
                 : frame.text || 'the harness failed this turn',
+            harness: harness.name,
             models: frame.usage,
             timedOut: frame.timedOut,
             providerFailure: frame.providerFailure,
@@ -394,9 +396,20 @@ export async function runTurn(
     log(`submit_status failed: ${String(err)}`);
   }
   let sessionId: string | undefined;
+  // routd records no submission it answers with a nudge, so the usage of every
+  // nudged round rides the next submission of the same turn.
+  let carried: Record<string, ModelUsage> = {};
+  const deliverTurnTotal = async (id: string, output: ContainerOutput) => {
+    const models = { ...carried };
+    for (const [model, usage] of Object.entries(output.models ?? {}))
+      models[model] = addUsage(models[model], usage);
+    const ack = await deliver(id, { ...output, models: Object.keys(models).length > 0 ? models : undefined });
+    if (ack?.nudge) carried = models;
+    return ack;
+  };
   try {
     while (true) {
-      const result = await runAttempt(harness, prompt, continuity, containerInput, env, turnID, deliver, sendStatus, deadline);
+      const result = await runAttempt(harness, prompt, continuity, containerInput, env, turnID, deliverTurnTotal, sendStatus, deadline);
       continuity = result.token ?? continuity;
       sessionId = result.sessionId ?? sessionId;
       if (!result.nudge || result.failed || result.closedDuringQuery || result.retryFresh) {

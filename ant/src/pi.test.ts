@@ -242,3 +242,36 @@ test('pi writes and cleans its per-turn MCP configuration', async () => {
   expect(fs.existsSync(agentDir)).toBe(false);
   expect(frames.at(-1)).toMatchObject({ kind: 'result', ok: true });
 });
+
+/**
+ * A resumed pi session reports the turn, not the session: `pi --mode json`
+ * prints the session header and then only the events of this run
+ * (print-mode.js subscribes after the session loads), so the second turn on one
+ * session reports only its own call.
+ */
+test('pi on a resumed session reports only the turn it ran', async () => {
+  const fs = await import('fs');
+  const os = await import('os');
+  const path = await import('path');
+  const { piHarness } = await import('./pi.js');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pi-resume-'));
+  const call = (input: number) => JSON.stringify({ type: 'message_end', message: { ...OK_ASSISTANT,
+    usage: { ...OK_ASSISTANT.usage, input, cost: { total: 0.01 } } } });
+  fs.writeFileSync(path.join(dir, 'pi'), `#!/bin/sh
+printf '%s\\n' '{"type":"session","id":"s-1"}'
+case "$*" in
+  *"--session s-1"*) printf '%s\\n' '${call(7)}' ;;
+  *) printf '%s\\n' '${call(1000)}' ;;
+esac
+`, { mode: 0o755 });
+  const usages = [];
+  for (const continuity of [undefined, 's-1']) {
+    for await (const frame of piHarness.run({ cwd: dir, prompt: 'hi', turnID: 't', continuity, deadline: Date.now() + 10000,
+      env: { PATH: `${dir}:/usr/bin:/bin` } }))
+      if (frame.kind === 'result') usages.push(frame.usage);
+  }
+  expect(usages).toEqual([
+    { 'claude-serve/haiku': { input: 1000, output: 3, cache_read: 4, cache_write: 1, cost_cents: 1 } },
+    { 'claude-serve/haiku': { input: 7, output: 3, cache_read: 4, cache_write: 1, cost_cents: 1 } },
+  ]);
+});

@@ -355,7 +355,7 @@ func TestResultRecordsOutcome(t *testing.T) {
 	db.PutTurnContext("t9", "demo", "main", "web:demo", "u1", "")
 
 	body := apiv1.TurnResult{TurnID: "t9", SessionID: "sX", Status: "success",
-		Models: map[string]apiv1.ModelCost{"claude": {Input: 100, Output: 20, CostCents: 3}}}
+		Models: map[string]apiv1.ModelUsage{"claude": {Input: 100, Output: 20, CostCents: 3}}}
 	first, err := srv.recordTurnResult("t9", body)
 	if err != nil || !first.OK {
 		t.Fatalf("first result: recorded=%v err=%v", first, err)

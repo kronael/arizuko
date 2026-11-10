@@ -387,6 +387,35 @@ test('runTurn resumes a delivery nudge on the same turn and transcript', async (
   expect(result.token).toBe('opaque#latest');
 });
 
+/**
+ * routd records no submission it nudges, so the round it nudged rides the next
+ * submission: the turn's record is the sum of both rounds, with the account
+ * state of the later one, and names the harness.
+ */
+test('runTurn carries a nudged round usage into the turn record', async () => {
+  const rounds = [
+    { codex: { input: 100, output: 10, cache_read: 50, cache_write: 0, cost_cents: 0,
+      credits_spent: 2.5, credits_balance: 97.5, window_used_percent: 100, plan_type: 'pro' } },
+    { codex: { input: 30, output: 3, cache_read: 20, cache_write: 0, cost_cents: 0,
+      credits_spent: 0.5, credits_balance: 97, window_used_percent: 100, plan_type: 'pro' } },
+  ];
+  let run = 0;
+  const harness: Harness = {
+    ...scripted([]),
+    name: 'codex',
+    run: async function* () { yield { kind: 'result', ok: true, text: 'done', usage: rounds[run++] }; },
+  };
+  const delivered: Array<{ harness?: string; models?: unknown }> = [];
+  await runTurn(harness, 'p', undefined, INPUT, {}, 't1', async (_id, output) => {
+    delivered.push({ harness: output.harness, models: output.models });
+    return { nudge: delivered.length === 1 ? 'deliver' : '' };
+  }, statusSpy().send);
+  expect(delivered[1]).toEqual({ harness: 'codex', models: { codex: {
+    input: 130, output: 13, cache_read: 70, cache_write: 0, cost_cents: 0,
+    credits_spent: 3, credits_balance: 97, window_used_percent: 100, plan_type: 'pro',
+  } } });
+});
+
 /** Silent turns use the same one-shot timer and spool. */
 test('runTurn queues the reminder returned by routd on a silent turn', async () => {
   drainLines(STEER_SPOOL);

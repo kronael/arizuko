@@ -4,6 +4,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import {
+  addUsage,
   driveCli,
   Frame,
   Harness,
@@ -159,17 +160,6 @@ export class PiTurn {
       usage: ok && this.models ? roundCosts(this.models) : undefined,
     };
   }
-}
-
-function addUsage(a: ModelUsage | undefined, b: ModelUsage): ModelUsage {
-  if (!a) return b;
-  return {
-    input: a.input + b.input,
-    output: a.output + b.output,
-    cache_read: a.cache_read + b.cache_read,
-    cache_write: a.cache_write + b.cache_write,
-    cost_cents: a.cost_cents + b.cost_cents,
-  };
 }
 
 // Cents are rounded once, on the SUM — rounding each message first zeroes a turn

@@ -4,7 +4,7 @@
 
 import { test, expect } from 'bun:test';
 import {
-  CodexTurn, codexArgs, codexHarness, codexPrompt, threadTotal, tomlValue,
+  CodexTurn, codexArgs, codexHarness, codexPrompt, rolloutState, tomlValue,
 } from './codex.js';
 import fs from 'fs';
 import os from 'os';
@@ -73,9 +73,9 @@ test('a resumed turn reports its usage since the thread total it started from', 
   });
   fs.writeFileSync(path.join(dir, `rollout-2026-11-08T14-49-24-${thread}.jsonl`),
     [count(24_329_717, 24_000_000, 90_000), count(24_462_764, 24_100_000, 91_000), '{"type":"event_msg","payload":{"type":"task_complete"}}', ''].join('\n'));
-  const prior = threadTotal(home, thread);
+  const prior = rolloutState(home, thread).total;
   expect(prior?.input_tokens).toBe(24_462_764);
-  expect(threadTotal(home, 'other-thread')).toBeUndefined();
+  expect(rolloutState(home, 'other-thread').total).toBeUndefined();
   const frames = play(new CodexTurn(undefined, prior), [{
     type: 'turn.completed',
     usage: { input_tokens: 24_903_877, cached_input_tokens: 24_500_000, cache_write_input_tokens: 0, output_tokens: 92_500 },
@@ -85,6 +85,45 @@ test('a resumed turn reports its usage since the thread total it started from', 
   expect(result.usage).toEqual({
     codex: { input: 441_113, output: 1_500, cache_read: 400_000, cache_write: 0, cost_cents: 0 },
   });
+});
+
+/**
+ * A resumed codex turn on a credit account reports the balance drop across the
+ * turn, the balance and window after it, and the plan, read from the rollout
+ * codex appends to. Shapes recorded from a codex-cli rollout on 2026-11-09.
+ */
+test('codexHarness reports the credits a turn spent from the rollout', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-credits-'));
+  const thread = '01a1c10c-098a-71a2-b82e-b9ad00bf7672';
+  const sessions = path.join(dir, 'codex-home', 'sessions', '2026', '11', '09');
+  fs.mkdirSync(sessions, { recursive: true });
+  const rollout = path.join(sessions, `rollout-2026-11-09T16-02-34-${thread}.jsonl`);
+  const count = (input: number, balance: string, used: number) => JSON.stringify({
+    type: 'event_msg',
+    payload: { type: 'token_count',
+      info: { total_token_usage: { input_tokens: input, cached_input_tokens: 0, cache_write_input_tokens: 0, output_tokens: 10 } },
+      rate_limits: { limit_id: 'codex', primary: { used_percent: used, window_minutes: 10080 },
+        credits: { has_credits: true, unlimited: false, balance }, plan_type: 'pro' } },
+  });
+  fs.writeFileSync(rollout, `${count(1000, '29804.4982890000', 97)}\n`);
+  fs.writeFileSync(path.join(dir, 'after'), `${count(1500, '28070.3900000000', 100)}\n`);
+  fs.writeFileSync(path.join(dir, 'codex'), `#!/bin/bash
+cat > /dev/null
+cat "$AFTER" >> "$ROLLOUT"
+printf '%s\\n' '{"type":"thread.started","thread_id":"${thread}"}'
+printf '%s\\n' '{"type":"item.completed","item":{"type":"agent_message","text":"done"}}'
+printf '%s\\n' '{"type":"turn.completed","usage":{"input_tokens":1500,"cached_input_tokens":0,"cache_write_input_tokens":0,"output_tokens":10}}'
+`, { mode: 0o755 });
+  const frames: Frame[] = [];
+  for await (const frame of codexHarness.run({ cwd: dir, prompt: 'work', turnID: 't', continuity: thread,
+    env: { PATH: `${dir}:/usr/bin:/bin`, CODEX_HOME: path.join(dir, 'codex-home'), ROLLOUT: rollout, AFTER: path.join(dir, 'after') },
+    deadline: Date.now() + 600_000 })) frames.push(frame);
+  const result = frames.find((f) => f.kind === 'result');
+  if (result?.kind !== 'result') throw new Error('expected result frame');
+  expect(result.usage).toEqual({ codex: {
+    input: 500, output: 0, cache_read: 0, cache_write: 0, cost_cents: 0,
+    credits_spent: 1734.108289, credits_balance: 28070.39, window_used_percent: 100, plan_type: 'pro',
+  } });
 });
 
 // The live <status> bug (spec 6/16): the pre-seam runtime parsed claude's raw

@@ -318,25 +318,51 @@ function asHookCallback(b: Binding): HookCallback {
   };
 }
 
+type SdkModelUsage = Record<string, {
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheReadInputTokens?: number;
+  cacheCreationInputTokens?: number;
+  costUSD?: number;
+}>;
+
+// savedUsage reads the per-model totals a session transcript saved last, in its
+// `cost-state` entry. The SDK's result modelUsage on a resumed session
+// continues from these totals, so they are what a turn's own usage is measured
+// from. undefined when the transcript or the entry is absent.
+export function savedUsage(transcript: string): SdkModelUsage | undefined {
+  let lines: string[];
+  try {
+    lines = fs.readFileSync(transcript, 'utf-8').split('\n');
+  } catch {
+    return undefined;
+  }
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (!lines[i].includes('"cost-state"')) continue;
+    const entry = JSON.parse(lines[i]) as { type?: string; modelUsage?: SdkModelUsage };
+    if (entry.type === 'cost-state') return entry.modelUsage;
+  }
+  return undefined;
+}
+
 // extractModelUsage converts the SDK's modelUsage record to the snake_case
-// shape routd expects. costUSD → cost_cents via × 100 + round. Spec 11/19.
-function extractModelUsage(modelUsage: unknown): Record<string, ModelUsage> | undefined {
+// shape routd expects, less the totals the session started from. costUSD →
+// cost_cents via × 100 + round, on the difference. A model the turn did not
+// call carries no entry.
+function extractModelUsage(modelUsage: unknown, prior: SdkModelUsage = {}): Record<string, ModelUsage> | undefined {
   if (!modelUsage || typeof modelUsage !== 'object') return undefined;
   const out: Record<string, ModelUsage> = {};
-  for (const [model, u] of Object.entries(modelUsage as Record<string, {
-    inputTokens?: number;
-    outputTokens?: number;
-    cacheReadInputTokens?: number;
-    cacheCreationInputTokens?: number;
-    costUSD?: number;
-  }>)) {
-    out[model] = {
-      input: u.inputTokens ?? 0,
-      output: u.outputTokens ?? 0,
-      cache_read: u.cacheReadInputTokens ?? 0,
-      cache_write: u.cacheCreationInputTokens ?? 0,
-      cost_cents: Math.round((u.costUSD ?? 0) * 100),
+  const less = (a?: number, b?: number) => Math.max(0, (a ?? 0) - (b ?? 0));
+  for (const [model, u] of Object.entries(modelUsage as SdkModelUsage)) {
+    const p = prior[model] ?? {};
+    const usage = {
+      input: less(u.inputTokens, p.inputTokens),
+      output: less(u.outputTokens, p.outputTokens),
+      cache_read: less(u.cacheReadInputTokens, p.cacheReadInputTokens),
+      cache_write: less(u.cacheCreationInputTokens, p.cacheCreationInputTokens),
+      cost_cents: Math.round(less(u.costUSD, p.costUSD) * 100),
     };
+    if (Object.values(usage).some((n) => n > 0)) out[model] = usage;
   }
   return Object.keys(out).length > 0 ? out : undefined;
 }
@@ -393,6 +419,9 @@ export class ClaudeTurn {
   // hours out — so a result that errors after one is terminal (BUGS L175).
   private rejected: ProviderFailure | undefined;
 
+  // prior is the per-model total the resumed session saved before this turn.
+  constructor(private readonly prior?: SdkModelUsage) {}
+
   push(message: unknown): Frame[] {
     const m = message as { type?: string; subtype?: string; session_id?: string };
     const raw = message as Record<string, unknown>;
@@ -435,7 +464,7 @@ export class ClaudeTurn {
         kind: 'result',
         ok: status === 'success',
         text,
-        usage: extractModelUsage((raw as { modelUsage?: unknown }).modelUsage),
+        usage: extractModelUsage((raw as { modelUsage?: unknown }).modelUsage, this.prior),
         // A resume miss ("No conversation found") surfaces as this subtype; it is a
         // retry signal, never a user-facing reply.
         retryFresh: m.subtype === 'error_during_execution' || undefined,
@@ -534,7 +563,7 @@ export async function* runClaude(turn: Turn, run: QueryFn = query): AsyncGenerat
   const onAbort = () => stream.end();
   turn.signal?.addEventListener('abort', onAbort, { once: true });
 
-  const reducer = new ClaudeTurn();
+  const reducer = new ClaudeTurn(session.resume ? savedUsage(transcriptPath(session.resume)) : undefined);
   const end = new SessionEnd();
   let held: Frame | undefined;
   // PostToolUse does not fire while no turn runs, so while the session waits on

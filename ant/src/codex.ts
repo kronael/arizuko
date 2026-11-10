@@ -239,25 +239,59 @@ function usageSince(total: CodexUsage, prior: CodexUsage | undefined): CodexUsag
   };
 }
 
-// threadTotal reads a thread's running total from the last token_count event in
-// its rollout under <codexHome>/sessions. undefined when no rollout or no count
-// exists: the thread is new.
-export function threadTotal(codexHome: string, threadID: string): CodexUsage | undefined {
+// CodexLimits is the account state a rollout token_count event carries in
+// `rate_limits`: the plan window's used share, the credit balance (a decimal
+// string) and the plan.
+interface CodexLimits {
+  primary?: { used_percent?: number } | null;
+  credits?: { balance?: string } | null;
+  plan_type?: string | null;
+}
+
+// rolloutState reads the last token_count facts from a rollout under
+// <codexHome>/sessions: the thread's running total and the account limits. With
+// a thread id it reads that thread's rollout; without one, the newest rollout,
+// whose limits are the latest account state this home has seen. Empty when no
+// rollout or no count exists.
+export function rolloutState(codexHome: string, threadID?: string): { total?: CodexUsage; limits?: CodexLimits } {
+  const dir = path.join(codexHome, 'sessions');
   let names: string[];
   try {
-    names = fs.readdirSync(path.join(codexHome, 'sessions'), { recursive: true }) as string[];
+    names = (fs.readdirSync(dir, { recursive: true }) as string[]).filter((n) => n.endsWith('.jsonl'));
   } catch {
-    return undefined;
+    return {};
   }
-  const name = names.find((n) => n.endsWith(`-${threadID}.jsonl`));
-  if (!name) return undefined;
-  const lines = fs.readFileSync(path.join(codexHome, 'sessions', name), 'utf8').split('\n');
-  for (let i = lines.length - 1; i >= 0; i--) {
+  const name = threadID
+    ? names.find((n) => n.endsWith(`-${threadID}.jsonl`))
+    : names.sort((a, b) => fs.statSync(path.join(dir, b)).mtimeMs - fs.statSync(path.join(dir, a)).mtimeMs)[0];
+  if (!name) return {};
+  const state: { total?: CodexUsage; limits?: CodexLimits } = {};
+  const lines = fs.readFileSync(path.join(dir, name), 'utf8').split('\n');
+  for (let i = lines.length - 1; i >= 0 && !(state.total && state.limits); i--) {
     if (!lines[i].includes('"token_count"')) continue;
-    const payload = JSON.parse(lines[i]).payload as { type?: string; info?: { total_token_usage?: CodexUsage } };
-    if (payload?.type === 'token_count' && payload.info?.total_token_usage) return payload.info.total_token_usage;
+    const payload = JSON.parse(lines[i]).payload as {
+      type?: string; info?: { total_token_usage?: CodexUsage } | null; rate_limits?: CodexLimits | null;
+    };
+    if (payload?.type !== 'token_count') continue;
+    state.total ??= payload.info?.total_token_usage;
+    state.limits ??= payload.rate_limits ?? undefined;
   }
-  return undefined;
+  return state;
+}
+
+// creditsOf renders the account facts of one turn from the limits read before
+// and after it. The spend is the balance drop, so a turn on the same account
+// that overlaps this one lands in it too.
+export function creditsOf(before: CodexLimits | undefined, after: CodexLimits | undefined): Partial<ModelUsage> {
+  const out: Partial<ModelUsage> = {};
+  const balanceBefore = before?.credits?.balance;
+  const balanceAfter = after?.credits?.balance;
+  if (balanceAfter != null) out.credits_balance = Number(balanceAfter);
+  if (balanceBefore != null && balanceAfter != null)
+    out.credits_spent = Math.round((Number(balanceBefore) - Number(balanceAfter)) * 1e6) / 1e6;
+  if (after?.primary?.used_percent != null) out.window_used_percent = after.primary.used_percent;
+  if (after?.plan_type) out.plan_type = after.plan_type;
+  return out;
 }
 
 // codex reports no cost; tokens land, cost_cents stays 0 — honest, not derived.
@@ -324,8 +358,12 @@ async function* runCodex(turn: Turn): AsyncGenerator<Frame> {
   for (const x of scan.excluded) log(`skill excluded by load-time guard: ${x}`);
   writeCodexHooks(turn.cwd, turn.turnID, turn.env);
   // Read once: a deadline continuation resumes the same thread inside this turn.
-  const prior = turn.continuity ? threadTotal(codexHomeDir(turn.cwd, turn.env), turn.continuity) : undefined;
+  const home = codexHomeDir(turn.cwd, turn.env);
+  const before = rolloutState(home, turn.continuity);
+  const prior = turn.continuity ? before.total : undefined;
+  let thread = turn.continuity;
   yield* runCodexStream(turn, async function* (current, deadlineNote) {
+    let held: ResultFrame | undefined;
     for await (const frame of driveCli(
       'codex',
       codexArgs(current),
@@ -340,9 +378,17 @@ async function* runCodex(turn: Turn): AsyncGenerator<Frame> {
       log,
     )) {
       for (const line of drainLines(POLICY_LOG_SPOOL)) console.error(line);
-      yield frame;
+      if (frame.kind === 'continuity') thread = frame.token;
+      // Held until codex exits, so its rollout holds the turn's last token_count.
+      if (frame.kind === 'result') held = frame;
+      else yield frame;
     }
     for (const line of drainLines(POLICY_LOG_SPOOL)) console.error(line);
+    if (held?.usage?.codex && thread) {
+      const credits = creditsOf(before.limits, rolloutState(home, thread).limits);
+      held = { ...held, usage: { codex: { ...held.usage.codex, ...credits } } };
+    }
+    if (held) yield held;
   });
 }
 

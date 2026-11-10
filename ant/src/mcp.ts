@@ -3,17 +3,22 @@ import type { ProviderFailure } from './backend.js';
 
 const MCP_SOCK = '/run/ipc/gated.sock';
 
-// ModelUsage is one model's per-turn accounting as the harness reports it.
-// routd logs it and stores nothing: the model gateway is the ledger, and a
-// self-reported number is what a bypassed gateway looks like (spec 6/39).
-// Mirrors the SDK's ModelUsage in snake_case; cost_cents is costUSD × 100
-// rounded.
+// ModelUsage is one model's accounting for THIS turn, never a session total,
+// as the harness reports it. routd stores it as the turn's usage row and logs
+// it (spec 6/39 § The turn usage record). cost_cents is costUSD × 100
+// rounded. The credit fields are codex's account facts read from its rollout:
+// the balance after the turn, the balance drop across the turn and the plan
+// window's used share; absent where the harness has no credit account.
 export interface ModelUsage {
   input: number;
   output: number;
   cache_read: number;
   cache_write: number;
   cost_cents: number;
+  credits_spent?: number;
+  credits_balance?: number;
+  window_used_percent?: number;
+  plan_type?: string;
 }
 
 export interface SubmitTurnPayload {
@@ -21,8 +26,9 @@ export interface SubmitTurnPayload {
   session_id?: string;
   status: 'success' | 'error';
   error?: string;
-  // Per-model usage from the SDK's result message. Optional; gated
-  // no-ops if absent.
+  // harness names the occupant that ran the turn: claude, codex or pi.
+  harness?: string;
+  // Per-model usage for this turn. Absent when the harness reported none.
   models?: Record<string, ModelUsage>;
   // True when this turn's result is the graceful query-timeout summary, not a
   // normal completion. routd logs a WARN annotation; outcome stays OK.

@@ -130,11 +130,11 @@ type TurnResult struct {
 	TimedOut        bool                    `json:"timed_out,omitempty"`
 	ProviderFailure *routv1.ProviderFailure `json:"provider_failure,omitempty"`
 
-	// Models carries per-model token usage + pre-computed cost, as the
-	// harness reports it. Optional, and nil/empty when the agent does not
-	// report. routd logs it and stores nothing: the model gateway is the
-	// ledger (spec 6/39).
-	Models map[string]ModelUsage `json:"models,omitempty"`
+	// Harness names the occupant that ran the turn: claude, codex or pi.
+	Harness string `json:"harness,omitempty"`
+	// Models carries the turn's per-model usage as the harness reports it,
+	// nil when the agent does not report.
+	Models map[string]routv1.ModelUsage `json:"models,omitempty"`
 }
 
 // TurnAck acknowledges a submission, optionally holding the turn open for a nudge.
@@ -148,18 +148,6 @@ type TurnCheck struct {
 	Delivered bool   `json:"delivered"`
 	Owed      bool   `json:"owed"`
 	Nudge     string `json:"nudge"`
-}
-
-// ModelUsage is one model's tokens + pre-computed cost for a turn.
-// Field names mirror muaddib's `usage = {input, cacheRead, cacheWrite}`
-// shape (refs/muaddib/src/agent/session-factory.ts:285); JSON tags are
-// snake_case for our JSON-RPC over MCP. CostCents = round(costUSD × 100).
-type ModelUsage struct {
-	Input      int `json:"input"`
-	Output     int `json:"output"`
-	CacheRead  int `json:"cache_read"`
-	CacheWrite int `json:"cache_write"`
-	CostCents  int `json:"cost_cents"`
 }
 
 // InviteInfo mirrors store.Invite for the ipc layer (ipc must not import store).
