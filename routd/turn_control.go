@@ -504,19 +504,28 @@ func (l *Loop) migrateRetries(chatJID string, includeHeld bool) error {
 		if tc.ChatJID != chatJID || (tc.State != store.TurnPendingRetry && tc.State != store.TurnHeld) || !tc.NextAttemptAt.IsZero() {
 			continue
 		}
-		cursor := l.db.GetAgentCursor(chatJID)
 		if tc.State == store.TurnHeld && !tc.RunReturned {
 			return fmt.Errorf("legacy provider execution %s is unresolved", tc.TurnID)
 		}
-		if len(tc.InputKeys) > 0 {
-			tc.NextAttemptAt = retryAt(l.q.now(), tc.Trigger, tc.RetryCount)
-			ok, err := l.migrateBoundTurn(tc, cursor)
-			if err != nil || !ok {
-				return fmt.Errorf("migrate turn %s: saved binding refused: %v", tc.TurnID, err)
-			}
+		err := l.migrateRetry(tc)
+		if errors.Is(err, errLegacyUnbound) {
+			slog.Warn("close legacy turn", "turn_id", tc.TurnID, "reason", err)
+			finishTurn(l.db, l.deliver, tc.TurnID, endFailed)
 			continue
 		}
-		msgs, batch, _, err := l.pendingBatch(chatJID, cursor, pollBatch)
+		if err != nil {
+			return fmt.Errorf("migrate turn %s: %w", tc.TurnID, err)
+		}
+	}
+	return nil
+}
+
+var errLegacyUnbound = errors.New("legacy turn cannot be bound")
+
+func (l *Loop) migrateRetry(tc TurnContext) error {
+	cursor := l.db.GetAgentCursor(tc.ChatJID)
+	if len(tc.InputKeys) == 0 {
+		msgs, batch, _, err := l.pendingBatch(tc.ChatJID, cursor, pollBatch)
 		if err != nil {
 			return err
 		}
@@ -524,10 +533,10 @@ func (l *Loop) migrateRetries(chatJID string, includeHeld bool) error {
 			return m.ID == tc.TurnID || (tc.State == store.TurnHeld && store.MessageCursor(m) == tc.InputLast)
 		})
 		if end < 0 {
-			return fmt.Errorf("migrate turn %s: input boundary is missing", tc.TurnID)
+			return fmt.Errorf("%w: input boundary is missing", errLegacyUnbound)
 		}
 		msgs = msgs[:end+1]
-		_, pinnedTopic := l.db.StickyState(chatJID)
+		_, pinnedTopic := l.db.StickyState(tc.ChatJID)
 		var trigger, ambient []core.Message
 		for i, msg := range msgs {
 			if msg.BotMsg {
@@ -545,12 +554,12 @@ func (l *Loop) migrateRetries(chatJID string, includeHeld bool) error {
 				topic = tc.Topic
 			}
 			if batch.rows[i].Folder != tc.Folder || msg.Sender != tc.Trigger || topic != tc.Topic || IsSteerCommand(msg) {
-				return fmt.Errorf("migrate turn %s: ambiguous input binding", tc.TurnID)
+				return fmt.Errorf("%w: ambiguous input binding", errLegacyUnbound)
 			}
 			trigger = append(trigger, msg)
 		}
 		if len(trigger) == 0 {
-			return fmt.Errorf("migrate turn %s: no resolved input", tc.TurnID)
+			return fmt.Errorf("%w: no resolved input", errLegacyUnbound)
 		}
 		tc.InputKeys, err = turnMessageKeys(trigger)
 		if err != nil {
@@ -561,11 +570,14 @@ func (l *Loop) migrateRetries(chatJID string, includeHeld bool) error {
 			return err
 		}
 		tc.InputLast = store.MessageCursor(msgs[len(msgs)-1])
-		tc.NextAttemptAt = retryAt(l.q.now(), tc.Trigger, tc.RetryCount)
-		ok, err := l.migrateBoundTurn(tc, cursor)
-		if err != nil || !ok {
-			return fmt.Errorf("migrate turn %s: binding refused: %v", tc.TurnID, err)
-		}
+	}
+	tc.NextAttemptAt = retryAt(l.q.now(), tc.Trigger, tc.RetryCount)
+	ok, err := l.migrateBoundTurn(tc, cursor)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("%w: binding refused", errLegacyUnbound)
 	}
 	return nil
 }
