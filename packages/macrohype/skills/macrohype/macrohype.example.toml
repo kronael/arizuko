@@ -1,0 +1,26 @@
+# Group config for the macrohype skill. Copy to ~/macrohype.toml and edit.
+# Every key is required.
+
+# Wikimedia asks automated clients to identify themselves: a client name and
+# a contact address of the operator.
+user_agent = "macrohype/1 (operator@example.org)"
+
+# Closed days in the baseline of each series.
+window = 30
+
+# A series turns hot at this z-score (median and MAD of the baseline) and
+# stays hot until it falls below calm_z.
+alert_z = 3.0
+calm_z = 1.5
+
+# name: the label in every line. bybit: a linear perpetual symbol.
+# wikipedia: an English Wikipedia article title, as in its URL.
+[[asset]]
+name = "bitcoin"
+bybit = "BTCUSDT"
+wikipedia = "Bitcoin"
+
+[[asset]]
+name = "gold"
+bybit = "PAXGUSDT"
+wikipedia = "Gold_as_an_investment"

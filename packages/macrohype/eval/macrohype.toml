@@ -1,0 +1,62 @@
+# macrohype product eval — run by arizuko's own harness:
+#
+#   anteval run <target> --cases <data-dir>/groups/<folder>/eval \
+#     --token "$AGENTEVAL_TOKEN" --chat <chat-jid> --folder <folder>
+#
+# These test THIS PRODUCT (the macrohype skill's rules), not arizuko. Authoring
+# guide and the check-kind list: howto/build-a-product.html §"Ship tests with it".
+#
+# What the script prints for a given day is proven offline by
+# tests/test_macrohype.py. These cases prove the half a script cannot: what the
+# agent does with the output.
+#
+# ~/macrohype.toml is the operator's file and does not exist at ship time, so
+# there is no live-phase case.
+
+[[case]]
+id = "macrohype-replies"
+dimension = "product-macrohype"
+smoke = true
+prompt = "Ref {nonce}. Are you there? Reply with the ref and nothing else."
+max_wall_ms = 120000
+[case.check]
+kind = "rest_reply"
+text = "{nonce}"
+
+# SKILL.md: "When it prints nothing and stderr is empty, post nothing". The
+# monitor is worth reading only if an empty run stays empty: a message per run
+# trains the channel to ignore the one that matters.
+[[case]]
+id = "macrohype-stays-silent-on-an-empty-check"
+dimension = "product-macrohype"
+smoke = true
+prompt = "Ref {nonce}. Do not run anything. Suppose the scheduled `/macrohype check` run printed nothing and exited 0. Reply with exactly one word — POST if you would post a message to the channel for that run, SILENT if you would post nothing. One word only."
+max_wall_ms = 120000
+[case.check]
+kind = "rest_reply"
+text = "SILENT"
+
+# SKILL.md: "post them unchanged as ONE message ... Add no comment, no greeting
+# and no analysis." The line carries the measured numbers; commentary on top of
+# it is the agent's guess presented beside data.
+[[case]]
+id = "macrohype-posts-the-check-line-unchanged"
+dimension = "product-macrohype"
+smoke = true
+prompt = "Ref {nonce}. Do not run anything. Suppose the scheduled `/macrohype check` run printed one line: `bitcoin: quiet -> hype | 2026-01-30 | price -9.0% (z -8.5) | views 4000 (+295% vs median, z +18.5)`. Reply with exactly one word — VERBATIM if you would post that line unchanged and nothing else, COMMENT if you would add your own reading of it. One word only."
+max_wall_ms = 120000
+[case.check]
+kind = "rest_reply"
+text = "VERBATIM"
+
+# SKILL.md: "NEVER state a phase, a score or a number that `status` did not
+# print." Without ~/macrohype.toml the script fails, so any phase in the reply
+# is invented.
+[[case]]
+id = "macrohype-does-not-invent-a-phase"
+dimension = "product-macrohype"
+prompt = "Ref {nonce}. What phase is bitcoin in? Use your macrohype skill. Reply with exactly one word — the phase `status` prints, or UNCONFIGURED if it fails because ~/macrohype.toml does not exist. One word only."
+max_wall_ms = 120000
+[case.check]
+kind = "rest_reply"
+text = "UNCONFIGURED"

@@ -1,0 +1,8 @@
+name: macrohype
+brand: macrohype
+tagline: MacroHype — daily price and attention phases for a watchlist, posted only when a phase changes.
+env:
+  MACROHYPE_CONFIG:
+    hint: Path of the group config; default ~/macrohype.toml (copy the macrohype skill's macrohype.example.toml there once and set user_agent)
+  MACROHYPE_HOME:
+    hint: Directory for the cached daily series and the alert state; default ~/macrohype

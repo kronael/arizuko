@@ -13,6 +13,17 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+### Added
+
+- Product package `macrohype` (`catalog:macrohype`): a daily market attention
+  monitor for a group. One stdlib script scores the Bybit daily close and the
+  English Wikipedia page views of each watchlist asset against their own last
+  `window` days and prints one line when an asset enters `move`, `chatter` or
+  `hype`; every other run prints nothing. A closed day on disk is never
+  fetched again. `packages/macrohype/tests` proves the alert and silence rules
+  offline, `eval/macrohype.toml` holds the agent cases, and the product pages
+  are `products/macrohype/`.
+
 ### Changed
 
 - Product packages live in `packages/<name>` at the repository root, and

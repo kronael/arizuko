@@ -149,7 +149,8 @@ func TestProductMixWritesCorpusVerbatim(t *testing.T) {
 		t.Run(p.Name(), func(t *testing.T) {
 			seedDir := filepath.Join(examplesDir, p.Name())
 			want := walkFiles(t, filepath.Join(seedDir, "group"))
-			if (len(want) == 0) != (p.Name() == "company-brain") {
+			skillsOnly := slices.Contains([]string{"company-brain", "macrohype"}, p.Name())
+			if (len(want) == 0) != skillsOnly {
 				t.Fatalf("unexpected group payload size: %d", len(want))
 			}
 			group := filepath.Join(t.TempDir(), "group")

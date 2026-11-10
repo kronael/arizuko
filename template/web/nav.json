@@ -117,6 +117,7 @@
         { "href": "socials/", "label": "Social presence (Phosphene)" },
         { "href": "strategy/", "label": "Domain researcher (Prometheus)" },
         { "href": "cz-estate-agent/", "label": "CZ Estate Agent" },
+        { "href": "macrohype/", "label": "MacroHype" },
         { "href": "shapes.html", "label": "Shapes" }
       ]
     },

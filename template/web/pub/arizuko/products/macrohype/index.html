@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MacroHype &middot; arizuko</title>
+  <link rel="stylesheet" href="../../assets/hub.css">
+</head>
+<body>
+  <header class="docs-topbar">
+    <button class="docs-navtoggle" aria-label="Toggle navigation" aria-expanded="false">&#9776;</button>
+    <a class="docs-wordmark" href="../../">arizuko</a>
+  </header>
+  <div class="docs-layout">
+    <nav class="docs-nav" aria-label="Products">
+      <ul>
+        <li><a class="nav-section" href="../../concepts/">Concepts</a></li>
+        <li><a class="nav-section" href="../../reference/">Reference</a></li>
+        <li><a class="nav-section" href="../../howto/">How-to</a></li>
+        <li><a class="nav-section" href="../../components/">Components</a></li>
+        <li><a class="nav-section" href="../">Products</a>
+          <ul class="nav-children">
+            <li><a href="../">Start here</a></li>
+            <li><a href="../helpdesk/">Helpdesk (reference)</a></li>
+            <li><a href="../trip-computer/">Trip computer</a></li>
+            <li><a href="../company-brain/">Company Brain</a></li>
+            <li><a href="../slack-team/">Slack team agent</a></li>
+            <li><a href="../github/">Repo worker (Atlas)</a></li>
+            <li><a href="../reality/">Reality agent</a></li>
+            <li><a href="../support/">Support desk (Atlas)</a></li>
+            <li><a href="../personal/">Personal assistant (Fiu)</a></li>
+            <li><a href="../pm/">PM agent (Sloth)</a></li>
+            <li><a href="../creator/">Content pipeline (Inari)</a></li>
+            <li><a href="../socials/">Social presence (Phosphene)</a></li>
+            <li><a href="../strategy/">Domain researcher (Prometheus)</a></li>
+            <li><a href="../cz-estate-agent/">CZ Estate Agent</a></li>
+            <li><a href="../macrohype/">MacroHype</a></li>
+            <li><a href="../shapes.html">Shapes</a></li>
+          </ul>
+        </li>
+        <li><a class="nav-section" href="../../security/">Security</a></li>
+        <li><a class="nav-section" href="../../changelog/">Changelog</a></li>
+      </ul>
+    </nav>
+
+    <main class="docs-content">
+      <p class="docs-crumb"><a href="../../">arizuko</a> &rsaquo; <a href="../">products</a> &rsaquo; MacroHype</p>
+      <h1>MacroHype</h1>
+      <p class="lede">One line in the chat when an asset on your watchlist enters a new phase. Silence on every other day.</p>
+      <p>MacroHype reads two daily series for each asset: the Bybit daily close and the page views of its English Wikipedia article. It scores each closed day against the days before it; the example config uses 30. A large price move makes the price hot. A crowd on the article makes the views hot.</p>
+      <table>
+        <tr><th>Price</th><th>Views</th><th>Phase</th></tr>
+        <tr><td>calm</td><td>calm</td><td>quiet</td></tr>
+        <tr><td>hot</td><td>calm</td><td>move</td></tr>
+        <tr><td>calm</td><td>hot</td><td>chatter</td></tr>
+        <tr><td>hot</td><td>hot</td><td>hype</td></tr>
+      </table>
+      <h2>A line carries the day and both scores</h2>
+      <pre><code>bitcoin: quiet -&gt; hype | 2026-01-30 | price -9.0% (z -8.5) | views 4000 (+295% vs median, z +18.5)</code></pre>
+      <p>The agent posts the line unchanged and adds no comment. A phase describes one closed day. It is not a forecast.</p>
+      <h2>A run with no change posts nothing</h2>
+      <p>The script prints a line only when an asset enters <code>move</code>, <code>chatter</code> or <code>hype</code>, when a source fails for the first time, and when the failure ends. A return to <code>quiet</code> and a repeated failure print nothing. Each closed day stays on disk, so a run requests only the days it does not have.</p>
+      <p>The package is one skill and one script. It ships no persona, so you can add it to a group that already has one. Follow the <a href="setup.html">setup guide</a> to install the package, fill the config and schedule the daily run.</p>
+      <div class="docs-footer">
+        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/macrohype/index.html">Edit this page</a>
+        &middot; updated <time class="docs-updated" datetime="2026-11-10">2026-11-10</time>
+      </div>
+    </main>
+    <aside class="docs-toc" aria-label="On this page"></aside>
+
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="../../assets/hub.js"></script>
+</body>
+</html>

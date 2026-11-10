@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MacroHype &mdash; setup &middot; arizuko</title>
+  <link rel="stylesheet" href="../../assets/hub.css">
+</head>
+<body>
+  <header class="docs-topbar">
+    <button class="docs-navtoggle" aria-label="Toggle navigation" aria-expanded="false">&#9776;</button>
+    <a class="docs-wordmark" href="../../">arizuko</a>
+  </header>
+  <div class="docs-layout">
+    <nav class="docs-nav" aria-label="Products">
+      <ul>
+        <li><a class="nav-section" href="../../concepts/">Concepts</a></li>
+        <li><a class="nav-section" href="../../reference/">Reference</a></li>
+        <li><a class="nav-section" href="../../howto/">How-to</a></li>
+        <li><a class="nav-section" href="../../components/">Components</a></li>
+        <li><a class="nav-section" href="../">Products</a>
+          <ul class="nav-children">
+            <li><a href="../">Start here</a></li>
+            <li><a href="../helpdesk/">Helpdesk (reference)</a></li>
+            <li><a href="../trip-computer/">Trip computer</a></li>
+            <li><a href="../company-brain/">Company Brain</a></li>
+            <li><a href="../slack-team/">Slack team agent</a></li>
+            <li><a href="../github/">Repo worker (Atlas)</a></li>
+            <li><a href="../reality/">Reality agent</a></li>
+            <li><a href="../support/">Support desk (Atlas)</a></li>
+            <li><a href="../personal/">Personal assistant (Fiu)</a></li>
+            <li><a href="../pm/">PM agent (Sloth)</a></li>
+            <li><a href="../creator/">Content pipeline (Inari)</a></li>
+            <li><a href="../socials/">Social presence (Phosphene)</a></li>
+            <li><a href="../strategy/">Domain researcher (Prometheus)</a></li>
+            <li><a href="../cz-estate-agent/">CZ Estate Agent</a></li>
+            <li><a href="../macrohype/">MacroHype</a></li>
+            <li><a href="../shapes.html">Shapes</a></li>
+          </ul>
+        </li>
+        <li><a class="nav-section" href="../../security/">Security</a></li>
+        <li><a class="nav-section" href="../../changelog/">Changelog</a></li>
+      </ul>
+    </nav>
+
+    <main class="docs-content">
+      <p class="docs-crumb"><a href="../../">arizuko</a> &rsaquo; <a href="../">products</a> &rsaquo; MacroHype &mdash; setup</p>
+      <h1>MacroHype &mdash; setup</h1>
+      <p class="lede">Install the package, fill one config file, allow two hosts and schedule one run a day.</p>
+      <h2>Select the package</h2>
+      <pre><code>arizuko package add -g FOLDER catalog:macrohype</code></pre>
+      <p>The guest needs <code>python3</code> 3.11 or newer. The script uses only the standard library.</p>
+      <h2>Fill the config</h2>
+      <p>The skill ships <code>macrohype.example.toml</code>. Copy it to <code>~/macrohype.toml</code> in the group once, then edit it:</p>
+      <pre><code>cp packages/macrohype/skills/macrohype/macrohype.example.toml /srv/data/arizuko_&lt;instance&gt;/groups/FOLDER/macrohype.toml</code></pre>
+      <p>Set <code>user_agent</code> to a client name and your contact address. Wikimedia asks that of automated clients. Then set the watchlist: each asset has a <code>name</code>, a Bybit linear perpetual symbol and a Wikipedia article title. Set <code>window</code>, <code>alert_z</code> and <code>calm_z</code>. Every key is required, and the script stops when the file or a key is missing.</p>
+      <h2>Allow the two sources</h2>
+      <pre><code>arizuko network allow FOLDER api.bybit.com
+arizuko network allow FOLDER wikimedia.org</code></pre>
+      <p>Neither source needs a key. A <code>403 Forbidden</code> tunnel error in a <code>Failed:</code> line means that a rule is missing.</p>
+      <h2>Schedule one run a day</h2>
+      <p>Put the task row in a file and apply it. Run it after Wikimedia has published the previous day; 12:00 UTC leaves a margin.</p>
+      <pre><code>scheduled_tasks:
+  - id: macrohype-check
+    owner: FOLDER
+    chat_jid: CHAT_JID
+    prompt: /macrohype check
+    cron: 0 12 * * *
+    status: active
+    context_mode: isolated</code></pre>
+      <pre><code>arizuko apply task.yml</code></pre>
+      <p>The series are daily. A second run on the same day requests nothing and posts nothing. A run that comes late judges each missed day in order.</p>
+      <h2>Ask for the current phase</h2>
+      <p>Ask the agent for the phase of an asset. It runs <code>status</code>, which reads the days on disk and makes no request. Before the first <code>check</code>, <code>status</code> fails and the agent says so.</p>
+      <div class="docs-footer">
+        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/macrohype/setup.html">Edit this page</a>
+        &middot; updated <time class="docs-updated" datetime="2026-11-10">2026-11-10</time>
+      </div>
+    </main>
+    <aside class="docs-toc" aria-label="On this page"></aside>
+
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="../../assets/hub.js"></script>
+</body>
+</html>
