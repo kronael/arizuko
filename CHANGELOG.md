@@ -13,6 +13,32 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.75.6] — 2026-11-10
+
+> arizuko v0.75.6 — routd starts on upgraded instances
+>
+> v0.75.5's router stopped at startup on instances whose env files only root can read, and one old saved turn could block recovery of all others.
+>
+> • Startup — routd reads its own environment and never the operator's store credential.
+> • Recovery — an old turn that cannot be resumed is closed, and recovery continues with the rest.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Fixed
+
+- L810: routd loaded `env/operator.env` at startup through the host CLI loader,
+  so it took the operator's store credential and exited when `.env` is
+  `root:root 600`. Daemons now load configuration from their compose
+  environment only; `TestOnlyTheCLILoadsTheOperatorEnv` guards it.
+- L811: one legacy pending turn without a resumable input stopped startup
+  recovery for every chat and repeated its error on each poll. Such a turn is
+  closed as failed with one WARN, and migration continues.
+
+### Deploy steps
+
+Ship the daemon image and restart. Guest rootfs and kernel are unchanged from
+v0.75.5.
+
 ## [v0.75.5] — 2026-11-09
 
 > arizuko v0.75.5 — retries you can see, group models and saved messages
