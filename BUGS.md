@@ -327,7 +327,7 @@ reads those words now.
   **Proposal:** stop the build on the first failed submake. This is an adjacent
   build-gate repair; scope approval is pending.
 
-## L811 — one unmigratable legacy retry turn blocks recovery of every other turn, forever (2026-11-10, open)
+## ✅ FIXED 2026-11-10 2ab375c76 L811 — one unmigratable legacy retry turn blocks recovery of every other turn, forever (2026-11-10)
 
 MEASURED on krons after the v0.75.5 deploy (2026-11-10 09:26 UTC): routd logs
 `recover deferred turns err="migrate turn auto-migrate-adshaus-1790380827356587534: input boundary is missing"`
@@ -344,9 +344,10 @@ running turns of every other chat, and `pollOnce` repeats the error forever.
   log it once at WARN with the turn id and reason, and continue; store and
   read errors still return. No chat notice: the input is gone and the turn
   predates durable deferral.
-- **Status:** open
+- **Test:** `TestTurnControlUnboundLegacyTurnClosesAndMigrationContinues` (`routd/turn_control_recovery_test.go`).
+- **Status:** fixed in 2ab375c76.
 
-## L810 — v0.75.5 routd exits at startup reading the operator env (2026-11-10, open)
+## ✅ FIXED 2026-11-10 7fa98f38b L810 — v0.75.5 routd exits at startup reading the operator env (2026-11-10)
 
 MEASURED on krons at the v0.75.5 deploy: routd called `core.LoadConfigFrom`,
 which reads `env/operator.env` and overloads the operator store credential
@@ -356,7 +357,8 @@ with `load core configuration … permission denied`.
 - **Severity:** critical — routd does not start.
 - **Fix:** routd reads its compose environment through `core.LoadConfig`
   like the other daemons; only the CLI loads the operator env.
-- **Status:** open
+- **Test:** `TestOnlyTheCLILoadsTheOperatorEnv` (`tests/components/operator_env_test.go`).
+- **Status:** fixed in 7fa98f38b.
 
 ## L804 — Codex topic forks do not inherit the parent's model context (2026-11-09, open — record only)
 
