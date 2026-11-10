@@ -327,6 +327,37 @@ reads those words now.
   **Proposal:** stop the build on the first failed submake. This is an adjacent
   build-gate repair; scope approval is pending.
 
+## L811 — one unmigratable legacy retry turn blocks recovery of every other turn, forever (2026-11-10, open)
+
+MEASURED on krons after the v0.75.5 deploy (2026-11-10 09:26 UTC): routd logs
+`recover deferred turns err="migrate turn auto-migrate-adshaus-1790380827356587534: input boundary is missing"`
+at startup and on every poll (12× since restart). The row is a legacy
+`pending_retry` turn from before durable deferral whose input message is no
+longer in the chat's pending batch, so it can never be bound.
+`routd/turn_control.go` `migrateRetries` returns on the first legacy turn it
+cannot bind (boundary missing, no resolved input, ambiguous binding, binding
+refused); `routd/loop.go` `recoverPending` then returns before recovering the
+running turns of every other chat, and `pollOnce` repeats the error forever.
+
+- **Severity:** high — one stale row stops crash recovery for the instance.
+- **Fix:** close an unbindable legacy turn as failed through `finishTurn`,
+  log it once at WARN with the turn id and reason, and continue; store and
+  read errors still return. No chat notice: the input is gone and the turn
+  predates durable deferral.
+- **Status:** open
+
+## L810 — v0.75.5 routd exits at startup reading the operator env (2026-11-10, open)
+
+MEASURED on krons at the v0.75.5 deploy: routd called `core.LoadConfigFrom`,
+which reads `env/operator.env` and overloads the operator store credential
+into the daemon. Both env files are `root:root 600` there, so routd exited
+with `load core configuration … permission denied`.
+
+- **Severity:** critical — routd does not start.
+- **Fix:** routd reads its compose environment through `core.LoadConfig`
+  like the other daemons; only the CLI loads the operator env.
+- **Status:** open
+
 ## L804 — Codex topic forks do not inherit the parent's model context (2026-11-09, open — record only)
 
 MEASURED by L800's seven missing-Claude-file warnings in sloth's 24-hour
