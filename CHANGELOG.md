@@ -13,6 +13,27 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.75.7] — 2026-11-10
+
+> arizuko v0.75.7 — old saved turns close once
+>
+> v0.75.6 tried to close old saved turns but could not store the close, so it retried them on every poll.
+>
+> • Recovery — an old turn without an attempt id now closes once and stays closed.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Fixed
+
+- L811 follow-up: closing a legacy turn required an `attempt_id` that rows from
+  before durable deferral never carry, so the close was refused and logged on
+  every poll (krons: 33 turns). The completion guard treats an empty attempt as
+  absent; `TestFinishTurnStatusClosesLegacyRowWithoutAttempt` covers it.
+
+### Deploy steps
+
+Ship the daemon image and restart.
+
 ## [v0.75.6] — 2026-11-10
 
 > arizuko v0.75.6 — routd starts on upgraded instances
