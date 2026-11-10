@@ -351,7 +351,7 @@ someone presses redeliver in GitHub's UI.
 - **Default if nothing is decided:** the 503 stays and the ERROR log is the
   only record; an operator redelivers by hand from GitHub.
 
-## L817 — two store-policy tests fail on the default test server, which does not enforce policies (2026-11-10)
+## ✅ FIXED 2026-11-10 67c0e5803 L817 — two store-policy tests fail on the default test server, which does not enforce policies (2026-11-10)
 
 MEASURED 2026-11-10: `go test -count=1 ./cmd/arizuko` (no `-short`, no
 `ARIZUKO_TEST_DYNAMO_ENDPOINT`) fails `TestEnrolledPoliciesEnforceStoreReach`
@@ -366,7 +366,8 @@ routd, reads it.
 - **Severity:** low — a test-harness defect; a full run reports a policy hole
   that the live store does not have.
 - **Fix:** skip both tests whenever no enforcing endpoint is named.
-- **Status:** open.
+- **Test:** no test — the change is a skip condition; a full run of both tests skips.
+- **Status:** fixed in 67c0e5803.
 
 ## ✅ FIXED 2026-11-10 5fd3cf466 L813 — recall-messages sends the agent to a parent folder that the default policy refuses (2026-11-10)
 
