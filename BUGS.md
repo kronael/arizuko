@@ -16,6 +16,7 @@
 ## What needs you
 
 - `L816` — gitd loses GitHub webhooks while the store is unreachable; retention lives in that store; proposal, needs sign-off.
+- `L815` — the pre-commit `prettier` hook cannot install its node environment on hel1v5; commits run with `SKIP=prettier`.
 - `L803` — morha repeats recovery reports and replies to an old GitHub comment; cause unmeasured.
 - `L804` — Codex topic forks do not inherit the parent's model context; observed messages remain available.
 - `L796` — a silent cron script costs a full agent turn (macrohype-monitor, 48 turns a week); owner chose a command task with no model call; where the command runs needs sign-off.
@@ -401,6 +402,24 @@ row that exists must always be removable.
   unchanged.
 - **Test:** `TestUngrantRemovesAStoredRowOutsideTheVocabulary` (`cmd/arizuko/grant_action_test.go`).
 - **Status:** fixed in 4ad71c925.
+## L815 — the pre-commit `prettier` hook cannot install its node environment on this host (2026-11-10, open)
+
+MEASURED on hel1v5 at `961b644f6` after `~/.cache/pre-commit` was cleared:
+`pre-commit run prettier --files README.md` fails while installing the hook
+environment, so every commit since ran with `SKIP=prettier`. pre-commit 4.6.0
+uses system node only when `node` and `npm` resolve outside `$HOME`; here both
+are under `$HOME` (`~/.local/bin/node` v22.23.2, nvm npm), so it falls back to
+`nodeenv --prebuilt`, which picks the newest release, `27.0.0-alpha`, and
+nodeenv 1.10.0 cannot parse it:
+`parse_version … ValueError: invalid literal for int() with base 10: '0-alpha'`.
+CI is unaffected: the ubuntu-24.04 runner ships Node.js 22 and npm in
+`/usr/local/bin`, so pre-commit already resolves `system` there.
+
+- **Severity:** low — tooling only; markdown and YAML formatting is unchecked locally.
+- **Fix:** `language_version: system` on the `prettier` hook in
+  `.pre-commit-config.yaml`, so the host uses the node on PATH as CI does.
+- **Test:** no test — config.
+- **Status:** open.
 
 ## ✅ FIXED 2026-11-10 2ab375c76 L811 — one unmigratable legacy retry turn blocks recovery of every other turn, forever (2026-11-10)
 
