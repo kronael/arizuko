@@ -510,7 +510,7 @@ func (l *Loop) migrateRetries(chatJID string, includeHeld bool) error {
 		err := l.migrateRetry(tc)
 		if errors.Is(err, errLegacyUnbound) {
 			slog.Warn("close legacy turn", "turn_id", tc.TurnID, "reason", err)
-			finishTurn(l.db, l.deliver, tc.TurnID, endFailed)
+			finishTurn(l.db, l.deliver, tc.TurnID, endRetired)
 			continue
 		}
 		if err != nil {
