@@ -53,7 +53,7 @@ func main() {
 		os.Exit(1)
 	}
 	defer func() { _ = db.Close() }()
-	cfg, err := core.LoadConfigFrom(dataDir)
+	cfg, err := core.LoadConfig()
 	if err != nil {
 		slog.Error("load core configuration", "err", err)
 		os.Exit(1)
