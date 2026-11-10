@@ -667,7 +667,7 @@ func TestGenerateRefusesBeforeRelink(t *testing.T) {
 }
 
 func TestEnrolledPoliciesEnforceStoreReach(t *testing.T) {
-	if testing.Short() && os.Getenv(dyntest.EnvEndpoint) == "" {
+	if os.Getenv(dyntest.EnvEndpoint) == "" {
 		t.Skip("set ARIZUKO_TEST_DYNAMO_ENDPOINT to an isolated policy-enforcing ExtendDB server")
 	}
 	instance, dir := newInstance(t)
@@ -805,7 +805,7 @@ func TestEnrolledPoliciesEnforceStoreReach(t *testing.T) {
 }
 
 func TestRemoveInstanceEnforcingStore(t *testing.T) {
-	if testing.Short() && os.Getenv(dyntest.EnvEndpoint) == "" {
+	if os.Getenv(dyntest.EnvEndpoint) == "" {
 		t.Skip("set ARIZUKO_TEST_DYNAMO_ENDPOINT to an isolated policy-enforcing ExtendDB server")
 	}
 	instance, dir := newInstance(t)
