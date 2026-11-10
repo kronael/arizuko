@@ -16,7 +16,6 @@
 ## What needs you
 
 - `L816` — gitd loses GitHub webhooks while the store is unreachable; retention lives in that store; proposal, needs sign-off.
-- `L815` — the pre-commit `prettier` hook cannot install its node environment on hel1v5; commits run with `SKIP=prettier`.
 - `L803` — morha repeats recovery reports and replies to an old GitHub comment; cause unmeasured.
 - `L804` — Codex topic forks do not inherit the parent's model context; observed messages remain available.
 - `L796` — a silent cron script costs a full agent turn (macrohype-monitor, 48 turns a week); owner chose a command task with no model call; where the command runs needs sign-off.
@@ -402,7 +401,7 @@ row that exists must always be removable.
   unchanged.
 - **Test:** `TestUngrantRemovesAStoredRowOutsideTheVocabulary` (`cmd/arizuko/grant_action_test.go`).
 - **Status:** fixed in 4ad71c925.
-## L815 — the pre-commit `prettier` hook cannot install its node environment on this host (2026-11-10, open)
+## ✅ FIXED 2026-11-10 66296e8d0 L815 — the pre-commit `prettier` hook cannot install its node environment on this host (2026-11-10)
 
 MEASURED on hel1v5 at `961b644f6` after `~/.cache/pre-commit` was cleared:
 `pre-commit run prettier --files README.md` fails while installing the hook
@@ -418,8 +417,9 @@ CI is unaffected: the ubuntu-24.04 runner ships Node.js 22 and npm in
 - **Severity:** low — tooling only; markdown and YAML formatting is unchecked locally.
 - **Fix:** `language_version: system` on the `prettier` hook in
   `.pre-commit-config.yaml`, so the host uses the node on PATH as CI does.
-- **Test:** no test — config.
-- **Status:** open.
+- **Test:** no test — config. `pre-commit run prettier --files README.md` installs and passes.
+- **Status:** fixed in 66296e8d0. `--all-files` now reformats 40 files under
+  `packages/` and `tests/dashd-playwright/`, left unformatted while the hook was skipped.
 
 ## ✅ FIXED 2026-11-10 2ab375c76 L811 — one unmigratable legacy retry turn blocks recovery of every other turn, forever (2026-11-10)
 
