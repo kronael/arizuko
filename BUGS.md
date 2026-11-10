@@ -351,7 +351,24 @@ someone presses redeliver in GitHub's UI.
 - **Default if nothing is decided:** the 503 stays and the ERROR log is the
   only record; an operator redelivers by hand from GitHub.
 
-## ✅ FIXED 2026-11-10 1c56f2800 L813 — recall-messages sends the agent to a parent folder that the default policy refuses (2026-11-10)
+## L817 — two store-policy tests fail on the default test server, which does not enforce policies (2026-11-10)
+
+MEASURED 2026-11-10: `go test -count=1 ./cmd/arizuko` (no `-short`, no
+`ARIZUKO_TEST_DYNAMO_ENDPOINT`) fails `TestEnrolledPoliciesEnforceStoreReach`
+with `store_test.go:774: expected AccessDeniedException, got <nil>`, on
+961b644f6 and with or without the L814 fix. Both that test and
+`TestRemoveInstanceEnforcingStore` skip only under `-short`, so a full run
+sends them to the `dyntest` container, `extenddb-dev`, which accepts every
+signed request. The live store does enforce: on krons, teled's key gets
+`AccessDeniedException` on `routd.acl`, and gitd's key, whose reach includes
+routd, reads it.
+
+- **Severity:** low — a test-harness defect; a full run reports a policy hole
+  that the live store does not have.
+- **Fix:** skip both tests whenever no enforcing endpoint is named.
+- **Status:** open.
+
+## ✅ FIXED 2026-11-10 5fd3cf466 L813 — recall-messages sends the agent to a parent folder that the default policy refuses (2026-11-10)
 
 MEASURED 2026-11-10 on sloth: after `access_denied` on a linked channel the
 agent followed `ant/skills/recall-messages/SKILL.md:32` ("ask the parent
@@ -364,9 +381,9 @@ the agent cannot even name the owner.
 - **Severity:** low — one wasted turn and a confusing answer per linked read.
 - **Fix:** after the thread, tell the user plainly that the linked channel
   belongs to another group and reading it needs an operator grant.
-- **Status:** fixed in 1c56f2800. No test — docs.
+- **Status:** fixed in 5fd3cf466. No test — docs.
 
-## ✅ FIXED 2026-11-10 1c56f2800 L812 — `ant/skills/self/mcp.md` says `role:member` sends to any group (2026-11-10)
+## ✅ FIXED 2026-11-10 5fd3cf466 L812 — `ant/skills/self/mcp.md` says `role:member` sends to any group (2026-11-10)
 
 MEASURED 2026-11-10 on sloth: `sloth/trading` called `send(chatJid="sloth")`
 and got `forbidden: send on sloth is outside sloth/trading's granted scope`.
@@ -381,8 +398,8 @@ the default member role covers a group send.
 - **Severity:** medium — agents and operators expect cross-group sends to work
   and learn otherwise from a refusal.
 - **Fix:** state the current rule in each doc and show the operator grant.
-- **Status:** fixed in 1c56f2800. No test — docs.
-## ✅ FIXED 2026-11-10 4ad71c925 L814 — `arizuko group ungrant` cannot remove a stored row whose action is outside the grant vocabulary (2026-11-10)
+- **Status:** fixed in 5fd3cf466. No test — docs.
+## ✅ FIXED 2026-11-10 7f0dc6d77 L814 — `arizuko group ungrant` cannot remove a stored row whose action is outside the grant vocabulary (2026-11-10)
 
 MEASURED on sloth 2026-11-10: `arizuko group -i sloth ungrant folder:coach coach codex`
 answered `Failed: ungrant: unknown action "codex" — one of admin, *, ...`.
@@ -400,8 +417,8 @@ row that exists must always be removable.
   loud. Valid actions, the operator shortcut and the key separator checks are
   unchanged.
 - **Test:** `TestUngrantRemovesAStoredRowOutsideTheVocabulary` (`cmd/arizuko/grant_action_test.go`).
-- **Status:** fixed in 4ad71c925.
-## ✅ FIXED 2026-11-10 66296e8d0 L815 — the pre-commit `prettier` hook cannot install its node environment on this host (2026-11-10)
+- **Status:** fixed in 7f0dc6d77.
+## ✅ FIXED 2026-11-10 ce2f1695f L815 — the pre-commit `prettier` hook cannot install its node environment on this host (2026-11-10)
 
 MEASURED on hel1v5 at `961b644f6` after `~/.cache/pre-commit` was cleared:
 `pre-commit run prettier --files README.md` fails while installing the hook
@@ -418,8 +435,9 @@ CI is unaffected: the ubuntu-24.04 runner ships Node.js 22 and npm in
 - **Fix:** `language_version: system` on the `prettier` hook in
   `.pre-commit-config.yaml`, so the host uses the node on PATH as CI does.
 - **Test:** no test — config. `pre-commit run prettier --files README.md` installs and passes.
-- **Status:** fixed in 66296e8d0. `--all-files` now reformats 40 files under
-  `packages/` and `tests/dashd-playwright/`, left unformatted while the hook was skipped.
+- **Status:** fixed in ce2f1695f. 46ee36c84 excludes `packages/` from prettier
+  as `ant/` is, and formats the one unformatted dashd playwright spec;
+  `pre-commit run prettier --all-files` passes.
 
 ## ✅ FIXED 2026-11-10 2ab375c76 L811 — one unmigratable legacy retry turn blocks recovery of every other turn, forever (2026-11-10)
 
