@@ -8,6 +8,7 @@ import (
 
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -55,6 +56,41 @@ func TestGrantRejectsUnknownAction(t *testing.T) {
 	}
 	if rows, err := s.ListACL("folder:demo"); err != nil || len(rows) != 0 {
 		t.Error("a rejected grant still wrote a row")
+	}
+}
+
+// TestUngrantRemovesAStoredRowOutsideTheVocabulary: the action vocabulary
+// guards what a grant may write, not what a revoke may remove. On sloth eleven
+// `folder:<f> codex <f> allow` rows sat in the store, and `ungrant` refused
+// them with "unknown action", so only code could delete them (BUGS L814).
+// The row is seeded raw because no door writes that action today.
+func TestUngrantRemovesAStoredRowOutsideTheVocabulary(t *testing.T) {
+	s := newMem(t)
+	row := core.ACLRow{Principal: "folder:coach", Scope: "coach", Action: "codex"}
+	sort := strings.Join([]string{row.Principal, row.Action, row.Scope, "", "", store.EffectAllow}, store.KeySep)
+	if _, err := s.TryWriteEntities(t.Context(), nil, objstore.Write{
+		Op: objstore.Merge, Entity: store.ACL,
+		Key:  objstore.Key{Partition: store.OwnerRoutd, Sort: sort},
+		Init: map[string]string{"grant_option": "0"},
+	}); err != nil {
+		t.Fatalf("seed the legacy row: %v", err)
+	}
+	if rows, err := s.ListACL(row.Principal); err != nil || len(rows) != 1 {
+		t.Fatalf("seeded row not readable: %+v, %v", rows, err)
+	}
+
+	var out bytes.Buffer
+	if err := runGrant(s, row, &out); err == nil || !strings.Contains(err.Error(), "unknown action") {
+		t.Fatalf("a grant of an action outside the vocabulary must still be refused: %v", err)
+	}
+	if err := runUngrant(s, row, &out); err != nil {
+		t.Fatalf("ungrant of a stored row refused: %v", err)
+	}
+	if rows, err := s.ListACL(row.Principal); err != nil || len(rows) != 0 {
+		t.Fatalf("the stored row survived its ungrant: %+v, %v", rows, err)
+	}
+	if err := runUngrant(s, row, &out); err == nil || !strings.Contains(err.Error(), "unknown action") {
+		t.Fatalf("an ungrant of an unknown action with no such row must still be refused: %v", err)
 	}
 }
 

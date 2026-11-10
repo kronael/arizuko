@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"text/tabwriter"
@@ -663,11 +664,23 @@ func runGrant(s *store.Store, row core.ACLRow, w io.Writer) error {
 	return nil
 }
 
+// runUngrant runs the grant checks, and a refusal stands only when no such row
+// is stored: the checks guard what a grant may write, and a stored row is
+// removable whatever it carries, or only code can delete it (BUGS L814).
 func runUngrant(s *store.Store, row core.ACLRow, w io.Writer) error {
 	operator := store.OperatorShape(row)
 	row = store.GrantDefaults(row)
 	if err := checkGrantRow(row); err != nil {
-		return err
+		stored, lookupErr := s.ListACL(row.Principal)
+		if lookupErr != nil {
+			return lookupErr
+		}
+		if !slices.ContainsFunc(stored, func(r core.ACLRow) bool {
+			return r.Action == row.Action && r.Scope == row.Scope && r.Params == row.Params &&
+				r.Predicate == row.Predicate && r.Effect == row.Effect
+		}) {
+			return err
+		}
 	}
 	if operator {
 		if err := s.RemoveMembership(row.Principal, "role:operator"); err != nil {
