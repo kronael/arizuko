@@ -1,4 +1,5 @@
 import contextlib
+import email.message
 import io
 import json
 import math
@@ -83,7 +84,7 @@ class Sources:
                 if first <= f'{day:%Y%m%d}' <= last and day <= self.views_through
             ]
             if not items:
-                raise urllib.error.HTTPError(request.full_url, 404, 'Not Found', {}, None)
+                raise urllib.error.HTTPError(request.full_url, 404, 'Not Found', email.message.Message(), None)
             body = {'items': items}
         return io.BytesIO(json.dumps(body).encode())
 
@@ -168,7 +169,7 @@ class CheckTest(unittest.TestCase):
         self.assertEqual(self.check(TODAY + DAY), (0, ''))
         self.sources.spike(TODAY + 2 * DAY, 0.12, 9000)
         self.assertEqual(self.check(TODAY + 2 * DAY), (0, ''))
-        code, out = self.check(TODAY + 3 * DAY)
+        _, out = self.check(TODAY + 3 * DAY)
         self.assertIn(f'bitcoin: quiet -> hype | {TODAY + 2 * DAY}', out)
 
     def test_missed_days_are_judged_in_order(self):
