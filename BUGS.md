@@ -16,8 +16,6 @@
 ## What needs you
 
 - `L816` — gitd loses GitHub webhooks while the store is unreachable; retention lives in that store; proposal, needs sign-off.
-- `L812` — `ant/skills/self/mcp.md` says `role:member` sends to any group; fix queued.
-- `L813` — recall-messages sends the agent to a parent folder the default policy refuses; fix queued.
 - `L803` — morha repeats recovery reports and replies to an old GitHub comment; cause unmeasured.
 - `L804` — Codex topic forks do not inherit the parent's model context; observed messages remain available.
 - `L796` — a silent cron script costs a full agent turn (macrohype-monitor, 48 turns a week); owner chose a command task with no model call; where the command runs needs sign-off.
@@ -353,7 +351,7 @@ someone presses redeliver in GitHub's UI.
 - **Default if nothing is decided:** the 503 stays and the ERROR log is the
   only record; an operator redelivers by hand from GitHub.
 
-## L813 — recall-messages sends the agent to a parent folder that the default policy refuses (2026-11-10, open)
+## ✅ FIXED 2026-11-10 1c56f2800 L813 — recall-messages sends the agent to a parent folder that the default policy refuses (2026-11-10)
 
 MEASURED 2026-11-10 on sloth: after `access_denied` on a linked channel the
 agent followed `ant/skills/recall-messages/SKILL.md:32` ("ask the parent
@@ -366,9 +364,9 @@ the agent cannot even name the owner.
 - **Severity:** low — one wasted turn and a confusing answer per linked read.
 - **Fix:** after the thread, tell the user plainly that the linked channel
   belongs to another group and reading it needs an operator grant.
-- **Status:** open. No test — docs.
+- **Status:** fixed in 1c56f2800. No test — docs.
 
-## L812 — `ant/skills/self/mcp.md` says `role:member` sends to any group (2026-11-10, open)
+## ✅ FIXED 2026-11-10 1c56f2800 L812 — `ant/skills/self/mcp.md` says `role:member` sends to any group (2026-11-10)
 
 MEASURED 2026-11-10 on sloth: `sloth/trading` called `send(chatJid="sloth")`
 and got `forbidden: send on sloth is outside sloth/trading's granted scope`.
@@ -383,7 +381,7 @@ the default member role covers a group send.
 - **Severity:** medium — agents and operators expect cross-group sends to work
   and learn otherwise from a refusal.
 - **Fix:** state the current rule in each doc and show the operator grant.
-- **Status:** open. No test — docs.
+- **Status:** fixed in 1c56f2800. No test — docs.
 
 ## ✅ FIXED 2026-11-10 2ab375c76 L811 — one unmigratable legacy retry turn blocks recovery of every other turn, forever (2026-11-10)
 
