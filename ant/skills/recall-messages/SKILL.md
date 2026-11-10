@@ -29,8 +29,9 @@ arg: <question>
      limit: 200 })` — calls the adapter, caches into the local DB.
 
    On `access_denied` for a linked channel, ALWAYS read the current thread for an answer first.
-   If the thread has no answer, ALWAYS ask the parent folder to retrieve the linked history.
-   NEVER ask the user to paste messages the platform holds; ALWAYS follow this recovery order.
+   If the thread has no answer, ALWAYS tell the user plainly that the linked channel belongs to another group and reading it needs an operator grant.
+   NEVER spend a turn on `send` to another group or `inspect_routing` with that jid first: the default policy refuses both.
+   NEVER ask the user to paste messages the platform holds.
 
    Write the result to `~/tmp/messages.json`.
 

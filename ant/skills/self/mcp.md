@@ -43,8 +43,12 @@ action did not run, include any reviewer's note, and NEVER retry the call.
 | `inject_message` | Inject a message into the store for a chat (system-generated)             |
 
 To message another group, ALWAYS call `send(chatJid="<full group folder>", text="...")`.
-The `mcp:send` check uses the target folder. `role:member` includes `send`
-at scope `**`; local ACL rules can restrict it. `ForwardedFrom` records
+The `mcp:send` check uses the target folder. `role:member` covers `send`
+only to a platform chat routed to your folder or below it. A send to another
+group needs an explicit `mcp:send` grant on that folder; without one it
+returns `forbidden: send on <folder> is outside <yours>'s granted scope`.
+On that refusal, ALWAYS tell the user an operator must grant it — NEVER retry
+through another tool. `ForwardedFrom` records
 your calling folder as the return address. ALWAYS use `send` to the intended
 folder for an agent response.
 

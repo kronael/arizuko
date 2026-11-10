@@ -75,7 +75,8 @@ arizuko package sync -i &lt;instance&gt;</code></pre>
       <p>The product sends billing and account questions to the responsible group. Create the billing group first:</p>
       <pre><code>arizuko group -i &lt;instance&gt; add slack:T012ABCD/channel/C0BILLING acme/billing</code></pre>
       <p>The support agent calls <code>send</code> with <code>chatJid="acme/billing"</code> and the question as <code>text</code>. The billing agent runs its own turn, guest and session, with its own grants and egress rules.</p>
-      <p>The call checks <code>mcp:send</code> on <code>acme/billing</code>. The default member role includes <code>send</code>; local ACL rows can restrict access.</p>
+      <p>The call checks <code>mcp:send</code> on <code>acme/billing</code>. The default member role sends only to platform chats, so grant the support folder a send to billing:</p>
+      <pre><code>arizuko group -i &lt;instance&gt; grant folder:acme/support acme/billing mcp:send</code></pre>
       <p>A route selects one destination for each message. Use <code>send</code> to ask the billing agent about the issue. <a href="../../concepts/routing.html">Routing</a> explains how routes are matched.</p>
 
       <h2>One optional variable names the escalation target</h2>

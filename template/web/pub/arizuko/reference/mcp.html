@@ -149,7 +149,7 @@
 
     <h3 id="send"><code>send</code></h3>
     <p>Use <code>send</code> for a notification, a platform chat or a group folder. A platform target receives the message in its main channel. A bare folder target receives an inbound message that starts its own turn. The post records the calling folder as its return address. The new message carries <code>hops</code>, one more than the furthest input of the calling turn. A post that would reach two hops is refused, so a group that another group started answers on a platform chat. Use <code>reply</code> for answers in a platform chat and <code>send_file</code> for files.</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1312"><code>ipc/ipc.go:1312</code></a> &middot; Grant action: <code>mcp:send</code>, checked on the target folder for a group post &middot; In <code>role:member</code>, granted to every folder at create.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1312"><code>ipc/ipc.go:1312</code></a> &middot; Grant action: <code>mcp:send</code>, checked on the target folder for a group post &middot; <code>role:member</code> covers platform chats routed to the folder; a group post needs an explicit grant on the target.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
@@ -950,7 +950,7 @@ headers   = { Authorization = "Bearer {secret:CF_API_TOKEN}" }
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/reference/mcp.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-11-08">2026-11-08</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-09">2026-11-09</time>
       </div>
     </main>
 

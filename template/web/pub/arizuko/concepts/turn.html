@@ -138,7 +138,7 @@
     <p>The parent turn and the child turn run at the same time, in two guests. <code>MAX_CONCURRENT_AGENTS</code>, default 5, caps the live agents of the whole instance. Scheduled tasks hold at most one of those slots. Past the cap, the turn waits in <code>routd</code>.</p>
     <p>Two more limits apply:</p>
     <ul>
-      <li>Each group post checks <code>mcp:send</code> on the target folder. The default member role includes <code>send</code>; local ACL rows can restrict access.</li>
+      <li>Each group post checks <code>mcp:send</code> on the target folder. The default member role sends only to platform chats, so a group post needs an explicit grant on the target.</li>
       <li>Claude Code subagents that the agent starts with its <code>Task</code> tool run inside the guest of the turn. They cannot reach <code>runed</code>, so they get no guest of their own.</li>
     </ul>
 

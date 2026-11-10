@@ -56,7 +56,7 @@
 
       <h2>The rules in CLAUDE.md make the agent escalate billing</h2>
       <p>A message arrives on the channel that you connected. The <code>triage</code> skill puts it in one class: billing, technical or account. The <code>CLAUDE.md</code> rules tell the agent to quote the ticket ID in every reply, to escalate billing and account-deletion questions, and never to promise a refund. The agent answers the other questions from <code>facts/</code>.</p>
-      <p>The agent calls <code>send</code> with a platform chat JID or the responsible group folder as <code>chatJid</code>. The default member role includes <code>send</code>; local ACL rows can restrict access. <a href="setup.html">Setup</a> shows how to select the target.</p>
+      <p>The agent calls <code>send</code> with a platform chat JID or the responsible group folder as <code>chatJid</code>. <code>role:member</code> covers <code>send</code> only to a platform chat routed to the calling folder or below it. A send to another group needs an explicit <code>mcp:send</code> grant on that folder. <a href="setup.html">Setup</a> shows the grant and how to select the target.</p>
 
       <h2>A sample exchange</h2>
       <pre><code>user   I was charged twice for March, ticket 4417.
@@ -96,7 +96,7 @@ agent  Ticket 4417 — first response target is 2 hours during business
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/helpdesk/index.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-11-07">2026-11-07</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-10">2026-11-10</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

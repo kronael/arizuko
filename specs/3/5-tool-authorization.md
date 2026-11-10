@@ -15,9 +15,10 @@ permission. [Paths and roles](../5/33-paths-roles.md) defines the model.
 The gate checks `mcp:send` on the target folder. The target can be a parent,
 child or peer. The message transfers no grant and carries no depth argument.
 
-`auth/defaults.go` declares the default actions for `role:member`, including
-`send`. Local ACL rows can restrict the target. `register_group` requires its
-own grant to create a group.
+`auth/defaults.go` gives `role:member` `send` only with a `jid` parameter, so
+the default covers a platform chat and never a group folder. A group post needs
+an explicit `mcp:send` row on the target. `register_group` requires its own
+grant to create a group.
 
 ## Posts carry a return address
 

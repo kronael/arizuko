@@ -129,7 +129,7 @@
           </tr>
         </tbody>
       </table>
-      <p>Each call checks its action on the target. The default member role includes <code>send</code>; local ACL rows can restrict the target. Creating a group requires <code>mcp:register_group</code>. <a href="../concepts/grants.html">Grants</a> explains the permission model.</p>
+      <p>Each call checks its action on the target. <code>role:member</code> covers <code>send</code> only to a platform chat routed to the calling folder or below it. A send to another group needs an explicit <code>mcp:send</code> grant on that folder. Creating a group requires <code>mcp:register_group</code>. <a href="../concepts/grants.html">Grants</a> explains the permission model.</p>
 
       <h2>A JID names one chat on one platform</h2>
       <p>A <code>chat_jid</code> has the form <code>&lt;platform&gt;:&lt;rest&gt;</code>. <a href="../concepts/jid.html">JID</a> has the full table. To write a route rule, send <code>/chatid</code> in the target chat and copy the result.</p>
@@ -186,7 +186,7 @@ hook:&lt;folder&gt;/&lt;source&gt;     # webhook ingest at folder, through /hook
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/howto/talking-to-agents.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-11-07">2026-11-07</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-09">2026-11-09</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>
