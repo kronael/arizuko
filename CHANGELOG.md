@@ -13,6 +13,17 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.75.9] — 2026-11-11
+
+> arizuko v0.75.9 — packages come from GitHub
+>
+> An instance installs a product from GitHub at a tag instead of from a checkout every instance on the host shares.
+>
+> • Packages — `github.com/<owner>/<repo>/<dir>@<ref>` installs a product at that tag; `catalog:` is gone.
+> • Services — the adapters ship inside the `arizuko` binary and install by name, e.g. `package add gitd`.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
 ### Changed
 
 - A package source no longer reads the checkout every instance on a host
