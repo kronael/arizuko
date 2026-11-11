@@ -13,6 +13,19 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.75.8] — 2026-11-10
+
+> arizuko v0.75.8 — macrohype, product packages and faster recovery
+>
+> Products are packages in one catalog, macrohype joins them, and a restart no longer waits minutes on old turn status.
+>
+> • macrohype — a daily price and attention monitor for a watchlist that posts only when a phase changes.
+> • Packages — every product is `catalog:<name>` from `packages/`.
+> • Recovery — routd no longer reads every chat to clean up a retried turn's status.
+> • Grants — `group ungrant` removes any stored row, and the skills state when a group send needs a grant.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
 ### Added
 
 - Product package `macrohype` (`catalog:macrohype`): a daily market attention
@@ -23,6 +36,21 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   fetched again. `packages/macrohype/tests` proves the alert and silence rules
   offline, `eval/macrohype.toml` holds the agent cases, and the product pages
   are `products/macrohype/`.
+
+### Fixed
+
+- routd recorded which chats a turn's status reached by reading every chat
+  partition of the instance; on sloth that held startup recovery and status
+  publishing for minutes. The turn row now lists those chats.
+- A legacy turn that cannot be resumed closes without a status cleanup.
+- L812, L813: `self/mcp.md` and `recall-messages` say a send to another group
+  needs an `mcp:send` grant on it, and the agent tells the user instead of
+  trying a refused send.
+- L814: `arizuko group ungrant` removes a stored row whose action is outside
+  the grant vocabulary.
+- L815: the prettier pre-commit hook uses the system node, and `packages/` is
+  outside prettier like `ant/`.
+- L817: the store policy tests skip unless an enforcing store endpoint is named.
 
 ### Changed
 
