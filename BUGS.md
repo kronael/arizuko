@@ -328,7 +328,7 @@ reads those words now.
   **Proposal:** stop the build on the first failed submake. This is an adjacent
   build-gate repair; scope approval is pending.
 
-## ✅ FIXED 2026-11-11 a98a7f654 L818 — package sources resolve against the shared host checkout (`catalog:`) instead of being fetched (2026-11-11)
+## ✅ FIXED 2026-11-11 efeb37294 L818 — package sources resolve against the shared host checkout (`catalog:`) instead of being fetched (2026-11-11)
 
 MEASURED 2026-11-11 at v0.75.8: `catalog:<name>` (`cmd/arizuko/products.go`
 `resolveProductSource`) reads `HOST_APP_DIR/template/services/<name>` or
@@ -345,7 +345,7 @@ catalog is needed, simplify it".
 
 - **Severity:** medium — what an instance installs depends on the state of a
   checkout it shares with every other instance on the host.
-- **Status:** fixed in a98a7f654. Tests: `TestParseGitHubSource`,
+- **Status:** fixed in efeb37294. Tests: `TestParseGitHubSource`,
   `TestFetchGitTakesTheRefAndDirectory` (local bare repository),
   `TestSourceRefusals` (`catalog:` refused with what to select instead),
   `TestGroupAddSelectsProductSource`, `TestPackageServiceContainment`,
@@ -9611,7 +9611,7 @@ call it, and `vited` reads nothing at all. So this removed a dangerous DEFAULT, 
 close a live leak. The rest of `L200` — the manifest keys that would delete the seven
 tables — still adds code and still needs the design.
 
-## ✅ FIXED 2026-11-11 a98a7f654 L202 — a linked package runs the host checkout's compose fragment while generate reads the image's manifest, so one package can come from two versions (2026-09-05)
+## ✅ FIXED 2026-11-11 efeb37294 L202 — a linked package runs the host checkout's compose fragment while generate reads the image's manifest, so one package can come from two versions (2026-09-05)
 
 `packages add` links `services/<name>.yml` at `HOST_APP_DIR/template/services/`
 (`compose.HostCatalogDir`); docker `include`s it on the host, so the live
@@ -9675,7 +9675,7 @@ Three shapes, one decision:
 - **Source:** `compose.HostCatalogDir`, `compose.CatalogDir`,
   `compose.manifestPath`; `/etc/systemd/system/arizuko_krons.service`
   ExecStartPre (2026-09-21)
-- **Status:** fixed in a98a7f654 (`L818`): no fragment links into the
+- **Status:** fixed in efeb37294 (`L818`): no fragment links into the
   checkout; the release's service packages are embedded in the `arizuko`
   binary, `package sync` writes each fragment as a file, and generate reads
   only `<data>/packages/<name>/arizuko.yml`.
