@@ -68,7 +68,7 @@ func TestUngrantRemovesAStoredRowOutsideTheVocabulary(t *testing.T) {
 	s := newMem(t)
 	row := core.ACLRow{Principal: "folder:coach", Scope: "coach", Action: "codex"}
 	sort := strings.Join([]string{row.Principal, row.Action, row.Scope, "", "", store.EffectAllow}, store.KeySep)
-	if _, err := s.TryWriteEntities(t.Context(), nil, objstore.Write{
+	if err := s.WriteEntities(t.Context(), nil, objstore.Write{
 		Op: objstore.Merge, Entity: store.ACL,
 		Key:  objstore.Key{Partition: store.OwnerRoutd, Sort: sort},
 		Init: map[string]string{"grant_option": "0"},
