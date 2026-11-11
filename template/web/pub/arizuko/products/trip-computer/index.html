@@ -135,11 +135,12 @@
       <p>Before delivery, May runs <code>trip_lint.py</code> over the site and <code>link_check.py</code> over day-page map links. The package supplies shared page assets.</p>
       <p>A changed stop, date, route or venue requires new source and route checks. Static checks cannot verify source truth or route geometry.</p>
       <h2>A package selection installs Telegram</h2>
-      <pre><code>arizuko create -i travel --product trip-computer
+      <pre><code>arizuko create -i travel
+arizuko package add -i travel -g main github.com/kronael/arizuko/packages/trip-computer@v0.75.8
 $EDITOR /srv/data/arizuko_travel/.env    # TELEGRAM_BOT_TOKEN, CODEX_API_KEY, a model key
 $EDITOR /srv/data/arizuko_travel/groups/main/facts/preferences.md</code></pre>
       <p>Start the instance as a systemd service using <a href="../../howto/">getting started</a>. Select the adapter package and restart the service:</p>
-      <pre><code>arizuko package add -i travel catalog:teled
+      <pre><code>arizuko package add -i travel teled
 sudo systemctl restart arizuko_travel
 arizuko route -i travel add 'platform=telegram' main</code></pre>
       <p>The <a href="setup.html">operator setup guide</a> has every step: the preferences file, the route and the check of the first research run.</p>

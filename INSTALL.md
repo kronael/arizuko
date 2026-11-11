@@ -694,8 +694,7 @@ WEB_HOST=myhost.example.com
 # AUTH_SECRET=...
 # SECRETS_KEY=...
 
-# Host path of the arizuko checkout (this repository). Catalog sources and
-# relative package paths resolve from this directory.
+# Host path of the arizuko checkout (this repository).
 HOST_APP_DIR=/path/to/arizuko
 ```
 
@@ -719,11 +718,12 @@ Telegram is the simplest choice. It needs one token from @BotFather.
 Select the adapters you want with `arizuko package add`, for example:
 
 ```sh
-./arizuko package add -i <name> catalog:teled
-./arizuko package add -i <name> catalog:gitd
+./arizuko package add -i <name> teled
+./arizuko package add -i <name> gitd
 ```
 
-Each `add` installs the package and records the selection in the
+A bare name selects a service package of the release the `arizuko` binary was
+built from. Each `add` installs the package and records the selection in the
 `installed_packages` rows. `./arizuko package sync -i <name>` installs every
 selected package again. An adapter starts only when its package is installed in
 `services/`.
@@ -740,7 +740,7 @@ credential from `.env`. The `litellm` package moves the credential into a
 gateway container. The agent then gets a virtual key that only the gateway
 accepts.
 
-Run `arizuko package add -i <name> catalog:litellm`.
+Run `arizuko package add -i <name> litellm`.
 The command writes `MODEL_GATEWAY_KEY` and `MODEL_GATEWAY_DB_PASSWORD` into
 `/srv/data/arizuko_<name>/.env`. The package `arizuko.yml` declares both as
 `generate`. Every `generate` sets

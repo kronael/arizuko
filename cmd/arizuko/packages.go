@@ -40,22 +40,6 @@ var baseDaemons = map[string]bool{
 	"onbod": true, "davd": true, "dashd": true,
 }
 
-// mustPkgName rejects a package name that could escape services/.
-func mustPkgName(name string) {
-	if !pkgNameRE.MatchString(name) {
-		die("Failed: invalid package name %q (allowed chars: [A-Za-z0-9_.-], no leading '.', max 63)", name)
-	}
-}
-
-// packageTemplates returns the bundled catalog dir this process can read.
-func packageTemplates(dataDir string) string {
-	hostAppDir := ""
-	if cfg, err := core.LoadConfigFrom(dataDir); err == nil {
-		hostAppDir = cfg.HostAppDir
-	}
-	return compose.CatalogDir(hostAppDir)
-}
-
 // provisionPkgEnv resolves what a package needs from .env through the same
 // function generate runs, so a refusal (`required` unset) lands here, before
 // the first file is written, and a minted key exists before the first
@@ -84,8 +68,8 @@ func reportPackageInstall(name, revision string, files []string, applied map[str
 }
 
 // checkSourcedFiles bounds what a package from a source may put into
-// services/: no file that would replace one the instance already has (the
-// catalog's link, an operator's own fragment), no name of a core service, and
+// services/: no file that would replace one the instance already has (an
+// operator's own fragment), no name of a core service, and
 // external fragments stay within compose.CheckSourcedFragment. owned names the
 // files this package's record already holds, which an upgrade may rewrite.
 func checkSourcedFiles(svcDir, name, srcDir string, files []string, owned map[string]string, bundled, force bool) error {
@@ -277,11 +261,7 @@ func dirtyAssets(svcDir string, rec routd.InstalledPackage) []string {
 		if fn == container.ManifestFile {
 			continue
 		}
-		path := filepath.Join(svcDir, fn)
-		if st, err := os.Lstat(path); err == nil && st.Mode()&os.ModeSymlink != 0 {
-			continue
-		}
-		cur, err := os.ReadFile(path)
+		cur, err := os.ReadFile(filepath.Join(svcDir, fn))
 		if err != nil {
 			continue
 		}
@@ -291,40 +271,6 @@ func dirtyAssets(svcDir string, rec routd.InstalledPackage) []string {
 	}
 	sort.Strings(dirty)
 	return dirty
-}
-
-// relinkCatalog converts every installed fragment that is still a byte-identical
-// copy of the bundled catalog into a symlink, so a catalog fix reaches this
-// instance without a copy falling behind (BUGS R1). Runs on every generate — it
-// never touches a hand-edited or multi-account-variant fragment. A no-op when
-// HOST_APP_DIR is unset: there is then no host-resolvable path to link to.
-func relinkCatalog(dataDir string) {
-	hostDir, ok := compose.HostCatalogDir(dataDir)
-	if !ok {
-		return
-	}
-	svcDir := filepath.Join(dataDir, "services")
-	relinked, diverged, err := compose.RelinkCatalog(svcDir, packageTemplates(dataDir), hostDir)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "services: relink to catalog: %v\n", err)
-		return
-	}
-	for _, name := range relinked {
-		fmt.Printf("services/%s.yml now links to the bundled catalog (was an identical copy)\n", name)
-	}
-	for _, d := range diverged {
-		fmt.Fprintf(os.Stderr, "services: services/%s.yml differs from the catalog and is FROZEN — "+
-			"it will never pick up a mount or env var the template gains; compare it against "+
-			"%s/%s.yml (BUGS L41)\n", d.Name, hostDir, d.Name)
-		if len(d.Missing) == 0 {
-			fmt.Fprintf(os.Stderr, "  it carries every line the catalog has, so nothing is withheld today\n")
-			continue
-		}
-		fmt.Fprintf(os.Stderr, "  %d catalog line(s) absent from it:\n", len(d.Missing))
-		for _, line := range d.Missing {
-			fmt.Fprintf(os.Stderr, "    %s\n", line)
-		}
-	}
 }
 
 // writeFileAtomic writes b to path via a temp file + rename, so a failure mid

@@ -57,10 +57,11 @@
         <li>Anthropic API access for the agent in the guest.</li>
       </ul>
 
-      <h2>create records the product for the main group</h2>
-      <pre><code>arizuko create -i acme --product slack-team
+      <h2>package add selects the product for the main group</h2>
+      <pre><code>arizuko create -i acme
 $EDITOR /srv/data/arizuko_acme/.env</code></pre>
-      <p><code>--product slack-team</code> records the product as <code>ARIZUKO_DEFAULT_PRODUCT</code> and copies no file. At its first boot <code>routd</code> selects the product for the <code>main</code> group. The next <code>arizuko package sync</code> installs its manual, skills and <code>group/</code> files. <code>arizuko create</code> also writes the default <code>.env</code>. Without <code>--product</code>, the instance starts with the generic persona. The rest of this guide assumes the product.</p>
+      <p>After <code>routd</code> has booted, select the product for the <code>main</code> group. The command installs its manual, skills and <code>group/</code> files. Without it, the instance starts with the generic persona. The rest of this guide assumes the product.</p>
+      <pre><code>arizuko package add -i acme -g main github.com/kronael/arizuko/packages/slack-team@v0.75.8</code></pre>
 
       <h2>.env holds the Slack keys and the OAuth providers</h2>
       <pre><code># Identity + secrets
@@ -100,7 +101,7 @@ DISCORD_CLIENT_SECRET=REPLACE_ME</code></pre>
 
       <h2>package add installs the Slack adapter</h2>
       <p>Start the instance as a systemd service, as <a href="../../howto/">getting started</a> shows. Select the package, then restart the service to start the adapter:</p>
-      <pre><code>arizuko package add -i acme catalog:slakd
+      <pre><code>arizuko package add -i acme slakd
 sudo systemctl restart arizuko_acme</code></pre>
 
       <h2>Channel use needs no sign-in</h2>
@@ -177,7 +178,7 @@ EMAIL_STRICT_AUTH=false                # true = drop unauthenticated mail</code>
       <h3>Two commands and two routes add the child group</h3>
       <p>After the steps above, add a support child group:</p>
       <pre><code># 1. make the child group from the support product
-arizuko group -i acme add 'slack:T123/channel/C456' main/support -p support
+arizuko group -i acme add 'slack:T123/channel/C456' main/support -p github.com/kronael/arizuko/packages/support@v0.75.8
 arizuko package sync -i acme
 
 # 2. copy the example facts once, then put your knowledge base into facts/,

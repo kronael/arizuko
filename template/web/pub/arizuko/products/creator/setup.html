@@ -57,7 +57,7 @@
       </ul>
 
       <h2>group add makes the group from the product</h2>
-      <pre><code>arizuko group -i &lt;instance&gt; add telegram:&lt;bot-id&gt;/user/12345678 content -p creator</code></pre>
+      <pre><code>arizuko group -i &lt;instance&gt; add telegram:&lt;bot-id&gt;/user/12345678 content -p github.com/kronael/arizuko/packages/creator@v0.75.8</code></pre>
       <p>The command records the product selection for the group in the <code>installed_packages</code> resource. Run <code>arizuko package sync</code> after selecting the adapters below.</p>
 
       <h2>The style file comes first</h2>
@@ -67,9 +67,9 @@
       <div class="callout"><strong>The draft quality follows this one file.</strong> If the drafts read as if nobody wrote them, fix this file. The fix is not in the prompt and not in the model.</div>
 
       <h2>A publish adapter lets the agent post</h2>
-      <p>For Telegram approval, select <code>catalog:teled</code>. For Slack publishing, also select <code>catalog:slakd</code>. The existing package selections stay.</p>
-      <pre><code>arizuko package add -i &lt;instance&gt; catalog:teled
-arizuko package add -i &lt;instance&gt; catalog:slakd</code></pre>
+      <p>For Telegram approval, select <code>teled</code>. For Slack publishing, also select <code>slakd</code>. The existing package selections stay.</p>
+      <pre><code>arizuko package add -i &lt;instance&gt; teled
+arizuko package add -i &lt;instance&gt; slakd</code></pre>
       <p>Add the adapter keys to <code>/srv/data/arizuko_&lt;instance&gt;/.env</code>:</p>
       <pre><code>TELEGRAM_BOT_TOKEN=REPLACE_ME
 SLACK_BOT_TOKEN=REPLACE_ME

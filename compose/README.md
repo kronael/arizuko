@@ -135,8 +135,9 @@ operator line after it.
 selection, order, host builds and group assets. Compose owns service includes and
 environment files. A group selection has no parent-directory inheritance.
 
-The bundled service catalog has one directory per package:
-`template/services/<name>/{arizuko.yml,<name>.yml}`.
+The release's own service packages have one directory each,
+`template/services/<name>/{arizuko.yml,<name>.yml}`, and the `arizuko` binary
+carries them (`ReleaseService`). `package sync` writes the fragment as a file.
 Installed metadata lives at `<data>/packages/<name>/arizuko.yml`;
 Docker includes `<data>/services/<name>.yml`.
 Arizuko reads metadata through the shared strict resreg manifest decoder.
@@ -145,18 +146,14 @@ Docker reads its own compose format; compose generation does not translate it.
 Source fragments pass `CheckSourcedFragment`: services stay inside their package
 namespace, binds stay under `${DATA_DIR}/store/<name>` or named volumes, and
 privileged containers, host networking, foreign env files and escaping mounts refuse.
-The release catalog is checked by `fragments_test.go`.
+The release's own service packages are exempt and are checked by
+`fragments_test.go`.
 
 Only installed service fragments participate in environment provisioning.
 `ProvisionPackageEnv` reads their canonical manifest. A `.env` value wins;
 `generate` mints once, `default` fills the current render, and `required` refuses
 an unset value. The shared `.env` never becomes a service env file.
 Group secret requirements remain package metadata; scoped delivery belongs to routd.
-
-`RelinkCatalog` links an installed fragment only when its bytes match the current
-catalog. Edited files and account variants stay files. The host resolves include
-links through `HostCatalogDir`; the generator reads its catalog through `CatalogDir`.
-The checkout and deployed release must match. Existing BUGS L202 records that coupling.
 
 `collectProxydRoutes` reads core routes and the `proxyd_routes` rows from installed
 package manifests. Generation evaluates `gated_by` against the configured environment,
@@ -174,39 +171,30 @@ a service restart. Starting changed containers remains the deployment procedure.
 - `ProvisionPackageEnv(dataDir, manifestPath, name, env)` — resolve a
   package's `env` section against `.env`; `package sync` and
   `Generate` share it
-- `CatalogDir(hostAppDir)` — the catalog this process can read: the
-  checkout when visible, else the copy baked into the image
-- `HostCatalogDir(dataDir) (string, bool)` — the host-resolvable catalog
-  dir from `.env`'s `HOST_APP_DIR`, for use as a symlink target
-- `RelinkCatalog(servicesDir, readableCatalogDir, hostCatalogDir)
-([]string, []Diverged, error)` — convert every installed fragment that is
-  still a byte-identical catalog copy into a symlink, idempotently, and name
-  every fragment kept as a real file
-- `SymlinkFragment(servicesDir, hostCatalogDir, filename) error` —
-  atomically point one fragment at the catalog
+- `ReleaseService(name) (fs.FS, bool)` — the service package this release
+  ships under `name`, as the binary carries it
 - `CheckSourcedFragment(name, file, body) error` — the namespace bound on a
   fragment from a source
 - `ReservedRoutePaths() []string` — every path core arizuko serves, derived
   from `coreProxydRoutes`. A package may not claim one, and dashd's hub falls
   back to these when proxyd cannot be read
 - `ReservedRouteClaim(bundled, path) string` — the core path `path` would
-  take over; a bundled package keeps its own `/dash/<name>/`
+  take over; a release service keeps its own `/dash/<name>/`
 - `CoreRouteAuth(path) string` — the auth mode core declares for one path
 
 ## Dependencies
 
-- `core`, `resreg` (manifest parsing), `store` (the owner layout)
+- `core`, `resreg` (manifest parsing), `store` (the owner layout),
+  `template/services` (the release's own service packages)
 
 ## Files
 
 - `compose.go` — the generator: every daemon's service block, the scoped env
   files, the managed `.env` block and the `include:` list.
 - `manifest.go` — the `arizuko.yml` half of a package: its `proxyd_routes`
-  and `env` sections, and the catalog they are read from.
+  and `env` sections, read from `<data>/packages/<name>/`, and
+  `ReleaseService`.
 - `contain.go` — `CheckSourcedFragment`.
-- `fragments.go` — `RelinkCatalog` and `SymlinkFragment`. Matching is by
-  service kind, not filename: `teled-rhias.yml` maps to the `teled`
-  template, and because its filename says "variant" it is never linked.
 
 ## Scoped env keys
 

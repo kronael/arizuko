@@ -136,8 +136,8 @@
       <pre><code>arizuko create -i demo
 $EDITOR /srv/data/arizuko_demo/.env     # TELEGRAM_BOT_TOKEN, a model key</code></pre>
       <p>Start the instance as a systemd service using <a href="../../howto/">getting started</a>. Select the adapter package, add the group, sync and restart the service:</p>
-      <pre><code>arizuko package add -i demo catalog:teled
-arizuko group -i demo add 'telegram:&lt;bot-id&gt;/user/&lt;your-tg-id&gt;' assistant -p reality
+      <pre><code>arizuko package add -i demo teled
+arizuko group -i demo add 'telegram:&lt;bot-id&gt;/user/&lt;your-tg-id&gt;' assistant -p github.com/kronael/arizuko/packages/reality@v0.75.8
 arizuko package sync -i demo
 sudo systemctl restart arizuko_demo</code></pre>
       <p>Then add files for your current situations in <code>groups/assistant/facts/threads/</code>. The <a href="setup.html">operator setup guide</a> has every step: the threads, the monthly sweep, the WhatsApp and Telegram routes, and the <code>assistant/content</code> group for longer writing.</p>

@@ -341,7 +341,7 @@ Behaviour:
 - `ASSISTANT_NAME` is the instance identity. The default is `arizuko`.
 - `ENGAGEMENT_TTL` is the engagement window of the reply state. The default is 30m, and `0` disables automatic engagement. Engagement is the same on every channel, GitHub included: only a person's `message` or `mention` rides it, and [the trigger policy of gitd](../gitd/README.md#observe-vs-trigger) shows how a route extends it to CI.
 - `SESSION_IDLE_EXPIRY` is the session reset threshold. The default is 2d.
-- `ARIZUKO_DEFAULT_PRODUCT` records the product on the default group row when routd boots on an empty store. The same boot writes one `installed_packages` row for `main` with the source `packages/<product>`.
+- `ARIZUKO_DEFAULT_PRODUCT` records the product on the default group row when routd boots on an empty store.
 - `COST_CAPS_ENABLED` turns on the budget gate before spawn. The default is `true`.
 - `MAX_CONCURRENT_AGENTS` limits concurrent agents. The default is 5.
 - `MAX_TURN_RETRY` is the retry ceiling for a turn that dies without a reply, for example after SIGKILL, OOM or a timeout. The default is 3, `0` means 3, and `-1` disables retries.

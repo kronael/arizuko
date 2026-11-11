@@ -73,10 +73,8 @@ func Open() (*DB, error) {
 		return nil, err
 	}
 	// The ROW is routd's, so routd writes it, into a store that holds no group
-	// at all; `arizuko create` only writes the product choice into the env.
-	product := os.Getenv("ARIZUKO_DEFAULT_PRODUCT")
-	seeded, err := store.SeedDefaultGroup(ctx, h, product)
-	if err != nil {
+	// at all; `arizuko create` only writes the product's name into the env.
+	if err := store.SeedDefaultGroup(ctx, h, os.Getenv("ARIZUKO_DEFAULT_PRODUCT")); err != nil {
 		return nil, err
 	}
 	d := OpenOver(h)
@@ -91,12 +89,6 @@ func Open() (*DB, error) {
 	}
 	if err := d.store().MigrateGitHubSourceRoutes(ctx); err != nil {
 		return nil, err
-	}
-	if seeded && product != "" {
-		if err := d.PutInstalledPackage(InstalledPackage{Folder: store.DefaultFolder, Name: product,
-			Source: "packages/" + product, InstalledAt: core.TS(time.Now())}); err != nil {
-			return nil, err
-		}
 	}
 	return d, nil
 }

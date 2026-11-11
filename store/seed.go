@@ -54,24 +54,23 @@ func SeedRoutdFloor(ctx context.Context, d objstore.Store) error {
 const DefaultFolder = "main"
 
 // SeedDefaultGroup writes the group a new instance is born with, and its
-// default scheduled tasks, into a store that holds no group, and reports
-// whether it did. It runs at routd's boot because routd makes the rows;
-// `arizuko create` makes only files.
-func SeedDefaultGroup(ctx context.Context, d objstore.Store, product string) (bool, error) {
+// default scheduled tasks, into a store that holds no group. It runs at
+// routd's boot because routd makes the rows; `arizuko create` makes only files.
+func SeedDefaultGroup(ctx context.Context, d objstore.Store, product string) error {
 	empty, err := entityIsEmpty(ctx, d, Groups)
 	if err != nil || !empty {
-		return false, err
+		return err
 	}
 	s := NewOver(d)
 	if err := s.PutGroupRow(core.Group{
 		Folder: DefaultFolder, AddedAt: time.Now(), Product: product,
 	}); err != nil {
-		return false, fmt.Errorf("seed the %s group: %w", DefaultFolder, err)
+		return fmt.Errorf("seed the %s group: %w", DefaultFolder, err)
 	}
 	if err := s.SeedDefaultTasks(DefaultFolder, DefaultFolder); err != nil {
-		return false, fmt.Errorf("seed %s's default tasks: %w", DefaultFolder, err)
+		return fmt.Errorf("seed %s's default tasks: %w", DefaultFolder, err)
 	}
-	return true, nil
+	return nil
 }
 
 // entityIsEmpty reports whether one entity holds no item at all in the routd

@@ -57,7 +57,7 @@
       </ul>
 
       <h2>group add makes the group from the product</h2>
-      <pre><code>arizuko group -i &lt;instance&gt; add telegram:&lt;bot-id&gt;/user/12345678 socials -p socials</code></pre>
+      <pre><code>arizuko group -i &lt;instance&gt; add telegram:&lt;bot-id&gt;/user/12345678 socials -p github.com/kronael/arizuko/packages/socials@v0.75.8</code></pre>
       <p>The command records the product selection for the group in the <code>installed_packages</code> resource. Run <code>arizuko package sync</code> after selecting the adapter below.</p>
 
       <h2>facts/channels.md describes each account</h2>
@@ -68,8 +68,8 @@
 
       <h2>Each publish adapter needs its package and its keys</h2>
       <p>For Telegram approval and Discord publishing, select these packages. The existing selections stay.</p>
-      <pre><code>arizuko package add -i &lt;instance&gt; catalog:teled
-arizuko package add -i &lt;instance&gt; catalog:discd</code></pre>
+      <pre><code>arizuko package add -i &lt;instance&gt; teled
+arizuko package add -i &lt;instance&gt; discd</code></pre>
       <p>Add the tokens to <code>/srv/data/arizuko_&lt;instance&gt;/.env</code>:</p>
       <pre><code>TELEGRAM_BOT_TOKEN=REPLACE_ME
 DISCORD_TOKEN=Bot REPLACE_ME</code></pre>

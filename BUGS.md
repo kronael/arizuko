@@ -7340,6 +7340,11 @@ copy reports nothing, the copy missing a mount names it.
 a fragment; the byte-identical gate is exactly as it was. This only makes the
 report actionable while the decision waits.
 
+**2026-11-11 (`L818`):** relink and its FROZEN report are gone with the catalog.
+`package sync` writes every package-owned fragment from the release and refuses
+one whose bytes differ from what it installed; a fragment no package owns, such
+as a `<kind>-<label>.yml` variant, is still the operator's and freezes as above.
+
 ## L40 — live krons cannot tell two anonymous visitors apart (2026-08-16, open — needs an infra decision)
 
 Found by anteval `chat-entrypoint`, which failed `429, want 200` on a freshly

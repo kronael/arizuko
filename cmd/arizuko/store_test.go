@@ -637,29 +637,17 @@ func TestInstanceDirRejectsStoreOverride(t *testing.T) {
 	}
 }
 
-func TestGenerateRefusesBeforeRelink(t *testing.T) {
+func TestGenerateRefusesBeforeWebDocs(t *testing.T) {
 	if dir := os.Getenv("ARIZUKO_REFUSAL_CHILD"); dir != "" {
 		generateCompose(dir, "test")
 		return
 	}
-	dir := seedSyncInstance(t, "refusal", map[string]string{"sample.yml": "services: {}\n"}, map[string]string{"sample.yml": "services: {}\n"})
-	writeFile(t, filepath.Join(dir, ".env"), "AWS_REGION=us-east-1\nHOST_APP_DIR="+os.Getenv("HOST_APP_DIR")+"\n")
-	path := filepath.Join(dir, "services", "sample.yml")
-	before, err := os.Lstat(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	cmd := exec.Command(os.Args[0], "-test.run=^TestGenerateRefusesBeforeRelink$")
+	dir := seedSyncInstance(t, "refusal", nil, map[string]string{"sample.yml": "services: {}\n"})
+	writeFile(t, filepath.Join(dir, ".env"), "AWS_REGION=us-east-1\n")
+	cmd := exec.Command(os.Args[0], "-test.run=^TestGenerateRefusesBeforeWebDocs$")
 	cmd.Env = append(os.Environ(), "ARIZUKO_REFUSAL_CHILD="+dir)
 	if output, err := cmd.CombinedOutput(); err == nil {
 		t.Fatalf("accepted invalid store: %s", output)
-	}
-	after, err := os.Lstat(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if before.Mode() != after.Mode() || after.Mode()&os.ModeSymlink != 0 {
-		t.Fatal("fragment changed before refusal")
 	}
 	if _, err := os.Stat(filepath.Join(dir, "web")); !os.IsNotExist(err) {
 		t.Fatal("web output created")

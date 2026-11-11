@@ -261,12 +261,12 @@ round that finds nothing commits nothing.
   edit to `proxyd/main.go` or `compose/compose.go` (`EXTENDING.md` §Adding
   a channel adapter).
 - **NEVER hand-edit an installed `<data_dir>/services/*.yml`.** An edited
-  fragment is FROZEN: `arizuko generate` leaves it alone for good, so it never
-  takes a mount, env var or timeout the template later gains. Three sloth
+  fragment is FROZEN: `arizuko package sync` refuses to overwrite it, so it
+  never takes a mount, env var or timeout the template later gains. Three sloth
   fragments sat frozen for months and each had lost `RUNED_RUN_TIMEOUT`, which
   drops the typing indicator before a long turn's reply lands (BUGS `L41`).
-  Change the template and relink; where an instance genuinely differs,
-  parameterise through `.env`.
+  Change the template and run `arizuko package sync` with a binary built from
+  it; where an instance genuinely differs, parameterise through `.env`.
 - **A second account on one platform is its own fragment**,
   `template/services/<kind>-<label>.yml` with a distinct `CHANNEL_NAME`, never
   an edit to the base fragment. The variant reads `env/<kind>-<label>.env`, and

@@ -10,7 +10,7 @@ moved_from: specs/9/index.md §1 (was "phase 8 action 1"; pulled to phase 5)
 > satisfied; step 7 — per-owner `store/<owner>/` mounts — shipped along with the
 > loud-failure precondition it rests on and the host-side move that makes it
 > reach a LIVE instance (`compose.MigrateStoreLayout`, called from
-> `generateCompose` beside `relinkCatalog`). Without that last piece this was an
+> `generateCompose`). Without that last piece this was an
 > outage rather than a deploy: the new mounts resolve into directories a live
 > tree does not have, and the loud-failure precondition means every owner daemon
 > refuses to boot rather than papering over it.
@@ -692,7 +692,7 @@ auth_sessions; SELECT COUNT(*) FROM auth_users;"`. Verified zero on krons
    routd migrations, gated on step 1's per-instance check passing.
 4. Restructure `store/` into per-owner subdirectories. **No operator step**
    (2026-08-07): `compose.MigrateStoreLayout` does the move, called from
-   `generateCompose` beside `relinkCatalog`, and the systemd unit already runs
+   `generateCompose`, and the systemd unit already runs
    `arizuko generate` in `ExecStartPre` — after `docker compose down`, before
    `up`. That is the only moment the whole tree is in one process's hands with
    no daemon holding a DB open, and it is also why a daemon cannot do this for
@@ -798,7 +798,7 @@ Each ships and reverts on its own; none blocks another except where noted.
    path inside a mount that daemon carries.
 
    **The file move is automatic** — `compose.MigrateStoreLayout`, called from
-   `generateCompose` beside `relinkCatalog`, which the systemd unit runs after
+   `generateCompose`, which the systemd unit runs after
    `compose down` and before `up` (step 4 of "Migration path per instance").
    It is not a separate deploy step and cannot be forgotten: without it this
    change takes the fleet down, because `OwnerDBPath` resolves into a directory

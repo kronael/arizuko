@@ -132,13 +132,13 @@ commands below show the intended instance workflow. Before the first
 `package add`, the instance needs its images, store server and owner tables provisioned:
 
 ```bash
-./arizuko create -i demo --product slack-team  # makes /srv/data/arizuko_demo
-$EDITOR /srv/data/arizuko_demo/.env             # set credentials and image paths
+./arizuko create -i demo              # makes /srv/data/arizuko_demo
+$EDITOR /srv/data/arizuko_demo/.env   # set credentials and image paths
 # Provision the store and owner tables; see the bootstrap gap below.
-./arizuko package add -i demo catalog:slakd    # select a service package
-./arizuko run -i demo                          # generates compose, starts the instance
-# In a second terminal, after routd has booted, install the product files:
-./arizuko package sync -i demo
+./arizuko package add -i demo slakd   # select a service package of this release
+./arizuko run -i demo                 # generates compose, starts the instance
+# In a second terminal, after routd has booted, install a product from GitHub:
+./arizuko package add -i demo -g main github.com/kronael/arizuko/packages/slack-team@v0.75.8
 ```
 
 [INSTALL.md](INSTALL.md#bootstrap-a-fresh-store) describes manual store

@@ -9,7 +9,7 @@ The [package guide](../../../EXTENDING.md) explains package selection and instal
 Select the package for a group. The command installs it:
 
 ```sh
-arizuko package add -g FOLDER catalog:cz-estate-agent
+arizuko package add -g FOLDER github.com/kronael/arizuko/packages/cz-estate-agent@v0.75.8
 ```
 
 Use `-i/--instance NAME` to select another configured instance. `arizuko package sync` installs every selected package again.

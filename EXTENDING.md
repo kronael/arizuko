@@ -220,14 +220,26 @@ has a `cron` and no `next_run` is written as it is; the scheduler fills the
 first `next_run` from the cron on its next poll. The file never selects a package.
 Only the `installed_packages` rows select packages.
 
-`catalog:<name>` selects a bundled service package (`template/services/<name>`)
-or a product (`packages/<name>`); a name in both places is an error. Other
-sources: an absolute path, a path relative to `HOST_APP_DIR`, a Git source
-(`github.com/...`, `git@...`, `git+...`, or another `://` URL that is not an
-archive), or a `.tgz` archive, local or `http(s)://`. An archive unpacks into a
-temp dir (64 MiB cap; absolute, `..` and link entries refused), its single
-top-level directory is the package root, and its sha256 is the revision.
-Other archive extensions are refused.
+A source is one of four forms:
+
+- `github.com/<owner>/<repo>[/<dir>][@<ref>]`, for example
+  `github.com/kronael/arizuko/packages/macrohype@v0.75.8`. The form is Go's
+  module query, a path then `@` and a version; on github.com the repository is
+  the first two path segments, so the rest is the package directory. The ref
+  (tag, branch or commit) is fetched shallow, `<dir>` is the package root, and
+  the commit is the revision. Without `@<ref>` the source follows the default
+  branch, and every `package sync` fetches it again.
+- An absolute path to a directory, for a package under development.
+- A `.tgz` archive, an absolute path or an `http(s)://` URL. It unpacks into a
+  temp dir (64 MiB cap; absolute, `..` and link entries refused), its single
+  top-level directory is the package root, and its sha256 is the revision.
+  Other archive extensions are refused.
+- The name of a service package this release ships, `template/services/<name>`
+  (`teled`, `gitd`, `litellm`). The `arizuko` binary carries these, so the
+  instance installs the service of the release it runs; only these may use
+  `env_file`, the platform keys and their own `/dash/<name>/`.
+
+Relative paths and other git URLs are refused, and so is `catalog:<name>`.
 Each source declares `name` in its own `arizuko.yml`; the source directory name
 does not define package identity.
 In a git checkout, `arizuko package` installs only the `skills/` directories

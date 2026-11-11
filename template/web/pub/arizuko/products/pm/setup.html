@@ -56,12 +56,12 @@
       </ul>
 
       <p>For Discord, select the adapter package. The existing selections stay:</p>
-      <pre><code>arizuko package add -i &lt;instance&gt; catalog:discd</code></pre>
+      <pre><code>arizuko package add -i &lt;instance&gt; discd</code></pre>
       <p>Then restart the running instance to start the adapter.</p>
       <p>If systemd manages the instance, run <code>sudo systemctl restart arizuko_&lt;instance&gt;</code>.</p>
 
       <h2>group add makes the group from the product</h2>
-      <pre><code>arizuko group -i &lt;instance&gt; add discord:123456789/987654321 pm -p pm</code></pre>
+      <pre><code>arizuko group -i &lt;instance&gt; add discord:123456789/987654321 pm -p github.com/kronael/arizuko/packages/pm@v0.75.8</code></pre>
       <p>The JID is <code>discord:&lt;guild_id&gt;/&lt;channel_id&gt;</code>. For a Discord server channel, the command writes a mention route and an observe route. The command also selects the product for the group. Sync to install it:</p>
       <pre><code>arizuko package sync -i &lt;instance&gt;</code></pre>
 

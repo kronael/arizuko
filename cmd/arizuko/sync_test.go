@@ -52,10 +52,10 @@ func packageRefuses(t *testing.T, instance string, args ...string) string {
 }
 
 // seedPackageInstance builds an instance with its tables, the group main and
-// a catalog; the core package declares one egress rule.
-func seedPackageInstance(t *testing.T, name string, catalog map[string]string) (string, *routd.DB) {
+// the package sources; the core package declares one egress rule.
+func seedPackageInstance(t *testing.T, name string, sources map[string]string) (string, *routd.DB) {
 	t.Helper()
-	dataDir := seedSyncInstance(t, name, catalog, nil)
+	dataDir := seedSyncInstance(t, name, sources, nil)
 	seedRoutdDB(t, dataDir)
 	mustWrite(t, filepath.Join(os.Getenv("APP_SRC_DIR"), "ant", "arizuko.yml"),
 		"name: core\nnetwork_rules:\n  - folder: ''\n    target: core.example\n")
@@ -113,8 +113,8 @@ func TestPackageAddSyncRm(t *testing.T) {
 	if _, found, err := db.InstalledPackage("", "core"); err != nil || !found || ruleCount(t, st, "", "core.example") != 1 {
 		t.Fatalf("core selection: found=%v, %v", found, err)
 	}
-	packageRuns(t, "pkg", "add", "catalog:demo")
-	packageRuns(t, "pkg", "add", "catalog:other")
+	packageRuns(t, "pkg", "add", sourceDir("demo"))
+	packageRuns(t, "pkg", "add", sourceDir("other"))
 	packageRuns(t, "pkg", "add", "-g", "main", group)
 	env, err := os.ReadFile(filepath.Join(dataDir, ".env"))
 	if err != nil || !strings.Contains(string(env), "DEMO_KEY=") {
@@ -146,14 +146,14 @@ func TestPackageAddSyncRm(t *testing.T) {
 		t.Fatalf("a repeat sync changed the receipts:\n%+v\n%+v", selected, again)
 	}
 
-	mustWrite(t, filepath.Join(os.Getenv("HOST_APP_DIR"), "template", "services", "demo", "arizuko.yml"), "name: demo\ninstall: exit 1\n")
+	mustWrite(t, filepath.Join(sourceDir("demo"), "arizuko.yml"), "name: demo\ninstall: exit 1\n")
 	if output := packageRefuses(t, "pkg", "sync"); !strings.Contains(output, "build") {
 		t.Fatalf("failed build output: %s", output)
 	}
 	if after := selection(t, db); !reflect.DeepEqual(after, selected) || ruleCount(t, st, "", "one.example") != 1 {
 		t.Fatal("a failed build changed receipts or withdrew the old row")
 	}
-	mustWrite(t, filepath.Join(os.Getenv("HOST_APP_DIR"), "template", "services", "demo", "arizuko.yml"), "name: demo\nnetwork_rules:\n  - folder: ''\n    target: two.example\n")
+	mustWrite(t, filepath.Join(sourceDir("demo"), "arizuko.yml"), "name: demo\nnetwork_rules:\n  - folder: ''\n    target: two.example\n")
 	packageRuns(t, "pkg", "sync")
 	if ruleCount(t, st, "", "one.example") != 0 || ruleCount(t, st, "", "two.example") != 1 || ruleCount(t, st, "main", "other.example") != 1 {
 		t.Fatal("package update did not replace rows")
@@ -302,12 +302,12 @@ func TestPackageRefusals(t *testing.T) {
 		"unknown group":           {[]string{"add", "-g", "nowhere", other}, "unknown group"},
 		"unselected":              {[]string{"rm", "other"}, "not selected"},
 		"core":                    {[]string{"rm", "core"}, "required"},
-		"core service name":       {[]string{"add", "catalog:routd"}, "core service"},
+		"core service name":       {[]string{"add", sourceDir("routd")}, "core service"},
 		"no verb":                 {nil, "usage: arizuko package"},
 		"unknown verb":            {[]string{"frob"}, "usage: arizuko package"},
 		"sync with a group":       {[]string{"sync", "-g", "main"}, "usage: arizuko package"},
 		"extra argument":          {[]string{"rm", "unsafe", "extra"}, "usage: arizuko package"},
-		"required env":            {[]string{"add", "catalog:guard"}, "REQUIRED_SERVICESYNC_KEY"},
+		"required env":            {[]string{"add", sourceDir("guard")}, "REQUIRED_SERVICESYNC_KEY"},
 	} {
 		if output := packageRefuses(t, "guard", test.args...); !strings.Contains(output, test.want) {
 			t.Fatalf("%s: output %q lacks %q", name, output, test.want)
@@ -328,34 +328,35 @@ func TestPackageRefusals(t *testing.T) {
 }
 
 func TestPackageServiceContainment(t *testing.T) {
-	fragment := "services:\n  sample:\n    image: x\n  sample_db:\n    image: x\n    volumes:\n      - '${DATA_DIR}/store/sample_db:/data'\n"
-	dataDir, db := seedPackageInstance(t, "catalog", map[string]string{"sample.yml": fragment})
-	service := filepath.Join(dataDir, "services", "sample.yml")
-	mustWrite(t, service, "operator fragment")
-	if output := packageRefuses(t, "catalog", "add", "catalog:sample"); !strings.Contains(output, "already there") {
-		t.Fatalf("catalog collision accepted: %s", output)
-	}
-	packageRuns(t, "catalog", "add", "-f", "catalog:sample")
-	if got, err := os.ReadFile(service); err != nil || string(got) != fragment {
-		t.Fatalf("-f did not replace the unmanaged fragment: %q, %v", got, err)
-	}
-	if _, found, err := db.InstalledPackage("", "sample"); err != nil || !found {
-		t.Fatalf("catalog receipt: found=%v, %v", found, err)
-	}
-	packageRuns(t, "catalog", "sync")
-	if err := os.Remove(service); err != nil {
+	dataDir, db := seedPackageInstance(t, "bundled", nil)
+	shipped, err := os.ReadFile(filepath.Join("..", "..", "template", "services", "gitd", "gitd.yml"))
+	if err != nil {
 		t.Fatal(err)
 	}
-	mustWrite(t, service, "edited fragment")
-	if output := packageRefuses(t, "catalog", "sync"); !strings.Contains(output, "locally edited") {
-		t.Fatalf("dirty catalog fragment accepted: %s", output)
+	service := filepath.Join(dataDir, "services", "gitd.yml")
+	mustWrite(t, service, "operator fragment")
+	if output := packageRefuses(t, "bundled", "add", "gitd"); !strings.Contains(output, "already there") {
+		t.Fatalf("collision with an operator fragment accepted: %s", output)
 	}
-	mustWrite(t, service, fragment)
+	packageRuns(t, "bundled", "add", "-f", "gitd")
+	if got, err := os.ReadFile(service); err != nil || string(got) != string(shipped) {
+		t.Fatalf("-f did not replace the unmanaged fragment with the release's: %q, %v", got, err)
+	}
+	if rec, found, err := db.InstalledPackage("", "gitd"); err != nil || !found || rec.Source != "gitd" || rec.Revision != revBundled {
+		t.Fatalf("release service receipt: %+v found=%v, %v", rec, found, err)
+	}
+	packageRuns(t, "bundled", "sync")
+	mustWrite(t, service, "edited fragment")
+	if output := packageRefuses(t, "bundled", "sync"); !strings.Contains(output, "locally edited") {
+		t.Fatalf("dirty release fragment accepted: %s", output)
+	}
+	mustWrite(t, service, string(shipped))
 
+	fragment := "services:\n  external:\n    image: x\n  external_db:\n    image: x\n    volumes:\n      - '${DATA_DIR}/store/external_db:/data'\n"
 	external := filepath.Join(t.TempDir(), "external")
 	mustWrite(t, filepath.Join(external, "arizuko.yml"), "name: external\n")
-	mustWrite(t, filepath.Join(external, "external.yml"), strings.ReplaceAll(fragment, "sample", "external"))
-	if output := packageRefuses(t, "catalog", "add", external); !strings.Contains(output, "external_db") {
+	mustWrite(t, filepath.Join(external, "external.yml"), fragment)
+	if output := packageRefuses(t, "bundled", "add", external); !strings.Contains(output, "external_db") {
 		t.Fatalf("external fragment accepted: %s", output)
 	}
 	assertNothingInstalled(t, dataDir, "external")
@@ -379,11 +380,11 @@ func TestPackageSyncPrintsOverrides(t *testing.T) {
 		adds [][]string
 		want []string
 	}{
-		{"instance first", [][]string{{"catalog:beta"}, {"-g", "main", "catalog:alpha"}}, []string{
+		{"instance first", [][]string{{"beta"}, {"-g", "main", "alpha"}}, []string{
 			"instance: beta overrides core on skills/base",
 			"main: alpha overrides beta on skills/base",
 		}},
-		{"group first", [][]string{{"-g", "main", "catalog:alpha"}, {"catalog:beta"}}, []string{
+		{"group first", [][]string{{"-g", "main", "alpha"}, {"beta"}}, []string{
 			"instance: beta overrides core on skills/base",
 			"main: alpha overrides core on skills/base",
 			"main: beta overrides alpha on skills/base",
@@ -397,8 +398,10 @@ func TestPackageSyncPrintsOverrides(t *testing.T) {
 			})
 			var output string
 			for _, add := range test.adds {
+				last := len(add) - 1
+				add = append(append([]string{"add"}, add[:last]...), sourceDir(add[last]))
 				var err error
-				if output, err = packageChild(t, "over", append([]string{"add"}, add...)); err != nil {
+				if output, err = packageChild(t, "over", add); err != nil {
 					t.Fatalf("add %v: %s (%v)", add, output, err)
 				}
 			}

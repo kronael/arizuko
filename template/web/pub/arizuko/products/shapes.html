@@ -51,8 +51,8 @@
 
       <div class="callout">
         <strong>This is a shape, not a template.</strong> No tree ships for
-        these four in <code>packages/</code>, so <code>arizuko create
-        --product</code> refuses their names. The <a href="./">catalog</a>
+        these four in <code>packages/</code>, so there is no source for
+        <code>arizuko package add</code>. The <a href="./">catalog</a>
         marks which products ship as templates.
       </div>
 
@@ -109,7 +109,7 @@ arizuko route -i shop add '' supermarket                # catch-all: every chann
 $EDITOR /srv/data/arizuko_shop/groups/supermarket/facts/retailers.md
 $EDITOR /srv/data/arizuko_shop/groups/supermarket/SYSTEM.md
 </code></pre>
-      <p>An empty match matches every message. For Telegram, set <code>TELEGRAM_BOT_TOKEN</code>, run <code>arizuko package add catalog:teled</code> and restart the service. Use the narrower match <code>'platform=telegram'</code> when the bot is the only entrance. Without Telegram, <code>arizuko token -i shop issue chat supermarket</code> creates a web chat link.</p>
+      <p>An empty match matches every message. For Telegram, set <code>TELEGRAM_BOT_TOKEN</code>, run <code>arizuko package add teled</code> and restart the service. Use the narrower match <code>'platform=telegram'</code> when the bot is the only entrance. Without Telegram, <code>arizuko token -i shop issue chat supermarket</code> creates a web chat link.</p>
       <p><code>facts/retailers.md</code> lists each retailer with its URL and notes, for example &ldquo;Prices update Thursday&rdquo;. The agent searches no other retailer. The shape ships no <code>SYSTEM.md</code>, so write one that makes the cache and the citations true:</p>
       <pre><code># Supermarket price agent
 
@@ -160,7 +160,7 @@ arizuko network -i shop allow supermarket lidl.co.uk</code></pre>
       <p>The channel files and the member memory are under <code>/srv/data/arizuko_&lt;name&gt;/groups/</code>. The tool keys live in the <code>secrets</code> table and stay on the host, unless a <code>shell:env:&lt;KEY&gt;</code> grant names a key. A member in one channel cannot open the files and the persona of another channel without an explicit grant.</p>
 
       <h3>A running instance and Discord bot support the team</h3>
-      <p>Start an instance named <code>acme</code>. Set the token, run <code>arizuko package add -i acme catalog:discd</code> and restart the service. The <a href="../howto/discord.html">Discord guide</a> has the steps.</p>
+      <p>Start an instance named <code>acme</code>. Set the token, run <code>arizuko package add -i acme discd</code> and restart the service. The <a href="../howto/discord.html">Discord guide</a> has the steps.</p>
       <pre><code>$EDITOR /srv/data/arizuko_acme/.env    # WEB_HOST, WEB_PORT, DISCORD_TOKEN, a model key
 arizuko group -i acme add discord:123456789/987654321 main
 </code></pre>
@@ -224,7 +224,7 @@ arizuko group -i acme add discord:123456789/987654321 main
       </dl>
 
       <h3>The setup makes folders, routes and tasks</h3>
-      <p>Start an instance named <code>corp</code>. Set the Slack keys, run <code>arizuko package add -i corp catalog:slakd</code> and restart the service. The <a href="../howto/slack.html">Slack guide</a> has the steps.</p>
+      <p>Start an instance named <code>corp</code>. Set the Slack keys, run <code>arizuko package add -i corp slakd</code> and restart the service. The <a href="../howto/slack.html">Slack guide</a> has the steps.</p>
       <pre><code>$EDITOR /srv/data/arizuko_corp/.env     # SLACK_BOT_TOKEN, SLACK_SIGNING_SECRET, ANTHROPIC_API_KEY
 
 # one folder for each team: the JID first, then the folder; the route is written for you

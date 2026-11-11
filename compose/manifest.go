@@ -2,6 +2,7 @@ package compose
 
 import (
 	"fmt"
+	"io/fs"
 	"maps"
 	"os"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/resreg/resources"
+	"github.com/kronael/arizuko/template/services"
 )
 
 // Manifest is the generate-time view of a package's arizuko.yml: the parts
@@ -59,16 +61,17 @@ func ManifestRoutes(path string) ([]ProxydRoute, error) {
 	return m.Routes, err
 }
 
-// CatalogDir returns the package catalog this process can READ: the checkout
-// named by HOST_APP_DIR when visible from here, else the copy baked into the
-// image. Never the process's own directory.
-func CatalogDir(hostAppDir string) string {
-	if hostAppDir != "" {
-		if dir := filepath.Join(hostAppDir, "template", "services"); isDir(dir) {
-			return dir
-		}
+// ReleaseService returns the service package this release ships under name,
+// the directory the arizuko binary carries for it.
+func ReleaseService(name string) (fs.FS, bool) {
+	if strings.ContainsAny(name, `/\`) || !fs.ValidPath(name) {
+		return nil, false
 	}
-	return filepath.Join(bakedAppSrc, "template", "services")
+	if _, err := fs.Stat(services.FS, name+"/arizuko.yml"); err != nil {
+		return nil, false
+	}
+	sub, err := fs.Sub(services.FS, name)
+	return sub, err == nil
 }
 
 func isDir(path string) bool {
@@ -76,12 +79,9 @@ func isDir(path string) bool {
 	return err == nil && st.IsDir()
 }
 
-func manifestPath(servicesDir, catalogDir, name string) string {
-	local := filepath.Join(filepath.Dir(servicesDir), "packages", name, "arizuko.yml")
-	if isSymlink(filepath.Join(servicesDir, name+".yml")) {
-		return filepath.Join(catalogDir, name, "arizuko.yml")
-	}
-	return local
+// manifestPath is the arizuko.yml package sync installed for name.
+func manifestPath(servicesDir, name string) string {
+	return filepath.Join(filepath.Dir(servicesDir), "packages", name, "arizuko.yml")
 }
 
 // ProvisionPackageEnv resolves one package's `env` declarations against the
@@ -182,14 +182,11 @@ func writeEnvAtomic(dataDir, path, body string) error {
 	return nil
 }
 
-// bundledName returns name when the release's own catalog ships a manifest for
-// it, else "" — the test ReservedRouteClaim's `/dash/` exception rests on:
-// nothing a package installs can write into the catalog.
-func bundledName(catalogDir, name string) string {
-	if catalogDir == "" {
-		return ""
-	}
-	if _, err := os.Stat(filepath.Join(catalogDir, name, "arizuko.yml")); err != nil {
+// bundledName returns name when this release ships a service package of that
+// name, else "" — the test ReservedRouteClaim's `/dash/` exception rests on:
+// nothing a package installs can write into the binary.
+func bundledName(name string) string {
+	if _, ok := ReleaseService(name); !ok {
 		return ""
 	}
 	return name

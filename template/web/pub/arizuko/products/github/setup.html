@@ -53,12 +53,12 @@
 
       <h2>group add makes the group from the product</h2>
       <p>On a running instance, make the group with the GitHub product. The persona and the facts of the agent belong to that group.</p>
-      <pre><code>arizuko group -i &lt;inst&gt; add web:dev dev -p github</code></pre>
+      <pre><code>arizuko group -i &lt;inst&gt; add web:dev dev -p github.com/kronael/arizuko/packages/github@v0.75.8</code></pre>
       <p>The command records the product selection for the group. Run <code>arizuko package sync</code> to install the files of the product.</p>
 
       <h2>The gitd package needs a token and a public host</h2>
       <p>Select the package:</p>
-      <pre><code>arizuko package add -i &lt;inst&gt; catalog:gitd</code></pre>
+      <pre><code>arizuko package add -i &lt;inst&gt; gitd</code></pre>
       <p>Set these values in <code>&lt;data-dir&gt;/.env</code>:</p>
       <table>
         <thead><tr><th>Variable</th><th>Required</th><th>What it is</th></tr></thead>

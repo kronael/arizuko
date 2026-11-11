@@ -150,7 +150,7 @@ sudo env HOST_APP_DIR="$source_dir" ./arizuko run -i "$flavor"</code></pre>
       <dt><code>services/</code> and <code>surrogate/</code></dt>
       <dd>The installed compose fragments and your own OAuth provider files.</dd>
     </dl>
-    <p>Add <code>-p/--product &lt;name&gt;</code>, for example <code>--product personal</code>, to record the product as <code>ARIZUKO_DEFAULT_PRODUCT</code> in <code>.env</code>. The first boot of <code>routd</code> selects the product for the main folder, and the next <code>arizuko package sync</code> installs its files. The <a href="../products/">products</a> section lists the catalog.</p>
+    <p>To run a product, select it for the main folder after <code>routd</code> has booted, for example <code>arizuko package add -g main github.com/kronael/arizuko/packages/personal@v0.75.8</code>; the command installs its files. The <a href="../products/">products</a> section lists the catalog.</p>
 
     <h2>Every instance uses an external store account</h2>
     <p>ExtendDB speaks the DynamoDB protocol over PostgreSQL. The server runs outside the instance's Compose project and systemd unit. Set <code>DYNAMODB_URL</code>, <code>STORE_CA</code> and <code>AWS_REGION</code> in <code>.env</code> before enrollment.</p>

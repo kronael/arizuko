@@ -365,7 +365,7 @@ func doLifecycle(ctx context.Context, cli lifecycleCLI, opts lifecycleOptions) (
 		return err
 	}
 	if isGateway {
-		if _, err = command(ctx, "package", "add", "catalog:litellm"); err != nil {
+		if _, err = command(ctx, "package", "add", "litellm"); err != nil {
 			return err
 		}
 		if err = process.Stop(); err != nil {

@@ -27,9 +27,10 @@ Files copied into a new instance's data dir by `arizuko create` and by
 
 - `arizuko create -i <name>` writes a new instance's `.env`. `env.example`
   stays the operator's reference for the remaining settings.
-- Select a catalog source with `arizuko package add -i <name> catalog:<name>`;
-  the command installs its fragment, provisions service environment needs and
-  applies its rows.
+- Select a service package of this release by name with
+  `arizuko package add -i <instance> <name>`. The `arizuko` binary carries
+  `services/`, and the command installs its fragment, provisions service
+  environment needs and applies its rows.
 - `compose.Generate` emits one `include:` per `<dataDir>/services/*.yml`;
   docker loads the fragments
 

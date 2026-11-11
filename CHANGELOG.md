@@ -13,6 +13,44 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+### Changed
+
+- A package source no longer reads the checkout every instance on a host
+  shares (BUGS `L818`). The forms are:
+  `github.com/<owner>/<repo>[/<dir>][@<ref>]`, fetched shallow at the ref with
+  `<dir>` as the package root and the commit as the revision, for example
+  `github.com/kronael/arizuko/packages/macrohype@v0.75.8`; an absolute path; a
+  `.tgz`; and the bare name of a service package this release ships
+  (`teled`, `gitd`, `litellm`), which the `arizuko` binary now carries.
+  `catalog:<name>`, relative paths and `git+`/`git@`/other git URLs are
+  refused. `create -p` and `group add -p` take a source; `create -p` prints the
+  `package add -g main <source>` that selects the product, and routd's first
+  boot no longer selects it.
+- Installed service fragments are files that `package sync` writes; generate
+  no longer links them into `HOST_APP_DIR/template/services` (closes BUGS
+  `L202`). A template fix reaches an instance at the next `package sync` with
+  a binary built from it. The image no longer carries
+  `/opt/arizuko/template/services`.
+
+### Deploy steps
+
+Every `package` verb of this release refuses a `catalog:` row, and generate
+refuses a service fragment that has no installed `arizuko.yml`. Build this
+release next to the running binary, and migrate each instance before its next
+restart:
+
+1. With the running v0.75.8 binary, adopt every `services/<name>.yml` that is a
+   link into the checkout and has no `installed_packages` row:
+   `arizuko package add -f -i INST catalog:NAME`.
+2. With the v0.75.8 binary, withdraw every row whose source is `catalog:NAME`
+   (`arizuko get -i INST installed_packages` lists them):
+   `arizuko package rm -i INST [-g FOLDER] NAME`.
+3. With this release, select each again: a service by its bare name,
+   `arizuko package add -i INST [-g FOLDER] NAME`; a product from GitHub,
+   `arizuko package add -i INST -g FOLDER github.com/kronael/arizuko/packages/NAME@v0.75.8`.
+   A package moves to the end of the order.
+4. Restart the instance. A row whose source is an absolute path needs nothing.
+
 ## [v0.75.8] — 2026-11-10
 
 > arizuko v0.75.8 — macrohype, product packages and faster recovery

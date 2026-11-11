@@ -26,7 +26,7 @@ A phase describes one closed day. It is not a forecast.
 ## Install
 
 ```sh
-arizuko package add -g FOLDER catalog:macrohype
+arizuko package add -g FOLDER github.com/kronael/arizuko/packages/macrohype@v0.75.8
 cp packages/macrohype/skills/macrohype/macrohype.example.toml GROUPS_DIR/FOLDER/macrohype.toml
 arizuko network allow FOLDER api.bybit.com
 arizuko network allow FOLDER wikimedia.org

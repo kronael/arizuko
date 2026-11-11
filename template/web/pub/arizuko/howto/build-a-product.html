@@ -57,10 +57,10 @@ env:
     hint: Folder that billing/account escalations are routed to</code></pre>
       <p>Directory contents supply skills. The manifest declares name, optional brand and tagline, and environment requirements. The manifest defines this one package. It never selects a package.</p>
       <h2>The operator selects a package for a group</h2>
-      <pre><code>arizuko package add -g FOLDER packages/helpdesk
+      <pre><code>arizuko package add -g FOLDER github.com/kronael/arizuko/packages/helpdesk@v0.75.8
 arizuko package sync</code></pre>
-      <p><code>add</code> installs the package and records the selection in the <code>installed_packages</code> resource. <code>sync</code> installs every selected package again. Use <code>-i/--instance NAME</code> for another configured instance. Relative sources resolve under <code>HOST_APP_DIR</code>. The group must exist, and the files of a group in <code>groups/FOLDER/</code> are not a selection.</p>
-      <p><code>group add -p helpdesk</code> writes the same selection row for the new folder, and the files arrive on the next <code>package sync</code>. <code>create -p helpdesk</code> records the product as <code>ARIZUKO_DEFAULT_PRODUCT</code> in <code>.env</code>; the first boot of <code>routd</code> writes the same selection row for <code>main</code>.</p>
+      <p><code>add</code> installs the package and records the selection in the <code>installed_packages</code> resource. <code>sync</code> installs every selected package again. Use <code>-i/--instance NAME</code> for another configured instance. A source is <code>github.com/&lt;owner&gt;/&lt;repo&gt;/&lt;dir&gt;@&lt;ref&gt;</code>, an absolute path while you develop the package, or a <code>.tgz</code>. The group must exist, and the files of a group in <code>groups/FOLDER/</code> are not a selection.</p>
+      <p><code>group add -p &lt;source&gt;</code> writes the same selection row for the new folder, and the files arrive on the next <code>package sync</code>.</p>
       <h2>Package assets and workspace files have different owners</h2>
       <p>Skills, native hooks, tools and manuals remain in the installed package. The renderer projects selected assets read-only into each guest. Core comes first, then packages in the order the operator added them. A later package overrides an earlier package on the same skill, hook, tool or <code>group/</code> path, and <code>package sync</code> prints one line for each override.</p>
       <p>Put the persona and other workspace files that nobody edits under <code>group/</code>. Each <code>package sync</code> writes them at the same relative paths and replaces any edit by the agent. The turn settings carry the advisory deny rule <code>Edit(~/&lt;path&gt;)</code> for each such file. A file that exists and that no package installed stops the command unless you pass <code>-f</code>. A file that a package stops shipping is removed. Package documentation stays with the source. Ship a file that the operator or the agent must edit, such as <code>facts/</code>, beside <code>group/</code> and tell the operator to copy it once. <code>group/.claude/settings.json</code> merges by key: two packages that set the same key refuse the sync, and a key already in the group file stays.</p>
@@ -79,7 +79,7 @@ arizuko package sync</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/howto/build-a-product.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-28">2026-10-28</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-10">2026-11-10</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

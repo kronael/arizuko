@@ -741,34 +741,6 @@ func TestPackageEnvRequiredRefusesLoud(t *testing.T) {
 	}
 }
 
-// Where the deploy unit runs generate, a catalog link is dangling: the
-// container mounts the data dir, not the checkout. A linked manifest must then
-// be read from the readable catalog, or every linked package loses its routes
-// and env needs with no error.
-func TestLinkedManifestIsReadFromTheCatalog(t *testing.T) {
-	host := t.TempDir()
-	catalog := filepath.Join(host, "template", "services")
-	if err := os.MkdirAll(catalog, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	write(t, catalog, "gw/arizuko.yml",
-		"proxyd_routes:\n  - path: /gw/\n    backend: http://gw:8080\n    auth: user\n"+gatewayManifest)
-	dir := seed(t, "HOST_APP_DIR="+host+"\n")
-	if err := os.MkdirAll(filepath.Join(dir, "services"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink("/nowhere/template/services/gw/gw.yml", filepath.Join(dir, "services", "gw.yml")); err != nil {
-		t.Fatal(err)
-	}
-	routes := genRoutes(t, dir)
-	if !hasRoute(routes, "/gw/") {
-		t.Errorf("route behind a dangling catalog link was dropped: %+v", routes)
-	}
-	if !strings.Contains(read(t, dir, ".env"), "MODEL_GATEWAY_KEY=") {
-		t.Error("env need behind a dangling catalog link was not provisioned")
-	}
-}
-
 // routd's checkMigrationVersion reads ant/skills/self/MIGRATION_VERSION from
 // APP_SRC_DIR, and runed seeds every group's skills from it. dashd's stock-
 // skills picker reads the same tree (BUGS F54: it used to read the HOST path

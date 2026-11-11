@@ -58,10 +58,12 @@
         <li>Codex authentication for oracle: a host login, <code>CODEX_API_KEY</code>, or <code>OPENAI_API_KEY</code>. The host login reaches a folder that holds the <code>codex</code> grant; the trip manifest lists <code>CODEX_API_KEY</code> as an optional fallback.</li>
       </ul>
 
-      <h2>create records the trip product for the main group</h2>
-      <pre><code>arizuko create -i travel --product trip-computer
+      <h2>package add selects the trip product for the main group</h2>
+      <pre><code>arizuko create -i travel
 $EDITOR /srv/data/arizuko_travel/.env</code></pre>
-      <p><code>--product trip-computer</code> records the product as <code>ARIZUKO_DEFAULT_PRODUCT</code> in <code>.env</code> and copies no file. At its first boot <code>routd</code> selects the product for the <code>main</code> group. The next <code>arizuko package sync</code> installs the <code>group/</code> files of <code>packages/trip-computer/</code>, including the <code>PERSONA.md</code> of May. <code>arizuko create</code> also writes <code>.env</code> with a new <code>AUTH_SECRET</code> and <code>SECRETS_KEY</code>. Add the other values:</p>
+      <p>After <code>routd</code> has booted, select the product for the <code>main</code> group. The command fetches <code>packages/trip-computer/</code> at the tag and installs its <code>group/</code> files, including the <code>PERSONA.md</code> of May:</p>
+      <pre><code>arizuko package add -i travel -g main github.com/kronael/arizuko/packages/trip-computer@v0.75.8</code></pre>
+      <p> <code>arizuko create</code> also writes <code>.env</code> with a new <code>AUTH_SECRET</code> and <code>SECRETS_KEY</code>. Add the other values:</p>
       <pre><code>ASSISTANT_NAME=may
 WEB_HOST=travel.example.com
 ANTHROPIC_API_KEY=sk-ant-REPLACE_ME
@@ -69,7 +71,7 @@ TELEGRAM_BOT_TOKEN=REPLACE_ME</code></pre>
 
       <h2>A package selection installs Telegram</h2>
       <p>Start the instance as a systemd service, as <a href="../../howto/">getting started</a> shows. Select the adapter package, then restart the service to start the adapter.</p>
-      <pre><code>arizuko package add -i travel catalog:teled
+      <pre><code>arizuko package add -i travel teled
 sudo systemctl restart arizuko_travel</code></pre>
 
       <h2>The preferences file is the baseline of every plan</h2>

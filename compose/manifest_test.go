@@ -1,6 +1,7 @@
 package compose
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -54,21 +55,35 @@ func TestCatalogManifestsDeclareTheirNeeds(t *testing.T) {
 	}
 }
 
-// CatalogDir prefers the checkout HOST_APP_DIR names when it is visible and
-// otherwise the copy baked into the image — never a path derived from where
-// this process runs.
-func TestCatalogDirFallsBackToTheBakedCopy(t *testing.T) {
-	host := t.TempDir()
-	if got := CatalogDir(host); got != filepath.Join(bakedAppSrc, "template", "services") {
-		t.Errorf("no template/services under HOST_APP_DIR: got %q, want the baked copy", got)
-	}
-	if err := os.MkdirAll(filepath.Join(host, "template", "services"), 0o755); err != nil {
+// The binary carries every service package under template/services, byte for
+// byte, and a name that is not one of them, or that walks a path, is no
+// release service.
+func TestReleaseServiceIsTheShippedDirectory(t *testing.T) {
+	entries, err := os.ReadDir(templateServices)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if got := CatalogDir(host); got != filepath.Join(host, "template", "services") {
-		t.Errorf("visible checkout: got %q", got)
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		sub, ok := ReleaseService(e.Name())
+		if !ok {
+			t.Fatalf("%s: not carried by the binary", e.Name())
+		}
+		for _, file := range []string{"arizuko.yml", e.Name() + ".yml"} {
+			want, err := os.ReadFile(filepath.Join(templateServices, e.Name(), file))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got, err := fs.ReadFile(sub, file); err != nil || string(got) != string(want) {
+				t.Errorf("%s/%s: carried bytes differ: %v", e.Name(), file, err)
+			}
+		}
 	}
-	if got := CatalogDir(""); got != filepath.Join(bakedAppSrc, "template", "services") {
-		t.Errorf("unset HOST_APP_DIR: got %q", got)
+	for _, name := range []string{"", ".", "..", "../gitd", "gitd/", "gitd/arizuko.yml", "macrohype"} {
+		if _, ok := ReleaseService(name); ok {
+			t.Errorf("%q accepted as a release service", name)
+		}
 	}
 }

@@ -55,10 +55,12 @@
         <li><code>TELEGRAM_BOT_TOKEN</code>. The product declares it as required, because an assistant with no channel is only a directory.</li>
       </ul>
 
-      <h2>create records the product for the instance</h2>
-      <pre><code>arizuko create -i fiu --product personal</code></pre>
-      <p>The command records the product as <code>ARIZUKO_DEFAULT_PRODUCT</code> in <code>.env</code> and copies no file. At its first boot <code>routd</code> selects the product for the <code>main</code> group. The next <code>arizuko package sync -i fiu</code> installs the product files. To add the product to an existing instance as one more group:</p>
-      <pre><code>arizuko group -i &lt;instance&gt; add telegram:&lt;bot-id&gt;/user/12345678 me -p personal
+      <h2>package add selects the product for the instance</h2>
+      <pre><code>arizuko create -i fiu</code></pre>
+      <p>After <code>routd</code> has booted, select the product for the <code>main</code> group. The command installs the product files:</p>
+      <pre><code>arizuko package add -i fiu -g main github.com/kronael/arizuko/packages/personal@v0.75.8</code></pre>
+      <p>To add the product to an existing instance as one more group:</p>
+      <pre><code>arizuko group -i &lt;instance&gt; add telegram:&lt;bot-id&gt;/user/12345678 me -p github.com/kronael/arizuko/packages/personal@v0.75.8
 arizuko package sync -i &lt;instance&gt;</code></pre>
 
       <h2>.env holds the token</h2>
@@ -67,7 +69,7 @@ OPENAI_API_KEY=REPLACE_ME   # optional: the oracle skill</code></pre>
 
       <h2>package add installs the Telegram adapter</h2>
       <p>Start the instance as a systemd service, as <a href="../../howto/">getting started</a> shows. Select the package, then restart the service to start the adapter. For an existing instance, replace <code>fiu</code> with its name:</p>
-      <pre><code>arizuko package add -i fiu catalog:teled
+      <pre><code>arizuko package add -i fiu teled
 sudo systemctl restart arizuko_fiu</code></pre>
 
       <h2>The preferences file holds what Fiu must know</h2>

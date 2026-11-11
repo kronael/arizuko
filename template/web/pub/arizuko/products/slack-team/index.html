@@ -159,10 +159,11 @@
       <p>To run the product on both platforms, install both adapters and route each channel to the same folder. The agent does not see a difference.</p>
 
       <h2>A package selection installs Slack</h2>
-      <pre><code>arizuko create -i acme --product slack-team
+      <pre><code>arizuko create -i acme
+arizuko package add -i acme -g main github.com/kronael/arizuko/packages/slack-team@v0.75.8
 $EDITOR /srv/data/arizuko_acme/.env    # SLACK_BOT_TOKEN, SLACK_SIGNING_SECRET, ANTHROPIC_API_KEY</code></pre>
-      <p>Start the instance as a service, select <code>catalog:slakd</code> and restart it.</p>
-      <pre><code>arizuko package add -i acme catalog:slakd
+      <p>Start the instance as a service, select <code>slakd</code> and restart it.</p>
+      <pre><code>arizuko package add -i acme slakd
 sudo systemctl restart arizuko_acme
 arizuko group -i acme add slack:T012ABCD/channel/C0ENGSUP main</code></pre>
       <p>The <a href="setup.html">operator setup guide</a> has every step. The <a href="../../howto/slack.html">Slack how-to</a> covers the Slack details. The <code>SYSTEM.md</code> of each channel is in the channel folder. Edit it over WebDAV or on the server.</p>
@@ -185,7 +186,7 @@ arizuko group -i acme add slack:T012ABCD/channel/C0ENGSUP main</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/slack-team/index.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-11-08">2026-11-08</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-10">2026-11-10</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

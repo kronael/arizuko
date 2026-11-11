@@ -57,11 +57,11 @@
       </ul>
 
       <p>For Telegram, select the adapter package. The existing selections stay:</p>
-      <pre><code>arizuko package add -i &lt;instance&gt; catalog:teled</code></pre>
+      <pre><code>arizuko package add -i &lt;instance&gt; teled</code></pre>
       <p>Set the token in <code>.env</code> and restart the running instance to start the adapter.</p>
 
       <h2>group add makes the group and its route</h2>
-      <pre><code>arizuko group -i &lt;instance&gt; add telegram:group/100123 support -p support</code></pre>
+      <pre><code>arizuko group -i &lt;instance&gt; add telegram:group/100123 support -p github.com/kronael/arizuko/packages/support@v0.75.8</code></pre>
       <p>The command selects the product for <code>support</code> and writes the route. A Telegram group ID is negative, and the JID drops the minus sign. Sync to install the product files into <code>groups/support/</code>:</p>
       <pre><code>arizuko package sync -i &lt;instance&gt;</code></pre>
       <p>Or select the product for a group that you already have, next to other products:</p>

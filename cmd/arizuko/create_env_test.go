@@ -89,11 +89,17 @@ func TestCreateProductShowsStoreSetup(t *testing.T) {
 	t.Setenv("DATA_DIR", "")
 	t.Setenv("HOST_APP_DIR", app)
 	seedCoreSource(t, app)
-	mustWrite(t, filepath.Join(app, "packages", "sample", "arizuko.yml"), "name: sample\n")
-	output := captureStdout(t, func() { cmdCreate([]string{"-p", "sample", "new"}) })
-	for _, want := range []string{"DYNAMODB_URL", "STORE_CA", "AWS_REGION", "arizuko store -i new enroll", "INSTALL.md"} {
+	source := filepath.Join(base, "src", "sample")
+	mustWrite(t, filepath.Join(source, "arizuko.yml"), "name: sample\n")
+	output := captureStdout(t, func() { cmdCreate([]string{"-p", source, "new"}) })
+	for _, want := range []string{"DYNAMODB_URL", "STORE_CA", "AWS_REGION", "arizuko store -i new enroll", "INSTALL.md",
+		"arizuko package add -i new -g main " + source} {
 		if !strings.Contains(output, want) {
 			t.Errorf("missing %q in %s", want, output)
 		}
+	}
+	env, err := os.ReadFile(filepath.Join(base, "arizuko_new", ".env"))
+	if err != nil || !strings.Contains(string(env), "ARIZUKO_DEFAULT_PRODUCT=sample\n") {
+		t.Errorf("the product name is not declared in .env: %q, %v", env, err)
 	}
 }

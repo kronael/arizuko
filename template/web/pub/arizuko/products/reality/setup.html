@@ -68,7 +68,7 @@ WEB_HOST=demo.example.com
 # Primary channel
 TELEGRAM_BOT_TOKEN=REPLACE_ME
 
-# Optional WhatsApp side for asymmetric channels: run `arizuko package add catalog:whapd`
+# Optional WhatsApp side for asymmetric channels: run `arizuko package add whapd`
 # and pair the account.
 
 # Optional: more observed context in a turn, for a busy WhatsApp group
@@ -77,14 +77,14 @@ OBSERVE_WINDOW_CHARS=8000</code></pre>
       <p><code>arizuko create</code> already wrote <code>AUTH_SECRET</code> and <code>SECRETS_KEY</code> into <code>.env</code>. <a href="../../reference/env.html">reference / env</a> lists every variable.</p>
 
       <h2>A package selection installs the channel</h2>
-      <p>Select Telegram. Select <code>catalog:whapd</code> too for WhatsApp.</p>
-      <pre><code>arizuko package add -i demo catalog:teled</code></pre>
+      <p>Select Telegram. Select <code>whapd</code> too for WhatsApp.</p>
+      <pre><code>arizuko package add -i demo teled</code></pre>
       <p>Start the instance as a systemd service, as <a href="../../howto/">getting started</a> shows. Restart the service to start the adapter.</p>
       <pre><code>sudo systemctl restart arizuko_demo</code></pre>
 
       <h2>group add makes the assistant group from the template</h2>
       <p>The template in <code>packages/reality/</code> holds the persona in <code>group/SOUL.md</code>, <code>group/BRANDING.md</code>, the first <code>facts/</code> and the tests. At the first turn, <code>runed</code> renames <code>SOUL.md</code> to <code>PERSONA.md</code>. One command makes the group, selects the template and routes your Telegram DM to it. <code>package sync</code> writes the files of the template:</p>
-      <pre><code>arizuko group -i demo add 'telegram:&lt;bot-id&gt;/user/&lt;your-tg-id&gt;' assistant -p reality
+      <pre><code>arizuko group -i demo add 'telegram:&lt;bot-id&gt;/user/&lt;your-tg-id&gt;' assistant -p github.com/kronael/arizuko/packages/reality@v0.75.8
 arizuko package sync -i demo
 # to change the persona, edit group/SOUL.md in the template source, then sync again</code></pre>
       <p>The <code>facts/</code> files of the template are examples, not package files, so <code>package sync</code> never rewrites them. Copy them once from the repository checkout:</p>

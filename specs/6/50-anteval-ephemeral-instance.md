@@ -90,7 +90,7 @@ anteval run (changed)
 `anteval/cmd/anteval/host_preflight.go` checks devices, artifacts, cached images and host allocations. The allocation checks are point-in-time.
 `create` seeds files; `store enroll` enrolls the new account; foreground `run`
 generates Compose and starts services. After the first boot creates the owners'
-tables, `package add catalog:litellm` installs the gateway. The runner restarts
+tables, `package add litellm` installs the gateway. The runner restarts
 its foreground child and waits for the required services' healthchecks.
 A Codex run (`ARIZUKO_BACKEND=codex`) skips the gateway: the gateway routes
 only Anthropic models and withholds the host Codex login

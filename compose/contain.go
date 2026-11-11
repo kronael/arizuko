@@ -41,7 +41,7 @@ type sourcedService struct {
 var volumeNameRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*$`)
 
 // CheckSourcedFragment refuses a compose fragment that reaches outside the
-// package named; the release's own catalog is exempt. A service carries the
+// package named; the release's own service packages are exempt. A service carries the
 // package's name, binds only `${DATA_DIR}/store/<name>` or a named volume,
 // reads no env file, and escapes no namespace. `docker compose` refuses none
 // of it, so a package could quietly mount an owner's store, `.env` or the
@@ -61,7 +61,7 @@ var volumeNameRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*$`)
 // `env_file` was the wide door and is already refused; this is the narrow one, and it is
 // narrow enough to look like configuration (BUGS `L339`).
 //
-// The bundled catalog is exempt, which is what makes a denylist safe here: `litellm.yml`
+// The release's own service packages are exempt, which is what makes a denylist safe here: `litellm.yml`
 // legitimately interpolates MODEL_GATEWAY_KEY because it IS the gateway.
 var platformSecrets = []string{
 	"SECRETS_KEY",

@@ -425,7 +425,7 @@ func TestLifecycleModelCredentialFollowsBackend(t *testing.T) {
 			}
 			calls := strings.Join(f.calls, "\n")
 			isGateway := tc.backend != "codex"
-			if strings.Contains(calls, "package -i anteval-test add catalog:litellm") != isGateway {
+			if strings.Contains(calls, "package -i anteval-test add litellm") != isGateway {
 				t.Errorf("gateway installed = %v, want %v: %v", !isGateway, isGateway, f.calls)
 			}
 			if !isGateway {

@@ -41,7 +41,7 @@
         An external store account holds the rows. You change
         an agent in chat, then read the result in its files.
       </p>
-      <p>The <a href="howto/">setup guide</a> builds the images, creates an instance, enrolls it on an external store and starts the instance. To select a product, add <code>--product slack-team</code> to the guide's <code>create</code> command. <code>routd</code> selects the product for the <code>main</code> group at its first boot. After that, <code>arizuko package sync</code> installs the product files.</p>
+      <p>The <a href="howto/">setup guide</a> builds the images, creates an instance, enrolls it on an external store and starts the instance. To select a product, run <code>arizuko package add -g main github.com/kronael/arizuko/packages/slack-team@v0.75.8</code> after <code>routd</code> has booted; it installs the product files.</p>
       <p>
         The setup guide also covers the chat connection. See
         <a href="products/">all products</a> and the
@@ -59,7 +59,7 @@
       <p>
         A product is a folder of persona, skills, routes and knowledge. The
         catalog has fifteen products. Eleven install with
-        <code>arizuko create --product</code>, and four describe a setup you
+        <code>arizuko package add</code>, and four describe a setup you
         build yourself. Three of them:
       </p>
       <div class="grid">
@@ -258,7 +258,7 @@
       <p class="dim">
         MIT &middot; Go, Docker and KVM.
       </p>
-      <p class="docs-footer">updated <time class="docs-updated" datetime="2026-11-07">2026-11-07</time></p>
+      <p class="docs-footer">updated <time class="docs-updated" datetime="2026-11-08">2026-11-08</time></p>
     </div>
     <button class="theme-toggle">&#127769;</button>
     <script src="assets/hub.js"></script>

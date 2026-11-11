@@ -3,9 +3,11 @@ package main
 import (
 	"archive/tar"
 	"bytes"
+	"cmp"
 	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,27 +15,25 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
 	"github.com/kronael/arizuko/compose"
-	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/container"
 )
 
 const (
-	// revCatalog marks a service fragment resolved from the bundled catalog;
-	// only those may claim core route paths (stampPkgRoutes).
-	revCatalog = "catalog"
+	// revBundled marks a service package resolved from the release this binary
+	// carries; only those may claim core route paths (stampPkgRoutes).
+	revBundled = "bundled"
 
 	archiveMaxBytes = 64 << 20
 	archiveTimeout  = 60 * time.Second
-)
 
-// isGitURL reports whether src is a remote git source rather than a local dir.
-func isGitURL(src string) bool {
-	return strings.HasPrefix(src, "git+") || strings.HasPrefix(src, "git@") ||
-		strings.HasPrefix(src, "github.com/") || strings.Contains(src, "://")
-}
+	sourceForms = "github.com/<owner>/<repo>[/<dir>][@<ref>], an absolute path, " +
+		"a .tgz, or the name of a service package this release ships"
+)
 
 func isHTTP(src string) bool {
 	return strings.HasPrefix(src, "http://") || strings.HasPrefix(src, "https://")
@@ -60,51 +60,52 @@ func archiveExt(src string) string {
 }
 
 // resolveProductSource turns a package source into a local directory and a
-// revision. Forms: catalog:<name> (a service fragment under template/services
-// or a product under packages; a name in both is an error), an absolute
-// path, a path under HOST_APP_DIR, a git source, and a .tgz archive (local
-// file or http(s) URL). cleanup removes any temp dir this call made.
-func resolveProductSource(cfg *core.Config, src string) (dir, revision string, cleanup func()) {
-	noop := func() {}
+// revision; sourceForms lists the forms. cleanup removes any temp dir this
+// call made.
+func resolveProductSource(src string) (dir, revision string, cleanup func()) {
 	if name, ok := strings.CutPrefix(src, "catalog:"); ok {
-		mustPkgName(name)
-		svc := filepath.Join(compose.CatalogDir(cfg.HostAppDir), name)
-		prod := filepath.Join(cfg.EffectiveAppSrcDir(), "packages", name)
-		inSvc, inProd := isDir(svc), isDir(prod)
-		switch {
-		case inSvc && inProd:
-			die("Failed: catalog:%s is ambiguous: both %s and %s exist", name, svc, prod)
-		case inSvc:
-			return svc, revCatalog, noop
-		case inProd:
-			return prod, "release", noop
+		if _, shipped := compose.ReleaseService(name); shipped {
+			die("Failed: source %q: catalog: is not a source; select this release's service as %q", src, name)
 		}
-		die("Failed: catalog:%s: no service package in %s and no product in %s", name, svc, prod)
+		die("Failed: source %q: catalog: is not a source; install the package from "+
+			"github.com/<owner>/<repo>/<dir>@<ref>", src)
 	}
-	ext := archiveExt(src)
-	if ext != "" && ext != ".tgz" {
-		die("Failed: archive %q: only .tgz archives are supported (got %s)", src, ext)
+	if service, ok := compose.ReleaseService(src); ok {
+		tmp, err := os.MkdirTemp("", "arizuko-pkg-")
+		if err != nil {
+			die("Failed: temp dir: %v", err)
+		}
+		cleanup = func() { _ = os.RemoveAll(tmp) }
+		if err := os.CopyFS(tmp, service); err != nil {
+			cleanup()
+			die("Failed: unpack %s: %v", src, err)
+		}
+		return tmp, revBundled, cleanup
 	}
-	if !isGitURL(src) && !filepath.IsAbs(src) && !strings.Contains(src, "/") {
-		die("Failed: source %q must be a path, URL, or catalog:<name>", src)
+	if ext := archiveExt(src); ext != "" {
+		if ext != ".tgz" {
+			die("Failed: archive %q: only .tgz archives are supported (got %s)", src, ext)
+		}
+		if !isHTTP(src) && !filepath.IsAbs(src) {
+			die("Failed: archive %q must be an absolute path or an http(s) URL", src)
+		}
+		return fetchTgz(src)
 	}
-	if ext == ".tgz" {
-		return fetchTgz(cfg, src)
-	}
-	if isGitURL(src) {
-		return cloneGit(src)
+	if strings.HasPrefix(src, "github.com/") {
+		source, err := parseGitHubSource(src)
+		if err != nil {
+			die("Failed: %v", err)
+		}
+		dir, revision, cleanup, err := fetchGit(source)
+		if err != nil {
+			die("Failed: fetch %s: %v", src, err)
+		}
+		return dir, revision, cleanup
 	}
 	if !filepath.IsAbs(src) {
-		if cfg.HostAppDir == "" {
-			die("Failed: relative product source %q needs HOST_APP_DIR set in .env", src)
-		}
-		src = filepath.Join(cfg.HostAppDir, src)
+		die("Failed: source %q must be %s", src, sourceForms)
 	}
-	abs, err := filepath.Abs(src)
-	if err != nil {
-		die("Failed: resolve source %s: %v", src, err)
-	}
-	return abs, "local", noop
+	return filepath.Clean(src), "local", func() {}
 }
 
 func isDir(p string) bool {
@@ -112,46 +113,100 @@ func isDir(p string) bool {
 	return err == nil && st.IsDir()
 }
 
-// cloneGit shallow-clones a git source to a temp dir and records its HEAD.
-// Recursive removal is of arizuko's OWN temp dir only.
-func cloneGit(src string) (dir, revision string, cleanup func()) {
-	remote := strings.TrimPrefix(src, "git+")
-	if strings.HasPrefix(remote, "github.com/") {
-		remote = "https://" + remote
-	}
-	tmp, err := os.MkdirTemp("", "arizuko-pkg-")
-	if err != nil {
-		die("Failed: temp dir: %v", err)
-	}
-	cleanup = func() { _ = os.RemoveAll(tmp) }
-	if out, err := exec.Command("git", "clone", "--depth", "1", remote, tmp).CombinedOutput(); err != nil {
-		cleanup()
-		die("Failed: git clone %s: %v\n%s", remote, err, out)
-	}
-	rev, err := exec.Command("git", "-C", tmp, "rev-parse", "HEAD").Output()
-	if err != nil {
-		cleanup()
-		die("Failed: git rev-parse %s: %v", remote, err)
-	}
-	return tmp, strings.TrimSpace(string(rev)), cleanup
+// gitSource is a package in a git repository: the remote, the directory inside
+// it that is the package root ("" is the root), and the ref ("" is the
+// remote's default branch).
+type gitSource struct {
+	remote, dir, ref string
 }
 
-// fetchTgz reads a .tgz (URL or file), unpacks it into a temp dir and
-// records the archive's sha256 as the revision.
-func fetchTgz(cfg *core.Config, src string) (dir, revision string, cleanup func()) {
+var githubSegmentRE = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
+
+// parseGitHubSource reads github.com/<owner>/<repo>[/<dir>][@<ref>], the Go
+// module query form: a path, then @ and a version. On github.com the repository
+// is always the first two segments, so the rest of the path is the directory.
+func parseGitHubSource(src string) (gitSource, error) {
+	rest, ok := strings.CutPrefix(src, "github.com/")
+	if !ok {
+		return gitSource{}, fmt.Errorf("source %q is not on github.com", src)
+	}
+	path, ref, hasRef := strings.Cut(rest, "@")
+	if hasRef && (ref == "" || strings.HasPrefix(ref, "-") || strings.ContainsAny(ref, ": \t\n\\@")) {
+		return gitSource{}, fmt.Errorf("source %q: bad ref %q", src, ref)
+	}
+	segments := strings.Split(path, "/")
+	if len(segments) < 2 {
+		return gitSource{}, fmt.Errorf("source %q names no repository; want %s", src, sourceForms)
+	}
+	for _, segment := range segments {
+		if segment == "." || segment == ".." || !githubSegmentRE.MatchString(segment) {
+			return gitSource{}, fmt.Errorf("source %q: bad path segment %q", src, segment)
+		}
+	}
+	return gitSource{
+		remote: "https://github.com/" + segments[0] + "/" + segments[1],
+		dir:    strings.Join(segments[2:], "/"),
+		ref:    ref,
+	}, nil
+}
+
+// fetchGit fetches one ref of a repository, shallow, into a temp dir and
+// returns the package directory inside it and the commit the ref resolved to.
+// Recursive removal is of arizuko's OWN temp dir only.
+func fetchGit(source gitSource) (dir, revision string, cleanup func(), err error) {
+	tmp, err := os.MkdirTemp("", "arizuko-pkg-")
+	if err != nil {
+		return "", "", nil, err
+	}
+	cleanup = func() { _ = os.RemoveAll(tmp) }
+	ref := cmp.Or(source.ref, "HEAD")
+	for _, args := range [][]string{
+		{"init", "-q"},
+		{"fetch", "-q", "--depth", "1", "--", source.remote, ref},
+		{"checkout", "-q", "FETCH_HEAD"},
+	} {
+		if _, err := runGit(tmp, args...); err != nil {
+			cleanup()
+			return "", "", nil, err
+		}
+	}
+	head, err := runGit(tmp, "rev-parse", "HEAD")
+	if err != nil {
+		cleanup()
+		return "", "", nil, err
+	}
+	dir = filepath.Join(tmp, filepath.FromSlash(source.dir))
+	if !isDir(dir) {
+		cleanup()
+		return "", "", nil, fmt.Errorf("%s has no directory %q at %s", source.remote, source.dir, ref)
+	}
+	return dir, strings.TrimSpace(string(head)), cleanup, nil
+}
+
+// runGit runs git in dir, never prompting for credentials.
+func runGit(dir string, args ...string) ([]byte, error) {
+	command := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	command.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	out, err := command.Output()
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			return nil, fmt.Errorf("git %s: %w: %s", args[0], err, bytes.TrimSpace(exitErr.Stderr))
+		}
+		return nil, fmt.Errorf("git %s: %w", args[0], err)
+	}
+	return out, nil
+}
+
+// fetchTgz reads a .tgz (URL or absolute file), unpacks it into a temp dir
+// and records the archive's sha256 as the revision.
+func fetchTgz(src string) (dir, revision string, cleanup func()) {
 	var data []byte
 	var err error
 	if isHTTP(src) {
 		data, err = downloadArchive(src)
 	} else {
-		path := src
-		if !filepath.IsAbs(path) {
-			if cfg.HostAppDir == "" {
-				die("Failed: relative product source %q needs HOST_APP_DIR set in .env", src)
-			}
-			path = filepath.Join(cfg.HostAppDir, path)
-		}
-		data, err = readFileCapped(path)
+		data, err = readFileCapped(src)
 	}
 	if err != nil {
 		die("Failed: fetch %s: %v", src, err)
@@ -273,4 +328,18 @@ func writeEntry(r io.Reader, target string, room int64) (int64, error) {
 		return n, fmt.Errorf("archive unpacks to more than %d bytes", archiveMaxBytes)
 	}
 	return n, nil
+}
+
+// readSourceManifest resolves a package source to read its arizuko.yml.
+func readSourceManifest(src string) container.ProductManifest {
+	dir, _, cleanup := resolveProductSource(src)
+	defer cleanup()
+	m, err := container.ReadProductManifest(dir)
+	if err != nil {
+		die("Failed: read %s: %v", src, err)
+	}
+	if !pkgNameRE.MatchString(m.Name) {
+		die("Failed: invalid package name %q", m.Name)
+	}
+	return m
 }

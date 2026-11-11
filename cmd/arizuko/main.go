@@ -184,11 +184,6 @@ func generateCompose(dataDir, instance string) string {
 	if err := compose.ValidateStore(dataDir); err != nil {
 		die("Failed: %v", err)
 	}
-	// Installed fragments that are still identical copies of the bundled
-	// catalog become symlinks here, so a shipped fix (adapter state mounts, a
-	// retired env var) reaches this instance on every generate/deploy — no
-	// operator step, no flag to remember (BUGS R1).
-	relinkCatalog(dataDir)
 	installWebDocs(dataDir)
 	yml, routes, err := compose.Generate(dataDir, instance)
 	if err != nil {
@@ -261,8 +256,8 @@ func instanceDir(name string) (string, error) {
 // silently dropped.
 func parseCreateFlags(args []string) (name, product string, err error) {
 	fs := flag.NewFlagSet("create", flag.ContinueOnError)
-	fs.StringVar(&product, "product", "", "product template (creator|personal|pm|reality|slack-team|socials|strategy|support|trip-computer)")
-	fs.StringVar(&product, "p", "", "product template (creator|personal|pm|reality|slack-team|socials|strategy|support|trip-computer)")
+	fs.StringVar(&product, "product", "", "product package source (github.com/<owner>/<repo>/<dir>@<ref>, an absolute path or a .tgz)")
+	fs.StringVar(&product, "p", "", "product package source (github.com/<owner>/<repo>/<dir>@<ref>, an absolute path or a .tgz)")
 	if err = flexParse(fs, args); err != nil {
 		return "", "", err
 	}
@@ -275,7 +270,7 @@ func parseCreateFlags(args []string) (name, product string, err error) {
 func cmdCreate(args []string) {
 	rawName, product, err := parseCreateFlags(args)
 	if err != nil {
-		usage(err, "arizuko create [-i instance] [--product|-p <name>]")
+		usage(err, "arizuko create [-i instance] [--product|-p <source>]")
 	}
 	name, err := core.SanitizeInstance(rawName)
 	if err != nil {
@@ -288,25 +283,9 @@ func cmdCreate(args []string) {
 		die("Failed: load config: %v", err)
 	}
 
-	var productDir string
 	var manifest *container.ProductManifest
 	if product != "" {
-		productDir = filepath.Join(cfg.HostAppDir, "packages", product)
-		manifestPath := filepath.Join(productDir, container.ManifestFile)
-		if _, err := os.Stat(manifestPath); err != nil {
-			entries, _ := os.ReadDir(filepath.Join(cfg.HostAppDir, "packages"))
-			var known []string
-			for _, e := range entries {
-				if e.IsDir() {
-					known = append(known, e.Name())
-				}
-			}
-			die("Failed: unknown product %q — known: %s", product, strings.Join(known, ", "))
-		}
-		m, err := container.ReadProductManifest(productDir)
-		if err != nil {
-			die("Failed: parse %s: %v", container.ManifestFile, err)
-		}
+		m := readSourceManifest(product)
 		manifest = &m
 	}
 
@@ -347,8 +326,12 @@ func cmdCreate(args []string) {
 		// sealed below the kernel"), so isolation is a property of the substrate
 		// rather than a variable an operator can leave empty. That closes the
 		// half of BUGS `L24` that asked whether the default should be on.
+		productName := ""
+		if manifest != nil {
+			productName = manifest.Name
+		}
 		content := fmt.Sprintf("ASSISTANT_NAME=%s\nAPI_PORT=%d\nAUTH_SECRET=%s\nSECRETS_KEY=%s\nARIZUKO_DEFAULT_PRODUCT=%s\n",
-			name, core.DefaultAPIPort, hex.EncodeToString(authSecret), hex.EncodeToString(secretsKey), product)
+			name, core.DefaultAPIPort, hex.EncodeToString(authSecret), hex.EncodeToString(secretsKey), productName)
 		// 0600: .env holds AUTH_SECRET plus operator-populated OAuth
 		// secrets and tokens — not world-readable.
 		if err := os.WriteFile(envFile, []byte(content), 0o600); err != nil {
@@ -402,7 +385,8 @@ func cmdCreate(args []string) {
 		}
 		fmt.Printf("\nnext: set DYNAMODB_URL, STORE_CA and AWS_REGION in %s/.env.\n"+
 			"run arizuko store -i %s enroll.\n"+
-			"start the owner daemons as INSTALL.md describes.\n", dataDir, name)
+			"start the owner daemons as INSTALL.md describes.\n"+
+			"run arizuko package add -i %s -g %s %s.\n", dataDir, name, name, store.DefaultFolder, product)
 	}
 }
 
@@ -454,14 +438,11 @@ func cmdGroup(args []string) {
 		}
 
 	case "add":
-		// Parse positionals + optional --product flag from the action-args
-		// (args[2:]). Mirror cmdCreate so a child group can be seeded from
-		// the same product template (PERSONA.md + CLAUDE.md + facts/).
 		fs := flag.NewFlagSet("group add", flag.ContinueOnError)
-		productFlag := fs.String("product", "", "product template applied to this group (same set as `arizuko create --product`)")
-		fs.StringVar(productFlag, "p", "", "product template")
+		productFlag := fs.String("product", "", "product package source selected for this group (as `arizuko package add`)")
+		fs.StringVar(productFlag, "p", "", "product package source")
 		if err := flexParse(fs, args[2:]); err != nil || fs.NArg() != 2 {
-			usage(err, "arizuko group [-i instance] add <jid> <folder> [--product|-p <name>]")
+			usage(err, "arizuko group [-i instance] add <jid> <folder> [--product|-p <source>]")
 		}
 		jid, folder := fs.Arg(0), fs.Arg(1)
 		if !groupfolder.IsValidFolder(folder) {
@@ -472,14 +453,10 @@ func cmdGroup(args []string) {
 		if err != nil {
 			die("Failed: load config: %v", err)
 		}
-		productDir := ""
 		if *productFlag != "" {
-			productDir = filepath.Join(cfg.HostAppDir, "packages", *productFlag)
-			if _, err := os.Stat(filepath.Join(productDir, container.ManifestFile)); err != nil {
-				die("Failed: unknown product %q (looked for %s/%s)", *productFlag, productDir, container.ManifestFile)
-			}
-			if err := routd.OpenOver(s.Obj()).PutInstalledPackage(routd.InstalledPackage{Folder: folder, Name: *productFlag,
-				Source: "packages/" + *productFlag, InstalledAt: core.TS(time.Now())}); err != nil {
+			m := readSourceManifest(*productFlag)
+			if err := routd.OpenOver(s.Obj()).PutInstalledPackage(routd.InstalledPackage{Folder: folder, Name: m.Name,
+				Source: *productFlag, InstalledAt: core.TS(time.Now())}); err != nil {
 				die("Failed: select product: %v", err)
 			}
 		}

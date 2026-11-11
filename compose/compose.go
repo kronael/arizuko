@@ -529,7 +529,7 @@ func gatedByOn(env map[string]string, key string) bool {
 // collectProxydRoutes filters the routes generate will write by gated_by.
 // The package manifest declares these routes separately from the Compose
 // fragment. Generate and sync read the same declaration (BUGS L44).
-func collectProxydRoutes(servicesDir, catalogDir string, services []string, env map[string]string) ([]ProxydRoute, error) {
+func collectProxydRoutes(servicesDir string, services []string, env map[string]string) ([]ProxydRoute, error) {
 	var out []ProxydRoute
 	for _, r := range coreProxydRoutes {
 		if gatedByOn(env, r.GatedBy) {
@@ -537,13 +537,13 @@ func collectProxydRoutes(servicesDir, catalogDir string, services []string, env 
 		}
 	}
 	for _, name := range services {
-		routes, err := ManifestRoutes(manifestPath(servicesDir, catalogDir, name))
+		routes, err := ManifestRoutes(manifestPath(servicesDir, name))
 		if err != nil {
 			return nil, err
 		}
 		for _, r := range routes {
 			// Check reserved paths at both sync and generate (BUGS L46).
-			if claimed := ReservedRouteClaim(bundledName(catalogDir, name), r.Path); claimed != "" {
+			if claimed := ReservedRouteClaim(bundledName(name), r.Path); claimed != "" {
 				return nil, fmt.Errorf("%s/arizuko.yml declares route %q, which claims the core surface %q; "+
 					"a package may not serve core arizuko's own paths (BUGS L46)", name, r.Path, claimed)
 			}
@@ -587,7 +587,7 @@ func CoreRouteAuth(path string) string {
 // ReservedRouteClaim returns the core path that `path` would take over, or "".
 // `bundled` names a fragment the release itself ships, the ONE exception: such
 // a daemon serves its own `/dash/<name>/` console. The name must come from the
-// release's catalog, so pass "" for a package installed from a source and for
+// release's own service packages, so pass "" for a package installed from a source and for
 // an operator's hand-written row; `/dash/` stays closed to both (BUGS L46).
 func ReservedRouteClaim(bundled, path string) string {
 	if bundled != "" && strings.HasPrefix(path, "/dash/"+bundled+"/") {
@@ -814,9 +814,8 @@ func Generate(dataDir, instance string) (string, []ProxydRoute, error) {
 	// What each package needs from .env, resolved before any env file is
 	// written, so a minted key reaches the daemons that read it and a package
 	// default gates its routes below.
-	catalogDir := CatalogDir(env["HOST_APP_DIR"])
 	for _, name := range services {
-		generated, err := ProvisionPackageEnv(dataDir, manifestPath(servicesDir, catalogDir, name), name, env)
+		generated, err := ProvisionPackageEnv(dataDir, manifestPath(servicesDir, name), name, env)
 		if err != nil {
 			return "", nil, err
 		}
@@ -838,7 +837,7 @@ func Generate(dataDir, instance string) (string, []ProxydRoute, error) {
 		fmt.Fprintf(os.Stderr, "compose: app-src: %v\n", derr)
 	}
 
-	routes, err := collectProxydRoutes(servicesDir, catalogDir, services, env)
+	routes, err := collectProxydRoutes(servicesDir, services, env)
 	if err != nil {
 		return "", nil, err
 	}

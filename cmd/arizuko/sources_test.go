@@ -14,7 +14,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/container"
 )
 
 type tarEntry struct{ name, body string }
@@ -42,54 +42,115 @@ func tgzOf(t *testing.T, entries ...tarEntry) []byte {
 	return buf.Bytes()
 }
 
-func TestCatalogResolvesProduct(t *testing.T) {
-	_, db := seedPackageInstance(t, "prod", map[string]string{})
-	mustWrite(t, filepath.Join(os.Getenv("APP_SRC_DIR"), "packages", "brain", "arizuko.yml"), "name: brain\n")
-	packageRuns(t, "prod", "add", "catalog:brain")
-	rec, found, err := db.InstalledPackage("", "brain")
-	if err != nil || !found || rec.Source != "catalog:brain" {
-		t.Fatalf("brain record: %+v found=%v err=%v", rec, found, err)
+// A source names no shared checkout: catalog:, a relative path and a git URL
+// other than github.com are refused before anything is installed, and the
+// catalog: refusal says what to select instead.
+func TestSourceRefusals(t *testing.T) {
+	_, db := seedPackageInstance(t, "refused", map[string]string{"brain/arizuko.yml": "name: brain\n"})
+	for src, want := range map[string]string{
+		"catalog:gitd":            `select this release's service as "gitd"`,
+		"catalog:brain":           "github.com/<owner>/<repo>/<dir>@<ref>",
+		"packages/brain":          "must be github.com/<owner>/<repo>[/<dir>][@<ref>]",
+		"git+https://h/a/b":       "must be github.com/<owner>/<repo>[/<dir>][@<ref>]",
+		"https://github.com/a/b":  "must be github.com/<owner>/<repo>[/<dir>][@<ref>]",
+		"brain.tgz":               "must be an absolute path or an http(s) URL",
+		"github.com/a":            "names no repository",
+		"github.com/a/b/../c@v1":  "bad path segment",
+		"github.com/a/b@--upload": "bad ref",
+		"nosuchservice":           "must be github.com/<owner>/<repo>[/<dir>][@<ref>]",
+	} {
+		if out := packageRefuses(t, "refused", "add", src); !strings.Contains(out, want) {
+			t.Errorf("%s: output %q lacks %q", src, out, want)
+		}
+	}
+	if got := len(selection(t, db)); got != 0 {
+		t.Fatalf("a refused source was selected: %d records", got)
 	}
 }
 
-// A selection recorded by path stops every package verb once the directory
-// moves; withdrawing it and selecting the catalog name repairs the instance.
-func TestMovedPathSourceIsRepairedFromTheCatalog(t *testing.T) {
-	_, db := seedPackageInstance(t, "moved", map[string]string{})
-	old := filepath.Join(t.TempDir(), "brain")
-	mustWrite(t, filepath.Join(old, "arizuko.yml"), "name: brain\n")
-	packageRuns(t, "moved", "add", "-g", "main", old)
-	catalog := filepath.Join(os.Getenv("APP_SRC_DIR"), "packages")
-	if err := os.MkdirAll(catalog, 0o755); err != nil {
-		t.Fatal(err)
+func TestParseGitHubSource(t *testing.T) {
+	for src, want := range map[string]gitSource{
+		"github.com/kronael/arizuko/packages/macrohype@v0.75.8": {"https://github.com/kronael/arizuko", "packages/macrohype", "v0.75.8"},
+		"github.com/kronael/tools":                              {"https://github.com/kronael/tools", "", ""},
+		"github.com/kronael/tools@main":                         {"https://github.com/kronael/tools", "", "main"},
+		"github.com/o/r/a/b.c@0123abcd":                         {"https://github.com/o/r", "a/b.c", "0123abcd"},
+		"github.com/o/r/a/b":                                    {"https://github.com/o/r", "a/b", ""},
+	} {
+		got, err := parseGitHubSource(src)
+		if err != nil || got != want {
+			t.Errorf("%s: got %+v, %v; want %+v", src, got, err, want)
+		}
 	}
-	if err := os.Rename(old, filepath.Join(catalog, "brain")); err != nil {
-		t.Fatal(err)
+	for _, src := range []string{
+		"github.com/", "github.com/o", "github.com/o/", "github.com/o/r@", "github.com/o/r/@v1",
+		"github.com/o/r//sub", "github.com/o/r/./sub", "github.com/o/r/sub/..", "github.com/o/r?ref=v1",
+		"github.com/o/r@-v", "github.com/o/r@a:b", "github.com/o/r@a b", "github.com/o/r@v1@v2",
+		"gitlab.com/o/r",
+	} {
+		if got, err := parseGitHubSource(src); err == nil {
+			t.Errorf("%s: accepted as %+v", src, got)
+		}
 	}
-	if out := packageRefuses(t, "moved", "sync"); !strings.Contains(out, "Failed: read "+old) {
-		t.Fatalf("output %q does not name the missing source", out)
-	}
-	packageRuns(t, "moved", "rm", "-g", "main", "brain")
-	packageRuns(t, "moved", "add", "-g", "main", "catalog:brain")
-	rec, found, err := db.InstalledPackage("main", "brain")
-	if err != nil || !found || rec.Source != "catalog:brain" {
-		t.Fatalf("brain record: %+v found=%v err=%v", rec, found, err)
-	}
-	packageRuns(t, "moved", "sync")
 }
 
-func TestCatalogNameInBothPlacesErrors(t *testing.T) {
-	_, db := seedPackageInstance(t, "both", map[string]string{"dup.yml": "services:\n  dup:\n    image: x\n"})
-	mustWrite(t, filepath.Join(os.Getenv("APP_SRC_DIR"), "packages", "dup", "arizuko.yml"), "name: dup\n")
-	if out := packageRefuses(t, "both", "add", "catalog:dup"); !strings.Contains(out, "ambiguous") {
-		t.Fatalf("output %q lacks ambiguous", out)
+// fetchGit takes the named ref and directory from a repository, shallow, and
+// records the commit; no ref is the default branch. A local bare repository
+// stands in for github.com.
+func TestFetchGitTakesTheRefAndDirectory(t *testing.T) {
+	work, bare := t.TempDir(), t.TempDir()
+	git := func(dir string, args ...string) string {
+		t.Helper()
+		out, err := exec.Command("git", append([]string{"-C", dir, "-c", "user.name=t", "-c", "user.email=t@t"}, args...)...).CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v %s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
 	}
-	if _, found, _ := db.InstalledPackage("", "dup"); found {
-		t.Fatal("ambiguous name installed")
+	git(work, "init", "-q", "-b", "main")
+	mustWrite(t, filepath.Join(work, "packages", "x", "arizuko.yml"), "name: x1\n")
+	git(work, "add", ".")
+	git(work, "commit", "-q", "-m", "one")
+	git(work, "tag", "-a", "v1", "-m", "v1")
+	tagged := git(work, "rev-parse", "HEAD")
+	mustWrite(t, filepath.Join(work, "packages", "x", "arizuko.yml"), "name: x2\n")
+	git(work, "commit", "-q", "-am", "two")
+	head := git(work, "rev-parse", "HEAD")
+	git(bare, "clone", "-q", "--bare", work, ".")
+
+	for _, test := range []struct{ ref, revision, name string }{
+		{"v1", tagged, "x1"},
+		{"main", head, "x2"},
+		{"", head, "x2"},
+	} {
+		dir, revision, cleanup, err := fetchGit(gitSource{remote: "file://" + bare, dir: "packages/x", ref: test.ref})
+		if err != nil {
+			t.Fatalf("ref %q: %v", test.ref, err)
+		}
+		m, err := container.ReadProductManifest(dir)
+		cleanup()
+		if err != nil || m.Name != test.name || revision != test.revision {
+			t.Errorf("ref %q: name %q revision %s (%v); want %q %s", test.ref, m.Name, revision, err, test.name, test.revision)
+		}
 	}
-	if out := packageRefuses(t, "both", "add", "catalog:nowhere"); !strings.Contains(out, "no service package") {
-		t.Fatalf("output %q lacks not-found", out)
+	for _, source := range []gitSource{
+		{remote: "file://" + bare, dir: "packages/nowhere", ref: "v1"},
+		{remote: "file://" + bare, dir: "packages/x", ref: "v9"},
+	} {
+		if _, _, _, err := fetchGit(source); err == nil {
+			t.Errorf("%+v fetched", source)
+		}
 	}
+}
+
+// group add -p selects the package its source declares, by that source.
+func TestGroupAddSelectsProductSource(t *testing.T) {
+	_, db := seedPackageInstance(t, "team", map[string]string{"brain/arizuko.yml": "name: brain\n"})
+	cmdGroup([]string{"team", "add", "local:team", "team", "-p", sourceDir("brain")})
+	rec, found, err := db.InstalledPackage("team", "brain")
+	if err != nil || !found || rec.Source != sourceDir("brain") {
+		t.Fatalf("brain selection: %+v found=%v err=%v", rec, found, err)
+	}
+	packageRuns(t, "team", "sync")
 }
 
 func TestTgzInstallsLocalAndRemote(t *testing.T) {
@@ -151,46 +212,5 @@ func TestUnpackTgzRefusesUnsafeEntries(t *testing.T) {
 			cleanup()
 			t.Errorf("entry %q accepted", name)
 		}
-	}
-}
-
-func TestGitSourcesStayGit(t *testing.T) {
-	for src, git := range map[string]bool{
-		"github.com/a/b":         true,
-		"git@github.com:a/b.git": true,
-		"git+https://h/a/b":      true,
-		"https://h/a/b.git":      true,
-		"http://h/a/b":           true,
-		"https://h/a/b.tgz":      true, // classified git; resolveProductSource routes archives first
-		"/abs/path":              false,
-		"packages/x":             false,
-		"catalog:teled":          false,
-	} {
-		if isGitURL(src) != git {
-			t.Errorf("isGitURL(%q) = %v", src, !git)
-		}
-	}
-	if archiveExt("https://h/a/b.git") != "" || archiveExt("https://h/a.tgz?x=1") != ".tgz" || archiveExt("/p/a.TGZ") != ".tgz" {
-		t.Error("archiveExt misclassifies")
-	}
-
-	repo := t.TempDir()
-	for _, args := range [][]string{{"init", "-q"}, {"add", "."}, {"-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "x"}} {
-		if args[0] == "add" {
-			mustWrite(t, filepath.Join(repo, "arizuko.yml"), "name: gitpkg\n")
-		}
-		cmd := exec.Command("git", args...)
-		cmd.Dir = repo
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Skipf("git %v: %v %s", args, err, out)
-		}
-	}
-	dir, rev, cleanup := resolveProductSource(&core.Config{}, "git+file://"+repo)
-	defer cleanup()
-	if len(rev) != 40 {
-		t.Errorf("git revision %q", rev)
-	}
-	if _, err := os.Stat(filepath.Join(dir, "arizuko.yml")); err != nil {
-		t.Errorf("clone lacks manifest: %v", err)
 	}
 }

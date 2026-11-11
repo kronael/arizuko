@@ -173,7 +173,7 @@ func cmdPackage(args []string) {
 			if candidate == nil {
 				dir, revision, cleanup := filepath.Join(cfg.EffectiveAppSrcDir(), "ant"), "release", func() {}
 				if entry.Source != "ant" {
-					dir, revision, cleanup = resolveProductSource(cfg, entry.Source)
+					dir, revision, cleanup = resolveProductSource(entry.Source)
 				}
 				defer cleanup()
 				m, err := container.ReadProductManifest(dir)
@@ -208,11 +208,11 @@ func cmdPackage(args []string) {
 			if dirty := dirtyAssets(svcDir, held); len(dirty) > 0 {
 				die("Failed: locally edited service assets: %s", strings.Join(dirty, ", "))
 			}
-			if err := checkSourcedFiles(svcDir, candidate.name, candidate.dir, candidate.files, held.AssetHashes, candidate.revision == revCatalog, *force); err != nil {
+			if err := checkSourcedFiles(svcDir, candidate.name, candidate.dir, candidate.files, held.AssetHashes, candidate.revision == revBundled, *force); err != nil {
 				die("Failed: %v", err)
 			}
 			bundled := ""
-			if candidate.revision == revCatalog {
+			if candidate.revision == revBundled {
 				bundled = candidate.name
 			}
 			binding.fragments = parsePkgManifests(candidate.name, candidate.manifest, bundled)
