@@ -15,6 +15,7 @@
 
 ## What needs you
 
+- `L818` — package sources resolve against the shared host checkout; owner decided they are fetched from GitHub; in progress.
 - `L816` — gitd loses GitHub webhooks while the store is unreachable; retention lives in that store; proposal, needs sign-off.
 - `L803` — morha repeats recovery reports and replies to an old GitHub comment; cause unmeasured.
 - `L804` — Codex topic forks do not inherit the parent's model context; observed messages remain available.
@@ -327,6 +328,40 @@ reads those words now.
   `/tmp/arizuko-github-baseline-build.log`. No test — ops.
   **Proposal:** stop the build on the first failed submake. This is an adjacent
   build-gate repair; scope approval is pending.
+
+## L818 — package sources resolve against the shared host checkout (`catalog:`) instead of being fetched (2026-11-11, open — owner decided, in progress)
+
+MEASURED 2026-11-11 at v0.75.8: `catalog:<name>` (`cmd/arizuko/products.go`
+`resolveProductSource`) reads `HOST_APP_DIR/template/services/<name>` or
+`HOST_APP_DIR/packages/<name>`, the one checkout every instance on the host
+points at; a relative path source, `create -p` and `group add -p`
+(`packages/<product>`) read the same checkout, and every generate re-links
+installed fragments into it (`relinkCatalog`, the split `L202` records). A git
+source clones a whole repository at its default branch, with no directory and
+no ref, which is why products needed the checkout at all.
+
+Owner decision (2026-11-11): "why would instances share some checkout
+catalogue? the packages should be fetched and installed from github." / "no
+catalog is needed, simplify it".
+
+- **Severity:** medium — what an instance installs depends on the state of a
+  checkout it shares with every other instance on the host.
+- **Status:** open — owner decided; in progress. No test — design; the change
+  carries its own tests.
+- **Fix:** a source is `github.com/<owner>/<repo>[/<dir>][@<ref>]` (the Go
+  module query form, path then `@version`; on github.com the repository is the
+  first two segments, so go-getter's `//dir?ref=` separator is not needed),
+  fetched shallow at the ref with `<dir>` as the package root and the commit
+  as the revision; an absolute path; or a `.tgz`. `catalog:`, relative paths
+  and other git URL forms are refused. The release's own service packages
+  (`template/services/<name>`) stay with the release, embedded in the
+  `arizuko` binary and selected by bare name: all 11 fail the containment a
+  fetched package is held to (`env_file`, `L200`; `${MODEL_GATEWAY_KEY}`,
+  `L339`; 8 claim `/dash/<name>/`, `L46`), so their exemption needs the release
+  as its anchor, and the CLI runs on the host where the image's
+  `/opt/arizuko` does not exist. Fragments are files written by `package sync`;
+  the catalog links and `relinkCatalog` go. `create -p` and `group add -p`
+  take a source.
 
 ## L816 — gitd loses GitHub webhooks while the store is unreachable, because retention lives in that store (2026-11-10, open — proposal, needs sign-off)
 
