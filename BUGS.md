@@ -15,7 +15,6 @@
 
 ## What needs you
 
-- `L818` — package sources resolve against the shared host checkout; owner decided they are fetched from GitHub; in progress.
 - `L816` — gitd loses GitHub webhooks while the store is unreachable; retention lives in that store; proposal, needs sign-off.
 - `L803` — morha repeats recovery reports and replies to an old GitHub comment; cause unmeasured.
 - `L804` — Codex topic forks do not inherit the parent's model context; observed messages remain available.
@@ -44,7 +43,7 @@
 - `L770` — approve persistent web lint through the shared policy; local settings hooks are replaced at spawn.
 - `L772` — agent image removal breaks a second instance's rootfs; trees duplicate; fix queued.
 - `L660` — a mention by reply engages only the reply chain, not the chat root; proposal, needs sign-off.
-- `L655` — products as full packages (`catalog:<name>`) and persona layering (`PERSONA.local.md`); proposal, needs sign-off.
+- `L655` — persona layering (`PERSONA.local.md`); proposal, needs sign-off. Products install from GitHub (`L818`).
 - `L650` — an `extenddb` reached 10 GB and was OOM-killed; the host reset 8 times on 11-03; cause unmeasured.
 - `L647` — weekly memory rollups missing on alternate Mondays (W40, W42 in every active krons group); cause unmeasured, spawn rows gone.
 - `L639` — refuse a platformless JID in `send_file`, `send_voice` and `post` after the return swap; fix queued.
@@ -75,7 +74,7 @@ line; none can be answered from the code.
 - `L317` — may `/stop` drop the backlog older than itself, and is that drop
   sender-scoped? No other command eats a row it did not author.
 - `L273` — audit and remove stored copies of ACL defaults after deployment.
-- `L249`, `L159`, `L202` — proposals, each costed in its entry.
+- `L249`, `L159` — proposals, each costed in its entry.
 - `L339`, `L167`, `L200` — proposals too. `L200` and `L133` were re-measured
   2026-09-21 and each came back narrower than filed.
 - `L436` — measure whether a route target holding `..` resolves, then fix the
@@ -329,7 +328,7 @@ reads those words now.
   **Proposal:** stop the build on the first failed submake. This is an adjacent
   build-gate repair; scope approval is pending.
 
-## L818 — package sources resolve against the shared host checkout (`catalog:`) instead of being fetched (2026-11-11, open — owner decided, in progress)
+## ✅ FIXED 2026-11-11 a98a7f654 L818 — package sources resolve against the shared host checkout (`catalog:`) instead of being fetched (2026-11-11)
 
 MEASURED 2026-11-11 at v0.75.8: `catalog:<name>` (`cmd/arizuko/products.go`
 `resolveProductSource`) reads `HOST_APP_DIR/template/services/<name>` or
@@ -346,8 +345,11 @@ catalog is needed, simplify it".
 
 - **Severity:** medium — what an instance installs depends on the state of a
   checkout it shares with every other instance on the host.
-- **Status:** open — owner decided; in progress. No test — design; the change
-  carries its own tests.
+- **Status:** fixed in a98a7f654. Tests: `TestParseGitHubSource`,
+  `TestFetchGitTakesTheRefAndDirectory` (local bare repository),
+  `TestSourceRefusals` (`catalog:` refused with what to select instead),
+  `TestGroupAddSelectsProductSource`, `TestPackageServiceContainment`,
+  `TestReleaseServiceIsTheShippedDirectory`.
 - **Fix:** a source is `github.com/<owner>/<repo>[/<dir>][@<ref>]` (the Go
   module query form, path then `@version`; on github.com the repository is the
   first two segments, so go-getter's `//dir?ref=` separator is not needed),
@@ -1391,6 +1393,9 @@ additions survive every sync. Needs sign-off: (b) changes what the turn reads.
 Owner ruling 2026-11-04: a path two packages ship is the last package's (the
 current install order); an add-on product (company-brain, cz-estate-agent) ships no
 persona so it never replaces a group's.
+Owner decision 2026-11-11 (`L818`) replaces (a): products install from
+`github.com/<owner>/<repo>/<dir>@<ref>`, and there is no `catalog:`. (b) stays
+open.
 
 ## ✅ FIXED 2026-11-04 fc5044ea2 L654 — the `arizuko` skill reads docs no instance but krons has (2026-11-04)
 
@@ -9606,7 +9611,7 @@ call it, and `vited` reads nothing at all. So this removed a dangerous DEFAULT, 
 close a live leak. The rest of `L200` — the manifest keys that would delete the seven
 tables — still adds code and still needs the design.
 
-## L202 — a linked package runs the host checkout's compose fragment while generate reads the image's manifest, so one package can come from two versions (2026-09-05, open — needs sign-off; RE-VERIFIED 2026-09-21 at HEAD, no bounded half)
+## ✅ FIXED 2026-11-11 a98a7f654 L202 — a linked package runs the host checkout's compose fragment while generate reads the image's manifest, so one package can come from two versions (2026-09-05)
 
 `packages add` links `services/<name>.yml` at `HOST_APP_DIR/template/services/`
 (`compose.HostCatalogDir`); docker `include`s it on the host, so the live
@@ -9670,9 +9675,10 @@ Three shapes, one decision:
 - **Source:** `compose.HostCatalogDir`, `compose.CatalogDir`,
   `compose.manifestPath`; `/etc/systemd/system/arizuko_krons.service`
   ExecStartPre (2026-09-21)
-- **Status:** open. Shape 1 keeps "a release is an image" and is the one
-  the `app-src/` mechanism already argues for; sign-off decides.
-- **Fix:**
+- **Status:** fixed in a98a7f654 (`L818`): no fragment links into the
+  checkout; the release's service packages are embedded in the `arizuko`
+  binary, `package sync` writes each fragment as a file, and generate reads
+  only `<data>/packages/<name>/arizuko.yml`.
 
 
 - **ANT-ONE-SHOT-TOOL-SKIP** (MED, correctness) — the live Sloth one-sentence TLDR
