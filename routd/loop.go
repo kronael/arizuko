@@ -313,7 +313,6 @@ func (l *Loop) Run(ctx context.Context) {
 	now := time.Now()
 	l.nextRetryAt = now.Add(outboundRetryEvery)
 	l.nextTurnsAt = now.Add(turnsEvery)
-	l.recoverStatuses()
 	l.sweepChats(ctx)
 	l.nextGCAt = now.Add(gcEvery)
 	t := time.NewTicker(l.pollEvery)

@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -220,5 +221,50 @@ func TestAgentMessageWakesTheChat(t *testing.T) {
 	case <-runner.runs:
 	case <-time.After(5 * time.Second):
 		t.Fatal("the injected message never ran: nothing woke its chat")
+	}
+}
+
+// gatedStore holds the owed-status read until the gate opens: a store too slow
+// to answer it.
+type gatedStore struct {
+	objstore.Store
+	gate chan struct{}
+}
+
+func (g *gatedStore) Query(ctx context.Context, q objstore.Query) ([]objstore.Item, error) {
+	if q.Entity == store.TurnContexts && slices.ContainsFunc(q.Where, func(c objstore.Cmp) bool { return c.Attr == "status_owed" }) {
+		<-g.gate
+	}
+	return g.Store.Query(ctx, q)
+}
+
+// A restart dispatches the input written while routd was down however long the
+// owed-status read takes: on krons the startup recovery held the chat sweep
+// (BUGS L825).
+func TestStartupSweepDoesNotWaitForOwedStatuses(t *testing.T) {
+	base, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer base.Close()
+	_ = base.PutGroup(core.Group{Folder: "demo"})
+	if err := base.PutMessage(core.Message{ID: "a", ChatJID: "web:demo", Sender: "u",
+		Content: "q", Timestamp: time.Now().UTC()}); err != nil {
+		t.Fatal(err)
+	}
+	gated := &gatedStore{Store: base.obj, gate: make(chan struct{})}
+	runner := &chanRunner{runs: make(chan string, 4)}
+	l := NewLoop(OpenOver(gated), runner, LoopConfig{Deliver: &recDeliverer{}})
+	ctx, cancel := context.WithCancel(context.Background())
+	go l.Run(ctx)
+	defer func() {
+		close(gated.gate)
+		cancel()
+		l.Wait(10 * time.Second)
+	}()
+	select {
+	case <-runner.runs:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the swept chat never ran: startup waited on the owed-status read")
 	}
 }
