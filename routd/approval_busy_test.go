@@ -146,7 +146,6 @@ func TestApprovalIngressWhileChatIsBusy(t *testing.T) {
 				}
 				release()
 				awaitCond(t, "original turn did not return", func() bool { return !queueHasWorker(loop.q) })
-				loop.pollOnce()
 				select {
 				case batch := <-runner.batches:
 					if !strings.Contains(batch, "ordinary message before") || !strings.Contains(batch, "ordinary message after") || strings.Contains(batch, command) {

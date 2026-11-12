@@ -20,6 +20,21 @@ func (nopRunner) Run(context.Context, runedv1.RunRequest) (runedv1.RunOutcome, e
 	return runedv1.RunOutcome{}, nil
 }
 
+// processChats runs the worker over every chat, as each chat's wake would, for
+// a harness whose queue is stopped.
+func processChats(t *testing.T, l *Loop) {
+	t.Helper()
+	jids, err := l.db.ChatJIDs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, jid := range jids {
+		if _, err := l.processGroupMessages(jid); err != nil {
+			t.Fatalf("process %s: %v", jid, err)
+		}
+	}
+}
+
 // TestAtomicAppendRouteTurn checks the spec 5/E-routd invariant: append inbound →
 // resolve route → start turn is one ordered view; the agent_cursor advances
 // only after the turn closes, the turn_context is bound at dispatch, and a
@@ -107,7 +122,7 @@ func TestRouteMissInsertsOnboarding(t *testing.T) {
 		_ = db.PutMessage(core.Message{ID: "t1", ChatJID: "telegram:42", Sender: "u", Content: "hi", Timestamp: now, Verb: "message"})
 		_ = db.PutMessage(core.Message{ID: "g1", ChatJID: "discord:guild/c", Sender: "u", Content: "yo", Timestamp: now, Verb: "message"})
 		_ = db.PutMessage(core.Message{ID: "d1", ChatJID: "discord:dm/u", Sender: "u", Content: "yo", Timestamp: now, Verb: "message"})
-		loop.pollOnce()
+		processChats(t, loop)
 		return fo
 	}
 
@@ -184,10 +199,9 @@ func TestRouteMissCarriesSenderOverHTTP(t *testing.T) {
 
 // TestQueuePathRouteMissInsertsOnboarding drives the route miss through
 // processGroupMessages — the path ingest actually takes (handleMessages →
-// Enqueue → queue worker), which WINS the race against the pollOnce backstop.
-// The miss handler drifted into two copies and this one dropped onboarding:
+// Enqueue → queue worker). The miss handler drifted into two copies and this one dropped onboarding:
 // every new chat's first message advanced the cursor silently and no admission
-// row ever appeared (krons 2026-07-12). Both paths now share routeMiss.
+// row ever appeared (krons 2026-07-12).
 func TestQueuePathRouteMissInsertsOnboarding(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
@@ -460,9 +474,8 @@ func (failingRunner) Run(_ context.Context, _ runedv1.RunRequest) (runedv1.RunOu
 	return runedv1.RunOutcome{}, context.DeadlineExceeded
 }
 
-// A global poll can return a chat whose own cursor is current. It must not
-// enqueue work for that chat.
-func TestPollOnceGatesCurrentChat(t *testing.T) {
+// The startup sweep must not enqueue a chat whose own cursor is current.
+func TestSweepChatsGatesCurrentChat(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
 		t.Fatal(err)
@@ -471,8 +484,7 @@ func TestPollOnceGatesCurrentChat(t *testing.T) {
 	_ = db.PutGroup(core.Group{Folder: "demo"})
 	doSetRoutes(t, db, []core.Route{{Match: "platform=slack", Target: "demo"}})
 	now := time.Now().UTC()
-	// chat A: already processed — its cursor is AT its latest msg, and it holds
-	// MinAgentCursor low so pollOnce's global poll surfaces it every tick.
+	// chat A: already processed — its cursor is AT its latest msg.
 	consumed := core.Message{ID: "a1", ChatJID: "slack:T/CA/U", Sender: "u", Content: "old",
 		Timestamp: now, Verb: "message"}
 	_ = db.PutMessage(consumed)
@@ -485,10 +497,10 @@ func TestPollOnceGatesCurrentChat(t *testing.T) {
 	loop := NewLoop(db, nopRunner{}, LoopConfig{})
 	got := make(chan string, 8)
 	// Replace the queue's worker with a recorder so we observe exactly which
-	// chats pollOnce enqueues (not what they dispatch).
+	// chats the sweep enqueues (not what they dispatch).
 	loop.q.SetProcessMessagesFn(func(jid string) (bool, error) { got <- jid; return false, nil })
 
-	loop.pollOnce()
+	loop.sweepChats(t.Context())
 
 	select {
 	case jid := <-got:

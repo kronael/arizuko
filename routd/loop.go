@@ -81,6 +81,7 @@ type Loop struct {
 
 	// Loop-driven maintenance cadence, no free tickers.
 	nextRetryAt time.Time
+	nextTurnsAt time.Time
 	nextGCAt    time.Time
 
 	// False bypasses the pre-spawn budget gate — the operator escape hatch.
@@ -291,8 +292,9 @@ func (l *Loop) publishRoundDone(chatJID, turnID string) {
 	_ = l.deliver.RoundDone(chatJID, turnID, "success", "")
 }
 
-// Run drives the poll loop until ctx is cancelled. On start it re-feeds chats
-// whose turn_context is still 'running' from the un-advanced agent_cursor.
+// Run drives the maintenance loop until ctx is cancelled. On start it re-feeds
+// chats whose turn_context is still 'running' from the un-advanced
+// agent_cursor, then sweeps the chats once (sweepChats).
 func (l *Loop) Run(ctx context.Context) {
 	defer close(l.done)
 	l.sweepOrphanSocks()
@@ -312,7 +314,9 @@ func (l *Loop) Run(ctx context.Context) {
 	}
 	now := time.Now()
 	l.nextRetryAt = now.Add(outboundRetryEvery)
+	l.nextTurnsAt = now.Add(turnsEvery)
 	l.recoverStatuses()
+	l.sweepChats(ctx)
 	l.nextGCAt = now.Add(gcEvery)
 	t := time.NewTicker(l.pollEvery)
 	defer t.Stop()
@@ -323,7 +327,7 @@ func (l *Loop) Run(ctx context.Context) {
 			return
 		case <-t.C:
 			l.srv.flushProgress(time.Now())
-			l.pollOnce()
+			l.maybeRecoverTurns(time.Now())
 			l.maybeScanProactive(time.Now())
 			l.maybeRetryOutbound(time.Now())
 			l.maybeGC(time.Now())
@@ -350,11 +354,13 @@ func (l *Loop) sweepOrphanSocks() {
 	}
 }
 
-// Maintenance cadence: the retry sweep and the stale-turn GC.
+// Maintenance cadence: the retry sweep, turn recovery and the stale-turn GC.
 const (
 	outboundRetryEvery = 30 * time.Second
 	outboundRetryAfter = 30 * time.Second
-	gcEvery            = time.Hour
+	// retryAt's shortest delay; each pass reads turn_context whole three times.
+	turnsEvery = 30 * time.Second
+	gcEvery    = time.Hour
 
 	// MAX_OUTBOUND_RETRY raises it for a flaky platform.
 	defaultMaxOutboundRetry = 10
@@ -524,47 +530,47 @@ func (l *Loop) folderForJid(chatJID string) string {
 // exactly there.
 const pollBatch = 200
 
-// pollOnce reads each chat from its OWN watermark and enqueues each chat that
-// routes; a miss advances the cursor and drops. Per-chat reads, not one read
-// from the lowest cursor: measured 2026-09-12, krons returned 23,936 of its
-// 24,013 rows every two seconds because one chat's cursor had not moved since
-// March, against 0 rows when each chat is read from its own.
-func (l *Loop) pollOnce() {
+// maybeRecoverTurns re-arms the turns recovery and the retry deadlines owe a
+// run. New messages never wait for it: every writer enqueues its chat.
+func (l *Loop) maybeRecoverTurns(now time.Time) {
+	if now.Before(l.nextTurnsAt) {
+		return
+	}
+	l.nextTurnsAt = now.Add(turnsEvery)
 	if err := l.q.recover(l, false); err != nil {
 		slog.Error("recover deferred turns", "err", err)
 	}
 	l.q.tick(l)
+}
+
+// sweepChats enqueues each chat with a message past its OWN watermark. It runs
+// once at startup, for the messages written while routd was down; the worker
+// decides each batch, as it does for every other wake.
+func (l *Loop) sweepChats(ctx context.Context) {
 	jids, err := l.db.ChatJIDs()
-	if err != nil {
-		slog.Warn("poll new messages", "err", err)
-		return
+	for err != nil {
+		slog.Error("sweep chats: list the chats", "err", err)
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(turnsEvery):
+		}
+		jids, err = l.db.ChatJIDs()
 	}
 	for _, chatJID := range jids {
-		chatMsgs, b, _, err := l.pendingBatch(chatJID, l.db.GetAgentCursor(chatJID), pollBatch)
+		msgs, err := l.db.NewMessagesForChat(chatJID, l.db.GetAgentCursor(chatJID), 1)
 		if err != nil {
-			slog.Warn("poll new messages", "jid", chatJID, "err", err)
-			continue
+			slog.Error("sweep chats: read a chat; its next message wakes it",
+				"jid", chatJID, "err", err)
+		} else if len(msgs) > 0 {
+			l.Enqueue(chatJID)
 		}
-		if len(chatMsgs) == 0 {
-			continue
-		}
-		// An all-bot batch is the agent's own output: the worker owns that advance.
-		if newestUserIdx(chatMsgs) >= 0 {
-			if !b.ok {
-				l.routeMiss(chatJID, chatMsgs, b.resolution)
-				continue
-			}
-		}
-		// Steering happens in processGroupMessages, the one path this backstop
-		// and adapter ingest converge to, so a command cannot race past it.
-		l.Enqueue(chatJID)
 	}
 }
 
-// routeMiss is the ONLY miss handler, shared by both processing paths: two
-// copies drifted, and a new chat's first message vanished without onboarding
-// (krons 2026-07-12). The cursor advances past the batch either way — a re-fed
-// miss would replay forever.
+// routeMiss is the ONLY miss handler: two copies drifted, and a new chat's
+// first message vanished without onboarding (krons 2026-07-12). The cursor
+// advances past the batch either way — a re-fed miss would replay forever.
 func (l *Loop) routeMiss(chatJID string, msgs []core.Message, r resolution) {
 	last := msgs[len(msgs)-1]
 	if r.Observe != "" {
@@ -669,8 +675,8 @@ type batchResolution struct {
 	rows []resolution
 }
 
-// resolveBatch decides a batch for both processing paths: the poll backstop and
-// the worker. The route table is read once. A bot row never resolves a batch,
+// resolveBatch decides a batch for the worker and the queue's folder key. The
+// route table is read once. A bot row never resolves a batch,
 // so msgs must hold a user row (newestUserIdx >= 0).
 func (l *Loop) resolveBatch(chatJID string, msgs []core.Message) batchResolution {
 	var users []core.Message

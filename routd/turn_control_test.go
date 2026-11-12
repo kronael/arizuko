@@ -200,9 +200,8 @@ func TestEnqueueMessageCheckStartsContainer(t *testing.T) {
 	}
 }
 
-// A second enqueue for a group that is already running is COLLAPSED: the
-// running turn drains whatever arrived, and routd's poll re-feeds anything
-// left. The queue never self-restarts a group it just finished.
+// Enqueues for a group that is already running COLLAPSE into one more pass
+// after the run: no poll comes along later to find what arrived (BUGS L819).
 func TestEnqueueMessageCheckCollapsesWhileActive(t *testing.T) {
 	q := newTurnControl(5)
 
@@ -221,6 +220,7 @@ func TestEnqueueMessageCheckCollapsesWhileActive(t *testing.T) {
 	<-started
 
 	q.EnqueueMessageCheck("g1")
+	q.EnqueueMessageCheck("g1")
 	if n := calls.Load(); n != 1 {
 		t.Fatalf("enqueue while active started %d runs, want 1", n)
 	}
@@ -228,8 +228,8 @@ func TestEnqueueMessageCheckCollapsesWhileActive(t *testing.T) {
 	close(block)
 	time.Sleep(100 * time.Millisecond)
 
-	if n := calls.Load(); n != 1 {
-		t.Fatalf("group ran %d times, want 1: the finished run must not restart itself", n)
+	if n := calls.Load(); n != 2 {
+		t.Fatalf("group ran %d times, want 2: one more pass for what arrived during the run", n)
 	}
 	if q.ActiveCount() != 0 {
 		t.Fatalf("activeCount = %d after the run, want 0", q.ActiveCount())

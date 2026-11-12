@@ -57,10 +57,9 @@ func TestAllToolsRegistered(t *testing.T) {
 		SendDocument: func(jid, path, fn, caption, replyTo, threadID, msgID string) (string, string, error) {
 			return "", "", nil
 		},
-		ClearSession:        func(f string) {},
-		EnqueueMessageCheck: func(jid string) {},
-		InjectMessage:       func(j, c, s, n string) (string, error) { return "", nil },
-		GroupsDir:           "/tmp/groups",
+		ClearSession:  func(f string) {},
+		InjectMessage: func(j, c, s, n string) (string, error) { return "", nil },
+		GroupsDir:     "/tmp/groups",
 	}
 	db := StoreFns{
 		GetTask:             func(id string) (core.Task, bool) { return core.Task{}, false },

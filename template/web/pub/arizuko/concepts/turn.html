@@ -67,8 +67,8 @@
     <p>Read the figure from top to bottom. Each box names the function that does the work, so you can open the file and check it.</p>
     <pre id="twin-turn"><code>┌─────────┐ POST /v1/messages ┌──────────────────────────────────────────┐
 │ adapter ├──────────────────►│ routd: PutMessage appends the row        │
-└─────────┘                   │ Enqueue; pollOnce re-enqueues a routed   │
-     ▲                        │ chat with rows past its agent_cursor     │
+└─────────┘                   │ Enqueue; every writer wakes its chat,    │
+     ▲                        │ a startup sweep the rest                 │
      │                        └────────────────────┬─────────────────────┘
      │                                             ▼
      │                        ┌──────────────────────────────────────────┐
@@ -161,7 +161,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/concepts/turn.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-11-09">2026-11-09</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-10">2026-11-10</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

@@ -70,9 +70,8 @@ func (l *Loop) processChat(chatJID string, commandsOnly bool) (bool, error) {
 	r := b.resolution
 	folder := r.Folder
 	// Steering consumes the latest message BEFORE it reaches a turn, on the one
-	// path every trigger converges to; in the pollOnce backstop alone it raced
-	// the queue and lost. steerConsumed says this batch held a command; runTurn's
-	// `steered` is a different fact about a different row.
+	// path every trigger converges to. steerConsumed says this batch held a
+	// command; runTurn's `steered` is a different fact about a different row.
 	steerConsumed := false
 	steerIdx := steerRowIdx(msgs)
 	steerMsg := msgs[steerIdx]
@@ -242,9 +241,9 @@ func (l *Loop) processChat(chatJID string, commandsOnly bool) (bool, error) {
 			return hadAny, l.holdModelInput(chatJID, batch)
 		}
 		if derr != nil {
-			// Transport failure: this turn is not consumed and re-feeds next poll
-			// (at-least-once; turn_results dedups). A steered batch has no re-feed
-			// left: its cursor already passed the command.
+			// Transport failure: this turn is not consumed and the queue re-feeds
+			// it after a backoff (at-least-once; turn_results dedups). A steered
+			// batch has no re-feed left: its cursor already passed the command.
 			if !steerConsumed && gi > 0 {
 				l.advanceFinished(chatJID, folder, msgs, batch[0], marks)
 			}
@@ -689,7 +688,8 @@ func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed boo
 		l.waiting.Store(chatJID, replyJID)
 		// runed keeps no internal queue: leave turn_context running and the
 		// cursor un-advanced.
-		slog.Debug("dispatch run busy — runed at capacity, retry next poll", "folder", folder, "turn_id", turnID)
+		time.AfterFunc(requeueAt.Sub(l.q.now()), func() { l.q.EnqueueMessageCheck(chatJID) })
+		slog.Debug("dispatch run busy — runed at capacity, retry after backoff", "folder", folder, "turn_id", turnID)
 		return false, false, true, "", nil
 	}
 	if out.Steered {

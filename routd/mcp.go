@@ -59,7 +59,11 @@ func (s *Server) putAgentMessage(t turnMCP, m core.Message) error {
 	if m.Hops >= store.MaxHops {
 		return fmt.Errorf("refused: a turn started from this one would be %d agent hops from a person, and the limit is %d; answer with send to the platform chat that the request names", m.Hops, store.MaxHops)
 	}
-	return s.db.PutMessage(m)
+	if err := s.db.PutMessage(m); err != nil {
+		return err
+	}
+	s.loop.Enqueue(m.ChatJID)
+	return nil
 }
 
 // buildRoutdFns wires the write-side agent tools to routd's Deliverer;
@@ -159,7 +163,6 @@ func (s *Server) buildRoutdFns(t turnMCP) ipc.RoutdFns {
 				ID: id, ChatJID: jid, Sender: sender, Name: senderName,
 				Content: content, Timestamp: time.Now().UTC(), Verb: "message",
 			})
-			// No explicit enqueue: the loop polls new messages by timestamp.
 			return id, err
 		},
 		SubmitTurn: func(folder string, result ipc.TurnResult) (ipc.TurnAck, error) {
@@ -481,7 +484,7 @@ func (s *Server) submitStatus(status ipc.TurnStatus) (ipc.TurnStatusAck, error) 
 
 // fetchPlatformHistory backs the fetch_history MCP tool: proxy to the owning
 // adapter, else source:"cache"/"cache-only" from the local DB. The rows are
-// rendered, never stored: `messages` is the inbound log the poll loop
+// rendered, never stored: `messages` is the inbound log the worker
 // dispatches from, and a platform row there is a user message with no bot flag
 // — sloth fed 630 of its own posts back to its agent as <observed>.
 func (s *Server) fetchPlatformHistory(jid string, before time.Time, limit int) (ipc.PlatformHistory, error) {

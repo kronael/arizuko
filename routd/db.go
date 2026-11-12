@@ -333,7 +333,7 @@ func (d *DB) CountErroredChats() int {
 }
 
 // ChatJIDs lists every chat the instance has seen — the partition list the
-// poll loop feeds from and the archive exports.
+// startup sweep reads and the archive exports.
 func (d *DB) ChatJIDs() ([]string, error) {
 	return d.store().ChatJIDs(context.Background())
 }

@@ -469,7 +469,7 @@ func (l *Loop) cmdGate(chatJID, folder, arg, sender string) {
 // cmdNew clears the folder's session (root or #topic) AND re-injects trailing
 // text as a fresh inbound, so `/new look into X` clears then processes "look
 // into X". The consumed /new row advances the cursor, so the follow-up runs on
-// a clean session next poll.
+// a clean session on the next pass.
 func (l *Loop) cmdNew(chatJID, folder, arg string) {
 	label := "Session cleared."
 	followup := ""

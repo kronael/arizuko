@@ -26,7 +26,7 @@ func TestReleaseAnnouncements(t *testing.T) {
 	if err := db.QueueReleaseAnnouncements("missing"); err != nil {
 		t.Fatal(err)
 	}
-	loop.pollOnce()
+	processChats(t, loop)
 	rows, err := db.PendingOutbound(time.Now().Add(time.Hour), 100)
 	if err != nil || len(rows) != 0 || len(runner.runs) != 0 {
 		t.Fatalf("pending=%v runs=%v err=%v", rows, runner.runs, err)
@@ -175,7 +175,7 @@ func TestQueueIssueNotice(t *testing.T) {
 	if row.ChatJID != "telegram:me" || row.Content != "[x/y/20260101/slug] broken" || !row.BotMsg || row.TurnID != "" {
 		t.Fatalf("row=%+v", row)
 	}
-	loop.pollOnce()
+	processChats(t, loop)
 	if len(runner.runs) != 0 {
 		t.Fatalf("notice started a turn: %v", runner.runs)
 	}

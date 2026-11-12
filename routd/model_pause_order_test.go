@@ -166,9 +166,10 @@ func TestModelPausePollHeldOrder(t *testing.T) {
 			modelPauseDue(t, l)
 			p.srv = NewServer(db, l, dl, nil, 0, "")
 			t.Cleanup(l.StopQueue)
-			// Poll and ingress use the same queue; drain each round before refeeding.
-			for range 5 {
-				l.pollOnce()
+			// Recovery and the sweep share the queue; drain each round before refeeding.
+			for i := range 5 {
+				l.maybeRecoverTurns(time.Now().Add(time.Duration(i) * turnsEvery))
+				l.sweepChats(t.Context())
 				for queueHasWorker(l.q) {
 					runtime.Gosched()
 				}

@@ -147,7 +147,7 @@ func TestStickyNavConsumed(t *testing.T) {
 	_ = db.PutMessage(core.Message{ID: "a", ChatJID: "tg:1", Sender: "u", Content: "@child", Timestamp: now, Verb: "message"})
 
 	// steering runs in the queue worker (processGroupMessages) — the one path
-	// both adapter ingest and the pollOnce backstop converge to.
+	// every wake converges to.
 	if _, err := loop.processGroupMessages("tg:1"); err != nil {
 		t.Fatalf("process: %v", err)
 	}

@@ -91,7 +91,8 @@ func TestTurnControlExpiredEngagementPollsSavedInput(t *testing.T) {
 	t.Cleanup(poller.StopQueue)
 	p.srv = NewServer(db, poller, dl, nil, 0, "")
 	modelPauseDue(t, poller)
-	poller.pollOnce()
+	poller.maybeRecoverTurns(time.Now())
+	poller.sweepChats(t.Context())
 	for queueHasWorker(poller.q) {
 		runtime.Gosched()
 	}
@@ -241,7 +242,8 @@ func TestTurnControlMissingCapturedRunRecovery(t *testing.T) {
 				}
 				return false, nil
 			})
-			poller.pollOnce()
+			poller.maybeRecoverTurns(time.Now())
+			poller.sweepChats(t.Context())
 			for queueHasWorker(poller.q) {
 				runtime.Gosched()
 			}

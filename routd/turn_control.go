@@ -757,8 +757,10 @@ func (q *turnControl) recover(l *Loop, startup bool) error {
 
 var ErrDependencyDown = errors.New("execution plane unreachable")
 
+// again: the chat was enqueued while it ran, so its run passes once more.
 type groupState struct {
 	active bool
+	again  bool
 }
 
 type turnReservation struct {
@@ -969,7 +971,7 @@ func (q *turnControl) EnqueueMessageCheck(groupJid string) {
 	s := q.getGroup(groupJid)
 
 	if s.active {
-		slog.Debug("container active, will drain after", "groupJid", groupJid)
+		s.again = true
 		q.mu.Unlock()
 		return
 	}
@@ -1001,18 +1003,23 @@ func (q *turnControl) runForGroup(groupJid string) {
 		_, err = fn(groupJid)
 	}
 
-	if err != nil {
-		slog.Error("error processing messages for group",
-			"groupJid", groupJid, "err", err)
-	}
 	q.mu.Lock()
 	s := q.getGroup(groupJid)
 	s.active = false
+	again := s.again
+	s.again = false
 	q.releaseLocked(groupJid)
 	if !q.shuttingDown {
 		q.drainWaitingLocked()
 	}
 	q.mu.Unlock()
+	if err != nil {
+		slog.Error("error processing messages for group",
+			"groupJid", groupJid, "err", err)
+		time.AfterFunc(busyBackoffBase, func() { q.EnqueueMessageCheck(groupJid) })
+	} else if again {
+		q.EnqueueMessageCheck(groupJid)
+	}
 }
 
 func (q *turnControl) drainWaitingLocked() {

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/joho/godotenv"
 
+	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/store"
@@ -29,9 +31,9 @@ import (
 // arizuko send <instance> <folder> --stdin           read body from stdin
 //
 // Two paths:
-//   - operator-direct (default): no chat token → inject straight into the DB
-//     on web:<folder> (the root operator already holds DB authority, same as
-//     `create`/`grant`/`secret`); the gateway poll loop runs the agent.
+//   - operator-direct (default): no chat token → POST to routd's ingest on
+//     web:<folder> with a bearer signed by authd's key, which the operator
+//     already reads (`token issue bearer`); routd enqueues the chat.
 //   - chat-token: --token|-t or ARIZUKO_CHAT_TOKEN set → POST to the public
 //     /chat/<token> endpoint via WEB_HOST (for tokens issued to non-operators).
 func cmdSend(args []string) {
@@ -74,7 +76,7 @@ func cmdSend(args []string) {
 	// never stored (only hash); the chat-token path is for non-operator callers
 	// who hold a token from `arizuko token issue chat` / issue_chat_link.
 	if chatToken == "" {
-		operatorInject(st, folder, sender, msg, topic, wait || stream)
+		operatorInject(st, dataDir, folder, sender, msg, topic, wait || stream)
 		return
 	}
 
@@ -131,32 +133,36 @@ func cmdSend(args []string) {
 	os.Exit(pollRound(client, turnURL))
 }
 
-// operatorInject writes the message straight into the instance DB as an inbound
-// on web:<folder> — the 1:1 web-chat JID the gateway maps to the group
-// (gateway.resolveGroup). The poll loop picks it up and runs the agent; no chat
-// token because the operator already holds DB authority. When follow is set,
-// polls BotRepliesSince and prints the agent's reply until the run goes quiet
-// (a direct inject carries no round_done signal, so quiescence is the terminator).
-func operatorInject(st *store.Store, folder, sender, msg, topic string, follow bool) {
+// operatorInject hands the message to routd's ingest, as an adapter does, as an
+// inbound on web:<folder>, the 1:1 web-chat JID routd maps to the group; routd
+// stores it and wakes the chat. When follow is set, polls BotRepliesSince and
+// prints the agent's reply until the run goes quiet (a direct inject carries no
+// round_done signal, so quiescence is the terminator).
+func operatorInject(st *store.Store, dataDir, folder, sender, msg, topic string, follow bool) {
 	jid := groupfolder.WebJID(folder)
 	since := time.Now()
-	m := core.Message{
-		ID:        core.MsgID("cli"),
-		ChatJID:   jid,
-		Sender:    sender,
-		Name:      sender,
-		Content:   msg,
-		Timestamp: since,
-		Topic:     topic,
-		Verb:      "mention",
-		Source:    "cli",
+	env, err := loadInstanceEnv(dataDir)
+	if err != nil {
+		die("Failed: load .env: %v", err)
 	}
-	if err := st.PutMessage(m); err != nil {
+	if env["API_PORT"] == "" {
+		die("Failed: API_PORT not configured in %s/.env", dataDir)
+	}
+	token, _, err := mintBearer(filepath.Join(dataDir, "store"), folder, sender,
+		[]string{"messages:write"}, time.Minute)
+	if err != nil {
+		die("Failed: mint bearer: %v", err)
+	}
+	routd := chanlib.NewRouterClient("http://localhost:" + env["API_PORT"])
+	routd.SetServiceToken(func(context.Context) (string, error) { return token, nil })
+	m := chanlib.InboundMsg{ID: core.MsgID("cli"), ChatJID: jid, Sender: sender,
+		SenderName: sender, Content: msg, Topic: topic, Verb: "mention", Source: "cli"}
+	if err := routd.SendMessage(m); err != nil {
 		die("Failed: inject: %v", err)
 	}
 	fmt.Printf("injected: %s → %s\n", m.ID, jid)
 	if !follow {
-		fmt.Println("status: queued (gateway poll loop will run the agent)")
+		fmt.Println("status: queued")
 		return
 	}
 	const (

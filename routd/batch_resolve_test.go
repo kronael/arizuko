@@ -90,7 +90,7 @@ func TestBatchResolve_ThePollBackstopEnqueuesTheMentionAndObservesNothing(t *tes
 	putPRRow(t, db, "gh-rc1", "github:user/alice", "mention", "inline mention", now)
 	putPRRow(t, db, "gh-r1", "github:user/alice", "pull_request_review", "review submitted", now.Add(time.Millisecond))
 
-	loop.pollOnce()
+	loop.sweepChats(t.Context())
 
 	select {
 	case jid := <-got:
@@ -154,7 +154,7 @@ func TestBatchResolve_ABusyRefusalThenANewerCIRowStillRunsTheMention(t *testing.
 	}
 
 	putPRRow(t, db, "gh-ci1", "github:user/ci", "check_run", "tests failed", now.Add(time.Second))
-	loop.pollOnce()
+	loop.sweepChats(t.Context())
 	select {
 	case <-enqueued:
 	case <-time.After(2 * time.Second):

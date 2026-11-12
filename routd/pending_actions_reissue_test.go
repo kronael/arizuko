@@ -91,21 +91,19 @@ func TestPutMessageStoresAFixedWidthTimestamp(t *testing.T) {
 	}
 }
 
-// TestPollOnceDoesNotSkipAChatWithARowInTheCursorSecond covers the other gate on
-// the same second: pollOnce feeds from the global minimum cursor and skips any
-// chat already current on its own, comparing the batch tail against that cursor
-// as text. A stripped fraction makes the chat look current and it is never
-// enqueued.
-func TestPollOnceDoesNotSkipAChatWithARowInTheCursorSecond(t *testing.T) {
+// TestSweepDoesNotSkipAChatWithARowInTheCursorSecond covers the other gate on
+// the same second: a stripped fraction makes the chat look current and it is
+// never enqueued.
+func TestSweepDoesNotSkipAChatWithARowInTheCursorSecond(t *testing.T) {
 	db, srv, runner := newTestRoutd(t)
 	const chatJID = "slack:T/C/U"
 	routedChat(t, db, srv, chatJID)
 
 	row := cursorSecondRow(t, db, chatJID)
 
-	// pollOnce enqueues; the queue is stopped in this harness, so drive the
+	// The sweep enqueues; the queue is stopped in this harness, so drive the
 	// dispatch the enqueue would have reached and assert the turn ran.
-	srv.loop.pollOnce()
+	srv.loop.sweepChats(t.Context())
 	if _, err := srv.loop.processGroupMessages(chatJID); err != nil {
 		t.Fatalf("process: %v", err)
 	}

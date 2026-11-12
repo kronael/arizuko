@@ -337,8 +337,8 @@ func TestObservedMessages_GetEnriched(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Process via the observe path (pollOnce triggers route resolution + observe)
-	l.pollOnce()
+	// Process via the observe path: route resolution + observe
+	processChats(t, l)
 
 	// Verify: message should be enriched (attachment downloaded, content rewritten)
 	rows, _ := db.MessagesSince("tg:123", "")

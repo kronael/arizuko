@@ -266,7 +266,7 @@ routd reads.
 ## `/v1/*` surface
 
 - `POST /v1/onboarding` — record unrouted JID (status awaiting_message).
-  routd's poll loop calls this on route miss. Scope: `invites:write`.
+  routd's worker calls this on route miss. Scope: `invites:write`.
 - `/v1/invites` — list/create/revoke invites. routd's `/invite` command
   federates here; the host CLI `arizuko invite` and dashd write onbod's
   tables through their own handle. Scope: `invites:read`, `invites:write`.

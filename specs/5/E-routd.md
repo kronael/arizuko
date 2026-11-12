@@ -85,22 +85,27 @@ review, not by the filesystem.
 
 ## The orchestration loop
 
-`routd/loop.go` + `routd/dispatch.go`. Poll-driven over `routd.db`;
-ingress (`POST /v1/messages`) writes the row then enqueues the chat.
+`routd/loop.go` + `routd/dispatch.go`. Wake-driven: every writer of a
+message enqueues its chat — ingress (`POST /v1/messages`, which `arizuko
+send` also takes), scheduled tasks, an agent's `send` and `inject_message`,
+steer commands. Nothing polls the chats: per-chat reads every 2 s saturated
+the shared store (BUGS L819).
 
-- `pollOnce` (`loop.go:490`) — batch new rows by `chat_jid`, resolve,
-  enrich attachments, steer-or-enqueue.
+- `sweepChats` (`loop.go`) — once at startup, enqueues each chat with rows
+  past its `agent_cursor`, for what arrived while routd was down.
+- The queue re-runs a chat enqueued during its run, and wakes it again after a
+  `busy` refusal or a failed pass. Turn recovery and deferred retries run every
+  30 s (`maybeRecoverTurns`).
 - `processGroupMessages` (`dispatch.go:22`) — the queue worker,
   serialized per folder. `web:` chats dispatch one turn per topic
   (`groupByTopic`); everything else one turn per distinct sender
   (`groupBySender`). Topics in one web chat do **not** share a session.
 - `runTurn` (`dispatch.go:113`) → `dispatchRun` (`dispatch.go:504`) —
   the `POST /v1/runs` call.
-- `steer` (`routd/steer.go:21`) runs in the **worker**, not only in the
-  poll backstop. Adapter ingest enqueues straight into the worker, so
-  when steering lived only in `pollOnce` it raced the queue and lost — a
-  Slack `/root mint …` reached the agent as plain unelevated text and
-  the elevation never fired (marinade atlas, 2026-07-16).
+- `steer` (`routd/steer.go:21`) runs in the **worker**, the one path every
+  wake takes; a steer step outside it raced the queue and lost — a Slack
+  `/root mint …` reached the agent as plain unelevated text (marinade atlas,
+  2026-07-16).
 
 ### Route resolution (`loop.go:610` `resolve`)
 
@@ -336,8 +341,8 @@ Three discriminators on the response, each meaning something different:
   internal queue. A **retryable reject, not a turn boundary and not a
   failure**: do not advance the cursor, do not count it toward the queue
   circuit breaker, leave `turn_context` running so the re-dispatch is
-  live. Because runed's cap is the same one that bounds routd's queue,
-  the poll re-feed clears it within one `POLL_INTERVAL`.
+  live. The queue wakes the chat again after the busy backoff (4 s,
+  doubling to 60 s).
 - **`steered`** — a guest-input acknowledgement discriminator. Fresh
   inbound admission returns `busy` for an active folder.
 

@@ -63,7 +63,6 @@ type RoutdFns struct {
 	ClearSession         func(folder string)
 	ForkTopic            func(folder, parent, child string, force bool) error
 	InjectMessage        func(jid, content, sender, senderName string) (string, error)
-	EnqueueMessageCheck  func(jid string)
 	FetchPlatformHistory func(jid string, before time.Time, limit int) (PlatformHistory, error)
 	CreateInvite         func(targetGlob string, maxUses int, expiresAt *time.Time) (InviteInfo, error)
 	ListInvites          func(issuedBy string) ([]InviteInfo, error)
@@ -1301,9 +1300,6 @@ func buildMCPServer(routd RoutdFns, db StoreFns, folder string, isRoot bool, cal
 				id, err := store.PostGroup(db.PutMessage, jid, text, folder)
 				if err != nil {
 					return toolErr(err.Error())
-				}
-				if routd.EnqueueMessageCheck != nil {
-					routd.EnqueueMessageCheck(jid)
 				}
 				return toolJSON(map[string]any{"ok": true, "id": id})
 			}

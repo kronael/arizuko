@@ -52,7 +52,8 @@ func TestTurnControlPollContinuesAfterProviderRecoveryError(t *testing.T) {
 		}
 		return false, nil
 	})
-	poller.pollOnce()
+	poller.maybeRecoverTurns(time.Now())
+	poller.sweepChats(t.Context())
 	for queueHasWorker(poller.q) {
 		runtime.Gosched()
 	}

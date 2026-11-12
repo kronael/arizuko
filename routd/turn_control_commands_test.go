@@ -145,6 +145,9 @@ func TestTurnControlCommandsWhileActive(t *testing.T) {
 		t.Error("stop did not close the submitted attempt before kill")
 	}
 	cursor := db.GetAgentCursor("web:demo")
+	// The rows enqueued during the run would take a second pass; this body
+	// asserts the first pass's completion alone.
+	l.StopQueue()
 	close(release)
 	<-done
 	if db.GetAgentCursor("web:demo") != cursor {
@@ -154,7 +157,6 @@ func TestTurnControlCommandsWhileActive(t *testing.T) {
 	if err != nil || (exists && control.Phase != "closed") {
 		t.Fatalf("intentional stop opened breaker: %+v %v", control, err)
 	}
-	l.StopQueue()
 }
 
 type cancelObserver struct {
