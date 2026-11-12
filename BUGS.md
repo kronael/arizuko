@@ -618,7 +618,7 @@ with `load core configuration … permission denied`.
 - **Test:** `TestOnlyTheCLILoadsTheOperatorEnv` (`tests/components/operator_env_test.go`).
 - **Status:** fixed in 7fa98f38b.
 
-## L809 — a nudged round's model usage is dropped (2026-11-10, open)
+## ✅ FIXED 2026-11-12 c0922acb8 L809 — a nudged round's model usage is dropped (2026-11-10)
 
 MEASURED in `routd/turns.go` `recordTurnResultAttempt` at v0.75.5: a
 submission routd answers with a nudge returns before `RecordTurnResult` and
@@ -628,10 +628,12 @@ submits only that round's usage. A nudged turn reports its last round alone.
 
 - **Severity:** medium — every nudged turn under-reports its usage.
 - **Fix:** ant carries the nudged round's usage into the next submission of
-  the same turn; test `runTurn carries a nudged round usage into the turn
-  record`.
+  the same turn.
+- **Test:** `runTurn carries a nudged round usage into the turn record`
+  (`ant/src/index.test.ts`); it fails with the carry removed.
+- **Status:** fixed in c0922acb8.
 
-## L808 — a resumed Claude session reports the session total as the turn's usage (2026-11-10, open)
+## ✅ FIXED 2026-11-12 c0922acb8 L808 — a resumed Claude session reports the session total as the turn's usage (2026-11-10)
 
 MEASURED in `@anthropic-ai/claude-agent-sdk` 0.3.278 `sdk.d.ts`
 (`SDKResultSuccess.modelUsage`): "a resumed or forked session continues from the
@@ -640,13 +642,19 @@ turns". The transcript saves them as a `cost-state` line; a local session
 transcript on 2026-11-10 carries `totalCostUSD` 67.85 across four models.
 `ant/src/claude.ts` `extractModelUsage` reported the result's `modelUsage`
 as is, so every resumed Claude turn reported its session's running total: the
-Claude twin of L806.
+Claude twin of L806. Live on krons 2026-11-10 (nemo): a turn logged
+`claude-fable-5-1` usage again beside the real `claude-fable-5-2` line, the
+earlier model's session total re-reported.
 
 - **Severity:** high for accounting — per-folder sums count every earlier turn
   again on each resumed turn.
 - **Fix:** read the last `cost-state` of the transcript the turn resumes and
-  report the difference; test `ClaudeTurn on a resumed session reports the turn,
-  not the session total`.
+  report the difference; a model the turn did not call carries no entry.
+- **Test:** `ClaudeTurn on a resumed session reports the turn, not the session
+  total` (`ant/src/claude.test.ts`); it fails with the prior ignored and with
+  the zero-difference model kept.
+- **Status:** fixed in c0922acb8; the krons line needs the next deploy to
+  confirm.
 
 ## L804 — Codex topic forks do not inherit the parent's model context (2026-11-09, open — record only)
 
