@@ -15,7 +15,6 @@
 
 ## What needs you
 
-- `L819` — routd polls every chat every 2 s and saturates the shared store; fix in progress.
 - `L820` — gitd's `/health` reads its whole held-inbound backlog per probe; dropping `pending_inbound` changes the documented contract; needs sign-off.
 - `L816` — gitd loses GitHub webhooks while the store is unreachable; retention lives in that store; proposal, needs sign-off.
 - `L803` — morha repeats recovery reports and replies to an old GitHub comment; cause unmeasured.
@@ -330,7 +329,7 @@ reads those words now.
   **Proposal:** stop the build on the first failed submake. This is an adjacent
   build-gate repair; scope approval is pending.
 
-## L819 — routd re-reads every chat from the store every 2 s, so the shared store runs out of CPU and no message dispatches (2026-11-12, open)
+## ✅ FIXED 2026-11-12 2ded78a8f L819 — routd re-reads every chat from the store every 2 s, so the shared store runs out of CPU and no message dispatches (2026-11-12)
 
 MEASURED 2026-11-12 on hel1v5 (2 cores, load 5.4): the one `extenddb.service`
 serving krons and sloth ran 150–160% CPU at 5.7 GB RSS after 3 days, with
@@ -362,7 +361,14 @@ with an error, and a message that arrives while its chat runs, also wait for
 the next poll.
 
 - **Severity:** critical — dispatch stops on both instances.
-- **Status:** open. Test: `routd/poll_load_test.go::TestTickReadsNoChat`.
+- **Status:** fixed in 2ded78a8f; not deployed, so the live load is not yet
+  re-measured. Tests, each red under its own mutation:
+  `routd/poll_load_test.go::TestTickReadsNoChat` (451 chat reads over a
+  300 ms run with the sweep back on every tick, against at most 11),
+  `TestFailedPassIsRetried`, `TestBusyRefusalWakesTheChatAgain`,
+  `TestAgentMessageWakesTheChat`,
+  `routd/turn_control_test.go::TestEnqueueMessageCheckCollapsesWhileActive`,
+  `cmd/arizuko/send_test.go::TestOperatorInjectPostsToRoutd`.
 - **Fix:** no chat is polled. A startup sweep (`sweepChats`) enqueues each
   chat with rows past its cursor once. Each writer enqueues: `putAgentMessage`
   (an agent's `send` to a group and `inject_message`), and `arizuko send`
