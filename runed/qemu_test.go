@@ -608,6 +608,20 @@ func TestAwaitReportsAGuestThatNeverSaidHowItExited(t *testing.T) {
 	}
 }
 
+// Guest-init is its own module, so its handler-failure code is read from its
+// source: a handler that cannot start must end the turn terminally here.
+func TestGuestInitHandlerExitIsTerminal(t *testing.T) {
+	src, err := os.ReadFile("../kernel/guest-init/main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, rest, ok := strings.Cut(string(src), "\thandlerExit = ")
+	code, err := strconv.Atoi(strings.TrimSpace(strings.SplitN(rest, "\n", 2)[0]))
+	if !ok || err != nil || !guestTerminalExit(code) {
+		t.Fatalf("guest-init handlerExit = %q, want a terminal code", strings.SplitN(rest, "\n", 2)[0])
+	}
+}
+
 // What each ending means to routd. The values are named, because each answer
 // sends the dispatcher somewhere different: ok closes the turn, an error with
 // Terminal set stops the retry, and an error without it is re-fed.

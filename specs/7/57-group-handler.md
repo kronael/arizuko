@@ -11,9 +11,21 @@ A handler can be a static Go program that calls no model.
 
 Guest init selects `/usr/local/bin/ant` by default. The executable links to
 `ant/src/index.ts` and runs under Bun. Named handler selection is implemented.
-Numeric `agent: 0` is rejected. Real-guest acceptance remains unverified;
-missing or non-executable handlers return exit 71, which runed permits to retry.
-The no-agent lifecycle and terminal handler failure are unbuilt contracts.
+
+A handler that cannot start ends the turn terminally. Guest init reports exit
+78 for an invalid name, a missing executable or a file it cannot execute
+(`startExit`, `kernel/guest-init/main.go:924`), and its log frame names the
+handler. runed reads 78 as terminal (`runed/qemu.go:652`), so routd does not
+retry and sends one failure notice.
+
+`agent: 0` is refused. routd ends the turn once with a failure notice and
+calls no runner (`TestInvalidGroupAgentFailsOnce`). A group without an agent
+is the 8/40 draft, which waits for the owner's answers; this spec builds no
+part of it.
+
+Acceptance 1 is not proven. The real-guest turn needs KVM, a 2 GiB guest and
+the release rootfs. On 2026-11-12 the build host had 178 MB free disk and less
+than 2.5 GiB available memory, so no guest ran.
 
 ## The change
 
@@ -41,11 +53,14 @@ A handler gets the same stdin payload, environment, mounts and MCP socket as
 `ant`. It delivers through MCP and ends the turn with `submit_turn`. Stdout is
 not delivery. Grants and isolation do not change.
 
-## Open question
+## The gateway check stays before every spawn
 
-Must a handler without a model run when the model gateway is down? Today
-routd checks the gateway before every spawn (`routd/dispatch.go:391`).
-Recommendation: keep that check.
+routd asks the model gateway before every spawn, and a gateway that does not
+answer fails the turn as a dependency outage (`routd/dispatch.go:510`). A
+handler that calls no model gets the same check. One gate for every turn keeps
+dispatch blind to what a handler does. The caveat: a static handler waits for
+the gateway like `ant` does. This follows the recommendation and waits for the
+owner's review.
 
 ## Acceptance
 

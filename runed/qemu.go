@@ -645,9 +645,10 @@ type turnEnd struct {
 }
 
 // guestTerminalExit reports whether the guest's exit code proves a retry cannot
-// repair the turn. Only the agent's own EX_CONFIG counts: Docker's reserved
-// 125-127 are the CLI's invocation failures, and on this substrate those three
-// are just exit codes the agent may return (spec 5/12, BUGS F73).
+// repair the turn. Only EX_CONFIG counts, from the agent or from guest-init
+// for a handler that cannot start: Docker's reserved 125-127 are the CLI's
+// invocation failures, and on this substrate those three are just exit codes
+// the agent may return (spec 5/12, BUGS F73).
 func guestTerminalExit(code int) bool { return code == agentTerminalExit }
 
 // guestPeak carries QEMU's peak resident set (touched guest pages included) out

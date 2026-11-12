@@ -1383,7 +1383,16 @@ func (d *recDeliverer) waitSends(t *testing.T, n int) {
 	})
 }
 
+// An invalid handler name, or agent 0 before groups without agents exist,
+// ends the turn once with a notice that leaks neither value nor folder, and
+// never reaches runed.
 func TestInvalidGroupAgentFailsOnce(t *testing.T) {
+	for _, agent := range []string{`"../bad"`, `0`} {
+		t.Run(agent, func(t *testing.T) { invalidGroupAgentFailsOnce(t, agent) })
+	}
+}
+
+func invalidGroupAgentFailsOnce(t *testing.T, agent string) {
 	db, err := OpenMem()
 	if err != nil {
 		t.Fatal(err)
@@ -1392,7 +1401,7 @@ func TestInvalidGroupAgentFailsOnce(t *testing.T) {
 	if err := db.PutGroup(core.Group{Folder: "demo"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.store().WriteEntities(context.Background(), nil, objstore.Write{Op: objstore.Merge, Entity: store.Groups, Key: objstore.Key{Partition: store.OwnerRoutd, Sort: "demo"}, Attrs: map[string]string{"config": `{"agent":"../bad"}`}}); err != nil {
+	if err := db.store().WriteEntities(context.Background(), nil, objstore.Write{Op: objstore.Merge, Entity: store.Groups, Key: objstore.Key{Partition: store.OwnerRoutd, Sort: "demo"}, Attrs: map[string]string{"config": `{"agent":` + agent + `}`}}); err != nil {
 		t.Fatal(err)
 	}
 	dl := &recDeliverer{}

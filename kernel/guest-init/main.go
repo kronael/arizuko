@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -163,13 +164,17 @@ const (
 	stopGrace = 10 * time.Second
 )
 
-// The two exit codes guest-init reports as its own.
+// The exit codes guest-init reports as its own.
 const (
 	// initExit is sysexits.h EX_OSERR: the guest could not be assembled, so the
-	// agent never ran. It is deliberately NOT 78, the agent's own EX_CONFIG and
-	// the one code runed reads as terminal (runed/docker.go agentTerminalExit):
-	// guest-init must not impersonate the agent's verdict on its own turn.
+	// agent never ran. It is deliberately NOT 78, the one code runed reads as
+	// terminal (runed/runtime.go agentTerminalExit): a guest that failed to
+	// assemble may assemble on a retry.
 	initExit = 71
+	// handlerExit is sysexits.h EX_CONFIG, runed's terminal code: the group
+	// names a handler that is invalid, missing or not executable, which no
+	// retry repairs.
+	handlerExit = 78
 	// sigtermExit is what a shell reports for a process a SIGTERM ended, and
 	// what the guest reports when the stop grace expires with the agent still up.
 	sigtermExit = 128 + int(syscall.SIGTERM)
@@ -838,7 +843,7 @@ func agentCmd(env map[string]string, stdin []byte) *exec.Cmd {
 	}
 	cmd := exec.Command(path)
 	if set && path == agentBin && name != "ant" {
-		cmd.Err = fmt.Errorf("invalid handler %q", name)
+		cmd.Err = fmt.Errorf("%w %q", errInvalidHandler, name)
 	}
 	// Non-nil even when it is empty, because a nil Env hands the child THIS
 	// process's environment — which holds the kernel command line's own keys.
@@ -895,7 +900,7 @@ func run(t *turn, cmd *exec.Cmd) {
 	}
 	if err := cmd.Start(); err != nil {
 		t.c.logf("guest-init: exec %s: %v", cmd.Path, err)
-		t.c.report(initExit)
+		t.c.report(startExit(err))
 		return
 	}
 	t.pid.Store(int32(cmd.Process.Pid))
@@ -910,6 +915,18 @@ func run(t *turn, cmd *exec.Cmd) {
 		t.c.logf("guest-init: agent wait: %v", err)
 	}
 	t.c.report(exitCode(cmd.ProcessState))
+}
+
+var errInvalidHandler = errors.New("invalid handler")
+
+// startExit is the code for a handler that never started: terminal when the
+// handler itself is wrong, initExit for anything a retry may clear.
+func startExit(err error) int {
+	if errors.Is(err, errInvalidHandler) || errors.Is(err, fs.ErrNotExist) ||
+		errors.Is(err, fs.ErrPermission) || errors.Is(err, syscall.ENOEXEC) {
+		return handlerExit
+	}
+	return initExit
 }
 
 // stream copies one child's stderr onto ctl as {log} frames and closes its

@@ -16,8 +16,9 @@ const (
 	maxOutputSize = 10 * 1024 * 1024 // 10MB
 	// agentTerminalExit is sysexits.h EX_CONFIG, which the agent uses to say the
 	// model refused for a reason a retry cannot repair — an exhausted quota or a
-	// spend cap, whose reset is hours out (BUGS L175). It is the agent's own
-	// code, so it stays clear of the 128+ signal range.
+	// spend cap, whose reset is hours out (BUGS L175). Guest-init reports it
+	// for a handler that is invalid, missing or not executable. It stays clear
+	// of the 128+ signal range.
 	agentTerminalExit = 78
 )
 

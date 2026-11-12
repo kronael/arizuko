@@ -341,14 +341,20 @@ func TestTheExitFrameCarriesTheAgentsOwnCode(t *testing.T) {
 		}
 	})
 
-	t.Run("an agent that could not start", func(t *testing.T) {
+	t.Run("an agent that is missing", func(t *testing.T) {
 		var wire bytes.Buffer
 		tn := &turn{c: &ctl{w: &wire}}
 		run(tn, exec.Command(filepath.Join(t.TempDir(), "not-a-binary")))
 		frames := decodeAll(t, bytes.NewReader(wire.Bytes()))
 		last := frames[len(frames)-1]
-		if last.Kind != kindExit || last.Code != initExit {
-			t.Errorf("an agent that never ran reported %+v, want exit %d", last, initExit)
+		if last.Kind != kindExit || last.Code != handlerExit {
+			t.Errorf("an agent that never ran reported %+v, want exit %d", last, handlerExit)
+		}
+	})
+
+	t.Run("an agent that could not start for a passing reason", func(t *testing.T) {
+		if got := startExit(&os.PathError{Op: "fork/exec", Path: "/usr/local/bin/ant", Err: syscall.EAGAIN}); got != initExit {
+			t.Errorf("a fork that ran out of processes reported %d, want %d", got, initExit)
 		}
 	})
 }
@@ -412,7 +418,7 @@ func TestAgentHandler(t *testing.T) {
 			run(&turn{c: &ctl{w: &wire}}, cmd)
 			frames := decodeAll(t, bytes.NewReader(wire.Bytes()))
 			last := frames[len(frames)-1]
-			if last.Kind != kindExit || (tc.valid && last.Code != 0) || (!tc.valid && last.Code != initExit) {
+			if last.Kind != kindExit || (tc.valid && last.Code != 0) || (!tc.valid && last.Code != handlerExit) {
 				t.Fatalf("frames = %+v", frames)
 			}
 			if !tc.valid && (len(frames) < 2 || !strings.Contains(frames[0].Line, tc.name)) {
