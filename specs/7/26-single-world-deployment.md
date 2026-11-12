@@ -10,6 +10,27 @@ The package and daemon contract is [6/59-local-daemons](../6/59-local-daemons.md
 There is no requirement for one binary or one core process.
 Storage remains external under [6/43-shared-store-server](../6/43-shared-store-server.md).
 
+## Implementation status
+
+vited and timed are gone. proxyd serves the web files (`proxyd/static.go`), and
+routd runs the task ticker (`routd/schedule.go`). `proxyd/static_test.go` covers
+the serving, redirect, containment and deny rules. `routd/schedule_test.go`
+covers firing, retry, identity, shutdown and recovery order.
+`TestScheduleRestartRefiresClaimedTask` kills the router between a claim and
+its re-arm: the restarted router fires the task again under the same
+`sched-<taskID>@<scheduled-time>` identity, keeps one message and completes
+the task. The fire carries the scheduled instant, so the store drops the
+repeat (BUGS `L819`, fixed).
+
+These acceptance items stay open:
+
+- The per-fold memory record in § Contract. No before and after sample with
+  identical packages, data and build exists, so no saving is claimed.
+- Check 5. No test runs an outside 6/59 package, the isolated guest and the
+  8/60 minimum behavior on the folded deployment.
+- onbod and dashd stay separate processes. Their folds wait for a measured
+  saving (BUGS `L688`, `L689`), and nothing here builds them.
+
 ## Memory savings decide which processes to fold
 
 The owner supplied these measurements from `sudo docker stats` on 2026-11-07:
