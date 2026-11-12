@@ -15,6 +15,8 @@
 
 ## What needs you
 
+- `L819` — routd polls every chat every 2 s and saturates the shared store; fix in progress.
+- `L820` — gitd's `/health` reads its whole held-inbound backlog per probe; dropping `pending_inbound` changes the documented contract; needs sign-off.
 - `L816` — gitd loses GitHub webhooks while the store is unreachable; retention lives in that store; proposal, needs sign-off.
 - `L803` — morha repeats recovery reports and replies to an old GitHub comment; cause unmeasured.
 - `L804` — Codex topic forks do not inherit the parent's model context; observed messages remain available.
@@ -327,6 +329,73 @@ reads those words now.
   `/tmp/arizuko-github-baseline-build.log`. No test — ops.
   **Proposal:** stop the build on the first failed submake. This is an adjacent
   build-gate repair; scope approval is pending.
+
+## L819 — routd re-reads every chat from the store every 2 s, so the shared store runs out of CPU and no message dispatches (2026-11-12, open)
+
+MEASURED 2026-11-12 on hel1v5 (2 cores, load 5.4): the one `extenddb.service`
+serving krons and sloth ran 150–160% CPU at 5.7 GB RSS after 3 days, with
+slow statements up to 4.7 s, mostly `SELECT item_data`. After a restart at
+19:31 it still ran ~80% CPU, so clients cause the load. Neither instance
+dispatched a CLI-injected message for 7+ minutes; routd stayed near 2% CPU,
+waiting on the store. The PostgreSQL counters over 60 s at 19:45 (read-only
+`pg_stat_user_tables`; table names from `dynamo_catalog.tables`) show the
+readers: sloth `routd.messages` 5.4 M rows read per minute,
+`routd.turn_context` 786 k (sloth, 118 sequential scans) and 769 k (krons,
+135), `routd.chats` 91 and 135 reads per minute. pg_stat_activity
+shows the turn read as `WHERE pk = $1 ORDER BY sk LIMIT 1000001`: a whole
+partition.
+
+`routd/loop.go` `pollOnce` runs every `PollEvery` = 2 s. Each tick does
+`q.recover` (ListModelPauses, HeldTurns, ReadTurnControl, RunningTurns),
+`q.tick` (DeferredTurns), `ChatJIDs`, and then, for every chat,
+`GetAgentCursor`, `NewMessagesForChat` and `heldInput`'s `HeldTurns(jid)`.
+`HeldTurns` filters the `turn_context` partition, so the driver reads the whole
+partition (5,693 rows on krons, 6,664 on sloth) once per chat. With 155 chats
+on krons and 376 on sloth, one tick asks 6 + 3 × 155 = 471 and 6 + 3 × 376 =
+1,134 queries, with 158 and 379 whole-partition turn reads. The store serves
+about two chats per second, so one krons tick takes over a minute and never
+catches up. Every path that writes a message in routd already enqueues the
+chat, except `InjectMessage` (`routd/mcp.go`, "the loop polls"), the agent's
+`send` to a group (ipc's `EnqueueMessageCheck` hook, never wired), and `arizuko
+send`, which writes the store from the host. A run that ends refused (Busy) or
+with an error, and a message that arrives while its chat runs, also wait for
+the next poll.
+
+- **Severity:** critical — dispatch stops on both instances.
+- **Status:** open. Test: `routd/poll_load_test.go::TestTickReadsNoChat`.
+- **Fix:** no chat is polled. A startup sweep (`sweepChats`) enqueues each
+  chat with rows past its cursor once. Each writer enqueues: `putAgentMessage`
+  (an agent's `send` to a group and `inject_message`), and `arizuko send`
+  posts to routd's `POST /v1/messages` with a minted `messages:write` bearer.
+  The queue re-runs a chat enqueued during its run, wakes it again after a
+  Busy refusal (its backoff) or a failed pass (4 s). Turn recovery and the
+  deferred-turn tick move from every 2 s to every 30 s, the shortest retry
+  delay. Store reads per 2 s tick: krons 471 and sloth 1,134 before; 0 after,
+  plus 5 every 30 s (3 of them whole `turn_context` reads).
+
+## L820 — gitd's `/health` reads its whole held-inbound backlog on every probe (2026-11-12, open — needs sign-off)
+
+MEASURED 2026-11-12 19:50 on sloth: `gitd.inbound_pending` holds 17,816
+messages, all with the error `Client.Timeout exceeded while awaiting headers`
+from routd, held since 2026-11-11 21:05; 17,798 were never retried. 98% are CI
+events (workflow_run 6,224, check_run 4,839, workflow_job 4,391, check_suite
+2,228). The table took 25 whole reads per minute, 356 k rows. `chanlib/handler.go`
+`handleHealth` calls `PendingInboundCount` on every probe; `HeldCount` reads
+the whole partition, so each probe costs a read proportional to the backlog
+(`health: pending inbound count failed`, context canceled). docker reports
+gitd `unhealthy`; that the count's latency causes it is an inference. The
+sweep also reads the whole due set every 15 s to pick 50. The backlog is
+`L819`'s effect; the read per probe is this entry.
+
+- **Severity:** medium — each probe reads the backlog from the shared store.
+- **Status:** open — needs sign-off: `pending_inbound` on `/health` is
+  documented in `specs/5/34-channel-protocol.md` and `chanlib/README.md`, and
+  every retaining adapter (gitd, slakd, discd) serves it. No test — contract.
+- **Options:** (a) `/health` stops counting; the backlog stays visible in the
+  `inbound retained` and `retained inbound still undelivered` logs, and
+  `PendingInboundCount` goes; (b) keep the count.
+- **Default if nothing is decided:** (b); with `L819` fixed the backlog drains
+  and the read shrinks with it.
 
 ## ✅ FIXED 2026-11-11 efeb37294 L818 — package sources resolve against the shared host checkout (`catalog:`) instead of being fetched (2026-11-11)
 
