@@ -150,9 +150,11 @@ loop. INSTALL.md also holds the checklist for an agent that does not reply.
 ## How it works
 
 Three daemons form the core. `routd` appends every message and decides which
-folder answers. `runed` boots one KVM guest per turn. `authd` signs every
-token. Adapters, the web chat and the scheduler call `routd` over HTTP. Each
-daemon keeps its own tables on one store server and signs in with its own key.
+folder answers. `runed` boots one KVM guest per turn. `authd` owns signing
+keys and serves tokens. The operator CLI can also sign a folder-scoped bearer.
+Adapters and web chat call `routd` over HTTP. The scheduler calls
+routd's ingest function in-process. Store clients use separate keys on one
+server. Each key reaches the owner prefixes declared in `store.StoreReach`.
 [ARCHITECTURE.md](ARCHITECTURE.md#where-a-change-lands) draws the repository
 map, the table owners and the turn from start to end. Each chat platform has
 its own adapter daemon: [EXTENDING.md](EXTENDING.md#verb-support-matrix) lists

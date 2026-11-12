@@ -289,7 +289,9 @@ The instance directory, `${PREFIX:-/srv}/data/arizuko_<name>/`, holds these
 paths:
 
 ```
-.env                 settings and anchor secrets; the daemons read it from cwd
+.env                 operator settings and anchor secrets; generation input
+env/<daemon>.env     scoped runtime values and the daemon's store key
+env/operator.env     the host CLI's store key
 store/               <adapter>/ files an adapter owns
 groups/<folder>/     the home of the agent: session state in .claude/, diary,
                      logs, media/<YYYYMMDD>/ inbound attachments
@@ -327,9 +329,9 @@ region, or an incomplete required key pair before it writes runtime output.
 
 <a id="the-per-daemon-store-keys"></a>
 
-### The per-daemon store keys limit each daemon to its own tables
+### The per-daemon store keys limit each client to declared owner prefixes
 
-Each daemon signs in as itself. It has its own IAM user, its own access key in
+Each store client signs in as itself. It has its own IAM user and access key in
 `env/<daemon>.env`, and a policy that covers only the tables it opens. The
 account is the tenant boundary, and the policy is the only boundary inside the
 account. `dynstore.Prefix` puts the owner name in front of every table name.
