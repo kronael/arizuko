@@ -45,7 +45,7 @@ the local `acl` rows.
 - The first status row is persisted before Send. Its existing idempotency key lets webd classify the first frame; the retry sweep shares the turn lock with updates and End.
 - `placement.go` sends progress, text, files, voice, terminal notices and retries to the same destination.
 - A real edit failure goes back to the caller. routd never posts it again as a new message.
-- Complete progress text stays below 2,000 UTF-8 bytes. The current task survives overflow with an omitted count. The existing polling loop publishes the latest pending update at most once per five seconds; End cancels it.
+- Complete progress text stays below 2,000 UTF-8 bytes. The current task survives overflow with an omitted count. The loop ticker publishes the latest pending update at most once per five seconds; End cancels it.
 - Without a checklist, eight completed parent calls or 180 seconds produce one reminder through ant's steering spool. Checklist activation and explicit clearing suppress it. Internal reminders also work on silent turns and channels without progress display.
 
 A progress row confers a reply obligation. Final delivery and last-answer tracking skip it, because a progress row must never count as the agent's reply.
@@ -430,15 +430,15 @@ On disk routd reads `DATA_DIR/groups`, package assets, and connectors; it writes
 Optional audit files use `audit-system.jl`. There is no routd SQLite database.
 The message search index and channel registry are process-local and rebuild at startup.
 
-| Loop                   | Exact cadence and effect                                                                                   |
-| ---------------------- | ---------------------------------------------------------------------------------------------------------- |
-| Main turn poll         | Every 2 s; reads new input, retries due turns, and flushes due progress.                                   |
-| Scheduled tasks        | Once at startup, then every 60 s; normal ingress and stable fire IDs.                                      |
-| Pending outbound       | Every 30 s; reads up to 200 rows, with per-row 30 s exponential backoff capped at 1 hour.                  |
-| Stale-turn maintenance | Every hour; expires abandoned running turns and prunes the 30-day activity index.                          |
-| Adapter health         | Every 30 s, 10 s HTTP timeout; three consecutive failures deregister the channel. `stale` counts as alive. |
-| Proactive scans        | `PROACTIVE_SCAN_INTERVAL`, default 30 s, evaluated on the main poll.                                       |
-| Surrogate refresh      | Runs at connector call time; refreshes credentials within 60 s of expiry, or reactively after 401.         |
+| Loop                   | Exact cadence and effect                                                                                                                                     |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Loop ticker            | Every 2 s; reads no chat. Flushes due progress; recovers turns every 30 s. Writers wake their own chat, and a startup sweep enqueues chats with unread rows. |
+| Scheduled tasks        | Once at startup, then every 60 s; normal ingress and stable fire IDs.                                                                                        |
+| Pending outbound       | Every 30 s; reads up to 200 rows, with per-row 30 s exponential backoff capped at 1 hour.                                                                    |
+| Stale-turn maintenance | Every hour; expires abandoned running turns and prunes the 30-day activity index.                                                                            |
+| Adapter health         | Every 30 s, 10 s HTTP timeout; three consecutive failures deregister the channel. `stale` counts as alive.                                                   |
+| Proactive scans        | `PROACTIVE_SCAN_INTERVAL`, default 30 s, evaluated on the main poll.                                                                                         |
+| Surrogate refresh      | Runs at connector call time; refreshes credentials within 60 s of expiry, or reactively after 401.                                                           |
 
 Boot recovers running contexts, pending status rows, stranded `firing` tasks, and orphan sockets.
 A failed store poll logs and leaves later ticks to retry. A route-table read error acts as a miss and can mark input unrouted.
