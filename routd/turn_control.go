@@ -192,56 +192,23 @@ func (q *turnControl) oldest(l *Loop, candidate TurnContext) (string, error) {
 		return "", err
 	}
 	var oldest core.Message
-	var turnID string
-	consider := func(id, folder string, msg core.Message) error {
-		if !l.db.GroupExists(folder) {
-			return nil
-		}
-		q.mu.Lock()
-		_, active := q.activeFolders[folder]
-		q.mu.Unlock()
-		if active && id != candidate.TurnID {
-			return nil
-		}
-		if oldest.ID == "" || modelInputBefore(msg, oldest) {
-			oldest, turnID = msg, id
-		}
-		return nil
-	}
+	turnID := candidate.TurnID
 	for _, tc := range turns {
 		msgs, err := l.db.store().DeferredMessages(ctx, tc.InputKeys)
 		if err != nil {
 			return "", err
 		}
-		if len(msgs) > 0 {
-			if err := consider(tc.TurnID, tc.Folder, msgs[0]); err != nil {
-				return "", err
-			}
-		}
-	}
-	jids, err := l.db.ChatJIDs()
-	if err != nil {
-		return "", err
-	}
-	for _, jid := range jids {
-		msgs, batch, _, err := l.pendingBatch(jid, l.db.GetAgentCursor(jid), pollBatch)
-		if err != nil {
-			return "", err
-		}
-		if !batch.ok {
+		if len(msgs) == 0 || !l.db.GroupExists(tc.Folder) {
 			continue
 		}
-		for i, msg := range msgs {
-			if !msg.BotMsg && batch.rows[i].ok && !IsSteerCommand(msg) {
-				id := msg.ID
-				if jid == candidate.ChatJID && batch.rows[i].Folder == candidate.Folder &&
-					store.MessageCursor(msg) <= candidate.InputLast {
-					id = candidate.TurnID
-				}
-				if err := consider(id, batch.rows[i].Folder, msg); err != nil {
-					return "", err
-				}
-			}
+		q.mu.Lock()
+		_, active := q.activeFolders[tc.Folder]
+		q.mu.Unlock()
+		if active && tc.TurnID != candidate.TurnID {
+			continue
+		}
+		if oldest.ID == "" || modelInputBefore(msgs[0], oldest) {
+			oldest, turnID = msgs[0], tc.TurnID
 		}
 	}
 	return turnID, nil
@@ -458,6 +425,26 @@ func (q *turnControl) tick(l *Loop) {
 	}
 	for _, tc := range turns {
 		l.Enqueue(deferredWorkPrefix + tc.TurnID)
+	}
+	control, _, err := l.db.store().ReadTurnControl(context.Background())
+	if err != nil {
+		slog.Error("read the breaker", "err", err)
+		return
+	}
+	if control.Phase == "probe" || control.Phase == "open" && q.now().Before(control.NextProbeAt) {
+		return
+	}
+	var refused []string
+	q.mu.Lock()
+	for jid, s := range q.groups {
+		if s.refused {
+			s.refused = false
+			refused = append(refused, jid)
+		}
+	}
+	q.mu.Unlock()
+	for _, jid := range refused {
+		l.Enqueue(jid)
 	}
 }
 
@@ -759,8 +746,9 @@ var ErrDependencyDown = errors.New("execution plane unreachable")
 
 // again: the chat was enqueued while it ran, so its run passes once more.
 type groupState struct {
-	active bool
-	again  bool
+	active  bool
+	again   bool
+	refused bool
 }
 
 type turnReservation struct {

@@ -348,19 +348,20 @@ queue worker: the refused wake had returned. The ingest handler is not blocked,
 and no turn lock is held; the maintenance loop sat in owed-status recovery
 (`L825`), which does not gate ingest.
 
-A refused chat that does reach `admit` after `next_probe_at` runs `oldest`,
-which lists every chat and reads its pending batch (`pendingBatch`, with
-`heldInput`'s whole `turn_context` read): on krons 155 chats, about 465 reads
-and 155 whole `turn_context` reads per admission, the per-chat read `L821`
-removed from the poll. Waking every refused chat at the probe time pays it per
-chat.
+Every dispatch runs `oldestModelInput` (`routd/model_pauses.go`), and an
+admission after `next_probe_at` runs `oldest`; each lists every chat and reads
+its pending batch (`pendingBatch`, with `heldInput`'s whole `turn_context`
+read): on krons 155 chats, about 465 reads and 155 whole `turn_context` reads
+per dispatch, the per-chat read `L821` removed from the poll. A batch held
+behind an older input of its folder (`holdModelInput`) is not woken either.
 
 - **Severity:** critical — every instance stops answering after any one failed
   turn, until a new message arrives after the probe time.
 - **Status:** open.
-- **Fix:** remember each chat the breaker refuses; the 30 s recovery tick wakes
-  them once the breaker admits again. `oldest` keeps the due retries only: the
-  oldest due retry probes, and with none the first admitted turn does.
+- **Fix:** mark each chat the breaker refuses or `holdModelInput` holds; the
+  30 s recovery tick wakes the marked chats once the breaker admits again.
+  `oldest` and `oldestModelInput` keep the pending retries only: the oldest due
+  retry probes, and with none the first admitted turn does.
 
 ## L825 — legacy turns owe a "cleared" status forever, and each lookup pages one message per request (2026-11-12)
 

@@ -33,25 +33,6 @@ func (l *Loop) oldestModelInput(folder string) (core.Message, error) {
 			oldest = msgs[0]
 		}
 	}
-	jids, err := l.db.ChatJIDs()
-	if err != nil {
-		return core.Message{}, err
-	}
-	for _, jid := range jids {
-		msgs, batch, _, err := l.pendingBatch(jid, l.db.GetAgentCursor(jid), pollBatch)
-		if err != nil {
-			return core.Message{}, err
-		}
-		for i, msg := range msgs {
-			admitted := slices.ContainsFunc(turns, func(tc TurnContext) bool {
-				return tc.State == store.TurnRunning && !tc.RunReturned && tc.ChatJID == jid && tc.InputLast >= store.MessageCursor(msg)
-			})
-			if !msg.BotMsg && !admitted && batch.rows[i].ok && batch.rows[i].Folder == folder &&
-				(oldest.ID == "" || modelInputBefore(msg, oldest)) {
-				oldest = msg
-			}
-		}
-	}
 	return oldest, nil
 }
 
@@ -107,6 +88,9 @@ func (l *Loop) pendingBatch(jid, cursor string, limit int) ([]core.Message, batc
 
 func (l *Loop) holdModelInput(chatJID string, trigger []core.Message) error {
 	l.waiting.Delete(chatJID)
+	l.q.mu.Lock()
+	l.q.getGroup(chatJID).refused = true
+	l.q.mu.Unlock()
 	l.q.busyWait.Delete(chatJID)
 	if l.deliver != nil {
 		clearPresence(l.deliver, []string{replyChat(chatJID, trigger[len(trigger)-1])})

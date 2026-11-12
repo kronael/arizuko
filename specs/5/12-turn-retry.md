@@ -75,9 +75,10 @@ singleton (`phase` closed/open/probe, `episode`, `next_probe_at`,
 runs already admitted may finish, and their success cannot close it. The
 failed turn's next retry is the one probe. A probe that runs without a
 failure closes the breaker; another failure applies the next delay. When the
-probing turn exhausts its budget, the breaker stays open for one hour and the
-oldest eligible waiting turn probes next. Startup reads the breaker before
-admitting work. A provider refusal also sets the turn's due time no earlier
+probing turn exhausts its budget, the breaker stays open for one hour; then
+the oldest due retry probes, or with none the first turn admitted. A chat the
+breaker refuses is woken by the 30 s recovery tick once the breaker admits
+again. Startup reads the breaker before admitting work. A provider refusal also sets the turn's due time no earlier
 than the provider's reset time and records the reporting folder's
 `model_pauses` row ([`6/60-model-credential-pause.md`](../6/60-model-credential-pause.md)).
 An intentional stop never opens the breaker. The breaker is automatic runtime

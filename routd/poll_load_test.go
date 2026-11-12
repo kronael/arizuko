@@ -268,3 +268,154 @@ func TestStartupSweepDoesNotWaitForOwedStatuses(t *testing.T) {
 		t.Fatal("the swept chat never ran: startup waited on the owed-status read")
 	}
 }
+
+// A chat the open breaker refuses runs once the probe is due, with no new
+// message to wake it: krons' CLI message waited behind a breaker that rhias/nemo
+// opened, and nothing woke its chat again (BUGS L824).
+func TestBreakerRefusedChatRunsWhenDue(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	_ = db.PutGroup(core.Group{Folder: "demo"})
+	now := time.Now().UTC()
+	open := store.TurnControlState{Phase: "open", Episode: "crash", NextProbeAt: now.Add(time.Hour)}
+	if ok, err := db.store().WriteTurnControl(t.Context(), nil, open); err != nil || !ok {
+		t.Fatalf("open the breaker: %v %v", ok, err)
+	}
+	runner := &chanRunner{runs: make(chan string, 4)}
+	l := NewLoop(db, runner, LoopConfig{})
+	defer l.StopQueue()
+	var clock atomic.Int64
+	clock.Store(now.UnixNano())
+	l.q.now = func() time.Time { return time.Unix(0, clock.Load()) }
+	if err := db.PutMessage(core.Message{ID: "a", ChatJID: "web:demo", Sender: "u",
+		Content: "q", Timestamp: now}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := l.processGroupMessages("web:demo"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case id := <-runner.runs:
+		t.Fatalf("turn %s ran through an open breaker", id)
+	default:
+	}
+	isWoken := func() bool {
+		l.q.mu.Lock()
+		defer l.q.mu.Unlock()
+		s := l.q.getGroup("web:demo")
+		return s.active || !s.refused
+	}
+	l.q.tick(l)
+	if isWoken() {
+		t.Fatal("the tick woke the chat before the probe was due")
+	}
+	clock.Store(open.NextProbeAt.Add(time.Second).UnixNano())
+	probe := open
+	probe.Phase = "probe"
+	if ok, err := db.store().WriteTurnControl(t.Context(), &open, probe); err != nil || !ok {
+		t.Fatalf("start a probe: %v %v", ok, err)
+	}
+	l.q.tick(l)
+	if isWoken() {
+		t.Fatal("the tick woke the chat while another turn probes")
+	}
+	if ok, err := db.store().WriteTurnControl(t.Context(), &probe, open); err != nil || !ok {
+		t.Fatalf("reopen the breaker: %v %v", ok, err)
+	}
+	l.q.tick(l)
+	select {
+	case <-runner.runs:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the refused chat never ran once the probe was due")
+	}
+}
+
+// partitionStore counts the message reads of each chat.
+type partitionStore struct {
+	objstore.Store
+	mu    sync.Mutex
+	chats map[string]int
+}
+
+func (p *partitionStore) Query(ctx context.Context, q objstore.Query) ([]objstore.Item, error) {
+	if q.Entity == store.Messages {
+		p.mu.Lock()
+		p.chats[q.Partition]++
+		p.mu.Unlock()
+	}
+	return p.Store.Query(ctx, q)
+}
+
+// A dispatch, here the probe of a due breaker, reads no other chat: ordering
+// model input and choosing the probe each read every chat's pending batch, 155
+// on krons, per dispatch (BUGS L824).
+func TestDispatchReadsNoOtherChat(t *testing.T) {
+	base, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer base.Close()
+	counter := &partitionStore{Store: base.obj, chats: map[string]int{}}
+	db := OpenOver(counter)
+	_ = db.PutGroup(core.Group{Folder: "demo"})
+	now := time.Now().UTC()
+	for i := range 5 {
+		if err := db.PutMessage(core.Message{ID: fmt.Sprintf("o%d", i), ChatJID: fmt.Sprintf("web:other%d", i),
+			Sender: "u", Content: "q", Timestamp: now}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	open := store.TurnControlState{Phase: "open", Episode: "crash", NextProbeAt: now.Add(-time.Second)}
+	if ok, err := db.store().WriteTurnControl(t.Context(), nil, open); err != nil || !ok {
+		t.Fatalf("open the breaker: %v %v", ok, err)
+	}
+	if err := db.PutMessage(core.Message{ID: "a", ChatJID: "web:demo", Sender: "u",
+		Content: "q", Timestamp: now}); err != nil {
+		t.Fatal(err)
+	}
+	runner := &chanRunner{runs: make(chan string, 4)}
+	l := NewLoop(db, runner, LoopConfig{})
+	defer l.StopQueue()
+	counter.mu.Lock()
+	clear(counter.chats)
+	counter.mu.Unlock()
+	if _, err := l.processGroupMessages("web:demo"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-runner.runs:
+	default:
+		t.Fatal("the due probe did not run")
+	}
+	counter.mu.Lock()
+	defer counter.mu.Unlock()
+	for jid, n := range counter.chats {
+		if jid != "web:demo" {
+			t.Fatalf("the dispatch read chat %s %d times: %v", jid, n, counter.chats)
+		}
+	}
+}
+
+// A batch held behind its folder's older retry marks its chat for the tick to
+// wake: nothing else re-enqueues it once the retry has run (BUGS L824).
+func TestHeldModelInputMarksTheChatRefused(t *testing.T) {
+	db, l, runner, tc, now := deferredFixture(t)
+	doSetRoutes(t, db, []core.Route{{Match: "chat_jid=telegram:group/9", Target: "demo"}})
+	if err := db.PutMessage(core.Message{ID: "newer", ChatJID: "telegram:group/9", Sender: "u",
+		Content: "q", Timestamp: now.Add(time.Second)}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := l.processGroupMessages("telegram:group/9"); err != nil {
+		t.Fatal(err)
+	}
+	l.q.mu.Lock()
+	refused := l.q.getGroup("telegram:group/9").refused
+	l.q.mu.Unlock()
+	if len(runner.runs) != 0 || !refused {
+		t.Fatalf("held behind retry %s: runs=%d refused=%v, want no run and a refused chat",
+			tc.TurnID, len(runner.runs), refused)
+	}
+}

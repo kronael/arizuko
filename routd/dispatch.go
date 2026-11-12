@@ -462,6 +462,9 @@ func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed boo
 	unlock()
 	if errors.Is(err, errTurnBlocked) {
 		l.pauseProgress(replyChat(chatJID, last), "")
+		l.q.mu.Lock()
+		l.q.getGroup(workKey).refused = true
+		l.q.mu.Unlock()
 		return false, false, true, "", nil
 	}
 	if err != nil || !live {
