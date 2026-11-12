@@ -353,7 +353,7 @@ The cross-chat order is a tested contract
   pending input, a schema change; (c) keep the scan.
 - **Default if nothing is decided:** (c).
 
-## ✅ FIXED 2026-11-12 e3a77ce5d 1a9367d04 L824 — a chat the instance breaker refuses is never woken again, so krons answers nothing (2026-11-12)
+## ✅ FIXED 2026-11-12 42d3492e6 820b8dba1 L824 — a chat the instance breaker refuses is never woken again, so krons answers nothing (2026-11-12)
 
 MEASURED 2026-11-12 22:15–22:35 on krons (v0.75.10): `arizuko send -i krons
 krons` wrote `cli-1794521854043259203` to `web:krons` at 22:17:34 (the row is
@@ -379,7 +379,7 @@ behind an older input of its folder (`holdModelInput`) is not woken either.
 
 - **Severity:** critical — every instance stops answering after any one failed
   turn, until a new message arrives after the probe time.
-- **Status:** fixed in e3a77ce5d, 1a9367d04; not deployed. Tests, each red under its own
+- **Status:** fixed in 42d3492e6, 820b8dba1; not deployed. Tests, each red under its own
   mutation: `routd/poll_load_test.go::TestBreakerRefusedChatRunsWhenDue`
   (no mark, no due check, no probe check), `TestProbeChoiceReadsNoChat` (the
   chat scan back), `TestHeldModelInputMarksTheChatRefused`.
@@ -388,7 +388,7 @@ behind an older input of its folder (`holdModelInput`) is not woken either.
   `oldest` keeps the pending retries only: the oldest due retry probes, and
   with none the first admitted turn does. `oldestModelInput`'s read is `L827`.
 
-## ✅ FIXED 2026-11-12 a30100589 8424cbe20 58835216a L825 — legacy turns owe a "cleared" status forever, and each lookup pages one message per request (2026-11-12)
+## ✅ FIXED 2026-11-12 4c9af2b92 f4cad2626 113329976 L825 — legacy turns owe a "cleared" status forever, and each lookup pages one message per request (2026-11-12)
 
 MEASURED 2026-11-12 on krons: 32 turns carry `status_owed=cleared`, all
 `state=done` with no `attempt_id` (31 `auto-migrate` turns from 2026-09-25/26,
@@ -407,7 +407,7 @@ krons `routd.messages` 4,683 index scans (618 k tuples) and `routd.turn_context`
 chat sweep.
 
 - **Severity:** high — the pass never ends its work and loads the shared store.
-- **Status:** fixed in a30100589, 8424cbe20, 58835216a; not deployed. Tests,
+- **Status:** fixed in 4c9af2b92, f4cad2626, 113329976; not deployed. Tests,
   each red under its own mutation:
   `objstore/dynstore/limit_test.go::TestFilteredLimitReadIsNotPagedPerItem`
   (60 requests for 60 items with the page Limit back),
