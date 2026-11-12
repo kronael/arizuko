@@ -13,6 +13,51 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.75.10] — 2026-11-12
+
+> arizuko v0.75.10 — routd stops polling the store, and usage per turn
+>
+> routd no longer reads every chat every two seconds, which overloaded the shared store; each turn now records what it used.
+>
+> • Store load — writers wake their chat directly; an idle tick reads no chat.
+> • Usage — `arizuko usage` sums each turn's tokens and cost per folder or day.
+> • Scheduled tasks — a task re-fired after a restart no longer sends its prompt twice.
+> • Docs — ARCHITECTURE.md and every daemon README describe the code as it is.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Fixed
+
+- L821: routd read every chat from the store every 2 s (krons: 155 chats, 471
+  store calls per tick; sloth: 376 chats, 1,134), which saturated the shared
+  store. Every writer now wakes its chat; one sweep at startup re-feeds unread
+  rows; turn recovery runs every 30 s. `arizuko send` posts to routd's
+  `POST /v1/messages`.
+- L819: a scheduled task re-fired after a restart wrote its prompt twice.
+- L808, L809: a resumed Claude session reported session totals as the turn's
+  usage, and a nudged round's usage was dropped.
+- A group handler that is invalid, missing or not executable ends the turn with
+  the terminal exit 78 instead of a retry.
+
+### Added
+
+- Per-turn usage on the turn's `turn_results` item for Claude, Codex and pi:
+  tokens per model, cost, and Codex credits. Readers: the
+  `agent self-reported model usage` log line, the operator resource
+  `turn_usage`, and `arizuko usage [-i] [--since] [--by folder|day]`.
+- `make pi-smoke` in `ant/` runs the installed pi bridge against a scripted
+  provider.
+
+### Changed
+
+- `ARCHITECTURE.md` and every daemon `README.md` were checked against the code
+  and rewritten.
+
+### Deploy steps
+
+Ship the image and restart. On sloth, gitd re-delivers its held inbound once
+routd answers; watch `extenddb.service` CPU while it drains.
+
 ## [v0.75.9] — 2026-11-11
 
 > arizuko v0.75.9 — packages come from GitHub
