@@ -227,7 +227,7 @@ proxyd serves runtime proxyd_routes CRUD; compose generation and package install
 
 - `secrets` has write-only endpoints, create and key-delete, and no read. So `enc_value` cannot leak through a `GET`.
 - `model_pauses` is an operator-only runtime resource. Its list and guarded clear share one handler and atomic audit.
-- `turn_usage` is an operator-only read of each turn's self-reported usage, one row per model, held on the turn's `turn_results` item (`specs/6/39-gateway-owns-spend.md` §"The turn usage record"). `arizuko usage` sums it per folder or day.
+- `turn_usage` is an operator-only read of each turn's self-reported usage, one row per model, held on the turn's `turn_results` item. `arizuko usage` sums it per folder or day.
 - `installed_packages` serves only its two `GET` endpoints. `arizuko package add`, `rm` and `sync` write the rows.
 - `scheduled_tasks` is the one resource whose REST path is not `/v1/<name>`. It serves `/v1/tasks`.
 - An agent-only action is declared `MCPOnly` on the single `Endpoints` slice of its resource. Mounting and emission read the same list, so the document cannot advertise an endpoint that routd does not serve. The `MCPOnly` actions are `schedule`, `pause` and `resume` of `scheduled_tasks`, `issue_pair` of `route_tokens`, `list` of `acl` with the tool `list_acl`, and `register` of `groups` with the tool `register_group`. Group creation stays in `SetupGroup` of dashd.

@@ -283,16 +283,16 @@ Social actions such as reactions record audit events rather than message rows.
 
 ### Store reads continue when no message arrives
 
-| Entry point          | Cadence set by code                                                                                | Store work                                                                                                                                                                                                  |
-| -------------------- | -------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Loop.Run` startup   | Once, before the ticker. | `recoverPending`, interrupted/deferred execution recovery, `recoverStatuses`, then `sweepChats` enqueues each chat with rows past its `agent_cursor`. |
-| `Loop.Run` ticker    | `PollEvery`, default 2 seconds; reads no chat. | Runs the entries below when they are due; writers wake their own chat. |
-| `maybeRecoverTurns`  | Every 30 seconds (`turnsEvery`), checked on a tick. | `q.recover` reads provider pauses, held/running turns and breaker state, and migrates legacy turns. |
-| `flushProgress`      | Each tick, with a five-second publish limit.                                                       | Reads turn/status rows for pending in-memory progress updates.                                                                                                                                              |
-| `maybeRetryOutbound` | Every 30 seconds, checked on a tick.                                                               | `recoverStatuses` reads owed status; `PendingOutbound` selects up to 200 rows at least 30 seconds old, then applies each row's backoff.                                                                     |
-| `maybeScanProactive` | Requires `PROACTIVE_ENABLED`; `PROACTIVE_SCAN_INTERVAL` defaults to 30 seconds, checked on a tick. | Reads candidate chats, running turns, cooldowns and recent messages to decide whether a silence-triggered turn is due.                                                                                      |
-| `ScheduleLoop`       | Once after recovery, then every minute.                                                            | Claims due `scheduled_tasks`, calls ingest in-process, reschedules tasks and records `task_run_logs`.                                                                                                       |
-| `maybeGC`            | Every hour, checked on a tick.                                                                     | Sweeps expired running turns and the retained message activity index.                                                                                                                                       |
+| Entry point          | Cadence set by code                                                                                | Store work                                                                                                                                            |
+| -------------------- | -------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Loop.Run` startup   | Once, before the ticker.                                                                           | `recoverPending`, interrupted/deferred execution recovery, `recoverStatuses`, then `sweepChats` enqueues each chat with rows past its `agent_cursor`. |
+| `Loop.Run` ticker    | `PollEvery`, default 2 seconds; reads no chat.                                                     | Runs the entries below when they are due; writers wake their own chat.                                                                                |
+| `maybeRecoverTurns`  | Every 30 seconds (`turnsEvery`), checked on a tick.                                                | `q.recover` reads provider pauses, held/running turns and breaker state, and migrates legacy turns.                                                   |
+| `flushProgress`      | Each tick, with a five-second publish limit.                                                       | Reads turn/status rows for pending in-memory progress updates.                                                                                        |
+| `maybeRetryOutbound` | Every 30 seconds, checked on a tick.                                                               | `recoverStatuses` reads owed status; `PendingOutbound` selects up to 200 rows at least 30 seconds old, then applies each row's backoff.               |
+| `maybeScanProactive` | Requires `PROACTIVE_ENABLED`; `PROACTIVE_SCAN_INTERVAL` defaults to 30 seconds, checked on a tick. | Reads candidate chats, running turns, cooldowns and recent messages to decide whether a silence-triggered turn is due.                                |
+| `ScheduleLoop`       | Once after recovery, then every minute.                                                            | Claims due `scheduled_tasks`, calls ingest in-process, reschedules tasks and records `task_run_logs`.                                                 |
+| `maybeGC`            | Every hour, checked on a tick.                                                                     | Sweeps expired running turns and the retained message activity index.                                                                                 |
 
 Timer work shares the poll goroutine except `ScheduleLoop`. A slow store read
 delays the next maintenance check. Intervals express due checks, not deadlines.
@@ -406,8 +406,6 @@ Sources: [token lifetime](authd/main.go#L20-L23), [operator signing](cmd/arizuko
 [speech API](ttsd/main.go#L45-L52), [row model](core/types.go#L278),
 [evaluator](auth/authorize.go#L61-L147), [turn axes](routd/sibling_db.go#L245-L252),
 [elevation](routd/agent_gate.go#L26-L45), [ACL mutation](routd/acl_resource.go#L149-L160).
-The policy model: [specs/5/33-paths-roles.md](specs/5/33-paths-roles.md#two-axes),
-[specs/5/32-acl-unified.md](specs/5/32-acl-unified.md#the-row).
 Operator reference: [GRANTS.md](GRANTS.md), [auth/README.md](auth/README.md).
 
 ## Cold tier vs hot tier
@@ -435,8 +433,7 @@ Sources: [resource contract](resreg/resreg.go#L201-L232), [REST binding](resreg/
 [MCP binding](routd/mcp.go#L728), [secret endpoints](resreg/resources/secrets.go#L21),
 [network endpoints](resreg/resources/network_rules.go#L19),
 [agent containment seam](routd/agent_gate.go#L71-L80), [hidden methods](ipc/ipc.go#L518-L529).
-Handler design: [resreg/README.md](resreg/README.md),
-[specs/5/17-openapi-mcp.md](specs/5/17-openapi-mcp.md).
+Handler design: [resreg/README.md](resreg/README.md).
 
 ## Daemon conventions
 
