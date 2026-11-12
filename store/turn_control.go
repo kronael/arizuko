@@ -456,9 +456,13 @@ func (s *Store) AcknowledgeTurnStatus(ctx context.Context, tc TurnContext) error
 	if tc.RetryCount == 0 {
 		count.Op = objstore.Absent
 	}
+	attempt := objstore.Cmp{Attr: "attempt_id", Op: objstore.Eq, Value: tc.AttemptID}
+	if tc.AttemptID == "" {
+		attempt.Op = objstore.Absent
+	}
 	// Stale acknowledgements must leave current intent unchanged.
 	_, err = s.TryWriteEntities(ctx, nil, objstore.Write{Op: objstore.Update, Entity: TurnContexts, Key: key, Remove: []string{"status_owed"}, Cond: objstore.Cond{Item: objstore.ItemPresent, Where: []objstore.Cmp{
-		{Attr: "attempt_id", Op: objstore.Eq, Value: tc.AttemptID}, {Attr: "status_owed", Op: objstore.Eq, Value: tc.StatusOwed}, {Attr: attrTurnState, Op: objstore.Eq, Value: tc.State}, count,
+		attempt, {Attr: "status_owed", Op: objstore.Eq, Value: tc.StatusOwed}, {Attr: attrTurnState, Op: objstore.Eq, Value: tc.State}, count,
 	}}})
 	return err
 }

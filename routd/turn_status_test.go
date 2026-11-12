@@ -451,3 +451,23 @@ func TestTurnStatusStopPostsOnce(t *testing.T) {
 		})
 	}
 }
+
+// A migrated turn has no attempt id. Its owed "cleared" is acknowledged on the
+// first recovery pass; on krons 32 such turns were published again every 30 s
+// because the acknowledgement asked for attempt_id = "" (BUGS L825).
+func TestTurnStatusLegacyClearedIsAcknowledged(t *testing.T) {
+	db, _ := newProgressTurn(t, &recDeliverer{}, "")
+	key := objstore.Key{Partition: store.OwnerRoutd, Sort: "t1"}
+	if err := db.store().WriteEntities(t.Context(), nil, objstore.Write{Op: objstore.Update,
+		Entity: store.TurnContexts, Key: key, Remove: []string{"attempt_id"},
+		Attrs: map[string]string{"state": store.TurnDone, "status_owed": "cleared"}}); err != nil {
+		t.Fatal(err)
+	}
+	loop := NewLoop(db, &recRunner{}, LoopConfig{Deliver: &recDeliverer{}})
+	loop.StopQueue()
+	loop.recoverStatuses()
+	owed, err := db.store().OwedTurnStatuses(t.Context())
+	if err != nil || len(owed) != 0 {
+		t.Fatalf("owed after recovery = %+v, err %v; want none", owed, err)
+	}
+}
