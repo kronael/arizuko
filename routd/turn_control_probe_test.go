@@ -66,7 +66,7 @@ func TestTurnControlProbeFence(t *testing.T) {
 			}
 			loop.runner = runnerFn(func(context.Context, runedv1.RunRequest) (runedv1.RunOutcome, error) {
 				launches++
-				if _, err := db.store().RecordTurnResult(tc.Folder, tc.TurnID, "", "success", ""); err != nil {
+				if _, err := db.store().RecordTurnResult(tc.Folder, tc.TurnID, "", "success", "", store.TurnUsage{}); err != nil {
 					t.Fatal(err)
 				}
 				finishTurn(db, nil, tc.TurnID, endDone)

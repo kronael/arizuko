@@ -9,6 +9,7 @@ import (
 
 	"github.com/kronael/arizuko/core"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
+	"github.com/kronael/arizuko/store"
 )
 
 func TestFailureNoticePerChat(t *testing.T) {
@@ -24,7 +25,7 @@ func TestFailureNoticePerChat(t *testing.T) {
 	cause := ""
 	runner := runnerFn(func(_ context.Context, req runedv1.RunRequest) (runedv1.RunOutcome, error) {
 		if cause == "" {
-			if _, err := db.RecordTurnResult(string(req.Folder), req.TurnID, "session", "success", ""); err != nil {
+			if _, err := db.RecordTurnResult(string(req.Folder), req.TurnID, "session", "success", "", store.TurnUsage{}); err != nil {
 				t.Fatal(err)
 			}
 			if _, err := db.PutTurnContext("steered-success", "demo", "", "slack:T/B/U", "u", ""); err != nil {

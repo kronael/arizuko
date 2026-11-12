@@ -144,7 +144,7 @@ func TestTurnControlExecutionRetry(t *testing.T) {
 						t.Fatal(err)
 					}
 				case "error", "success":
-					if _, err := db.store().RecordTurnResult("demo", req.TurnID, "", exclusion, ""); err != nil {
+					if _, err := db.store().RecordTurnResult("demo", req.TurnID, "", exclusion, "", store.TurnUsage{}); err != nil {
 						t.Fatal(err)
 					}
 				case "stop":

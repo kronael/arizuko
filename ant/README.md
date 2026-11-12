@@ -213,6 +213,7 @@ no build failure and no log line.
 | spawn env keys | `runed/render.go` `turnEnv` | `process.env` reads in `src/` | `runed/env_contract_test.go` `TestSpawnEnvCarriesEveryKeyAntReads`, `TestSpawnEnvEmitsNothingAntIgnores` |
 | `submit_turn` payload | `ipc.TurnResult` | `src/mcp.ts` | `tests/contract_ant_test.go` `TestSubmitTurnPayloadFieldsMatchAcrossLanguages`, `TestSubmitTurnDecodeKeepsEveryField` |
 | provider refusal | `routd/api/v1.ProviderFailure` | `src/backend.ts` | `tests/contract_ant_test.go` `TestProviderFailureFieldsMatchAcrossLanguages` |
+| per-turn usage record | `routd/api/v1.ModelUsage` | `src/mcp.ts` `ModelUsage` | `tests/contract_ant_test.go` `TestModelUsageFieldsMatchAcrossLanguages` |
 | `submit_status` snapshot and reminder | `ipc.TurnStatus`, `ipc.TurnStatusAck` | `src/mcp.ts` | `tests/contract_ant_test.go` `TestSubmitStatusPayloadFieldsMatchAcrossLanguages`, `TestTurnStatusAckFieldsMatchAcrossLanguages` |
 | `<status>` grammar | `router.ExtractStatusBlocks` | `src/index.ts` | `tests/contract_ant_test.go` `TestStatusGrammarAgreesAcrossLanguages` |
 

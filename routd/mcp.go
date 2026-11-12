@@ -762,6 +762,7 @@ func (s *Server) ServeTurnMCP(t turnMCP, ipcDir string) (func(), error) {
 	auditTools := s.auditPostBuild(t.folder, callerSub, authorize, visible)
 	deadLetters := s.deadLettersPostBuild(t.folder, callerSub, authorize, visible)
 	modelPauses := s.modelPausesPostBuild(t.folder, callerSub, authorize, visible)
+	turnUsage := s.turnUsagePostBuild(t.folder, callerSub, authorize, visible)
 	chats := s.chatsPostBuild(t.folder, callerSub, authorize, visible)
-	return ipc.ServeMCP(sockPath, s.buildRoutdFns(t), s.buildStoreFns(t), t.folder, callerID.IsRoot, expectedUID, callerSub, webRoutes, networkRules, scheduledTasks, routes, acl, routeTokens, githubSources, gdriveFiles, groups, membership, packages, auditTools, deadLetters, chats, modelPauses)
+	return ipc.ServeMCP(sockPath, s.buildRoutdFns(t), s.buildStoreFns(t), t.folder, callerID.IsRoot, expectedUID, callerSub, webRoutes, networkRules, scheduledTasks, routes, acl, routeTokens, githubSources, gdriveFiles, groups, membership, packages, auditTools, deadLetters, chats, modelPauses, turnUsage)
 }

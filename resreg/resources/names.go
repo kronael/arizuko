@@ -29,5 +29,6 @@ const (
 	SecretsName           = "secrets"
 	SessionsName          = "sessions"
 	SigningKeysName       = "signing_keys"
+	TurnUsageName         = "turn_usage"
 	WebRoutesName         = "web_routes"
 )

@@ -187,7 +187,7 @@ func testTurnControlProbeRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	if early {
-		if _, err := db.store().RecordTurnResult(tc.Folder, tc.TurnID, "", "success", ""); err != nil {
+		if _, err := db.store().RecordTurnResult(tc.Folder, tc.TurnID, "", "success", "", store.TurnUsage{}); err != nil {
 			t.Fatal(err)
 		}
 		finishTurn(db, nil, tc.TurnID, endDone)

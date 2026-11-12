@@ -17,6 +17,7 @@ import (
 
 	"github.com/kronael/arizuko/core"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
+	"github.com/kronael/arizuko/store"
 )
 
 // captureInfoLog redirects the default slog to a buffer for the test's duration.
@@ -36,7 +37,7 @@ func dispatchOnce(t *testing.T, db *DB) runedv1.RunRequest {
 	var got runedv1.RunRequest
 	runner := runnerFn(func(_ context.Context, req runedv1.RunRequest) (runedv1.RunOutcome, error) {
 		got = req
-		_, _ = db.RecordTurnResult(string(req.Folder), req.TurnID, "s1", "success", "")
+		_, _ = db.RecordTurnResult(string(req.Folder), req.TurnID, "s1", "success", "", store.TurnUsage{})
 		return runedv1.RunOutcome{Outcome: runedv1.OutcomeOK}, nil
 	})
 	loop := NewLoop(db, runner, LoopConfig{})

@@ -601,11 +601,12 @@ func (d *DB) SweepExpiredRunning(timeout time.Duration) (int64, error) {
 	return d.store().SweepExpiredRunning(timeout)
 }
 
-// RecordTurnResult records the agent-submitted outcome for one turn. Returns
-// true on the FIRST record, false on a repeat — the claim that makes one
-// report one delivery.
-func (d *DB) RecordTurnResult(folder, turnID, sessionID, status, failure string) (bool, error) {
-	return d.store().RecordTurnResult(folder, turnID, sessionID, status, failure)
+// RecordTurnResult records the agent-submitted outcome and usage for one turn.
+// Returns true on the FIRST record, false on a repeat — the claim that makes
+// one report one delivery.
+func (d *DB) RecordTurnResult(folder, turnID, sessionID, status, failure string,
+	usage store.TurnUsage) (bool, error) {
+	return d.store().RecordTurnResult(folder, turnID, sessionID, status, failure, usage)
 }
 
 // TurnHasBotReply reports whether the agent already delivered a bot message

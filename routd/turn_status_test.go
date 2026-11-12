@@ -46,7 +46,7 @@ func TestTurnStatusLifecycle(t *testing.T) {
 					}
 				}
 				if attempts == 3 {
-					if _, err := db.RecordTurnResult("demo", req.TurnID, "", "success", ""); err != nil {
+					if _, err := db.RecordTurnResult("demo", req.TurnID, "", "success", "", store.TurnUsage{}); err != nil {
 						t.Fatal(err)
 					}
 					return runedv1.RunOutcome{Outcome: runedv1.OutcomeOK}, nil

@@ -36,6 +36,7 @@ import (
 func routdResources(s *Server) []resreg.Resource {
 	return []resreg.Resource{
 		s.modelPausesResource(),
+		s.turnUsageResource(),
 		s.routesResource(nil),
 		s.webRoutesResource(),
 		s.scheduledTasksResource(nil, false),
@@ -224,6 +225,7 @@ func TestOpenAPI_EveryAdvertisedPathIsMounted(t *testing.T) {
 		"GET /v1/routes",
 		"GET /v1/tasks",
 		"GET /v1/tasks/{taskId}",
+		"GET /v1/turn_usage",
 		"GET /v1/web_routes",
 		"PATCH /v1/groups/{folder}",
 		"PATCH /v1/tasks/{taskId}",

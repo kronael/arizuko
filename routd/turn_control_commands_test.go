@@ -98,7 +98,7 @@ func TestTurnControlCommandsWhileActive(t *testing.T) {
 	}
 	entered, release, done := make(chan struct{}), make(chan struct{}), make(chan struct{})
 	runner := &recoveryRunner{run: runnerFn(func(_ context.Context, req runedv1.RunRequest) (runedv1.RunOutcome, error) {
-		if _, err := db.store().RecordTurnResult("demo", req.TurnID, "", "success", ""); err != nil {
+		if _, err := db.store().RecordTurnResult("demo", req.TurnID, "", "success", "", store.TurnUsage{}); err != nil {
 			t.Error(err)
 		}
 		finishTurn(db, nil, req.TurnID, endDone)

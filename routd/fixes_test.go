@@ -1327,7 +1327,7 @@ func TestCleanRunClearsTheErroredFlag(t *testing.T) {
 
 	dl := &recDeliverer{}
 	runner := runnerFn(func(_ context.Context, req runedv1.RunRequest) (runedv1.RunOutcome, error) {
-		if _, err := db.RecordTurnResult(string(req.Folder), req.TurnID, "session", "success", ""); err != nil {
+		if _, err := db.RecordTurnResult(string(req.Folder), req.TurnID, "session", "success", "", store.TurnUsage{}); err != nil {
 			t.Fatal(err)
 		}
 		return runedv1.RunOutcome{Outcome: runedv1.OutcomeOK}, nil

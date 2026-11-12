@@ -8,7 +8,9 @@ depends: [23-llm-gateway, 37-store-model, ../5/16-mcp-rest-unification]
 Decision: **where a model gateway is configured, LiteLLM is the ledger and
 arizuko stores no spend.** The cap is enforced by the gateway, attribution is
 carried on the key, and every operator surface reads the gateway's numbers.
-`cost_log` and the spend arithmetic around it go.
+`cost_log` and the spend arithmetic around it go. The per-turn usage record
+(§"The turn usage record") is the harness's own report; on a metered turn the
+gateway's cost supersedes it.
 
 A second ledger can only agree, lag, or lie. Today arizuko keeps one: routd
 reads `/spend/logs` after a run returns and copies the result into `cost_log`,
@@ -138,7 +140,9 @@ ant computes one record per turn at the harness, because only the harness sees
 the provider's stream and its files. Per model: `input`, `cache_read`,
 `cache_write`, `output`, `cost_cents`; for codex also `credits_spent`,
 `credits_balance`, `window_used_percent` and `plan_type` from the rollout's
-`rate_limits`. A record covers the turn and never the session:
+`rate_limits`. `input` is the uncached input on every harness: codex counts
+the cached share inside `input_tokens`, so ant reports `input_tokens` less
+`cached_input_tokens`. A record covers the turn and never the session:
 
 | harness | per-turn source                                                                         | cost                               |
 | ------- | --------------------------------------------------------------------------------------- | ---------------------------------- |
@@ -149,11 +153,14 @@ the provider's stream and its files. Per model: `input`, `cache_read`,
 A round routd answers with a nudge is not recorded, so ant carries its usage
 into the next submission of the same turn.
 
-routd writes one `turn_usage` item per (folder, turn id, model) with the turn's
-outcome, plus `harness`, `metered` (the instance has a gateway) and
-`recorded_at`, and renders the log line `agent self-reported model usage` from
-the same row. The `turn_usage` resource serves the rows to an operator on REST
-and MCP, read-only; `arizuko usage` sums them per folder or per day.
+routd stores the record on the turn's `turn_results` item, in the Put that
+claims the outcome, so a recorded turn and its usage land together: the
+attributes `harness`, `metered` (the instance has a gateway) and `models`, the
+per-model report as JSON. One renderer, `usageRows` (`routd/turn_usage.go`),
+turns the item into one row per model; the log line `agent self-reported model
+usage` prints those rows, the `turn_usage` resource (`GET /v1/turn_usage`,
+`list_turn_usage`) serves them to an operator read-only, and `arizuko usage`
+sums them per folder or per UTC day.
 
 Which ledger answers, so nothing is counted twice:
 
@@ -170,6 +177,17 @@ lands in it too, so it is exact only for a turn that ran alone. A failed codex
 turn reports no usage and so no credits.
 
 Quota limits on this record are a later step and not built.
+
+Open questions, each answered here by the conservative choice:
+
+- **Credits when turns overlap.** routd cannot see the host's Codex workers,
+  so it cannot prove a turn ran alone; no row is marked exact, and `arizuko
+usage` sums the drops as they are, an upper bound. An account-level figure
+  (balance at the start of a day less balance at its end) is the owner's
+  call.
+- **No credit data.** A rollout with no `rate_limits.credits` leaves the
+  credit fields absent, never zero, and the tokens still record. The record
+  never estimates credits from tokens.
 
 ## The spend already recorded
 

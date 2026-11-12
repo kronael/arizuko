@@ -14,18 +14,21 @@ package store
 import (
 	"context"
 	"testing"
+	"time"
+
+	"github.com/kronael/arizuko/core"
 )
 
 func TestTheSecondReportOfOneTurnClaimsNothing(t *testing.T) {
 	s := openEntities(t)
-	first, err := s.RecordTurnResult("g1", "msg-1", "sess-a", "success", "")
+	first, err := s.RecordTurnResult("g1", "msg-1", "sess-a", "success", "", TurnUsage{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !first {
 		t.Error("the first report did not claim the turn, so nothing delivers its answer")
 	}
-	second, err := s.RecordTurnResult("g1", "msg-1", "sess-b", "error", "")
+	second, err := s.RecordTurnResult("g1", "msg-1", "sess-b", "error", "", TurnUsage{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,11 +51,11 @@ func TestTheSecondReportOfOneTurnClaimsNothing(t *testing.T) {
 
 func TestOneTurnIdInTwoFoldersIsTwoTurns(t *testing.T) {
 	s := openEntities(t)
-	a, err := s.RecordTurnResult("g1", "msg-1", "", "success", "")
+	a, err := s.RecordTurnResult("g1", "msg-1", "", "success", "", TurnUsage{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := s.RecordTurnResult("g2", "msg-1", "", "success", "")
+	b, err := s.RecordTurnResult("g2", "msg-1", "", "success", "", TurnUsage{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +68,7 @@ func TestOneTurnIdInTwoFoldersIsTwoTurns(t *testing.T) {
 func TestDistinctTurnsInOneFolderEachClaimOnce(t *testing.T) {
 	s := openEntities(t)
 	for _, id := range []string{"m1", "m2", "m3"} {
-		ok, err := s.RecordTurnResult("g1", id, "s", "success", "")
+		ok, err := s.RecordTurnResult("g1", id, "s", "success", "", TurnUsage{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -94,7 +97,7 @@ func TestAnUnreportedTurnIsPending(t *testing.T) {
 // the silent-turn alarm fires at an operator.
 func TestTurnResultRecordedSeparatesRecordedFromAbsent(t *testing.T) {
 	s := openEntities(t)
-	if _, err := s.RecordTurnResult("g1", "msg-1", "sess-a", "success", ""); err != nil {
+	if _, err := s.RecordTurnResult("g1", "msg-1", "sess-a", "success", "", TurnUsage{}); err != nil {
 		t.Fatal(err)
 	}
 	recorded, err := s.TurnResultRecorded("g1", "msg-1")
@@ -113,10 +116,10 @@ func TestTurnResultRecordedSeparatesRecordedFromAbsent(t *testing.T) {
 // REFUSED rather than written.
 func TestACoordinateFieldCarryingTheSeparatorIsRefused(t *testing.T) {
 	s := openEntities(t)
-	if _, err := s.RecordTurnResult("g1"+KeySep+"x", "msg-1", "", "ok", ""); err == nil {
+	if _, err := s.RecordTurnResult("g1"+KeySep+"x", "msg-1", "", "ok", "", TurnUsage{}); err == nil {
 		t.Error("a folder carrying the coordinate separator was accepted")
 	}
-	if _, err := s.RecordTurnResult("g1", "msg"+KeySep+"1", "", "ok", ""); err == nil {
+	if _, err := s.RecordTurnResult("g1", "msg"+KeySep+"1", "", "ok", "", TurnUsage{}); err == nil {
 		t.Error("a turn id carrying the coordinate separator was accepted")
 	}
 	if n, err := s.CountTurnResults(context.Background()); err != nil || n != 0 {
@@ -130,8 +133,7 @@ func TestACoordinateFieldCarryingTheSeparatorIsRefused(t *testing.T) {
 // "ake says no" for an API Error: 400 (BUGS L349).
 func TestTurnFailureKeepsTheAgentsOwnReport(t *testing.T) {
 	s := openEntities(t)
-	if _, err := s.RecordTurnResult("g1", "msg-1", "sess", "error",
-		"API Error: 400 fake says no"); err != nil {
+	if _, err := s.RecordTurnResult("g1", "msg-1", "sess", "error", "API Error: 400 fake says no", TurnUsage{}); err != nil {
 		t.Fatal(err)
 	}
 	if got := s.TurnFailure("g1", "msg-1"); got != "API Error: 400 fake says no" {
@@ -139,7 +141,7 @@ func TestTurnFailureKeepsTheAgentsOwnReport(t *testing.T) {
 	}
 	// A turn that reported none answers empty, so the caller falls back rather
 	// than telling the user nothing at all.
-	if _, err := s.RecordTurnResult("g1", "msg-2", "sess", "error", ""); err != nil {
+	if _, err := s.RecordTurnResult("g1", "msg-2", "sess", "error", "", TurnUsage{}); err != nil {
 		t.Fatal(err)
 	}
 	if got := s.TurnFailure("g1", "msg-2"); got != "" {
@@ -147,5 +149,43 @@ func TestTurnFailureKeepsTheAgentsOwnReport(t *testing.T) {
 	}
 	if got := s.TurnFailure("g1", "never-recorded"); got != "" {
 		t.Errorf("TurnFailure for an unrecorded turn = %q, want empty", got)
+	}
+}
+
+// A turn's usage lands in the claim's own Put and reads back with its
+// coordinate; a refused second report adds none, a turn that reported no usage
+// is not listed, and since drops what was recorded before it.
+func TestTurnUsageReadsBackWhatTheClaimRecorded(t *testing.T) {
+	s := openEntities(t)
+	ctx := context.Background()
+	usage := TurnUsage{Harness: "codex", Metered: true, Models: `{"gpt-5":{"input":7}}`}
+	if _, err := s.RecordTurnResult("g1", "msg-1", "sess", "success", "", usage); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.RecordTurnResult("g1", "msg-1", "sess", "success", "",
+		TurnUsage{Harness: "pi", Models: `{"x":{"input":1}}`}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.RecordTurnResult("g1", "msg-2", "sess", "success", "", TurnUsage{Harness: "claude"}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.ListTurnUsage(ctx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("ListTurnUsage = %+v, want the one turn that reported usage", got)
+	}
+	u := got[0]
+	if u.Folder != "g1" || u.TurnID != "msg-1" || u.Harness != "codex" || !u.Metered ||
+		u.Models != usage.Models || u.RecordedAt == "" {
+		t.Errorf("ListTurnUsage = %+v, want the first report %+v with its coordinate and instant", u, usage)
+	}
+	later, err := s.ListTurnUsage(ctx, core.TS(time.Now().Add(time.Hour)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(later) != 0 {
+		t.Errorf("ListTurnUsage since an hour ahead = %+v, want none", later)
 	}
 }

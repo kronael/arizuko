@@ -169,8 +169,11 @@ func TestSubmitTurnDecodeKeepsEveryField(t *testing.T) {
 		"error":            "",
 		"timed_out":        true,
 		"provider_failure": map[string]any{"reason": "rate_limit", "reset_at": "2026-11-08T13:00:00Z"},
+		"harness":          "codex",
 		"models": map[string]any{
-			"opus": map[string]any{"input_tokens": 10, "output_tokens": 20},
+			"gpt-5.5": map[string]any{"input": 10, "output": 20, "cache_read": 30, "cache_write": 40,
+				"cost_cents": 50, "credits_spent": 1.5, "credits_balance": 2.5,
+				"window_used_percent": 99.0, "plan_type": "pro"},
 		},
 	}
 	// `error` is empty on a success payload by construction; assert it on its own
@@ -199,8 +202,15 @@ func TestSubmitTurnDecodeKeepsEveryField(t *testing.T) {
 		got.ProviderFailure.ResetAt != "2026-11-08T13:00:00Z" {
 		t.Fatal("provider_failure dropped in decode")
 	}
-	if len(got.Models) == 0 {
-		t.Error("models dropped in decode — the turn costs nothing on the books")
+	if got.Harness != "codex" {
+		t.Error("harness dropped in decode — the usage record cannot say who ran the turn")
+	}
+	u := got.Models["gpt-5.5"]
+	if u.Input != 10 || u.Output != 20 || u.CacheRead != 30 || u.CacheWrite != 40 ||
+		u.CostCents != 50 || u.CreditsSpent == nil || *u.CreditsSpent != 1.5 ||
+		u.CreditsBalance == nil || *u.CreditsBalance != 2.5 ||
+		u.WindowUsedPercent == nil || *u.WindowUsedPercent != 99 || u.PlanType != "pro" {
+		t.Errorf("models decoded as %+v — a usage field ant sends is lost on the books", u)
 	}
 
 	var errCase ipc.TurnResult
@@ -235,5 +245,34 @@ func TestProviderFailureFieldsMatchAcrossLanguages(t *testing.T) {
 	}
 	if !reflect.DeepEqual(ant, got) {
 		t.Fatalf("ProviderFailure declarations disagree: TS %v Go %v", ant, got)
+	}
+}
+
+// ModelUsage is the per-turn usage record ant renders and routd stores
+// (specs/6/39-gateway-owns-spend.md §"The turn usage record"). A field one side
+// renames is dropped at the boundary with no error, and the turn reads as free.
+func TestModelUsageFieldsMatchAcrossLanguages(t *testing.T) {
+	src := antSource(t, "mcp.ts")
+	start := strings.Index(src, "export interface ModelUsage {")
+	if start < 0 {
+		t.Fatal("missing ModelUsage declaration")
+	}
+	end := strings.Index(src[start:], "\n}")
+	if end < 0 {
+		t.Fatal("missing ModelUsage end")
+	}
+	fields := regexp.MustCompile(`(?m)^\s{2}([a-z_]+)(\??):`)
+	ant := map[string]bool{}
+	for _, match := range fields.FindAllStringSubmatch(src[start:start+end], -1) {
+		ant[match[1]] = match[2] == "?"
+	}
+	got := map[string]bool{}
+	typ := reflect.TypeOf(apiv1.ModelUsage{})
+	for i := range typ.NumField() {
+		tag := typ.Field(i).Tag.Get("json")
+		got[strings.Split(tag, ",")[0]] = strings.Contains(tag, "omitempty")
+	}
+	if !reflect.DeepEqual(ant, got) {
+		t.Fatalf("ModelUsage declarations disagree: TS %v Go %v", ant, got)
 	}
 }

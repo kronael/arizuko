@@ -316,7 +316,7 @@ func TestTurnControlProviderEpisodeFence(t *testing.T) {
 	}
 	before, _, _ := db.store().ReadTurnControl(t.Context())
 	probe, _ := db.GetTurnContext("refused")
-	if _, err := db.store().RecordTurnResult(probe.Folder, probe.TurnID, "", "success", ""); err != nil {
+	if _, err := db.store().RecordTurnResult(probe.Folder, probe.TurnID, "", "success", "", store.TurnUsage{}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := l.q.complete(l, probe, runedv1.RunOutcome{Outcome: runedv1.OutcomeOK}, nil, work); err != nil {

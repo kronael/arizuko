@@ -7,8 +7,14 @@ package store
 // The partition is OwnerRoutd and the sort key folder + turn_id: every
 // operation names both, and a group delete keeps these items (a re-created
 // folder mints new turn ids). No drainage: one item per turn, kept as history
-// (4,242 on krons). Nothing here is compared by order; `recorded_at` is read
-// by nothing and carries no width declaration.
+// (4,242 on krons). The engine compares nothing here by order, so
+// `recorded_at` carries no width declaration; ListTurnUsage filters on it
+// after the read.
+//
+// The item also holds what the turn used, as the harness reported it
+// (specs/6/39-gateway-owns-spend.md §"The turn usage record"): written in the
+// claim's own Put, so a recorded turn and its usage land together or not at
+// all.
 //
 // THE CLAIM IS THE WHOLE FILE. RecordTurnResult answers whether THIS call
 // recorded the outcome, and five side effects hang off that bit, the delivery
@@ -37,7 +43,23 @@ const (
 	// AttrTurnRecordedAt is when the outcome landed. Exported because the move
 	// that carries these rows names the instant it re-renders.
 	AttrTurnRecordedAt = "recorded_at"
+	attrTurnHarness    = "harness"
+	attrTurnMetered    = "metered"
+	attrTurnModels     = "models"
 )
+
+// TurnUsage is what one turn used, as its harness reported it. Models is the
+// harness's per-model report as JSON; routd owns its shape (routd/api/v1
+// ModelUsage) and this package stores the text. Metered says the instance
+// had a model gateway, which then holds the turn's cost.
+type TurnUsage struct {
+	Folder     string
+	TurnID     string
+	RecordedAt string
+	Harness    string
+	Metered    bool
+	Models     string
+}
 
 // turnResultPending is the status a turn with no recorded outcome reads as.
 const turnResultPending = "pending"
@@ -66,9 +88,12 @@ func turnResultKey(folder, turnID string) (objstore.Key, error) {
 	return objstore.Key{Partition: OwnerRoutd, Sort: folder + KeySep + turnID}, nil
 }
 
-// RecordTurnResult records the agent-submitted outcome for one turn, and
-// answers whether THIS call is the one that recorded it (file header).
-func (s *Store) RecordTurnResult(folder, turnID, sessionID, status, failure string) (bool, error) {
+// RecordTurnResult records the agent-submitted outcome and usage for one turn,
+// and answers whether THIS call is the one that recorded it (file header).
+// usage's Folder, TurnID and RecordedAt are ignored: the coordinate is folder
+// and turnID, and the instant is now.
+func (s *Store) RecordTurnResult(folder, turnID, sessionID, status, failure string,
+	usage TurnUsage) (bool, error) {
 	key, err := turnResultKey(folder, turnID)
 	if err != nil {
 		return false, err
@@ -77,6 +102,11 @@ func (s *Store) RecordTurnResult(folder, turnID, sessionID, status, failure stri
 	setAttr(attrs, attrTurnSessionID, sessionID)
 	setAttr(attrs, attrTurnStatus, status)
 	setAttr(attrs, attrTurnError, failure)
+	setAttr(attrs, attrTurnHarness, usage.Harness)
+	setAttr(attrs, attrTurnModels, usage.Models)
+	if usage.Metered {
+		attrs[attrTurnMetered] = flagSet
+	}
 	first, err := s.TryWriteEntities(context.Background(), nil, objstore.Write{
 		Op: objstore.Put, Entity: TurnResults, Key: key, Attrs: attrs,
 		Cond: objstore.Cond{Item: objstore.ItemAbsent},
@@ -121,6 +151,39 @@ func (s *Store) TurnResultRecorded(folder, turnID string) (bool, error) {
 	}
 	_, ok, err := s.itemAt(context.Background(), TurnResults, key)
 	return ok, err
+}
+
+// ListTurnUsage answers the usage of every turn recorded at or after since, a
+// core.TS instant; "" reads them all. A turn whose harness reported no usage
+// is not listed.
+func (s *Store) ListTurnUsage(ctx context.Context, since string) ([]TurnUsage, error) {
+	items, err := s.Obj().Query(ctx, objstore.Query{
+		Entity: TurnResults, Partition: OwnerRoutd,
+		Where: []objstore.Cmp{{Attr: attrTurnModels, Op: objstore.Present}},
+		Project: []string{AttrTurnRecordedAt, attrTurnHarness, attrTurnMetered,
+			attrTurnModels},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("read the turn usage: %w", err)
+	}
+	out := []TurnUsage{}
+	for _, it := range items {
+		at := it.Attrs[AttrTurnRecordedAt]
+		if at < since {
+			continue
+		}
+		folder, turnID, ok := strings.Cut(it.Key.Sort, KeySep)
+		if !ok {
+			return nil, fmt.Errorf("turn result key %q carries no separator", it.Key.Sort)
+		}
+		out = append(out, TurnUsage{
+			Folder: folder, TurnID: turnID, RecordedAt: at,
+			Harness: it.Attrs[attrTurnHarness],
+			Metered: it.Attrs[attrTurnMetered] == flagSet,
+			Models:  it.Attrs[attrTurnModels],
+		})
+	}
+	return out, nil
 }
 
 // CountTurnResults answers how many turns hold an outcome.

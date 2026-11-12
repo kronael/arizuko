@@ -143,22 +143,6 @@ func (s *Server) gateway() *modelGateway {
 	return s.loop.gateway
 }
 
-// logSelfReportedCost records what the agent says the turn cost — a log line
-// and never a row (spec 6/39): with a gateway the meter holds the number and a
-// copy could only disagree; without one, a number the spender chose is not one
-// a cap can be enforced on. A self-report that disagrees with the meter is the
-// shape a bypassed gateway takes.
-func logSelfReportedCost(metered bool, folder, turnID string, models map[string]apiv1.ModelUsage) {
-	for model, c := range models {
-		slog.Info("agent self-reported model usage",
-			"folder", folder, "turn_id", turnID, "model", model,
-			"input", c.Input, "output", c.Output, "cost_cents", c.CostCents,
-			"metered", metered)
-		obs.RecordModelTokens(model, folder, "in", c.Input)
-		obs.RecordModelTokens(model, folder, "out", c.Output)
-	}
-}
-
 // recordTurnResultAttempt decides whether a successful submission may close the turn
 // before recording it. A nudge holds the same turn open for one continuation.
 func (s *Server) recordTurnResultAttempt(turnID, attempt string, req apiv1.TurnResult) (ipc.TurnAck, error) {
@@ -237,7 +221,15 @@ func (s *Server) recordTurnResultAttempt(turnID, attempt string, req apiv1.TurnR
 	if notice != nil {
 		status, failure = "error", renderTurnStatus(*notice)
 	}
-	first, err := s.db.RecordTurnResult(tc.Folder, turnID, req.SessionID, status, failure)
+	usage, err := turnUsage(tc.Folder, turnID, req.Harness, s.gateway() != nil, req.Models)
+	if err != nil {
+		return ipc.TurnAck{}, err
+	}
+	rows, err := usageRows(usage)
+	if err != nil {
+		return ipc.TurnAck{}, err
+	}
+	first, err := s.db.RecordTurnResult(tc.Folder, turnID, req.SessionID, status, failure, usage)
 	if err != nil {
 		return ipc.TurnAck{}, err
 	}
@@ -259,7 +251,7 @@ func (s *Server) recordTurnResultAttempt(turnID, attempt string, req apiv1.TurnR
 				slog.Error("recordTurnResult: PutSession failed; next turn in this topic loses session continuity", "folder", tc.Folder, "turn_id", turnID, "err", err)
 			}
 		}
-		logSelfReportedCost(s.gateway() != nil, tc.Folder, turnID, req.Models)
+		logTurnUsage(rows)
 		finishTurnLocked(s.db, s.deliver, turnID, end)
 		if s.loop != nil {
 			s.loop.publishRoundDone(tc.ChatJID, turnID)

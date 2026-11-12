@@ -116,7 +116,7 @@ func TestStartup_ReFeedsRunningTurns(t *testing.T) {
 		t.Fatal(err)
 	}
 	// t3 reached a terminal state and its cursor passed the input.
-	if _, err := db.RecordTurnResult("demo", "t3", "s", "success", ""); err != nil {
+	if _, err := db.RecordTurnResult("demo", "t3", "s", "success", "", store.TurnUsage{}); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.SetTurnState("t3", "done"); err != nil {

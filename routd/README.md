@@ -197,7 +197,7 @@ The index is an in-memory BM25 index over the `messages` entity (`msgsearch/`). 
 
 ## The model gateway
 
-When `MODEL_GATEWAY_URL` is set, the gateway holds the model credential and keeps the spend ledger. routd stores no spend. The `litellm` package provides the gateway. `gateway.go` and `budget.go` map the arizuko nouns onto the gateway nouns:
+When `MODEL_GATEWAY_URL` is set, the gateway holds the model credential and keeps the spend ledger. routd keeps no spend of its own: a turn's self-reported usage is stored, and no cap reads it. The `litellm` package provides the gateway. `gateway.go` and `budget.go` map the arizuko nouns onto the gateway nouns:
 
 | arizuko                  | gateway                                              | why                                                                                                                               |
 | ------------------------ | ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
@@ -208,7 +208,7 @@ When `MODEL_GATEWAY_URL` is set, the gateway holds the model credential and keep
 
 - **One `GET /team/info` per turn.** The gate before spawn creates the team when the gateway has none. A key that names an unknown team is accepted, and then every model call answers 404. The same call sets the team budget to the cap of the operator and reads the spend that the refusal quotes.
 - **The gate runs when `COST_CAPS_ENABLED` is off.** The gate then reports both caps as uncapped and clears them at the gateway. Otherwise the gateway would keep refusing turns that arizuko does not cap.
-- **A spent cap refuses the next turn.** The refusal goes to the chat and consumes the batch. There is no budget notice during a turn. An over-cap turn runs to its end, and the gate of the next turn refuses. A call outside the gateway is a log line and never a row.
+- **A spent cap refuses the next turn.** The refusal goes to the chat and consumes the batch. There is no budget notice during a turn. An over-cap turn runs to its end, and the gate of the next turn refuses. A call outside the gateway shows only in the turn's self-reported usage.
 - **A gateway failure is a dependency outage.** When a gate read or a key mint fails, routd returns `ErrDependencyDown` (`dispatch.go`). No guest starts, and routd feeds the batch again. A turn never runs without a meter. A failed spend read is an error and never an empty spend.
 - **One limit.** A gateway drops the model key of a user, with a warning in the runed log, because nothing translates it into a gateway key. BUGS `L404` tracks this limit.
 - **No gateway means no meter.** The dashboard says so, and shows no number that the agent chose. A cap on such an instance is enforced by nothing, and the gate logs that fact on every turn.
@@ -242,6 +242,7 @@ routd reads no table of another owner. Data of other daemons arrives over HTTP: 
 
 - `secrets` has write-only endpoints, create and key-delete, and no read. So `enc_value` cannot leak through a `GET`.
 - `model_pauses` is an operator-only runtime resource. Its list and guarded clear share one handler and atomic audit.
+- `turn_usage` is an operator-only read of each turn's self-reported usage, one row per model, held on the turn's `turn_results` item (`specs/6/39-gateway-owns-spend.md` §"The turn usage record"). `arizuko usage` sums it per folder or day.
 - `installed_packages` serves only its two `GET` endpoints. `arizuko package add`, `rm` and `sync` write the rows.
 - `scheduled_tasks` is the one resource whose REST path is not `/v1/<name>`. It serves `/v1/tasks`.
 - An agent-only action is declared `MCPOnly` on the single `Endpoints` slice of its resource. Mounting and emission read the same list, so the document cannot advertise an endpoint that routd does not serve. The `MCPOnly` actions are `schedule`, `pause` and `resume` of `scheduled_tasks`, `issue_pair` of `route_tokens`, `list` of `acl` with the tool `list_acl`, and `register` of `groups` with the tool `register_group`. Group creation stays in `SetupGroup` of dashd.

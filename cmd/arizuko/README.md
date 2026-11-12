@@ -46,6 +46,7 @@ rewrite it.
 - `arizuko invite [-i NAME] create <target_glob> [--max-uses|-n N] [--expires|-e DURATION]`, `invite [-i NAME] list [--issued-by|-b SUB]` and `invite [-i NAME] revoke <ref>` manage invites.
 - `arizuko network [-i NAME] allow|deny <folder> <target> | list [<folder>] | resolve <folder>` manages the egress rules of a folder.
 - `arizuko budget [-i NAME] set folder|user <name> --daily|-d N` and `show folder|user <name>` set and show the daily spend cap in cents, where 0 means uncapped. The caps live in the tables of routd. The gate before spawn pushes both caps to the model gateway, which meters the spend and refuses a request that exceeds either cap. `show` prints the caps and no spend, because spend belongs to the gateway and the CLI holds no master key.
+- `arizuko usage [-i NAME] [--since|-s YYYY-MM-DD] [--by|-b folder|day]` sums the per-turn usage routd stores: turns, metered turns, input, cache reads and writes, output, cost in cents and codex credits. Cost counts unmetered turns only, because a metered turn's cost is the gateway's number. Credits are each turn's balance drop on the codex account, so turns that overlap count the same spend more than once.
 
 Secrets and tokens:
 

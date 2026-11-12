@@ -512,7 +512,7 @@ func (r *reportingRunner) Run(_ context.Context, req runedv1.RunRequest) (runedv
 	}
 	switch r.mode {
 	case "ok":
-		_, _ = r.srv.db.RecordTurnResult(string(req.Folder), req.TurnID, "s", "success", "")
+		_, _ = r.srv.db.RecordTurnResult(string(req.Folder), req.TurnID, "s", "success", "", store.TurnUsage{})
 		return runedv1.RunOutcome{RunID: "run-r", Outcome: runedv1.OutcomeOK}, nil
 	case "error":
 		return runedv1.RunOutcome{RunID: "run-r", Outcome: runedv1.OutcomeError, Error: "boom"}, nil
