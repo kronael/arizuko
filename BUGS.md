@@ -15,7 +15,8 @@
 
 ## What needs you
 
-- `L820` — gitd's `/health` reads its whole held-inbound backlog per probe; dropping `pending_inbound` changes the documented contract; needs sign-off.
+- `L823` — every wake reads the whole `turn_context` partition for held input; a per-chat read needs a schema change; needs sign-off.
+- `L822` — gitd's `/health` reads its whole held-inbound backlog per probe; dropping `pending_inbound` changes the documented contract; needs sign-off.
 - `L816` — gitd loses GitHub webhooks while the store is unreachable; retention lives in that store; proposal, needs sign-off.
 - `L803` — morha repeats recovery reports and replies to an old GitHub comment; cause unmeasured.
 - `L804` — Codex topic forks do not inherit the parent's model context; observed messages remain available.
@@ -329,7 +330,7 @@ reads those words now.
   **Proposal:** stop the build on the first failed submake. This is an adjacent
   build-gate repair; scope approval is pending.
 
-## ✅ FIXED 2026-11-12 2ded78a8f L819 — routd re-reads every chat from the store every 2 s, so the shared store runs out of CPU and no message dispatches (2026-11-12)
+## ✅ FIXED 2026-11-12 2ded78a8f L821 — routd re-reads every chat from the store every 2 s, so the shared store runs out of CPU and no message dispatches (2026-11-12)
 
 MEASURED 2026-11-12 on hel1v5 (2 cores, load 5.4): the one `extenddb.service`
 serving krons and sloth ran 150–160% CPU at 5.7 GB RSS after 3 days, with
@@ -368,7 +369,9 @@ the next poll.
   `TestFailedPassIsRetried`, `TestBusyRefusalWakesTheChatAgain`,
   `TestAgentMessageWakesTheChat`,
   `routd/turn_control_test.go::TestEnqueueMessageCheckCollapsesWhileActive`,
-  `cmd/arizuko/send_test.go::TestOperatorInjectPostsToRoutd`.
+  `cmd/arizuko/send_test.go::TestOperatorInjectPostsToRoutd`. f51db4daf
+  drops the wake's second whole `turn_context` read (legacy migration runs
+  in recovery): `TestWakeReadsTurnContextOnce`, red at 2 with the read back.
 - **Fix:** no chat is polled. A startup sweep (`sweepChats`) enqueues each
   chat with rows past its cursor once. Each writer enqueues: `putAgentMessage`
   (an agent's `send` to a group and `inject_message`), and `arizuko send`
@@ -379,7 +382,37 @@ the next poll.
   delay. Store reads per 2 s tick: krons 471 and sloth 1,134 before; 0 after,
   plus 5 every 30 s (3 of them whole `turn_context` reads).
 
-## L820 — gitd's `/health` reads its whole held-inbound backlog on every probe (2026-11-12, open — needs sign-off)
+## L823 — every wake reads the whole `turn_context` partition to find held input (2026-11-12, open — needs sign-off)
+
+MEASURED 2026-11-12 (`routd/poll_load_test.go::TestWakeReadsTurnContextOnce`,
+counting store): a GitHub CI event that routes observe-only costs 6 store
+reads at ingest and 11 at its wake. One wake read is `heldInput`'s
+`HeldTurns(chat)`, which filters the one `turn_context` partition
+(`store/model_pauses.go`), so it reads every turn: 6,664 rows on sloth,
+5,693 on krons (2026-11-12), and the partition is never pruned.
+
+Re-delivery of sloth gitd's 17,816 held CI events (`L822`) after `L821`
+deploys: the sweep posts at most 50 per 15 s, 200 per minute, serially, so
+it drains in about 90 minutes at about 3.3 wakes per second. That is about
+56 store reads and 22 k `turn_context` rows per second. During the outage
+the saturated store served about 13 k `turn_context` rows per second per
+instance and 90 k `messages` rows per second on sloth, so the drain adds a
+sizeable share but stays below the measured saturation; that it will not
+overload is an inference, not measured. No guard is added: a slower sweep
+is a `chanlib` change for every retaining adapter, and skipping the wake
+for observe-only rows leaves them unobserved.
+
+- **Severity:** medium — wake cost grows with every turn ever run.
+- **Status:** open — needs sign-off: reading a chat's turns needs the chat
+  as a key coordinate of `turn_context`, a store schema change. No test —
+  design.
+- **Options:** (a) a per-chat key for held turns, so `HeldTurns(chat)` is a
+  query on one chat; (b) prune done turns older than a window, which bounds
+  the read but changes operator reads such as `TurnsSince`.
+- **Default if nothing is decided:** the read stays; watch sloth's store CPU
+  while the gitd backlog drains, or drop the backlog's CI events by hand.
+
+## L822 — gitd's `/health` reads its whole held-inbound backlog on every probe (2026-11-12, open — needs sign-off)
 
 MEASURED 2026-11-12 19:50 on sloth: `gitd.inbound_pending` holds 17,816
 messages, all with the error `Client.Timeout exceeded while awaiting headers`
@@ -391,7 +424,7 @@ the whole partition, so each probe costs a read proportional to the backlog
 (`health: pending inbound count failed`, context canceled). docker reports
 gitd `unhealthy`; that the count's latency causes it is an inference. The
 sweep also reads the whole due set every 15 s to pick 50. The backlog is
-`L819`'s effect; the read per probe is this entry.
+`L821`'s effect; the read per probe is this entry.
 
 - **Severity:** medium — each probe reads the backlog from the shared store.
 - **Status:** open — needs sign-off: `pending_inbound` on `/health` is
@@ -400,7 +433,7 @@ sweep also reads the whole due set every 15 s to pick 50. The backlog is
 - **Options:** (a) `/health` stops counting; the backlog stays visible in the
   `inbound retained` and `retained inbound still undelivered` logs, and
   `PendingInboundCount` goes; (b) keep the count.
-- **Default if nothing is decided:** (b); with `L819` fixed the backlog drains
+- **Default if nothing is decided:** (b); with `L821` fixed the backlog drains
   and the read shrinks with it.
 
 ## ✅ FIXED 2026-11-11 efeb37294 L818 — package sources resolve against the shared host checkout (`catalog:`) instead of being fetched (2026-11-11)
