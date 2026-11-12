@@ -132,7 +132,7 @@ func (s *Store) Query(ctx context.Context, q objstore.Query) ([]objstore.Item, e
 		}
 		in.ProjectionExpression = aws.String(strings.Join(proj, ", "))
 	}
-	if q.Limit > 0 {
+	if q.Limit > 0 && filter == "" {
 		in.Limit = aws.Int32(int32(q.Limit))
 	}
 	in.ExpressionAttributeNames = b.n
