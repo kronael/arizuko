@@ -45,7 +45,7 @@ func (s *Server) fireTasks() {
 		if task.ContextMode == "isolated" {
 			sender = core.IsolatedSenderPrefix + task.ID
 		}
-		_, err := s.ingestMessage(apiv1.Message{ID: id, ChatJID: task.Owner, ForwardedFrom: task.ChatJID, Sender: sender, Content: task.Prompt, Timestamp: start.Unix()}, "service:routd", "")
+		_, err := s.ingestMessage(apiv1.Message{ID: id, ChatJID: task.Owner, ForwardedFrom: task.ChatJID, Sender: sender, Content: task.Prompt, Timestamp: task.NextRun.Unix()}, "service:routd", "")
 		status, errorText, retry := "success", "", ""
 		if err != nil {
 			status = "error"

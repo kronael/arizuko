@@ -135,3 +135,61 @@ func TestScheduleWaitsForRecovery(t *testing.T) {
 		t.Fatal("loop did not stop")
 	}
 }
+
+// A router killed after a tick ingested a one-shot task's message but before
+// it re-armed the task leaves the task 'firing'. The restarted router recovers
+// it, fires it again under the same sched-<id>@<time> identity, keeps the
+// first message and completes the task; a second restart fires nothing.
+func TestScheduleRestartRefiresClaimedTask(t *testing.T) {
+	db, srv, _ := newTestRoutd(t)
+	past := time.Now().UTC().Add(-time.Minute).Truncate(time.Second)
+	task := core.Task{ID: "crash", Owner: "main", ChatJID: "web:main", Prompt: "again", NextRun: &past, Status: core.TaskActive}
+	if err := store.NewOver(db.Obj()).CreateTask(task); err != nil {
+		t.Fatal(err)
+	}
+	claimed, err := db.DueTasks(time.Now())
+	if err != nil || len(claimed) != 1 {
+		t.Fatalf("claim = %+v, %v", claimed, err)
+	}
+	id := "sched-crash@" + past.Format(time.RFC3339)
+	if err := db.PutMessage(core.Message{ID: id, ChatJID: "main", Sender: core.ScheduledSender, Content: "first", Timestamp: past}); err != nil {
+		t.Fatal(err)
+	}
+	restart := func() scheduleState {
+		srv.scheduleMu.Lock()
+		srv.schedule = scheduleState{}
+		srv.scheduleMu.Unlock()
+		loop := NewLoop(db, &stubRunner{t: t}, LoopConfig{})
+		loop.StopQueue()
+		loop.BindServer(srv)
+		ctx, cancel := context.WithCancel(context.Background())
+		go loop.Run(ctx)
+		deadline := time.Now().Add(5 * time.Second)
+		var state scheduleState
+		for state.LastTick.IsZero() && time.Now().Before(deadline) {
+			time.Sleep(10 * time.Millisecond)
+			srv.scheduleMu.Lock()
+			state = srv.schedule
+			srv.scheduleMu.Unlock()
+		}
+		cancel()
+		if !loop.Wait(5 * time.Second) {
+			t.Fatal("loop did not stop")
+		}
+		return state
+	}
+	if state := restart(); state.Fired != 1 || state.Err != "" {
+		t.Fatalf("first restart = %+v", state)
+	}
+	msgs, err := db.MessagesSince("main", "")
+	if err != nil || len(msgs) != 1 || msgs[0].ID != id || msgs[0].Content != "first" {
+		t.Fatalf("messages = %+v, %v", msgs, err)
+	}
+	got, _ := db.GetTask(task.ID)
+	if got.Status != core.TaskCompleted {
+		t.Fatalf("task = %+v", got)
+	}
+	if state := restart(); state.Fired != 0 || state.LastTick.IsZero() {
+		t.Fatalf("second restart = %+v", state)
+	}
+}
