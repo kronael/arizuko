@@ -1,0 +1,15 @@
+{
+  "providers": {
+    "smoke": {
+      "baseUrl": "http://127.0.0.1:23456/v1",
+      "api": "openai-completions",
+      "apiKey": "$OPENAI_API_KEY",
+      "models": [
+        {
+          "id": "model:1b",
+          "cost": { "input": 1, "output": 2, "cacheRead": 0, "cacheWrite": 0 }
+        }
+      ]
+    }
+  }
+}

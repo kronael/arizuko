@@ -23,18 +23,45 @@ uses existing credentials and native provider configuration, and applies finite 
 The dependency is pinned to `@earendil-works/pi-coding-agent` 1.4.0.
 Pi uses the same tools and explicit delivery as Claude Code and Codex.
 
+`make -C ant pi-smoke` runs `ant/smoke/pi-bridge.ts` in the image with
+`--network none` and `ant/smoke/pi-models.json` mounted read-only. The smoke
+starts the installed `ant` with `ARIZUKO_BACKEND=pi` against a scripted
+OpenAI-compatible provider at `127.0.0.1:23456` and a recording `gated.sock`.
+It checks three cases:
+
+- Reply over `gated.sock`: the model is offered `mcp__arizuko__reply`, one wire
+  `tools/call` carries `reply` with `pong`, and final prose never reaches the
+  socket. A `submit_turn` nudge continues the same turn and session, the
+  nudged run resumes the session, and usage sums both model calls.
+- Native provider configuration: every call reaches `/v1/chat/completions`
+  with model `model:1b` and the key from `$OPENAI_API_KEY`.
+- Bounded provider failure: a provider that answers 502 gets three calls, then
+  `submit_turn` reports the error, nothing is delivered and `ant` exits non-zero.
+
+On 2026-11-12 `make agent` could not run: the build host had 178 MB free disk.
+The smoke ran in the release rootfs `rootfs-5aa0ae1f225b` instead, whose
+`/app/src` matches this tree, through a read-only overlay with only loopback.
+All 14 checks passed. Removing `builtin:mcp` failed the two reply checks,
+`maxRetries: 5` failed the retry bound with six calls, and dropping the nudge
+failed the two continuation checks.
+
 Acceptance remains partial. These items are deferred:
 
-- The installed-binary image smoke in step 5, including hostile configuration,
-  provider errors, stalled streams, resume, nudge and usage checks. `ant/smoke/`
-  and the `pi-smoke` target are not present.
+- The `make agent && make -C ant pi-smoke` gate on a freshly built image.
+- Smoke cases for hostile project configuration, split status tags, a 403
+  answer, a refused connection and a stalled stream.
 - Native edit fixtures in step 1 for fuzzy and disjoint edits, tilde paths and CRLF/BOM input.
 - Pi-specific chassis integration tests in step 4. Reducer fixtures cover split
   status and tool-only completion; the chassis nudge tests use a fake harness.
 - The real pi turn through routd's `gated.sock`, including delivery, submission,
   authorization and audit evidence. Local-model reachability and privacy are unmeasured.
-- Borrowed-login renewal ownership. Pi refreshes its temporary snapshot only;
-  durable renewal of the shared login needs an operator decision.
+- Borrowed-login renewal ownership, an open owner decision (§"Deferred
+  credential ownership"). Today each turn copies the read-only
+  `.codex/auth.json` into the turn's temporary `PI_CODING_AGENT_DIR`, and
+  `runPi` deletes that directory when the turn ends. A token pi refreshes
+  during a turn is lost, and the next turn starts from the mounted snapshot
+  again. If the provider rotates the refresh token on use, a later turn fails
+  until the operator renews the host login. Nothing writes the host login.
 - Full acceptance gates in step 6, including the image and live checks.
 
 Any pi provider works through its normal operator configuration and a
