@@ -18,7 +18,7 @@ import (
 
 // The operator's inject goes to routd's ingest with a bearer routd verifies,
 // not into the store: a row written behind routd's back waits until something
-// polls the chat, and routd polls nothing (BUGS L819).
+// polls the chat, and routd polls nothing (BUGS L821).
 func TestOperatorInjectPostsToRoutd(t *testing.T) {
 	key, err := auth.NewSigningKey("test-kid")
 	if err != nil {

@@ -806,7 +806,6 @@ func (q *turnControl) noteBusy(chatJID, lastMsgID string) time.Time {
 }
 
 type processMessagesFn func(groupJid string) (bool, error)
-type folderForJidFn func(groupJid string) string
 
 // parkedFn is told, outside q.mu, each time EnqueueMessageCheck parks a chat
 // behind another run (its folder is held, or the run cap is full).
@@ -823,7 +822,6 @@ type turnControl struct {
 	maxConcurrent   int
 	waitingGroups   []string
 	processMessages processMessagesFn
-	folderForJid    folderForJidFn
 	parked          parkedFn
 	shuttingDown    bool
 	busyWait        sync.Map
@@ -855,12 +853,6 @@ func (q *turnControl) SetProcessMessagesFn(fn processMessagesFn) {
 	defer q.mu.Unlock()
 	q.processMessages = fn
 }
-func (q *turnControl) SetFolderForJidFn(fn folderForJidFn) {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-	q.folderForJid = fn
-}
-
 func (q *turnControl) SetParkedFn(fn parkedFn) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
@@ -885,13 +877,6 @@ func (q *turnControl) WithIdleFolder(folder string, fn func() error) (bool, erro
 		q.mu.Unlock()
 	}()
 	return true, fn()
-}
-
-func (q *turnControl) folderOf(jid string) string {
-	if q.folderForJid == nil {
-		return ""
-	}
-	return q.folderForJid(jid)
 }
 
 func (q *turnControl) activateLocked(jid string) {

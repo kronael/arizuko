@@ -1,14 +1,16 @@
 package routd
 
 import (
+	"fmt"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/store"
 )
 
-// Tier-2 parity: observeWindow override + recoverPending re-enqueue +
+// Tier-2 parity: observeWindow override + the startup re-feed +
 // LatestSource resolution, all shipped but under-tested vs gated.
 
 // --- observeWindow first-route-wins (mirror gateway_extra) ---
@@ -76,15 +78,13 @@ func TestObserveWindow_GroupWindow(t *testing.T) {
 	}
 }
 
-// --- recoverPending re-enqueue (mirror gateway_test:TestRecoverPendingMessages) ---
+// --- the startup re-feed (mirror gateway_test:TestRecoverPendingMessages) ---
 
-// TestRecoverPending_ReEnqueuesRunningTurns: on boot, recoverPending re-feeds
-// every chat with a still-'running' turn_context so a crash mid-turn re-attempts
-// from the un-advanced cursor (turn_results dedups the old run's submit_turn).
-// Split twin of gated recoverPendingMessages — gated scans pending message rows;
-// routd re-enqueues running turns (the split owns turn_context, not a pending
-// flag), but the recovered SET of chats is the parity invariant.
-func TestRecoverPending_ReEnqueuesRunningTurns(t *testing.T) {
+// TestStartup_ReFeedsRunningTurns: on boot, the startup sweep re-feeds every
+// chat whose running turn left its input past the un-advanced cursor, so a
+// crash mid-turn re-attempts it (turn_results dedups the old run's
+// submit_turn); a terminal turn's chat, its cursor past the input, is not.
+func TestStartup_ReFeedsRunningTurns(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
 		t.Fatal(err)
@@ -115,15 +115,28 @@ func TestRecoverPending_ReEnqueuesRunningTurns(t *testing.T) {
 	if _, err := db.PutTurnContext("t3", "demo", "", "tg:300", "u", ""); err != nil {
 		t.Fatal(err)
 	}
-	// t3 reached a terminal state — RunningTurns must exclude it.
+	// t3 reached a terminal state and its cursor passed the input.
 	if _, err := db.RecordTurnResult("demo", "t3", "s", "success", ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.SetTurnState("t3", "done"); err != nil {
 		t.Fatal(err)
 	}
+	for i, jid := range []string{"tg:100", "discord:200", "tg:300"} {
+		in := core.Message{ID: fmt.Sprintf("t%d", i+1), ChatJID: jid, Sender: "u",
+			Content: "q", Timestamp: time.Now().UTC()}
+		if err := db.PutMessage(in); err != nil {
+			t.Fatal(err)
+		}
+		if jid == "tg:300" {
+			if err := db.SetAgentCursor(jid, store.MessageCursor(in)); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
 
 	l.recoverPending()
+	l.sweepChats(t.Context())
 
 	want := []string{"tg:100", "discord:200"}
 	deadline := time.After(2 * time.Second)
@@ -157,7 +170,7 @@ func TestRecoverPending_ReEnqueuesRunningTurns(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 	if recovered["tg:300"] {
-		t.Error("recoverPending re-fed a chat whose turn was already terminal")
+		t.Error("startup re-fed a chat whose turn was already terminal")
 	}
 }
 

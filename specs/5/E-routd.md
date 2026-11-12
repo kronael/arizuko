@@ -89,7 +89,7 @@ review, not by the filesystem.
 message enqueues its chat — ingress (`POST /v1/messages`, which `arizuko
 send` also takes), scheduled tasks, an agent's `send` and `inject_message`,
 steer commands. Nothing polls the chats: per-chat reads every 2 s saturated
-the shared store (BUGS L819).
+the shared store (BUGS L821).
 
 - `sweepChats` (`loop.go`) — once at startup, enqueues each chat with rows
   past its `agent_cursor`, for what arrived while routd was down.

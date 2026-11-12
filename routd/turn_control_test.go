@@ -10,11 +10,13 @@ import (
 	"time"
 )
 
-func setExecutionProcessor(q *turnControl, fn processMessagesFn) {
+// setExecutionProcessor reserves each chat's folder as the worker does; a nil
+// folderOf, or an empty folder, reserves the chat itself.
+func setExecutionProcessor(q *turnControl, folderOf func(string) string, fn processMessagesFn) {
 	q.SetProcessMessagesFn(func(jid string) (bool, error) {
-		folder := q.folderOf(jid)
-		if folder == "" {
-			folder = jid
+		folder := jid
+		if folderOf != nil && folderOf(jid) != "" {
+			folder = folderOf(jid)
 		}
 		if !q.reserve(jid, folder, false, jid) {
 			return false, nil
@@ -59,9 +61,8 @@ func TestWithIdleFolderExcludesAdmission(t *testing.T) {
 				unblock := sync.OnceFunc(func() { close(release) })
 				defer unblock()
 				q := newTurnControl(1)
-				q.SetFolderForJidFn(func(jid string) string { return jid })
 				started := make(chan string, 4)
-				setExecutionProcessor(q, func(jid string) (bool, error) { started <- jid; return true, nil })
+				setExecutionProcessor(q, nil, func(jid string) (bool, error) { started <- jid; return true, nil })
 				entered, recovered := make(chan struct{}), make(chan error, 1)
 				want := errors.New("recovery failed")
 				go func() {
@@ -139,9 +140,8 @@ func TestWithIdleFolderShutdown(t *testing.T) {
 		unblock := sync.OnceFunc(func() { close(release) })
 		defer unblock()
 		q := newTurnControl(1)
-		q.SetFolderForJidFn(func(jid string) string { return jid })
 		started := make(chan string, 1)
-		setExecutionProcessor(q, func(jid string) (bool, error) { started <- jid; return true, nil })
+		setExecutionProcessor(q, nil, func(jid string) (bool, error) { started <- jid; return true, nil })
 		entered, recovered := make(chan struct{}), make(chan struct{})
 		go func() {
 			_, _ = q.WithIdleFolder("a", func() error { close(entered); <-release; return nil })
@@ -188,7 +188,7 @@ func TestEnqueueMessageCheckStartsContainer(t *testing.T) {
 	q := newTurnControl(5)
 
 	var called atomic.Bool
-	setExecutionProcessor(q, func(jid string) (bool, error) {
+	setExecutionProcessor(q, nil, func(jid string) (bool, error) {
 		called.Store(true)
 		return true, nil
 	})
@@ -201,14 +201,14 @@ func TestEnqueueMessageCheckStartsContainer(t *testing.T) {
 }
 
 // Enqueues for a group that is already running COLLAPSE into one more pass
-// after the run: no poll comes along later to find what arrived (BUGS L819).
+// after the run: no poll comes along later to find what arrived (BUGS L821).
 func TestEnqueueMessageCheckCollapsesWhileActive(t *testing.T) {
 	q := newTurnControl(5)
 
 	var calls atomic.Int32
 	started := make(chan struct{}, 1)
 	block := make(chan struct{})
-	setExecutionProcessor(q, func(jid string) (bool, error) {
+	setExecutionProcessor(q, nil, func(jid string) (bool, error) {
 		if calls.Add(1) == 1 {
 			started <- struct{}{}
 			<-block // only first call blocks
@@ -241,7 +241,7 @@ func TestConcurrencyLimit(t *testing.T) {
 
 	started := make(chan struct{})
 	block := make(chan struct{})
-	setExecutionProcessor(q, func(jid string) (bool, error) {
+	setExecutionProcessor(q, nil, func(jid string) (bool, error) {
 		select {
 		case started <- struct{}{}:
 		default:
@@ -274,14 +274,14 @@ func TestConcurrencyLimit(t *testing.T) {
 
 func TestShutdownBlocksEnqueue(t *testing.T) {
 	q := newTurnControl(5)
-	setExecutionProcessor(q, func(jid string) (bool, error) {
+	setExecutionProcessor(q, nil, func(jid string) (bool, error) {
 		return true, nil
 	})
 
 	q.Shutdown()
 
 	var called atomic.Bool
-	setExecutionProcessor(q, func(jid string) (bool, error) {
+	setExecutionProcessor(q, nil, func(jid string) (bool, error) {
 		called.Store(true)
 		return true, nil
 	})
@@ -300,20 +300,20 @@ func TestShutdownBlocksEnqueue(t *testing.T) {
 // folder, spawning two parallel containers that double-narrated logs.
 func TestEnqueueSerializesByFolder(t *testing.T) {
 	q := newTurnControl(5)
-	q.SetFolderForJidFn(func(jid string) string {
+	folder := func(jid string) string {
 		switch jid {
 		case "telegram:atlas", "atlas":
 			return "atlas"
 		}
 		return ""
-	})
+	}
 
 	var concurrent atomic.Int32
 	var maxSeen atomic.Int32
 	seenJids := map[string]bool{}
 	var smu sync.Mutex
 	gate := make(chan struct{})
-	setExecutionProcessor(q, func(jid string) (bool, error) {
+	setExecutionProcessor(q, folder, func(jid string) (bool, error) {
 		n := concurrent.Add(1)
 		if n > maxSeen.Load() {
 			maxSeen.Store(n)

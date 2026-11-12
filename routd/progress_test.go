@@ -591,7 +591,12 @@ func TestProgress_RecoveredTurnEditsItsRowWhenItCompletes(t *testing.T) {
 		mu.Unlock()
 		return true, nil
 	})
+	if err := db.PutMessage(core.Message{ID: "t1", ChatJID: progressJID, Sender: "u1",
+		Content: "q", Timestamp: time.Now().UTC()}); err != nil {
+		t.Fatal(err)
+	}
 	loop.recoverPending()
+	loop.sweepChats(t.Context())
 	deadline := time.Now().Add(2 * time.Second)
 	for {
 		mu.Lock()
@@ -601,7 +606,7 @@ func TestProgress_RecoveredTurnEditsItsRowWhenItCompletes(t *testing.T) {
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatal("recoverPending did not re-feed the running turn's chat")
+			t.Fatal("startup did not re-feed the running turn's chat")
 		}
 		time.Sleep(10 * time.Millisecond)
 	}

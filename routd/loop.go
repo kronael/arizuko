@@ -225,7 +225,6 @@ func NewLoop(db *DB, runner Runner, cfg LoopConfig) *Loop {
 	}
 	l.q = newTurnControl(cfg.MaxAgents)
 	l.q.SetProcessMessagesFn(l.processGroupMessages)
-	l.q.SetFolderForJidFn(l.folderForJid)
 	l.q.SetParkedFn(l.noteParked)
 	return l
 }
@@ -292,9 +291,8 @@ func (l *Loop) publishRoundDone(chatJID, turnID string) {
 	_ = l.deliver.RoundDone(chatJID, turnID, "success", "")
 }
 
-// Run drives the maintenance loop until ctx is cancelled. On start it re-feeds
-// chats whose turn_context is still 'running' from the un-advanced
-// agent_cursor, then sweeps the chats once (sweepChats).
+// Run drives the maintenance loop until ctx is cancelled. On start it recovers
+// interrupted turns, then sweeps the chats once (sweepChats).
 func (l *Loop) Run(ctx context.Context) {
 	defer close(l.done)
 	l.sweepOrphanSocks()
@@ -484,32 +482,19 @@ func (l *Loop) maybeScanProactive(now time.Time) {
 	l.nextScanAt = now.Add(l.proactive.ScanInterval)
 }
 
-// recoverPending re-enqueues chats with a still-running turn so a crash
-// mid-turn re-attempts from the un-advanced cursor (turn_results dedups any
-// submit_turn the old run delivered).
+// recoverPending recovers interrupted turns and re-arms the due retries. A turn
+// a crash left running keeps its input past the chat's cursor, so sweepChats
+// re-feeds it (turn_results dedups any submit_turn the old run delivered).
 func (l *Loop) recoverPending() {
 	if err := l.q.recover(l, true); err != nil {
 		slog.Error("recover deferred turns", "err", err)
 		return
 	}
-	tcs, err := l.db.RunningTurns()
-	if err != nil {
-		slog.Warn("recover pending turns", "err", err)
-		return
-	}
-	for _, tc := range tcs {
-		if tc.State == store.TurnPendingRetry || l.isSavedExecution(tc) {
-			continue
-		}
-		l.Enqueue(tc.ChatJID)
-	}
 	l.q.tick(l)
 }
 
 // folderForJid resolves a chat JID to the folder its pending batch dispatches
-// to, so the queue's folder-exclusivity (one live run per folder) holds across
-// JIDs. It reads the batch the worker reads and decides it with the worker's
-// resolveBatch: a key from any other row lets two chats run in one folder.
+// to, deciding the batch with the worker's resolveBatch.
 func (l *Loop) folderForJid(chatJID string) string {
 	if turnID, ok := strings.CutPrefix(chatJID, deferredWorkPrefix); ok {
 		tc, _ := l.db.GetTurnContext(turnID)
@@ -675,8 +660,8 @@ type batchResolution struct {
 	rows []resolution
 }
 
-// resolveBatch decides a batch for the worker and the queue's folder key. The
-// route table is read once. A bot row never resolves a batch,
+// resolveBatch decides a batch for the worker and folderForJid. The route
+// table is read once. A bot row never resolves a batch,
 // so msgs must hold a user row (newestUserIdx >= 0).
 func (l *Loop) resolveBatch(chatJID string, msgs []core.Message) batchResolution {
 	var users []core.Message

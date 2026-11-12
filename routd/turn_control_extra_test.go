@@ -14,7 +14,7 @@ func TestActiveCount_AfterConcurrentRuns(t *testing.T) {
 	q := newTurnControl(4)
 
 	gate := make(chan struct{})
-	setExecutionProcessor(q, func(jid string) (bool, error) {
+	setExecutionProcessor(q, nil, func(jid string) (bool, error) {
 		<-gate
 		return true, nil
 	})
@@ -38,12 +38,12 @@ func TestActiveCount_AfterConcurrentRuns(t *testing.T) {
 func TestEnqueueReportsParkedChats(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		q := newTurnControl(1)
-		q.SetFolderForJidFn(func(jid string) string {
+		folder := func(jid string) string {
 			if jid == "c" {
 				return ""
 			}
 			return "f"
-		})
+		}
 		var mu sync.Mutex
 		var parked []string
 		q.SetParkedFn(func(jid string) {
@@ -53,7 +53,7 @@ func TestEnqueueReportsParkedChats(t *testing.T) {
 		})
 		gate := make(chan struct{})
 		started := make(chan struct{}, 3)
-		setExecutionProcessor(q, func(string) (bool, error) {
+		setExecutionProcessor(q, folder, func(string) (bool, error) {
 			started <- struct{}{}
 			<-gate
 			return true, nil

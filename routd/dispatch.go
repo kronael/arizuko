@@ -32,9 +32,6 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 func (l *Loop) processChat(chatJID string, commandsOnly bool) (bool, error) {
 	unlock := sync.OnceFunc(lockTurn("\x00chat:" + chatJID))
 	defer unlock()
-	if err := l.migrateRetries(chatJID, false); err != nil {
-		return false, err
-	}
 	msgs, b, held, err := l.pendingBatch(chatJID, l.db.GetAgentCursor(chatJID), pollBatch)
 	if err != nil {
 		return false, err

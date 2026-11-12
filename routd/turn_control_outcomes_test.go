@@ -12,9 +12,8 @@ func TestRepeatedOutcomesReleaseAdmission(t *testing.T) {
 		t.Run(fmt.Sprint(failure), func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				q := newTurnControl(1)
-				q.SetFolderForJidFn(func(string) string { return "same-folder" })
 				calls := 0
-				setExecutionProcessor(q, func(string) (bool, error) {
+				setExecutionProcessor(q, func(string) string { return "same-folder" }, func(string) (bool, error) {
 					calls++
 					return false, failure
 				})

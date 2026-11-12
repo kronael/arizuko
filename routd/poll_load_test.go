@@ -1,12 +1,13 @@
 package routd
 
-// poll_load_test.go pins BUGS L819: routd reads a chat only when something
+// poll_load_test.go pins BUGS L821: routd reads a chat only when something
 // wakes it. A 2 s poll over every chat saturated the shared store on hel1v5.
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/objstore"
+	apiv1 "github.com/kronael/arizuko/routd/api/v1"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 	"github.com/kronael/arizuko/store"
 )
@@ -28,8 +30,70 @@ type countingStore struct {
 func (c *countingStore) Query(ctx context.Context, q objstore.Query) ([]objstore.Item, error) {
 	c.mu.Lock()
 	c.reads[q.Entity]++
+	if q.Key.Op == objstore.AnyKey {
+		c.reads[q.Entity+" whole"]++
+	}
 	c.mu.Unlock()
 	return c.Store.Query(ctx, q)
+}
+
+func (c *countingStore) count(key string) int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.reads[key]
+}
+
+func (c *countingStore) total() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	n := 0
+	for k, v := range c.reads {
+		if !strings.HasSuffix(k, " whole") {
+			n += v
+		}
+	}
+	return n
+}
+
+// countedLoop is a loop over a store that counts every read, the queue stopped.
+func countedLoop(t *testing.T) (*DB, *Loop, *countingStore) {
+	t.Helper()
+	base, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { base.Close() })
+	counter := &countingStore{Store: base.obj, reads: map[string]int{}}
+	db := OpenOver(counter)
+	l := NewLoop(db, nopRunner{}, LoopConfig{})
+	l.StopQueue()
+	return db, l, counter
+}
+
+// A wake reads the turn_context partition whole once (held input), not twice:
+// legacy retry migration runs in recovery, not on every wake. gitd re-delivers
+// its held CI events one wake each.
+func TestWakeReadsTurnContextOnce(t *testing.T) {
+	db, l, counter := countedLoop(t)
+	_ = db.PutGroup(core.Group{Folder: "eng"})
+	doSetRoutes(t, db, []core.Route{{Match: "platform=github", Target: "eng?observe"}})
+	srv := NewServer(db, l, nil, nil, 0, "")
+	clear(counter.reads)
+	const jid = "github:o/r"
+	if _, err := srv.ingestMessage(apiv1.Message{ID: "gh-1", ChatJID: jid,
+		Sender: "github:ci", Content: "[github kind=check_run] tests passed",
+		Topic: "pr/1"}, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	ingest := counter.total()
+	if _, err := l.processGroupMessages(jid); err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("store reads: ingest %d, wake %d, turn_context whole %d",
+		ingest, counter.total()-ingest, counter.count(store.TurnContexts+" whole"))
+	if got := counter.count(store.TurnContexts + " whole"); got != 1 {
+		t.Fatalf("whole turn_context reads per wake = %d, want 1", got)
+	}
 }
 
 func (c *countingStore) chatReads() int {
