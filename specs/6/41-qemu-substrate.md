@@ -551,7 +551,10 @@ the table, so a new mount family changes the renderer and never the guest.
 and the two `codex-ro` files over their `home/.codex` names. Read-only is
 enforced on the host: a bind mount made `ro` before `virtiofsd` starts is
 `EROFS` to every write the daemon attempts, and the acceptance test writes to
-each ro family from the guest and expects `EROFS`. `mountsec.
+each ro family from the guest and expects `EROFS`. `guest-init` remounts each
+ro bind read-only as well, so the guest's mount table states the declaration:
+ant's pi trusts a native login only on a mount listed `ro`
+(`specs/7/60-pi-bridge.md`). `mountsec.
 ValidateAdditionalMounts` runs where it runs today; the tree adds no path
 it did not validate. The `--sandbox=chroot` mode of `virtiofsd` is "intended
 for container environments where the container runtime has already set up

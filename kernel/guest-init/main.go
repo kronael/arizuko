@@ -377,10 +377,10 @@ func bootPorts(cmdline string) (ctlPort, mcpPort uint32, err error) {
 // the path inside the share, because the tree mirrors the guest's own layout.
 type treeEntry struct {
 	Path string `json:"path"`
-	// RO is read but never applied: the host remounts each read-only bind before
-	// virtiofsd starts, so every write the daemon attempts is EROFS already
-	// (runed/vmtree.go bindAll). A guest-side flag would be a second enforcement
-	// of one decision, and the weaker of the two.
+	// RO is enforced by the host, which remounts each read-only bind before
+	// virtiofsd starts (runed/vmtree.go bindAll). The guest remounts it
+	// read-only too, so its mount table states what the host declared: ant's
+	// pi trusts a native login only on a mount listed `ro` (specs/7/60).
 	RO bool `json:"ro"`
 }
 
@@ -458,6 +458,12 @@ func rootPlan(m treeManifest) []mountOp {
 			Target: guestRoot + e.Path,
 			Flags:  syscall.MS_BIND | syscall.MS_REC,
 		})
+		if e.RO {
+			ops = append(ops, mountOp{
+				Target: guestRoot + e.Path,
+				Flags:  syscall.MS_REMOUNT | syscall.MS_BIND | syscall.MS_RDONLY,
+			})
+		}
 	}
 	for _, p := range m.Tmpfs {
 		ops = append(ops, mountOp{

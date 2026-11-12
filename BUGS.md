@@ -434,6 +434,28 @@ for a probe that exhausts its retries. No test — design.
   after `retryAt`'s first delay (30 s); (b) a breaker per folder, the provider
   refusal staying instance-wide; (c) keep the hour.
 - **Default if nothing is decided:** (c).
+## L828 — pi refuses the lent Codex login in a QEMU guest: the read-only file bind reads as `rw` (2026-11-12)
+
+MEASURED 2026-11-12 22:39 UTC on sloth (v0.75.10, `ARIZUKO_BACKEND=pi`,
+`openai-codex/gpt-6.1-sol`): ant exited in 5 s with `pi source is not on a
+read-only mount: /home/node/.codex/auth.json`, then `guest-init: agent wait:
+exit status 1` (`groups/sloth/support/logs/container-2026-11-12T22-39-23.log`).
+runed declares `ipc/<folder>/codex-cred-auth.json -> /home/node/.codex/auth.json
+(ro)` (`runed/mounts.go` `stageCodexCreds`), and `runed/vmtree.go` `bindAll`
+makes that bind read-only on the host. `kernel/guest-init/main.go` `rootPlan`
+then binds `/turn/home/node/.codex/auth.json` over the guest path without
+`MS_RDONLY`: the manifest's `ro` is read and dropped. Writes still fail with
+`EROFS` at virtiofsd, but the guest's `/proc/self/mountinfo` lists the bind as
+`rw`, and `ant/src/pi.ts` `readMountedFile` requires `ro` (specs/7/60). The
+7/60 smoke ran in a rootfs overlay, never through guest-init.
+
+- **Severity:** high — pi cannot use the lent Codex login on the QEMU substrate.
+- **Measured:** `kernel/guest-init/main_test.go::TestRootPlanMirrorsTheHostsManifest`
+  (the read-only families carry no read-only remount).
+- **Fix:** `rootPlan` follows each `ro` bind with a read-only remount, as the
+  host's `bindAll` does, so the guest's mount table states the host's
+  declaration. Deploying it needs a kernel artifact rebuild: guest-init is in
+  the initrd and in `KERNEL_KEY`.
 
 ## ✅ FIXED 2026-11-12 e082ff796 L821 — routd re-reads every chat from the store every 2 s, so the shared store runs out of CPU and no message dispatches (2026-11-12)
 

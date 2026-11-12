@@ -119,8 +119,14 @@ func TestRootPlanMirrorsTheHostsManifest(t *testing.T) {
 			Flags: syscall.MS_BIND | syscall.MS_REC},
 		{Source: "/turn/home/node/.codex/auth.json", Target: "/newroot/home/node/.codex/auth.json",
 			Flags: syscall.MS_BIND | syscall.MS_REC},
+		// A read-only family is remounted read-only in the guest too: ant's pi
+		// trusts a native login only on a mount its mountinfo lists as `ro`.
+		{Target: "/newroot/home/node/.codex/auth.json",
+			Flags: syscall.MS_REMOUNT | syscall.MS_BIND | syscall.MS_RDONLY},
 		{Source: "/turn/opt/arizuko", Target: "/newroot/opt/arizuko",
 			Flags: syscall.MS_BIND | syscall.MS_REC},
+		{Target: "/newroot/opt/arizuko",
+			Flags: syscall.MS_REMOUNT | syscall.MS_BIND | syscall.MS_RDONLY},
 		{Source: "tmpfs", Target: "/newroot/run/ipc", FS: "tmpfs", Data: "size=16m", Own: true},
 	}
 	got := rootPlan(m)
