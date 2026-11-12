@@ -14,8 +14,8 @@ via `submit_turn` to `routd`. Third-party connectors use that same gated socket.
 
 ## TS runtime (`src/`)
 
-The shipping runtime uses `@anthropic-ai/claude-agent-sdk` 0.3.278
-(`bun.lock`, measured at 7baffbb0). MCP servers are assembled in
+The shipping runtime declares `@anthropic-ai/claude-agent-sdk` in
+[package.json](package.json), with the resolved dependency in [bun.lock](bun.lock). MCP servers are assembled in
 `src/mcp-servers.ts`:
 
 ### The harness
@@ -26,7 +26,7 @@ Ant validates the document before starting the adapter. Backend is required;
 model and effort are optional. A present document replaces instance defaults
 as a whole. Omitted optional fields use the adapter's native defaults.
 Without the document, ant reads `ARIZUKO_BACKEND`, `ARIZUKO_MODEL` and
-`ARIZUKO_EFFORT`. Pi refuses turns until it supports MCP delivery.
+`ARIZUKO_EFFORT`. Pi writes native MCP configuration for the same routd socket.
 
 ant does not implement an agent loop; it wraps one. `src/claude.ts`
 drives Claude Code via `@anthropic-ai/claude-agent-sdk` — spawn the
@@ -82,7 +82,7 @@ Extension recipe in `EXTENDING.md` § "Swapping the agent harness".
   check, the audit row and `CheckHold` like every other. A server the
   agent declares in `~/.claude/settings.json` is NOT read: that path
   handed tools straight to the harness and the agent writes that file
-  itself, so it was a self-grant (BUGS J1, F76).
+  itself. routd remains the tool authorization boundary.
 
 No arizuko tool is deferred: one server, `alwaysLoad`, so a turn's tool
 list holds every arizuko and connector tool the turn may call. Claude Code
@@ -205,8 +205,7 @@ and stops waiting for further input (`src/index.ts:40`).
 ## Contracts with the Go side
 
 Where Go produces a value and TypeScript reads it, a test reads both sources
-and fails when either side moves. Each of these broke production once, with
-no build failure and no log line.
+and fails when either side moves. The contract tests check both sources in one assertion.
 
 | Contract | Go side | TS side | Test |
 |---|---|---|---|
@@ -245,9 +244,7 @@ Custom skills remain writable. Package selection and updates follow
 
 `scripts/curate-skills.sh` classifies every skill by its SKILL.md content:
 arizuko-only when it mentions `@gated`, `@arizuko` or `gated.sock`,
-portable otherwise. 92 are portable and 1 is arizuko-only, `mcp` (measured
-at 7baffbb0). Every skill ships in `ant/skills/`; the partition moves
-nothing.
+portable otherwise. Every skill ships in `ant/skills/`; the classification does not move files.
 
 ## Build
 
@@ -282,3 +279,59 @@ ant/
   skills/                Stock skills
   Dockerfile             Builds arizuko-ant:latest (TS)
 ```
+
+## Process interfaces and configuration
+
+```text
+runed stdin payload ──► ant ──► Claude Code or Codex harness
+                         │
+                         ├──► /run/ipc/gated.sock ──► routd MCP
+                         └──► group home, transcripts, steering spool
+```
+
+ant is a per-turn process, not an HTTP daemon. It owns no store entities, resreg resources, metrics route, or health listener.
+The process reads its first JSON input from stdin and receives later input through `/run/ipc/input/`.
+MCP uses JSON-RPC over the routd Unix socket. `submit_turn`, `submit_status`, and `check_turn` are lifecycle calls, not delivery tools.
+Only explicit delivery tools publish a reply. Standard output and harness text do not establish successful delivery.
+runed supplies credentials and configuration; ant calls the model provider through the selected harness or gateway.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `ARIZUKO_HARNESS` | absent | Complete group harness JSON; replaces instance selection as a whole. |
+| `ARIZUKO_BACKEND` | `claude` | Backend when no harness document exists: claude, codex, pi. |
+| `ARIZUKO_MODEL`, `ARIZUKO_EFFORT` | native harness defaults | Model and effort without a group harness document. |
+| `ARIZUKO_QUERY_TIMEOUT_MS` | `900000` | Process deadline in milliseconds; runed normally supplies its derived ceiling. |
+| `ARIZUKO_IS_ROOT` | false | Literal `1` enables elevated prompt behavior; runed supplies it. |
+| `ARIZUKO_GH_WRITE` | false | Literal `1` allows the guarded GitHub write path. |
+| `ARIZUKO_PROGRESS` | false | Literal `1` forwards harness status text to routd. |
+| `MODEL_GATEWAY_URL`, `MODEL_GATEWAY_KEY` | unset | Gateway base and per-turn virtual credential; a configured gateway needs a key. |
+| `CODEX_HOME` | `/home/node/.codex` | Codex auth, rollout, and hook location. |
+| `CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_OAUTH_TOKEN`, `ANTHROPIC_API_KEY` | unset | Anthropic credentials from the rendered model profile. |
+| `CODEX_API_KEY`, `OPENAI_API_KEY` | unset | OpenAI credentials from the rendered model profile. |
+
+Pi maps `CLAUDE_CODE_OAUTH_TOKEN` to `ANTHROPIC_OAUTH_TOKEN` and `CODEX_API_KEY` to `OPENAI_API_KEY` only when the destination is absent.
+`ARIZUKO_ASSISTANT_NAME` is read from generated Claude settings for conversation export naming, not from ant's process env.
+Claude receives `CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS=1` from the adapter.
+Provider SDKs can consume their own environment variables; the table covers ant's explicit reads and credential mapping.
+The fixed ant home is `/home/node`; changing HOME does not move its explicit paths.
+
+## Timers and failure diagnosis
+
+IPC input polling and Claude's task-wait steering polling each run every 500 ms.
+The deadline note is scheduled five minutes before the process deadline; a run already inside that window gets no note.
+Status reminders use the `reminder_after_ms` value returned by routd, not a second fixed timer.
+A `_close` sentinel aborts the active query and stops further input waiting.
+The steering spool is the batch-file directory `/tmp/arizuko-steer`; policy logs use `/tmp/arizuko-policy`.
+Readers claim batches by rename; unclaimed batches stay for a later read.
+Transcripts and exported conversations live in the group home. runed owns the temporary guest filesystem and persistent mounts.
+
+A disconnected MCP socket prevents tools and terminal reporting. ant owns no durable result retry queue.
+Provider errors can produce a structured `provider_failure` report; routd owns retry timing and the instance breaker.
+Malformed harness JSON fails before a backend starts. Pi uses the same MCP boundary through its native mcp.json configuration.
+Grep `submit_status failed`, `Query timeout: process deadline reached, aborting`, and `Close sentinel detected during query`.
+There is no obs.Setup or OTLP exporter in ant; runed captures per-turn logs and routd records lifecycle results.
+Model credentials remain readable inside a direct-mode guest ([BUGS L131](../BUGS.md)).
+Local docs checks do not exercise a paid model turn; harness and contract tests provide separate behavior coverage.
+
+Sources: [entry point](src/index.ts), [harness selection](src/backend.ts), [Claude](src/claude.ts),
+[Codex](src/codex.ts), [pi](src/pi.ts), [gateway](src/gateway.ts), [rendered env](../runed/render.go).

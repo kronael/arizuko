@@ -121,15 +121,11 @@ Talking to an agent:
 - `group_rename.go`, `group_rename_files.go` and `group_rename_rows.go` implement the offline `group rename`.
 - `grant_canonical.go` holds the identity reader that the CLI uses where routd would federate to authd.
 
-## Coverage
+## Verification limits
 
-`go test ./cmd/arizuko/ -short -cover` reports 59.5%, measured in this pass. On a loaded host the run needs `-timeout 3600s`, because the default timeout of 10 minutes is too short. The gap is mostly one shape.
-
-The tests cover the parsing, planning and wire logic. The covered parts are the manifest readers, the apply plan, the package resolver, the `.env` parser, and both `send --wait` paths. Those paths are `streamRound` over SSE and `pollRound` as the fallback. `talk` is covered end to end against a real streamable-HTTP MCP server and an SSE stub (`talk_test.go`). The tests cover its argument grammar, config precedence, the 0600 refusal, folder resolution and one turn on the wire.
-
-The tests do not cover the `cmdX` subcommand entry points, and they cannot do so in-process. Each entry point ends at `die()` in `main.go`, which calls `os.Exit(1)`. A test that reaches `die` takes the whole test binary with it. That is a deliberate CLI shape: an operator wants a status code and one line on stderr, and not an error value passed back to `main`. So `make test-e2e` and `tests/` exercise the entry points end to end, and the unit tests here do not.
-
-The uncovered part is therefore mostly the `cmdX` entry points and not untested decisions. Each entry point is an argument unpack in front of a function that tests cover.
+Tests cover parsing, package resolution, planning, wire contracts, and stubbed MCP/SSE conversations.
+Local documentation checks do not exercise destructive CLI entry points, store enrollment, paid turns, or Docker deployment.
+The complete CLI/store suites need Docker and can exceed the default Go test timeout ([BUGS L398](../../BUGS.md)).
 
 ## Related docs
 
@@ -159,3 +155,60 @@ Execution creates a private `0700` journal outside the instance directory. `plan
 Rename moves package membership with each registered folder's rows. Package
 payloads stay under their shared names. Dry run writes nothing. Group deletion
 purges membership rows with the group; installed payload directories remain.
+
+## Environment and process state
+
+```text
+operator ──► arizuko ──► instance .env and env/operator.env
+                 │
+                 ├──► owner-prefixed store rows and local instance files
+                 ├──► Docker compose for lifecycle commands
+                 └──► daemon HTTP or MCP/SSE for remote commands
+```
+
+| Variable                                     | Default                           | Meaning                                                                             |
+| -------------------------------------------- | --------------------------------- | ----------------------------------------------------------------------------------- |
+| `DATA_DIR`                                   | unset                             | Direct instance directory when no instance name is supplied.                        |
+| `ARIZUKO_INSTANCE`                           | unset                             | Default instance selection when DATA_DIR is absent.                                 |
+| `FLAVOR`                                     | unset                             | Fallback default instance selection.                                                |
+| `ARIZUKO_DATA_DIR`                           | `/srv/data`                       | Parent of arizuko_<instance>; takes priority over PREFIX.                           |
+| `PREFIX`                                     | unset                             | Alternative parent is PREFIX/data.                                                  |
+| `USER`                                       | process user                      | CLI audit actor and attribution on direct store writes.                             |
+| `XDG_CONFIG_HOME`                            | HOME/.config                      | Parent of arizuko/talk.toml.                                                        |
+| `ARIZUKO_CHAT_URL`                           | unset                             | talk fallback public instance URL.                                                  |
+| `ARIZUKO_CHAT_TOKEN`                         | unset                             | talk fallback bearer or send route token; these commands use different token types. |
+| `ARIZUKO_CHAT_GROUP`                         | unset                             | talk fallback folder selection.                                                     |
+| `ROUTER_URL`                                 | unset                             | Remote model-pauses base URL when no URL flag is supplied.                          |
+| `ARIZUKO_TOKEN`                              | unset                             | Remote model-pauses bearer.                                                         |
+| `EXTENDDB_PASSWORD`                          | required for enrollment           | Store management admin password; never written to generated daemon env.             |
+| `DYNAMODB_URL`                               | required for store commands       | Instance store endpoint.                                                            |
+| `AWS_REGION`                                 | driver default us-east-1          | Store signing region; generate requires an explicit region.                         |
+| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | required                          | Operator store identity from env/operator.env.                                      |
+| `STORE_CA`                                   | unset in driver                   | Base64 PEM trust; generate validates external store configuration.                  |
+| `SECRETS_KEY`                                | required for secret writes/import | Instance keyring; first key seals, remaining keys decrypt.                          |
+| `RUNED_URL`, `RUNED_TOKEN`                   | http://runed:8080, empty          | Instance-file settings used by stop/hold operations.                                |
+| `WEB_HOST`, `AUTH_BASE_URL`                  | unset                             | Instance-file origins for public URLs and login links.                              |
+
+The CLI also parses command-specific instance configuration through core, compose, and package manifests.
+[core/config.go](../../core/config.go) and [compose](../../compose/README.md) declare those deployment inputs.
+The process loads `.env`, then overlays `env/operator.env`. Do not switch instances within one process ([BUGS L50](../../BUGS.md)).
+`StoreReach["cmd/arizuko"]` grants authd, onbod, and routd reach. Offline archive and rename paths can open explicitly selected owner handles.
+Authd keys are sensitive operator reads; ordinary runtime daemons do not receive the operator store key.
+The CLI owns no HTTP server, resreg resource, health/metrics endpoint, or persistent queue.
+It uses the owners' shared schema and handlers. It writes CLI audit events to the selected owner's audit log.
+
+## Waiting and failure behavior
+
+Direct `send --wait` reads replies every 1 s, waits up to 120 s for the first reply, and stops after 15 s of quiet.
+Route-token status fallback polls every 1 s. The send HTTP client uses 30 s; talk MCP calls use 60 s.
+`probe` uses a 10 s client timeout; `model-pauses` uses 15 s.
+A successful direct inject means queued input, not proof that runed started or that an answer reached a platform.
+Store failure returns a nonzero status; no local fallback database holds the write.
+Remote HTTP refusal or SSE failure reports the daemon error to the terminal.
+Interrupted file/store reconciliation can leave partial state; rerun only according to that command's atomicity and conflict rules.
+Grep the terminal for `Failed: inject`, `Failed: poll`, `round failed`, and the failing command's named path.
+The CLI has no daemon poll loop or automatic restart policy.
+
+Sources: [dispatch and paths](main.go), [instance arguments](instance_args.go), [send timers](send.go),
+[talk config](talk_config.go), [model pauses](model_pauses.go), [store enrollment](extenddb.go),
+[owner reach](../../store/owner_reach.go).

@@ -46,7 +46,7 @@ Partitions are per entity and not per daemon. The two entities in `runed/runstor
 
 ## Why the store has this shape
 
-1. **The engine is a server, not a library.** ExtendDB over PostgreSQL speaks the DynamoDB wire protocol. arizuko is one client of it, through a driver on the official SDK. No component holds a state of record on local disk. The protocol has transactions and conditional writes. It has a second implementation, and the same driver reaches the Amazon service when you change one `BaseEndpoint`.
+1. **The engine is a server, not a library.** ExtendDB over PostgreSQL speaks the DynamoDB wire protocol. arizuko is one client of it, through a driver on the official SDK. Go table state lives on the server. Local workspace files, Telegram offsets, and WhatsApp delivery ledgers have their own persistence contracts. The protocol has transactions and conditional writes. It has a second implementation, and the same driver reaches the Amazon service when you change one `BaseEndpoint`.
 2. **There is no database layer.** `objstore.Store` has two methods, `Query` and `GuardedBatch` (`objstore/objstore.go`). They come from the five operations that arizuko needs: containment by path prefix, the guarded batch, the versioned replace, the reachability guard and the claim-and-return. A caller states a coordinate and a condition and never a plan, so the engine can change without a rewrite. `TestNoPackageOpensSQL` in `tests/components/imports_test.go` fails the build if any package reaches `database/sql`.
 3. **A deployment is an account, not a database.** The `tables` registry is keyed by `(account_id, table_name)`. So one server can hold every instance on a host and keep them apart by account. A PostgreSQL role is not the tenancy boundary and must not serve as one.
 4. **The engine splits its own state in two.** `<data-db>` holds one PostgreSQL table per DynamoDB table. `<data-db>_catalog` holds accounts, IAM, the table registry and `settings`. The two differ in size, in read pattern and in what a restore destroys. So a control-plane read never contends with a scan of a tenant, and a restore of a tenant cannot take the account registry with it. The `connection_string` names the **catalog**, which is the root of discovery. `settings` carries the name and connection string of the data database, with the encryption key of the deployment.
@@ -177,7 +177,7 @@ go test ./objstore/... -race -run TestConformance          # the concurrent bodi
 
 The suite is the deliverable. A driver runs the identical bodies against every server, so an operation that a server cannot express does not go on the interface. A vendor API would impose that portability discipline for free.
 
-**A body earns its place by being able to fail.** Its authors watched it fail against a driver broken on purpose. The mutations were these:
+**A body earns its place by being able to fail.** The conformance bodies test deliberate mutations of these operations:
 
 - swap each key operator for its neighbour
 - widen containment
@@ -202,17 +202,36 @@ The protocols got the same treatment, and the mutation sized the code. These mut
 - the second marker read and the retry of a consistent read, and its held and missing refusals
 - the version guard of the graph, its retry, the transitive frontier and the seed of the walk
 
-A body that could not go red for one of these was rewritten until it could. Some bodies need two writers to interleave. Without a forced interleave such a body passes against broken code, so the suite forces it with `SlipAt`.
+Some bodies need two writers to interleave. Without a forced interleave such a body passes against broken code, so the suite forces it with `SlipAt`.
 
-## Coverage
+## Verification and operation limits
 
-`go test ./objstore/ -cover` reports 19.3%, measured in this pass. The number is an artefact. `ordered_test.go` is the only test file in the root package, because everything else here is a protocol that a driver has to run. Measured through the driver suite on 2026-09-14:
+The conformance suite exercises protocols through a driver, including conditional refusal and forced writer interleavings.
+A root-package coverage percentage does not measure driver-mediated protocol behavior.
+`-race` is required to check races; ordinary `make test` does not enable it.
+Local documentation checks do not run the driver/conformance suites or contact a live store server.
 
-```
-go test ./objstore/dynstore/ -coverpkg=github.com/kronael/arizuko/objstore
-→ 81.0% of statements in github.com/kronael/arizuko/objstore
-```
+## Environment and failures
 
-`dynstore` lands at 80.4%, where its own suite does. That run needs docker, and this pass did not repeat it, so both figures are the last recorded values. `conformance` and `dyntest` are test libraries and report 0.0% by construction. They have no tests of their own, because they are the tests.
+| Variable                                     | Default              | Meaning                                                                                     |
+| -------------------------------------------- | -------------------- | ------------------------------------------------------------------------------------------- |
+| `DYNAMODB_URL`                               | required for FromEnv | Store endpoint. Direct Dial can leave Endpoint empty to use Amazon resolution.              |
+| `AWS_REGION`                                 | us-east-1            | Store signing region.                                                                       |
+| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | required             | Explicit static credentials; no ambient SDK credential chain.                               |
+| `STORE_CA`                                   | unset                | Base64 PEM certificate added to system roots. This is certificate content, not a file path. |
+| `ARIZUKO_TEST_DYNAMO_ENDPOINT`               | unset                | Test-only pre-existing endpoint; otherwise dyntest starts a container.                      |
+| `ARIZUKO_TEST_DYNAMO_CA`                     | unset                | Test-only PEM certificate path.                                                             |
 
-`make test` passes no `-race`, so it proves nothing about the concurrency bodies. Name the flag when you report this package green.
+The driver checks configuration before requests. Missing credentials, invalid base64, or an invalid certificate return an error.
+Each HTTP attempt has a 30 s timeout. SDK retries can make a whole operation take longer.
+`GuardedBatch` returns `(false, nil)` for a failed condition and `(false, error)` for a transport or service fault.
+A lost response is not proof of non-commit; caller protocols must reconcile ambiguous outcomes.
+The client has no local durable queue, fallback engine, or daemon reconnection loop.
+The shared ExtendDB deployment can fail independently of an arizuko process ([BUGS L650](../BUGS.md)).
+
+objstore is a library. It owns no application entities, process listener, resreg resource, MCP/IPC socket, health endpoint, or metrics route.
+`CreateEntity` belongs to the driver; Query and GuardedBatch remain the storage port.
+Daemons choose owner prefixes and report store errors through their own logs, audit, health, or retry loops.
+
+Sources: [port](objstore.go), [driver config and timeout](dynstore/dynstore.go),
+[environment](dynstore/env.go), [query](dynstore/query.go), [batch](dynstore/batch.go), [test endpoint](dynstore/dyntest/dyntest.go).

@@ -44,7 +44,7 @@ and why. The table is the summary; the file is the authority.
 | `routes`                | `seq`, padded so text order is precedence, then target and match | `id` minted through `counters`, observe-window caps, `added_by` and `added_via`. `added_via` names the act, `picker` or `sole_world` for onbod, so a reader learns who wrote a rule without knowing which daemon did                                                                                |
 | `route_tokens`          | the sha256 of the token                                          | JID, owner folder, context, `kind`: `route` for a delivery bearer, `pair` for an identity link                                                                                                                                                                                                      |
 | `web_routes`            | the path prefix                                                  | `access`, redirect target, owning folder                                                                                                                                                                                                                                                            |
-| `proxyd_routes`         | the path                                                         | backend, auth. proxyd owns every write                                                                                                                                                                                                                                                              |
+| `proxyd_routes`         | the path                                                         | backend, auth. proxyd serves runtime CRUD; compose and package installation also write owned route rows                                                                                                                                                                                             |
 | `acl`                   | principal, action, scope, params, predicate, effect              | `granted_by`, `granted_at`, `grant_option`                                                                                                                                                                                                                                                          |
 | `acl_membership`        | child and parent                                                 | `added_by`, `added_at`. Roles and JID-to-sub claims share it                                                                                                                                                                                                                                        |
 | `secrets`               | scope kind, scope id, key                                        | `value`, sealed AES-256-GCM, `created_at`. Surrogate OAuth adds `provider`, `refresh_val`, sealed like `value`, `expires_at` and `scope_list` to the same item, so an OAuth connect at `GITHUB_TOKEN` takes the item a pasted PAT at that key held. `provider` present is what marks the OAuth half |
@@ -107,10 +107,7 @@ the table.
   `authd/authstore`, `runed/runstore`, `emaid/emaistore`,
   `chanlib/chanstore`, `dashd/dashstore`. `audit` and `store` get none.
 
-A `*Store` built over a pool holds it and reaches the entities through the
-driver over it (`Store.Obj`); one handed a handle holds no pool at all, so
-`Close` ends nothing and every daemon's `defer Close` stays correct either
-way.
+`Store.Obj` returns the object-store handle. Production uses dynstore without a local pool; `Close` performs the opener's cleanup when supplied.
 
 Two cursors, `chats.agent_cursor` and `sessions.observed_cursor`, are copies of a
 `messages.timestamp` compared back against that column, so both are declared
@@ -121,8 +118,8 @@ ahead of the rows it is compared against re-feeds consumed messages (BUGS
 
 ## Public API
 
-The doors are in `served.go`, and they are the only place the served/file
-branch is written:
+The doors are in `served.go`, and they are the only place the endpoint-opening
+policy is written:
 
 - `Handle(owner) (*dynstore.Store, error)` — dials one owner's tables; makes
   nothing
@@ -133,14 +130,14 @@ branch is written:
 - `PrepareOwner(ctx, d, owner, extra…)` — makes what one owner serves; the
   OWNER daemon calls it at boot, a reader never does
 - `EnsureEntities(ctx, d, owner)` — the entity set that owner holds
-- `TestNamespace()`, `TestOwner(owner, extra…)` — one test's own private table
+- `TestNamespace()`, `TestOwner(owner, extra...)` — one test's own private table
   namespace, and the release that drops it
 - `NewOver(obj objstore.Store) *Store` — wrap a handle
 
 Primary methods (by domain):
 
 - Messages: `PutMessage`, `NewMessagesForChat`, `MessagesSince`, `EnrichMessage`, `MarkMessagesErrored`, `DeleteErroredMessages`, `LatestSource`
-- Groups: `PutGroup`, `DeleteGroup`, `AllGroups`, `GroupByFolder`, `SetGroupModel`
+- Groups: `PutGroup`, `DeleteGroup`, `AllGroups`, `GroupByFolder`, `SetGroupSettings`
 - Sessions: `GetSession`, `SetSession`, `EnsureTopicLineage`, `ForkTopic`, `TopicLineage` — the run history is runed's, over its own `/v1`
 - Sticky: `StickyPins` (both at once), `SetStickyGroup`, `SetStickyTopic`
 - People: `CreateUserProfile`, `Username`, `SetUsername`, `ProfileNames`, `UserCap`, `SetUserCap` — one item per sub in `user_profiles`. Account linking lives in authd (`auth_users` + `oauth_identities`), not here.
@@ -153,9 +150,7 @@ Primary methods (by domain):
 - Secrets: `SetSecret`, `GetSecret`, `ListSecrets`, `SecretKeysIn`,
   `DeleteSecret`, `FolderSecretsResolved` (walk parents → root),
   `CountPlaintextSecrets` + `EncryptPlaintextSecrets`
-  (seal legacy rows in place; driven by `arizuko secret -i <inst> seal-legacy`,
-  never on boot — the boot-time `PurgeUnencryptedSecrets` they replaced wiped
-  every secret on each startup).
+  (seal unprefixed rows in place through the explicit CLI command).
   AES-256-GCM encrypted at rest under the `v2:` prefix; key derived via SHA-256
   from the `SECRETS_KEY` env var, which is REQUIRED — every write path refuses
   without it rather than storing plaintext (BUGS S2). A legacy un-prefixed row
@@ -177,15 +172,12 @@ inline injection. `ObservedSince` feeds the `<observed>` block, and
 `AdvanceObservedCursor` moves each topic's cursor independently and forward
 only (`ROUTING.md` § Topic Routing).
 
-## Coverage
+## Verification limits
 
-`go test ./store/ -short -cover` reports 64.9% (2026-09-13), and the gap is
-concentrated rather than spread: `import_routd.go` and `import_hot.go` are the
-target halves of the one-way copy into the entity shape and have no caller in
-the tree — tests here and in `cmd/arizuko` are what exercise them.
-
-The rest of the shortfall is error returns on paths the engine decides: a
-driver refusal every caller reports and no test provokes.
+Store tests exercise schema, guarded transitions, indexes, containment, and fault paths against a DynamoDB endpoint.
+`OpenMem` uses a private remote test namespace; it is not an in-process production fallback.
+[BUGS L650](../BUGS.md) records shared store-server memory pressure; the library does not restart or resize that server.
+Local documentation checks do not exercise the store suite or prove live server capacity.
 
 ## Dependencies
 
@@ -203,3 +195,39 @@ driver refusal every caller reports and no test provokes.
 ## Related docs
 
 - `ARCHITECTURE.md` § Data ownership
+
+## Ownership and connection configuration
+
+| Owner or reader     | Reach and responsibility                                                                                              |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| routd               | Prepares its entities in EntitiesByOwner plus audit_log and resreg_scopes.                                            |
+| onbod               | Prepares onboarding, onboarding_gates, invites, invite_redemptions, audit_log, and resreg_scopes; also reaches routd. |
+| authd, runed        | Prepare entities declared in their own storage packages, under their own prefix.                                      |
+| dashd               | Reaches routd and onbod; owns no entities.                                                                            |
+| webd, proxyd        | Reach routd; own no schema.                                                                                           |
+| gitd, googd, slakd  | Reach routd plus their own adapter prefix.                                                                            |
+| teled, discd, emaid | Reach only their adapter prefix.                                                                                      |
+| ttsd                | Opens no store.                                                                                                       |
+| cmd/arizuko         | Ordinary reach is authd, onbod, routd; offline operations can use explicit owner credentials.                         |
+
+[StoreReach](owner_reach.go) declares daemon access, not table ownership. [EntitiesByOwner](entities.go) declares the store package's owned entities.
+The driver renders tables as `<owner>.<entity>`. Libraries carry no runtime identity or path-derived owner selection.
+
+| Variable                                     | Default   | Meaning                                                                  |
+| -------------------------------------------- | --------- | ------------------------------------------------------------------------ |
+| `DYNAMODB_URL`                               | required  | Endpoint selected by FromEnv.                                            |
+| `AWS_REGION`                                 | us-east-1 | Signing region.                                                          |
+| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | required  | Caller identity; FromEnv does not use an SDK credential-discovery chain. |
+| `STORE_CA`                                   | unset     | Base64 PEM certificate added to system trust.                            |
+| `ARIZUKO_DEFAULT_PRODUCT`                    | unset     | Default product for SeedDefaultGroup; the caller supplies it.            |
+
+`store` itself hosts no HTTP routes, MCP socket, resreg resource, metrics endpoint, or background loop.
+The daemon decides retry, retention, health, and audit policy. All production row state lives at the configured endpoint.
+`OpenOwner` probes the owner's required entity and refuses an unprepared owner. A reader never creates the schema.
+Driver attempts time out after 30 s and can retry through the AWS SDK; a complete operation can take more than 30 s.
+A guarded refusal returns false/nil at objstore; WriteEntities converts an unexpected refusal to ErrRefused.
+TryWriteEntities preserves a normal conditional refusal. Always distinguish refusal from transport failure.
+No local database takes over after a server fault. Caller logs identify the failed entity or operation.
+
+Sources: [opening and preparation](served.go), [entity sets](entities.go), [version markers](scopes.go),
+[driver environment](../objstore/dynstore/env.go), [driver timeouts](../objstore/dynstore/dynstore.go).
