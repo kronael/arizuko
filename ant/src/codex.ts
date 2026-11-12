@@ -295,9 +295,11 @@ export function creditsOf(before: CodexLimits | undefined, after: CodexLimits | 
 }
 
 // codex reports no cost; tokens land, cost_cents stays 0 — honest, not derived.
+// codex's input_tokens counts the cached share too, so input is the rest: the
+// uncached input claude and pi report.
 function usageOf(u: CodexUsage): ModelUsage {
   return {
-    input: u.input_tokens ?? 0,
+    input: Math.max(0, (u.input_tokens ?? 0) - (u.cached_input_tokens ?? 0)),
     output: u.output_tokens ?? 0,
     cache_read: u.cached_input_tokens ?? 0,
     cache_write: u.cache_write_input_tokens ?? 0,

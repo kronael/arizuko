@@ -49,7 +49,7 @@ test('CodexTurn: the recorded stream yields continuity, status, then one ok resu
   expect(result.ok).toBe(true);
   expect(result.text).toBe('pong');
   expect(result.usage).toEqual({
-    codex: { input: 29536, output: 5, cache_read: 9984, cache_write: 0, cost_cents: 0 },
+    codex: { input: 19552, output: 5, cache_read: 9984, cache_write: 0, cost_cents: 0 },
   });
   expect(turn.done).toBe(true);
   // The terminal already fired; process exit must not add a second result.
@@ -83,7 +83,7 @@ test('a resumed turn reports its usage since the thread total it started from', 
   const result = frames[0];
   if (result.kind !== 'result') throw new Error('expected result frame');
   expect(result.usage).toEqual({
-    codex: { input: 441_113, output: 1_500, cache_read: 400_000, cache_write: 0, cost_cents: 0 },
+    codex: { input: 41_113, output: 1_500, cache_read: 400_000, cache_write: 0, cost_cents: 0 },
   });
 });
 
