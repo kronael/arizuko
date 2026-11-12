@@ -3,7 +3,7 @@
 A GitHub repository's events reach the agent as ordinary messages. gitd is a
 channel adapter like `slakd`: it receives signed webhook deliveries, maps each
 to `chanlib.InboundMsg` rows and POSTs them to routd. Everything the agent does
-BACK to the repo — merge, label, review, close — goes through the GitHub MCP
+to manage the repo, including merge, label, review, and close, goes through the GitHub MCP
 connector (`template/connectors/github.toml`), not through channel verbs.
 
 ## Delivery sources
@@ -175,16 +175,6 @@ conversation, add one route above the fallback, for example
 ([`ROUTING.md`](../ROUTING.md)). gitd carries no flag for this.
 Repo rows sit at seq 10/100, org at 20/200, app at
 30/300, so a narrower registration wins. Operators can edit the route rows.
-A source registered before issue and repository mention rows existed has only
-the `pr/*` one. For a `repo/o/r` source on folder `eng` the operator adds the
-others, same seq as the existing mention row (`10`; `20` for an org, `30` for an
-App, with the owner row last):
-
-```
-arizuko route -i demo add 'chat_jid=github:o/r/issue/* verb=mention' 'eng#{jid}' --seq 10
-arizuko route -i demo add 'chat_jid=github:o/r verb=mention' 'eng#{jid}' --seq 10
-```
-
 Subscribe to `issue_comment`, `issues`, `pull_request`, `pull_request_review`,
 `pull_request_review_comment` and `pull_request_review_thread` for PR and issue
 conversations and state; add `discussion`, `discussion_comment`, `commit_comment`
@@ -283,6 +273,65 @@ channel after three probes and take ingress with it.
 | `CHANNEL_NAME`            | `github`                 | the channel name gitd registers under                                                  |
 | `LISTEN_URL`              | `http://gitd:8080`       | the URL gitd registers with routd                                                      |
 | `GITHUB_APP_ACCEPTS_REPO` | unset                    | `1` lets an App source accept a repository delivery with no installation (BUGS `L409`) |
+
+## HTTP and store boundary
+
+```text
+GitHub webhook ──► proxyd /github/ ──► gitd:8080 ──► routd:8080
+gitd ──► authd:8080 and the store
+routd ──► gitd:8080 ──► GitHub API
+```
+
+| Method and path                                                                                                                    | Access and behavior                                                         |
+| ---------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| `POST /github/<kind>/<name>`                                                                                                       | Public webhook; source-specific HMAC and payload containment checks.        |
+| `POST /send`, `/send-file`                                                                                                         | `service:routd`; keyed comment delivery and text-file rendering.            |
+| `POST /send-voice`, `/typing`, `/post`, `/like`, `/delete`, `/forward`, `/quote`, `/repost`, `/dislike`, `/edit`, `/pin`, `/unpin` | `service:routd`; supported actions or 501 hints.                            |
+| `GET /health`                                                                                                                      | Public; receiver liveness, last inbound time, and pending inbound count.    |
+| `GET /dash/gitd/`                                                                                                                  | Proxyd-attested operator; shared adapter page and source delivery evidence. |
+
+There is no resreg resource, MCP socket, `/openapi.json`, or `/metrics` mount in gitd.
+The GitHub source REST and MCP management surface belongs to routd.
+`StoreReach["gitd"]` opens `routd` and `gitd`.
+`routd.github_sources` holds sealed webhook secrets and source metadata.
+`gitd.outbound_dedup` holds delivery claims and platform IDs.
+`gitd.inbound_pending` holds retained webhook messages and retry schedules.
+`gitd.ack_marks` records acknowledgement reactions; `gitd.file_urls` is also prepared by the common opener.
+gitd owns no persistent local queue or workspace files.
+
+The following shared variables also reach gitd:
+
+| Variable                                     | Default        | Meaning                                                  |
+| -------------------------------------------- | -------------- | -------------------------------------------------------- |
+| `AUTHD_URL`, `AUTHD_SERVICE_KEY`             | required       | authd URL and bootstrap key for outbound service tokens. |
+| `AUTHD_SERVICE_NAME`                         | `CHANNEL_NAME` | Set `gitd` for exchange and dashboard identity.          |
+| `DYNAMODB_URL`                               | required       | Store endpoint.                                          |
+| `AWS_REGION`                                 | `us-east-1`    | Store signing region.                                    |
+| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | required       | Store identity authorized for both owner prefixes.       |
+| `STORE_CA`                                   | unset          | Base64 PEM certificate; unset uses system trust.         |
+| `ARIZUKO_INSTANCE`                           | unset          | Observability instance label.                            |
+| `LOG_LEVEL`                                  | `info`         | JSON stderr verbosity.                                   |
+| `OTEL_EXPORTER_OTLP_ENDPOINT`                | unset          | Optional OTLP logs.                                      |
+
+## Retention and recovery
+
+Initial router registration or store setup failure exits. Heartbeat registration runs every 3 minutes.
+Each router call has a 60 s timeout. Inbound makes two immediate attempts with a 500 ms wait.
+The retention sweep runs every 15 s with a 50-row batch.
+The first retained retry waits 30 s; repeated failures double the wait to 15 minutes.
+400, 403, 413, and 422 refuse permanently; network faults, 401, 429, and 5xx retain the row.
+The acknowledgement mark has a 10 minute backstop and a startup cleanup sweep.
+API calls use a 15 s client timeout. Graceful HTTP shutdown allows 10 s.
+
+A store outage can stop source lookup before retention can run ([BUGS L816](../BUGS.md)).
+GitHub does not automatically retry these failed deliveries; use Recent deliveries to redeliver after recovery.
+`/health` does not prove store availability or permission to post a reply.
+Grep `retained inbound still undelivered`, `inbound retain failed`, `routd store open failed`, and `github identity still unanswered`.
+The GitHub 5xx non-delivery classification remains a design concern ([BUGS L434](../BUGS.md)).
+A connector using another identity can reintroduce own comments ([BUGS L420](../BUGS.md)).
+
+Sources: [boot and credential retry](main.go), [webhook handler](server.go),
+[retention](../chanlib/inbound.go), [store reach](../store/owner_reach.go).
 
 ## Delivery response
 

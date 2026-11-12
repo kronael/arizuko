@@ -61,7 +61,7 @@ The "Agents & AI Apps" feature of Slack gives the bot a dedicated sidebar pane. 
 
 MCP-driven control, one-shot per outbound message:
 
-- `POST /v1/pane/prompts {jid, prompts}` is gated by the channel secret. It stages prompts on the bot for the next Send into that pane. It returns 404 when the jid does not map to an open pane, and `chanreg` maps that answer to `chanlib.ErrUnsupported`.
+- `POST /v1/pane/prompts {jid, prompts}` requires the `service:routd` ES256 bearer. It stages prompts on the bot for the next Send into that pane. It returns 404 when the jid does not map to an open pane, and `chanreg` maps that answer to `chanlib.ErrUnsupported`.
 - `POST /v1/pane/title {jid, title}` has the same shape and stages a one-shot title.
 
 routd reaches both endpoints through `SetSuggestions` and `SetName` of `chanreg.HTTPChannel`. slakd is the only adapter that implements them.
@@ -74,24 +74,24 @@ Pane reads open the owner of routd (`store.OpenOwner(store.OwnerRoutd)`) for `pa
 
 ## Configuration
 
-```
-SLACK_BOT_TOKEN=xoxb-...      required (Bot User OAuth Token)
-SLACK_SIGNING_SECRET=...      required (Slack App → Basic Information)
-ROUTER_URL=http://routd:8080  required
-AUTHD_URL=http://authd:8080   JWKS and service-token exchange; unset leaves the adapter auth open (local development)
-AUTHD_SERVICE_KEY=...         exchanged for service:slakd
-AUTHD_SERVICE_NAME=slakd      exchange principal, the DAEMON name and not CHANNEL_NAME; also names the /dash/ path
-LISTEN_ADDR=:8080             internal HTTP listener
-LISTEN_URL=http://slakd:8080  URL the router uses to reach slakd
-ASSISTANT_NAME=...            shown in the pane title (<name> — chat); unset gives "chat"
-DATA_DIR=...                  state dir of slakd; holds the record of watched messages (default /srv/app/home/store/slakd)
-SLAKD_USERS_CACHE_TTL=900     users.info and conversations.info TTL, in seconds
-MEDIA_MAX_FILE_BYTES=20971520 cap of the file proxy
-CHANNEL_NAME=slack            registration name
-SLAKD_STALE_SECONDS=300       inbound silence past this makes the watchdog probe auth.test
-SLAKD_WATCHDOG_SECONDS=60     watchdog re-check interval
-SLAKD_STALE_FAIL_LIMIT=5      consecutive auth.test failures, while stale, before os.Exit(1) restarts the daemon
-```
+| Variable                 | Code default                | Meaning                                                                                      |
+| ------------------------ | --------------------------- | -------------------------------------------------------------------------------------------- |
+| `SLACK_BOT_TOKEN`        | `required`                  | required (Bot User OAuth Token)                                                              |
+| `SLACK_SIGNING_SECRET`   | `required`                  | required (Slack App → Basic Information)                                                     |
+| `ROUTER_URL`             | `required`                  | required                                                                                     |
+| `AUTHD_URL`              | `required`                  | JWKS and service-token exchange; unset leaves the adapter auth open (local development)      |
+| `AUTHD_SERVICE_KEY`      | `required`                  | exchanged for service:slakd                                                                  |
+| `AUTHD_SERVICE_NAME`     | `CHANNEL_NAME`              | exchange principal, the DAEMON name and not CHANNEL_NAME; also names the /dash/ path         |
+| `LISTEN_ADDR`            | `:8080`                     | internal HTTP listener                                                                       |
+| `LISTEN_URL`             | `http://slakd:8080`         | URL the router uses to reach slakd                                                           |
+| `ASSISTANT_NAME`         | `empty`                     | shown in the pane title (<name> — chat); unset gives "chat"                                  |
+| `DATA_DIR`               | `/srv/app/home/store/slakd` | state dir of slakd; holds the record of watched messages (default /srv/app/home/store/slakd) |
+| `SLAKD_USERS_CACHE_TTL`  | `900`                       | users.info and conversations.info TTL, in seconds                                            |
+| `MEDIA_MAX_FILE_BYTES`   | `20971520`                  | cap of the file proxy                                                                        |
+| `CHANNEL_NAME`           | `slack`                     | registration name                                                                            |
+| `SLAKD_STALE_SECONDS`    | `300`                       | inbound silence past this makes the watchdog probe auth.test                                 |
+| `SLAKD_WATCHDOG_SECONDS` | `60`                        | watchdog re-check interval                                                                   |
+| `SLAKD_STALE_FAIL_LIMIT` | `5`                         | consecutive auth.test failures, while stale, before os.Exit(1) restarts the daemon           |
 
 `AUTHD_SERVICE_NAME` must be the daemon name (`slakd`) and not `CHANNEL_NAME` (`slack`). authd seeds and grants `service:<daemon>`, so a mismatch gives a 401 on every outbound call. Multi-account variants share the base principal.
 
@@ -108,11 +108,11 @@ SLAKD_STALE_FAIL_LIMIT=5      consecutive auth.test failures, while stale, befor
 
 ## Health signal
 
-`GET /health` returns 503 when `auth.test` has not succeeded, for example when the token is revoked, the network is down or Slack is down. The body is `{"status":"disconnected"}`. `auth.test` is the honest liveness signal. A `healthProbe` goroutine runs it every 60 s, and the watchdog runs it whenever inbound is stale. The result flips `isConnected()`, and with it the 503. A silently paused event subscription that leaves the token valid is caught the same way, as the watchdog below describes.
+`GET /health` returns 503 when `auth.test` has not succeeded, for example when the token is revoked, the network is down or Slack is down. The body is `{"status":"disconnected"}`. `auth.test` is the honest liveness signal. A `healthProbe` goroutine runs it every 60 s, and the watchdog runs it whenever inbound is stale. The result flips `isConnected()`, and with it the 503. A paused event subscription with a valid token remains indistinguishable from a quiet workspace.
 
 **Inbound staleness is informational and is not a 503.** `GET /health` reports `{"status":"stale","stale_seconds":N}` with status 200 when the last inbound message is older than 5 minutes. That threshold is the `defaultStaleThreshold` of `chanlib` and `SLAKD_STALE_SECONDS` does not change it. A quiet workspace is normal and must not be marked unhealthy. A 503 on stale-but-connected would restart the container of a workspace that is only quiet. Death detection lives entirely in `auth.test` and never in silence.
 
-A watchdog goroutine runs on the `SLAKD_WATCHDOG_SECONDS` cadence. When inbound is older than `SLAKD_STALE_SECONDS`, it runs `auth.test` again. That is the only recovery that slakd can perform itself, because there is no socket to reconnect. Silence alone never restarts the container. Stale inbound with a passing `auth.test` counts as merely quiet. A restart would drop the POSTs that Slack has in flight. Slack disables a subscription after repeated failed deliveries, so a restart on silence would cause the failure that it tries to cure. The watchdog calls `os.Exit(1)` only when the channel is stale and `auth.test` fails for `SLAKD_STALE_FAIL_LIMIT` consecutive ticks. The policy `restart: on-failure` in `template/services/slakd.yml` then re-creates the container. This is the backstop for a dead subscription. A single inbound message, or a single passing `auth.test`, resets the streak. The watchdog logs a warning only when the state changes to quiet and when it changes back. So a quiet workspace does not fill the log.
+A watchdog goroutine runs on the `SLAKD_WATCHDOG_SECONDS` cadence. When inbound is older than `SLAKD_STALE_SECONDS`, it runs `auth.test` again. That is the only recovery that slakd can perform itself, because there is no socket to reconnect. Silence alone never restarts the container. Stale inbound with a passing `auth.test` counts as merely quiet. A restart would drop the POSTs that Slack has in flight. Slack disables a subscription after repeated failed deliveries, so a restart on silence would cause the failure that it tries to cure. The watchdog calls `os.Exit(1)` only when the channel is stale and `auth.test` fails for `SLAKD_STALE_FAIL_LIMIT` consecutive ticks. The policy `restart: on-failure` in `template/services/slakd/slakd.yml` then re-creates the container. A valid token cannot establish whether Slack enabled event delivery. A single inbound message, or a single passing `auth.test`, resets the streak. The watchdog logs a warning only when the state changes to quiet and when it changes back. So a quiet workspace does not fill the log.
 
 ## Threat model
 
@@ -131,7 +131,7 @@ proxyd must forward `X-Slack-Signature`, `X-Slack-Request-Timestamp` and the raw
 - `main.go` loads the env and wires `chanlib.Run`. It sets `b.files = srv.files` before `b.start` to avoid a race with inbound events.
 - `bot.go` dispatches Events API events, verifies signatures, holds the Slack Web API client and the TTL caches.
 - `server.go` serves `/slack/events`, `/slack/interactivity`, the `/files/<id>` proxy, the pane endpoints and the chanlib adapter mux.
-- `jid.go` parses and formats `slack:<workspace>/<kind>/<id>` strictly.
+- `chanlib/slack_jid.go` parses and formats `slack:<workspace>/<kind>/<id>` strictly.
 
 ## Out of scope
 
@@ -143,3 +143,49 @@ proxyd must forward `X-Slack-Signature`, `X-Slack-Request-Timestamp` and the raw
 ## Related docs
 
 - [`chanlib/README.md`](../chanlib/README.md) describes the channel protocol that every adapter speaks.
+
+## Store, routes, and recovery
+
+```text
+Slack Events API ──► proxyd /slack/ ──► slakd:8080 ──► routd:8080
+routd ──► slakd:8080 ──► Slack Web API
+slakd ──► authd:8080 and the store
+```
+
+| Method and path                                                                                                                                           | Access                                                       |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| `POST /slack/events`, `/slack/interactivity`                                                                                                              | Slack HMAC; raw request body must survive proxyd forwarding. |
+| `POST /send`, `/send-file`, `/send-voice`, `/typing`, `/post`, `/like`, `/delete`, `/forward`, `/quote`, `/repost`, `/dislike`, `/edit`, `/pin`, `/unpin` | `service:routd`; unsupported verbs return 501.               |
+| `POST /v1/pane/prompts`, `/v1/pane/title`, `GET /files/<id>`                                                                                              | `service:routd`.                                             |
+| `GET /health`, `GET /dash/slakd/`                                                                                                                         | Public health; proxyd-attested operator dashboard.           |
+
+slakd mounts no resreg resources, MCP socket, `/openapi.json`, or `/metrics`.
+`StoreReach["slakd"]` opens `slakd` plus `routd` for pane reads.
+The `slakd.*` entities are `outbound_dedup` for keyed send results, `inbound_pending` for retry payloads,
+`file_urls` for attachment URLs, and `ack_marks` for active reactions.
+The `routd.pane_sessions` rows hold pane context; writes go through routd's HTTP API.
+`DATA_DIR` is loaded into config but does not select a local adapter database or queue.
+User and conversation caches and the sent-message filter are process-local.
+
+| Shared variable                              | Default     | Meaning                                          |
+| -------------------------------------------- | ----------- | ------------------------------------------------ |
+| `DYNAMODB_URL`                               | required    | Store endpoint.                                  |
+| `AWS_REGION`                                 | `us-east-1` | Store signing region.                            |
+| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | required    | Store identity.                                  |
+| `STORE_CA`                                   | unset       | Base64 PEM certificate; unset uses system trust. |
+| `ARIZUKO_INSTANCE`                           | unset       | Observability label.                             |
+| `LOG_LEVEL`                                  | `info`      | JSON stderr verbosity.                           |
+| `OTEL_EXPORTER_OTLP_ENDPOINT`                | unset       | Optional OTLP log export.                        |
+
+The Go entry point requires authd URL and key. Initial registration, store open, or `auth.test` failure exits.
+Registration repeats every 3 minutes. Router calls time out after 60 s and inbound tries twice with a 500 ms wait.
+Failed inbound messages enter a 15 s sweep, up to 50 rows, with 30 s exponential backoff capped at 15 minutes.
+Permanent routd refusals (400, 403, 413, 422) drop the retained row with an error log.
+If both routd and retention fail after Slack receives its acknowledgement, the event can be lost.
+Keyed text and file sends claim before posting; ambiguous results retain the claim and a repeat returns 409.
+A store failure refuses a keyed send before posting. `/health` can remain connected during that outage.
+The watchdog prunes sent-message entries older than 10 minutes. Graceful HTTP shutdown allows 10 s.
+Grep `slack auth.test failed`, `channel heartbeat failed`, `inbound retain failed`, and `ack mark: record failed`.
+
+Sources: [entry point](main.go), [Slack API and watchdog](bot.go), [webhooks](server.go),
+[shared retention](../chanlib/inbound.go), [store reach](../store/owner_reach.go).

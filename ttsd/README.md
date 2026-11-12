@@ -1,66 +1,55 @@
 # ttsd
 
-Thin OpenAI-compatible TTS proxy. Default backend is Kokoro-FastAPI
-(`remsky/kokoro-fastapi-cpu` or `:gpu`); operators who run Piper, Coqui,
-or OpenAI cloud override `TTS_BACKEND_URL` and skip the bundled service.
+ttsd proxies the OpenAI-compatible speech API to a configured backend. routd calls ttsd to synthesize audio before channel delivery.
+ttsd owns no store tables, persistent files, outbound queue, or model process.
 
-## Why a wrapper
-
-Pins arizuko's TTS contract to the OpenAI `/v1/audio/speech` shape so
-the gateway, ttsd, and any future drop-in (third-party API, local model
-swap) speak the same protocol. Adds a `/health` endpoint matching the
-rest of arizuko's adapter healthcheck convention. routd does not read it:
-`TTS_ENABLED` is static, and when the backend is down a `send_voice` call
-fails with a synthesize error that the agent sees.
-
-## Endpoints
-
-- `GET /health` → 200 `{status:"ok", name:"ttsd"}` when the backend is
-  reachable; 503 `{status:"disconnected", name:"ttsd"}` otherwise.
-  Probes backend's `/health` endpoint; falls back to `HEAD /` if the
-  backend lacks `/health`.
-- `POST /v1/audio/speech` → forwards verbatim to the backend.
-  Request body: `{model, voice, input, response_format}` per OpenAI.
-  Response: audio bytes (`audio/ogg`, `audio/mpeg`, etc).
-- `GET /v1/voices` → forwards verbatim. Convenience for listing voices
-  on Kokoro-FastAPI.
-
-Returns 502 when the backend is unreachable during a proxy request.
-
-## Dashboard
-
-`GET /dash/ttsd/` shows the backend URL, whether it answers, and how long
-the probe took. It is read-only and operator-only, through the shared
-`auth.RequireOperator` gate (`dash.go`).
-
-## Config
-
-| env               | default              | meaning                              |
-| ----------------- | -------------------- | ------------------------------------ |
-| `TTSD_ADDR`       | `:8880`              | listen address                       |
-| `TTS_BACKEND_URL` | `http://kokoro:8880` | backend OpenAI-compatible TTS server |
-| `LOG_LEVEL`       | `info`               | `debug` / `info` / `warn` / `error`  |
-
-## Running
-
-```bash
-# Use bundled Kokoro:
-docker run -d --name kokoro -p 8881:8880 ghcr.io/remsky/kokoro-fastapi-cpu:latest
-docker run -d --name ttsd -p 8880:8880 -e TTS_BACKEND_URL=http://localhost:8881 arizuko-ttsd:latest
-
-# Use external (e.g. OpenAI cloud):
-docker run -d --name ttsd -p 8880:8880 \
-  -e TTS_BACKEND_URL=https://api.openai.com \
-  arizuko-ttsd:latest
+```text
+routd ──► ttsd:8880 ──► kokoro:8880 or TTS_BACKEND_URL
+proxyd ──► /dash/ttsd/ operator page
 ```
 
-Auth forwarding: front the backend with proxyd or your infrastructure's
-auth layer. ttsd itself has no auth logic.
+## HTTP interfaces
 
-## Testing
+| Method and path         | Behavior and access                                                      |
+| ----------------------- | ------------------------------------------------------------------------ |
+| `POST /v1/audio/speech` | Proxies JSON speech request and audio response verbatim. No bearer gate. |
+| `GET /v1/voices`        | Proxies the backend voice list. No bearer gate.                          |
+| `GET /health`           | Public backend reachability probe; 200 `ok` or 503 `disconnected`.       |
+| `GET /dash/ttsd/`       | Operator-only backend URL, reachability, and probe duration.             |
 
-```bash
-make test
-```
+There are no resreg resources, MCP tools, IPC sockets, `/openapi.json`, or `/metrics` route.
+The dashboard verifies proxyd's operator identity through `chanlib.AuthdKeys` when `AUTHD_URL` is set.
+Speech and voice routes have no application authentication. Keep the service on the internal network or front it with an auth gate.
+`StoreReach["ttsd"]` is empty. ttsd makes no store or router request.
 
-Runs unit tests against an in-memory backend stub (no Kokoro required).
+## Configuration
+
+| Variable                      | Default              | Meaning                                                                              |
+| ----------------------------- | -------------------- | ------------------------------------------------------------------------------------ |
+| `TTSD_ADDR`                   | `:8880`              | Listener. The bundled compose fragment also sets `:8880`; `LISTEN_ADDR` is not read. |
+| `TTS_BACKEND_URL`             | `http://kokoro:8880` | Backend base URL.                                                                    |
+| `AUTHD_URL`                   | unset                | Dashboard JWKS verification; unset opens the shared development gate.                |
+| `ARIZUKO_INSTANCE`            | unset                | Observability instance label.                                                        |
+| `LOG_LEVEL`                   | `info`               | JSON stderr level: debug, info, warn, error.                                         |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | unset                | Optional OTLP logs through [obs](../obs/README.md).                                  |
+
+routd's `TTS_ENABLED`, `TTS_BASE_URL`, `TTS_VOICE`, and `TTS_MODEL` select speech generation at the caller.
+They are not ttsd environment reads. [routd](../routd/README.md) documents them.
+
+## Probes, failures, and limits
+
+Probes run per health or dashboard request; there is no periodic backend loop.
+Each backend probe call has a 3 s timeout. A `GET /health` response below 500 counts as reachable, including 404.
+After a failed or 5xx health probe, ttsd tries `HEAD /` and accepts any response below 500.
+A reachable server with a broken speech model can therefore report healthy.
+
+The proxy returns 502 and logs `backend proxy error` on a transport failure.
+ttsd does not retry or retain failed synthesis requests. routd sees the synthesis error.
+The HTTP server sets a 30 s read timeout and 60 s write timeout. Signal shutdown allows 5 s.
+Grep `ttsd listening`, `invalid TTS_BACKEND_URL`, `backend proxy error`, and `graceful shutdown failed`.
+The adapter health loop does not discover or withdraw TTS capabilities; routd's TTS setting is static.
+
+Tests use an HTTP backend stub. Local checks do not verify Kokoro voice availability or cloud authentication.
+
+Sources: [entry point, proxy, and probes](main.go), [dashboard](dash.go),
+[bundled fragment](../template/services/ttsd/ttsd.yml), [routd synthesis](../routd/tts.go).

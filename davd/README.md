@@ -1,52 +1,62 @@
 # davd
 
-WebDAV daemon: per-group workspace browser/editor.
+davd serves group workspaces through WebDAV and a browser file UI. The image wraps the upstream `dufs` binary in Alpine.
+It owns no store entities, identities, sessions, or application configuration.
 
-## Purpose
+[proxyd](../proxyd/README.md) enforces authentication, group scope, and write permissions before requests reach davd.
 
-Exposes `<DATA_DIR>/groups/` over WebDAV using `sigoden/dufs`
-(single Rust binary, ships UI). Wrapped in alpine to add the
-arizuko-standard `wget` healthcheck (`dufs` is distroless).
+```text
+browser or WebDAV client ──► proxyd /dav/ ──► davd:8080 /data
+                                               │
+                                               ▼
+                                      DATA_DIR/groups on disk
+```
 
-## Responsibilities
+## Interfaces and trust
 
-- Serve `/data` (mounted from `<DATA_DIR>/groups/`) over HTTP +
-  WebDAV on `:8080`. Write enforcement lives upstream in proxyd's
-  `davAllow` guard, not at the volume mount.
-- Nothing else. Auth and per-group scoping happen upstream in
-  `proxyd`; davd has no notion of identity.
+| Interface                                             | Behavior                                                                  |
+| ----------------------------------------------------- | ------------------------------------------------------------------------- |
+| `/` and workspace paths                               | dufs directory UI and WebDAV methods on `/data`.                          |
+| `/dav/` on proxyd                                     | User-authenticated entry; proxyd strips the prefix and confines the path. |
+| `/health`, `/openapi.json`, `/metrics`, `/dash/davd/` | Not mounted by arizuko. Health probes use `/`.                            |
 
-## Entry points
+There are no resreg resources, MCP tools, IPC sockets, or calls to routd or authd.
+Compose declares `depends_on: [routd]`; davd does not call routd.
+The backend has no arizuko identity checks. Keep access behind proxyd.
+`--allow-all` permits writes at the dufs layer; proxyd's `davAllow` guard decides which client writes may pass.
 
-- Image: `arizuko-davd:latest` (built from `davd/Dockerfile`)
-- Listen: `:8080`
+## State and configuration
 
-## Dependencies
+Compose mounts the instance's `groups` directory read/write at `/data`.
+Workspace files are davd's only persistent state. `store.StoreReach` has no davd entry because davd never opens a store.
 
-- Binary: `sigoden/dufs` (upstream)
-- Wrapper base: `alpine:3.20` (for `wget` + `ca-certificates`)
+| Setting          | Default                         | Meaning                                                                   |
+| ---------------- | ------------------------------- | ------------------------------------------------------------------------- |
+| dufs command     | `--port 8080 --allow-all /data` | Generated command; davd reads no arizuko environment variables.           |
+| `WEBDAV_ENABLED` | unset                           | Compose input that enables the profile and `/dav/` route.                 |
+| `DAV_PORT`       | unset                           | Compose input for an optional `127.0.0.1:<DAV_PORT>:8080` mapping.        |
+| `DATA_DIR`       | instance configuration          | Compose input selecting the host `groups` mount; not a davd process read. |
 
-## Configuration
+Edit instance configuration and regenerate compose through the CLI. See [installation](../INSTALL.md).
+The Dockerfile uses `sigoden/dufs:latest` and `alpine:3.20`; the repository does not pin the dufs binary digest.
 
-None — the binary is invoked with `--port 8080 /data` from compose.
-The volume mount and the `WEBDAV_ENABLED` toggle live in the `compose/`
-generator, which also hardcodes the `/dav/` route's backend as
-`http://davd:8080`. There is no backend-URL env var.
+## Health and failure diagnosis
 
-## Health signal
+Docker probes `GET /` every 30 s, with a 3 s wget timeout, 5 s healthcheck timeout, and 10 s start period.
+Three failed probes mark the container unhealthy. The generated restart policy is `on-failure`.
+An unhealthy status alone does not restart a running container.
 
-`GET /` returns 200 (dufs index). Healthcheck probes that with a
-3-second `wget` timeout. dashd's hub tile probes `GET /` for the same
-reason.
+A store or router outage does not stop an established dufs server from serving files.
+A missing, unreadable, full, or read-only mount causes file operations to fail at the backend.
+There is no arizuko retry queue or scheduler in this image.
+Inspect container health, dufs stderr, and proxyd access/auth failures when `/dav/` fails.
+There is no `obs.Setup`, OTLP export, or Prometheus instrumentation in the wrapper.
 
-## No dashboard
+## Limits and source evidence
 
-davd serves no `/dash/davd/` and has no route for one. davd is dufs with no
-arizuko code: it holds no session list, no disconnect verb and no
-`/health`, so a dashboard would have nothing of its own to show. Its hub
-tile shows the probe and does not link.
+The repository contains a Dockerfile and compose invocation, not dufs source or WebDAV integration tests.
+The health probe establishes index reachability; it does not test authenticated writes, group confinement, or disk capacity.
+Live upstream WebDAV behavior is not verified by local documentation checks.
 
-## Related docs
-
-- `proxyd/README.md` — `/dav/*` routing, the auth model and the `davAllow`
-  write-block guard
+Sources: [image](Dockerfile), [compose command](../compose/compose.go 'davdService'),
+[proxy enforcement](../proxyd/main.go 'davAllow').

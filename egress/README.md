@@ -3,15 +3,15 @@
 A forward HTTP/CONNECT proxy that allows one fixed list of hosts, for one
 client. `runed` starts one per turn and stops it with the turn.
 
-What it does: read the destination out of the request the client sends,
-match the NAME against the deny list first and the allowlist second, resolve
-it once, refuse the ADDRESS if it is a class no sandbox may reach, and dial
-exactly that address. That is all of it.
+The proxy checks the peer IP, destination name, and resolved address before it dials the selected address.
+It tunnels TLS without decrypting traffic. [runed](../runed/README.md) supplies the per-turn rules and network isolation.
 
-What it does not do: terminate TLS, hold a CA, read request bodies, keep a
-registry, serve an admin API, intercept traffic addressed elsewhere, or
-filter DNS. Every one of those existed to let ONE proxy serve MANY tenants;
-one proxy per sandbox needs none of them.
+```text
+agent guest ──► egress --client <guest-ip> ──► permitted upstream
+                  │
+                  ▼
+            fixed name and address checks
+```
 
 ## Use
 
@@ -162,5 +162,33 @@ Private addresses are NOT refused by default — a per-spawn proxy shares the
 compose network with the daemons, so private is an ordinary neighbour here.
 `--deny-private` is for a deployment whose allowlist names nothing internal.
 
-Nothing is decrypted. This is address hygiene, not interception; MITM stays
-declined (2026-08-18).
+The proxy applies address checks without decrypting TLS.
+
+## Runtime and failure diagnosis
+
+| Interface                   | Behavior                                                     |
+| --------------------------- | ------------------------------------------------------------ |
+| Absolute-form HTTP requests | Forward through the same host and address checks as CONNECT. |
+| `CONNECT <host>:<port>`     | Tunnel bytes after peer, name, and address checks.           |
+| Origin-form `GET /health`   | Public readiness signal; bypasses the client-IP restriction. |
+
+The binary owns no store entities or persistent files. `StoreReach` has no egress entry.
+There is no resreg resource, MCP socket, `/openapi.json`, `/metrics`, or authd dependency.
+runed starts egress as a per-turn child, not a shared compose service.
+
+Flags override environment defaults. Any nonempty boolean environment value, including `0` or `false`, enables that flag.
+The binary does not read `LOG_LEVEL`, `ARIZUKO_INSTANCE`, or OTLP settings; it logs JSON to stderr at info level.
+Rules and DNS results are not a durable queue. No scheduler, polling loop, or upstream retry runs in egress.
+DNS or dial failure returns 502. Policy refusal returns 403; changing the token or application request cannot repair that refusal.
+A router or store outage does not affect a proxy already running with its fixed rules.
+
+The dial timeout is 10 s. HTTP header reads allow 5 s and upstream response headers allow 30 s.
+Idle upstream connections expire after 90 s; forwarded plain HTTP requests have a 60 s client timeout.
+Signal shutdown allows 5 s. CONNECT tunnels have no application idle timer.
+Grep `egress up`, `deny peer`, `deny connect`, `deny http`, `deny address`, and `fail upstream`.
+A 200 health probe proves the listener and rules are ready, not that every allowed upstream answers.
+
+Tests cover matching, blocked address classes, CONNECT, and real socket forwarding.
+Network namespace and firewall enforcement belong to runed; egress alone cannot stop direct sockets that bypass the proxy.
+
+Sources: [binary configuration](cmd/egress/main.go), [timeouts and proxy](proxy.go), [address checks](address.go).

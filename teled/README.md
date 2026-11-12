@@ -1,117 +1,101 @@
 # teled
 
-Telegram channel adapter.
+teled connects a Telegram bot to routd. It owns the polling offset and the `teled.*` adapter entities.
+Telegram holds inbound updates until teled advances the offset after routd accepts them.
 
-## Purpose
+[Architecture](../ARCHITECTURE.md) covers the system; [channel protocol](../chanlib/README.md) defines the shared wire format.
 
-Bridges Telegram Bot API to the router. Long-polls Telegram for updates,
-posts inbound messages and reactions to `/v1/messages`, exposes the
-universal verb surface for outbound. Serves `/files/<fileID>` as a CDN
-proxy because Telegram bot-token URLs are short-lived.
+```text
+Telegram Bot API ──► teled ──► routd:8080
+routd ──► teled:8080 ──► Telegram Bot API
+teled ──► authd:8080 and the store
+```
 
-## Verb coverage
+## HTTP interfaces
 
-| Verb         | Telegram primitive             | Status                                        |
-| ------------ | ------------------------------ | --------------------------------------------- |
-| `send`       | `sendMessage`                  | native                                        |
-| `send_file`  | `sendPhoto`/`Video`/`Document` | native (extension-routed)                     |
-| `send_voice` | `sendVoice`                    | native (PTT audio messages)                   |
-| `reply`      | `sendMessage` + `reply_to`     | native (folded into `send`)                   |
-| `post`       | `sendMessage` to channel chat  | native (text only; media → send_file)         |
-| `like`       | `setMessageReaction`           | native (defaults to 👍)                       |
-| `dislike`    | —                              | hint → `like(emoji='👎')`                     |
-| `delete`     | `deleteMessage`                | native                                        |
-| `forward`    | `forwardMessage`               | native (`source_msg_id="<chatJid>\|<id>"`)    |
-| `quote`      | —                              | hint → `reply`                                |
-| `repost`     | —                              | hint → `forward`                              |
-| `edit`       | `editMessageText`              | native (own messages only)                    |
-| `typing`     | `sendChatAction`               | native (refreshed every 5 s)                  |
-| `pin`        | `pinChatMessage`               | native                                        |
-| `unpin`      | `unpinChatMessage`             | native (single message or all via `all=true`) |
+| Method and path                                                                                          | Caller and behavior                                                           |
+| -------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `POST /send`, `/send-file`                                                                               | routd; text or multipart file delivery with an optional `idempotency_key`.    |
+| `POST /send-voice`, `/typing`                                                                            | routd; audio upload or activity indicator.                                    |
+| `POST /post`, `/like`, `/delete`, `/forward`, `/quote`, `/repost`, `/dislike`, `/edit`, `/pin`, `/unpin` | routd; platform actions. Unsupported actions return 501.                      |
+| `GET /health`                                                                                            | Public platform status and pending inbound count.                             |
+| `GET /dash/<daemon>/`                                                                                    | Operator page; compose supplies the daemon name through `AUTHD_SERVICE_NAME`. |
+| `GET /files/<file-id>`                                                                                   | routd bearer; resolves Telegram `getFile` and streams the attachment.         |
 
-`fetch_history` returns `source: "unsupported"` — Telegram's Bot API has
-no per-chat history surface; the gateway falls back to its local cache.
+The standard adapter routes use `chanlib.Auth`: only `service:routd` passes when `AUTHD_URL` is set.
+The dashboard accepts the proxyd-attested operator identity.
+The Go entry point requires `AUTHD_URL` and `AUTHD_SERVICE_KEY` even though the shared handler supports an open development gate.
+This daemon mounts no resreg resources, MCP socket, `/openapi.json`, or `/metrics`.
+Agent messaging tools run in routd and call these HTTP routes.
 
-## Limitations
+Startup registration, store setup, or listener failure exits the process.
+The router client registers again every 3 minutes and tries inbound delivery twice, with a 500 ms wait between attempts.
+Each router HTTP call has a 60 s timeout. Graceful HTTP shutdown allows 10 s.
+`/health` returns 503 for a disconnected platform and 200 for connected or `stale` status.
+A failed pending-count read logs `health: pending inbound count failed`; it does not change the HTTP status.
+A healthy adapter does not prove routd accepted messages.
 
-- Reactions are constrained to a per-chat allow-list set by the chat
-  admins; `setMessageReaction` 400s for emojis outside that list.
-- `delete` requires `can_delete_messages` admin right for messages
-  authored by other users; the bot can always delete its own messages
-  within 48 h.
-- `edit` only works on the bot's own messages and within 48 h.
-- `post` to a channel requires the bot to be added as a channel admin
-  with post rights.
-- Inline keyboards / buttons are not exposed (out of universal verb set).
-- Long-poll only; no webhook mode.
+## State and delivery
 
-## Responsibilities
+`StoreReach["teled"]` opens only `teled`. No routd table is opened directly.
+`DATA_DIR/teled-offset-<CHANNEL_NAME>` stores the next update ID through a synced temporary file and rename.
+An unreadable offset file aborts startup. An offset save failure logs a warning; three consecutive failures exit the process.
+The file is independent of the remote adapter store. Mount the directory across container recreation.
 
-- Authenticate with `TELEGRAM_BOT_TOKEN`, long-poll `getUpdates` with
-  `allowed_updates=["message","message_reaction"]`.
-- Read the numeric bot id from `getMe` before registering
-  `telegram:<bot_id>/` and `telegram:group/` with routd.
-- Post inbound messages and added emoji reactions with DM JIDs
-  `telegram:<bot_id>/user/<user_id>` and group JIDs `telegram:group/<id>`.
-  Group JIDs omit the minus sign. Senders and pairing identities use
-  `telegram:user/<user_id>` across bot accounts.
-- Persist poll offset under `$DATA_DIR/teled-offset-<name>` (atomic write).
-- Proxy Telegram file downloads through `/files/<fileID>`.
+| Entity            | Contents                                                                 |
+| ----------------- | ------------------------------------------------------------------------ |
+| `outbound_dedup`  | Delivery key, inflight claim, settled platform ID.                       |
+| `inbound_pending` | Retained inbound payload and retry schedule, where retention is enabled. |
+| `file_urls`       | Opaque attachment IDs and platform download URLs, where used.            |
+| `ack_marks`       | Per-chat acknowledgement reaction and expiry, where used.                |
 
-## Entry points
-
-- Binary: `teled/main.go`
-- Listen: `$LISTEN_ADDR` (code default `:9001`; deployment TOML sets `:8080`)
-- Capabilities advertised: `send_text`, `send_file`, `send_voice`, `typing`,
-  `post`, `fwd`, `edit`, `like`, `delete`, `pin`.
-
-## Dependencies
-
-- `chanlib` (Run, RouterClient, NewAdapterMux, env helpers, ClassifyEmoji)
-- `matterbridge/telegram-bot-api/v6` (typed Message, raw `do()` for
-  Bot API methods added after v6.5: `setMessageReaction`, `deleteMessage`,
-  `getUpdates` with reactions)
+The adapter creates these entities through `chanlib.OpenAdapterStore`.
+`/send` and `/send-file` deduplicate keyed deliveries. Other verbs do not use that ledger.
+An uncertain platform outcome keeps the claim; another attempt returns 409 for operator review.
+A proven non-delivery can release the claim. Store failure refuses a keyed send before a platform call.
 
 ## Configuration
 
-- `TELEGRAM_BOT_TOKEN` — Telegram Bot API token (required)
-- `ROUTER_URL` — routd URL (required)
-- `AUTHD_URL`, `AUTHD_SERVICE_KEY`, `AUTHD_SERVICE_NAME` — exchanged for a
-  `service:teled` ES256 token presented on every routd call
-- `LISTEN_ADDR` — HTTP listen address (default `:9001`)
-- `LISTEN_URL` — public URL for `/files/` proxy (default `http://telegram:9001`)
-- `CHANNEL_NAME` — adapter instance name (default `telegram`)
-- `DATA_DIR` — directory for poll offset persistence (default `/srv/app/home`)
-- `MEDIA_MAX_FILE_BYTES` — max file size for `/files/` proxy (default 20 MiB)
-- `ASSISTANT_NAME` — bot name for mention rewriting (optional)
+Defaults below come from the Go code. Container fragments set `LISTEN_ADDR=:8080` and advertise the compose service on port 8080.
 
-## Health signal
+| Variable                                     | Code default                | Meaning                                                                                          |
+| -------------------------------------------- | --------------------------- | ------------------------------------------------------------------------------------------------ |
+| `TELEGRAM_BOT_TOKEN`                         | required                    | Telegram bot credential; startup calls the Bot API.                                              |
+| `ROUTER_URL`                                 | required                    | routd base URL, normally `http://routd:8080`.                                                    |
+| `CHANNEL_NAME`                               | `telegram`                  | Registration name and offset-file suffix.                                                        |
+| `LISTEN_ADDR`                                | `:9001`                     | Code listener; compose uses `:8080`.                                                             |
+| `LISTEN_URL`                                 | `http://telegram:9001`      | Advertised address; compose uses `http://teled:8080`.                                            |
+| `DATA_DIR`                                   | `/srv/app/home/store/teled` | Directory for the polling offset.                                                                |
+| `ASSISTANT_NAME`                             | empty                       | Mention detection and bot-name replacement.                                                      |
+| `MEDIA_MAX_FILE_BYTES`                       | `20971520`                  | Maximum proxied download size in bytes.                                                          |
+| `AUTHD_URL`                                  | required                    | authd URL, normally `http://authd:8080`; JWKS and service-token exchange.                        |
+| `AUTHD_SERVICE_KEY`                          | required                    | Bootstrap secret exchanged for a service JWT.                                                    |
+| `AUTHD_SERVICE_NAME`                         | channel name                | Exchange as the base daemon name; compose sets this explicitly. Also selects the dashboard path. |
+| `DYNAMODB_URL`                               | required                    | Store endpoint; tables use the daemon's fixed prefix.                                            |
+| `AWS_REGION`                                 | `us-east-1`                 | Store signing region.                                                                            |
+| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | required                    | This daemon's store identity.                                                                    |
+| `STORE_CA`                                   | unset                       | Base64 PEM certificate for the store endpoint; unset uses system trust.                          |
+| `ARIZUKO_INSTANCE`                           | unset                       | Observability instance label.                                                                    |
+| `LOG_LEVEL`                                  | `info`                      | JSON stderr log level: debug, info, warn, error.                                                 |
+| `OTEL_EXPORTER_OTLP_ENDPOINT`                | unset                       | Optional OTLP log export; see [obs](../obs/README.md).                                           |
 
-`GET /health` is chanlib's: 503 `{status:"disconnected"}` when the long-poll
-fails, 200 `{status:"stale"}` when no inbound arrived in the last 5 min, and
-200 `{status:"ok"}` otherwise. A quiet chat is normal, so it never 503s.
+## Loops and failure diagnosis
 
-## Endpoints
+The adapter registers `telegram:<bot-id>/` and `telegram:group/`.
+`getUpdates` uses a 30 s long poll. A failed poll sets disconnected and waits 3 s before retrying.
+A failed routd delivery stops the offset from advancing; Telegram supplies the update again.
+Typing refreshes every 5 s with a 10 minute maximum lifetime.
+Connected inbound silence over 5 minutes reports `stale` with HTTP 200.
+Grep `telegram auth failed`, `getUpdates failed`, `offset save failed`, and `adapter store open failed`.
+A failed initial Telegram authentication exits before the HTTP listener starts.
 
-- `GET /health` — connection status
-- `GET /files/<fileID>` — proxies Telegram file downloads (auth-protected)
-- Standard adapter surface mounted by `chanlib.NewAdapterMux` (`/send`,
-  `/send-file`, `/send-voice`, `/typing`, `/post`, `/forward`, `/quote`,
-  `/repost`, `/edit`, `/like`, `/dislike`, `/delete`, `/pin`, `/unpin`), each
-  behind `chanlib.Auth`
-- `GET /dash/teled/` — the operator page. Every Go adapter gets it from
-  `chanlib/dash.go`, mounted inside `NewAdapterMux`, so there is no
-  per-adapter code. It is routed by DAEMON name (`AUTHD_SERVICE_NAME`), never
-  by platform — deriving it from the platform made every adapter dashboard 404
-  at its own URL
+## Limits and verification
 
-## Files
+Advertised verbs: text, file, voice, typing, post, forward, edit, reaction, delete, pin, buttons, and thread IDs.
+`quote`, `repost`, and `dislike` return hints. Use a negative emoji with `like`.
+The Bot API supplies no history fetch; routd serves stored history.
+A task targeting a permanently dead Telegram chat still requires an operator decision ([BUGS L159](../BUGS.md)).
+Bot API behavior and live credentials are not verified by local documentation checks.
 
-- `main.go` — config, capability map, wiring via `chanlib.Run`
-- `bot.go` — long-poll loop, verb implementations, `do()` helper for raw Bot API calls
-- `server.go` — `/files/` proxy handler
-
-## Related docs
-
-- [`chanlib/README.md`](../chanlib/README.md) — the channel protocol every adapter speaks
-- `EXTENDING.md` (adding a channel)
+Sources: [configuration](main.go), [polling and actions](bot.go), [file proxy](server.go); [shared runtime](../chanlib/run.go), [router client](../chanlib/chanlib.go),
+[HTTP handlers](../chanlib/handler.go), [store reach](../store/owner_reach.go).

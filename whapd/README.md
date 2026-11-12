@@ -14,7 +14,7 @@ until scanned.
 - Pair via QR, maintain Baileys websocket.
 - Post inbound as `whatsapp:<jid>` to router; download media.
 - Handle social-action HTTP surface (see Verb support).
-- Back up `creds.json` atomically; recover from `.bak` on crash.
+- Back up `creds.json`; recover from `.bak` on crash.
 - Hold no outbound queue of its own: `/send` returns 502 when the socket is
   down or the send throws, and routd's durable retry sweep owns the retry.
 
@@ -44,9 +44,9 @@ until scanned.
 
 ## Entry points
 
-- Binary: `whapd/dist/main.js` (built via `bun build` or `tsc`)
+- Binary: `whapd/dist/main.js` (built with `tsc`)
 - Image: `whapd/Dockerfile`
-- Listen: `$LISTEN_ADDR` (code default `:9002`; deployment TOML sets `:8080`)
+- Listen: `$LISTEN_ADDR` (code default `:9002`; compose fragment sets `:8080`)
 - Router registration: `whatsapp:` prefix.
 
 ## Dependencies
@@ -56,12 +56,21 @@ until scanned.
 
 ## Configuration
 
-- `WHATSAPP_AUTH_DIR` (default `$DATA_DIR/store/whatsapp-auth`)
-- `WHAPD_STATE_DIR` (default `$DATA_DIR/store/whapd`) — the outbound dedup
-  ledger. MUST be mounted: an unmounted one forgets every claim on recreate,
-  which is the same as having none.
-- `ROUTER_URL`, `AUTHD_URL`, `AUTHD_SERVICE_KEY`, `AUTHD_SERVICE_NAME`, `LISTEN_ADDR`, `LISTEN_URL`
-- `ASSISTANT_NAME`, `DATA_DIR`
+| Variable             | Code default                    | Meaning                                                                             |
+| -------------------- | ------------------------------- | ----------------------------------------------------------------------------------- |
+| `ROUTER_URL`         | required                        | routd URL, normally `http://routd:8080`.                                            |
+| `LISTEN_ADDR`        | `:9002`                         | Code listener; compose sets `:8080`.                                                |
+| `LISTEN_URL`         | `http://whapd:9002`             | Advertised callback; compose sets `http://whapd:8080`.                              |
+| `DATA_DIR`           | empty                           | Base for default auth and ledger directories.                                       |
+| `WHATSAPP_AUTH_DIR`  | `/srv/data/store/whatsapp-auth` | With DATA_DIR set, defaults to `DATA_DIR/store/whatsapp-auth`; pairing credentials. |
+| `WHAPD_STATE_DIR`    | `/srv/data/store/whapd`         | With DATA_DIR set, defaults to `DATA_DIR/store/whapd`; delivery ledgers.            |
+| `ASSISTANT_NAME`     | empty                           | Own-echo display-name filter, lowercased.                                           |
+| `AUTHD_URL`          | unset                           | JWKS verification and service-token exchange; unset opens the development gate.     |
+| `AUTHD_SERVICE_NAME` | `whapd`                         | Base daemon principal for the exchange.                                             |
+| `AUTHD_SERVICE_KEY`  | required with authd             | Bootstrap secret.                                                                   |
+
+whapd does not read `CHANNEL_NAME`, `DYNAMODB_URL`, `LOG_LEVEL`, or OTLP settings.
+The registration name is fixed to `whatsapp`. Mount both credential and ledger directories across recreation.
 
 ## Outbound dedup
 
@@ -99,7 +108,7 @@ failure.
 whapd never exits on a failed registration: it retries. A restart loop would
 race Baileys' non-atomic writes of `creds.json` and corrupt the session.
 whapd copies `creds.json` to `creds.json.bak` and restores the copy when a
-crash left the live file empty. After 10 failed reconnects in a row it exits,
+crash left the live file empty. After more than 10 failed reconnects in a row it exits,
 and the container restart takes over.
 
 ## Re-pairing without the log
@@ -141,3 +150,45 @@ The dashboard shows the pair-flow state as its own section (`src/dash.ts`).
 ## Related docs
 
 - [`chanlib/README.md`](../chanlib/README.md) — the channel protocol and the delivery contract whapd keeps by hand
+
+## HTTP routes and retained inbound
+
+```text
+WhatsApp socket ──► whapd ──► routd:8080
+routd ──► whapd:8080 ──► WhatsApp socket
+whapd ──► authd:8080; credentials and ledgers on disk
+```
+
+| Method and path                                         | Access and behavior                                     |
+| ------------------------------------------------------- | ------------------------------------------------------- |
+| `POST /send`, `/send-file`, `/send-voice`               | `service:routd`; text, multipart attachments, or audio. |
+| `POST /typing`, `/like`, `/delete`, `/edit`, `/forward` | `service:routd`; socket actions.                        |
+| `POST /quote`, `/repost`, `/dislike`, `/post`           | `service:routd`; 501 hints.                             |
+| `POST /v1/pair/start`, `GET /v1/pair/status`            | `service:routd`; pairing flow.                          |
+| `GET /health`                                           | Public; socket liveness and inbound age.                |
+| `GET /dash/whapd/`                                      | Proxyd-attested operator.                               |
+
+There are no store tables, resreg resources, MCP socket, `/openapi.json`, or `/metrics` endpoint.
+Baileys auth files, `creds.json`, and `creds.json.bak` live in `WHATSAPP_AUTH_DIR`.
+`WHAPD_STATE_DIR/outbound-dedup` holds one JSON record per delivery key.
+`WHAPD_STATE_DIR/inbound-pending` holds message payloads before WhatsApp receives the read receipt.
+The startup sweep and a 30 s interval replay retained messages oldest first and stop at the first failed delivery.
+Accepted messages leave the ledger. Failed retention withholds the receipt and logs the failure.
+Reaction events do not use this inbound ledger.
+
+Registration retries forever with a linear 2 s delay per failure capped at 30 s.
+The TypeScript client has no periodic registration heartbeat or explicit fetch timeout.
+Socket reconnect waits 3 s, doubling to 60 s; successful connection resets the count.
+A logged-out session or status 405 keeps the process up and suspends reconnect until re-pairing.
+Typing refreshes every 15 s with a 10 minute backstop.
+
+Grep `session invalidated`, `router registration failed, retrying`, `inbound sweep stopped`,
+`retaining an inbound message failed`, and `the inbound ledger is unreadable`.
+Application logs use the local JSON logger; Baileys logs through pino at warn level.
+The health probe does not verify ledger readability or routd delivery.
+Stale health differs from Go adapters ([BUGS L484](../BUGS.md)).
+The dashboard pairing proxy presents a caller whapd refuses ([BUGS L492](../BUGS.md)).
+A live invalidated pairing needs the operator's phone ([BUGS L63 and L42](../BUGS.md)).
+
+Sources: [runtime and env](src/main.ts), [HTTP and health](src/server.ts), [router client](src/client.ts),
+[inbound ledger](src/retain.ts), [pair flow](src/bot.ts), [service fragment](../template/services/whapd/whapd.yml).
