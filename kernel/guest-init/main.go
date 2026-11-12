@@ -380,7 +380,8 @@ type treeEntry struct {
 	// RO is enforced by the host, which remounts each read-only bind before
 	// virtiofsd starts (runed/vmtree.go bindAll). The guest remounts it
 	// read-only too, so its mount table states what the host declared: ant's
-	// pi trusts a native login only on a mount listed `ro` (specs/7/60).
+	// pi trusts a native login only on a mount listed `ro`
+	// (specs/7/60-pi-bridge.md).
 	RO bool `json:"ro"`
 }
 

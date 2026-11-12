@@ -434,7 +434,7 @@ for a probe that exhausts its retries. No test — design.
   after `retryAt`'s first delay (30 s); (b) a breaker per folder, the provider
   refusal staying instance-wide; (c) keep the hour.
 - **Default if nothing is decided:** (c).
-## L828 — pi refuses the lent Codex login in a QEMU guest: the read-only file bind reads as `rw` (2026-11-12)
+## ✅ FIXED 2026-11-12 9bcbb4927 L828 — pi refuses the lent Codex login in a QEMU guest: the read-only file bind reads as `rw` (2026-11-12)
 
 MEASURED 2026-11-12 22:39 UTC on sloth (v0.75.10, `ARIZUKO_BACKEND=pi`,
 `openai-codex/gpt-6.1-sol`): ant exited in 5 s with `pi source is not on a
@@ -446,16 +446,24 @@ makes that bind read-only on the host. `kernel/guest-init/main.go` `rootPlan`
 then binds `/turn/home/node/.codex/auth.json` over the guest path without
 `MS_RDONLY`: the manifest's `ro` is read and dropped. Writes still fail with
 `EROFS` at virtiofsd, but the guest's `/proc/self/mountinfo` lists the bind as
-`rw`, and `ant/src/pi.ts` `readMountedFile` requires `ro` (specs/7/60). The
-7/60 smoke ran in a rootfs overlay, never through guest-init.
+`rw`, and `ant/src/pi.ts` `readMountedFile` requires `ro`
+(`specs/7/60-pi-bridge.md`). The 7/60 smoke ran under a docker read-only bind,
+never through guest-init.
 
 - **Severity:** high — pi cannot use the lent Codex login on the QEMU substrate.
-- **Measured:** `kernel/guest-init/main_test.go::TestRootPlanMirrorsTheHostsManifest`
-  (the read-only families carry no read-only remount).
+- **Status:** fixed in 9bcbb4927; not deployed. Deploying needs a kernel
+  artifact rebuild: guest-init is in the initrd and in `KERNEL_KEY`.
+  `kernel/guest-init/main_test.go::TestRootPlanMirrorsTheHostsManifest` fails
+  without the fix (11 mounts, want 13) and with the remount's `MS_RDONLY`
+  dropped. Real guest, 2026-11-12, kernel-6.1.112-98fca67feca3 and
+  rootfs-5aa0ae1f225b in an isolated privileged container, `ant/smoke/pi-bridge.ts`
+  as the turn's entry with the login and `/mnt/pi/models.json` as `ro` file
+  mounts: the shipped initrd lists both binds `rw` and ant refuses; the same
+  initrd with the fixed guest-init appended lists both `ro` and all 14 smoke
+  checks pass.
 - **Fix:** `rootPlan` follows each `ro` bind with a read-only remount, as the
   host's `bindAll` does, so the guest's mount table states the host's
-  declaration. Deploying it needs a kernel artifact rebuild: guest-init is in
-  the initrd and in `KERNEL_KEY`.
+  declaration.
 
 ## ✅ FIXED 2026-11-12 e082ff796 L821 — routd re-reads every chat from the store every 2 s, so the shared store runs out of CPU and no message dispatches (2026-11-12)
 
