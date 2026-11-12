@@ -58,8 +58,8 @@ type OK struct {
 }
 
 // TurnResult is the submit_turn payload. Models is the harness's own report of
-// the turn's usage, which routd stores as the turn's usage rows (spec 6/39
-// § The turn usage record).
+// the turn's usage, which routd stores as the turn's usage rows
+// (specs/6/39-gateway-owns-spend.md §"The turn usage record").
 type TurnResult struct {
 	TurnID    string                `json:"turn_id"`
 	SessionID string                `json:"session_id"`

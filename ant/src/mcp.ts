@@ -5,8 +5,9 @@ const MCP_SOCK = '/run/ipc/gated.sock';
 
 // ModelUsage is one model's accounting for THIS turn, never a session total,
 // as the harness reports it. routd stores it as the turn's usage row and logs
-// it (spec 6/39 § The turn usage record). cost_cents is costUSD × 100
-// rounded. The credit fields are codex's account facts read from its rollout:
+// it (specs/6/39-gateway-owns-spend.md §"The turn usage record"). cost_cents
+// is costUSD × 100 rounded. The credit fields are codex's account facts read
+// from its rollout:
 // the balance after the turn, the balance drop across the turn and the plan
 // window's used share; absent where the harness has no credit account.
 export interface ModelUsage {

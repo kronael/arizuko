@@ -120,9 +120,56 @@ gateway answers `/spend/logs` only after the run returns.
   copy — it resolves the turn to its key and asks the gateway. `anteval` reads
   it as both the settle barrier between cases and the `max_tokens` budget, so
   the endpoint stays; only its source moves.
-- **The agent's self-report, as a log line only.** With no gateway it is the
-  only number there is, and with one it is the signature of a bypassed
-  gateway when the two disagree.
+- **The agent's self-report, as the turn usage record.** With no gateway it is
+  the only number there is, and with one it is the signature of a bypassed
+  gateway when the two disagree. §"The turn usage record" says what it holds and
+  which ledger answers for which turn.
+
+## The turn usage record
+
+The owner asked on 2026-11-09 for every turn's usage and cost in routd, for
+every harness: "the accounting should be placed at the correct place in ant,
+and then go to routd, which should then be able to limit quotas etc. — but not
+now, only state." The gateway meters only the turns that go through it. A
+direct Codex login, a Claude OAuth login and pi on its own credential do not,
+and the Codex account spends paid credits once its plan window is used up.
+
+ant computes one record per turn at the harness, because only the harness sees
+the provider's stream and its files. Per model: `input`, `cache_read`,
+`cache_write`, `output`, `cost_cents`; for codex also `credits_spent`,
+`credits_balance`, `window_used_percent` and `plan_type` from the rollout's
+`rate_limits`. A record covers the turn and never the session:
+
+| harness | per-turn source                                                                         | cost                               |
+| ------- | --------------------------------------------------------------------------------------- | ---------------------------------- |
+| claude  | the result's `modelUsage` less the last `cost-state` of the transcript the turn resumes | `costUSD`, same difference         |
+| codex   | `turn.completed` less the rollout's last `total_token_usage` before the turn            | none; credits are the balance drop |
+| pi      | the sum of the run's `message_end` usages; the json stream carries only this run        | `cost.total` of each message       |
+
+A round routd answers with a nudge is not recorded, so ant carries its usage
+into the next submission of the same turn.
+
+routd writes one `turn_usage` item per (folder, turn id, model) with the turn's
+outcome, plus `harness`, `metered` (the instance has a gateway) and
+`recorded_at`, and renders the log line `agent self-reported model usage` from
+the same row. The `turn_usage` resource serves the rows to an operator on REST
+and MCP, read-only; `arizuko usage` sums them per folder or per day.
+
+Which ledger answers, so nothing is counted twice:
+
+| turn                         | tokens       | cost                                               | credits      |
+| ---------------------------- | ------------ | -------------------------------------------------- | ------------ |
+| metered (the gateway is set) | `turn_usage` | LiteLLM; the row's `cost_cents` is the self-report | `turn_usage` |
+| unmetered                    | `turn_usage` | `turn_usage`                                       | `turn_usage` |
+
+`arizuko usage` sums `cost_cents` over unmetered rows only and counts the
+metered turns beside it, so a metered turn's cost has one number, the
+gateway's. `credits_spent` is the account's balance drop across the turn: a
+turn on the same account that overlaps it — another folder, a host worker —
+lands in it too, so it is exact only for a turn that ran alone. A failed codex
+turn reports no usage and so no credits.
+
+Quota limits on this record are a later step and not built.
 
 ## The spend already recorded
 
