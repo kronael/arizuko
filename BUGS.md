@@ -330,7 +330,7 @@ reads those words now.
   **Proposal:** stop the build on the first failed submake. This is an adjacent
   build-gate repair; scope approval is pending.
 
-## ✅ FIXED 2026-11-12 2ded78a8f L821 — routd re-reads every chat from the store every 2 s, so the shared store runs out of CPU and no message dispatches (2026-11-12)
+## ✅ FIXED 2026-11-12 e082ff796 L821 — routd re-reads every chat from the store every 2 s, so the shared store runs out of CPU and no message dispatches (2026-11-12)
 
 MEASURED 2026-11-12 on hel1v5 (2 cores, load 5.4): the one `extenddb.service`
 serving krons and sloth ran 150–160% CPU at 5.7 GB RSS after 3 days, with
@@ -362,7 +362,7 @@ with an error, and a message that arrives while its chat runs, also wait for
 the next poll.
 
 - **Severity:** critical — dispatch stops on both instances.
-- **Status:** fixed in 2ded78a8f; not deployed, so the live load is not yet
+- **Status:** fixed in e082ff796; not deployed, so the live load is not yet
   re-measured. Tests, each red under its own mutation:
   `routd/poll_load_test.go::TestTickReadsNoChat` (451 chat reads over a
   300 ms run with the sweep back on every tick, against at most 11),
@@ -618,7 +618,7 @@ with `load core configuration … permission denied`.
 - **Test:** `TestOnlyTheCLILoadsTheOperatorEnv` (`tests/components/operator_env_test.go`).
 - **Status:** fixed in 7fa98f38b.
 
-## ✅ FIXED 2026-11-12 c0922acb8 L809 — a nudged round's model usage is dropped (2026-11-10)
+## ✅ FIXED 2026-11-12 5150b56b4 L809 — a nudged round's model usage is dropped (2026-11-10)
 
 MEASURED in `routd/turns.go` `recordTurnResultAttempt` at v0.75.5: a
 submission routd answers with a nudge returns before `RecordTurnResult` and
@@ -631,9 +631,9 @@ submits only that round's usage. A nudged turn reports its last round alone.
   the same turn.
 - **Test:** `runTurn carries a nudged round usage into the turn record`
   (`ant/src/index.test.ts`); it fails with the carry removed.
-- **Status:** fixed in c0922acb8.
+- **Status:** fixed in 5150b56b4.
 
-## ✅ FIXED 2026-11-12 c0922acb8 L808 — a resumed Claude session reports the session total as the turn's usage (2026-11-10)
+## ✅ FIXED 2026-11-12 5150b56b4 L808 — a resumed Claude session reports the session total as the turn's usage (2026-11-10)
 
 MEASURED in `@anthropic-ai/claude-agent-sdk` 0.3.278 `sdk.d.ts`
 (`SDKResultSuccess.modelUsage`): "a resumed or forked session continues from the
@@ -653,7 +653,7 @@ earlier model's session total re-reported.
 - **Test:** `ClaudeTurn on a resumed session reports the turn, not the session
   total` (`ant/src/claude.test.ts`); it fails with the prior ignored and with
   the zero-difference model kept.
-- **Status:** fixed in c0922acb8; the krons line needs the next deploy to
+- **Status:** fixed in 5150b56b4; the krons line needs the next deploy to
   confirm.
 
 ## L804 — Codex topic forks do not inherit the parent's model context (2026-11-09, open — record only)
