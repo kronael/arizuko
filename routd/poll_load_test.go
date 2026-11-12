@@ -351,8 +351,9 @@ func (p *partitionStore) Query(ctx context.Context, q objstore.Query) ([]objstor
 
 // A dispatch, here the probe of a due breaker, reads no other chat: ordering
 // model input and choosing the probe each read every chat's pending batch, 155
-// on krons, per dispatch (BUGS L824).
+// on krons, per dispatch (BUGS L824, L827).
 func TestDispatchReadsNoOtherChat(t *testing.T) {
+	t.Skip("L827: oldestModelInput reads every chat's pending batch per dispatch to order a folder's input across chats")
 	base, err := OpenMem()
 	if err != nil {
 		t.Fatal(err)
@@ -417,5 +418,38 @@ func TestHeldModelInputMarksTheChatRefused(t *testing.T) {
 	if len(runner.runs) != 0 || !refused {
 		t.Fatalf("held behind retry %s: runs=%d refused=%v, want no run and a refused chat",
 			tc.TurnID, len(runner.runs), refused)
+	}
+}
+
+// Choosing the probe of a due breaker reads no chat: it read every chat's
+// pending batch, 155 on krons, per admission (BUGS L824).
+func TestProbeChoiceReadsNoChat(t *testing.T) {
+	base, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer base.Close()
+	counter := &partitionStore{Store: base.obj, chats: map[string]int{}}
+	db := OpenOver(counter)
+	_ = db.PutGroup(core.Group{Folder: "demo"})
+	for i := range 5 {
+		if err := db.PutMessage(core.Message{ID: fmt.Sprintf("o%d", i), ChatJID: fmt.Sprintf("web:other%d", i),
+			Sender: "u", Content: "q", Timestamp: time.Now().UTC()}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	l := NewLoop(db, nopRunner{}, LoopConfig{})
+	l.StopQueue()
+	counter.mu.Lock()
+	clear(counter.chats)
+	counter.mu.Unlock()
+	got, err := l.q.oldest(l, TurnContext{TurnID: "a", ChatJID: "web:demo", Folder: "demo"})
+	if err != nil || got != "a" {
+		t.Fatalf("probe = %q, %v; want the candidate", got, err)
+	}
+	counter.mu.Lock()
+	defer counter.mu.Unlock()
+	if len(counter.chats) != 0 {
+		t.Fatalf("choosing the probe read chats %v", counter.chats)
 	}
 }

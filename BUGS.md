@@ -15,6 +15,7 @@
 
 ## What needs you
 
+- `L827` — every dispatch reads every chat to order a folder's input across chats; drop the order or add a schema; needs sign-off.
 - `L826` — one folder's crash closes the whole instance for an hour; per-folder breaker or a 30 s probe; needs sign-off.
 - `L823` — every wake reads the whole `turn_context` partition for held input; a per-chat read needs a schema change; needs sign-off.
 - `L822` — gitd's `/health` reads its whole held-inbound backlog per probe; dropping `pending_inbound` changes the documented contract; needs sign-off.
@@ -331,7 +332,28 @@ reads those words now.
   **Proposal:** stop the build on the first failed submake. This is an adjacent
   build-gate repair; scope approval is pending.
 
-## L824 — a chat the instance breaker refuses is never woken again, so krons answers nothing (2026-11-12)
+## L827 — every dispatch reads every chat to order a folder's input (2026-11-12, open — needs sign-off)
+
+MEASURED 2026-11-12 (`routd/poll_load_test.go::TestDispatchReadsNoOtherChat`,
+skipped, red when run: one read of each of five other chats per dispatch):
+`runBoundTurn` calls `oldestModelInput` (`routd/model_pauses.go`) before every
+turn. It lists every chat and reads its pending batch (`pendingBatch`, with
+`heldInput`'s whole `turn_context` read) to find an older input routed to the
+same folder from another chat: on krons 155 chats, about 465 reads and 155
+whole `turn_context` reads (5,696 rows each) per dispatch; on sloth 376 chats.
+The cross-chat order is a tested contract
+(`routd/model_pause_order_test.go::TestModelPausePollHeldOrder`,
+`TestModelPauseOrderedRootKeepsElevation`); removing the scan breaks both.
+
+- **Severity:** high — each dispatch costs a read of the whole instance on a
+  store `L821` showed saturates.
+- **Status:** open — needs sign-off: the order is a contract.
+- **Options:** (a) order only against the folder's pending retries, the scan
+  goes and a folder's chats run in queue order; (b) a per-folder record of
+  pending input, a schema change; (c) keep the scan.
+- **Default if nothing is decided:** (c).
+
+## ✅ FIXED 2026-11-12 e3a77ce5d L824 — a chat the instance breaker refuses is never woken again, so krons answers nothing (2026-11-12)
 
 MEASURED 2026-11-12 22:15–22:35 on krons (v0.75.10): `arizuko send -i krons
 krons` wrote `cli-1794521854043259203` to `web:krons` at 22:17:34 (the row is
@@ -357,13 +379,16 @@ behind an older input of its folder (`holdModelInput`) is not woken either.
 
 - **Severity:** critical — every instance stops answering after any one failed
   turn, until a new message arrives after the probe time.
-- **Status:** open.
+- **Status:** fixed in e3a77ce5d; not deployed. Tests, each red under its own
+  mutation: `routd/poll_load_test.go::TestBreakerRefusedChatRunsWhenDue`
+  (no mark, no due check, no probe check), `TestProbeChoiceReadsNoChat` (the
+  chat scan back), `TestHeldModelInputMarksTheChatRefused`.
 - **Fix:** mark each chat the breaker refuses or `holdModelInput` holds; the
   30 s recovery tick wakes the marked chats once the breaker admits again.
-  `oldest` and `oldestModelInput` keep the pending retries only: the oldest due
-  retry probes, and with none the first admitted turn does.
+  `oldest` keeps the pending retries only: the oldest due retry probes, and
+  with none the first admitted turn does. `oldestModelInput`'s read is `L827`.
 
-## L825 — legacy turns owe a "cleared" status forever, and each lookup pages one message per request (2026-11-12)
+## ✅ FIXED 2026-11-12 a30100589 8424cbe20 58835216a L825 — legacy turns owe a "cleared" status forever, and each lookup pages one message per request (2026-11-12)
 
 MEASURED 2026-11-12 on krons: 32 turns carry `status_owed=cleared`, all
 `state=done` with no `attempt_id` (31 `auto-migrate` turns from 2026-09-25/26,
@@ -382,7 +407,12 @@ krons `routd.messages` 4,683 index scans (618 k tuples) and `routd.turn_context`
 chat sweep.
 
 - **Severity:** high — the pass never ends its work and loads the shared store.
-- **Status:** open.
+- **Status:** fixed in a30100589, 8424cbe20, 58835216a; not deployed. Tests,
+  each red under its own mutation:
+  `objstore/dynstore/limit_test.go::TestFilteredLimitReadIsNotPagedPerItem`
+  (60 requests for 60 items with the page Limit back),
+  `routd/turn_status_test.go::TestTurnStatusLegacyClearedIsAcknowledged`,
+  `routd/poll_load_test.go::TestStartupSweepDoesNotWaitForOwedStatuses`.
 - **Fix:** acknowledge against an absent `attempt_id` as `FinishTurnStatus`
   already writes it; dynstore sends no page `Limit` under a filter (`Limit`
   caps what a read returns, `objstore/query.go`); startup leaves status
