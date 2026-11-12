@@ -15,6 +15,7 @@
 
 ## What needs you
 
+- `L826` — one folder's crash closes the whole instance for an hour; per-folder breaker or a 30 s probe; needs sign-off.
 - `L823` — every wake reads the whole `turn_context` partition for held input; a per-chat read needs a schema change; needs sign-off.
 - `L822` — gitd's `/health` reads its whole held-inbound backlog per probe; dropping `pending_inbound` changes the documented contract; needs sign-off.
 - `L816` — gitd loses GitHub webhooks while the store is unreachable; retention lives in that store; proposal, needs sign-off.
@@ -329,6 +330,79 @@ reads those words now.
   `/tmp/arizuko-github-baseline-build.log`. No test — ops.
   **Proposal:** stop the build on the first failed submake. This is an adjacent
   build-gate repair; scope approval is pending.
+
+## L824 — a chat the instance breaker refuses is never woken again, so krons answers nothing (2026-11-12)
+
+MEASURED 2026-11-12 22:15–22:35 on krons (v0.75.10): `arizuko send -i krons
+krons` wrote `cli-1794521854043259203` to `web:krons` at 22:17:34 (the row is
+in the store, past the chat's cursor) and no turn ran; rhias/nemo and trip got
+none either. The `turn_control` singleton reads `phase=open`,
+`next_probe_at=2026-11-12T22:52:30Z`, no probe turn: rhias/nemo's turn
+`telegram:group/1004358948112/1248` ended `Guest exited with code 1` at
+21:52:32 after it replied, so `complete` (`routd/turn_control.go`) opened the
+breaker for one hour (`L826`). `admit` refuses every turn with
+`errTurnBlocked`; `runBoundTurn` (`routd/dispatch.go`) returns busy and nothing
+re-enqueues the chat. Before `L821` the 2 s poll re-fed it; since, it waits for
+the chat's next message or a restart. The goroutine dump (SIGQUIT 22:24) has no
+queue worker: the refused wake had returned. The ingest handler is not blocked,
+and no turn lock is held; the maintenance loop sat in owed-status recovery
+(`L825`), which does not gate ingest.
+
+A refused chat that does reach `admit` after `next_probe_at` runs `oldest`,
+which lists every chat and reads its pending batch (`pendingBatch`, with
+`heldInput`'s whole `turn_context` read): on krons 155 chats, about 465 reads
+and 155 whole `turn_context` reads per admission, the per-chat read `L821`
+removed from the poll. Waking every refused chat at the probe time pays it per
+chat.
+
+- **Severity:** critical — every instance stops answering after any one failed
+  turn, until a new message arrives after the probe time.
+- **Status:** open.
+- **Fix:** remember each chat the breaker refuses; the 30 s recovery tick wakes
+  them once the breaker admits again. `oldest` keeps the due retries only: the
+  oldest due retry probes, and with none the first admitted turn does.
+
+## L825 — legacy turns owe a "cleared" status forever, and each lookup pages one message per request (2026-11-12)
+
+MEASURED 2026-11-12 on krons: 32 turns carry `status_owed=cleared`, all
+`state=done` with no `attempt_id` (31 `auto-migrate` turns from 2026-09-25/26,
+one from 2026-10-21). `AcknowledgeTurnStatus` (`store/turn_control.go`)
+conditions on `attempt_id = ""`, which an absent attribute never matches, so
+the write is refused without an error and `recoverStatuses` publishes the same
+32 again on every 30 s retry tick and at every start. Each publish reads the
+whole `turn_context` partition (`TypingJIDsForRun`, 5,696 rows) and calls
+`LastStatusRow` on the turn's chat. `LastStatusRow` filters with `Limit: 1`;
+dynstore sends that as DynamoDB's `Limit`, the items EVALUATED per page, so a
+chat with no status row costs one request per message: 2,563 requests per pass
+over these 32 chats. Measured 22:32:42–22:33:42 with no chat traffic:
+krons `routd.messages` 4,683 index scans (618 k tuples) and `routd.turn_context`
+234 whole scans (1.33 M rows) per minute. The pass holds the maintenance loop
+(outbound retry, deferred-turn re-arm, progress flush, GC) and, at start, the
+chat sweep.
+
+- **Severity:** high — the pass never ends its work and loads the shared store.
+- **Status:** open.
+- **Fix:** acknowledge against an absent `attempt_id` as `FinishTurnStatus`
+  already writes it; dynstore sends no page `Limit` under a filter (`Limit`
+  caps what a read returns, `objstore/query.go`); startup leaves status
+  recovery to the first 30 s tick, behind the chat sweep.
+
+## L826 — one folder's crash closes the whole instance for an hour (2026-11-12, open — needs sign-off)
+
+MEASURED 2026-11-12 on krons: rhias/nemo's turns ended `Guest exited with code
+1` at 15:44, 18:50, 19:57 and 21:52, each after the agent replied. A failure
+that is not retried (`classifyTurn`: replied) opens the instance breaker with
+`next_probe_at = now + 1 h` (`complete`, `routd/turn_control.go`), so krons and
+every rhias group answered nothing for about an hour after each crash. Spec
+`specs/5/12-turn-retry.md` § "One breaker per instance" names the hour only
+for a probe that exhausts its retries. No test — design.
+
+- **Severity:** high — one group's agent bug silences every group.
+- **Status:** open — needs sign-off: the breaker is the spec's contract.
+- **Options:** (a) a failure that is not retried probes with the next turn
+  after `retryAt`'s first delay (30 s); (b) a breaker per folder, the provider
+  refusal staying instance-wide; (c) keep the hour.
+- **Default if nothing is decided:** (c).
 
 ## ✅ FIXED 2026-11-12 e082ff796 L821 — routd re-reads every chat from the store every 2 s, so the shared store runs out of CPU and no message dispatches (2026-11-12)
 
