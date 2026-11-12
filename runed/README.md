@@ -22,7 +22,7 @@ runed does these jobs:
 - It serves `POST /v1/holds`. A hold claims the run slot of a folder for an external job that needs the folder alone. Examples are a filesystem restore, a vacuum and a migration. No agent turn starts in that folder until the hold ends.
 - It runs the lifecycle of each KVM guest: one `qemu-system-x86_64` process, its virtio-fs shares, its tap and its egress proxy. A ctl frame over vsock carries the stop. A kill reaps every pid that the record of the turn names. The section "The guest's turn, step by step" describes the steps.
 - It enforces `RUNED_RUN_TIMEOUT` per run. An hourly sweep deletes spawns older than seven days. The retention bounds the one partition that all spawns share.
-- On graceful shutdown it detaches the runs in flight. A guest outlives the daemon, and the next runed reaps it from the record on disk.
+- On graceful shutdown it drains HTTP handlers for RUNED_SHUTDOWN_GRACE. Request cancellation can end a guest; disk records support startup reaping.
 
 ## Entities runed owns
 
@@ -67,12 +67,50 @@ A kill is the one revoke that runed has, because runed mints nothing. `Manager.K
 
 ## Configuration
 
-- `AUTHD_URL` is the authd base URL. runed fetches the JWKS once at boot and only verifies tokens. It holds no signing key and exchanges no token, because it makes no outbound call that needs one. When the variable is unset, the `/v1` verifier and the `/dash/runed/` gate stay open, which is the shape for local development. A failed fetch is fatal.
-- `DYNAMODB_URL` and the store credentials name the store server that holds the entities of runed. `runed.Open` dials it, and `INSTALL.md` section "The store server holds every table of the instance" describes it.
-- `RUNED_RUN_TIMEOUT` is the run ceiling. The default is 60m. It bounds the hard kill of the guest and the query timeout of the agent inside the guest. The query timeout is `ARIZUKO_QUERY_TIMEOUT_MS`, which equals `RUNED_RUN_TIMEOUT` minus 30 s with a floor of 60 s (`queryTimeoutMs` in `render.go`). So the agent aborts and delivers a summary before runed kills the guest.
-- `RUNED_SHUTDOWN_GRACE` is the wait for in-flight handlers on graceful shutdown. The default is the value of `RUNED_RUN_TIMEOUT`.
-- `LISTEN_ADDR` is the HTTP listener. The default is `:8080`.
-- `MAX_CONCURRENT_AGENTS` is the cap on live agents. The default is 5. It comes from `core.LoadConfig`, together with the directory settings `GroupsDir`, `IpcDir`, `StoreDir` and others.
+| Variable                                                                                           | Default                                 | Meaning                                                                                                           |
+| -------------------------------------------------------------------------------------------------- | --------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `RUNED_KERNEL_DIR`                                                                                 | `required`                              | Directory containing bzImage and initrd.gz.                                                                       |
+| `RUNED_ROOTFS_DIR`                                                                                 | `required`                              | Exported release rootfs tree.                                                                                     |
+| `RUNED_QEMU`                                                                                       | `qemu-system-x86_64`                    | QEMU executable.                                                                                                  |
+| `RUNED_VIRTIOFSD`                                                                                  | `/usr/libexec/virtiofsd`                | Rust virtiofsd executable with required mapping support.                                                          |
+| `RUNED_EGRESS_BIN`                                                                                 | `egress`                                | Per-turn forward proxy executable.                                                                                |
+| `RUNED_FIREWALL_BIN`                                                                               | `iptables`                              | Host firewall executable.                                                                                         |
+| `RUNED_IP_BIN`                                                                                     | `ip`                                    | Host link/address configuration executable.                                                                       |
+| `RUNED_GUEST_MEM`                                                                                  | `2G`                                    | Memory per guest; host preflight multiplies by concurrency cap.                                                   |
+| `LISTEN_ADDR`                                                                                      | `:8080`                                 | HTTP listener.                                                                                                    |
+| `AUTHD_URL`                                                                                        | unset                                   | JWKS source; unset opens local development API and dashboard gates.                                               |
+| `RUNED_RUN_TIMEOUT`                                                                                | `60m`                                   | Run ceiling; ant query timeout is 30 s shorter with a 60 s floor.                                                 |
+| `RUNED_SHUTDOWN_GRACE`                                                                             | run timeout                             | Drain time for active HTTP handlers.                                                                              |
+| `MAX_CONCURRENT_AGENTS`                                                                            | `5`                                     | Live guest limit and host memory preflight multiplier.                                                            |
+| `DATA_DIR`                                                                                         | working directory                       | Instance root; groups, ipc, web, store-path label, and VM default.                                                |
+| `HOST_DATA_DIR`                                                                                    | DATA_DIR                                | Host view of the instance root.                                                                                   |
+| `APP_SRC_DIR`                                                                                      | HOST_APP_DIR, then executable directory | Release assets visible to runed.                                                                                  |
+| `HOST_APP_DIR`                                                                                     | executable directory                    | Host source path and asset fallback.                                                                              |
+| `HOST_CODEX_DIR`                                                                                   | unset                                   | Host Codex login tree staged read-only in direct model mode.                                                      |
+| `MOUNT_ALLOWED_ROOTS`                                                                              | empty                                   | CSV roots permitted for extra host mounts.                                                                        |
+| `ARIZUKO_DEV`                                                                                      | false                                   | Boolean parsed by strconv.ParseBool; enables development mount handling.                                          |
+| `ARIZUKO_BACKEND`                                                                                  | unset                                   | Instance harness backend default sent to ant.                                                                     |
+| `ARIZUKO_DEFAULT_MODEL`                                                                            | unset                                   | Instance model default sent as ARIZUKO_MODEL.                                                                     |
+| `ARIZUKO_DEFAULT_EFFORT`                                                                           | unset                                   | Instance effort default sent as ARIZUKO_EFFORT.                                                                   |
+| `MODEL_GATEWAY_URL`                                                                                | unset                                   | Gateway base; withholds operator model credentials and host login.                                                |
+| `MODEL_GATEWAY_KEY`                                                                                | unset                                   | Parsed by shared config; runed supplies the per-turn request key to the guest.                                    |
+| `ANTHROPIC_API_KEY, CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_OAUTH_TOKEN, OPENAI_API_KEY, CODEX_API_KEY` | unset                                   | Operator model anchors read by spawnSecrets; triggering-user profile values overlay them.                         |
+| `TZ`                                                                                               | `UTC` when unset or invalid             | Timezone from core.Timezone.                                                                                      |
+| `ASSISTANT_NAME`                                                                                   | `arizuko`                               | Instance display name in the rendered payload.                                                                    |
+| `WEB_HOST`                                                                                         | unset                                   | Public web origin in agent settings.                                                                              |
+| `DYNAMODB_URL`                                                                                     | required                                | Store endpoint.                                                                                                   |
+| `AWS_REGION`                                                                                       | `us-east-1`                             | Store signing region.                                                                                             |
+| `AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY`                                                         | required                                | Daemon store identity.                                                                                            |
+| `STORE_CA`                                                                                         | unset                                   | Base64 PEM certificate; unset uses system trust.                                                                  |
+| `ARIZUKO_INSTANCE`                                                                                 | unset                                   | Audit and observability instance label.                                                                           |
+| `LOG_LEVEL`                                                                                        | `info`                                  | JSON stderr verbosity, including turn logs.                                                                       |
+| `OTEL_EXPORTER_OTLP_ENDPOINT`                                                                      | unset                                   | Optional OTLP logs.                                                                                               |
+| `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`                                                               | unset                                   | Optional OTLP trace export; independent of the log endpoint.                                                      |
+| `MAX_CONCURRENT_CONTAINERS`                                                                        | absent                                  | Shared config rejects this variable whenever it is present; configure MAX_CONCURRENT_AGENTS for execution limits. |
+| `METRICS_ENABLED`                                                                                  | `false`                                 | Literal true mounts public GET /metrics.                                                                          |
+
+`core.LoadConfig` also parses the shared instance fields in [core/config.go](../core/config.go).
+The table lists runed inputs that affect execution or its process surfaces.
 
 ### The turn substrate
 
@@ -89,7 +127,7 @@ runed refuses to start unless every precondition below holds. The refusal names 
 - `RUNED_GUEST_MEM` times `MAX_CONCURRENT_AGENTS` fits the `MemTotal` of the host. The default guest size is `2G`. The guest size and the cap are one setting.
 - `RUNED_TAP_SUBNET` holds one `/30` for every slot that the cap allows.
 
-**The clamp is the uid of the daemon.** A child that runs as the uid of the agent exports the writable share. So the daemon cannot create a host file owned by anyone else, whatever uid the guest states. Without the clamp, a guest as uid 0 writes files owned by host root into the folder, and they outlive the turn. This was measured on 2026-09-24. An id map cannot replace the clamp here. It is legal only under `--sandbox namespace`, and docker refuses the `/proc` mount of that sandbox.
+**The clamp is the uid of the daemon.** A child that runs as the uid of the agent exports the writable share. So the daemon cannot create a host file owned by anyone else, whatever uid the guest states. Without the clamp, a guest as uid 0 writes files owned by host root into the folder, and they outlive the turn. An id map cannot replace the clamp here. It is legal only under `--sandbox namespace`, and docker refuses the `/proc` mount of that sandbox.
 
 Tunables, with their defaults:
 
@@ -112,37 +150,17 @@ PID 1 is the static Go binary `guest-init` in the initrd. The release rootfs sup
 
 ### Boot timing measures the first ready frame
 
-**The budget is 1.5 s at p50**, from QEMU start to the first decoded ready frame. There is no warm pool: every turn boots a fresh guest. A warm guest could never become the guest of a folder. The identity of a guest is its mount set, and QEMU fixes that set in the argument list at start. The decision reopens when boot cost dominates a turn. Then the pool, its claim of a booted guest, its idle policy and its reaper change together as one unit. The measurement below meets the budget.
-
-Production logs `guest ready` once per turn with `boot_ms` and the probe map of the guest. A monotonic host clock starts immediately before the start of the QEMU process and stops at the first decoded ready frame. This frame comes before root assembly and agent startup. Guest uptime excludes QEMU startup and measures a different interval.
-
-`make bench-boot` compares q35 and microvm in alternating pairs through the production argument renderer. It uses the tools of the release image, an owned internal network, a test database, and private process and mount namespaces. It checks boot poweroff, both visible pre-control failures, and normal, Kill and cancelled turns. The turn proof checks these items:
-
-- two CPUs, stdin, steering and MCP
-- UID 1000 writes and a read-only root
-- the final 1 MiB shared write
-- the proxy policy and blocked direct traffic
-- zero guest DNS packets received by the host
-- cleanup
-
-The untraced run on 2026-10-18 used source `8649d24d0c257079112fd913eb1d00bc48de9f4a`, QEMU 9.0.2, virtiofsd 1.10.1, two CPUs and 2 GiB per guest. It produced all 40 samples with `make bench-boot` in `BENCH_MODE=microvm` with `BENCH_PAIRS=20`. The variables `DATA_DIR`, `KERNEL_DIR` and `ROOTFS_DIR` name the instance data, the kernel directory and the rootfs directory of the release.
-
-| Machine                   | Samples | First ready p50 | First ready p90 |
-| ------------------------- | ------- | --------------- | --------------- |
-| q35                       | 20      | 1263 ms         | 1354 ms         |
-| ACPI microvm, modern MMIO | 20      | 1085 ms         | 1157 ms         |
-
-The calculations use the logged integer milliseconds and the nearest-rank p90. Microvm was faster in 19 of 20 pairs. The median paired saving was 206.5 ms. The ratio of medians gives a reduction of 14.09%. All functional and cleanup assertions passed without skips. After the run, both owned containers and the owned network were absent.
-
-Host load changed from 2.50/1.63/4.03 to 2.75/1.94/3.96 during the run. CPU pressure `some avg10` changed from 6.67% to 18.15%. Memory pressure `some avg10` changed from 0% to 0.09%, and full pressure stayed at 0%. I/O pressure `some avg10` stayed at 0%. The host was shared, so these figures include its load.
-
-Three separate turn observations detected the entrypoint marker of the probe agent at 1300, 1200 and 1100 ms from host `Run`. They cover the normal, Kill and cancel turns. The host polls every 50 ms. These observations measure probe startup and not the latency of a model response. They do not form a latency distribution.
-
-The raw samples are not in the repository. The tests behind the proof are [boot test](qemu_boot_test.go), [turn proof](qemu_turn_boot_test.go), [argument checks](qemu_boot_profile_test.go) and [control tests](vmctl_test.go). The vsock loopback CID test does not prove isolation between two real VMs. Two acceptance gaps remain: a live guest-observable smoke test, and recovery after an abrupt runed crash.
+`guest ready` logs `boot_ms` from QEMU start to the first decoded ready frame.
+The frame precedes root assembly and agent startup; it does not measure model response latency.
+`make bench-boot` exercises the production renderer, guest control, mount behavior, egress policy, and cleanup.
+[Boot tests](qemu_boot_test.go), [turn proof](qemu_turn_boot_test.go), and [control tests](vmctl_test.go) hold the assertions.
+Local documentation checks do not execute those KVM tests or reproduce a performance result.
+Two integration limits remain: a live guest-observable smoke test and recovery after an abrupt daemon crash.
 
 ## Health signal
 
-`GET /health` returns 200 once the process is up. A red flag is a spawn that stays in `state=queued`. The concurrency cap is full, or a precondition that the guest needs went away under a running daemon.
+`GET /health` returns 200 once the process is up. It does not test the store, capacity, model, or guest prerequisites again.
+Inspect a stalled run through `/v1/runs/{run_id}`, its turn log, and its VM record.
 
 ## Observability
 
@@ -204,7 +222,7 @@ Core is required. Package selection is an input to the renderer, outside the
 | cap `MAX_CONCURRENT_AGENTS` full | `busy`                                     | the same                                    |
 | idle, under the cap              | a `spawns` row in `queued`, then the guest | waits for the outcome                       |
 
-- runed keeps no state outside the store. Every admission decision reads the `spawns` rows under one mutex for check and claim. A map in memory would lie after a restart: a folder would stay wedged, or the cap would reset. At boot, `ExpireOrphans` ends every row that a dead runed left live, as `exited` with outcome `error` and never `killed` (`runstore/spawns.go`).
+- Admission uses store records; per-guest process and network state lives in VM records on disk. Every admission decision reads the `spawns` rows under one mutex for check and claim. A map in memory would lie after a restart: a folder would stay wedged, or the cap would reset. At boot, `ExpireOrphans` ends every row that a dead runed left live, as `exited` with outcome `error` and never `killed` (`runstore/spawns.go`).
 - `StartSpawn` takes the claim with a condition on `state='queued'`. A `DELETE` that lands between the claim and the launch wins, and the run answers `busy`. A `killed` row makes the folder read free, so a launch without this guard would put two guests on one mount.
 - routd owns session lineage. It mints the id and sends it on the request. runed mints an id only for a request that carries none, which is an isolated task. `spawns.session_id` is an echo.
 - Readiness is spawn success. There is no `/readyz` probe, because a probe on the spawn path adds a failure mode. `Manager.spawn` arms the one deadline from `RUNED_RUN_TIMEOUT`. The substrate keeps no timer. ant sends the wrap-up warning five minutes before its query deadline.
@@ -373,3 +391,50 @@ The substrate adds `HTTP_PROXY` and its five companion variables to the environm
 - `dash.go` serves `/dash/runed/` and its kill form.
 - `db.go` persists spawns and sessions, and it holds the boot that dials the store endpoint.
 - `runstore/` holds the two entities and their coordinates, with no SQL.
+
+## HTTP route and resource map
+
+| Method and path                                             | Caller and behavior                                               |
+| ----------------------------------------------------------- | ----------------------------------------------------------------- |
+| `POST /v1/runs`                                             | service:routd with runs:run; synchronous turn execution.          |
+| `POST /v1/holds`                                            | runs:run; exclusive folder hold without a guest.                  |
+| `POST /v1/runs/stop`                                        | runs:kill; stop by folder.                                        |
+| `GET /v1/runs/{run_id}`, `DELETE /v1/runs/{run_id}`         | Run status or runs:kill; folder-bound where the caller is scoped. |
+| `GET /v1/spawn_sessions`, `GET /v1/spawn_sessions/recent`   | sessions:read; local spawn history and federation reads.          |
+| `GET /v1/audit`                                             | audit:read; resreg resource audit, no local MCP socket.           |
+| `GET /dash/runed/`, `POST /dash/runed/kill`                 | Proxyd-attested operator page and kill form.                      |
+| `GET /health`, `GET /openapi.json`, optional `GET /metrics` | Public liveness, mounted API, and metrics.                        |
+
+routd dispatches runs; dashd reads history/audit and stops runs; the CLI can claim holds and stop folders.
+runed fetches authd keys and bridges MCP to routd's Unix socket. It exchanges no service token.
+The catalog audit action is `query_audit`; runed hosts no agent MCP server or derived run-management tools.
+The guest sees `/run/ipc/gated.sock`; the bridge ends at routd's per-turn host socket.
+
+## Persistent files and recovery
+
+`StoreReach["runed"]` reaches only `runed`.
+`runed.spawns` holds claims and outcomes, `runed.session_log` holds session attempts, and `runed.audit_log` holds operator mutations.
+`PrepareOwner` also creates `resreg_scopes` for owner versioning.
+The hourly spawn sweep deletes completed records older than seven days; session_log has no corresponding retention sweep.
+Startup expires orphan spawn rows and reaps VM records before accepting work.
+
+VM records and staging trees live under `RUNED_VM_DIR` (default `DATA_DIR/vms`).
+The rootfs uses `RUNED_ROOTFS_DIR`; the kernel directory holds `bzImage` and `initrd.gz`.
+Group homes and `.claude/settings.json` persist under `DATA_DIR/groups`.
+Per-group turn logs live in `groups/<folder>/logs`; guest overlay changes outside shared mounts are transient.
+Store failure can prevent a run claim or completion record; no local run queue takes over.
+A routd request cancellation ends the run context. A guest cannot keep using MCP after routd exits.
+Authd availability matters for key discovery; verification uses the cached public keyset.
+The boot-ready timeout is 30 s, reap grace is 5 s, and the guest stop path allows 10 s before poweroff.
+Grep `substrate`, `open runed's store`, `guest ready`, `expire orphan spawns`,
+`runed: sweep aged spawns`, and `group home not writable`.
+`/health` is process liveness; it does not rerun host preflight or establish model/provider readiness.
+
+Host memory preflight considers this instance rather than all instances ([BUGS L513](../BUGS.md)).
+Without a model gateway, model credentials enter the guest ([BUGS L131](../BUGS.md)).
+Stopping routd and runed can end a live turn ([BUGS L161](../BUGS.md)).
+
+Sources: [entry point](cmd/runed/main.go), [HTTP gates](server.go), [renderer](render.go),
+[host configuration](qemuhost.go), [VM records](vmrecord.go), [owner reach](../store/owner_reach.go).
+
+JWKS keys load lazily during verification through auth.FetchKeys; there is no fixed background JWKS ticker.

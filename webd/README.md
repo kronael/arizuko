@@ -158,9 +158,7 @@ The hub (`hub.go`) fans agent output to browsers. Five rules shape it:
   group is one shared context and a filter would split it.
 - **The key is the chat JID verbatim, plus the topic.** The publisher and the
   subscriber each pass the JID they already hold: the token row, the turn,
-  or `chat_jid` on the wire. Neither end derives a folder from it. Keys that
-  both ends derived with string surgery disagreed for suffixed and `hook:`
-  chats, and the widget waited forever.
+  or `chat_jid` on the wire. Neither end derives a folder from it. Both ends use the full JID, including suffix and channel prefix.
 - **`round_done` carries the chat JID, never the routing target.** With
   `web:X/submissions` routed to `groupY`, a subscriber keyed on `groupY`
   never matches (`channel.go`, routd's `publishRoundDone`).
@@ -201,7 +199,7 @@ its `"sdk"` field, so a page discovers it from the token alone.
 - Binary: `webd/main.go`
 - Listen: `WEBD_LISTEN` (default `:8080`)
 - Routes wired in `server.go`
-- Registers with routd as channel `web`, prefix `web:`, caps `send_text` + `edit`
+- Registers with routd as channel `web`, prefix `web:`, caps `send_text`, `edit`, and `delete`
 
 ## Dependencies
 
@@ -209,20 +207,37 @@ its `"sdk"` field, so a page discovers it from the token alone.
 
 ## Configuration
 
-- `WEBD_LISTEN` (default `:8080`), `WEBD_URL` (default `http://webd:8080`)
-- `ROUTER_URL` (default `http://routd:8080`), `PROXYD_URL` (default `http://proxyd:8080`)
-- `ASSISTANT_NAME` (default `assistant`)
-- `AUTHD_URL` — when set, enables ES256 bearer verification via JWKS; unset → HMAC-only (local dev)
-- `AUTHD_SERVICE_KEY`, `AUTHD_SERVICE_NAME` (default `webd`) — service token for routd + proxyd calls
-- `WEBHOOK_RATE_HOOK` (default 60), `WEBHOOK_RATE_WEB` (default 20) — per-token req/min rate limits
-- `CHAT_ANON_DOS_RPM` (default 10) — per-client-IP req/min shield on `/chat/*` + `/hook/*` for anonymous callers; non-positive disables it
-- `ARIZUKO_INSTANCE` — instance name for audit/observability
+| Variable                                   | Default              | Meaning                                                                                                           |
+| ------------------------------------------ | -------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `WEBD_LISTEN`                              | `:8080`              | HTTP listener; LISTEN_ADDR is not read.                                                                           |
+| `WEBD_URL`                                 | `http://webd:8080`   | Callback URL advertised to routd.                                                                                 |
+| `ROUTER_URL`                               | `http://routd:8080`  | Ingress and registration endpoint.                                                                                |
+| `PROXYD_URL`                               | `http://proxyd:8080` | Operator route management forwarding.                                                                             |
+| `ASSISTANT_NAME`                           | `assistant`          | Web display name.                                                                                                 |
+| `AUTHD_URL`                                | unset                | JWKS source for service and transit verification.                                                                 |
+| `AUTHD_SERVICE_KEY`                        | unset                | Bootstrap secret for service:webd.                                                                                |
+| `AUTHD_SERVICE_NAME`                       | `webd`               | Service-token exchange principal.                                                                                 |
+| `WEBHOOK_RATE_HOOK`                        | `60`                 | Requests/minute per hook token.                                                                                   |
+| `WEBHOOK_RATE_WEB`                         | `20`                 | Requests/minute per chat token.                                                                                   |
+| `CHAT_ANON_DOS_RPM`                        | `10`                 | Requests/minute per anonymous client IP; non-positive disables.                                                   |
+| `DATA_DIR`                                 | working directory    | Shared instance config root; web assets are embedded, not served from this path.                                  |
+| `DYNAMODB_URL`                             | required             | Store endpoint.                                                                                                   |
+| `AWS_REGION`                               | `us-east-1`          | Store signing region.                                                                                             |
+| `AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY` | required             | Daemon store identity.                                                                                            |
+| `STORE_CA`                                 | unset                | Base64 PEM certificate; unset uses system trust.                                                                  |
+| `ARIZUKO_INSTANCE`                         | unset                | Audit and observability instance label.                                                                           |
+| `LOG_LEVEL`                                | `info`               | JSON stderr verbosity, including turn logs.                                                                       |
+| `OTEL_EXPORTER_OTLP_ENDPOINT`              | unset                | Optional OTLP logs.                                                                                               |
+| `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`       | unset                | Optional OTLP trace export; independent of the log endpoint.                                                      |
+| `MAX_CONCURRENT_CONTAINERS`                | absent               | Shared config rejects this variable whenever it is present; configure MAX_CONCURRENT_AGENTS for execution limits. |
+| `METRICS_ENABLED`                          | `false`              | Literal true mounts public GET /metrics.                                                                          |
+
+The shared loader parses [core/config.go](../core/config.go); webd selects the fields above.
 
 ## Health signal
 
-`GET /health` returns 200 when registered with the router. Liveness also
-observable via `store.LatestSource(jid)` returning `web` for recently
-delivered messages.
+`GET /health` returns 200 unconditionally once HTTP starts. It does not recheck registration, the store, or routd.
+`store.LatestSource(jid)` identifies which adapter accepted a stored message; it is not a process health probe.
 
 ## Files
 
@@ -251,3 +266,96 @@ delivered messages.
 - [`ARCHITECTURE.md` § Message Flow](../ARCHITECTURE.md#message-flow)
 - [`SECURITY.md` § Pairing](../SECURITY.md#pairing-consent-is-the-boundary) — the pairing surface webd serves
 - [`resreg/README.md`](../resreg/README.md) — the federated `/v1/*` contract
+
+## State, timing, and failures
+
+`StoreReach["webd"]` reaches only `routd`; webd owns no store schema.
+Reads use `groups`, `messages` and message indexes, `turn_context`, `turn_results`, `route_tokens`, grants/membership, and chat/session state.
+Pairing consumes a token and writes membership through the shared store operations.
+Audit events land in `routd.audit_log`. The SSE hub, rate buckets, and anonymous shield are process-local.
+Static UI and SDK files are embedded. webd owns no persistent on-disk spool or socket.
+
+Registration failure or a store-open error exits. Registration repeats every 3 minutes through chanlib.
+Router requests have a 60 s timeout and inbound posting tries twice with a 500 ms wait.
+There is no adapter-local inbound retention store. A rejected web submission returns an error to its HTTP caller.
+SSE sends keepalive comments every 15 s with a 10 s write deadline.
+The turn-specific stream also checks status every 15 s. Blocking wait is capped at 120 s.
+The proxyd route-management client times out after 10 s. Shutdown closes HTTP immediately.
+A routd outage stops submissions; a running hub can still accept channel callbacks until requests fail.
+A store outage prevents token lookup and replay. A slow subscriber can lose live frames and must read history.
+Grep `open routd's store`, `router registration failed`, `channel heartbeat failed`,
+`webd: identity verify failed`, and `folder access denied`.
+`/metrics` reports HTTP request counts/duration when enabled. Logs and traces use obs.
+
+Known limits: live/replayed frame IDs ([BUGS L440](../BUGS.md)), initial status topic placement ([BUGS L439](../BUGS.md)),
+and anonymous client identity behind an unconfigured edge ([BUGS L40](../BUGS.md)).
+The web MCP door offers `list_groups`, `send`, and `get_history`; route-token MCP confines these to its bound chat.
+Operator `proxyd_routes.*` tools forward to proxyd; no cold-tier resource is owned here.
+Tests cover handlers and frame behavior with stubs; local documentation checks do not verify a live browser or edge SSE buffering.
+
+Sources: [boot and env](main.go), [mux and auth](server.go), [hub](hub.go), [turn streams](turn.go),
+[MCP route forwarding](routes_mcp.go), [store reach](../store/owner_reach.go).
+
+## Mounted route patterns
+
+The table transcribes the mux patterns; the auth rules above apply to each surface.
+
+| Method and path                      | Owner |
+| ------------------------------------ | ----- |
+| `GET /static/`                       | webd  |
+| `GET /assets/{path...}`              | webd  |
+| `OPTIONS /assets/{path...}`          | webd  |
+| `POST /send`                         | webd  |
+| `POST /edit`                         | webd  |
+| `POST /delete`                       | webd  |
+| `POST /typing`                       | webd  |
+| `POST /v1/round_done`                | webd  |
+| `GET /health`                        | webd  |
+| `GET /openapi.json`                  | webd  |
+| `GET /chat/{token}/{$}`              | webd  |
+| `GET /chat/{token}/config`           | webd  |
+| `POST /chat/{token}`                 | webd  |
+| `POST /chat/{token}/`                | webd  |
+| `POST /chat/{token}/mcp`             | webd  |
+| `GET /chat/{token}/{topic}/messages` | webd  |
+| `GET /chat/stream`                   | webd  |
+| `GET /chat/{token}/{id}`             | webd  |
+| `GET /chat/{token}/{id}/status`      | webd  |
+| `GET /chat/{token}/{id}/sse`         | webd  |
+| `POST /hook/{token}`                 | webd  |
+| `OPTIONS /chat/`                     | webd  |
+| `OPTIONS /hook/`                     | webd  |
+| `GET /slink/{token}/{rest...}`       | webd  |
+| `POST /slink/{token}/{rest...}`      | webd  |
+| `GET /slink/{token}`                 | webd  |
+| `POST /slink/{token}`                | webd  |
+| `OPTIONS /slink/`                    | webd  |
+| `GET /dash/webd/`                    | webd  |
+| `POST /mcp`                          | webd  |
+| `GET /mcp`                           | webd  |
+| `DELETE /mcp`                        | webd  |
+| `GET /me/`                           | webd  |
+| `GET /me/chats`                      | webd  |
+| `GET /me/chats/new`                  | webd  |
+| `POST /me/chats/new`                 | webd  |
+| `GET /me/settings`                   | webd  |
+| `PATCH /me/settings`                 | webd  |
+| `GET /me/x/folders`                  | webd  |
+| `GET /me/x/chats`                    | webd  |
+| `GET /me/x/thread`                   | webd  |
+| `GET /me/chats/{folder...}`          | webd  |
+| `POST /me/chats/{folder...}`         | webd  |
+| `GET /me/folders/{folder...}`        | webd  |
+| `GET /pair/{token}`                  | webd  |
+| `POST /pair/{token}`                 | webd  |
+| `GET /{$}`                           | webd  |
+| `GET /panel/{folder...}`             | webd  |
+| `GET /api/groups`                    | webd  |
+| `GET /api/groups/{rest...}`          | webd  |
+| `POST /api/groups/{rest...}`         | webd  |
+| `GET /x/groups`                      | webd  |
+| `GET /x/groups/{rest...}`            | webd  |
+| `GET /metrics`                       | webd  |
+
+JWKS keys load lazily during verification through auth.FetchKeys; there is no fixed background JWKS ticker.
+Service tokens refresh on demand within 60 s of expiry, with a 10 s exchange timeout ([auth/service.go](../auth/service.go)).

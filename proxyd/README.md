@@ -106,7 +106,7 @@ One URL has one backing store. The slot of a group is `/pub/<folder>/`, and thes
 
 `proxyd_routes` is the only route configuration. proxyd reads it on every request and never from env. An env var that proxyd reads once at boot stops applying without a sign when a package changes the set, and a row cannot do that. A new row is live on the next request. There is no reload verb and no `enabled` column. To disable a route, delete its row.
 
-`arizuko generate` writes the rows of the release. It takes the static `coreProxydRoutes` slice in `compose/compose.go` and the `proxyd_routes` block of each service's package manifest. For a symlinked service fragment, it reads `template/services/<name>/arizuko.yml` from the visible checkout or the baked catalog. Otherwise, it reads `packages/<name>/arizuko.yml` in the instance. It skips writes for routes whose `gated_by` variable is off, but does not delete existing rows. `arizuko package sync` applies declared package routes without evaluating `gated_by`. Both commands read the package manifest.
+`arizuko generate` writes the rows of the release. It takes the static `coreProxydRoutes` slice in `compose/compose.go` and the `proxyd_routes` block of each service's package manifest. For a symlinked service fragment, it reads `template/services/<name>/arizuko.yml` from the selected package source. Otherwise, it reads `packages/<name>/arizuko.yml` in the instance. It skips writes for routes whose `gated_by` variable is off, but does not delete existing rows. `arizuko package sync` applies declared package routes without evaluating `gated_by`. Both commands read the package manifest.
 
 | Field              | Meaning                                                                                                                                                                      |
 | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -168,7 +168,7 @@ proxyd never caches the decision, because a cached answer is a revocation that d
 
 ## Why proxyd reads routd's tables directly
 
-routd owns `acl`, and the standing rule is that another daemon reaches the rows of an owner over the HTTP face of the owner. proxyd is the one named exception. **It holds a reader on the tables of the owner and reads them on the per-request hot path.** `store.OpenOwner(store.OwnerRoutd, …)` opens the endpoint that `DYNAMODB_URL` names. proxyd declares none of the tables that it reads.
+routd owns `acl`, and the standing rule is that another daemon reaches the rows of an owner over the HTTP face of the owner. proxyd uses the hot-path exception. **It holds a reader on the tables of the owner and reads them on the per-request hot path.** `store.OpenOwner(store.OwnerRoutd, …)` opens the endpoint that `DYNAMODB_URL` names. proxyd declares none of the tables that it reads.
 
 proxyd reads three things per request: `proxyd_routes`, `web_routes` under `/pub/*`, and `acl` through `auth.UserScopes` in `groupsForSub` for every ES256-authenticated caller. webd resolves route tokens, so that row has one reader. The alternative to the `acl` read is to trust the `Scope` snapshot in the JWT from login time. A revoked grant would then keep working until the next token refresh of the caller, up to 15 minutes (`accessTTL` in `authd/main.go`). Reading `acl` per request makes a revocation take effect on the next request. `proxyd/hotpath_read_test.go` pins both halves.
 
@@ -189,7 +189,7 @@ Bare `/dav` redirects to the first group of the caller in sorted order that is n
 
 ## proxyd serves the web tree
 
-proxyd serves files from `<DATA_DIR>/web` through `http.FileServer` in `static.go`.
+proxyd serves files from `<DATA_DIR>/web` through `http.FileServer` through `webfiles.New`.
 Compose mounts the web tree read-only. Directory requests serve `index.html`;
 a directory without a trailing slash returns 301 and keeps the query.
 Paths outside `/pub/` and `/priv/` resolve under `/pub/`.
@@ -222,17 +222,37 @@ The binary is `proxyd/main.go`. It listens on `$PROXYD_LISTEN`, default `8080`.
 
 ## Configuration
 
-- `PROXYD_LISTEN` is the listen port. The default is `8080`.
-- `DATA_DIR` selects the instance directory. proxyd serves its `web/` subtree, which Compose mounts read-only.
-- `AUTH_SECRET` keys the OAuth CSRF state. When it is unset, `requireAuth` answers 404, because the login flow cannot complete.
-- `AUTHD_URL` is the authd endpoint for the ES256 JWKS, for `/v1/refresh` and for the `/auth/*` proxy.
-- `AUTHD_SERVICE_KEY` is the service key of proxyd for the minting of its ES256 bearer.
-- `AUTHD_SERVICE_NAME` is the name of that service. The default is `proxyd`.
-- `TRUSTED_PROXIES` is a comma-separated list of CIDRs. A bare IP gets `/32` or `/128`. proxyd keeps `X-Forwarded-For` only from a peer in the list.
-- `HOSTING_DOMAIN` derives the world hosts from `<world>.<HOSTING_DOMAIN>`.
-- `WEB_VHOST_ALIASES` lists host-to-world entries that proxyd reads before the derivation.
-- `PUB_REDIRECT_URL` is optional. When it is set and the probe succeeds, `/pub/*` returns `302` to `<url>/<rest>` and keeps the path and the query. Websocket upgrades and probe failures fall back to local files. The HEAD probe has a timeout of 2 s, and proxyd caches the result for 30 s.
-- `DYNAMODB_URL` and the store credentials name the store server that holds the tables that proxyd reads and writes (`objstore/README.md`).
+| Variable                                                             | Default           | Meaning                                                                                                           |
+| -------------------------------------------------------------------- | ----------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `PROXYD_LISTEN`                                                      | `8080`            | Listen port, normalized with a leading colon. LISTEN_ADDR is not read.                                            |
+| `DATA_DIR`                                                           | working directory | Instance root; serves its web subtree.                                                                            |
+| `HOST_DATA_DIR`                                                      | `DATA_DIR`        | Host path used by auxiliary audit files.                                                                          |
+| `ASSISTANT_NAME`                                                     | `arizuko`         | Shared config name used for auxiliary audit context.                                                              |
+| `AUTH_SECRET`                                                        | unset             | OAuth state configuration; requireAuth returns 404 when absent.                                                   |
+| `AUTHD_URL`                                                          | unset             | JWKS, refresh endpoint, and /auth proxy. Unset authenticates nobody.                                              |
+| `AUTHD_SERVICE_KEY`                                                  | unset             | Bootstrap secret exchanged for service:proxyd.                                                                    |
+| `AUTHD_SERVICE_NAME`                                                 | `proxyd`          | Exchange principal.                                                                                               |
+| `TRUSTED_PROXIES`                                                    | empty             | CSV CIDRs or IPs allowed to supply X-Forwarded-For.                                                               |
+| `HOSTING_DOMAIN`                                                     | unset             | Suffix for world hosts; strips a trailing dot.                                                                    |
+| `WEB_VHOST_ALIASES`                                                  | unset             | CSV host=folder aliases, checked before suffix mapping.                                                           |
+| `PUB_REDIRECT_URL`                                                   | unset             | Optional public-tree redirect target after a successful probe.                                                    |
+| `DYNAMODB_URL`                                                       | required          | Store endpoint.                                                                                                   |
+| `AWS_REGION`                                                         | `us-east-1`       | Store signing region.                                                                                             |
+| `AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY`                           | required          | Daemon store identity.                                                                                            |
+| `STORE_CA`                                                           | unset             | Base64 PEM endpoint certificate; unset uses system trust.                                                         |
+| `ARIZUKO_INSTANCE`                                                   | unset             | Audit and observability instance label.                                                                           |
+| `LOG_LEVEL`                                                          | `info`            | JSON stderr verbosity.                                                                                            |
+| `OTEL_EXPORTER_OTLP_ENDPOINT`                                        | unset             | Optional OTLP logs through obs.                                                                                   |
+| `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`                                 | unset             | Optional OTLP trace export; independent of the log endpoint.                                                      |
+| `MAX_CONCURRENT_CONTAINERS`                                          | absent            | Shared config rejects this variable whenever it is present; configure MAX_CONCURRENT_AGENTS for execution limits. |
+| `METRICS_ENABLED`                                                    | `false`           | Literal true mounts public GET /metrics.                                                                          |
+| `AUDIT_ENABLED`                                                      | `false`           | Auxiliary request audit files/webhooks; database audit remains active.                                            |
+| `AUDIT_MAX_BYTES`                                                    | `104857600`       | Auxiliary audit rotation size.                                                                                    |
+| `AUDIT_ROTATE_HOURS`                                                 | `24`              | Auxiliary audit rotation age.                                                                                     |
+| `AUDIT_WEBHOOK_URL, AUDIT_WEBHOOK_URL_SYSTEM, AUDIT_WEBHOOK_URL_WEB` | unset             | Auxiliary audit webhook targets.                                                                                  |
+| `AUDIT_WEBHOOK_SECRET`                                               | unset             | Auxiliary webhook signing secret.                                                                                 |
+
+The shared loader also parses [core/config.go](../core/config.go) instance fields; proxy routing uses the settings above.
 
 ## Health signal
 
@@ -250,17 +270,54 @@ proxyd emits the two HTTP metrics that every daemon emits, at `GET /metrics` whe
 - `dash.go` serves `/dash/proxyd/`: the route table and its create and delete forms.
 - `forward_auth.go` holds `decideForwardAuth`, the verdict for the subrequest.
 
-## Coverage
+## State, failures, and timers
 
-`go test ./proxyd/ -short -cover` reports 72.4%, measured in this pass. The remaining gap is one shape: boot and the mutating dashboard forms.
+`StoreReach["proxyd"]` reaches only `routd`; proxyd creates no owner tables.
+`proxyd_routes` holds backend/auth/header rules; `web_routes` holds public-tree access rules.
+`acl`, `acl_membership`, and `user_profiles` supply current user scopes and display names.
+Proxyd writes mutations and daemon-start events into `routd.audit_log`.
+The static tree is `DATA_DIR/web`, mounted read-only in compose. Optional auxiliary audit files use the host data root.
+There is no MCP/IPC socket or durable request queue. webd forwards operator MCP route calls to proxyd's REST handlers.
 
-- `main`, `loadConfig`, `newServer`, `loadInitialRoutes`, `routes`, `newPubRedirect` and `defaultProbe` are the wiring that listens on a port and exits non-zero. `make test-e2e` exercises them.
-- `handleDashRouteCreate`, `handleDashRouteDelete` and their two helpers are the `/dash/proxyd/` forms. Tests cover the same mutations through `/v1/proxyd_routes` (`resource_test.go`), which is the handler that the forms call. What is untested is the form parse in front of it.
+| Resource        | REST path                                                                             | MCP names through webd                                                                                            |
+| --------------- | ------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `proxyd_routes` | `GET`, `POST /v1/proxyd_routes`; `GET`, `PATCH`, `DELETE /v1/proxyd_routes/{path...}` | `proxyd_routes.list`, `proxyd_routes.get`, `proxyd_routes.create`, `proxyd_routes.update`, `proxyd_routes.delete` |
 
-Tests cover routing, the auth gate, identity stamping, vhost derivation, the WebDAV write-block and forward auth.
+| Other route                                                           | Behavior                                               |
+| --------------------------------------------------------------------- | ------------------------------------------------------ |
+| `/health`, `GET /openapi.json`                                        | Public liveness and mounted API description.           |
+| `/auth/forward`, `/auth/`                                             | Local forward-auth verdict and authd proxy.            |
+| `/pub/`, `/priv/`, `/dav/`                                            | Public files/rules, private files, and guarded WebDAV. |
+| `GET /dash/proxyd/`, `POST /dash/proxyd/`, `POST /dash/proxyd/delete` | Operator route page and mutation forms.                |
+| `/` and configured paths                                              | Longest matching route or public-tree redirect.        |
+
+Backends come from rows, including `dashd`, `webd`, `onbod`, `authd`, `runed`, `davd`, and installed adapters.
+The code opens routd's store directly; it does not ask routd over HTTP for every request.
+Store setup failure exits at boot. A runtime route read failure logs `proxyd: read proxyd_routes` and supplies an empty snapshot.
+A web-rule read failure logs `proxyd: read web_routes` and supplies no rules; this is not a cached policy snapshot.
+Check those logs before interpreting an unexpected redirect or public-file response.
+An unreachable proxy backend normally returns 502. There is no application replay or request-retention queue.
+An authd outage can prevent refresh or a new transit token even while locally verified access tokens remain valid.
+
+The public redirect probe runs on demand, caches its result for 30 s, and has a 2 s HEAD timeout.
+No background route-reload loop runs: the next request reads current rows.
+Signal shutdown allows 5 s. `/health` does not probe the store, authd, or backends.
+Grep `proxyd starting`, `proxyd: read proxyd_routes`, `proxyd: read web_routes`,
+`untrusted edge proxy`, `dav blocked`, and `AUTHD_URL/AUTHD_SERVICE_KEY unset`.
+Optional `/metrics` reports HTTP request counts and duration; JSON logs and OTLP cover request failures.
+
+The allow-only private-scope projection does not enforce deny subtraction ([BUGS L493](../BUGS.md)).
+Tests cover route matching, bearer/header trust, WebDAV containment, and forward auth.
+Local documentation checks do not verify live edge configuration, provider login, or backend uptime.
+
+Sources: [entry point and routing](main.go), [route store and handlers](resource.go),
+[resource contract](../resreg/resources/proxyd_routes.go), [reach](../store/owner_reach.go).
 
 ## Related docs
 
 - [ARCHITECTURE.md](../ARCHITECTURE.md#daemon-conventions) describes the hot-path exception.
 - [SECURITY.md](../SECURITY.md) describes the transit bearer and the trust zones.
 - [webd/README.md](../webd/README.md) describes the route-token surface behind `/chat/` and `/hook/`.
+
+JWKS keys load lazily during verification through auth.FetchKeys; there is no fixed background JWKS ticker.
+Service tokens refresh on demand within 60 s of expiry, with a 10 s exchange timeout ([auth/service.go](../auth/service.go)).

@@ -1,6 +1,6 @@
 # authd
 
-ES256 token authority: the sole platform-token signer + JWKS publisher.
+authd signs platform tokens, publishes ES256 verification keys, and owns login identities and refresh-token families.
 
 ## Purpose
 
@@ -10,10 +10,9 @@ locally via `auth.VerifyToken` (the `auth/` library). authd also acts as
 the OAuth provider (GitHub/Google/Discord), exchanging a
 successful login for an ES256 access + refresh token.
 
-One signer and offline verifiers is the whole design. Verification is a
-pure function with no per-request hop, so an authd outage does not stop
-tokens already issued, and the one signer is the one place to rotate or
-revoke a key.
+Backends verify tokens locally when their cached public keys contain the signing key.
+An authd outage can block a new key fetch, login, refresh, or service-token exchange.
+The signer owns key rotation and refresh-family revocation.
 
 ## Responsibilities
 
@@ -36,7 +35,7 @@ revoke a key.
 
 `signing_keys`, `signing_key_slot`, `refresh_tokens`, `refresh_families`,
 `auth_users`, `oauth_identities` — declared by `authstore.Entities` and created
-through the driver at boot. authd runs no statement and holds no DDL, and it
+through the driver at boot. authd holds no SQL or DDL, and it
 reaches its own owner and no other daemon's. Every entity takes one partition
 for the whole daemon, so every non-point read is a whole-partition read.
 
@@ -88,7 +87,7 @@ Two of the six carry an invariant a column could not:
     (bearer-gated, `sessions:write`). The incident-response verb;
     `POST /auth/logout` remains the self-service one. Writes its `audit_log`
     row inside the revoke's own transaction.
-  - `GET|POST /dash/authd/` — authd's own operator dashboard: the signing-key
+  - `GET /dash/authd/` and `POST /dash/authd/revoke` — authd's own operator dashboard: the signing-key
     lifecycle, the login families, and a per-login sign-out. Gated by the
     proxyd-stamped operator identity, not a bearer.
 
@@ -99,31 +98,46 @@ Two of the six carry an invariant a column could not:
   folder column, so there is no predicate that could contain one.
   `serviceGrants` (`http.go`) is the whole per-principal scope map, and
   `service_dashd_test.go` bounds dashd's entry by name and by count.
-  - `GET /auth/*` — OAuth login/callback/logout (mounted only when `AUTH_BASE_URL` set)
+  - `/auth/*` — configured OAuth login/callback/logout routes
   - `GET /openapi.json`, `GET /health`
 
 ## Dependencies
 
 - `auth` (signing/verify primitives), `core`, `store`, `audit`, `obs`, `resreg`
-- `objstore` through `store.OwnerDriver` — the endpoint the instance is
-  served from, or authd's own file
+- `objstore` through `store.OwnerDriver` — the configured store endpoint, using the `authd.` table prefix
 - `routd` (optional, via `GRANTS_URL`) — authd fetches the login-time scope
   ceiling from routd at login and refresh; unset = empty-scope sessions.
 
 ## Configuration
 
-- `DYNAMODB_URL` + `AWS_*` + `STORE_CA` — the store server authd dials for its
-  own table prefix. Without them authd refuses to start
-- `AUTHD_SERVICE_KEY` — authd's bootstrap secret (self-mint `service:authd`)
-- `AUTHD_SERVICE_KEYS` — `principal=secret,...` map for daemon exchange
-- `GRANTS_URL` — routd grants endpoint (`http://routd:8080`); unset → empty-scope sessions
-- `LISTEN_ADDR` — HTTP listen address (`:8080`)
-- `ARIZUKO_INSTANCE` — instance name (observability + audit context)
-- OAuth provider: `AUTH_BASE_URL`, `GITHUB_*`, `GOOGLE_*`, `DISCORD_*`
-- `DEX_ISSUER` + `DEX_CLIENT_ID` (+ `DEX_CLIENT_SECRET`) — mount `/auth/dex`:
-  Dex authenticates, authd maps the ID token's `federated_claims` to
-  `<connector_id>:<user_id>` and mints the session as for a native provider
-  Unset → unmounted.
+| Variable                                   | Default     | Meaning                                                                                                           |
+| ------------------------------------------ | ----------- | ----------------------------------------------------------------------------------------------------------------- |
+| `LISTEN_ADDR`                              | `:8080`     | HTTP listener.                                                                                                    |
+| `AUTHD_SERVICE_KEY`                        | unset       | Self-mint bootstrap and exchange secret for service:authd.                                                        |
+| `AUTHD_SERVICE_KEYS`                       | unset       | Comma-separated `service:<daemon>=<secret>` exchange map.                                                         |
+| `GRANTS_URL`                               | unset       | routd base URL; unset produces empty-scope login sessions.                                                        |
+| `AUTH_BASE_URL`                            | unset       | Required to mount OAuth routes; WEB_HOST alone does not mount them.                                               |
+| `WEB_HOST`                                 | unset       | Fallback public origin.                                                                                           |
+| `AUTH_SECRET`                              | unset       | Signs OAuth CSRF state.                                                                                           |
+| `GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET`   | unset       | GitHub OAuth ID mounts the route; secret supports token exchange.                                                 |
+| `GITHUB_ALLOWED_ORG`                       | unset       | Optional GitHub organization restriction.                                                                         |
+| `GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET`   | unset       | Google OAuth ID mounts the route; secret supports token exchange.                                                 |
+| `GOOGLE_ALLOWED_EMAILS`                    | unset       | Optional comma-separated email allowlist.                                                                         |
+| `DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET` | unset       | Discord OAuth ID mounts the route; secret supports token exchange.                                                |
+| `DEX_ISSUER, DEX_CLIENT_ID`                | unset       | Dex discovery URL and client; requires both to mount Dex login.                                                   |
+| `DEX_CLIENT_SECRET`                        | unset       | Dex client credential when needed.                                                                                |
+| `DYNAMODB_URL`                             | required    | DynamoDB-protocol store endpoint.                                                                                 |
+| `AWS_REGION`                               | `us-east-1` | Store signing region.                                                                                             |
+| `AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY` | required    | Daemon store identity; both values must be set.                                                                   |
+| `STORE_CA`                                 | unset       | Base64 PEM endpoint certificate; unset uses system trust.                                                         |
+| `ARIZUKO_INSTANCE`                         | unset       | Audit and observability instance label.                                                                           |
+| `LOG_LEVEL`                                | `info`      | JSON stderr verbosity: debug, info, warn, error.                                                                  |
+| `OTEL_EXPORTER_OTLP_ENDPOINT`              | unset       | Optional OTLP log export.                                                                                         |
+| `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`       | unset       | Optional OTLP trace export; independent of the log endpoint.                                                      |
+| `MAX_CONCURRENT_CONTAINERS`                | absent      | Shared config rejects this variable whenever it is present; configure MAX_CONCURRENT_AGENTS for execution limits. |
+| `METRICS_ENABLED`                          | `false`     | Literal `true` mounts public GET /metrics.                                                                        |
+
+`core.LoadConfig` also parses the shared instance settings in [core/config.go](../core/config.go); authd uses the OAuth fields listed above.
 
 ## Token lifetimes
 
@@ -140,7 +154,7 @@ Two of the six carry an invariant a column could not:
   list, because verifiers stay offline. A normal revoke waits out the access
   TTL; a refresh revoke marks the family as revoked.
 
-  To invalidate existing access tokens, delete the `authd.signing_key_slot`
+  To select a new signing key, delete the `authd.signing_key_slot`
   item and restart authd. authd creates a new signing key. Recently retired
   keys still verify tokens until `retired_at + maxAccessTTL`, up to one hour.
   Offline verifiers can accept existing access tokens with cached keys until
@@ -211,24 +225,10 @@ and the grants per request. `POST /v1/service-token` is arizuko's too:
 `auth.ProxydTransit` pins `typ=service` and `sub=service:proxyd` on
 arizuko's own verifier.
 
-Operator facts for a Dex deploy, per Dex v2.45.1 as measured on 2026-09-03
-and not measured again since:
-
-- Dex's ID token has a closed claim set: `email`, `groups`, `name`,
-  `preferred_username`, `federated_claims`. It has no hook for a per-user
-  claim.
-- Dex v2.45.1 has no `client_credentials` grant.
-- Dex emits `federated_claims` only for the `federated:id` scope.
-- The `github` connector reports the numeric GitHub id unless its config
-  sets `useLoginAsID: true`. An `acl` row keyed on the login, such as
-  `github:kronael`, stops matching without it.
-- Discord and Facebook ride the generic `oauth` connector. Twitter/X cannot:
-  the connector sends no PKCE, and X nests the user id under `data`.
-
 ## Health signal
 
-`GET /health` returns 200 when the STORE answers — the endpoint or the file,
-whichever this instance is on.
+`GET /health` probes the store and returns 200 `ok` or 503 `store unreachable`.
+The probe does not test the grants backend or an OAuth provider.
 
 ## Observability
 
@@ -260,17 +260,49 @@ operator revoke) and are served read-only at `GET /v1/audit`, which
 - `grants.go` — HTTP grants fetcher (login-time scope snapshot)
 - `dash.go` — `/dash/authd/` and its revoke form
 
-## Coverage
+## Failures, timers, and coverage
 
-`go test ./authd/ -short -cover` reports 69.9% (2026-09-13). Two shapes are
-uncovered and both need a real remote:
+```text
+backends ──► authd /v1/keys ──► local JWT verification
+browser through proxyd ──► authd OAuth ──► provider
+                                   │
+                                   ├──► routd:8080 grants snapshot
+                                   └──► authd.* store entities
+```
 
-- `main` and `handleHealth` — boot and the liveness probe. `make test-e2e`'s.
-- `googleCallback`, `githubCallback`, `discordCallback`, `logout` —
-  the provider redirect halves, which need the provider to answer. What they
-  converge on IS covered: `issueSession` 83.7%, `dispatch` 64.3%,
-  `authorizeURL` 71.4%. Untested is the per-provider parameter unpacking in
-  front of the mint, not the ES256 path.
+| Resource       | REST path                                             | MCP tool                                                |
+| -------------- | ----------------------------------------------------- | ------------------------------------------------------- |
+| `audit`        | `GET /v1/audit`                                       | No authd agent socket; catalog action is `query_audit`. |
+| `signing_keys` | `GET /v1/signing_keys`                                | None.                                                   |
+| `sessions`     | `GET /v1/sessions`, `DELETE /v1/sessions/{family_id}` | None.                                                   |
 
-Key rotation, the refresh lineage, service-token exchange, the three resreg
-resources and `authstore` are covered.
+`StoreReach["authd"]` opens only `authd`. `audit_log` holds authd's mutations and daemon-start events.
+Keys and refresh credentials persist in the remote store; authd owns no local key file or IPC socket.
+The other daemons fetch JWKS or exchange their service key. proxyd forwards browser login and refresh calls here.
+
+There is no scheduled key rotation or refresh-token cleanup goroutine. Expiry checks happen on requests and key load.
+The grants HTTP client has a 10 s timeout; the Dex discovery/token client has a 15 s timeout.
+Shutdown allows 5 s. A grants 5xx fails login or refresh rather than treating the person as ungranted.
+A store setup or initial signer failure exits. A running signer keeps its key in memory; store-dependent operations can still fail.
+Cached verifier keys can serve existing tokens during an authd outage, within token and key validity.
+Grep `open authd's store`, `prepare storage`, `init signer`, `mint service token`,
+`oauth /auth/* not mounted`, and `refresh-token family NOT revoked`.
+`/metrics` includes HTTP request metrics and token mint/refresh counters when enabled.
+
+Tests cover signer, refresh lineage, identity linking, service-token exchange, and resource gates with stubbed providers.
+Local documentation checks do not verify live provider redirects or revocation propagation through every verifier cache.
+
+Sources: [boot](main.go), [mux and service grants](http.go), [signer](server.go),
+[OAuth](oauth.go), [Dex](dex.go), [store entities](authstore/authstore.go), [store reach](../store/owner_reach.go).
+
+## OAuth route patterns
+
+| Method and full path                                   | Mount condition                                    |
+| ------------------------------------------------------ | -------------------------------------------------- |
+| `GET /auth/login`, `POST /auth/logout`, `GET /auth/me` | AUTH_BASE_URL is set and core configuration loads. |
+| `GET /auth/github`, `GET /auth/github/callback`        | GITHUB_CLIENT_ID is set.                           |
+| `GET /auth/google`, `GET /auth/google/callback`        | GOOGLE_CLIENT_ID is set.                           |
+| `GET /auth/discord`, `GET /auth/discord/callback`      | DISCORD_CLIENT_ID is set.                          |
+| `GET /auth/dex`, `GET /auth/dex/callback`              | DEX_ISSUER and DEX_CLIENT_ID are set.              |
+
+Each provider row also requires the AUTH_BASE_URL mount condition.

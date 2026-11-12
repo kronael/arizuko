@@ -205,9 +205,9 @@ in-flight authority between redeeming a subgroup invite and naming the
 workspace, written by `store.consumeInvite` and deleted by
 `handleCreateWorld`. A REST/MCP face would publish a create verb for the
 authority that decides which tenant a new folder lands in — the same
-authority BUGS `F50` was about.
+authority described by BUGS `F50`.
 
-`auth_users`/`acl`/`groups`/`routes` are NOT onbod's — they are routd's. onbod
+`auth_users` belongs to authd. `acl`, `groups`, and `routes` belong to routd. onbod
 holds a second reader on routd's owner (`store.OpenOwner`) for
 dashboard rendering, and cross-writes `acl`/`groups`/`routes` during world
 creation and invite redemption.
@@ -216,30 +216,13 @@ onbod also writes FILES: `container.SetupGroup` creates `groups/<folder>/` and
 the per-group `web/pub` and `web/priv` slots, so onbod needs the same tree
 routd reads.
 
-## Entry points
+## Browser and admin entry points
 
-- Binary: `onbod/main.go`; admin surface: `onbod/admin.go`; owned-DB
-  open: `onbod/db.go`
-- Listen: `$ONBOD_LISTEN_ADDR` (default `:8080`)
-- Onboarding surface — proxyd routes these `auth: user`, so the caller has
-  already signed in and arrives with a transit-verified `X-User-Sub` (authd
-  JWKS). Every handler names that caller, and answers 401 without one:
-  - `GET /onboard` — world picker, username picker, dashboard, or queue
-    position. Carries no `?token=`: redemption is webd's
-    `/pair/{token}`.
-  - `POST /onboard` — CSRF-protected form actions (create_world, add_route from
-    the world picker; delete_route is dispatched but no page renders a form)
-  - `GET /invite/{token}` — invite redemption
-- Admin surface (bearer-gated, authd JWKS; nil keyset = open):
-  - `POST /v1/onboarding` — record unrouted JID (invites:write). The answer
-    has `created`, true only when this call made the row; `routd` uses it to
-    send one notice to the `?issues` chats for each new request
-  - `POST /v1/invites`, `GET /v1/invites`, `DELETE /v1/invites/{ref}` (invites:read/write)
-  - `GET /v1/gates`, `PUT /v1/gates/{gate}`, `DELETE /v1/gates/{gate}` (gates:read/write)
-- `GET|POST /dash/onbod/` — onbod's own operator page: the admission queue
-  with approve, deny and reprompt per row, operator-only
-- `GET /openapi.json` — `onboarding`, `onboarding_gates`, `invites`
-- Disable: `ONBOARDING_ENABLED=0` (exits immediately)
+The binary is [main.go](main.go). proxyd supplies user identity to `/onboard` and `/invite/{token}`.
+`GET /onboard` renders world selection, username selection, or queue position.
+`POST /onboard` accepts CSRF-protected form actions. A caller without a transit-proven identity receives 401.
+`GET /invite/{token}` redeems an invite for the signed-in caller.
+The complete resource and operator-action paths appear below under Resource map and recovery.
 
 ## Dependencies
 
@@ -247,37 +230,37 @@ routd reads.
 
 ## Configuration
 
-- `ONBOARDING_ENABLED` — `0` exits immediately
-- `ONBOARDING_GREETING` — prepended to auth link message
-- `DYNAMODB_URL` + `AWS_*` + `STORE_CA` — the store server onbod dials for its
-  own tables and for the cross-read on routd's
-- `ONBOD_LISTEN_ADDR` — HTTP listen address (default `:8080`)
-- `ONBOARD_POLL_INTERVAL` — poll tick duration (default `10s`)
-- `ROUTER_URL` — routd's `/v1/outbound` endpoint (default `http://routd:8080`)
-- `AUTHD_URL`, `AUTHD_SERVICE_KEY` — service token for routd's JWT-gated outbound API (required)
-- `AUTH_BASE_URL` — public auth base for link generation
-- `DATA_DIR` — project root (inherited from core config)
+| Variable                                   | Default             | Meaning                                                                                                           |
+| ------------------------------------------ | ------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `ONBOARDING_ENABLED`                       | unset               | Literal `0` exits immediately; other values do not disable this binary.                                           |
+| `ONBOARDING_GREETING`                      | empty               | Text prepended to the setup link.                                                                                 |
+| `ONBOD_LISTEN_ADDR`                        | `:8080`             | HTTP listener; LISTEN_ADDR is not read.                                                                           |
+| `ONBOARD_POLL_INTERVAL`                    | `10s`               | Go duration for greeting and pairing scans. Configure a positive duration.                                        |
+| `ROUTER_URL`                               | `http://routd:8080` | routd base URL for outbound messages.                                                                             |
+| `AUTHD_URL, AUTHD_SERVICE_KEY`             | required            | JWKS and fixed service:onbod bootstrap. AUTHD_SERVICE_NAME is not read.                                           |
+| `AUTH_BASE_URL`                            | unset               | Public auth origin used to build links.                                                                           |
+| `AUTH_SECRET`                              | unset               | Shared state configuration loaded with the instance.                                                              |
+| `WEB_HOST`                                 | unset               | Shared public web origin.                                                                                         |
+| `DATA_DIR`                                 | working directory   | Root for group and web-slot creation.                                                                             |
+| `ASSISTANT_NAME`                           | `arizuko`           | Instance display name from core config.                                                                           |
+| `SECRETS_KEY`                              | unset               | Keyring loaded by core config for group setup context.                                                            |
+| `DYNAMODB_URL`                             | required            | Store endpoint.                                                                                                   |
+| `AWS_REGION`                               | `us-east-1`         | Store signing region.                                                                                             |
+| `AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY` | required            | Daemon store identity.                                                                                            |
+| `STORE_CA`                                 | unset               | Base64 PEM endpoint certificate; unset uses system trust.                                                         |
+| `ARIZUKO_INSTANCE`                         | unset               | Audit and observability instance label.                                                                           |
+| `LOG_LEVEL`                                | `info`              | JSON stderr verbosity.                                                                                            |
+| `OTEL_EXPORTER_OTLP_ENDPOINT`              | unset               | Optional OTLP logs through obs.                                                                                   |
+| `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`       | unset               | Optional OTLP trace export; independent of the log endpoint.                                                      |
+| `MAX_CONCURRENT_CONTAINERS`                | absent              | Shared config rejects this variable whenever it is present; configure MAX_CONCURRENT_AGENTS for execution limits. |
+| `METRICS_ENABLED`                          | `false`             | Literal true mounts public GET /metrics.                                                                          |
+
+[core/config.go](../core/config.go) also parses the shared instance fields; OAuth login itself belongs to authd.
 
 ## Health signal
 
 `GET /health` returns 200. Queued users see their position on `/onboard`
 (auto-refreshes every 30s).
-
-## `/v1/*` surface
-
-- `POST /v1/onboarding` — record unrouted JID (status awaiting_message).
-  routd's worker calls this on route miss. Scope: `invites:write`.
-- `/v1/invites` — list/create/revoke invites. routd's `/invite` command
-  federates here; the host CLI `arizuko invite` and dashd write onbod's
-  tables through their own handle. Scope: `invites:read`, `invites:write`.
-- `/v1/gates` — list/upsert/delete onboarding gates. routd's `/gate`
-  command federates here; CLI `arizuko gate` + dashd write direct.
-  Scope: `gates:read`, `gates:write`.
-- No `/v1/users`. `auth_users` and `oauth_identities` are authd's
-  (`authd/authstore`), and `dashd /dash/profile/` asks routd for the caller's
-  display name rather than reading any identity table.
-
-REST verbs match the platform-api shape (`GET`, `POST`, `PUT`, `DELETE`).
 
 ## Token role
 
@@ -285,7 +268,7 @@ onbod uses the same `auth/` library every other daemon does — it is
 **not** a special-case auth path. authd is the sole platform-token
 signer; onbod never holds a signing key.
 
-- **Transit verifier.** onbod fetches authd's JWKS at boot
+- **Transit verifier.** onbod constructs authd's lazy JWKS verifier at boot
   (`auth.FetchKeys` → `KeySet`) and gates its public routes with
   `stripUnsignedGuard(ks)` — keeps the proxyd-stamped `X-User-Sub` (the
   OAuth'd end-user) only when the request proves it transited proxyd via
@@ -321,3 +304,42 @@ rather than panicking. Do not remove this nil-check.
 - [`auth/README.md`](../auth/README.md) — the `acl` row and `acl_membership`
 - [`resreg/README.md`](../resreg/README.md) — the `/v1/*` contract
 - [`ARCHITECTURE.md` § Data ownership](../ARCHITECTURE.md#data-ownership) — the routd tables onbod opens
+
+## Resource map and recovery
+
+| Resource           | REST endpoints                                                                                                                         | MCP surface                                                                                                                                       |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `onboarding`       | `POST`, `GET /v1/onboarding`; `POST /v1/onboarding/{jid}/approve`, `POST /v1/onboarding/{jid}/reprompt`, `DELETE /v1/onboarding/{jid}` | Catalog names `onboarding.create`, `onboarding.list`, `onboarding.approve`, `onboarding.reprompt`, `onboarding.delete`; no agent socket in onbod. |
+| `onboarding_gates` | `GET /v1/gates`; `PUT`, `DELETE /v1/gates/{gate}`                                                                                      | No derived tools; routd's hand-authored gate tools federate here.                                                                                 |
+| `invites`          | `POST`, `GET /v1/invites`; `DELETE /v1/invites/{ref}`                                                                                  | No derived tools; routd's hand-authored invite tools federate here.                                                                               |
+| `audit`            | `GET /v1/audit`                                                                                                                        | No onbod agent socket.                                                                                                                            |
+
+The public browser routes are `GET`, `POST /onboard` and `GET /invite/{token}`.
+The operator page uses `GET /dash/onbod/` and `POST /dash/onbod/approve/{jid}`, `/dash/onbod/deny/{jid}`, `/dash/onbod/reprompt/{jid}`.
+`GET /health`, `GET /openapi.json`, and optional `GET /metrics` are public.
+No MCP or IPC listener runs here; routd owns the agent tool socket.
+
+`StoreReach["onbod"]` reaches `onbod` and `routd`.
+Owned entities hold admissions (`onboarding`), limits (`onboarding_gates`), invite hashes and use counts (`invites`),
+unspent subgroup authority (`invite_redemptions`), version markers (`resreg_scopes`), and audit events (`audit_log`).
+The cross-owner handle reads or writes routd's groups, routes, grants, membership, profiles, and pairing tokens.
+Disk writes create `DATA_DIR/groups/<folder>`, `DATA_DIR/web/pub/<folder>`, and `DATA_DIR/web/priv/<folder>`.
+No local onboarding database or delivery spool exists.
+
+Startup runs greeting, pairing observation, and queue admission once.
+The configured poll then runs greeting and pairing scans every 10 s by default.
+Queue admission runs when accumulated whole poll seconds reach 60; it is not a separate exact 60 s ticker.
+The outbound HTTP client has a 10 s timeout. SIGTERM closes HTTP immediately.
+A failed outbound greeting keeps the row eligible for a later poll; store errors log and the next pass tries again.
+Store opening or required auth configuration failure exits. `/health` still returns 200 during runtime dependency faults.
+Grep `open onbod's store`, `open routd's store`, `onbod: unproven identity stripped`, and `http server error`.
+
+A re-greet cooldown limits rate, not total lifetime greetings ([BUGS F41](../BUGS.md)).
+Cross-owner writes cannot share one store transaction; invite-use restoration compensates a failed routd write.
+Tests cover invite limits, queue admission, pairing, and handler gates; live OAuth and outbound platform delivery need integration checks.
+
+Sources: [boot, config, loops](main.go), [owned store](db.go), [resource contracts](../resreg/resources/onboarding.go),
+[entity ownership](../store/entities.go), [owner reach](../store/owner_reach.go).
+
+JWKS keys load lazily during verification through auth.FetchKeys; there is no fixed background JWKS ticker.
+Service tokens refresh on demand within 60 s of expiry, with a 10 s exchange timeout ([auth/service.go](../auth/service.go)).

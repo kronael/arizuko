@@ -39,7 +39,7 @@ the local `acl` rows.
 `turn_status.go` is the only code that calls `Typing` or creates or edits a `verb="status"` row. The hidden method `submit_status` receives raw harness snapshots and fallback text. `progress_reducer.go` merges parent checklists under the turn lock; an active checklist owns the text until End. `placement.go` gives every delivery of the turn one destination.
 
 - A channel that advertises `edit` and `delete` gets one `⏳` progress line where the reply will go. An existing thread wins; without one, the reply's own rule applies.
-- A channel that lacks either gets no progress line. gitd advertises no `edit`, so GitHub shows the `👀` mark and no progress comment.
+- A channel that lacks either gets no progress line. A credentialed gitd advertises `edit` and `delete`, so GitHub can show a progress comment and the `👀` mark.
 - The agent writes no opener, and no progress message starts a thread.
 - Persisted message rows keep the edits across a restart.
 - The first status row is persisted before Send. Its existing idempotency key lets webd classify the first frame; the retry sweep shares the turn lock with updates and End.
@@ -99,7 +99,7 @@ in `schedule_test.go` cover firing and retry behavior.
 - **Instance breaker.** A failed execution opens the `turn_control` singleton: no new agent launches until the failed turn's due retry, the one probe, runs without failure. After the probe turn exhausts its retries the breaker stays open one hour, then the oldest waiting turn probes. An intentional stop never opens it.
 - **Turn lifecycle.** `submit_turn` is hidden from `tools/list`. A provider refusal records the attempt and holds input without a `turn_results` row or final delivery. For other results, the `turn_results` key removes duplicates, so the first terminal result wins the cursor and delivery. A `running` turn older than the run timeout moves to `expired`, never `done`. Crash recovery looks for `running`, and the guard against a second live run looks for `done`.
 - **One turn per folder.** A new inbound message for a busy folder waits. runed answers `busy`, and routd keeps the batch. After the run ends, routd feeds the batch again with its own turn context and MCP binding. The observed cursor is at-least-once. It advances on the same success path as the message cursor. So a turn that routd feeds again sees the context of the failed attempt.
-- **Outbound.** The pending bot row is the outbox. `chanreg` and the adapters hold no queue. A sweep every 30 s sends `pending` rows again, and each row waits its own gap. The gap starts at 30 s and doubles per failure up to a cap of 1 h. A flat 30 s gap would spend ten attempts in five minutes, and a routine adapter restart lasts longer. A 4xx answer dead-letters the row at once with `delivery_attempts` 0. A transient failure spends one attempt, up to `MAX_OUTBOUND_RETRY`. An age rule would discard rows that the sweep never tried, so routd uses no age bound.
+- **Outbound.** The pending bot row is the outbox. `chanreg` holds no outbound queue; the adapter stores deduplication claims. A sweep every 30 s sends `pending` rows again, and each row waits its own gap. The gap starts at 30 s and doubles per failure up to a cap of 1 h. A flat 30 s gap would spend ten attempts in five minutes, and a routine adapter restart lasts longer. A 4xx answer dead-letters the row at once with `delivery_attempts` 0. A transient failure spends one attempt, up to `MAX_OUTBOUND_RETRY`. An age rule would discard rows that the sweep never tried, so routd uses no age bound.
 - **A failed send writes its row.** The MCP tools `send`, `reply` and `send_file` return the error to the agent and record the undelivered row. The row is `pending` after a transient failure and `failed` after a permanent one. A failed `send_file` always dead-letters (`recordOutboundFailure` in `ipc/ipc.go`).
 - **Delivery dedup belongs to the adapter.** `chanlib/README.md` section "Delivery is claimed before the platform call" describes it.
 - **A row names its source and its writer.** `messages.source` holds the adapter of record that ingest carries. An outbound reply reads it with `LatestSource(jid)`, so a reply leaves through the bot that received the message. A turn's status row takes `status-<sha256(turn id, chat)>` (`turn_status.go`), one row per turn and chat. An operator `POST /v1/outbound` row takes `out-<hex>`. An MCP send takes `mcp-<unix nanos>` (`core.MsgID`). Inbound polling filters bot rows.
@@ -215,26 +215,11 @@ When `MODEL_GATEWAY_URL` is set, the gateway holds the model credential and keep
 
 The package ships its own Postgres (`litellm_db`) for keys and spend. It holds the bookkeeping of the gateway and not the store of the instance. Every operator surface reads spend through `/v1/cost/summary`.
 
-## Tables routd owns
+## State ownership
 
-routd is the `routd` owner. Each table below is an objstore entity. routd creates all of them at boot, because `Open` calls `store.PrepareOwner`.
-
-- Messages: `messages`, the four read-shaped indexes that an append fans out into (`message_folders`, `message_folder_counts`, `message_activity`, `message_delivery`), `chats`, `chat_reply_state` and `chat_proactive`. Ranked search keeps no table, because the index lives in memory (`msgsearch/`).
-- Routing: `routes`, `web_routes` and `route_tokens`. A `route_tokens` row has `kind='route'` for a delivery bearer or `kind='pair'` for an identity-pairing link.
-- Orchestration: `turn_context`, `turn_results`, `model_pauses`, `sessions`, `system_messages`, `group_watchers` and `groups`.
-- Authorization and secrets: `acl`, `acl_membership`, `secrets` and `secret_use_log`.
-- Scheduler: `scheduled_tasks` and `task_run_logs`.
-- Slack pane: `pane_sessions`.
-- Held tool calls: `pending_actions`.
-- Webhook and file sources: `github_sources` and `gdrive_files`.
-- The route table of proxyd: `proxyd_routes`. proxyd makes every write to it and serves it on its own `/v1`.
-- Counters: `counters` holds one server-minted number, `routes.id`.
-- People: `user_profiles` holds the username that names the folder of a person, and the per-day spend cap of that person. authd owns identity. The model gateway owns spend.
-- Network: `network_rules`.
-- Packages: `installed_packages`, keyed by folder and name, where `''` means instance-wide. `arizuko package add`, `rm` and `sync` write the rows: one selection and receipt for each package, including the required core receipt. Both faces only read it, and both require the scope `**` for the read (`installedPackagesScope` in `packages_resource.go`). The folder column does not narrow the read, because one record names identities in several folders. A token bound to its own subtree gets 403.
-- Audit: `audit_log`, created through `audit.EnsureEntities`.
-
-routd reads no table of another owner. Data of other daemons arrives over HTTP: identity from authd and `session_log` from runed.
+routd opens only its own owner. The complete entity map and maintenance policy appear below under Persistent state and maintenance.
+Other daemon data arrives over HTTP: identity from authd, session history from runed, onboarding operations from onbod.
+proxyd serves runtime proxyd_routes CRUD; compose generation and package installation also write those routd-owned rows.
 
 ## What the REST face serves
 
@@ -249,71 +234,60 @@ routd reads no table of another owner. Data of other daemons arrives over HTTP: 
 - `network_rules` has no REST face, because all three of its actions are `MCPOnly`.
 - `acl_membership` has one pair of faces, `unpair` over MCP and `DELETE /v1/acl_membership` over REST. Both limit the change to rows with `added_by='pairing'`. No endpoint writes the edge. It appears only when a human confirms a pairing link in a browser.
 
-## Endpoints
+## Other HTTP endpoints
 
-The binary is `routd/cmd/routd/main.go`. It listens on `LISTEN_ADDR`, default `:8080`. The endpoints are in `server.go` and `channels.go`, and each resource file mounts its own. The scope in brackets is the one that the endpoint requires.
+The binary is `routd/cmd/routd/main.go`; LISTEN_ADDR defaults to :8080.
+The Resource names and agent tools table lists the resreg endpoints.
+These additional mux patterns serve ingress, runtime state, and operator pages:
 
-Inbound and outbound:
+| Method and path                  | Handler owner |
+| -------------------------------- | ------------- |
+| `GET /health`                    | routd         |
+| `POST /v1/messages`              | routd         |
+| `POST /v1/outbound`              | routd         |
+| `GET /v1/messages/inspect`       | routd         |
+| `GET /v1/messages/thread`        | routd         |
+| `GET /v1/messages/find`          | routd         |
+| `GET /v1/routing/resolve`        | routd         |
+| `GET /v1/routing/errored`        | routd         |
+| `GET /v1/routing/unrouted`       | routd         |
+| `GET /v1/routing/answering`      | routd         |
+| `GET /v1/engagement`             | routd         |
+| `POST /v1/engagement`            | routd         |
+| `GET /v1/topic_sessions`         | routd         |
+| `GET /v1/sessions/counts`        | routd         |
+| `GET /v1/messages/volume`        | routd         |
+| `GET /v1/messages/activity`      | routd         |
+| `GET /v1/principals`             | routd         |
+| `GET /v1/users/{sub}/scopes`     | routd         |
+| `POST /v1/pane`                  | routd         |
+| `GET /v1/tasks/runs`             | routd         |
+| `POST /v1/tasks/runlog`          | routd         |
+| `GET /v1/tasks/{id}/runs`        | routd         |
+| `POST /v1/tasks/{id}/reschedule` | routd         |
+| `GET /v1/cost`                   | routd         |
+| `GET /v1/cost/summary`           | routd         |
+| `GET /dash/routd/`               | routd         |
+| `POST /dash/routd/retry`         | routd         |
+| `POST /dash/routd/replay`        | routd         |
+| `POST /v1/channels/register`     | routd         |
+| `POST /v1/channels/deregister`   | routd         |
+| `GET /v1/channels`               | routd         |
+| `GET /v1/web_routes/owner`       | routd         |
+| `GET /v1/web_presence`           | routd         |
 
-- `POST /v1/messages` accepts an inbound message from an adapter [`messages:write`].
-- `POST /v1/outbound` is the passthrough for adapters [`messages:write`].
-- `POST /v1/channels/register`, `POST /v1/channels/deregister` and `GET /v1/channels` manage the adapter registry.
-- `POST /v1/pane` sets the Slack pane context [`messages:write`].
-- `GET /v1/messages/{inspect,thread,find}` read messages.
-- `GET /v1/messages/volume` and `GET /v1/messages/activity` serve the operator cockpit. They are REST-only on purpose, because a resreg resource would become an agent tool.
-
-Routing:
-
-- `GET /v1/routes` lists routes, `GET /v1/routes/{id}` reads one, `POST /v1/routes` adds one, `PUT /v1/routes` replaces the set, and `DELETE /v1/routes/{id}` removes one.
-- `GET|PUT|DELETE /v1/web_routes` manage web routes, `GET /v1/web_routes/owner` names the owner of a path, and `GET /v1/web_presence` returns the vhost information of a folder. It is the REST twin of `get_web_presence`.
-- `GET /v1/routing/{resolve,errored}` return routing information.
-- `GET /v1/routing/answering?since=` tells whether agents answer people over a window. The default window is 7 days. It returns the turn outcomes by state. It also returns every chat whose newest human message is newer than its newest agent reply. Each waiting chat carries the verdict of the loop.
-  - The verdict `route` means a turn was due, so the wait is a fault.
-  - The verdicts `observe` and `held` mean that the configuration of the operator makes the chat answer nothing. An example is a `verb=mention` rule and a plain message.
-  - The response is an aggregate and holds no message content. A folder-scoped bearer sees its own subtree and no unclaimed chat.
-- `GET /v1/routing/unrouted` lists the held chats, newest activity first. routd derives the set and never stores it. It passes the latest inbound message of each chat through the `resolve` of the loop. So the list cannot disagree with the drop it describes, and no marker column exists. A failed read of the route table returns 500 and never "everything unrouted". The endpoint is a plain read beside `errored` and not a resreg resource, so it can never become an agent tool. A held chat belongs to no folder, so only an unscoped bearer may call it. A folder-scoped token gets 403, because an empty list would read as "nothing is arriving". The code is in `unrouted.go`.
-- `GET|POST /v1/engagement` manages engagement state. `GET` with `jid` reads one pair: `folder`, `engaged_until` and `last_reply_id`. `GET` without `jid` lists the live windows in the subtree of the caller, newest deadline first. Only an empty folder claim, from root or from a service, widens the list to the whole fleet. `POST` engages, and `ttl_seconds <= 0` disengages. The write is contained on the claiming folder of the live window. The `folder` in the body comes from the caller and does not widen the write. So a write can never reach a window that the list would not show. The audit row `engagement.set` or `engagement.clear` lands in the transaction of the write, in `DB.SetEngagementAudited`. A disengagement survives the final answer of the current turn and implicit thread mentions. A fresh mention or an explicit engagement can start another task.
-- `GET /v1/topic_sessions` returns the Claude session id to resume for a folder and topic.
-- `GET /v1/sessions/counts` and `GET /v1/principals` serve the operator cockpit.
-
-Tokens and access:
-
-- `POST /v1/route_tokens/{chat,hook}` mints a chat token or a hook token. The optional `context` holds the processing instructions for that link.
-- `GET /v1/route_tokens` lists tokens and `DELETE /v1/route_tokens/{jid}` revokes one. Token delivery has no REST face: webd and proxyd read the tables of routd directly and resolve the URL token in their own process.
-- The MCP tool `issue_pairing_link(jid, sender)` takes a chat JID that routes within the caller's folder and an explicit sender. One bounded read must find an inbound message from that sender in that chat. Its `kind='pair'` token binds only that sender. It has no REST twin.
-- `DELETE /v1/acl_membership` unpairs the supplied `child` and `parent`. The caller sub must be the `parent`. The agent twin `unpair(jid, sender, parent)` checks `mcp:unpair` on the chat's routing folder and requires an inbound message from the sender. Both faces check the authority carried by the parent through `CheckGrant`. A parent deny or insufficient grant authority can refuse removal. The agent pairing tools return 400 when the sender is missing or has no inbound message in the named chat.
-- `POST /v1/acl` and `DELETE /v1/acl` grant and revoke [`acl:write`].
-- `POST /v1/secrets` and `DELETE /v1/secrets/{key}` write and delete secrets [`secrets:write`].
-- `GET /v1/users/{sub}/scopes` returns the scope snapshot at login [`grants:read`].
-
-Held calls:
-
-- The chat verdicts `/approve`, `/reject` and `/always` resolve at ingress, including the native approval buttons. They reach a held call while its agent turn waits. The sender needs admin on the folder of the held call. `/always` is offered only for a tool that declares keys to pin (today `like`); on any other tool it is refused.
-- `pending_actions` has a REST face: `GET /v1/pending_actions`, `POST /v1/pending_actions/{id}/approve` and `POST /v1/pending_actions/{id}/reject`. It has no face on the agent socket, because an agent that could approve would approve its own call. Both faces resolve through `resolveHoldInto`. The REST gate requires `pending_actions:read` or `pending_actions:write`, and only `service:dashd` holds them.
-
-Tasks:
-
-- `GET /v1/tasks` lists scheduled tasks. `GET`, `PATCH` and `DELETE` on `/v1/tasks/{taskId}` read, change and cancel one. The agent task tools share the handler [`tasks:read`, `tasks:write`]. `schedule_task(targetJid=...)` accepts a registered folder for internal work or a routed external chat. Silent memory reducers target their owner folder.
-- `POST /v1/tasks/runlog` and `POST /v1/tasks/{id}/reschedule` record logs and reschedule [`tasks:write`]. Reschedule with no `next_run` reads the task's own cron: the next instant (`active`), `completed` for a one-shot, `error` for a cron that will not parse. `next_run` in the body retries the same fire.
-- `reschedule_task(taskId, next_run)` is the agent face of `PATCH /v1/tasks/{taskId}`: it sets the next run to an RFC3339 time, under the same owner containment as `pause_task`. routd re-arms a task when it enqueues the prompt, so a job that calls it in its own turn writes last and its time stands.
-- `GET /v1/tasks/runs` and `GET /v1/tasks/{id}/runs` read run logs [`tasks:read`].
-
-Model access:
-
-- `GET /v1/model_pauses` and `POST /v1/model_pauses/clear` list and clear the folder rows of provider refusals. The operator-only control and arguments are described above.
-
-Dead letters and cost:
-
-- `GET /v1/dead_letters` lists outbound messages that routd gave up on, with the lost content [`dead_letters:read`]. `POST /v1/dead_letters/{id}/replay` returns one to `pending` for the existing outbound sweep [`dead_letters:write`]. The scope pair is separate from `messages:*`. `messages:write` composes any inbound message, and a replay only moves one composed and failed row back to `pending`. `delivery_attempts` tells the two causes apart. The value 0 means the platform refused the message, and the cap means the retries ran out. The agent twins are `list_dead_letters` and `replay_dead_letter`.
-- `GET /v1/cost?turn_id=` returns what the gateway charged to the key of one turn. `GET /v1/cost/summary?folder=&since=` returns what the gateway metered per folder over a window [`cost:read`, `cost:read:own_group`]. Both read the gateway and answer 404 or an explicit "no meter" when the instance has none. Every operator surface uses the summary, dashd's `/dash/usage/` included. The parameter `since` is required, because a summary without a window would report a lifetime total as current. The folder claim of the token narrows the rows.
-
-Other resources and public paths:
-
-- `GET` and `PUT /v1/chats/{jid}` read and update the chat thread preference. MCP exposes `get_chat` and `set_chat`.
-- The resources `audit`, `github_sources`, `gdrive_files` and `groups` serve `/v1/<name>` through resreg. `groups` is read-only over REST. `GET /v1/installed_packages` and `GET /v1/installed_packages/{name}` read the package record.
-- `GET /dash/routd/` shows the operator overview. `POST /dash/routd/retry` and `POST /dash/routd/replay` are its forms. The proxyd operator identity gates them and not the `/v1` bearer.
-- `GET /openapi.json` serves the OpenAPI 3.1 document. It is public and mounted before auth.
-- `GET /health` is the healthcheck. It is public.
+Bearer gates bind the required operation scope and target folder. Channel registration admits seeded service principals.
+The operator dashboard requires the proxyd-attested operator identity.
+`POST /v1/messages` requires messages:write. If the body omits id, X-Idempotency-Key supplies a stable adapter-prefixed id.
+Providing both id and the header returns 400 ambiguous_idempotency.
+`GET /v1/users/{sub}/scopes` requires grants:read; authd uses this for login and refresh ceilings.
+`GET /v1/routing/unrouted` requires an unscoped caller because unclaimed chats belong to no folder.
+`GET /v1/routing/answering` defaults to a seven-day window and returns metadata without message bodies.
+`POST /v1/engagement` binds changes to the current window's folder; a body folder cannot widen access.
+`POST /v1/pane` stores Slack pane context.
+Task runlog and reschedule writes require tasks:write; runlog reads require tasks:read.
+`GET /v1/cost/summary` requires a since window and reads the model gateway's meter.
+Pending-action approval stays off the held agent's MCP socket.
 
 ## Dependencies
 
@@ -322,66 +296,76 @@ Other resources and public paths:
 
 ## Configuration
 
-Core variables:
+| Variable                                                             | Default                                   | Meaning                                                                                                           |
+| -------------------------------------------------------------------- | ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `DATA_DIR`                                                           | required                                  | Instance root; boot refuses an empty value.                                                                       |
+| `LISTEN_ADDR`                                                        | `:8080`                                   | HTTP listener.                                                                                                    |
+| `AUTHD_URL`                                                          | unset                                     | JWKS source; unset opens local development verifier gates.                                                        |
+| `AUTHD_SERVICE_KEY`                                                  | unset                                     | Bootstrap for service:routd; preferred over a static token.                                                       |
+| `ROUTD_SERVICE_TOKEN`                                                | unset                                     | Static token used for runed if no exchange source is configured.                                                  |
+| `RUNED_URL`                                                          | `http://runed:8080`                       | Execution API.                                                                                                    |
+| `RUNED_RUN_TIMEOUT`                                                  | `60m`                                     | Run ceiling; router HTTP wait adds 2 minutes.                                                                     |
+| `ONBOD_URL`                                                          | unset                                     | Onboarding, invite, and gate federation endpoint.                                                                 |
+| `WEB_HOST`                                                           | unset                                     | Public instance origin.                                                                                           |
+| `SECRETS_KEY`                                                        | required                                  | Comma-separated encryption keyring; first seals, all decrypt. Missing key aborts boot.                            |
+| `APP_SRC_DIR`                                                        | `HOST_APP_DIR`, then executable directory | Release ant assets; read by core.AppSrcDir.                                                                       |
+| `HOST_APP_DIR`                                                       | executable directory                      | Fallback release asset directory.                                                                                 |
+| `MODEL_GATEWAY_URL, MODEL_GATEWAY_KEY`                               | unset                                     | Model gateway and master key. A URL without a key aborts boot.                                                    |
+| `ASSISTANT_NAME`                                                     | `arizuko`                                 | Instance name in prompts.                                                                                         |
+| `MAX_CONCURRENT_AGENTS`                                              | `5`                                       | Live agent admission limit, loaded through core config.                                                           |
+| `ENGAGEMENT_TTL`                                                     | `30m`                                     | Conversation engagement duration; zero disables automatic engagement.                                             |
+| `SESSION_IDLE_EXPIRY`                                                | `0` → 48 hours                            | Session idle threshold; zero selects loop default.                                                                |
+| `ARIZUKO_DEFAULT_PRODUCT`                                            | unset                                     | Default-group product recorded when seeding an empty store.                                                       |
+| `COST_CAPS_ENABLED`                                                  | `true`                                    | Literal true enables pre-run cost gate.                                                                           |
+| `MAX_TURN_RETRY`                                                     | `3`                                       | Turn retries; zero means 3, negative disables, maximum 3.                                                         |
+| `MAX_OUTBOUND_RETRY`                                                 | `10`                                      | Transient delivery attempt cap; negative fails on first transient error.                                          |
+| `OBSERVE_WINDOW_MESSAGES`                                            | `10`                                      | Default number of observed messages in a prompt.                                                                  |
+| `OBSERVE_WINDOW_CHARS`                                               | `4000`                                    | Default observed-text character ceiling.                                                                          |
+| `SEND_DISABLED_GROUPS, SEND_DISABLED_CHANNELS`                       | unset                                     | Comma-separated folder or JID-prefix outbound suppression.                                                        |
+| `PROACTIVE_ENABLED`                                                  | false                                     | Enables synthetic unprompted turns.                                                                               |
+| `PROACTIVE_SCAN_INTERVAL`                                            | `30s`                                     | Proactive scan interval.                                                                                          |
+| `PROACTIVE_SILENCE_MIN`                                              | `90s`                                     | Minimum user silence.                                                                                             |
+| `PROACTIVE_SILENCE_MAX`                                              | `12h`                                     | Maximum user silence.                                                                                             |
+| `PROACTIVE_COOLDOWN`                                                 | `24h`                                     | Minimum time between proactive turns.                                                                             |
+| `PROACTIVE_BOT_QUIET`                                                | `15m`                                     | Required bot silence.                                                                                             |
+| `PROACTIVE_RECENT_ACTIVITY_MIN`                                      | `3`                                       | Minimum inbound count in the last hour.                                                                           |
+| `MEDIA_ENABLED`                                                      | `false`                                   | Download and enrich inbound media.                                                                                |
+| `MEDIA_MAX_FILE_BYTES`                                               | `20971520`                                | Maximum inbound file bytes.                                                                                       |
+| `WHISPER_BASE_URL`                                                   | `http://localhost:8080`                   | Whisper API base.                                                                                                 |
+| `WHISPER_MODEL`                                                      | `turbo`                                   | Requested transcription model.                                                                                    |
+| `VOICE_TRANSCRIPTION_ENABLED, VIDEO_TRANSCRIPTION_ENABLED`           | `false`                                   | Voice and video transcription switches.                                                                           |
+| `TTS_ENABLED`                                                        | `false`                                   | Enable send_voice synthesis.                                                                                      |
+| `TTS_BASE_URL`                                                       | `http://ttsd:8880`                        | Speech synthesis endpoint.                                                                                        |
+| `TTS_VOICE`                                                          | `af_bella`                                | Requested voice.                                                                                                  |
+| `TTS_MODEL`                                                          | `kokoro`                                  | Requested speech model.                                                                                           |
+| `TTS_TIMEOUT`                                                        | `15s`                                     | Speech synthesis deadline.                                                                                        |
+| `HOSTING_DOMAIN, WEB_VHOST_ALIASES`                                  | unset                                     | World-host suffix and comma-separated host=folder aliases.                                                        |
+| `ONBOARDING_ENABLED`                                                 | `false`                                   | Enable chat onboarding.                                                                                           |
+| `ONBOARDING_PLATFORMS`                                               | unset                                     | Comma-separated allowed platform prefixes.                                                                        |
+| `CONNECTORS_TOML`                                                    | `DATA_DIR/connectors.toml`                | Connector definitions loaded at boot.                                                                             |
+| `CONNECTOR_CALL_TIMEOUT_MS`                                          | `30000`                                   | Connector timeout in milliseconds.                                                                                |
+| `HITL_WAIT`                                                          | `10m`                                     | Maximum wait for a held tool verdict.                                                                             |
+| `GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY`                              | unset                                     | App identity and base64 PEM key for turn-scoped installation tokens.                                              |
+| `GITHUB_API_URL`                                                     | `https://api.github.com`                  | GitHub App API base.                                                                                              |
+| `DYNAMODB_URL`                                                       | required                                  | DynamoDB-protocol store endpoint.                                                                                 |
+| `AWS_REGION`                                                         | `us-east-1`                               | Store signing region.                                                                                             |
+| `AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY`                           | required                                  | Daemon store identity; both values must be set.                                                                   |
+| `STORE_CA`                                                           | unset                                     | Base64 PEM endpoint certificate; unset uses system trust.                                                         |
+| `ARIZUKO_INSTANCE`                                                   | unset                                     | Audit and observability instance label.                                                                           |
+| `LOG_LEVEL`                                                          | `info`                                    | JSON stderr verbosity: debug, info, warn, error.                                                                  |
+| `OTEL_EXPORTER_OTLP_ENDPOINT`                                        | unset                                     | Optional OTLP log export.                                                                                         |
+| `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`                                 | unset                                     | Optional OTLP trace export; independent of the log endpoint.                                                      |
+| `MAX_CONCURRENT_CONTAINERS`                                          | absent                                    | Shared config rejects this variable whenever it is present; configure MAX_CONCURRENT_AGENTS for execution limits. |
+| `METRICS_ENABLED`                                                    | `false`                                   | Literal `true` mounts public GET /metrics.                                                                        |
+| `AUDIT_ENABLED`                                                      | `false`                                   | Enable auxiliary audit-system.jl and webhooks; audit_log stays active.                                            |
+| `AUDIT_MAX_BYTES`                                                    | `104857600`                               | Auxiliary audit rotation size.                                                                                    |
+| `AUDIT_ROTATE_HOURS`                                                 | `24`                                      | Auxiliary audit rotation age.                                                                                     |
+| `AUDIT_WEBHOOK_URL, AUDIT_WEBHOOK_URL_SYSTEM, AUDIT_WEBHOOK_URL_WEB` | unset                                     | Auxiliary audit webhook destinations.                                                                             |
+| `AUDIT_WEBHOOK_SECRET`                                               | unset                                     | Webhook signing secret.                                                                                           |
 
-- `DATA_DIR` is required. routd exits at boot without it. It holds the `groups`, `web`, `tts` and `ipc` directories, `connectors.toml` and `audit-system.jl`.
-- `DYNAMODB_URL` names the store endpoint, and `routd.Open` fails without it. The store variables `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and `STORE_CA` complete the connection (`objstore/dynstore/env.go`).
-- `LISTEN_ADDR` is the HTTP listener. The default is `:8080`.
-- `AUTHD_URL` is the JWKS source. When it is unset, routd runs in open mode for local development, without a verifier.
-- `AUTHD_SERVICE_KEY` is the exchange key for the `service:routd` ES256 token. When it is unset, routd falls back to `ROUTD_SERVICE_TOKEN`.
-- `ROUTD_SERVICE_TOKEN` is a static service token. It is deprecated, and the ES256 exchange is preferred.
-- `RUNED_URL` is the runs endpoint of runed. The default is `http://runed:8080`.
-- `RUNED_RUN_TIMEOUT` is the kill deadline for a run. The default is 60m. routd waits 2m longer.
-- `ONBOD_URL` is the onbod endpoint for the `/invite` and `/gate` commands.
-- `WEB_HOST` is the canonical web origin.
-- `SECRETS_KEY` is the keyring for secret reads. Without it routd returns the ciphertext.
-- `MODEL_GATEWAY_URL` and `MODEL_GATEWAY_KEY` configure the model gateway. routd refuses to start when the URL is set and the key is not.
-
-Behaviour:
-
-- `ASSISTANT_NAME` is the instance identity. The default is `arizuko`.
-- `ENGAGEMENT_TTL` is the engagement window of the reply state. The default is 30m, and `0` disables automatic engagement. Engagement is the same on every channel, GitHub included: only a person's `message` or `mention` rides it, and [the trigger policy of gitd](../gitd/README.md#observe-vs-trigger) shows how a route extends it to CI.
-- `SESSION_IDLE_EXPIRY` is the session reset threshold. The default is 2d.
-- `ARIZUKO_DEFAULT_PRODUCT` records the product on the default group row when routd boots on an empty store.
-- `COST_CAPS_ENABLED` turns on the budget gate before spawn. The default is `true`.
-- `MAX_CONCURRENT_AGENTS` limits concurrent agents. The default is 5.
-- `MAX_TURN_RETRY` is the retry ceiling for a turn that dies without a reply, for example after SIGKILL, OOM or a timeout. The default is 3, `0` means 3, and `-1` disables retries.
-- `MAX_OUTBOUND_RETRY` is the number of transient delivery failures that a `pending` bot row absorbs before the sweep dead-letters it to `failed`. The default is 10, and `-1` dead-letters on the first transient failure. A permanent refusal (4xx) dead-letters at once and spends no attempt.
-- `OBSERVE_WINDOW_MESSAGES` is the message count of the prompt context. The default is 10.
-- `OBSERVE_WINDOW_CHARS` is the character ceiling of the prompt context. The default is 4000.
-- `SEND_DISABLED_GROUPS` is a CSV list of folders. routd stores their outbound messages and does not deliver them.
-- `SEND_DISABLED_CHANNELS` is a CSV list of JID prefixes. It mutes the egress of those channels.
-- `PROACTIVE_ENABLED` is the kill switch of the proactive scanner. The tuning variables are `PROACTIVE_SCAN_INTERVAL` (30s), `PROACTIVE_SILENCE_MIN` (90s), `PROACTIVE_SILENCE_MAX` (12h), `PROACTIVE_COOLDOWN` (24h), `PROACTIVE_BOT_QUIET` (15m) and `PROACTIVE_RECENT_ACTIVITY_MIN` (3).
-
-Media enrichment, download and Whisper:
-
-- `MEDIA_ENABLED` turns on the download and transcription of inbound attachments. The default is `false`.
-- `MEDIA_MAX_FILE_BYTES` is the file size cap. The default is 20 MB.
-- `WHISPER_BASE_URL` is the Whisper service URL. The default is `http://localhost:8080`.
-- `WHISPER_MODEL` is the Whisper model name. The default is `turbo`.
-- `VOICE_TRANSCRIPTION_ENABLED` turns voice to text on. The default is `false`.
-- `VIDEO_TRANSCRIPTION_ENABLED` turns video to text on. The default is `false`.
-
-Voice synthesis, the `send_voice` MCP tool:
-
-- `TTS_ENABLED` turns `send_voice` on. The default is `false`.
-- `TTS_BASE_URL` is the TTS service URL. The default is `http://ttsd:8880`.
-- `TTS_VOICE` is the voice id. The default is `af_bella`.
-- `TTS_MODEL` is the TTS model. The default is `kokoro`.
-- `TTS_TIMEOUT` is the synthesis deadline. The default is 15s.
-
-Vhosts, the `get_web_presence` MCP tool:
-
-- `HOSTING_DOMAIN` is the root domain for derived vhosts.
-- `WEB_VHOST_ALIASES` is a CSV list of `host=folder` aliases.
-
-Integrations:
-
-- `ONBOARDING_ENABLED` turns on chat-initiated onboarding. The default is `false`.
-- `ONBOARDING_PLATFORMS` is a CSV list of prefixes that allow automatic onboarding.
-- `CONNECTORS_TOML` is the path of the MCP connector catalog. The default is `DATA_DIR/connectors.toml`.
-- `CONNECTOR_CALL_TIMEOUT_MS` is the call timeout of a connector. The default is 30s.
-- `AUDIT_ENABLED` turns on the optional `audit-system.jl` webhook. The default is `false`. The `audit_log` table is always on.
+`core.LoadConfig` parses shared instance defaults; [core/config.go](../core/config.go) declares them.
+Surrogate credentials use dynamic `SURROGATE_<PROVIDER>_CLIENT_ID` and `SURROGATE_<PROVIDER>_CLIENT_SECRET` reads through the provider library.
+Compose does not forward every process variable ([BUGS L526 and L490](../BUGS.md)); verify the generated env file.
 
 ## Health signal
 
@@ -389,7 +373,7 @@ Integrations:
 
 ## Observability
 
-routd logs JSON with slog to stderr and journald. It exports OTLP when `OTEL_EXPORTER_OTLP_ENDPOINT` is set (`obs/README.md`). Every slog event that carries `turn_id` gets a deterministic TraceID, so the collector groups the spans of one turn.
+routd logs JSON with slog to stderr and journald. It exports OTLP when `OTEL_EXPORTER_OTLP_ENDPOINT` is set (`obs/README.md`). Context-aware slog events carry the deterministic turn TraceID; a plain turn_id log attribute alone does not propagate trace context.
 
 The audit source of truth is the `audit_log` entity in the tables of routd. Every state-changing MCP tool and REST handler adds one row (`audit.WriteFor`) to the batch of its own mutation. The row therefore is the mutation: a refused batch records nothing, and a recorded row happened. `audit-system.jl`, gated by `AUDIT_ENABLED`, is a separate optional observability webhook and is not the source of truth.
 
@@ -407,7 +391,7 @@ The audit source of truth is the `audit_log` entity in the tables of routd. Ever
 - `mcp.go` is the in-process per-turn MCP socket (`ServeTurnMCP`, `buildRoutdFns`).
 - `prompt.go` and `prompt_db.go` build the message string of the turn, as "Prompt assembly" describes.
 - `proactive.go` runs the proactive interjection, and `steer.go` dispatches slash commands.
-- `routes_http.go`, `tokens_http.go`, `web_routes_http.go`, `tasks_http.go` and `reads_http.go` serve REST.
+- `routes_resource.go`, `tokens_http.go`, `web_routes_resource.go`, `tasks_http.go`, and `reads_http.go` serve REST.
 - `*_resource.go` define one resreg resource each: `acl`, `audit`, `chats`, `dead_letters`, `gdrive_files`, `github_sources`, `groups`, `membership`, `network_rules`, `packages`, `route_tokens`, `routes`, `scheduled_tasks`, `secrets` and `web_routes`. One handler serves each. Agent MCP and operator REST use the same handler with a different injected Gate.
 - `packages_store.go` implements `installed_packages` CRUD. It is the record that `arizuko package add|rm|sync` reads and writes.
 - `db.go` holds the writes of the owner, such as `PutMessage`, turn claims and routing, and the boot that dials the endpoint.
@@ -423,3 +407,80 @@ The audit source of truth is the `audit_log` entity in the tables of routd. Ever
 - `gateway.go` and `budget.go` mint the per-turn virtual key of the model gateway and apply the folder spend gate.
 - `surrogate_refresh.go` refreshes surrogate OAuth credentials near expiry.
 - `sibling_db.go`, `ext.go`, `network.go` and `tokens.go` are helpers.
+
+## Persistent state and maintenance
+
+`StoreReach["routd"]` reaches only `routd`. routd prepares these entities at boot:
+
+| Entities                                                                                       | What they hold                                                                          |
+| ---------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| `messages`, `message_folders`, `message_folder_counts`, `message_activity`, `message_delivery` | Message bodies, folder indexes/counts, activity, and outbound delivery state.           |
+| `chats`, `sessions`, `chat_reply_state`, `chat_proactive`                                      | Dispatch and observed cursors, topic continuity, engagement, and proactive cooldown.    |
+| `groups`, `routes`, `route_tokens`                                                             | Folder configuration, routing precedence, and hashed capability or pairing credentials. |
+| `acl`, `acl_membership`                                                                        | Grants and membership edges.                                                            |
+| `scheduled_tasks`, `task_run_logs`                                                             | Scheduled prompts, next runs, and execution records.                                    |
+| `secrets`, `secret_use_log`, `network_rules`                                                   | Sealed credentials, credential use, and egress rules.                                   |
+| `pending_actions`, `turn_context`, `turn_results`, `turn_control`, `model_pauses`              | Held calls, attempts, completion claims, instance breaker, and provider refusals.       |
+| `proxyd_routes`, `web_routes`                                                                  | Proxy dispatch and public-tree access rules.                                            |
+| `installed_packages`, `github_sources`, `gdrive_files`                                         | Package selection, webhook sources, and Drive bindings.                                 |
+| `pane_sessions`, `system_messages`, `user_profiles`, `group_watchers`                          | Slack pane context, queued system events, names/caps, and observation subscriptions.    |
+| `counters`, `resreg_scopes`, `audit_log`                                                       | ID allocation, optimistic version markers, and mutation audit.                          |
+
+On disk routd reads `DATA_DIR/groups`, package assets, and connectors; it writes sockets under `DATA_DIR/ipc` and speech files under `DATA_DIR/tts`.
+Optional audit files use `audit-system.jl`. There is no routd SQLite database.
+The message search index and channel registry are process-local and rebuild at startup.
+
+| Loop                   | Exact cadence and effect                                                                                   |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------- |
+| Main turn poll         | Every 2 s; reads new input, retries due turns, and flushes due progress.                                   |
+| Scheduled tasks        | Once at startup, then every 60 s; normal ingress and stable fire IDs.                                      |
+| Pending outbound       | Every 30 s; reads up to 200 rows, with per-row 30 s exponential backoff capped at 1 hour.                  |
+| Stale-turn maintenance | Every hour; expires abandoned running turns and prunes the 30-day activity index.                          |
+| Adapter health         | Every 30 s, 10 s HTTP timeout; three consecutive failures deregister the channel. `stale` counts as alive. |
+| Proactive scans        | `PROACTIVE_SCAN_INTERVAL`, default 30 s, evaluated on the main poll.                                       |
+| Surrogate refresh      | Runs at connector call time; refreshes credentials within 60 s of expiry, or reactively after 401.         |
+
+Boot recovers running contexts, pending status rows, stranded `firing` tasks, and orphan sockets.
+A failed store poll logs and leaves later ticks to retry. A route-table read error acts as a miss and can mark input unrouted.
+A runed transport failure leaves input for refeed; a busy response backs off 4 s, doubling to 60 s.
+A schedule reschedule failure can leave a task claimed until startup recovery; grep `task not restored to active`.
+Grep `claim due tasks`, `retry outbound: list pending`, `execution plane unreachable`, `channel auto-deregistered`, and `recover firing tasks`.
+HTTP 200 from `/health` proves process liveness, not store, model, adapter, or execution readiness.
+
+Known limits: one routd process per instance; stop/pending-input semantics ([BUGS L317](../BUGS.md));
+upstream thread identity propagation ([BUGS L421](../BUGS.md)); provider-specific env forwarding ([BUGS L490](../BUGS.md)).
+Local documentation checks do not run live platform, model-provider, or KVM turns.
+
+Sources: [boot](cmd/routd/main.go), [poll and recovery](loop.go), [scheduler](schedule.go),
+[entity declarations](../store/entities.go), [owner reach](../store/owner_reach.go), [channel health](../chanreg/health.go).
+
+## Resource names and agent tools
+
+| Resource             | REST endpoints on routd                                                                                                | Agent MCP tools                                                                                            |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `groups`             | `GET /v1/groups`, `GET /v1/groups/{folder}`, `PATCH /v1/groups/{folder}`                                               | `refresh_groups`, `get_group`, `update_group`; `register_group` is MCP-only.                               |
+| `routes`             | `GET /v1/routes`, `POST /v1/routes`, `PUT /v1/routes`, `DELETE /v1/routes/{id}`                                        | `list_routes`, `add_route`, `set_routes`, `delete_route`.                                                  |
+| `route_tokens`       | `POST /v1/route_tokens/chat`, `POST /v1/route_tokens/hook`, `GET /v1/route_tokens`, `DELETE /v1/route_tokens/{jid...}` | `issue_chat_link`, `issue_webhook`, `list_tokens`, `revoke_token`; `issue_pairing_link` is MCP-only.       |
+| `acl`                | `POST /v1/acl`, `DELETE /v1/acl`                                                                                       | `add_acl`, `remove_acl`, `list_acl`; list is MCP-only.                                                     |
+| `acl_membership`     | `DELETE /v1/acl_membership`                                                                                            | `unpair`.                                                                                                  |
+| `chats`              | `GET /v1/chats/{jid}`, `PUT /v1/chats/{jid}`                                                                           | `get_chat`, `set_chat`.                                                                                    |
+| `scheduled_tasks`    | `GET /v1/tasks`, `GET /v1/tasks/{taskId}`, `PATCH /v1/tasks/{taskId}`, `DELETE /v1/tasks/{taskId}`                     | `list_tasks`, `reschedule_task`, `cancel_task`; `schedule_task`, `pause_task`, `resume_task` are MCP-only. |
+| `network_rules`      | No REST mount.                                                                                                         | `network_allow`, `network_deny`, `network_list`.                                                           |
+| `secrets`            | `POST /v1/secrets`, `DELETE /v1/secrets/{key}`                                                                         | No derived tools.                                                                                          |
+| `web_routes`         | `PUT /v1/web_routes`, `GET /v1/web_routes`, `DELETE /v1/web_routes`                                                    | `set_web_route`, `list_web_routes`, `del_web_route`.                                                       |
+| `github_sources`     | `POST /v1/github_sources`, `GET /v1/github_sources`, `DELETE /v1/github_sources/{source...}`                           | `register_github_source`, `list_github_sources`, `revoke_github_source`.                                   |
+| `gdrive_files`       | `POST /v1/gdrive_files`, `GET /v1/gdrive_files`, `DELETE /v1/gdrive_files/{file_id}`                                   | `register_gdrive_file`, `list_gdrive_files`, `revoke_gdrive_file`.                                         |
+| `installed_packages` | `GET /v1/installed_packages`, `GET /v1/installed_packages/{name}`                                                      | `list_packages`, `get_package`.                                                                            |
+| `audit`              | `GET /v1/audit`                                                                                                        | `query_audit`.                                                                                             |
+| `dead_letters`       | `GET /v1/dead_letters`, `POST /v1/dead_letters/{id}/replay`                                                            | `list_dead_letters`, `replay_dead_letter`.                                                                 |
+| `model_pauses`       | `GET /v1/model_pauses`, `POST /v1/model_pauses/clear`                                                                  | `list_model_pauses`, `clear_model_pause`; operator-only.                                                   |
+| `pending_actions`    | `GET /v1/pending_actions`, `POST /v1/pending_actions/{id}/approve`, `POST /v1/pending_actions/{id}/reject`             | Not mounted on the held agent's socket.                                                                    |
+
+The table follows [resreg resource declarations](../resreg/resources/names.go) and the mounts in [server.go](server.go).
+Agent tools use the injected turn gate; operator REST uses the handler's registered scope and folder resolver.
+A declared catalog tool is not automatically exposed on a turn socket: grants and the mounted surface both apply.
+
+Held-call waiters poll their pending_actions row every 2 s until HITL_WAIT (default 10 minutes).
+
+JWKS keys load lazily during verification through auth.FetchKeys; there is no fixed background JWKS ticker.
+Service tokens refresh on demand within 60 s of expiry, with a 10 s exchange timeout ([auth/service.go](../auth/service.go)).

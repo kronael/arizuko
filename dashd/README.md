@@ -41,7 +41,7 @@ groups/<folder>/ files: memory pages, skill toggles, group bootstrap
 <!-- /twin -->
 
 dashd owns no table. It holds a store key for routd's and onbod's tables and
-for nobody else's (`StoreReach`, `store/owner_reach.go:16`), and it opens
+for nobody else's (`StoreReach`, `store/owner_reach.go`), and it opens
 both through `store.OpenOwner` (`openSiblingOwner`, `main.go`). An owner
 store that does not open means that profile is off, and the page banners
 "store unavailable". runed's, authd's, proxyd's and whapd's state reach
@@ -92,13 +92,13 @@ Whether a tile links is read from the live route table: dashd asks proxyd's
 `GET /v1/proxyd_routes` which `/dash/<daemon>/` rows exist. The route entry
 is the registration; there is no autodiscovery. When proxyd does not
 answer, the hub falls back to the core routes compiled in
-(`compose.ReservedRoutePaths`), so it never links at a path that 404s. The
+(`compose.ReservedRoutePaths`), so fallback links reflect the compiled core routes rather than a fresh backend registration. The
 probe never hides a link: a daemon that is down is the one an operator
 wants to open.
 
 ## Surface
 
-59 routes registered in `dash.registerRoutes` (`main.go`). The bullets below
+`dash.registerRoutes` in `main.go` declares the HTTP routes. The bullets below
 group the ones with behaviour worth stating.
 
 The per-daemon pages are NOT among them: `/dash/routd/`, `/dash/runed/`,
@@ -116,7 +116,7 @@ their owners. `davd` serves none, `davd/README.md`.
 - **Tasks** (3): `GET /dash/tasks/{id}`, `POST /dash/tasks/`, `POST /dash/tasks/{id}/{action}` — detail, create, pause/resume/cancel. (`tasks_admin.go`) The create form checks the schedule with `core.NextRun` only and stores no `next_run`, so it refuses an RFC3339 one-shot that routd's `parseTaskSchedule` accepts from the agent's `schedule_task`: one schedule, accepted on one face and refused on the other.
 - **Routes editor** (5): `GET|POST /dash/routes/`, `PATCH|DELETE /dash/routes/{id}`, `POST /dash/routes/{id}/delete` — admin-gated CRUD. The GET also renders the **Unrouted chats** section for the operator only (`**`): every chat routd holds because no rule claims it, read from routd's `GET /v1/routing/unrouted`, each with a claim form that posts the same `POST /dash/routes/` write. Operator-only is load-bearing — a held chat belongs to no folder, so no folder admin has a claim to see it. (`routes_admin.go`)
 - **Groups CRUD** (8; the delete route removes nothing: it answers 409 with the command `arizuko group -i <instance> rm <folder>`, because a purge also removes grants that bind outside the folder, and admin on one folder does not give that right): `GET|POST /dash/groups/new`, `GET|POST /dash/groups/{folder...}` (dispatchers to settings/delete/grants), `DELETE /dash/groups/{folder...}`, `GET /dash/groups/{folder}/tools|grants`, `POST /dash/groups/{folder}/grants|grants/revoke` — admin-gated. Agent field writes the handler in `groups.config.agent`. Model selector dropdown writes `groups.model`; skill toggles create/remove `.disabled` markers. (`groups_admin.go`, `grants_admin.go`, `tools_admin.go`)
-- **Route tokens** (2): `GET /dash/tokens/{folder}/`, `POST /dash/tokens/{folder}/{jid}/revoke` — list + revoke, NO MINT. Reads scope-filtered; revoke admin-gated. Issuance belongs to the resource owner — routd's `POST /v1/route_tokens/{chat,hook}`, the agent's `issue_chat_link`/`issue_webhook`/`issue_pairing_link`, and `arizuko token`. A mint form here was a second writer over `route_tokens` with its own label validation (BUGS `V2`); there is no token minting anywhere in the cockpit. (`route_tokens.go`)
+- **Route tokens** (2): `GET /dash/tokens/{folder}/`, `POST /dash/tokens/{folder}/{jid}/revoke` — list + revoke, NO MINT. Reads scope-filtered; revoke admin-gated. Issuance belongs to the resource owner — routd's `POST /v1/route_tokens/{chat,hook}`, the agent's `issue_chat_link`/`issue_webhook`/`issue_pairing_link`, and `arizuko token`. The cockpit exposes no token mint form. (`route_tokens.go`)
 - **Invites** (3): `GET|POST /dash/invites/`, `POST /dash/invites/{ref}/revoke` — operator-only (`**`). (`invites.go`)
 - **WhatsApp re-pair** (3): `GET /dash/channels/whatsapp/pair`, `GET /dash/channels/whatsapp/pair/status`, `POST /dash/channels/whatsapp/pair/start` — operator-only (`**`), proxies to whapd with service:dashd bearer. (`channels.go`)
 - **Proactive view** (1): `GET /dash/proactive/` — operator-only (`**`) read-only view of proactive interjection: per-group `mode:` / quiet hours / parse error, parsed through the shared `proactive.Parse` routd's scanner gates on, plus per-chat last-fired from routd's `chat_proactive`. No control — `mode:` stays operator-edited in the group's `CLAUDE.md` (single source, no DB/file drift) and the cooldown is mandatory. A banner names `PROACTIVE_ENABLED`; dashd cannot read routd's env, so it states the rule rather than a live value. (`proactive_page.go`)
@@ -165,24 +165,38 @@ question and the mutation in one read. Each write proves that policy version.
 
 ## Configuration
 
-- `DATA_DIR` — base for `<DATA_DIR>/groups/`
-- `DYNAMODB_URL` + `AWS_*` + `STORE_CA` — the store server dashd reads routd's
-  and onbod's tables on, through `store.OpenOwner`. An owner that
-  will not open means its profile is off, and that view banners "store
-  unavailable"
-- `DASH_PORT` — listen port (default `:8080`)
-- `ARIZUKO_INSTANCE` — instance name for audit/obs; read at startup
-- `AUTHD_URL` — authd's base URL, used twice: the JWKS endpoint (unset → identity verification disabled, local dev) and the backend for the `/dash/authd/` control plane (default `http://authd:8080` via `backendURL`)
-- `AUTHD_SERVICE_KEY` — ES256 private key for service:dashd bearer (whapd re-pair proxy); optional
-- `AUTHD_SERVICE_NAME` — service name (default `dashd`)
-- `WHAPD_URL` — whapd base URL for re-pair proxy (default `http://whapd:8080`)
-- `PROXYD_URL` — proxyd base URL (default `http://proxyd:8080`). The hub asks its `/v1/proxyd_routes` which daemon pages are actually routed; on failure it degrades to the core routes compiled in, so an operator is never linked at a path that 404s
-- `RUNED_URL`, `ONBOD_URL` — two of the audit sources (default `http://runed:8080`, `http://onbod:8080`). The group delete page does not call runed.
-- `ROUTER_URL` — routd base URL (default `http://routd:8080`); the `/v1` reads in the figure above go here. Compose emits none of these; all resolve through `backendURL`, which names the compose service on the fixed in-container `:8080`. Set one only to override.
+| Variable                                   | Default                                         | Meaning                                                                               |
+| ------------------------------------------ | ----------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `DATA_DIR`                                 | empty                                           | Group files live under DATA_DIR/groups; empty resolves the relative groups directory. |
+| `DASH_PORT`                                | `:8080`                                         | HTTP port; a missing leading colon is added.                                          |
+| `ASSISTANT_NAME`                           | `arizuko`                                       | Displayed brand name.                                                                 |
+| `DASH_ACCENT_COLOR`                        | unset                                           | Dashboard accent override.                                                            |
+| `APP_SRC_DIR`                              | `HOST_APP_DIR`, then empty                      | Release ant asset directory for skill inspection.                                     |
+| `HOST_APP_DIR`                             | empty                                           | Fallback ant asset directory.                                                         |
+| `AUTHD_URL`                                | unset for verifier; `http://authd:8080` for API | JWKS gate and authd control-plane base.                                               |
+| `AUTHD_SERVICE_KEY`                        | unset                                           | Bootstrap secret for service:dashd.                                                   |
+| `AUTHD_SERVICE_NAME`                       | `dashd`                                         | Service-token exchange principal.                                                     |
+| `RUNED_URL`                                | `http://runed:8080`                             | Execution/audit API.                                                                  |
+| `PROXYD_URL`                               | `http://proxyd:8080`                            | Proxy route inventory.                                                                |
+| `ROUTER_URL`                               | `http://routd:8080`                             | Conversation, task, cost, and approval APIs.                                          |
+| `ONBOD_URL`                                | `http://onbod:8080`                             | Onboarding/audit API.                                                                 |
+| `WHAPD_URL`                                | `http://whapd:8080`                             | Pairing API base.                                                                     |
+| `WHATSAPP_PHONE`                           | unset                                           | Initial value on the pairing form.                                                    |
+| `SECRETS_KEY`                              | unset                                           | Keyring for user secrets and surrogate OAuth credentials.                             |
+| `AUTH_SECRET`                              | empty                                           | Surrogate OAuth state secret.                                                         |
+| `AUTH_BASE_URL`                            | `WEB_HOST`                                      | Public surrogate callback origin.                                                     |
+| `WEB_HOST`                                 | empty                                           | Fallback callback origin.                                                             |
+| `DYNAMODB_URL`                             | required                                        | Store endpoint.                                                                       |
+| `AWS_REGION`                               | `us-east-1`                                     | Store signing region.                                                                 |
+| `AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY` | required                                        | Daemon store identity.                                                                |
+| `STORE_CA`                                 | unset                                           | Base64 PEM endpoint certificate; unset uses system trust.                             |
+| `ARIZUKO_INSTANCE`                         | unset                                           | Audit and observability instance label.                                               |
+| `LOG_LEVEL`                                | `info`                                          | JSON stderr verbosity.                                                                |
+| `OTEL_EXPORTER_OTLP_ENDPOINT`              | unset                                           | Optional OTLP logs through obs.                                                       |
+| `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`       | unset                                           | Optional OTLP trace export; independent of the log endpoint.                          |
+| `METRICS_ENABLED`                          | `false`                                         | Literal true mounts public GET /metrics.                                              |
 
-Group settings enumerate active system and exact-folder package skills through
-the shared inventory. Marker reads and writes hold the package lock. Unsafe
-paths and writable managed payloads report visible errors before settings writes.
+Surrogate provider credentials use `SURROGATE_<PROVIDER>_CLIENT_ID` and `SURROGATE_<PROVIDER>_CLIENT_SECRET` via the shared broker.
 
 ## Health signal
 
@@ -223,3 +237,102 @@ Typical deploy reaches dashd through `proxyd` at `/dash/`.
   onbod's handles and nobody else's. Where it needs runed's or authd's rows it
   asks over `/v1` with the `service:dashd` bearer.
 - **Nothing that mints.** The route-token page lists and revokes; routd mints.
+
+## State and request failures
+
+`StoreReach["dashd"]` reaches `routd` and `onbod`; dashd owns no table or resreg resource.
+Direct joins and admin writes use routd's `groups`, `acl`, `acl_membership`, `routes`, `route_tokens`, `scheduled_tasks`,
+`secrets`, `installed_packages`, `github_sources`, chat state, and onbod's invite/admission entities.
+Audited direct writes record the human sub in the owning `audit_log`.
+The owner APIs provide message, session, task, cost, approval, and audit reads described above.
+
+Disk operations access group memory, settings, and selected package files under `DATA_DIR/groups` and `DATA_DIR/packages`.
+No dashd database, durable retry queue, MCP socket, or IPC listener exists.
+There is no periodic service health loop. A services-page request probes the static service inventory concurrently with a 500 ms timeout.
+The hub's route lookup is request-driven. A failed lookup uses compiled core paths; it does not establish backend availability.
+Shutdown closes HTTP immediately. A failed backend read displays an error rather than silently replacing the result with an empty list.
+Opening routd's store fails boot; an unavailable optional onbod owner produces a profile error on affected pages.
+Grep `open routd's store`, `dashd started`, `store unavailable`, and request errors for the failing /v1 path.
+`GET /metrics` reports HTTP request count and duration when enabled; `/health` tests only process liveness.
+
+Known limits include the grant form's delegation checks ([BUGS L540](../BUGS.md)), one-shot schedule validation ([BUGS L485](../BUGS.md)),
+and the pairing proxy's service identity ([BUGS L492](../BUGS.md)).
+Tests exercise gates and stubbed API reads; local documentation checks do not render a live operator session.
+
+Sources: [boot and routes](main.go), [service probes](services.go), [WhatsApp proxy](channels.go),
+[direct-store readers](dashstore/dashstore.go), [owner reach](../store/owner_reach.go).
+
+## Mounted route patterns
+
+The table transcribes the mux patterns; the auth rules above apply to each surface.
+
+| Method and path                                | Owner |
+| ---------------------------------------------- | ----- |
+| `GET /metrics`                                 | dashd |
+| `GET /health`                                  | dashd |
+| `GET /openapi.json`                            | dashd |
+| `GET /dash/assets/htmx.min.js`                 | dashd |
+| `GET /dash/`                                   | dashd |
+| `GET /dash/services/`                          | dashd |
+| `GET /dash/packages/`                          | dashd |
+| `GET /dash/audit/`                             | dashd |
+| `GET /dash/approvals/`                         | dashd |
+| `POST /dash/approvals/{id}/resolve`            | dashd |
+| `GET /dash/usage/`                             | dashd |
+| `GET /dash/proactive/`                         | dashd |
+| `GET /dash/engagement/`                        | dashd |
+| `GET /dash/model-pauses/`                      | dashd |
+| `POST /dash/model-pauses/clear`                | dashd |
+| `POST /dash/engagement/disengage`              | dashd |
+| `GET /dash/status/`                            | dashd |
+| `GET /dash/tasks/`                             | dashd |
+| `GET /dash/activity/`                          | dashd |
+| `GET /dash/groups/{folder...}`                 | dashd |
+| `GET /dash/memory/`                            | dashd |
+| `GET /dash/profile/`                           | dashd |
+| `PUT /dash/memory/`                            | dashd |
+| `DELETE /dash/memory/`                         | dashd |
+| `GET /dash/tasks/x/list`                       | dashd |
+| `GET /dash/activity/x/recent`                  | dashd |
+| `GET /dash/tasks/{id}`                         | dashd |
+| `POST /dash/tasks/`                            | dashd |
+| `POST /dash/tasks/{id}/{action}`               | dashd |
+| `GET /dash/me/secrets`                         | dashd |
+| `POST /dash/me/secrets`                        | dashd |
+| `PATCH /dash/me/secrets/{key}`                 | dashd |
+| `DELETE /dash/me/secrets/{key}`                | dashd |
+| `GET /dash/me/env`                             | dashd |
+| `POST /dash/me/env`                            | dashd |
+| `PATCH /dash/me/env/{key}`                     | dashd |
+| `DELETE /dash/me/env/{key}`                    | dashd |
+| `GET /dash/me/connections`                     | dashd |
+| `POST /dash/me/connections/{provider}/start`   | dashd |
+| `GET /dash/me/connections/{provider}/callback` | dashd |
+| `DELETE /dash/me/connections/{provider}`       | dashd |
+| `GET /dash/channels/whatsapp/pair`             | dashd |
+| `GET /dash/channels/whatsapp/pair/status`      | dashd |
+| `POST /dash/channels/whatsapp/pair/start`      | dashd |
+| `GET /dash/routes/`                            | dashd |
+| `POST /dash/routes/`                           | dashd |
+| `PATCH /dash/routes/{id}`                      | dashd |
+| `DELETE /dash/routes/{id}`                     | dashd |
+| `POST /dash/routes/{id}/delete`                | dashd |
+| `GET /dash/github_sources/`                    | dashd |
+| `POST /dash/github_sources/`                   | dashd |
+| `POST /dash/github_sources/delete`             | dashd |
+| `GET /dash/groups/new`                         | dashd |
+| `POST /dash/groups/new`                        | dashd |
+| `POST /dash/groups/{folder...}`                | dashd |
+| `DELETE /dash/groups/{folder...}`              | dashd |
+| `GET /dash/groups/{folder}/tools`              | dashd |
+| `GET /dash/groups/{folder}/grants`             | dashd |
+| `POST /dash/groups/{folder}/grants`            | dashd |
+| `POST /dash/groups/{folder}/grants/revoke`     | dashd |
+| `GET /dash/tokens/{folder}/`                   | dashd |
+| `POST /dash/tokens/{folder}/{jid}/revoke`      | dashd |
+| `GET /dash/invites/`                           | dashd |
+| `POST /dash/invites/`                          | dashd |
+| `POST /dash/invites/{ref}/revoke`              | dashd |
+
+JWKS keys load lazily during verification through auth.FetchKeys; there is no fixed background JWKS ticker.
+Service tokens refresh on demand within 60 s of expiry, with a 10 s exchange timeout ([auth/service.go](../auth/service.go)).
