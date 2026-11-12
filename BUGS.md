@@ -353,7 +353,7 @@ The cross-chat order is a tested contract
   pending input, a schema change; (c) keep the scan.
 - **Default if nothing is decided:** (c).
 
-## ✅ FIXED 2026-11-12 e3a77ce5d L824 — a chat the instance breaker refuses is never woken again, so krons answers nothing (2026-11-12)
+## ✅ FIXED 2026-11-12 e3a77ce5d 1a9367d04 L824 — a chat the instance breaker refuses is never woken again, so krons answers nothing (2026-11-12)
 
 MEASURED 2026-11-12 22:15–22:35 on krons (v0.75.10): `arizuko send -i krons
 krons` wrote `cli-1794521854043259203` to `web:krons` at 22:17:34 (the row is
@@ -379,7 +379,7 @@ behind an older input of its folder (`holdModelInput`) is not woken either.
 
 - **Severity:** critical — every instance stops answering after any one failed
   turn, until a new message arrives after the probe time.
-- **Status:** fixed in e3a77ce5d; not deployed. Tests, each red under its own
+- **Status:** fixed in e3a77ce5d, 1a9367d04; not deployed. Tests, each red under its own
   mutation: `routd/poll_load_test.go::TestBreakerRefusedChatRunsWhenDue`
   (no mark, no due check, no probe check), `TestProbeChoiceReadsNoChat` (the
   chat scan back), `TestHeldModelInputMarksTheChatRefused`.
