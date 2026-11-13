@@ -32,7 +32,7 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 func (l *Loop) processChat(chatJID string, commandsOnly bool) (bool, error) {
 	unlock := sync.OnceFunc(lockTurn("\x00chat:" + chatJID))
 	defer unlock()
-	msgs, b, held, err := l.pendingBatch(chatJID, l.db.GetAgentCursor(chatJID), pollBatch)
+	msgs, b, err := l.pendingBatch(chatJID, l.db.GetAgentCursor(chatJID), pollBatch)
 	if err != nil {
 		return false, err
 	}
@@ -91,7 +91,7 @@ func (l *Loop) processChat(chatJID string, commandsOnly bool) (bool, error) {
 		return owned[store.MessageCursor(msg)]
 	}
 	var deferredSteer *core.Message
-	if held == nil && steerIdx > 0 && l.canSteer(chatJID, steerMsg, folder, b.rows[steerIdx].AtName) {
+	if steerIdx > 0 && l.canSteer(chatJID, steerMsg, folder, b.rows[steerIdx].AtName) {
 		for i, candidate := range msgs[:steerIdx] {
 			if candidate.BotMsg || !b.rows[i].ok || isOwned(candidate) {
 				continue
@@ -102,7 +102,7 @@ func (l *Loop) processChat(chatJID string, commandsOnly bool) (bool, error) {
 			break
 		}
 	}
-	if held == nil && deferredSteer == nil && l.steer(chatJID, steerMsg, folder, b.rows[steerIdx].AtName) {
+	if deferredSteer == nil && l.steer(chatJID, steerMsg, folder, b.rows[steerIdx].AtName) {
 		// Consumed HERE, exactly once, before anything else can fail: no steer
 		// handler may run a second time because a later dispatch was refused.
 		l.advance(chatJID, steerMsg)
@@ -151,9 +151,6 @@ func (l *Loop) processChat(chatJID string, commandsOnly bool) (bool, error) {
 	web := strings.HasPrefix(chatJID, "web:")
 	_, pin := l.db.StickyState(chatJID)
 	turnTopic := func(m core.Message) string {
-		if held != nil {
-			return held.Topic
-		}
 		if pinned[m.ID] {
 			return m.Topic
 		}
@@ -167,9 +164,7 @@ func (l *Loop) processChat(chatJID string, commandsOnly bool) (bool, error) {
 	// topic. Keying on sender alone answered an older Discord thread inside a
 	// newer one (BUGS L305).
 	var groups [][]core.Message
-	if held != nil {
-		groups = [][]core.Message{trigger}
-	} else if web {
+	if web {
 		groups = groupByTopic(trigger)
 	} else {
 		groups = consecutiveRuns(trigger, func(m core.Message) string {
@@ -177,19 +172,16 @@ func (l *Loop) processChat(chatJID string, commandsOnly bool) (bool, error) {
 		})
 	}
 
-	if held == nil {
-		var occurrences [][]core.Message
-		for _, group := range groups {
-			occurrences = append(occurrences, consecutiveRuns(group, func(m core.Message) string {
-				if core.IsScheduledSender(m.Sender) {
-					return m.ID
-				}
-				return ""
-			})...)
-		}
-		groups = occurrences
-		groups = l.isolateElevated(groups)
+	var occurrences [][]core.Message
+	for _, group := range groups {
+		occurrences = append(occurrences, consecutiveRuns(group, func(m core.Message) string {
+			if core.IsScheduledSender(m.Sender) {
+				return m.ID
+			}
+			return ""
+		})...)
 	}
+	groups = l.isolateElevated(occurrences)
 	if deferredSteer != nil {
 		for _, batch := range groups {
 			last := batch[len(batch)-1]
@@ -219,11 +211,6 @@ func (l *Loop) processChat(chatJID string, commandsOnly bool) (bool, error) {
 		// unaddressed rows (CI under ?engaged) run beside it in their own turns.
 		owed := slices.ContainsFunc(batch, func(m core.Message) bool { return addressed[m.ID] })
 		turnID := bl.ID
-		if held != nil {
-			turnID = held.TurnID
-			batch[len(batch)-1].Sender = held.Trigger
-			batch[len(batch)-1].ForwardedFrom = held.ReturnTo
-		}
 		had, steered, busy, mark, derr := l.runTurn(folder, topic, chatJID, turnID, owed, batch, ambient)
 		if errors.Is(derr, errModelInputOrder) {
 			if gi > 0 {
@@ -451,14 +438,9 @@ func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed boo
 	admission := store.TurnAdmission{AttemptID: randHex(16),
 		InputLast: store.MessageCursor(last), InputKeys: inputKeys, AmbientKeys: ambientKeys}
 	unlock := lockTurn(turnID)
-	prior, _, err := l.db.store().ReadTurnContext(ctx, turnID)
-	var live bool
-	var work turnWork
-	if err == nil {
-		work, live, err = l.q.admit(l, TurnContext{TurnID: turnID, Folder: folder, Topic: topic,
-			ChatJID: chatJID, Trigger: last.Sender, ReturnTo: last.ForwardedFrom,
-			InputLast: admission.InputLast}, &admission, saved)
-	}
+	work, live, err := l.q.admit(l, TurnContext{TurnID: turnID, Folder: folder, Topic: topic,
+		ChatJID: chatJID, Trigger: last.Sender, ReturnTo: last.ForwardedFrom,
+		InputLast: admission.InputLast}, &admission, saved)
 	unlock()
 	if errors.Is(err, errTurnBlocked) {
 		l.pauseProgress(replyChat(chatJID, last), "")
@@ -576,7 +558,7 @@ func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed boo
 
 	// A chat idle past the threshold would resume a session the agent has long
 	// forgotten. Isolated runs carry no session lineage.
-	if !core.IsIsolatedSender(last.Sender) && prior.State != store.TurnHeld {
+	if !core.IsIsolatedSender(last.Sender) {
 		if sid := l.db.SessionID(folder, topic); sid != "" && l.sessionIdleExpired(chatJID) {
 			slog.Info("session: resetting on idle expiry",
 				"folder", folder, "topic", topic, "jid", chatJID, "threshold", l.sessionIdle)

@@ -70,7 +70,7 @@ resource.
 2. Reset bound, exhaustion and deadlines: `TestTurnControlProviderExhaustion`,
    `TestTurnControlProviderDeadline`, `TestTurnControlProviderEarlySubmission`.
 3. Restart and transport: `TestTurnControlProviderCallbackRestart`,
-   `TestTurnControlProviderTransportFailure`, `TestTurnControlProviderLegacyMigration`.
+   `TestTurnControlProviderTransportFailure`.
 4. Operator clear: `TestTurnControlManualClear`, `routd/model_pauses_resource_test.go`,
    `dashd/model_pauses_test.go`, `cmd/arizuko/model_pauses_test.go`.
 5. Provider envelopes and negative fixtures: `ant/src/provider-failure.test.ts`;

@@ -24,7 +24,6 @@ type TurnControlState struct {
 type TurnAdmission struct {
 	AttemptID     string
 	InputLast     string
-	ProbeEpisode  string
 	InputKeys     []objstore.Key
 	AmbientKeys   []objstore.Key
 	Controlled    bool
@@ -97,7 +96,6 @@ type DeferredTurn struct {
 	PriorCursor   string
 	ControlBefore *TurnControlState
 	ControlAfter  *TurnControlState
-	ReserveRetry  bool
 }
 
 func (s *Store) SavePendingTurn(ctx context.Context, tc TurnContext, priorCursor string) (bool, error) {
@@ -167,7 +165,7 @@ func (s *Store) RecordControlledProviderFailure(ctx context.Context, tc TurnCont
 	pause.Cond = modelPauseCond(before)
 	if before != nil {
 		pause.Op = objstore.Update
-		pause.Remove = missingAttrs(pause.Attrs, "next_attempt_at", "probe_turn_id", "probe_attempt_id")
+		pause.Remove = missingAttrs(pause.Attrs, "next_attempt_at")
 	}
 	attrs := map[string]string{"provider_failure_attempt": tc.AttemptID, "status_owed": "waiting", "failure_cause": tc.FailureCause}
 	var remove []string
@@ -187,72 +185,6 @@ func (s *Store) RecordControlledProviderFailure(ctx context.Context, tc TurnCont
 				{Attr: "attempt_id", Op: objstore.Eq, Value: tc.AttemptID}, marker,
 			}},
 		})
-}
-
-func (s *Store) MigrateDeferredTurn(ctx context.Context, d DeferredTurn) (bool, error) {
-	tc := d.Turn
-	key, err := turnKey(tc.TurnID)
-	if err != nil {
-		return false, err
-	}
-	group, err := groupKey(tc.Folder)
-	if err != nil {
-		return false, err
-	}
-	chat, err := chatKey(tc.ChatJID)
-	if err != nil {
-		return false, err
-	}
-	if (tc.State != TurnPendingRetry && tc.State != TurnHeld) || tc.InputLast == "" || len(tc.InputKeys) == 0 || tc.NextAttemptAt.IsZero() {
-		return false, fmt.Errorf("migrate turn %s: invalid binding", tc.TurnID)
-	}
-	input, err := json.Marshal(tc.InputKeys)
-	if err != nil {
-		return false, err
-	}
-	ambient, err := json.Marshal(tc.AmbientKeys)
-	if err != nil {
-		return false, err
-	}
-	attempt := objstore.Cmp{Attr: "attempt_id", Op: objstore.Eq, Value: tc.AttemptID}
-	if tc.AttemptID == "" {
-		attempt.Op = objstore.Absent
-		tc.AttemptID = rand.Text()
-	}
-	count := objstore.Cmp{Attr: attrTurnRetryCount, Op: objstore.Eq, Value: strconv.Itoa(tc.RetryCount)}
-	if tc.RetryCount == 0 {
-		count.Op = objstore.Absent
-	}
-	cursor := objstore.Cmp{Attr: AttrChatAgentCursor, Op: objstore.Eq, Value: d.PriorCursor}
-	if d.PriorCursor == "" {
-		cursor.Op = objstore.Absent
-	}
-	prior, _, err := s.itemAt(ctx, TurnContexts, key)
-	if err != nil {
-		return false, err
-	}
-	inputGuard := objstore.Cmp{Attr: "input_keys", Op: objstore.Absent}
-	if value, ok := prior.Attrs["input_keys"]; ok {
-		inputGuard.Op, inputGuard.Value = objstore.Eq, value
-	}
-	checks, writes := controlAdmission(d.ControlBefore, d.ControlAfter)
-	checks = append(checks, objstore.Check{Entity: Groups, Key: group, Cond: objstore.Cond{Item: objstore.ItemPresent}})
-	attrs := map[string]string{attrTurnState: TurnPendingRetry, "attempt_id": tc.AttemptID, "input_last": tc.InputLast,
-		"input_keys": string(input), "ambient_keys": string(ambient), "next_attempt_at": core.TS(tc.NextAttemptAt)}
-	if d.ReserveRetry {
-		attrs[attrTurnRetryCount] = strconv.Itoa(tc.RetryCount + 1)
-	}
-	writes = append(writes, objstore.Write{Op: objstore.Update, Entity: TurnContexts, Key: key,
-		Attrs: attrs,
-		Cond: objstore.Cond{Where: []objstore.Cmp{
-			{Attr: attrTurnState, Op: objstore.Eq, Value: tc.State},
-			{Attr: attrTurnFolder, Op: objstore.Eq, Value: tc.Folder},
-			{Attr: attrTurnChatJID, Op: objstore.Eq, Value: tc.ChatJID},
-			{Attr: "next_attempt_at", Op: objstore.Absent}, inputGuard, attempt, count,
-		}}}, objstore.Write{Op: objstore.Update, Entity: Chats, Key: chat,
-		Attrs: map[string]string{AttrChatAgentCursor: max(d.PriorCursor, tc.InputLast)},
-		Cond:  objstore.Cond{Where: []objstore.Cmp{cursor}}})
-	return s.TryWriteEntities(ctx, checks, writes...)
 }
 
 func (s *Store) FinishControlledTurn(ctx context.Context, tc TurnContext, before, after *TurnControlState) (bool, error) {
@@ -423,7 +355,7 @@ func (s *Store) claimDeferredTurn(ctx context.Context, tc TurnContext, attemptID
 	writes = append(writes, objstore.Write{
 		Op: objstore.Update, Entity: TurnContexts, Key: key,
 		Attrs:  attrs,
-		Remove: []string{attrTurnRunReturned, attrTurnRunID, "next_attempt_at", "probe_episode"},
+		Remove: []string{attrTurnRunReturned, attrTurnRunID, "next_attempt_at"},
 		Cond: objstore.Cond{Where: []objstore.Cmp{
 			{Attr: attrTurnState, Op: objstore.Eq, Value: TurnPendingRetry},
 			{Attr: attrTurnFolder, Op: objstore.Eq, Value: tc.Folder},

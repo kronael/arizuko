@@ -38,7 +38,7 @@ func (l *Loop) oldestModelInput(folder string, first core.Message) (core.Message
 		return core.Message{}, err
 	}
 	for jid, cursor := range cursors {
-		msgs, batch, _, err := l.pendingBatch(jid, cursor, pollBatch)
+		msgs, batch, err := l.pendingBatch(jid, cursor, pollBatch)
 		if err != nil {
 			return core.Message{}, err
 		}
@@ -65,44 +65,12 @@ func modelInputBefore(a, b core.Message) bool {
 	return a.ChatJID < b.ChatJID
 }
 
-func (l *Loop) heldInput(jid string, msgs []core.Message) ([]core.Message, *TurnContext, error) {
-	turns, err := l.db.store().HeldTurns(context.Background(), jid)
-	if err != nil {
-		return nil, nil, err
-	}
-	var held *TurnContext
-	for i := range turns {
-		tc := &turns[i]
-		if i := slices.IndexFunc(msgs, func(m core.Message) bool {
-			return store.MessageCursor(m) == tc.InputLast
-		}); i >= 0 {
-			msgs = msgs[:i+1]
-			held = tc
-		}
-	}
-	return msgs, held, nil
-}
-
-func (l *Loop) pendingBatch(jid, cursor string, limit int) ([]core.Message, batchResolution, *TurnContext, error) {
+func (l *Loop) pendingBatch(jid, cursor string, limit int) ([]core.Message, batchResolution, error) {
 	msgs, err := l.db.NewMessagesForChat(jid, cursor, limit)
-	if err != nil {
-		return nil, batchResolution{}, nil, err
-	}
-	msgs, held, err := l.heldInput(jid, msgs)
 	if err != nil || newestUserIdx(msgs) < 0 {
-		return msgs, batchResolution{}, held, err
+		return msgs, batchResolution{}, err
 	}
-	if held == nil {
-		return msgs, l.resolveBatch(jid, msgs), nil, nil
-	}
-	r := resolution{Folder: held.Folder, Addressed: held.Addressed, ok: true}
-	b := batchResolution{resolution: r, rows: make([]resolution, len(msgs))}
-	for i, m := range msgs {
-		if !m.BotMsg && m.Sender == held.Trigger {
-			b.rows[i] = r
-		}
-	}
-	return msgs, b, held, nil
+	return msgs, l.resolveBatch(jid, msgs), nil
 }
 
 func (l *Loop) holdModelInput(chatJID string, trigger []core.Message) error {

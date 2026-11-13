@@ -67,7 +67,6 @@ const (
 	TurnPendingRetry = "pending_retry"
 	TurnDone         = "done"
 	TurnExpired      = "expired"
-	TurnHeld         = "held"
 )
 
 // The ordered declaration is what makes the expiry sweep a time comparison
@@ -81,7 +80,6 @@ func init() {
 type TurnContext struct {
 	AttemptID              string
 	InputLast              string
-	ProbeEpisode           string
 	ProviderFailureAttempt string
 	TurnID                 string
 	StartedAt              time.Time
@@ -120,8 +118,8 @@ func turnKey(turnID string) (objstore.Key, error) {
 // turnFrom reads one item back.
 func turnFrom(it objstore.Item) TurnContext {
 	tc := TurnContext{
-		AttemptID: it.Attrs["attempt_id"],
-		InputLast: it.Attrs["input_last"], ProbeEpisode: it.Attrs["probe_episode"],
+		AttemptID:              it.Attrs["attempt_id"],
+		InputLast:              it.Attrs["input_last"],
 		ProviderFailureAttempt: it.Attrs["provider_failure_attempt"],
 		TurnID:                 it.Key.Sort,
 		Folder:                 it.Attrs[attrTurnFolder],
@@ -193,7 +191,6 @@ func (s *Store) OpenTurnContext(turnID, folder, topic, chatJID, trigger, returnT
 			bound["attempt_id"] = admission.AttemptID
 		}
 		setAttr(bound, "input_last", admission.InputLast)
-		setAttr(bound, "probe_episode", admission.ProbeEpisode)
 		if admission.InputKeys != nil {
 			input, err := json.Marshal(admission.InputKeys)
 			if err != nil {
@@ -256,10 +253,9 @@ func (s *Store) OpenTurnContext(turnID, folder, topic, chatJID, trigger, returnT
 	live, err := s.TryWriteEntities(ctx, checks, append(claim, objstore.Write{
 		Op: objstore.Update, Entity: TurnContexts, Key: key, Attrs: bound,
 		Remove: append(missingAttrs(bound, attrTurnFolder, attrTurnTopic, attrTurnChatJID,
-			attrTurnTrigger, attrTurnReturnTo, "probe_episode"), attrTurnRunReturned, attrTurnRunID),
+			attrTurnTrigger, attrTurnReturnTo), attrTurnRunReturned, attrTurnRunID),
 		Cond: objstore.Cond{Where: []objstore.Cmp{
 			{Attr: attrTurnState, Op: objstore.Ne, Value: TurnDone},
-			{Attr: attrTurnState, Op: objstore.Ne, Value: TurnHeld},
 			{Attr: "next_attempt_at", Op: objstore.Absent},
 		}},
 	})...)

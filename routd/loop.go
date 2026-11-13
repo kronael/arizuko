@@ -474,7 +474,7 @@ func (l *Loop) folderForJid(chatJID string) string {
 		tc, _ := l.db.GetTurnContext(turnID)
 		return tc.Folder
 	}
-	msgs, b, _, err := l.pendingBatch(chatJID, l.db.GetAgentCursor(chatJID), pollBatch)
+	msgs, b, err := l.pendingBatch(chatJID, l.db.GetAgentCursor(chatJID), pollBatch)
 	if err != nil || newestUserIdx(msgs) < 0 {
 		return chatJID
 	}

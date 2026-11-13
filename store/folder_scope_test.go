@@ -179,9 +179,9 @@ func TestDeleteGroupRetiresOnlyHeldSubtree(t *testing.T) {
 	cursor := MessageCursor(core.Message{Timestamp: now, ID: "held"})
 	later := MessageCursor(core.Message{Timestamp: now.Add(time.Second), ID: "later"})
 	for _, tc := range []struct{ id, folder, jid, state string }{
-		{"held", "a/child", "web:held", TurnHeld},
-		{"ahead", "a", "web:ahead", TurnHeld},
-		{"other", "ab", "web:other", TurnHeld},
+		{"held", "a/child", "web:held", TurnRunning},
+		{"ahead", "a", "web:ahead", TurnRunning},
+		{"other", "ab", "web:other", TurnRunning},
 		{"complete", "a/child", "web:complete", TurnDone},
 	} {
 		if _, err := s.OpenTurnContext(tc.id, tc.folder, "", tc.jid, "u", "", &TurnAdmission{InputLast: cursor}); err != nil {

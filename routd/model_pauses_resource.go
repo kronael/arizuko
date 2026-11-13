@@ -82,7 +82,7 @@ func (s *Server) modelPausesHandler(ctx context.Context, x resreg.Execution) (an
 			for _, jid := range jids {
 				cursor := s.db.GetAgentCursor(jid)
 				for {
-					msgs, batch, _, err := loop.pendingBatch(jid, cursor, 0)
+					msgs, batch, err := loop.pendingBatch(jid, cursor, 0)
 					if err != nil {
 						return nil, err
 					}

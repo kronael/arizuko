@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/core"
-	"github.com/kronael/arizuko/objstore"
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 	"github.com/kronael/arizuko/store"
@@ -353,66 +352,5 @@ func TestTurnControlProviderEarlySubmission(t *testing.T) {
 	control, _, _ = db.store().ReadTurnControl(t.Context())
 	if control.Phase != "closed" {
 		t.Fatal("runtime confirmation did not clear the breaker")
-	}
-}
-
-func TestTurnControlProviderLegacyMigration(t *testing.T) {
-	for _, captured := range []bool{false, true} {
-		for _, spent := range []int{0, 2, 3} {
-			t.Run(fmt.Sprintf("captured=%t/spent=%d", captured, spent), func(t *testing.T) {
-				db, l, p, _ := pauseFixture(t)
-				jid := "telegram:group/legacy"
-				doSetRoutes(t, db, []core.Route{{Match: "chat_jid=" + jid, Target: "a"}})
-				now := time.Now().UTC()
-				l.q.now = func() time.Time { return now }
-				pauseInput(t, db, jid, "old", "u", "saved", now)
-				msg, _ := db.MessageByID(jid, "old")
-				_, _ = db.store().OpenTurnContext("old", "a", "", jid, "u", "",
-					&store.TurnAdmission{AttemptID: "legacy", InputLast: store.MessageCursor(msg), ProbeEpisode: core.TS(now)})
-				state := store.TurnHeld
-				metadata := map[string]string{"reason": "rate_limit", "evidence": "rate_limit", "opened_at": core.TS(now), "attempts": "1", "next_attempt_at": core.TS(now.Add(2 * time.Hour))}
-				if captured {
-					state = store.TurnRunning
-					metadata["probe_turn_id"], metadata["probe_attempt_id"] = "old", "legacy"
-				}
-				doSetRoutes(t, db, []core.Route{{Match: "chat_jid=" + jid, Target: "b"}})
-				if err := db.SetStickyTopic(jid, "changed"); err != nil {
-					t.Fatal(err)
-				}
-				attrs := map[string]string{"state": state, "provider_failure_attempt": "legacy", "run_id": "captured"}
-				if spent > 0 {
-					attrs["retry_count"] = fmt.Sprint(spent)
-				}
-				if err := db.store().WriteEntities(t.Context(), nil,
-					objstore.Write{Op: objstore.Update, Entity: store.TurnContexts, Key: objstore.Key{Partition: store.OwnerRoutd, Sort: "old"}, Attrs: attrs},
-					objstore.Write{Op: objstore.Put, Entity: store.ModelPauses, Key: objstore.Key{Partition: store.OwnerRoutd, Sort: "a"}, Attrs: metadata}); err != nil {
-					t.Fatal(err)
-				}
-				p.stopErr = errors.New("runed unavailable")
-				if err := l.q.recover(l, true); err == nil {
-					t.Fatal("legacy reconciliation failure was ignored")
-				}
-				unresolved, _ := db.GetTurnContext("old")
-				if unresolved.RetryCount != spent || len(unresolved.InputKeys) != 0 {
-					t.Fatalf("unresolved legacy execution migrated: %+v", unresolved)
-				}
-				p.stopErr = nil
-				if err := l.q.recover(l, false); err != nil {
-					t.Fatal(err)
-				}
-				tc, _ := db.GetTurnContext("old")
-				if tc.RetryCount != min(spent+1, 3) || len(tc.InputKeys) != 1 || tc.Folder != "a" || tc.Topic != "" || db.GetAgentCursor(jid) != tc.InputLast ||
-					(spent < 3 && tc.State != store.TurnPendingRetry) || (spent == 3 && tc.State != store.TurnDone) {
-					t.Fatalf("legacy migration lost budget or binding: %+v", tc)
-				}
-				if err := l.q.recover(l, false); err != nil {
-					t.Fatal(err)
-				}
-				after, _ := db.GetTurnContext("old")
-				if after.RetryCount != tc.RetryCount || len(p.kills) != 2 {
-					t.Fatalf("migration repeated refusal reservation: %+v kills=%v", after, p.kills)
-				}
-			})
-		}
 	}
 }

@@ -3,7 +3,6 @@ package routd
 import (
 	"context"
 	"runtime"
-	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -94,46 +93,5 @@ func TestTurnControlRefusedInputSurvivesGCBeforeRuntimeReturn(t *testing.T) {
 	}
 	if after.State != store.TurnPendingRetry || after.RetryCount != 1 || p.kills[0] != "captured" {
 		t.Fatalf("refusal recovery lost ownership: turn=%+v kills=%v", after, p.kills)
-	}
-}
-
-// A legacy pending_retry turn whose input left the pending batch can never
-// be bound. It closes as failed, the next legacy turn on the chat still
-// migrates, and a second pass neither sees nor logs the closed turn again.
-func TestTurnControlUnboundLegacyTurnClosesAndMigrationContinues(t *testing.T) {
-	db, l, _, _ := pauseFixture(t)
-	jid := "telegram:group/legacy"
-	doSetRoutes(t, db, []core.Route{{Match: "chat_jid=" + jid, Target: "a"}})
-	pauseInput(t, db, jid, "2-kept", "u", "saved", time.Now())
-	for _, id := range []string{"1-gone", "2-kept"} {
-		if _, err := db.PutTurnContext(id, "a", "", jid, "u", ""); err != nil {
-			t.Fatal(err)
-		}
-		if err := db.store().WriteEntities(t.Context(), nil, objstore.Write{Op: objstore.Update, Entity: store.TurnContexts,
-			Key: objstore.Key{Partition: store.OwnerRoutd, Sort: id}, Attrs: map[string]string{"state": store.TurnPendingRetry}}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	logs := captureWarnings(t)
-	if err := l.migrateRetries(jid, false); err != nil {
-		t.Fatalf("one unbound legacy turn blocked migration: %v", err)
-	}
-	gone, _ := db.GetTurnContext("1-gone")
-	kept, _ := db.GetTurnContext("2-kept")
-	if gone.State != store.TurnDone {
-		t.Fatalf("unbound legacy turn stays open: %+v", gone)
-	}
-	if kept.State != store.TurnPendingRetry || len(kept.InputKeys) != 1 || kept.NextAttemptAt.IsZero() {
-		t.Fatalf("bindable legacy turn did not migrate: %+v", kept)
-	}
-	first := logs.String()
-	if strings.Count(first, "1-gone") != 1 || !strings.Contains(first, "input boundary is missing") {
-		t.Fatalf("want one WARN naming the turn and reason; log:\n%s", first)
-	}
-	if err := l.migrateRetries(jid, false); err != nil {
-		t.Fatal(err)
-	}
-	if again := logs.String(); again != first {
-		t.Fatalf("second pass logged again:\n%s", strings.TrimPrefix(again, first))
 	}
 }

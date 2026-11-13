@@ -214,15 +214,14 @@ func (s *deleteGroupOnAdmission) GuardedBatch(ctx context.Context, checks []objs
 	return s.Store.GuardedBatch(ctx, checks, writes)
 }
 
-// Deleting the group before a rebind or probe must refuse the whole batch.
+// Deleting the group before a bind or a rebind must refuse the whole batch.
 func TestAdmissionRequiresGroupDuringRebindAndProbe(t *testing.T) {
 	for _, tc := range []struct {
-		name          string
-		probe, rebind bool
+		name   string
+		rebind bool
 	}{
 		{name: "rebind", rebind: true},
-		{name: "probe fresh", probe: true},
-		{name: "probe rebind", probe: true, rebind: true},
+		{name: "fresh"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := openEntities(t)
@@ -234,18 +233,13 @@ func TestAdmissionRequiresGroupDuringRebindAndProbe(t *testing.T) {
 					t.Fatalf("initial turn: %v %v", live, err)
 				}
 			}
-			var admission *TurnAdmission
-			if tc.probe {
-				p := openPause(t, s, "pause", time.Now().Add(-2*time.Minute))
-				admission = &TurnAdmission{ProbeEpisode: p.OpenedAt}
-			}
 			op := objstore.Put
 			if tc.rebind {
 				op = objstore.Update
 			}
 			gate := &deleteGroupOnAdmission{Store: s.Obj(), op: op}
 			guarded := NewOver(gate)
-			live, err := guarded.OpenTurnContext("target", "g", "new", "web:g", "u", "", admission)
+			live, err := guarded.OpenTurnContext("target", "g", "new", "web:g", "u", "", nil)
 			if !gate.fired || live || !errors.Is(err, ErrGroupMissing) {
 				t.Fatalf("admission: fired=%v live=%v err=%v", gate.fired, live, err)
 			}
@@ -253,19 +247,13 @@ func TestAdmissionRequiresGroupDuringRebindAndProbe(t *testing.T) {
 			if exists != tc.rebind || (exists && turn.Topic != "old") {
 				t.Fatalf("turn changed: %+v exists=%v", turn, exists)
 			}
-			if tc.probe {
-				p, err := s.ReadModelPause(t.Context(), "g")
-				if err != nil || p == nil || p.ProbeTurnID != "" {
-					t.Fatalf("probe claimed: %+v err=%v", p, err)
-				}
-			}
 		})
 	}
 }
 
 func TestAdmissionMissingGroup(t *testing.T) {
 	s := openEntities(t)
-	for _, admission := range []*TurnAdmission{nil, {ProbeEpisode: "missing"}} {
+	for _, admission := range []*TurnAdmission{nil, {InputLast: "missing"}} {
 		live, err := s.OpenTurnContext("target", "g", "", "web:g", "u", "", admission)
 		if live || !errors.Is(err, ErrGroupMissing) {
 			t.Fatalf("admission: live=%v err=%v", live, err)

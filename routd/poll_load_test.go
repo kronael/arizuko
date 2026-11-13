@@ -71,10 +71,9 @@ func countedLoop(t *testing.T) (*DB, *Loop, *countingStore) {
 	return db, l, counter
 }
 
-// A wake reads the turn_context partition whole once (held input), not twice:
-// legacy retry migration runs in recovery, not on every wake. gitd re-delivers
-// its held CI events one wake each.
-func TestWakeReadsTurnContextOnce(t *testing.T) {
+// A wake reads no turn: gitd re-delivers its held CI events one wake each, and
+// a turn_context read per wake grew with every turn ever run (BUGS L823).
+func TestWakeReadsNoTurn(t *testing.T) {
 	db, l, counter := countedLoop(t)
 	_ = db.PutGroup(core.Group{Folder: "eng"})
 	doSetRoutes(t, db, []core.Route{{Match: "platform=github", Target: "eng?observe"}})
@@ -92,8 +91,8 @@ func TestWakeReadsTurnContextOnce(t *testing.T) {
 	}
 	t.Logf("store reads: ingest %d, wake %d, turn_context whole %d",
 		ingest, counter.total()-ingest, counter.count(store.TurnContexts+" whole"))
-	if got := counter.count(store.TurnContexts + " whole"); got != 1 {
-		t.Fatalf("whole turn_context reads per wake = %d, want 1", got)
+	if got := counter.count(store.TurnContexts); got != 0 {
+		t.Fatalf("turn_context reads per wake = %d, want 0", got)
 	}
 }
 
