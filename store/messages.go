@@ -270,7 +270,7 @@ func (s *Store) putMessage(ctx context.Context, m core.Message, status string, e
 		return m, fmt.Errorf("message %s in %s carries no instant, and the instant is half its "+
 			"position", m.ID, m.ChatJID)
 	}
-	// THE READ IS FOR THE STICKY PIN, and nothing else.
+	// THE READ IS FOR THE STICKY PIN and the input span (chats.go).
 	chat, _, err := s.chatItemVia(ctx, m.ChatJID)
 	if err != nil {
 		return m, err
@@ -311,6 +311,12 @@ func (s *Store) putMessage(ctx context.Context, m core.Message, status string, e
 	chatFlags := map[string]string{}
 	if isRealInbound(m) {
 		chatFlags[attrChatHasInbound] = flagSet
+	}
+	if !m.BotMsg {
+		chatFlags[attrChatInputLast] = key.Sort
+		if chat.Attrs[attrChatInputLast] <= chat.Attrs[AttrChatAgentCursor] {
+			chatFlags[attrChatInputFirst] = key.Sort
+		}
 	}
 	writes := []objstore.Write{{
 		Op: objstore.Merge, Entity: Chats, Key: chatKey, Attrs: chatFlags,

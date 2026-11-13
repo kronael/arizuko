@@ -353,7 +353,6 @@ func (p *partitionStore) Query(ctx context.Context, q objstore.Query) ([]objstor
 // model input and choosing the probe each read every chat's pending batch, 155
 // on krons, per dispatch (BUGS L824, L827).
 func TestDispatchReadsNoOtherChat(t *testing.T) {
-	t.Skip("L827: oldestModelInput reads every chat's pending batch per dispatch to order a folder's input across chats")
 	base, err := OpenMem()
 	if err != nil {
 		t.Fatal(err)
@@ -366,6 +365,14 @@ func TestDispatchReadsNoOtherChat(t *testing.T) {
 	for i := range 5 {
 		if err := db.PutMessage(core.Message{ID: fmt.Sprintf("o%d", i), ChatJID: fmt.Sprintf("web:other%d", i),
 			Sender: "u", Content: "q", Timestamp: now}); err != nil {
+			t.Fatal(err)
+		}
+		done := core.Message{ID: fmt.Sprintf("d%d", i), ChatJID: fmt.Sprintf("web:done%d", i),
+			Sender: "u", Content: "q", Timestamp: now.Add(-time.Second)}
+		if err := db.PutMessage(done); err != nil {
+			t.Fatal(err)
+		}
+		if err := db.SetAgentCursor(done.ChatJID, store.MessageCursor(done)); err != nil {
 			t.Fatal(err)
 		}
 	}

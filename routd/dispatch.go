@@ -429,7 +429,7 @@ func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed boo
 	if err != nil {
 		return false, false, false, "", err
 	}
-	oldest, err := l.oldestModelInput(folder)
+	oldest, err := l.oldestModelInput(folder, trigger[0])
 	if err != nil {
 		return false, false, false, "", err
 	}

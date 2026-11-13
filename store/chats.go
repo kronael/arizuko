@@ -1,12 +1,17 @@
 package store
 
 // chats.go holds every read and write of `chats`: one item per chat routd has
-// ever seen, carrying the dispatch cursor, the errored flag and the two
-// navigation pins.
+// ever seen, carrying the dispatch cursor, the span of a person's input past
+// it, the errored flag and the two navigation pins.
+//
+// The span is `input_first`, the user row appended while none waited past the
+// cursor, and `input_last`, the newest user row. Every user-row append writes
+// them from the chat read it already makes, so ordering a folder's input
+// across chats reads this partition, not every chat's messages (BUGS L827).
 //
 // The partition is OwnerRoutd and the sort key the jid: a chat has no folder.
 // The pins name one, but a chat outlives the folder it points at, so
-// folder_scope.go clears the pins and keeps the row. The three reads that name
+// folder_scope.go clears the pins and keeps the row. The reads that name
 // no jid scan the partition: 136 items on krons, bounded by the chats an
 // instance was ever addressed from, never by traffic.
 //
@@ -43,6 +48,8 @@ const (
 	// message: none a bot sent, none the proactive trigger synthesised. The
 	// proactive scan reads it instead of DISTINCT over every message.
 	attrChatHasInbound = "has_inbound"
+	attrChatInputFirst = "input_first"
+	attrChatInputLast  = "input_last"
 )
 
 // flagSet is what a true flag is stored as. False is the attribute's ABSENCE.
@@ -149,6 +156,31 @@ func (s *Store) ChatJIDs(ctx context.Context) ([]string, error) {
 		out = append(out, it.Key.Sort)
 	}
 	sort.Strings(out)
+	return out, nil
+}
+
+// InputCursorsBefore answers, jid to agent cursor, the chats whose unconsumed
+// user rows may sort at or before `before`, a message cursor: every chat
+// holding such a row is in the answer. ONE read of the partition.
+func (s *Store) InputCursorsBefore(ctx context.Context, before string) (map[string]string, error) {
+	items, err := s.Obj().Query(ctx, objstore.Query{
+		Entity: Chats, Partition: OwnerRoutd,
+		Where:   []objstore.Cmp{{Attr: attrChatInputLast, Op: objstore.Present}},
+		Project: []string{AttrChatAgentCursor, attrChatInputFirst, attrChatInputLast},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("read the chats holding input: %w", err)
+	}
+	out := map[string]string{}
+	for _, it := range items {
+		cursor := it.Attrs[AttrChatAgentCursor]
+		if it.Attrs[attrChatInputLast] <= cursor {
+			continue
+		}
+		if max(it.Attrs[attrChatInputFirst], cursor) <= before {
+			out[it.Key.Sort] = cursor
+		}
+	}
 	return out, nil
 }
 

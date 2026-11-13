@@ -15,7 +15,7 @@ import (
 
 var errModelInputOrder = errors.New("older model input pending")
 
-func (l *Loop) oldestModelInput(folder string) (core.Message, error) {
+func (l *Loop) oldestModelInput(folder string, first core.Message) (core.Message, error) {
 	turns, err := l.db.RunningTurns()
 	if err != nil {
 		return core.Message{}, err
@@ -33,12 +33,12 @@ func (l *Loop) oldestModelInput(folder string) (core.Message, error) {
 			oldest = msgs[0]
 		}
 	}
-	jids, err := l.db.ChatJIDs()
+	cursors, err := l.db.store().InputCursorsBefore(context.Background(), store.MessageCursor(first))
 	if err != nil {
 		return core.Message{}, err
 	}
-	for _, jid := range jids {
-		msgs, batch, _, err := l.pendingBatch(jid, l.db.GetAgentCursor(jid), pollBatch)
+	for jid, cursor := range cursors {
+		msgs, batch, _, err := l.pendingBatch(jid, cursor, pollBatch)
 		if err != nil {
 			return core.Message{}, err
 		}
