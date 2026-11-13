@@ -89,6 +89,16 @@ run at once on the instance. Scheduled tasks hold at most one of those slots,
 so a free slot still serves another folder's chat. One folder runs one turn
 at a time.
 
+**A folder takes its input oldest first, across its chats.** A turn waits
+while the folder holds older input: a pending retry, or a user row of another
+chat that resolves to the folder and is past that chat's cursor. The folder
+is resolved at dispatch, so the check runs the chat's own batch resolution;
+it runs on the chats whose waiting rows may sort before the turn's first row.
+Each `chats` item carries that span: `input_first`, the user row appended
+while none waited past the cursor, and `input_last`, the newest user row.
+Every user-row append writes both, so a dispatch reads the `chats` partition
+once and no other chat that holds nothing older (BUGS `L827`).
+
 **Retry does not extend engagement.** The user is still waiting, and the
 saved return address delivers the eventual answer where they asked.
 
