@@ -15,7 +15,7 @@
 
 ## What needs you
 
-- `L827` — every dispatch reads every chat to order a folder's input across chats; drop the order or add a schema; needs sign-off.
+- `L827` — every dispatch reads every chat to order a folder's input across chats; owner: keep the order, add a store record; fix in progress.
 - `L826` — one folder's crash closes the whole instance for an hour; per-folder breaker or a 30 s probe; needs sign-off.
 - `L823` — every wake reads the whole `turn_context` partition for held input; a per-chat read needs a schema change; needs sign-off.
 - `L822` — gitd's `/health` reads its whole held-inbound backlog per probe; dropping `pending_inbound` changes the documented contract; needs sign-off.
@@ -332,7 +332,7 @@ reads those words now.
   **Proposal:** stop the build on the first failed submake. This is an adjacent
   build-gate repair; scope approval is pending.
 
-## L827 — every dispatch reads every chat to order a folder's input (2026-11-12, open — needs sign-off)
+## L827 — every dispatch reads every chat to order a folder's input (2026-11-12, decided — owner: keep the order)
 
 MEASURED 2026-11-12 (`routd/poll_load_test.go::TestDispatchReadsNoOtherChat`,
 skipped, red when run: one read of each of five other chats per dispatch):
@@ -347,11 +347,9 @@ The cross-chat order is a tested contract
 
 - **Severity:** high — each dispatch costs a read of the whole instance on a
   store `L821` showed saturates.
-- **Status:** open — needs sign-off: the order is a contract.
-- **Options:** (a) order only against the folder's pending retries, the scan
-  goes and a folder's chats run in queue order; (b) a per-folder record of
-  pending input, a schema change; (c) keep the scan.
-- **Default if nothing is decided:** (c).
+- **Status:** decided 2026-11-13 — owner: keep the order ("keep the function
+  and make it work"); a store record of each chat's waiting input replaces the
+  scan.
 
 ## ✅ FIXED 2026-11-12 42d3492e6 820b8dba1 L824 — a chat the instance breaker refuses is never woken again, so krons answers nothing (2026-11-12)
 
