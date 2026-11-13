@@ -353,6 +353,52 @@ No test — contract.
 - **Operator action:** the live instances keep their hand-written files. The
   operator re-runs `/find` on the 53 live facts without `summary:` and moves
   live boards, threads and briefings out of `facts/`.
+## L833 — one slow attachment fetch loses the file and the agent asks the user to send it again (2026-11-13, open)
+
+MEASURED 2026-11-13 on krons: a user sent `zmena.pdf` (4,588,279 bytes) to
+`telegram:group/1004358948112`, routed to `rhias/nemo` through teled-rhias. At
+14:52:50 routd logged `enrich: download failed url=http://teled-rhias:8080/files/<file_id>
+err=... context deadline exceeded (Client.Timeout exceeded while awaiting
+headers)`; `routd/enrich.go:131-134` wrote `unavailable="the file could not be
+fetched"` into the prompt, the turn ran at once, and the agent asked for the
+file again. At 18:38 the same download worked, so the fault was transient.
+
+Cause, from the journal: Telegram's Bot API answered teled-rhias's long poll
+with `504 Gateway Timeout` and then `502 Bad Gateway`, ten times from 14:43:16 to
+14:46:02, each after about 15 s; teled for the other bot logged none. The poll
+then delivered this message, so teled's connection to `api.telegram.org` was
+up; the transport is not the cause (both teled clients use
+`http.DefaultTransport` with no per-host connection limit, multiplexed over one
+HTTP/2 connection). teled's `handleFile` (`teled/server.go:71`) makes two
+Telegram calls, getFile then the file GET, before it sends a header, and
+Telegram did not finish both within routd's 30 s. teled logs nothing on that
+path, so which call was slow is not recorded. The teled-rhias "registering
+channel" lines at 14:50:36 and 14:53:36 are its 3-minute re-registration, not
+a restart.
+
+Three defects turn that one slow answer into a lost file:
+
+- `downloadFile` (`routd/enrich.go:186`) uses the TTS client
+  (`routd/tts.go:40`, `Timeout: 30 * time.Second`): one budget for headers
+  and body, so a slow header and a long body fail alike.
+- Nothing retries. Any failure, transient or not, becomes the unavailable
+  marker, and the turn runs on it, though Telegram still holds the file
+  (`file_id` stays valid).
+- teled's own client (`teled/server.go:17`, `Timeout: 30 * time.Second`) caps
+  the proxied body at 30 s whatever its size, and teled answers every getFile
+  refusal with 502, so routd cannot tell "file too big" (Telegram 400) from an
+  outage.
+
+- **Severity:** high — the user's file is dropped and they are asked to resend.
+- **Fix:** routd downloads with its own client: a header timeout, then a body
+  deadline scaled to the size. A transient failure (no answer, a 5xx, a cut
+  body) on a trigger row defers the turn through the busy requeue (backoff
+  4 s doubling to 60 s), the path a runed-at-capacity turn already takes; the
+  turn runs with the marker only once the message is 30 minutes old. A
+  permanent failure (a 4xx, too large) keeps today's marker. teled bounds each
+  Telegram call by its response headers only, passes a getFile 4xx through, and
+  logs the failing step with its time.
+- **Status:** open.
 
 ## ✅ FIXED 2026-11-13 fc9157598 L831 — a model safety refusal closes the whole instance for an hour (2026-11-13)
 
