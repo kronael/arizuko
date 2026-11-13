@@ -13,6 +13,28 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.75.13] — 2026-11-13
+
+> arizuko v0.75.13 — a model refusal fails one turn, not the instance
+>
+> A provider safety refusal now fails only its own turn with a refusal notice; it no longer closes the instance for an hour.
+>
+> • Refusals — the user sees "The model refused this request"; the instance keeps running.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Fixed
+
+- L831: a Claude safety refusal (`stop_reason: refusal`) made ant exit 1, so
+  routd counted a crash and opened the instance breaker for an hour (krons,
+  rhias/nemo on Fable 5.2: 5 times on 2026-11-12/13). ant now submits the turn
+  as `refused`; routd fails that turn with a refusal notice, no retry, and the
+  breaker stays closed.
+
+### Deploy steps
+
+Ship the image and restart.
+
 ## [v0.75.12] — 2026-11-13
 
 > arizuko v0.75.12 — a dispatch no longer reads every chat
