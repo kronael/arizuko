@@ -21,7 +21,9 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   a 4.5 MB PDF in rhias/nemo, 2026-11-13, during a Telegram Bot API slowdown).
   routd now downloads with its own client, a header timeout and a body deadline
   scaled to the size; a transient failure defers the turn and fetches again,
-  for up to 30 minutes from the message.
+  for up to 30 minutes from the message. teled times only the headers of each
+  Telegram file call, keeps a getFile 4xx as a 4xx, and logs each failed step
+  with its time.
 
 ## [v0.75.14] — 2026-11-13
 

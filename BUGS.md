@@ -353,7 +353,7 @@ No test — contract.
 - **Operator action:** the live instances keep their hand-written files. The
   operator re-runs `/find` on the 53 live facts without `summary:` and moves
   live boards, threads and briefings out of `facts/`.
-## L833 — one slow attachment fetch loses the file and the agent asks the user to send it again (2026-11-13, open)
+## ✅ FIXED 2026-11-13 c71953dc7 a537a9e7c L833 — one slow attachment fetch loses the file and the agent asks the user to send it again (2026-11-13)
 
 MEASURED 2026-11-13 on krons: a user sent `zmena.pdf` (4,588,279 bytes) to
 `telegram:group/1004358948112`, routed to `rhias/nemo` through teled-rhias. At
@@ -398,7 +398,22 @@ Three defects turn that one slow answer into a lost file:
   permanent failure (a 4xx, too large) keeps today's marker. teled bounds each
   Telegram call by its response headers only, passes a getFile 4xx through, and
   logs the failing step with its time.
-- **Status:** open.
+- **Status:** fixed in c71953dc7 (routd) and a537a9e7c (teled); not deployed.
+  Tests, each red under its own mutation: `routd/enrich_fetch_test.go`
+  `TestTurn_ASlowAttachmentDefersTheTurnUntilItArrives` (no deferral; no
+  cleanup of a sibling fetched before the deferral),
+  `TestTurn_APermanentlyRefusedAttachmentRunsTheTurnAtOnce` and
+  `TestDownloadFile_A4xxIsPermanentAnd5xxTransient` (4xx not permanent),
+  `TestTurn_AnAttachmentStillUnreachableAfterTheGiveUpRunsTheTurn` (no
+  give-up), `TestDownloadFile_ALongBodyOutlivesTheTTSClientTimeout` (the TTS
+  client back), `TestDownloadFile_NoHeadersIsOneTransientAttempt` (no header
+  timeout), `TestDownloadFile_BodyDeadlineScalesWithSize` (no size term);
+  `teled/files_test.go` `TestTelegramFileClientTimesHeadersNotTheBody`
+  (whole-request timeout back, header timeout dropped),
+  `TestHandleFile_ATelegramRefusalStaysA4xx` (every refusal a 502),
+  `TestHandleFile_LogsTheFailedStepWithoutTheToken` (no log; the raw error
+  with the token's URL). A row read only as observed context still gets the
+  unavailable line after one failed download.
 
 ## ✅ FIXED 2026-11-13 fc9157598 L831 — a model safety refusal closes the whole instance for an hour (2026-11-13)
 
