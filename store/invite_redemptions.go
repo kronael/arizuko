@@ -131,22 +131,6 @@ func (s *Store) CountRedemptions(ctx context.Context, userSub string) (int, erro
 	return len(items), nil
 }
 
-// redemptionRowPut renders one legacy row as the item it becomes. `redeemed_at`
-// is second-precision, so the row number is what keeps two redemptions of one
-// second in order.
-func redemptionRowPut(r RedemptionRow) (objstore.Write, error) {
-	at, err := normaliseInstant(InviteRedemptions, "redeemed_at", r.RedeemedAt)
-	if err != nil {
-		return objstore.Write{}, err
-	}
-	if r.RowID < 0 {
-		return objstore.Write{}, fmt.Errorf("invite redemption id %d is not a row number, "+
-			"and it is what keeps two redemptions of one second apart", r.RowID)
-	}
-	return redemptionWrite(r.UserSub, RedemptionStamp(at, fmt.Sprintf("%08x", r.RowID)),
-		r.TargetGlob, "")
-}
-
 // redemptionWrite renders the item a consumed subgroup invite records, so the
 // live path and the move build one shape.
 func redemptionWrite(userSub, at, targetGlob, issuedBy string) (objstore.Write, error) {

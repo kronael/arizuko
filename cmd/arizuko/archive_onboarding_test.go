@@ -25,15 +25,13 @@ import (
 func seedAdmission(t *testing.T, db *store.Store, jid string) {
 	t.Helper()
 	st := db
-	if _, err := st.ImportOnbod(t.Context(), store.OnbodSnapshot{
-		Admissions: []store.OnboardingRow{{
-			JID:      jid,
-			Status:   "queued",
-			Created:  "2026-08-06T00:00:00Z",
-			Gate:     "invite_required",
-			QueuedAt: "2026-08-06T00:01:00Z",
-		}},
-	}); err != nil {
+	if _, err := st.ImportOnboarding(t.Context(), []store.ArchiveOnboardingRow{{
+		JID:      jid,
+		Status:   "queued",
+		Created:  "2026-08-06T00:00:00Z",
+		Gate:     "invite_required",
+		QueuedAt: "2026-08-06T00:01:00Z",
+	}}); err != nil {
 		t.Fatalf("seed admission: %v", err)
 	}
 	rows, err := st.ListOnboarding("")

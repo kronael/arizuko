@@ -108,14 +108,10 @@ func TestArchive_RoundTrip_ConfigSecretsMessagesGroups(t *testing.T) {
 		}
 	}
 
-	// An invite is an item, so the fixture writes it through import.go rather
-	// than an INSERT the entity has no columns for.
-	if _, err := srcOnbod.ImportOnbod(t.Context(), store.OnbodSnapshot{
-		Invites: []store.ArchiveInviteRow{{
-			Ref: "ref1", TargetGlob: "atlas/*", IssuedBySub: "user:admin",
-			IssuedAt: "2026-01-01T00:00:00Z", MaxUses: 5,
-		}},
-	}); err != nil {
+	if _, err := srcOnbod.ImportInvites(t.Context(), []store.ArchiveInviteRow{{
+		Ref: "ref1", TargetGlob: "atlas/*", IssuedBySub: "user:admin",
+		IssuedAt: "2026-01-01T00:00:00Z", MaxUses: 5,
+	}}); err != nil {
 		t.Fatal(err)
 	}
 

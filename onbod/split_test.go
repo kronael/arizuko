@@ -265,8 +265,13 @@ func TestWorldInviteIssuerNarrowedBeforeCreation(t *testing.T) {
 func TestWorldInviteWithoutIssuerStaysUnspent(t *testing.T) {
 	db := testDB(t)
 	seedFolder(t, db, "acme")
-	_, err := db.ImportOnbod(t.Context(), store.OnbodSnapshot{Redemptions: []store.RedemptionRow{{RowID: 1, UserSub: "github:bob", TargetGlob: "acme/", RedeemedAt: "2026-01-01 00:00:00"}}})
-	if err != nil {
+	token := "issuerless-world-invite"
+	if _, err := db.ImportInvites(t.Context(), []store.ArchiveInviteRow{{
+		Ref: store.TokenRef(token), TargetGlob: "acme/", IssuedAt: "2026-01-01T00:00:00Z", MaxUses: 1,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ConsumeInviteNoGrant(token, "github:bob"); err != nil {
 		t.Fatal(err)
 	}
 	w := postCreateWorld(db, "github:bob", "bob", "")
