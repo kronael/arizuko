@@ -360,7 +360,7 @@ A refusal is about this message's content, not the provider or the instance.
   stores that as the turn's failure and logs `agent turn refused`.
 
 ## ✅ FIXED 2026-11-13 9b6730d06 f4742e390 L827 — every dispatch reads every chat to order a folder's input (2026-11-12)
-## L829 — onbod reads its whole onboarding table three times every 10 s (2026-11-13, open)
+## ✅ FIXED 2026-11-13 21bd635ac L829 — onbod reads its whole onboarding table three times every 10 s (2026-11-13)
 
 MEASURED 2026-11-13 by source at v0.75.11 (`cf4d6b62c`): onbod's tick
 (`onbod/main.go:150`, every `ONBOARD_POLL_INTERVAL` = 10 s) calls
@@ -372,13 +372,14 @@ store reads every row three times per tick, 18 whole reads a minute, and the
 table only grows: no row expires. `warnStrandedRows` only logs.
 
 - **Severity:** low — read cost on the shared store, no wrong result.
-- **Status:** open. Measured: `onbod/poll_reads_test.go::TestTickReadsOnboardingOnce`,
-  3 reads of the `onboarding` entity per tick against 1.
+- **Status:** fixed in 21bd635ac. `onbod/poll_reads_test.go::TestTickReadsOnboardingOnce`
+  asserts 1 read of the `onboarding` entity per tick; one extra whole read put
+  back in `pollOnboarding` turns it red at 2.
 - **Fix:** read the awaiting rows once per tick and filter them in memory;
   delete `warnStrandedRows`. Still open after it: `observePairings` reads
   `ParentEdges` once per never-paired chat per tick.
 
-## L830 — every web chat view and SSE connect reads one `turn_context` per past turn (2026-11-13, open)
+## ✅ FIXED 2026-11-13 2488a7a1f L830 — every web chat view and SSE connect reads one `turn_context` per past turn (2026-11-13)
 
 MEASURED 2026-11-13 by source at v0.75.11 (`cf4d6b62c`): `webd/route_token.go:142`
 (chat JSON view) and `:470` (topic SSE connect) call `store.ActiveProgress`
@@ -389,8 +390,9 @@ phase alone decides both: `final` is shown, `cleared` is not. So a chat with N
 past turns costs N turn reads per page load or reconnect, every one wasted.
 
 - **Severity:** low — read cost grows with a chat's turn count, no wrong result.
-- **Status:** open. Measured: `store/turns_containment_test.go::TestActiveProgressReadsNoEndedTurn`,
-  50 `turn_context` reads for 50 cleared turns against 0.
+- **Status:** fixed in 2488a7a1f. `store/turns_containment_test.go::TestActiveProgressReadsNoEndedTurn`
+  asserts 1 `turn_context` read (the live turn) for 49 cleared turns, one
+  final turn and one live one; without the `cleared` case it reads 50.
 - **Fix:** decide `final` and `cleared` rows from the phase and read the turn
   only for a row in a live phase.
 
