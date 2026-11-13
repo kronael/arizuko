@@ -396,39 +396,6 @@ past turns costs N turn reads per page load or reconnect, every one wasted.
 - **Fix:** decide `final` and `cleared` rows from the phase and read the turn
   only for a row in a live phase.
 
-## L827 — every dispatch reads every chat to order a folder's input (2026-11-12, open — needs sign-off)
-
-MEASURED 2026-11-12 (`routd/poll_load_test.go::TestDispatchReadsNoOtherChat`,
-skipped, red when run: one read of each of five other chats per dispatch):
-`runBoundTurn` calls `oldestModelInput` (`routd/model_pauses.go`) before every
-turn. It lists every chat and reads its pending batch (`pendingBatch`, with
-`heldInput`'s whole `turn_context` read) to find an older input routed to the
-same folder from another chat: on krons 155 chats, about 465 reads and 155
-whole `turn_context` reads (5,696 rows each) per dispatch; on sloth 376 chats.
-The cross-chat order is a tested contract
-(`routd/model_pause_order_test.go::TestModelPausePollHeldOrder`,
-`TestModelPauseOrderedRootKeepsElevation`); removing the scan breaks both.
-
-- **Severity:** high — each dispatch costs a read of the whole instance on a
-  store `L821` showed saturates.
-- **Status:** decided 2026-11-13 — owner: keep the order ("keep the function
-  and make it work"). Fixed in 9b6730d06, f4742e390; docs e237b0ac7; not
-  deployed. Tests, each red under its own mutation:
-  `routd/poll_load_test.go::TestDispatchReadsNoOtherChat` (the chat scan back,
-  the consumed-span check, the bound check),
-  `store/input_span_test.go::TestInputSpanTracksTheOldestWaitingRow` (span
-  first set on every append, never restarted), `TestMigrateChatInputSpan` (no
-  seed, no once-marker); the order tests stay green and fail with the order
-  check removed.
-- **Fix:** each `chats` item carries `input_first`, the user row appended while
-  none waited past the cursor, and `input_last`, the newest user row; every
-  user-row append writes them from the chat read it already makes.
-  `oldestModelInput` reads the `chats` partition once and runs the unchanged
-  pending-batch scan only on chats whose waiting rows may sort at or before the
-  turn's first row: no other chat when none waits. The folder stays a
-  dispatch-time decision, so the order is the scan's own. `Open` runs
-  `MigrateChatInputSpan` once for rows that predate the span.
-
 ## ✅ FIXED 2026-11-12 42d3492e6 820b8dba1 L824 — a chat the instance breaker refuses is never woken again, so krons answers nothing (2026-11-12)
 
 MEASURED 2026-11-12 22:15–22:35 on krons (v0.75.10): `arizuko send -i krons
