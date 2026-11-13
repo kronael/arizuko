@@ -751,52 +751,6 @@ func TestGetResource_RoundTrip(t *testing.T) {
 	}
 }
 
-// TestRetarget_RewritesScopeFieldOnly: Retarget rewrites the declared
-// Scope.Field column and nothing else, on a COPY (the input slice is
-// untouched) — spec 5/8 §"Path retargeting: primitive shipped, no caller".
-func TestRetarget_RewritesScopeFieldOnly(t *testing.T) {
-	_, r := freshEngine(t)
-	rows := []TestRow{
-		{Kind: "a", Name: "x", Value: "1"},
-		{Kind: "a", Name: "y", Value: "2"},
-	}
-	got, err := r.Retarget(rows, "b")
-	if err != nil {
-		t.Fatalf("Retarget: %v", err)
-	}
-	out := got.([]TestRow)
-	if len(out) != 2 || out[0].Kind != "b" || out[1].Kind != "b" {
-		t.Fatalf("Retarget = %v, want every row's Kind rewritten to b", out)
-	}
-	if out[0].Name != "x" || out[1].Name != "y" || out[0].Value != "1" || out[1].Value != "2" {
-		t.Errorf("Retarget touched non-scope fields: %v", out)
-	}
-	if rows[0].Kind != "a" || rows[1].Kind != "a" {
-		t.Errorf("Retarget mutated the input slice in place: %v", rows)
-	}
-}
-
-// TestRetarget_RefusesUnscopedResource: a resource with no declared Scope
-// (routes/acl/scheduled_tasks/secrets in the real registry) errors rather
-// than guessing which column is the folder.
-func TestRetarget_RefusesUnscopedResource(t *testing.T) {
-	reset()
-	r := Register(Resource{
-		Name:          "testrows",
-		Table:         "testrows",
-		DB:            testSubsystem,
-		RowType:       reflect.TypeFor[TestRow](),
-		PKFields:      []string{"Kind", "Name"},
-		EntitySortKey: []string{"Kind", "Name"},
-		EntityKeySep:  testKeySep,
-		// No Scope set.
-	})
-	_, err := r.Retarget([]TestRow{{Kind: "a", Name: "x", Value: "1"}}, "b")
-	if err == nil {
-		t.Fatal("want error: resource has no ScopeSpec")
-	}
-}
-
 // BUGS Z2: an `omitempty` slice with no value is omitted from the export, so it
 // re-parses as nil, while the live row's AfterScan builds an empty slice from
 // the stored "[]". reflect.DeepEqual calls those different, so every such row

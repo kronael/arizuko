@@ -1,12 +1,14 @@
 package store
 
 import (
-	"github.com/kronael/arizuko/core"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/kronael/arizuko/core"
 )
 
 // TestFolderScope_ClassifiesEveryDeclaredEntity is what makes "the purge is
@@ -218,4 +220,21 @@ func TestDeleteGroupRetiresOnlyHeldSubtree(t *testing.T) {
 	if got, _ := s.TurnContextOf("complete"); !reflect.DeepEqual(got, completed) {
 		t.Fatalf("completed history changed: %+v", got)
 	}
+}
+
+// FolderScopeClassified reports whether table carries a verdict in the
+// folder-scope declaration; the completeness tests walk the schema through it.
+func FolderScopeClassified(table string) bool {
+	if _, ok := folderScopeKeep[table]; ok {
+		return true
+	}
+	if _, ok := folderScopeUnpurged[table]; ok {
+		return true
+	}
+	for _, e := range entityScopePurge {
+		if e.entity == table {
+			return true
+		}
+	}
+	return slices.Contains(folderPartitionPurge, table)
 }

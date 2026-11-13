@@ -477,22 +477,6 @@ func onboardingPut(r OnboardingRow) (objstore.Write, error) {
 	}, nil
 }
 
-// gatePut renders a whole gate as the item that stores it, for the migration
-// tool; the live writers move one attribute at a time.
-func gatePut(g OnboardingGate) (objstore.Write, error) {
-	key, err := gateKey(g.Gate)
-	if err != nil {
-		return objstore.Write{}, err
-	}
-	return objstore.Write{
-		Op: objstore.Put, Entity: OnboardingGates, Key: key,
-		Attrs: map[string]string{
-			attrGateLimitPerDay: strconv.Itoa(g.LimitPerDay),
-			attrGateEnabled:     strconv.Itoa(btoi(g.Enabled)),
-		},
-	}, nil
-}
-
 // readOnboarding is the one read behind every admission query below, so
 // "which admissions match this" cannot mean one thing to a page and another to
 // a counter.

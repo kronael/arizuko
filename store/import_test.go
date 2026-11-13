@@ -8,6 +8,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -280,4 +281,20 @@ func redemptionRowPut(r RedemptionRow) (objstore.Write, error) {
 	}
 	return redemptionWrite(r.UserSub, RedemptionStamp(at, fmt.Sprintf("%08x", r.RowID)),
 		r.TargetGlob, "")
+}
+
+// gatePut renders a whole gate as the item that stores it, for the migration
+// tool; the live writers move one attribute at a time.
+func gatePut(g OnboardingGate) (objstore.Write, error) {
+	key, err := gateKey(g.Gate)
+	if err != nil {
+		return objstore.Write{}, err
+	}
+	return objstore.Write{
+		Op: objstore.Put, Entity: OnboardingGates, Key: key,
+		Attrs: map[string]string{
+			attrGateLimitPerDay: strconv.Itoa(g.LimitPerDay),
+			attrGateEnabled:     strconv.Itoa(btoi(g.Enabled)),
+		},
+	}, nil
 }

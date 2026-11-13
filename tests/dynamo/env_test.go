@@ -390,8 +390,8 @@ func TestDashdBootsFromTheEnvironment(t *testing.T) {
 	}
 	// `acme` above plus `main`, which routd's own boot seeds into an empty
 	// groups table (store.SeedDefaultGroup).
-	if n, err := ds.GroupCount(); err != nil || n != 2 {
-		t.Fatalf("GroupCount = %d (err=%v), want the two groups routd holds", n, err)
+	if folders, err := ds.GroupFolders(); err != nil || len(folders) != 2 {
+		t.Fatalf("GroupFolders = %v (err=%v), want the two groups routd holds", folders, err)
 	}
 
 	// The audit sink boot points at that same store, and a mutation lands its

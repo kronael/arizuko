@@ -18,9 +18,9 @@ package store
 
 import (
 	"context"
-	"github.com/kronael/arizuko/core"
-	"slices"
 	"strings"
+
+	"github.com/kronael/arizuko/core"
 
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/objstore"
@@ -190,23 +190,6 @@ var folderScopeUnpurged = map[string]string{
 	// (specs/6/37 redesign 1).
 	"invites":            "onbod owns it, in onbod.db",
 	"invite_redemptions": "onbod owns it, in onbod.db",
-}
-
-// FolderScopeClassified reports whether table carries a verdict in the
-// folder-scope declaration; the completeness tests walk the schema through it.
-func FolderScopeClassified(table string) bool {
-	if _, ok := folderScopeKeep[table]; ok {
-		return true
-	}
-	if _, ok := folderScopeUnpurged[table]; ok {
-		return true
-	}
-	for _, e := range entityScopePurge {
-		if e.entity == table {
-			return true
-		}
-	}
-	return slices.Contains(folderPartitionPurge, table)
 }
 
 // folderPartitionPurge names the entities a folder OWNS A WHOLE PARTITION of.

@@ -258,36 +258,6 @@ func (r *Resource) manifestScopes(rows any) []string {
 	return out
 }
 
-// Retarget returns a copy of rows with every row's Scope.Field set to
-// newFolder: "export folder X, apply as folder Y" (spec 5/8). It touches ONLY
-// that field and errors for a resource with no declared Scope rather than
-// guessing; a folder embedded elsewhere in row content (web_routes.redirect_to)
-// is the caller's to rewrite.
-func (r *Resource) Retarget(rows any, newFolder string) (any, error) {
-	if !r.HasScope() {
-		return nil, fmt.Errorf("resreg: %s has no ScopeSpec; Retarget refuses to guess which field is the folder", r.Name)
-	}
-	rv := reflect.ValueOf(rows)
-	if !rv.IsValid() {
-		return rows, nil
-	}
-	if rv.Kind() != reflect.Slice {
-		return nil, fmt.Errorf("resreg: %s Retarget wants a slice, got %s", r.Name, rv.Kind())
-	}
-	out := reflect.MakeSlice(rv.Type(), rv.Len(), rv.Len())
-	for i := 0; i < rv.Len(); i++ {
-		row := reflect.New(rv.Type().Elem()).Elem()
-		row.Set(rv.Index(i))
-		field := row.Field(r.meta.scopeField.idx)
-		if field.Kind() != reflect.String {
-			return nil, fmt.Errorf("resreg: %s Scope.Field %q is not a string column", r.Name, r.meta.scopeField.name)
-		}
-		field.SetString(newFolder)
-		out.Index(i).Set(row)
-	}
-	return out.Interface(), nil
-}
-
 // rowSlice coerces rows to a reflect.Value of `[]RowType`; nil becomes an
 // empty slice.
 func (r *Resource) rowSlice(rows any) (reflect.Value, error) {

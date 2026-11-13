@@ -16,12 +16,6 @@ import (
 // report: past the limit the number is "at least this many" and the page still
 // renders.
 
-// GroupCount is every group on the instance.
-func (s *Store) GroupCount() (int, error) {
-	folders, err := s.st().GroupFolders(0)
-	return len(folders), err
-}
-
 // GroupFolders lists group folders in path order, up to the dot's ceiling. The
 // folder IS the groups coordinate, so the read arrives in path order.
 func (s *Store) GroupFolders() ([]string, error) {
