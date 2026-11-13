@@ -164,3 +164,54 @@ func TestTurnFrames_OmitsTheProgressLine(t *testing.T) {
 		t.Fatalf("replay = %+v, err %v; want only the answer", frames, err)
 	}
 }
+
+type turnReadCounter struct {
+	objstore.Store
+	reads int
+}
+
+func (c *turnReadCounter) Query(ctx context.Context, q objstore.Query) ([]objstore.Item, error) {
+	if q.Entity == TurnContexts {
+		c.reads++
+	}
+	return c.Store.Query(ctx, q)
+}
+
+// A chat's ended turns left their status rows cleared or final, and the phase
+// alone decides them, so a page load reads no turn_context for them; one live
+// turn costs one read (BUGS L830).
+func TestActiveProgressReadsNoEndedTurn(t *testing.T) {
+	s := openMem(t)
+	const jid, topic = "web:a", "t"
+	base := time.Now().Add(-time.Hour)
+	for i := range 50 {
+		phase := "cleared"
+		if i == 0 {
+			phase = "final"
+		}
+		if err := s.PutMessage(core.Message{
+			ID: fmt.Sprintf("status-%02d", i), ChatJID: jid, Topic: topic,
+			TurnID: fmt.Sprintf("turn-%02d", i), BotMsg: true, Verb: verbStatus,
+			StatusPhase: phase, Content: "done", Timestamp: base.Add(time.Duration(i) * time.Second),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.PutMessage(core.Message{
+		ID: "status-live", ChatJID: jid, Topic: topic, TurnID: "live", BotMsg: true,
+		Verb: verbStatus, StatusPhase: "progress", Content: "working", Timestamp: time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	counter := &turnReadCounter{Store: s.Obj()}
+	active, err := NewOver(counter).ActiveProgress(jid, topic, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(active) != 1 || active[0].ID != "status-00" {
+		t.Fatalf("active = %+v, want only the final row", active)
+	}
+	if counter.reads != 1 {
+		t.Fatalf("turn_context reads = %d, want 1 (the live turn)", counter.reads)
+	}
+}

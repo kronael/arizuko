@@ -558,6 +558,13 @@ func (s *Store) ActiveProgress(chatJID, topic, turnID string) ([]core.Message, e
 			continue
 		}
 		seen[msg.TurnID] = true
+		switch msg.StatusPhase {
+		case "final":
+			out = append(out, msg)
+			continue
+		case "cleared":
+			continue
+		}
 		key, err := turnKey(msg.TurnID)
 		if err != nil {
 			return nil, err
@@ -566,7 +573,7 @@ func (s *Store) ActiveProgress(chatJID, topic, turnID string) ([]core.Message, e
 		if err != nil {
 			return nil, err
 		}
-		if msg.StatusPhase == "final" || (ok && IsActiveTurnState(item.Attrs[attrTurnState]) && msg.StatusPhase != "cleared") {
+		if ok && IsActiveTurnState(item.Attrs[attrTurnState]) {
 			out = append(out, msg)
 		}
 	}

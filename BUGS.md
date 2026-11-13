@@ -378,6 +378,22 @@ table only grows: no row expires. `warnStrandedRows` only logs.
   delete `warnStrandedRows`. Still open after it: `observePairings` reads
   `ParentEdges` once per never-paired chat per tick.
 
+## L830 — every web chat view and SSE connect reads one `turn_context` per past turn (2026-11-13, open)
+
+MEASURED 2026-11-13 by source at v0.75.11 (`cf4d6b62c`): `webd/route_token.go:142`
+(chat JSON view) and `:470` (topic SSE connect) call `store.ActiveProgress`
+(`store/messages.go:551`). It reads the chat's status rows, then does one keyed
+`turn_context` read for every distinct turn among them before it looks at the
+row's phase. A turn that ended left its row `cleared` (or `final`), and the
+phase alone decides both: `final` is shown, `cleared` is not. So a chat with N
+past turns costs N turn reads per page load or reconnect, every one wasted.
+
+- **Severity:** low — read cost grows with a chat's turn count, no wrong result.
+- **Status:** open. Measured: `store/turns_containment_test.go::TestActiveProgressReadsNoEndedTurn`,
+  50 `turn_context` reads for 50 cleared turns against 0.
+- **Fix:** decide `final` and `cleared` rows from the phase and read the turn
+  only for a row in a live phase.
+
 ## L827 — every dispatch reads every chat to order a folder's input (2026-11-12, open — needs sign-off)
 
 MEASURED 2026-11-12 (`routd/poll_load_test.go::TestDispatchReadsNoOtherChat`,
