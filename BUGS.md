@@ -16,7 +16,6 @@
 ## What needs you
 
 - `L826` — one folder's crash closes the whole instance for an hour; per-folder breaker or a 30 s probe; needs sign-off.
-- `L823` — every wake reads the whole `turn_context` partition for held input; a per-chat read needs a schema change; needs sign-off.
 - `L822` — gitd's `/health` reads its whole held-inbound backlog per probe; dropping `pending_inbound` changes the documented contract; needs sign-off.
 - `L816` — gitd loses GitHub webhooks while the store is unreachable; retention lives in that store; proposal, needs sign-off.
 - `L803` — morha repeats recovery reports and replies to an old GitHub comment; cause unmeasured.
@@ -560,7 +559,7 @@ the next poll.
   delay. Store reads per 2 s tick: krons 471 and sloth 1,134 before; 0 after,
   plus 5 every 30 s (3 of them whole `turn_context` reads).
 
-## L823 — every wake reads the whole `turn_context` partition to find held input (2026-11-12, open — needs sign-off)
+## L823 — every wake reads the whole `turn_context` partition to find held input (2026-11-12, open — decided)
 
 MEASURED 2026-11-12 (`routd/poll_load_test.go::TestWakeReadsTurnContextOnce`,
 counting store): a GitHub CI event that routes observe-only costs 6 store
@@ -580,15 +579,32 @@ overload is an inference, not measured. No guard is added: a slower sweep
 is a `chanlib` change for every retaining adapter, and skipping the wake
 for observe-only rows leaves them unobserved.
 
-- **Severity:** medium — wake cost grows with every turn ever run.
-- **Status:** open — needs sign-off: reading a chat's turns needs the chat
-  as a key coordinate of `turn_context`, a store schema change. No test —
-  design.
-- **Options:** (a) a per-chat key for held turns, so `HeldTurns(chat)` is a
-  query on one chat; (b) prune done turns older than a window, which bounds
-  the read but changes operator reads such as `TurnsSince`.
-- **Default if nothing is decided:** the read stays; watch sloth's store CPU
-  while the gitd backlog drains, or drop the backlog's CI events by hand.
+MEASURED 2026-11-13 (audit, read-only store probe on both instances): the
+same whole read runs on every 30 s pass four times — `RunningTurns`,
+`DeferredTurns`, `OwedTurnStatuses` and `admit`'s `HeldTurns` — about 760
+rows/s on krons; `chatsOwnedBy` → `TypingJIDsForRun` filters the whole
+partition on `run_id` at every turn end (`routd/db.go:561`). krons holds
+5,713 rows (5,431 `done`, 282 `expired`), sloth 6,688 (6,486 `done`, 202
+`expired`); neither has a running, `pending_retry`, `held` or status-owing
+turn, nor a model pause with a probe id. `RetireModelProbe`
+(`store/model_pauses.go:103`) is the only writer of `held`, and only for
+pre-breaker state.
+
+- **Severity:** medium — wake and pass cost grow with every turn ever run.
+- **Status:** decided 2026-11-13 — owner: "the rows need not be deleted, they
+  need to be archived", in "a different keyed table ... so that it does not
+  interfere with the select". Store migrations stay. Also decided: delete the
+  legacy retry/held state (`heldInput`, `HeldTurns`, the legacy loop in
+  `recoverProvider`, `migrateRetries`, `MigrateDeferredTurn`,
+  `RetireModelProbe`) — both instances hold none of it — and delete the
+  proactive feature (`routd/proactive.go`, `store/chat_proactive.go`,
+  `proactive/`, `dashd/proactive_page.go`, the `PROACTIVE_*` keys,
+  `specs/5/6-proactive-interjection.md`). The breaker stays.
+- **Fix:** the write that finishes a turn (`done` or `expired`, no status
+  owed) moves it from `turn_context` to `turn_archive` in one batch; `Open`
+  moves the existing finished rows once behind a marker. `turn_context` then
+  holds only live turns, so each pass reads O(live rows). A by-id read falls
+  back to the archive by key; the run's chats are keyed by run id.
 
 ## L822 — gitd's `/health` reads its whole held-inbound backlog on every probe (2026-11-12, open — needs sign-off)
 
