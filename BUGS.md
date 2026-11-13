@@ -15,7 +15,6 @@
 
 ## What needs you
 
-- `L832` — four products write `facts/` by hand against the manual; 53 of 160 live facts lack `summary:`; needs sign-off.
 - `L826` — one folder's crash closes the whole instance for an hour; per-folder breaker or a 30 s probe; needs sign-off.
 - `L822` — gitd's `/health` reads its whole held-inbound backlog per probe; dropping `pending_inbound` changes the documented contract; needs sign-off.
 - `L816` — gitd loses GitHub webhooks while the store is unreachable; retention lives in that store; proposal, needs sign-off.
@@ -328,7 +327,7 @@ reads those words now.
   **Proposal:** stop the build on the first failed submake. This is an adjacent
   build-gate repair; scope approval is pending.
 
-## L832 — four products tell the agent to write `facts/` by hand; the manual forbids it (2026-11-13, open — needs sign-off)
+## ✅ FIXED 2026-11-13 7ba411c30 L832 — four products tell the agent to write `facts/` by hand; the manual forbids it (2026-11-13)
 
 `ant/CLAUDE.md` § Memory stores: "NEVER write `facts/*.md` by hand" — `/find`
 writes facts, `/diary` takes decisions, `/users` takes preferences. Four
@@ -344,11 +343,16 @@ name alone — happy 8/8, rhias/trip 20/20 (hand-written, e.g.
 No test — contract.
 
 - **Severity:** medium — recall matches a third of stored facts by file name alone.
-- **Status:** open — needs sign-off: the product contracts are public pages.
-- **Proposal:** move each product's agent-written file to the store the
-  manual names (decisions → `/diary`, preferences → `/users`, briefings →
-  `~/reports/`, boards and threads → `~/workspace/`), and update the four
-  pages. Re-running `/find` on the 53 live files is the operator's call.
+- **Status:** fixed in 7ba411c30; owner decision 2026-11-13: "Use /find".
+- **Fix:** each of the four personas says that only `/find` writes `facts/`.
+  personal records decisions with `/diary` and preferences with `/users`; pm
+  keeps the board in `~/workspace/tasks.md` and logs decisions with `/diary`;
+  strategy stores briefings in `~/reports/`; reality keeps threads in
+  `~/workspace/threads/`. The package seeds and the eight product pages
+  follow.
+- **Operator action:** the live instances keep their hand-written files. The
+  operator re-runs `/find` on the 53 live facts without `summary:` and moves
+  live boards, threads and briefings out of `facts/`.
 
 ## ✅ FIXED 2026-11-13 fc9157598 L831 — a model safety refusal closes the whole instance for an hour (2026-11-13)
 
