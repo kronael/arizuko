@@ -15,7 +15,6 @@
 
 ## What needs you
 
-- `L827` — every dispatch reads every chat to order a folder's input across chats; owner: keep the order, add a store record; fix in progress.
 - `L826` — one folder's crash closes the whole instance for an hour; per-folder breaker or a 30 s probe; needs sign-off.
 - `L823` — every wake reads the whole `turn_context` partition for held input; a per-chat read needs a schema change; needs sign-off.
 - `L822` — gitd's `/health` reads its whole held-inbound backlog per probe; dropping `pending_inbound` changes the documented contract; needs sign-off.
@@ -332,7 +331,7 @@ reads those words now.
   **Proposal:** stop the build on the first failed submake. This is an adjacent
   build-gate repair; scope approval is pending.
 
-## L827 — every dispatch reads every chat to order a folder's input (2026-11-12, decided — owner: keep the order)
+## ✅ FIXED 2026-11-13 9b6730d06 f4742e390 L827 — every dispatch reads every chat to order a folder's input (2026-11-12)
 
 MEASURED 2026-11-12 (`routd/poll_load_test.go::TestDispatchReadsNoOtherChat`,
 skipped, red when run: one read of each of five other chats per dispatch):
@@ -348,8 +347,22 @@ The cross-chat order is a tested contract
 - **Severity:** high — each dispatch costs a read of the whole instance on a
   store `L821` showed saturates.
 - **Status:** decided 2026-11-13 — owner: keep the order ("keep the function
-  and make it work"); a store record of each chat's waiting input replaces the
-  scan.
+  and make it work"). Fixed in 9b6730d06, f4742e390; docs e237b0ac7; not
+  deployed. Tests, each red under its own mutation:
+  `routd/poll_load_test.go::TestDispatchReadsNoOtherChat` (the chat scan back,
+  the consumed-span check, the bound check),
+  `store/input_span_test.go::TestInputSpanTracksTheOldestWaitingRow` (span
+  first set on every append, never restarted), `TestMigrateChatInputSpan` (no
+  seed, no once-marker); the order tests stay green and fail with the order
+  check removed.
+- **Fix:** each `chats` item carries `input_first`, the user row appended while
+  none waited past the cursor, and `input_last`, the newest user row; every
+  user-row append writes them from the chat read it already makes.
+  `oldestModelInput` reads the `chats` partition once and runs the unchanged
+  pending-batch scan only on chats whose waiting rows may sort at or before the
+  turn's first row: no other chat when none waits. The folder stays a
+  dispatch-time decision, so the order is the scan's own. `Open` runs
+  `MigrateChatInputSpan` once for rows that predate the span.
 
 ## ✅ FIXED 2026-11-12 42d3492e6 820b8dba1 L824 — a chat the instance breaker refuses is never woken again, so krons answers nothing (2026-11-12)
 
