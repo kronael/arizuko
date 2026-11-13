@@ -13,6 +13,36 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.75.11] — 2026-11-13
+
+> arizuko v0.75.11 — a refused chat runs when the breaker admits again
+>
+> After the breaker opened, krons answered nothing until the next message in each chat; it now runs those chats when the breaker admits again, and pi can use the lent Codex login in a guest.
+>
+> • Breaker — a chat the instance breaker refused runs when the breaker admits again.
+> • Store load — filtered reads no longer fetch one item per request, and old turns stop re-publishing status every 30 s.
+> • pi — the lent Codex login is read-only inside the guest, so pi accepts it.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Fixed
+
+- L824: a chat the instance breaker refused was never woken again after
+  v0.75.10 removed the 2 s poll; the 30 s tick now wakes it once the breaker
+  admits.
+- L825: 32 legacy turns on krons owed a "cleared" status that could never be
+  acknowledged, so each 30 s pass re-read the whole `turn_context`; the store
+  driver also sent a filtered read's limit as the page size, one item per
+  request.
+- L828: guest-init bound read-only files without remounting them read-only, so
+  ant's pi refused the lent Codex login in a QEMU guest.
+
+### Deploy steps
+
+`guest-init` is in the initrd, so build the kernel for each instance
+(`make kernel DATA_DIR=<instance data dir>`), set `RUNED_KERNEL_DIR` to the new
+directory, run `arizuko generate` and restart.
+
 ## [v0.75.10] — 2026-11-12
 
 > arizuko v0.75.10 — routd stops polling the store, and usage per turn
