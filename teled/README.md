@@ -31,6 +31,8 @@ Agent messaging tools run in routd and call these HTTP routes.
 Startup registration, store setup, or listener failure exits the process.
 The router client registers again every 3 minutes and tries inbound delivery twice, with a 500 ms wait between attempts.
 Each router HTTP call has a 60 s timeout. Graceful HTTP shutdown allows 10 s.
+`/files` waits 20 s for the headers of each Telegram call, getFile then the file; the body streams for as long as routd's request lasts.
+A Telegram 4xx other than 429 on getFile is answered with that status; any other failure is a 502. Each failure logs `file proxy failed` with the step and the time spent.
 `/health` returns 503 for a disconnected platform and 200 for connected or `stale` status.
 A failed pending-count read logs `health: pending inbound count failed`; it does not change the HTTP status.
 A healthy adapter does not prove routd accepted messages.
