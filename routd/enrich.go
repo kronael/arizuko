@@ -81,7 +81,11 @@ func (l *Loop) enrichAttachments(ctx context.Context, msg *core.Message, folder 
 		return nil
 	}
 	var atts []chanlib.InboundAttachment
-	if err := json.Unmarshal([]byte(msg.Attachments), &atts); err != nil || len(atts) == 0 {
+	if err := json.Unmarshal([]byte(msg.Attachments), &atts); err != nil {
+		slog.Warn("enrich: attachments will not parse", "id", msg.ID, "err", err)
+		return nil
+	}
+	if len(atts) == 0 {
 		return nil
 	}
 
