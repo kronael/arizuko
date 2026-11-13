@@ -61,6 +61,8 @@ var keyFields = map[string][]string{
 	GroupWatchers:     {"observer", "source"},
 	TaskRunLogs:       {"run_at", "id"},
 	TurnContexts:      {"turn_id"},
+	TurnArchive:       {"turn_id"},
+	RunTurns:          {"run_id", "turn_id"},
 	// The position is two columns: the instant and the id that keeps two
 	// messages of one instant apart (245 pairs share one on krons).
 	Messages: {"chat_jid", "timestamp", "id"},
@@ -131,8 +133,13 @@ func entityKey(entity string, key []string) (objstore.Key, error) {
 		return watcherKey(key[0], key[1])
 	case TaskRunLogs:
 		return runLogKeyAt(key[0], key[1])
-	case TurnContexts:
+	case TurnContexts, TurnArchive:
 		return turnKey(key[0])
+	case RunTurns:
+		if key[0] == "" {
+			return objstore.Key{}, fmt.Errorf("run turn carries no run_id")
+		}
+		return objstore.Key{Partition: key[0], Sort: key[1]}, nil
 	case Messages:
 		t, err := ReadMessageInstant(key[1])
 		if err != nil {

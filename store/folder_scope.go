@@ -164,7 +164,9 @@ var folderScopeKeep = map[string]keepReason{
 	"message_delivery": keep("keyed by delivery status; it follows messages"),
 
 	// Turn history.
-	"turn_context": keep("history; unfinished turns retire before the subtree is purged"),
+	"turn_context": keep("live turns retire before the subtree is purged"),
+	"turn_archive": keep("history, keyed by turn id"),
+	"run_turns":    keep("keyed by run id"),
 	"turn_results": keep("keyed by turn_id; a re-created folder mints new ones"),
 	"turn_control": keep("instance-wide execution state"),
 

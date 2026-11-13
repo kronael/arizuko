@@ -157,7 +157,7 @@ func (s *Store) retireFolderTurns(ctx context.Context, folder string) (int, erro
 						Cond:  objstore.Cond{Where: []objstore.Cmp{cmp}}})
 				}
 			}
-			retired, err := s.TryWriteEntities(ctx, nil, writes...)
+			retired, err := s.writeTurn(ctx, nil, writes[1:], writes[0])
 			if err != nil {
 				return 0, err
 			}

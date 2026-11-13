@@ -459,3 +459,71 @@ func TestProbeChoiceReadsNoChat(t *testing.T) {
 		t.Fatalf("choosing the probe read chats %v", counter.chats)
 	}
 }
+
+// scanStore counts the rows each read examines: a filter runs after the key
+// selects, so a filtered read costs every row of its key range.
+type scanStore struct {
+	objstore.Store
+	mu      sync.Mutex
+	scanned map[string]int
+}
+
+func (c *scanStore) Query(ctx context.Context, q objstore.Query) ([]objstore.Item, error) {
+	whole := q
+	whole.Where, whole.Limit, whole.Project = nil, 0, nil
+	all, err := c.Store.Query(ctx, whole)
+	if err != nil {
+		return nil, err
+	}
+	c.mu.Lock()
+	c.scanned[q.Entity] += len(all)
+	c.mu.Unlock()
+	return c.Store.Query(ctx, q)
+}
+
+// The 30 s pass and a run's end examine the live turns only: a finished turn
+// has moved to turn_archive, which neither reads (BUGS L823: 5,693 rows on
+// krons, read whole four times a pass).
+func TestPassAndRunEndExamineOnlyLiveTurns(t *testing.T) {
+	base, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer base.Close()
+	if err := base.PutGroup(core.Group{Folder: "demo"}); err != nil {
+		t.Fatal(err)
+	}
+	const finished = 40
+	for i := range finished {
+		id := fmt.Sprintf("done-%d", i)
+		if _, err := base.PutTurnContext(id, "demo", "", "web:demo", "u", ""); err != nil {
+			t.Fatal(err)
+		}
+		if err := base.SetRunReturned(id); err != nil {
+			t.Fatal(err)
+		}
+		if err := base.SetTurnState(id, store.TurnDone); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := base.PutTurnContext("live", "demo", "", "web:demo", "u", ""); err != nil {
+		t.Fatal(err)
+	}
+	counter := &scanStore{Store: base.obj, scanned: map[string]int{}}
+	db := OpenOver(counter)
+	l := NewLoop(db, nopRunner{}, LoopConfig{})
+	l.StopQueue()
+	if err := l.q.recover(l, false); err != nil {
+		t.Fatal(err)
+	}
+	l.q.tick(l)
+	l.recoverStatuses()
+	_ = db.chatsOwnedBy("web:demo", "run-1")
+	t.Logf("rows examined: %v", counter.scanned)
+	if got := counter.scanned[store.TurnArchive]; got != 0 {
+		t.Errorf("turn_archive rows examined = %d, want 0", got)
+	}
+	if got := counter.scanned[store.TurnContexts]; got > 3 {
+		t.Errorf("turn_context rows examined = %d, want at most 3: one live turn, three reads", got)
+	}
+}

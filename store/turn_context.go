@@ -1,15 +1,14 @@
 package store
 
 // turn_context.go holds every read and write of `turn_context`: one item per
-// turn routd has dispatched, carrying where the turn came from, where its answer
-// goes, what state it is in, and the hash of the gateway key that metered it.
+// live turn, carrying where the turn came from, where its answer goes, what
+// state it is in, and the hash of the gateway key that metered it. A finished
+// turn moves to `turn_archive` (turn_archive.go).
 //
 // The partition is OwnerRoutd and the sort key the turn id: a late frame
-// arrives carrying a turn id and nothing else. A turn has a folder and it still
-// cannot be the partition: the typing-owner read, crash recovery and the
-// expiry sweep carry none. Those three filter the partition,
-// the one hot-tier entity with no drainage and a per-turn arrival (2,954 items
-// on krons, about thirty a day, 2,846 of them `done`).
+// arrives carrying a turn id and nothing else. Crash recovery, the deferred
+// and owed-status passes and the expiry sweep read the one partition, which
+// holds only the live turns.
 //
 // started_at is ordered: the expiry sweep compares it with
 // `<`, and the live rows carried FOUR widths, so a stale turn survived its own
@@ -161,8 +160,12 @@ func (s *Store) AddTurnStatusChat(ctx context.Context, turnID, jid string) error
 	if err != nil {
 		return err
 	}
-	return s.WriteEntities(ctx, nil, objstore.Write{Op: objstore.Update, Entity: TurnContexts, Key: key,
-		Attrs: map[string]string{"status_chats": string(chats)}})
+	written, err := s.writeTurn(ctx, nil, nil, objstore.Write{Op: objstore.Update, Entity: TurnContexts,
+		Key: key, Attrs: map[string]string{"status_chats": string(chats)}})
+	if err == nil && !written {
+		return fmt.Errorf("record the status chats of turn %s: the turn is gone", turnID)
+	}
+	return err
 }
 
 // OpenTurnContext binds a turn to the (folder, topic, chat) it came from, so a
@@ -170,7 +173,7 @@ func (s *Store) AddTurnStatusChat(ctx context.Context, turnID, jid string) error
 // the delegation return address: when set, the callback surface delivers
 // there instead of to the child folder's JID.
 //
-// It answers live=false WHEN THE TURN IS ALREADY DONE, the duplicate-output
+// It answers live=false WHEN THE TURN IS ALREADY DONE, live or archived, the duplicate-output
 // guard: when an earlier batch finishes and a later batch in the same poll
 // steers, the cursor does not advance and the next poll re-feeds the
 // completed batch. The decision is the write's own condition, not a read: the
@@ -225,10 +228,14 @@ func (s *Store) OpenTurnContext(turnID, folder, topic, chatJID, trigger, returnT
 	for k, v := range bound {
 		fresh[k] = v
 	}
-	opened, err := s.TryWriteEntities(ctx, checks, append(claim, objstore.Write{
+	put := objstore.Write{
 		Op: objstore.Put, Entity: TurnContexts, Key: key, Attrs: fresh,
 		Cond: objstore.Cond{Item: objstore.ItemAbsent},
-	})...)
+	}
+	unarchived := objstore.Check{Entity: TurnArchive, Key: key,
+		Cond: objstore.Cond{Item: objstore.ItemAbsent}}
+	opened, err := s.TryWriteEntities(ctx, slices.Concat(checks, []objstore.Check{unarchived}),
+		slices.Concat(claim, []objstore.Write{put})...)
 	if err != nil {
 		return false, fmt.Errorf("bind turn %s: %w", turnID, err)
 	}
@@ -241,6 +248,21 @@ func (s *Store) OpenTurnContext(turnID, folder, topic, chatJID, trigger, returnT
 	prior, exists, err := s.itemAt(ctx, TurnContexts, key)
 	if err != nil {
 		return false, err
+	}
+	if !exists {
+		archived, ok, err := s.itemAt(ctx, TurnArchive, key)
+		if err != nil {
+			return false, err
+		}
+		if ok && archived.Attrs[attrTurnState] == TurnDone {
+			return false, nil
+		}
+		if ok {
+			opened, err := s.TryWriteEntities(ctx, checks, slices.Concat(claim, []objstore.Write{put})...)
+			if err != nil || opened {
+				return opened, err
+			}
+		}
 	}
 	if exists && prior.Attrs[attrTurnState] == TurnDone {
 		return false, nil
@@ -302,11 +324,7 @@ func (s *Store) TurnContextOf(turnID string) (TurnContext, bool) {
 }
 
 func (s *Store) ReadTurnContext(ctx context.Context, turnID string) (TurnContext, bool, error) {
-	key, err := turnKey(turnID)
-	if err != nil {
-		return TurnContext{}, false, err
-	}
-	it, ok, err := s.itemAt(ctx, TurnContexts, key)
+	it, ok, err := s.turnItem(ctx, turnID)
 	if err != nil || !ok {
 		return TurnContext{}, false, err
 	}
@@ -337,7 +355,17 @@ func (s *Store) SetTurnTriggerMsg(turnID, msgID string) error {
 
 // SetTurnState flips a turn's lifecycle state.
 func (s *Store) SetTurnState(turnID, state string) error {
-	return s.setTurnAttrs(turnID, map[string]string{attrTurnState: state})
+	key, err := turnKey(turnID)
+	if err != nil {
+		return err
+	}
+	if _, err := s.writeTurn(context.Background(), nil, nil, objstore.Write{
+		Op: objstore.Update, Entity: TurnContexts, Key: key,
+		Attrs: map[string]string{attrTurnState: state},
+	}); err != nil {
+		return fmt.Errorf("update turn %s: %w", turnID, err)
+	}
+	return nil
 }
 
 // IncrementNudged records a handed-out delivery nudge. The caller serializes
@@ -377,12 +405,6 @@ func (s *Store) SetRunReturned(turnID string) error {
 	return s.setTurnAttrs(turnID, map[string]string{attrTurnRunReturned: flagSet})
 }
 
-// SetTurnRunID records the run handle runed assigned, which is what
-// reconciliation and the typing-owner read join on.
-func (s *Store) SetTurnRunID(turnID, runID string) error {
-	return s.setTurnAttrs(turnID, map[string]string{attrTurnRunID: runID})
-}
-
 // SetTurnGatewayKey records the sha256 of the key the gateway minted for this
 // turn: the handle that resolves a turn to its own numbers, the pointer
 // arizuko keeps in place of a copy of them (spec 6/39).
@@ -394,48 +416,11 @@ func (s *Store) SetTurnGatewayKey(turnID, keyHash string) error {
 // ran with no gateway, so no meter holds a number for it, which the cost
 // endpoint reports as a 404 rather than a zero.
 func (s *Store) TurnGatewayKey(turnID string) (string, error) {
-	key, err := turnKey(turnID)
-	if err != nil {
-		return "", err
-	}
-	it, ok, err := s.itemAt(context.Background(), TurnContexts, key)
+	it, ok, err := s.turnItem(context.Background(), turnID)
 	if err != nil || !ok {
 		return "", err
 	}
 	return it.Attrs[attrTurnGatewayKey], nil
-}
-
-// TypingJIDsForRun answers the chats whose typing indicator a run owns: one per
-// turn recorded against the run, resolved the way dispatch picks the
-// indicator's chat. A follow-up that arrives mid-run is STEERED into the live
-// container by folder, so the steered turn's chat is not always the running
-// turn's chat, and its indicator was handed to a submit_turn that never fires
-// when the run dies at the timeout wall (BUGS T1).
-func (s *Store) TypingJIDsForRun(runID string) []string {
-	if runID == "" {
-		return nil
-	}
-	items, err := s.Obj().Query(context.Background(), objstore.Query{
-		Entity: TurnContexts, Partition: OwnerRoutd,
-		Where: []objstore.Cmp{{Attr: attrTurnRunID, Op: objstore.Eq, Value: runID}},
-	})
-	if err != nil {
-		return nil
-	}
-	seen := map[string]bool{}
-	var out []string
-	for _, it := range items {
-		jid := it.Attrs[attrTurnReturnTo]
-		if jid == "" {
-			jid = it.Attrs[attrTurnChatJID]
-		}
-		if jid == "" || seen[jid] {
-			continue
-		}
-		seen[jid] = true
-		out = append(out, jid)
-	}
-	return out
 }
 
 // RunningTurns lists the turns crash recovery re-feeds: the ones still running
@@ -462,11 +447,11 @@ func (s *Store) RunningTurns() ([]TurnContext, error) {
 }
 
 // TurnsSince answers every turn dispatched at or after `since`, whatever state
-// it reached: the operator's outcome read. The filter narrows on started_at,
-// but a filter is not an index, so the driver still examines the partition; a
-// window is an operator's read, not a hot path.
+// it reached: the operator's outcome read, over the live turns and the archive.
+// A turn bound again after it expired is answered once, live.
 func (s *Store) TurnsSince(since time.Time) ([]TurnContext, error) {
-	items, err := s.Obj().Query(context.Background(), objstore.Query{
+	ctx := context.Background()
+	live, err := s.Obj().Query(ctx, objstore.Query{
 		Entity: TurnContexts, Partition: OwnerRoutd,
 		Where: []objstore.Cmp{
 			{Attr: AttrTurnStartedAt, Op: objstore.Ge, Value: core.TS(since)},
@@ -475,9 +460,17 @@ func (s *Store) TurnsSince(since time.Time) ([]TurnContext, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read the turns dispatched since %s: %w", core.TS(since), err)
 	}
-	out := make([]TurnContext, 0, len(items))
-	for _, it := range items {
-		out = append(out, turnFrom(it))
+	archived, err := s.archivedTurnsSince(ctx, core.TS(since))
+	if err != nil {
+		return nil, fmt.Errorf("read the turns archived since %s: %w", core.TS(since), err)
+	}
+	out := make([]TurnContext, 0, len(live)+len(archived))
+	seen := map[string]bool{}
+	for _, it := range append(live, archived...) {
+		if !seen[it.Key.Sort] {
+			seen[it.Key.Sort] = true
+			out = append(out, turnFrom(it))
+		}
 	}
 	return out, nil
 }
@@ -510,7 +503,7 @@ func (s *Store) SweepExpiredRunning(timeout time.Duration) (int64, error) {
 		} else if marker.Value == it.Attrs["attempt_id"] {
 			continue
 		}
-		moved, err := s.TryWriteEntities(ctx, nil, objstore.Write{
+		moved, err := s.writeTurn(ctx, nil, nil, objstore.Write{
 			Op: objstore.Update, Entity: TurnContexts, Key: it.Key,
 			Attrs: map[string]string{attrTurnState: TurnExpired},
 			Cond: objstore.Cond{Where: []objstore.Cmp{
@@ -528,7 +521,7 @@ func (s *Store) SweepExpiredRunning(timeout time.Duration) (int64, error) {
 	return swept, nil
 }
 
-// CountTurnContexts answers how many turns are bound.
+// CountTurnContexts answers how many turns are live.
 func (s *Store) CountTurnContexts(ctx context.Context) (int, error) {
 	items, err := s.Obj().Query(ctx, objstore.Query{
 		Entity: TurnContexts, Partition: OwnerRoutd,

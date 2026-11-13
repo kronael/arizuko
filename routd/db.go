@@ -93,6 +93,9 @@ func Open() (*DB, error) {
 	if err := d.store().MigrateChatInputSpan(ctx); err != nil {
 		return nil, err
 	}
+	if err := d.store().MigrateTurnArchive(ctx); err != nil {
+		return nil, err
+	}
 	return d, nil
 }
 

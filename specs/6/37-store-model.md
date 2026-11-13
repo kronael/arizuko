@@ -668,8 +668,8 @@ time into read-shaped indexes, and each index is an entity like any other.
 - **The activity feed** answers `handleActivity`, the newest thousand across
   every chat. One constant partition, sort `core.TS + sep + id`. Affordable only
   with a retention sweep, and the sweep is part of the entity rather than a
-  later idea: an index with no drainage is the mistake `turn_context` already
-  records.
+  later idea: an entity with no drainage makes every read of it grow (BUGS
+  L823; finished turns move to `turn_archive`, 5/12).
 - **Delivery state leaves the message, and `sent` is the ABSENCE of a delivery
   item.** The first version of this said partition the status and let the queue
   drain. Measured, it does not: 98.4% of krons rows are `sent`, `pending` holds

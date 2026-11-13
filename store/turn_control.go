@@ -393,7 +393,7 @@ func (s *Store) AcknowledgeTurnStatus(ctx context.Context, tc TurnContext) error
 		attempt.Op = objstore.Absent
 	}
 	// Stale acknowledgements must leave current intent unchanged.
-	_, err = s.TryWriteEntities(ctx, nil, objstore.Write{Op: objstore.Update, Entity: TurnContexts, Key: key, Remove: []string{"status_owed"}, Cond: objstore.Cond{Item: objstore.ItemPresent, Where: []objstore.Cmp{
+	_, err = s.writeTurn(ctx, nil, nil, objstore.Write{Op: objstore.Update, Entity: TurnContexts, Key: key, Remove: []string{"status_owed"}, Cond: objstore.Cond{Item: objstore.ItemPresent, Where: []objstore.Cmp{
 		attempt, {Attr: "status_owed", Op: objstore.Eq, Value: tc.StatusOwed}, {Attr: attrTurnState, Op: objstore.Eq, Value: tc.State}, count,
 	}}})
 	return err
@@ -408,8 +408,8 @@ func (s *Store) RecordControlledStatus(ctx context.Context, tc TurnContext, befo
 	if err != nil {
 		return false, err
 	}
-	return s.TryWriteEntities(ctx, []objstore.Check{{Entity: Groups, Key: group, Cond: objstore.Cond{Item: objstore.ItemPresent}}},
-		controlWrite(before, after),
+	return s.writeTurn(ctx, []objstore.Check{{Entity: Groups, Key: group, Cond: objstore.Cond{Item: objstore.ItemPresent}}},
+		[]objstore.Write{controlWrite(before, after)},
 		objstore.Write{Op: objstore.Update, Entity: TurnContexts, Key: key, Attrs: map[string]string{"status_owed": "final", "failure_cause": tc.FailureCause}, Cond: objstore.Cond{Item: objstore.ItemPresent, Where: []objstore.Cmp{
 			{Attr: "attempt_id", Op: objstore.Eq, Value: tc.AttemptID}, {Attr: attrTurnState, Op: objstore.Eq, Value: tc.State},
 		}}},
@@ -433,7 +433,7 @@ func (s *Store) FinishTurnStatus(ctx context.Context, tc TurnContext) (bool, err
 	if tc.AttemptID == "" {
 		attempt.Op = objstore.Absent
 	}
-	return s.TryWriteEntities(ctx, nil, objstore.Write{Op: objstore.Update, Entity: TurnContexts, Key: key,
+	return s.writeTurn(ctx, nil, nil, objstore.Write{Op: objstore.Update, Entity: TurnContexts, Key: key,
 		Attrs: map[string]string{attrTurnState: TurnDone, "status_owed": phase}, Cond: objstore.Cond{Item: objstore.ItemPresent, Where: []objstore.Cmp{
 			{Attr: attrTurnState, Op: objstore.Eq, Value: tc.State}, attempt, owed,
 		}}})

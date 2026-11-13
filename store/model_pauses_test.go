@@ -111,7 +111,8 @@ type refusalBeforeRetire struct {
 func (s *refusalBeforeRetire) GuardedBatch(ctx context.Context, checks []objstore.Check, writes []objstore.Write) (bool, error) {
 	if !s.fired {
 		for _, write := range writes {
-			if write.Entity == TurnContexts && write.Attrs[attrTurnState] == TurnDone {
+			retiring := write.Entity == TurnContexts || write.Entity == TurnArchive
+			if retiring && write.Attrs[attrTurnState] == TurnDone {
 				s.fired = true
 				tc, _ := NewOver(s.Store).TurnContextOf("running")
 				if _, err := recordPause(NewOver(s.Store), tc, time.Now()); err != nil {

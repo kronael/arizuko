@@ -50,10 +50,13 @@ func TestAFinishedTurnIsNotReopened(t *testing.T) {
 
 	// A turn that is NOT done still re-opens, or the guard would pass by
 	// refusing everything.
-	if err := s.SetTurnState("t1", TurnExpired); err != nil {
+	if _, err := s.OpenTurnContext("t2", "demo", "", "tg:1", "u1", "", nil); err != nil {
 		t.Fatal(err)
 	}
-	live, err = s.OpenTurnContext("t1", "demo", "", "tg:1", "u1", "", nil)
+	if err := s.SetTurnState("t2", TurnExpired); err != nil {
+		t.Fatal(err)
+	}
+	live, err = s.OpenTurnContext("t2", "demo", "", "tg:1", "u1", "", nil)
 	if err != nil || !live {
 		t.Fatalf("an expired turn answered live=%v err=%v; expired is terminal for crash "+
 			"recovery and NOT for re-dispatch", live, err)

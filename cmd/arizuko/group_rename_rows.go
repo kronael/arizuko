@@ -461,7 +461,7 @@ func (mapping renameMap) row(owner, entity string, before objstore.Item, root st
 		after.Key.Partition = mapping.folder(before.Key.Partition)
 	case store.ModelPauses:
 		after.Key.Sort = mapping.folder(before.Key.Sort)
-	case store.TurnControl, store.RouteTokens, store.ScheduledTasks, store.PendingActions, store.GitHubSources, store.GDriveFiles, store.PaneSessions, store.Counters, store.UserProfiles, store.TaskRunLogs, store.TurnContexts, store.MessageActivity, store.MessageDelivery, store.OnboardingGates, store.Invites, store.InviteRedemptions, store.ScopeEntity, runstore.Spawns, authstore.SigningKeys, authstore.SigningKeySlot, authstore.AuthUsers, authstore.OAuthIdentities, authstore.RefreshTokens, authstore.RefreshFamilies, chanstore.OutboundDedup, chanstore.InboundPending, chanstore.FileURL, chanstore.AckMark, emaistore.EmailThreads, emaistore.EmailMsgIDs:
+	case store.TurnControl, store.RouteTokens, store.ScheduledTasks, store.PendingActions, store.GitHubSources, store.GDriveFiles, store.PaneSessions, store.Counters, store.UserProfiles, store.TaskRunLogs, store.TurnContexts, store.TurnArchive, store.RunTurns, store.MessageActivity, store.MessageDelivery, store.OnboardingGates, store.Invites, store.InviteRedemptions, store.ScopeEntity, runstore.Spawns, authstore.SigningKeys, authstore.SigningKeySlot, authstore.AuthUsers, authstore.OAuthIdentities, authstore.RefreshTokens, authstore.RefreshFamilies, chanstore.OutboundDedup, chanstore.InboundPending, chanstore.FileURL, chanstore.AckMark, emaistore.EmailThreads, emaistore.EmailMsgIDs:
 	default:
 		return after, fmt.Errorf("unclassified coordinate schema %s.%s", owner, entity)
 	}
@@ -515,7 +515,7 @@ func (mapping renameMap) row(owner, entity string, before objstore.Item, root st
 				}
 			}
 		case "input_keys", "ambient_keys":
-			if entity == store.TurnContexts {
+			if entity == store.TurnContexts || entity == store.TurnArchive {
 				var keys []objstore.Key
 				if err := json.Unmarshal([]byte(value), &keys); err != nil {
 					return after, fmt.Errorf("%s.%s: %w", entity, field, err)

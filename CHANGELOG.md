@@ -13,6 +13,14 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+### Fixed
+
+- L823: every 30 s pass and every wake read the whole `turn_context`
+  partition (krons 5,713 rows, sloth 6,688, never pruned). A finished turn now
+  moves to `turn_archive` in the write that finishes it, and startup moves the
+  existing finished rows once; the passes read only live turns, a wake reads
+  none, and a run's chats are keyed by run in `run_turns`.
+
 ### Removed
 
 - Proactive interjection: the scan, the `PROACTIVE_*` settings, the

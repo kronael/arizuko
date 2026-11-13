@@ -62,7 +62,8 @@ The tables and who else reads them:
 | `routes`                            | the route table (5/Q)                                                                    |
 | `sessions`                          | per-`(folder, topic)` session id, fork lineage, observed cursor (5/F)                    |
 | `chat_reply_state`                  | thread anchor + engagement deadline (5/G)                                                |
-| `turn_context` / `turn_results`     | turn binding + the submit_turn idempotency ledger                                        |
+| `turn_context` / `turn_results`     | live turn binding + the submit_turn idempotency ledger                                   |
+| `turn_archive` / `run_turns`        | finished turns by id; each run's turns and typing chats (5/12)                           |
 | `cost_log_archive`                  | spend from before the model gateway became the ledger; nothing reads or writes it (6/39) |
 | `web_routes`                        | URL-tree access map (5/V)                                                                |
 | `route_tokens`                      | `/chat/`,`/hook/` bearer tokens, stored hashed (5/W)                                     |

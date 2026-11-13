@@ -405,19 +405,19 @@ The audit source of truth is the `audit_log` entity in the tables of routd. Ever
 
 `StoreReach["routd"]` reaches only `routd`. routd prepares these entities at boot:
 
-| Entities                                                                                       | What they hold                                                                          |
-| ---------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| `messages`, `message_folders`, `message_folder_counts`, `message_activity`, `message_delivery` | Message bodies, folder indexes/counts, activity, and outbound delivery state.           |
-| `chats`, `sessions`, `chat_reply_state`                                                        | Dispatch and observed cursors, topic continuity, and engagement.                        |
-| `groups`, `routes`, `route_tokens`                                                             | Folder configuration, routing precedence, and hashed capability or pairing credentials. |
-| `acl`, `acl_membership`                                                                        | Grants and membership edges.                                                            |
-| `scheduled_tasks`, `task_run_logs`                                                             | Scheduled prompts, next runs, and execution records.                                    |
-| `secrets`, `secret_use_log`, `network_rules`                                                   | Sealed credentials, credential use, and egress rules.                                   |
-| `pending_actions`, `turn_context`, `turn_results`, `turn_control`, `model_pauses`              | Held calls, attempts, completion claims, instance breaker, and provider refusals.       |
-| `proxyd_routes`, `web_routes`                                                                  | Proxy dispatch and public-tree access rules.                                            |
-| `installed_packages`, `github_sources`, `gdrive_files`                                         | Package selection, webhook sources, and Drive bindings.                                 |
-| `pane_sessions`, `system_messages`, `user_profiles`, `group_watchers`                          | Slack pane context, queued system events, names/caps, and observation subscriptions.    |
-| `counters`, `resreg_scopes`, `audit_log`                                                       | ID allocation, optimistic version markers, and mutation audit.                          |
+| Entities                                                                                                       | What they hold                                                                                                 |
+| -------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `messages`, `message_folders`, `message_folder_counts`, `message_activity`, `message_delivery`                 | Message bodies, folder indexes/counts, activity, and outbound delivery state.                                  |
+| `chats`, `sessions`, `chat_reply_state`                                                                        | Dispatch and observed cursors, topic continuity, and engagement.                                               |
+| `groups`, `routes`, `route_tokens`                                                                             | Folder configuration, routing precedence, and hashed capability or pairing credentials.                        |
+| `acl`, `acl_membership`                                                                                        | Grants and membership edges.                                                                                   |
+| `scheduled_tasks`, `task_run_logs`                                                                             | Scheduled prompts, next runs, and execution records.                                                           |
+| `secrets`, `secret_use_log`, `network_rules`                                                                   | Sealed credentials, credential use, and egress rules.                                                          |
+| `pending_actions`, `turn_context`, `turn_archive`, `run_turns`, `turn_results`, `turn_control`, `model_pauses` | Held calls, live and finished attempts, run chats, completion claims, instance breaker, and provider refusals. |
+| `proxyd_routes`, `web_routes`                                                                                  | Proxy dispatch and public-tree access rules.                                                                   |
+| `installed_packages`, `github_sources`, `gdrive_files`                                                         | Package selection, webhook sources, and Drive bindings.                                                        |
+| `pane_sessions`, `system_messages`, `user_profiles`, `group_watchers`                                          | Slack pane context, queued system events, names/caps, and observation subscriptions.                           |
+| `counters`, `resreg_scopes`, `audit_log`                                                                       | ID allocation, optimistic version markers, and mutation audit.                                                 |
 
 On disk routd reads `DATA_DIR/groups`, package assets, and connectors; it writes sockets under `DATA_DIR/ipc` and speech files under `DATA_DIR/tts`.
 Optional audit files use `audit-system.jl`. There is no routd SQLite database.

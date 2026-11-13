@@ -97,11 +97,17 @@ const (
 	// TaskRunLogs holds one item per execution of a scheduled task, addressed by
 	// the instant it ran, which IS its identity.
 	TaskRunLogs = "task_run_logs"
-	// TurnContexts holds one item per turn routd has dispatched, addressed by
-	// its turn id, the only handle a late callback carries.
+	// TurnContexts holds one item per live turn, addressed by its turn id, the
+	// only handle a late callback carries.
 	TurnContexts = "turn_context"
-	ModelPauses  = "model_pauses"
-	TurnControl  = "turn_control"
+	// TurnArchive holds one item per finished turn, addressed like
+	// TurnContexts: the write that finishes a turn moves it here.
+	TurnArchive = "turn_archive"
+	// RunTurns holds one item per (run, turn) the run carried, addressed by the
+	// run id, then the turn id, with the chat whose typing indicator the run owns.
+	RunTurns    = "run_turns"
+	ModelPauses = "model_pauses"
+	TurnControl = "turn_control"
 
 	// Messages holds one item per message routd has appended, addressed by the
 	// chat and by `core.TS(timestamp) + KeySep + id` inside it. The id is in the
@@ -163,7 +169,8 @@ var EntitiesByOwner = map[string][]string{
 		PendingActions, NetworkRules, ProxydRoutes, WebRoutes, InstalledPackages,
 		GitHubSources, GDriveFiles,
 		Chats, Sessions, ChatReplyState, SystemMessages, UserProfiles,
-		TurnResults, GroupWatchers, TaskRunLogs, TurnContexts, ModelPauses, TurnControl,
+		TurnResults, GroupWatchers, TaskRunLogs, TurnContexts, TurnArchive, RunTurns,
+		ModelPauses, TurnControl,
 		Messages, MessageFolders, MessageFolderCounts, MessageActivity, MessageDelivery,
 	},
 	OwnerOnbod: {Onboarding, OnboardingGates, Invites, InviteRedemptions},

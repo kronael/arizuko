@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/store"
 )
 
 // The T1 orphan: a follow-up steered into a live run lands in a DIFFERENT chat
@@ -32,6 +33,13 @@ func TestTypingJIDsForRunCoversASteeredTurnInAnotherChat(t *testing.T) {
 	}
 	if err := db.SetTurnRunID("steered", "run-1"); err != nil {
 		t.Fatalf("set steered run id: %v", err)
+	}
+	// The steered turn finishes at the steer, long before the run ends.
+	if err := db.SetRunReturned("steered"); err != nil {
+		t.Fatalf("return the steered turn: %v", err)
+	}
+	if err := db.SetTurnState("steered", store.TurnDone); err != nil {
+		t.Fatalf("finish the steered turn: %v", err)
 	}
 
 	got := db.TypingJIDsForRun("run-1")

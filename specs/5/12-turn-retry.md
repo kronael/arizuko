@@ -41,6 +41,25 @@ input keeps flowing while a retry waits. Fresh input never resets a due
 time. A retry does not re-elevate a `/root` turn. Deleting the group retires
 its waiting turns.
 
+**A finished turn moves to the archive.** `turn_context` holds the live
+turns: running, `pending_retry`, finished ones whose status is still owed, and
+done ones whose run is still out, which a stop and the run's return still
+write. The write that leaves a turn `expired`, or `done` with its run returned,
+with nothing owed, deletes it there and puts it, whole, into `turn_archive` in
+one batch
+(`store/turn_archive.go` `writeTurn`), so crash recovery, the deferred and
+owed-status passes and the expiry sweep read only live turns. Both entities are
+keyed `(routd, turn id)`: a late frame, a delivery retry and the cost endpoint
+find a finished turn by its id. A done turn in the archive is never bound
+again; an expired one is bound afresh. A run's chats are keyed by the run in
+`run_turns`, so the run-end typing clear reaches a steered turn that already
+finished. A write to an archived turn lands where the turn is, and one that
+leaves a status owed again moves it back live in the same batch: a failed
+turn's final status is acknowledged before its run epilogue clears progress.
+`Open` moves the `done` and `expired` rows owing nothing of an older
+store once (`MigrateTurnArchive`, behind a `counters` marker): after a restart
+no run of the old process is out.
+
 **What is not retried:** turns that replied, turns the agent explicitly
 errored via `submit_turn`, user-cancelled or stopped turns, a turn that ran
 out of time, and failures runed marked terminal. Busy consumes no retry.

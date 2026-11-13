@@ -54,8 +54,9 @@ func TestStatusFinalIntentWinsCompletion(t *testing.T) {
 	if ok, err := s.OpenTurnContext("final-turn", "demo", "", "web:demo", "u", "", nil); err != nil || !ok {
 		t.Fatalf("open %v %v", ok, err)
 	}
-	if err := s.SetTurnState("final-turn", TurnDone); err != nil {
-		t.Fatal(err)
+	running, _ := s.TurnContextOf("final-turn")
+	if ok, err := s.FinishControlledTurn(t.Context(), running, nil, nil); err != nil || !ok {
+		t.Fatalf("finish %v %v", ok, err)
 	}
 	stale, _ := s.TurnContextOf("final-turn")
 	current := stale
