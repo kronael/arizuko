@@ -13,6 +13,28 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.75.12] — 2026-11-13
+
+> arizuko v0.75.12 — a dispatch no longer reads every chat
+>
+> A folder's older input from another chat still runs first, but each dispatch now reads one chats partition instead of every chat.
+>
+> • Dispatch — keeping a folder's input in order costs one read, not one per chat.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Fixed
+
+- L827: each dispatch read every chat (krons: 155 chats, about 465 reads plus
+  155 whole `turn_context` reads) to run a folder's older input first. Each
+  chat item now carries `input_first` and `input_last`; one `chats` read finds
+  the chats that may hold older input. A one-time migration seeds the
+  attributes for input already waiting.
+
+### Deploy steps
+
+Ship the image and restart. The migration runs once at routd start.
+
 ## [v0.75.11] — 2026-11-13
 
 > arizuko v0.75.11 — a refused chat runs when the breaker admits again
