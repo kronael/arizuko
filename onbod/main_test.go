@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"html"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -183,13 +182,6 @@ func setAdmissionAttr(t *testing.T, db *store.Store, jid, attr, value string) {
 	}
 }
 
-// setAdmissionStatus moves one admission to a status no accessor writes, which
-// is what a stranded-row fixture needs.
-func setAdmissionStatus(t *testing.T, db *store.Store, jid, status string) {
-	t.Helper()
-	setAdmissionAttr(t, db, jid, "status", status)
-}
-
 // allAdmissions is every admission, for a caller that counts by more than one
 // attribute at once.
 func allAdmissions(t *testing.T, db *store.Store) []store.OnboardingRow {
@@ -232,7 +224,7 @@ func TestPromptUnpromptedMintsPairingTokenWithNullOwner(t *testing.T) {
 	seedAdmission(t, db, store.ArchiveOnboardingRow{JID: "telegram:1", Status: "awaiting_message"})
 
 	cfg := config{greeting: "Welcome!", authBaseURL: "https://example.com"}
-	promptUnprompted(db, db, cfg)
+	promptUnprompted(db, db, cfg, awaitingRows(t, db))
 
 	// A pairing credential is the one a DELIVERY read does not answer, so the
 	// two reads together say which kind was minted.
@@ -270,7 +262,7 @@ func TestPromptUnpromptedLinkRedeemsAsAPairing(t *testing.T) {
 		authBaseURL: "https://example.com", gatedURL: srv.URL,
 		svcToken: func(context.Context) (string, error) { return "t", nil },
 	}
-	promptUnprompted(db, db, cfg)
+	promptUnprompted(db, db, cfg, awaitingRows(t, db))
 
 	_, raw, found := strings.Cut(sent, "https://example.com/pair/")
 	if !found {
@@ -636,7 +628,7 @@ func TestObservePairingsAdmitsAPairedJID(t *testing.T) {
 	seedAdmission(t, db, store.ArchiveOnboardingRow{JID: "telegram:1", Status: "awaiting_message"})
 	seedMembership(t, db, "telegram:1", "github:alice", store.PairingAddedBy)
 
-	observePairings(db, db, config{})
+	observePairings(db, db, config{}, awaitingRows(t, db))
 
 	row := admission(t, db, "telegram:1")
 	if row.Status != "approved" || row.UserSub != "github:alice" {
@@ -651,7 +643,7 @@ func TestObservePairingsLeavesUnpairedRowsAlone(t *testing.T) {
 	db := testDB(t)
 	seedAdmission(t, db, store.ArchiveOnboardingRow{JID: "telegram:1", Status: "awaiting_message"})
 
-	observePairings(db, db, config{})
+	observePairings(db, db, config{}, awaitingRows(t, db))
 
 	row := admission(t, db, "telegram:1")
 	if row.Status != "awaiting_message" || row.UserSub != "" {
@@ -667,14 +659,14 @@ func TestObservePairingsAdmitsOnlyOnce(t *testing.T) {
 	seedAdmission(t, db, store.ArchiveOnboardingRow{JID: "telegram:1", Status: "awaiting_message"})
 	seedMembership(t, db, "telegram:1", "github:alice", store.PairingAddedBy)
 
-	observePairings(db, db, config{})
+	observePairings(db, db, config{}, awaitingRows(t, db))
 	first := admission(t, db, "telegram:1").AdmittedAt
 
 	// A marker only a second admission would overwrite. It is a real 20-byte
 	// instant because admitted_at is a DECLARED ordered attribute.
 	const marker = "1999-12-31T23:59:59Z"
 	setAdmissionAttr(t, db, "telegram:1", "admitted_at", marker)
-	observePairings(db, db, config{})
+	observePairings(db, db, config{}, awaitingRows(t, db))
 
 	second := admission(t, db, "telegram:1").AdmittedAt
 	if second != marker {
@@ -693,7 +685,7 @@ func TestObservePairingsSkipsARowThatAlreadyNamesAUser(t *testing.T) {
 		JID: "telegram:1", Status: "awaiting_message", UserSub: "github:old"})
 	seedMembership(t, db, "telegram:1", "github:alice", store.PairingAddedBy)
 
-	observePairings(db, db, config{})
+	observePairings(db, db, config{}, awaitingRows(t, db))
 
 	row := admission(t, db, "telegram:1")
 	if row.Status != "awaiting_message" || row.UserSub != "github:old" {
@@ -714,7 +706,7 @@ func TestRepromptLeavesAnAdmittableRow(t *testing.T) {
 	if err := db.RepromptOnboarding("telegram:1"); err != nil {
 		t.Fatal(err)
 	}
-	observePairings(db, db, config{})
+	observePairings(db, db, config{}, awaitingRows(t, db))
 
 	row := admission(t, db, "telegram:1")
 	if row.Status != "approved" || row.UserSub != "github:alice" {
@@ -732,7 +724,7 @@ func TestObservePairingsIgnoresNonPairingEdges(t *testing.T) {
 	seedAdmission(t, db, store.ArchiveOnboardingRow{JID: "telegram:1", Status: "awaiting_message"})
 	seedMembership(t, db, "telegram:1", "role:operator", "migration-0053")
 
-	observePairings(db, db, config{})
+	observePairings(db, db, config{}, awaitingRows(t, db))
 
 	row := admission(t, db, "telegram:1")
 	if row.Status != "awaiting_message" || row.UserSub != "" {
@@ -746,7 +738,7 @@ func TestObservePairingsIgnoresAgentMintedPairings(t *testing.T) {
 	db := testDB(t)
 	seedMembership(t, db, "telegram:9", "github:alice", store.PairingAddedBy)
 
-	observePairings(db, db, config{})
+	observePairings(db, db, config{}, awaitingRows(t, db))
 
 	rows := countAdmissions(t, db, "")
 	if rows != 0 {
@@ -1682,7 +1674,7 @@ func TestStateMachineMigrated(t *testing.T) {
 	cfg := config{authBaseURL: "https://example.com"}
 
 	// 1) prompt → a kind='pair' token exists for the jid, and the row is claimed
-	promptUnprompted(xdb, obdb, cfg)
+	promptUnprompted(xdb, obdb, cfg, awaitingRows(t, obdb))
 	if pairTokens := len(pairingTokensFor(t, xdb, "telegram:7")); pairTokens != 1 {
 		t.Fatalf("prompt minted %d pairing tokens, want 1", pairTokens)
 	}
@@ -1695,7 +1687,7 @@ func TestStateMachineMigrated(t *testing.T) {
 	seedMembership(t, xdb, "telegram:7", "github:alice", store.PairingAddedBy)
 
 	// 3) the observer discovers it → queued (a gate is configured)
-	observePairings(xdb, obdb, cfg)
+	observePairings(xdb, obdb, cfg, awaitingRows(t, obdb))
 	st = admissionStatus(t, obdb, "telegram:7")
 	if st != "queued" {
 		t.Fatalf("after observe+gate want queued, got %s", st)
@@ -1755,7 +1747,7 @@ func TestPromptUnpromptedSendsGreeting(t *testing.T) {
 
 	cfg := config{gatedURL: srv.URL, authBaseURL: "https://ex.com",
 		svcToken: func(context.Context) (string, error) { return "svc-jwt", nil }}
-	promptUnprompted(db, db, cfg)
+	promptUnprompted(db, db, cfg, awaitingRows(t, db))
 
 	if gotAuth != "Bearer svc-jwt" {
 		t.Errorf("want Bearer service token, got %q", gotAuth)
@@ -1776,7 +1768,7 @@ func TestSendReplyHandlesNon2xx(t *testing.T) {
 	defer srv.Close()
 	cfg := config{gatedURL: srv.URL, authBaseURL: "https://ex.com"}
 	// Should not panic even when router returns 500.
-	promptUnprompted(db, db, cfg)
+	promptUnprompted(db, db, cfg, awaitingRows(t, db))
 	if admission(t, db, "t:1").PromptedAt == "" {
 		t.Error("row should still be claimed after send failure")
 	}
@@ -1788,7 +1780,7 @@ func TestSendReplyHandlesTransportError(t *testing.T) {
 	seedAdmission(t, db, store.ArchiveOnboardingRow{JID: "t:1", Status: "awaiting_message"})
 	// Point at a closed port to force Do() to fail.
 	cfg := config{gatedURL: "http://127.0.0.1:1", authBaseURL: "https://ex.com"}
-	promptUnprompted(db, db, cfg) // must not panic
+	promptUnprompted(db, db, cfg, awaitingRows(t, db)) // must not panic
 }
 
 // ensureCSRFToken is idempotent: an incoming request that already carries the
@@ -2109,7 +2101,7 @@ func TestPromptUnprompted_DoesNotRegreetAPromptedRow(t *testing.T) {
 		Status: "awaiting_message", PromptedAt: stale})
 
 	cfg := config{authBaseURL: "https://example.com"}
-	promptUnprompted(db, db, cfg)
+	promptUnprompted(db, db, cfg, awaitingRows(t, db))
 
 	if minted := countRouteTokens(t, db); minted != 0 {
 		t.Errorf("re-greeted a row already prompted %s ago: %d tokens minted", "31m", minted)
@@ -2129,7 +2121,7 @@ func TestPromptUnprompted_DoesNotResetClaimedRow(t *testing.T) {
 		UserSub: "github:alice", PromptedAt: stale})
 
 	cfg := config{authBaseURL: "https://example.com"}
-	promptUnprompted(db, db, cfg)
+	promptUnprompted(db, db, cfg, awaitingRows(t, db))
 
 	if status := admissionStatus(t, db, "telegram:1"); status != "approved" {
 		t.Errorf("claimed row was reset: status=%s", status)
@@ -2173,60 +2165,6 @@ func TestAdminFolders_HonoursSubtreeGrant(t *testing.T) {
 	}
 	if got := adminFolders(db, "github:stranger"); len(got) != 0 {
 		t.Errorf("ungranted principal enumerated %v, want none", got)
-	}
-}
-
-// O1: a row in a status no query selects is stranded — never prompted, queued
-// or admitted, and its jid PRIMARY KEY blocks a fresh insert, so the user can
-// never onboard from that chat again. Two such rows exist in production. The
-// pipeline cannot repair them (picking a status is the operator's call) but it
-// must not stay silent about them.
-func TestKnownStatusesCoversEveryWriter(t *testing.T) {
-	// Every status the code writes must be one the pipeline can advance,
-	// otherwise we ship the O1 bug again with a new value.
-	for _, s := range []string{"awaiting_message", "queued", "approved", "refused"} {
-		if !knownStatuses[s] {
-			t.Errorf("%q is written by the pipeline but not in knownStatuses", s)
-		}
-	}
-	if knownStatuses["pending"] {
-		t.Error("'pending' is not a status any writer produces; it must read as stranded")
-	}
-	// token_used went with the token it named (spec 5/31-identity-pairing § the fold). No writer
-	// produces it, so a row still carrying it is stranded and must be shouted
-	// about — the same treatment 'pending' gets.
-	if knownStatuses["token_used"] {
-		t.Error("'token_used' has no writer after the fold; it must read as stranded")
-	}
-}
-
-// L61: the scan runs from promptUnprompted on a 10s poll, so an unrepairable
-// row logged at ERROR forever — 6 lines a minute on two production instances,
-// which buries real errors and makes a permanent condition read as a live
-// incident. Once per (jid, status) per process is the whole fix.
-func TestStrandedRowWarnsOncePerProcess(t *testing.T) {
-	db := testDB(t)
-	seedAdmission(t, db, store.ArchiveOnboardingRow{JID: "telegram:user/1", Status: "pending"})
-
-	var buf bytes.Buffer
-	prev := slog.Default()
-	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelError})))
-	defer slog.SetDefault(prev)
-
-	warnStrandedRows(db)
-	warnStrandedRows(db)
-	warnStrandedRows(db)
-
-	if got := strings.Count(buf.String(), "stranded in an unknown status"); got != 1 {
-		t.Errorf("three scans logged %d times, want exactly 1", got)
-	}
-
-	// A row that moves to a DIFFERENT unknown status is a new fact, so it
-	// warns again — silence there would hide a real change.
-	setAdmissionStatus(t, db, "telegram:user/1", "wedged")
-	warnStrandedRows(db)
-	if got := strings.Count(buf.String(), "stranded in an unknown status"); got != 2 {
-		t.Errorf("a changed status logged %d times total, want 2", got)
 	}
 }
 

@@ -58,8 +58,7 @@ const (
 	attrGateEnabled     = "enabled"
 )
 
-// The statuses this package writes. onbod's knownStatuses is the reader's
-// complete set.
+// The statuses this package writes.
 const (
 	statusAwaitingMessage = "awaiting_message"
 	statusQueued          = "queued"
@@ -529,18 +528,10 @@ func (s *Store) ListOnboarding(statusFilter string) ([]OnboardingRow, error) {
 	return out, nil
 }
 
-// UnpromptedOnboarding returns awaiting rows with no greeting claim.
-func (s *Store) UnpromptedOnboarding() ([]OnboardingRow, error) {
+// AwaitingOnboarding returns the rows still awaiting a pairing.
+func (s *Store) AwaitingOnboarding() ([]OnboardingRow, error) {
 	return s.readOnboarding(context.Background(),
-		objstore.Cmp{Attr: attrOnbStatus, Op: objstore.Eq, Value: statusAwaitingMessage},
-		objstore.Cmp{Attr: attrOnbPromptedAt, Op: objstore.Absent})
-}
-
-// UnadmittedOnboarding returns awaiting rows with no admission verdict.
-func (s *Store) UnadmittedOnboarding() ([]OnboardingRow, error) {
-	return s.readOnboarding(context.Background(),
-		objstore.Cmp{Attr: attrOnbStatus, Op: objstore.Eq, Value: statusAwaitingMessage},
-		objstore.Cmp{Attr: attrOnbUserSub, Op: objstore.Absent})
+		objstore.Cmp{Attr: attrOnbStatus, Op: objstore.Eq, Value: statusAwaitingMessage})
 }
 
 // QueuedJIDs names the chats queued behind one gate, oldest first, at most
@@ -646,7 +637,7 @@ func (s *Store) QueueOnboarding(jid, userSub, gate string) error {
 }
 
 // RefuseOnboarding records that no gate matched. Terminal: user_sub is stamped
-// so the row stops matching UnadmittedOnboarding and the refusal is sent exactly once.
+// so observePairings stops admitting the row and the refusal is sent exactly once.
 func (s *Store) RefuseOnboarding(jid, userSub string) error {
 	return s.setOnboarding(jid, "refuse", map[string]string{
 		attrOnbStatus:  statusRefused,

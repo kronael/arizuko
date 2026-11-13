@@ -9,7 +9,6 @@ import (
 	"html"
 	"html/template"
 	"log/slog"
-	"maps"
 	"net/http"
 	"os"
 	"os/signal"
@@ -17,7 +16,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 
@@ -143,15 +141,13 @@ func main() {
 	tick := time.NewTicker(cfg.pollInterval)
 	defer tick.Stop()
 
-	promptUnprompted(xdb, obdb, cfg)
-	observePairings(xdb, obdb, cfg)
+	pollOnboarding(xdb, obdb, cfg)
 	admitFromQueue(obdb)
 	var admitCount int
 	for {
 		select {
 		case <-tick.C:
-			promptUnprompted(xdb, obdb, cfg)
-			observePairings(xdb, obdb, cfg)
+			pollOnboarding(xdb, obdb, cfg)
 			admitCount++
 			if admitCount*int(cfg.pollInterval.Seconds()) >= 60 {
 				admitFromQueue(obdb)
@@ -344,55 +340,16 @@ func emailDomain(sub string) string {
 	return ""
 }
 
-// knownStatuses is the complete set the pipeline can advance. A row in anything
-// else is stranded: no query selects it, and its jid PRIMARY KEY blocks a fresh
-// insert, so the user can never onboard from that chat again. Two such rows exist
-// in production (BUGS O1).
-//
-// `token_used` is gone with the token it named (spec 5/31-identity-pairing): redemption moved to
-// webd's /pair/{token}. `refused` replaces its silent dead-end role, loudly.
-var knownStatuses = map[string]bool{
-	"awaiting_message": true,
-	"queued":           true,
-	"approved":         true,
-	"refused":          true,
-}
-
-// knownStatusList renders knownStatuses for the operator who has to repair a
-// stranded row. It is DERIVED, because the hand-written copy it replaces named
-// `token_used` — gone with the token (spec 5/31-identity-pairing) — and omitted `refused`, so
-// the error told the operator to write a status the pipeline cannot advance.
-func knownStatusList() string {
-	return strings.Join(slices.Sorted(maps.Keys(knownStatuses)), "/")
-}
-
-// warnedStranded remembers which (jid, status) pairs this process has already
-// reported, so a stranded row is ERROR once and not once per poll. The scan
-// runs from promptUnprompted on a 10s poll: unbounded repetition buried real
-// errors on two instances and made a permanent condition look like a live
-// incident (BUGS L61). A row whose status CHANGES warns again — that is a new
-// fact; the same row in the same state is not.
-var warnedStranded sync.Map
-
-// warnStrandedRows surfaces rows the state machine cannot move. It cannot
-// repair them — picking a status for a row of unknown provenance is the
-// operator's call — but silence is what let them sit unnoticed.
-func warnStrandedRows(db *store.Store) {
-	rows, err := db.ListOnboarding("")
+// pollOnboarding reads the awaiting admissions once and runs both halves of
+// the tick over them: the greeting and the pairing check.
+func pollOnboarding(xdb, obdb *store.Store, cfg config) {
+	awaiting, err := obdb.AwaitingOnboarding()
 	if err != nil {
-		slog.Error("stranded-row scan", "err", err)
+		slog.Error("onboarding poll query", "err", err)
 		return
 	}
-	for _, r := range rows {
-		if knownStatuses[r.Status] {
-			continue
-		}
-		if _, seen := warnedStranded.LoadOrStore(r.JID+"\x00"+r.Status, true); seen {
-			continue
-		}
-		slog.Error("onboarding row stranded in an unknown status — it will never advance",
-			"jid", r.JID, "status", r.Status, "known", knownStatusList())
-	}
+	promptUnprompted(xdb, obdb, cfg, awaiting)
+	observePairings(xdb, obdb, cfg, awaiting)
 }
 
 // promptUnprompted greets every unrouted chat that has no live link, with a
@@ -402,17 +359,10 @@ func warnStrandedRows(db *store.Store) {
 // The mint's owner_folder is the constant "" → NULL. InsertOnboarding only ever
 // fires from the route-MISS branch, so "this JID routes nowhere" is proved by the
 // row's existence and is not re-derived here.
-func promptUnprompted(xdb, obdb *store.Store, cfg config) {
-	warnStrandedRows(obdb)
-	pending, err := obdb.UnpromptedOnboarding()
-	if err != nil {
-		slog.Error("promptUnprompted query", "err", err)
-		return
-	}
-
+func promptUnprompted(xdb, obdb *store.Store, cfg config, awaiting []store.OnboardingRow) {
 	base := strings.TrimRight(cfg.authBaseURL, "/")
-	for _, row := range pending {
-		if row.Sender == "" {
+	for _, row := range awaiting {
+		if row.Sender == "" || row.PromptedAt != "" {
 			continue
 		}
 		jid := row.JID
@@ -469,15 +419,9 @@ func promptUnprompted(xdb, obdb *store.Store, cfg config) {
 //
 // The dedup is onboarding's jid primary key plus the `user_sub IS NULL` guard, so
 // a row is admitted once and an agent-minted pairing is invisible here.
-func observePairings(xdb, obdb *store.Store, cfg config) {
-	awaiting, err := obdb.UnadmittedOnboarding()
-	if err != nil {
-		slog.Error("observePairings query", "err", err)
-		return
-	}
-
+func observePairings(xdb, obdb *store.Store, cfg config, awaiting []store.OnboardingRow) {
 	for _, row := range awaiting {
-		if row.Sender == "" {
+		if row.Sender == "" || row.UserSub != "" {
 			continue
 		}
 		jid := row.JID

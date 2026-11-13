@@ -48,7 +48,7 @@ func TestPairingDiscordDMResolvesSender(t *testing.T) {
 	t.Cleanup(srv.Close)
 	cfg := config{gatedURL: srv.URL, authBaseURL: "https://example.test",
 		svcToken: func(context.Context) (string, error) { return "service", nil }}
-	promptUnprompted(xdb, obdb, cfg)
+	promptUnprompted(xdb, obdb, cfg, awaitingRows(t, obdb))
 	var delivery map[string]string
 	select {
 	case delivery = <-deliveries:
@@ -73,7 +73,7 @@ func TestPairingDiscordDMResolvesSender(t *testing.T) {
 	if auth.Authorize(xdb, auth.Caller{Principal: chat}, "admin", "alice", nil) {
 		t.Error("chat acquired the sender's authority")
 	}
-	observePairings(xdb, obdb, cfg)
+	observePairings(xdb, obdb, cfg, awaitingRows(t, obdb))
 	row := admission(t, obdb, chat)
 	if row.Status != "approved" || row.UserSub != sub {
 		t.Fatalf("admission = %+v", row)

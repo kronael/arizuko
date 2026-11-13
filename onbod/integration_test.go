@@ -116,7 +116,7 @@ func TestOnboardingFlow(t *testing.T) {
 
 	// Trigger the poll step: promptUnprompted mints the pairing token, issues a
 	// POST to gatedURL and stamps prompted_at on the row.
-	promptUnprompted(inst.X, inst.Ob, cfg)
+	promptUnprompted(inst.X, inst.Ob, cfg, awaitingRows(t, inst.Ob))
 
 	reqs := fake.Requests()
 	if len(reqs) != 1 {
@@ -168,7 +168,7 @@ func TestOnboardingFlow(t *testing.T) {
 	if status != "awaiting_message" {
 		t.Errorf("redemption advanced admission on its own: status=%q", status)
 	}
-	observePairings(inst.X, inst.Ob, cfg)
+	observePairings(inst.X, inst.Ob, cfg, awaitingRows(t, inst.Ob))
 
 	// Confirm onboarding row now approved and user_sub bound.
 	admitted := admission(t, inst.Ob, jid)

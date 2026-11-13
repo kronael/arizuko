@@ -1,8 +1,6 @@
 package main
 
 import (
-	"bytes"
-	"log/slog"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
@@ -10,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/kronael/arizuko/compose"
-	"github.com/kronael/arizuko/store"
 )
 
 // onbod's onboarding surfaces key on the X-User-Sub proxyd stamps, and proxyd
@@ -122,45 +119,5 @@ func TestOnbodRefusesAnonymousWithoutRedirecting(t *testing.T) {
 		if loc := w.Header().Get("Location"); loc != "" {
 			t.Errorf("%s redirected an unidentified caller to %q; proxyd owns the login bounce", path, loc)
 		}
-	}
-}
-
-// The advice a stranded row carries has to name the statuses the pipeline
-// actually advances, because an operator reads it to repair the row. Asserting
-// on the LOG and not on the helper is the point: the stale vocabulary lived at
-// the call site, so a test that calls the helper passes either way (BUGS O1 is
-// the rows; this is the instruction they carry).
-func TestStrandedRowAdviceNamesTheStatusesThatAdvance(t *testing.T) {
-	db := ownedDB(t)
-	seedAdmission(t, db, store.ArchiveOnboardingRow{
-		JID: "telegram:user/stranded", Status: "pending"})
-
-	var logged bytes.Buffer
-	prev := slog.Default()
-	slog.SetDefault(slog.New(slog.NewTextHandler(&logged, &slog.HandlerOptions{Level: slog.LevelError})))
-	t.Cleanup(func() { slog.SetDefault(prev) })
-	warnedStranded.Delete("telegram:user/stranded\x00pending")
-
-	warnStrandedRows(db)
-
-	out := logged.String()
-	if !strings.Contains(out, "stranded") {
-		t.Fatalf("a row in an unknown status was not reported: %q", out)
-	}
-	// NAMED, not derived from knownStatuses: an assertion built from the same
-	// map the advice is built from moves with it and catches nothing. A status
-	// dropped from the pipeline should fail here, so the removal is a decision
-	// and not a silent narrowing of what an operator is told.
-	for _, status := range []string{"awaiting_message", "queued", "approved", "refused"} {
-		if !knownStatuses[status] {
-			t.Fatalf("the pipeline no longer advances %q; decide whether the advice "+
-				"should still name it before changing this list", status)
-		}
-		if !strings.Contains(out, status) {
-			t.Errorf("the advice omits %q, which the pipeline does advance: %q", status, out)
-		}
-	}
-	if strings.Contains(out, "token_used") {
-		t.Errorf("the advice still names token_used, which nothing advances: %q", out)
 	}
 }

@@ -360,6 +360,25 @@ A refusal is about this message's content, not the provider or the instance.
   stores that as the turn's failure and logs `agent turn refused`.
 
 ## ✅ FIXED 2026-11-13 9b6730d06 f4742e390 L827 — every dispatch reads every chat to order a folder's input (2026-11-12)
+## L829 — onbod reads its whole onboarding table three times every 10 s (2026-11-13, open)
+
+MEASURED 2026-11-13 by source at v0.75.11 (`cf4d6b62c`): onbod's tick
+(`onbod/main.go:150`, every `ONBOARD_POLL_INTERVAL` = 10 s) calls
+`promptUnprompted`, which first runs `warnStrandedRows` (`:380`,
+`ListOnboarding("")`, the whole partition) and then `UnpromptedOnboarding`;
+`observePairings` (`:472`) then runs `UnadmittedOnboarding`. Both filtered
+reads are `Where` filters over the one `onboarding` partition, so a DynamoDB
+store reads every row three times per tick, 18 whole reads a minute, and the
+table only grows: no row expires. `warnStrandedRows` only logs.
+
+- **Severity:** low — read cost on the shared store, no wrong result.
+- **Status:** open. Measured: `onbod/poll_reads_test.go::TestTickReadsOnboardingOnce`,
+  3 reads of the `onboarding` entity per tick against 1.
+- **Fix:** read the awaiting rows once per tick and filter them in memory;
+  delete `warnStrandedRows`. Still open after it: `observePairings` reads
+  `ParentEdges` once per never-paired chat per tick.
+
+## L827 — every dispatch reads every chat to order a folder's input (2026-11-12, open — needs sign-off)
 
 MEASURED 2026-11-12 (`routd/poll_load_test.go::TestDispatchReadsNoOtherChat`,
 skipped, red when run: one read of each of five other chats per dispatch):

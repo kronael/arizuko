@@ -93,8 +93,8 @@ func TestUnresolvedOnboardingSenderWaitsForInbound(t *testing.T) {
 	t.Cleanup(srv.Close)
 	cfg := config{gatedURL: srv.URL, authBaseURL: "https://example.test",
 		svcToken: func(context.Context) (string, error) { return "service", nil }}
-	promptUnprompted(xdb, obdb, cfg)
-	observePairings(xdb, obdb, cfg)
+	promptUnprompted(xdb, obdb, cfg, awaitingRows(t, obdb))
+	observePairings(xdb, obdb, cfg, awaitingRows(t, obdb))
 	row := admission(t, obdb, chat)
 	if row.Sender != "" || row.PromptedAt != "" || row.UserSub != "" || row.Status != "awaiting_message" {
 		t.Fatalf("unresolved row advanced: %+v", row)
@@ -107,7 +107,7 @@ func TestUnresolvedOnboardingSenderWaitsForInbound(t *testing.T) {
 	if _, err := obdb.InsertOnboarding(chat, "discord:user/123"); err != nil {
 		t.Fatal(err)
 	}
-	observePairings(xdb, obdb, cfg)
+	observePairings(xdb, obdb, cfg, awaitingRows(t, obdb))
 	if row := admission(t, obdb, chat); row.UserSub != "" {
 		t.Fatalf("chat edge admitted a different sender: %+v", row)
 	}
