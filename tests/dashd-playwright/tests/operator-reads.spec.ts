@@ -1,7 +1,7 @@
 import { test, expect, asUser, asOperator } from './_helpers';
 
 // operator-reads.spec — the four operator-only read surfaces that had no
-// coverage: audit, usage, packages, proactive.
+// coverage: audit, usage, packages.
 //
 // They share one shape (operator gate → render from routd.db) so they share a
 // file; each still asserts its own content, not merely a 200.
@@ -44,23 +44,7 @@ test.describe('operator read surfaces', () => {
     await expect(body).toContainText('revision');
   });
 
-  test('/dash/proactive/ renders the settings and first-speaker sections', async ({
-    page,
-  }) => {
-    const resp = await page.goto('/dash/proactive/');
-    expect(resp?.status()).toBe(200);
-    await expect(page.locator('h1')).toHaveText('proactive');
-    const body = page.locator('body');
-    await expect(body).toContainText('Group settings');
-    await expect(body).toContainText('Chats that spoke first');
-  });
-
-  for (const path of [
-    '/dash/audit/',
-    '/dash/usage/',
-    '/dash/packages/',
-    '/dash/proactive/',
-  ]) {
+  for (const path of ['/dash/audit/', '/dash/usage/', '/dash/packages/']) {
     test(`${path} is operator-only`, async ({ context }) => {
       await asUser(context, 'github:regular');
       expect((await context.request.get(path)).status()).toBe(403);

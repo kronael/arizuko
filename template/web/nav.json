@@ -12,7 +12,6 @@
         { "href": "turn.html", "label": "A turn, end to end" },
         { "href": "routing.html", "label": "Routing" },
         { "href": "engagement.html", "label": "Engagement" },
-        { "href": "proactive.html", "label": "Proactive" },
         { "href": "topics.html", "label": "Topics" },
         { "href": "progress.html", "label": "Live progress" },
         { "href": "retries.html", "label": "Retries" },

@@ -537,11 +537,6 @@ func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed boo
 		}
 	}
 	rendered, observedMark := l.buildBoundPrompt(folder, topic, trigger, ambient, saved != nil)
-	// Dropped once consumed, so a re-fed turn does not re-attach a stale reason.
-	if v, ok := l.pendingReason.LoadAndDelete(turnID); ok {
-		pr := v.(proactiveResult)
-		rendered = proactiveReasonBlock(pr.check, pr.reason) + rendered
-	}
 	// The turn_context row is the failed prior attempt's (spec 5/12).
 	if tc, ok := l.db.GetTurnContext(turnID); ok && tc.RetryCount > 0 {
 		rendered = retryNoteBlock(tc.RetryCount, l.maxTurnRetry) + rendered

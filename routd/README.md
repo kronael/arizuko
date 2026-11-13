@@ -104,7 +104,6 @@ in `schedule_test.go` cover firing and retry behavior.
 - **A failed send writes its row.** The MCP tools `send`, `reply` and `send_file` return the error to the agent and record the undelivered row. The row is `pending` after a transient failure and `failed` after a permanent one. A failed `send_file` always dead-letters (`recordOutboundFailure` in `ipc/ipc.go`).
 - **Delivery dedup belongs to the adapter.** `chanlib/README.md` section "Delivery is claimed before the platform call" describes it.
 - **A row names its source and its writer.** `messages.source` holds the adapter of record that ingest carries. An outbound reply reads it with `LatestSource(jid)`, so a reply leaves through the bot that received the message. A turn's status row takes `status-<sha256(turn id, chat)>` (`turn_status.go`), one row per turn and chat. An operator `POST /v1/outbound` row takes `out-<hex>`. An MCP send takes `mcp-<unix nanos>` (`core.MsgID`). Inbound polling filters bot rows.
-- **A proactive turn starts from a synthetic row.** The scanner in `proactive.go` appends an inbound row with sender `timed-proactive` (`store.ProactiveSelfSender`). That row never resets the chat's silence clock, because the trigger must not feed itself. The `timed-` prefix puts the turn on the path of every task turn: it renews no engagement, runs no slash command and carries no caller sub.
 
 ## Provider refusals pause the instance
 
@@ -323,13 +322,6 @@ Pending-action approval stays off the held agent's MCP socket.
 | `OBSERVE_WINDOW_MESSAGES`                                            | `10`                                      | Default number of observed messages in a prompt.                                                                  |
 | `OBSERVE_WINDOW_CHARS`                                               | `4000`                                    | Default observed-text character ceiling.                                                                          |
 | `SEND_DISABLED_GROUPS, SEND_DISABLED_CHANNELS`                       | unset                                     | Comma-separated folder or JID-prefix outbound suppression.                                                        |
-| `PROACTIVE_ENABLED`                                                  | false                                     | Enables synthetic unprompted turns.                                                                               |
-| `PROACTIVE_SCAN_INTERVAL`                                            | `30s`                                     | Proactive scan interval.                                                                                          |
-| `PROACTIVE_SILENCE_MIN`                                              | `90s`                                     | Minimum user silence.                                                                                             |
-| `PROACTIVE_SILENCE_MAX`                                              | `12h`                                     | Maximum user silence.                                                                                             |
-| `PROACTIVE_COOLDOWN`                                                 | `24h`                                     | Minimum time between proactive turns.                                                                             |
-| `PROACTIVE_BOT_QUIET`                                                | `15m`                                     | Required bot silence.                                                                                             |
-| `PROACTIVE_RECENT_ACTIVITY_MIN`                                      | `3`                                       | Minimum inbound count in the last hour.                                                                           |
 | `MEDIA_ENABLED`                                                      | `false`                                   | Download and enrich inbound media.                                                                                |
 | `MEDIA_MAX_FILE_BYTES`                                               | `20971520`                                | Maximum inbound file bytes.                                                                                       |
 | `WHISPER_BASE_URL`                                                   | `http://localhost:8080`                   | Whisper API base.                                                                                                 |
@@ -391,7 +383,7 @@ The audit source of truth is the `audit_log` entity in the tables of routd. Ever
 - `deliver.go` is the channel Deliverer, the egress fan-out through `chanreg`.
 - `mcp.go` is the in-process per-turn MCP socket (`ServeTurnMCP`, `buildRoutdFns`).
 - `prompt.go` and `prompt_db.go` build the message string of the turn, as "Prompt assembly" describes.
-- `proactive.go` runs the proactive interjection, and `steer.go` dispatches slash commands.
+- `steer.go` dispatches slash commands.
 - `routes_resource.go`, `tokens_http.go`, `web_routes_resource.go`, `tasks_http.go`, and `reads_http.go` serve REST.
 - `*_resource.go` define one resreg resource each: `acl`, `audit`, `chats`, `dead_letters`, `gdrive_files`, `github_sources`, `groups`, `membership`, `network_rules`, `packages`, `route_tokens`, `routes`, `scheduled_tasks`, `secrets` and `web_routes`. One handler serves each. Agent MCP and operator REST use the same handler with a different injected Gate.
 - `packages_store.go` implements `installed_packages` CRUD. It is the record that `arizuko package add|rm|sync` reads and writes.
@@ -416,7 +408,7 @@ The audit source of truth is the `audit_log` entity in the tables of routd. Ever
 | Entities                                                                                       | What they hold                                                                          |
 | ---------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
 | `messages`, `message_folders`, `message_folder_counts`, `message_activity`, `message_delivery` | Message bodies, folder indexes/counts, activity, and outbound delivery state.           |
-| `chats`, `sessions`, `chat_reply_state`, `chat_proactive`                                      | Dispatch and observed cursors, topic continuity, engagement, and proactive cooldown.    |
+| `chats`, `sessions`, `chat_reply_state`                                                        | Dispatch and observed cursors, topic continuity, and engagement.                        |
 | `groups`, `routes`, `route_tokens`                                                             | Folder configuration, routing precedence, and hashed capability or pairing credentials. |
 | `acl`, `acl_membership`                                                                        | Grants and membership edges.                                                            |
 | `scheduled_tasks`, `task_run_logs`                                                             | Scheduled prompts, next runs, and execution records.                                    |
@@ -438,7 +430,6 @@ The message search index and channel registry are process-local and rebuild at s
 | Pending outbound       | Every 30 s; reads up to 200 rows, with per-row 30 s exponential backoff capped at 1 hour.                                                                    |
 | Stale-turn maintenance | Every hour; expires abandoned running turns and prunes the 30-day activity index.                                                                            |
 | Adapter health         | Every 30 s, 10 s HTTP timeout; three consecutive failures deregister the channel. `stale` counts as alive.                                                   |
-| Proactive scans        | `PROACTIVE_SCAN_INTERVAL`, default 30 s, evaluated on the main poll.                                                                                         |
 | Surrogate refresh      | Runs at connector call time; refreshes credentials within 60 s of expiry, or reactively after 401.                                                           |
 
 Boot recovers running contexts, pending status rows, stranded `firing` tasks, and orphan sockets.

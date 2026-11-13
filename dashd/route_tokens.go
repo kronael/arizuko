@@ -135,10 +135,10 @@ func (d *dash) listRouteTokens(ctx context.Context, folder string) ([]resources.
 // which is what 6/28's read path requires: routd owns `groups`, so dashd asks
 // rather than reads its file.
 //
-// One reader, four callers. `SELECT folder FROM groups ORDER BY folder LIMIT
-// 500` was copy-pasted into the groups page, the memory page, the usage page
-// and the proactive page — four projections of one table, each free to drift
-// into a WHERE the owner would not serve (BUGS L142).
+// One reader, many callers. `SELECT folder FROM groups ORDER BY folder LIMIT
+// 500` was copy-pasted into the groups page, the memory page and the usage
+// page — projections of one table, each free to drift into a WHERE the owner
+// would not serve (BUGS L142).
 func (d *dash) foldersViaRoutd(ctx context.Context) ([]string, error) {
 	body, status, err := d.bearerCall(ctx, d.routdURL, http.MethodGet, "/v1/groups", nil)
 	if err != nil {

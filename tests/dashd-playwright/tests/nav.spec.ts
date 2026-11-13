@@ -26,7 +26,6 @@ const OPERATOR = [
   { href: '/dash/approvals/', label: 'approvals' },
   { href: '/dash/audit/', label: 'audit' },
   { href: '/dash/usage/', label: 'usage' },
-  { href: '/dash/proactive/', label: 'proactive' },
   { href: '/dash/engagement/', label: 'engagement' },
 ];
 

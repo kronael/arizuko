@@ -214,7 +214,7 @@ func TestEngagementPage_PresentsBearerAndNotUserHeaders(t *testing.T) {
 	}
 }
 
-// The page is operator-only, like /dash/proactive/. It lists every tenant's
+// The page is operator-only. It lists every tenant's
 // windows (dashd's service token carries an empty folder claim, which routd
 // reads as list-all), so a folder-scoped viewer must not reach it.
 func TestEngagementPage_RequiresOperator(t *testing.T) {

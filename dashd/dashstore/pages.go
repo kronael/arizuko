@@ -81,23 +81,6 @@ func (s *Store) HeldApprovalFolders(now string) ([]string, error) {
 	return out, nil
 }
 
-// ChatCooldown is one chat's last unprompted message. It is an ALIAS: the item
-// is store's, and a second copy of its two fields is a second place to drift.
-type ChatCooldown = store.ChatCooldown
-
-// cooldownPanelSize bounds the panel: past this many the answer is a report,
-// not a panel.
-const cooldownPanelSize = 50
-
-// ProactiveCooldowns lists the chats that have spoken unprompted, most recent
-// first, up to the panel's page size.
-//
-// The item's coordinate and attribute name are store's, so the read goes through
-// store rather than rendering a second copy of them here (dashstore.st).
-func (s *Store) ProactiveCooldowns() ([]ChatCooldown, error) {
-	return s.st().ProactiveCooldowns(cooldownPanelSize)
-}
-
 // GroupRoute is one route on the group detail panel: enough to show where a
 // message lands, not the whole row.
 type GroupRoute struct {

@@ -261,9 +261,7 @@ func (s *Store) AppendMessage(m core.Message) (core.Message, error) {
 
 // putMessage is PutMessage's body. The status is a parameter because it is not
 // stored on the message: it decides whether a delivery item exists at all.
-// `also` rides the message's own batch (FireProactive's cooldown).
-func (s *Store) putMessage(ctx context.Context, m core.Message, status string, exact bool,
-	also ...objstore.Write) (core.Message, error) {
+func (s *Store) putMessage(ctx context.Context, m core.Message, status string, exact bool) (core.Message, error) {
 	if m.Timestamp.IsZero() {
 		// The writer stamps the instant; this refuses to invent one, or the
 		// caller walks away holding a message whose position does not exist.
@@ -304,14 +302,10 @@ func (s *Store) putMessage(ctx context.Context, m core.Message, status string, e
 	if err != nil {
 		return m, err
 	}
-	// ONE Merge opens the chat and flags it: `chats` is the partition list the
-	// poll loop and the archive walk, and a real inbound makes the chat
-	// proactive-eligible. A Merge, because a create-if-absent REFUSES on the
+	// ONE Merge opens the chat: `chats` is the partition list the poll loop and
+	// the archive walk. A Merge, because a create-if-absent REFUSES on the
 	// chat's second message and would take the whole batch with it.
 	chatFlags := map[string]string{}
-	if isRealInbound(m) {
-		chatFlags[attrChatHasInbound] = flagSet
-	}
 	if !m.BotMsg {
 		chatFlags[attrChatInputLast] = key.Sort
 		if chat.Attrs[attrChatInputLast] <= chat.Attrs[AttrChatAgentCursor] {
@@ -332,7 +326,6 @@ func (s *Store) putMessage(ctx context.Context, m core.Message, status string, e
 	if err != nil {
 		return m, err
 	}
-	writes = append(writes, also...)
 	if !counted {
 		// No routed_to: no folder feed entry and no counter to move.
 		_, err := s.TryWriteEntities(ctx, nil, writes...)
@@ -394,11 +387,6 @@ func (s *Store) appendInstant(ctx context.Context, m core.Message) (time.Time, e
 	return t.Add(time.Nanosecond), nil
 }
 
-// ProactiveSelfSender is the synthetic inbound's sender. Rows from it never
-// reset the silence clock and never count as recent activity: the trigger must
-// not feed itself. routd's scan reads the same name.
-const ProactiveSelfSender = "timed-proactive"
-
 // The senders arizuko writes on its own behalf. A person's sender is always
 // platform-qualified; these are the platform addressing itself.
 const SystemSender = "system"
@@ -408,7 +396,7 @@ const DelegateSender = "delegate"
 // answering read (routd/answering.go) is its reader: a migration storm's 55
 // `system` prompts would otherwise be 55 people waiting.
 var SyntheticSenders = []string{
-	ProactiveSelfSender, SystemSender, "escalate", DelegateSender,
+	SystemSender, "escalate", DelegateSender,
 }
 
 // MaxHops bounds agent-to-agent turns: a message an agent turn writes to start
@@ -424,11 +412,6 @@ func PostGroup(putMessage func(core.Message) error, folder, text, origin string)
 		Content: text, Timestamp: time.Now().UTC(), ForwardedFrom: origin,
 	})
 	return id, err
-}
-
-// isRealInbound reports whether a message is traffic a person sent.
-func isRealInbound(m core.Message) bool {
-	return !m.BotMsg && m.Sender != ProactiveSelfSender
 }
 
 // EnrichMessage replaces a message's content with the media-enriched body and
@@ -964,42 +947,6 @@ func (s *Store) newestMessageKey(ctx context.Context, jid string) (string, error
 	return items[0].Key.Sort, nil
 }
 
-// --- the proactive scan's per-chat reads (spec 5/26) ---------------------
-//
-// Each is a bounded read of ONE chat, because the scan already holds the chat
-// it is deciding about.
-
-// LastInboundAt answers when a chat last carried a real inbound message, or the
-// zero time when it never has. It is the silence-debounce clock.
-func (s *Store) LastInboundAt(ctx context.Context, jid string) time.Time {
-	items, err := s.Obj().Query(ctx, objstore.Query{
-		Entity: Messages, Partition: jid,
-		Where:      realInboundFilter(),
-		Descending: true, Limit: 1, Project: []string{},
-	})
-	if err != nil || len(items) == 0 {
-		return time.Time{}
-	}
-	ts, _, _ := MsgCoord(items[0].Key.Sort)
-	t, _ := time.Parse(time.RFC3339Nano, ts)
-	return t
-}
-
-// LastInbound answers the newest real inbound row of a chat, its body and its
-// instant, which the positive signals read. ok=false when the chat has none.
-func (s *Store) LastInbound(ctx context.Context, jid string) (string, time.Time, bool) {
-	items, err := s.Obj().Query(ctx, objstore.Query{
-		Entity: Messages, Partition: jid,
-		Where:      realInboundFilter(),
-		Descending: true, Limit: 1,
-	})
-	if err != nil || len(items) == 0 {
-		return "", time.Time{}, false
-	}
-	m := messageFrom(items[0])
-	return m.Content, m.Timestamp, true
-}
-
 // LatestSource answers which adapter delivered the newest sourced inbound row
 // of a chat, so the Deliverer sends an outbound back the way the conversation
 // came in. Empty when the chat has none.
@@ -1016,63 +963,6 @@ func (s *Store) LatestSource(ctx context.Context, jid string) string {
 		return ""
 	}
 	return items[0].Attrs[attrMsgSource]
-}
-
-// BotSpokeSince reports whether a chat carries a bot row at or after an
-// instant: the BotQuiet veto.
-func (s *Store) BotSpokeSince(ctx context.Context, jid string, since time.Time) bool {
-	items, err := s.Obj().Query(ctx, objstore.Query{
-		Entity: Messages, Partition: jid,
-		Key:     objstore.KeyPredicate{Op: objstore.GeKey, Value: msgStampAt(since)},
-		Where:   []objstore.Cmp{{Attr: attrMsgBot, Op: objstore.Present}},
-		Limit:   1,
-		Project: []string{},
-	})
-	return err == nil && len(items) > 0
-}
-
-// InboundCountSince counts a chat's real inbound rows at or after an instant:
-// the RecentActivity floor.
-func (s *Store) InboundCountSince(ctx context.Context, jid string, since time.Time) int {
-	items, err := s.Obj().Query(ctx, objstore.Query{
-		Entity: Messages, Partition: jid,
-		Key:     objstore.KeyPredicate{Op: objstore.GeKey, Value: msgStampAt(since)},
-		Where:   realInboundFilter(),
-		Project: []string{},
-	})
-	if err != nil {
-		return 0
-	}
-	return len(items)
-}
-
-// realInboundFilter is the "traffic a person sent" predicate, written once so
-// the four reads that ask it cannot disagree.
-func realInboundFilter() []objstore.Cmp {
-	return []objstore.Cmp{
-		{Attr: attrMsgBot, Op: objstore.Absent},
-		{Attr: attrMsgSender, Op: objstore.Ne, Value: ProactiveSelfSender},
-	}
-}
-
-// FireProactive appends the synthetic inbound row AND sets the chat's proactive
-// cooldown in one batch, then answers the row's id, which is the turn id. The
-// caller dispatches only after this commits, so a crash before dispatch leaves
-// the cooldown set: at worst one missed turn, never a double fire.
-func (s *Store) FireProactive(ctx context.Context, jid, id string) error {
-	firedAt := time.Now()
-	cooldown, err := proactiveFireWrite(jid, firedAt)
-	if err != nil {
-		return fmt.Errorf("fire a proactive turn on %s: %w", jid, err)
-	}
-	row := core.Message{
-		ID: id, ChatJID: jid, Sender: ProactiveSelfSender, Timestamp: firedAt,
-		Verb: "message",
-	}
-	if _, err := s.putMessage(ctx, row, core.MessageStatusSent, false, cooldown); err != nil {
-		return fmt.Errorf("record the proactive trigger on %s: %w", jid, err)
-	}
-	return nil
 }
 
 // CountMessages answers how many messages every chat holds.

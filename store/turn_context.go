@@ -6,8 +6,8 @@ package store
 //
 // The partition is OwnerRoutd and the sort key the turn id: a late frame
 // arrives carrying a turn id and nothing else. A turn has a folder and it still
-// cannot be the partition: the typing-owner read, crash recovery, the expiry
-// sweep and the proactive scan carry none. Those four filter the partition,
+// cannot be the partition: the typing-owner read, crash recovery and the
+// expiry sweep carry none. Those three filter the partition,
 // the one hot-tier entity with no drainage and a per-turn arrival (2,954 items
 // on krons, about thirty a day, 2,846 of them `done`).
 //
@@ -530,27 +530,6 @@ func (s *Store) SweepExpiredRunning(timeout time.Duration) (int64, error) {
 		}
 	}
 	return swept, nil
-}
-
-// ChatHasRunningTurn reports whether a chat has a turn still running: the
-// proactive scan skips such a chat, because the per-folder queue serialises and
-// a proactive inbound never steers a live turn.
-func (s *Store) ChatHasRunningTurn(jid string) bool {
-	if jid == "" {
-		return false
-	}
-	items, err := s.Obj().Query(context.Background(), objstore.Query{
-		Entity: TurnContexts, Partition: OwnerRoutd,
-		Where: []objstore.Cmp{
-			{Attr: attrTurnChatJID, Op: objstore.Eq, Value: jid},
-			{Attr: attrTurnState, Op: objstore.Eq, Value: TurnRunning},
-		},
-		Limit: 1,
-	})
-	if err != nil {
-		return false
-	}
-	return len(items) > 0
 }
 
 // CountTurnContexts answers how many turns are bound.

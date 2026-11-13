@@ -53,7 +53,7 @@ arizuko · status · tasks · activity · groups · routes · memory · profile
 Additional links for operator (`**` grant):
 
 ```
-services · packages · invites · approvals · audit · usage · proactive · engagement
+services · packages · invites · approvals · audit · usage · engagement
 ```
 
 Identity badge always right-aligned in nav: `{name} ◆` (operator) or
@@ -68,7 +68,6 @@ Identity badge always right-aligned in nav: `{name} ◆` (operator) or
 ├── /dash/audit/                Federated audit log, every daemon (operator only)
 ├── /dash/approvals/            Held tool-call review queue (operator only)
 ├── /dash/usage/                Instance-wide usage/cost cockpit (operator only)
-├── /dash/proactive/            Which groups may speak unprompted (operator only)
 ├── /dash/engagement/           Active early-disengage windows + control (operator only)
 ├── /dash/routd/                Message-router cockpit: errored chats + retry (operator only)
 │   └── retry                   Per-chat retry

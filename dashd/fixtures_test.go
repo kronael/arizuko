@@ -36,7 +36,7 @@ func testPolicy(t *testing.T, h objstore.Store, sub string) auth.Policy {
 
 // routdDB is an empty routd store. Every table dashd's admin and page handlers
 // read — groups, messages, routes, scheduled_tasks, task_run_logs, sessions,
-// acl, secrets, audit_log, installed_packages, chat_proactive, user_profiles,
+// acl, secrets, audit_log, installed_packages, user_profiles,
 // pending_actions — comes from routd's own opener.
 func routdDB(t *testing.T) objstore.Store {
 	t.Helper()

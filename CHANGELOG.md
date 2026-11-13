@@ -13,6 +13,11 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+### Removed
+
+- Proactive interjection: the scan, the `PROACTIVE_*` settings, the
+  `/dash/proactive/` page and `chat_proactive` writes. No instance enabled it.
+
 ## [v0.75.13] — 2026-11-13
 
 > arizuko v0.75.13 — a model refusal fails one turn, not the instance

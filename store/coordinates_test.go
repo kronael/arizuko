@@ -179,20 +179,6 @@ func TestTheHotTierRoundTripsEveryAttributeItCarries(t *testing.T) {
 		}
 	})
 
-	t.Run("chat_proactive", func(t *testing.T) {
-		fired := time.Date(2026, 9, 9, 9, 0, 0, 0, time.UTC)
-		if err := s.RecordProactiveFire(ctx, "slack:T/C/P", fired); err != nil {
-			t.Fatal(err)
-		}
-		if got := s.ProactiveLastFired("slack:T/C/P"); !got.Equal(fired) {
-			t.Errorf("cooldown = %v, want %v", got, fired)
-		}
-		rows, err := s.ProactiveCooldowns(10)
-		if err != nil || len(rows) != 1 || rows[0].JID != "slack:T/C/P" {
-			t.Errorf("cooldown panel = %v, err %v", rows, err)
-		}
-	})
-
 	t.Run("system_messages", func(t *testing.T) {
 		for _, body := range []string{"first", "second", "third"} {
 			if err := s.EnqueueSystemMessage("team", "system", "note", body); err != nil {

@@ -721,65 +721,11 @@ func (d *DB) SetFolderCap(folder string, cents int) error {
 	return d.store().SetFolderCap(folder, cents)
 }
 
-// ProactiveChats lists the chats that ever carried a real inbound message —
-// the proactive scan's universe. An attribute of the chat, not a DISTINCT over
-// every message ever written.
-func (d *DB) ProactiveChats() ([]string, error) {
-	return d.store().ProactiveChats(context.Background())
-}
-
-// LastInboundAt returns the timestamp of the newest real inbound message on a
-// chat, or zero time — the silence-debounce clock.
-func (d *DB) LastInboundAt(jid string) time.Time {
-	return d.store().LastInboundAt(context.Background(), jid)
-}
-
 // LatestSource returns the adapter that delivered the newest real inbound row
 // on a chat, so the Deliverer routes an outbound back the way it came; empty
 // when the chat has no sourced inbound.
 func (d *DB) LatestSource(jid string) string {
 	return d.store().LatestSource(context.Background(), jid)
-}
-
-// BotSpokeSince reports whether a bot-authored row exists on a chat at or
-// after since (the BotQuiet veto).
-func (d *DB) BotSpokeSince(jid string, since time.Time) bool {
-	return d.store().BotSpokeSince(context.Background(), jid, since)
-}
-
-// InboundCountSince counts real inbound rows on a chat at or after since (the
-// RecentActivity floor).
-func (d *DB) InboundCountSince(jid string, since time.Time) int {
-	return d.store().InboundCountSince(context.Background(), jid, since)
-}
-
-// LastInbound returns the newest real inbound row on a chat; ok=false when the
-// chat has none.
-func (d *DB) LastInbound(jid string) (content string, ts time.Time, ok bool) {
-	return d.store().LastInbound(context.Background(), jid)
-}
-
-// ProactiveLastFired returns when a proactive turn last fired on a chat, or
-// zero time when never (the mandatory 24h cooldown).
-func (d *DB) ProactiveLastFired(jid string) time.Time {
-	return d.store().ProactiveLastFired(jid)
-}
-
-// FireProactive appends the synthetic inbound row AND sets the chat's cooldown
-// in one transaction; a crash before dispatch leaves the cooldown set — one
-// missed turn, never a double-fire. Returns the row's id, which is the turn id.
-func (d *DB) FireProactive(jid string) (string, error) {
-	id := "proactive-" + randHex(8)
-	if err := d.store().FireProactive(context.Background(), jid, id); err != nil {
-		return "", err
-	}
-	return id, nil
-}
-
-// ChatHasRunningTurn reports whether a chat has a turn still 'running' — the
-// proactive scan skips it, since a proactive inbound never steers a live turn.
-func (d *DB) ChatHasRunningTurn(jid string) bool {
-	return d.store().ChatHasRunningTurn(jid)
 }
 
 // OpenOver serves routd from a handle the caller owns and has made the entities

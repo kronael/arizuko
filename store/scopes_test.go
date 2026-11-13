@@ -77,7 +77,7 @@ func TestTheMarkerMovesOnlyForAScopedEntity(t *testing.T) {
 		// marker on any of them would move routd's version under every export
 		// that does not read them.
 		{Entity: Chats}, {Entity: Sessions}, {Entity: ChatReplyState},
-		{Entity: ChatProactive}, {Entity: SystemMessages}, {Entity: UserProfiles},
+		{Entity: SystemMessages}, {Entity: UserProfiles},
 	})
 	if len(bumps) != 0 {
 		t.Errorf("an unscoped batch rendered %d markers, want none", len(bumps))

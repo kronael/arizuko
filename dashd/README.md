@@ -119,7 +119,6 @@ their owners. `davd` serves none, `davd/README.md`.
 - **Route tokens** (2): `GET /dash/tokens/{folder}/`, `POST /dash/tokens/{folder}/{jid}/revoke` — list + revoke, NO MINT. Reads scope-filtered; revoke admin-gated. Issuance belongs to the resource owner — routd's `POST /v1/route_tokens/{chat,hook}`, the agent's `issue_chat_link`/`issue_webhook`/`issue_pairing_link`, and `arizuko token`. The cockpit exposes no token mint form. (`route_tokens.go`)
 - **Invites** (3): `GET|POST /dash/invites/`, `POST /dash/invites/{ref}/revoke` — operator-only (`**`). (`invites.go`)
 - **WhatsApp re-pair** (3): `GET /dash/channels/whatsapp/pair`, `GET /dash/channels/whatsapp/pair/status`, `POST /dash/channels/whatsapp/pair/start` — operator-only (`**`), proxies to whapd with service:dashd bearer. (`channels.go`)
-- **Proactive view** (1): `GET /dash/proactive/` — operator-only (`**`) read-only view of proactive interjection: per-group `mode:` / quiet hours / parse error, parsed through the shared `proactive.Parse` routd's scanner gates on, plus per-chat last-fired from routd's `chat_proactive`. No control — `mode:` stays operator-edited in the group's `CLAUDE.md` (single source, no DB/file drift) and the cooldown is mandatory. A banner names `PROACTIVE_ENABLED`; dashd cannot read routd's env, so it states the rule rather than a live value. (`proactive_page.go`)
 - **Engagement** (2): `GET /dash/engagement/` — operator-only (`**`) view of engagement: every live engagement window (chat, thread, group, time left), i.e. the conversations the agent keeps answering in without being addressed. `POST /dash/engagement/disengage` ends one now, behind a confirm — the remedy for a runaway engagement, which otherwise had none but waiting out the TTL. Both go through routd's `/v1/engagement` over HTTP with the service:dashd bearer (`routes:read` + `routes:write`), NOT `chat_reply_state` out of `dbRoutd`: routd owns those columns, contains the write on the window's CLAIMING folder, and writes the `audit_log` row inside the mutation's own transaction (`DB.SetEngagementAudited`) — none of which a direct-DB write here would do. Operator-only is load-bearing — dashd's service token has an empty folder claim, which routd reads as list-all. (`engagement_page.go`)
 - **Model pauses** (2): `GET /dash/model-pauses/` shows each folder's reason, episode, next attempt, attempts and queued input count. `POST /dash/model-pauses/clear` submits the displayed folder, episode and probe attempt to routd's `/v1/model_pauses/clear`. Both require the operator. The POST also checks CSRF. Both use the `model_pauses` API with the `service:dashd` bearer. (`model_pauses.go`)
 - **Approvals** (2): `GET /dash/approvals/`, `POST /dash/approvals/{id}/resolve` — held calls and recent verdicts, with routd's rendered request and standing rule, approve/reject controls and a note. The proxyd-verified sub forwards as `reviewer`. routd lists and resolves only folders that human holds `admin` on (`resolveHoldInto`). Both routes use routd's `/v1/pending_actions` with the `service:dashd` bearer and `pending_actions:read` or `pending_actions:write`. The verdict releases the original suspended call. `reviewed_by` names the human. The portal count uses the same folder check. (`approvals_page.go`)
@@ -219,7 +218,6 @@ Typical deploy reaches dashd through `proxyd` at `/dash/`.
 - `audit_page.go` — the audit trail, federated over routd's, runed's, authd's and onbod's `GET /v1/audit` (operator-only).
 - `approvals_page.go` — the held-call review queue + approve/reject over routd's `/v1/pending_actions`, scoped to the folders the caller holds `admin` on.
 - `engagement_page.go` — live engagement windows + force-disengage over routd's `/v1/engagement`; also `bearerCall`, the shared service:dashd transport (operator-only).
-- `proactive_page.go` — per-group proactive mode + per-chat cooldown, read-only (operator-only).
 - `services.go` — the daemon hub: health probes, the static tile list and the route-table read that decides each link.
 - `usage_page.go` — the usage analytics view; every figure over routd's `/v1`.
 - `me_connections.go`, `me_env.go` — the surrogate-OAuth "Connect &lt;provider&gt;" dance and the per-user env view.
@@ -279,7 +277,6 @@ The table transcribes the mux patterns; the auth rules above apply to each surfa
 | `GET /dash/approvals/`                         | dashd |
 | `POST /dash/approvals/{id}/resolve`            | dashd |
 | `GET /dash/usage/`                             | dashd |
-| `GET /dash/proactive/`                         | dashd |
 | `GET /dash/engagement/`                        | dashd |
 | `GET /dash/model-pauses/`                      | dashd |
 | `POST /dash/model-pauses/clear`                | dashd |

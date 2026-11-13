@@ -24,8 +24,7 @@ owns \*\*routing rules + the message/event store + the orchestration loop
 ## The decisions
 
 **routd is the sole appender.** Every `messages` row — inbound from an
-adapter, outbound from an agent, delegation hop, synthetic proactive
-trigger — is written by routd and nobody else. That is what lets one
+adapter, outbound from an agent, delegation hop — is written by routd and nobody else. That is what lets one
 cursor (`chats.agent_cursor`) stand for "what the agent has seen": with
 two writers the cursor and the row sequence drift.
 
@@ -69,7 +68,6 @@ The tables and who else reads them:
 | `route_tokens`                      | `/chat/`,`/hook/` bearer tokens, stored hashed (5/W)                                     |
 | `acl` / `acl_membership`            | routd is the policy decision point (5/32)                                                |
 | `idempotency_keys`                  | the replay ledger (§ Idempotency)                                                        |
-| `chat_proactive`                    | per-chat proactive cooldown (5/6)                                                        |
 | `group_watchers`, `system_messages` | cross-folder ambient (5/F); pending system events                                        |
 
 `session_id` is routd's: `dispatchRun` mints a UUID for a topic that has

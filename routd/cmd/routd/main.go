@@ -189,7 +189,6 @@ func main() {
 		MaxAgents:     cfg.MaxAgents,
 		EngagementTTL: engagementTTL,
 		Deliver:       deliver,
-		Proactive:     routd.LoadProactiveConfig(os.Getenv),
 		GroupsDir:     filepath.Join(dataDir, "groups"),
 		// Prompt envelope (buildAgentPrompt).
 		InstanceName:          core.EnvOr("ASSISTANT_NAME", core.DefaultAssistantName),

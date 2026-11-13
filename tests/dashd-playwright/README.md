@@ -20,7 +20,7 @@ Every `/dash/` surface dashd mounts. One spec per surface:
 | `invites.spec.ts`        | one-time link on create, ref-only on read, revoke                                           |
 | `tokens.spec.ts`         | route-token list + revoke (dashd does not mint)                                             |
 | `approvals.spec.ts`      | `/dash/approvals/` HITL queue, verdict forwarding, `?id=` deep link                         |
-| `operator-reads.spec.ts` | audit, usage, packages, proactive                                                           |
+| `operator-reads.spec.ts` | audit, usage, packages                                                                      |
 | `engagement.spec.ts`     | engaged windows + force-disengage                                                           |
 | `control-planes.spec.ts` | the four per-daemon pages `/dash/routd/`, `/dash/runed/`, `/dash/authd/`, `/dash/proxyd/`   |
 | `services.spec.ts`       | the services hub and its built/unbuilt tile rules                                           |

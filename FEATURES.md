@@ -198,7 +198,6 @@ The verbs each adapter supports are in [EXTENDING.md § Verb support matrix](EXT
 | Folder isolation  | A folder-scoped caller sees only its subtree and gets 403 for a sibling.          | `dashd/isolation_test.go::TestIso_PerFolderGET_AliceForbiddenOnSales`               |
 | Approvals         | The approvals page lists held calls and recent verdicts.                          | `dashd/approvals_page_test.go::TestApprovalsPage_RendersHeldQueue`                  |
 | Engagement        | The engagement page lists the live engagement windows.                            | `dashd/engagement_page_test.go::TestEngagementPage_RendersLiveWindows`              |
-| Proactive         | The proactive page shows the mode of each group and marks a bad configuration.    | `dashd/proactive_page_test.go::TestProactivePageRendersModes`                       |
 | Packages          | The packages page lists installed packages with their source and revision.        | `dashd/packages_page_test.go::TestPackagesPageRows`                                 |
 
 ## An agent acts only through MCP tools that its grants show

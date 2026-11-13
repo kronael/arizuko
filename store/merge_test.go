@@ -198,8 +198,8 @@ func TestADisengageTakesBothAttributesAwayInOneWrite(t *testing.T) {
 // message in a chat it does not name is a message nothing ever feeds and nothing
 // ever exports. The open used to sit OUTSIDE the message's batch because a
 // create-if-absent refuses on the chat's second message and a refusal takes the
-// whole batch with it; a Merge has nothing to refuse, so the chat, its inbound
-// flag and the message now land together.
+// whole batch with it; a Merge has nothing to refuse, so the chat and the
+// message now land together.
 func TestAMergeOpensTheChatWithoutRefusingTheBatch(t *testing.T) {
 	s := openEntities(t)
 	ctx := context.Background()
@@ -218,15 +218,7 @@ func TestAMergeOpensTheChatWithoutRefusingTheBatch(t *testing.T) {
 	if len(jids) != 1 || jids[0] != "slack:T/C" {
 		t.Fatalf("the chat list is %v, want one slack:T/C", jids)
 	}
-	proactive, err := s.ProactiveChats(ctx)
-	if err != nil {
-		t.Fatalf("read the proactive chats: %v", err)
-	}
-	if len(proactive) != 1 {
-		t.Errorf("%d chats carry has_inbound, want 1: the flag rides the chat's own merge",
-			len(proactive))
-	}
-	// A bot row opens the chat and does NOT flag it.
+	// A bot row opens the chat.
 	if err := s.PutMessage(core.Message{
 		ID: "m-3", ChatJID: "slack:T/D", Sender: "agent", BotMsg: true,
 		Timestamp: time.Now(), Verb: "message",
@@ -239,50 +231,6 @@ func TestAMergeOpensTheChatWithoutRefusingTheBatch(t *testing.T) {
 	}
 	if len(jids) != 2 {
 		t.Errorf("the chat list is %v, want both chats: the open is unconditional", jids)
-	}
-	proactive, err = s.ProactiveChats(ctx)
-	if err != nil {
-		t.Fatalf("read the proactive chats: %v", err)
-	}
-	if len(proactive) != 1 {
-		t.Errorf("%d chats carry has_inbound, want 1: the agent's own output is not traffic "+
-			"a person sent", len(proactive))
-	}
-}
-
-// TestFireProactiveStampsTheCooldownWithTheRowItFires is the atomicity
-// FireProactive's transaction gave, now given by one batch.
-//
-// The caller dispatches the run only after this commits, so the synthetic row
-// and the cooldown have to land together: a row with no cooldown fires again on
-// the next tick, and a cooldown with no row silences a chat for a turn nobody
-// ran.
-func TestFireProactiveStampsTheCooldownWithTheRowItFires(t *testing.T) {
-	s := openEntities(t)
-	ctx := context.Background()
-	before := time.Now().Add(-time.Second)
-	if err := s.FireProactive(ctx, "slack:T/C", "turn-1"); err != nil {
-		t.Fatalf("fire: %v", err)
-	}
-	if fired := s.ProactiveLastFired("slack:T/C"); !fired.After(before) {
-		t.Errorf("the cooldown is %v, want an instant after %v", fired, before)
-	}
-	msgs, err := s.NewMessagesForChat(ctx, "slack:T/C", "", 10)
-	if err != nil {
-		t.Fatalf("read the chat: %v", err)
-	}
-	if len(msgs) != 1 || msgs[0].ID != "turn-1" {
-		t.Fatalf("the chat holds %d messages, want the synthetic trigger", len(msgs))
-	}
-	// The synthetic row is not traffic a person sent, so it must not make the
-	// chat eligible for the NEXT proactive turn.
-	proactive, err := s.ProactiveChats(ctx)
-	if err != nil {
-		t.Fatalf("read the proactive chats: %v", err)
-	}
-	if len(proactive) != 0 {
-		t.Errorf("%d chats carry has_inbound after a proactive fire, want 0: the trigger must "+
-			"not feed itself", len(proactive))
 	}
 }
 

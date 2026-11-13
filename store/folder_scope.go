@@ -169,7 +169,6 @@ var folderScopeKeep = map[string]keepReason{
 	"turn_control": keep("instance-wide execution state"),
 
 	// No folder coordinate at all.
-	"chat_proactive":   keep("keyed by chat jid"),
 	"pane_sessions":    keep("keyed by slack thread"),
 	"user_profiles":    keep("a person, not a folder"),
 	"auth_users":       keep("a person, not a folder"),

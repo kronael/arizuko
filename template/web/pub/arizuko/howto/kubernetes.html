@@ -81,7 +81,7 @@ helm install arizuko deploy/helm/arizuko \
         <dt>runed must open every path that a turn mounts</dt>
         <dd><code>runed</code> builds the staging tree of each turn with bind mounts in its own mount namespace and exports it with its child <code>virtiofsd</code>. No path is translated. So <code>runed</code> must open the group folder, the kernel and rootfs directories, and every root in <code>MOUNT_ALLOWED_ROOTS</code>. A path outside the data volume needs its own mount in the <code>runed</code> pod at the same absolute path. Otherwise the staging tree refuses it, and the turn fails.</dd>
         <dt>The group tree is files</dt>
-        <dd><code>routd</code> reads <code>PERSONA.md</code> for the prompt and <code>CLAUDE.md</code> for proactive mode. <code>runed</code> mounts the same folder as the home of the agent.</dd>
+        <dd><code>routd</code> reads <code>PERSONA.md</code> for the prompt. <code>runed</code> mounts the same folder as the home of the agent.</dd>
       </dl>
       <div class="callout"><strong>AppArmor, not seccomp, blocks the bind mounts.</strong> The default AppArmor profile denies <code>mount(2)</code> to a container, whatever its capabilities. Then the staging binds of <code>runed</code> fail with "permission denied", and every turn fails. Compose sets <code>apparmor=unconfined</code> on <code>runed</code>, and the chart sets <code>appArmorProfile: Unconfined</code>, which needs Kubernetes 1.30 or newer. The default seccomp profile already allows <code>mount</code> to a holder of <code>CAP_SYS_ADMIN</code>.</div>
 
@@ -192,7 +192,7 @@ kubectl -n arizuko logs deploy/arizuko-runed</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/howto/kubernetes.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-11-07">2026-11-07</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-08">2026-11-08</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

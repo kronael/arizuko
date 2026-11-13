@@ -2898,20 +2898,17 @@ comment, the locks and the image. The session lifecycle differs between them
 MEASURED 2026-10-21 by listing every `core.*("KEY"` and `os.Getenv("KEY")` read
 in `routd/` and searching the lists in `compose/compose.go` for each. Not
 delivered: `MAX_TURN_RETRY`, `MAX_OUTBOUND_RETRY`, `COST_CAPS_ENABLED`,
-`CONNECTORS_TOML`, `CONNECTOR_CALL_TIMEOUT_MS`, `SESSION_IDLE_EXPIRY` and the
-seven `PROACTIVE_*` keys that `LoadProactiveConfig` reads
-(`routd/proactive.go:34`). The operator docs list them as settings
+`CONNECTORS_TOML`, `CONNECTOR_CALL_TIMEOUT_MS` and `SESSION_IDLE_EXPIRY`.
+The operator docs list them as settings
 (`template/web/pub/arizuko/reference/env.html`). Each one falls to its code
 default with no log line. `L388` and `L380` closed this class for runed and
 for `METRICS_ENABLED`; routd has no guard like
 `TestRunedEnvKeysCoverEveryRunedVar`.
 
-- **Severity:** medium — an operator who sets `COST_CAPS_ENABLED=false` or
-  `PROACTIVE_ENABLED=true` gets no effect and no warning.
+- **Severity:** medium — an operator who sets `COST_CAPS_ENABLED=false` gets
+  no effect and no warning.
 - **Fix:** deliver the keys the operator names, and add a routd guard shaped
-  like the runed one. `PROACTIVE_ENABLED` can switch a feature on at the next
-  deploy of an instance whose `.env` already sets it, so the operator names
-  the keys first.
+  like the runed one.
 - **Status:** open — needs the operator's key list. No test — config.
 
 ## L480 — slakd posts a whole reply as ONE chat.postMessage, so a long reply is cut by Slack (2026-10-20, open)

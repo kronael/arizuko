@@ -478,7 +478,7 @@ func TestDashdBootsFromTheEnvironment(t *testing.T) {
 }
 
 // A bot reply is the write every turn ends with, and it is the one message that
-// opens its chat and flags nothing: `isRealInbound` is false for it, so the
+// opens its chat and flags nothing: a bot row carries no input span, so the
 // chat write carries no attribute at all. A driver that refuses that write
 // refuses every reply the agent makes (BUGS L292).
 func TestABotReplyLandsOverTheEndpoint(t *testing.T) {

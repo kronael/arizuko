@@ -385,3 +385,23 @@ func TestApprovalsPage_NoAlwaysButtonWhenNoRuleCanBeWritten(t *testing.T) {
 		t.Errorf("the page must say why the button is missing:\n%s", body)
 	}
 }
+
+// sectionBetween returns the slice of body between two markers, failing if
+// either is absent. Whole-page Contains is worthless here: a word in the nav
+// link or the intro prose would pass an assertion with every table empty.
+func sectionBetween(t *testing.T, body, from, to string) string {
+	t.Helper()
+	i := strings.Index(body, from)
+	if i < 0 {
+		t.Fatalf("marker %q missing from page", from)
+	}
+	rest := body[i+len(from):]
+	if to == "" {
+		return rest
+	}
+	j := strings.Index(rest, to)
+	if j < 0 {
+		t.Fatalf("marker %q missing after %q", to, from)
+	}
+	return rest[:j]
+}

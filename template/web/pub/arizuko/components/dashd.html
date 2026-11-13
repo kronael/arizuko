@@ -143,7 +143,6 @@ export DASH_PORT=:8080
       <dt><code>/dash/me/secrets</code>, <code>/dash/me/env</code>, <code>/dash/me/connections</code></dt><dd>Your own capability tokens, your model keys and the &ldquo;Connect GitHub&rdquo; OAuth connection.</dd>
       <dt><code>/dash/approvals/</code></dt><dd>Held tool calls that wait for a person, limited to the folders where you hold <code>admin</code>.</dd>
       <dt><code>/dash/engagement/</code></dt><dd>Every conversation that the agent is <a href="../concepts/engagement.html">staying in</a> without being addressed, with a <strong>disengage</strong> button. Only operators can open it.</dd>
-      <dt><code>/dash/proactive/</code></dt><dd>Which groups can <a href="../concepts/proactive.html">speak first</a>. The page is read-only, because <code>mode:</code> stays in the <code>CLAUDE.md</code> of the group.</dd>
       <dt><code>/dash/invites/</code></dt><dd>Create and revoke invites. Only operators can open it.</dd>
       <dt><code>/dash/channels/whatsapp/pair</code></dt><dd>Pair WhatsApp again with a code. Only operators can open it. dashd calls <code>/v1/pair/start</code> on whapd and writes an audit row.</dd>
     </dl>

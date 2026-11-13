@@ -394,7 +394,7 @@ func (mapping renameMap) row(owner, entity string, before objstore.Item, root st
 		after.Key.Sort = mapping.identity(before.Key.Sort)
 	case store.Groups:
 		after.Key.Sort = mapping.folder(before.Key.Sort)
-	case store.Chats, store.ChatProactive, store.Onboarding:
+	case store.Chats, store.Onboarding:
 		after.Key.Sort = mapping.identity(before.Key.Sort)
 	case store.Sessions, store.SystemMessages, store.TurnResults, store.NetworkRules, store.InstalledPackages:
 		arity = 2

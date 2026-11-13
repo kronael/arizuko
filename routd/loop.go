@@ -63,16 +63,11 @@ type Loop struct {
 	observeChars    int
 	groupsDir       string
 
-	// zero-value cfg (Enabled=false) → the scan is never driven.
-	proactive     ProactiveConfig
-	modes         *modeCache
-	pendingReason sync.Map // turn_id → proactiveResult
 	// pendingElevation is the ONLY source of Elevated: cmdRoot (gated on `**`)
 	// writes it, an agent/user cannot forge a map entry, so root is never
 	// reached by message content. One-shot (LoadAndDelete per turn).
 	pendingElevation sync.Map // message_id → struct{}
 	engagementTTL    time.Duration
-	nextScanAt       time.Time
 
 	// waiting is the chats whose typing is on while no run owns it: parked
 	// behind another run, or refused Busy. Value is the chat that shows it.
@@ -127,8 +122,6 @@ type LoopConfig struct {
 	// nil = no redelivery / no failure notice (pure REST tests).
 	Deliver Deliverer
 
-	// GroupsDir is where per-group CLAUDE.md lives (the proactive-mode source).
-	Proactive ProactiveConfig
 	GroupsDir string
 
 	// CostCapsEnabled toggles the pre-spawn budget gate (COST_CAPS_ENABLED).
@@ -203,7 +196,6 @@ func NewLoop(db *DB, runner Runner, cfg LoopConfig) *Loop {
 		deliver:         cfg.Deliver,
 		pollEvery:       cfg.PollEvery,
 		runTimeout:      cfg.RunTimeout,
-		proactive:       cfg.Proactive,
 		instanceName:    cfg.InstanceName,
 		observeMessages: cfg.ObserveWindowMessages,
 		observeChars:    cfg.ObserveWindowChars,
@@ -219,9 +211,6 @@ func NewLoop(db *DB, runner Runner, cfg LoopConfig) *Loop {
 		maxTurnRetry:        maxRetry,
 		engagementTTL:       cfg.EngagementTTL,
 		maxOutboundRetry:    maxOutRetry,
-	}
-	if cfg.Proactive.Enabled {
-		l.modes = newModeCache(cfg.GroupsDir)
 	}
 	l.q = newTurnControl(cfg.MaxAgents)
 	l.q.SetProcessMessagesFn(l.processGroupMessages)
@@ -307,9 +296,6 @@ func (l *Loop) Run(ctx context.Context) {
 		go func() { defer close(scheduleDone); l.srv.ScheduleLoop(ctx) }()
 		defer func() { <-scheduleDone }()
 	}
-	if l.proactive.Enabled {
-		l.nextScanAt = time.Now().Add(l.proactive.ScanInterval)
-	}
 	now := time.Now()
 	l.nextRetryAt = now.Add(outboundRetryEvery)
 	l.nextTurnsAt = now.Add(turnsEvery)
@@ -325,7 +311,6 @@ func (l *Loop) Run(ctx context.Context) {
 		case <-t.C:
 			l.srv.flushProgress(time.Now())
 			l.maybeRecoverTurns(time.Now())
-			l.maybeScanProactive(time.Now())
 			l.maybeRetryOutbound(time.Now())
 			l.maybeGC(time.Now())
 		}
@@ -469,16 +454,6 @@ func (l *Loop) maybeGC(now time.Time) {
 	} else if n > 0 {
 		slog.Info("gc: swept the activity feed", "count", n)
 	}
-}
-
-// maybeScanProactive runs one proactive sweep when due: loop-driven, no
-// catch-up — a long iteration just delays the next scan.
-func (l *Loop) maybeScanProactive(now time.Time) {
-	if !l.proactive.Enabled || now.Before(l.nextScanAt) {
-		return
-	}
-	l.scanProactive(now)
-	l.nextScanAt = now.Add(l.proactive.ScanInterval)
 }
 
 // recoverPending recovers interrupted turns and re-arms the due retries. A turn

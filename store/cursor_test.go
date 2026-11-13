@@ -21,7 +21,6 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/core"
-	"github.com/kronael/arizuko/objstore"
 )
 
 // at renders an instant at core.TS's width, which is the only width a declared
@@ -245,38 +244,5 @@ func TestRecordingADirectChatOpensItsRow(t *testing.T) {
 	}
 	if is, _ := s.ChatIsGroup("slack:NEW"); is {
 		t.Error("a direct chat reads as multi-party")
-	}
-}
-
-// TestTheProactiveCooldownMergesRatherThanReplaces pins the one write among the
-// five that was a bare whole-item Put. It costs nothing while the item carries
-// one attribute; it drops the second one the day this entity grows a field.
-func TestTheProactiveCooldownMergesRatherThanReplaces(t *testing.T) {
-	s := openEntities(t)
-	ctx := context.Background()
-	const jid = "slack:T/C/P"
-	key, err := proactiveKey(jid)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// A second attribute, standing in for the field this entity has not grown yet.
-	if err := s.WriteEntities(ctx, nil, objstore.Write{
-		Op: objstore.Put, Entity: ChatProactive, Key: key,
-		Attrs: map[string]string{"cooldown_hours": "48"},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.RecordProactiveFire(ctx, jid, time.Now()); err != nil {
-		t.Fatal(err)
-	}
-	it, ok, err := s.itemAt(ctx, ChatProactive, key)
-	if err != nil || !ok {
-		t.Fatalf("the item went: ok=%v err=%v", ok, err)
-	}
-	if it.Attrs["cooldown_hours"] != "48" {
-		t.Errorf("the stamp replaced the whole item: attrs = %v", it.Attrs)
-	}
-	if it.Attrs[AttrProactiveFiredAt] == "" {
-		t.Error("the stamp did not land")
 	}
 }

@@ -81,9 +81,6 @@ const (
 	// ChatReplyState holds whether a reply is still owed on (jid, topic) and
 	// which folder holds the conversation.
 	ChatReplyState = "chat_reply_state"
-	// ChatProactive holds one chat's unprompted-turn cooldown, addressed by its
-	// jid.
-	ChatProactive = "chat_proactive"
 	// SystemMessages holds one queued system event, addressed by the folder it
 	// is queued for and the instant it was queued.
 	SystemMessages = "system_messages"
@@ -165,7 +162,7 @@ var EntitiesByOwner = map[string][]string{
 		ACL, ACLMembership, Groups, Routes, RouteTokens, ScheduledTasks, Secrets,
 		PendingActions, NetworkRules, ProxydRoutes, WebRoutes, InstalledPackages,
 		GitHubSources, GDriveFiles,
-		Chats, Sessions, ChatReplyState, ChatProactive, SystemMessages, UserProfiles,
+		Chats, Sessions, ChatReplyState, SystemMessages, UserProfiles,
 		TurnResults, GroupWatchers, TaskRunLogs, TurnContexts, ModelPauses, TurnControl,
 		Messages, MessageFolders, MessageFolderCounts, MessageActivity, MessageDelivery,
 	},

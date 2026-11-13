@@ -55,7 +55,6 @@ var keyFields = map[string][]string{
 	Chats:             {"jid"},
 	Sessions:          {"group_folder", "topic"},
 	ChatReplyState:    {"jid", "topic"},
-	ChatProactive:     {"jid"},
 	SystemMessages:    {"folder", "created", "id"},
 	UserProfiles:      {"sub"},
 	TurnResults:       {"folder", "turn_id"},
@@ -124,8 +123,6 @@ func entityKey(entity string, key []string) (objstore.Key, error) {
 		return sessionKey(key[0], key[1])
 	case ChatReplyState:
 		return replyStateKey(key[0], key[1])
-	case ChatProactive:
-		return proactiveKey(key[0])
 	case UserProfiles:
 		return profileKey(key[0])
 	case TurnResults:

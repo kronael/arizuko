@@ -44,12 +44,8 @@ const (
 	AttrChatAgentCursor = "agent_cursor"
 	AttrChatStickyGroup = "sticky_group"
 	AttrChatStickyTopic = "sticky_topic"
-	// attrChatHasInbound marks a chat that has ever carried a real inbound
-	// message: none a bot sent, none the proactive trigger synthesised. The
-	// proactive scan reads it instead of DISTINCT over every message.
-	attrChatHasInbound = "has_inbound"
-	attrChatInputFirst = "input_first"
-	attrChatInputLast  = "input_last"
+	attrChatInputFirst  = "input_first"
+	attrChatInputLast   = "input_last"
 )
 
 // flagSet is what a true flag is stored as. False is the attribute's ABSENCE.
@@ -181,26 +177,6 @@ func (s *Store) InputCursorsBefore(ctx context.Context, before string) (map[stri
 			out[it.Key.Sort] = cursor
 		}
 	}
-	return out, nil
-}
-
-// ProactiveChats answers the chats that have ever carried a real inbound
-// message: the universe the proactive scan iterates before it filters by each
-// group's mode.
-func (s *Store) ProactiveChats(ctx context.Context) ([]string, error) {
-	items, err := s.Obj().Query(ctx, objstore.Query{
-		Entity: Chats, Partition: OwnerRoutd,
-		Where:   []objstore.Cmp{{Attr: attrChatHasInbound, Op: objstore.Present}},
-		Project: []string{},
-	})
-	if err != nil {
-		return nil, fmt.Errorf("read the proactive chats: %w", err)
-	}
-	out := make([]string, 0, len(items))
-	for _, it := range items {
-		out = append(out, it.Key.Sort)
-	}
-	sort.Strings(out)
 	return out, nil
 }
 
