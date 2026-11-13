@@ -174,8 +174,8 @@ message to an unrouted folder no longer creates anything —
 `routd/steer.go`'s `delegateViaMessage` errors naming the folder and the tool
 that creates it. Groups are never created by routing.
 
-The manifest engine has a row retarget primitive (`resreg.Resource.Retarget`).
-It does not copy group files. The standalone `apply --as-folder` CLI was
+The manifest engine has no row retarget primitive and does not copy group
+files. The standalone `apply --as-folder` CLI was
 retired; there is no current CLI retarget recipe.
 
 ## Guests & delegated OAuth
@@ -356,7 +356,7 @@ is the one with shipped code behind it.
 Rejected:
 
 - **B — unify onto the `5/8` manifest:** rejected because products carry
-  files and `Retarget` rewrites rows only. The proposed recipe relied on the
+  files and a manifest carries rows only. The proposed recipe relied on the
   retired `apply --as-folder` CLI.
 - **C — leave open:** two words for one shape, indefinitely.
 

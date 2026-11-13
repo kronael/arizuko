@@ -16,7 +16,7 @@ packages; no `arizuko.yml` selects one. `get` and `plan` inspect config.
 `dump` and `apply` of a dump tar back up and restore it with instance data.
 `apply` of a rows file writes the rows the file names
 (`cmd/arizuko/apply.go`, `cmd/arizuko/archive.go`). The `--as-folder` option is
-retired. `Resource.Retarget` remains an engine primitive, with no CLI caller.
+retired.
 
 The decisions and implementation history below describe the original manifest
 and archive design. References to standalone `apply`, SQLite transactions,
@@ -274,10 +274,9 @@ derives its DELETE+INSERT scope from the rows' OWN `Scope.Field` value
 where the rows came from. So a caller can retarget rows before calling
 `Apply`, with zero change to `Apply` itself.
 
-`Resource.Retarget` (`resreg/engine.go:383`) is the engine-owned building
-block, and it rewrites ONLY the declared `ScopeSpec.Field` column, for the
-three resources that have one (`groups`, `web_routes`, `network_rules`).
-**It refuses everything else rather than guessing**: `routes` has no
+No engine primitive does the rewrite. A caller rewrites ONLY the declared
+`ScopeSpec.Field` column, which three resources have (`groups`, `web_routes`,
+`network_rules`). **Everything else has no column to rewrite**: `routes` has no
 `Scope.Field` (a spawned child's route must be DERIVED from its own JID,
 never copied from the parent's verbatim), `acl.scope` is a glob,
 `scheduled_tasks.chat_jid` and `secrets.scope_id` are polymorphic;
@@ -285,8 +284,8 @@ never copied from the parent's verbatim), `acl.scope` is a glob,
 
 **Named gap:** a resource WITH a declared `Scope.Field` can still embed the
 folder elsewhere. `web_routes.redirect_to` points into the folder's own
-`/pub|priv/<folder>/` web root; `Retarget` rewrites only `folder`, so a
-caller must rewrite `redirect_to` itself.
+`/pub|priv/<folder>/` web root, so a caller that rewrites `folder` must
+rewrite `redirect_to` too.
 
 The retired caller was `arizuko apply --as-folder <folder>`
 (`cmd/arizuko/retarget.go`) — a recipe over the two existing verbs, exactly as
@@ -296,8 +295,7 @@ migration. Prototype spawn was a second until `4a9a49c7` deleted it precisely be
 copy-register-route behind one verb duplicated export→apply — see `5/5`
 §"Tier 3 — Session".
 
-Three rules the retired recipe carried, each inherited from `Retarget`'s own
-refuses-rather-than-guesses discipline:
+Three rules the retired recipe carried, each refusing rather than guessing:
 
 - **One source folder or refuse.** A manifest whose scoped rows name several
   folders is rejected; retargeting them all onto one would merge them
@@ -311,8 +309,8 @@ refuses-rather-than-guesses discipline:
   different folder than the one it was exported from, so its checksum can
   never match the target.
 
-**File boundary:** `Retarget` rewrites rows, not group files. No current
-CLI command retargets a manifest or copies a group through this primitive.
+**File boundary:** a manifest carries rows, not group files. No current
+CLI command retargets a manifest or copies a group.
 
 ## Consistency levels — an archive is a smear, and must say so
 
@@ -739,8 +737,8 @@ this section listed `acl.principal`/`acl.scope`, `secrets.scope_id`,
 `scheduled_tasks.chat_jid` and `routes.target` as a set the rule "must
 validate". That was wrong on its own terms: those columns have no FK precisely
 BECAUSE they are globs or polymorphic, so deciding which of them is a folder
-means guessing — the exact thing `Retarget` refuses to do two sections up, for
-the same columns. `Hooks.ValidateRow` (`resreg/engine.go`) remains the named
+means guessing — the guess the retarget section above refuses, for the same
+columns. `Hooks.ValidateRow` (`resreg/engine.go`) remains the named
 per-resource extension point for a resource that CAN decide the question for
 its own column; none does today, and `secrets` cannot regress in the meantime
 because `SkipApplyRebuild` means an apply never writes it.
