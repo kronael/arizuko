@@ -13,6 +13,16 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+### Fixed
+
+- L833: one slow attachment download lost the file. routd gave it the TTS
+  client's 30 s for headers and body together, then told the agent "the file
+  could not be fetched", and the agent asked the user to send it again (krons,
+  a 4.5 MB PDF in rhias/nemo, 2026-11-13, during a Telegram Bot API slowdown).
+  routd now downloads with its own client, a header timeout and a body deadline
+  scaled to the size; a transient failure defers the turn and fetches again,
+  for up to 30 minutes from the message.
+
 ## [v0.75.14] — 2026-11-13
 
 > arizuko v0.75.14 — finished turns move to an archive, and less code

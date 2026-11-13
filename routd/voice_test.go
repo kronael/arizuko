@@ -235,7 +235,7 @@ func TestEnrich_TranscribesVoiceAttachment(t *testing.T) {
 	if err := db.PutMessage(*msg); err != nil {
 		t.Fatal(err)
 	}
-	l.enrichAttachments(context.Background(), msg, "demo")
+	l.enrichAttachments(context.Background(), msg, "demo", false)
 
 	// Transcript inlined into the in-memory message...
 	if !strings.Contains(msg.Content, "transcript=\"hello from whisper\"") {
@@ -275,7 +275,7 @@ func TestEnrich_SkipsWhenDisabled(t *testing.T) {
 	_, l, _ := enrichLoop(t, mediaConfig{Enabled: false})
 	atts := voiceAtt(mediaSrv.URL + "/n.ogg")
 	msg := &core.Message{ID: "m1", ChatJID: "tg:1", Content: "voice", Attachments: atts}
-	l.enrichAttachments(context.Background(), msg, "demo")
+	l.enrichAttachments(context.Background(), msg, "demo", false)
 
 	if hit {
 		t.Error("media server hit while media disabled")
@@ -303,7 +303,7 @@ func TestEnrich_DownloadsWithoutTranscriptWhenVoiceOff(t *testing.T) {
 		Enabled: true, MaxBytes: 1 << 20, WhisperURL: whisper.URL, VoiceEnabled: false,
 	})
 	msg := &core.Message{ID: "m1", ChatJID: "tg:1", Content: "v", Attachments: voiceAtt(mediaSrv.URL + "/n.ogg")}
-	l.enrichAttachments(context.Background(), msg, "demo")
+	l.enrichAttachments(context.Background(), msg, "demo", false)
 
 	if whisperHit {
 		t.Error("whisper hit while VoiceEnabled=false")
@@ -426,7 +426,7 @@ func TestEnrich_AnUnfetchableAttachmentIsVisibleToTheAgent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	l.enrichAttachments(context.Background(), msg, "demo")
+	l.enrichAttachments(context.Background(), msg, "demo", false)
 
 	if !strings.Contains(msg.Content, "unavailable=") {
 		t.Fatalf("a dropped attachment left no trace in the turn: %q", msg.Content)
@@ -458,7 +458,7 @@ func TestEnrich_AFetchedAttachmentCarriesItsPathAndNoNotice(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	l.enrichAttachments(context.Background(), msg, "demo")
+	l.enrichAttachments(context.Background(), msg, "demo", false)
 
 	if !strings.Contains(msg.Content, "path=") {
 		t.Fatalf("a fetched attachment lost its path: %q", msg.Content)

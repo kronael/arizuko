@@ -138,7 +138,7 @@ func TestEnrich_Base64Attachment(t *testing.T) {
 	if err := db.PutMessage(*msg); err != nil {
 		t.Fatal(err)
 	}
-	l.enrichAttachments(context.Background(), msg, "demo")
+	l.enrichAttachments(context.Background(), msg, "demo", false)
 
 	if !strings.Contains(msg.Content, `transcript="decoded audio"`) {
 		t.Errorf("base64 attachment not transcribed: %q", msg.Content)
@@ -164,7 +164,7 @@ func TestEnrich_NamesAnAttachmentWithNoSource(t *testing.T) {
 	_, l, _ := enrichLoop(t, mediaConfig{Enabled: true, MaxBytes: 1 << 20})
 	raw, _ := json.Marshal([]chanlib.InboundAttachment{{Mime: "audio/ogg", Filename: "ghost.ogg"}})
 	msg := &core.Message{ID: "m1", ChatJID: "tg:1", Content: "no media here", Attachments: string(raw)}
-	l.enrichAttachments(context.Background(), msg, "demo")
+	l.enrichAttachments(context.Background(), msg, "demo", false)
 
 	if !strings.Contains(msg.Content, "unavailable=") {
 		t.Fatalf("no unavailable element, so the agent runs blind on a file it never got: %q", msg.Content)

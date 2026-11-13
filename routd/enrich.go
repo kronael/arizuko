@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -71,31 +72,34 @@ func (c mediaConfig) bearerFor(rawURL string) func(context.Context) (string, err
 
 // enrichAttachments downloads inbound attachments into the group's dated media
 // dir, transcribes voice/video via Whisper, and rewrites msg.Content with
-// <attachment .../> blocks, persisted via EnrichMessage. Failures log WARN and
-// skip the attachment; the turn proceeds.
-func (l *Loop) enrichAttachments(ctx context.Context, msg *core.Message, folder string) {
+// <attachment .../> blocks, persisted via EnrichMessage. A failed attachment is
+// marked unavailable and the turn proceeds, except when deferrable: a transient
+// fetch failure on a message younger than fetchGiveUp then changes nothing and
+// returns errFetchDeferred, so the caller runs the turn later.
+func (l *Loop) enrichAttachments(ctx context.Context, msg *core.Message, folder string, deferrable bool) error {
 	if !l.media.Enabled || msg.Attachments == "" {
-		return
+		return nil
 	}
 	var atts []chanlib.InboundAttachment
 	if err := json.Unmarshal([]byte(msg.Attachments), &atts); err != nil || len(atts) == 0 {
-		return
+		return nil
 	}
 
 	groupPath, err := l.folders.GroupPath(folder)
 	if err != nil {
 		slog.Warn("enrich: group path", "folder", folder, "err", err)
-		return
+		return nil
 	}
 	day := time.Now().Format("20060102")
 	mediaDir := groupfolder.GroupMediaDir(groupPath, day)
 	if err := os.MkdirAll(mediaDir, 0o755); err != nil {
 		slog.Warn("enrich: mkdir", "dir", mediaDir, "err", err)
-		return
+		return nil
 	}
 
 	langs := readWhisperLanguages(groupPath)
 	var extra strings.Builder
+	var fetched []string
 	for i, att := range atts {
 		ext := extFromMime(att.Mime, att.Filename)
 		fname := sanitizeFilename(att.Filename)
@@ -128,11 +132,25 @@ func (l *Loop) enrichAttachments(ctx context.Context, msg *core.Message, folder 
 				continue
 			}
 		} else {
-			if err := downloadFile(ctx, att.URL, dest, l.media.bearerFor(att.URL), l.media.MaxBytes); err != nil {
+			err := downloadFile(ctx, att.URL, dest, l.media.bearerFor(att.URL), l.media.MaxBytes)
+			transient := err != nil && !errors.Is(err, errFetchPermanent)
+			if transient && deferrable && time.Since(msg.Timestamp) < fetchGiveUp {
+				slog.Warn("enrich: download failed, turn deferred", "url", att.URL, "err", err)
+				for _, path := range fetched {
+					_ = os.Remove(path)
+				}
+				return errFetchDeferred
+			}
+			if err != nil {
 				slog.Warn("enrich: download failed", "url", att.URL, "err", err)
-				extra.WriteString(unavailableAttachment(att, "the file could not be fetched"))
+				why := "the file could not be fetched"
+				if transient && deferrable {
+					why = fmt.Sprintf("the file could not be fetched within %d minutes of the message", int(fetchGiveUp.Minutes()))
+				}
+				extra.WriteString(unavailableAttachment(att, why))
 				continue
 			}
+			fetched = append(fetched, dest)
 		}
 
 		displayName := att.Filename
@@ -161,7 +179,7 @@ func (l *Loop) enrichAttachments(ctx context.Context, msg *core.Message, folder 
 	}
 
 	if extra.String() == "" {
-		return
+		return nil
 	}
 
 	msg.Content += extra.String()
@@ -169,6 +187,7 @@ func (l *Loop) enrichAttachments(ctx context.Context, msg *core.Message, folder 
 	if err := l.db.EnrichMessage(*msg, msg.Content); err != nil {
 		slog.Warn("enrich: store update failed", "id", msg.ID, "err", err)
 	}
+	return nil
 }
 
 // unavailableAttachment is the ONE renderer for a file that did not arrive:
@@ -183,10 +202,39 @@ func unavailableAttachment(att chanlib.InboundAttachment, why string) string {
 		name, att.Mime, why)
 }
 
+// downloadClient fetches inbound attachments. It has no whole-request timeout:
+// downloadFile bounds the response headers, then the body by its size.
+var downloadClient = &http.Client{}
+
+var (
+	fetchHeaderTimeout = 45 * time.Second
+	fetchBodyBase      = 30 * time.Second
+)
+
+const (
+	// fetchBodyRate is the slowest body transfer, in bytes per second, a
+	// download is given time for.
+	fetchBodyRate = 256 << 10
+	fetchGiveUp   = 30 * time.Minute
+)
+
+var (
+	errFetchPermanent = errors.New("the file is refused")
+	errFetchTimeout   = errors.New("attachment download timed out")
+	errFetchDeferred  = errors.New("an attachment download failed transiently")
+)
+
+// downloadFile writes url's body to dest. An error wrapping errFetchPermanent
+// is one a retry cannot fix: a 4xx answer, a body over maxBytes, or a local
+// write failure. Every other error is transient.
 func downloadFile(ctx context.Context, url, dest string, bearer func(context.Context) (string, error), maxBytes int64) error {
+	ctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+	deadline := time.AfterFunc(fetchHeaderTimeout, func() { cancel(errFetchTimeout) })
+	defer deadline.Stop()
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
-		return err
+		return fmt.Errorf("%w: %w", errFetchPermanent, err)
 	}
 	if bearer != nil {
 		tok, terr := bearer(ctx)
@@ -197,17 +245,26 @@ func downloadFile(ctx context.Context, url, dest string, bearer func(context.Con
 			req.Header.Set("Authorization", "Bearer "+tok)
 		}
 	}
-	resp, err := httpClient.Do(req)
+	resp, err := downloadClient.Do(req)
 	if err != nil {
-		return err
+		return fetchCause(ctx, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != 200 {
-		return fmt.Errorf("HTTP %d", resp.StatusCode)
+		code := resp.StatusCode
+		if code >= 400 && code < 500 && code != http.StatusRequestTimeout && code != http.StatusTooManyRequests {
+			return fmt.Errorf("%w: HTTP %d", errFetchPermanent, code)
+		}
+		return fmt.Errorf("HTTP %d", code)
 	}
+	size := resp.ContentLength
+	if size < 0 {
+		size = maxBytes
+	}
+	deadline.Reset(fetchBodyBase + time.Duration(size/fetchBodyRate)*time.Second)
 	f, err := os.Create(dest)
 	if err != nil {
-		return err
+		return fmt.Errorf("%w: %w", errFetchPermanent, err)
 	}
 	body := io.Reader(resp.Body)
 	if maxBytes > 0 {
@@ -216,16 +273,28 @@ func downloadFile(ctx context.Context, url, dest string, bearer func(context.Con
 		body = io.LimitReader(resp.Body, maxBytes+1)
 	}
 	n, cpErr := io.Copy(f, body)
-	if closeErr := f.Close(); cpErr == nil {
-		cpErr = closeErr
+	if cpErr != nil {
+		cpErr = fetchCause(ctx, cpErr)
+	}
+	if closeErr := f.Close(); cpErr == nil && closeErr != nil {
+		cpErr = fmt.Errorf("%w: %w", errFetchPermanent, closeErr)
 	}
 	if cpErr == nil && maxBytes > 0 && n > maxBytes {
-		cpErr = fmt.Errorf("file exceeds %d bytes", maxBytes)
+		cpErr = fmt.Errorf("%w: file exceeds %d bytes", errFetchPermanent, maxBytes)
 	}
 	if cpErr != nil {
 		_ = os.Remove(dest)
 	}
 	return cpErr
+}
+
+// fetchCause names the deadline that cut a download, which the transport
+// reports only as a cancelled context.
+func fetchCause(ctx context.Context, err error) error {
+	if cause := context.Cause(ctx); cause != nil {
+		return fmt.Errorf("%w: %w", cause, err)
+	}
+	return err
 }
 
 func whisperTranscribe(ctx context.Context, baseURL, model, path, mime string, langs []string) string {

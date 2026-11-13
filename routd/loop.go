@@ -582,7 +582,8 @@ func (l *Loop) noticeOnboarding(chatJID, sender string) {
 func (l *Loop) observeRows(chatJID, folder string, rows []core.Message) {
 	for i := range rows {
 		if l.media.Enabled {
-			l.enrichAttachments(context.Background(), &rows[i], folder)
+			// not deferrable, so it marks a failed file and returns nil
+			_ = l.enrichAttachments(context.Background(), &rows[i], folder, false)
 		}
 	}
 	if err := l.db.MarkMessagesObserved(folder, rows); err != nil {

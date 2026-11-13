@@ -127,9 +127,13 @@ with every download, whatever host the URL names. It writes the file under
 `groups/<folder>/media/<YYYYMMDD>/`, and APPENDS one `<attachment …/>` line,
 with a transcript for audio, to the message content. `EnrichMessage` stores
 the rewritten content, so a later turn that reads the message as observed
-context sees the transcript too (`routd/enrich.go`). A file that does not
-arrive becomes `<attachment … unavailable="…"/>`, so the agent knows it is
-missing.
+context sees the transcript too (`routd/enrich.go`). A download waits 45 s
+for headers, then 30 s plus one second per 256 KiB of body. A 4xx answer or
+an oversized body becomes `<attachment … unavailable="…"/>`, so the agent
+knows the file is missing. Any other failure on a message a turn answers
+defers that turn after the busy backoff and fetches again; only a message 30
+minutes old runs with the unavailable line. A row read only as observed
+context gets the line after one failed download.
 
 ## Public API
 

@@ -35,7 +35,7 @@ func enrichFrom(t *testing.T, adapters *chanreg.Registry, fileURL string) {
 	if err := db.PutMessage(*msg); err != nil {
 		t.Fatal(err)
 	}
-	l.enrichAttachments(context.Background(), msg, "demo")
+	l.enrichAttachments(context.Background(), msg, "demo", false)
 	if !strings.Contains(msg.Content, "<attachment path=") {
 		t.Fatalf("download failed: %q", msg.Content)
 	}

@@ -465,6 +465,21 @@ func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed boo
 			}
 		}()
 	}
+	// Enrichment rewrites the trigger rows and persists them, so later turns'
+	// observed context sees the transcript too. A file the adapter could not
+	// hand over yet re-feeds the turn after the busy backoff, before the
+	// one-shot elevation is consumed.
+	if l.media.Enabled {
+		for i := range trigger {
+			if err := l.enrichAttachments(context.Background(), &trigger[i], folder, true); err != nil {
+				requeueAt = l.q.noteBusy(chatJID, last.ID)
+				if saved == nil {
+					time.AfterFunc(requeueAt.Sub(l.q.now()), func() { l.q.EnqueueMessageCheck(chatJID) })
+				}
+				return false, false, true, "", nil
+			}
+		}
+	}
 	if saved == nil || saved.RetryCount == 0 {
 		for i := range trigger {
 			if _, ok := l.pendingElevation.LoadAndDelete(trigger[i].ID); ok {
@@ -510,14 +525,6 @@ func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed boo
 	// BEFORE the prompt build, so FlushSysMsgs renders them this turn.
 	l.emitSystemEvents(folder, chatJID)
 	l.ensureTopicWithFork(folder, topic, l.forkParent(folder, last))
-	// Enrichment rewrites the trigger rows and persists them, so later turns'
-	// observed context sees the transcript too.
-	if l.media.Enabled {
-		ctx := context.Background()
-		for i := range trigger {
-			l.enrichAttachments(ctx, &trigger[i], folder)
-		}
-	}
 	rendered, observedMark := l.buildBoundPrompt(folder, topic, trigger, ambient, saved != nil)
 	// The turn_context row is the failed prior attempt's (spec 5/12).
 	if tc, ok := l.db.GetTurnContext(turnID); ok && tc.RetryCount > 0 {

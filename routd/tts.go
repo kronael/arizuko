@@ -35,8 +35,7 @@ func TTSConfig(enabled bool, url, voice, model string, timeout time.Duration, ca
 	return ttsConfig{Enabled: enabled, URL: url, Voice: voice, Model: model, Timeout: timeout, CacheDir: cacheDir}
 }
 
-// httpClient is routd's shared HTTP client for the TTS + Whisper + media
-// download calls.
+// httpClient is routd's shared HTTP client for the TTS and Whisper calls.
 var httpClient = &http.Client{Timeout: 30 * time.Second}
 
 // sendVoice synthesizes text → Opus via the TTS service, memoized on (text,
