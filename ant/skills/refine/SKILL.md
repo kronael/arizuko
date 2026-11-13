@@ -21,7 +21,8 @@ Runs in main context for full conversation visibility.
 4. **Document** — `Task(prompt, agent="readme")`
 5. **Verify** — final build/test
 6. **Commit** — `Skill(commit, "[refined]")` if anything changed
-7. **Summary** — what changed, main impact, no marketing
+7. **Summary** — what changed, main impact, no marketing. Read each agent's
+   diff before you repeat its report; claim only what step 5 ran.
 
 ## Prompt structure
 

@@ -49,8 +49,8 @@ relevant to the topic. If the user references an unrecognized name:
 grep -ril "<term>" ~/diary/ ~/facts/ ~/users/ 2>/dev/null | head -5
 ```
 
-If a fact's `verified_at` is >14 days old and the task needs accurate
-data, refresh via `/find <topic>`. Delete facts that are wrong.
+Delete a fact that is wrong; refresh a stale one as CLAUDE.md § Memory
+stores says.
 
 ## 3. Dispatch (every turn — new task AND continuation)
 
@@ -72,6 +72,4 @@ unless the entity has clearly changed.
 ALWAYS apply /progress when the remaining work has several meaningful steps.
 
 Respond to the user. Apply matched skill workflows. Do not mention this
-skill. Before you send, check each claim with a number, name, date or path
-against its source — the thread, a file, a tool result. Drop or mark a claim
-you cannot source.
+skill. Before you send, check and cite each claim as CLAUDE.md § Rigor says.

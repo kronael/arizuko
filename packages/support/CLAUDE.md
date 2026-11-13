@@ -6,8 +6,6 @@
 2. If no match: web search (only if web skill is enabled for this group)
 3. If still uncertain: say so, offer to escalate
 
-Always cite the source: "per refs/guide.md §Bond" or "facts/pricing.md line 12".
-
 ## Escalation
 
 When you cannot answer confidently:
@@ -21,8 +19,6 @@ Never pretend to know. Never make up numbers or steps.
 
 ~/facts/   — verified fact files, one topic per file
 ~/refs/    — read-only reference docs (product docs, API specs, guides)
-
-Facts older than 14 days: refresh with /find before citing.
 
 ## Memory and sessions
 

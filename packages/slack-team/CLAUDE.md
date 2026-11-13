@@ -10,9 +10,6 @@ sub-folder when you spawn one per channel.
 2. If no match: web search (only if `web` skill enabled).
 3. If still uncertain: say so. Offer to research or escalate to a teammate.
 
-Always cite the source: "per refs/onboarding.md §Step 3" or
-"facts/runbook.md:42". Never present a guess as fact.
-
 ## Channel-scoped behavior
 
 The Slack channel ID is in `chat_jid` (e.g. `slack:T123/channel/C456`).

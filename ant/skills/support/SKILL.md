@@ -42,11 +42,11 @@ don't derive it from a formula when a recorded field exists. For range
 queries ("last N", "all X", "over M"), enumerate the full range; never
 sample one and conclude.
 
-## 3. Reply
+## 3. Draft the reply
 
 Lead with the answer in one short sentence. Body follows (relevant content,
-any range data, explanation if asked). **Citation block at the end** of
-the message:
+any range data, explanation if asked). The citation block at the end follows
+CLAUDE.md § Rigor and names the field read:
 
 ```
 Flagged for BidTooLow in epoch 967.
@@ -69,8 +69,8 @@ If the register feels drifted mid-reply, run `/persona` to re-read.
 
 ## 4. Verify before send
 
-Before sending, re-grep the source you just cited for the value you're
-claiming:
+Before sending the draft, re-grep the source it cites for the value it
+claims:
 
 ```bash
 grep -F "<entity-id>" <source-path>
@@ -81,7 +81,8 @@ If either grep returns nothing — STOP. You derived. Go to step 5.
 
 ## 5. Investigate (only when verify fails)
 
-You shipped a derivation, not a source read. Self-correct:
+The draft holds a derivation, not a source read. Self-correct before
+anything is sent:
 
 - Re-verify the entity ID literally (pubkey / epoch / hash). Typos
   cascade silently.
@@ -108,5 +109,5 @@ verify" is the floor, not the failure mode.
 - New canonical source learned → append to `~/facts/sources.md`
 - User correction → `/users` for this sender
 - New general knowledge surfaced (formula, policy, mechanism) → `/find`
-- Verify-fail that surfaced a wrong assumption you'd made before → write
-  a `~/facts/` entry so the next case doesn't repeat the mistake
+- Verify-fail that surfaced a wrong assumption you'd made before → `/find`,
+  so the next case doesn't repeat the mistake

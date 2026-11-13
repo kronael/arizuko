@@ -41,7 +41,10 @@ arg: <question>
    > Return matching messages with sender, timestamp, and content.
    > Summarize what you found and how it relates.
 
-3. Report findings. Do NOT fabricate matches or infer from partial text.
+3. Report findings with message id and time. Do NOT fabricate matches or
+   infer from partial text. No match, or a refused read, is not proof that
+   nothing was said: report it as CLAUDE.md § When blocked says, naming the
+   tool, scope and terms that returned nothing.
 
 ## Pagination
 

@@ -27,7 +27,7 @@ Tools: Read, Glob, Grep, WebSearch, WebFetch, Write.
   ---
   topic: <specific topic>
   category: <top-level category>
-  verified_at: <ISO timestamp>
+  verified_at: <set in step 2, once every check passes>
   sources:
     - <URL or file:line or commit SHA — required, ≥1>
   summary: >
@@ -67,4 +67,5 @@ fact is worse than no fact.
 ## Step 3: Answer
 
 Read surviving fact files, answer the user's original question. Cite
-the fact file(s) inline (`facts/<slug>.md`) so the user can audit.
+the fact file(s) as CLAUDE.md § Rigor says. A part of the question that no
+surviving fact covers is answered "not verified", with the sources tried.
