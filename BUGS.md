@@ -360,7 +360,7 @@ A refusal is about this message's content, not the provider or the instance.
   stores that as the turn's failure and logs `agent turn refused`.
 
 ## ✅ FIXED 2026-11-13 9b6730d06 f4742e390 L827 — every dispatch reads every chat to order a folder's input (2026-11-12)
-## ✅ FIXED 2026-11-13 21bd635ac L829 — onbod reads its whole onboarding table three times every 10 s (2026-11-13)
+## ✅ FIXED 2026-11-13 08bef064e L829 — onbod reads its whole onboarding table three times every 10 s (2026-11-13)
 
 MEASURED 2026-11-13 by source at v0.75.11 (`cf4d6b62c`): onbod's tick
 (`onbod/main.go:150`, every `ONBOARD_POLL_INTERVAL` = 10 s) calls
@@ -372,14 +372,14 @@ store reads every row three times per tick, 18 whole reads a minute, and the
 table only grows: no row expires. `warnStrandedRows` only logs.
 
 - **Severity:** low — read cost on the shared store, no wrong result.
-- **Status:** fixed in 21bd635ac. `onbod/poll_reads_test.go::TestTickReadsOnboardingOnce`
+- **Status:** fixed in 08bef064e. `onbod/poll_reads_test.go::TestTickReadsOnboardingOnce`
   asserts 1 read of the `onboarding` entity per tick; one extra whole read put
   back in `pollOnboarding` turns it red at 2.
 - **Fix:** read the awaiting rows once per tick and filter them in memory;
   delete `warnStrandedRows`. Still open after it: `observePairings` reads
   `ParentEdges` once per never-paired chat per tick.
 
-## ✅ FIXED 2026-11-13 2488a7a1f L830 — every web chat view and SSE connect reads one `turn_context` per past turn (2026-11-13)
+## ✅ FIXED 2026-11-13 32a25d5c0 L830 — every web chat view and SSE connect reads one `turn_context` per past turn (2026-11-13)
 
 MEASURED 2026-11-13 by source at v0.75.11 (`cf4d6b62c`): `webd/route_token.go:142`
 (chat JSON view) and `:470` (topic SSE connect) call `store.ActiveProgress`
@@ -390,7 +390,7 @@ phase alone decides both: `final` is shown, `cleared` is not. So a chat with N
 past turns costs N turn reads per page load or reconnect, every one wasted.
 
 - **Severity:** low — read cost grows with a chat's turn count, no wrong result.
-- **Status:** fixed in 2488a7a1f. `store/turns_containment_test.go::TestActiveProgressReadsNoEndedTurn`
+- **Status:** fixed in 32a25d5c0. `store/turns_containment_test.go::TestActiveProgressReadsNoEndedTurn`
   asserts 1 `turn_context` read (the live turn) for 49 cleared turns, one
   final turn and one live one; without the `cleared` case it reads 50.
 - **Fix:** decide `final` and `cleared` rows from the phase and read the turn
@@ -593,7 +593,7 @@ the next poll.
   delay. Store reads per 2 s tick: krons 471 and sloth 1,134 before; 0 after,
   plus 5 every 30 s (3 of them whole `turn_context` reads).
 
-## ✅ FIXED 2026-11-13 c4b3176ab 45c090c2f acdeb0a07 L823 — every wake reads the whole `turn_context` partition to find held input (2026-11-12)
+## ✅ FIXED 2026-11-13 92f86c1a1 19adfb935 91acbe6e0 L823 — every wake reads the whole `turn_context` partition to find held input (2026-11-12)
 
 MEASURED 2026-11-12 (`routd/poll_load_test.go::TestWakeReadsTurnContextOnce`,
 counting store): a GitHub CI event that routes observe-only costs 6 store
@@ -634,8 +634,8 @@ pre-breaker state.
   proactive feature (`routd/proactive.go`, `store/chat_proactive.go`,
   `proactive/`, `dashd/proactive_page.go`, the `PROACTIVE_*` keys,
   `specs/5/6-proactive-interjection.md`). The breaker stays.
-- **Fix:** proactive deleted in c4b3176ab, the legacy held state and retry
-  migration in 45c090c2f, the archive in acdeb0a07; not deployed. The write
+- **Fix:** proactive deleted in 92f86c1a1, the legacy held state and retry
+  migration in 19adfb935, the archive in 91acbe6e0; not deployed. The write
   that leaves a turn `expired`, or `done` with its run returned, owing no
   status, moves it from `turn_context` to `turn_archive` (keyed
   `(routd, turn id)`) in one batch; a later write that owes a status again
