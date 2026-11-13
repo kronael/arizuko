@@ -951,7 +951,7 @@ must carry: `chats` (which holds `agent_cursor`), `sessions` (which holds
 drops the first two re-feeds every consumed message — the same failure
 `0044`'s migration order exists to avoid. Three more are cold-tier management
 entities root `CLAUDE.md` already requires to be resreg resources —
-`chat_proactive`, `group_watchers`, `pane_sessions`, `user_profiles` — and "a
+`group_watchers`, `pane_sessions`, `user_profiles` — and "a
 management resource without a resreg registration is a review-blocker". That is
 the `5/16` debt, and closing it is step 3a rather than a separate project.
 

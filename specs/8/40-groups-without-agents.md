@@ -178,9 +178,7 @@ there, and they apply again when the agent is bound again.
 ## A row for a group with no agent is routed, and no turn runs
 
 Every path that starts a turn passes `resolveRows`. `runTurn` has one caller,
-`processGroupMessages` (`routd/dispatch.go:143`), and the proactive scanner
-asks `resolveGroup`, which calls the same resolver (`routd/proactive.go:184`).
-So one check at the end of `resolveRows` covers the direct addresses, the
+`processGroupMessages` (`routd/dispatch.go:143`). So one check at the end of `resolveRows` covers the direct addresses, the
 route table and engagement.
 
 Current, `routd/loop.go:643-675`:

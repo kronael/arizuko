@@ -559,7 +559,7 @@ the next poll.
   delay. Store reads per 2 s tick: krons 471 and sloth 1,134 before; 0 after,
   plus 5 every 30 s (3 of them whole `turn_context` reads).
 
-## L823 — every wake reads the whole `turn_context` partition to find held input (2026-11-12, open — decided)
+## ✅ FIXED 2026-11-13 c4b3176ab 45c090c2f acdeb0a07 L823 — every wake reads the whole `turn_context` partition to find held input (2026-11-12)
 
 MEASURED 2026-11-12 (`routd/poll_load_test.go::TestWakeReadsTurnContextOnce`,
 counting store): a GitHub CI event that routes observe-only costs 6 store
@@ -600,11 +600,27 @@ pre-breaker state.
   proactive feature (`routd/proactive.go`, `store/chat_proactive.go`,
   `proactive/`, `dashd/proactive_page.go`, the `PROACTIVE_*` keys,
   `specs/5/6-proactive-interjection.md`). The breaker stays.
-- **Fix:** the write that finishes a turn (`done` or `expired`, no status
-  owed) moves it from `turn_context` to `turn_archive` in one batch; `Open`
-  moves the existing finished rows once behind a marker. `turn_context` then
-  holds only live turns, so each pass reads O(live rows). A by-id read falls
-  back to the archive by key; the run's chats are keyed by run id.
+- **Fix:** proactive deleted in c4b3176ab, the legacy held state and retry
+  migration in 45c090c2f, the archive in acdeb0a07; not deployed. The write
+  that leaves a turn `expired`, or `done` with its run returned, owing no
+  status, moves it from `turn_context` to `turn_archive` (keyed
+  `(routd, turn id)`) in one batch; a later write that owes a status again
+  moves it back. `Open` moves the existing `done`/`expired` rows once behind a
+  `counters` marker (krons 5,714, sloth 6,689 at 2026-11-13). Each pass reads
+  one partition of live rows; a by-id read falls back to the archive by key;
+  `run_turns` (`(run id, turn id)`) answers the run-end typing read. Tests,
+  each red under its own mutation: `routd/poll_load_test.go::TestWakeReadsNoTurn`
+  (a turn read back in `pendingBatch`), `TestPassAndRunEndExamineOnlyLiveTurns`
+  (the pass reads the archive: 40 rows); `store/turn_archive_test.go`
+  `TestFinishedTurnMovesToTheArchiveWhole` (no move; no archive done-guard),
+  `TestArchiveMoveKeepsAConcurrentWrite` (no unchanged guard),
+  `TestMigrateTurnArchiveMovesFinishedRowsOnce` (no marker; moves skipped);
+  `routd/typing_owner_test.go::TestTypingJIDsForRunCoversASteeredTurnInAnotherChat`
+  (run chats read from `turn_context`).
+- **Left:** `TurnsSince` (`GET /v1/routing/answering`, dashd) filters the
+  whole archive on `started_at`: a turn id carries no time, so one key cannot
+  serve both by-id and by-time reads. A crash between a turn's finish and its
+  status acknowledgement leaves it live, `done`, owing nothing.
 
 ## L822 — gitd's `/health` reads its whole held-inbound backlog on every probe (2026-11-12, open — needs sign-off)
 

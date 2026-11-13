@@ -233,7 +233,7 @@ Go entrypoints come from `rg -l '^func main\(' --glob '*.go'`.
 | `auth`                                                            | Offline verification, middleware, grant evaluation, delegation, shared OAuth primitives.             |
 | `resreg`                                                          | One management handler exposed through REST and MCP, with injected authorization.                    |
 | `chanlib`, `chanreg`                                              | Adapter protocol/reliability and registered-channel delivery.                                        |
-| `router`, `queue`, `proactive`                                    | Pure route/prompt functions, folder scheduling, silence-mode configuration.                          |
+| `router`, `queue`                                                 | Pure route/prompt functions and folder scheduling.                                                   |
 | `ipc`                                                             | In-process agent MCP tools and calls into routd.                                                     |
 | `container`, `diary`                                              | Group/package asset setup and memory summary reads.                                                  |
 | `groupfolder`, `mountsec`                                         | Folder containment and mount path checks.                                                            |
