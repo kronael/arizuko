@@ -205,9 +205,8 @@ already-paired JID surface in the browser (chat notice / `ErrPairingConflict` �
 409); a no-gate-match is now a terminal `status='refused'` **delivered to the
 chat**, because it is discovered on a tick after the browser page is gone. A
 route-table read failure is logged, treated as a miss, and the cursor advances —
-the message is dropped. A row in an unknown status is logged every poll and
-never advances (BUGS O1), and `token_used` joined that set: no writer produces
-it any more. An expired link **can** now be re-requested from the chat — the
+the message is dropped. A row in a status no writer produces (`token_used`,
+BUGS O1) never advances, silently. An expired link **can** now be re-requested from the chat — the
 next route miss past `PairingTTL` re-arms the greeting (`5/31`); the operator
 reprompt button survives as the bypass for a chat that has gone quiet.
 
