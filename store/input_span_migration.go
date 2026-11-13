@@ -41,11 +41,10 @@ func (s *Store) MigrateChatInputSpan(ctx context.Context) error {
 			return fmt.Errorf("write the input span of %s: %w", chat.Key.Sort, err)
 		}
 	}
-	_, err = s.TryWriteEntities(ctx, nil, objstore.Write{
+	return s.WriteEntities(ctx, nil, objstore.Write{
 		Op: objstore.Put, Entity: Counters, Key: marker,
 		Attrs: map[string]string{"done": "1"}, Cond: objstore.Cond{Item: objstore.ItemAbsent},
 	})
-	return err
 }
 
 // inputPast answers the key of the oldest, or with newest the newest, user row
