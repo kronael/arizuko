@@ -25,7 +25,7 @@ export interface ModelUsage {
 export interface SubmitTurnPayload {
   turn_id: string;
   session_id?: string;
-  status: 'success' | 'error';
+  status: 'success' | 'error' | 'refused';
   error?: string;
   // harness names the occupant that ran the turn: claude, codex or pi.
   harness?: string;

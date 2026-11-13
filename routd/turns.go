@@ -189,6 +189,11 @@ func (s *Server) recordTurnResultAttempt(turnID, attempt string, req apiv1.TurnR
 		end = endFailed
 	}
 	var notice *turnStatus
+	if req.Status == "refused" {
+		slog.Warn("agent turn refused", "folder", tc.Folder, "turn_id", turnID, "err", req.Error)
+		notice = &turnStatus{phase: "final", cause: "The model refused this request (provider safety filter)"}
+		end = endFailed
+	}
 	if req.Status == "success" {
 		if req.TimedOut {
 			notice = &turnStatus{phase: "timeout"}

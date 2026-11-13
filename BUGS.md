@@ -331,6 +331,31 @@ reads those words now.
   **Proposal:** stop the build on the first failed submake. This is an adjacent
   build-gate repair; scope approval is pending.
 
+## L831 — a model safety refusal closes the whole instance for an hour (2026-11-13)
+
+MEASURED 2026-11-12 15:39 → 2026-11-13 09:03 UTC on krons: five rhias/nemo
+turns (Claude harness, `claude-fable-5-2`) ended on a safeguards refusal, and
+each opened the instance breaker (`turn_control` `phase=open`,
+`next_probe_at` +1 h). In `groups/rhias/nemo/logs/container-2026-11-13T09-03-17.log`
+the result frame is `ok=false` with `API Error: Fable 5.2's safeguards flagged
+this message (https://www.anthropic.com/legal/aup) ... Details:
+[reasoning_extraction]`; the session transcript's last assistant message
+carries `stop_reason: "refusal"` and `stop_details.type: "refusal"`. ant logs
+`Turn failed (retryable)` and exits 1 (`ant/src/index.ts` `process.exit`);
+runed reports `OutcomeError`; `classifyTurn` (`routd/turn_control.go`) trips on
+any error outcome, so `complete` opens the breaker for every group. The submit
+of the error result had already failed the turn and posted the user's notice
+(`recordTurnResultAttempt`, `routd/turns.go`): the exit adds only the breaker.
+A refusal is about this message's content, not the provider or the instance.
+
+- **Severity:** high — one refused message silences every group for an hour.
+- **Status:** open.
+- **Fix:** the Claude reducer marks a result that follows a refusal stop;
+  ant submits it with `status: "refused"` and does not exit, so the run ends
+  like any answered turn and the breaker stays as it was. routd fails the turn
+  with the notice "The model refused this request (provider safety filter).",
+  stores that as the turn's failure and logs `agent turn refused`.
+
 ## ✅ FIXED 2026-11-13 9b6730d06 f4742e390 L827 — every dispatch reads every chat to order a folder's input (2026-11-12)
 
 MEASURED 2026-11-12 (`routd/poll_load_test.go::TestDispatchReadsNoOtherChat`,

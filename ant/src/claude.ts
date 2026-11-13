@@ -418,6 +418,7 @@ export class ClaudeTurn {
   // throttled. A refusal outlives a retry — sloth's seven-day cap reset eleven
   // hours out — so a result that errors after one is terminal (BUGS L175).
   private rejected: ProviderFailure | undefined;
+  private refused = false;
 
   // prior is the per-model total the resumed session saved before this turn.
   constructor(private readonly prior?: SdkModelUsage) {}
@@ -432,6 +433,7 @@ export class ClaudeTurn {
       return [{ kind: 'continuity', token: this.sessionId, sessionId: this.sessionId }];
     }
     if (m.type === 'assistant') {
+      this.refused = (raw as { message?: { stop_reason?: string } }).message?.stop_reason === 'refusal';
       const frames: Frame[] = [];
       // Each assistant message advances the resume point: the packed token lets the
       // next inner-loop turn resume AT this message instead of after trailing tool
@@ -470,6 +472,7 @@ export class ClaudeTurn {
         retryFresh: m.subtype === 'error_during_execution' || undefined,
         terminal: (status === 'error' && (!!failure || permanentAPIError(text))) || undefined,
         providerFailure: failure,
+        refused: this.refused || undefined,
       }];
     }
     return [];

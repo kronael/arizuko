@@ -124,7 +124,7 @@ type RouteTokenInfo struct {
 type TurnResult struct {
 	TurnID    string `json:"turn_id"`
 	SessionID string `json:"session_id,omitempty"`
-	Status    string `json:"status"` // success | error
+	Status    string `json:"status"` // success | error | refused
 	Error     string `json:"error,omitempty"`
 	// TimedOut reports harness time or turn-limit exhaustion.
 	TimedOut        bool                    `json:"timed_out,omitempty"`

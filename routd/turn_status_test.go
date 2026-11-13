@@ -138,6 +138,39 @@ func TestTurnStatusFinalRetained(t *testing.T) {
 	}
 }
 
+// A model refusal fails its turn with a notice, a stored cause and a log line
+// that each say refusal, and the run that ends after it leaves the instance
+// breaker closed (BUGS L831).
+func TestTurnStatusRefusedNamesTheRefusal(t *testing.T) {
+	logs := captureWarnings(t)
+	dl := &recDeliverer{}
+	db, srv := progressWithRow(t, dl)
+	if _, err := srv.recordTurnResult("t1", apiv1.TurnResult{TurnID: "t1", Status: "refused", Error: "API Error: safeguards flagged this message"}); err != nil {
+		t.Fatal(err)
+	}
+	want := "The model refused this request (provider safety filter)."
+	row, _ := db.LastStatusRow(progressJID, "t1")
+	if row.StatusPhase != "final" || row.Content != want {
+		t.Fatalf("notice %+v, want final %q", row, want)
+	}
+	if got := db.store().TurnFailure("demo", "t1"); got != want {
+		t.Fatalf("stored cause %q, want %q", got, want)
+	}
+	if !strings.Contains(logs.String(), "agent turn refused") {
+		t.Fatalf("no refusal log line; log:\n%s", logs.String())
+	}
+	tc, _ := db.GetTurnContext("t1")
+	loop := NewLoop(db, &recRunner{}, LoopConfig{Deliver: dl})
+	loop.StopQueue()
+	if _, err := loop.q.complete(loop, tc, runedv1.RunOutcome{Outcome: runedv1.OutcomeOK}, nil, turnWork{}); err != nil {
+		t.Fatal(err)
+	}
+	control, exists, err := db.store().ReadTurnControl(t.Context())
+	if err != nil || (exists && control.Phase != "closed") || tc.State != store.TurnDone {
+		t.Fatalf("control %+v exists=%v err=%v state=%s", control, exists, err, tc.State)
+	}
+}
+
 func TestTurnStatusNoRawError(t *testing.T) {
 	for _, sample := range []struct{ raw, want string }{
 		{"vm record: /srv/secret: no space left on device", "Server storage is full"},

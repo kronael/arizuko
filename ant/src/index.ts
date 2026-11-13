@@ -26,7 +26,7 @@ interface ContainerInput {
 }
 
 interface ContainerOutput {
-  status: 'success' | 'error';
+  status: 'success' | 'error' | 'refused';
   newSessionId?: string;
   error?: string;
   harness?: string;
@@ -319,12 +319,12 @@ async function runAttempt(
           // A failed turn's text is a diagnostic, never the answer. It rides
           // `error`, so routd delivers its own failure notice rather than
           // handing the user "API Error: 400 …" as the agent's reply.
-          if (!frame.ok) {
+          if (!frame.ok && !frame.refused) {
             out.failed = frame.terminal ? 'terminal' : 'retryable';
             out.failedReason = frame.text;
           }
           const ack = await deliver(turnID, {
-            status: frame.ok ? 'success' : 'error',
+            status: frame.ok ? 'success' : frame.refused ? 'refused' : 'error',
             newSessionId: out.sessionId,
             error: frame.ok
               ? undefined

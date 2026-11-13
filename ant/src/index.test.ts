@@ -271,6 +271,17 @@ test('runTurn: a terminal failure is reported as terminal', async () => {
   expect(r.failed).toBe('terminal');
 });
 
+/** A refused message fails its turn through the delivered refusal, and the process stays up, so the run never reaches routd's instance breaker (BUGS L831). */
+test('runTurn: a refused result is delivered as a refusal without failing the run', async () => {
+  const { deliveries, deliver } = spy();
+  const r = await runTurn(scripted([{ kind: 'result', ok: false, refused: true, text: 'safeguards flagged this message' }]),
+    'p', undefined, INPUT, {}, 'turn-1', deliver, statusSpy().send);
+  expect(deliveries).toHaveLength(1);
+  expect(deliveries[0].status).toBe('refused');
+  expect(deliveries[0].error).toBe('safeguards flagged this message');
+  expect(r.failed).toBeUndefined();
+});
+
 test('runTurn: a clean turn reports no failure and leaves prose off the wire', async () => {
   const { deliveries, deliver } = spy();
   const r = await runTurn(scripted([{ kind: 'result', ok: true, text: 'the answer' }]),

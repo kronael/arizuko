@@ -63,7 +63,7 @@ type OK struct {
 type TurnResult struct {
 	TurnID    string                `json:"turn_id"`
 	SessionID string                `json:"session_id"`
-	Status    string                `json:"status"` // success|error
+	Status    string                `json:"status"` // success|error|refused
 	Error     string                `json:"error"`
 	Harness   string                `json:"harness"`
 	Models    map[string]ModelUsage `json:"models"`

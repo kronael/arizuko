@@ -106,6 +106,7 @@ export type Frame =
       // runed reads as Terminal, so the turn is never re-spawned (BUGS L175).
       terminal?: boolean;
       providerFailure?: ProviderFailure;
+      refused?: boolean;
     };
 
 // ResultFrame is the terminal variant — what a reducer's finish() synthesizes

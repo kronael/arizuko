@@ -332,6 +332,31 @@ test('ClaudeTurn leaves a failure retryable when the rate limit was informationa
   expect(r.terminal).toBeUndefined();
 });
 
+const SAFEGUARDS = "API Error: Fable 5.2's safeguards flagged this message " +
+  '(https://www.anthropic.com/legal/aup). Details: `[reasoning_extraction]`';
+
+/** A safeguards refusal ends on an assistant message with stop_reason "refusal" (krons rhias/nemo, BUGS L831); the error result after it is a refused failure. */
+test('ClaudeTurn marks the error result after a refusal stop as refused', () => {
+  const turn = new ClaudeTurn();
+  turn.push({ type: 'assistant', message: { stop_reason: 'refusal',
+    content: [{ type: 'text', text: SAFEGUARDS }] } });
+  const r = turn.push({ type: 'result', subtype: 'success', is_error: true, result: SAFEGUARDS })[0];
+  if (r.kind !== 'result') throw new Error('expected result frame');
+  expect(r.ok).toBe(false);
+  expect(r.refused).toBe(true);
+});
+
+/** A refusal the turn moved past does not mark a later outage as refused, so the outage still retries and trips the breaker. */
+test('ClaudeTurn does not mark a failure refused when a later message followed the refusal', () => {
+  const turn = new ClaudeTurn();
+  turn.push({ type: 'assistant', message: { stop_reason: 'refusal', content: [] } });
+  turn.push({ type: 'assistant', message: { stop_reason: 'end_turn', content: [] } });
+  const r = turn.push({ type: 'result', subtype: 'success', is_error: true, result: 'API Error: 503 upstream' })[0];
+  if (r.kind !== 'result') throw new Error('expected result frame');
+  expect(r.ok).toBe(false);
+  expect(r.refused).toBeUndefined();
+});
+
 // --- PreCompact hook (BUGS L509) ------------------------------------------
 
 // A missing transcript makes the archive step fail and log. The hook must still
