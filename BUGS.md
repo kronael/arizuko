@@ -331,7 +331,7 @@ reads those words now.
   **Proposal:** stop the build on the first failed submake. This is an adjacent
   build-gate repair; scope approval is pending.
 
-## L831 — a model safety refusal closes the whole instance for an hour (2026-11-13)
+## ✅ FIXED 2026-11-13 fc9157598 L831 — a model safety refusal closes the whole instance for an hour (2026-11-13)
 
 MEASURED 2026-11-12 15:39 → 2026-11-13 09:03 UTC on krons: five rhias/nemo
 turns (Claude harness, `claude-fable-5-2`) ended on a safeguards refusal, and
@@ -349,7 +349,14 @@ of the error result had already failed the turn and posted the user's notice
 A refusal is about this message's content, not the provider or the instance.
 
 - **Severity:** high — one refused message silences every group for an hour.
-- **Status:** open.
+- **Status:** fixed in fc9157598; not deployed. Tests, each red under its own
+  mutation: `ant/src/claude.test.ts` "ClaudeTurn marks the error result after a
+  refusal stop as refused" (marker match) and "…does not mark a failure refused
+  when a later message followed the refusal" (sticky flag);
+  `ant/src/index.test.ts` "runTurn: a refused result is delivered as a refusal
+  without failing the run" (no exit, `refused` status);
+  `routd/turn_status_test.go::TestTurnStatusRefusedNamesTheRefusal` (the
+  refusal branch in `recordTurnResultAttempt`).
 - **Fix:** the Claude reducer marks a result that follows a refusal stop;
   ant submits it with `status: "refused"` and does not exit, so the run ends
   like any answered turn and the breaker stays as it was. routd fails the turn
