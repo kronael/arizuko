@@ -15,6 +15,7 @@
 
 ## What needs you
 
+- `L832` — four products write `facts/` by hand against the manual; 53 of 160 live facts lack `summary:`; needs sign-off.
 - `L826` — one folder's crash closes the whole instance for an hour; per-folder breaker or a 30 s probe; needs sign-off.
 - `L822` — gitd's `/health` reads its whole held-inbound backlog per probe; dropping `pending_inbound` changes the documented contract; needs sign-off.
 - `L816` — gitd loses GitHub webhooks while the store is unreachable; retention lives in that store; proposal, needs sign-off.
@@ -326,6 +327,28 @@ reads those words now.
   `/tmp/arizuko-github-baseline-build.log`. No test — ops.
   **Proposal:** stop the build on the first failed submake. This is an adjacent
   build-gate repair; scope approval is pending.
+
+## L832 — four products tell the agent to write `facts/` by hand; the manual forbids it (2026-11-13, open — needs sign-off)
+
+`ant/CLAUDE.md` § Memory stores: "NEVER write `facts/*.md` by hand" — `/find`
+writes facts, `/diary` takes decisions, `/users` takes preferences. Four
+product personas, and their pages under `template/web/pub/arizuko/products/`,
+say the opposite: `packages/personal/group/SOUL.md` ("update facts/ with
+anything durable (preferences, decisions)"), `packages/pm/group/SOUL.md`
+(`facts/tasks.md`, `facts/decisions/`), `packages/strategy/group/SOUL.md`
+(briefings in `facts/reports/`), `packages/reality/group/SOUL.md`
+(`facts/threads/`). MEASURED 2026-11-13: of 160 live fact files on krons and
+sloth, 53 have no `summary:` line, so `/recall-memories` finds them by file
+name alone — happy 8/8, rhias/trip 20/20 (hand-written, e.g.
+`biale-skaly-naroznik.md`, `title:` + `verified_at:` only), sloth/trading 7/9.
+No test — contract.
+
+- **Severity:** medium — recall matches a third of stored facts by file name alone.
+- **Status:** open — needs sign-off: the product contracts are public pages.
+- **Proposal:** move each product's agent-written file to the store the
+  manual names (decisions → `/diary`, preferences → `/users`, briefings →
+  `~/reports/`, boards and threads → `~/workspace/`), and update the four
+  pages. Re-running `/find` on the 53 live files is the operator's call.
 
 ## ✅ FIXED 2026-11-13 fc9157598 L831 — a model safety refusal closes the whole instance for an hour (2026-11-13)
 

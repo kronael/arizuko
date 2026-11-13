@@ -19,8 +19,9 @@ prompt of a new task as `<memory scope="folder">`; recall reads the rest.
 
 Spawn an Explore subagent with the question. The subagent:
 
-1. Greps `summary:` in `*.md` across `~/facts/`, `~/diary/`, `~/users/`,
-   `~/episodes/`
+1. Greps `summary:` lines and file names in `*.md` across `~/facts/`,
+   `~/diary/`, `~/users/`, `~/episodes/`; a file with no `summary:` is found
+   by its name only
 2. Reads each summary, judges relevance to the question
 3. Returns matches: file path, store name, why it matches
 

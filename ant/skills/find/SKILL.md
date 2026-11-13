@@ -45,17 +45,20 @@ Tools: Read, Glob, Grep, WebSearch, WebFetch, Bash.
 
 Each fact must pass **all** of these before `verified_at` is set:
 
-1. **Source accessible** — every URL in `sources:` returns 200. Every
+1. **Shape** — frontmatter has `topic`, `verified_at`, `sources` and
+   `summary`. `/recall-memories` greps `summary:`; a file without it is
+   found by its name only.
+2. **Source accessible** — every URL in `sources:` returns 200. Every
    file:line exists. Every commit SHA resolves.
-2. **Claim matches source** — open the source, read it, confirm the
+3. **Claim matches source** — open the source, read it, confirm the
    fact's body is what the source actually says. Paraphrase drift is
    the most common failure mode.
-3. **No contradiction** with other facts in `facts/`. If two facts
+4. **No contradiction** with other facts in `facts/`. If two facts
    disagree, one is wrong — investigate, delete the loser.
-4. **Numbers recomputed** — any quantity, rate, size, or date in the
+5. **Numbers recomputed** — any quantity, rate, size, or date in the
    body must be recomputed from source, not copied from a summary.
    Use `bash`/`python`/`jq` for arithmetic; don't trust head math.
-5. **Volatile claims flagged** — version numbers, prices, API shapes,
+6. **Volatile claims flagged** — version numbers, prices, API shapes,
    third-party service behaviour, security advisories. These decay
    fast; note the volatility in the body so future readers know to
    re-verify sooner than the default 14 days.
