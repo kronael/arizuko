@@ -13,7 +13,24 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.75.14] — 2026-11-13
+
+> arizuko v0.75.14 — finished turns move to an archive, and less code
+>
+> routd keeps finished turns in an archive table, so its periodic reads touch only live turns; about 1,300 lines of unused code are gone.
+>
+> • Store load — the 30 s pass reads only live turns, and a wake reads none.
+> • Archive — every finished turn stays, in `turn_archive`.
+> • Sources — every skill uses one rule for checking and citing claims.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
 ### Fixed
+
+- L829: onbod read its whole onboarding table three times every 10 s; it reads
+  it once per tick.
+- L830: a web chat view read one turn per past status row; it reads only turns
+  with a live status.
 
 - L832: the personal, pm, strategy and reality products tell the agent that
   only `/find` writes `facts/`. Decisions go to the diary and preferences to
@@ -25,12 +42,27 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   existing finished rows once; the passes read only live turns, a wake reads
   none, and a run's chats are keyed by run in `run_turns`.
 
+### Changed
+
+- `ant/CLAUDE.md` § Rigor states once how to check a claim, what counts as
+  a source and how to cite it; skills point to it. Reviews run before a reply
+  is sent.
+- Test-fixture importers moved out of production packages; unused functions
+  are deleted.
+
 ### Removed
 
 - Proactive interjection: the scan, the `PROACTIVE_*` settings, the
   `/dash/proactive/` page and `chat_proactive` writes. No instance enabled it.
 - The pre-breaker `held` turn state, the legacy retry migration and model-pause
   probe ids. krons and sloth held none (BUGS L823).
+
+### Deploy steps
+
+Ship the image and restart. At its first start routd moves every finished
+turn to `turn_archive` once (krons about 5,700 rows, sloth about 6,700).
+Re-running `/find` on hand-written facts in the four products is an operator
+action (BUGS L832).
 
 ## [v0.75.13] — 2026-11-13
 
