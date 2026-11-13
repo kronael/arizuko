@@ -225,9 +225,6 @@ reads those words now.
 - `L488` — the standalone mcpfw image has no container build gate.
 - `L487`, `L489`, `L491`, `L501`, `L502` — doc and
   comment drift against the code, each naming the sentence to change.
-**Found by the v0.70.6 release review (2026-10-21).**
-- `L505` — which keyed read replaces the whole-chat scan for the task summary
-  row? It needs a store method that returns an error.
 **Found by the anteval-leak investigation (2026-10-21).**
 - `L72` — sign off the shape in spec `6/50`: anteval makes a disposable
   instance and never touches a serving one. 47 leaked children held the
@@ -2395,24 +2392,6 @@ stands; the sentence about the default describes the exception.
 `auth.Authorize` where none is set". No test — docs.
 
 - **Status:** open (record only).
-
-## L505 — every reply, send, Stop hook and turn completion reads the whole chat to find one summary row (2026-10-21, open)
-
-FOUND 2026-10-21 by the v0.70.6 release review. `readTaskSummary`
-(`routd/progress.go:55`) calls `db.MessagesSince(jid, "")`, an uncapped query of
-the chat's whole `messages` partition, then scans for the row whose id is
-`summary-<turn_id>`. It runs from `checkTurn` on every `check_turn` and
-`submit_turn`, from `placeTurnDelivery` on every reply, send, file, voice,
-notice and retry in a thread-capable chat, and from `declareSummary` and each
-progress update. The cost grows with the chat's length on DynamoDB. The row id
-is known, so one keyed read answers it.
-
-- **Severity:** medium — latency and read cost on long chats, no wrong result.
-- **Scope:** routd turn delivery and completion.
-- **Affected:** routd (`progress.go`, `placement.go`, `mcp.go`), `store`.
-- **Status:** open (record only). The fix needs a keyed read that returns an
-  error, because `MessageByID` returns no error and the summary lookup must
-  still fail loudly (`583331b5`). No test yet.
 
 ## ✅ FIXED 2026-10-21 L504 — the docs shell's top bar, sidebar and contents rail scroll away with the page (2026-10-21)
 
