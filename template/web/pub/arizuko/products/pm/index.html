@@ -54,13 +54,13 @@
       </p>
 
       <h2>Sloth keeps the board in a Markdown file</h2>
-      <p>The board is <code>facts/tasks.md</code>, a file in the group that you can read and diff. The persona tells Sloth to update it on an explicit instruction, for example "mark X done" or "add Y, owner Z, Friday", and to confirm the owner and the deadline before it writes. It tells Sloth to flag blocked or overdue tasks. The product ships no scheduled task, so Sloth flags them in a turn that a message, or a task that you add, starts.</p>
-      <p>The persona tells Sloth to put each decision in <code>facts/decisions/</code>, one file for each decision, with the context that produced it.</p>
+      <p>The board is <code>workspace/tasks.md</code>, a file in the group that you can read and diff. The persona tells Sloth to update it on an explicit instruction, for example "mark X done" or "add Y, owner Z, Friday", and to confirm the owner and the deadline before it writes. It tells Sloth to flag blocked or overdue tasks. The product ships no scheduled task, so Sloth flags them in a turn that a message, or a task that you add, starts.</p>
+      <p>The persona tells Sloth to record each decision in the diary, with the context that produced it. Only the <code>find</code> skill writes <code>facts/</code>, with researched and sourced knowledge.</p>
 
       <h2>A sample exchange</h2>
       <pre><code>user   mark the migration task done
 
-agent  facts/tasks.md &mdash; "0034 outbound retry migration", owner mira,
+agent  workspace/tasks.md &mdash; "0034 outbound retry migration", owner mira,
        due 2026-08-12. Mark it done as of today?
 
 user   yes
@@ -75,7 +75,7 @@ agent  Done. Two tasks still blocked: "route token rotation" (waiting on
           <tr><td><code>arizuko.yml</code></td><td>the manifest: name, brand, tagline and env hints</td></tr>
           <tr><td><code>group/SOUL.md</code></td><td>who the agent is; <code>runed</code> renames it to <code>PERSONA.md</code> at the first turn; precise, confirms before it writes</td></tr>
           <tr><td><code>facts/team.md</code></td><td>the team members, their roles and contacts</td></tr>
-          <tr><td><code>facts/tasks.md</code></td><td>the board, with the row format and no rows</td></tr>
+          <tr><td><code>workspace/tasks.md</code></td><td>the board, with the row format and no rows</td></tr>
         </tbody>
       </table>
       <p>The product also ships its tests in <code>eval/</code>.</p>
@@ -90,7 +90,7 @@ agent  Done. Two tasks still blocked: "route token rotation" (waiting on
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/pm/index.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-11-04">2026-11-04</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-10">2026-11-10</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

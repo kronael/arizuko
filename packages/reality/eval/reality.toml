@@ -6,7 +6,7 @@
 # These test THIS PRODUCT (persona, rules), not arizuko. Authoring guide and the
 # check-kind list: howto/build-a-product.html §"Ship tests with it".
 #
-# facts/threads/ ships empty on purpose — a thread exists only once the operator
+# workspace/threads/ ships empty on purpose — a thread exists only once the operator
 # or the person names one.
 
 [[case]]

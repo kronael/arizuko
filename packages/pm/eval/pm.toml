@@ -6,7 +6,7 @@
 # These test THIS PRODUCT (persona, rules), not arizuko. Authoring guide and the
 # check-kind list: howto/build-a-product.html §"Ship tests with it".
 #
-# facts/team.md and facts/tasks.md ship as operator placeholders, so there is no
+# facts/team.md and workspace/tasks.md ship as operator placeholders, so there is no
 # knowledge case — the board is empty until the operator fills it.
 
 [[case]]

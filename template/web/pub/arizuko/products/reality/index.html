@@ -59,9 +59,9 @@
       <h2>Five parts hold your context</h2>
       <dl>
         <dt>Context threads</dt>
-        <dd>Named threads in <code>facts/threads/</code> for ongoing situations, for example a negotiation, a decision, a relationship or a project. The agent updates them across sessions, and you do not explain again.</dd>
+        <dd>Named threads in <code>workspace/threads/</code> for ongoing situations, for example a negotiation, a decision, a relationship or a project. The agent updates them across sessions, and you do not explain again.</dd>
         <dt>Recall on request</dt>
-        <dd>"What did I say about X last month?" The agent reads the diary and <code>facts/</code>, combines what it finds, and answers.</dd>
+        <dd>"What did I say about X last month?" The agent reads the diary, the threads and <code>facts/</code>, combines what it finds, and answers.</dd>
         <dt>Reflection</dt>
         <dd>At the end of a session or on request, the agent gives a structured summary of what you discussed and what is still open.</dd>
         <dt>Monthly sweep</dt>
@@ -91,7 +91,7 @@
   assistant  Want me to file that under q3-architecture or open a new
          thread? It reads like related-but-distinct.
 </code></pre>
-      <p>The persona tells the agent to scan the diary for recent context when a session opens, and to update the thread file, here <code>facts/threads/q3-architecture.md</code>, after the session.</p>
+      <p>The persona tells the agent to scan the diary for recent context when a session opens, and to update the thread file, here <code>workspace/threads/q3-architecture.md</code>, after the session. Only the <code>find</code> skill writes <code>facts/</code>, with researched and sourced knowledge.</p>
 
       <h2>The product lists six skills</h2>
       <ul>
@@ -140,7 +140,7 @@ $EDITOR /srv/data/arizuko_demo/.env     # TELEGRAM_BOT_TOKEN, a model key</code>
 arizuko group -i demo add 'telegram:&lt;bot-id&gt;/user/&lt;your-tg-id&gt;' assistant -p github.com/kronael/arizuko/packages/reality@v0.75.8
 arizuko package sync -i demo
 sudo systemctl restart arizuko_demo</code></pre>
-      <p>Then add files for your current situations in <code>groups/assistant/facts/threads/</code>. The <a href="setup.html">operator setup guide</a> has every step: the threads, the monthly sweep, the WhatsApp and Telegram routes, and the <code>assistant/content</code> group for longer writing.</p>
+      <p>Then add files for your current situations in <code>groups/assistant/workspace/threads/</code>. The <a href="setup.html">operator setup guide</a> has every step: the threads, the monthly sweep, the WhatsApp and Telegram routes, and the <code>assistant/content</code> group for longer writing.</p>
 
       <h2>Five pages give the details</h2>
       <dl>
@@ -158,7 +158,7 @@ sudo systemctl restart arizuko_demo</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/reality/index.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-11-10">2026-11-10</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-11">2026-11-11</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

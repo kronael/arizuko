@@ -68,8 +68,8 @@
       <h2>facts/team.md names the owners</h2>
       <p><code>facts/team.md</code> gives an owner name its meaning. Without it, the agent cannot tell whether "mira" is a person or a service. List the members, their roles and how to reach them.</p>
       <p>The <code>facts/</code> files of the product are examples, not package files, so <code>arizuko package sync</code> never rewrites them. Copy them once from the repository checkout:</p>
-      <pre><code>cp -r packages/pm/facts /srv/data/arizuko_&lt;instance&gt;/groups/pm/</code></pre>
-      <p><code>facts/tasks.md</code> can stay as it ships. The agent adds rows, and an empty start avoids a board full of imported items that nobody owns.</p>
+      <pre><code>cp -r packages/pm/facts packages/pm/workspace /srv/data/arizuko_&lt;instance&gt;/groups/pm/</code></pre>
+      <p><code>workspace/tasks.md</code> can stay as it ships. The agent adds rows, and an empty start avoids a board full of imported items that nobody owns.</p>
 
       <h2>The agent must confirm before it writes</h2>
       <pre><code>arizuko send -i &lt;instance&gt; pm "add a task: rotate route tokens, owner mira, due friday" --wait</code></pre>
@@ -81,7 +81,7 @@
       <h2>Three changes tune the agent</h2>
       <dl>
         <dt>Board shape</dt>
-        <dd>Edit <code>facts/tasks.md</code> directly. The file is the source of truth, not a copy.</dd>
+        <dd>Edit <code>workspace/tasks.md</code> directly. The file is the source of truth, not a copy.</dd>
         <dt>Escalation</dt>
         <dd>The agent reports blocked and late items. <code>facts/team.md</code> decides whom it contacts.</dd>
         <dt>Voice</dt>
@@ -94,7 +94,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/pm/setup.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-11-10">2026-11-10</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-11">2026-11-11</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

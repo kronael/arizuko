@@ -15,6 +15,10 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ### Fixed
 
+- L832: the personal, pm, strategy and reality products tell the agent that
+  only `/find` writes `facts/`. Decisions go to the diary and preferences to
+  user memory. The pm board is `workspace/tasks.md`, the reality threads are
+  in `workspace/threads/` and the strategy briefings are in `reports/`.
 - L823: every 30 s pass and every wake read the whole `turn_context`
   partition (krons 5,713 rows, sloth 6,688, never pruned). A finished turn now
   moves to `turn_archive` in the write that finishes it, and startup moves the

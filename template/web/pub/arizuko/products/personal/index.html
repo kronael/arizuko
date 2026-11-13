@@ -53,9 +53,9 @@
         &mdash; without you re-explaining it.
       </p>
 
-      <h2>The persona tells Fiu to write durable facts after each session</h2>
-      <p>Fiu handles questions, drafts, task tracking, research and reminders. The persona tells Fiu to read the diary when a session opens and to write durable facts into <code>facts/</code> when a session ends. The memory is the <code>facts/</code> directory and the diary.</p>
-      <p>The persona tells Fiu to refer to earlier context, for example "you mentioned last week", and never to invent details about your life. If a fact is not in <code>facts/</code> or the diary, Fiu asks.</p>
+      <h2>The persona tells Fiu to record what lasts after each session</h2>
+      <p>Fiu handles questions, drafts, task tracking, research and reminders. The persona tells Fiu to read the diary when a session opens. When a session ends, Fiu records decisions in the diary and preferences in user memory. The memory is the diary, user memory and <code>facts/</code>. Only the <code>find</code> skill writes <code>facts/</code>, with researched and sourced knowledge.</p>
+      <p>The persona tells Fiu to refer to earlier context, for example "you mentioned last week", and never to invent details about your life. If a fact is not in <code>facts/</code>, user memory or the diary, Fiu asks.</p>
 
       <h2>A sample exchange</h2>
       <pre><code>user   what was I going to do about the visa thing?
@@ -85,7 +85,7 @@ agent  Two weeks ago you decided to apply for the D-type rather than
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/personal/index.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-11-04">2026-11-04</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-10">2026-11-10</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>
