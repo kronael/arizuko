@@ -149,9 +149,13 @@ func (q *turnControl) admit(l *Loop, tc TurnContext, admission *store.TurnAdmiss
 		if before.Phase != "open" || q.now().Before(before.NextProbeAt) {
 			return work, false, errTurnBlocked
 		}
-		owner, ok, err := l.db.store().ReadTurnContext(ctx, before.ProbeTurnID)
-		if err != nil {
-			return work, false, err
+		var owner TurnContext
+		var ok bool
+		if before.ProbeTurnID != "" {
+			owner, ok, err = l.db.store().ReadTurnContext(ctx, before.ProbeTurnID)
+			if err != nil {
+				return work, false, err
+			}
 		}
 		if ok && owner.State == store.TurnRunning {
 			return work, false, errTurnBlocked

@@ -263,3 +263,37 @@ func TestTurnControlExecutionTransport(t *testing.T) {
 
 var _ Runner = (*recoveryRunner)(nil)
 var _ RunKiller = (*recoveryRunner)(nil)
+
+type failProbeOwnerRead struct {
+	objstore.Store
+	err error
+}
+
+func (s failProbeOwnerRead) Query(ctx context.Context, q objstore.Query) ([]objstore.Item, error) {
+	if q.Entity == store.TurnContexts && q.Key.Value == "owner" {
+		return nil, s.err
+	}
+	return s.Store.Query(ctx, q)
+}
+
+func TestTurnControlEmptyOwnerAdmission(t *testing.T) {
+	db, loop, _, tc, now := deferredFixture(t)
+	state := store.TurnControlState{Phase: "open", Episode: "outage", NextProbeAt: now.Add(time.Minute)}
+	if ok, err := db.store().WriteTurnControl(t.Context(), nil, state); err != nil || !ok {
+		t.Fatalf("open control: %v %v", ok, err)
+	}
+	if _, ok, err := loop.q.admit(loop, tc, &store.TurnAdmission{AttemptID: "early"}, &tc); ok || !errors.Is(err, errTurnBlocked) {
+		t.Fatalf("early admission: ok=%v err=%v", ok, err)
+	}
+	withOwner := state
+	withOwner.ProbeTurnID = "owner"
+	if ok, err := db.store().WriteTurnControl(t.Context(), &state, withOwner); err != nil || !ok {
+		t.Fatalf("set owner: %v %v", ok, err)
+	}
+	wantErr := errors.New("owner read failed")
+	db.obj = failProbeOwnerRead{Store: db.obj, err: wantErr}
+	loop.q.now = func() time.Time { return state.NextProbeAt }
+	if _, ok, err := loop.q.admit(loop, tc, &store.TurnAdmission{AttemptID: "due"}, &tc); ok || !errors.Is(err, wantErr) {
+		t.Fatalf("owner read: ok=%v err=%v", ok, err)
+	}
+}
