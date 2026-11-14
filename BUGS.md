@@ -14,18 +14,6 @@
 > so counting one as open overstates the queue.
 
 
-## L878 — provider refusal overrides permanent and terminal facts (2026-11-14)
-
-`turnControl.complete` forces every matching provider marker to transient and
-replaces the ordinary terminal/result eligibility decision. Owed status also
-assumes every provider failure will retry.
-**Measured:** `routd/turn_control_provider_test.go::TestTurnControlProviderFailureFacts`
-submits an authentication refusal with a four-hour reset through the real callback.
-Completion returns `deferred=true` with a nonterminal runtime result. The test
-fails in 10.679s; log: `tmp/retry-logs/provider-parent-red.log`.
-**Fix:** declare provider classification once, persist it with the attempt, and
-consume that fact through the existing turn eligibility and notice paths.
-
 ## L857 — the full router gate loses its test database control plane (2026-11-14)
 
 At candidate `66e8e2f4b7ebf9a6bc41a5fd9a027ecdc0249f7b`, the single full
