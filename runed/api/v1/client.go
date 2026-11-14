@@ -95,11 +95,18 @@ func call[T any](ctx context.Context, c *Client, method, path string, body any, 
 		return out, err
 	}
 	defer func() { _ = resp.Body.Close() }()
-	raw, _ := io.ReadAll(resp.Body)
+	raw, readErr := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {
 		var e Err
 		_ = json.Unmarshal(raw, &e)
-		return out, &APIError{Status: resp.StatusCode, Code: e.Error, Msg: e.Message}
+		apiErr := &APIError{Status: resp.StatusCode, Code: e.Error, Msg: e.Message, RetryAfter: resp.Header.Get("Retry-After")}
+		if readErr != nil {
+			return out, fmt.Errorf("%w: read response: %w", apiErr, readErr)
+		}
+		return out, apiErr
+	}
+	if readErr != nil {
+		return out, readErr
 	}
 	if decodeAs == "" {
 		return out, nil
@@ -111,7 +118,7 @@ func call[T any](ctx context.Context, c *Client, method, path string, body any, 
 }
 
 // Run posts a RunRequest to POST /v1/runs and blocks until the run
-// completes (the turn boundary). A non-2xx with a decodable Err body is
+// completes (the turn boundary). A non-200 with a decodable Err body is
 // returned as an *APIError so the caller can distinguish a clean
 // outcome:error (200 body) from a transport failure (this error).
 func (c *Client) Run(ctx context.Context, req RunRequest) (RunOutcome, error) {
@@ -179,16 +186,21 @@ func (c *Client) RecentSessions(ctx context.Context, folder string, n int) (Rece
 		"/v1/spawn_sessions/recent?"+q.Encode(), nil, false, "recent sessions")
 }
 
-// APIError is a non-2xx response from runed carrying the decoded Err
+// APIError is a non-200 response from runed carrying the decoded Err
 // envelope. A transport failure (no HTTP response) surfaces as the bare
 // network error instead — the distinction routd keys on for cursor
 // advance (spec § Transport failure vs outcome:error).
 type APIError struct {
-	Status int
-	Code   string
-	Msg    string
+	Status     int
+	Code       string
+	Msg        string
+	RetryAfter string
 }
 
 func (e *APIError) Error() string {
 	return fmt.Sprintf("runed %d %s: %s", e.Status, e.Code, e.Msg)
 }
+
+func (e *APIError) HTTPStatusCode() int { return e.Status }
+
+func (e *APIError) HTTPRetryAfter() string { return e.RetryAfter }

@@ -3,10 +3,15 @@ package v1
 import (
 	"context"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/kronael/arizuko/retry"
 )
 
 // TestCall_PreservesPerMethodDifferences locks the three ways the five methods
@@ -89,5 +94,76 @@ func TestCall_NonOKBecomesAPIError(t *testing.T) {
 	}
 	if err := c.Kill(context.Background(), "r1"); !errors.As(err, &apiErr) {
 		t.Fatalf("Kill err = %T, want *APIError even with no body to decode", err)
+	}
+}
+
+func TestCallFailureFacts(t *testing.T) {
+	now := time.Date(2026, 11, 14, 12, 0, 0, 0, time.UTC)
+	for _, tc := range []struct {
+		status int
+		after  string
+		cut    bool
+		kind   string
+		delay  time.Duration
+	}{
+		{400, "", false, "permanent", 0}, {503, "", false, "transient", 0},
+		{429, "7200", false, "transient", 2 * time.Hour}, {503, "7200", true, "transient", 2 * time.Hour},
+		{503, now.Add(3 * time.Hour).Format(http.TimeFormat), false, "transient", 3 * time.Hour},
+	} {
+		t.Run(fmt.Sprintf("%d-%s-%t", tc.status, tc.after, tc.cut), func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Retry-After", tc.after)
+				if tc.cut {
+					w.Header().Set("Content-Length", "100")
+				}
+				w.WriteHeader(tc.status)
+				_, _ = w.Write([]byte(`{"error":"failure"}`))
+			}))
+			defer srv.Close()
+			c := NewClient(srv.URL, "", time.Second)
+			_, err := c.Run(context.Background(), RunRequest{})
+			var apiErr *APIError
+			if !errors.As(err, &apiErr) || apiErr.Status != tc.status {
+				t.Fatalf("error: %v", err)
+			}
+			fact := retry.FromError(err, now)
+			if fact.Kind != tc.kind || (tc.delay != 0 && !fact.RetryAt.Equal(now.Add(tc.delay))) {
+				t.Fatalf("fact: %+v", fact)
+			}
+		})
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Length", "100")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+	c := NewClient(srv.URL, "", time.Second)
+	if _, err := c.Run(context.Background(), RunRequest{}); !errors.Is(err, io.ErrUnexpectedEOF) {
+		t.Errorf("Run: %v", err)
+	}
+	if err := c.Kill(context.Background(), "run"); !errors.Is(err, io.ErrUnexpectedEOF) {
+		t.Errorf("Kill: %v", err)
+	}
+}
+
+type responseTransport struct{ err error }
+
+func (transport responseTransport) RoundTrip(*http.Request) (*http.Response, error) {
+	return &http.Response{StatusCode: http.StatusServiceUnavailable, Header: http.Header{"Retry-After": []string{"7200"}}, Body: io.NopCloser(errorReader{transport.err})}, nil
+}
+
+type errorReader struct{ err error }
+
+func (reader errorReader) Read([]byte) (int, error) { return 0, reader.err }
+
+func TestCallFailureFactsCanceledBody(t *testing.T) {
+	for _, cause := range []error{context.Canceled, context.DeadlineExceeded} {
+		c := &Client{BaseURL: "http://runed", HTTP: &http.Client{Transport: responseTransport{cause}}}
+		_, err := c.Run(context.Background(), RunRequest{})
+		var apiErr *APIError
+		if !errors.Is(err, cause) || !errors.As(err, &apiErr) || apiErr.HTTPStatusCode() != 503 || apiErr.HTTPRetryAfter() != "7200" {
+			t.Fatalf("error: %v", err)
+		}
 	}
 }

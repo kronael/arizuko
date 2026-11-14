@@ -249,7 +249,12 @@ func (q *turnControl) complete(l *Loop, tc TurnContext, out runedv1.RunOutcome, 
 		!errors.Is(runErr, context.Canceled) && !errors.Is(runErr, context.DeadlineExceeded) {
 		decision = turnDecision{trip: true, retry: !replied, cause: "Model unavailable"}
 	}
-	retryDecision := retry.Next(tc.RetryCount, retry.Failure{Kind: "transient", RetryAt: tc.NextAttemptAt}, q.now(), time.Time{})
+	failure := retry.FromError(runErr, q.now())
+	if runErr == nil && out.Outcome == runedv1.OutcomeError && !out.Terminal || tc.ProviderFailureAttempt == tc.AttemptID {
+		failure.Kind = "transient"
+	}
+	failure.RetryAt = maxTime(failure.RetryAt, tc.NextAttemptAt)
+	retryDecision := retry.Next(tc.RetryCount, failure, q.now(), time.Time{})
 	shouldRetry := decision.retry && tc.State == store.TurnRunning && !retryDecision.Stop
 	resetAt := tc.NextAttemptAt
 	tc.NextAttemptAt = retryDecision.NextAt

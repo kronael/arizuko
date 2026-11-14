@@ -2,6 +2,9 @@ package routd
 
 import (
 	"context"
+	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -168,4 +171,54 @@ func TestTurnControlExecutionRetry(t *testing.T) {
 		})
 	}
 
+}
+
+func TestTurnControlExecutionFailureFacts(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		status  int
+		unknown bool
+		retry   bool
+		delay   time.Duration
+	}{
+		{name: "bad request", status: 400},
+		{name: "unknown", unknown: true},
+		{name: "unavailable", status: 503, retry: true, delay: 2 * time.Hour},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db, loop, _ := recLoop(t)
+			if err := db.PutGroup(core.Group{Folder: "demo"}); err != nil {
+				t.Fatal(err)
+			}
+			now := time.Date(2026, 11, 14, 12, 0, 0, 0, time.UTC)
+			loop.q.now = func() time.Time { return now }
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Retry-After", "7200")
+				w.WriteHeader(tc.status)
+			}))
+			defer srv.Close()
+			client := runedv1.NewClient(srv.URL, "", time.Second)
+			loop.runner = &recoveryRunner{run: runnerFn(func(ctx context.Context, req runedv1.RunRequest) (runedv1.RunOutcome, error) {
+				if tc.unknown {
+					return runedv1.RunOutcome{}, errors.New("unknown failure")
+				}
+				return client.Run(ctx, req)
+			})}
+			if err := db.PutMessage(core.Message{ID: "facts", ChatJID: "web:demo", Sender: "user", Timestamp: now, Content: "question"}); err != nil {
+				t.Fatal(err)
+			}
+			_, _ = loop.processGroupMessages("web:demo")
+			turn, ok := db.GetTurnContext("facts")
+			if !ok {
+				t.Fatal("turn missing")
+			}
+			if tc.retry {
+				if turn.State != store.TurnPendingRetry || turn.RetryCount != 1 || !turn.NextAttemptAt.Equal(now.Add(tc.delay)) {
+					t.Fatalf("turn: %+v", turn)
+				}
+			} else if turn.State != store.TurnDone || turn.RetryCount != 0 {
+				t.Fatalf("turn: %+v", turn)
+			}
+		})
+	}
 }
