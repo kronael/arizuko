@@ -802,7 +802,7 @@ Its first failed fetch commits the deadline and due pointer atomically.
   never: normalizes fixtures that exercise legacy migration
 - path: gitd/server.go and gitd/server_test.go (changed)
   job: preserve failed-retention errors before permanent ingress classification
-  names: [webhook, TestWebhookPermanentRefusalRetainsStoppedInput]
+  names: [webhook, TestWebhook_PermanentRefusalRetainsStoppedInput]
   never: acknowledges an input neither destination retained
 - path: chanlib/README.md, slakd/README.md, discd/README.md and gitd/README.md (changed)
   job: describe bounded retention with stopped payloads included in health counts

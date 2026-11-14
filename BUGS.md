@@ -14,6 +14,17 @@
 > so counting one as open overstates the queue.
 
 
+## L880 — permanent ingress refusal discards its payload (2026-11-14)
+
+`chanlib/inbound.go` drops a message after HTTP 400 and reports `ErrInboundLost`.
+Transient redelivery has no failure limit and uses a separate backoff.
+**Measured:** `chanlib/inbound_test.go::TestRefusedInboundRemainsHeldWithoutRedelivery`
+fails in 1.407s at `b6bb6c34460364fb763461b67dcbed28990b7626`:
+the actual HTTP refusal returns `inbound neither delivered nor retained`.
+Log: `tmp/retry-logs/ingress-parent-red.log`.
+**Fix:** retain stopped payloads without a due pointer; use shared retry decisions
+and guarded observed completions. Normalize legacy counts with a marked migration.
+
 ## L857 — the full router gate loses its test database control plane (2026-11-14)
 
 At candidate `66e8e2f4b7ebf9a6bc41a5fd9a027ecdc0249f7b`, the single full

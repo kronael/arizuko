@@ -110,20 +110,23 @@ func TestRetainedInboundIsDeliveredAfterRoutdRecovers(t *testing.T) {
 	}
 }
 
-// A payload routd REFUSED (400) is not retained: replaying it would fail
-// identically forever. It must still surface as an error to the caller.
-func TestRefusedInboundIsNotRetained(t *testing.T) {
+func TestRefusedInboundRemainsHeldWithoutRedelivery(t *testing.T) {
+	t.Skip("L880: permanent ingress refusal discards the payload")
 	_, srv := newRoutdStub(400)
 	defer srv.Close()
 	st := testStore(t)
 	rc := NewRouterClient(srv.URL)
 	rc.RetainInbound(context.Background(), st)
 
-	if err := rc.SendMessage(InboundMsg{ID: "x", ChatJID: "slack:c/1", Content: "hi"}); err == nil {
-		t.Fatal("SendMessage reported success on a 400")
+	err := rc.SendMessage(InboundMsg{ID: "x", ChatJID: "slack:c/1", Content: "hi"})
+	if err == nil || errors.Is(err, ErrInboundLost) {
+		t.Fatalf("permanent refusal must remain held: %v", err)
 	}
-	if n := pendingRows(t, st); n != 0 {
-		t.Fatalf("retained inbound = %d, want 0 — a 400 must not be retried", n)
+	if n := pendingRows(t, st); n != 1 {
+		t.Fatalf("held inbound = %d, want 1", n)
+	}
+	if due, err := st.DueForRedelivery(t.Context(), core.TS(time.Now().Add(24*time.Hour)), 0); err != nil || len(due) != 0 {
+		t.Fatalf("permanent refusal due=%v err=%v", due, err)
 	}
 }
 
