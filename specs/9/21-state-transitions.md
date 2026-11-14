@@ -176,6 +176,20 @@ persisted; `M` means memory. References name the implementation, not a second po
 | Browser SSE: `webd/route_token.go`, `assets/arizuko-client.js`                                                                    | Fixed 3 s / native EventSource reconnect; unbounded                                          | Connection UI/error callback; M                                  | Shared connection budget and notice; preserve event replay cursor               |
 | Scheduler enqueue: `routd/schedule.go`                                                                                            | Claimed task failure revisits schedule; no separate failed-attempt budget                    | Task run log; P schedule                                         | Shared failed-attempt due state; ordinary cron cadence stays separate           |
 
+The IMAP authentication rule above applies to IDLE recovery; `runPoll` currently
+retries authentication failures too. The common classifier must stop both paths.
+GitHub `verifyToken`/`reverify` repeats a failed identity request every minute
+until success or permanent refusal. This startup recovery uses the common policy;
+it is not a successful periodic credential check. The native UI streams in
+`webd/pages.go` and `webd/me.go` also use EventSource through the external HTMX
+SSE extension. They must share the browser reconnect policy with the token page
+and SDK. The extension and the application cannot both schedule reconnection.
+
+The DynamoDB SDK currently retries requests by default. `dynstore.Client` must
+use `aws.NopRetryer` so the owner receives each failed attempt once. Discord's
+`MaxRestRetries` and `ShouldRetryOnRateLimit` both control nested retries; set
+them to zero/false while retaining proactive rate-bucket waiting.
+
 The breaker remains distinct: it limits admission across operations to prevent
 loops (L826). Its episode, probe ownership and one-hour safety closure are not
 an operation retry budget. Provider libraries also own stream/session protocol
@@ -504,7 +518,17 @@ Two hundred delayed messages cannot hide one due delivery: that fixture reads
 three rows. `outbound-v1` backfills existing pending work once. Legacy rows
 have no recorded last-attempt instant, so their initial key preserves the
 creation/queued-time calculation; subsequent failures write explicit deadlines.
-`PendingMessage.NextAttemptAt` is internal data, not a REST/MCP field.
+`outbound-retry-v1` materializes a missing deadline from queued time or message
+creation time plus the legacy 30-second delay doubled once per stored failure,
+capped at one hour. It keeps explicit deadlines and counts unchanged. Guarded
+indexed updates remove the old due pointer and retain concurrent transitions;
+the marker commits only after every row is resolved. The index renderer retains
+the legacy decoder to remove old pointers. Runtime delivery reads explicit
+deadlines. The common policy applies on the next failure, including to rows
+already at or above ten failures. `PendingMessage.NextAttemptAt` is internal
+data, not a REST/MCP field. Dead-letter REST and MCP responses expose the
+persisted common terminal notice; replay clears it. `delivery_attempts` counts
+failed attempts, including a permanent refusal. Existing counts remain unchanged.
 
 ## Message and progress transitions
 
@@ -717,6 +741,9 @@ timeout. The operator-direct path still reads the indexed reply range because
 its current contract ends on quiet time rather than a turn completion event.
 
 ## Open questions
+
+- Should a separate user-facing API deliver terminal notices across daemons?
+  Dead letters expose the notice; no cross-daemon notification contract exists.
 
 - Retained ingress stops after ten failures and keeps its payload without a due
   pointer. Should its existing operator surface expose exact-ID replay? Keep
