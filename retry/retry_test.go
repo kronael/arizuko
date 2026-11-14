@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -95,6 +96,67 @@ func TestHTTPFailureErrorTree(t *testing.T) {
 				t.Fatalf("failure = %+v, want %s", got, tc.kind)
 			}
 		})
+	}
+}
+
+func TestHTTPFailureCombinedFacts(t *testing.T) {
+	now := time.Date(2026, 11, 14, 12, 0, 0, 0, time.UTC)
+	timeout := fmt.Errorf("read: %w", context.DeadlineExceeded)
+	for _, status := range []int{429, 503} {
+		for _, hint := range []string{"7200", now.Add(2 * time.Hour).Format(http.TimeFormat)} {
+			got := HTTPFailure(status, hint, timeout, now)
+			if got.Kind != "transient" || !got.RetryAt.Equal(now.Add(2*time.Hour)) {
+				t.Errorf("status %d hint %q: %+v", status, hint, got)
+			}
+		}
+	}
+	for _, err := range []error{io.EOF, syscall.ECONNRESET, timeout} {
+		got := HTTPFailure(400, "7200", err, now)
+		if got.Kind != "permanent" || !got.RetryAt.IsZero() {
+			t.Errorf("400 %v: %+v", err, got)
+		}
+	}
+	for _, tc := range []struct {
+		status int
+		err    error
+		kind   string
+	}{
+		{503, errors.Join(timeout, context.Canceled), "canceled"},
+		{0, errors.Join(errors.New("outer"), timeout), "timeout"},
+		{0, syscall.ECONNRESET, "transient"},
+	} {
+		got := HTTPFailure(tc.status, "7200", tc.err, now)
+		if got.Kind != tc.kind || (tc.kind == "canceled" && !got.RetryAt.IsZero()) {
+			t.Errorf("%+v: %+v", tc, got)
+		}
+	}
+	for _, tc := range []struct {
+		err  error
+		kind string
+	}{
+		{errors.Join(statusError(503), timeout, &Error{Failure: Failure{Kind: "permanent"}, Err: errors.New("explicit")}), "permanent"},
+		{&Error{Failure: Failure{Kind: "transient"}, Err: context.Canceled}, "canceled"},
+	} {
+		if got := FromError(tc.err, now); got.Kind != tc.kind || !got.RetryAt.IsZero() {
+			t.Errorf("explicit %v: %+v", tc.err, got)
+		}
+	}
+	script := `
+import assert from 'node:assert/strict';
+import { httpFailure } from './retry.mjs';
+const now = Date.parse('2026-11-14T12:00:00Z');
+const timeout = { cause: { cause: { code: 'ETIMEDOUT' } } };
+for (const status of [429, 503])
+ for (const hint of ['7200', new Date(now + 7200000).toUTCString()])
+  assert.deepEqual(httpFailure(status, hint, timeout, now), {kind:'transient', retryAt:now + 7200000});
+for (const error of [{code:'ECONNRESET'}, timeout])
+ assert.deepEqual(httpFailure(400, '7200', error, now), {kind:'permanent', retryAt:0});
+assert.deepEqual(httpFailure(503, '7200', {cause:{cause:{name:'AbortError'}}}, now), {kind:'canceled', retryAt:0});
+assert.equal(httpFailure(0, '', timeout, now).kind, 'timeout');
+assert.equal(httpFailure(0, '', {cause:{cause:{code:'ECONNRESET'}}}, now).kind, 'transient');
+`
+	if output, err := exec.Command("bun", "-e", script).CombinedOutput(); err != nil {
+		t.Errorf("JavaScript facts: %v\n%s", err, output)
 	}
 }
 

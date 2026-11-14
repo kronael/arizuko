@@ -12,13 +12,17 @@ export function next(failures, failure, now, deadline = 0) {
 }
 
 export function httpFailure(status, retryAfter, error, now) {
-  if (error?.name === 'AbortError' || error?.code === 'ABORT_ERR')
-    return { kind: 'canceled', retryAt: 0 }
-  const code = error?.code ?? error?.cause?.code
-  if (error?.name === 'TimeoutError' || ['ETIMEDOUT', 'UND_ERR_CONNECT_TIMEOUT'].includes(code))
+  let timeout = false
+  let transport = false
+  for (let current = error; current; current = current.cause) {
+    if (current.name === 'AbortError' || current.code === 'ABORT_ERR')
+      return { kind: 'canceled', retryAt: 0 }
+    timeout ||= current.name === 'TimeoutError' || ['ETIMEDOUT', 'UND_ERR_CONNECT_TIMEOUT'].includes(current.code)
+    transport ||= ['ECONNRESET', 'ECONNREFUSED', 'EPIPE', 'ENOTFOUND', 'EAI_AGAIN', 'UND_ERR_SOCKET'].includes(current.code) || (current.name === 'TypeError' && ['Failed to fetch', 'NetworkError when attempting to fetch resource.'].includes(current.message))
+  }
+  if (!status && timeout)
     return { kind: 'timeout', retryAt: 0 }
-  const transport = ['ECONNRESET', 'ECONNREFUSED', 'EPIPE', 'ENOTFOUND', 'EAI_AGAIN', 'UND_ERR_SOCKET'].includes(code) || (error?.name === 'TypeError' && ['Failed to fetch', 'NetworkError when attempting to fetch resource.'].includes(error.message))
-  if (!(status >= policy.transient_status_range[0] && status <= policy.transient_status_range[1]) && !policy.transient_statuses.includes(status) && !transport)
+  if (!(status >= policy.transient_status_range[0] && status <= policy.transient_status_range[1]) && !policy.transient_statuses.includes(status) && !(!status && transport))
     return { kind: 'permanent', retryAt: 0 }
   const value = (retryAfter || '').trim()
   const retryAt = /^\d+$/.test(value) ? Math.min(now + Number(value) * 1000, policy.latest_retry_ms) : Date.parse(value)
