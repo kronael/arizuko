@@ -265,6 +265,10 @@ them to zero/false while retaining proactive rate-bucket waiting.
 Ant's exposed failure verdicts consume the canonical provider and HTTP classifiers.
 Only an explicit transient verdict permits another execution attempt; unknown
 failures stop. One fresh attempt after unusable continuity remains a protocol repair.
+Claude reads failed-result diagnostics from the SDK's `errors` array. Only an exact
+missing conversation or resume-message UUID permits fresh-session repair. Known
+API failures and provider facts bypass that repair. Generic execution and resume
+failures do not prove another execution safe.
 
 The Claude dependency lock resolves `@anthropic-ai/claude-agent-sdk` to `0.3.278`;
 the image installs `@latest`. That SDK exposes `api_retry` events with attempt,
