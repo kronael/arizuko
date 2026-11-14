@@ -11,7 +11,7 @@ type inboundIndex struct{}
 
 func (inboundIndex) Indexed(entity string) bool { return entity == InboundPending }
 func (inboundIndex) Keys(_ string, it objstore.Item) []objstore.Key {
-	return []objstore.Key{{Partition: "inbound/due", Sort: it.Attrs[attrNextAttemptAt] + "\x1f" + it.Attrs[attrFirstSeenAt]}}
+	return []objstore.Key{objstore.DueIndexKey("inbound/due", it.Attrs[attrNextAttemptAt]+"\x1f"+it.Attrs[attrFirstSeenAt], InboundPending, it.Key)}
 }
 
 func (s *Store) MigrateInbound(ctx context.Context) error {

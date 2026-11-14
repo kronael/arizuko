@@ -15,7 +15,7 @@ func (spawnIndex) Indexed(entity string) bool { return entity == Spawns }
 func (spawnIndex) Keys(_ string, it objstore.Item) []objstore.Key {
 	var keys []objstore.Key
 	if at, err := time.Parse(time.RFC3339Nano, it.Attrs[attrCreatedAt]); err == nil {
-		keys = append(keys, objstore.Key{Partition: "spawns/expiry", Sort: core.TS(at)})
+		keys = append(keys, objstore.DueIndexKey("spawns/expiry", core.TS(at), Spawns, it.Key))
 	}
 	if state, exists := it.Attrs[attrState]; exists && !slices.Contains(terminalStates, state) {
 		keys = append(keys, objstore.Key{Partition: "spawns/live", Sort: it.Key.Sort})

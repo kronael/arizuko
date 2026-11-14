@@ -405,6 +405,7 @@ func renameApplyBatch(ctx context.Context, rows []renameRow, drivers map[string]
 			}
 			writes = append(writes, objstore.Write{Op: objstore.Update, Entity: row.Entity, Key: before.Key, Attrs: after.Attrs, Remove: remove, Cond: cond})
 		}
+		writes = append(writes, store.StateIndexChanges(row.Entity, before, after)...)
 		if marked, ok := store.EntityScope(row.Entity); ok {
 			scope = marked
 			bump = true
@@ -437,7 +438,7 @@ func renameSteps(plan renamePlan) []renameStep {
 	for offset := 0; offset < len(plan.Rows); {
 		end := offset
 		bytes := 0
-		for end < len(plan.Rows) && end-offset < 40 && plan.Rows[end].Owner == plan.Rows[offset].Owner {
+		for end < len(plan.Rows) && end-offset < objstore.IndexBatchSize/2 && plan.Rows[end].Owner == plan.Rows[offset].Owner {
 			image, _ := json.Marshal(plan.Rows[end])
 			if end > offset && bytes+len(image) > 1<<20 {
 				break

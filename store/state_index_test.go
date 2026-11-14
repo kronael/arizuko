@@ -18,6 +18,9 @@ type stateReadCounter struct {
 func (c *stateReadCounter) Query(ctx context.Context, q objstore.Query) ([]objstore.Item, error) {
 	measured := q
 	measured.Where, measured.Project = nil, nil
+	if len(q.Where) > 0 {
+		measured.Limit = 0
+	}
 	items, err := c.Store.Query(ctx, measured)
 	if err != nil {
 		return nil, err
@@ -74,7 +77,7 @@ func TestStateIndexMigrationRunsOnce(t *testing.T) {
 		t.Fatalf("migration lost work: %v %v", tasks, err)
 	}
 	c := &stateReadCounter{Store: s.obj}
-	if err := NewOver(c).MigrateStateIndexes(ctx); err != nil || c.rows != 3 {
+	if err := NewOver(c).MigrateStateIndexes(ctx); err != nil || c.rows != 4 {
 		t.Fatalf("second migration: %v, read %d rows", err, c.rows)
 	}
 }

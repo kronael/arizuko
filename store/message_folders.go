@@ -1,23 +1,5 @@
 package store
 
-// message_folders.go holds the folder feed: one item per message that carries a
-// `routed_to`, addressed by the folder it was routed to.
-//
-// IT IS AN INDEX, NOT A COPY. Routing is dynamic, so the fact is written when
-// `routed_to` is stamped; the item carries a POINTER (the chat) plus the three
-// attributes the feed FILTERS on, and two copies of a body would be two bodies
-// that can disagree. The partition is the folder and the sort key the
-// message's own, so the observed cursor means the same thing on a folder read
-// and a chat read (5,531 of krons' 24,013 messages, over 95 folders).
-//
-// BOTH WRITERS OF routed_to WRITE HERE, `PutMessage` and `MarkMessagesObserved`:
-// a feed fed by one would miss the half `ObservedSince`'s watched-source
-// branch reads.
-//
-// THE COUNT IS AN ATTRIBUTE OF THE FOLDER, NOT A SCAN: `MessageActivityByFolder`
-// asks over 95 folders at once. objstore.Increment moves the counter in the
-// same batch as the message, so the number cannot drift from the rows.
-
 import (
 	"context"
 	"errors"
@@ -41,10 +23,8 @@ const (
 // name Counters uses.
 const counterAttrN = counterAttr
 
-// The feed is read in message order, so its key carries the same ordered lead.
 func init() { objstore.OrderedLead(MessageFolders, "", tsWidth) }
 
-// folderFeedKey is the coordinate of one message inside one folder's feed.
 func folderFeedKey(folder string, msgKey objstore.Key) (objstore.Key, error) {
 	if folder == "" {
 		return objstore.Key{}, errors.New("folder feed entry carries no folder, which is " +
@@ -53,14 +33,10 @@ func folderFeedKey(folder string, msgKey objstore.Key) (objstore.Key, error) {
 	return objstore.Key{Partition: folder, Sort: msgKey.Sort}, nil
 }
 
-// folderCountKey is the coordinate of one folder's message count.
 func folderCountKey(folder string) objstore.Key {
 	return objstore.Key{Partition: OwnerRoutd, Sort: folder}
 }
 
-// folderFeedWrite renders the feed entry a message belongs in, and reports
-// whether it belongs in one at all. A message with no routed_to is in no
-// folder's feed and moves no counter.
 func folderFeedWrite(msgKey objstore.Key, m core.Message) (objstore.Write, bool, error) {
 	if m.RoutedTo == "" {
 		return objstore.Write{}, false, nil
@@ -78,8 +54,6 @@ func folderFeedWrite(msgKey objstore.Key, m core.Message) (objstore.Write, bool,
 	}, true, nil
 }
 
-// countFolderMessage moves one folder's count and commits the writes that
-// EARNED the move in the same batch, so a counter cannot run ahead of its rows.
 func (s *Store) countFolderMessage(ctx context.Context, folder string,
 	writes []objstore.Write) error {
 	// A refusal is the message's own create-if-absent: the row is not
@@ -92,12 +66,6 @@ func (s *Store) countFolderMessage(ctx context.Context, folder string,
 // once rather than on every message.
 var errNoCounter = errors.New("the folder has no message counter")
 
-// addFolderCount moves one folder's count by delta with `also` riding the same
-// batch, and ANSWERS whether it committed, because the two callers mean
-// different things by a refusal: on the append path a false is the message's
-// own create-if-absent saying the row is already there, exactly when the count
-// must NOT move; every other caller writes unconditional Puts, where a false
-// is a fault. Dropping the bit made both read as success (BUGS L268).
 func (s *Store) addFolderCount(ctx context.Context, folder string, delta int,
 	also []objstore.Write) (bool, error) {
 	_, committed, err := s.incrementEntityVia(ctx, MessageFolderCounts,
@@ -184,7 +152,6 @@ func (s *Store) MarkMessagesObserved(ctx context.Context, folder string,
 			Attrs: map[string]string{attrMsgRoutedTo: folder, attrMsgObserved: flagSet},
 		}
 		if m.RoutedTo == folder {
-			// Already counted here, so only the flag moves.
 			plain = append(plain, stamp, objstore.Write{
 				Op: objstore.Update, Entity: MessageFolders, Key: feedKey,
 				Attrs: map[string]string{attrFeedObserved: flagSet},
@@ -218,10 +185,8 @@ func (s *Store) MarkMessagesObserved(ctx context.Context, folder string,
 			return err
 		}
 	}
-	// Two writes per message plus the counter, so the chunk is sized in
-	// MESSAGES rather than in writes.
 	for len(fresh) > 0 {
-		n := min(len(fresh), objstore.MaxBatchActions-2)
+		n := min(len(fresh), objstore.IndexBatchSize)
 		if n%2 == 1 {
 			n--
 		}
@@ -233,8 +198,6 @@ func (s *Store) MarkMessagesObserved(ctx context.Context, folder string,
 	return nil
 }
 
-// countFolderMessageBy is the door for a caller whose writes carry no
-// condition, so a refusal is a fault and is raised.
 func (s *Store) countFolderMessageBy(ctx context.Context, folder string,
 	delta int, writes []objstore.Write) error {
 	committed, err := s.tryCountFolderMessageBy(ctx, folder, delta, writes)
@@ -247,11 +210,6 @@ func (s *Store) countFolderMessageBy(ctx context.Context, folder string,
 	return nil
 }
 
-// tryCountFolderMessageBy is countFolderMessageBy for the caller that ASKED a
-// question, and it seeds the counter the first time a folder takes a message:
-// objstore.Increment refuses a missing item, so a refusal naming one seeds it
-// and retries once. The seed is create-if-absent, so two chats writing into
-// one new folder at the same moment both end up counted.
 func (s *Store) tryCountFolderMessageBy(ctx context.Context, folder string,
 	delta int, writes []objstore.Write) (bool, error) {
 	committed, err := s.addFolderCount(ctx, folder, delta, writes)
@@ -292,11 +250,6 @@ func (s *Store) ObservedSince(ctx context.Context, folder, cursor string, maxMsg
 	if cursor != "" {
 		key = objstore.KeyPredicate{Op: objstore.GeKey, Value: cursor + string(KeySep[0]+1)}
 	}
-	// The observer's own folder contributes the rows sent to `folder?observe`
-	// and, whatever their flag, its own replies, so a topic's turn sees what a
-	// sibling topic already answered; a watched source contributes its PRIMARY
-	// deliveries (the observe_group ambient join), which is why the two
-	// observed halves ask for opposite values of the same flag.
 	type read struct {
 		partition string
 		where     []objstore.Cmp
@@ -327,8 +280,6 @@ func (s *Store) ObservedSince(ctx context.Context, folder, cursor string, maxMsg
 		}
 		found = append(found, items...)
 	}
-	// One merge puts the whole window newest-first, the order the caps are
-	// applied in.
 	sortItemsDescending(found)
 	out := make([]core.Message, 0, maxMsgs)
 	chars := 0
@@ -355,9 +306,6 @@ func (s *Store) ObservedSince(ctx context.Context, folder, cursor string, maxMsg
 	return reversed(out), nil
 }
 
-// messageBehind fetches the message one feed entry points at. A pointer with
-// no message is NOT an error: a feed read that raced a chat's errored-row
-// delete sees the entry a moment longer, and it drops out of the window.
 func (s *Store) messageBehind(ctx context.Context, it objstore.Item) (core.Message, bool, error) {
 	chatJID := it.Attrs[attrFeedChatJID]
 	if chatJID == "" {

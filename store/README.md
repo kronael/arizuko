@@ -120,6 +120,9 @@ wire fields. `_index_revision` guards pointer changes against concurrent writes.
 `objstore.Indexed` implements this protocol over the two storage methods.
 Manifest replacement uses the same writer. Migrations commit a completion
 marker only after all existing rows have their pointers.
+Message identity, status and reply lookups use chat-scoped pointers. Delivery
+transitions resolve the stored coordinate, including append-order adjustments.
+`messages-v1` backfills pointers once; group rename updates them atomically.
 
 Two cursors, `chats.agent_cursor` and `sessions.observed_cursor`, are copies of a
 `messages.timestamp` compared back against that column, so both are declared

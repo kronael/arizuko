@@ -3,7 +3,7 @@ package objstore
 import (
 	"context"
 	"crypto/rand"
-	"encoding/base64"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -16,6 +16,7 @@ const indexRevision = "_index_revision"
 
 type Indexer interface {
 	Indexed(entity string) bool
+	// Keys returns complete, unique pointer coordinates.
 	Keys(entity string, item Item) []Key
 }
 
@@ -99,25 +100,14 @@ func (s *Indexed) GuardedBatch(ctx context.Context, checks []Check, writes []Wri
 				}
 			}
 			batch[i] = w
-			var was, now []Key
-			if exists {
-				was = s.Keys(w.Entity, old)
+			after := Item{Key: w.Key, Attrs: next}
+			if w.Op == Delete {
+				after = Item{}
 			}
-			if w.Op != Delete {
-				now = s.Keys(w.Entity, Item{Key: w.Key, Attrs: next})
+			if !exists {
+				old = Item{}
 			}
-			for _, key := range was {
-				if !slices.Contains(now, key) {
-					batch = append(batch, Write{Op: Delete, Entity: IndexEntity,
-						Key: indexKey(key, w.Entity, w.Key)})
-				}
-			}
-			for _, key := range now {
-				batch = append(batch, Write{Op: Put, Entity: IndexEntity,
-					Key: indexKey(key, w.Entity, w.Key), Attrs: map[string]string{
-						"entity": w.Entity, "source_partition": w.Key.Partition, "source_sort": w.Key.Sort,
-					}})
-			}
+			batch = append(batch, IndexChanges(s.Indexer, w.Entity, old, after)...)
 		}
 		ok, err := s.Store.GuardedBatch(context.WithValue(ctx, indexBatchContext{}, &batch[0]), checks, batch)
 		if err != nil || ok {
@@ -138,10 +128,38 @@ func (s *Indexed) GuardedBatch(ctx context.Context, checks []Check, writes []Wri
 	return false, fmt.Errorf("index write changed during 16 attempts")
 }
 
-func indexKey(key Key, entity string, source Key) Key {
+// IndexChanges derives pointers for an externally guarded primary transition.
+// Journaled maintenance supplies exact before/after images without changing them.
+func IndexChanges(index Indexer, entity string, before, after Item) []Write {
+	if !index.Indexed(entity) {
+		return nil
+	}
+	var was, now []Key
+	if before.Key != (Key{}) {
+		was = index.Keys(entity, before)
+	}
+	if after.Key != (Key{}) {
+		now = index.Keys(entity, after)
+	}
+	var writes []Write
+	for _, key := range was {
+		if !slices.Contains(now, key) {
+			writes = append(writes, Write{Op: Delete, Entity: IndexEntity, Key: key})
+		}
+	}
+	for _, key := range now {
+		writes = append(writes, Write{Op: Put, Entity: IndexEntity,
+			Key: key, Attrs: map[string]string{
+				"entity": entity, "source_partition": after.Key.Partition, "source_sort": after.Key.Sort,
+			}})
+	}
+	return writes
+}
+
+// DueIndexKey gives equal deadlines distinct, bounded source identities.
+func DueIndexKey(partition, deadline, entity string, source Key) Key {
 	data, _ := json.Marshal([3]string{entity, source.Partition, source.Sort})
-	key.Sort += "\x1f" + base64.RawURLEncoding.EncodeToString(data)
-	return key
+	return Key{Partition: partition, Sort: fmt.Sprintf("%s\x1f%x", deadline, sha256.Sum256(data))}
 }
 
 func indexPoint(ctx context.Context, s Store, entity string, key Key) (Item, bool, error) {
@@ -154,7 +172,12 @@ func indexPoint(ctx context.Context, s Store, entity string, key Key) (Item, boo
 }
 
 func IndexItems(ctx context.Context, s Store, partition string, key KeyPredicate, limit int) ([]Item, error) {
-	refs, err := s.Query(ctx, Query{Entity: IndexEntity, Partition: partition, Key: key, Limit: limit})
+	return QueryIndex(ctx, s, Query{Partition: partition, Key: key, Limit: limit})
+}
+
+func QueryIndex(ctx context.Context, s Store, q Query) ([]Item, error) {
+	q.Entity = IndexEntity
+	refs, err := s.Query(ctx, q)
 	if err != nil {
 		return nil, err
 	}

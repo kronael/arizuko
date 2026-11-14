@@ -546,3 +546,17 @@ func TestRuntimeRecoveryReadsNoRunningRows(t *testing.T) {
 		t.Fatalf("runtime recovery read %d running turns", n)
 	}
 }
+
+func TestProgressFlushReadsOnlyDueUpdates(t *testing.T) {
+	db, l, counter := countedLoop(t)
+	srv := NewServer(db, l, nil, nil, 0, "")
+	now := time.Now()
+	for i := range 40 {
+		db.progress.Store(fmt.Sprint(i), &turnProgress{pendingText: "changed", lastPublished: now})
+	}
+	clear(counter.reads)
+	srv.flushProgress(now.Add(time.Second))
+	if got := counter.total(); got != 0 {
+		t.Fatalf("not-due progress made %d store reads", got)
+	}
+}

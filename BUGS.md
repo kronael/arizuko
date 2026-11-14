@@ -16,7 +16,6 @@
 ## What needs you
 
 - `L840` — progress and message identity reads scan chat history; canonical delivery coordinates need a keyed lookup.
-- `L839` — outbound discovery reads delayed work and backoff uses creation time; keyed deadlines approved on 2026-11-14.
 
 - `L826` — one folder's crash closes the whole instance for an hour; per-folder breaker or a 30 s probe; needs sign-off.
 - `L816` — gitd loses GitHub webhooks while the store is unreachable; retention lives in that store; proposal, needs sign-off.
@@ -725,18 +724,10 @@ canonical-coordinate resolution for delivery transitions. Progress reads only
 updates whose publication deadline is due.
 **Test:** long unrelated history cannot affect one progress/retry pass; a
 clamped outbound timestamp still transitions the stored delivery.
-
-## L839 — outbound discovery ignores retry deadlines (2026-11-14)
-
-`PendingOutbound` selects the oldest 200 pending messages by creation time;
-`maybeRetryOutbound` checks exponential backoff only after hydrating them.
-Computed cost: up to 400 row reads per pass for zero due deliveries, and 200
-old delayed rows can hide a newer due row. Backoff ages from message creation,
-so a message over an hour old can spend every remaining retry 30 seconds apart.
-**Fix:** persist the next deadline on each failure and select only due keys;
-acknowledgment, retry and dead-letter are guarded state transitions.
-**Test:** 200 delayed messages cannot hide one due message; an old message waits
-a full backoff after its latest failure; concurrent acknowledgment wins.
+Review also computed 148 actions for a 49-message observation batch and a
+1,304-byte index key for a valid 543-byte message key. Paging past same-time
+ID `a` with a DEL suffix skips `a1`. Verify bounded batches, full-width keys
+and exact message cursors before this concern lands.
 
 ## ✅ FIXED 2026-11-11 efeb37294 L818 — package sources resolve against the shared host checkout (`catalog:`) instead of being fetched (2026-11-11)
 

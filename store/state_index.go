@@ -2,6 +2,9 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/kronael/arizuko/core"
@@ -12,13 +15,16 @@ type stateIndexes struct{}
 
 func (stateIndexes) Indexed(entity string) bool {
 	switch entity {
-	case ScheduledTasks, TurnContexts, TurnArchive, MessageDelivery:
+	case ScheduledTasks, TurnContexts, TurnArchive, MessageDelivery, Messages:
 		return true
 	}
 	return false
 }
 
 func (stateIndexes) Keys(entity string, it objstore.Item) []objstore.Key {
+	if entity == Messages {
+		return messageIndexes(it)
+	}
 	if entity == TurnContexts || entity == TurnArchive {
 		return turnIndexes(entity, it)
 	}
@@ -27,7 +33,7 @@ func (stateIndexes) Keys(entity string, it objstore.Item) []objstore.Key {
 			return nil
 		}
 		due, _ := deliveryDueAt(it)
-		return []objstore.Key{{Partition: "outbound/due", Sort: core.TS(due)}}
+		return []objstore.Key{objstore.DueIndexKey("outbound/due", core.TS(due), entity, it.Key)}
 	}
 	switch it.Attrs[attrTaskStatus] {
 	case core.TaskActive:
@@ -35,7 +41,7 @@ func (stateIndexes) Keys(entity string, it objstore.Item) []objstore.Key {
 		if at, ok := taskNextRun(it); ok {
 			due = at
 		}
-		return []objstore.Key{{Partition: "tasks/due", Sort: core.TS(due)}}
+		return []objstore.Key{objstore.DueIndexKey("tasks/due", core.TS(due), entity, it.Key)}
 	case TaskStatusFiring:
 		return []objstore.Key{{Partition: "tasks/firing", Sort: it.Key.Sort}}
 	}
@@ -53,7 +59,22 @@ func (s *Store) MigrateStateIndexes(ctx context.Context) error {
 	}); err != nil {
 		return err
 	}
-	return objstore.Reindex(ctx, s.Obj(), "outbound-v1", []objstore.Query{{Entity: MessageDelivery, Partition: core.MessageStatusPending}})
+	if err := objstore.Reindex(ctx, s.Obj(), "outbound-v1", []objstore.Query{{Entity: MessageDelivery, Partition: core.MessageStatusPending}}); err != nil {
+		return err
+	}
+	marker := objstore.Key{Partition: "migrations", Sort: "messages-v1"}
+	if _, done, err := s.itemAt(ctx, objstore.IndexEntity, marker); err != nil || done {
+		return err
+	}
+	jids, err := s.ChatJIDs(ctx)
+	if err != nil {
+		return err
+	}
+	partitions := make([]objstore.Query, 0, len(jids))
+	for _, jid := range jids {
+		partitions = append(partitions, objstore.Query{Entity: Messages, Partition: jid})
+	}
+	return objstore.Reindex(ctx, s.Obj(), marker.Sort, partitions)
 }
 
 func turnIndexes(entity string, it objstore.Item) []objstore.Key {
@@ -61,10 +82,10 @@ func turnIndexes(entity string, it objstore.Item) []objstore.Key {
 	var keys []objstore.Key
 	add := func(partition, sort string) { keys = append(keys, objstore.Key{Partition: partition, Sort: sort}) }
 	if at, err := time.Parse(time.RFC3339Nano, a[AttrTurnStartedAt]); err == nil {
-		add(entity+"/started", core.TS(at))
+		keys = append(keys, objstore.DueIndexKey(entity+"/started", core.TS(at), entity, it.Key))
 		if entity == TurnContexts && a[attrTurnState] == TurnRunning &&
 			(a["provider_failure_attempt"] == "" || a["provider_failure_attempt"] != a["attempt_id"]) {
-			add("turns/expiry", core.TS(at))
+			keys = append(keys, objstore.DueIndexKey("turns/expiry", core.TS(at), entity, it.Key))
 		}
 	}
 	if entity == TurnArchive {
@@ -78,7 +99,7 @@ func turnIndexes(entity string, it objstore.Item) []objstore.Key {
 		add("turns/recovery", it.Key.Sort)
 	}
 	if a[attrTurnState] == TurnPendingRetry && a["next_attempt_at"] != "" {
-		add("turns/retry", a["next_attempt_at"])
+		keys = append(keys, objstore.DueIndexKey("turns/retry", a["next_attempt_at"], entity, it.Key))
 	}
 	if _, owed := a["status_owed"]; owed {
 		add("turns/status", it.Key.Sort)
@@ -100,4 +121,43 @@ func (s *Store) indexedTurns(ctx context.Context, partition string, key objstore
 
 func (s *Store) RecoverableTurns(ctx context.Context) ([]TurnContext, error) {
 	return s.indexedTurns(ctx, "turns/recovery", objstore.KeyPredicate{})
+}
+
+func indexPartition(kind string, values ...string) string {
+	data, _ := json.Marshal(values)
+	return fmt.Sprintf("%s/%x", kind, sha256.Sum256(data))
+}
+
+func messageIndexes(it objstore.Item) []objstore.Key {
+	_, id, ok := MsgCoord(it.Key.Sort)
+	if !ok {
+		return nil
+	}
+	jid, a := it.Key.Partition, it.Attrs
+	keys := []objstore.Key{{Partition: indexPartition("message/id", jid, id), Sort: it.Key.Sort}}
+	add := func(kind string, values ...string) {
+		keys = append(keys, objstore.Key{Partition: indexPartition("message/"+kind, append([]string{jid}, values...)...), Sort: it.Key.Sort})
+	}
+	if v := a[AttrMsgPlatformID]; v != "" {
+		add("platform", v)
+	}
+	if v := a["status_send_key"]; v != "" {
+		add("send", v)
+	}
+	if a[attrMsgVerb] == verbStatus {
+		add("status", a[attrMsgTurnID])
+	}
+	if _, bot := a[attrMsgBot]; bot {
+		add("bot")
+		if a[attrMsgVerb] != verbStatus {
+			add("reply", a[attrMsgTurnID])
+		}
+	} else if _, source := a[attrMsgSource]; source {
+		add("source")
+	}
+	return keys
+}
+
+func StateIndexChanges(entity string, before, after objstore.Item) []objstore.Write {
+	return objstore.IndexChanges(stateIndexes{}, entity, before, after)
 }

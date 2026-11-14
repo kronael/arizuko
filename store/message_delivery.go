@@ -1,20 +1,5 @@
 package store
 
-// message_delivery.go holds the mutable half of an outbound row: whether it
-// still owes a delivery, and how many attempts it has spent.
-//
-// `sent` IS THE ABSENCE OF AN ITEM: 98.4% of krons' messages are sent and
-// nothing ever deletes a sent row, so a `sent` partition is the whole table
-// under another name. The partition is the status and the sort key the
-// message's own: `pending` is the retry feed and drains; `failed` is the
-// dead-letter set (388 items on krons, 920 on sloth) and drains when an
-// operator replays one.
-//
-// It carries a POINTER, like the folder feed: a second copy of the body is a
-// second thing `EnrichMessage` would rewrite. platform_id is NOT here: it is
-// confirmed on delivery and removed on status deletion. `MessageByID` resolves
-// a reply's parent by it inside one chat partition.
-
 import (
 	"context"
 	"fmt"
@@ -32,17 +17,12 @@ const (
 	attrDelAttempts = "attempts"
 )
 
-// The feed is read oldest-first in time order, so its key carries the same
-// ordered lead.
 func init() { objstore.OrderedLead(MessageDelivery, "", tsWidth) }
 
-// deliveryKey is the coordinate of one row's delivery state.
 func deliveryKey(status string, msgKey objstore.Key) objstore.Key {
 	return objstore.Key{Partition: status, Sort: msgKey.Sort}
 }
 
-// deliveryWrite renders the delivery item a message takes, and reports whether
-// it takes one. A sent row takes none, which is what makes `sent` the absence.
 func deliveryWrite(msgKey objstore.Key, m core.Message, status string,
 	attempts int) (objstore.Write, bool) {
 	if status == "" || status == core.MessageStatusSent {
@@ -86,11 +66,7 @@ func (s *Store) PutOutbound(ctx context.Context, m core.Message, status string) 
 
 // PutOutboundOnce keeps an exact, deterministic coordinate across delivery retries.
 func (s *Store) PutOutboundOnce(ctx context.Context, m core.Message) (bool, error) {
-	key, err := messageKeyOf(m)
-	if err != nil {
-		return false, err
-	}
-	_, exists, err := s.itemAt(ctx, Messages, key)
+	_, exists, err := s.messageAt(ctx, m.ChatJID, m.ID)
 	if err != nil || exists {
 		return false, err
 	}
@@ -111,7 +87,6 @@ func (s *Store) PendingOutbound(ctx context.Context, now time.Time,
 	return s.pendingFrom(ctx, items)
 }
 
-// pendingFrom dereferences delivery items into the messages they point at.
 func (s *Store) pendingFrom(ctx context.Context, items []objstore.Item) ([]PendingMessage, error) {
 	out := make([]PendingMessage, 0, len(items))
 	for _, it := range items {
@@ -138,9 +113,6 @@ func (s *Store) pendingFrom(ctx context.Context, items []objstore.Item) ([]Pendi
 	return out, nil
 }
 
-// messageBehindDelivery fetches the message one delivery item points at. A
-// pointer with no message is a row removed by cleanup, and it drops
-// out of the feed rather than failing it.
 func (s *Store) messageBehindDelivery(ctx context.Context,
 	it objstore.Item) (core.Message, bool, error) {
 	chatJID := it.Attrs[attrDelChatJID]
@@ -161,7 +133,7 @@ func (s *Store) MarkDelivered(ctx context.Context, m core.Message, platformID st
 	if m.StatusRevision > 0 {
 		return s.ackStatus(ctx, m, platformID)
 	}
-	key, err := messageKeyOf(m)
+	key, err := s.deliveryMessageKey(ctx, m)
 	if err != nil {
 		return err
 	}
@@ -182,7 +154,7 @@ func (s *Store) MarkDelivered(ctx context.Context, m core.Message, platformID st
 // terminal state, where no sweep sends it again and the row keeps its content
 // so the operator can read what was lost.
 func (s *Store) DeadLetter(ctx context.Context, m core.Message, attempts int) error {
-	key, err := messageKeyOf(m)
+	key, err := s.deliveryMessageKey(ctx, m)
 	if err != nil {
 		return err
 	}
@@ -190,8 +162,6 @@ func (s *Store) DeadLetter(ctx context.Context, m core.Message, attempts int) er
 	if attempts > 0 {
 		attrs[attrDelAttempts] = strconv.Itoa(attempts)
 	}
-	// Two items, one batch: a row that left `pending` without arriving in
-	// `failed` would be a message nothing owns.
 	_, err = s.TryWriteEntities(ctx, nil,
 		objstore.Write{Op: objstore.Delete, Entity: MessageDelivery,
 			Key: deliveryKey(core.MessageStatusPending, key), Cond: objstore.Cond{Item: objstore.ItemPresent}},
@@ -202,7 +172,7 @@ func (s *Store) DeadLetter(ctx context.Context, m core.Message, attempts int) er
 
 func (s *Store) RecordDeliveryFailure(ctx context.Context, m core.Message,
 	maxAttempts int) (int, bool, error) {
-	key, err := messageKeyOf(m)
+	key, err := s.deliveryMessageKey(ctx, m)
 	if err != nil {
 		return 0, false, err
 	}
@@ -318,7 +288,7 @@ func (s *Store) DeadLetterByID(ctx context.Context, id string) (core.Message, bo
 // second delivery path exists. A row that is not dead-lettered matches nothing,
 // and the batch's refusal says so rather than a count of zero read as success.
 func (s *Store) ReplayDeadLetter(ctx context.Context, m core.Message) (bool, error) {
-	key, err := messageKeyOf(m)
+	key, err := s.deliveryMessageKey(ctx, m)
 	if err != nil {
 		return false, err
 	}
@@ -385,7 +355,7 @@ func (s *Store) QueueStatus(ctx context.Context, m core.Message, content, phase 
 	if m.Content == content && m.StatusPhase == phase {
 		return nil
 	}
-	key, err := messageKeyOf(m)
+	key, err := s.deliveryMessageKey(ctx, m)
 	if err != nil {
 		return err
 	}
@@ -410,7 +380,7 @@ func (s *Store) QueueStatus(ctx context.Context, m core.Message, content, phase 
 }
 
 func (s *Store) ackStatus(ctx context.Context, m core.Message, platformID string) error {
-	key, err := messageKeyOf(m)
+	key, err := s.deliveryMessageKey(ctx, m)
 	if err != nil {
 		return err
 	}
@@ -446,7 +416,7 @@ func (s *Store) ackStatus(ctx context.Context, m core.Message, platformID string
 
 // FailStatus counts only the attempted revision and retains the operation on dead letters.
 func (s *Store) FailStatus(ctx context.Context, pending PendingMessage, permanent bool, maxAttempts int) error {
-	key, err := messageKeyOf(pending.Message)
+	key, err := s.deliveryMessageKey(ctx, pending.Message)
 	if err != nil {
 		return err
 	}
@@ -477,7 +447,7 @@ func (s *Store) FailStatus(ctx context.Context, pending PendingMessage, permanen
 	if target == core.MessageStatusFailed {
 		writes = append(writes, objstore.Write{Op: objstore.Delete, Entity: MessageDelivery, Key: deliveryKey(core.MessageStatusPending, key), Cond: cond})
 	}
-	// Resolved or superseded operations need no failure update.
+	// A refused write is a resolved or superseded operation.
 	_, err = s.TryWriteEntities(ctx, nil, writes...)
 	return err
 }
@@ -492,7 +462,7 @@ func deliveryQueuedAt(it objstore.Item, m core.Message) time.Time {
 
 // PendingDelivery reads the currently owed operation at a message's coordinate.
 func (s *Store) PendingDelivery(ctx context.Context, m core.Message) (PendingMessage, bool, error) {
-	key, err := messageKeyOf(m)
+	key, err := s.deliveryMessageKey(ctx, m)
 	if err != nil {
 		return PendingMessage{}, false, err
 	}
@@ -535,4 +505,15 @@ func deliveryDueAt(it objstore.Item) (time.Time, error) {
 		return time.Time{}, err
 	}
 	return at.Add(DeliveryBackoff(n)), nil
+}
+
+func (s *Store) deliveryMessageKey(ctx context.Context, m core.Message) (objstore.Key, error) {
+	it, exists, err := s.messageAt(ctx, m.ChatJID, m.ID)
+	if err != nil {
+		return objstore.Key{}, err
+	}
+	if !exists {
+		return objstore.Key{}, fmt.Errorf("message %s in %s is missing", m.ID, m.ChatJID)
+	}
+	return it.Key, nil
 }

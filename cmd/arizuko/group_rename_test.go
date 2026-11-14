@@ -12,6 +12,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/auth"
@@ -23,7 +24,6 @@ import (
 	"github.com/kronael/arizuko/runed/runstore"
 	"github.com/kronael/arizuko/store"
 	"golang.org/x/sys/unix"
-	"time"
 )
 
 func renameTestMap(t *testing.T) renameMap {
@@ -1273,5 +1273,44 @@ func TestGroupRenameTokenRecordedOwnership(t *testing.T) {
 				t.Fatalf("token alias or ownership changed: %#v %v", rows, err)
 			}
 		})
+	}
+}
+
+func TestGroupRenameMessageIndexes(t *testing.T) {
+	_, drivers := renameFixture(t)
+	db := store.NewOver(drivers["routd"])
+	ctx := t.Context()
+	jid := "web:main/main"
+	m := core.Message{ID: "indexed", ChatJID: jid, Timestamp: time.Now(), BotMsg: true, TurnID: "turn", Verb: "status"}
+	if err := db.PutMessage(m); err != nil {
+		t.Fatal(err)
+	}
+	items, err := db.Obj().Query(ctx, objstore.Query{Entity: store.Messages, Partition: jid})
+	if err != nil || len(items) != 1 {
+		t.Fatalf("seed: %v %v", items, err)
+	}
+	before := items[0]
+	after, err := renameTestMap(t).row("routd", store.Messages, before, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows := []renameRow{{Owner: "routd", Entity: store.Messages, Before: before, After: after}}
+	for _, rollback := range []bool{false, true} {
+		if err := renameApplyBatch(ctx, rows, drivers, rollback); err != nil {
+			t.Fatal(err)
+		}
+		present, absent := after.Key.Partition, before.Key.Partition
+		if rollback {
+			present, absent = absent, present
+		}
+		if got, ok := db.MessageByID(present, m.ID); !ok || got.ChatJID != present {
+			t.Fatalf("renamed identity missing: %+v %v", got, ok)
+		}
+		if _, ok := db.MessageByID(absent, m.ID); ok {
+			t.Fatal("old identity remains")
+		}
+		if _, ok := db.LastStatusRow(present, "turn"); !ok {
+			t.Fatal("status lookup lost")
+		}
 	}
 }

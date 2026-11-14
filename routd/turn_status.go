@@ -155,10 +155,7 @@ func (s *Server) publishProgress(tc TurnContext, progress *turnProgress, now tim
 	if exists && row.PlatformID == "" {
 		return s.updateProgress(tc, jid, progress.pendingText)
 	}
-	if !immediate && !progress.lastPublished.IsZero() && now.Sub(progress.lastPublished) < progressInterval {
-		return nil
-	}
-	if !immediate && !progress.lastAttempt.IsZero() && now.Sub(progress.lastAttempt) < progressInterval {
+	if !immediate && !progressDue(progress, now) {
 		return nil
 	}
 	progress.lastAttempt = now
@@ -176,6 +173,11 @@ func (s *Server) publishProgress(tc TurnContext, progress *turnProgress, now tim
 	return nil
 }
 
+func progressDue(progress *turnProgress, now time.Time) bool {
+	return (progress.lastPublished.IsZero() || now.Sub(progress.lastPublished) >= progressInterval) &&
+		(progress.lastAttempt.IsZero() || now.Sub(progress.lastAttempt) >= progressInterval)
+}
+
 func (s *Server) flushProgress(now time.Time) {
 	if s == nil || s.db == nil {
 		return
@@ -189,7 +191,7 @@ func (s *Server) flushProgress(now time.Time) {
 			return true
 		}
 		progress := value.(*turnProgress)
-		if progress.pendingText == "" {
+		if progress.pendingText == "" || !progressDue(progress, now) {
 			return true
 		}
 		tc, ok := s.db.GetTurnContext(turnID)

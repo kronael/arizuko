@@ -78,7 +78,7 @@ Sources: `routd/loop.go`, `routd/turn_control.go`, `routd/turn_status.go`,
 ```yaml
 - path: objstore/indexed.go (new)
   job: commit a primary mutation and its derived index pointers atomically
-  names: [Indexed, Indexer, IndexItems, Reindex]
+  names: [Indexed, Indexer, IndexItems, QueryIndex, DueIndexKey, Reindex]
   never: adds a driver method or splits one guarded batch
 - path: objstore/replace.go (changed)
   job: bound replace batches including derived index writes
@@ -88,6 +88,15 @@ Sources: `routd/loop.go`, `routd/turn_control.go`, `routd/turn_status.go`,
   job: declare access keys for state transitions and migrate existing rows once
   names: [MigrateStateIndexes, RecoverableTurns]
   never: exposes an operator-managed resource
+- path: store/messages.go (changed)
+  job: resolve chat identities and turn work by key
+  names:
+    [MessageByID, ActiveProgress, LastStatusRow, TurnFrames, BotRepliesSince]
+  never: reinterprets a clamped timestamp as a stored coordinate
+- path: cmd/arizuko/group_rename.go (changed)
+  job: commit primary and derived pointer changes from guarded journal images
+  names: [renameApplyBatch, renameSteps]
+  never: journals derived pointers as source data
 - path: store/store.go (changed)
   job: give every writer the same index-maintaining storage handle
   names: [NewOver, Obj]
@@ -109,7 +118,7 @@ Sources: `routd/loop.go`, `routd/turn_control.go`, `routd/turn_status.go`,
   names: [On]
   never: declares its own task index format
 - path: cmd/arizuko/group_rename_rows.go (changed)
-  job: recognize folder-independent task pointers during rename preflight
+  job: recognize derived pointers during rename preflight
   names: [renameMap]
   never: treats internal migration markers as resource rows
 - path: store/state_index_test.go (new)
@@ -264,6 +273,22 @@ three rows. `outbound-v1` backfills existing pending work once. Legacy rows
 have no recorded last-attempt instant, so their initial key preserves the
 creation/queued-time calculation; subsequent failures write explicit deadlines.
 `PendingMessage.NextAttemptAt` is internal data, not a REST/MCP field.
+
+## Message and progress transitions
+
+Appending a message writes chat-scoped identity, platform/status aliases,
+turn/status or turn/reply pointers, and bot/source time pointers in the same
+batch. A delivery resolves the stored identity before changing its state, so
+append-order timestamp adjustment cannot strand it. Redelivery retains that
+coordinate. Progress flush reads only updates whose publication deadline is due.
+
+`messages-v1` walks the chat partition list once before workers start. Group
+rename commits primary and derived pointer changes together from its guarded
+journal images. Derived pointers never enter the rename journal as data. Index declarations
+return complete keys: message indexes retain the primary's exact sort key;
+due-time indexes append a SHA-256 source identity to the deadline. Composite
+lookup partitions hash their tuple. This preserves full-width primary keys and
+prefix-ID cursor ordering within DynamoDB's key limits.
 
 ## Open questions
 
