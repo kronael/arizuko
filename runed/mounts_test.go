@@ -164,8 +164,35 @@ func TestBuildMounts_ArizukoDevAcceptsTrueSpelling(t *testing.T) {
 	groupDir := filepath.Join(cfg.GroupsDir, string(req.Folder))
 	os.MkdirAll(groupDir, 0o755)
 
-	if m := findMount(mustBuildMounts(t, cfg, folders, req, core.GroupConfig{}, groupDir), "/app/src"); m == nil {
+	mounts := mustBuildMounts(t, cfg, folders, req, core.GroupConfig{}, groupDir)
+	if m := findMount(mounts, "/retry"); m == nil || m.Host != filepath.Join(cfg.HostAppDir, "retry") || !m.RO {
+		t.Errorf("ARIZUKO_DEV=true retry mount = %+v", m)
+	}
+	if m := findMount(mounts, "/app/src"); m == nil {
 		t.Error("ARIZUKO_DEV=true did not mount ant/src; runner accepted only the literal \"1\"")
+	}
+}
+
+func TestBuildMounts_RetrySourceIsDevOnly(t *testing.T) {
+	cfg, folders := fhsConfig(t)
+	req := runedv1.RunRequest{Packages: []string{"core"}, Folder: "atlas/support"}
+	groupDir := filepath.Join(cfg.GroupsDir, string(req.Folder))
+	os.MkdirAll(groupDir, 0o755)
+
+	for _, dev := range []string{"1", "false"} {
+		t.Run(dev, func(t *testing.T) {
+			t.Setenv("ARIZUKO_DEV", dev)
+			m := findMount(mustBuildMounts(t, cfg, folders, req, core.GroupConfig{}, groupDir), "/retry")
+			if dev == "false" {
+				if m != nil {
+					t.Errorf("release retry mount = %+v, want none", m)
+				}
+				return
+			}
+			if m == nil || m.Host != filepath.Join(cfg.HostAppDir, "retry") || !m.RO {
+				t.Errorf("dev retry mount = %+v, want read-only host retry source", m)
+			}
+		})
 	}
 }
 

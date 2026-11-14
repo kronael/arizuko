@@ -13,6 +13,7 @@ refs/
 .git
 ant/node_modules
 ant/.next
+ant/dist
 openclaw/.git
 openclaw/node_modules
 openclaw/dist

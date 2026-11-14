@@ -6,7 +6,7 @@
 DOCKER ?= docker
 
 image:
-	$(DOCKER) build -t arizuko-ant .
+	$(DOCKER) build -t arizuko-ant -f Dockerfile ..
 
 # The whole suite. This named src/heartbeat.test.ts, a file that does not exist
 # — the target exited 1 on every run, so nothing was testing ant from make.

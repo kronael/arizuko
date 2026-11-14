@@ -181,14 +181,15 @@ RUN uv pip install --system --break-system-packages \
     sqlfluff semgrep
 
 WORKDIR /app
-COPY package*.json ./
+COPY ant/package*.json ./
 RUN npm install && ln -s /app/node_modules/.bin/pi /usr/local/bin/pi
 # Anthropic SDK auto-updates to latest on every image build; overrides
 # the version pinned in package-lock.json. System tools above stay pinned
 # for reproducibility — quality regressions in third-party system tools
 # are rare; regressions in Anthropic SDK are fixed by upstream fast.
 RUN npm install @anthropic-ai/claude-agent-sdk@latest
-COPY . ./
+COPY ant/ ./
+COPY retry/ /retry/
 RUN npm run build
 RUN mkdir -p /mnt /run/ipc/input /var/lib/share /var/lib/www /var/lib/groups /opt/arizuko
 

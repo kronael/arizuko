@@ -150,6 +150,7 @@ func buildMounts(
 	// rather than pinning a single literal spelling (BUGS F74: this compared
 	// only "1" while every test and the dashd-playwright README use "true").
 	if devMode, _ := strconv.ParseBool(os.Getenv("ARIZUKO_DEV")); devMode {
+		m = append(m, core.Mount{Host: filepath.Join(cfg.HostAppDir, "retry"), Container: "/retry", RO: true})
 		runnerSrc := filepath.Join(cfg.HostAppDir, "ant", "src")
 		if _, err := os.Stat(runnerSrc); err == nil {
 			m = append(m, core.Mount{
