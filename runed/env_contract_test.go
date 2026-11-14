@@ -175,3 +175,50 @@ func TestSpawnSecretsCredentialContract(t *testing.T) {
 		}
 	}
 }
+
+// TestAntRetryPackagingContract joins the actual Ant import to the image context.
+func TestAntRetryPackagingContract(t *testing.T) {
+	read := func(name string) string {
+		t.Helper()
+		b, err := os.ReadFile(filepath.Join("..", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+	source := read("ant/src/backend.ts")
+	match := regexp.MustCompile(`from ['"]([^'"]*retry\.mjs)['"]`).FindStringSubmatch(source)
+	if len(match) != 2 {
+		t.Fatal("backend must import the retry reader")
+	}
+	if got := filepath.Clean(filepath.Join("/app/src", match[1])); got != "/retry/retry.mjs" {
+		t.Fatalf("retry import resolves to %s", got)
+	}
+	for name, want := range map[string]string{
+		"ant/Makefile":    "$(DOCKER) build -t arizuko-ant -f Dockerfile ..",
+		"ant/Dockerfile":  "COPY retry/ /retry/",
+		"retry/retry.mjs": "from './policy.json'",
+	} {
+		if !strings.Contains(read(name), want) {
+			t.Errorf("%s lacks %q", name, want)
+		}
+	}
+	dockerfile := read("ant/Dockerfile")
+	for _, want := range []string{"COPY ant/package*.json ./", "COPY ant/ ./"} {
+		if !strings.Contains(dockerfile, want) {
+			t.Errorf("Dockerfile lacks %q", want)
+		}
+	}
+	if !strings.Contains("\n"+read(".dockerignore")+"\n", "\nant/dist\n") {
+		t.Error("ant/dist must be excluded")
+	}
+	for _, line := range strings.Split(read(".dockerignore"), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "retry" || line == "retry/" || line == "retry/*" || line == "retry/retry.mjs" || line == "retry/policy.json" || line == "*" {
+			t.Errorf("retry excluded by %q", line)
+		}
+	}
+	if _, err := os.Stat(filepath.Join("..", "ant", ".dockerignore")); !os.IsNotExist(err) {
+		t.Fatal("ant/.dockerignore overrides root exclusions")
+	}
+}

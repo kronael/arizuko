@@ -3,12 +3,13 @@
 // parse, IPC steering + close sentinel, the <status> pipeline, idempotent
 // submit_turn, the inner turn loop. The harness half lives behind backend.ts.
 
+import { httpFailure } from '../../retry/retry.mjs';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { submitTurn, submitStatus, type ModelUsage, type TurnAck } from './mcp.js';
 import { injectMcpEnv } from './mcp-servers.js';
-import { Harness, HarnessProfile, Turn, HarnessConfigError, addUsage, parseHarness, selectHarness } from './backend.js';
+import { Harness, HarnessProfile, Turn, addUsage, parseHarness, selectHarness } from './backend.js';
 import { DEADLINE_NOTE_LEAD_MS, DEADLINE_TEXT, STEER_SPOOL, appendLines, drainSteering, nudgeProgress } from './spool.js';
 export { DEADLINE_TEXT } from './spool.js';
 
@@ -320,7 +321,7 @@ async function runAttempt(
           // `error`, so routd delivers its own failure notice rather than
           // handing the user "API Error: 400 …" as the agent's reply.
           if (!frame.ok && !frame.refused) {
-            out.failed = frame.terminal ? 'terminal' : 'retryable';
+            out.failed = frame.retryFresh || frame.terminal !== false ? 'terminal' : 'retryable';
             out.failedReason = frame.text;
           }
           const ack = await deliver(turnID, {
@@ -340,6 +341,20 @@ async function runAttempt(
         }
       }
     }
+    // The seam's first requirement is exactly one terminal frame per turn, never
+    // silence. Enforced here, at the one consumer, rather than trusting every
+    // occupant.
+    if (resultCount === 0 && !out.retryFresh && !closedDuringQuery) {
+      log('Harness produced no result frame, delivering an error turn');
+      out.failed = 'terminal';
+      resultCount++;
+      await deliver(turnID, {
+        status: 'error',
+        newSessionId: out.sessionId,
+        error: 'harness produced no result for this turn',
+      });
+    }
+
   } catch (err) {
     if (resultCount > 0) {
       log(`Harness threw after result (ignored): ${err instanceof Error ? err.message : String(err)}`);
@@ -352,22 +367,14 @@ async function runAttempt(
     clearTimeout(noteTimer);
   }
 
-  // The seam's first requirement is exactly one terminal frame per turn, never
-  // silence. Enforced here, at the one consumer, rather than trusting every
-  // occupant.
-  if (resultCount === 0 && !out.retryFresh && !closedDuringQuery) {
-    log('Harness produced no result frame, delivering an error turn');
-    out.failed = 'retryable';
-    await deliver(turnID, {
-      status: 'error',
-      newSessionId: out.sessionId,
-      error: 'harness produced no result for this turn',
-    });
-  }
-
   out.closedDuringQuery = closedDuringQuery;
   log(`Turn done. Frames: ${frameCount}, results: ${resultCount}, sessionId: ${out.sessionId || 'none'}, closedDuringQuery: ${closedDuringQuery}`);
   return out;
+}
+
+function failureExitCode(error: unknown) {
+  const kind = httpFailure(0, '', error, Date.now()).kind;
+  return kind === 'transient' || kind === 'timeout' ? 1 : EXIT_TERMINAL;
 }
 
 export async function runTurn(
@@ -433,7 +440,7 @@ async function main(): Promise<void> {
     log(`Received input for group: ${containerInput.groupFolder}`);
   } catch (err) {
     log(`Failed to parse input: ${err instanceof Error ? err.message : String(err)}`);
-    process.exit(1);
+    process.exit(EXIT_TERMINAL);
   }
 
   // The seam's env is Record<string,string>: process.env filtered once here
@@ -527,12 +534,15 @@ async function main(): Promise<void> {
     const errorMessage = err instanceof Error ? err.message : String(err);
     log(`Agent error: ${errorMessage}`);
     const turnID = turnIndex === 0 ? seedTurnID : `${seedTurnID}:${turnIndex}`;
-    await deliverTurn(turnID, {
-      status: 'error',
-      newSessionId: lastSessionId,
-      error: errorMessage,
-    });
-    process.exit(err instanceof HarnessConfigError ? EXIT_TERMINAL : 1);
+    try {
+      await deliverTurn(turnID, {
+        status: 'error',
+        newSessionId: lastSessionId,
+        error: errorMessage,
+      });
+    } finally {
+      process.exit(failureExitCode(err));
+    }
   }
 }
 

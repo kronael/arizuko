@@ -3,9 +3,11 @@ import { mkdtempSync } from 'fs';
 import { tmpdir } from 'os';
 import path from 'path';
 
-async function run(doc?: string) {
+async function run(doc?: string, mode?: string, callbackFail = false) {
  const root = mkdtempSync(path.join(tmpdir(), 'harness-'));
  const env: Record<string, string> = { ...process.env as Record<string,string>, VOLUNTARY_FIXTURE_ROOT: root, VOLUNTARY_FIXTURE_SOURCE: import.meta.dir, ARIZUKO_BACKEND:'claude', ARIZUKO_MODEL:'default-model', ARIZUKO_EFFORT:'high' };
+ if (mode) env.VERDICT_FIXTURE = mode;
+ if (callbackFail) env.VERDICT_CALLBACK_FAIL = '1';
  if (doc !== undefined) env.ARIZUKO_HARNESS = doc; else delete env.ARIZUKO_HARNESS;
  const child = Bun.spawn(['bun', '--preload', path.join(import.meta.dir, '../testdata/harness-main.ts'), path.join(import.meta.dir, 'index.ts')], {env, stdin:'pipe', stdout:'pipe', stderr:'pipe'});
  child.stdin.write('{"prompt":"test","groupFolder":"team","chatJid":"tg:1"}'); child.stdin.end();
@@ -33,6 +35,24 @@ test('missing prompt fails before starting a turn', async () => {
  const child = Bun.spawn(['bun', path.join(import.meta.dir, 'index.ts')], {stdin:'pipe', stdout:'pipe', stderr:'pipe'});
  child.stdin.write('{}'); child.stdin.end();
  const stderr = await new Response(child.stderr).text();
- expect(await child.exited).toBe(1);
+ expect(await child.exited).toBe(78);
  expect(stderr).toContain('prompt must be a string');
+});
+
+/** Local and frame failures choose the process verdict and submit only once. */
+test('failure verdict controls exit and submission', async () => {
+ for (const [mode, code] of [['unknown', 78], ['transport', 1], ['opaque', 78], ['transient', 1]] as const) {
+  const result = await run(undefined, mode);
+  expect(result.code).toBe(code);
+  expect(result.output.match(/SUBMIT /g)).toHaveLength(1);
+ }
+});
+
+/** A failed callback cannot replace the original process verdict. */
+test('callback failure preserves the original verdict', async () => {
+ for (const [mode, code] of [['unknown', 78], ['transport', 1], ['opaque', 78], ['transient', 1]] as const) {
+  const result = await run(undefined, mode, true);
+  expect(result.code).toBe(code);
+  expect(result.output.match(/SUBMIT /g)).toHaveLength(1);
+ }
 });

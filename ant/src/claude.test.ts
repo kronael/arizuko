@@ -17,7 +17,7 @@ import {
   createPreCompactHook,
   isRateLimitRejected,
   packContinuity,
-  permanentAPIError,
+  claudeAPIError,
   resolveResumeSession,
   savedUsage,
   transcriptPath,
@@ -182,7 +182,7 @@ test('ClaudeTurn: error_during_execution is a retryFresh error frame — never a
   // The resume-miss ("No conversation found") case: the chassis retries the
   // turn with no continuity instead of delivering the harness diagnostic
   // (BUGS: stale chat-bound session).
-  const frames = new ClaudeTurn().push({ type: 'result', subtype: 'error_during_execution' });
+  const frames = new ClaudeTurn().push({ type: 'result', subtype: 'error_during_execution', errors: ['No conversation found with session ID: 12345678-1234-1234-1234-123456789abc'] });
   expect(frames).toHaveLength(1);
   const r = frames[0];
   if (r.kind !== 'result') throw new Error('expected result frame');
@@ -278,21 +278,15 @@ test('ClaudeTurn marks an is_error result as a failure', () => {
   const r = frames[0];
   if (r.kind !== 'result') throw new Error('expected result frame');
   expect(r.ok).toBe(false);
-  expect(r.terminal).toBeUndefined();
+  expect(r.terminal).toBe(false);
 });
 
 // Re-sending a request the API already refused spawns another container to
 // receive the same refusal. routd retried a 400 three times before telling
 // anyone (BUGS L349); terminal makes it one spawn and names the cause.
-test('a request the API refuses is terminal, a transient one is not', () => {
-  for (const code of [400, 401, 403, 404, 405, 410, 422]) {
-    expect(permanentAPIError(`API Error: ${code} nope`)).toBe(true);
-  }
-  for (const code of [408, 425, 429, 500, 502, 503]) {
-    expect(permanentAPIError(`API Error: ${code} later`)).toBe(false);
-  }
-  expect(permanentAPIError('the harness failed this turn')).toBe(false);
-  expect(permanentAPIError(undefined)).toBe(false);
+test('API errors retain their status even when the body is malformed', () => {
+  expect(claudeAPIError('API Error: 400 {broken')).toEqual({ status: 400, failure: undefined });
+  expect(claudeAPIError('unknown')).toBeUndefined();
 });
 
 test('ClaudeTurn marks a refused request terminal so routd does not respawn', () => {
@@ -329,7 +323,7 @@ test('ClaudeTurn leaves a failure retryable when the rate limit was informationa
   const frames = turn.push({ type: 'result', subtype: 'success', is_error: true, result: 'API Error: 529' });
   const r = frames[0];
   if (r.kind !== 'result') throw new Error('expected result frame');
-  expect(r.terminal).toBeUndefined();
+  expect(r.terminal).toBe(false);
 });
 
 const SAFEGUARDS = "API Error: Fable 5.2's safeguards flagged this message " +

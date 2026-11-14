@@ -26,12 +26,17 @@ mock.module('fs', () => ({ ...fixtureFS, default: fixtureFS }));
 const profile = { continuity: 'native', tools: 'mcp', guard: 'none', steering: 'between-turn', manual: 'rendered', status: 'streaming' };
 function adapter(name: string) { return { name, profile, run: async function* (turn: {model?: string; effort?: string}) {
   console.log('ADAPTER ' + JSON.stringify({name, model: turn.model, effort: turn.effort}));
-  yield { kind: 'result', ok: true };
+  const mode = process.env.VERDICT_FIXTURE;
+  if (mode === 'transport') throw Object.assign(new Error('connection reset'), { code: 'ECONNRESET' });
+  if (mode === 'unknown') throw new Error('unknown failure');
+  if (mode === 'transient') yield { kind: 'result', ok: false, terminal: false };
+  else if (mode === 'opaque') yield { kind: 'result', ok: false };
+  else yield { kind: 'result', ok: true };
 } }; }
 mock.module(path.join(source, 'claude.ts'), () => ({claudeHarness: adapter('claude')}));
 mock.module(path.join(source, 'codex.ts'), () => ({codexHarness: adapter('codex')}));
 mock.module(path.join(source, 'pi.ts'), () => ({piHarness: adapter('pi')}));
 mock.module(path.join(source, 'mcp.ts'), () => ({
- submitTurn: async (payload: unknown) => { console.log('SUBMIT ' + JSON.stringify(payload)); return {nudge: ''}; },
+ submitTurn: async (payload: unknown) => { console.log('SUBMIT ' + JSON.stringify(payload)); if (process.env.VERDICT_CALLBACK_FAIL) throw new Error('callback failed'); return {nudge: ''}; },
  submitStatus: async () => ({ remind: false }),
 }));

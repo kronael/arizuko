@@ -8,6 +8,7 @@ import { spawn, ChildProcess } from 'child_process';
 import type { Readable } from 'stream';
 import type { ModelUsage } from './mcp.js';
 import type { McpServerConfig } from './mcp-servers.js';
+import { providerFailure as classifyProviderFailure } from '../../retry/retry.mjs';
 import { claudeHarness } from './claude.js';
 import { codexHarness } from './codex.js';
 import { piHarness } from './pi.js';
@@ -80,6 +81,10 @@ export function providerFailure(status: number, code: string, message: string,
   return { reason, ...(Number.isFinite(millis) ? { reset_at: new Date(millis).toISOString() } : {}) };
 }
 
+export function isProviderFailurePermanent(failure: ProviderFailure, now = Date.now()) {
+  return classifyProviderFailure(failure.reason, Date.parse(failure.reset_at ?? ''), now).kind === 'permanent';
+}
+
 // Frame is one normalized harness output. Nothing downstream parses a harness
 // payload — the <status> bug lived exactly there.
 export type Frame =
@@ -101,9 +106,7 @@ export type Frame =
       // timedOut marks the graceful query-timeout summary, not a normal
       // completion. routd logs a WARN.
       timedOut?: boolean;
-      // terminal marks a failure a retry cannot repair — a quota or spend
-      // rejection, not a flaky call. The chassis turns it into an exit code
-      // runed reads as Terminal, so the turn is never re-spawned (BUGS L175).
+      // Only an explicit false permits another execution after failure.
       terminal?: boolean;
       providerFailure?: ProviderFailure;
       refused?: boolean;

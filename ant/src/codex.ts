@@ -12,6 +12,7 @@ import {
   ResultFrame,
   Turn,
   providerFailure,
+  isProviderFailurePermanent,
   type ProviderFailure,
 } from './backend.js';
 import { renderSkillsIndex, scanSkills } from './skills-scan.js';
@@ -177,7 +178,7 @@ export class CodexTurn {
       const err = (obj.error as { message?: string } | undefined)?.message ?? this.lastError;
       const failure = codexProviderFailure(obj.error) ?? this.failure;
       return [{ kind: 'result', ok: false, text: this.lastText ?? err,
-        providerFailure: failure, terminal: failure ? true : undefined }];
+        providerFailure: failure, terminal: failure ? isProviderFailurePermanent(failure) : undefined }];
     }
     if (type === 'error') {
       this.lastError = (obj.message as string | undefined) ?? 'codex error';
@@ -213,7 +214,7 @@ export class CodexTurn {
     const err = this.lastError ?? (stderrTail.trim() || `codex exited ${exitCode}`);
     return { kind: 'result', ok, text: ok ? this.lastText : err,
       providerFailure: ok ? undefined : this.failure,
-      terminal: !ok && this.failure ? true : undefined };
+      terminal: !ok && this.failure ? isProviderFailurePermanent(this.failure) : undefined };
   }
 }
 

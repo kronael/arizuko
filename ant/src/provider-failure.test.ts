@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 import { ClaudeTurn, runClaude } from './claude.js';
 import { CodexTurn } from './codex.js';
 import { runTurn } from './index.js';
-import type { Frame, Harness } from './backend.js';
+import { isProviderFailurePermanent, type Frame, type Harness } from './backend.js';
 import type { SubmitTurnPayload } from './mcp.js';
 
 const spend = {
@@ -11,7 +11,7 @@ const spend = {
 };
 
 /** L879: a rejected rate limit must permit replay and retain its reset time. */
-test.skip('Claude rejected rate-limit fixture', () => {
+test('Claude rejected rate-limit fixture', () => {
   const turn = new ClaudeTurn();
   turn.push({ type: 'rate_limit_event', rate_limit_info: {
     status: 'rejected', resetsAt: 1794142800,
@@ -34,11 +34,11 @@ test('SDK rejection preserves provider origin', async () => {
       for await (const frame of runClaude({ prompt: 'p', cwd: '/tmp', turnID: 't',
         env: {}, deadline: Date.now() + 10000 }, query)) frames.push(frame);
     } catch {
-      expect([403, 400, 0]).toContain(status);
+      expect(status).toBe(0);
       continue;
     }
-    expect(frames[0]).toMatchObject({ kind: 'result', ok: false,
-      providerFailure: { reason: status === 401 ? 'authentication' : status === 429 ? 'rate_limit' : 'outage' } });
+    expect(frames[0]).toMatchObject({ kind: 'result', ok: false, terminal: [400, 401, 403].includes(status),
+      providerFailure: status === 401 ? { reason: 'authentication' } : status === 429 ? { reason: 'rate_limit' } : status === 503 ? { reason: 'outage' } : undefined });
   }
 });
 
@@ -98,4 +98,111 @@ test('provider lookalikes never pause', () => {
   codex.push({ type: 'error', message: 'unknown error' });
   const result: Frame | null = codex.finish(78, 'Monthly spend limit reached');
   expect(result).toMatchObject({ providerFailure: undefined });
+});
+
+/** Final diagnostics determine the verdict and ambiguous diagnostics stop. */
+test('Claude final diagnostics take precedence over a rejected rate event', () => {
+  const event = { type: 'rate_limit_event', rate_limit_info: { status: 'rejected', resetsAt: 2000000000 } };
+  const turn = new ClaudeTurn();
+  turn.push(event);
+  expect(turn.push({ type: 'result', subtype: 'error_during_execution', errors: [
+    'API Error: 401 {"error":{"message":"bad key"}}',
+  ] })[0]).toMatchObject({ terminal: true, providerFailure: { reason: 'authentication' } });
+  expect(turn.push({ type: 'result', subtype: 'error_during_execution', errors: [
+    'API Error: 400 malformed',
+  ] })[0]).toMatchObject({ terminal: true, providerFailure: undefined });
+  expect(turn.push({ type: 'result', subtype: 'error_during_execution', errors: [
+    'Monthly spend limit reached',
+  ] })[0]).toMatchObject({ terminal: false, providerFailure: { reason: 'spend_limit', reset_at: '2033-05-18T03:33:20.000Z' } });
+  expect(turn.push({ type: 'result', subtype: 'error_during_execution', errors: [
+    'unknown', 'API Error: 429 {"error":{"message":"rate"}}',
+  ] })[0]).toMatchObject({ terminal: undefined, providerFailure: undefined, text: 'unknown\nAPI Error: 429 {"error":{"message":"rate"}}' });
+});
+
+/** Only exact single SDK missing-target diagnostics permit a fresh retry. */
+test('Claude repairs only an exact missing target', () => {
+  const uuid = '12345678-1234-1234-1234-123456789abc';
+  for (const diagnostic of [`No conversation found with session ID: ${uuid}`, `No message found with message.uuid of: ${uuid}`]) {
+    expect(new ClaudeTurn().push({ type: 'result', subtype: 'error_during_execution', errors: [diagnostic] })[0]).toMatchObject({ retryFresh: true });
+    expect(new ClaudeTurn().push({ type: 'result', subtype: 'error_during_execution', errors: [diagnostic, 'other'] })[0]).toMatchObject({ retryFresh: undefined });
+    expect(new ClaudeTurn().push({ type: 'result', subtype: 'error_during_execution', errors: [`API Error: 400 {"error":{"message":"${diagnostic}"}}`] })[0]).toMatchObject({ retryFresh: undefined, terminal: true });
+  }
+  expect(new ClaudeTurn().push({ type: 'result', subtype: 'error_during_execution', errors: ['Failed to resume session'] })[0]).toMatchObject({ retryFresh: undefined });
+});
+
+/** The shared policy decides provider verdicts for both Codex completion paths. */
+test('Codex provider verdict respects reason and reset', () => {
+  for (const [code, reset, terminal] of [
+    ['rate_limit_exceeded', undefined, false],
+    ['invalid_api_key', undefined, true],
+    ['insufficient_quota', undefined, true],
+    ['insufficient_quota', '2099-01-01T00:00:00Z', false],
+  ] as const) {
+    for (const finish of [false, true]) {
+      const turn = new CodexTurn();
+      turn.push({ type: 'error', code, reset_at: reset, message: 'request failed' });
+      const frame = finish ? turn.finish(1, '') : turn.push({ type: 'turn.failed' })[0];
+      expect(frame).toMatchObject({ terminal });
+    }
+  }
+});
+
+/** Reset boundaries and reason rules come from the shared policy. */
+test('provider policy covers reset boundaries', () => {
+ const now = Date.parse('2026-01-01T00:00:00Z');
+ for (const reset of [undefined, 'invalid', '2025-12-31T00:00:00Z', '2026-01-01T00:00:00Z'])
+  expect(isProviderFailurePermanent({ reason: 'spend_limit', reset_at: reset }, now)).toBe(true);
+ expect(isProviderFailurePermanent({ reason: 'spend_limit', reset_at: '2026-01-02T00:00:00Z' }, now)).toBe(false);
+ expect(isProviderFailurePermanent({ reason: 'authentication', reset_at: '2026-01-02T00:00:00Z' }, now)).toBe(true);
+ expect(isProviderFailurePermanent({ reason: 'outage' }, now)).toBe(false);
+});
+
+/** Thrown HTTP statuses use the same retry policy as result payloads. */
+test('SDK thrown HTTP status selects verdict', async () => {
+ for (const [status, terminal] of [[408, false], [425, false], [400, true]] as const) {
+  for (const error of [Object.assign(new Error('request failed'), { status }), new Error(`API Error: ${status}`)]) {
+   const query = async function* () { throw error; };
+   const frames: Frame[] = [];
+   for await (const frame of runClaude({ prompt: 'p', cwd: '/tmp', turnID: 't', env: {}, deadline: Date.now() + 10000 }, query)) frames.push(frame);
+   expect(frames[0]).toMatchObject({ ok: false, terminal });
+  }
+ }
+});
+
+/** Known HTTP failures retain their verdict without repairing a resumed session. */
+test('resumed HTTP failures bypass continuity repair', async () => {
+  for (const status of [408, 425, 400]) {
+    const frames = new ClaudeTurn().push({
+      type: 'result', subtype: 'error_during_execution', errors: [`API Error: ${status}`],
+    });
+    const harness: Harness = {
+      name: 'fixture',
+      profile: { continuity: 'native', tools: 'none', guard: 'none',
+        steering: 'between-turn', manual: 'native', status: 'terminal-only' },
+      run: async function* () { yield* frames; },
+    };
+    let calls = 0;
+    const result = await runTurn(harness, 'p', 'session',
+      { prompt: 'p', groupFolder: 'g', chatJid: 'j' }, {}, 't',
+      async () => { calls++; }, async () => ({ remind: false }));
+    expect(result.retryFresh).toBe(false);
+    expect(result.failed).toBe(status === 400 ? 'terminal' : 'retryable');
+    expect(calls).toBe(1);
+  }
+});
+
+/** Cancellation remains terminal even when the SDK exposes a transient status. */
+test('SDK cancellation overrides transient facts', async () => {
+  for (const status of [408, 429]) {
+    const cause = Object.assign(new Error('canceled'), { name: 'AbortError' });
+    const query = async function* () {
+      throw Object.assign(new Error('request failed', { cause }), {
+        status, error: { error: { type: 'api_error', message: 'request failed' } },
+      });
+    };
+    const frames: Frame[] = [];
+    for await (const frame of runClaude({ prompt: 'p', cwd: '/tmp', turnID: 't',
+      env: {}, deadline: Date.now() + 10000 }, query)) frames.push(frame);
+    expect(frames[0]).toMatchObject({ ok: false, terminal: true });
+  }
 });

@@ -269,6 +269,8 @@ Claude reads failed-result diagnostics from the SDK's `errors` array. Only an ex
 missing conversation or resume-message UUID permits fresh-session repair. Known
 API failures and provider facts bypass that repair. Generic execution and resume
 failures do not prove another execution safe.
+Multiple diagnostics have no final-error ordering contract. Their joined text is
+terminal unknown and cannot adopt an earlier rate-limit event.
 
 The Claude dependency lock resolves `@anthropic-ai/claude-agent-sdk` to `0.3.278`;
 the image installs `@latest`. That SDK exposes `api_retry` events with attempt,
@@ -417,26 +419,20 @@ Its first failed fetch commits the deadline and due pointer atomically.
   job: retain the selected verdict through submission and process exit
   names: [runAttempt, runTurn, main, failureExitCode]
   never: adds execution retries, submission retries or wire fields
-- path: ant/src/backend.test.ts (changed)
-  job: verify provider classification through the Ant reader
-  names: [isProviderFailurePermanent]
-  never: duplicates the provider reason declaration
 - path: ant/src/provider-failure.test.ts (changed)
   job: verify provider facts and verdicts through reducers and turn submission
   names:
     [
       'Claude rejected rate-limit fixture',
-      'provider transient result permits replay',
+      'provider policy covers reset boundaries',
+      'resumed HTTP failures bypass continuity repair',
+      'Codex provider verdict respects reason and reset',
     ]
   never: treats arbitrary model text as a provider refusal
 - path: ant/src/claude.test.ts (changed)
   job: verify final-error precedence and explicit transient HTTP verdicts
   names: [ClaudeTurn, runClaude, claudeAPIError]
   never: retains permanentAPIError or a second text-to-status parser
-- path: ant/src/codex.test.ts (changed)
-  job: verify failed-event and stream-exit provider verdicts
-  names: [CodexTurn.push, CodexTurn.finish, WAITING_LIMIT]
-  never: treats stream completion as failure permanence
 - path: ant/src/index.test.ts (changed)
   job: verify conservative failures and verdict retention across failed submission
   names: [runTurn]

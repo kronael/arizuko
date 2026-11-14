@@ -275,3 +275,17 @@ esac
     { 'claude-serve/haiku': { input: 7, output: 3, cache_read: 4, cache_write: 1, cost_cents: 1 } },
   ]);
 });
+
+/** Opaque Pi errors, aborts, malformed streams and CLI exits stop at the consumer. */
+test('Pi failures are terminal through runTurn', async () => {
+  const { runTurn } = await import('./index.js');
+  for (const [reason, exit] of [['error', 0], ['aborted', 0], ['', 0], ['', 1]] as const) {
+    const turn = new PiTurn();
+    if (reason) turn.push({ type: 'message_end', message: { ...ERR_ASSISTANT, stopReason: reason } });
+    else turn.push({ type: 'malformed' });
+    const frame = turn.finish(exit, '');
+    const harness = { name: 'pi', profile: { continuity: 'none', tools: 'none', guard: 'none', steering: 'between-turn', manual: 'native', status: 'terminal-only' }, run: async function* () { yield frame; } } as const;
+    const result = await runTurn(harness, 'p', undefined, { prompt: 'p', groupFolder: 'g', chatJid: 'j' }, {}, 't', async () => {}, async () => ({ remind: false }));
+    expect(result.failed).toBe('terminal');
+  }
+});

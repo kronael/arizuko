@@ -16,7 +16,8 @@ import {
 import { Binding, PolicyEvent, ToolEvent, bindings, renderSteering, runRow } from './policy.js';
 import { STEER_SPOOL, drainLines } from './spool.js';
 import type { ModelUsage } from './mcp.js';
-import { timeoutFrame, providerFailure, type ProviderFailure } from './backend.js';
+import { timeoutFrame, providerFailure, isProviderFailurePermanent, type ProviderFailure } from './backend.js';
+import { httpFailure } from '../../retry/retry.mjs';
 import type { Frame, Harness, Turn } from './backend.js';
 import { modelGateway } from './gateway.js';
 import { AGENTS } from './agents.js';
@@ -382,20 +383,6 @@ export function claudeResultStatus(
   return result?.trim() === 'Not logged in · Please run /login' ? 'error' : 'success';
 }
 
-// permanentAPIError reports whether a harness error names a model-API status a
-// retry cannot repair. The SDK renders one as "API Error: <code> <body>".
-//
-// 400/401/403/404/405/410/422 are the request itself — a bad model name, a dead
-// credential, a malformed body — and re-sending it spawns another container to
-// receive the same answer. 408, 425, 429 and every 5xx ARE transient and keep
-// retrying. This is the repo's retry rule: retry remote and network failures,
-// never a misconfiguration.
-export function permanentAPIError(text: string | undefined): boolean {
-  const m = /^API Error:\s*(\d{3})\b/.exec((text ?? '').trim());
-  if (!m) return false;
-  return [400, 401, 403, 404, 405, 410, 422].includes(Number(m[1]));
-}
-
 // assistantText flattens an SDK assistant message's text parts. This is claude's
 // raw shape — reading it anywhere outside this file was the <status> bug.
 function assistantText(raw: Record<string, unknown>): string {
@@ -414,9 +401,6 @@ export class ClaudeTurn {
   // max-turns summary subquery can name the session.
   sessionId: string | undefined;
 
-  // rejected records that the account was refused during this turn, not merely
-  // throttled. A refusal outlives a retry — sloth's seven-day cap reset eleven
-  // hours out — so a result that errors after one is terminal (BUGS L175).
   private rejected: ProviderFailure | undefined;
   private refused = false;
 
@@ -457,20 +441,31 @@ export class ClaudeTurn {
       return [];
     }
     if (m.type === 'result') {
-      const text = 'result' in raw ? (raw as { result?: string }).result ?? undefined : undefined;
+      const diagnostics = Array.isArray(raw.errors)
+        ? raw.errors.filter((value): value is string => typeof value === 'string' && !!value.trim()) : [];
+      const text = diagnostics.length ? diagnostics.join('\n') :
+        typeof raw.result === 'string' ? raw.result : undefined;
       const isError = (raw as { is_error?: boolean }).is_error === true;
       const status = claudeResultStatus(m.subtype, text, isError);
-      const failure = status === 'error'
-        ? this.rejected ?? claudeProviderFailure(text) : undefined;
+      const single = diagnostics.length <= 1;
+      const api = status === 'error' && single ? claudeAPIError(text) : undefined;
+      const apiTerminal = api && httpFailure(api.status, '', undefined, Date.now()).kind === 'permanent';
+      let failure = api?.failure;
+      if (status === 'error' && single && !failure && !apiTerminal) {
+        failure = this.rejected;
+        if (failure && /^(Monthly spend limit reached|You've hit your individual spend limit)[.!]?$/.test(text?.trim() ?? ''))
+          failure = { ...failure, reason: 'spend_limit' };
+      }
+      const missing = single && !api && !failure && m.subtype === 'error_during_execution' &&
+        /^No (?:conversation found with session ID|message found with message\.uuid of): [0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(text ?? '');
+      const terminal = failure ? isProviderFailurePermanent(failure) : apiTerminal;
       return [{
         kind: 'result',
         ok: status === 'success',
         text,
         usage: extractModelUsage((raw as { modelUsage?: unknown }).modelUsage, this.prior),
-        // A resume miss ("No conversation found") surfaces as this subtype; it is a
-        // retry signal, never a user-facing reply.
-        retryFresh: m.subtype === 'error_during_execution' || undefined,
-        terminal: (status === 'error' && (!!failure || permanentAPIError(text))) || undefined,
+        retryFresh: missing || undefined,
+        terminal,
         providerFailure: failure,
         refused: this.refused || undefined,
       }];
@@ -479,20 +474,19 @@ export class ClaudeTurn {
   }
 }
 
-export function claudeProviderFailure(text: string | undefined) {
-  const match = /^API Error:\s*(\d{3})\s+(\{.*\})$/s.exec((text ?? '').trim());
+export function claudeAPIError(text: string | undefined) {
+  const match = /^API Error:\s*(\d{3})\b(?:\s+(.*))?$/s.exec((text ?? '').trim());
   if (!match) return undefined;
+  const status = Number(match[1]);
+  let failure: ProviderFailure | undefined;
   try {
-    const body = JSON.parse(match[2]) as {
-      error?: { type?: string; code?: string; message?: string };
-      reset_at?: unknown;
+    const body = JSON.parse(match[2] ?? '') as {
+      error?: { type?: string; code?: string; message?: string }; reset_at?: unknown;
     };
-    if (!body.error || typeof body.error.message !== 'string') return undefined;
-    return providerFailure(Number(match[1]), body.error.code ?? body.error.type ?? '',
-      body.error.message, body.reset_at);
-  } catch {
-    return undefined;
-  }
+    if (body.error && typeof body.error.message === 'string')
+      failure = providerFailure(status, body.error.code ?? body.error.type ?? '', body.error.message, body.reset_at);
+  } catch { /* status remains available */ }
+  return { status, failure };
 }
 
 // SessionEnd decides when the prompt stream may close. The session is over when
@@ -656,14 +650,19 @@ export async function* runClaude(turn: Turn, run: QueryFn = query): AsyncGenerat
     } else {
       const error = err as { status?: number; error?: { error?: {
         type?: string; message?: string;
-      } }; message?: string };
+      }; reset_at?: unknown }; message?: string };
       const envelope = error.error?.error;
+      const api = claudeAPIError(error.message);
+      const status = typeof error.status === 'number' ? error.status : api?.status;
       const failure = envelope && typeof envelope.type === 'string' &&
         typeof envelope.message === 'string'
-        ? providerFailure(error.status ?? 0, envelope.type, envelope.message)
-        : claudeProviderFailure(error.message);
-      if (!failure) throw err;
-      held = { kind: 'result', ok: false, terminal: true,
+        ? providerFailure(status ?? 0, envelope.type, envelope.message, error.error?.reset_at)
+        : api?.failure;
+      if (!failure && !status) throw err;
+      const http = httpFailure(status ?? 0, '', err, Date.now());
+      const terminal = http.kind === 'canceled' ||
+        (failure ? isProviderFailurePermanent(failure) : http.kind === 'permanent');
+      held = { kind: 'result', ok: false, terminal,
         text: error.message, providerFailure: failure };
     }
   } finally {

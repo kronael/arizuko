@@ -77,7 +77,6 @@ test('runTurn: retryFresh on a resumed turn is not delivered — the caller retr
   expect(deliveries).toEqual([]);
 });
 
-// claude maps EVERY error_during_execution to retryFresh, resume miss or not.
 // On an already-fresh turn there is nothing to retry, and suppressing the
 // frame too was a silent-turn path: no reply, "input empty, exiting".
 test('runTurn: retryFresh on an already-fresh turn delivers an error, never silence', async () => {
@@ -258,7 +257,7 @@ test('runTurn: a failed turn sends its text as error, never as the reply', async
   expect(deliveries[0].status).toBe('error');
   expect(deliveries[0]).not.toHaveProperty('result');
   expect(deliveries[0].error).toBe('API Error: 400 fake says no');
-  expect(r.failed).toBe('retryable');
+  expect(r.failed).toBe('terminal');
 });
 
 // The exit code is what puts the turn on routd's existing failure path, and a
@@ -314,7 +313,7 @@ test('runTurn: a failure with no text leaves failedReason unset', async () => {
   const { deliver } = spy();
   const r = await runTurn(scripted([{ kind: 'result', ok: false }]),
     'p', undefined, INPUT, {}, 'turn-1', deliver, statusSpy().send);
-  expect(r.failed).toBe('retryable');
+  expect(r.failed).toBe('terminal');
   expect(r.failedReason).toBeUndefined();
 });
 
@@ -494,4 +493,22 @@ test.each([['1', { ARIZUKO_PROGRESS: '1' }], ['empty', { ARIZUKO_PROGRESS: '' }]
   expect(sent.filter(item => !item.text)).toHaveLength(2);
   expect(drainLines(STEER_SPOOL)).toEqual([NUDGE_TEXT]);
   expect(d.deliveries).toHaveLength(1);
+});
+
+/** Failed verdicts survive a failed submission and are never submitted twice. */
+test('runTurn preserves selected verdict when delivery throws', async () => {
+  for (const [terminal, expected] of [[true, 'terminal'], [false, 'retryable'], [undefined, 'terminal']] as const) {
+    let calls = 0;
+    const result = await runTurn(scripted([{ kind: 'result', ok: false, terminal }]), 'p', undefined, INPUT, {}, 't',
+      async () => { calls++; throw new Error('offline'); }, statusSpy().send);
+    expect(result.failed).toBe(expected);
+    expect(calls).toBe(1);
+  }
+  for (const frames of [[], [{ kind: 'result', ok: false, retryFresh: true, terminal: false }] as Frame[]]) {
+    let calls = 0;
+    const result = await runTurn(scripted(frames), 'p', undefined, INPUT, {}, 't',
+      async () => { calls++; throw new Error('offline'); }, statusSpy().send);
+    expect(result.failed).toBe('terminal');
+    expect(calls).toBe(1);
+  }
 });
