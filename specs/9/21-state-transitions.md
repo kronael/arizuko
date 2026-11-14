@@ -552,8 +552,20 @@ Its first failed fetch commits the deadline and due pointer atomically.
   job: remove the unused initial delivery path
   names: [deliverRow]
   never: retains a test-only production sender
+- path: routd/db.go and routd/server.go (changed)
+  job: suppress external message creation from configured source folders
+  names: [SetDisabledGroups, mutedGroup, sendOutbound]
+  never: persists mute configuration or changes a storage port
+- path: routd/mcp.go and routd/turn_status.go (changed)
+  job: apply the source-folder send gate after destination and thread resolution
+  names: [buildRoutdFns, mcpDeliver, mcpAppendDoc, mcpSendVoice, executeStatus]
+  never: suppresses authorization, placement or existing-message mutations
+- path: routd/muted_mcp_test.go (changed)
+  job: prove muted message creation preserves evidence without platform effects
+  names: [TestMutedFolderMCPText]
+  never: substitutes a test-only sender for the MCP entrypoint
 - path: routd/loop.go (changed)
-  job: deliver only the due work selected by the store
+  job: apply the source-folder send gate to due work selected by the store
   names: [maybeRetryOutbound, retryOutbound]
   never: computes a second retry schedule
 ```
@@ -679,6 +691,13 @@ The unkeyed REST outbound endpoint records a terminal first failure; it cannot
 promise safe replay. Its failure response is HTTP 400, including a failure to
 record that outcome. A successful platform send returns HTTP 200 even if recording
 fails. Both paths retain thread placement and failed-message evidence.
+
+`SEND_DISABLED_GROUPS` suppresses external message creation by the source folder.
+One process-local `routd.DB` gate covers MCP sends, deferred delivery and status
+creation after placement resolution. Suppressed work follows the existing success
+acknowledgment without a platform ID or another retry. Existing message mutations,
+panes, internal folder messages and operator REST sends retain their behavior.
+Forwarding retains its existing audit-only evidence.
 
 The consumer reads at most 200 due pointers and exact delivery/message keys.
 Two hundred delayed messages cannot hide one due delivery: that fixture reads
