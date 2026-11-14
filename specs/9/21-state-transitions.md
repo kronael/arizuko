@@ -128,6 +128,12 @@ episode. No feature-specific budget or delay setting overrides this policy.
 Go errors can carry an explicit failure fact while preserving their cause.
 Classification honors cancellation first, then that fact, then structural HTTP
 status and retry time, followed by the existing transport classification.
+Known HTTP status determines the class even when a wrapped transport error exists.
+JavaScript checks the error cause chain for cancellation before those facts.
+Retry-After accepts unsigned seconds and the three HTTP date forms in UTC.
+For RFC850, resolve the two-digit year to the latest matching timestamp no later
+than the supplied clock plus 50 calendar years. Reject invalid calendar values.
+These date rules follow [RFC9110 sections 5.6.7 and 10.2.3](https://www.rfc-editor.org/rfc/rfc9110.html#section-5.6.7).
 
 Due times and counts persist with messages, turns, retained ingress, onboarding
 output and Google file work. These obligations outlive the worker. A terminal
@@ -299,7 +305,13 @@ Its first failed fetch commits the deadline and due pointer atomically.
   never: adds runtime state
 - path: retry/retry_test.go (new)
   job: prove failure boundaries, deadlines and cross-language decisions
-  names: [TestPolicy, TestWaitCancellation]
+  names:
+    [
+      TestPolicy,
+      TestWaitCancellation,
+      TestHTTPFailureCombinedFacts,
+      TestRetryAfterParity,
+    ]
   never: derives expected values from the policy under test
 - path: objstore/indexed.go (new)
   job: commit a primary mutation and its derived index pointers atomically
