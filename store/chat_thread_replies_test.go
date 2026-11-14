@@ -17,12 +17,17 @@ func TestChatThreadRepliesPreservesRowAcrossReopen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := h.CreateEntity(ctx, Chats); err != nil {
-		t.Fatal(err)
+	entities := []string{Chats, objstore.IndexEntity, RoutdWork}
+	for _, entity := range entities {
+		if err := h.CreateEntity(ctx, entity); err != nil {
+			t.Fatal(err)
+		}
 	}
 	t.Cleanup(func() {
-		if err := h.DropEntity(ctx, Chats); err != nil {
-			t.Error(err)
+		for _, entity := range entities {
+			if err := h.DropEntity(ctx, entity); err != nil {
+				t.Error(err)
+			}
 		}
 	})
 	s := NewOver(h)

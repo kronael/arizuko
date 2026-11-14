@@ -153,6 +153,9 @@ func keep(why string) keepReason { return keepReason{why: why} }
 // reader). `auth_users` and `session_log` belong to other owners: the purge is
 // one batch on routd's tables and reaches no other owner.
 var folderScopeKeep = map[string]keepReason{
+	objstore.IndexEntity: keep("shared derived keys follow primary writes; includes migration markers"),
+	RoutdWork:            keep("instance control and approval notifications survive folder retirement"),
+	OnboardingWork:       keep("instance admission gates; no folder coordinate"),
 	// History.
 	"audit_log":      keep("the record of the delete itself commits with it"),
 	"secret_use_log": keep("history"),
