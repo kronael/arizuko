@@ -14,6 +14,17 @@
 > so counting one as open overstates the queue.
 
 
+## L877 — runtime preparation loses permanent failure facts (2026-11-14)
+
+`qemuRuntime.spawn` formats preparation errors into text and leaves `Terminal`
+false. A permanent filesystem failure therefore permits whole-turn replay.
+**Measured:** `runed/qemu_test.go::TestQemuPreparationFailureIsTerminal` calls
+the real runtime with a regular file as `VMRoot`. Record creation fails with
+ENOTDIR before any mounts or processes; the result still has `Terminal:false`.
+The regression fails in 0.011s; log: `tmp/retry-logs/runtime-parent-red.log`.
+**Fix:** classify typed preparation and control errors before rendering the
+existing terminal bit. Preserve actual process-death recovery and turn deadlines.
+
 ## L857 — the full router gate loses its test database control plane (2026-11-14)
 
 At candidate `66e8e2f4b7ebf9a6bc41a5fd9a027ecdc0249f7b`, the single full

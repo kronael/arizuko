@@ -455,6 +455,24 @@ func cfgFor(t *testing.T) *core.Config {
 	return cfg
 }
 
+func TestQemuPreparationFailureIsTerminal(t *testing.T) {
+	t.Skip("L877: preparation errors lose their type before terminal classification")
+	root := filepath.Join(t.TempDir(), "vm-root")
+	if err := os.WriteFile(root, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	q := &qemuRuntime{
+		cfg: &core.Config{Name: "test", MaxAgents: 1},
+		paths: qemuPaths{VMRoot: root, CIDBase: 3,
+			TapSubnet: "10.97.0.0/24"},
+	}
+	out := q.Run(context.Background(), Turn{Handle: "failed", Folder: "demo"})
+	if out.Outcome != runedv1.OutcomeError || !out.Terminal ||
+		!strings.Contains(out.Error, "not a directory") {
+		t.Fatalf("preparation result: %+v", out)
+	}
+}
+
 func TestAwaitDoesNotSendDeadlineWarning(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		host, guest := net.Pipe()

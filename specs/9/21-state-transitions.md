@@ -141,6 +141,12 @@ with a failed body read returns that read error. Turn completion classifies the
 error; a nonterminal execution outcome without a request error retains the
 explicit crash retry, subject to recorded-result, reply and cancellation gates.
 
+Runtime preparation and control errors retain their causes until common
+classification sets the existing `Terminal` bit. An ended turn context is
+terminal. A received guest exit frame takes precedence over a later control
+error. Clean EOF without an exit frame retains crash recovery. Neither the
+execution port nor its values gain fields.
+
 Due times and counts persist with messages, turns, retained ingress, onboarding
 output and Google file work. These obligations outlive the worker. A terminal
 transition removes its due pointer but retains the failed payload and cause.
@@ -543,6 +549,45 @@ Its first failed fetch commits the deadline and due pointer atomically.
       TestTurnControlExecutionRetry,
     ]
   never: permits a terminal or recorded outcome to replay
+- path: runed/runtime.go (changed)
+  job: project common failure facts onto the existing terminal bit
+  names: ['runFailure(ctx context.Context, err error) RunResult']
+  never: widens Runtime, RunResult or RunOutcome
+- path: runed/qemu.go (changed)
+  job: preserve preparation and control causes before outcome rendering
+  names:
+    [
+      spawn,
+      'await(...) (turnEnd, error)',
+      'lastWord(...) (int, bool, error)',
+      turnResult,
+    ]
+  never: converts known control errors into crash fallback
+- path: runed/manager.go (changed)
+  job: classify renderer errors and forward runtime verdicts
+  names: [execute, spawn]
+  never: replaces the runtime terminal bit
+- path: runed/qemu_test.go (changed)
+  job: exercise real preparation and control boundaries without guest processes
+  names:
+    - TestQemuPreparationFailureIsTerminal
+    - TestAwaitPreservesControlFailure
+    - TestAwaitTakesTheExitFrameWhenQemuExitsInTheSameMoment
+    - TestAwaitReportsAGuestThatNeverSaidHowItExited
+    - TestTurnEndingThroughManagerAndRouter
+  never: introduces a process seam for unreachable guard mutations
+- path: runed/manager_test.go (changed)
+  job: prove common failure projection and terminal forwarding
+  names: [TestRunFailureClassification, TestTerminalOnWire]
+  never: duplicates classifier cases across runtime boundaries
+- path: runed/README.md (changed)
+  job: state preparation classification and actual crash behavior
+  names: ['How a turn ends']
+  never: promises blanket retry for QEMU start failure
+- path: specs/6/41-qemu-substrate.md (changed)
+  job: bind startup failures to common classification
+  names: ['The seam']
+  never: changes the two-operation execution port
 - path: runed/api/v1/client.go (changed)
   job: retain response facts and propagate successful response body failures
   names:
