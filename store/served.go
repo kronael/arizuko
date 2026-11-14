@@ -1,8 +1,5 @@
 package store
 
-// served.go is the door a daemon opens onto its owners: one dial, one place
-// that makes an owner's entities (F29).
-
 import (
 	"context"
 	"fmt"
@@ -33,9 +30,6 @@ func PrepareOwner(ctx context.Context, d Driver, owner string, extra ...string) 
 	return audit.EnsureEntities(ctx, d)
 }
 
-// ownerProbes names the table only that owner's own boot makes. It is what
-// makes a wrong target loud: an endpoint whose owner never booted otherwise
-// reads as zero rows and the daemon comes up healthy.
 var ownerProbes = map[string]string{OwnerRoutd: ACL, OwnerOnbod: Invites}
 
 // OpenOwner answers the store one owner's tables live in, for a daemon that
@@ -50,7 +44,7 @@ func OpenOwner(owner string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	// One read at boot instead of a missing-table error on every request.
+
 	if _, err := h.Query(context.Background(), objstore.Query{
 		Entity: probe, Partition: owner, Limit: 1,
 	}); err != nil {
@@ -81,8 +75,7 @@ func TestNamespace() (*dynstore.Store, func() error, error) {
 	}
 	release := func() error {
 		ctx := context.Background()
-		// Everything under the namespace, not only what an owner declares: an
-		// entity a test made would otherwise outlive the run.
+
 		left, err := h.Entities(ctx)
 		if err != nil {
 			return err
@@ -103,7 +96,11 @@ func TestOwner(owner string, extra ...string) (*dynstore.Store, func() error, er
 	if err != nil {
 		return nil, nil, err
 	}
-	if err := PrepareOwner(context.Background(), h, owner, extra...); err != nil {
+	err = PrepareOwner(context.Background(), h, owner, extra...)
+	if err == nil && owner == OwnerRoutd {
+		err = NewOver(h).migrateACLWildcard(context.Background())
+	}
+	if err != nil {
 		if rerr := release(); rerr != nil {
 			return nil, nil, fmt.Errorf("%w (and dropping the namespace: %v)", err, rerr)
 		}

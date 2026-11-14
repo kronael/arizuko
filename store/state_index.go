@@ -5,17 +5,20 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/objstore"
 )
 
+const aclWildcardMigration = "acl-wildcard-v1"
+
 type stateIndexes struct{}
 
 func (stateIndexes) Indexed(entity string) bool {
 	switch entity {
-	case ScheduledTasks, TurnContexts, TurnArchive, MessageDelivery, Messages, Onboarding, OnboardingGates, OnboardingWork, ACLMembership, RouteTokens, PendingActions, RoutdWork, Chats, TurnControl, Routes, Groups:
+	case ScheduledTasks, TurnContexts, TurnArchive, MessageDelivery, Messages, Onboarding, OnboardingGates, OnboardingWork, ACLMembership, RouteTokens, PendingActions, RoutdWork, Chats, TurnControl, Routes, Groups, ACL:
 		return true
 	}
 	return false
@@ -23,6 +26,12 @@ func (stateIndexes) Indexed(entity string) bool {
 
 func (stateIndexes) Keys(entity string, it objstore.Item) []objstore.Key {
 	switch entity {
+	case ACL:
+		principal, _, _ := strings.Cut(it.Key.Sort, KeySep)
+		if strings.Contains(principal, "*") {
+			return []objstore.Key{{Partition: "acl/wildcard", Sort: it.Key.Sort}}
+		}
+		return nil
 	case Chats:
 		cursor := it.Attrs[AttrChatAgentCursor]
 		if it.Attrs[attrChatInputLast] <= cursor {
@@ -113,6 +122,9 @@ func (s *Store) MigrateStateIndexes(ctx context.Context) error {
 		return err
 	}
 	if err := objstore.Reindex(ctx, s.Obj(), "control-work-v1", []objstore.Query{{Entity: TurnControl, Partition: OwnerRoutd}}); err != nil {
+		return err
+	}
+	if err := s.migrateACLWildcard(ctx); err != nil {
 		return err
 	}
 	marker := objstore.Key{Partition: "migrations", Sort: "messages-v1"}
@@ -219,4 +231,20 @@ func (s *Store) LiveTurnsInFolder(ctx context.Context, folder string) ([]TurnCon
 
 func (s *Store) LiveTurnsInChat(ctx context.Context, jid string) ([]TurnContext, error) {
 	return s.indexedTurns(ctx, indexPartition("turns/chat", jid), objstore.KeyPredicate{})
+}
+
+func (s *Store) migrateACLWildcard(ctx context.Context) error {
+	marker := objstore.Key{Partition: "migrations", Sort: aclWildcardMigration}
+	if _, done, err := s.itemAt(ctx, objstore.IndexEntity, marker); err != nil || done {
+		return err
+	}
+	q := objstore.Query{Entity: ACL, Partition: OwnerRoutd}
+	items, err := s.Obj().Query(ctx, q)
+	if err != nil {
+		return err
+	}
+	if _, err := aclRows("validate wildcard migration", items); err != nil {
+		return err
+	}
+	return objstore.Reindex(ctx, s.Obj(), marker.Sort, []objstore.Query{q})
 }

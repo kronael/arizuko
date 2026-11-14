@@ -11,18 +11,12 @@ import (
 
 type Store struct {
 	obj objstore.Store
-	// secretKeys[0] seals new writes; the rest are decrypt-only, kept so a
-	// value sealed under a rotated-out key still reads. Empty: no secret can be
-	// written.
+
 	secretKeys [][32]byte
 
-	// Empty auditSub is the daemon acting on its own, recorded as "system" over
-	// the gateway surface. Set via AsUser (REST) or AsCLI (CLI).
 	auditSub     string
 	auditSurface string
 
-	// release drops the private namespace OpenMem reserved; nil over a handle
-	// the caller owns.
 	release func() error
 }
 
@@ -44,8 +38,6 @@ func (s *Store) AsCLI(osUser string) *Store {
 	return &cp
 }
 
-// auditIdentity renders the (Actor, ActorSub, Surface) triple every audited
-// writer stamps, so the anonymous and attributed forms cannot drift apart.
 func (s *Store) auditIdentity() (actor, actorSub, surface string) {
 	switch {
 	case s.auditSub == "":
@@ -77,7 +69,11 @@ func OpenMem() (*Store, error) {
 	}
 	ctx := context.Background()
 	for _, owner := range []string{OwnerRoutd, OwnerOnbod} {
-		if err := PrepareOwner(ctx, h, owner); err != nil {
+		err = PrepareOwner(ctx, h, owner)
+		if err == nil && owner == OwnerRoutd {
+			err = NewOver(h).migrateACLWildcard(ctx)
+		}
+		if err != nil {
 			if rerr := release(); rerr != nil {
 				return nil, fmt.Errorf("%w (and dropping the namespace: %v)", err, rerr)
 			}
@@ -104,7 +100,6 @@ func NewOver(obj objstore.Store) *Store {
 // Obj is this database through objstore's two primitives (spec 6/37 step 5).
 func (s *Store) Obj() objstore.Store { return objstore.WithIndexes(s.obj, stateIndexes{}) }
 
-// btoi converts a bool to the 0/1 an INTEGER column stores.
 func btoi(b bool) int {
 	if b {
 		return 1

@@ -59,6 +59,9 @@ func openMem(t *testing.T) *dynstore.Store {
 	if err := store.SeedRoutdFloor(ctx, db); err != nil {
 		t.Fatalf("seed the routd floor: %v", err)
 	}
+	if err := store.NewOver(db).MigrateStateIndexes(ctx); err != nil {
+		t.Fatal(err)
+	}
 	return db
 }
 

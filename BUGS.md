@@ -13,42 +13,22 @@
 > work items are their own entries. A record has nothing to fix and never will,
 > so counting one as open overstates the queue.
 
-## L850 — breaker recovery rereads unchanged control state (2026-11-14)
+## L853 — recurring authorization scans every ACL row (2026-11-14)
 
-`turnControl.tick` and runtime `recover` each read the singleton every 30 s,
-even without a deadline or returned run. Refused input depends on that read
-for its next wake. Recovery must also retain the obligation if a done probe
-moves to the archive before rearming fails.
-**Fix:** state writes schedule one generation-fenced router obligation. Returned execution, control and changed input/routing
-schedule immediate reconciliation; its consumer sets the next deadline. Busy recovery reschedules itself. Register
-in-flight candidates before reading admission so a concurrent wake is retained.
-**Test:** unchanged/future control reads no primary rows; due work wakes refused
-input; stale acknowledgment preserves new work; failed archived probe recovery
-retries. The unowned-probe regression measured a stuck probe after recovery
-changed its episode; a second pass must rearm it. Input advancement and route changes wake ordering waiters.
-
-## L851 — stale probe recovery reopens a completed breaker (2026-11-14)
-
-`TestControlWorkDoesNotReopenCompletedProbe` closes the breaker after recovery
-reads its probe state. Recovery finds the archived turn, then `interrupt`
-adopts the newer closed state and reopens it. The measured result is open
-control plus one unnecessary stop of a completed probe.
-**Fix:** bind probe interruption to the control state recovery observed; a
-changed state refuses the interruption and leaves its new work pending. The
-turn state and attempt also guard the interruption atomically; the earlier
-hydration race reproduces when completion precedes the control read.
-**Test:** concurrent completion keeps control closed and performs no stop;
-removing the observed-control fence must fail that test.
-
-## L852 — a control wake reenters chat processing (2026-11-14)
-
-`TestControlWakeRetainsInFlightCandidate` blocks in `wakeRefused → Enqueue →
-processChat → lockTurn` while the candidate already holds that chat lock.
-The test stack confirms the control wake enters the immediate-command path.
-**Fix:** enqueue the queue's next pass directly; a control transition carries
-no newly ingested command to process synchronously.
-**Test:** a wake inside the admission read returns and sets `again`; mutation
-back to the immediate-command enqueue blocks that regression.
+`ACLWildcardRows` reads the whole owner partition and filters principal globs
+in Go. Dashboard refreshes call it through both proxyd and dashd authorization.
+At ten seconds per refresh, those two checks select about 720 × N rows/hour.
+The two-second WhatsApp status refresh and onbod's thirty-second queue refresh
+also reach it. The cost includes every unrelated exact-principal grant.
+`TestWildcardPolicyWaitsForBackfill` also measured an allow during an unfinished
+upgrade: the exact allow exists but the legacy wildcard deny has no pointer.
+**Fix:** require the migration marker before policy reads, then index
+wildcard-principal grants, hydrate and decode their original
+rows, and read that index fresh on every authorization. Preserve policy rules,
+consistent reads and failure handling. Validate and backfill legacy rows once.
+**Test:** forty unrelated exact principals cost no wildcard reads; wildcard
+allow/deny and revocation remain fresh; replacement/rename preserve pointers;
+malformed legacy coordinates abort migration before its completion marker.
 
 ## What needs you
 

@@ -1324,3 +1324,35 @@ func TestGroupRenameMessageIndexes(t *testing.T) {
 		}
 	}
 }
+
+func TestGroupRenameWildcardIndexRoundTrip(t *testing.T) {
+	db := routdStore(t)
+	grant := core.ACLRow{Principal: "google:*", Action: "interact", Scope: "main/**", Effect: store.EffectAllow}
+	if err := db.PutACLRow(grant); err != nil {
+		t.Fatal(err)
+	}
+	items, err := db.Obj().Query(t.Context(), objstore.Query{Entity: store.ACL, Partition: store.OwnerRoutd, Key: objstore.KeyPredicate{Op: objstore.PrefixKey, Value: grant.Principal + store.KeySep}})
+	if err != nil || len(items) != 1 {
+		t.Fatalf("source %v %v", items, err)
+	}
+	before := items[0]
+	after, err := renameTestMap(t).row(store.OwnerRoutd, store.ACL, before, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw := db.Obj().(*objstore.Indexed).Store
+	plan := []renameRow{{Owner: store.OwnerRoutd, Entity: store.ACL, Before: before, After: after}}
+	for _, reverse := range []bool{false, true} {
+		if err := renameApplyBatch(t.Context(), plan, map[string]objstore.Store{store.OwnerRoutd: raw}, reverse); err != nil {
+			t.Fatal(err)
+		}
+		want := "sloth/**"
+		if reverse {
+			want = "main/**"
+		}
+		rows, err := db.ACLWildcardRows()
+		if err != nil || len(rows) != 1 || rows[0].Scope != want {
+			t.Fatalf("reverse=%v rows=%v err=%v", reverse, rows, err)
+		}
+	}
+}

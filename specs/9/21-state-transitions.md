@@ -127,6 +127,10 @@ Sources: `routd/loop.go`, `routd/turn_control.go`, `routd/turn_status.go`,
   job: prepare the owner's internal index and bound bulk writes
   names: [EntitiesByOwner]
   never: registers internal work as a management resource
+- path: store/acl.go (changed)
+  job: read current wildcard-principal policy only after its index is complete
+  names: [ACLWildcardRows, aclRows]
+  never: authorizes with a partial legacy backfill
 - path: store/routd_work.go (new)
   job: schedule and acknowledge coalesced router obligations
   names: [DueWork, AcknowledgeWork, RescheduleWork]
@@ -516,6 +520,28 @@ Consumption removes the key; long cursor ties and concurrent hydration remain
 correct. `TestInputSpanKeepsConcurrentAppend` fails when the observed-revision
 guard is removed. `TestInputOrderKeepsAdmissionAcrossRouteChange` requires the
 chat-specific admission index.
+
+## Wildcard policy discovery
+
+Authorization verifies the `acl-wildcard-v1` completion marker before reading
+the `acl/wildcard` partition. Missing readiness fails closed during upgrades;
+other daemons do not backfill the owner's store. Exact-principal reads stay keyed.
+Only an asterisk in the principal coordinate enters that partition; wildcards
+in actions, scopes or predicates do not qualify. Primaries remain the policy
+authority. The common ACL decoder rejects unreadable rows, and owner-version
+checks retain a consistent policy. Every authorization reads current pointers;
+no policy decision is cached. Revocation deletes the pointer atomically.
+
+`acl-wildcard-v1` validates existing coordinates and backfills once. The marker
+is written only after the index is complete. Manifest replacement and rename
+use the common indexed writer for forward and reverse transitions.
+
+`TestACLWildcardIndexReadsOnlyWildcardRows` reads three rows with forty
+unrelated grants: the readiness marker, one pointer and its primary. Revocation
+leaves one marker read. Policy, manifest replacement and forward/reverse rename
+tests preserve wildcard deny behavior. Nine mutations cover selection,
+principal parsing, pointer production, migration validation and its marker,
+read errors, rename maintenance, upgrade readiness and its error cause.
 
 ## Open questions
 

@@ -1,19 +1,5 @@
 package store
 
-// acl.go holds every read and write of `acl`: one item per grant, addressed by
-// the six fields that ARE the grant.
-//
-// The partition is OwnerRoutd because resreg's entity path writes these items
-// too (resreg.SubsystemRoutd IS store.OwnerRoutd); a second spelling selects
-// nothing, silently. All six fields are in the coordinate because each changes
-// what the row PERMITS. The principal leads, because the evaluator's hot read
-// is one begins_with per principal. ListACLByScope and ACLWildcardRows read the
-// partition and filter in Go: it is 42 rows on krons, and no index answers a
-// substring.
-//
-// A READ FAILURE IS AN ERROR, NEVER AN EMPTY POLICY (BUGS A4): a partial scan
-// could drop a DENY row while keeping the allows above it.
-
 import (
 	"context"
 	"fmt"
@@ -25,8 +11,6 @@ import (
 	"github.com/kronael/arizuko/objstore"
 )
 
-// The attributes a grant item carries. The six coordinate fields are NOT among
-// them: storing the coordinate twice is two facts that can disagree.
 const (
 	attrACLGrantedBy   = "granted_by"
 	attrACLGrantedAt   = "granted_at"
@@ -56,8 +40,6 @@ func aclKey(r core.ACLRow) (objstore.Key, error) {
 	return objstore.Key{Partition: OwnerRoutd, Sort: strings.Join(parts, KeySep)}, nil
 }
 
-// aclRowFrom reads one item back. A key that does not split into six is a LOUD
-// fault: an evaluator reading it would answer about a call nobody granted.
 func aclRowFrom(it objstore.Item) (core.ACLRow, error) {
 	parts := strings.Split(it.Key.Sort, KeySep)
 	if len(parts) != 6 {
@@ -77,10 +59,6 @@ func aclRowFrom(it objstore.Item) (core.ACLRow, error) {
 	}, nil
 }
 
-// aclAttrs renders the three attributes a grant item carries. `grant_option` is
-// ALWAYS written, as "0" or "1": the text resreg's bool encoding renders
-// (resreg/codec.go), because both writers must agree byte for byte.
-// `granted_at` is core.TS at 30 bytes, for the same reason (BUGS L97).
 func aclAttrs(r core.ACLRow) map[string]string {
 	attrs := map[string]string{attrACLGrantOption: "0"}
 	if r.GrantOption {
@@ -138,21 +116,13 @@ func ValidateACLAction(action string) error {
 		action, strings.Join(ACLActionChoices(), ", "))
 }
 
-// aclPut renders the create-if-absent write both acl writers issue: a re-grant
-// must not restamp who granted a row or clear a grant option it holds.
-//
-// The effect is validated HERE because every door renders through this
-// function: the evaluator reads anything but EffectDeny as a grant, so `denny`
-// became an allow (BUGS L272).
 func aclPut(r core.ACLRow) (objstore.Write, error) {
 	if !EffectAllowed(r.Effect) {
 		return objstore.Write{}, fmt.Errorf(
 			"acl: effect %q on action %q is not a spelling any evaluator reads; "+
 				"use %q or %q", r.Effect, r.Action, EffectAllow, EffectDeny)
 	}
-	// A predicate on a shell:env: row can only mean "never": ShellEnvKeys
-	// (auth/authorize.go) resolves per folder with no Claims, so the key
-	// silently stops appearing and nothing logs a denial (BUGS L134).
+
 	if r.Predicate != "" && strings.HasPrefix(r.Action, ShellEnvPrefix) {
 		return objstore.Write{}, fmt.Errorf(
 			"acl: a predicate on %q can never match — the shell-secret resolver is "+
@@ -167,9 +137,7 @@ func aclPut(r core.ACLRow) (objstore.Write, error) {
 	if err := ValidateACLAction(r.Action); err != nil {
 		return objstore.Write{}, err
 	}
-	// Every attribute is Init, and the op is a Merge rather than a guarded Put
-	// so it has NOTHING TO REFUSE: a folder creation's admin grant rides the
-	// same batch as the edge and the groups row.
+
 	return objstore.Write{
 		Op: objstore.Merge, Entity: ACL, Key: key, Init: aclAttrs(r),
 	}, nil
@@ -204,7 +172,6 @@ func AdminGrantWrite(principal, folder, grantedBy string) (objstore.Write, error
 	return ACLGrantWrite(row)
 }
 
-// aclDefaults fills what a caller may leave out: the effect and the instant.
 func aclDefaults(r core.ACLRow) core.ACLRow {
 	if r.Effect == "" {
 		r.Effect = EffectAllow
@@ -246,8 +213,7 @@ func (s *Store) AddACLRow(row core.ACLRow, v objstore.Version) error {
 	}
 	// A refusal is the grant already being there, and it records nothing.
 	writes, ev, err := func() ([]objstore.Write, audit.Event, error) {
-		// GrantedBy stands in as the actor for callers that never set AsUser
-		// (the CLI, onbod invite-accept).
+
 		actor, actorSub, surface := s.auditIdentity()
 		if s.auditSub == "" && row.GrantedBy != "" {
 			actor, actorSub = row.GrantedBy, row.GrantedBy
@@ -267,8 +233,7 @@ func (s *Store) AddACLRow(row core.ACLRow, v objstore.Version) error {
 				"scope":     row.Scope,
 				"effect":    row.Effect,
 				"predicate": row.Predicate,
-				// Distinguishes a grant an operator typed from one a package
-				// install brought in; the actor alone cannot.
+
 				"granted_by": row.GrantedBy,
 			},
 		}, nil
@@ -333,14 +298,15 @@ func (s *Store) PutACLRow(row core.ACLRow) error {
 	return err
 }
 
-// aclItems reads one selection of the partition and turns it into rows. It is
-// the ONE place a policy read materialises: an unreadable item aborts, never
-// skips. A dropped DENY row with its allows intact is an escalation.
 func (s *Store) aclItems(who string, q objstore.Query) ([]core.ACLRow, error) {
 	items, err := s.Obj().Query(context.Background(), q)
 	if err != nil {
 		return nil, fmt.Errorf("acl: %s: %w", who, err)
 	}
+	return aclRows(who, items)
+}
+
+func aclRows(who string, items []objstore.Item) ([]core.ACLRow, error) {
 	out := make([]core.ACLRow, 0, len(items))
 	for _, it := range items {
 		r, err := aclRowFrom(it)
@@ -352,7 +318,6 @@ func (s *Store) aclItems(who string, q objstore.Query) ([]core.ACLRow, error) {
 	return out, nil
 }
 
-// aclAll is the whole partition, in coordinate order.
 func (s *Store) aclAll(who string) ([]core.ACLRow, error) {
 	return s.aclItems(who, objstore.Query{Entity: ACL, Partition: OwnerRoutd})
 }
@@ -376,16 +341,10 @@ func (s *Store) ACLRowsFor(principals []string) ([]core.ACLRow, error) {
 		}
 		out = append(out, rows...)
 	}
-	// Sorted, because the answer is assembled from several reads: an
-	// evaluator's first-match answer must not depend on the order the caller
-	// listed its principals in.
+
 	aclOrder(out)
 	return out, nil
 }
-
-// UserScopes lives in auth (auth.UserScopes): a projection of the rows
-// auth.Authorize evaluates. A second read here missed wildcard-principal
-// grants.
 
 // ListACLByScope returns all acl rows whose scope exactly matches scope.
 // Errors, never an empty list, on a read failure (file header).
@@ -415,20 +374,20 @@ func (s *Store) ListACL(principal string) ([]core.ACLRow, error) {
 // (`*`); Authorize evaluates them as a second pass against the expanded
 // principal set.
 func (s *Store) ACLWildcardRows() ([]core.ACLRow, error) {
-	all, err := s.aclAll("read wildcard rows")
+	_, ready, err := s.itemAt(context.Background(), objstore.IndexEntity, objstore.Key{Partition: "migrations", Sort: aclWildcardMigration})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("acl: read index readiness: %w", err)
 	}
-	out := make([]core.ACLRow, 0, len(all))
-	for _, r := range all {
-		if strings.Contains(r.Principal, "*") {
-			out = append(out, r)
-		}
+	if !ready {
+		return nil, fmt.Errorf("acl wildcard index migration is incomplete")
 	}
-	return out, nil
+	items, err := objstore.IndexItems(context.Background(), s.Obj(), "acl/wildcard", objstore.KeyPredicate{}, 0)
+	if err != nil {
+		return nil, fmt.Errorf("acl: read wildcard rows: %w", err)
+	}
+	return aclRows("read wildcard rows", items)
 }
 
-// aclOrder sorts rows the way the coordinate does.
 func aclOrder(rows []core.ACLRow) {
 	slices.SortFunc(rows, func(a, b core.ACLRow) int {
 		return strings.Compare(

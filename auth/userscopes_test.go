@@ -1,13 +1,14 @@
 package auth_test
 
 import (
-	"context"
+	"strings"
 	"testing"
 
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/core"
-	"github.com/kronael/arizuko/objstore/dynstore"
+	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/store"
+	"github.com/kronael/arizuko/tests/testutils"
 )
 
 func scopesEnv(t *testing.T, rows ...core.ACLRow) *store.Store {
@@ -130,13 +131,7 @@ func mustScopes(scopes []string, err error) []string {
 // is the one a test can make deterministic.
 func dropACL(t *testing.T, s *store.Store) {
 	t.Helper()
-	d, ok := s.Obj().(*dynstore.Store)
-	if !ok {
-		t.Fatalf("this fixture is not served: %T", s.Obj())
-	}
-	if err := d.DropEntity(context.Background(), store.ACL); err != nil {
-		t.Fatalf("drop acl: %v", err)
-	}
+	testutils.BreakStore(t, s, store.ACL)
 }
 
 func TestUserScopesFailsClosedOnAnUnreadablePolicy(t *testing.T) {
@@ -169,13 +164,7 @@ func TestAuthorizeDeniesOnAnUnreadablePolicy(t *testing.T) {
 
 func dropMembership(t *testing.T, s *store.Store) {
 	t.Helper()
-	d, ok := s.Obj().(*dynstore.Store)
-	if !ok {
-		t.Fatalf("this fixture is not served: %T", s.Obj())
-	}
-	if err := d.DropEntity(context.Background(), store.ACLMembership); err != nil {
-		t.Fatalf("drop membership: %v", err)
-	}
+	testutils.BreakStore(t, s, store.ACLMembership)
 }
 
 // BUGS L92: an unreadable membership table refuses. A failed Ancestors read
@@ -212,5 +201,54 @@ func TestMembershipReadFailureRefuses(t *testing.T) {
 	}
 	if auth.EffectiveActions(s, c)("mcp:send") {
 		t.Error("EffectiveActions advertised a tool")
+	}
+}
+
+func TestWildcardPolicyRevocationAndDeny(t *testing.T) {
+	s := openMem(t)
+	allow := core.ACLRow{Principal: "google:alice", Action: "interact", Scope: "demo", Effect: store.EffectAllow}
+	deny := core.ACLRow{Principal: "google:*", Action: "interact", Scope: "demo", Effect: store.EffectDeny}
+	addRowFull(t, s, allow)
+	addRowFull(t, s, deny)
+	caller := auth.Caller{Principal: "google:alice"}
+	if auth.Authorize(s, caller, "interact", "demo", nil) {
+		t.Fatal("wildcard deny lost")
+	}
+	if err := s.RemoveACLRow(deny, ""); err != nil {
+		t.Fatal(err)
+	}
+	if !auth.Authorize(s, caller, "interact", "demo", nil) {
+		t.Fatal("revocation stayed cached")
+	}
+	addRowFull(t, s, deny)
+	if auth.Authorize(s, caller, "interact", "demo", nil) {
+		t.Fatal("new deny stayed invisible")
+	}
+}
+
+func TestWildcardPolicyWaitsForBackfill(t *testing.T) {
+	s := openMem(t)
+	raw := s.Obj().(*objstore.Indexed).Store
+	marker := objstore.Key{Partition: "migrations", Sort: "acl-wildcard-v1"}
+	writes := []objstore.Write{{Op: objstore.Delete, Entity: objstore.IndexEntity, Key: marker}}
+	for _, r := range []core.ACLRow{{Principal: "google:alice", Action: "interact", Scope: "demo", Effect: store.EffectAllow}, {Principal: "google:*", Action: "interact", Scope: "demo", Effect: store.EffectDeny}} {
+		writes = append(writes, objstore.Write{Op: objstore.Put, Entity: store.ACL, Key: objstore.Key{Partition: store.OwnerRoutd, Sort: strings.Join([]string{r.Principal, r.Action, r.Scope, "", "", r.Effect}, store.KeySep)}, Attrs: map[string]string{}})
+	}
+	if ok, err := raw.GuardedBatch(t.Context(), nil, writes); err != nil || !ok {
+		t.Fatalf("legacy seed %v %v", ok, err)
+	}
+	caller := auth.Caller{Principal: "google:alice"}
+	if auth.Authorize(s, caller, "interact", "demo", nil) {
+		t.Fatal("unmigrated wildcard deny disappeared")
+	}
+	if _, _, err := auth.ReadPolicy(s, caller); err == nil {
+		t.Fatal("unready policy did not report its failure")
+	}
+	if err := s.MigrateStateIndexes(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	policy, _, err := auth.ReadPolicy(s, caller)
+	if err != nil || policy.Allows("interact", "demo", nil) {
+		t.Fatalf("migrated deny missing: %v", err)
 	}
 }

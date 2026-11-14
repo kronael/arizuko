@@ -120,6 +120,11 @@ wire fields. `_index_revision` guards pointer changes against concurrent writes.
 `objstore.Indexed` implements this protocol over the two storage methods.
 Manifest replacement uses the same writer. Migrations commit a completion
 marker only after all existing rows have their pointers.
+
+Wildcard-principal grants have an `acl/wildcard` access path. Authorization
+checks its completion marker and current pointers on every policy read.
+An incomplete backfill fails closed; only routd migrates the existing rows.
+
 Message identity, status and reply lookups use chat-scoped pointers. Delivery
 transitions resolve the stored coordinate, including append-order adjustments.
 `messages-v1` backfills pointers once; group rename updates them atomically.
