@@ -90,7 +90,7 @@ func TestApprovalWorkMigrationRunsOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	c := &stateReadCounter{Store: s.Obj()}
-	if err := NewOver(c).MigrateStateIndexes(t.Context()); err != nil || c.rows != 7 {
+	if err := NewOver(c).MigrateStateIndexes(t.Context()); err != nil || c.rows != 9 {
 		t.Fatalf("repeat reads=%d err=%v", c.rows, err)
 	}
 	if work, err := s.DueWork(t.Context(), "approvals", time.Now()); err != nil || len(work) != 0 {

@@ -13,15 +13,31 @@
 > work items are their own entries. A record has nothing to fix and never will,
 > so counting one as open overstates the queue.
 
-## L847 — approval waiters reread held rows on a two-second clock (2026-11-14)
+## L848 — input ordering still selects every chat (2026-11-14)
 
-`awaitVerdict` sleeps and exact-reads each pending action until a verdict:
-computed 1,800 reads/hour per held call, even with no state change.
-**Fix:** verdict writes atomically create keyed work; one DB consumer notifies
-registered waiters and acknowledges the observed generation. Register before
-reading the row. Preserve deadline expiry and the closing-instant verdict.
-**Test:** forty held rows yield zero work reads; cross-process writes wake the
-waiter; rejected commits do not wake it; stale acknowledgments retain new work.
+`InputCursorsBefore` uses an attribute filter on the entire chats partition.
+Each dispatch selects N chats before checking pending spans. `oldestModelInput`
+also reads every live turn before selecting its folder. L827 bounds message
+reads but leaves these two discovery costs.
+**Fix:** index unconsumed chat spans by their earliest possible timestamp;
+verify the complete cursor after hydration. Read live turns from a per-folder
+partition. Backfill both key sets once and retain earlier migrations.
+**Test:** forty idle/future chats and unrelated live turns do not count toward
+one candidate's read cost; consumed input removes its key; cursor ties remain
+correct; repeat migration reads markers only.
+
+## L849 — concurrent appends overwrite the unread input span (2026-11-14)
+
+Two appends can read the same consumed chat span, then each writes its own
+`input_first` and `input_last`. The later commit erases the earlier unread
+bound. The index wrapper guards the revision it rereads, not the advisory row
+from which `putMessage` computed those fields. A cursor advance can then remove
+work while a later message remains unread.
+**Fix:** guard the span write against that observed chat revision and retry the
+whole append on conflict, including timestamp selection. Distinguish conflicts
+from message-ID duplicates; keep the message, span and counts atomic.
+**Test:** inject a competing append after the advisory read; both messages
+remain discoverable and consuming the earlier one keeps the later work.
 
 ## What needs you
 

@@ -15,7 +15,7 @@ type stateIndexes struct{}
 
 func (stateIndexes) Indexed(entity string) bool {
 	switch entity {
-	case ScheduledTasks, TurnContexts, TurnArchive, MessageDelivery, Messages, Onboarding, OnboardingGates, OnboardingWork, ACLMembership, RouteTokens, PendingActions, RoutdWork:
+	case ScheduledTasks, TurnContexts, TurnArchive, MessageDelivery, Messages, Onboarding, OnboardingGates, OnboardingWork, ACLMembership, RouteTokens, PendingActions, RoutdWork, Chats:
 		return true
 	}
 	return false
@@ -23,6 +23,16 @@ func (stateIndexes) Indexed(entity string) bool {
 
 func (stateIndexes) Keys(entity string, it objstore.Item) []objstore.Key {
 	switch entity {
+	case Chats:
+		cursor := it.Attrs[AttrChatAgentCursor]
+		if it.Attrs[attrChatInputLast] <= cursor {
+			return nil
+		}
+		at, _, ok := MsgCoord(max(it.Attrs[attrChatInputFirst], cursor))
+		if !ok {
+			return nil
+		}
+		return []objstore.Key{objstore.DueIndexKey("chats/input", at, entity, it.Key)}
 	case PendingActions:
 		return nil
 	case RoutdWork:
@@ -96,6 +106,12 @@ func (s *Store) MigrateStateIndexes(ctx context.Context) error {
 	if err := objstore.Reindex(ctx, s.Obj(), "approvals-v1", []objstore.Query{{Entity: PendingActions, Partition: OwnerRoutd}}); err != nil {
 		return err
 	}
+	if err := objstore.Reindex(ctx, s.Obj(), "chat-input-v1", []objstore.Query{{Entity: Chats, Partition: OwnerRoutd}}); err != nil {
+		return err
+	}
+	if err := objstore.Reindex(ctx, s.Obj(), "turn-access-v2", []objstore.Query{{Entity: TurnContexts, Partition: OwnerRoutd}}); err != nil {
+		return err
+	}
 	marker := objstore.Key{Partition: "migrations", Sort: "messages-v1"}
 	if _, done, err := s.itemAt(ctx, objstore.IndexEntity, marker); err != nil || done {
 		return err
@@ -128,6 +144,8 @@ func turnIndexes(entity string, it objstore.Item) []objstore.Key {
 	switch a[attrTurnState] {
 	case TurnRunning, TurnPendingRetry:
 		add("turns/live", it.Key.Sort)
+		add(indexPartition("turns/folder", a[attrTurnFolder]), it.Key.Sort)
+		add(indexPartition("turns/chat", a[attrTurnChatJID]), it.Key.Sort)
 	}
 	if a[attrTurnState] == TurnRunning && a[attrTurnRunReturned] == flagSet {
 		add("turns/recovery", it.Key.Sort)
@@ -190,4 +208,12 @@ func messageIndexes(it objstore.Item) []objstore.Key {
 		add("source")
 	}
 	return keys
+}
+
+func (s *Store) LiveTurnsInFolder(ctx context.Context, folder string) ([]TurnContext, error) {
+	return s.indexedTurns(ctx, indexPartition("turns/folder", folder), objstore.KeyPredicate{})
+}
+
+func (s *Store) LiveTurnsInChat(ctx context.Context, jid string) ([]TurnContext, error) {
+	return s.indexedTurns(ctx, indexPartition("turns/chat", jid), objstore.KeyPredicate{})
 }

@@ -16,7 +16,7 @@ import (
 var errModelInputOrder = errors.New("older model input pending")
 
 func (l *Loop) oldestModelInput(folder string, first core.Message) (core.Message, error) {
-	turns, err := l.db.RunningTurns()
+	turns, err := l.db.store().LiveTurnsInFolder(context.Background(), folder)
 	if err != nil {
 		return core.Message{}, err
 	}
@@ -38,12 +38,16 @@ func (l *Loop) oldestModelInput(folder string, first core.Message) (core.Message
 		return core.Message{}, err
 	}
 	for jid, cursor := range cursors {
+		admittedTurns, err := l.db.store().LiveTurnsInChat(context.Background(), jid)
+		if err != nil {
+			return core.Message{}, err
+		}
 		msgs, batch, err := l.pendingBatch(jid, cursor, pollBatch)
 		if err != nil {
 			return core.Message{}, err
 		}
 		for i, msg := range msgs {
-			admitted := slices.ContainsFunc(turns, func(tc TurnContext) bool {
+			admitted := slices.ContainsFunc(admittedTurns, func(tc TurnContext) bool {
 				return tc.State == store.TurnRunning && !tc.RunReturned && tc.ChatJID == jid && tc.InputLast >= store.MessageCursor(msg)
 			})
 			if !msg.BotMsg && !admitted && batch.rows[i].ok && batch.rows[i].Folder == folder &&

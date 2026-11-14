@@ -192,3 +192,19 @@ func TestModelPausePollHeldOrder(t *testing.T) {
 		})
 	}
 }
+
+func TestInputOrderKeepsAdmissionAcrossRouteChange(t *testing.T) {
+	db, l, _, _ := pauseFixture(t)
+	now := time.Now()
+	pauseInput(t, db, "web:a", "old", "u", "first", now)
+	msg, _ := db.MessageByID("web:a", "old")
+	ok, err := db.store().OpenTurnContext("old", "a", "", "web:a", "u", "", &store.TurnAdmission{AttemptID: "attempt", InputLast: store.MessageCursor(msg)})
+	if err != nil || !ok {
+		t.Fatalf("admit: %v %v", ok, err)
+	}
+	pauseChatInFolder(t, db, "web:a", "b")
+	oldest, err := l.oldestModelInput("b", core.Message{ID: "later", ChatJID: "web:b", Timestamp: now.Add(time.Second)})
+	if err != nil || oldest.ID != "" {
+		t.Fatalf("already admitted input became a blocker: %+v %v", oldest, err)
+	}
+}

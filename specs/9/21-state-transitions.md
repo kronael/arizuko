@@ -33,33 +33,34 @@ Computed costs below count rows selected by keys before attribute filters, per p
 `N` means all rows in the named partition; `D` means due rows; `A` means active rows.
 Startup and run-once migration walks are distinct from recurring work discovery.
 
-| Component / entry                          | State sought and current access                                    | Frequency                      | Before → target                               |
-| ------------------------------------------ | ------------------------------------------------------------------ | ------------------------------ | --------------------------------------------- |
-| routd `maybeRecoverTurns`                  | running/retry turns; `RunningTurns` filters live partition         | 30 s                           | N → recovery obligations                      |
-| routd `turnControl.tick`                   | retries; `DeferredTurns` filters state and deadline                | 30 s                           | N → D                                         |
-| routd breaker                              | `ReadTurnControl` exact singleton; refused chats in memory         | 30 s                           | 1 → 1 at deadline                             |
-| routd `recoverStatuses`                    | `status_owed`; filters live turns                                  | 30 s                           | N → owed pointers                             |
-| routd `maybeRetryOutbound`                 | pending delivery by creation time; backoff checked after hydration | 30 s, limit 200                | up to 200 non-due payloads → D                |
-| routd `maybeGC`                            | running turns filtered by start time; activity already time-keyed  | hourly                         | N + expired activity → expired rows           |
-| routd `flushProgress`                      | memory pending updates; exact turn/status reads                    | loop tick, publish ≥5 s        | pending updates → due updates                 |
-| routd `ScheduleLoop`                       | all active tasks, parses deadlines; fills missing schedules        | startup + 60 s                 | N → D                                         |
-| routd approval wait                        | exact pending-action id                                            | 2 s                            | 1 → verdict notification / deadline           |
-| onbod pending check                        | whole onboarding partition; alias reads per awaiting sender        | 10 s                           | N + awaiting senders → state work             |
-| onbod gate admission                       | gates plus onboarding filtered twice per gate                      | about 60 s                     | gates × N → due gate queue                    |
-| chanlib retention: gitd, slakd, discd      | all retained inbound; deadline filter, oldest-first limit 50       | 15 s                           | N + payload bytes → D pointers + ≤50 payloads |
-| chanlib adapter health                     | whole retained inbound for `pending_inbound`                       | chanreg 30 s + requests        | N → 1 count                                   |
-| runed spawn retention                      | whole spawns filtered on creation time                             | hourly                         | N → expired rows                              |
-| runed VM sweep                             | host runtime records; no store poll                                | startup                        | filesystem only                               |
-| googd file polling                         | whole bound-file resource, local deadline check                    | default 30 s, minimum 10 s     | N → due files                                 |
-| proxyd snapshots                           | whole route tables on requests; no ticker                          | each request                   | N → version point read, changed snapshot only |
-| dashd                                      | request-driven dashboard/HTMX reads                                | browser refresh                | filtered partitions → requested key ranges    |
-| webd SSE                                   | ping only; messages arrive through hub publication                 | 15 s                           | 0 → 0 store reads                             |
-| CLI `send` / `pollRound`                   | bot replies by chat/time range or exact turn snapshot              | 1 s                            | bounded keys → notification where available   |
-| whapd retained inbound                     | reads and sorts every retained JSON file                           | 30 s                           | N files → scheduled retained files            |
-| adapter marks                              | exact mark lookup on expiry; startup recovery only                 | per-mark deadline              | 1 → 1                                         |
-| adapter registration / health, API retries | platform or HTTP calls; health counting listed above               | configured heartbeat / backoff | no other store discovery                      |
-| emaid                                      | IMAP polling fallback / IDLE renewal                               | 30 s / 28 min                  | 0 store reads on empty polls                  |
-| teled / discd / slakd                      | platform reconnect, readiness, typing refresh                      | platform deadlines             | 0 store discovery reads                       |
+| Component / entry                          | State sought and current access                                    | Frequency                      | Before → target                                              |
+| ------------------------------------------ | ------------------------------------------------------------------ | ------------------------------ | ------------------------------------------------------------ |
+| routd `maybeRecoverTurns`                  | running/retry turns; `RunningTurns` filters live partition         | 30 s                           | N → recovery obligations                                     |
+| routd `turnControl.tick`                   | retries; `DeferredTurns` filters state and deadline                | 30 s                           | N → D                                                        |
+| routd input ordering                       | whole chats plus live turns, then folder/cursor filters            | each dispatch                  | N chats + A turns → time candidates + folder/chat live turns |
+| routd breaker                              | `ReadTurnControl` exact singleton; refused chats in memory         | 30 s                           | 1 → 1 at deadline                                            |
+| routd `recoverStatuses`                    | `status_owed`; filters live turns                                  | 30 s                           | N → owed pointers                                            |
+| routd `maybeRetryOutbound`                 | pending delivery by creation time; backoff checked after hydration | 30 s, limit 200                | up to 200 non-due payloads → D                               |
+| routd `maybeGC`                            | running turns filtered by start time; activity already time-keyed  | hourly                         | N + expired activity → expired rows                          |
+| routd `flushProgress`                      | memory pending updates; exact turn/status reads                    | loop tick, publish ≥5 s        | pending updates → due updates                                |
+| routd `ScheduleLoop`                       | all active tasks, parses deadlines; fills missing schedules        | startup + 60 s                 | N → D                                                        |
+| routd approval wait                        | exact pending-action id                                            | 2 s                            | 1 → verdict notification / deadline                          |
+| onbod pending check                        | whole onboarding partition; alias reads per awaiting sender        | 10 s                           | N + awaiting senders → state work                            |
+| onbod gate admission                       | gates plus onboarding filtered twice per gate                      | about 60 s                     | gates × N → due gate queue                                   |
+| chanlib retention: gitd, slakd, discd      | all retained inbound; deadline filter, oldest-first limit 50       | 15 s                           | N + payload bytes → D pointers + ≤50 payloads                |
+| chanlib adapter health                     | whole retained inbound for `pending_inbound`                       | chanreg 30 s + requests        | N → 1 count                                                  |
+| runed spawn retention                      | whole spawns filtered on creation time                             | hourly                         | N → expired rows                                             |
+| runed VM sweep                             | host runtime records; no store poll                                | startup                        | filesystem only                                              |
+| googd file polling                         | whole bound-file resource, local deadline check                    | default 30 s, minimum 10 s     | N → due files                                                |
+| proxyd snapshots                           | whole route tables on requests; no ticker                          | each request                   | N → version point read, changed snapshot only                |
+| dashd                                      | request-driven dashboard/HTMX reads                                | browser refresh                | filtered partitions → requested key ranges                   |
+| webd SSE                                   | ping only; messages arrive through hub publication                 | 15 s                           | 0 → 0 store reads                                            |
+| CLI `send` / `pollRound`                   | bot replies by chat/time range or exact turn snapshot              | 1 s                            | bounded keys → notification where available                  |
+| whapd retained inbound                     | reads and sorts every retained JSON file                           | 30 s                           | N files → scheduled retained files                           |
+| adapter marks                              | exact mark lookup on expiry; startup recovery only                 | per-mark deadline              | 1 → 1                                                        |
+| adapter registration / health, API retries | platform or HTTP calls; health counting listed above               | configured heartbeat / backoff | no other store discovery                                     |
+| emaid                                      | IMAP polling fallback / IDLE renewal                               | 30 s / 28 min                  | 0 store reads on empty polls                                 |
+| teled / discd / slakd                      | platform reconnect, readiness, typing refresh                      | platform deadlines             | 0 store discovery reads                                      |
 
 For a backlog of 17,816 held messages, the 15-second retention sweep plus
 30-second registry health probe selects 6,413,760 rows per hour per adapter.
@@ -102,7 +103,8 @@ Sources: `routd/loop.go`, `routd/turn_control.go`, `routd/turn_status.go`,
   never: adds an objstore method
 - path: store/state_index.go (new)
   job: declare access keys for state transitions and migrate existing rows once
-  names: [MigrateStateIndexes, RecoverableTurns]
+  names:
+    [MigrateStateIndexes, RecoverableTurns, LiveTurnsInFolder, LiveTurnsInChat]
   never: exposes an operator-managed resource
 - path: store/messages.go (changed)
   job: resolve chat identities and turn work by key
@@ -459,6 +461,29 @@ The counting test measures zero rows for forty held calls, two rows for one
 verdict and zero after acknowledgment. Nine mutations fail: scheduling,
 generation, notification, registration order, retry, removal, cancellation and
 batch bound and settled version.
+
+## Pending input ordering
+
+Chat writes maintain a pointer while `input_last` exceeds `agent_cursor`.
+Its due timestamp is the timestamp of `max(input_first, agent_cursor)`; the
+consumer verifies the complete cursor after hydration. Equal-timestamp
+candidates share the due bucket so a long message ID cannot overflow a key.
+Cursor advancement removes consumed spans or moves their lower bound. Live
+turns carry folder and chat partitions. Deferred input is selected by folder;
+admitted input is checked by chat even when its route changes folders.
+`chat-input-v1` and `turn-access-v2` backfill these keys once. The existing
+input-span and turn migrations remain intact.
+
+Appends bind their span write to the chat revision used to compute it. A
+conflict retries the whole append, including timestamp selection. The message,
+span, derived keys and folder count commit together. A refused append is a
+duplicate only when its message ID already exists; other refusals remain errors.
+
+`TestInputIndexReadsOnlyEligibleChats` reads two rows with forty irrelevant chats.
+Consumption removes the key; long cursor ties and concurrent hydration remain
+correct. `TestInputSpanKeepsConcurrentAppend` fails when the observed-revision
+guard is removed. `TestInputOrderKeepsAdmissionAcrossRouteChange` requires the
+chat-specific admission index.
 
 ## Open questions
 

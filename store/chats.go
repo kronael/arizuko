@@ -1,29 +1,5 @@
 package store
 
-// chats.go holds every read and write of `chats`: one item per chat routd has
-// ever seen, carrying the dispatch cursor, the span of a person's input past
-// it, the errored flag and the two navigation pins.
-//
-// The span is `input_first`, the user row appended while none waited past the
-// cursor, and `input_last`, the newest user row. Every user-row append writes
-// them from the chat read it already makes, so ordering a folder's input
-// across chats reads this partition, not every chat's messages (BUGS L827).
-//
-// The partition is OwnerRoutd and the sort key the jid: a chat has no folder.
-// The pins name one, but a chat outlives the folder it points at, so
-// folder_scope.go clears the pins and keeps the row. The reads that name
-// no jid scan the partition: 136 items on krons, bounded by the chats an
-// instance was ever addressed from, never by traffic.
-//
-// agent_cursor is the one ORDERED attribute and holds a WHOLE MESSAGE KEY,
-// `core.TS + KeySep + id`: a bare instant sorts BELOW every message at it, so
-// `> cursor` would hand back an answered message once per poll, for ever. The
-// instant is fixed width and the id is not, so the declaration is an ordered
-// LEAD (BUGS L97).
-//
-// The two flags are "1" or ABSENT: absent is the only null this model has, and
-// a present false flag is a value a tombstone test still finds.
-
 import (
 	"context"
 	"fmt"
@@ -48,14 +24,10 @@ const (
 	attrChatInputLast   = "input_last"
 )
 
-// flagSet is what a true flag is stored as. False is the attribute's ABSENCE.
 const flagSet = "1"
 
-// The ordered declaration is what makes the dispatch cursor a cursor: every
-// driver refuses a value whose instant is short (BUGS L97).
 func init() { objstore.OrderedLead(Chats, AttrChatAgentCursor, tsWidth) }
 
-// chatKey is the coordinate of one chat.
 func chatKey(jid string) (objstore.Key, error) {
 	if jid == "" {
 		return objstore.Key{}, fmt.Errorf("chat row carries no jid, which is its coordinate")
@@ -63,12 +35,10 @@ func chatKey(jid string) (objstore.Key, error) {
 	return objstore.Key{Partition: OwnerRoutd, Sort: jid}, nil
 }
 
-// chatItem reads one chat, if it has ever been seen.
 func (s *Store) chatItem(ctx context.Context, jid string) (objstore.Item, bool, error) {
 	return s.chatItemVia(ctx, jid)
 }
 
-// chatItemVia reads one chat by its jid.
 func (s *Store) chatItemVia(ctx context.Context, jid string) (objstore.Item, bool, error) {
 	key, err := chatKey(jid)
 	if err != nil {
@@ -87,7 +57,6 @@ func (s *Store) chatItemVia(ctx context.Context, jid string) (objstore.Item, boo
 	return items[0], true, nil
 }
 
-// allChats reads the whole partition (file header).
 func (s *Store) allChats(ctx context.Context) ([]objstore.Item, error) {
 	items, err := s.Obj().Query(ctx, objstore.Query{Entity: Chats, Partition: OwnerRoutd})
 	if err != nil {
@@ -133,7 +102,7 @@ func (s *Store) AdvanceAgentCursor(jid, cursor string) error {
 	if err != nil {
 		return err
 	}
-	// A newer watermark already covers this batch.
+
 	_, err = s.advanceCursor(context.Background(), Chats, key, AttrChatAgentCursor, cursor, nil)
 	return err
 }
@@ -157,13 +126,14 @@ func (s *Store) ChatJIDs(ctx context.Context) ([]string, error) {
 
 // InputCursorsBefore answers, jid to agent cursor, the chats whose unconsumed
 // user rows may sort at or before `before`, a message cursor: every chat
-// holding such a row is in the answer. ONE read of the partition.
+// holding such a row is in the answer. Timestamp keys select candidates; the
+// complete cursor resolves ties after hydration.
 func (s *Store) InputCursorsBefore(ctx context.Context, before string) (map[string]string, error) {
-	items, err := s.Obj().Query(ctx, objstore.Query{
-		Entity: Chats, Partition: OwnerRoutd,
-		Where:   []objstore.Cmp{{Attr: attrChatInputLast, Op: objstore.Present}},
-		Project: []string{AttrChatAgentCursor, attrChatInputFirst, attrChatInputLast},
-	})
+	at, _, ok := MsgCoord(before)
+	if !ok {
+		return nil, fmt.Errorf("invalid input bound %q", before)
+	}
+	items, err := objstore.IndexItems(ctx, s.Obj(), "chats/input", objstore.KeyPredicate{Op: objstore.LtKey, Value: at + "\x7f"}, 0)
 	if err != nil {
 		return nil, fmt.Errorf("read the chats holding input: %w", err)
 	}
@@ -249,8 +219,7 @@ func (s *Store) SetChatIsGroup(jid string, isGroup bool) error {
 		}
 		return nil
 	}
-	// A direct chat still OPENS the item: one created here already says
-	// "direct", and only an item that was already there has anything to clear.
+
 	created, err := s.TryWriteEntities(ctx, nil, objstore.Write{
 		Op: objstore.Put, Entity: Chats, Key: key, Attrs: map[string]string{},
 		Cond: objstore.Cond{Item: objstore.ItemAbsent},
@@ -334,7 +303,6 @@ func (s *Store) SetStickyTopic(jid, topic string) error {
 	return s.setChatPin(jid, AttrChatStickyTopic, topic)
 }
 
-// setChatPin writes one navigation pin; an empty value CLEARS it.
 func (s *Store) setChatPin(jid, attr, value string) error {
 	key, err := chatKey(jid)
 	if err != nil {
@@ -353,17 +321,11 @@ func (s *Store) setChatPin(jid, attr, value string) error {
 	return nil
 }
 
-// upsertChat merges attrs into a chat, creating it when this is the first thing
-// ever recorded about it. Which shape lands is decided by the create's
-// REFUSAL, not by a read: a read-then-write is two decisions and the item can
-// appear between them. A Put would erase the pins or the cursor.
 func (s *Store) upsertChat(ctx context.Context, key objstore.Key,
 	attrs map[string]string) (bool, error) {
 	return s.upsertChatClearing(ctx, key, attrs)
 }
 
-// upsertChatClearing is upsertChat that also takes attributes AWAY. A create
-// carries none of them by construction, so only the update half names them.
 func (s *Store) upsertChatClearing(ctx context.Context, key objstore.Key,
 	attrs map[string]string, remove ...string) (bool, error) {
 	created, err := s.TryWriteEntities(ctx, nil, objstore.Write{
@@ -381,8 +343,6 @@ func (s *Store) upsertChatClearing(ctx context.Context, key objstore.Key,
 	return false, nil
 }
 
-// clearChatAttrs takes attributes away, and says nothing about a chat that was
-// never seen: an Update refuses rather than creating one.
 func (s *Store) clearChatAttrs(ctx context.Context, key objstore.Key, attrs ...string) error {
 	// A refusal is a chat nobody has seen, which is already clear.
 	_, err := s.TryWriteEntities(ctx, nil, objstore.Write{

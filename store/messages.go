@@ -218,13 +218,23 @@ type messageOptions struct {
 }
 
 func (s *Store) putMessage(ctx context.Context, m core.Message, status string, options messageOptions) (core.Message, error) {
+	for range 16 {
+		stored, retry, err := s.appendMessage(ctx, m, status, options)
+		if !retry {
+			return stored, err
+		}
+	}
+	return m, fmt.Errorf("append message %s: chat changed during every attempt", m.ID)
+}
+
+func (s *Store) appendMessage(ctx context.Context, m core.Message, status string, options messageOptions) (core.Message, bool, error) {
 	if m.Timestamp.IsZero() {
-		return m, fmt.Errorf("message %s in %s carries no instant, and the instant is half its "+
+		return m, false, fmt.Errorf("message %s in %s carries no instant, and the instant is half its "+
 			"position", m.ID, m.ChatJID)
 	}
-	chat, _, err := s.chatItemVia(ctx, m.ChatJID)
+	chat, chatExists, err := s.chatItemVia(ctx, m.ChatJID)
 	if err != nil {
-		return m, err
+		return m, false, err
 	}
 	nativeTopic := m.Topic
 	if m.Topic == "" {
@@ -233,7 +243,7 @@ func (s *Store) putMessage(ctx context.Context, m core.Message, status string, o
 	if !m.BotMsg {
 		routes, err := s.RouteTable()
 		if err != nil {
-			return m, err
+			return m, false, err
 		}
 		probe := m
 		probe.Topic = nativeTopic
@@ -243,17 +253,17 @@ func (s *Store) putMessage(ctx context.Context, m core.Message, status string, o
 	}
 	chatKey, err := chatKey(m.ChatJID)
 	if err != nil {
-		return m, err
+		return m, false, err
 	}
 	if !options.exact {
 		m.Timestamp, err = s.appendInstant(ctx, m)
 		if err != nil {
-			return m, err
+			return m, false, err
 		}
 	}
 	key, err := messageKeyOf(m)
 	if err != nil {
-		return m, err
+		return m, false, err
 	}
 	chatFlags := map[string]string{}
 	if !m.BotMsg {
@@ -268,6 +278,14 @@ func (s *Store) putMessage(ctx context.Context, m core.Message, status string, o
 		Op: objstore.Put, Entity: Messages, Key: key, Attrs: messageAttrs(m),
 		Cond: objstore.Cond{Item: objstore.ItemAbsent},
 	}}
+	if !m.BotMsg {
+		writes[0].Op = objstore.Update
+		writes[0].Cond = objstore.Cond{Item: objstore.ItemPresent, Where: []objstore.Cmp{attrIs(objstore.IndexRevision, chat.Attrs[objstore.IndexRevision])}}
+		if !chatExists {
+			writes[0].Op = objstore.Put
+			writes[0].Cond = objstore.Cond{Item: objstore.ItemAbsent}
+		}
+	}
 	writes = append(writes, activityWrite(key, m))
 	if w, ok := deliveryWrite(key, m, status, 0); ok {
 		maps.Copy(w.Attrs, options.delivery)
@@ -276,14 +294,31 @@ func (s *Store) putMessage(ctx context.Context, m core.Message, status string, o
 	writes = append(writes, options.also...)
 	folderWrite, counted, err := folderFeedWrite(key, m)
 	if err != nil {
-		return m, err
+		return m, false, err
 	}
-	if !counted {
-		// A refused append is an existing message ID.
-		_, err := s.TryWriteEntities(ctx, nil, writes...)
-		return m, err
+	var committed bool
+	if counted {
+		committed, err = s.tryCountFolderMessageBy(ctx, m.RoutedTo, 1, append(writes, folderWrite))
+	} else {
+		committed, err = s.TryWriteEntities(ctx, nil, writes...)
 	}
-	return m, s.countFolderMessage(ctx, m.RoutedTo, append(writes, folderWrite))
+	if err != nil || committed {
+		return m, false, err
+	}
+	if existing, ok, err := s.messageAt(ctx, m.ChatJID, m.ID); err != nil || ok {
+		if err != nil {
+			return m, false, err
+		}
+		return messageFrom(existing), false, nil
+	}
+	current, exists, err := s.chatItemVia(ctx, m.ChatJID)
+	if err != nil {
+		return m, false, err
+	}
+	if exists != chatExists || current.Attrs[objstore.IndexRevision] != chat.Attrs[objstore.IndexRevision] {
+		return m, true, nil
+	}
+	return m, false, ErrRefused
 }
 
 func (s *Store) appendInstant(ctx context.Context, m core.Message) (time.Time, error) {
