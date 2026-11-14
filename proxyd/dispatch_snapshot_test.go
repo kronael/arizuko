@@ -33,7 +33,10 @@ func TestSnapshotCarriesAProxyForEveryRoute(t *testing.T) {
 	}
 
 	s := &server{rr: newRoutesResource(st, nil)}
-	routes, proxies := s.routeSnapshot()
+	routes, proxies, err := s.routeSnapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(routes) != 4 {
 		t.Fatalf("fixture: %d routes, want 4", len(routes))
 	}
@@ -93,7 +96,10 @@ func TestConcurrentRouteMutationNeverSplitsAcrossSnapshots(t *testing.T) {
 		go func() {
 			defer reqs.Done()
 			for range 60 {
-				routes, proxies := s.routeSnapshot()
+				routes, proxies, err := s.routeSnapshot()
+				if err != nil {
+					continue
+				}
 				rt := MatchRoute(routes, "/panel/hello")
 				if rt == nil {
 					// Legitimate: the route was genuinely absent in this read.

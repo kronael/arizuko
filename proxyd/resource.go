@@ -1,13 +1,5 @@
 package main
 
-// proxyd `routes` Resource — spec 5/8 no-cache audit.
-//
-// Every request reads routes from the DB directly via store.AllProxydRoutes and
-// builds a fresh ReverseProxy per route. No row cache: the previous RWMutex-guarded
-// snapshot violated 5/8 rule 6 ("no daemon may cache config-table rows"), had no
-// measurable benefit — DB reads cost microseconds — and created stale-read windows
-// that broke YAML apply semantics. The http.Transport pools backend connections.
-
 import (
 	"context"
 	"encoding/json"
@@ -20,99 +12,98 @@ import (
 	"sync"
 
 	"github.com/kronael/arizuko/auth"
+	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/resreg/resources"
 	"github.com/kronael/arizuko/store"
 )
 
-// routesResource is the stateless route handler.
 type routesResource struct {
-	st *store.Store
+	st     *store.Store
+	routes objstore.Snapshot[routeSnapshot]
+	web    objstore.Snapshot[[]store.WebRoute]
 
-	// manualRoutes is a test-only fallback used when st is nil — i.e.
-	// unit tests that exercise the routing plumbing without spinning up
-	// a full store. In production paths st is always non-nil and this
-	// stays empty; the DB is the source of truth.
 	manualMu        sync.RWMutex
 	manualRoutes    []Route
 	manualWebRoutes []store.WebRoute
 }
 
-// newRoutesResource constructs the handle. The `initial` arg seeds the
-// test-only manual route fallback when st is nil; production reads routes
-// from the DB per request (spec 5/8).
+type routeSnapshot struct {
+	routes  []Route
+	proxies map[string]*httputil.ReverseProxy
+}
+
 func newRoutesResource(st *store.Store, initial []Route) *routesResource {
 	rr := &routesResource{st: st}
 	if st == nil {
-		// Test path: hold routes in memory. Production paths always pass
-		// a non-nil store.
+
 		rr.installManual(initial)
 	}
 	return rr
 }
 
-// snapshot returns a fresh view of the route table by querying the DB.
-// One indexed read per call. Callers MUST NOT
-// hold the returned slice across requests — it's a per-call snapshot.
-func (rr *routesResource) snapshot() ([]Route, map[string]*httputil.ReverseProxy) {
+func (rr *routesResource) snapshot() ([]Route, map[string]*httputil.ReverseProxy, error) {
 	var routes []Route
 	if rr.st != nil {
-		stored, err := rr.st.AllProxydRoutes()
+		state, err := rr.routes.Read(context.Background(), rr.st.Obj(), store.OwnerScope(store.OwnerRoutd), func(context.Context) (routeSnapshot, error) {
+			stored, err := rr.st.AllProxydRoutes()
+			if err != nil {
+				return routeSnapshot{}, err
+			}
+			rows := make([]Route, 0, len(stored))
+			for _, row := range stored {
+				rows = append(rows, fromStoreRoute(row))
+			}
+			return buildSnapshot(rows), nil
+		})
 		if err != nil {
-			// No row cache to fall back to (spec 5/8); surface the error
-			// so a transient DB fault is a visible outage, not silent 404s.
+
 			slog.Error("proxyd: read proxyd_routes", "err", err)
-			return nil, nil
+			return nil, nil, err
 		}
-		routes = make([]Route, 0, len(stored))
-		for _, r := range stored {
-			routes = append(routes, fromStoreRoute(r))
-		}
+		return state.routes, state.proxies, nil
 	} else {
 		rr.manualMu.RLock()
 		routes = append([]Route(nil), rr.manualRoutes...)
 		rr.manualMu.RUnlock()
 	}
-	// Each Path gets a fresh proxy: the Director closure captures
-	// r.StripPrefix and r.PreserveHeaders. The http.Transport pools
-	// connections per backend host on its own.
+	state := buildSnapshot(routes)
+	return state.routes, state.proxies, nil
+}
+
+func buildSnapshot(routes []Route) routeSnapshot {
+
 	procs := make(map[string]*httputil.ReverseProxy, len(routes))
 	for _, r := range routes {
 		if r.RedirectTo == "" {
 			procs[r.Path] = buildRouteProxy(r)
 		}
 	}
-	return routes, procs
+	return routeSnapshot{routes, procs}
 }
 
-// webSnapshot returns a fresh view of the web_routes table by querying
-// the DB. Like snapshot(), one indexed read per call (no row cache, spec
-// 5/8). The test path reads from manualWebRoutes when st is nil.
-func (rr *routesResource) webSnapshot() []store.WebRoute {
+func (rr *routesResource) webSnapshot() ([]store.WebRoute, error) {
 	if rr.st != nil {
-		stored, err := rr.st.AllWebRoutes()
+		stored, err := rr.web.Read(context.Background(), rr.st.Obj(), store.OwnerScope(store.OwnerRoutd), func(context.Context) ([]store.WebRoute, error) {
+			return rr.st.AllWebRoutes()
+		})
 		if err != nil {
 			slog.Error("proxyd: read web_routes", "err", err)
-			return nil
+			return nil, err
 		}
-		return stored
+		return stored, nil
 	}
 	rr.manualMu.RLock()
 	defer rr.manualMu.RUnlock()
-	return append([]store.WebRoute(nil), rr.manualWebRoutes...)
+	return append([]store.WebRoute(nil), rr.manualWebRoutes...), nil
 }
 
-// installManualWeb is the test-only entry point for seeding web_routes
-// without a backing store. Production uses the DB as source of truth.
 func (rr *routesResource) installManualWeb(routes []store.WebRoute) {
 	rr.manualMu.Lock()
 	rr.manualWebRoutes = append([]store.WebRoute(nil), routes...)
 	rr.manualMu.Unlock()
 }
 
-// installManual is the test-only entry point for adding routes without
-// a backing store. Production code MUST not use this — production uses
-// the DB as source of truth.
 func (rr *routesResource) installManual(routes []Route) {
 	rr.manualMu.Lock()
 	rr.manualRoutes = append([]Route(nil), routes...)
@@ -157,8 +148,6 @@ func validateRoute(r Route, existing []Route, isUpdate bool) error {
 	return nil
 }
 
-// argRoute pulls a Route out of resreg.Args. Re-marshal/unmarshal keeps
-// JSON tag handling in one place.
 func argRoute(args resreg.Args) (Route, error) {
 	b, err := json.Marshal(args)
 	if err != nil {
@@ -171,20 +160,16 @@ func argRoute(args resreg.Args) (Route, error) {
 	return r, nil
 }
 
-// handle is the single Handler called by both REST and MCP adapters.
-// A mutating action BUFFERS its write on x.Writes, which resreg sends in one
-// batch with the audit row. The DB is the source of truth; no in-memory swap
-// needed.
 func (rr *routesResource) handle(ctx context.Context, x resreg.Execution) (any, error) {
+	routes, _, err := rr.snapshot()
+	if err != nil {
+		return nil, resreg.Errorf(http.StatusServiceUnavailable, "route state unavailable: %v", err)
+	}
 	switch x.Action {
 	case resreg.ActionList:
-		routes, _ := rr.snapshot()
 		out := make([]Route, 0, len(routes))
 		out = append(out, routes...)
-		// Bare array — matches resreg/openapi.go's documented `array<ProxydRoutes>`
-		// convention (every other list handler returns bare; this one drifted to
-		// an envelope). webd's routesForwarder relays the body verbatim to both
-		// REST and MCP callers, and no in-tree consumer indexes a "routes" key.
+
 		return out, nil
 
 	case resreg.ActionGet:
@@ -192,7 +177,6 @@ func (rr *routesResource) handle(ctx context.Context, x resreg.Execution) (any, 
 		if path == "" {
 			return nil, resreg.Errorf(http.StatusBadRequest, "path required")
 		}
-		routes, _ := rr.snapshot()
 		for _, r := range routes {
 			if r.Path == path {
 				return r, nil
@@ -205,18 +189,12 @@ func (rr *routesResource) handle(ctx context.Context, x resreg.Execution) (any, 
 		if err != nil {
 			return nil, err
 		}
-		routes, _ := rr.snapshot()
 		if err := validateRoute(r, routes, false); err != nil {
 			return nil, err
 		}
-		// Creating a route here IS the claim: a row declared on the operator
-		// surface is the operator's, and generate never rewrites it again. The
-		// caller does not get to pick — a body carrying `owner` would otherwise
-		// let an agent hand its own route to arizuko, or to nobody.
+
 		r.Owner = store.RouteOwnerOperator
-		// The path is the coordinate, so a create refuses when it is already
-		// taken — and that answer reaches the caller from the batch, which is why
-		// it is declared with the write.
+
 		if err := rr.st.CreateProxydRouteInto(x.Writes, toStoreRoute(r),
 			resreg.Errorf(http.StatusConflict,
 				"proxyd route %q is already taken", r.Path)); err != nil {
@@ -229,7 +207,6 @@ func (rr *routesResource) handle(ctx context.Context, x resreg.Execution) (any, 
 		if path == "" {
 			return nil, resreg.Errorf(http.StatusBadRequest, "path required")
 		}
-		routes, _ := rr.snapshot()
 		idx := -1
 		for i, r := range routes {
 			if r.Path == path {
@@ -240,11 +217,7 @@ func (rr *routesResource) handle(ctx context.Context, x resreg.Execution) (any, 
 		if idx < 0 {
 			return nil, resreg.Errorf(http.StatusNotFound, "route %q not found", path)
 		}
-		// Editing an arizuko-owned row is not an override — the next `arizuko
-		// generate` rewrites it from the release. Refusing here is the "must be
-		// told" half of that decision: an edit that silently survives until the
-		// next deploy and then vanishes is the failure this whole change removes
-		// (BUGS L45). The named alternative takes the path over for good.
+
 		if !store.RouteSurvivesGenerate(routes[idx].Owner) {
 			return nil, resreg.Errorf(http.StatusConflict,
 				"route %q is owned by %q and is rewritten by every `arizuko generate`; "+
@@ -286,8 +259,7 @@ func (rr *routesResource) handle(ctx context.Context, x resreg.Execution) (any, 
 		if path == "" {
 			return nil, resreg.Errorf(http.StatusBadRequest, "path required")
 		}
-		// Unconditional: this face declares DELETE idempotent, so a path with no
-		// route answers 204 rather than 404 (resource_test.go).
+
 		if err := rr.st.DeleteProxydRouteInto(x.Writes, path); err != nil {
 			return nil, resreg.Errorf(http.StatusInternalServerError, "delete: %v", err)
 		}
@@ -309,20 +281,10 @@ func normalisePath(v any) string {
 	return s
 }
 
-// routesAuthz derives the ACL scope/params for the routes resource. routes is GLOBAL
-// (no per-folder axis), so the derivation is genuinely empty. This is NOT a bypass:
-// resreg.invoke still runs auth.Authorize, and an empty scope is matched by an
-// operator ACL row like `(google:op, '*', '**')`. A non-operator presents no matching
-// row, so the call is denied. The gate is the ACL row, not this function.
 func routesAuthz(_ resreg.Caller, _ resreg.Action, _ resreg.Args) (string, map[string]string, error) {
 	return "", nil, nil
 }
 
-// routesResourceDecl is the resreg.Resource literal: REST endpoints,
-// MCP doc/args, authz, single handler. Per spec 5/17-openapi-mcp. proxyd_routes has
-// The whole shape — Endpoints, MCPDoc, MCPArgs, RowType — comes from the
-// catalog via resreg.Mount, so this decl, webd's forwarder and the OpenAPI
-// emitter cannot drift. proxyd adds only behavior.
 func routesResourceDecl(rr *routesResource) resreg.Resource {
 	r := resreg.Mount(resources.ProxydRoutesName)
 	r.Authz = routesAuthz
@@ -331,10 +293,6 @@ func routesResourceDecl(rr *routesResource) resreg.Resource {
 	return r
 }
 
-// trustedForwarders are the only principals whose stamped X-User-* headers proxyd
-// accepts on /v1/proxyd_routes. Both translate an already-authenticated end user onto
-// this REST API and present their own ES256 service bearer as the transit proof. The
-// list is an ALLOWLIST, never "any service token" — see channelTrusted.
 const (
 	callerWebd  = "service:webd"
 	callerDashd = "service:dashd"
@@ -342,35 +300,23 @@ const (
 
 var trustedForwarders = []string{callerWebd, callerDashd}
 
-// channelTrusted reports whether r's stamped X-User-* headers can be trusted: a
-// present X-User-Sub plus a valid authd ES256 bearer minted for one of the
-// trustedForwarders. The sub pin is load-bearing — VerifyHTTP alone would admit ANY
-// valid authd token reaching proxyd directly, letting it forge X-User-*.
 func channelTrusted(r *http.Request, ks *auth.KeySet) bool {
 	if r.Header.Get("X-User-Sub") == "" {
 		return false
 	}
 	if ks == nil {
-		return true // local dev: no JWKS to verify against
+		return true
 	}
 	sub, err := auth.VerifyHTTP(r, ks)
 	return err == nil && sub.Typ == "service" && slices.Contains(trustedForwarders, sub.Sub)
 }
 
-// callerFromHTTP builds a resreg.Caller from the caller's identity headers. The
-// channel is proven by a trustedForwarders ES256 bearer; on that proof the stamped
-// X-User-* headers are trusted as the IDENTITY, never the bearer's own sub. Operator
-// detection is recorded into Claims["operator"]="1" so ACL row predicates can match
-// it (spec 5/32-acl-unified §"The row").
 func callerFromHTTP(ks *auth.KeySet) resreg.CallerFromHTTPFunc {
 	return func(r *http.Request) (resreg.Caller, error) {
 		if !channelTrusted(r, ks) {
 			return resreg.Caller{}, fmt.Errorf("missing or invalid identity")
 		}
-		// The JWT sub is minted prefixed ("user:…"), but acl.principal and
-		// acl_membership.child store BARE subs, so a prefixed principal expands
-		// to itself alone, matches no row and silently denies everything
-		// (BUGS L100).
+
 		sub := auth.BareSub(r.Header.Get("X-User-Sub"))
 		var groups []string
 		if hdr := r.Header.Get("X-User-Groups"); hdr != "" {
@@ -384,14 +330,6 @@ func callerFromHTTP(ks *auth.KeySet) resreg.CallerFromHTTPFunc {
 	}
 }
 
-// insertProxydRoute is the dashboard form's create, and it runs the SAME store
-// writer the /v1 resource buffers — the coordinate and every attribute belong to
-// store (store/proxyd_routes.go), because two renderings of one route would put
-// proxyd's write where the engine's read does not look.
-//
-// The form writes the route and nothing else, so its write goes in a batch of
-// its own; the /v1 face buffers instead, because its row has to ride with the
-// audit row resreg records.
 func insertProxydRoute(ctx context.Context, st *store.Store, r store.ProxydRoute) error {
 	created, err := st.CreateProxydRoute(ctx, r)
 	if err != nil {

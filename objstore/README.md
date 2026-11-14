@@ -84,6 +84,11 @@ Three of the four protocols rest on one item per scope: `Replace`, `ReadConsiste
 
 `EnsureScope` creates the marker where a daemon already calls `CreateEntity`. A bounded writer adds `Bump(scope)` to its own batch so that an export can see the write. `ReadConsistent` detects exactly the writers that carry that `Bump` and no others. That is a discipline and not a guarantee of the engine, and the suite asserts it as such so that nobody reads more into it.
 
+`Snapshot[T].Read` retains an immutable result for one store and scope. Reuse
+reads the settled marker by key; a changed version reloads under
+`ReadConsistent`. A missing version, held replacement or read error returns no
+value. Callers must propagate that failure rather than treat it as empty data.
+
 **What `Replace` costs `resreg.Apply`.** A marker-gated sequence has no pre-image to roll back to. A replace that dies half-way leaves the scope part-written with its claim held. Recovery is to run it again and never to undo it. That is the price of an unbounded row set.
 
 **Roll-forward gives the claim back.** Nothing releases a claim. A released half-written scope would read as settled and correct, and the claim exists to stop that silent corruption. So a `Claim` names the work: the intent, derived from the document. A replace whose intent matches the holder takes the claim over and finishes it. That is a proof about the document and never about the process of the dead replace. A slow replace on another host and a dead one look the same. So `since` stays what an operator reads, and this package never evaluates it as a predicate. `Claim.Take` is where the operator asserts what the engine cannot infer. It costs what the intent match buys: rows outside the delete set of the taking document stay part-written. Without roll-forward, one interrupted config write would disable the config lane of a subsystem for good.

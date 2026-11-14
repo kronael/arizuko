@@ -104,7 +104,7 @@ func TestRoutesResource_EndToEnd(t *testing.T) {
 	}
 
 	// route must be visible immediately via the DB-backed snapshot
-	if cur, _ := rr.snapshot(); len(cur) != 1 || cur[0].Path != "/slack/" {
+	if cur, _, err := rr.snapshot(); err != nil || len(cur) != 1 || cur[0].Path != "/slack/" {
 		t.Errorf("rr.snapshot() = %+v", cur)
 	}
 
@@ -132,7 +132,10 @@ func TestRoutesResource_EndToEnd(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("PATCH = %d body=%s", w.Code, w.Body.String())
 	}
-	cur, _ := rr.snapshot()
+	cur, _, err := rr.snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(cur) == 0 || cur[0].Backend != "http://slakd2:8080" {
 		t.Errorf("backend after patch = %+v", cur)
 	}
@@ -141,7 +144,7 @@ func TestRoutesResource_EndToEnd(t *testing.T) {
 	if w.Code != http.StatusNoContent {
 		t.Fatalf("DELETE = %d", w.Code)
 	}
-	if cur, _ := rr.snapshot(); len(cur) != 0 {
+	if cur, _, err := rr.snapshot(); err != nil || len(cur) != 0 {
 		t.Errorf("rr.snapshot() after delete = %+v", cur)
 	}
 
@@ -298,7 +301,7 @@ func TestRoutesResource_Durable(t *testing.T) {
 		fresh = append(fresh, fromStoreRoute(r))
 	}
 	rr2 := newRoutesResource(st, fresh)
-	if cur, _ := rr2.snapshot(); len(cur) != 1 || cur[0].Backend != "http://api:8080" {
+	if cur, _, err := rr2.snapshot(); err != nil || len(cur) != 1 || cur[0].Backend != "http://api:8080" {
 		t.Errorf("rehydrated = %+v", cur)
 	}
 }
@@ -342,10 +345,10 @@ func TestRoutesResource_SnapshotStoreError(t *testing.T) {
 	st := testutils.NewRoutdStore(t)
 	rr := newRoutesResource(st, nil)
 	testutils.BreakStore(t, st, store.ProxydRoutes, store.WebRoutes)
-	if routes, procs := rr.snapshot(); routes != nil || procs != nil {
+	if routes, procs, err := rr.snapshot(); err == nil || routes != nil || procs != nil {
 		t.Errorf("snapshot on DB error = (%+v, %+v), want (nil, nil)", routes, procs)
 	}
-	if wr := rr.webSnapshot(); wr != nil {
+	if wr, err := rr.webSnapshot(); err == nil || wr != nil {
 		t.Errorf("webSnapshot on DB error = %+v, want nil", wr)
 	}
 }

@@ -13,27 +13,21 @@
 > work items are their own entries. A record has nothing to fix and never will,
 > so counting one as open overstates the queue.
 
-## L841 — onboarding rediscovers work and can lose greeting delivery (2026-11-14)
+## L842 — proxyd rereads unchanged route tables on every request (2026-11-14)
 
-`pollOnboarding` reads every awaiting row every 10 seconds, then reads parents
-for each sender. `admitFromQueue` reads gates and filters the whole onboarding
-partition twice per gate each minute: computed 360(N+U)+60G(2N) rows/hour.
-`ClaimOnboardingPrompt` removes greeting work before delivery. `sendReply`
-calls `/v1/outbound`, which sends before persistence and records errors as
-failed, so neither a crash nor a transient send error retains retry work.
-**Fix:** durable greeting generations, atomic pairing-token/outbound enqueue,
-revision-guarded pairing acknowledgments, and due gate work produced by state
-changes. Queue, sender and quota reads use keys. A source deletion or gate
-configuration change must wake the affected gate atomically. `loadGates` also
-returns nil on a read error; admission must not treat that as an ungated instance.
-**Test:** O(due) reads behind unrelated rows; restart and reprompt races;
-pairing-before-onboarding; quota release, config changes, midnight and guarded
-admission. Pairing credentials must not be delivered after their expiry.
-Review also found that archive structs omit greeting/notice generations and
-delivery expiry. Round-trip tests must preserve pending work and expired-link
-rejection. A notice reader must reject a row approved during index dereference.
-Delivery metadata copied across pending/failed partitions must fence the source
-revision; otherwise a concurrent expiry change can be overwritten.
+`routesResource.snapshot` selects every `proxyd_routes` row and rebuilds its
+proxy map per request. `webSnapshot` also selects every `web_routes` row.
+Computed cost: R requests × N routes, even with no state changes.
+**Fix:** retain a consistent snapshot under the existing owner version. Read
+one settled marker per request; rebuild only after a committed change. A held
+replace or read failure must fail closed. Keep route and proxy data together.
+**Test:** counting store proves unchanged requests read only the marker;
+mutations refresh immediately, held replacements fail closed, and changes
+during snapshot construction cannot publish mixed state.
+Review found that returning nil web rules on a held or unreadable scope falls
+through to public file serving. Request-level checks must return 503 on lookup
+failure, preserving auth/deny rules during replacement.
+Missing marker versions must also fail closed rather than match an empty cache.
 
 ## What needs you
 

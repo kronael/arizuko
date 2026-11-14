@@ -59,7 +59,7 @@ The figure shows the order in `server.route` (`proxyd/main.go`). Each stage exis
 - **proxyd's own mux** answers the paths that proxyd serves itself. These paths never reach `route`, so `/dash/proxyd/` carries its own `requireAuth`. Without it, the route table and its write forms would serve an anonymous caller. `/auth/forward` sits before the `/auth/*` proxy, so proxyd answers it and authd never sees it. An `/auth/*` path that no mux entry serves falls through to `route`. `route` treats it as a private surface and gates it with `requireAuth`, so it bounces to `/auth/login` and not to the public `/pub/` redirect.
 - **The header strip** runs once, before any decision. No identity header that a client supplies survives ingress, so nobody outside can feed one to a backend that reads it.
 - **The hard-wired paths** stay in Go because a row cannot express them. `/pub/*` probes `PUB_REDIRECT_URL` and serves local files for websocket upgrades. `/priv/*` checks the scopes of the caller against the folder that owns the slot. `/` front-doors a mapped host.
-- **One snapshot** of `proxyd_routes` serves the whole request. The matched route and its backend come from the same read, so a concurrent edit cannot pair the `auth` of one row with the backend of another row.
+- **One snapshot** of `proxyd_routes` serves the whole request. The matched route and its backend come from the same read. Each request verifies the settled owner version by key. A changed version rebuilds the snapshot consistently; a held replacement or read error fails closed.
 - **The final catch-all** turns any unmatched path into a public URL. Every reserved prefix is dispatched above it, so the host redirect here cannot shadow `/dash`, `/chat` or any other surface on any host.
 
 ### A world's host redirects to its public slot
@@ -93,7 +93,7 @@ The path prefix is the coordinate of the row. The attributes are:
 
 `public` and no match serve local files. `auth` runs `requireAuth` of proxyd first. `deny` answers 403. `redirect` answers 302 with the matched prefix replaced by `redirect_to`.
 
-Agents add and remove rows with the MCP tools `set_web_route`, `del_web_route` and `list_web_routes` (`routd/web_routes_resource.go`). routd makes every write. proxyd reads the whole inventory on every request (`store.AllWebRoutes`) and matches it in Go (`matchWebRoute`).
+Agents add and remove rows with the MCP tools `set_web_route`, `del_web_route` and `list_web_routes` (`routd/web_routes_resource.go`). routd makes every write. proxyd verifies the owner version on each request and reloads `store.AllWebRoutes` only after a change. `matchWebRoute` selects the longest prefix from that snapshot.
 
 One URL has one backing store. The slot of a group is `/pub/<folder>/`, and these rules keep every other path from becoming a second copy of it.
 
@@ -104,7 +104,7 @@ One URL has one backing store. The slot of a group is `/pub/<folder>/`, and thes
 
 ## Route rows
 
-`proxyd_routes` is the only route configuration. proxyd reads it on every request and never from env. An env var that proxyd reads once at boot stops applying without a sign when a package changes the set, and a row cannot do that. A new row is live on the next request. There is no reload verb and no `enabled` column. To disable a route, delete its row.
+`proxyd_routes` is the only route configuration. Its writers bump the owner version atomically. A new row is live on the next request. There is no reload verb, TTL, or `enabled` column. To disable a route, delete its row. Grant checks remain independent and read current policy.
 
 `arizuko generate` writes the rows of the release. It takes the static `coreProxydRoutes` slice in `compose/compose.go` and the `proxyd_routes` block of each service's package manifest. For a symlinked service fragment, it reads `template/services/<name>/arizuko.yml` from the selected package source. Otherwise, it reads `packages/<name>/arizuko.yml` in the instance. It skips writes for routes whose `gated_by` variable is off, but does not delete existing rows. `arizuko package sync` applies declared package routes without evaluating `gated_by`. Both commands read the package manifest.
 

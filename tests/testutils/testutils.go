@@ -15,6 +15,7 @@ import (
 
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/chanreg"
+	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/objstore/dynstore"
 	"github.com/kronael/arizuko/routd"
 	"github.com/kronael/arizuko/store"
@@ -58,7 +59,11 @@ func NewRoutdInstance(t *testing.T) *Inst {
 // one a test can make deterministic.
 func BreakStore(t *testing.T, s *store.Store, entities ...string) {
 	t.Helper()
-	d, ok := s.Obj().(*dynstore.Store)
+	raw := s.Obj()
+	if indexed, ok := raw.(*objstore.Indexed); ok {
+		raw = indexed.Store
+	}
+	d, ok := raw.(*dynstore.Store)
 	if !ok {
 		t.Fatalf("this fixture is not served: %T", s.Obj())
 	}
@@ -124,8 +129,7 @@ func NewRouterStub() *RouterStub {
 		}
 		var im chanlib.InboundMsg
 		if err := json.NewDecoder(req.Body).Decode(&im); err != nil {
-			// routd's own handler 400s a body it cannot read; a stub that answers ok
-			// and records a zero message hides the producer that sent it.
+
 			w.WriteHeader(400)
 			return
 		}

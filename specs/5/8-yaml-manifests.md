@@ -884,18 +884,14 @@ Rules that must be upheld:
    write-discipline boundary, not a query boundary.
 4. No new table joins the config class without a `resreg.Resource`. A table
    that is not manifest-addressable belongs to the runtime class.
-5. **No daemon may cache config-table rows in memory** (normative). One
-   indexed read is cheaper than any cache invalidation, and an in-memory
-   config cache creates a stale-read window that makes apply semantics
-   undefined. The one allowed cache is
-   `sync.Map[backendURL]*httputil.ReverseProxy` — it caches connections, not
-   config rows; the row that picked the URL is re-read per request.
-   (Shipped: proxyd's `routesResource` mutex+snapshot is gone —
-   `proxyd/resource.go:5`.)
+5. **Every config snapshot must verify the settled owner version before reuse.**
+   Writers bump that marker atomically with their rows. A changed version
+   rebuilds under `objstore.ReadConsistent`; a held or unreadable marker fails
+   closed. No TTL or stale-on-error fallback is permitted. The protocol is in
+   [state transitions](../9/21-state-transitions.md#versioned-snapshots).
 
 Restore semantics: all daemons see new config on their next DB read — no
-signals, no reload endpoints, no cache invalidation. WAL gives readers
-snapshot isolation during the tx.
+signals or reload endpoints. Readers verify the owner marker by key.
 
 ## Round-trip honesty
 

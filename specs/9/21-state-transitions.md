@@ -84,6 +84,14 @@ Sources: `routd/loop.go`, `routd/turn_control.go`, `routd/turn_status.go`,
   job: bound replace batches including derived index writes
   names: [Replacer.Write]
   never: separates a row from its work pointers
+- path: objstore/consistent.go (changed)
+  job: reuse immutable snapshots only under a verified settled owner version
+  names: [Snapshot.Read, ReadConsistent]
+  never: serves cached data on a missing, held or unreadable marker
+- path: proxyd/resource.go (changed)
+  job: keep route and proxy snapshots consistent with the current owner version
+  names: [snapshot, webSnapshot, buildSnapshot]
+  never: caches authorization decisions
 - path: store/state_index.go (new)
   job: declare access keys for state transitions and migrate existing rows once
   names: [MigrateStateIndexes, RecoverableTurns]
@@ -347,6 +355,21 @@ pairing before onboarding, reprompt, FIFO admission, midnight, gate replacement,
 quota release, owner-version races and archive restoration. Eleven disabled
 guards fail their tests; stale-notice, archive-loss and delivery-metadata races
 also fail before their fixes.
+
+## Versioned snapshots
+
+Config writers already bump their owner's scope marker in the same transaction.
+`objstore.Snapshot` retains an immutable value and its settled version. Each
+reader checks that marker by key. An unchanged version reuses the value; a new
+version rebuilds under `ReadConsistent`. Missing, held or unreadable markers
+return an error. There is no time-based expiry or stale-on-error fallback.
+Proxyd's route data and proxy map are one snapshot; web routes use the same
+protocol. Authorization continues to read current grants independently.
+Snapshot errors propagate to HTTP 503, including the public-file path; an
+unreadable access-rule table never means an empty rule set. With forty routes,
+`TestRouteSnapshotsReadOnlyChangedState` measures one marker row and no table
+read on reuse. Six mutations fail: reuse, version comparison, held marker,
+consistent reload, missing version and HTTP error propagation.
 
 ## Open questions
 

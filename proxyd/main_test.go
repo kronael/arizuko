@@ -1541,7 +1541,10 @@ func installRoute(s *server, r Route) {
 	if s.rr == nil {
 		s.rr = newRoutesResource(nil, nil)
 	}
-	cur, _ := s.rr.snapshot()
+	cur, _, err := s.rr.snapshot()
+	if err != nil {
+		panic(err)
+	}
 	s.rr.installManual(append(append([]Route(nil), cur...), r))
 }
 

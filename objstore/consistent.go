@@ -1,20 +1,44 @@
 package objstore
 
-// consistent.go is the consistent multi-read, the read twin of the versioned
-// replace (spec 6/40 §"The consistent multi-read, and why it is a protocol").
-//
-// A read transaction CANNOT go on the interface: DynamoDB's TransactGetItems
-// takes only GetItem BY KEY, and a Query is read-committed with no snapshot
-// beside it. So the protocol is: read the scope's marker, run the N queries,
-// read the marker again, retry if it moved. It is not a BLOCKING snapshot; a
-// scope busy enough retries until this gives up and says so.
-
 import (
 	"context"
 	"fmt"
+	"sync"
 )
 
 type Version string
+
+// Snapshot values are immutable after load. Every reuse verifies the scope's
+// settled version; errors return no value, including while a replace is held.
+type Snapshot[T any] struct {
+	mu      sync.Mutex
+	version Version
+	value   T
+}
+
+func (c *Snapshot[T]) Read(ctx context.Context, s Store, sc Scope, load func(context.Context) (T, error)) (T, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var zero T
+	marker, err := settledMarker(ctx, s, sc)
+	if err != nil {
+		return zero, err
+	}
+	if c.version == Version(marker.version) {
+		return c.value, nil
+	}
+	var value T
+	version, err := ReadConsistent(ctx, s, sc, func(ctx context.Context) error {
+		var err error
+		value, err = load(ctx)
+		return err
+	})
+	if err != nil {
+		return zero, err
+	}
+	c.version, c.value = version, value
+	return value, nil
+}
 
 // ReadConsistent runs read between two point reads of the scope's marker, and
 // runs it again if the scope moved in between. It detects exactly the writers
@@ -55,16 +79,12 @@ func CurrentVersion(ctx context.Context, s Store, sc Scope) (Version, error) {
 	return Version(m.version), nil
 }
 
-// settledMarker refuses a missing marker (no writer bumps a marker that is not
-// there, so "unchanged" would be a guarantee nobody made) and a HELD one (a
-// replace bumps at claim and at finish, so equal versions can bracket every
-// one of its row writes).
 func settledMarker(ctx context.Context, s Store, sc Scope) (marker, error) {
 	m, err := readMarker(ctx, s, sc)
 	if err != nil {
 		return marker{}, err
 	}
-	if !m.present {
+	if !m.present || m.version == "" {
 		return marker{}, fmt.Errorf("read %s/%s consistently: %w, so nothing would report a "+
 			"writer that committed during the read", sc.Entity, sc.Key.Sort, ErrNoMarker)
 	}
