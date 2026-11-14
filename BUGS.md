@@ -14,14 +14,6 @@
 > so counting one as open overstates the queue.
 
 
-## L871 — router test deliverer deadlocks on SendVia (2026-11-14)
-
-`recDeliverer.SendVia` holds its mutex while calling `Send`, which locks the
-same mutex. `TestOutboundAcceptedSendSurvivesStoreFailure` stopped at this call;
-the focused router command was interrupted after about 70 seconds with no output
-(`tmp/retry-logs/first-handoff-router-final.log`).
-**Fix:** release the lock before `Send` and test the accepted-send REST path.
-
 ## L870 — folder mute does not suppress MCP text sends (2026-11-14)
 
 `SEND_DISABLED_GROUPS` promises to suppress a folder's outbound delivery, but
