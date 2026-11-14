@@ -46,6 +46,30 @@ uses guarded due-time transitions. Keep replay safety and the breaker separate.
 **Measurement:** source tables and call sites above; no test — design.
 Each implementation concern must add a failing regression and kill its guard mutations.
 
+## L863 — attachment retirement can erase a new turn's retry work (2026-11-14)
+
+The L862 candidate retires consumed attachment work after reading active turns.
+It guards the message and chat revisions, but `OpenTurnContext` can acquire
+the same input without changing the chat revision. The retirement then clears
+the new owner's pending attachment state.
+**Measured:** `store/attachment_retry_test.go::TestAttachmentRetirementFencesNewOwner`
+fails with an empty retry state after a running turn acquires the input;
+`tmp/retry-logs/attachment-owner-race-red.log`, FAIL 3.975s.
+**Fix:** make ownership acquisition and retirement share an atomic witness.
+Keep discovery keyed and retain the original message payload.
+**Status:** within the approved durable-retry change; uncommitted candidate only.
+
+## L864 — two attachment fixtures omit the stored input (2026-11-14)
+
+`TestEnrich_NamesAnAttachmentWithNoSource` and
+`TestEnrich_DownloadsWithoutTranscriptWhenVoiceOff` pass an unstored message
+and ignore the enrichment error. The guarded attachment reader rejects that
+input, so both tests fail before they exercise their intended behavior.
+**Measured:** `tmp/retry-logs/attachment-parent-router.log`, FAIL 90.855s;
+the missing unavailable marker and attachment block are the two failures.
+**Fix:** append each input through the normal writer and check the returned
+enrichment error. Keep the existing content and transcription assertions.
+
 ## What needs you
 
 - `L862` — retry timing, failure classification and exhaustion differ by feature; unification approved, implementation in progress.
@@ -3489,7 +3513,7 @@ match-only helper in `TestGitHubSourceRemoveKeepsOtherTargets` removes both
 owners' child-target routes. L709 binds revocation to the recorded target and
 route identities; legacy rows without that metadata refuse revocation.
 
-## L434 — gitd calls every 5xx not-delivered, and its own spec calls 5xx ambiguous (2026-10-17, open — needs sign-off)
+## L434 — adapter 5xx responses release unknown-create claims (2026-10-17)
 
 Found while fixing `L426`, in the same function, and left alone there on
 purpose. `gitd/bot.go` `call` wraps every `>=500` in `chanlib.ErrNotDelivered`,
@@ -3506,11 +3530,19 @@ not-delivered on a response that says nothing about whether the write landed.
 gitd is the adapter whose posts are public, so the cost of being wrong is a
 double comment on someone's pull request.
 
+The 2026-11-14 retry inventory confirms the same path in `googd/main.go:223`:
+`bot.call` wraps every 5xx in `ErrNotDelivered`, including the POST used by
+`bot.Send` at line 160. `chanlib/dedup.go:93` releases the delivery claim for
+that sentinel. This is source evidence of a permitted second create, not a
+measured duplicate on a live service. The unified-retry request authorizes
+repairing this classification while preserving replay safety.
+
 - **Severity:** medium — one duplicate per 5xx that actually wrote, and
   nothing reports it
-- **Scope:** `gitd/bot.go` `call`, against `specs/5/34-channel-protocol.md`
-- **Status:** open — the honest shape is to leave the claim held and dead-letter
-  visibly, which changes delivery semantics and needs your sign-off
+- **Scope:** `gitd/bot.go` `statusErr`, `googd/main.go` `bot.call`, and
+  `chanlib/dedup.go`, against `specs/5/34-channel-protocol.md`
+- **Status:** approved by the 2026-11-14 unified-retry request; preserve the
+  claim after an unknown create outcome and expose the common terminal notice.
 - **Related:** `L413` is the same seam from the other side
 
 ## L422 — thirteen daemons read env keys generation never delivers, so setting them in .env does nothing (2026-10-16, open — needs sign-off)
