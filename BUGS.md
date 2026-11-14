@@ -14,6 +14,14 @@
 > so counting one as open overstates the queue.
 
 
+## L872 — retry notice tests expect superseded text (2026-11-14)
+
+The retry notice uses the shared policy wording, but `routd/thread_retry_test.go`
+and `routd/telegram_recovery_test.go` assert the former wording.
+**Measured:** six `TestThreadReplyRetryPreservesPlacement` subtests failed in
+48.07s during a 128.261s focused run; `tmp/retry-logs/mute-replay-placement.log`.
+**Fix:** assert the current notice while retaining delivery and retry checks.
+
 ## L870 — folder mute does not suppress MCP text sends (2026-11-14)
 
 `SEND_DISABLED_GROUPS` promises to suppress a folder's outbound delivery, but

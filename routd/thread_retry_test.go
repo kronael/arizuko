@@ -35,7 +35,7 @@ func TestDelegatedReplyRetryPreservesDestination(t *testing.T) {
 			_, message := callToolOverSock(t, sock, test.tool, map[string]any{
 				"chatJid": test.jid, "text": "delegated answer",
 			})
-			if test.fail && !strings.Contains(message, "queued") || !test.fail && message != "" {
+			if test.fail && !strings.Contains(message, "Retry scheduled") || !test.fail && message != "" {
 				t.Fatalf("tool response: %q", message)
 			}
 			first := dl.sentMsgs()[0]
@@ -127,7 +127,7 @@ func TestThreadReplyRetryPreservesPlacement(t *testing.T) {
 			dl.failSend = true
 			_, message := callToolOverSock(t, sock, test.tool,
 				map[string]any{"chatJid": destination, "text": "answer"})
-			if !strings.Contains(message, "queued") {
+			if !strings.Contains(message, "Retry scheduled") {
 				t.Fatalf("transient failure was not queued: %q", message)
 			}
 			calls := dl.sentMsgs()

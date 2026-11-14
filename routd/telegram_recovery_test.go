@@ -92,12 +92,12 @@ func TestMCPMissingTelegramReplyTargetRecovery(t *testing.T) {
 				t.Fatal(err)
 			}
 			if recovery == "queued transient" {
-				if !strings.Contains(errText, "queued") || !strings.Contains(errText, "do NOT send it again") || !check.Delivered || pending != 1 || len(sent()) != 1 {
+				if !strings.Contains(errText, "Retry scheduled") || !strings.Contains(errText, "do not send it again") || !check.Delivered || pending != 1 || len(sent()) != 1 {
 					t.Fatalf("router-owned retry lost: error=%q check=%+v pending=%d requests=%+v", errText, check, pending, sent())
 				}
 				return
 			}
-			if !strings.Contains(errText, "not delivered, and no retry follows") || check.Delivered || !check.Owed || check.Nudge == "" || pending != 0 {
+			if !strings.Contains(errText, "Automatic retries stopped") || check.Delivered || !check.Owed || check.Nudge == "" || pending != 0 {
 				t.Fatalf("failed reply falsely satisfied turn: error=%q check=%+v pending=%d", errText, check, pending)
 			}
 			tool := "reply"
