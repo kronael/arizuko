@@ -46,6 +46,31 @@ uses guarded due-time transitions. Keep replay safety and the breaker separate.
 **Measurement:** source tables and call sites above; no test — design.
 Each implementation concern must add a failing regression and kill its guard mutations.
 
+## L865 — the concurrent probe fixture omits its observed turn snapshot (2026-11-14)
+
+`TestControlledEightConcurrentProbeClaims` constructs claims with only a turn ID,
+folder and attempt. The guarded claim now needs the stored state, revision and
+deadline. All eight candidates fail before the test reaches its single-winner
+assertion: `probe winners=0`.
+**Measured:** `tmp/retry-logs/capacity-store-baseline.log`, FAIL 11.180s;
+the eight errors are `claim turn candidate-N: missing attempt`.
+**Fix:** hydrate each seeded turn before launching its concurrent claim. Preserve
+the simultaneous start and exact single-winner assertion.
+
+## L866 — the native panel does not register its SSE message swap (2026-11-14)
+
+`webd/pages.go` emits `sse-swap:message="beforeend"` on the thread element.
+The pinned HTMX SSE extension reads `sse-swap` and splits its value into event
+names. The panel therefore supplies no message listener to that extension.
+`webd/me.go` uses the supported `sse-swap="message"` form.
+**Measured:** source at `pages.go:90`; a read-only fetch of
+`https://unpkg.com/htmx-ext-sse@2.2.2/sse.js` shows the selectors at line31 and
+the exact attribute reads at lines89/101. No browser or live instance was used.
+**Fix:** preserve the panel's initial innerHTML load and append streamed messages
+through the common reconnect owner. Add a regression for the actual panel markup
+and a streamed message; remove the attribute/listener guard and require failure.
+The browser retry integration owns this fix after the current serial capacity work.
+
 ## What needs you
 
 - `L862` — retry timing, failure classification and exhaustion differ by feature; unification approved, implementation in progress.
