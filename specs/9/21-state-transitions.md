@@ -125,6 +125,10 @@ replay before scheduling: an unknown result of a non-idempotent create cannot
 be retried merely because the transport failed. Success starts a new failure
 episode. No feature-specific budget or delay setting overrides this policy.
 
+Go errors can carry an explicit failure fact while preserving their cause.
+Classification honors cancellation first, then that fact, then structural HTTP
+status and retry time, followed by the existing transport classification.
+
 Due times and counts persist with messages, turns, retained ingress, onboarding
 output and Google file work. These obligations outlive the worker. A terminal
 transition removes its due pointer but retains the failed payload and cause.
@@ -240,6 +244,8 @@ Its first failed fetch commits the deadline and due pointer atomically.
     - 'Decision{Failures, NextAt, Stop}'
     - 'Next(failures, failure, now, deadline) Decision'
     - 'HTTPFailure(status, retryAfter, err, now) Failure'
+    - 'Error{Failure, Err}; Error() string; Unwrap() error'
+    - 'FromError(err, now) Failure'
     - 'Wait(ctx, at) error'
     - 'Notice(cause, decision) string'
   never: owns payloads, stores or a worker loop

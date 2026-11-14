@@ -44,6 +44,35 @@ type Failure struct {
 	RetryAt time.Time
 }
 
+type Error struct {
+	Failure Failure
+	Err     error
+}
+
+func (e *Error) Error() string { return e.Err.Error() }
+
+func (e *Error) Unwrap() error { return e.Err }
+
+func FromError(err error, now time.Time) Failure {
+	if errors.Is(err, context.Canceled) {
+		return Failure{Kind: "canceled"}
+	}
+	var fact *Error
+	if errors.As(err, &fact) {
+		return fact.Failure
+	}
+	var status interface{ HTTPStatusCode() int }
+	var retryAfter interface{ HTTPRetryAfter() string }
+	code, after := 0, ""
+	if errors.As(err, &status) {
+		code = status.HTTPStatusCode()
+	}
+	if errors.As(err, &retryAfter) {
+		after = retryAfter.HTTPRetryAfter()
+	}
+	return HTTPFailure(code, after, err, now)
+}
+
 type Decision struct {
 	Failures int
 	NextAt   time.Time

@@ -5,6 +5,7 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"net/url"
@@ -14,6 +15,58 @@ import (
 	"testing"
 	"time"
 )
+
+type statusError int
+
+func (e statusError) Error() string       { return "http failure" }
+func (e statusError) HTTPStatusCode() int { return int(e) }
+
+type retryAfterError struct{ error }
+
+func (e retryAfterError) HTTPRetryAfter() string { return "7200" }
+func (e retryAfterError) Unwrap() error          { return e.error }
+
+func TestFromError(t *testing.T) {
+	now := time.Unix(1000000, 0)
+	status := statusError(503)
+	fact := &Error{Failure: Failure{Kind: "permanent"}, Err: status}
+	wrapped := fmt.Errorf("outer: %w", fact)
+	if got := FromError(wrapped, now); got.Kind != "permanent" {
+		t.Fatalf("explicit fact: %+v", got)
+	}
+	var found statusError
+	if !errors.As(wrapped, &found) || found != status {
+		t.Fatalf("cause not preserved: %v", wrapped)
+	}
+	if !errors.Is(fact, status) || fact.Error() != status.Error() {
+		t.Fatal("error did not preserve cause")
+	}
+	for _, c := range []struct {
+		name string
+		err  error
+		kind string
+	}{
+		{"status", fmt.Errorf("wrapped: %w", status), "transient"},
+		{"unknown", errors.New("unknown"), "permanent"},
+		{"canceled fact", &Error{Failure: Failure{Kind: "transient"}, Err: context.Canceled}, "canceled"},
+		{"timeout", fmt.Errorf("wrapped: %w", context.DeadlineExceeded), "timeout"},
+		{"transport", fmt.Errorf("wrapped: %w", syscall.ECONNRESET), "transient"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if got := FromError(c.err, now); got.Kind != c.kind {
+				t.Fatalf("got %+v, want %s", got, c.kind)
+			}
+		})
+	}
+	rateLimit := retryAfterError{statusError(429)}
+	got := FromError(fmt.Errorf("wrapped: %w", rateLimit), now)
+	if got.Kind != "transient" || !got.RetryAt.Equal(now.Add(2*time.Hour)) {
+		t.Fatalf("rate limit: %+v", got)
+	}
+	if decision := Next(0, got, now, time.Time{}); !decision.NextAt.Equal(got.RetryAt) {
+		t.Fatalf("retry lower bound: %+v", decision)
+	}
+}
 
 func TestJavaScriptPolicy(t *testing.T) {
 	script := `
