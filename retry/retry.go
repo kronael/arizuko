@@ -99,6 +99,18 @@ type Decision struct {
 	Stop     bool
 }
 
+func (d Decision) IsDue(now time.Time) bool {
+	return !d.Stop && !now.Before(d.NextAt)
+}
+
+func (d *Decision) Record(err error, now, deadline time.Time) {
+	if err == nil {
+		*d = Decision{}
+		return
+	}
+	*d = Next(d.Failures, FromError(err, now), now, deadline)
+}
+
 func Next(failures int, failure Failure, now, deadline time.Time) Decision {
 	decision := Decision{Failures: failures + 1}
 	if (failure.Kind != "transient" && failure.Kind != "timeout") || decision.Failures >= policy.MaxFailures {

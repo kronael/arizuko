@@ -323,3 +323,35 @@ func TestWaitCancellation(t *testing.T) {
 		}
 	}
 }
+
+func TestDecisionEpisode(t *testing.T) {
+	now := time.Unix(1000000, 0)
+	var decision Decision
+	if !decision.IsDue(now) {
+		t.Fatal("zero decision must be due")
+	}
+	decision.Record(statusError(503), now, time.Time{})
+	if decision.Failures != 1 || decision.Stop || !decision.NextAt.Equal(now.Add(30*time.Second)) {
+		t.Fatalf("first failure: %+v", decision)
+	}
+	if decision.IsDue(decision.NextAt.Add(-time.Nanosecond)) || !decision.IsDue(decision.NextAt) {
+		t.Fatalf("due boundary: %+v", decision)
+	}
+	decision.Record(statusError(503), decision.NextAt, time.Time{})
+	if decision.Failures != 2 || decision.Stop || !decision.NextAt.Equal(now.Add(90*time.Second)) {
+		t.Fatalf("second failure: %+v", decision)
+	}
+	decision.Record(nil, now, time.Time{})
+	if decision != (Decision{}) || !decision.IsDue(now) {
+		t.Fatalf("success reset: %+v", decision)
+	}
+	decision.Record(errors.New("permanent"), now, time.Time{})
+	if !decision.Stop || decision.IsDue(now.Add(time.Hour)) {
+		t.Fatalf("terminal: %+v", decision)
+	}
+	decision.Record(nil, now, time.Time{})
+	decision.Record(statusError(503), now, now.Add(30*time.Second))
+	if !decision.Stop || decision.Failures != 1 || !decision.NextAt.IsZero() || decision.IsDue(now.Add(time.Hour)) {
+		t.Fatalf("deadline: %+v", decision)
+	}
+}
