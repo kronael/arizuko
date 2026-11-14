@@ -85,7 +85,9 @@ Defaults below come from the Go code. Container fragments set `LISTEN_ADDR=:8080
 
 ## Loops and failure diagnosis
 
-The file poll runs immediately and then every `GDRIVE_POLL_INTERVAL`.
+The file worker reads due keys immediately and then every `GDRIVE_POLL_INTERVAL`.
+A settled routd version change refreshes bindings. Unbound files keep their cursors.
+Cursor, status, next deadline and backoff persist together; restart keeps the deadline.
 A 429, 5xx, or 403 `userRateLimitExceeded` waits 30 s, doubling to 15 minutes per file.
 Other failures leave the cursor unchanged for the next ordinary poll.
 Drive and Sheets credential/API probes run every 30 s when the key can construct a token source.

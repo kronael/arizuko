@@ -53,9 +53,15 @@ func main() {
 				_ = as.Close()
 				return nil, nil, openErr
 			}
+			pollDB, openErr := googstore.Open(ctx, as.Driver, cfg.Name)
+			if openErr != nil {
+				_ = st.Close()
+				_ = as.Close()
+				return nil, nil, openErr
+			}
 			pollCtx, cancel := context.WithCancel(ctx)
 			done := make(chan struct{})
-			p := &poller{b: b, bindings: st, db: as.Driver, router: rc, name: cfg.Name, interval: pollInterval(), files: make(map[string]*filePoll)}
+			p := &poller{b: b, bindings: st, db: pollDB, router: rc, name: cfg.Name, interval: pollInterval()}
 			b.poll = p
 			go func() { defer close(done); p.pollLoop(pollCtx) }()
 			mux := chanlib.NewAdapterMux(cfg.Name, []string{"gdrive:"}, b, b.isConnected, b.LastInboundAt, as.Chan)
@@ -75,12 +81,10 @@ func prepareBot(ctx context.Context, cfg config) (*bot, error) {
 // belongs to once the poll loop exists.
 const credentialRetryEvery = 30 * time.Second
 
-// capSetter is the registration googd revises when its key turns out dead.
 type capSetter interface {
 	SetCaps(map[string]bool) error
 }
 
-// reacquire refreshes API state and updates the Drive capability.
 func reacquire(ctx context.Context, b *bot, rc capSetter, every time.Duration) {
 	t := time.NewTicker(every)
 	defer t.Stop()
@@ -133,8 +137,6 @@ func newBot(ctx context.Context, cfg config) *bot {
 func (b *bot) isConnected() bool    { return b.connected.Load() }
 func (b *bot) LastInboundAt() int64 { return b.lastInboundAt.Load() }
 
-// start verifies the credential. googd is connected whatever the answer: the
-// key gates one daemon's reading and replying, never its liveness.
 func (b *bot) start(ctx context.Context) error {
 	defer b.connected.Store(true)
 	return b.cred.verify(ctx)
@@ -213,8 +215,8 @@ func (b *bot) call(method, url string, body []byte) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("drive reply: %w", err)
 	}
-	// The caller consumes the response; closing cannot change the operation.
-	defer resp.Body.Close() //nolint:errcheck
+
+	defer resp.Body.Close()
 	if method == http.MethodDelete && resp.StatusCode == http.StatusNotFound {
 		return nil, nil
 	}

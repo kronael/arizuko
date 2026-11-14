@@ -92,6 +92,14 @@ Sources: `routd/loop.go`, `routd/turn_control.go`, `routd/turn_status.go`,
   job: keep route and proxy snapshots consistent with the current owner version
   names: [snapshot, webSnapshot, buildSnapshot]
   never: caches authorization decisions
+- path: googd/state.go (new)
+  job: reconcile verified bindings and preserve persistent polling deadlines
+  names: [boundFiles, reconcileBindings, pollState]
+  never: forgets cursors when a binding is removed
+- path: googd/googstore/state.go (new)
+  job: index active file deadlines and migrate channel work once
+  names: [Open, Due]
+  never: adds an objstore method
 - path: store/state_index.go (new)
   job: declare access keys for state transitions and migrate existing rows once
   names: [MigrateStateIndexes, RecoverableTurns]
@@ -387,6 +395,28 @@ delivery. One callback updates delivery health for every successful send.
 The counting filesystem test measures zero directory or payload reads on
 repeated drains. Nine mutations fail, including discovery, overlap, generation,
 clone, unlink, empty timer, startup recovery, transport serialization and order.
+
+## Google file polling
+
+Google comments require time-triggered API reads. The existing routd scope
+marker identifies binding changes. A verified binding snapshot is reconciled
+into googd's per-channel `file_poll` partition on startup and committed changes.
+New or reactivated bindings enter active work immediately. Removed bindings
+become inactive and retain their cursor. Each active row owns a due pointer.
+The worker reads only due rows and verifies their binding by file ID before
+calling Google. Cursor, status, backoff and `next_poll_at` commit together under
+the consumed revision. Successful ordinary polls schedule the configured
+interval; rate limits and server errors retain the 30-second to 15-minute
+backoff. Failed persistence leaves the old obligation pending.
+
+`file-poll-v1` backfills the channel's existing work keys once. The row and index
+are hot adapter state; `gdrive_files` remains the existing managed resource.
+The global owner marker is deliberately reused; unrelated config changes may
+refresh the snapshot without introducing another invalidation format.
+The counting test measures at most eight reads for one due file among forty
+future files; an idle pass reads one marker. Seven guard mutations fail,
+including due range, hydration state, binding incarnation, revision, backoff
+and elapsed time across earlier files. Restart retains cursors and deadlines.
 
 ## Open questions
 

@@ -13,21 +13,17 @@
 > work items are their own entries. A record has nothing to fix and never will,
 > so counting one as open overstates the queue.
 
-## L843 — WhatsApp rereads every retained file on each retry tick (2026-11-14)
+## L844 — Google polling discovers bindings on every clock tick (2026-11-14)
 
-`InboundLedger.sweep` calls `pending`, which lists the directory, reads every
-JSON payload and sorts them every 30 seconds: computed 120N payload reads/hour.
-Overlapping asynchronous sweeps can send the same retained row concurrently.
-**Fix:** recover the existing files once, then retain/settle writes maintain
-the pending set. Serialize drains and arm a retry only while work remains.
-An unsuccessful unlink keeps its obligation; a stale acknowledgment cannot
-delete a replacement payload. File format and oldest-first ordering stay intact.
-**Test:** no recurring directory reads, restart recovery, overlapping drains,
-retain during delivery, replacement acknowledgment, and failed unlink.
-Review cases: retaining timestamp 20 while timestamp 10 awaits must precede
-the existing timestamp 30; reusing the same payload object must not defeat
-generation fencing. Failed-retention sends share the transport serializer,
-and every successful send updates health through the same callback.
+`poller.sweep` reads every `gdrive_files` binding each default 30-second pass,
+then checks an in-memory deadline: computed 120N binding rows/hour. Backoff is
+not persisted, so restart retries files whose delay has not elapsed.
+**Fix:** verify the existing settled owner version; reconcile changed bindings
+into googd-owned work. Store cursor, backoff and next poll together. Consume
+only due keys, then verify each current binding by its file ID. Unbinding
+retires work without deleting the cursor; rebinding schedules it immediately.
+**Test:** counting store proves due-only reads; restart preserves backoff and
+cursor; unbind/rebind and failed commits preserve the correct next transition.
 
 ## What needs you
 

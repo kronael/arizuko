@@ -10,10 +10,14 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/chanlib"
+	"github.com/kronael/arizuko/googd/googstore"
 	"github.com/kronael/arizuko/objstore"
+	"github.com/kronael/arizuko/objstore/dynstore/dyntest"
 	"github.com/kronael/arizuko/routd"
 	"github.com/kronael/arizuko/store"
 )
+
+func TestMain(m *testing.M) { dyntest.Main(m) }
 
 type pollDB struct{ rows map[string]map[string]string }
 
@@ -35,9 +39,34 @@ func (d *pollDB) GuardedBatch(_ context.Context, _ []objstore.Check, writes []ob
 	return true, nil
 }
 
-type pollBindings []store.GDriveFile
+type pollStateDB struct {
+	objstore.Store
+	t *testing.T
+}
 
-func (b pollBindings) ListGDriveFiles(string) ([]store.GDriveFile, error) { return b, nil }
+func (d *pollStateDB) item(id string) objstore.Item {
+	d.t.Helper()
+	rows, err := d.Query(d.t.Context(), objstore.Query{Entity: googstore.PollEntity, Partition: "gdrive", Key: objstore.KeyPredicate{Op: objstore.ExactKey, Value: id}})
+	if err != nil || len(rows) != 1 {
+		d.t.Fatalf("poll row %s: %v %v", id, rows, err)
+	}
+	return rows[0]
+}
+func (d *pollStateDB) row(id string) map[string]string { return d.item(id).Attrs }
+func (d *pollStateDB) state(id string) *filePoll {
+	d.t.Helper()
+	s, err := pollState(d.item(id))
+	if err != nil {
+		d.t.Fatal(err)
+	}
+	return s
+}
+func (d *pollStateDB) put(id string, attrs map[string]string) {
+	d.t.Helper()
+	if ok, err := d.GuardedBatch(d.t.Context(), nil, []objstore.Write{{Op: objstore.Put, Entity: googstore.PollEntity, Key: objstore.Key{Partition: "gdrive", Sort: id}, Attrs: attrs}}); err != nil || !ok {
+		d.t.Fatalf("seed poll: %v %v", ok, err)
+	}
+}
 
 type pollRouter struct {
 	messages []chanlib.InboundMsg
@@ -51,18 +80,33 @@ func (r *pollRouter) SendMessage(m chanlib.InboundMsg) error {
 	r.messages = append(r.messages, m)
 	return nil
 }
-func newPollTest(t *testing.T, handler http.HandlerFunc, files ...string) (*poller, *pollDB, *pollRouter) {
+func newPollTest(t *testing.T, handler http.HandlerFunc, files ...string) (*poller, *pollStateDB, *pollRouter) {
 	t.Helper()
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
 	b := &bot{cred: &credential{apiBase: server.URL, http: server.Client(), state: credOK, user: driveUser{EmailAddress: "agent@example.com"}}}
-	bindings := pollBindings{}
-	for _, id := range files {
-		bindings = append(bindings, store.GDriveFile{FileID: id})
+	raw, closeStore, err := store.TestOwner(store.OwnerRoutd, googstore.PollEntity)
+	if err != nil {
+		t.Fatal(err)
 	}
-	db := &pollDB{rows: map[string]map[string]string{}}
+	t.Cleanup(func() {
+		if err := closeStore(); err != nil {
+			t.Error(err)
+		}
+	})
+	bindings := store.NewOver(raw)
+	for _, id := range files {
+		if err := bindings.AddGDriveFile(store.GDriveFile{FileID: id, OwnerFolder: "world", TargetFolder: "world"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	indexed, err := googstore.Open(t.Context(), raw, "gdrive")
+	if err != nil {
+		t.Fatal(err)
+	}
+	db := &pollStateDB{Store: indexed, t: t}
 	router := &pollRouter{}
-	return &poller{b: b, bindings: bindings, db: db, router: router, name: "gdrive", interval: 30 * time.Second, files: map[string]*filePoll{}}, db, router
+	return &poller{b: b, bindings: bindings, db: indexed, router: router, name: "gdrive", interval: 30 * time.Second}, db, router
 }
 
 const thread = `{"id":"c","createdTime":"2026-01-01T00:00:00Z","modifiedTime":"2026-01-02T00:00:00Z","content":"hello","author":{"displayName":"Alice"},"replies":[{"id":"r","createdTime":"2026-01-01T00:01:00Z","content":"reply","author":{"displayName":"Bob"}}]}`
@@ -92,7 +136,7 @@ func TestPollPagingAndCursor(t *testing.T) {
 	if calls != 2 || len(router.messages) != 2 || router.messages[0].ChatName != "Document" || p.b.LastInboundAt() == 0 {
 		t.Fatalf("calls=%d messages=%+v inbound=%d", calls, router.messages, p.b.LastInboundAt())
 	}
-	if got := db.rows["file"]["cursor"]; got != "2026-01-02T00:00:00Z" {
+	if got := db.row("file")["cursor"]; got != "2026-01-02T00:00:00Z" {
 		t.Fatal(got)
 	}
 }
@@ -113,7 +157,7 @@ func TestPollActionDeliveryAndCursor(t *testing.T) {
 	defer ingress.Close()
 	p.router = chanlib.NewRouterClient(ingress.URL)
 	p.sweep(t.Context(), time.Now())
-	if got := db.rows["file"]["cursor"]; got != "2026-01-03T00:00:00Z" {
+	if got := db.row("file")["cursor"]; got != "2026-01-03T00:00:00Z" {
 		t.Fatalf("cursor = %q, ingress rows = %v", got, ingressDB.rows)
 	}
 	for _, action := range []string{"resolve", "reopen"} {
@@ -139,13 +183,13 @@ func TestPollRefusedDeliveryKeepsCursor(t *testing.T) {
 	}, "file")
 	router.fail = true
 	p.sweep(t.Context(), time.Now())
-	if db.rows["file"]["cursor"] != "" {
-		t.Fatal(db.rows)
+	if db.row("file")["cursor"] != "" {
+		t.Fatal(db.row("file"))
 	}
 	router.fail = false
-	p.sweep(t.Context(), time.Now())
-	if db.rows["file"]["cursor"] == "" || router.messages[0].ChatName != "file" {
-		t.Fatal(db.rows, router.messages)
+	p.sweep(t.Context(), db.state("file").next)
+	if db.row("file")["cursor"] == "" || router.messages[0].ChatName != "file" {
+		t.Fatal(db.row("file"), router.messages)
 	}
 }
 
@@ -168,17 +212,17 @@ func TestPollLaterPageFailureKeepsCursor(t *testing.T) {
 		}
 		fmt.Fprint(w, `{"comments":[{"id":"older","createdTime":"2026-01-01T00:00:00Z","modifiedTime":"2026-01-01T12:00:00Z","content":"older"}]}`)
 	}, "file")
-	db.rows["file"] = map[string]string{"cursor": "2026-01-01T00:00:00Z"}
+	db.put("file", map[string]string{"cursor": "2026-01-01T00:00:00Z"})
 	p.sweep(t.Context(), time.Now())
-	if got := db.rows["file"]["cursor"]; got != "2026-01-01T00:00:00Z" {
+	if got := db.row("file")["cursor"]; got != "2026-01-01T00:00:00Z" {
 		t.Fatalf("cursor after failure = %q", got)
 	}
 	fail = false
-	p.sweep(t.Context(), time.Now())
+	p.sweep(t.Context(), db.state("file").next)
 	if len(starts) != 4 || starts[2] != "2026-01-01T00:00:00Z" || starts[3] != starts[2] {
 		t.Fatalf("start times = %v", starts)
 	}
-	if got := db.rows["file"]["cursor"]; got != "2026-01-02T00:00:00Z" || len(router.messages) != 5 {
+	if got := db.row("file")["cursor"]; got != "2026-01-02T00:00:00Z" || len(router.messages) != 5 {
 		t.Fatalf("cursor = %q, messages = %d", got, len(router.messages))
 	}
 }
@@ -194,8 +238,8 @@ func TestPollWithoutAccount(t *testing.T) {
 	p.b.cred.user = driveUser{}
 	p.b.cred.state = credOK
 	p.sweep(t.Context(), time.Now())
-	if len(router.messages) != 2 || router.messages[0].Verb != "message" || db.rows["file"]["cursor"] == "" {
-		t.Fatalf("messages = %+v, rows = %v", router.messages, db.rows)
+	if len(router.messages) != 2 || router.messages[0].Verb != "message" || db.row("file")["cursor"] == "" {
+		t.Fatalf("messages = %+v, rows = %v", router.messages, db.row("file"))
 	}
 }
 func TestPollBackoffAndFileIsolation(t *testing.T) {
@@ -219,30 +263,30 @@ func TestPollBackoffAndFileIsolation(t *testing.T) {
 	}, "bad", "good")
 	now := time.Now()
 	p.sweep(t.Context(), now)
-	if count["bad"] != 1 || count["good"] != 1 || db.rows["bad"]["status"] != "429" {
-		t.Fatal(count, db.rows)
+	if count["bad"] != 1 || count["good"] != 1 || db.row("bad")["status"] != "429" {
+		t.Fatal(count, db.row("bad"))
 	}
 	p.sweep(t.Context(), now.Add(29*time.Second))
-	if count["bad"] != 1 || count["good"] != 2 {
+	if count["bad"] != 1 || count["good"] != 1 {
 		t.Fatal(count)
 	}
 	status = 403
-	p.sweep(t.Context(), now.Add(30*time.Second))
-	if p.files["bad"].delay != time.Minute {
-		t.Fatal(p.files["bad"].delay)
+	p.sweep(t.Context(), db.state("bad").next)
+	if db.state("bad").delay != time.Minute {
+		t.Fatal(db.state("bad").delay)
 	}
 	status = 500
 	for i := 0; i < 8; i++ {
-		now = p.files["bad"].next
+		now = db.state("bad").next
 		p.sweep(t.Context(), now)
 	}
-	if p.files["bad"].delay != 15*time.Minute {
-		t.Fatal(p.files["bad"].delay)
+	if db.state("bad").delay != 15*time.Minute {
+		t.Fatal(db.state("bad").delay)
 	}
 	status = 404
-	p.sweep(t.Context(), p.files["bad"].next)
-	if db.rows["bad"]["status"] != "404" || count["good"] < 3 {
-		t.Fatal(count, db.rows)
+	p.sweep(t.Context(), db.state("bad").next)
+	if db.row("bad")["status"] != "404" || count["good"] < 3 {
+		t.Fatal(count, db.row("bad"))
 	}
 }
 func TestPollInterval(t *testing.T) {
@@ -267,7 +311,7 @@ func TestPollRestoresCursor(t *testing.T) {
 		}
 		fmt.Fprint(w, `{}`)
 	}, "file")
-	db.rows["file"] = map[string]string{"cursor": "2026-01-02T00:00:00Z"}
+	db.put("file", map[string]string{"cursor": "2026-01-02T00:00:00Z"})
 	p.sweep(t.Context(), time.Now())
 	if cursor != "2026-01-02T00:00:00Z" {
 		t.Fatalf("startModifiedTime = %q", cursor)

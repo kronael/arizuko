@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/chanlib"
+	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/googd/googstore"
 	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/store"
@@ -26,16 +27,15 @@ type filePoll struct {
 }
 type poller struct {
 	b        *bot
-	bindings interface {
-		ListGDriveFiles(string) ([]store.GDriveFile, error)
-	}
-	db     objstore.Store
-	router interface {
+	bindings *store.Store
+	db       objstore.Store
+	router   interface {
 		SendMessage(chanlib.InboundMsg) error
 	}
-	name     string
-	interval time.Duration
-	files    map[string]*filePoll
+	name       string
+	interval   time.Duration
+	snapshot   objstore.Snapshot[*[]store.GDriveFile]
+	reconciled *[]store.GDriveFile
 }
 
 func pollInterval() time.Duration {
@@ -43,52 +43,56 @@ func pollInterval() time.Duration {
 }
 
 func (p *poller) pollLoop(ctx context.Context) {
-	ticker := time.NewTicker(p.interval)
-	defer ticker.Stop()
 	for {
 		p.sweep(ctx, time.Now())
+		timer := time.NewTimer(p.interval)
 		select {
 		case <-ctx.Done():
+			timer.Stop()
 			return
-		case <-ticker.C:
+		case <-timer.C:
 		}
 	}
 }
 func (p *poller) sweep(ctx context.Context, now time.Time) {
+	started := time.Now()
 	if !p.b.cred.usable() {
 		return
 	}
-	files, err := p.bindings.ListGDriveFiles("")
-	if err != nil {
-		slog.Error("read Drive bindings", "err", err)
+	if err := p.reconcileBindings(ctx); err != nil {
+		slog.Error("reconcile Drive bindings", "err", err)
 		return
 	}
-	active := make(map[string]bool, len(files))
-	for _, file := range files {
-		active[file.FileID] = true
-		state := p.files[file.FileID]
-		if state == nil {
-			rows, err := p.db.Query(ctx, objstore.Query{Entity: googstore.PollEntity, Partition: p.name, Key: objstore.KeyPredicate{Op: objstore.ExactKey, Value: file.FileID}})
-			if err != nil {
-				slog.Error("read Drive cursor", "file", file.FileID, "err", err)
-				continue
-			}
-			state = &filePoll{}
-			if len(rows) > 0 {
-				state.cursor = rows[0].Attrs["cursor"]
-				state.status = rows[0].Attrs["status"]
-				state.name = rows[0].Attrs["name"]
-				state.lastPoll = rows[0].Attrs["last_poll"]
-			}
-			p.files[file.FileID] = state
-		}
-		if now.Before(state.next) {
+	work, err := googstore.Due(ctx, p.db, p.name, now)
+	if err != nil {
+		slog.Error("read due Drive work", "err", err)
+		return
+	}
+	for _, item := range work {
+		state, err := pollState(item)
+		if err != nil {
+			slog.Error("read Drive poll state", "file", item.Key.Sort, "err", err)
 			continue
 		}
-		cursor := state.cursor
-		status, retry, err := p.pollFile(ctx, file.FileID, state)
+		if item.Attrs["active"] != "1" || now.Before(state.next) {
+			continue
+		}
+		var exists bool
+		var binding store.GDriveFile
+		_, err = objstore.ReadConsistent(ctx, p.bindings.Obj(), store.OwnerScope(store.OwnerRoutd), func(ctx context.Context) error {
+			binding, exists, err = p.bindings.GDriveFile(ctx, item.Key.Sort)
+			return err
+		})
 		if err != nil {
-			slog.Warn("poll Drive file", "file", file.FileID, "err", err)
+			slog.Error("verify Drive binding", "file", item.Key.Sort, "err", err)
+			continue
+		}
+		if !exists || core.TS(binding.CreatedAt) != item.Attrs["binding_created_at"] {
+			continue
+		}
+		status, retry, err := p.pollFile(ctx, item.Key.Sort, state)
+		if err != nil {
+			slog.Warn("poll Drive file", "file", item.Key.Sort, "err", err)
 		}
 		state.status = status
 		state.lastPoll = now.UTC().Format(time.RFC3339Nano)
@@ -98,25 +102,30 @@ func (p *poller) sweep(ctx context.Context, now time.Time) {
 			} else {
 				state.delay = min(state.delay*2, 15*time.Minute)
 			}
-			state.next = now.Add(state.delay)
 		} else {
 			state.delay = 0
-			state.next = time.Time{}
 		}
-		if err := p.save(ctx, file.FileID, state); err != nil {
-			state.cursor = cursor
-			slog.Error("save Drive status", "file", file.FileID, "err", err)
+		delay := state.delay
+		if delay == 0 {
+			delay = p.interval
 		}
-	}
-	for id := range p.files {
-		if !active[id] {
-			delete(p.files, id)
+		state.next = now.Add(time.Since(started) + delay)
+		if err := p.save(ctx, item, state); err != nil {
+			slog.Error("save Drive status", "file", item.Key.Sort, "err", err)
 		}
 	}
 }
-func (p *poller) save(ctx context.Context, id string, state *filePoll) error {
-	_, err := p.db.GuardedBatch(ctx, nil, []objstore.Write{{Op: objstore.Put, Entity: googstore.PollEntity, Key: objstore.Key{Partition: p.name, Sort: id}, Attrs: map[string]string{"cursor": state.cursor, "status": state.status, "name": state.name, "last_poll": state.lastPoll}}})
-	return err
+func (p *poller) save(ctx context.Context, item objstore.Item, state *filePoll) error {
+	ok, err := p.db.GuardedBatch(ctx, nil, []objstore.Write{{Op: objstore.Update, Entity: googstore.PollEntity, Key: item.Key,
+		Attrs: map[string]string{"cursor": state.cursor, "status": state.status, "name": state.name, "last_poll": state.lastPoll, "next_poll_at": core.TS(state.next), "backoff": state.delay.String()},
+		Cond:  objstore.Cond{Where: []objstore.Cmp{{Attr: objstore.IndexRevision, Op: objstore.Eq, Value: item.Attrs[objstore.IndexRevision]}}}}})
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("Drive poll state changed during request")
+	}
+	return nil
 }
 func (p *poller) pollFile(ctx context.Context, id string, state *filePoll) (string, bool, error) {
 	base := p.b.cred.apiBase + "/drive/v3/files/" + url.PathEscape(id)
@@ -220,12 +229,12 @@ func (p *poller) pollFile(ctx context.Context, id string, state *filePoll) (stri
 
 func (p *poller) dashSection() chanlib.DashSection {
 	section := chanlib.DashSection{Title: "Bound files"}
-	files, err := p.bindings.ListGDriveFiles("")
+	files, err := p.boundFiles(context.Background())
 	if err != nil {
 		section.Rows = append(section.Rows, [2]string{"error", err.Error()})
 		return section
 	}
-	for _, file := range files {
+	for _, file := range *files {
 		rows, err := p.db.Query(context.Background(), objstore.Query{Entity: googstore.PollEntity, Partition: p.name, Key: objstore.KeyPredicate{Op: objstore.ExactKey, Value: file.FileID}})
 		if err != nil {
 			section.Rows = append(section.Rows, [2]string{file.FileID, "error: " + err.Error()})

@@ -1,14 +1,5 @@
 package store
 
-// gdrive_files.go holds every read and write of `gdrive_files`: one item per
-// Google Drive file a folder binds, addressed by its file id.
-//
-// The partition is OwnerRoutd because resreg's entity path writes these items
-// too (resreg.SubsystemRoutd IS store.OwnerRoutd). googd reads the partition
-// each sweep and polls exactly the files it names. The item holds no secret, so
-// no keyring is involved. `created_at` is core.TS at 30 bytes, the width
-// resreg's entity path stamps (BUGS L97).
-
 import (
 	"context"
 	"errors"
@@ -21,17 +12,12 @@ import (
 	"github.com/kronael/arizuko/objstore"
 )
 
-// The attributes a file item carries. `file_id` is the coordinate.
 const (
 	attrGDOwnerFolder  = "owner_folder"
 	attrGDTargetFolder = "target_folder"
 	attrGDCreatedAt    = "created_at"
 )
 
-// gdriveFileIDRE is the file id alphabet. It holds no `/`, no `*` and no space,
-// so an id spliced into a route match can neither add a path level nor widen
-// into a glob. chanlib.ParseGDriveJID applies the same alphabet to a JID
-// segment; chanlib imports this package, so the rule is stated here too.
 var gdriveFileIDRE = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
 // GDriveFile is one Drive file bound to a folder (specs/6/45-gdrive-comments-channel.md).
@@ -52,7 +38,6 @@ func CheckGDriveFileID(id string) error {
 	return nil
 }
 
-// gdriveFileKey is the coordinate of one bound file.
 func gdriveFileKey(fileID string) (objstore.Key, error) {
 	if fileID == "" {
 		return objstore.Key{}, errors.New("gdrive file carries no file id, which is its coordinate")
@@ -60,7 +45,6 @@ func gdriveFileKey(fileID string) (objstore.Key, error) {
 	return objstore.Key{Partition: OwnerRoutd, Sort: fileID}, nil
 }
 
-// gdriveFileFrom reads one item back.
 func gdriveFileFrom(it objstore.Item) GDriveFile {
 	f := GDriveFile{
 		FileID:       it.Key.Sort,
@@ -71,7 +55,6 @@ func gdriveFileFrom(it objstore.Item) GDriveFile {
 	return f
 }
 
-// gdriveFileItem reads the item one file id names.
 func (s *Store) gdriveFileItem(ctx context.Context, fileID string) (objstore.Item, bool, error) {
 	k, err := gdriveFileKey(fileID)
 	if err != nil {
@@ -88,6 +71,15 @@ func (s *Store) gdriveFileItem(ctx context.Context, fileID string) (objstore.Ite
 		return objstore.Item{}, false, nil
 	}
 	return items[0], true, nil
+}
+
+// GDriveFile reads one binding by its file ID.
+func (s *Store) GDriveFile(ctx context.Context, fileID string) (GDriveFile, bool, error) {
+	it, exists, err := s.gdriveFileItem(ctx, fileID)
+	if err != nil || !exists {
+		return GDriveFile{}, exists, err
+	}
+	return gdriveFileFrom(it), true, nil
 }
 
 // GDriveFileRoutes renders the route rows a binding seeds. Human posts
