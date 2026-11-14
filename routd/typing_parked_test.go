@@ -95,7 +95,7 @@ func TestTyping_ParkedChatTypesWhileItWaits(t *testing.T) {
 // keep the indicator on.
 func TestTyping_ParkedChatDroppedClears(t *testing.T) {
 	dl := &typingDeliverer{}
-	db, srv := newTypingRoutd(t, &stubRunner{t: t}, dl, 0)
+	db, srv := newTypingRoutd(t, &stubRunner{t: t}, dl)
 	const jid = "slack:T/C/U1"
 	seedTypingMsg(t, db, srv, jid)
 	srv.loop.noteParked(jid)
@@ -112,7 +112,7 @@ func TestTyping_ParkedChatDroppedClears(t *testing.T) {
 func TestTyping_BusyKeepsTypingOn(t *testing.T) {
 	dl := &typingDeliverer{}
 	sr := &stubRunner{t: t, busy: true}
-	db, srv := newTypingRoutd(t, sr, dl, 0)
+	db, srv := newTypingRoutd(t, sr, dl)
 	sr.srv = srv
 	const jid = "slack:T/C/U1"
 	seedTypingMsg(t, db, srv, jid)

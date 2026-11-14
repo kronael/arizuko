@@ -431,11 +431,9 @@ func TestRunErrorMarksAndNotifies(t *testing.T) {
 	_ = db.PutGroup(core.Group{Folder: "demo"})
 	dl := &recDeliverer{}
 	runner := runnerFn(func(_ context.Context, _ runedv1.RunRequest) (runedv1.RunOutcome, error) {
-		return runedv1.RunOutcome{Outcome: runedv1.OutcomeError, Error: "boom"}, nil
+		return runedv1.RunOutcome{Outcome: runedv1.OutcomeError, Error: "boom", Terminal: true}, nil
 	})
-	// MaxTurnRetry=-1 disables retry so the first failure triggers immediate
-	// error notice (testing the non-retry path).
-	loop := NewLoop(db, runner, LoopConfig{Deliver: dl, MaxTurnRetry: -1})
+	loop := NewLoop(db, runner, LoopConfig{Deliver: dl})
 	loop.StopQueue()
 	doSetRoutes(t, db, []core.Route{{Match: "platform=slack", Target: "demo"}})
 	_ = db.PutMessage(core.Message{ID: "e", ChatJID: "slack:T/C/U", Sender: "u1",
@@ -489,10 +487,9 @@ func TestRunErrorNotifiesEveryChatTheRunOwned(t *testing.T) {
 		if serr := db.SetTurnRunID("steered", "run-1"); serr != nil {
 			t.Errorf("set steered run id: %v", serr)
 		}
-		return runedv1.RunOutcome{RunID: "run-1", Outcome: runedv1.OutcomeError, Error: "boom"}, nil
+		return runedv1.RunOutcome{RunID: "run-1", Outcome: runedv1.OutcomeError, Error: "boom", Terminal: true}, nil
 	})
-	// MaxTurnRetry=-1 disables retry so the first failure notifies immediately.
-	loop := NewLoop(db, runner, LoopConfig{Deliver: dl, MaxTurnRetry: -1})
+	loop := NewLoop(db, runner, LoopConfig{Deliver: dl})
 	loop.StopQueue()
 	doSetRoutes(t, db, []core.Route{{Match: "platform=slack", Target: "demo"}})
 	_ = db.PutMessage(core.Message{ID: "e", ChatJID: "slack:T/A/U", Sender: "u1",
@@ -535,7 +532,7 @@ func TestTurnRetry_SchedulesRetryOnError(t *testing.T) {
 		attempts++
 		return runedv1.RunOutcome{Outcome: runedv1.OutcomeError, Error: "boom"}, nil
 	})
-	loop := NewLoop(db, runner, LoopConfig{Deliver: dl, MaxTurnRetry: 2})
+	loop := NewLoop(db, runner, LoopConfig{Deliver: dl})
 	loop.StopQueue()
 	doSetRoutes(t, db, []core.Route{{Match: "platform=slack", Target: "demo"}})
 	_ = db.PutMessage(core.Message{ID: "r1", ChatJID: "slack:T/C/U", Sender: "u1",
@@ -553,7 +550,7 @@ func TestTurnRetry_SchedulesRetryOnError(t *testing.T) {
 	if tc.State != "pending_retry" {
 		t.Fatalf("expected state=pending_retry, got %q", tc.State)
 	}
-	if len(dl.sends) != 1 || !strings.Contains(dl.sends[0].text, "Retry 1/2 at") {
+	if len(dl.sends) != 1 || !strings.Contains(dl.sends[0].text, "Retry 1 at") {
 		t.Fatalf("expected first failure status, got %+v", dl.sends)
 	}
 	if cur := db.GetAgentCursor("slack:T/C/U"); cur != tc.InputLast || tc.NextAttemptAt.IsZero() {
@@ -598,7 +595,7 @@ func TestTurnRetry_TerminalNotRetried(t *testing.T) {
 		attempts++
 		return runedv1.RunOutcome{Outcome: runedv1.OutcomeError, Error: cause, Terminal: true}, nil
 	})
-	loop := NewLoop(db, runner, LoopConfig{Deliver: dl, MaxTurnRetry: 2})
+	loop := NewLoop(db, runner, LoopConfig{Deliver: dl})
 	loop.StopQueue()
 	doSetRoutes(t, db, []core.Route{{Match: "platform=slack", Target: "demo"}})
 	_ = db.PutMessage(core.Message{ID: "tm1", ChatJID: "slack:T/C/U", Sender: "u1",
@@ -626,7 +623,7 @@ func TestTurnRetry_TerminalNotRetried(t *testing.T) {
 	}
 }
 
-// TestTurnRetry_ExhaustsAndNotifies verifies that after maxTurnRetry failures
+// TestTurnRetry_ExhaustsAndNotifies verifies that after ten failures
 // without a reply, the user gets the exhausted notice (spec 5/12).
 func TestTurnRetry_ExhaustsAndNotifies(t *testing.T) {
 	db, err := OpenMem()
@@ -639,14 +636,14 @@ func TestTurnRetry_ExhaustsAndNotifies(t *testing.T) {
 	runner := runnerFn(func(_ context.Context, _ runedv1.RunRequest) (runedv1.RunOutcome, error) {
 		return runedv1.RunOutcome{Outcome: runedv1.OutcomeError, Error: "boom"}, nil
 	})
-	loop := NewLoop(db, runner, LoopConfig{Deliver: dl, MaxTurnRetry: 2})
+	loop := NewLoop(db, runner, LoopConfig{Deliver: dl})
 	loop.StopQueue()
 	doSetRoutes(t, db, []core.Route{{Match: "platform=slack", Target: "demo"}})
 	_ = db.PutMessage(core.Message{ID: "r2", ChatJID: "slack:T/C/U", Sender: "u1",
 		Content: "hi", Timestamp: time.Now().UTC(), Verb: "message"})
 
 	_, _ = loop.processGroupMessages("slack:T/C/U")
-	for range 2 {
+	for range 9 {
 		pending, _ := db.GetTurnContext("r2")
 		loop.q.now = func() time.Time { return pending.NextAttemptAt }
 		if _, err := loop.replay("r2"); err != nil {
@@ -654,7 +651,7 @@ func TestTurnRetry_ExhaustsAndNotifies(t *testing.T) {
 		}
 	}
 	row, _ := db.LastStatusRow("slack:T/C/U", "r2")
-	if len(dl.sends) != 1 || row.Content != renderTurnStatus(turnStatus{phase: "final", cause: "Agent could not complete the request", retry: loop.maxTurnRetry}) {
+	if len(dl.sends) != 1 || row.Content != renderTurnStatus(turnStatus{phase: "final", cause: "Agent could not complete the request", retry: 9}) {
 		t.Fatalf("expected retry exhausted notice, got %+v", dl.sends)
 	}
 	tc, _ := db.GetTurnContext("r2")
@@ -1410,7 +1407,7 @@ func invalidGroupAgentFailsOnce(t *testing.T, agent string) {
 		attempts++
 		return runedv1.RunOutcome{}, nil
 	})
-	loop := NewLoop(db, runner, LoopConfig{Deliver: dl, MaxTurnRetry: 2})
+	loop := NewLoop(db, runner, LoopConfig{Deliver: dl})
 	loop.StopQueue()
 	doSetRoutes(t, db, []core.Route{{Match: "platform=slack", Target: "demo"}})
 	if err := db.PutMessage(core.Message{ID: "bad-agent", ChatJID: "slack:T/C/U", Sender: "u1", Content: "hi", Timestamp: time.Now().UTC(), Verb: "message"}); err != nil {

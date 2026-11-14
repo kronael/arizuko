@@ -53,7 +53,7 @@ func TestTurnStatusLifecycle(t *testing.T) {
 				}
 				return runedv1.RunOutcome{Outcome: runedv1.OutcomeError, Error: "vm record: /private/token: no space left on device"}, nil
 			})
-			loop := NewLoop(db, runner, LoopConfig{Deliver: dl, MaxTurnRetry: 3})
+			loop := NewLoop(db, runner, LoopConfig{Deliver: dl})
 			loop.StopQueue()
 			now := time.Date(2026, 11, 9, 3, 0, 0, 0, time.UTC)
 			loop.q.now = func() time.Time { return now }
@@ -65,7 +65,7 @@ func TestTurnStatusLifecycle(t *testing.T) {
 				t.Fatal(err)
 			}
 			row, ok := db.LastStatusRow(jid, "turn")
-			if !ok || len(dl.sends) != 1 || row.Content != "Server storage is full. Retry 1/3 at 03:00:30 UTC." {
+			if !ok || len(dl.sends) != 1 || row.Content != "Server storage is full. Retry scheduled. Retry 1 at 03:00:30 UTC." {
 				t.Fatalf("first failure row=%+v sends=%+v", row, dl.sends)
 			}
 			if _, err := loop.processGroupMessages(jid); err != nil {
@@ -133,7 +133,7 @@ func TestTurnStatusFinalRetained(t *testing.T) {
 	}
 	finishTurn(db, dl, "other", endDone)
 	row, _ := db.LastStatusRow(progressJID, "t1")
-	if row.StatusPhase != "final" || row.Content != "Server storage is full. Stopped after 3 retries." || len(dl.deletes) != 0 {
+	if row.StatusPhase != "final" || row.Content != "Server storage is full. Automatic retries stopped." || len(dl.deletes) != 0 {
 		t.Fatalf("final deleted: %+v deletes=%+v", row, dl.deletes)
 	}
 }
@@ -148,7 +148,7 @@ func TestTurnStatusRefusedNamesTheRefusal(t *testing.T) {
 	if _, err := srv.recordTurnResult("t1", apiv1.TurnResult{TurnID: "t1", Status: "refused", Error: "API Error: safeguards flagged this message"}); err != nil {
 		t.Fatal(err)
 	}
-	want := "The model refused this request (provider safety filter)."
+	want := "The model refused this request (provider safety filter). Automatic retries stopped."
 	row, _ := db.LastStatusRow(progressJID, "t1")
 	if row.StatusPhase != "final" || row.Content != want {
 		t.Fatalf("notice %+v, want final %q", row, want)
@@ -192,7 +192,7 @@ func TestTurnStatusForwardedCron(t *testing.T) {
 		t.Fatal(err)
 	}
 	tc, _ := db.GetTurnContext("cron")
-	if err := applyStatus(db, dl, tc, tc.ChatJID, turnStatus{phase: "waiting", cause: "Model unavailable", retry: 1, max: 3, at: time.Date(2026, 11, 9, 3, 15, 0, 0, time.UTC)}); err != nil {
+	if err := applyStatus(db, dl, tc, tc.ChatJID, turnStatus{phase: "waiting", cause: "Model unavailable", retry: 1, at: time.Date(2026, 11, 9, 3, 15, 0, 0, time.UTC)}); err != nil {
 		t.Fatal(err)
 	}
 	if len(dl.sends) != 1 || dl.sends[0].jid != progressJID || dl.sends[0].threadID != "thread" {
@@ -211,7 +211,7 @@ func TestTurnStatusRestartOperations(t *testing.T) {
 	db, _ := progressWithRow(t, dl)
 	tc, _ := db.GetTurnContext("t1")
 	dl.editErr = errSend
-	if err := applyStatus(db, dl, tc, progressJID, turnStatus{phase: "waiting", cause: "Model unavailable", retry: 1, max: 3, at: time.Now()}); err != nil {
+	if err := applyStatus(db, dl, tc, progressJID, turnStatus{phase: "waiting", cause: "Model unavailable", retry: 1, at: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
 	dl.editErr = nil
@@ -256,7 +256,7 @@ func TestTurnStatusEmail(t *testing.T) {
 		t.Fatal(err)
 	}
 	tc, _ := db.GetTurnContext("email-turn")
-	for _, status := range []turnStatus{{phase: "waiting", cause: "Model unavailable", retry: 1, max: 3, at: time.Now()}, {phase: "running", retry: 1, max: 3}, {phase: "waiting", cause: "Model unavailable", retry: 2, max: 3, at: time.Now()}, {phase: "cleared"}, {phase: "cleared"}} {
+	for _, status := range []turnStatus{{phase: "waiting", cause: "Model unavailable", retry: 1, at: time.Now()}, {phase: "running", retry: 1}, {phase: "waiting", cause: "Model unavailable", retry: 2, at: time.Now()}, {phase: "cleared"}, {phase: "cleared"}} {
 		if err := applyStatus(db, dl, tc, tc.ChatJID, status); err != nil {
 			t.Fatal(err)
 		}
@@ -278,7 +278,7 @@ func TestTurnStatusRecoversFinalIntent(t *testing.T) {
 	loop.StopQueue()
 	loop.recoverStatuses()
 	loop.recoverStatuses()
-	if len(dl.sends) != 1 || dl.sends[0].text != "Server storage is full." {
+	if len(dl.sends) != 1 || dl.sends[0].text != "Server storage is full. Automatic retries stopped." {
 		t.Fatalf("recovery sends=%+v", dl.sends)
 	}
 }
@@ -353,14 +353,14 @@ func TestTurnStatusRetryKeepsFanout(t *testing.T) {
 	loop := NewLoop(db, &recRunner{}, LoopConfig{Deliver: dl})
 	loop.StopQueue()
 	tc, _ := db.GetTurnContext("t1")
-	if err := loop.publishStatus(tc, turnStatus{phase: "waiting", cause: "Model unavailable", retry: 1, max: 3, at: time.Now()}); err != nil {
+	if err := loop.publishStatus(tc, turnStatus{phase: "waiting", cause: "Model unavailable", retry: 1, at: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.store().WriteEntities(t.Context(), nil, objstore.Write{Op: objstore.Update, Entity: store.TurnContexts, Key: objstore.Key{Partition: store.OwnerRoutd, Sort: "t1"}, Attrs: map[string]string{"run_id": "new-run", "retry_count": "1"}}); err != nil {
 		t.Fatal(err)
 	}
 	tc, _ = db.GetTurnContext("t1")
-	if err := loop.publishStatus(tc, turnStatus{phase: "running", retry: 1, max: 3}); err != nil {
+	if err := loop.publishStatus(tc, turnStatus{phase: "running", retry: 1}); err != nil {
 		t.Fatal(err)
 	}
 	finishTurn(db, dl, "t1", endDone)
@@ -392,7 +392,7 @@ func TestTurnStatusEmailCancelsUnsentWaiting(t *testing.T) {
 		t.Fatal(err)
 	}
 	tc, _ := db.GetTurnContext("mail")
-	if err := applyStatus(db, dl, tc, tc.ChatJID, turnStatus{phase: "waiting", cause: "Model unavailable", retry: 1, max: 3, at: time.Now()}); err != nil {
+	if err := applyStatus(db, dl, tc, tc.ChatJID, turnStatus{phase: "waiting", cause: "Model unavailable", retry: 1, at: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
 	dl.failSend = false
@@ -420,7 +420,7 @@ func TestTurnStatusFinalIntentWinsCompletion(t *testing.T) {
 	loop.StopQueue()
 	loop.recoverStatuses()
 	row, _ := db.LastStatusRow(progressJID, "t1")
-	if row.StatusPhase != "final" || row.Content != "Agent stopped unexpectedly." || len(dl.deletes) != 0 {
+	if row.StatusPhase != "final" || row.Content != "Agent stopped unexpectedly. Automatic retries stopped." || len(dl.deletes) != 0 {
 		t.Fatalf("completion lost final: row=%+v deletes=%+v", row, dl.deletes)
 	}
 }

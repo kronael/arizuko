@@ -83,8 +83,6 @@ type Loop struct {
 
 	onboardingEnabled   bool
 	onboardingPlatforms []string
-
-	maxTurnRetry int
 }
 
 // SetOnbodClient wires the onbod federation for the /invite + /gate commands.
@@ -136,10 +134,6 @@ type LoopConfig struct {
 	// EngagementTTL (ENGAGEMENT_TTL) is the window an @name delegation opens for
 	// its target; zero opens none.
 	EngagementTTL time.Duration
-
-	// MaxTurnRetry bounds retries of a turn that fails without a reply
-	// (SIGKILL/OOM/timeout). Default 3.
-	MaxTurnRetry int
 }
 
 // NewLoop builds the Loop and its per-folder queue; folder-for-jid maps a
@@ -153,16 +147,6 @@ func NewLoop(db *DB, runner Runner, cfg LoopConfig) *Loop {
 	}
 	if cfg.SessionIdle == 0 {
 		cfg.SessionIdle = sessionIdleExpiry
-	}
-	maxRetry := cfg.MaxTurnRetry
-	if maxRetry < 0 {
-		maxRetry = 0
-	} else if maxRetry == 0 {
-		maxRetry = 3
-	}
-	if maxRetry > 3 {
-		slog.Warn("MAX_TURN_RETRY capped at three", "configured", maxRetry)
-		maxRetry = 3
 	}
 	l := &Loop{
 		db:              db,
@@ -183,7 +167,6 @@ func NewLoop(db *DB, runner Runner, cfg LoopConfig) *Loop {
 
 		onboardingEnabled:   cfg.OnboardingEnabled,
 		onboardingPlatforms: cfg.OnboardingPlatforms,
-		maxTurnRetry:        maxRetry,
 		engagementTTL:       cfg.EngagementTTL,
 	}
 	l.q = newTurnControl(cfg.MaxAgents)

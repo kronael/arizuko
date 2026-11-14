@@ -99,13 +99,12 @@ func TestTurnControlProbeFence(t *testing.T) {
 		db, loop, _, tc, _ := deferredFixture(t)
 		now := tc.NextAttemptAt
 		loop.q.now = func() time.Time { return now }
-		loop.maxTurnRetry = 1
 		launches := 0
 		loop.runner = runnerFn(func(context.Context, runedv1.RunRequest) (runedv1.RunOutcome, error) {
 			launches++
 			return runedv1.RunOutcome{Outcome: runedv1.OutcomeError}, nil
 		})
-		for i := range 2 {
+		for i := range 10 {
 			if i > 0 {
 				now = tc.NextAttemptAt
 			}
@@ -115,7 +114,7 @@ func TestTurnControlProbeFence(t *testing.T) {
 			tc, _ = db.GetTurnContext(tc.TurnID)
 		}
 		control, _, _ := db.store().ReadTurnControl(context.Background())
-		if tc.State != store.TurnDone || tc.RetryCount != 1 || control.Phase != "open" ||
+		if tc.State != store.TurnDone || tc.RetryCount != 9 || control.Phase != "open" ||
 			control.ProbeTurnID != "" || !control.NextProbeAt.Equal(now.Add(time.Hour)) {
 			t.Fatalf("exhaustion: turn=%+v control=%+v", tc, control)
 		}
@@ -123,11 +122,11 @@ func TestTurnControlProbeFence(t *testing.T) {
 		if err := db.PutMessage(fresh); err != nil {
 			t.Fatal(err)
 		}
-		if _, _, _, _, err := loop.runTurn(tc.Folder, "", tc.ChatJID, fresh.ID, false, []core.Message{fresh}, nil); err != nil || launches != 2 {
+		if _, _, _, _, err := loop.runTurn(tc.Folder, "", tc.ChatJID, fresh.ID, false, []core.Message{fresh}, nil); err != nil || launches != 10 {
 			t.Fatalf("early successor: launches=%d err=%v", launches, err)
 		}
 		now = control.NextProbeAt
-		if _, _, _, _, err := loop.runTurn(tc.Folder, "", tc.ChatJID, fresh.ID, false, []core.Message{fresh}, nil); err != nil || launches != 3 {
+		if _, _, _, _, err := loop.runTurn(tc.Folder, "", tc.ChatJID, fresh.ID, false, []core.Message{fresh}, nil); err != nil || launches != 11 {
 			t.Fatalf("due successor: launches=%d err=%v", launches, err)
 		}
 		control, _, _ = db.store().ReadTurnControl(context.Background())

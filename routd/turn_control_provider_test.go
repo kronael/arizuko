@@ -59,6 +59,9 @@ func TestTurnControlProviderInstancePause(t *testing.T) {
 		t.Fatalf("callback released execution or lost reset: %+v", tc)
 	}
 	control, _, _ := db.store().ReadTurnControl(t.Context())
+	if !control.NextProbeAt.Equal(reset) {
+		t.Fatalf("provider reset lost from breaker: %+v", control)
+	}
 	for _, frame := range []apiv1.TurnResult{req, {Status: "success"}} {
 		if _, err := p.srv.recordTurnResultAttempt("refused", "attempt", frame); err == nil {
 			t.Fatal("refused attempt accepted a later callback")
@@ -83,7 +86,7 @@ func TestTurnControlProviderInstancePause(t *testing.T) {
 		t.Fatalf("provider terminal bit defeated retry: %v %v", deferred, err)
 	}
 	tc, _ = db.GetTurnContext("refused")
-	if tc.State != store.TurnPendingRetry || tc.RetryCount != 1 || !tc.NextAttemptAt.Equal(retryAt(now, tc.Trigger, 1)) || db.GetAgentCursor("web:a") != tc.InputLast {
+	if tc.State != store.TurnPendingRetry || tc.RetryCount != 1 || !tc.NextAttemptAt.Equal(now.Add(30*time.Second)) || db.GetAgentCursor("web:a") != tc.InputLast {
 		t.Fatalf("provider deferral: %+v", tc)
 	}
 	providerDue(t, l, "refused")
@@ -96,8 +99,8 @@ func TestTurnControlProviderInstancePause(t *testing.T) {
 func TestTurnControlProviderExhaustion(t *testing.T) {
 	for _, scheduled := range []bool{false, true} {
 		t.Run(fmt.Sprint(scheduled), func(t *testing.T) {
-			db, l, p, _ := pauseFixture(t, "outage", "outage", "outage", "outage")
-			l.maxTurnRetry = 3
+			db, l, p, _ := pauseFixture(t, "outage", "outage", "outage", "outage", "outage", "outage", "outage", "outage", "outage", "outage")
+
 			now := time.Now().UTC()
 			l.q.now = func() time.Time { return now }
 			sender := "u"
@@ -106,9 +109,9 @@ func TestTurnControlProviderExhaustion(t *testing.T) {
 			}
 			pauseInput(t, db, "web:a", "refused", sender, "saved", now)
 			processPauseChat(t, l, "web:a")
-			for count := 1; count <= 3; count++ {
+			for count := 1; count <= 9; count++ {
 				tc, _ := db.GetTurnContext("refused")
-				if tc.State != store.TurnPendingRetry || tc.RetryCount != count || !tc.NextAttemptAt.Equal(retryAt(now, sender, count)) {
+				if tc.State != store.TurnPendingRetry || tc.RetryCount != count || !tc.NextAttemptAt.Equal(now.Add(min(30*time.Second<<(count-1), time.Hour))) {
 					t.Fatalf("retry %d not pending with shared delay: %+v", count, tc)
 				}
 				now = tc.NextAttemptAt
@@ -117,12 +120,12 @@ func TestTurnControlProviderExhaustion(t *testing.T) {
 			tc, _ := db.GetTurnContext("refused")
 			control, _, _ := db.store().ReadTurnControl(t.Context())
 			pause, _ := db.store().ReadModelPause(t.Context(), "a")
-			if len(p.runs) != 4 || tc.State != store.TurnDone || tc.RetryCount != 3 || pause == nil || control.Phase != "open" || control.ProbeTurnID != "" || !control.NextProbeAt.Equal(now.Add(time.Hour)) {
+			if len(p.runs) != 10 || tc.State != store.TurnDone || tc.RetryCount != 9 || pause == nil || control.Phase != "open" || control.ProbeTurnID != "" || !control.NextProbeAt.Equal(now.Add(time.Hour)) {
 				t.Fatalf("exhaustion: runs=%d turn=%+v control=%+v pause=%+v", len(p.runs), tc, control, pause)
 			}
 			pauseInput(t, db, "web:b", "next", "v", "next", now)
 			processPauseChat(t, l, "web:b")
-			if len(p.runs) != 4 {
+			if len(p.runs) != 10 {
 				t.Fatal("exhaustion bypassed hourly cooldown")
 			}
 			now = control.NextProbeAt
@@ -130,7 +133,7 @@ func TestTurnControlProviderExhaustion(t *testing.T) {
 			l.q.busyWait.Delete("web:b")
 			processPauseChat(t, l, "web:b")
 			control, _, _ = db.store().ReadTurnControl(t.Context())
-			if len(p.runs) != 5 || control.Phase != "closed" {
+			if len(p.runs) != 11 || control.Phase != "closed" {
 				t.Fatalf("successor did not recover: %+v", control)
 			}
 		})
@@ -153,7 +156,7 @@ func TestTurnControlProviderCallbackRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	restarted := NewLoop(db, p, LoopConfig{Deliver: dl, MaxTurnRetry: 3})
+	restarted := NewLoop(db, p, LoopConfig{Deliver: dl})
 	t.Cleanup(restarted.StopQueue)
 	p.srv = NewServer(db, restarted, dl, nil, 0, "")
 	p.stopErr = errors.New("runed unavailable")
@@ -239,11 +242,11 @@ func TestModelPauseFailureBeforeGuestSubmissionDoesNotProveRecovery(t *testing.T
 	} {
 		t.Run(sample.name, func(t *testing.T) {
 			db, l, p, _ := pauseFixture(t, "outage")
-			l.maxTurnRetry = 3
+
 			pauseInput(t, db, "web:a", "refused", "u", "saved", time.Now())
 			processPauseChat(t, l, "web:a")
 			p.noSubmission, p.localOutcome = true, sample.outcome
-			for count := 1; count <= 3; count++ {
+			for count := 1; count <= 9; count++ {
 				providerDue(t, l, "refused")
 				tc, _ := db.GetTurnContext("refused")
 				if tc.State == store.TurnDone {

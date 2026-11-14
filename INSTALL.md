@@ -52,9 +52,8 @@ Scheduled tasks use at most one of those slots. `arizuko generate` and the
 daemons refuse a `.env` that sets `MAX_CONCURRENT_CONTAINERS`.
 
 `RUNED_RUN_TIMEOUT` (default 60m) ends a run. A turn that runs out of time is
-not retried; its status says "Time limit reached." Another failed turn
-retries three times: 30 s, 2 min and 5 min for chat, 15, 45 and 180 min for a
-scheduled task. `MAX_TURN_RETRY` lowers that (`-1` disables retries). While a
+not retried; its status says "Time limit reached." Another failed turn gets up to nine retries. The delay starts at 30 seconds,
+doubles, and caps at one hour. The tenth failure stops. While a
 retry waits, no new agent starts on the instance; the retry is the probe. A
 `/stop` in the chat ends the folder's turn and posts "Turn stopped."
 

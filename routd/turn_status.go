@@ -15,6 +15,7 @@ import (
 
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/retry"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 	"github.com/kronael/arizuko/store"
 )
@@ -384,7 +385,7 @@ type turnStatus struct {
 	spent, cap int
 	phase      string
 	cause      string
-	retry, max int
+	retry      int
 	at         time.Time
 	text       string
 }
@@ -398,28 +399,21 @@ func renderTurnStatus(status turnStatus) string {
 	case "progress":
 		return progressMark + status.text
 	case "waiting":
-		return fmt.Sprintf("%s. Retry %d/%d at %s UTC.", status.cause, status.retry, status.max, status.at.UTC().Format("15:04:05"))
+		return fmt.Sprintf("%s Retry %d at %s UTC.", retry.Notice(status.cause, retry.Decision{}), status.retry, status.at.UTC().Format("15:04:05"))
 	case "running":
-		return fmt.Sprintf("Retry %d/%d is running.", status.retry, status.max)
+		return fmt.Sprintf("Retry %d is running.", status.retry)
 	case "final":
-		if status.retry > 0 {
-			word := "retries"
-			if status.retry == 1 {
-				word = "retry"
-			}
-			return fmt.Sprintf("%s. Stopped after %d %s.", status.cause, status.retry, word)
-		}
-		return status.cause + "."
+		return retry.Notice(status.cause, retry.Decision{Stop: true})
 	case "recovered":
 		return "The request completed."
 	case "stopped":
 		return "Turn stopped."
 	case "timeout":
-		return "Time limit reached. Say 'continue' to resume, or narrow the request."
+		return retry.Notice("Time limit reached", retry.Decision{Stop: true})
 	case "silent":
-		return "Agent could not produce a reply. Please re-send."
+		return retry.Notice("Agent could not produce a reply", retry.Decision{Stop: true})
 	case "setup":
-		return "Agent setup needs attention. Ask an operator to check the group."
+		return retry.Notice("Agent setup needs attention", retry.Decision{Stop: true})
 	default:
 		return status.text
 	}
@@ -593,7 +587,7 @@ func (l *Loop) publishOwedStatusLocked(tc TurnContext) error {
 	if !ok || current.AttemptID != tc.AttemptID || current.StatusOwed == "" {
 		return nil
 	}
-	status := turnStatus{phase: current.StatusOwed, cause: current.FailureCause, retry: current.RetryCount, max: l.maxTurnRetry, at: current.NextAttemptAt}
+	status := turnStatus{phase: current.StatusOwed, cause: current.FailureCause, retry: current.RetryCount, at: current.NextAttemptAt}
 	if current.State == store.TurnDone && (status.phase == "waiting" || status.phase == "running") {
 		status.phase = "cleared"
 	}
@@ -607,7 +601,7 @@ func (l *Loop) publishOwedStatusLocked(tc TurnContext) error {
 		}
 		status.at = control.NextProbeAt
 		status.retry++
-		if current.RetryCount >= l.maxTurnRetry {
+		if retry.Next(current.RetryCount, retry.Failure{Kind: "transient"}, l.q.now(), time.Time{}).Stop {
 			status.phase = "final"
 			status.retry = current.RetryCount
 		}

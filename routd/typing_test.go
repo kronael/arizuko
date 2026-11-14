@@ -101,14 +101,14 @@ func (r *steeringRunner) Run(_ context.Context, req runedv1.RunRequest) (runedv1
 	return runedv1.RunOutcome{RunID: "run-steered", Steered: true}, nil
 }
 
-func newTypingRoutd(t *testing.T, runner Runner, dl Deliverer, maxRetry int) (*DB, *Server) {
+func newTypingRoutd(t *testing.T, runner Runner, dl Deliverer) (*DB, *Server) {
 	t.Helper()
 	db, err := OpenMem()
 	if err != nil {
 		t.Fatalf("open mem db: %v", err)
 	}
 	t.Cleanup(func() { db.Close() })
-	loop := NewLoop(db, runner, LoopConfig{Deliver: dl, MaxTurnRetry: maxRetry})
+	loop := NewLoop(db, runner, LoopConfig{Deliver: dl})
 	loop.StopQueue()
 	srv := NewServer(db, loop, dl, nil, 0, "https://example.test")
 	return db, srv
@@ -155,7 +155,7 @@ func seedTypingMsg(t *testing.T, db *DB, srv *Server, jid string) {
 func TestTyping_Normal(t *testing.T) {
 	dl := &typingDeliverer{}
 	sr := &stubRunner{t: t}
-	db, srv := newTypingRoutd(t, sr, dl, 0)
+	db, srv := newTypingRoutd(t, sr, dl)
 	sr.srv = srv
 	const jid = "slack:T/C/U1"
 	seedTypingMsg(t, db, srv, jid)
@@ -183,7 +183,7 @@ func TestTyping_Normal(t *testing.T) {
 func TestTyping_Steered_NoImmediateOff(t *testing.T) {
 	dl := &typingDeliverer{}
 	runner := &steeringRunner{t: t, deliverContent: false}
-	db, srv := newTypingRoutd(t, runner, dl, 0)
+	db, srv := newTypingRoutd(t, runner, dl)
 	runner.srv = srv
 	const jid = "slack:T/C/U2"
 	seedTypingMsg(t, db, srv, jid)
@@ -206,7 +206,7 @@ func TestTyping_Steered_NoImmediateOff(t *testing.T) {
 func TestTyping_Steered_ClearsOnContent(t *testing.T) {
 	dl := &typingDeliverer{}
 	runner := &steeringRunner{t: t, deliverContent: true}
-	db, srv := newTypingRoutd(t, runner, dl, 0)
+	db, srv := newTypingRoutd(t, runner, dl)
 	runner.srv = srv
 	const jid = "slack:T/C/U3"
 	seedTypingMsg(t, db, srv, jid)
@@ -252,7 +252,7 @@ func (silentRunner) Run(_ context.Context, _ runedv1.RunRequest) (runedv1.RunOut
 // takes the final-error path (no reschedule).
 func TestTyping_NonSteeredError_Clears(t *testing.T) {
 	dl := &typingDeliverer{}
-	db, srv := newTypingRoutd(t, erroringRunner{}, dl, -1)
+	db, srv := newTypingRoutd(t, erroringRunner{}, dl)
 	const jid = "slack:T/C/E1"
 	seedTypingMsg(t, db, srv, jid)
 
@@ -266,7 +266,7 @@ func TestTyping_NonSteeredError_Clears(t *testing.T) {
 // (a 0-result silent turn) clears typing too — the other non-delivery exit.
 func TestTyping_NonSteeredSilent_Clears(t *testing.T) {
 	dl := &typingDeliverer{}
-	db, srv := newTypingRoutd(t, silentRunner{}, dl, 0)
+	db, srv := newTypingRoutd(t, silentRunner{}, dl)
 	const jid = "slack:T/C/S1"
 	seedTypingMsg(t, db, srv, jid)
 

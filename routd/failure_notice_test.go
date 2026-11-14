@@ -38,7 +38,7 @@ func TestFailureNoticePerChat(t *testing.T) {
 		}
 		return runedv1.RunOutcome{Outcome: runedv1.OutcomeError, Error: cause, Terminal: true}, nil
 	})
-	loop := NewLoop(db, runner, LoopConfig{Deliver: dl, MaxTurnRetry: -1})
+	loop := NewLoop(db, runner, LoopConfig{Deliver: dl})
 	loop.StopQueue()
 	doSetRoutes(t, db, []core.Route{{Match: "platform=slack", Target: "demo"}})
 	steps := []struct {
@@ -55,7 +55,7 @@ func TestFailureNoticePerChat(t *testing.T) {
 	}
 	for i, step := range steps {
 		if i == 2 {
-			loop = NewLoop(db, runner, LoopConfig{Deliver: dl, MaxTurnRetry: -1})
+			loop = NewLoop(db, runner, LoopConfig{Deliver: dl})
 			loop.StopQueue()
 		}
 		cause = step.cause
@@ -108,7 +108,7 @@ func TestFailureNoticeDoesNotRetryFailedDelivery(t *testing.T) {
 	runner := runnerFn(func(context.Context, runedv1.RunRequest) (runedv1.RunOutcome, error) {
 		return runedv1.RunOutcome{Outcome: runedv1.OutcomeError, Error: "spend limit reached", Terminal: true}, nil
 	})
-	loop := NewLoop(db, runner, LoopConfig{Deliver: dl, MaxTurnRetry: -1})
+	loop := NewLoop(db, runner, LoopConfig{Deliver: dl})
 	loop.StopQueue()
 	doSetRoutes(t, db, []core.Route{{Match: "platform=slack", Target: "demo"}})
 	for i := range 2 {

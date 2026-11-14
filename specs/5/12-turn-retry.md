@@ -11,9 +11,9 @@ of time is not retried. Motivating incidents: BUGS 2026-06-14 "deep-dive
 replies cut off"; BUGS `L794` (a full host disk met four launches 11–15 s
 apart); BUGS `L771` (a one-hour timeout bought another full attempt).
 
-`routd/turn_control.go` owns the decision (`classifyTurn`, `complete`), the
-schedule (`retryAt`) and the instance breaker. `store/turn_control.go` owns
-the durable rows.
+`routd/turn_control.go` owns replay safety (`classifyTurn`, `complete`) and the
+instance breaker. `retry` owns the schedule and failure budget.
+`store/turn_control.go` owns the durable rows.
 
 ## Decisions
 
@@ -22,13 +22,7 @@ fire?"** A partial reply that reached the channel beats a retry that re-does
 the work, so an agent that posted a `reply` and then died counts as success.
 A status row never counts as that reply.
 
-**Three retries on a schedule, four launches in all.** An interactive turn
-waits 30 s, 2 min and 5 min after successive failures; a scheduled task's
-turn waits 15 min, 45 min and 180 min, so a host fault such as a full disk
-has about four hours to clear. `MAX_TURN_RETRY` lowers the budget (`-1`
-disables retry); a value above 3 is capped at 3 with a startup warning.
-Global config only — a retry budget is a property of the runtime, not of a
-tenant's content.
+**Nine retries, ten launches in all.** The delay starts at 30 seconds, doubles, and caps at one hour. The tenth failure stops. Chat and scheduled turns use the same policy.
 
 **A waiting retry is durable and releases the cursor.** One guarded batch
 saves the turn's input and ambient message keys, its due time
@@ -72,10 +66,10 @@ classifies it, the decision rides `RunOutcome.Terminal`
 routd never classifies runed's error prose. (BUGS F73, `L771`)
 
 **One status message per turn and chat.** The first failure posts one line
-with a short cause and the retry time ("Server storage is full. Retry 1/3 at
-03:15:00 UTC."). The retry edits it ("Retry 1/3 is running."), a later failure
+with a short cause and the retry time ("Server storage is full. Retry scheduled. Retry 1 at
+03:15:00 UTC."). The retry edits it ("Retry 1 is running."), a later failure
 edits the cause and time, success deletes it, and exhaustion edits it to the
-final cause ("… Stopped after 3 retries."). The cause comes from a short
+final cause ("Server storage is full. Automatic retries stopped."). The cause comes from a short
 allowlist (`turnFailureCause`): storage full, model unavailable, time limit
 reached, agent could not start, agent stopped unexpectedly, setup needs
 attention, or "Agent could not complete the request". No error prose, path or

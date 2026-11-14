@@ -515,7 +515,7 @@ func (r *reportingRunner) Run(_ context.Context, req runedv1.RunRequest) (runedv
 		_, _ = r.srv.db.RecordTurnResult(string(req.Folder), req.TurnID, "s", "success", "", store.TurnUsage{})
 		return runedv1.RunOutcome{RunID: "run-r", Outcome: runedv1.OutcomeOK}, nil
 	case "error":
-		return runedv1.RunOutcome{RunID: "run-r", Outcome: runedv1.OutcomeError, Error: "boom"}, nil
+		return runedv1.RunOutcome{RunID: "run-r", Outcome: runedv1.OutcomeError, Error: "boom", Terminal: true}, nil
 	}
 	return runedv1.RunOutcome{RunID: "run-r", Outcome: runedv1.OutcomeOK}, nil
 }
@@ -532,7 +532,7 @@ func TestProgress_DispatchEndsTheLineByOutcome(t *testing.T) {
 		t.Run(tc.mode, func(t *testing.T) {
 			dl := &recDeliverer{}
 			runner := &reportingRunner{mode: tc.mode}
-			db, srv := newTypingRoutd(t, runner, dl, -1)
+			db, srv := newTypingRoutd(t, runner, dl)
 			runner.srv = srv
 			const jid = "slack:T/C/P1"
 			seedTypingMsg(t, db, srv, jid)

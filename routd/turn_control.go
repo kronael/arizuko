@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/retry"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 	"github.com/kronael/arizuko/store"
 )
@@ -232,9 +233,10 @@ func (q *turnControl) complete(l *Loop, tc TurnContext, out runedv1.RunOutcome, 
 		!errors.Is(runErr, context.Canceled) && !errors.Is(runErr, context.DeadlineExceeded) {
 		decision = turnDecision{trip: true, retry: !replied, cause: "Model unavailable"}
 	}
-	retry := decision.retry && tc.State == store.TurnRunning && tc.RetryCount < l.maxTurnRetry
+	retryDecision := retry.Next(tc.RetryCount, retry.Failure{Kind: "transient", RetryAt: tc.NextAttemptAt}, q.now(), time.Time{})
+	shouldRetry := decision.retry && tc.State == store.TurnRunning && !retryDecision.Stop
 	resetAt := tc.NextAttemptAt
-	tc.NextAttemptAt = maxTime(tc.NextAttemptAt, retryAt(q.now(), tc.Trigger, tc.RetryCount+1))
+	tc.NextAttemptAt = retryDecision.NextAt
 	if work.successor {
 		tc.NextAttemptAt = maxTime(tc.NextAttemptAt, q.now().Add(time.Hour))
 	}
@@ -256,7 +258,7 @@ func (q *turnControl) complete(l *Loop, tc TurnContext, out runedv1.RunOutcome, 
 			if !exists || before.Phase == "closed" || owned {
 				next.Phase, next.ProbeTurnID, next.ProbeAttemptID = "open", "", ""
 				next.NextProbeAt = maxTime(resetAt, q.now().Add(time.Hour))
-				if retry {
+				if shouldRetry {
 					next.NextProbeAt = tc.NextAttemptAt
 					if !work.successor {
 						next.ProbeTurnID = tc.TurnID
@@ -277,7 +279,7 @@ func (q *turnControl) complete(l *Loop, tc TurnContext, out runedv1.RunOutcome, 
 			after = &next
 		}
 		var ok bool
-		if retry {
+		if shouldRetry {
 			ok, err = l.db.store().DeferTurn(context.Background(), store.DeferredTurn{Turn: tc,
 				PriorCursor: l.db.GetAgentCursor(tc.ChatJID), ControlBefore: prior, ControlAfter: after})
 		} else if after != nil && (tc.State == store.TurnRunning || tc.State == store.TurnPendingRetry) {
@@ -299,7 +301,7 @@ func (q *turnControl) complete(l *Loop, tc TurnContext, out runedv1.RunOutcome, 
 					err = statusErr
 				}
 			}
-			return retry && ok, err
+			return shouldRetry && ok, err
 		}
 		current, ok := l.db.GetTurnContext(tc.TurnID)
 		if !ok || current.State != tc.State || current.AttemptID != tc.AttemptID {
@@ -345,7 +347,12 @@ func (q *turnControl) refuse(l *Loop, tc TurnContext, reason string, reset time.
 		current.NextAttemptAt = reset
 		if !exists || before.Phase == "closed" ||
 			(before.ProbeTurnID == tc.TurnID && before.ProbeAttemptID == tc.AttemptID) {
-			after.Phase, after.NextProbeAt = "open", maxTime(reset, retryAt(q.now(), tc.Trigger, tc.RetryCount+1))
+			decision := retry.Next(current.RetryCount, retry.Failure{Kind: "transient", RetryAt: reset}, q.now(), time.Time{})
+			nextProbe := decision.NextAt
+			if decision.Stop {
+				nextProbe = maxTime(reset, q.now().Add(time.Hour))
+			}
+			after.Phase, after.NextProbeAt = "open", nextProbe
 			after.ProbeTurnID, after.ProbeAttemptID = tc.TurnID, tc.AttemptID
 		}
 		ok, err = l.db.store().RecordControlledProviderFailure(ctx, current, p, &next, prior, &after)
@@ -393,14 +400,6 @@ func (q *turnControl) interrupt(l *Loop, tc TurnContext, expected ...store.TurnC
 		err = store.ErrRefused
 	}
 	return after, err
-}
-
-func retryAt(now time.Time, sender string, retry int) time.Time {
-	delays := [...]time.Duration{30 * time.Second, 2 * time.Minute, 5 * time.Minute}
-	if core.IsScheduledSender(sender) {
-		delays = [...]time.Duration{15 * time.Minute, 45 * time.Minute, 180 * time.Minute}
-	}
-	return now.Add(delays[min(max(retry, 1), len(delays))-1])
 }
 
 func (q *turnControl) tick(l *Loop) {

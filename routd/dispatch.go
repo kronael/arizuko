@@ -479,7 +479,7 @@ func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed boo
 	rendered, observedMark := l.buildBoundPrompt(folder, topic, trigger, ambient, saved != nil)
 
 	if tc, ok := l.db.GetTurnContext(turnID); ok && tc.RetryCount > 0 {
-		rendered = retryNoteBlock(tc.RetryCount, l.maxTurnRetry) + rendered
+		rendered = retryNoteBlock(tc.RetryCount) + rendered
 	}
 
 	if err := l.db.SetTurnAddressed(turnID, addressed); err != nil {
@@ -760,9 +760,9 @@ func groupByTopic(msgs []core.Message) [][]core.Message {
 	return consecutiveRuns(msgs, func(m core.Message) string { return m.Topic })
 }
 
-func retryNoteBlock(attempt, max int) string {
-	return fmt.Sprintf("<system-note>This is retry attempt %d of %d. "+
-		"The previous attempt did not complete.</system-note>\n", attempt, max)
+func retryNoteBlock(attempt int) string {
+	return fmt.Sprintf("<system-note>This is retry attempt %d. "+
+		"The previous attempt did not complete.</system-note>\n", attempt)
 }
 
 func jidScheme(jid string) string {

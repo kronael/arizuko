@@ -110,7 +110,7 @@ func TestNoticeSend_FailureIsLogged(t *testing.T) {
 			logs := captureWarnings(t)
 			dl := &noticeFailingDeliverer{&recDeliverer{}}
 			runner := &reportingRunner{mode: tc.mode}
-			db, srv := newTypingRoutd(t, runner, dl, -1)
+			db, srv := newTypingRoutd(t, runner, dl)
 			runner.srv = srv
 			const jid = "slack:T/C/P1"
 			seedTypingMsg(t, db, srv, jid)

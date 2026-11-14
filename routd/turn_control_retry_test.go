@@ -2,7 +2,6 @@ package routd
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -87,10 +86,7 @@ func TestTurnControlExecutionRetry(t *testing.T) {
 			if _, err := loop.processGroupMessages("web:demo"); err != nil {
 				t.Fatal(err)
 			}
-			delays := []time.Duration{30 * time.Second, 2 * time.Minute, 5 * time.Minute}
-			if sender == core.ScheduledSender {
-				delays = []time.Duration{15 * time.Minute, 45 * time.Minute, 180 * time.Minute}
-			}
+			delays := []time.Duration{30 * time.Second, time.Minute, 2 * time.Minute, 4 * time.Minute, 8 * time.Minute, 16 * time.Minute, 32 * time.Minute, time.Hour, time.Hour}
 			for i, delay := range delays {
 				tc, _ := db.GetTurnContext("retry")
 				if tc.State != store.TurnPendingRetry || tc.RetryCount != i+1 || !tc.NextAttemptAt.Equal(now.Add(delay)) {
@@ -121,7 +117,7 @@ func TestTurnControlExecutionRetry(t *testing.T) {
 				}
 			}
 			tc, _ := db.GetTurnContext("retry")
-			if tc.State != store.TurnDone || tc.RetryCount != 3 {
+			if tc.State != store.TurnDone || tc.RetryCount != 9 {
 				t.Fatalf("exhaustion: %+v", tc)
 			}
 		})
@@ -171,13 +167,5 @@ func TestTurnControlExecutionRetry(t *testing.T) {
 			}
 		})
 	}
-	for _, budget := range []struct{ configured, effective int }{{-1, 0}, {1, 1}, {0, 3}, {99, 3}} {
-		t.Run(fmt.Sprint(budget.configured), func(t *testing.T) {
-			loop := NewLoop(nil, nil, LoopConfig{MaxTurnRetry: budget.configured})
-			loop.StopQueue()
-			if loop.maxTurnRetry != budget.effective {
-				t.Fatalf("effective retry budget=%d, want %d", loop.maxTurnRetry, budget.effective)
-			}
-		})
-	}
+
 }

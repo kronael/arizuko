@@ -3,7 +3,6 @@ package routd
 import (
 	"fmt"
 	"os"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -229,15 +228,16 @@ func TestHoldGate_NoRuleNoOverhead(t *testing.T) {
 	}
 }
 
-// TestRetryExhaustedNotice_UsesConfiguredCount: the notice was a literal "3"
-// while MAX_TURN_RETRY is configurable, so an operator running 2 was told the
-// agent had tried three times.
-func TestRetryExhaustedNotice_UsesConfiguredCount(t *testing.T) {
-	if got := renderTurnStatus(turnStatus{phase: "final", cause: "Agent could not complete the request", retry: 2}); !strings.Contains(got, "2 retries") {
-		t.Fatalf("notice = %q, want the configured count", got)
-	}
-	if got := renderTurnStatus(turnStatus{phase: "final", cause: "Agent could not complete the request", retry: 5}); !strings.Contains(got, "5 retries") {
-		t.Fatalf("notice = %q, want the configured count", got)
+func TestRetryExhaustedNotice(t *testing.T) {
+	for _, tc := range []struct{ phase, cause, want string }{
+		{"final", "Agent could not complete the request", "Agent could not complete the request. Automatic retries stopped."},
+		{"timeout", "", "Time limit reached. Automatic retries stopped."},
+		{"silent", "", "Agent could not produce a reply. Automatic retries stopped."},
+		{"setup", "", "Agent setup needs attention. Automatic retries stopped."},
+	} {
+		if got := renderTurnStatus(turnStatus{phase: tc.phase, cause: tc.cause}); got != tc.want {
+			t.Errorf("%s notice = %q, want %q", tc.phase, got, tc.want)
+		}
 	}
 }
 

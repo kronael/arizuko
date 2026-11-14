@@ -210,8 +210,6 @@ func main() {
 		// A route miss federates an onboarding insert to onbod when enabled.
 		OnboardingEnabled:   core.EnvOr("ONBOARDING_ENABLED", "false") == "true",
 		OnboardingPlatforms: core.ParseCSV(os.Getenv("ONBOARDING_PLATFORMS")),
-		// Turn retry on SIGKILL/OOM/timeout (spec 5/12). Default 3.
-		MaxTurnRetry: core.EnvInt("MAX_TURN_RETRY", 3),
 		// Inbound media enrichment (download + Whisper transcription); unset
 		// MEDIA_ENABLED leaves it off. The MEDIA_* and WHISPER_MODEL defaults
 		// mirror core.LoadConfig, which runed reads for the agent's media config.
