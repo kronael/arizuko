@@ -55,17 +55,18 @@ const (
 var ErrGroupMissing = errors.New("group is missing")
 
 func IsActiveTurnState(state string) bool {
-	return state == TurnRunning || state == TurnPendingRetry
+	return state == TurnRunning || state == TurnPendingRetry || state == TurnWaitingCapacity
 }
 
 // The lifecycle states a turn passes through. `done` and `expired` are the two
 // terminal ones, and they are DISTINCT: expiring a stale turn must not trip the
 // done-guard against a legitimate re-dispatch.
 const (
-	TurnRunning      = "running"
-	TurnPendingRetry = "pending_retry"
-	TurnDone         = "done"
-	TurnExpired      = "expired"
+	TurnRunning         = "running"
+	TurnPendingRetry    = "pending_retry"
+	TurnWaitingCapacity = "waiting_capacity"
+	TurnDone            = "done"
+	TurnExpired         = "expired"
 )
 
 // The ordered declaration is what makes the expiry sweep a time comparison
@@ -77,6 +78,9 @@ func init() {
 
 // TurnContext is a turn's bound run-start context.
 type TurnContext struct {
+	Revision               string `json:"-"`
+	CapacityFailures       int
+	CapacityWakeCursor     string
 	AttemptID              string
 	InputLast              string
 	ProviderFailureAttempt string
@@ -115,8 +119,10 @@ func turnKey(turnID string) (objstore.Key, error) {
 }
 
 // turnFrom reads one item back.
-func turnFrom(it objstore.Item) TurnContext {
+func turnFrom(it objstore.Item) (TurnContext, error) {
 	tc := TurnContext{
+		Revision:               it.Attrs[objstore.IndexRevision],
+		CapacityWakeCursor:     it.Attrs["capacity_wake_cursor"],
 		AttemptID:              it.Attrs["attempt_id"],
 		InputLast:              it.Attrs["input_last"],
 		ProviderFailureAttempt: it.Attrs["provider_failure_attempt"],
@@ -141,7 +147,37 @@ func turnFrom(it objstore.Item) TurnContext {
 	tc.FailureCause = it.Attrs["failure_cause"]
 	tc.StatusOwed = it.Attrs["status_owed"]
 	_ = json.Unmarshal([]byte(it.Attrs["status_chats"]), &tc.StatusChats)
-	return tc
+	if value, ok := it.Attrs["capacity_failures"]; ok {
+		var err error
+		tc.CapacityFailures, err = strconv.Atoi(value)
+		if err != nil || tc.CapacityFailures <= 0 {
+			return TurnContext{}, fmt.Errorf("turn %s: invalid capacity failures", tc.TurnID)
+		}
+	}
+	if value, ok := it.Attrs["capacity_wake_cursor"]; ok {
+		_, valid := CursorInstant(value)
+		if requireMessageCursor(value) != nil || !valid {
+			return TurnContext{}, fmt.Errorf("turn %s: invalid capacity wake cursor", tc.TurnID)
+		}
+	}
+	if tc.State == TurnWaitingCapacity {
+		_, hasRun := it.Attrs[attrTurnRunID]
+		_, hasReturned := it.Attrs[attrTurnRunReturned]
+		_, valid := CursorInstant(tc.InputLast)
+		if hasRun || hasReturned || requireMessageCursor(tc.InputLast) != nil || !valid || tc.NextAttemptAt.IsZero() || len(tc.InputKeys) == 0 || tc.CapacityFailures == 0 {
+			return TurnContext{}, fmt.Errorf("turn %s: invalid capacity wait", tc.TurnID)
+		}
+		for _, key := range tc.InputKeys {
+			_, valid := CursorInstant(key.Sort)
+			if key.Partition != tc.ChatJID || requireMessageCursor(key.Sort) != nil || !valid {
+				return TurnContext{}, fmt.Errorf("turn %s: invalid capacity input", tc.TurnID)
+			}
+		}
+		if tc.InputKeys[len(tc.InputKeys)-1].Sort != tc.InputLast {
+			return TurnContext{}, fmt.Errorf("turn %s: invalid capacity input last", tc.TurnID)
+		}
+	}
+	return tc, nil
 }
 
 // AddTurnStatusChat records that turnID's status reached jid, so a later status
@@ -184,56 +220,16 @@ func (s *Store) OpenTurnContext(turnID, folder, topic, chatJID, trigger, returnT
 	if err != nil {
 		return false, err
 	}
+	ctx := context.Background()
+	binding, checks, claim, err := s.prepareTurnBinding(ctx, TurnContext{TurnID: turnID, Folder: folder, Topic: topic, ChatJID: chatJID, Trigger: trigger, ReturnTo: returnTo}, admission)
+	if err != nil {
+		return false, err
+	}
 	group, err := groupKey(folder)
 	if err != nil {
 		return false, err
 	}
-	bound := map[string]string{attrTurnState: TurnRunning, "attempt_id": rand.Text()}
-	if admission != nil {
-		if admission.AttemptID != "" {
-			bound["attempt_id"] = admission.AttemptID
-		}
-		setAttr(bound, "input_last", admission.InputLast)
-		if admission.InputKeys != nil {
-			input, err := json.Marshal(admission.InputKeys)
-			if err != nil {
-				return false, err
-			}
-			bound["input_keys"] = string(input)
-		}
-		if admission.AmbientKeys != nil {
-			ambient, err := json.Marshal(admission.AmbientKeys)
-			if err != nil {
-				return false, err
-			}
-			bound["ambient_keys"] = string(ambient)
-		}
-	}
-	setAttr(bound, attrTurnFolder, folder)
-	setAttr(bound, attrTurnTopic, topic)
-	setAttr(bound, attrTurnChatJID, chatJID)
-	setAttr(bound, attrTurnTrigger, trigger)
-	setAttr(bound, attrTurnReturnTo, returnTo)
-
-	ctx := context.Background()
-	checks := []objstore.Check{{Entity: Groups, Key: group,
-		Cond: objstore.Cond{Item: objstore.ItemPresent}}}
-	var claim []objstore.Write
-	if admission != nil && len(admission.InputKeys) > 0 {
-		chat, err := chatKey(chatJID)
-		if err != nil {
-			return false, err
-		}
-		_, exists, err := s.itemAt(ctx, Chats, chat)
-		if err != nil {
-			return false, err
-		}
-		if exists {
-			claim = append(claim, objstore.Write{Op: objstore.Update, Entity: Chats, Key: chat, Cond: objstore.Cond{Item: objstore.ItemPresent}})
-		} else {
-			checks = append(checks, objstore.Check{Entity: Chats, Key: chat, Cond: objstore.Cond{Item: objstore.ItemAbsent}})
-		}
-	}
+	bound := binding.Attrs
 	if admission != nil && admission.Controlled {
 		controlChecks, controlWrites := controlAdmission(admission.ControlBefore, admission.ControlAfter)
 		checks = append(checks, controlChecks...)
@@ -287,15 +283,11 @@ func (s *Store) OpenTurnContext(turnID, folder, topic, chatJID, trigger, returnT
 	// answers every late callback with turn_done. The empty fields of `bound`
 	// are removed rather than left: a stale return address would deliver the
 	// next answer to the previous delegator.
-	live, err := s.TryWriteEntities(ctx, checks, append(claim, objstore.Write{
-		Op: objstore.Update, Entity: TurnContexts, Key: key, Attrs: bound,
-		Remove: append(missingAttrs(bound, attrTurnFolder, attrTurnTopic, attrTurnChatJID,
-			attrTurnTrigger, attrTurnReturnTo), attrTurnRunReturned, attrTurnRunID),
-		Cond: objstore.Cond{Where: []objstore.Cmp{
-			{Attr: attrTurnState, Op: objstore.Ne, Value: TurnDone},
-			{Attr: "next_attempt_at", Op: objstore.Absent},
-		}},
-	})...)
+	binding.Cond = objstore.Cond{Where: []objstore.Cmp{
+		{Attr: attrTurnState, Op: objstore.Ne, Value: TurnDone},
+		{Attr: "next_attempt_at", Op: objstore.Absent},
+	}}
+	live, err := s.TryWriteEntities(ctx, checks, append(claim, binding)...)
 	if err != nil {
 		return false, fmt.Errorf("re-bind turn %s: %w", turnID, err)
 	}
@@ -306,6 +298,68 @@ func (s *Store) OpenTurnContext(turnID, folder, topic, chatJID, trigger, returnT
 		return false, ErrModelPaused
 	}
 	return true, nil
+}
+
+func (s *Store) prepareTurnBinding(ctx context.Context, binding TurnContext,
+	admission *TurnAdmission) (objstore.Write, []objstore.Check, []objstore.Write, error) {
+	key, err := turnKey(binding.TurnID)
+	if err != nil {
+		return objstore.Write{}, nil, nil, err
+	}
+	group, err := groupKey(binding.Folder)
+	if err != nil {
+		return objstore.Write{}, nil, nil, err
+	}
+	bound := map[string]string{attrTurnState: TurnRunning, "attempt_id": rand.Text()}
+	if admission != nil {
+		if admission.AttemptID != "" {
+			bound["attempt_id"] = admission.AttemptID
+		}
+		setAttr(bound, "input_last", admission.InputLast)
+		if admission.InputKeys != nil {
+			input, err := json.Marshal(admission.InputKeys)
+			if err != nil {
+				return objstore.Write{}, nil, nil, err
+			}
+			bound["input_keys"] = string(input)
+		}
+		if admission.AmbientKeys != nil {
+			ambient, err := json.Marshal(admission.AmbientKeys)
+			if err != nil {
+				return objstore.Write{}, nil, nil, err
+			}
+			bound["ambient_keys"] = string(ambient)
+		}
+	}
+	setAttr(bound, attrTurnFolder, binding.Folder)
+	setAttr(bound, attrTurnTopic, binding.Topic)
+	setAttr(bound, attrTurnChatJID, binding.ChatJID)
+	setAttr(bound, attrTurnTrigger, binding.Trigger)
+	setAttr(bound, attrTurnReturnTo, binding.ReturnTo)
+
+	checks := []objstore.Check{{Entity: Groups, Key: group,
+		Cond: objstore.Cond{Item: objstore.ItemPresent}}}
+	var claim []objstore.Write
+	if admission != nil && len(admission.InputKeys) > 0 {
+		chat, err := chatKey(binding.ChatJID)
+		if err != nil {
+			return objstore.Write{}, nil, nil, err
+		}
+		_, exists, err := s.itemAt(ctx, Chats, chat)
+		if err != nil {
+			return objstore.Write{}, nil, nil, err
+		}
+		if exists {
+			claim = append(claim, objstore.Write{Op: objstore.Update, Entity: Chats, Key: chat, Cond: objstore.Cond{Item: objstore.ItemPresent}})
+		} else {
+			checks = append(checks, objstore.Check{Entity: Chats, Key: chat, Cond: objstore.Cond{Item: objstore.ItemAbsent}})
+		}
+	}
+	return objstore.Write{
+		Op: objstore.Update, Entity: TurnContexts, Key: key, Attrs: bound,
+		Remove: append(missingAttrs(bound, attrTurnFolder, attrTurnTopic, attrTurnChatJID,
+			attrTurnTrigger, attrTurnReturnTo), attrTurnRunReturned, attrTurnRunID),
+	}, checks, claim, nil
 }
 
 func (s *Store) checkAdmissionGroup(ctx context.Context, group objstore.Key) error {
@@ -343,19 +397,20 @@ func (s *Store) ReadTurnContext(ctx context.Context, turnID string) (TurnContext
 	if err != nil || !ok {
 		return TurnContext{}, false, err
 	}
-	return turnFrom(it), true, nil
+	tc, err := turnFrom(it)
+	return tc, err == nil, err
 }
 
 // setTurnAttrs merges attributes into a bound turn. An Update against a turn
 // nobody bound writes nothing, and that is not an error.
-func (s *Store) setTurnAttrs(turnID string, attrs map[string]string) error {
+func (s *Store) setTurnAttrs(turnID string, attrs map[string]string, remove ...string) error {
 	key, err := turnKey(turnID)
 	if err != nil {
 		return err
 	}
 	// A refusal is a turn nobody bound.
 	if _, err := s.TryWriteEntities(context.Background(), nil, objstore.Write{
-		Op: objstore.Update, Entity: TurnContexts, Key: key, Attrs: attrs,
+		Op: objstore.Update, Entity: TurnContexts, Key: key, Attrs: attrs, Remove: remove,
 	}); err != nil {
 		return fmt.Errorf("update turn %s: %w", turnID, err)
 	}
@@ -417,7 +472,7 @@ func (s *Store) SetTurnAddressed(turnID string, addressed bool) error {
 // a late callback is answered turn_done; before it, trailing frames from a
 // still-live run stay valid even past an early submit_turn.
 func (s *Store) SetRunReturned(turnID string) error {
-	return s.setTurnAttrs(turnID, map[string]string{attrTurnRunReturned: flagSet})
+	return s.setTurnAttrs(turnID, map[string]string{attrTurnRunReturned: flagSet}, "capacity_failures", "capacity_wake_cursor")
 }
 
 // SetTurnGatewayKey records the sha256 of the key the gateway minted for this
@@ -461,7 +516,11 @@ func (s *Store) TurnsSince(since time.Time) ([]TurnContext, error) {
 	for _, it := range append(live, archived...) {
 		if !seen[it.Key.Sort] {
 			seen[it.Key.Sort] = true
-			out = append(out, turnFrom(it))
+			tc, err := turnFrom(it)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, tc)
 		}
 	}
 	return out, nil

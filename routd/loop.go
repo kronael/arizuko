@@ -716,7 +716,6 @@ func (l *Loop) directFolder(jid string) string {
 
 func (l *Loop) advance(chatJID string, last core.Message) {
 	// Any cursor advance is progress past the batch a Busy refusal parked.
-	l.q.busyWait.Delete(chatJID)
 	if reply, ok := l.waiting.LoadAndDelete(chatJID); ok {
 		l.pauseProgress(reply.(string), "")
 	}

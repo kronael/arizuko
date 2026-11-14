@@ -114,7 +114,10 @@ func (s *Store) retireFolderTurns(ctx context.Context, folder string) (int, erro
 	retiredCount := 0
 	for _, item := range items {
 		for round := range retryRounds {
-			tc := turnFrom(item)
+			tc, err := turnFrom(item)
+			if err != nil {
+				return retiredCount, err
+			}
 			if tc.State == TurnDone || !groupfolder.ContainsSep(folder, tc.Folder, "/") {
 				break
 			}

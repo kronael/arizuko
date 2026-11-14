@@ -163,7 +163,7 @@ func turnIndexes(entity string, it objstore.Item) []objstore.Key {
 		return keys
 	}
 	switch a[attrTurnState] {
-	case TurnRunning, TurnPendingRetry:
+	case TurnRunning, TurnPendingRetry, TurnWaitingCapacity:
 		add("turns/live", it.Key.Sort)
 		add(indexPartition("turns/folder", a[attrTurnFolder]), it.Key.Sort)
 		add(indexPartition("turns/chat", a[attrTurnChatJID]), it.Key.Sort)
@@ -171,7 +171,7 @@ func turnIndexes(entity string, it objstore.Item) []objstore.Key {
 	if a[attrTurnState] == TurnRunning && a[attrTurnRunReturned] == flagSet {
 		add("turns/recovery", it.Key.Sort)
 	}
-	if a[attrTurnState] == TurnPendingRetry && a["next_attempt_at"] != "" {
+	if (a[attrTurnState] == TurnPendingRetry || a[attrTurnState] == TurnWaitingCapacity) && a["next_attempt_at"] != "" {
 		keys = append(keys, objstore.DueIndexKey("turns/retry", a["next_attempt_at"], entity, it.Key))
 	}
 	if _, owed := a["status_owed"]; owed {
@@ -187,7 +187,11 @@ func (s *Store) indexedTurns(ctx context.Context, partition string, key objstore
 	}
 	turns := make([]TurnContext, 0, len(items))
 	for _, it := range items {
-		turns = append(turns, turnFrom(it))
+		tc, err := turnFrom(it)
+		if err != nil {
+			return nil, err
+		}
+		turns = append(turns, tc)
 	}
 	return turns, nil
 }

@@ -76,7 +76,6 @@ func TestTurnControlProviderInstancePause(t *testing.T) {
 		t.Fatal("refused attempt accepted a delivery check")
 	}
 	now = reset.Add(time.Minute)
-	l.q.busyWait.Delete("web:b")
 	processPauseChat(t, l, "web:b")
 	if len(p.runs) != 0 {
 		t.Fatal("provider callback admitted another run before runtime return")
@@ -130,7 +129,6 @@ func TestTurnControlProviderExhaustion(t *testing.T) {
 			}
 			now = control.NextProbeAt
 			l.q.now = func() time.Time { return now }
-			l.q.busyWait.Delete("web:b")
 			processPauseChat(t, l, "web:b")
 			control, _, _ = db.store().ReadTurnControl(t.Context())
 			if len(p.runs) != 11 || control.Phase != "closed" {
@@ -273,8 +271,15 @@ func TestTurnControlProviderSavedReplay(t *testing.T) {
 	processPauseChat(t, l, jid)
 	doSetRoutes(t, db, []core.Route{{Match: "chat_jid=" + jid, Target: "b"}})
 	pauseInput(t, db, jid, "later", "u", "later", time.Now().Add(time.Second))
+	p.busy = true
 	providerDue(t, l, "refused")
-	if len(p.runs) != 2 || p.runs[1].Folder != "a" || strings.Contains(p.runs[1].MessageBatch, "later") {
+	waiting, ok := db.GetTurnContext("refused")
+	if !ok || waiting.State != store.TurnWaitingCapacity || waiting.Folder != "a" || waiting.CapacityFailures != 1 {
+		t.Fatalf("saved capacity binding changed: %+v", waiting)
+	}
+	p.busy = false
+	providerDue(t, l, "refused")
+	if len(p.runs) != 3 || p.runs[1].Folder != "a" || p.runs[2].Folder != "a" || strings.Contains(p.runs[2].MessageBatch, "later") {
 		t.Fatalf("saved provider binding changed: %+v", p.runs)
 	}
 }

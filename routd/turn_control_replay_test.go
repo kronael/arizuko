@@ -176,7 +176,7 @@ func testTurnControlProbeRestart(t *testing.T) {
 	}
 	probe := before
 	probe.Phase, probe.ProbeAttemptID = "probe", "interrupted"
-	if ok, err := db.store().ClaimControlledTurn(ctx, tc, probe.ProbeAttemptID, now, &before, &probe); err != nil || !ok {
+	if ok, err := db.store().ClaimControlledTurn(ctx, tc, nil, &store.TurnAdmission{AttemptID: probe.ProbeAttemptID, ControlBefore: &before, ControlAfter: &probe}, now); err != nil || !ok {
 		t.Fatalf("claim probe: %v %v", ok, err)
 	}
 	early := strings.HasSuffix(t.Name(), "early_submission")

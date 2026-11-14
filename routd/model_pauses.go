@@ -22,7 +22,7 @@ func (l *Loop) oldestModelInput(folder string, first core.Message) (core.Message
 	}
 	var oldest core.Message
 	for _, tc := range turns {
-		if tc.Folder != folder || tc.State != store.TurnPendingRetry {
+		if tc.Folder != folder || (tc.State != store.TurnPendingRetry && tc.State != store.TurnWaitingCapacity) {
 			continue
 		}
 		msgs, err := l.db.store().DeferredMessages(context.Background(), tc.InputKeys)
@@ -82,7 +82,6 @@ func (l *Loop) holdModelInput(chatJID string, trigger []core.Message) error {
 	l.q.mu.Lock()
 	l.q.getGroup(chatJID).refused = true
 	l.q.mu.Unlock()
-	l.q.busyWait.Delete(chatJID)
 	if l.deliver != nil {
 		clearPresence(l.deliver, []string{replyChat(chatJID, trigger[len(trigger)-1])})
 	}

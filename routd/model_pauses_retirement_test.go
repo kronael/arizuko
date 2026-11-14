@@ -35,15 +35,15 @@ func TestDeletionPreservesSurvivingReboundInput(t *testing.T) {
 	p.busy = true
 	processPauseChat(t, l, jid)
 	before, ok := db.GetTurnContext("input")
-	if !ok || before.Folder != "a" || before.State != store.TurnRunning || db.GetAgentCursor(jid) != "" {
+	if !ok || before.Folder != "a" || before.State != store.TurnWaitingCapacity || before.CapacityFailures != 1 || db.GetAgentCursor(jid) != "" {
 		t.Fatalf("initial busy attempt: %+v cursor=%q", before, db.GetAgentCursor(jid))
 	}
 	doSetRoutes(t, db, []core.Route{{Match: "chat_jid=" + jid, Target: "b"}})
 	gate := &retirementSnapshot{Store: db.Obj(), after: func() {
-		l.q.busyWait.Delete(jid)
+		expireBusyWait(t, l, jid)
 		processPauseChat(t, l, jid)
 		tc, _ := db.GetTurnContext("input")
-		if tc.Folder != "b" || tc.State != store.TurnRunning || tc.AttemptID == before.AttemptID {
+		if tc.Folder != "b" || tc.State != store.TurnWaitingCapacity || tc.CapacityFailures != 2 || tc.AttemptID == before.AttemptID {
 			t.Fatalf("surviving rebind: %+v", tc)
 		}
 	}}
@@ -51,14 +51,14 @@ func TestDeletionPreservesSurvivingReboundInput(t *testing.T) {
 		t.Fatal(err)
 	}
 	after, _ := db.GetTurnContext("input")
-	if !gate.fired || !db.GroupExists("b") || after.Folder != "b" || after.State != store.TurnRunning {
+	if !gate.fired || !db.GroupExists("b") || after.Folder != "b" || after.State != store.TurnWaitingCapacity || after.CapacityFailures != 2 {
 		t.Fatalf("surviving group/turn changed: %+v", after)
 	}
 	if got := db.GetAgentCursor(jid); got != "" {
 		t.Fatalf("surviving input cursor = %q, want empty", got)
 	}
 	p.busy = false
-	l.q.busyWait.Delete(jid)
+	expireBusyWait(t, l, jid)
 	n := len(p.runs)
 	processPauseChat(t, l, jid)
 	if len(p.runs) != n+1 || string(p.runs[n].Folder) != "b" || !strings.Contains(p.runs[n].MessageBatch, "surviving private input") {

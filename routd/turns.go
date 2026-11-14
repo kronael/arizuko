@@ -13,6 +13,7 @@ import (
 	"github.com/kronael/arizuko/ipc"
 	"github.com/kronael/arizuko/obs"
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
+	"github.com/kronael/arizuko/store"
 )
 
 // The turn's outbound lifecycle: explicit delivery tools and progress updates.
@@ -77,7 +78,7 @@ func discordThreadJID(jid, topic string) string {
 }
 
 func (s *Server) callbackClosed(tc TurnContext) bool {
-	return tc.RunReturned || (tc.AttemptID != "" && tc.ProviderFailureAttempt == tc.AttemptID)
+	return tc.State == store.TurnWaitingCapacity || tc.RunReturned || (tc.AttemptID != "" && tc.ProviderFailureAttempt == tc.AttemptID)
 }
 
 // returnTarget redirects a turn's delivery to the delegation return address

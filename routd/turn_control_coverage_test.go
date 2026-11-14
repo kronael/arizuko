@@ -28,7 +28,7 @@ func TestTurnControlBusyProbePreservesBudget(t *testing.T) {
 	after, _ := db.GetTurnContext("refused")
 	control, _, err := db.store().ReadTurnControl(t.Context())
 	pause, _ := db.store().ReadModelPause(t.Context(), "a")
-	if err != nil || after.State != store.TurnPendingRetry || after.RetryCount != before.RetryCount ||
+	if err != nil || after.State != store.TurnWaitingCapacity || after.CapacityFailures != 1 || after.RetryCount != before.RetryCount ||
 		control.Phase != "open" || control.ProbeAttemptID != "" || after.NextAttemptAt.IsZero() ||
 		control.Episode != prior.Episode || control.ProbeTurnID != before.TurnID || pause == nil ||
 		len(p.kills) != 0 || p.stops != 0 {

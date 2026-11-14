@@ -5,7 +5,6 @@ package routd
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -145,12 +144,12 @@ func TestFailedPassIsRetried(t *testing.T) {
 		var passes atomic.Int32
 		q.SetProcessMessagesFn(func(string) (bool, error) {
 			if passes.Add(1) == 1 {
-				return false, errors.New("store timed out")
+				return false, context.DeadlineExceeded
 			}
 			return false, nil
 		})
 		q.EnqueueMessageCheck("chat")
-		time.Sleep(busyBackoffBase + time.Second)
+		time.Sleep(30*time.Second + time.Second)
 		synctest.Wait()
 		if got := passes.Load(); got != 2 {
 			t.Fatalf("passes = %d, want 2: the failed pass was not retried", got)
@@ -191,12 +190,28 @@ func TestBusyRefusalWakesTheChatAgain(t *testing.T) {
 		t.Fatal(err)
 	}
 	l.Enqueue("web:demo")
-	for i := range 2 {
-		select {
-		case <-runner.runs:
-		case <-time.After(busyBackoffBase + 5*time.Second):
-			t.Fatalf("run %d never came: the Busy refusal was not re-fed", i+1)
+	select {
+	case <-runner.runs:
+	case <-time.After(5 * time.Second):
+		t.Fatal("first run never came")
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		tc, ok := db.GetTurnContext("a")
+		if ok && tc.State == store.TurnWaitingCapacity {
+			l.q.now = func() time.Time { return tc.NextAttemptAt }
+			break
 		}
+		if time.Now().After(deadline) {
+			t.Fatal("capacity wait not recorded")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	l.q.tick(l)
+	select {
+	case <-runner.runs:
+	case <-time.After(5 * time.Second):
+		t.Fatal("due capacity wait did not wake")
 	}
 }
 

@@ -557,7 +557,6 @@ func TestTurnRetry_SchedulesRetryOnError(t *testing.T) {
 		t.Fatalf("deferred cursor=%q binding=%+v", cur, tc)
 	}
 
-	loop.q.busyWait.Delete("slack:T/C/U")
 	_, _ = loop.processGroupMessages("slack:T/C/U")
 	tc, _ = db.GetTurnContext("r1")
 	if tc.NextAttemptAt.IsZero() || db.GetAgentCursor(tc.ChatJID) != tc.InputLast || attempts != 1 {

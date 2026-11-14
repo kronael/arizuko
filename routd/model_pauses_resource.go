@@ -75,7 +75,7 @@ func (s *Server) modelPausesHandler(ctx context.Context, x resreg.Execution) (an
 		for _, p := range pauses {
 			n := 0
 			for _, tc := range pending {
-				if tc.Folder == p.Folder && tc.State == store.TurnPendingRetry {
+				if tc.Folder == p.Folder && (tc.State == store.TurnPendingRetry || tc.State == store.TurnWaitingCapacity) {
 					n += len(tc.InputKeys)
 				}
 			}

@@ -13,6 +13,7 @@ import (
 
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/retry"
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 	"github.com/kronael/arizuko/store"
@@ -151,8 +152,8 @@ func TestBusyOutcomeRetriesWithoutAdvanceOrBreaker(t *testing.T) {
 	if got := db.GetAgentCursor("slack:T/C/U"); got != cursorBefore {
 		t.Fatalf("cursor advanced on busy: %q != %q (batch dropped, not retried)", got, cursorBefore)
 	}
-	if tc, ok := db.GetTurnContext("m1"); !ok || tc.State != "running" {
-		t.Fatalf("turn_context state=%q ok=%v want running (re-dispatchable)", tc.State, ok)
+	if tc, ok := db.GetTurnContext("m1"); !ok || tc.State != store.TurnWaitingCapacity {
+		t.Fatalf("turn_context state=%q ok=%v want waiting_capacity", tc.State, ok)
 	}
 
 	// (2) the very next poll must NOT re-dispatch: the busy backoff defers the
@@ -187,8 +188,8 @@ func TestBusyOutcomeRetriesWithoutAdvanceOrBreaker(t *testing.T) {
 	if db.GetAgentCursor("slack:T/C/U") == cursorBefore {
 		t.Fatal("cursor did not advance after the successful retry")
 	}
-	if _, ok := srv.loop.q.busyWait.Load("slack:T/C/U"); ok {
-		t.Fatal("busy backoff entry survived the successful retry; want cleared on advance")
+	if tc, ok := db.GetTurnContext("m1"); !ok || tc.CapacityFailures != 0 {
+		t.Fatalf("capacity metadata survived success: %+v", tc)
 	}
 }
 
@@ -196,13 +197,8 @@ func TestBusyOutcomeRetriesWithoutAdvanceOrBreaker(t *testing.T) {
 // without sleeping.
 func expireBusyWait(t *testing.T, l *Loop, chatJID string) {
 	t.Helper()
-	v, ok := l.q.busyWait.Load(chatJID)
-	if !ok {
-		t.Fatalf("no busy backoff recorded for %s", chatJID)
-	}
-	st := v.(busyState)
-	st.until = time.Now().Add(-time.Millisecond)
-	l.q.busyWait.Store(chatJID, st)
+	tc := loadBusyState(t, l, chatJID)
+	l.q.now = func() time.Time { return tc.NextAttemptAt }
 }
 
 // TestBusyBackoffGrowsAndNewMessageBypasses: a consecutive refusal of the
@@ -225,8 +221,8 @@ func TestBusyBackoffGrowsAndNewMessageBypasses(t *testing.T) {
 		t.Fatalf("process: %v", err)
 	}
 	st := loadBusyState(t, srv.loop, "slack:T/C/U")
-	if st.delay != busyBackoffBase {
-		t.Fatalf("first refusal delay=%v want %v", st.delay, busyBackoffBase)
+	if st.CapacityFailures != 1 {
+		t.Fatalf("first refusal delay=%v want %v", st.CapacityFailures, 1)
 	}
 
 	// Second refusal of the SAME batch (window expired): backoff doubles.
@@ -235,8 +231,8 @@ func TestBusyBackoffGrowsAndNewMessageBypasses(t *testing.T) {
 		t.Fatalf("process: %v", err)
 	}
 	st = loadBusyState(t, srv.loop, "slack:T/C/U")
-	if st.delay != 2*busyBackoffBase {
-		t.Fatalf("second refusal delay=%v want %v", st.delay, 2*busyBackoffBase)
+	if st.CapacityFailures != 2 {
+		t.Fatalf("second refusal delay=%v want %v", st.CapacityFailures, 2*1)
 	}
 
 	// A new inbound message bypasses the standing backoff: the next poll
@@ -250,8 +246,8 @@ func TestBusyBackoffGrowsAndNewMessageBypasses(t *testing.T) {
 		t.Fatalf("new message did not bypass the backoff: dispatched turn_id=%q want m2", runner.gotTurn)
 	}
 	st = loadBusyState(t, srv.loop, "slack:T/C/U")
-	if st.delay != busyBackoffBase || st.lastMsgID != "m2" {
-		t.Fatalf("backoff after bypass delay=%v lastMsgID=%q; want base delay keyed on m2", st.delay, st.lastMsgID)
+	if st.CapacityFailures != 1 || st.TurnID != "m2" {
+		t.Fatalf("backoff after bypass delay=%v lastMsgID=%q; want base delay keyed on m2", st.CapacityFailures, st.TurnID)
 	}
 }
 
@@ -277,8 +273,8 @@ func TestABotRowDoesNotClearTheBusyBackoff(t *testing.T) {
 		t.Fatalf("process: %v", err)
 	}
 	st := loadBusyState(t, srv.loop, "slack:T/C/U")
-	if st.lastMsgID != "m1" {
-		t.Fatalf("the backoff is keyed on %q, want the user row m1", st.lastMsgID)
+	if st.TurnID != "m1" {
+		t.Fatalf("the backoff is keyed on %q, want the user row m1", st.TurnID)
 	}
 
 	// The turn runs and writes a bot row into the same chat, the way a reply
@@ -297,19 +293,25 @@ func TestABotRowDoesNotClearTheBusyBackoff(t *testing.T) {
 	if runner.gotTurn != "" {
 		t.Errorf("the bot row cleared the backoff and re-dispatched turn_id=%q", runner.gotTurn)
 	}
-	if st := loadBusyState(t, srv.loop, "slack:T/C/U"); st.delay != busyBackoffBase {
-		t.Errorf("the backoff restarted at %v; the bot row must leave it alone", st.delay)
+	if st := loadBusyState(t, srv.loop, "slack:T/C/U"); st.CapacityFailures != 1 {
+		t.Errorf("the backoff restarted at %v; the bot row must leave it alone", st.CapacityFailures)
 	}
 }
 
 // loadBusyState fetches a chat's recorded busy backoff, failing when absent.
-func loadBusyState(t *testing.T, l *Loop, chatJID string) busyState {
+func loadBusyState(t *testing.T, l *Loop, chatJID string) TurnContext {
 	t.Helper()
-	v, ok := l.q.busyWait.Load(chatJID)
-	if !ok {
-		t.Fatalf("no busy backoff recorded for %s", chatJID)
+	turns, err := l.db.store().LiveTurnsInChat(context.Background(), chatJID)
+	if err != nil {
+		t.Fatal(err)
 	}
-	return v.(busyState)
+	for _, tc := range turns {
+		if tc.State == store.TurnWaitingCapacity {
+			return tc
+		}
+	}
+	t.Fatalf("no capacity wait for %s", chatJID)
+	return TurnContext{}
 }
 
 // TestTurnReplyAppendsAndDelivers checks the sole appender writes the bot row
@@ -653,5 +655,69 @@ func TestDispatch_ARouteTokenChatsOwnReplyIsNotADelegation(t *testing.T) {
 	}
 	if strings.Contains(logged(), "delegation woke nothing") {
 		t.Errorf("a route-token chat's own reply logged a false alarm:\n%s", logged())
+	}
+}
+
+func TestCapacityExhaustionAdvancesInput(t *testing.T) {
+	db, srv, runner := newTestRoutd(t)
+	runner.busy = true
+	now := time.Now()
+	srv.loop.q.now = func() time.Time { return now }
+	if err := db.PutGroup(core.Group{Folder: "demo"}); err != nil {
+		t.Fatal(err)
+	}
+	h := srv.Handler()
+	doJSON(t, h, "PUT", "/v1/routes", "", map[string]any{"routes": []apiv1.Route{{Seq: 0, Match: "platform=slack", Target: "demo"}}})
+	doJSON(t, h, "POST", "/v1/messages", "", apiv1.Message{ID: "m1", ChatJID: "slack:T/C/U", Sender: "u1", Content: "hi", Verb: "message"})
+	for count := 1; count <= 10; count++ {
+		now := srv.loop.q.now()
+		if _, err := srv.loop.processGroupMessages("slack:T/C/U"); err != nil {
+			t.Fatal(err)
+		}
+		tc, ok := db.GetTurnContext("m1")
+		if !ok || tc.CapacityFailures != count {
+			t.Fatalf("failure %d: %+v", count, tc)
+		}
+		if count < 10 {
+			decision := retry.Next(count-1, retry.Failure{Kind: "transient"}, now, time.Time{})
+			if tc.State != store.TurnWaitingCapacity || !tc.NextAttemptAt.Equal(decision.NextAt) || db.GetAgentCursor(tc.ChatJID) != "" {
+				t.Fatalf("waiting %d: %+v", count, tc)
+			}
+			expireBusyWait(t, srv.loop, tc.ChatJID)
+		} else if tc.State != store.TurnDone || !tc.RunReturned || db.GetAgentCursor(tc.ChatJID) != tc.InputLast {
+			t.Fatalf("terminal: %+v cursor=%q", tc, db.GetAgentCursor(tc.ChatJID))
+		}
+	}
+}
+
+func TestCapacityWaitSurvivesRouterRestart(t *testing.T) {
+	db, srv, runner := newTestRoutd(t)
+	runner.busy = true
+	if err := db.PutGroup(core.Group{Folder: "demo"}); err != nil {
+		t.Fatal(err)
+	}
+	h := srv.Handler()
+	doJSON(t, h, "PUT", "/v1/routes", "", map[string]any{"routes": []apiv1.Route{{Seq: 0, Match: "platform=slack", Target: "demo"}}})
+	doJSON(t, h, "POST", "/v1/messages", "", apiv1.Message{ID: "m1", ChatJID: "slack:T/C/U", Sender: "u1", Content: "hi", Verb: "message"})
+	if _, err := srv.loop.processGroupMessages("slack:T/C/U"); err != nil {
+		t.Fatal(err)
+	}
+	tc := loadBusyState(t, srv.loop, "slack:T/C/U")
+	srv.loop.q = newTurnControl(1)
+	srv.loop.q.now = func() time.Time { return tc.NextAttemptAt.Add(-time.Nanosecond) }
+	runner.busy, runner.gotTurn = false, ""
+	if _, err := srv.loop.processGroupMessages(tc.ChatJID); err != nil {
+		t.Fatal(err)
+	}
+	if runner.gotTurn != "" {
+		t.Fatal("restart bypassed the capacity deadline")
+	}
+	srv.loop.q.now = func() time.Time { return tc.NextAttemptAt }
+	if _, err := srv.loop.processGroupMessages(tc.ChatJID); err != nil {
+		t.Fatal(err)
+	}
+	after, ok := db.GetTurnContext("m1")
+	if !ok || runner.gotTurn != "m1" || after.CapacityFailures != 0 || db.GetAgentCursor(tc.ChatJID) != tc.InputLast {
+		t.Fatalf("restart replay: turn=%+v dispatched=%q", after, runner.gotTurn)
 	}
 }

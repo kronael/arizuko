@@ -42,17 +42,22 @@ func (q *turnControl) savePending(l *Loop, tc TurnContext, input, ambient []core
 	}
 	tc.NextAttemptAt = q.now()
 	ctx := context.Background()
-	prior, exists := l.db.GetTurnContext(tc.TurnID)
-	if exists && prior.State == store.TurnRunning {
-		v, busy := q.busyWait.Load(tc.ChatJID)
-		if !busy || v.(busyState).lastMsgID != tc.TurnID || prior.RunID != "" || prior.RetryCount != 0 {
+	prior, exists, err := l.db.store().ReadTurnContext(ctx, tc.TurnID)
+	if err != nil {
+		return err
+	}
+	if exists && prior.State == store.TurnWaitingCapacity {
+		if prior.RunID != "" || prior.RunReturned || prior.RetryCount != 0 {
 			return fmt.Errorf("turn %s still owns execution", tc.TurnID)
 		}
-		ok, err := l.db.store().RequeueDeferredTurn(ctx, prior, tc.NextAttemptAt)
+		ok, err := l.db.store().RequeueDeferredTurn(ctx, prior, tc.NextAttemptAt, l.db.GetAgentCursor(tc.ChatJID))
 		if err != nil || !ok {
 			return fmt.Errorf("save pending turn %s: requeue refused: %v", tc.TurnID, err)
 		}
-		return l.db.store().AdvanceAgentCursor(tc.ChatJID, prior.InputLast)
+		return nil
+	}
+	if exists && prior.State == store.TurnRunning {
+		return fmt.Errorf("turn %s still owns execution", tc.TurnID)
 	}
 	ok, err := l.db.store().SavePendingTurn(ctx, tc, l.db.GetAgentCursor(tc.ChatJID))
 	if err != nil || !ok {
@@ -124,7 +129,11 @@ func (q *turnControl) cancel(l *Loop, folder string) ([]string, error) {
 
 func (q *turnControl) admit(l *Loop, tc TurnContext, admission *store.TurnAdmission, saved *TurnContext) (turnWork, bool, error) {
 	ctx := context.Background()
-	if prior, ok := l.db.GetTurnContext(tc.TurnID); ok && prior.State == store.TurnDone {
+	prior, priorExists, err := l.db.store().ReadTurnContext(ctx, tc.TurnID)
+	if err != nil {
+		return turnWork{}, false, err
+	}
+	if priorExists && prior.State == store.TurnDone {
 		return turnWork{}, false, nil
 	}
 	before, exists, err := l.db.store().ReadTurnControl(ctx)
@@ -140,11 +149,14 @@ func (q *turnControl) admit(l *Loop, tc TurnContext, admission *store.TurnAdmiss
 		if before.Phase != "open" || q.now().Before(before.NextProbeAt) {
 			return work, false, errTurnBlocked
 		}
-		owner, ok := l.db.GetTurnContext(before.ProbeTurnID)
+		owner, ok, err := l.db.store().ReadTurnContext(ctx, before.ProbeTurnID)
+		if err != nil {
+			return work, false, err
+		}
 		if ok && owner.State == store.TurnRunning {
 			return work, false, errTurnBlocked
 		}
-		if ok && owner.State == store.TurnPendingRetry && l.db.GroupExists(owner.Folder) {
+		if ok && (owner.State == store.TurnPendingRetry || owner.State == store.TurnWaitingCapacity) && l.db.GroupExists(owner.Folder) {
 			if owner.TurnID != tc.TurnID {
 				return work, false, errTurnBlocked
 			}
@@ -164,7 +176,11 @@ func (q *turnControl) admit(l *Loop, tc TurnContext, admission *store.TurnAdmiss
 		work.probe, work.successor = &after, after.Successor
 	}
 	if saved != nil {
-		ok, err := l.db.store().ClaimControlledTurn(ctx, *saved, admission.AttemptID, q.now(), admission.ControlBefore, admission.ControlAfter)
+		ok, err := l.db.store().ClaimControlledTurn(ctx, *saved, nil, admission, q.now())
+		return work, ok, err
+	}
+	if priorExists && prior.State == store.TurnWaitingCapacity {
+		ok, err := l.db.store().ClaimControlledTurn(ctx, prior, &tc, admission, q.now())
 		return work, ok, err
 	}
 	ok, err := l.db.store().OpenTurnContext(tc.TurnID, tc.Folder, tc.Topic, tc.ChatJID,
@@ -412,7 +428,14 @@ func (q *turnControl) tick(l *Loop) {
 		return
 	}
 	for _, tc := range turns {
-		l.Enqueue(deferredWorkPrefix + tc.TurnID)
+		if (tc.State != store.TurnPendingRetry && tc.State != store.TurnWaitingCapacity) || q.now().Before(tc.NextAttemptAt) {
+			continue
+		}
+		if tc.State == store.TurnWaitingCapacity && !l.isSavedExecution(tc) {
+			l.Enqueue(tc.ChatJID)
+		} else {
+			l.Enqueue(deferredWorkPrefix + tc.TurnID)
+		}
 	}
 }
 
@@ -433,7 +456,7 @@ func (q *turnControl) wakeRefused() {
 func (l *Loop) replay(turnID string) (bool, error) {
 	ctx := context.Background()
 	tc, ok, err := l.db.store().ReadTurnContext(ctx, turnID)
-	if err != nil || !ok || tc.State != store.TurnPendingRetry || l.q.now().Before(tc.NextAttemptAt) {
+	if err != nil || !ok || (tc.State != store.TurnPendingRetry && tc.State != store.TurnWaitingCapacity) || l.q.now().Before(tc.NextAttemptAt) || (tc.State == store.TurnWaitingCapacity && !l.isSavedExecution(tc)) {
 		return false, err
 	}
 	trigger, err := l.db.store().DeferredMessages(ctx, tc.InputKeys)
@@ -450,7 +473,7 @@ func (l *Loop) replay(turnID string) (bool, error) {
 	last := &trigger[len(trigger)-1]
 	last.Sender, last.ForwardedFrom = tc.Trigger, tc.ReturnTo
 	had, _, _, mark, err := l.runBoundTurn(tc.Folder, tc.Topic, tc.ChatJID,
-		tc.TurnID, tc.Addressed, trigger, ambient, &tc)
+		tc.TurnID, tc.Addressed, trigger, ambient, &tc, tc.CapacityWakeCursor)
 	if err == nil && mark != "" {
 		l.advanceObserved(tc.Folder, []observedAdvance{{topic: tc.Topic, ts: mark}})
 	}
@@ -481,7 +504,10 @@ func (q *turnControl) recover(l *Loop, startup bool) error {
 		return err
 	}
 	if control.Phase == "probe" && control.ProbeAttemptID != "" {
-		probe, ok := l.db.GetTurnContext(control.ProbeTurnID)
+		probe, ok, err := l.db.store().ReadTurnContext(ctx, control.ProbeTurnID)
+		if err != nil {
+			return err
+		}
 		if !ok {
 			return fmt.Errorf("interrupted probe has no turn %s", control.ProbeTurnID)
 		}
@@ -495,6 +521,13 @@ func (q *turnControl) recover(l *Loop, startup bool) error {
 		isProbe := control.Phase == "probe" && control.ProbeTurnID == tc.TurnID && control.ProbeAttemptID == tc.AttemptID
 		if !isProbe && (tc.State != store.TurnRunning ||
 			(!l.isSavedExecution(tc) && !tc.RunReturned && (!startup || len(tc.InputKeys) == 0))) {
+			continue
+		}
+		if isProbe && tc.State == store.TurnWaitingCapacity {
+			if err := q.rearm(l, control); err != nil {
+				return err
+			}
+			recovery.Phase = "open"
 			continue
 		}
 		ok, err := q.WithIdleFolder(tc.Folder, func() error {
@@ -555,52 +588,17 @@ func (q *turnControl) recover(l *Loop, startup bool) error {
 var ErrDependencyDown = errors.New("execution plane unreachable")
 
 type groupState struct {
-	active    bool
-	again     bool
-	refused   bool
-	candidate bool
+	processFailures int
+	active          bool
+	again           bool
+	refused         bool
+	candidate       bool
 }
 
 type turnReservation struct {
 	folder string
 	cron   bool
 	turnID string
-}
-
-const (
-	busyBackoffBase = 4 * time.Second
-	busyBackoffCap  = 60 * time.Second
-)
-
-type busyState struct {
-	until     time.Time
-	delay     time.Duration
-	lastMsgID string
-}
-
-func (q *turnControl) busyDeferred(chatJID, lastMsgID string) bool {
-	v, ok := q.busyWait.Load(chatJID)
-	if !ok {
-		return false
-	}
-	st := v.(busyState)
-	if st.lastMsgID != lastMsgID {
-		q.busyWait.Delete(chatJID)
-		return false
-	}
-	return q.now().Before(st.until)
-}
-
-func (q *turnControl) noteBusy(chatJID, lastMsgID string) time.Time {
-	delay := busyBackoffBase
-	if v, ok := q.busyWait.Load(chatJID); ok {
-		if st := v.(busyState); st.lastMsgID == lastMsgID {
-			delay = min(st.delay*2, busyBackoffCap)
-		}
-	}
-	until := q.now().Add(delay)
-	q.busyWait.Store(chatJID, busyState{until: until, delay: delay, lastMsgID: lastMsgID})
-	return until
 }
 
 type processMessagesFn func(groupJid string) (bool, error)
@@ -620,7 +618,6 @@ type turnControl struct {
 	processMessages processMessagesFn
 	parked          parkedFn
 	shuttingDown    bool
-	busyWait        sync.Map
 	now             func() time.Time
 }
 
@@ -789,17 +786,38 @@ func (q *turnControl) runForGroup(groupJid string) {
 	s.active = false
 	again := s.again
 	s.again = false
+	var decision retry.Decision
+	if err == nil {
+		s.processFailures = 0
+	} else {
+		now := q.now()
+		failure := retry.FromError(err, now)
+		decision = retry.Next(s.processFailures, failure, now, time.Time{})
+		s.processFailures = decision.Failures
+	}
 	q.releaseLocked(groupJid)
-	if !q.shuttingDown {
+	shutdown := q.shuttingDown
+	if !shutdown {
 		q.drainWaitingLocked()
 	}
 	q.mu.Unlock()
 	if err != nil {
-		slog.Error("error processing messages for group",
-			"groupJid", groupJid, "err", err)
-		time.AfterFunc(busyBackoffBase, func() { q.EnqueueMessageCheck(groupJid) })
-	} else if again {
+		slog.Error("error processing messages for group", "groupJid", groupJid, "err", err)
+		if decision.Stop {
+			slog.Error(retry.Notice("Message processing failed", decision), "groupJid", groupJid)
+		}
+	}
+	if shutdown {
+		return
+	}
+	if again {
 		q.EnqueueMessageCheck(groupJid)
+	} else if err != nil && !decision.Stop {
+		q.mu.Lock()
+		if !q.shuttingDown {
+			time.AfterFunc(max(0, decision.NextAt.Sub(q.now())), func() { q.EnqueueMessageCheck(groupJid) })
+		}
+		q.mu.Unlock()
 	}
 }
 

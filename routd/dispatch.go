@@ -17,6 +17,7 @@ import (
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/obs"
+	"github.com/kronael/arizuko/retry"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 	"github.com/kronael/arizuko/store"
 	"github.com/kronael/arizuko/types"
@@ -68,6 +69,7 @@ func (l *Loop) processChat(chatJID string, commandsOnly bool) (bool, error) {
 	r := b.resolution
 	folder := r.Folder
 
+	wakeCursor := store.MessageCursor(msgs[busyIdx])
 	steerConsumed := false
 	steerIdx := steerRowIdx(msgs)
 	steerMsg := msgs[steerIdx]
@@ -112,8 +114,21 @@ func (l *Loop) processChat(chatJID string, commandsOnly bool) (bool, error) {
 	if commandsOnly && deferredSteer == nil && !steerConsumed {
 		return false, nil
 	}
-	if deferredSteer == nil && !steerConsumed && l.q.busyDeferred(chatJID, msgs[busyIdx].ID) {
-		return false, nil
+	waiting, err := l.db.store().LiveTurnsInChat(context.Background(), chatJID)
+	if err != nil {
+		return false, err
+	}
+	for _, tc := range waiting {
+		if tc.State != store.TurnWaitingCapacity {
+			continue
+		}
+		woke, err := l.db.store().WakeCapacityTurn(context.Background(), tc, wakeCursor, l.q.now())
+		if err != nil {
+			return false, err
+		}
+		if woke && l.isSavedExecution(tc) {
+			l.Enqueue(deferredWorkPrefix + tc.TurnID)
+		}
 	}
 
 	var trigger, ambient []core.Message
@@ -200,7 +215,44 @@ func (l *Loop) processChat(chatJID string, commandsOnly bool) (bool, error) {
 
 		owed := slices.ContainsFunc(batch, func(m core.Message) bool { return addressed[m.ID] })
 		turnID := bl.ID
-		had, steered, busy, mark, derr := l.runTurn(folder, topic, chatJID, turnID, owed, batch, ambient)
+		for _, tc := range waiting {
+			if tc.TurnID == turnID && tc.State == store.TurnWaitingCapacity {
+				current, ok, err := l.db.store().ReadTurnContext(context.Background(), turnID)
+				if err != nil {
+					return hadAny, err
+				}
+				if ok && current.State == store.TurnWaitingCapacity && l.q.now().Before(current.NextAttemptAt) {
+					return hadAny, nil
+				}
+			}
+		}
+		keys, err := turnMessageKeys(batch)
+		if err != nil {
+			return hadAny, err
+		}
+		for _, tc := range waiting {
+			if tc.State != store.TurnWaitingCapacity || tc.TurnID == turnID {
+				continue
+			}
+			current, ok, err := l.db.store().ReadTurnContext(context.Background(), tc.TurnID)
+			if err != nil {
+				return hadAny, err
+			}
+			if !ok || current.State != store.TurnWaitingCapacity || l.isSavedExecution(current) {
+				continue
+			}
+			if slices.ContainsFunc(current.InputKeys, func(k objstore.Key) bool { return !slices.Contains(keys, k) }) {
+				continue
+			}
+			retired, err := l.db.store().SupersedeCapacityTurn(context.Background(), current)
+			if err != nil {
+				return hadAny, err
+			}
+			if !retired {
+				return hadAny, store.ErrRefused
+			}
+		}
+		had, steered, busy, mark, derr := l.runBoundTurn(folder, topic, chatJID, turnID, owed, batch, ambient, nil, wakeCursor)
 		if errors.Is(derr, errModelInputOrder) {
 			if gi > 0 {
 				l.advanceFinished(chatJID, folder, msgs, batch[0], marks)
@@ -340,10 +392,10 @@ func (l *Loop) isolateElevated(groups [][]core.Message) [][]core.Message {
 }
 
 func (l *Loop) runTurn(folder, topic, chatJID, turnID string, addressed bool, trigger, ambient []core.Message) (hadOutput, steered, busy bool, observedMark string, rerr error) {
-	return l.runBoundTurn(folder, topic, chatJID, turnID, addressed, trigger, ambient, nil)
+	return l.runBoundTurn(folder, topic, chatJID, turnID, addressed, trigger, ambient, nil, store.MessageCursor(trigger[len(trigger)-1]))
 }
 
-func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed bool, trigger, ambient []core.Message, saved *TurnContext) (hadOutput, steered, busy bool, observedMark string, rerr error) {
+func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed bool, trigger, ambient []core.Message, saved *TurnContext, wakeCursor string) (hadOutput, steered, busy bool, observedMark string, rerr error) {
 	last := trigger[len(trigger)-1]
 
 	elevated := false
@@ -405,7 +457,7 @@ func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed boo
 					if saved.NextAttemptAt.After(due) {
 						due = saved.NextAttemptAt
 					}
-					if _, err := l.db.store().RequeueDeferredTurn(ctx, *saved, due); err != nil {
+					if _, err := l.db.store().RequeueDeferredTurn(ctx, *saved, due, ""); err != nil {
 						return false, false, false, "", err
 					}
 				}
@@ -429,12 +481,12 @@ func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed boo
 		return false, false, false, "", err
 	}
 	launched := false
-	requeueAt := l.q.now().Add(busyBackoffBase)
+	requeueAt := l.q.now()
 	if saved != nil {
 		defer func() {
 			current, ok := l.db.GetTurnContext(turnID)
 			if ok && current.State == store.TurnRunning && current.AttemptID == admission.AttemptID && !launched {
-				_, err := l.db.store().RequeueDeferredTurn(ctx, current, requeueAt)
+				_, err := l.db.store().RequeueDeferredTurn(ctx, current, requeueAt, "")
 				if err != nil {
 					rerr = err
 				}
@@ -604,18 +656,31 @@ func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed boo
 		return false, false, false, "", derr
 	}
 	if out.Busy {
-		requeueAt = l.q.noteBusy(chatJID, last.ID)
-		launched = false
-		started = false
-		if saved != nil {
-			l.pauseProgress(replyJID, out.RunID)
-			return false, false, true, "", nil
+		current, ok, err := l.db.store().ReadTurnContext(ctx, turnID)
+		if err != nil {
+			return false, false, false, "", err
 		}
-
-		l.waiting.Store(chatJID, replyJID)
-
-		time.AfterFunc(requeueAt.Sub(l.q.now()), func() { l.q.EnqueueMessageCheck(chatJID) })
-		slog.Debug("dispatch run busy — runed at capacity, retry after backoff", "folder", folder, "turn_id", turnID)
+		if !ok || current.AttemptID != admission.AttemptID {
+			return false, false, false, "", store.ErrRefused
+		}
+		decision := retry.Next(current.CapacityFailures, retry.Failure{Kind: "transient"}, l.q.now(), time.Time{})
+		committed, err := l.db.store().RecordCapacityFailure(ctx, current, l.db.GetAgentCursor(chatJID), wakeCursor, decision)
+		if err != nil {
+			return false, false, false, "", err
+		}
+		if !committed {
+			return false, false, false, "", store.ErrRefused
+		}
+		l.pauseProgress(replyJID, out.RunID)
+		if decision.Stop {
+			current, _, err = l.db.store().ReadTurnContext(ctx, turnID)
+			if err != nil {
+				return false, false, false, "", err
+			}
+			if err := l.publishOwedStatus(current); err != nil {
+				return false, false, false, "", err
+			}
+		}
 		return false, false, true, "", nil
 	}
 	if out.Steered {

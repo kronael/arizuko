@@ -57,13 +57,15 @@ func TestControlledEightConcurrentProbeClaims(t *testing.T) {
 		}); err != nil {
 			t.Fatal(err)
 		}
+		tc, ok, err := s.ReadTurnContext(t.Context(), id)
+		if err != nil || !ok {
+			t.Fatalf("read %s: %v", id, err)
+		}
 		go func() {
 			<-start
 			after := before
 			after.Phase, after.ProbeTurnID, after.ProbeAttemptID = "probe", id, "probe"
-			ok, err := s.ClaimControlledTurn(t.Context(), TurnContext{
-				TurnID: id, Folder: "demo", AttemptID: "waiting",
-			}, "probe", now, &before, &after)
+			ok, err := s.ClaimControlledTurn(t.Context(), tc, nil, &TurnAdmission{AttemptID: "probe", ControlBefore: &before, ControlAfter: &after}, now)
 			if err != nil {
 				t.Errorf("claim %s: %v", id, err)
 			}
@@ -410,13 +412,13 @@ func TestControlledAdmissionGuards(t *testing.T) {
 		t.Fatalf("defer: %v %v", ok, err)
 	}
 	saved, _ := s.TurnContextOf(tc.TurnID)
-	if ok, err := s.ClaimControlledTurn(ctx, saved, "next", tc.NextAttemptAt, &stale, nil); err != nil || ok {
+	if ok, err := s.ClaimControlledTurn(ctx, saved, nil, &TurnAdmission{AttemptID: "next", ControlBefore: &stale}, tc.NextAttemptAt); err != nil || ok {
 		t.Fatalf("stale control claim: %v %v", ok, err)
 	}
-	if ok, err := s.ClaimControlledTurn(ctx, saved, "next", now, &after, nil); err != nil || ok {
+	if ok, err := s.ClaimControlledTurn(ctx, saved, nil, &TurnAdmission{AttemptID: "next", ControlBefore: &after}, now); err != nil || ok {
 		t.Fatalf("early claim: %v %v", ok, err)
 	}
-	if ok, err := s.ClaimControlledTurn(ctx, saved, "next", tc.NextAttemptAt, &after, nil); err != nil || !ok {
+	if ok, err := s.ClaimControlledTurn(ctx, saved, nil, &TurnAdmission{AttemptID: "next", ControlBefore: &after}, tc.NextAttemptAt); err != nil || !ok {
 		t.Fatalf("claim: %v %v", ok, err)
 	}
 }

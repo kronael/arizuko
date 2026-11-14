@@ -25,6 +25,7 @@ var turnAttrs = []string{
 	attrTurnGatewayKey, attrTurnAddressed, attrTurnNudged, AttrTurnStartedAt, "attempt_id",
 	"input_last", "provider_failure_attempt", "input_keys", "ambient_keys",
 	"next_attempt_at", "failure_cause", "status_owed", "status_chats",
+	"capacity_failures", "capacity_wake_cursor",
 }
 
 func isFinished(attrs map[string]string) bool {

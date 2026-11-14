@@ -144,6 +144,36 @@ the operation's budget. Existing stored deadlines remain authoritative across
 the upgrade. A changed stored key requires a marked migration; no migration
 from the state-transition implementation may be removed.
 
+## Capacity retry transitions
+
+A Busy result proves that the runtime did not start a guest. The existing turn
+stores `waiting_capacity`, `capacity_failures` and `capacity_wake_cursor` with
+its existing `next_attempt_at` and retry due pointer. The turn binds the exact
+chat and input keys. Its observed index revision is internal and never enters
+the wire representation. Capacity failures do not change execution retry count.
+
+`RecordCapacityFailure` guards the observed revision, running state, attempt,
+chat, input, count and absence of a runtime result. It leaves input unread while
+waiting. The tenth failure finishes the turn and advances only its observed input
+under the prior cursor guard. The common owed-status renderer delivers the notice.
+A non-Busy runtime return clears capacity metadata.
+
+`WakeCapacityTurn` moves the deadline forward once for each strictly newer human
+cursor, without changing the count. `SupersedeCapacityTurn` retires an unread
+waiting binding only when its exact input keys belong to the replacement batch.
+A same-ID batch keeps the count. Saved input wakes the deferred turn; unread input
+wakes the chat. Existing controlled claims fence the observed state, attempt,
+count, deadline, group and control generation. An unread same-ID capacity claim
+may replace its binding through the common renderer and checks the destination
+group. Saved replay retains its binding. Expiry and runtime recovery do
+not treat a capacity wait as a guest. A matching breaker probe is rearmed without
+runtime teardown. Legacy empty run IDs do not prove a Busy result.
+
+Processing errors use the common decision with a process-lifetime failure count.
+Success resets the count. An already recorded wake takes priority over a timer;
+the timer only reenqueues the existing processor. Exhaustion leaves durable work
+for a later event or restart. Shutdown prevents new processing.
+
 ## Retry inventory
 
 The before column is measured from the extension baseline. The target column
@@ -400,20 +430,71 @@ Its first failed fetch commits the deadline and due pointer atomically.
   names: [TestDueTasksReadOnlyDueRows, TestStateIndexKeepsConcurrentTransition]
   never: uses a live instance
 - path: store/turn_context.go (changed)
-  job: read recovery and expiry work by key
-  names: [RunningTurns, SweepExpiredRunning, TurnsSince]
+  job: decode capacity metadata and read recovery and expiry work by key
+  names:
+    [
+      OpenTurnContext,
+      prepareTurnBinding,
+      RunningTurns,
+      SweepExpiredRunning,
+      TurnsSince,
+      TurnWaitingCapacity,
+    ]
   never: expires a concurrently restarted turn
 - path: store/turn_control.go (changed)
-  job: select due retries and unacknowledged status intents
-  names: [DeferredTurns, OwedTurnStatuses, InterruptTurn]
+  job: guard capacity transitions, due claims and status intents
+  names:
+    [
+      DeferredTurns,
+      RecordCapacityFailure,
+      WakeCapacityTurn,
+      SupersedeCapacityTurn,
+      RequeueDeferredTurn,
+      ClaimControlledTurn,
+      claimDeferredTurn,
+    ]
   never: filters the live partition to discover work
 - path: store/turn_archive.go (changed)
-  job: keep archived history keyed by start time
+  job: keep capacity metadata and archived history keyed by start time
   names: [archivedTurnsSince, MigrateTurnArchive]
   never: drops an existing migration
+- path: store/model_pauses.go (changed)
+  job: propagate invalid capacity metadata during folder retirement
+  names: [retireFolderTurns]
+  never: retires a malformed capacity turn silently
+- path: store/capacity_retry_test.go (new)
+  job: prove guarded capacity transitions and malformed metadata rejection
+  names:
+    [
+      TestCapacityRetryTransitions,
+      TestCapacitySaveAndSupersede,
+      TestCapacityMetadataRejectsMalformed,
+      TestCapacityClaimReplacement,
+    ]
+  never: uses a live instance
+- path: store/turn_control_test.go (changed)
+  job: prove guarded controlled claims retain their control snapshot
+  names: [TestClaimControlledTurn]
+  never: admits a stale claim
+- path: routd/model_pauses_retirement_test.go (changed)
+  job: prove a capacity binding survives a destination route change
+  names: [TestDeletionPreservesSurvivingReboundInput]
+  never: discards the unread input
+- path: routd/turn_control_replay_test.go (changed)
+  job: prove saved input retains its binding during replay
+  names: [TestTurnControlSavedReplay]
+  never: adopts a changed route for saved input
+- path: routd/capacity_recovery_test.go (new)
+  job: fence stale Busy results and recover waiting probes without runtime teardown
+  names:
+    [
+      TestCapacityBusyRejectsNewerAttempt,
+      TestCapacityProbeRestartRearmsWithoutKill,
+    ]
+  never: changes a newer execution attempt
 - path: routd/turn_control.go (changed)
-  job: reconcile returned runs during runtime and live runs at startup
-  names: [recover]
+  job: claim capacity waits, reconcile runs and schedule processing retries
+  names: [savePending, admit, tick, replay, recover, runForGroup]
   never: treats an occupied folder as abandoned
 - path: chanlib/chanstore/inbound_index.go (new)
   job: declare retry keys and migrate retained messages and the backlog count
@@ -787,6 +868,9 @@ timeout. The operator-direct path still reads the indexed reply range because
 its current contract ends on quiet time rather than a turn completion event.
 
 ## Open questions
+
+- Should clients accept `waiting_capacity` as an additive turn-state value in
+  the existing REST and MCP surfaces? The existing pending-retry count includes it.
 
 - Should a separate user-facing API deliver terminal notices across daemons?
   Dead letters expose the notice; no cross-daemon notification contract exists.

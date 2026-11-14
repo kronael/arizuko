@@ -107,7 +107,7 @@ func countTurn(out *apiv1.TurnOutcomes, state string) {
 		out.Expired++
 	case store.TurnRunning:
 		out.Running++
-	case store.TurnPendingRetry:
+	case store.TurnPendingRetry, store.TurnWaitingCapacity:
 		out.PendingRetry++
 	default:
 		out.Other++
