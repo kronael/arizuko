@@ -14,6 +14,18 @@
 > so counting one as open overstates the queue.
 
 
+## L875 — execution client discards retry and body failure facts (2026-11-14)
+
+`runed/api/v1/client.go` drops Retry-After and does not expose the HTTP status
+to the shared classifier. It also discards response body read errors, so a
+truncated HTTP 200 response can make `Kill` return success.
+**Measured:** the real client against an httptest server classifies HTTP 503
+as permanent without its two-hour bound and returns nil for a cut HTTP 200 body.
+`tmp/_retry_http_facts/execution_test.go::TestExecutionHTTPFacts` fails in 0.011s;
+log: `tmp/retry-logs/execution-facts-parent-red.log`.
+**Fix:** preserve response facts and successful-body read errors; turn completion
+must classify the resulting error instead of assuming every failure is transient.
+
 ## L857 — the full router gate loses its test database control plane (2026-11-14)
 
 At candidate `66e8e2f4b7ebf9a6bc41a5fd9a027ecdc0249f7b`, the single full

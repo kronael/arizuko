@@ -135,6 +135,12 @@ For RFC850, resolve the two-digit year to the latest matching timestamp no later
 than the supplied clock plus 50 calendar years. Reject invalid calendar values.
 These date rules follow [RFC9110 sections 5.6.7 and 10.2.3](https://www.rfc-editor.org/rfc/rfc9110.html#section-5.6.7).
 
+The execution client exposes HTTP status and Retry-After through its error.
+A failed diagnostic-body read retains the response facts. A successful response
+with a failed body read returns that read error. Turn completion classifies the
+error; a nonterminal execution outcome without a request error retains the
+explicit crash retry, subject to recorded-result, reply and cancellation gates.
+
 Due times and counts persist with messages, turns, retained ingress, onboarding
 output and Google file work. These obligations outlive the worker. A terminal
 transition removes its due pointer but retains the failed payload and cause.
@@ -515,9 +521,42 @@ Its first failed fetch commits the deadline and due pointer atomically.
     ]
   never: changes a newer execution attempt
 - path: routd/turn_control.go (changed)
-  job: claim capacity waits, reconcile runs and schedule processing retries
-  names: [savePending, admit, tick, replay, recover, runForGroup]
+  job: claim capacity waits, reconcile runs and classify execution failures
+  names:
+    [
+      savePending,
+      admit,
+      tick,
+      replay,
+      recover,
+      runForGroup,
+      classifyTurn,
+      complete,
+    ]
   never: treats an occupied folder as abandoned
+- path: routd/turn_control_retry_test.go (changed)
+  job: distinguish request refusals from actual execution crashes
+  names:
+    [
+      TestTurnControlExecutionFailureFacts,
+      TestTurnControlRetriesManagerCrash,
+      TestTurnControlExecutionRetry,
+    ]
+  never: permits a terminal or recorded outcome to replay
+- path: runed/api/v1/client.go (changed)
+  job: retain response facts and propagate successful response body failures
+  names:
+    [
+      'APIError{Status, Code, Msg, RetryAfter}',
+      HTTPStatusCode,
+      HTTPRetryAfter,
+      call,
+    ]
+  never: retries an execution request
+- path: runed/api/v1/client_test.go (changed)
+  job: verify failure facts through the actual HTTP client
+  names: [TestCallFailureFacts]
+  never: substitutes a fabricated APIError for the response boundary
 - path: chanlib/chanstore/inbound_index.go (new)
   job: declare retry keys and migrate retained messages and the backlog count
   names: [MigrateInbound]
@@ -950,6 +989,7 @@ its current contract ends on quiet time rather than a turn completion event.
 
 ## Open questions
 
+- Should external runed Go clients consume the added `APIError.RetryAfter` field?
 - Can external channel clients consume the standardized failure status and
   Retry-After header contract? No new JSON failure schema is introduced.
 - Can external `/v1/outbound` callers accept HTTP 400 for terminal delivery
