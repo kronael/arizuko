@@ -384,7 +384,7 @@ func (mapping renameMap) matcher(raw, root string, params bool) (string, error) 
 
 func (mapping renameMap) row(owner, entity string, before objstore.Item, root string) (objstore.Item, error) {
 	after := objstore.Item{Key: before.Key, Attrs: maps.Clone(before.Attrs)}
-	if entity == audit.Entity || entity == store.SecretUseLog {
+	if entity == audit.Entity || entity == store.SecretUseLog || entity == objstore.IndexEntity {
 		return after, nil
 	}
 	parts := strings.Split(before.Key.Sort, store.KeySep)

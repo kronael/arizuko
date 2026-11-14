@@ -1,23 +1,5 @@
 package store
 
-// tasks.go holds every read and write of `scheduled_tasks`: one item per
-// scheduled prompt, addressed by its id.
-//
-// The partition is OwnerRoutd because resreg's entity path writes these items
-// too (resreg.SubsystemRoutd IS store.OwnerRoutd); a second spelling selects
-// nothing, silently. The id is the coordinate, the handle every other surface
-// holds; every other read scans the partition and filters (the same shape as
-// route_tokens, 43 items on the largest live instance).
-//
-// TWO INSTANTS, TWO LAYOUTS. `created_at` is a StampedField, core.TS at 30
-// bytes, the width resreg's entity path stamps. `next_run` is NOT stamped: it
-// is RFC3339 text in the operator's own timezone, stored verbatim, and the due
-// comparison is made on the PARSED instant, never on the bytes.
-//
-// A CLAIM IS ONE WRITE PER TASK: a batch of N conditional claims would be
-// REFUSED whole the moment a concurrent poller took one, and this poller would
-// fire nothing.
-
 import (
 	"context"
 	"errors"
@@ -31,7 +13,6 @@ import (
 	"github.com/kronael/arizuko/objstore"
 )
 
-// The attributes a task item carries. `id` is the coordinate.
 const (
 	attrTaskOwner       = "owner"
 	attrTaskChatJID     = "chat_jid"
@@ -43,20 +24,8 @@ const (
 	attrTaskContextMode = "context_mode"
 )
 
-// TaskContextGroup is the context_mode a task runs under unless it says
-// otherwise: the default resreg's own BeforeInsert hook fills
-// (resreg/resources/scheduled_tasks.go), so the two writers choose the same
-// one.
 const TaskContextGroup = "group"
 
-// TaskStatusFiring marks a task one poller has claimed. It is a transient
-// state: the fire loop moves it back to active or paused, and
-// ResumeTaskInto buffers the resume of a paused task: status active, and a
-// cron task's next_run dropped so the scheduler fills the next instant of the
-// cron (a stale past one would fire the task the moment it resumes). A one-shot
-// has no cron to fill from, so it keeps its next_run. Any other status is left
-// alone. `t` is the task the caller READ; the write is conditional on it, as
-// MoveTaskInto's is.
 func (s *Store) ResumeTaskInto(ws *WriteSet, t core.Task, refused error) error {
 	if t.Status != core.TaskPaused {
 		return nil
@@ -69,10 +38,8 @@ func (s *Store) ResumeTaskInto(ws *WriteSet, t core.Task, refused error) error {
 	return s.MoveTaskInto(ws, t, core.TaskActive, next, refused)
 }
 
-// RecoverFiringTasks re-arms whatever a crash left in it.
 const TaskStatusFiring = "firing"
 
-// taskKey is the coordinate of one task.
 func taskKey(id string) (objstore.Key, error) {
 	if id == "" {
 		return objstore.Key{}, fmt.Errorf("scheduled task carries no id, which is its coordinate")
@@ -80,9 +47,6 @@ func taskKey(id string) (objstore.Key, error) {
 	return objstore.Key{Partition: OwnerRoutd, Sort: id}, nil
 }
 
-// taskFrom reads one item back. context_mode falls back to the insert's
-// default, so a row written before the field existed still names one of the
-// two modes the fire loop reads.
 func taskFrom(it objstore.Item) core.Task {
 	t := core.Task{
 		ID:          it.Key.Sort,
@@ -103,9 +67,6 @@ func taskFrom(it objstore.Item) core.Task {
 	return t
 }
 
-// taskNextRun parses `next_run`, and answers false for a task that carries
-// none: a one-shot that has fired. RFC3339 also reads the fixed-width form, so
-// one parse serves both writers.
 func taskNextRun(it objstore.Item) (time.Time, bool) {
 	raw := it.Attrs[attrTaskNextRun]
 	if raw == "" {
@@ -118,10 +79,6 @@ func taskNextRun(it objstore.Item) (time.Time, bool) {
 	return run, true
 }
 
-// taskAttrs renders the attributes one task carries. EVERY EMPTY STRING IS
-// LEFT OFF, what resreg's own entity path does (resreg/entity.go itemFor).
-// `context_mode` is the exception: the resource's BeforeInsert hook fills it,
-// so both writers store the default rather than nothing.
 func taskAttrs(t core.Task) map[string]string {
 	created := t.Created
 	if created.IsZero() {
@@ -146,7 +103,6 @@ func taskAttrs(t core.Task) map[string]string {
 	return attrs
 }
 
-// allTasks is the whole table, in coordinate order.
 func (s *Store) allTasks(ctx context.Context) ([]objstore.Item, error) {
 	items, err := s.Obj().Query(ctx, objstore.Query{
 		Entity: ScheduledTasks, Partition: OwnerRoutd,
@@ -174,7 +130,6 @@ func (s *Store) CreateTask(t core.Task) error {
 	return taskCreateRefusal(committed, t.ID)
 }
 
-// taskCreate renders the create-if-absent write both creators issue.
 func taskCreate(t core.Task) (objstore.Write, error) {
 	key, err := taskKey(t.ID)
 	if err != nil {
@@ -186,7 +141,6 @@ func taskCreate(t core.Task) (objstore.Write, error) {
 	}, nil
 }
 
-// taskCreateRefusal names what a refused create means: the id is taken.
 func taskCreateRefusal(committed bool, id string) error {
 	if committed {
 		return nil
@@ -254,28 +208,17 @@ func (s *Store) RescheduleTask(id, nextRun string) error {
 	return s.writeRearm(w)
 }
 
-// writeRearm sends the conditional re-arm. A refusal means the task left
-// 'firing' (paused, moved by the job, or deleted): its new state stands.
 func (s *Store) writeRearm(w objstore.Write) error {
 	// A refusal is the task having left 'firing'; its new state stands.
 	_, err := s.TryWriteEntities(context.Background(), nil, w)
 	return err
 }
 
-// logBadCron is the loud half of a recurring task whose cron will not parse.
-// Leaving it ('active', no next_run) is the one state nothing recovers from:
-// the row reports itself as scheduled and is never claimed (BUGS L74; sloth and
-// marinade carried 14 such rows, dead since June and invisible). A bad cron is a
-// misconfiguration, not a transient fault, so it stops with status 'error'.
 func logBadCron(t core.Task) {
 	slog.Error("task cron will not parse; marking it error rather than leaving it active with no next run",
 		"task", t.ID, "cron", t.Cron, "jid", t.ChatJID)
 }
 
-// attrIs compares one attribute against the value a caller READ off the item.
-// An empty value is ABSENT and not the empty string: an attribute a writer left
-// off answers no Eq, so a guard spelled Eq "" would refuse every row it was
-// meant to let through.
 func attrIs(name, value string) objstore.Cmp {
 	if value == "" {
 		return objstore.Cmp{Attr: name, Op: objstore.Absent}
@@ -325,10 +268,7 @@ func (s *Store) MoveTaskInto(ws *WriteSet, t core.Task, to string,
 // mid-fire then, which is what makes the unconditional write safe.
 func (s *Store) RecoverFiringTasks() (int64, error) {
 	ctx := context.Background()
-	items, err := s.Obj().Query(ctx, objstore.Query{
-		Entity: ScheduledTasks, Partition: OwnerRoutd,
-		Where: []objstore.Cmp{{Attr: attrTaskStatus, Op: objstore.Eq, Value: TaskStatusFiring}},
-	})
+	items, err := objstore.IndexItems(ctx, s.Obj(), "tasks/firing", objstore.KeyPredicate{}, 0)
 	if err != nil {
 		return 0, fmt.Errorf("read firing tasks: %w", err)
 	}
@@ -353,15 +293,16 @@ func (s *Store) RecoverFiringTasks() (int64, error) {
 // took in between is dropped from the answer rather than fired twice.
 func (s *Store) DueTasks(now time.Time) ([]core.Task, error) {
 	ctx := context.Background()
-	items, err := s.Obj().Query(ctx, objstore.Query{
-		Entity: ScheduledTasks, Partition: OwnerRoutd,
-		Where: []objstore.Cmp{{Attr: attrTaskStatus, Op: objstore.Eq, Value: core.TaskActive}},
-	})
+	items, err := objstore.IndexItems(ctx, s.Obj(), "tasks/due",
+		objstore.KeyPredicate{Op: objstore.LtKey, Value: core.TS(now) + "\x7f"}, 0)
 	if err != nil {
 		return nil, fmt.Errorf("read due tasks: %w", err)
 	}
 	var out []core.Task
 	for _, it := range items {
+		if it.Attrs[attrTaskStatus] != core.TaskActive {
+			continue
+		}
 		if it.Attrs[attrTaskNextRun] == "" {
 			if err := s.fillNextRun(ctx, it); err != nil {
 				slog.Error("fill next_run failed; the task waits for the next poll", "err", err)
@@ -377,6 +318,7 @@ func (s *Store) DueTasks(now time.Time) ([]core.Task, error) {
 			Attrs: map[string]string{attrTaskStatus: TaskStatusFiring},
 			Cond: objstore.Cond{Where: []objstore.Cmp{
 				{Attr: attrTaskStatus, Op: objstore.Eq, Value: core.TaskActive},
+				attrIs(attrTaskNextRun, it.Attrs[attrTaskNextRun]),
 			}},
 		})
 		if err != nil {

@@ -147,7 +147,7 @@ func (r *Replacer) Write(ctx context.Context, writes ...Write) (bool, error) {
 	fence := []Check{{Entity: r.sc.Entity, Key: r.sc.Key,
 		Cond: Cond{Where: []Cmp{{Attr: markerHolder, Op: Eq, Value: r.token}}}}}
 	for len(writes) > 0 {
-		n := min(len(writes), MaxBatchActions-len(fence))
+		n := min(len(writes), IndexBatchSize)
 		committed, err := r.s.GuardedBatch(ctx, fence, writes[:n])
 		if err != nil {
 			return false, err

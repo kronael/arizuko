@@ -15,6 +15,8 @@
 
 ## What needs you
 
+- `L834` — scheduled-task discovery reads every task each minute; keyed transitions approved on 2026-11-14.
+
 - `L826` — one folder's crash closes the whole instance for an hour; per-folder breaker or a 30 s probe; needs sign-off.
 - `L822` — gitd's `/health` reads its whole held-inbound backlog per probe; dropping `pending_inbound` changes the documented contract; needs sign-off.
 - `L816` — gitd loses GitHub webhooks while the store is unreachable; retention lives in that store; proposal, needs sign-off.
@@ -710,6 +712,19 @@ pre-breaker state.
   whole archive on `started_at`: a turn id carries no time, so one key cannot
   serve both by-id and by-time reads. A crash between a turn's finish and its
   status acknowledgement leaves it live, `done`, owing nothing.
+
+## L834 — scheduled work is discovered by a whole-partition read (2026-11-14)
+
+`store/tasks.go::DueTasks` filters `scheduled_tasks` on `status` and compares
+parsed deadlines after the read. Computed at `ba80338b4`: N task rows per
+60-second pass, including paused and future rows. `RecoverFiringTasks` reads
+the same partition at startup. The writers do not record a keyed obligation.
+**Fix:** atomic due/firing pointers maintained by all writers, including resreg
+apply, with a marked migration. Owner approved this redesign on 2026-11-14.
+**Test:** `store/state_index_test.go::TestDueTasksReadOnlyDueRows` seeds 40
+tasks with one due: baseline read 40; indexed claim reads at most four, then zero.
+Revision, deadline, migration-marker and resreg-writer mutations each failed
+their covering test; restored guards pass.
 
 ## L822 — gitd's `/health` reads its whole held-inbound backlog on every probe (2026-11-12, open — needs sign-off)
 

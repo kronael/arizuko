@@ -164,6 +164,7 @@ const (
 // a point delete whose refusal IS the claim (onbod/main.go).
 var EntitiesByOwner = map[string][]string{
 	OwnerRoutd: {
+		objstore.IndexEntity,
 		PaneSessions, SecretUseLog, Counters,
 		ACL, ACLMembership, Groups, Routes, RouteTokens, ScheduledTasks, Secrets,
 		PendingActions, NetworkRules, ProxydRoutes, WebRoutes, InstalledPackages,
@@ -275,7 +276,7 @@ func applyChunks(ctx context.Context, what string, writes []objstore.Write,
 	commit func(context.Context, []objstore.Write) (bool, error)) (int, error) {
 	done := 0
 	for len(writes) > 0 {
-		n := min(len(writes), objstore.MaxBatchActions-1)
+		n := min(len(writes), objstore.IndexBatchSize)
 		committed, err := commit(ctx, writes[:n])
 		if err != nil {
 			return done, fmt.Errorf("%s: %w", what, err)

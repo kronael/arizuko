@@ -102,7 +102,7 @@ func NewOver(obj objstore.Store) *Store {
 }
 
 // Obj is this database through objstore's two primitives (spec 6/37 step 5).
-func (s *Store) Obj() objstore.Store { return s.obj }
+func (s *Store) Obj() objstore.Store { return objstore.WithIndexes(s.obj, stateIndexes{}) }
 
 // btoi converts a bool to the 0/1 an INTEGER column stores.
 func btoi(b bool) int {

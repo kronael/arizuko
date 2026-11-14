@@ -96,6 +96,9 @@ func Open() (*DB, error) {
 	if err := d.store().MigrateTurnArchive(ctx); err != nil {
 		return nil, err
 	}
+	if err := d.store().MigrateStateIndexes(ctx); err != nil {
+		return nil, err
+	}
 	return d, nil
 }
 
@@ -133,7 +136,7 @@ func (d *DB) Close() error {
 
 // Obj is this database through objstore's two primitives — how audit reaches
 // it, and how an audited row joins the transaction the mutation runs on.
-func (d *DB) Obj() objstore.Store { return d.obj }
+func (d *DB) Obj() objstore.Store { return d.store().Obj() }
 
 // PutGroup upserts a group row and binds the folder to role:member in the SAME
 // transaction (store.PutGroupRow, the ONE upsert): a folder with no edge

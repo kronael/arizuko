@@ -1,12 +1,44 @@
 package resources
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/store"
 )
+
+func TestApplyScheduledTaskDueIndex(t *testing.T) {
+	db := openMem(t)
+	now := time.Now()
+	var rows []ScheduledTasksRow
+	for i := range 40 {
+		due := now.Add(time.Hour)
+		if i == 0 {
+			due = now.Add(-time.Minute)
+		}
+		rows = append(rows, ScheduledTasksRow{ID: fmt.Sprint(i), Owner: "main",
+			ChatJID: "main", Prompt: "p", NextRun: due.Format(time.RFC3339)})
+	}
+	backend := resreg.On(db)
+	if _, err := resreg.Apply(t.Context(), backend, resreg.SubsystemRoutd,
+		routdChecksum(t, db), false, map[string]any{"scheduled_tasks": rows}, nil); err != nil {
+		t.Fatal(err)
+	}
+	st := store.NewOver(db)
+	tasks, err := st.DueTasks(now)
+	if err != nil || len(tasks) != 1 || tasks[0].ID != "0" {
+		t.Fatalf("applied work missing: %v %v", tasks, err)
+	}
+	if _, err := resreg.Apply(t.Context(), backend, resreg.SubsystemRoutd,
+		routdChecksum(t, db), false, map[string]any{"scheduled_tasks": []ScheduledTasksRow{}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if tasks, err := st.DueTasks(now.Add(2 * time.Hour)); err != nil || len(tasks) != 0 {
+		t.Fatalf("deleted work remains: %v %v", tasks, err)
+	}
+}
 
 // A cron row applied without next_run (package sync, rows apply) stays without
 // one until the scheduler's poll fills it, so it enters the due set instead of

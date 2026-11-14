@@ -110,6 +110,14 @@ the table.
 
 `Store.Obj` returns the object-store handle. Production uses dynstore without a local pool; `Close` performs the opener's cleanup when supplied.
 
+Scheduled-task writes maintain `state_index` pointers in the same guarded batch.
+The `tasks/due` partition orders work by UTC due time; `tasks/firing` contains
+claimed work for startup recovery. The source row retains its identity and
+wire fields. `_index_revision` guards pointer changes against concurrent writes.
+`objstore.Indexed` implements this protocol over the two storage methods.
+Manifest replacement uses the same writer. Migrations commit a completion
+marker only after all existing rows have their pointers.
+
 Two cursors, `chats.agent_cursor` and `sessions.observed_cursor`, are copies of a
 `messages.timestamp` compared back against that column, so both are declared
 ordered at `core.TS`'s width and `cursor.go` moves each one forward and only

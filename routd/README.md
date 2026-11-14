@@ -62,6 +62,10 @@ The task ticker runs once at startup and every 60 seconds in `schedule.go`.
 It calls `DueTasks`, then uses normal message ingress to enqueue each prompt
 at the task's owner folder. `forwarded_from` records the task's chat JID.
 It records the enqueue result and reschedules through the owning store.
+Task writes atomically maintain due-time and firing pointers. Each tick reads
+only due pointers and their task keys. Pause, completion and deletion remove
+the due pointer; reschedule writes the next one. Startup migrates existing
+task rows once before starting the scheduler.
 The ID `sched-<taskID>@<scheduled-time>` keeps repeated fires identical.
 A failed one-time enqueue retains its scheduled time for retry.
 
