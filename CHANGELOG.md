@@ -13,6 +13,17 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.75.15] — 2026-11-14
+
+> arizuko v0.75.15 — a slow file download no longer loses the file
+>
+> A file whose download fails for a moment now waits and is fetched again; merges to a repository's default branch arrive with verb merge.
+>
+> • Files — a transient download failure retries for up to 30 minutes instead of asking the user to send the file again.
+> • GitHub — a route on `verb=merge` sends merges to master to a group.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
 ### Added
 
 - gitd delivers a push to the repository's default branch with verb `merge`, so
