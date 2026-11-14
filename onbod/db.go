@@ -27,7 +27,12 @@ func openOwned() (*store.Store, error) {
 		closeStore() //nolint:errcheck // the open already failed
 		return nil, err
 	}
-	return store.NewOver(d), nil
+	s := store.NewOver(d)
+	if err := s.MigrateOnboardingIndexes(context.Background()); err != nil {
+		closeStore()
+		return nil, err
+	}
+	return s, nil
 }
 
 // prepareOwned builds what onbod owns on d: the entities it reads and writes.

@@ -13,6 +13,7 @@ import (
 
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
+	"github.com/kronael/arizuko/store"
 )
 
 // attemptsOf reads a row's attempt count off its DELIVERY item: the pending
@@ -252,5 +253,23 @@ func TestMCPSendFailureLeavesPendingRowForSweep(t *testing.T) {
 	}
 	if n := countBots(t, db, jid); n != 1 {
 		t.Fatalf("bot rows=%d want 1 — the failure row must be the only one, not a duplicate", n)
+	}
+}
+
+func TestExpiredPairingGreetingIsNeverDelivered(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	now := time.Now()
+	if err := db.store().QueuePairingGreeting(t.Context(), "expired-pair", "chat", "sender", now, "https://example.com", ""); err != nil {
+		t.Fatal(err)
+	}
+	dl := &recDeliverer{}
+	loop := NewLoop(db, runnerFn(nil), LoopConfig{Deliver: dl})
+	sweepNow(loop, now.Add(store.PairingTTL+time.Second))
+	if len(dl.sends) != 0 || statusOf(t, db, "expired-pair") != core.MessageStatusFailed {
+		t.Fatalf("expired greeting sent: %+v", dl.sends)
 	}
 }

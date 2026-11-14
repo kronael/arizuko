@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kronael/arizuko/objstore/dynstore/dyntest"
 	"github.com/kronael/arizuko/routd"
@@ -109,7 +110,7 @@ func newOnbodServer(t *testing.T) (*httptest.Server, *onbodInst, *testutils.Fake
 // RedeemPairing writes the edge -> the poll observer admits -> approved + group
 // folder seeded on disk + groups + acl + routes rows.
 func TestOnboardingFlow(t *testing.T) {
-	srv, inst, fake, cfg := newOnbodServer(t)
+	srv, inst, _, cfg := newOnbodServer(t)
 
 	jid := "telegram:42"
 	seedAdmission(t, inst.Ob, store.ArchiveOnboardingRow{JID: jid, Status: "awaiting_message"})
@@ -118,21 +119,11 @@ func TestOnboardingFlow(t *testing.T) {
 	// POST to gatedURL and stamps prompted_at on the row.
 	promptUnprompted(inst.X, inst.Ob, cfg, awaitingRows(t, inst.Ob))
 
-	reqs := fake.Requests()
-	if len(reqs) != 1 {
-		t.Fatalf("expected 1 outbound to gated, got %d", len(reqs))
+	queued, err := inst.X.PendingOutbound(t.Context(), time.Now().Add(time.Second), 10)
+	if err != nil || len(queued) != 1 || queued[0].ChatJID != jid {
+		t.Fatalf("queued greeting: %v %v", queued, err)
 	}
-	if reqs[0].Path != "/v1/outbound" {
-		t.Errorf("outbound path = %q", reqs[0].Path)
-	}
-	if !strings.Contains(string(reqs[0].Body), jid) {
-		t.Errorf("outbound body missing jid: %q", reqs[0].Body)
-	}
-
-	// The raw token exists ONLY in the link that just went out — route_tokens
-	// keeps sha256(token) — so recover it from the outbound body, exactly as the
-	// user's chat client would.
-	token := tokenFromLink(t, string(reqs[0].Body))
+	token := tokenFromLink(t, queued[0].Content)
 	if len(token) != 64 {
 		t.Fatalf("want 64-char token, got %d", len(token))
 	}

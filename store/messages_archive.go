@@ -1,21 +1,12 @@
 package store
 
-// messages_archive.go is `messages`' second reader: the whole history, which no
-// manifest carries, dumped and restored by `arizuko dump` and `arizuko apply` (spec 5/8
-// "Message history"). The cursor derivation is in chats.go because it is the
-// second half of ONE operation: an import that did not park the poller makes
-// the agent answer every restored message.
-//
-// `chats` IS THE PARTITION LIST: an entity read names one partition, so "every
-// message" is every chat. `PutMessage` opens a chat item before the first
-// message of a chat precisely so that list can never be short.
-
 import (
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"sort"
 	"time"
 
@@ -55,11 +46,12 @@ type ArchiveMessageRow struct {
 	// DeliveryAttempts belongs to the delivery item, and it is what the
 	// operator's dead-letter page reports: an archive that dropped it would
 	// restore a queue whose every row claims never to have been tried.
-	DeliveryAttempts int `json:"delivery_attempts,omitempty"`
+	DeliveryAttempts int               `json:"delivery_attempts,omitempty"`
+	Delivery         map[string]string `json:"delivery,omitempty"`
 }
 
-// naiveDatetime is the layout of a hand-written timestamp with no zone. Two
-// krons rows carry one (`2026-04-02 12:38:47`).
+var deliveryWorkAttrs = []string{"operation", "queued_at", "next_attempt_at", "expires_at"}
+
 const naiveDatetime = "2006-01-02 15:04:05"
 
 // ReadMessageInstant parses a stored or archived timestamp into the instant a
@@ -76,8 +68,6 @@ func ReadMessageInstant(raw string) (time.Time, error) {
 		"from, so the row has no place in its chat's order", raw)
 }
 
-// defaultImportBatch bounds how many messages ride one import batch (spec 5/8
-// "Message history").
 const defaultImportBatch = 500
 
 // UnorderableMessage names one archived row this import refused: its timestamp
@@ -89,15 +79,12 @@ type UnorderableMessage struct {
 	Timestamp string
 }
 
-// undelivered is one row's delivery state: the status stored as the ABSENCE of
-// a `sent` item, and the attempts already spent on it.
 type undelivered struct {
 	status   string
 	attempts int
+	work     map[string]string
 }
 
-// undeliveredStatus reads which rows are not `sent`, so the export can stamp a
-// state that is stored as an absence.
 func (s *Store) undeliveredStatus(ctx context.Context) (map[string]undelivered, error) {
 	out := map[string]undelivered{}
 	for _, status := range []string{core.MessageStatusPending, core.MessageStatusFailed} {
@@ -112,7 +99,11 @@ func (s *Store) undeliveredStatus(ctx context.Context) (map[string]undelivered, 
 			if err != nil {
 				return nil, fmt.Errorf("%s's attempt count: %w", it.Key.Sort, err)
 			}
-			out[it.Key.Sort] = undelivered{status: status, attempts: n}
+			work := map[string]string{}
+			for _, name := range deliveryWorkAttrs {
+				setAttr(work, name, it.Attrs[name])
+			}
+			out[it.Key.Sort] = undelivered{status: status, attempts: n, work: work}
 		}
 	}
 	return out, nil
@@ -141,6 +132,7 @@ func (s *Store) ExportMessagesJSONL(ctx context.Context, w io.Writer) (int, erro
 			row := archiveRowFrom(it)
 			if st, owed := status[it.Key.Sort]; owed {
 				row.Status, row.DeliveryAttempts = st.status, st.attempts
+				row.Delivery = st.work
 			} else {
 				row.Status = core.MessageStatusSent
 			}
@@ -153,7 +145,6 @@ func (s *Store) ExportMessagesJSONL(ctx context.Context, w io.Writer) (int, erro
 	return n, nil
 }
 
-// archiveRowFrom renders one item as the archive's row.
 func archiveRowFrom(it objstore.Item) ArchiveMessageRow {
 	ts, id, _ := MsgCoord(it.Key.Sort)
 	return ArchiveMessageRow{
@@ -254,9 +245,7 @@ func (s *Store) importMessageBatch(ctx context.Context, rows []ArchiveMessageRow
 	if len(rendered) == 0 {
 		return 0, refused, nil
 	}
-	// The chat item is opened BEFORE the messages: `chats` is the partition
-	// list, and a history the list does not name is one the poll loop never
-	// feeds and the next export cannot see.
+
 	held, err := s.openChatsFor(ctx, chats)
 	if err != nil {
 		return 0, refused, err
@@ -271,7 +260,7 @@ func (s *Store) importMessageBatch(ctx context.Context, rows []ArchiveMessageRow
 			continue
 		}
 		if held[m.ChatJID][MsgStamp(core.TS(t), m.ID)] {
-			continue // already restored; the archive is an append, not a rebuild
+			continue
 		}
 		w, err := importedMessageWrites(m)
 		if err != nil {
@@ -293,8 +282,7 @@ func (s *Store) importMessageBatch(ctx context.Context, rows []ArchiveMessageRow
 	if _, err := s.applyInChunks(ctx, "import messages", writes); err != nil {
 		return 0, refused, err
 	}
-	// The counts move ONCE per folder: nothing else writes while a restore
-	// runs, so the number that matters is the one the whole batch leaves.
+
 	for folder, n := range folders {
 		if err := s.countFolderMessageBy(ctx, folder, n, nil); err != nil {
 			return staged, refused, err
@@ -303,8 +291,6 @@ func (s *Store) importMessageBatch(ctx context.Context, rows []ArchiveMessageRow
 	return staged, refused, nil
 }
 
-// openChatsFor opens a chat item for every chat the batch names and answers the
-// message positions each already holds, read once per chat.
 func (s *Store) openChatsFor(ctx context.Context, chats map[string]bool) (
 	map[string]map[string]bool, error) {
 	held := make(map[string]map[string]bool, len(chats))
@@ -341,11 +327,6 @@ func (s *Store) openChatsFor(ctx context.Context, chats map[string]bool) (
 	return held, nil
 }
 
-// importedMessageWrites renders one archived row as the items it becomes, or
-// refuses it. It rebuilds every index the live writer would have written: an
-// import that carried only the messages would leave a restored instance whose
-// ambient window, activity page and retry feed are empty while the history is
-// whole. The folder COUNT is moved once per folder by the caller.
 func importedMessageWrites(m ArchiveMessageRow) ([]objstore.Write, error) {
 	t, err := ReadMessageInstant(m.Timestamp)
 	if err != nil {
@@ -379,11 +360,16 @@ func importedMessageWrites(m ArchiveMessageRow) ([]objstore.Write, error) {
 		if m.IsObserved {
 			feed.Attrs[attrFeedObserved] = flagSet
 		}
-		// The feed entry takes the message's own condition rather than its
-		// own: a row the target already holds must not double-count its folder.
+
 		writes = append(writes, feed)
 	}
 	if w, owes := deliveryWrite(key, msg, m.Status, m.DeliveryAttempts); owes {
+		for name, value := range m.Delivery {
+			if !slices.Contains(deliveryWorkAttrs, name) {
+				return nil, fmt.Errorf("unknown delivery work attribute %q", name)
+			}
+			setAttr(w.Attrs, name, value)
+		}
 		writes = append(writes, w)
 	}
 	return writes, nil

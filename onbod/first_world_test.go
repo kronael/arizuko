@@ -49,7 +49,11 @@ func seedStranger(t *testing.T, db *store.Store, sub, status string) {
 func seedGate(t *testing.T, db *store.Store, gate string, enabled int) {
 	t.Helper()
 	seedGateRow(t, db, gate, 10, enabled == 1)
-	visible := len(loadGates(db)) > 0
+	gates, err := loadGates(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	visible := len(gates) > 0
 	if visible != (enabled == 1) {
 		t.Fatalf("gate %q enabled=%d is %v to loadGates; seed does not model the case",
 			gate, enabled, visible)

@@ -17,7 +17,7 @@ import (
 // deterministic, and the driver answers it the same way it answers the others.
 func dropEntity(t *testing.T, s *Store, entity string) {
 	t.Helper()
-	d, ok := s.Obj().(*dynstore.Store)
+	d, ok := s.obj.(*dynstore.Store)
 	if !ok {
 		t.Fatalf("this fixture is not served: %T", s.Obj())
 	}

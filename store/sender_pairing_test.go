@@ -1,6 +1,7 @@
 package store
 
 import (
+	"github.com/kronael/arizuko/objstore"
 	"maps"
 	"testing"
 	"time"
@@ -20,10 +21,11 @@ func TestOnboardingSenderPersistsAndArchives(t *testing.T) {
 		t.Fatal(err)
 	}
 	before := maps.Clone(admissionItem(t, s, chat).Attrs)
+	delete(before, objstore.IndexRevision)
 	if _, err := s.InsertOnboarding(chat, "discord:user/other"); err != nil {
 		t.Fatal(err)
 	}
-	if after := admissionItem(t, s, chat).Attrs; !maps.Equal(before, after) {
+	if after := withoutIndexRevision(admissionItem(t, s, chat).Attrs); !maps.Equal(before, after) {
 		t.Fatalf("repeat miss changed sender or verdict: %v -> %v", before, after)
 	}
 	rows, err := s.ListOnboarding("")
@@ -38,7 +40,7 @@ func TestOnboardingSenderPersistsAndArchives(t *testing.T) {
 	if _, err := restored.ImportOnboarding(t.Context(), archive); err != nil {
 		t.Fatal(err)
 	}
-	if got := admissionItem(t, restored, chat).Attrs; !maps.Equal(before, got) {
+	if got := withoutIndexRevision(admissionItem(t, restored, chat).Attrs); !maps.Equal(before, got) {
 		t.Fatalf("restored onboarding = %v, want %v", got, before)
 	}
 }
@@ -55,7 +57,7 @@ func TestInsertOnboardingSenderPreservesVerdicts(t *testing.T) {
 			if _, err := s.ImportOnboarding(t.Context(), []ArchiveOnboardingRow{row}); err != nil {
 				t.Fatal(err)
 			}
-			want := maps.Clone(admissionItem(t, s, row.JID).Attrs)
+			want := withoutIndexRevision(admissionItem(t, s, row.JID).Attrs)
 			want[attrOnbSender] = "discord:user/123"
 			if status == statusAwaitingMessage {
 				delete(want, attrOnbPromptedAt)
@@ -66,7 +68,7 @@ func TestInsertOnboardingSenderPreservesVerdicts(t *testing.T) {
 			if _, err := s.InsertOnboarding(row.JID, "discord:user/other"); err != nil {
 				t.Fatal(err)
 			}
-			if got := admissionItem(t, s, row.JID).Attrs; !maps.Equal(got, want) {
+			if got := withoutIndexRevision(admissionItem(t, s, row.JID).Attrs); !maps.Equal(got, want) {
 				t.Fatalf("backfilled onboarding = %v, want %v", got, want)
 			}
 		})
@@ -89,4 +91,10 @@ func TestInsertOnboardingResolvesSenderAndRearmsGreeting(t *testing.T) {
 	if _, prompted := got[attrOnbPromptedAt]; prompted || got[attrOnbSender] != "discord:user/123" {
 		t.Fatalf("resolved admission = %v", got)
 	}
+}
+
+func withoutIndexRevision(attrs map[string]string) map[string]string {
+	attrs = maps.Clone(attrs)
+	delete(attrs, objstore.IndexRevision)
+	return attrs
 }

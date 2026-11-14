@@ -331,7 +331,14 @@ func renameRowState(ctx context.Context, driver objstore.Store, entity string, i
 	if len(items) == 0 {
 		return false, false, nil
 	}
-	return true, reflect.DeepEqual(items[0], item), nil
+	return true, renameItemsEqual(items[0], item), nil
+}
+
+func renameItemsEqual(actual, expected objstore.Item) bool {
+	actual.Attrs, expected.Attrs = maps.Clone(actual.Attrs), maps.Clone(expected.Attrs)
+	delete(actual.Attrs, objstore.IndexRevision)
+	delete(expected.Attrs, objstore.IndexRevision)
+	return reflect.DeepEqual(actual, expected)
 }
 
 func renameBatchState(ctx context.Context, rows []renameRow, drivers map[string]objstore.Store) (bool, bool, error) {
@@ -384,6 +391,9 @@ func renameApplyBatch(ctx context.Context, rows []renameRow, drivers map[string]
 		}
 		cond := objstore.Cond{Item: objstore.ItemPresent}
 		for _, field := range slices.Sorted(maps.Keys(before.Attrs)) {
+			if field == objstore.IndexRevision {
+				continue
+			}
 			cond.Where = append(cond.Where, objstore.Cmp{Attr: field, Op: objstore.Eq, Value: before.Attrs[field]})
 		}
 		if before.Key == (objstore.Key{}) {
@@ -405,7 +415,6 @@ func renameApplyBatch(ctx context.Context, rows []renameRow, drivers map[string]
 			}
 			writes = append(writes, objstore.Write{Op: objstore.Update, Entity: row.Entity, Key: before.Key, Attrs: after.Attrs, Remove: remove, Cond: cond})
 		}
-		writes = append(writes, store.StateIndexChanges(row.Entity, before, after)...)
 		if marked, ok := store.EntityScope(row.Entity); ok {
 			scope = marked
 			bump = true
@@ -414,7 +423,11 @@ func renameApplyBatch(ctx context.Context, rows []renameRow, drivers map[string]
 	if bump {
 		writes = append(writes, objstore.Bump(scope))
 	}
-	committed, err := drivers[rows[0].Owner].GuardedBatch(ctx, nil, writes)
+	driver := drivers[rows[0].Owner]
+	if rows[0].Owner == store.OwnerRoutd || rows[0].Owner == store.OwnerOnbod {
+		driver = store.NewOver(driver).Obj()
+	}
+	committed, err := driver.GuardedBatch(ctx, nil, writes)
 	if err != nil {
 		return err
 	}
@@ -727,7 +740,7 @@ func renameVerifyRows(ctx context.Context, rows []renameRow, drivers map[string]
 			if err != nil {
 				return err
 			}
-			if !reflect.DeepEqual(items[image.Key], image) {
+			if !renameItemsEqual(items[image.Key], image) {
 				return fmt.Errorf("final verification changed in %s.%s", row.Owner, row.Entity)
 			}
 		}

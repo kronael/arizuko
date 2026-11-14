@@ -123,6 +123,11 @@ marker only after all existing rows have their pointers.
 Message identity, status and reply lookups use chat-scoped pointers. Delivery
 transitions resolve the stored coordinate, including append-order adjustments.
 `messages-v1` backfills pointers once; group rename updates them atomically.
+Onboarding writes schedule greeting and notice generations, pairing
+acknowledgments, and due `onboarding_work` gate records. Admission uses keyed
+queues and today's quota, fenced by the owner version. Gate and admission
+changes wake affected work in the same batch. `onboarding-v1` and `pairings-v1`
+backfill existing rows. Archives preserve generation and delivery metadata.
 
 Two cursors, `chats.agent_cursor` and `sessions.observed_cursor`, are copies of a
 `messages.timestamp` compared back against that column, so both are declared

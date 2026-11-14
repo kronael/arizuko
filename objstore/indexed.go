@@ -12,12 +12,18 @@ import (
 
 const IndexEntity = "state_index"
 const IndexBatchSize = 8
-const indexRevision = "_index_revision"
+const IndexRevision = "_index_revision"
 
 type Indexer interface {
 	Indexed(entity string) bool
 	// Keys returns complete, unique pointer coordinates.
 	Keys(entity string, item Item) []Key
+}
+
+// CompanionIndexer schedules coalesced work alongside a primary transition.
+// Companions are unconditional merges into separate, indexed work records.
+type CompanionIndexer interface {
+	Companions(entity string, before, after Item) []Write
 }
 
 type Indexed struct {
@@ -42,10 +48,14 @@ func (s *Indexed) GuardedBatch(ctx context.Context, checks []Check, writes []Wri
 		return s.Store.GuardedBatch(ctx, checks, writes)
 	}
 	for range 16 {
-		batch := slices.Clone(writes)
+		expanded := slices.Clone(writes)
+		var batch []Write
+		companions := map[[3]string]int{}
 		before := map[int]Item{}
-		for i, w := range writes {
+		for i := 0; i < len(expanded); i++ {
+			w := expanded[i]
 			if !s.Indexed(w.Entity) {
+				batch = append(batch, w)
 				continue
 			}
 			old, exists, err := indexPoint(ctx, s.Store, w.Entity, w.Key)
@@ -67,13 +77,13 @@ func (s *Indexed) GuardedBatch(ctx context.Context, checks []Check, writes []Wri
 			for _, name := range w.Remove {
 				delete(next, name)
 			}
-			guard := Cmp{Attr: indexRevision, Op: Absent}
-			if revision := old.Attrs[indexRevision]; revision != "" {
+			guard := Cmp{Attr: IndexRevision, Op: Absent}
+			if revision := old.Attrs[IndexRevision]; revision != "" {
 				guard.Op, guard.Value = Eq, revision
 			}
 			w.Cond.Where = append(slices.Clone(w.Cond.Where), guard)
 
-			next[indexRevision] = rand.Text()
+			next[IndexRevision] = rand.Text()
 			w.Init = nil
 			if w.Op != Delete {
 				if exists && w.Op != Put {
@@ -92,14 +102,14 @@ func (s *Indexed) GuardedBatch(ctx context.Context, checks []Check, writes []Wri
 						}
 					}
 				}
-				w.Attrs[indexRevision] = next[indexRevision]
+				w.Attrs[IndexRevision] = next[IndexRevision]
 				w.Op = Update
 				if !exists {
 					w.Op = Put
 					w.Cond = Cond{Item: ItemAbsent}
 				}
 			}
-			batch[i] = w
+			batch = append(batch, w)
 			after := Item{Key: w.Key, Attrs: next}
 			if w.Op == Delete {
 				after = Item{}
@@ -108,6 +118,35 @@ func (s *Indexed) GuardedBatch(ctx context.Context, checks []Check, writes []Wri
 				old = Item{}
 			}
 			batch = append(batch, IndexChanges(s.Indexer, w.Entity, old, after)...)
+			if index, ok := s.Indexer.(CompanionIndexer); ok {
+				for _, companion := range index.Companions(w.Entity, old, after) {
+					if companion.Op != Merge || len(companion.Remove) != 0 {
+						return false, fmt.Errorf("index companion must merge work")
+					}
+					if err := validateWrite(companion); err != nil {
+						return false, err
+					}
+					id := [3]string{companion.Entity, companion.Key.Partition, companion.Key.Sort}
+					if j, exists := companions[id]; exists {
+						if j <= i {
+							return false, fmt.Errorf("cyclic index companion")
+						}
+						if expanded[j].Attrs == nil {
+							expanded[j].Attrs = map[string]string{}
+						}
+						maps.Copy(expanded[j].Attrs, companion.Attrs)
+						continue
+					}
+					for _, primary := range writes {
+						if primary.Entity == companion.Entity && primary.Key == companion.Key {
+							return false, fmt.Errorf("index companion also supplied as primary")
+						}
+					}
+					companions[id] = len(expanded)
+					expanded = append(expanded, companion)
+				}
+			}
+
 		}
 		ok, err := s.Store.GuardedBatch(context.WithValue(ctx, indexBatchContext{}, &batch[0]), checks, batch)
 		if err != nil || ok {
@@ -115,11 +154,11 @@ func (s *Indexed) GuardedBatch(ctx context.Context, checks []Check, writes []Wri
 		}
 		changed := false
 		for i, old := range before {
-			current, _, err := indexPoint(ctx, s.Store, writes[i].Entity, writes[i].Key)
+			current, _, err := indexPoint(ctx, s.Store, expanded[i].Entity, expanded[i].Key)
 			if err != nil {
 				return false, err
 			}
-			changed = changed || current.Attrs[indexRevision] != old.Attrs[indexRevision]
+			changed = changed || current.Attrs[IndexRevision] != old.Attrs[IndexRevision]
 		}
 		if !changed {
 			return false, nil

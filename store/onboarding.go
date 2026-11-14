@@ -1,44 +1,25 @@
 package store
 
-// onboarding.go holds every read and write of `onboarding` and
-// `onboarding_gates`: one item per unrouted chat waiting to be let in, and one
-// item per admission gate.
-//
-// The partition is store.OwnerOnbod because both tables are registered resreg
-// resources and resreg.SubsystemOnbod IS store.OwnerOnbod; a second spelling
-// would empty `arizuko dump` without any read failing. Every read examines
-// the whole collection (45 admission rows fleet-wide, 2026-09-07; no drainage
-// but DenyOnboarding), because eight of the ten reads select by an attribute.
-//
-// THE TIMESTAMPS ARE 20 BYTES AND THAT IS DECLARED, not re-rendered: every
-// live value is time.RFC3339 of a UTC time, and widening them would move every
-// checksum for nothing. The declaration is what makes `prompted_at <`,
-// `queued_at <` and `admitted_at >=` time comparisons, because they are BYTE
-// comparisons (BUGS L97).
-
 import (
 	"context"
 	"errors"
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/kronael/arizuko/audit"
+	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/objstore"
 )
 
-// onbodTSWidth is the width of every stored instant in these two entities and
-// in invites: time.RFC3339 of a UTC time. A test pins it against the layout.
 const onbodTSWidth = 20
 
-// onbodTS renders one instant at the declared width: the only place these
-// entities format a time.
 func onbodTS(at time.Time) string { return at.UTC().Format(time.RFC3339) }
 
-// The attributes an admission item carries. `jid` IS the sort key. The
-// optional ones are ABSENT when they have no value.
 const (
 	attrOnbStatus     = "status"
 	attrOnbSender     = "sender"
@@ -50,15 +31,11 @@ const (
 	attrOnbAdmittedAt = "admitted_at"
 )
 
-// The attributes a gate item carries; `gate` is the sort key. `enabled` is an
-// int rendered by strconv, what resreg's own entity path writes for an int
-// field (resreg/entity.go itemFor).
 const (
 	attrGateLimitPerDay = "limit_per_day"
 	attrGateEnabled     = "enabled"
 )
 
-// The statuses this package writes.
 const (
 	statusAwaitingMessage = "awaiting_message"
 	statusQueued          = "queued"
@@ -66,8 +43,6 @@ const (
 	statusRefused         = "refused"
 )
 
-// Every attribute a read COMPARES is declared, so every driver refuses a value
-// of another width.
 func init() {
 	objstore.OrderedAttr(Onboarding, attrOnbCreated, onbodTSWidth)
 	objstore.OrderedAttr(Onboarding, attrOnbPromptedAt, onbodTSWidth)
@@ -84,7 +59,6 @@ func onboardingKey(jid string) (objstore.Key, error) {
 	return objstore.Key{Partition: OwnerOnbod, Sort: jid}, nil
 }
 
-// gateKey is the coordinate of one gate.
 func gateKey(gate string) (objstore.Key, error) {
 	if gate == "" {
 		return objstore.Key{}, errors.New("gate row carries no gate, which is its coordinate")
@@ -129,7 +103,7 @@ func (s *Store) InsertOnboarding(jid, sender string) (bool, error) {
 	// refusal is that guard holding.
 	if _, err := s.TryWriteEntities(ctx, nil, objstore.Write{
 		Op: objstore.Update, Entity: Onboarding, Key: key,
-		Remove: []string{attrOnbPromptedAt},
+		Remove: []string{attrOnbPromptedAt, "_prompt_id", "_prompt_queued", "_prompt_retry_at"},
 		Cond: objstore.Cond{Where: []objstore.Cmp{
 			{Attr: attrOnbStatus, Op: objstore.Eq, Value: statusAwaitingMessage},
 			{Attr: attrOnbPromptedAt, Op: objstore.Lt, Value: onbodTS(now.Add(-PairingTTL))},
@@ -153,7 +127,7 @@ func (s *Store) BackfillOnboardingSender(jid, sender string) error {
 	w := objstore.Write{
 		Op: objstore.Update, Entity: Onboarding, Key: key,
 		Attrs:  map[string]string{attrOnbSender: sender},
-		Remove: []string{attrOnbPromptedAt},
+		Remove: []string{attrOnbPromptedAt, "_prompt_id", "_prompt_queued", "_prompt_retry_at"},
 		Cond: objstore.Cond{Where: []objstore.Cmp{
 			{Attr: attrOnbSender, Op: objstore.Absent},
 			{Attr: attrOnbStatus, Op: objstore.Eq, Value: statusAwaitingMessage},
@@ -181,7 +155,6 @@ type OnboardingGate struct {
 	Enabled     bool
 }
 
-// gateFrom renders one stored item as the gate a caller reads.
 func gateFrom(it objstore.Item) (OnboardingGate, error) {
 	limit, err := intAttr(OnboardingGates, it, attrGateLimitPerDay)
 	if err != nil {
@@ -194,9 +167,6 @@ func gateFrom(it objstore.Item) (OnboardingGate, error) {
 	return OnboardingGate{Gate: it.Key.Sort, LimitPerDay: limit, Enabled: enabled != 0}, nil
 }
 
-// intAttr reads a numeric attribute. A value that is not a number is an ERROR
-// rather than a zero: a gate whose limit read as 0 would admit nobody, and a
-// max_uses that read as 0 would refuse every redemption, both silently.
 func intAttr(entity string, it objstore.Item, attr string) (int, error) {
 	text, ok := it.Attrs[attr]
 	if !ok {
@@ -301,8 +271,7 @@ func (s *Store) SetGateInto(ws *WriteSet, gate string, limitPerDay int, enabled 
 		return err
 	}
 	if enabled != nil {
-		// An attribute has ONE writer per write (objstore.validateMerge), so
-		// the flag the caller named takes the place of the born-with one.
+
 		flip, ferr := gateEnableWrite(gate, *enabled)
 		if ferr != nil {
 			return ferr
@@ -314,9 +283,6 @@ func (s *Store) SetGateInto(ws *WriteSet, gate string, limitPerDay int, enabled 
 	return nil
 }
 
-// gateUpsert renders "this gate exists and its limit is that" as ONE write.
-// `enabled` is an Init because it is the flag a gate is BORN with; a Put would
-// re-enable a gate the operator disabled.
 func gateUpsert(gate string, limitPerDay int) (objstore.Write, error) {
 	key, err := gateKey(gate)
 	if err != nil {
@@ -354,7 +320,6 @@ func (s *Store) DeleteGateInto(ws *WriteSet, gate string) error {
 	return nil
 }
 
-// gateDeleteWrite renders one gate's removal.
 func gateDeleteWrite(gate string) (objstore.Write, error) {
 	key, err := gateKey(gate)
 	if err != nil {
@@ -427,21 +392,22 @@ func (s *Store) EnableGate(gate string, enabled bool) error {
 
 // OnboardingRow is one row from the onboarding admission table.
 type OnboardingRow struct {
-	JID        string `json:"jid"`
-	Sender     string `json:"sender,omitempty"`
-	Status     string `json:"status"`
-	UserSub    string `json:"user_sub,omitempty"`
-	Gate       string `json:"gate,omitempty"`
-	Created    string `json:"created"`
-	PromptedAt string `json:"prompted_at,omitempty"`
-	QueuedAt   string `json:"queued_at,omitempty"`
-	AdmittedAt string `json:"admitted_at,omitempty"`
+	JID        string            `json:"jid"`
+	Sender     string            `json:"sender,omitempty"`
+	Status     string            `json:"status"`
+	UserSub    string            `json:"user_sub,omitempty"`
+	Gate       string            `json:"gate,omitempty"`
+	Created    string            `json:"created"`
+	PromptedAt string            `json:"prompted_at,omitempty"`
+	QueuedAt   string            `json:"queued_at,omitempty"`
+	AdmittedAt string            `json:"admitted_at,omitempty"`
+	Work       map[string]string `json:"-"`
 }
 
-// onboardingFrom renders one stored item as the row every read surface sees;
-// an absent attribute leaves its field empty.
+var onboardingWorkAttrs = []string{"_prompt_id", "_prompt_retry_at", "_prompt_queued", "_notice_id", "_notice_retry_at", "_notice_queued", "_notice_at", "_notice_state"}
+
 func onboardingFrom(it objstore.Item) OnboardingRow {
-	return OnboardingRow{
+	r := OnboardingRow{
 		JID:        it.Key.Sort,
 		Sender:     it.Attrs[attrOnbSender],
 		Status:     it.Attrs[attrOnbStatus],
@@ -452,12 +418,17 @@ func onboardingFrom(it objstore.Item) OnboardingRow {
 		QueuedAt:   it.Attrs[attrOnbQueuedAt],
 		AdmittedAt: it.Attrs[attrOnbAdmittedAt],
 	}
+	for _, name := range onboardingWorkAttrs {
+		if value := it.Attrs[name]; value != "" {
+			if r.Work == nil {
+				r.Work = map[string]string{}
+			}
+			r.Work[name] = value
+		}
+	}
+	return r
 }
 
-// onboardingPut renders a whole row as the item that stores it: the single
-// renderer EVERY writer goes through. EVERY empty attribute is left OFF, `status` and `created` included:
-// byte for byte what resreg's own entity path writes for a string field
-// (resreg/entity.go itemFor).
 func onboardingPut(r OnboardingRow) (objstore.Write, error) {
 	key, err := onboardingKey(r.JID)
 	if err != nil {
@@ -472,14 +443,17 @@ func onboardingPut(r OnboardingRow) (objstore.Write, error) {
 	setAttr(attrs, attrOnbPromptedAt, r.PromptedAt)
 	setAttr(attrs, attrOnbQueuedAt, r.QueuedAt)
 	setAttr(attrs, attrOnbAdmittedAt, r.AdmittedAt)
+	for name, value := range r.Work {
+		if !slices.Contains(onboardingWorkAttrs, name) {
+			return objstore.Write{}, fmt.Errorf("unknown onboarding work attribute %q", name)
+		}
+		setAttr(attrs, name, value)
+	}
 	return objstore.Write{
 		Op: objstore.Put, Entity: Onboarding, Key: key, Attrs: attrs,
 	}, nil
 }
 
-// readOnboarding is the one read behind every admission query below, so
-// "which admissions match this" cannot mean one thing to a page and another to
-// a counter.
 func (s *Store) readOnboarding(ctx context.Context, where ...objstore.Cmp) ([]OnboardingRow, error) {
 	items, err := s.Obj().Query(ctx, objstore.Query{
 		Entity: Onboarding, Partition: OwnerOnbod, Where: where,
@@ -524,19 +498,25 @@ func (s *Store) QueuedJIDs(gate string, limit int) ([]string, error) {
 	if limit <= 0 {
 		return nil, nil
 	}
-	rows, err := s.readOnboarding(context.Background(),
-		objstore.Cmp{Attr: attrOnbStatus, Op: objstore.Eq, Value: statusQueued},
-		objstore.Cmp{Attr: attrOnbGate, Op: objstore.Eq, Value: gate})
+	refs, err := s.Obj().Query(context.Background(), objstore.Query{Entity: objstore.IndexEntity, Partition: indexPartition("onboarding/queue", gate)})
 	if err != nil {
 		return nil, err
 	}
-	// Oldest first by an attribute, so the order and the limit are applied
-	// here: a Limit on the query would have cut by jid.
-	sort.SliceStable(rows, func(i, j int) bool { return rows[i].QueuedAt < rows[j].QueuedAt })
-	return onboardingJIDs(rows[:min(limit, len(rows))]), nil
+	sort.Slice(refs, func(i, j int) bool {
+		a, _, _ := strings.Cut(refs[i].Key.Sort, KeySep)
+		b, _, _ := strings.Cut(refs[j].Key.Sort, KeySep)
+		if a == b {
+			return refs[i].Attrs["source_sort"] < refs[j].Attrs["source_sort"]
+		}
+		return a < b
+	})
+	ids := make([]string, 0, min(limit, len(refs)))
+	for _, ref := range refs[:min(limit, len(refs))] {
+		ids = append(ids, ref.Attrs["source_sort"])
+	}
+	return ids, nil
 }
 
-// onboardingJIDs is the coordinate list of a row set.
 func onboardingJIDs(rows []OnboardingRow) []string {
 	var out []string
 	for _, r := range rows {
@@ -548,9 +528,7 @@ func onboardingJIDs(rows []OnboardingRow) []string {
 // QueuedAdmission answers which gate is holding a user and since when.
 // (zero, false) when the user is not queued.
 func (s *Store) QueuedAdmission(userSub string) (OnboardingRow, bool, error) {
-	rows, err := s.readOnboarding(context.Background(),
-		objstore.Cmp{Attr: attrOnbStatus, Op: objstore.Eq, Value: statusQueued},
-		objstore.Cmp{Attr: attrOnbUserSub, Op: objstore.Eq, Value: userSub})
+	rows, err := s.indexedOnboarding(context.Background(), indexPartition("onboarding/queued_user", userSub))
 	if err != nil || len(rows) == 0 {
 		return OnboardingRow{}, false, err
 	}
@@ -560,9 +538,7 @@ func (s *Store) QueuedAdmission(userSub string) (OnboardingRow, bool, error) {
 // ApprovedAdmissions counts a user's approved admissions: the second authority
 // an admitted stranger holds to create a first world (spec 5/18 step 8).
 func (s *Store) ApprovedAdmissions(userSub string) (int, error) {
-	rows, err := s.readOnboarding(context.Background(),
-		objstore.Cmp{Attr: attrOnbStatus, Op: objstore.Eq, Value: statusApproved},
-		objstore.Cmp{Attr: attrOnbUserSub, Op: objstore.Eq, Value: userSub})
+	rows, err := s.Obj().Query(context.Background(), objstore.Query{Entity: objstore.IndexEntity, Partition: indexPartition("onboarding/approved_user", userSub)})
 	return len(rows), err
 }
 
@@ -570,22 +546,36 @@ func (s *Store) ApprovedAdmissions(userSub string) (int, error) {
 // number the queue page turns into a position and an ETA. A byte comparison
 // on a declared 20-byte attribute (file header).
 func (s *Store) QueuePosition(gate, queuedAt string) (int, error) {
-	rows, err := s.readOnboarding(context.Background(),
-		objstore.Cmp{Attr: attrOnbStatus, Op: objstore.Eq, Value: statusQueued},
-		objstore.Cmp{Attr: attrOnbGate, Op: objstore.Eq, Value: gate},
-		objstore.Cmp{Attr: attrOnbQueuedAt, Op: objstore.Lt, Value: queuedAt})
+	rows, err := s.Obj().Query(context.Background(), objstore.Query{Entity: objstore.IndexEntity, Partition: indexPartition("onboarding/queue", gate), Key: objstore.KeyPredicate{Op: objstore.LtKey, Value: queuedAt}})
 	return len(rows), err
 }
 
 // AdmittedInWindow counts one gate's admissions inside a half-open instant
 // range: today's quota, so a backlog queued on a prior day does not evade it.
 func (s *Store) AdmittedInWindow(gate, from, to string) (int, error) {
-	rows, err := s.readOnboarding(context.Background(),
-		objstore.Cmp{Attr: attrOnbGate, Op: objstore.Eq, Value: gate},
-		objstore.Cmp{Attr: attrOnbStatus, Op: objstore.Eq, Value: statusApproved},
-		objstore.Cmp{Attr: attrOnbAdmittedAt, Op: objstore.Ge, Value: from},
-		objstore.Cmp{Attr: attrOnbAdmittedAt, Op: objstore.Lt, Value: to})
-	return len(rows), err
+	start, err := time.Parse(time.RFC3339, from)
+	if err != nil {
+		return 0, err
+	}
+	end, err := time.Parse(time.RFC3339, to)
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for day := start.UTC().Truncate(24 * time.Hour); day.Before(end); day = day.Add(24 * time.Hour) {
+		refs, err := s.Obj().Query(context.Background(), objstore.Query{Entity: objstore.IndexEntity,
+			Partition: indexPartition("onboarding/admitted", gate, day.Format("2006-01-02")),
+			Key:       objstore.KeyPredicate{Op: objstore.GeKey, Value: from}})
+		if err != nil {
+			return 0, err
+		}
+		for _, ref := range refs {
+			if ref.Key.Sort < to {
+				n++
+			}
+		}
+	}
+	return n, nil
 }
 
 // ClaimOnboardingPrompt stamps the instant a chat was greeted, and only when it
@@ -599,9 +589,11 @@ func (s *Store) ClaimOnboardingPrompt(jid string) (bool, error) {
 	}
 	claimed, err := s.TryWriteEntities(context.Background(), nil, objstore.Write{
 		Op: objstore.Update, Entity: Onboarding, Key: key,
-		Attrs: map[string]string{attrOnbPromptedAt: onbodTS(time.Now())},
+		Attrs: map[string]string{attrOnbPromptedAt: onbodTS(time.Now()), "_prompt_id": core.MsgID("onboarding"), "_prompt_retry_at": core.TS(time.Now())},
 		Cond: objstore.Cond{Where: []objstore.Cmp{
 			{Attr: attrOnbPromptedAt, Op: objstore.Absent},
+			{Attr: attrOnbStatus, Op: objstore.Eq, Value: statusAwaitingMessage},
+			{Attr: attrOnbUserSub, Op: objstore.Absent},
 		}},
 	})
 	if err != nil {
@@ -641,45 +633,25 @@ func (s *Store) AdmitOnboarding(jid, userSub string) error {
 	})
 }
 
-// setOnboarding merges one verdict into an admission row. A row that is not
-// there is NOT an error: the observer reads the work list one tick before it
-// writes, and an operator may deny a jid in between.
 func (s *Store) setOnboarding(jid, what string, attrs map[string]string) error {
 	key, err := onboardingKey(jid)
 	if err != nil {
 		return err
 	}
-	// A refusal is the jid no longer being there.
+	var remove []string
+	if status := attrs[attrOnbStatus]; status == statusQueued || status == statusRefused {
+		attrs["_notice_id"], attrs["_notice_state"] = core.MsgID("onboarding-notice"), status
+		attrs["_notice_at"], attrs["_notice_retry_at"] = core.NowTS(), core.NowTS()
+		remove = []string{"_notice_queued"}
+	}
+	// A refused verdict belongs to a row an operator already resolved.
 	if _, err := s.TryWriteEntities(context.Background(), nil, objstore.Write{
-		Op: objstore.Update, Entity: Onboarding, Key: key, Attrs: attrs,
+		Op: objstore.Update, Entity: Onboarding, Key: key, Attrs: attrs, Remove: remove,
+		Cond: objstore.Cond{Where: []objstore.Cmp{{Attr: attrOnbStatus, Op: objstore.Eq, Value: statusAwaitingMessage}, {Attr: attrOnbUserSub, Op: objstore.Absent}}},
 	}); err != nil {
 		return fmt.Errorf("%s %s: %w", what, jid, err)
 	}
 	return nil
-}
-
-// AdmitQueued approves a gate's batch from the queue and answers how many
-// landed, because the caller records one audit event per admitted jid. It is
-// CHUNKED: a gate whose daily limit exceeds MaxBatchActions commits in pieces,
-// which is safe because the pieces are independent and the next tick re-reads
-// the queue.
-func (s *Store) AdmitQueued(jids []string) (int, error) {
-	now := onbodTS(time.Now())
-	writes := make([]objstore.Write, 0, len(jids))
-	for _, jid := range jids {
-		key, err := onboardingKey(jid)
-		if err != nil {
-			return 0, err
-		}
-		writes = append(writes, objstore.Write{
-			Op: objstore.Update, Entity: Onboarding, Key: key,
-			Attrs: map[string]string{
-				attrOnbStatus:     statusApproved,
-				attrOnbAdmittedAt: now,
-			},
-		})
-	}
-	return s.applyInChunks(context.Background(), "admit the queued chats", writes)
 }
 
 // ApproveOnboarding sets a row to approved immediately: the operator fast-path,
@@ -746,7 +718,7 @@ func (s *Store) RepromptOnboarding(jid string) error {
 		Op: objstore.Update, Entity: Onboarding, Key: key,
 		Attrs: map[string]string{attrOnbStatus: statusAwaitingMessage},
 		Remove: []string{
-			attrOnbPromptedAt, attrOnbUserSub, attrOnbGate,
+			attrOnbPromptedAt, attrOnbUserSub, attrOnbGate, "_prompt_id", "_prompt_queued", "_prompt_retry_at",
 			attrOnbQueuedAt, attrOnbAdmittedAt,
 		},
 	}); err != nil {
@@ -754,8 +726,6 @@ func (s *Store) RepromptOnboarding(jid string) error {
 	}
 	return nil
 }
-
-// --- the archive lane (spec 5/8 "Message history", Z3) --------------------
 
 // ArchiveOnboardingRow is one row of the archive's onboarding document, the
 // same shape OnboardingRow publishes; it carries no credential (BUGS F40).
@@ -768,15 +738,16 @@ func (s *Store) RepromptOnboarding(jid string) error {
 // invites: importing admission verdicts onto a live instance is a merge, not a
 // restore.
 type ArchiveOnboardingRow struct {
-	JID        string `yaml:"jid"`
-	Sender     string `yaml:"sender,omitempty"`
-	Status     string `yaml:"status"`
-	UserSub    string `yaml:"user_sub,omitempty"`
-	Gate       string `yaml:"gate,omitempty"`
-	Created    string `yaml:"created"`
-	PromptedAt string `yaml:"prompted_at,omitempty"`
-	QueuedAt   string `yaml:"queued_at,omitempty"`
-	AdmittedAt string `yaml:"admitted_at,omitempty"`
+	JID        string            `yaml:"jid"`
+	Sender     string            `yaml:"sender,omitempty"`
+	Status     string            `yaml:"status"`
+	UserSub    string            `yaml:"user_sub,omitempty"`
+	Gate       string            `yaml:"gate,omitempty"`
+	Created    string            `yaml:"created"`
+	PromptedAt string            `yaml:"prompted_at,omitempty"`
+	QueuedAt   string            `yaml:"queued_at,omitempty"`
+	AdmittedAt string            `yaml:"admitted_at,omitempty"`
+	Work       map[string]string `yaml:"work,omitempty"`
 }
 
 // ExportOnboarding reads every admission row, in jid order (the coordinate's).

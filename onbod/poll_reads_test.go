@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/kronael/arizuko/objstore"
@@ -22,6 +23,29 @@ type onboardingReadCounter struct {
 	reads int
 }
 
+type unreadableGates struct{ objstore.Store }
+
+func (s unreadableGates) Query(ctx context.Context, q objstore.Query) ([]objstore.Item, error) {
+	if q.Entity == store.OnboardingGates {
+		return nil, fmt.Errorf("gate store unavailable")
+	}
+	return s.Store.Query(ctx, q)
+}
+
+func TestAdmissionKeepsWorkOnUnreadableGates(t *testing.T) {
+	s := testDB(t)
+	if _, err := s.InsertOnboarding("chat", "sender"); err != nil {
+		t.Fatal(err)
+	}
+	broken := store.NewOver(unreadableGates{s.Obj()})
+	if err := admitJID(broken, config{}, "chat", "user"); err == nil {
+		t.Fatal("unreadable gates admitted caller")
+	}
+	if rows := awaitingRows(t, s); len(rows) != 1 {
+		t.Fatalf("pending work consumed: %v", rows)
+	}
+}
+
 func (c *onboardingReadCounter) Query(ctx context.Context, q objstore.Query) ([]objstore.Item, error) {
 	if q.Entity == store.Onboarding {
 		c.reads++
@@ -29,15 +53,35 @@ func (c *onboardingReadCounter) Query(ctx context.Context, q objstore.Query) ([]
 	return c.Store.Query(ctx, q)
 }
 
-// One tick greets and checks pairings over a single read of the onboarding
-// partition; three reads per 10 s tick was the cost (BUGS L829).
-func TestTickReadsOnboardingOnce(t *testing.T) {
+func TestIdleTickReadsNoOnboardingRows(t *testing.T) {
 	db := testDB(t)
-	seedAdmission(t, db, store.ArchiveOnboardingRow{
-		JID: "telegram:user/1", Status: "awaiting_message", Created: "2026-08-06T00:00:00Z"})
+	for i := range 40 {
+		seedAdmission(t, db, store.ArchiveOnboardingRow{JID: fmt.Sprint(i), Status: "awaiting_message", PromptedAt: "2026-08-06T00:00:00Z"})
+	}
 	counter := &onboardingReadCounter{Store: db.Obj()}
 	pollOnboarding(db, store.NewOver(counter), config{})
-	if counter.reads != 1 {
-		t.Fatalf("onboarding reads per tick = %d, want 1", counter.reads)
+	if counter.reads != 0 {
+		t.Fatalf("idle tick read onboarding %d times", counter.reads)
+	}
+}
+
+func TestPairingBeforeOnboardingAndReprompt(t *testing.T) {
+	xdb, obdb := migratedDB(t)
+	if err := xdb.AddMembership("sender", "github:user", store.PairingAddedBy); err != nil {
+		t.Fatal(err)
+	}
+	consumePairings(xdb, obdb, config{})
+	if _, err := obdb.InsertOnboarding("chat", "sender"); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		pollOnboarding(xdb, obdb, config{})
+		row := admission(t, obdb, "chat")
+		if row.Status != "approved" || row.UserSub != "github:user" {
+			t.Fatalf("known pairing lost: %+v", row)
+		}
+		if err := obdb.RepromptOnboarding("chat"); err != nil {
+			t.Fatal(err)
+		}
 	}
 }

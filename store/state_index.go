@@ -15,13 +15,26 @@ type stateIndexes struct{}
 
 func (stateIndexes) Indexed(entity string) bool {
 	switch entity {
-	case ScheduledTasks, TurnContexts, TurnArchive, MessageDelivery, Messages:
+	case ScheduledTasks, TurnContexts, TurnArchive, MessageDelivery, Messages, Onboarding, OnboardingGates, OnboardingWork, ACLMembership:
 		return true
 	}
 	return false
 }
 
 func (stateIndexes) Keys(entity string, it objstore.Item) []objstore.Key {
+	switch entity {
+	case Onboarding:
+		return onboardingIndexes(it)
+	case OnboardingGates:
+		return nil
+	case OnboardingWork:
+		return []objstore.Key{objstore.DueIndexKey("onboarding/gates/due", it.Attrs["due"], entity, it.Key)}
+	case ACLMembership:
+		if it.Attrs[attrMemAddedBy] == PairingAddedBy && it.Attrs["_onboarding_ack"] == "" {
+			return []objstore.Key{{Partition: "onboarding/pairings", Sort: it.Key.Sort}}
+		}
+		return nil
+	}
 	if entity == Messages {
 		return messageIndexes(it)
 	}
@@ -33,6 +46,9 @@ func (stateIndexes) Keys(entity string, it objstore.Item) []objstore.Key {
 			return nil
 		}
 		due, _ := deliveryDueAt(it)
+		if expires, err := time.Parse(time.RFC3339Nano, it.Attrs["expires_at"]); err == nil && expires.Before(due) {
+			due = expires
+		}
 		return []objstore.Key{objstore.DueIndexKey("outbound/due", core.TS(due), entity, it.Key)}
 	}
 	switch it.Attrs[attrTaskStatus] {
@@ -60,6 +76,9 @@ func (s *Store) MigrateStateIndexes(ctx context.Context) error {
 		return err
 	}
 	if err := objstore.Reindex(ctx, s.Obj(), "outbound-v1", []objstore.Query{{Entity: MessageDelivery, Partition: core.MessageStatusPending}}); err != nil {
+		return err
+	}
+	if err := objstore.Reindex(ctx, s.Obj(), "pairings-v1", []objstore.Query{{Entity: ACLMembership, Partition: OwnerRoutd}}); err != nil {
 		return err
 	}
 	marker := objstore.Key{Partition: "migrations", Sort: "messages-v1"}
@@ -156,8 +175,4 @@ func messageIndexes(it objstore.Item) []objstore.Key {
 		add("source")
 	}
 	return keys
-}
-
-func StateIndexChanges(entity string, before, after objstore.Item) []objstore.Write {
-	return objstore.IndexChanges(stateIndexes{}, entity, before, after)
 }

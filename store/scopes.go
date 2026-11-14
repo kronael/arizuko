@@ -35,7 +35,6 @@ import (
 // resource's ScanAll as an item it does not recognise.
 const ScopeEntity = "resreg_scopes"
 
-// scopePartition is the one partition every subsystem's marker lives in.
 const scopePartition = "resreg"
 
 // OwnerScope names the item carrying one owner's version marker. The owner is
@@ -49,21 +48,11 @@ func OwnerScope(owner string) objstore.Scope {
 	}
 }
 
-// scopedEntities names each entity whose writes move a marker, and the owner
-// whose scope they move.
-//
-// PaneSessions, SecretUseLog, audit_log and the hot tier are absent
-// deliberately: no resreg resource reads them, and a hot-path write would move
-// routd's marker under every export that does not read it, spending one of
-// ReadConsistent's attempts each time. resreg/resources proves the set covers
-// every entity-backed resource it registers.
 var scopedEntities = map[string]string{
 	Onboarding:      OwnerOnbod,
 	OnboardingGates: OwnerOnbod,
 	Invites:         OwnerOnbod,
 
-	// routd's fourteen. Counters is absent: the write that USES a drawn number
-	// moves the marker itself.
 	ACL:               OwnerRoutd,
 	ACLMembership:     OwnerRoutd,
 	Groups:            OwnerRoutd,
@@ -89,9 +78,6 @@ func EntityScope(entity string) (objstore.Scope, bool) {
 	return OwnerScope(owner), true
 }
 
-// scopeBumps renders the marker writes a batch owes, one per distinct scope it
-// touches. Sorted, so two runs of one mutation render the same actions; one
-// per scope, because a batch may name each item once (objstore.ValidateBatch).
 func scopeBumps(writes []objstore.Write) []objstore.Write {
 	var owners []string
 	for _, w := range writes {
@@ -108,9 +94,6 @@ func scopeBumps(writes []objstore.Write) []objstore.Write {
 	return bumps
 }
 
-// withBumps is the caller's writes followed by the markers they move. It
-// COPIES: a caller chunking a larger slice hands over writes[:n], and appending
-// in place would overwrite the next chunk's first write with a marker.
 func withBumps(writes []objstore.Write) []objstore.Write {
 	return append(slices.Clone(writes), scopeBumps(writes)...)
 }
@@ -141,9 +124,13 @@ func (s *Store) TryWriteEntities(ctx context.Context, checks []objstore.Check,
 }
 
 func (s *Store) tryWriteEntitiesAt(ctx context.Context, version objstore.Version, writes []objstore.Write) (bool, error) {
+	return s.tryWriteOwnerEntitiesAt(ctx, OwnerRoutd, version, writes)
+}
+
+func (s *Store) tryWriteOwnerEntitiesAt(ctx context.Context, owner string, version objstore.Version, writes []objstore.Write) (bool, error) {
 	batch := withBumps(writes)
 	if version != "" {
-		sc := OwnerScope(OwnerRoutd)
+		sc := OwnerScope(owner)
 		found := false
 		for i := range batch {
 			if batch[i].Entity == sc.Entity && batch[i].Key == sc.Key {
@@ -188,8 +175,6 @@ func (s *Store) incrementEntity(ctx context.Context, entity string, key objstore
 	return s.incrementEntityVia(ctx, entity, key, attr, delta, cond, also)
 }
 
-// incrementEntityVia renders the counted set and its bumps for
-// objstore.Increment.
 func (s *Store) incrementEntityVia(ctx context.Context, entity string,
 	key objstore.Key, attr string, delta int, cond []objstore.Cmp,
 	also []objstore.Write) (int, bool, error) {
@@ -208,7 +193,7 @@ type EntityQuerier interface {
 // HERE so the write is visible to every consistent read over the scope it
 // moves; a refusal is the item already being there.
 func putIfAbsent(ctx context.Context, d objstore.Store, w objstore.Write) error {
-	// A Merge already creates what it does not find and refuses a condition.
+
 	if w.Op != objstore.Merge {
 		w.Cond = objstore.Cond{Item: objstore.ItemAbsent}
 	}
@@ -216,10 +201,6 @@ func putIfAbsent(ctx context.Context, d objstore.Store, w objstore.Write) error 
 	return err
 }
 
-// ensureScopes creates the marker every scoped entity of one owner moves, and
-// the entity it lives in. It has to exist BEFORE any write: a Bump is an
-// Update, and an Update against a missing item refuses the whole batch
-// (objstore.EnsureScope). An owner with no scoped entity gets nothing.
 func ensureScopes(ctx context.Context, d Driver, owner string) error {
 	if !slices.Contains(slices.Sorted(maps.Values(scopedEntities)), owner) {
 		return nil

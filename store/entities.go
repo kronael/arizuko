@@ -23,7 +23,8 @@ const (
 	SecretUseLog = "secret_use_log"
 	// Onboarding holds one item per unrouted chat awaiting admission,
 	// addressed by its jid.
-	Onboarding = "onboarding"
+	Onboarding     = "onboarding"
+	OnboardingWork = "onboarding_work"
 	// OnboardingGates holds one item per admission gate, addressed by the
 	// gate key.
 	OnboardingGates = "onboarding_gates"
@@ -174,7 +175,7 @@ var EntitiesByOwner = map[string][]string{
 		ModelPauses, TurnControl,
 		Messages, MessageFolders, MessageFolderCounts, MessageActivity, MessageDelivery,
 	},
-	OwnerOnbod: {Onboarding, OnboardingGates, Invites, InviteRedemptions},
+	OwnerOnbod: {Onboarding, OnboardingGates, Invites, InviteRedemptions, OnboardingWork, objstore.IndexEntity},
 }
 
 // Driver is what preparing this package's entities takes. CreateEntity is not

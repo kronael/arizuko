@@ -11,6 +11,7 @@ package store_test
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"testing"
 	"time"
 
@@ -267,7 +268,7 @@ func TestImportOnboardingLeavesALiveAdmissionAlone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(back) != 1 || back[0] != live {
+	if len(back) != 1 || !reflect.DeepEqual(back[0], live) {
 		t.Errorf("live admission = %+v, want the row untouched at %+v", back, live)
 	}
 }

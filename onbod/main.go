@@ -34,8 +34,8 @@ import (
 )
 
 type gate struct {
-	kind        string // "github", "google", "email", "*"
-	param       string // "org=mycompany", "domain=company.com", etc.
+	kind        string
+	param       string
 	limitPerDay int
 }
 
@@ -47,8 +47,7 @@ type config struct {
 	greeting     string
 	authBaseURL  string
 	secureCookie bool
-	// svcToken is onbod's service:onbod JWT source for routd's JWT-gated
-	// /v1/outbound (spec 5/1); always set (required at load).
+
 	svcToken func(context.Context) (string, error)
 }
 
@@ -67,30 +66,20 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Two handles (spec 5/16-mcp-rest-unification): obdb is onbod's OWNED tables
-	// (onboarding/invites/onboarding_gates); xdb is the CROSS tables
-	// (acl/acl_membership/groups/user_profiles/routes), all routd-OWNED. Split is the
-	// only topology — onbod owns its tables and cross-reads routd's, and opens NO
-	// messages.db. audit.Init targets obdb so the invite/gate writers' in-tx audit
-	// rows land with the mutation. A missing routd store is a misconfigured split,
-	// so a failure to open is fatal — no silent empty cross-read.
 	obdb, err := openOwned()
 	if err != nil {
 		slog.Error("open onbod's store", "err", err)
 		os.Exit(1)
 	}
-	defer obdb.Close() //nolint:errcheck // the process is ending
+	defer obdb.Close()
 	slog.Info("onbod owns its tables", "store", dynstore.URL())
 
-	// OpenOwner probes for the `acl` entity, so an owner that has never booted
-	// is loud instead of a cross-read against zero groups and zero acl with the
-	// boot still green (BUGS F52).
 	xdb, err := store.OpenOwner(store.OwnerRoutd)
 	if err != nil {
 		slog.Error("open routd's store", "err", err)
 		os.Exit(1)
 	}
-	defer xdb.Close() //nolint:errcheck // the process is ending
+	defer xdb.Close()
 	slog.Info("onbod cross-reads routd's tables", "store", dynstore.URL())
 
 	audit.Init(obdb.Obj(), os.Getenv("ARIZUKO_INSTANCE"))
@@ -106,10 +95,6 @@ func main() {
 		},
 	})
 
-	// guard proves a request transited proxyd, then trusts the proxyd-stamped
-	// X-User-Sub as the END-USER (the OAuth'd visitor) identity. When AUTHD_URL
-	// is set, build authd's JWKS so the ES256 transit bearer (proxyd attaches
-	// its service:proxyd token) verifies; unset → nil ks → HMAC-only.
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	var ks *auth.KeySet
@@ -125,9 +110,7 @@ func main() {
 		Addr:    cfg.listenAddr,
 		Handler: obs.HTTPMiddleware("onbod")(newOnbodMux(xdb, obdb, cfg, ks)),
 	}
-	// Register the signal handler BEFORE the listener accepts: a SIGTERM in
-	// between takes Go's default disposition and kills the process, so the
-	// Shutdown below never runs (BUGS L127).
+
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 
@@ -142,17 +125,10 @@ func main() {
 	defer tick.Stop()
 
 	pollOnboarding(xdb, obdb, cfg)
-	admitFromQueue(obdb)
-	var admitCount int
 	for {
 		select {
 		case <-tick.C:
 			pollOnboarding(xdb, obdb, cfg)
-			admitCount++
-			if admitCount*int(cfg.pollInterval.Seconds()) >= 60 {
-				admitFromQueue(obdb)
-				admitCount = 0
-			}
 		case <-stop:
 			_ = srv.Close()
 			slog.Info("onbod stopped")
@@ -161,24 +137,9 @@ func main() {
 	}
 }
 
-// newOnbodMux builds onbod's HTTP surface. Extracted from main so a test can
-// read the ROUTING TABLE onbod actually builds rather than a restatement of it —
-// the doc-vs-mux guard has to compare the emitted document against the real
-// mux, and a mux built inline in main is unreachable.
 func newOnbodMux(xdb, obdb *store.Store, cfg config, ks *auth.KeySet) *http.ServeMux {
 	mux := http.NewServeMux()
-	// stripUnsigned keeps X-User-Sub only when the request PROVES it transited
-	// proxyd. The bearer is a transit proof ONLY: /onboard reads X-User-Sub as the
-	// OAuth'd end-user, so we must NOT stamp the bearer's own service:proxyd subject
-	// over it. An unproven X-User-Sub is stripped. No verifier (local dev) → pass
-	// through.
-	//
-	// What is left after the strip is a caller proxyd could not name, and every
-	// handler below answers 401 to one. proxyd owns the login bounce and the
-	// auth_return cookie authd resumes from (spec 5/31-identity-pairing); a second bounce here
-	// sends an already-signed-in caller back to a login that returns them just
-	// as anonymous, which is the loop that made onboarding unreachable on every
-	// instance (BUGS L99). Refusing keeps the failure where its cause is.
+
 	stripUnsigned := stripUnsignedGuard(ks)
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -195,20 +156,12 @@ func newOnbodMux(xdb, obdb *store.Store, cfg config, ks *auth.KeySet) *http.Serv
 		handleInvite(w, r, xdb, obdb)
 	}))
 
-	// Bearer-gated admin surface (spec 5/16-mcp-rest-unification § One owner + federation). onbod OWNS
-	// invites + onboarding_gates; the writers (dashd, CLI, routd's /invite +
-	// /gate) reach them here instead of writing the DB directly in the split.
-	// Verified against authd's JWKS (ks); nil ks (AUTHD_URL unset / monolith) =
-	// open, like routd's nil-verifier local-dev path.
 	adm := &admin{st: obdb, ks: ks}
-	adm.mountOnboarding(mux) // /v1/onboarding via the shared resreg handler (spec 5/16)
-	adm.mountInvites(mux)    // /v1/invites via the shared resreg handler (spec 5/16)
-	adm.mountGates(mux)      // /v1/gates via the shared resreg handler (spec 5/16)
-	adm.mountAudit(mux)      // /v1/audit — onbod is the fourth audit_log owner (spec 5/I-tool-call-logging)
+	adm.mountOnboarding(mux)
+	adm.mountInvites(mux)
+	adm.mountGates(mux)
+	adm.mountAudit(mux)
 
-	// Operator dashboard (spec 5/16): the proxyd transit proof (stripUnsigned)
-	// admits the proxyd-stamped end-user identity; handleDash then gates on
-	// operator (`**` in X-User-Groups). Distinct from the /v1 bearer gate.
 	mux.HandleFunc("GET /dash/onbod/", stripUnsigned(adm.handleDash))
 	mux.HandleFunc("POST /dash/onbod/approve/{jid}", stripUnsigned(adm.handleDashApprove))
 	mux.HandleFunc("POST /dash/onbod/deny/{jid}", stripUnsigned(adm.handleDashDeny))
@@ -219,11 +172,6 @@ func newOnbodMux(xdb, obdb *store.Store, cfg config, ks *auth.KeySet) *http.Serv
 	return mux
 }
 
-// stripUnsignedGuard is the lenient identity gate for onbod's public surface: it
-// keeps an inbound X-User-Sub only when the request proves it transited proxyd,
-// otherwise it strips the identity headers so a request reaching onbod directly
-// cannot forge a user. The proxyd-stamped end-user X-User-Sub flows through
-// untouched. A nil keyset (local dev) passes through.
 func stripUnsignedGuard(ks *auth.KeySet) func(http.HandlerFunc) http.HandlerFunc {
 	return func(next http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
@@ -233,7 +181,7 @@ func stripUnsignedGuard(ks *auth.KeySet) func(http.HandlerFunc) http.HandlerFunc
 				return
 			}
 			if ks == nil {
-				next(w, r) // local dev: no JWKS to verify against, trust the header
+				next(w, r)
 				return
 			}
 			if auth.ProxydTransit(r, ks) {
@@ -272,9 +220,7 @@ func loadConfig() (config, error) {
 			cfg.pollInterval = d
 		}
 	}
-	// Split (spec 5/1) is the only topology: exchange AUTHD_SERVICE_KEY for a
-	// service:onbod JWT, presented on routd's JWT-gated /v1/outbound. Required —
-	// compose always emits it; an unsigned call to routd is rejected.
+
 	authdURL, key := os.Getenv("AUTHD_URL"), os.Getenv("AUTHD_SERVICE_KEY")
 	if authdURL == "" || key == "" {
 		return config{}, fmt.Errorf("onbod: AUTHD_URL + AUTHD_SERVICE_KEY required")
@@ -340,158 +286,181 @@ func emailDomain(sub string) string {
 	return ""
 }
 
-// pollOnboarding reads the awaiting admissions once and runs both halves of
-// the tick over them: the greeting and the pairing check.
 func pollOnboarding(xdb, obdb *store.Store, cfg config) {
-	awaiting, err := obdb.AwaitingOnboarding()
+	awaiting, err := obdb.ReadyOnboardingPrompts(context.Background(), time.Now())
 	if err != nil {
 		slog.Error("onboarding poll query", "err", err)
 		return
 	}
 	promptUnprompted(xdb, obdb, cfg, awaiting)
-	observePairings(xdb, obdb, cfg, awaiting)
+	consumePairings(xdb, obdb, cfg)
+	admitFromQueue(obdb)
+	queueNotices(xdb, obdb, cfg)
 }
 
-// promptUnprompted greets every unrouted chat that has no live link, with a
-// PAIRING link (spec 5/31-identity-pairing) rather than an onboarding token of its own. onbod mints
-// no second credential and writes no second acl_membership edge.
-//
-// The mint's owner_folder is the constant "" → NULL. InsertOnboarding only ever
-// fires from the route-MISS branch, so "this JID routes nowhere" is proved by the
-// row's existence and is not re-derived here.
 func promptUnprompted(xdb, obdb *store.Store, cfg config, awaiting []store.OnboardingRow) {
-	base := strings.TrimRight(cfg.authBaseURL, "/")
+	ctx := context.Background()
 	for _, row := range awaiting {
-		if row.Sender == "" || row.PromptedAt != "" {
+		if row.Sender == "" {
 			continue
 		}
-		jid := row.JID
-		// Mint BEFORE the claim. The two writes are in different databases with
-		// no shared transaction, and this order is the one that cannot strand a
-		// user: a mint failure leaves the row unclaimed for the next tick, while
-		// a lost claim race leaves a token nobody was ever told, which expires in
-		// PairingTTL. Claiming first would stamp prompted_at with no link sent.
-		token, err := xdb.IssuePairingLink(context.Background(), row.Sender, "")
+		if _, err := obdb.ClaimOnboardingPrompt(row.JID); err != nil {
+			slog.Error("claim onboarding greeting", "jid", row.JID, "err", err)
+			continue
+		}
+		id, at, err := obdb.OnboardingPrompt(ctx, row.JID)
+		if err != nil || id == "" {
+			if err != nil {
+				slog.Error("read onboarding greeting", "jid", row.JID, "err", err)
+			}
+			continue
+		}
+		if !observePairings(xdb, obdb, cfg, []store.OnboardingRow{row}) {
+			if err := obdb.CompleteOnboardingPrompt(ctx, row.JID, id, false); err != nil {
+				slog.Error("defer pairing lookup", "err", err)
+			}
+			continue
+		}
+		current, _, err := obdb.OnboardingPrompt(ctx, row.JID)
+		if err != nil || current != id {
+			continue
+		}
+		err = xdb.QueuePairingGreeting(ctx, id, row.JID, row.Sender, at, cfg.authBaseURL, cfg.greeting)
 		if err != nil {
-			slog.Error("promptUnprompted mint pairing link", "jid", jid, "err", err)
-			continue
+			slog.Error("queue pairing greeting", "jid", row.JID, "err", err)
 		}
-		// Claim-per-row: the write re-checks that prompted_at is absent, so two
-		// overlapping ticks can't both win the same jid. Only the tick whose
-		// claim was taken sends the link (else the other tick already did).
-		claimed, err := obdb.ClaimOnboardingPrompt(jid)
-		if err != nil {
-			slog.Error("promptUnprompted claim", "jid", jid, "err", err)
-			continue
+		if ackErr := obdb.CompleteOnboardingPrompt(ctx, row.JID, id, err == nil); ackErr != nil {
+			slog.Error("acknowledge pairing greeting", "jid", row.JID, "err", ackErr)
 		}
-		if !claimed {
-			continue
-		}
-
-		prompt := "Set up your account: " + base + "/pair/" + token
-		if cfg.greeting != "" {
-			prompt = cfg.greeting + "\n" + prompt
-		}
-		// The claim stays taken even when the send fails, and the row is NOT retried.
-		// Releasing it looks kinder and is worse: a permanently unroutable jid (BUGS
-		// L66) would mint a fresh pairing token on every tick, forever. A 502 for a
-		// jid that matches no route is a configuration fault, not a blip.
-		//
-		// What must NOT happen is the old behaviour: sendReply swallowed the outcome
-		// and this line logged "sent pairing link" directly under "send reply non-2xx"
-		// (BUGS L67).
-		if err := sendReply(cfg, jid, prompt); err != nil {
-			slog.Error("pairing link NOT delivered; the jid stays claimed and will not be retried",
-				"jid", jid, "err", err)
-			continue
-		}
-		slog.Info("sent pairing link", "jid", jid)
 	}
 }
 
-// observePairings is the admission trigger after the fold (spec 5/31-identity-pairing).
-// RedeemPairing writes the edge in webd and knows nothing about gates; this tick
-// discovers the edge and runs the admission half over data that write committed.
-//
-// A poll, not a hook: webd has no relationship to onbod, and a hook would put
-// routd's identity-write path one round trip from onbod's uptime, while onbod
-// already holds a direct handle on routd.db.
-//
-// The dedup is onboarding's jid primary key plus the `user_sub IS NULL` guard, so
-// a row is admitted once and an agent-minted pairing is invisible here.
-func observePairings(xdb, obdb *store.Store, cfg config, awaiting []store.OnboardingRow) {
+func queueNotices(xdb, obdb *store.Store, cfg config) {
+	ctx := context.Background()
+	work, err := obdb.ReadyOnboardingNotices(ctx, time.Now())
+	if err != nil {
+		slog.Error("read onboarding notices", "err", err)
+		return
+	}
+	for _, item := range work {
+		at, err := time.Parse(time.RFC3339Nano, item.Attrs["_notice_at"])
+		if err != nil {
+			slog.Error("onboarding notice instant", "err", err)
+			continue
+		}
+		var text string
+		switch item.Attrs["_notice_state"] {
+		case "queued":
+			text = "You're in the queue. Open " + strings.TrimRight(cfg.authBaseURL, "/") + "/onboard to see your position."
+		case "refused":
+			text = "This account can't be set up here: no onboarding gate matches it. Ask the operator for an invite."
+		default:
+			slog.Error("unknown onboarding notice", "state", item.Attrs["_notice_state"])
+			continue
+		}
+		_, err = xdb.PutOutboundOnce(ctx, core.Message{ID: item.Attrs["_notice_id"], ChatJID: item.Key.Sort, Timestamp: at, Sender: store.SystemSender, BotMsg: true, Content: text})
+		if err != nil {
+			slog.Error("queue onboarding notice", "jid", item.Key.Sort, "err", err)
+		}
+		if ackErr := obdb.CompleteOnboardingNotice(ctx, item, err == nil); ackErr != nil {
+			slog.Error("acknowledge onboarding notice", "err", ackErr)
+		}
+	}
+}
+
+func consumePairings(xdb, obdb *store.Store, cfg config) {
+	ctx := context.Background()
+	work, err := xdb.PairingWork(ctx)
+	if err != nil {
+		slog.Error("read pairing work", "err", err)
+		return
+	}
+	for _, item := range work {
+		sender, _, err := store.PairingWorkIdentity(item)
+		if err != nil {
+			slog.Error("pairing work identity", "err", err)
+			continue
+		}
+		rows, err := obdb.AwaitingSender(ctx, sender)
+		if err != nil {
+			slog.Error("read paired sender", "err", err)
+			continue
+		}
+		if !observePairings(xdb, obdb, cfg, rows) {
+			continue
+		}
+		left, err := obdb.AwaitingSender(ctx, sender)
+		if err != nil || len(left) > 0 {
+			continue
+		}
+		if err := xdb.AcknowledgePairing(ctx, item); err != nil {
+			slog.Error("acknowledge pairing", "err", err)
+		}
+	}
+}
+
+func observePairings(xdb, obdb *store.Store, cfg config, awaiting []store.OnboardingRow) bool {
 	for _, row := range awaiting {
 		if row.Sender == "" || row.UserSub != "" {
 			continue
 		}
 		jid := row.JID
-		// The PAIRING edge and not any edge above the jid: a role membership is
-		// not a consent, and reading one as the parent would admit the chat to
-		// whoever the role names.
+
 		edges, err := xdb.ParentEdges(row.Sender)
 		if err != nil {
 			slog.Error("observePairings read pairing edge", "jid", jid, "err", err)
-			continue
+			return false
 		}
 		for _, e := range edges {
 			if e.AddedBy != store.PairingAddedBy {
 				continue
 			}
-			admitJID(obdb, cfg, jid, e.Parent)
+			if err := admitJID(obdb, cfg, jid, e.Parent); err != nil {
+				slog.Error("admit paired sender", "jid", jid, "err", err)
+				return false
+			}
 			break
 		}
 	}
+	return true
 }
 
-// admitJID advances a paired JID's onboarding row: queued (a gate matched),
-// approved (no gates configured), or refused (gates configured, none matched). It
-// writes NO membership edge — RedeemPairing already did, in routd's own
-// transaction. That split is the point of the fold: a pairing can no longer fail
-// for an admission reason at the browser, and one writer owns the edge.
-//
-// The refusal used to be a 403 the user saw. It is now discovered on a tick, after
-// that page is gone, so it travels to the chat instead.
-func admitJID(obdb *store.Store, cfg config, jid, userSub string) {
-	gates := loadGates(obdb)
+func admitJID(obdb *store.Store, cfg config, jid, userSub string) error {
+	gates, err := loadGates(obdb)
+	if err != nil {
+		return err
+	}
 
 	if len(gates) > 0 {
 		g := matchGate(gates, userSub)
 		if g == nil {
-			// Terminal. user_sub is stamped so the row stops matching and the
-			// refusal is sent exactly once.
 			if err := obdb.RefuseOnboarding(jid, userSub); err != nil {
 				slog.Error("refuse jid", "jid", jid, "err", err)
-				return
+				return err
 			}
 			auditAdmission(jid, userSub, "onboarding.refuse", "none")
 			slog.Warn("refused jid: no matching gate", "jid", jid, "user", userSub)
-			if err := sendReply(cfg, jid, "This account can't be set up here: no onboarding gate matches it. Ask the operator for an invite."); err != nil {
-				slog.Error("refusal notice not delivered; the user was refused in silence",
-					"jid", jid, "err", err)
-			}
-			return
+
+			return nil
 		}
 		k := gateKey(*g)
 		if err := obdb.QueueOnboarding(jid, userSub, k); err != nil {
 			slog.Error("queue jid", "jid", jid, "err", err)
-			return
+			return err
 		}
 		auditAdmission(jid, userSub, "onboarding.queue", k)
 		slog.Info("queued jid", "jid", jid, "user", userSub, "gate", k)
-		if err := sendReply(cfg, jid, "You're in the queue. Open "+
-			strings.TrimRight(cfg.authBaseURL, "/")+"/onboard to see your position."); err != nil {
-			slog.Error("queue notice not delivered; the user does not know they are queued",
-				"jid", jid, "err", err)
-		}
-		return
+
+		return nil
 	}
 
 	if err := obdb.AdmitOnboarding(jid, userSub); err != nil {
 		slog.Error("approve jid", "jid", jid, "err", err)
-		return
+		return err
 	}
 	auditAdmission(jid, userSub, "onboarding.approve", "none")
 	slog.Info("approved jid", "jid", jid, "user", userSub, "gate", "none")
+	return nil
 }
 
 func auditAdmission(jid, userSub, action, gateKey string) {
@@ -510,12 +479,6 @@ func auditAdmission(jid, userSub, action, gateKey string) {
 	})
 }
 
-// handleOnboard and the flow below take two handles: db is the CROSS-table DB and
-// obdb is onbod's OWNED-table DB. Owned-table queries route through obdb;
-// cross-table queries stay on db.
-// /onboard carries no token of its own since the fold (spec 5/31-identity-pairing): the greeting
-// link redeems at webd's /pair/{token}, which writes the edge and sends the user
-// here. This page reads the edge and asks where the chat should go.
 func handleOnboard(w http.ResponseWriter, r *http.Request, db, obdb *store.Store, cfg config) {
 	userSub := r.Header.Get("X-User-Sub")
 	if userSub == "" {
@@ -525,13 +488,10 @@ func handleOnboard(w http.ResponseWriter, r *http.Request, db, obdb *store.Store
 	handleDashboard(w, r, db, obdb, userSub, ensureCSRFToken(w, r, cfg))
 }
 
-// csrf is the double-submit token GET /onboard just minted; every form this
-// renders MUST echo it, because handleOnboardPost rejects a POST without it.
 func handleDashboard(w http.ResponseWriter, r *http.Request, db, obdb *store.Store, userSub, csrf string) {
 	username, known, err := db.Username(userSub)
 	if err != nil {
-		// A read failure is not "no such user": it is reported, and the page still
-		// stops, because every branch below is named after this person.
+
 		slog.Error("username lookup", "user", userSub, "err", err)
 	}
 	if !known || err != nil {
@@ -539,8 +499,6 @@ func handleDashboard(w http.ResponseWriter, r *http.Request, db, obdb *store.Sto
 		return
 	}
 
-	// A read failure here is not "not queued": it is reported and the page falls
-	// through to the same branches an unqueued caller takes.
 	queued, isQueued, err := obdb.QueuedAdmission(userSub)
 	if err != nil {
 		slog.Error("queued-admission lookup", "user", userSub, "err", err)
@@ -553,10 +511,7 @@ func handleDashboard(w http.ResponseWriter, r *http.Request, db, obdb *store.Sto
 	groupCount := len(userFolders(db, userSub))
 
 	if groupCount == 0 {
-		// Two authorities, one picker: a recorded subgroup-invite redemption, or
-		// (spec 5/18 step 8) an admission the gates approved. handleCreateWorld
-		// re-checks the same pair with the same two functions, so this branch is
-		// presentation only — the write is the control.
+
 		_, invited := latestRedemption(obdb, userSub)
 		if invited || mayCreateFirstWorld(obdb, userSub) {
 			renderUsernamePicker(w, username, csrf)
@@ -567,19 +522,13 @@ func handleDashboard(w http.ResponseWriter, r *http.Request, db, obdb *store.Sto
 		return
 	}
 
-	// Spec 5/18 step 6 — choose. A paired JID with no route is silent, so ask
-	// where it goes before showing anything else. Keyed on that STATE, not on
-	// how the user arrived: it is the same branch whether webd's pair success
-	// page sent them here, an invite redemption did, or they reloaded. That is
-	// also why the fold needed no hook — membershipJIDs applies no added_by
-	// filter, so the edge RedeemPairing wrote is found like any other.
 	if jid := unroutedJID(db, obdb, userSub); jid != "" {
 		switch folders := adminFolders(db, userSub); len(folders) {
 		case 0:
 			renderNoWorld(w, jid)
 			return
 		case 1:
-			// One world is not a choice.
+
 			if err := insertRoute(db, "room="+core.JidRoom(jid), folders[0],
 				userSub, routeViaSoleWorld); err != nil {
 				slog.Error("route paired jid", "jid", jid, "target", folders[0], "err", err)
@@ -598,8 +547,6 @@ func handleDashboard(w http.ResponseWriter, r *http.Request, db, obdb *store.Sto
 	renderDashboard(w, db, obdb, userSub, username)
 }
 
-// csrfCookieName double-submit token: set on GET /onboard, required on POST.
-// Prevents cross-site forms from exploiting the auth proxy cookie.
 const csrfCookieName = "onbod_csrf"
 
 func ensureCSRFToken(w http.ResponseWriter, r *http.Request, cfg config) string {
@@ -610,11 +557,6 @@ func checkCSRF(r *http.Request) bool {
 	return auth.CheckCSRF(r, csrfCookieName)
 }
 
-// handleOnboardPost dispatches the dashboard form actions. All three
-// (create_world / delete_route / add_route) write CROSS-table state
-// (user_profiles/groups/acl/routes) through db; create_world additionally READS
-// onbod's owned onboarding/onboarding_gates through obdb for its second
-// authority (spec 5/18 step 8).
 func handleOnboardPost(w http.ResponseWriter, r *http.Request, db, obdb *store.Store, cfg config) {
 	userSub := r.Header.Get("X-User-Sub")
 	if userSub == "" {
@@ -641,20 +583,9 @@ func handleOnboardPost(w http.ResponseWriter, r *http.Request, db, obdb *store.S
 
 var usernameRe = regexp.MustCompile(`^[a-z][a-z0-9-]{2,29}$`)
 
-// mayCreateFirstWorld is spec 5/18 step 8: an admitted stranger's second authority
-// to create a world. It is the WRITE precondition in handleCreateWorld;
-// handleDashboard calls it to decide whether to render the picker, because a form
-// that is merely hidden is not a control.
-//
-// The gate condition keeps the default posture closed. With no enabled gate,
-// admitJID approves EVERY paired identity, so `status='approved'` alone would turn
-// any instance that ever ran ONBOARDING_PLATFORMS into open signup. It reads the
-// gates through loadGates so the same enabled=1 rows that make admitJID selective
-// are the ones that make its verdict grant something.
-//
-// Every failure fails closed: an unreadable DB grants nothing.
 func mayCreateFirstWorld(obdb *store.Store, userSub string) bool {
-	if userSub == "" || len(loadGates(obdb)) == 0 {
+	gates, err := loadGates(obdb)
+	if err != nil || userSub == "" || len(gates) == 0 {
 		return false
 	}
 	n, err := obdb.ApprovedAdmissions(userSub)
@@ -665,17 +596,6 @@ func mayCreateFirstWorld(obdb *store.Store, userSub string) bool {
 	return n > 0
 }
 
-// latestRedemption returns the item store.consumeInvite wrote when this caller
-// redeemed a subgroup invite. It is the ONLY thing that can name a parent
-// folder: the request names none, so a caller can no longer ask for a world
-// inside a subtree nobody invited them into (BUGS F50).
-//
-// It answers the caller's MOST RECENT unspent one, because a caller holding two
-// is answering the invite they just followed; each is spent on its own, so two
-// invites still yield two worlds.
-//
-// Fails closed like mayCreateFirstWorld: an unreadable partition is no
-// authority.
 func latestRedemption(obdb *store.Store, userSub string) (store.Redemption, bool) {
 	r, held, err := obdb.LatestRedemption(context.Background(), userSub)
 	if err != nil {
@@ -719,10 +639,7 @@ func checkIssuer(db *store.Store, issuer string, rows []core.ACLRow) (objstore.V
 }
 
 func handleCreateWorld(w http.ResponseWriter, r *http.Request, db, obdb *store.Store, cfg config, userSub string) {
-	// The parent folder is DERIVED from what the redemption recorded, never from
-	// the request. Until F50 it came from the `pending_target` cookie and was used
-	// verbatim, so `Cookie: pending_target=victim/` created victim/<name> and took
-	// admin over it for any authenticated caller holding no grant anywhere.
+
 	redemption, invited := latestRedemption(obdb, userSub)
 	if !invited && !mayCreateFirstWorld(obdb, userSub) {
 		renderPage(w, "Invite Required",
@@ -730,20 +647,11 @@ func handleCreateWorld(w http.ResponseWriter, r *http.Request, db, obdb *store.S
 		return
 	}
 
-	// An approved admission authorizes a TOP-LEVEL folder and nothing else, and
-	// that stays structural rather than checked: only a redemption sets parent,
-	// and its value is the operator-chosen target_glob. The two authorities
-	// cannot be combined into a deeper one.
 	var parent string
 	if invited {
 		parent = strings.TrimSuffix(redemption.TargetGlob, "/")
 	}
 
-	// The parent must still exist. A folder delete sweeps routd's tables and
-	// cannot reach onbod's, so `invites` and `invite_redemptions` outlive the
-	// folder they name (BUGS L244) — and redeeming one then admits a person into
-	// a subtree whose owner is gone. The redemption is the authority; the parent
-	// is what it is authority OVER, so a missing parent is a dead authority.
 	if parent != "" {
 		if _, ok := db.GroupByFolder(parent); !ok {
 			slog.Warn("invite names a folder that no longer exists; refusing",
@@ -789,9 +697,6 @@ func handleCreateWorld(w http.ResponseWriter, r *http.Request, db, obdb *store.S
 		}
 	}
 
-	// Spend the authority before acting on it. The DELETE is the claim, so a
-	// replay of the same redemption — a resubmitted form, a second tab — finds
-	// nothing to derive a parent from and creates no second world.
 	if invited {
 		spent, err := spendRedemption(obdb, userSub, redemption)
 		if err != nil {
@@ -815,19 +720,13 @@ func handleCreateWorld(w http.ResponseWriter, r *http.Request, db, obdb *store.S
 			return
 		}
 	}
-	// FS setup BEFORE the DB tx: a DB failure after FS leaves a stray group
-	// dir (re-creatable, harmless), whereas a committed group row with no FS
-	// is a broken world. Order so the durable record is last.
+
 	if err := container.SetupGroup(coreCfg, folder); err != nil {
 		slog.Error("create world: setup group", "folder", folder, "err", err)
 		renderPage(w, "Error", template.HTML("<p>Internal error.</p>"))
 		return
 	}
 
-	// All cross-table writes (user_profiles/groups/acl/routes) share one handle
-	// (messages.db in monolith, routd.db in the split) → one tx makes the
-	// world atomic. The race guard is INSERT OR IGNORE + RowsAffected on
-	// groups, not the TOCTOU check above (that's a fast-path UX hint only).
 	var writeErr error
 	for attempt := 0; attempt < createWorldAttempts; attempt++ {
 		writeErr = writeWorld(db, folder, username, userSub, version)
@@ -850,8 +749,7 @@ func handleCreateWorld(w http.ResponseWriter, r *http.Request, db, obdb *store.S
 	}
 
 	slog.Info("world created", "folder", folder, "parent", parent, "user", userSub)
-	// Spec 5/W: post-onboarding lands on /onboard; chat tokens are
-	// issued explicitly (no auto-redirect to a slink link).
+
 	http.Redirect(w, r, "/onboard", http.StatusSeeOther)
 }
 
@@ -903,8 +801,7 @@ func writeWorld(db *store.Store, folder, username, userSub string, version objst
 	if err != nil {
 		return err
 	}
-	// A groups row implies the member edge: without it the new world expands to
-	// nothing and comes up mute (BUGS L119).
+
 	rows := store.WorldGrantRows(userSub, folder)
 	grant, err := store.ACLGrantWrite(rows[0])
 	if err != nil {
@@ -928,17 +825,17 @@ func writeWorld(db *store.Store, folder, username, userSub string, version objst
 	return db.RecordPerson(ctx, userSub, username, username)
 }
 
-func loadGates(db *store.Store) []gate {
+func loadGates(db *store.Store) ([]gate, error) {
 	rows, err := db.EnabledGates()
 	if err != nil {
 		slog.Error("loadGates query", "err", err)
-		return nil
+		return nil, err
 	}
 	var out []gate
 	for _, g := range rows {
 		out = append(out, gateFromKey(g.Gate, g.LimitPerDay))
 	}
-	return out
+	return out, nil
 }
 
 func gateFromKey(key string, limit int) gate {
@@ -949,23 +846,13 @@ func gateFromKey(key string, limit int) gate {
 	return gate{kind: kind, param: param, limitPerDay: limit}
 }
 
-// adminFolders lists every folder the sub may administer. Spec 5/18 step 6 is the
-// caller CHOOSING which of THEIR worlds a JID lands in, so the whole set is the
-// answer.
-//
-// Deliberately NOT `JOIN acl a ON a.scope = g.folder`: acl scopes are PATTERNS, so
-// string equality misses every subtree grant — an owner holding `acme/**` matched
-// no folder at all (BUGS W1). SQL cannot glob segments, so the rows are filtered
-// by the single evaluator rather than by a second matcher written here.
 func adminFolders(db *store.Store, userSub string) []string {
 	folders, err := scanFolders(db)
 	if err != nil {
 		slog.Error("adminFolders groups", "err", err)
 		return nil
 	}
-	// The cursor is drained and closed by scanFolders before the loop below:
-	// Authorize issues further queries on this same handle, and holding a read
-	// cursor open across them deadlocks a single-connection DB.
+
 	var out []string
 	for _, f := range folders {
 		if auth.Authorize(db, auth.Caller{Principal: userSub}, "admin", f, nil) {
@@ -975,16 +862,6 @@ func adminFolders(db *store.Store, userSub string) []string {
 	return out
 }
 
-// jidRoutes returns the rules that name one JID's room. It is the ONE routing
-// predicate onbod asks, so the page that reports a chat as routed and the check
-// that calls it unrouted cannot disagree.
-//
-// `match` is an ATTRIBUTE of a route item and half the predicate is a LIKE, so
-// this reads the table and filters. THE WILDCARD SEMANTICS ARE KEPT: `_` and `%`
-// are legal in a room id and are LIKE wildcards, and sqlite folds ASCII case on
-// top, so a room carrying one matches rules that do not name it — narrowing that
-// here would silently change which chats count as routed, in the direction that
-// leaves a live chat looking unrouted and re-onboards it.
 func jidRoutes(routes []core.Route, jid string) []core.Route {
 	room := core.JidRoom(jid)
 	exact := "room=" + room
@@ -998,9 +875,6 @@ func jidRoutes(routes []core.Route, jid string) []core.Route {
 	return out
 }
 
-// likeMatch is sqlite's LIKE: `%` takes any run of characters, `_` takes exactly
-// one, and everything else compares with ASCII case folded. The comparison is
-// over RUNES because `_` counts characters, not bytes.
 func likeMatch(text, pattern string) bool {
 	t, p := []rune(text), []rune(pattern)
 	ti, pi, star, mark := 0, 0, -1, 0
@@ -1013,7 +887,7 @@ func likeMatch(text, pattern string) bool {
 			star, mark = pi, ti
 			pi++
 		case star >= 0:
-			// Backtrack: the last `%` swallows one more character.
+
 			mark++
 			ti, pi = mark, star+1
 		default:
@@ -1026,8 +900,6 @@ func likeMatch(text, pattern string) bool {
 	return pi == len(p)
 }
 
-// foldASCII lowercases one ASCII letter and leaves every other rune alone —
-// which is exactly how far sqlite's LIKE folds.
 func foldASCII(r rune) rune {
 	if r >= 'A' && r <= 'Z' {
 		return r + ('a' - 'A')
@@ -1035,14 +907,10 @@ func foldASCII(r rune) rune {
 	return r
 }
 
-// unroutedJID returns the sub's first paired JID that no route names, or "".
-// That state IS the silence spec 5/18 opens with: the chat is proven and
-// linked, its messages land in routd.db, and nothing surfaces them.
 func unroutedJID(db, obdb *store.Store, sub string) string {
 	routes, err := db.RouteTable()
 	if err != nil {
-		// A table nobody could read is not a table with no rules in it: offering
-		// to route a JID that already has one writes a second rule for one chat.
+
 		slog.Error("unroutedJID route lookup", "sub", sub, "err", err)
 		return ""
 	}
@@ -1063,7 +931,7 @@ func renderQueuePosition(w http.ResponseWriter, db *store.Store, gateStr, queued
 	if err != nil {
 		slog.Error("queue-position count", "gate", gateStr, "err", err)
 	}
-	pos++ // 1-indexed
+	pos++
 
 	var etaMsg string
 	g, found, err := db.Gate(gateStr)
@@ -1090,52 +958,26 @@ func renderQueuePosition(w http.ResponseWriter, db *store.Store, gateStr, queued
 }
 
 func admitFromQueue(db *store.Store) {
-	gates := loadGates(db)
-	if len(gates) == 0 {
+	ctx := context.Background()
+	now := time.Now()
+	work, err := db.DueAdmissionGates(ctx, now)
+	if err != nil {
+		slog.Error("read due admissions", "err", err)
 		return
 	}
-	// Day-range on admitted_at (not a prefix match) so timezone drift doesn't
-	// miscount admissions.
-	todayStart := time.Now().Format("2006-01-02") + "T00:00:00Z"
-	tomorrowStart := time.Now().Add(24*time.Hour).Format("2006-01-02") + "T00:00:00Z"
-	for _, g := range gates {
-		k := gateKey(g)
-		admitted, err := db.AdmittedInWindow(k, todayStart, tomorrowStart)
-		if err != nil {
-			slog.Error("admitFromQueue count", "gate", k, "err", err)
-			continue
-		}
-		remaining := g.limitPerDay - admitted
-		if remaining <= 0 {
-			continue
-		}
-		batch, err := db.QueuedJIDs(k, remaining)
-		if err != nil {
-			slog.Error("admitFromQueue query", "gate", k, "err", err)
-			continue
-		}
-		// A partial write is REPORTED and its landed prefix is audited, where the
-		// transaction this replaces rolled the whole gate's claim back. The
-		// admissions are independent and the next tick re-reads the queue, so
-		// what a failure leaves behind is work a re-run finishes.
-		n, err := db.AdmitQueued(batch)
-		if err != nil {
-			slog.Error("admitFromQueue update", "gate", k, "admitted", n, "err", err)
-		}
-		for _, jid := range batch[:n] {
-			audit.Emit(context.Background(), audit.Event{
-				Category: audit.CategoryMutation,
-				Action:   "onboarding.approve",
-				Actor:    "system",
-				Surface:  audit.SurfaceCron,
-				Resource: "onboarding/" + jid,
-				Outcome:  audit.OutcomeOK,
-				ParamsSummary: map[string]any{
-					"jid":  jid,
-					"gate": k,
-				},
-			})
-			slog.Info("admitted from queue", "jid", jid, "gate", k)
+	for _, item := range work {
+		for {
+			ids, err := db.AdmitGate(ctx, item, now)
+			if err != nil {
+				slog.Error("admit gate", "gate", item.Key.Sort, "err", err)
+				break
+			}
+			for _, jid := range ids {
+				auditAdmission(jid, "", "onboarding.approve", item.Key.Sort)
+			}
+			if len(ids) == 0 {
+				break
+			}
 		}
 	}
 }
@@ -1193,11 +1035,7 @@ func handleInvite(w http.ResponseWriter, r *http.Request, db, obdb *store.Store)
 
 	if !strings.HasSuffix(target, "/") {
 		if perr := db.AddACLRow(row, version); perr != nil {
-			// The grant (routd.db) failed AFTER the consume (onbod.db) — separate
-			// DBs, no shared tx. Roll back the consume so the invite isn't burned
-			// without a grant (silent permanent lockout), and surface the failure
-			// instead of redirecting as success. AddACLRow rolls its own tx back on
-			// an audit-insert failure, so a failed grant leaves no acl row behind.
+
 			slog.Error("invite acl grant failed; rolling back consume",
 				"user", userSub, "scope", target, "err", perr)
 			if rerr := obdb.RestoreInvite(token); rerr != nil {
@@ -1213,17 +1051,6 @@ func handleInvite(w http.ResponseWriter, r *http.Request, db, obdb *store.Store)
 	slog.Info("invite accepted", "token_hash", chanlib.ShortHash(token),
 		"target_glob", target, "user", userSub)
 
-	// Subgroup invites carry their parent in the invite_redemptions row consumeInvite
-	// just wrote, not in a cookie the caller can rewrite (F50).
-	//
-	// Redemption grants authority over the target and stops there. Spec 5/18 step 7:
-	// it used to route EVERY JID the sub had ever paired at the target, silently
-	// moving a returning user's already-routed chats — the seq-0 rows it wrote outrank
-	// any higher-seq route those chats already had. /onboard's step-6 branch routes
-	// the one unrouted JID instead.
-	//
-	// Spec 5/W: no slink redirect — the operator or agent issues a chat link on
-	// demand.
 	http.Redirect(w, r, "/onboard", http.StatusSeeOther)
 }
 
@@ -1245,11 +1072,6 @@ func renderUsernamePicker(w http.ResponseWriter, currentUsername, csrf string) {
 	renderPage(w, "Create Workspace", template.HTML(body))
 }
 
-// renderWorldPicker is spec 5/18 step 6: the caller picks which of THEIR worlds
-// the proven JID lands in. It posts to handleAddRoute, which re-checks both halves
-// — the radio list is a convenience, never the authorization. The csrf field is
-// not optional: handleOnboardPost 403s any POST whose form value does not match
-// the cookie, which is how the create_world form shipped broken (BUGS F1).
 func renderWorldPicker(w http.ResponseWriter, jid string, folders []string, csrf string) {
 	esc := html.EscapeString
 	var opts strings.Builder
@@ -1274,9 +1096,6 @@ func renderWorldPicker(w http.ResponseWriter, jid string, folders []string, csrf
 	renderPage(w, "Choose a world", template.HTML(body))
 }
 
-// renderNoWorld is the terminal page for an empty choice set. Rendering a
-// picker with no options, or silently showing the dashboard, both leave the
-// chat unrouted with no explanation — the user must be told why.
 func renderNoWorld(w http.ResponseWriter, jid string) {
 	renderPage(w, "Nowhere to route", template.HTML(fmt.Sprintf(
 		`<p><span class="id">%s</span> is linked to your account, but you don't administer any world it could go to, so it stays silent.</p>`+
@@ -1289,8 +1108,7 @@ func renderDashboard(w http.ResponseWriter, db, obdb *store.Store, userSub, user
 
 	var jidsHTML string
 	if edges, err := db.MemberEdges(userSub); err == nil {
-		// Oldest claim first. `added_at` is an attribute, so the read arrives in
-		// child order and the sort is here.
+
 		slices.SortStableFunc(edges, func(a, b store.MembershipEdge) int {
 			return strings.Compare(a.AddedAt, b.AddedAt)
 		})
@@ -1299,8 +1117,7 @@ func renderDashboard(w http.ResponseWriter, db, obdb *store.Store, userSub, user
 			if i := strings.Index(e.Child, ":"); i > 0 {
 				platform = e.Child[:i]
 			}
-			// The date, and only from an edge that carries one: an edge with no
-			// added_at renders an empty cell rather than slicing a short string.
+
 			claimed := e.AddedAt
 			if len(claimed) >= 10 {
 				claimed = claimed[:10]
@@ -1324,9 +1141,7 @@ func renderDashboard(w http.ResponseWriter, db, obdb *store.Store, userSub, user
 
 	var routesHTML string
 	if routes, err := db.RouteTable(); err == nil {
-		// One row per (jid, rule) pair, ordered by jid then target — the join's
-		// order, rebuilt here because the rule that names a jid is found by the
-		// same predicate unroutedJID asks and not by a key.
+
 		for _, jid := range membershipJIDs(db, obdb, userSub) {
 			matched := jidRoutes(routes, jid)
 			targets := make([]string, 0, len(matched))
@@ -1382,18 +1197,12 @@ func renderDashboard(w http.ResponseWriter, db, obdb *store.Store, userSub, user
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-// sendReply returns its outcome. It used to return nothing, so a caller could
-// not tell a delivery from a 502 and logged success either way — on sloth the
-// pairing-link tick logged "sent pairing link" on the line directly after
-// "send reply non-2xx" every night for months (BUGS L67).
 func sendReply(cfg config, jid, text string) error {
 	payload := map[string]string{"jid": jid, "text": text}
 	body, _ := json.Marshal(payload)
 	req, _ := http.NewRequest("POST", cfg.gatedURL+"/v1/outbound", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
-	// Present the service:onbod JWT (messages:write) on routd's JWT-gated
-	// /v1/outbound. A nil source or token blip drops the reply rather than sending
-	// a credential routd rejects. svcToken is always set in production (loadConfig).
+
 	if cfg.svcToken == nil {
 		return fmt.Errorf("onbod has no service token")
 	}
@@ -1414,9 +1223,6 @@ func sendReply(cfg config, jid, text string) error {
 	return nil
 }
 
-// userFolders returns the distinct allow-scopes the sub has access to via the
-// unified acl tables (post-0053 cutover). Operator (`role:operator` membership)
-// returns the `**` scope through the role's row.
 func userFolders(db *store.Store, sub string) []string {
 	folders, err := auth.UserScopes(db, sub)
 	if err != nil {
@@ -1438,10 +1244,6 @@ func handleDeleteRoute(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
-	// RouteByID, not a read that collapses "absent" into "unreadable": an
-	// operator told "route not found" about a rule that is still firing goes and
-	// creates a second one. An ambiguous id is a 409 naming both coordinates,
-	// because the delete below refuses it anyway (BUGS `L364`, `L366`).
 	route, ok, err := db.RouteByID(id)
 	if errors.Is(err, store.ErrRouteIDAmbiguous) {
 		http.Error(w, err.Error(), http.StatusConflict)
@@ -1470,14 +1272,8 @@ func handleDeleteRoute(w http.ResponseWriter, r *http.Request,
 	http.Redirect(w, r, "/onboard", http.StatusSeeOther)
 }
 
-// matchRe bounds allowed match patterns: ASCII printable, no spaces/wildcards.
-// Prevents cross-tenant interception via wildcards or whitespace-smuggling
-// patterns that confuse the matcher. Operators (`**` grant) bypass the
-// userOwnsMatch step but still go through this validator.
 var matchRe = regexp.MustCompile(`\A[A-Za-z0-9_.:=@/-]+\z`)
 
-// userOwnsMatch reports whether match references a room the user has claimed via acl_membership.
-// Only "room=<id>" is supported; more expressive patterns require operator grants.
 func userOwnsMatch(db, obdb *store.Store, sub, match string) bool {
 	const prefix = "room="
 	if !strings.HasPrefix(match, prefix) {
@@ -1495,25 +1291,11 @@ func userOwnsMatch(db, obdb *store.Store, sub, match string) bool {
 	return false
 }
 
-// Route provenance, stamped into routes.added_via beside added_by's WHO. Spec
-// 5/18 step 7: the two onboarding acts are not the same act, and an operator
-// asking "why does this chat go here?" gets a materially different answer from
-// each — one is a choice the caller made, the other is a route onbod wrote
-// without asking.
 const (
-	routeViaPicker    = "picker"     // the caller chose the world (step 6's form)
-	routeViaSoleWorld = "sole_world" // one administrable world, so no choice to offer
+	routeViaPicker    = "picker"
+	routeViaSoleWorld = "sole_world"
 )
 
-// insertRoute is onbod's ONLY routes writer, so no onbod path can produce an
-// unattributed row. Authorization belongs to the caller; this records who acted
-// and how.
-//
-// (seq, target, match) is the rule's COORDINATE, so a rule onbod already wrote
-// is not written twice: the write is create-if-absent and answers with the id
-// the existing rule holds. That is what a routing table addressed by its own
-// content means — two rules that dispatch identically are one rule, and a second
-// id for it would hand delete_route(id) a handle that removes somebody else's.
 func insertRoute(db *store.Store, match, target, sub, via string) error {
 	ctx := context.Background()
 	ws := &store.WriteSet{}
@@ -1525,12 +1307,6 @@ func insertRoute(db *store.Store, match, target, sub, via string) error {
 	return db.Apply(ctx, ws)
 }
 
-// deleteRoute removes one rule and NO audit row: onbod's route writers are the
-// onboarding form's two acts, and the row that records them is the onboarding
-// state, not an audit_log entry the other writers of this table emit.
-//
-// A rule that is not there is not an error — the form is the only caller, and it
-// deletes a rule it just listed.
 func deleteRoute(ctx context.Context, st *store.Store, id int64) error {
 	ws := &store.WriteSet{}
 	found, err := st.DeleteRouteInto(ctx, ws, id,

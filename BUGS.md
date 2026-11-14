@@ -13,9 +13,30 @@
 > work items are their own entries. A record has nothing to fix and never will,
 > so counting one as open overstates the queue.
 
+## L841 — onboarding rediscovers work and can lose greeting delivery (2026-11-14)
+
+`pollOnboarding` reads every awaiting row every 10 seconds, then reads parents
+for each sender. `admitFromQueue` reads gates and filters the whole onboarding
+partition twice per gate each minute: computed 360(N+U)+60G(2N) rows/hour.
+`ClaimOnboardingPrompt` removes greeting work before delivery. `sendReply`
+calls `/v1/outbound`, which sends before persistence and records errors as
+failed, so neither a crash nor a transient send error retains retry work.
+**Fix:** durable greeting generations, atomic pairing-token/outbound enqueue,
+revision-guarded pairing acknowledgments, and due gate work produced by state
+changes. Queue, sender and quota reads use keys. A source deletion or gate
+configuration change must wake the affected gate atomically. `loadGates` also
+returns nil on a read error; admission must not treat that as an ungated instance.
+**Test:** O(due) reads behind unrelated rows; restart and reprompt races;
+pairing-before-onboarding; quota release, config changes, midnight and guarded
+admission. Pairing credentials must not be delivered after their expiry.
+Review also found that archive structs omit greeting/notice generations and
+delivery expiry. Round-trip tests must preserve pending work and expired-link
+rejection. A notice reader must reject a row approved during index dereference.
+Delivery metadata copied across pending/failed partitions must fence the source
+revision; otherwise a concurrent expiry change can be overwritten.
+
 ## What needs you
 
-- `L840` — progress and message identity reads scan chat history; canonical delivery coordinates need a keyed lookup.
 
 - `L826` — one folder's crash closes the whole instance for an hour; per-folder breaker or a 30 s probe; needs sign-off.
 - `L816` — gitd loses GitHub webhooks while the store is unreachable; retention lives in that store; proposal, needs sign-off.
@@ -712,22 +733,6 @@ pre-breaker state.
   serve both by-id and by-time reads. A crash between a turn's finish and its
   status acknowledgement leaves it live, `done`, owing nothing.
 
-
-## L840 — progress maintenance resolves messages by scanning chat history (2026-11-14)
-
-`store.messageAt` and `MessageByID` query all messages in one chat. Progress
-publication and retry reach these lookups. A test fixture also measured that
-`PutOutbound` can clamp a message timestamp while `RecordDeliveryFailure`
-uses the caller's old coordinate: 190 of 200 failure writes found no row.
-**Fix:** message identity and turn/status pointers, a marked backfill, and
-canonical-coordinate resolution for delivery transitions. Progress reads only
-updates whose publication deadline is due.
-**Test:** long unrelated history cannot affect one progress/retry pass; a
-clamped outbound timestamp still transitions the stored delivery.
-Review also computed 148 actions for a 49-message observation batch and a
-1,304-byte index key for a valid 543-byte message key. Paging past same-time
-ID `a` with a DEL suffix skips `a1`. Verify bounded batches, full-width keys
-and exact message cursors before this concern lands.
 
 ## ✅ FIXED 2026-11-11 efeb37294 L818 — package sources resolve against the shared host checkout (`catalog:`) instead of being fetched (2026-11-11)
 

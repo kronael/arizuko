@@ -27,8 +27,8 @@ inbound message, no route claims the chat
 │ onboarding row   │   one per chat JID, carries inbound sender
 │ awaiting_message │
 └────────┬─────────┘
-         │ promptUnprompted: mint route_tokens kind=pair,
-         │ claim prompted_at, send through routd /v1/outbound
+         │ claim greeting generation; commit pair token
+         │ and outbound message together in routd's store
          ▼
 chat: greeting + https://<host>/pair/<token>
          │ the person opens it in a browser
@@ -155,17 +155,15 @@ redemption spent without a world.
 
 ## Responsibilities
 
-- Poll `awaiting_message` rows; mint a pairing link (`store.IssuePairingLink`,
-  `owner_folder` NULL) and send it via routd's outbound API
-  (`promptUnprompted`).
-- Observe redemption: each tick matches unclaimed rows against
-  `acl_membership WHERE added_by='pairing'` and runs admission over the
-  committed edge (`observePairings` → `admitJID`).
+- Read due greeting generations; commit the pairing credential and outbound
+  message together (`promptUnprompted`).
+- Consume unacknowledged pairing edges and admit only their sender's waiting
+  rows (`consumePairings` → `admitJID`).
 - Serve `/onboard` landing, world picker, username picker, world-creation page;
   redirect to `/auth/login` for OAuth.
 - Match users to gates (github-org, google-domain, catch-all); enforce per-gate
   daily limits.
-- Promote queued users to `approved` via `admitFromQueue` loop (~60s).
+- Consume due gate work to promote queued users within the gate's daily limit.
 - Let an `approved` caller who administers no world create a top-level one
   (`mayCreateFirstWorld`) — **only while at least one
   enabled gate exists.** With no gate, `admitJID` approves every paired
@@ -187,8 +185,8 @@ resets the row (verdict included) so the observer can advance it.
 
 ## Tables owned
 
-`onboarding`, `invites`, `invite_redemptions`, `onboarding_gates` (+ its own
-`audit_log`).
+`onboarding`, `invites`, `invite_redemptions`, `onboarding_gates`, hot
+`onboarding_work`, derived `state_index`, and its own `audit_log`.
 onbod OWNS these and runs no migration chain: all four are objstore entities
 and the driver builds them from the declarations in `store/entities.go`.
 `store.OwnerDriver` is the door (`onbod/db.go` `openOwned`): it dials onbod's
@@ -327,10 +325,13 @@ Disk writes create `DATA_DIR/groups/<folder>`, `DATA_DIR/web/pub/<folder>`, and 
 No local onboarding database or delivery spool exists.
 
 Startup runs greeting, pairing observation, and queue admission once.
-The configured poll then runs greeting and pairing scans every 10 s by default.
-Queue admission runs when accumulated whole poll seconds reach 60; it is not a separate exact 60 s ticker.
+The configured poll consumes due greetings, pairings, gate work and notices
+every 10 s by default. State changes wake gates atomically. Exhausted gates
+wait until UTC midnight; quota or configuration changes wake them sooner.
 The outbound HTTP client has a 10 s timeout. SIGTERM closes HTTP immediately.
-A failed outbound greeting keeps the row eligible for a later poll; store errors log and the next pass tries again.
+A failed enqueue reschedules its generation after 30 s. Routd retries queued
+delivery and rejects pairing greetings after credential expiry. Store errors
+leave work pending. Startup migrations backfill work once, with durable markers.
 Store opening or required auth configuration failure exits. `/health` still returns 200 during runtime dependency faults.
 Grep `open onbod's store`, `open routd's store`, `onbod: unproven identity stripped`, and `http server error`.
 

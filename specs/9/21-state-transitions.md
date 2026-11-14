@@ -109,6 +109,19 @@ Sources: `routd/loop.go`, `routd/turn_control.go`, `routd/turn_status.go`,
   job: prepare the owner's internal index and bound bulk writes
   names: [EntitiesByOwner]
   never: registers internal work as a management resource
+- path: store/onboarding_state.go (new)
+  job: schedule greetings, pairing acknowledgments, notices and gate admissions
+  names:
+    [AdmitGate, PairingWork, ReadyOnboardingPrompts, ReadyOnboardingNotices]
+  never: consumes another generation's work
+- path: onbod/main.go (changed)
+  job: consume due work and enqueue each generation durably
+  names: [pollOnboarding, consumePairings, queueNotices, admitFromQueue]
+  never: treats unreadable gates as an ungated instance
+- path: store/messages_archive.go (changed)
+  job: preserve delivery deadlines and operations through archive restoration
+  names: [ExportMessagesJSONL, ImportMessagesJSONL]
+  never: restores an expiring credential without its expiry
 - path: routd/db.go (changed)
   job: migrate task pointers before serving requests
   names: [Open, Obj]
@@ -290,8 +303,61 @@ due-time indexes append a SHA-256 source identity to the deadline. Composite
 lookup partitions hash their tuple. This preserves full-width primary keys and
 prefix-ID cursor ordering within DynamoDB's key limits.
 
+## Onboarding transitions
+
+An unprompted row owns a durable greeting generation and retry deadline.
+Claiming a generation retains its work. Onbod queues the pairing token hash
+and outbound message in one routd transaction through the common message
+renderer. The generation fixes the message ID and timestamp across retries.
+Onbod acknowledges only that generation. The raw credential remains only in
+the existing outbound message body; delivery stops at its pairing expiry.
+Reprompt and expiry rearm clear the whole generation. Queue/refusal verdicts
+also persist a notice generation. The daemon queues still-applicable notices
+after admission, then acknowledges their exact generation; immediate admission
+cancels an unsent queue notice. Legacy prompted rows do
+not acquire another greeting merely because the indexes are backfilled.
+
+A committed pairing membership owns an acknowledgment obligation. Onbod reads
+only that sender's awaiting rows, applies guarded admissions, then acknowledges
+the membership revision. A new greeting generation checks existing pairing
+once, covering pairing before onboarding and explicit reprompt.
+
+Queue and approved-admission pointers are partitioned by gate. An onboarding
+or gate mutation atomically wakes each affected gate, including deletion and
+raw manifest replacement. This before/after companion renderer uses the same
+`Query` and `GuardedBatch` port. Internal gate work carries a generation and due
+time; its due pointer changes in the same transaction. The consumer reads only
+due gates, exact configuration, today's quota and the oldest eligible queue.
+It removes empty/disabled work and schedules exhausted gates at UTC midnight.
+Admission commits against the observed owner version and queued-row state;
+acknowledgment also fences concurrent quota or configuration changes.
+
+`onboarding-v1` and `pairings-v1` backfill each owner's existing rows before its
+workers start. Gate work and derived pointers are hot implementation state;
+the existing onboarding and gate REST/MCP resources remain the management API.
+The onboarding archive carries optional `work` attributes for prompt and notice
+generations. Message archives carry optional `delivery` attributes for retry
+deadlines, operations and credential expiry. Readers accept archives without
+these fields. Restores preserve pending work without copying index revisions.
+
+Measured by `TestOnboardingReadsOnlyDueWork`: forty unrelated rows plus one
+greeting read two items; the acknowledged pass reads zero. An idle daemon tick
+reads no onboarding rows. Quota reads exclude historical days. Tests cover
+pairing before onboarding, reprompt, FIFO admission, midnight, gate replacement,
+quota release, owner-version races and archive restoration. Eleven disabled
+guards fail their tests; stale-notice, archive-loss and delivery-metadata races
+also fail before their fixes.
+
 ## Open questions
 
+- The archive adds optional `work` and `delivery` metadata. Does any external
+  archive consumer require a version signal for these additive fields?
+- Onbod uses its existing routd store handle to enqueue greetings atomically
+  and acknowledge pairing revisions. If this handle becomes remote, which
+  durable command surface should carry these two cross-owner transitions?
+- Pairing credentials expire ten minutes after mint. Expired queued greetings
+  stop delivery; should a new generation start automatically or require the
+  existing inbound/reprompt trigger?
 - Run retention currently deletes every state after seven days. Should active
   spawns be exempt? This change preserves the existing all-state contract.
 

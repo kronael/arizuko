@@ -1,8 +1,6 @@
 package main
 
 import (
-	"context"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -35,31 +33,13 @@ func TestPairingDiscordDMResolvesSender(t *testing.T) {
 		t.Fatalf("onboarding: %d %s", w.Code, w.Body.String())
 	}
 
-	deliveries := make(chan map[string]string, 2)
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var body map[string]string
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			t.Error(err)
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-		deliveries <- body
-	}))
-	t.Cleanup(srv.Close)
-	cfg := config{gatedURL: srv.URL, authBaseURL: "https://example.test",
-		svcToken: func(context.Context) (string, error) { return "service", nil }}
+	cfg := config{authBaseURL: "https://example.test"}
 	promptUnprompted(xdb, obdb, cfg, awaitingRows(t, obdb))
-	var delivery map[string]string
-	select {
-	case delivery = <-deliveries:
-	default:
-		t.Fatal("no pairing link delivered")
+	deliveries, err := xdb.PendingOutbound(t.Context(), time.Now().Add(time.Second), 10)
+	if err != nil || len(deliveries) != 1 || deliveries[0].ChatJID != chat {
+		t.Fatalf("queued greeting: %v %v", deliveries, err)
 	}
-	if delivery["jid"] != chat {
-		t.Fatalf("link delivered to %q, want chat %q", delivery["jid"], chat)
-	}
-	raw := strings.TrimPrefix(delivery["text"],
-		"Set up your account: https://example.test/pair/")
+	raw := strings.TrimPrefix(deliveries[0].Content, "Set up your account: https://example.test/pair/")
 	got, err := xdb.RedeemPairing(raw, sub)
 	if err != nil {
 		t.Fatal(err)

@@ -46,6 +46,7 @@ type PendingMessage struct {
 	Operation     string
 	QueuedAt      time.Time
 	NextAttemptAt time.Time
+	ExpiresAt     time.Time
 }
 
 // PutOutbound appends one outbound row and the delivery state it owes. A door
@@ -60,7 +61,7 @@ func (s *Store) PutOutbound(ctx context.Context, m core.Message, status string) 
 			"sweep reads are %q, %q and %q", m.ID, status, core.MessageStatusSent,
 			core.MessageStatusPending, core.MessageStatusFailed)
 	}
-	_, err := s.putMessage(ctx, m, status, false)
+	_, err := s.putMessage(ctx, m, status, messageOptions{})
 	return err
 }
 
@@ -70,7 +71,7 @@ func (s *Store) PutOutboundOnce(ctx context.Context, m core.Message) (bool, erro
 	if err != nil || exists {
 		return false, err
 	}
-	_, err = s.putMessage(ctx, m, core.MessageStatusPending, true)
+	_, err = s.putMessage(ctx, m, core.MessageStatusPending, messageOptions{exact: true})
 	return err == nil, err
 }
 
@@ -108,7 +109,11 @@ func (s *Store) pendingFrom(ctx context.Context, items []objstore.Item) ([]Pendi
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, PendingMessage{Message: m, Attempts: n, Operation: it.Attrs["operation"], QueuedAt: deliveryQueuedAt(it, m), NextAttemptAt: due})
+		expires, err := deliveryExpiry(it)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, PendingMessage{ExpiresAt: expires, Message: m, Attempts: n, Operation: it.Attrs["operation"], QueuedAt: deliveryQueuedAt(it, m), NextAttemptAt: due})
 	}
 	return out, nil
 }
@@ -158,13 +163,19 @@ func (s *Store) DeadLetter(ctx context.Context, m core.Message, attempts int) er
 	if err != nil {
 		return err
 	}
-	attrs := statusDeliveryAttrs(m)
+	current, exists, err := s.itemAt(ctx, MessageDelivery, deliveryKey(core.MessageStatusPending, key))
+	if err != nil || !exists {
+		return err
+	}
+	attrs := current.Attrs
 	if attempts > 0 {
 		attrs[attrDelAttempts] = strconv.Itoa(attempts)
 	}
+	// A refused transition was acknowledged or replaced.
 	_, err = s.TryWriteEntities(ctx, nil,
 		objstore.Write{Op: objstore.Delete, Entity: MessageDelivery,
-			Key: deliveryKey(core.MessageStatusPending, key), Cond: objstore.Cond{Item: objstore.ItemPresent}},
+			Key: deliveryKey(core.MessageStatusPending, key), Cond: objstore.Cond{Item: objstore.ItemPresent,
+				Where: []objstore.Cmp{attrIs(objstore.IndexRevision, current.Attrs[objstore.IndexRevision])}}},
 		objstore.Write{Op: objstore.Put, Entity: MessageDelivery,
 			Key: deliveryKey(core.MessageStatusFailed, key), Attrs: attrs})
 	return err
@@ -251,7 +262,11 @@ func (s *Store) DeadLetters(ctx context.Context, folder string, limit int) ([]Pe
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, PendingMessage{Message: m, Attempts: n, Operation: it.Attrs["operation"], QueuedAt: deliveryQueuedAt(it, m), NextAttemptAt: due})
+		expires, err := deliveryExpiry(it)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, PendingMessage{ExpiresAt: expires, Message: m, Attempts: n, Operation: it.Attrs["operation"], QueuedAt: deliveryQueuedAt(it, m), NextAttemptAt: due})
 	}
 	return out, nil
 }
@@ -296,12 +311,27 @@ func (s *Store) ReplayDeadLetter(ctx context.Context, m core.Message) (bool, err
 	if m.StatusRevision > 0 {
 		checks = append(checks, objstore.Check{Entity: Messages, Key: key, Cond: statusRevisionGuard(m)})
 	}
+	failed, exists, err := s.itemAt(ctx, MessageDelivery, deliveryKey(core.MessageStatusFailed, key))
+	if err != nil || !exists {
+		return false, err
+	}
+	if value := failed.Attrs["expires_at"]; value != "" {
+		at, err := time.Parse(time.RFC3339Nano, value)
+		if err != nil {
+			return false, err
+		}
+		if !time.Now().Before(at) {
+			return false, fmt.Errorf("outbound message has expired")
+		}
+	}
 	attrs := statusDeliveryAttrs(m)
 	attrs["next_attempt_at"] = core.NowTS()
+	setAttr(attrs, "expires_at", failed.Attrs["expires_at"])
 	return s.TryWriteEntities(ctx, checks,
 		objstore.Write{Op: objstore.Delete, Entity: MessageDelivery,
-			Key:  deliveryKey(core.MessageStatusFailed, key),
-			Cond: objstore.Cond{Item: objstore.ItemPresent}},
+			Key: deliveryKey(core.MessageStatusFailed, key),
+			Cond: objstore.Cond{Item: objstore.ItemPresent,
+				Where: []objstore.Cmp{attrIs(objstore.IndexRevision, failed.Attrs[objstore.IndexRevision])}}},
 		objstore.Write{Op: objstore.Put, Entity: MessageDelivery,
 			Key:   deliveryKey(core.MessageStatusPending, key),
 			Attrs: attrs})
@@ -348,7 +378,7 @@ func (s *Store) QueueStatus(ctx context.Context, m core.Message, content, phase 
 	if m.StatusRevision == 0 {
 		if _, exists := s.MessageByID(m.ChatJID, m.ID); !exists {
 			m.Content, m.StatusPhase, m.StatusRevision = content, phase, 1
-			_, err := s.putMessage(ctx, m, core.MessageStatusPending, true)
+			_, err := s.putMessage(ctx, m, core.MessageStatusPending, messageOptions{exact: true})
 			return err
 		}
 	}
@@ -516,4 +546,11 @@ func (s *Store) deliveryMessageKey(ctx context.Context, m core.Message) (objstor
 		return objstore.Key{}, fmt.Errorf("message %s in %s is missing", m.ID, m.ChatJID)
 	}
 	return it.Key, nil
+}
+
+func deliveryExpiry(it objstore.Item) (time.Time, error) {
+	if value := it.Attrs["expires_at"]; value != "" {
+		return time.Parse(time.RFC3339Nano, value)
+	}
+	return time.Time{}, nil
 }

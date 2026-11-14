@@ -654,8 +654,10 @@ func EnsureSubsystem(ctx context.Context, m EntityMaker, s objstore.Store, subsy
 	if len(entities) == 0 {
 		return nil
 	}
-	if slices.Contains(store.EntitiesByOwner[subsystem], objstore.IndexEntity) {
-		entities = append(entities, objstore.IndexEntity)
+	for _, entity := range []string{objstore.IndexEntity, store.OnboardingWork} {
+		if slices.Contains(store.EntitiesByOwner[subsystem], entity) {
+			entities = append(entities, entity)
+		}
 	}
 	for _, entity := range append(entities, store.ScopeEntity) {
 		if err := m.CreateEntity(ctx, entity); err != nil {

@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"maps"
 	"sort"
 	"strconv"
 	"strings"
@@ -207,10 +208,16 @@ func (s *Store) PutMessage(m core.Message) error {
 // the instant when the caller's own would bury the row, and a caller that
 // addresses the row afterwards has to hold the one the append took.
 func (s *Store) AppendMessage(m core.Message) (core.Message, error) {
-	return s.putMessage(context.Background(), m, core.MessageStatusSent, false)
+	return s.putMessage(context.Background(), m, core.MessageStatusSent, messageOptions{})
 }
 
-func (s *Store) putMessage(ctx context.Context, m core.Message, status string, exact bool) (core.Message, error) {
+type messageOptions struct {
+	exact    bool
+	delivery map[string]string
+	also     []objstore.Write
+}
+
+func (s *Store) putMessage(ctx context.Context, m core.Message, status string, options messageOptions) (core.Message, error) {
 	if m.Timestamp.IsZero() {
 		return m, fmt.Errorf("message %s in %s carries no instant, and the instant is half its "+
 			"position", m.ID, m.ChatJID)
@@ -238,7 +245,7 @@ func (s *Store) putMessage(ctx context.Context, m core.Message, status string, e
 	if err != nil {
 		return m, err
 	}
-	if !exact {
+	if !options.exact {
 		m.Timestamp, err = s.appendInstant(ctx, m)
 		if err != nil {
 			return m, err
@@ -263,13 +270,16 @@ func (s *Store) putMessage(ctx context.Context, m core.Message, status string, e
 	}}
 	writes = append(writes, activityWrite(key, m))
 	if w, ok := deliveryWrite(key, m, status, 0); ok {
+		maps.Copy(w.Attrs, options.delivery)
 		writes = append(writes, w)
 	}
+	writes = append(writes, options.also...)
 	folderWrite, counted, err := folderFeedWrite(key, m)
 	if err != nil {
 		return m, err
 	}
 	if !counted {
+		// A refused append is an existing message ID.
 		_, err := s.TryWriteEntities(ctx, nil, writes...)
 		return m, err
 	}

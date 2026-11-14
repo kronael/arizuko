@@ -103,7 +103,7 @@ func TestMessageIndexMigrationPreservesLegacyRows(t *testing.T) {
 		}
 	}
 	c := &stateReadCounter{Store: s.obj}
-	if err := NewOver(c).MigrateStateIndexes(t.Context()); err != nil || c.rows != 4 {
+	if err := NewOver(c).MigrateStateIndexes(t.Context()); err != nil || c.rows != 5 {
 		t.Fatalf("repeat migration: %v rows=%d", err, c.rows)
 	}
 }

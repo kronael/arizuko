@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"html"
 	"net/http"
@@ -65,14 +64,17 @@ func migratedDB(t *testing.T) (xdb, obdb *store.Store) {
 // declaration of its own would build a shape production does not have.
 func testDB(t *testing.T) *store.Store {
 	t.Helper()
-	rdb, err := routd.OpenMem()
+	pool, release, err := store.TestOwner(store.OwnerRoutd)
 	if err != nil {
-		t.Fatalf("routd.OpenMem: %v", err)
+		t.Fatal(err)
 	}
-	t.Cleanup(func() { rdb.Close() })
-	pool, ok := rdb.Obj().(store.Driver)
-	if !ok {
-		t.Fatalf("routd's handle is %T, which makes no entities", rdb.Obj())
+	t.Cleanup(func() {
+		if err := release(); err != nil {
+			t.Error(err)
+		}
+	})
+	if err := store.SeedRoutdFloor(t.Context(), pool); err != nil {
+		t.Fatal(err)
 	}
 	if err := prepareOwned(pool); err != nil {
 		t.Fatalf("onbod migrate: %v", err)
@@ -250,20 +252,13 @@ func TestPromptUnpromptedLinkRedeemsAsAPairing(t *testing.T) {
 	db := testDB(t)
 	seedAdmission(t, db, store.ArchiveOnboardingRow{JID: "telegram:1", Status: "awaiting_message"})
 
-	var sent string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var body struct{ Text string }
-		json.NewDecoder(r.Body).Decode(&body)
-		sent = body.Text
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer srv.Close()
-	cfg := config{
-		authBaseURL: "https://example.com", gatedURL: srv.URL,
-		svcToken: func(context.Context) (string, error) { return "t", nil },
-	}
+	cfg := config{authBaseURL: "https://example.com"}
 	promptUnprompted(db, db, cfg, awaitingRows(t, db))
-
+	rows, err := db.PendingOutbound(t.Context(), time.Now().Add(time.Second), 10)
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("queued: %v %v", rows, err)
+	}
+	sent := rows[0].Content
 	_, raw, found := strings.Cut(sent, "https://example.com/pair/")
 	if !found {
 		t.Fatalf("greeting carried no /pair/ link: %q", sent)
@@ -1649,7 +1644,10 @@ func TestLoadGatesEnabledFilter(t *testing.T) {
 	seedGateRow(t, db, "github:org=co", 10, true)
 	seedGateRow(t, db, "*", 5, false)
 
-	gates := loadGates(db)
+	gates, err := loadGates(db)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(gates) != 1 {
 		t.Fatalf("want 1 enabled gate, got %d", len(gates))
 	}
@@ -1735,26 +1733,11 @@ func TestDashboardUnauthenticated(t *testing.T) {
 func TestPromptUnpromptedSendsGreeting(t *testing.T) {
 	db := testDB(t)
 	seedAdmission(t, db, store.ArchiveOnboardingRow{JID: "telegram:1", Status: "awaiting_message"})
-
-	var gotAuth string
-	var gotBody []byte
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotAuth = r.Header.Get("Authorization")
-		gotBody, _ = readAll(r.Body)
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer srv.Close()
-
-	cfg := config{gatedURL: srv.URL, authBaseURL: "https://ex.com",
-		svcToken: func(context.Context) (string, error) { return "svc-jwt", nil }}
+	cfg := config{authBaseURL: "https://ex.com", greeting: "Welcome"}
 	promptUnprompted(db, db, cfg, awaitingRows(t, db))
-
-	if gotAuth != "Bearer svc-jwt" {
-		t.Errorf("want Bearer service token, got %q", gotAuth)
-	}
-	if !strings.Contains(string(gotBody), "telegram:1") ||
-		!strings.Contains(string(gotBody), "/pair/") {
-		t.Errorf("unexpected outbound body: %s", gotBody)
+	rows, err := db.PendingOutbound(t.Context(), time.Now().Add(time.Second), 10)
+	if err != nil || len(rows) != 1 || rows[0].ChatJID != "telegram:1" || !strings.HasPrefix(rows[0].Content, "Welcome\nSet up your account:") || !strings.Contains(rows[0].Content, "/pair/") {
+		t.Fatalf("queued greeting: %v %v", rows, err)
 	}
 }
 

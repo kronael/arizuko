@@ -373,6 +373,12 @@ func (l *Loop) maybeRetryOutbound(now time.Time) {
 
 func (l *Loop) retryOutbound(now time.Time, p store.PendingMessage) {
 	m := p.Message
+	if !p.ExpiresAt.IsZero() && !now.Before(p.ExpiresAt) {
+		if err := l.db.DeadLetter(m, p.Attempts); err != nil {
+			slog.Error("expire outbound", "id", m.ID, "err", err)
+		}
+		return
+	}
 	if now.Before(p.NextAttemptAt) {
 		return
 	}
