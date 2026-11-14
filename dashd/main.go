@@ -30,7 +30,7 @@ import (
 	"github.com/kronael/arizuko/objstore/dynstore"
 	"github.com/kronael/arizuko/obs"
 	"github.com/kronael/arizuko/resreg"
-	_ "github.com/kronael/arizuko/resreg/resources"
+	"github.com/kronael/arizuko/resreg/resources"
 	"github.com/kronael/arizuko/store"
 	"github.com/kronael/arizuko/theme"
 )
@@ -38,7 +38,6 @@ import (
 //go:embed htmx.min.js
 var htmxJS []byte
 
-// Caps bound memory from adversarial writes by a compromised agent.
 const (
 	maxFileBytes  = 1 << 20
 	maxDirEntries = 100
@@ -77,16 +76,10 @@ func safeJoin(base, leaf string) (string, error) {
 
 var esc = template.HTMLEscapeString
 
-// brandName is the operator-configured product name (ASSISTANT_NAME env var).
-// Set at startup; default "arizuko". Used in page titles and the portal header.
 var brandName = "arizuko"
 
-// accentOverride is an optional CSS color string (DASH_ACCENT_COLOR env var)
-// that overrides --accent for white-labelling. Empty = use theme default.
 var accentOverride = ""
 
-// shortTS trims a full ISO timestamp to HH:MM for compact display.
-// Input may be "2026-06-16T15:58:28Z" or "2026-06-16 15:58:28"; output "15:58".
 func shortTS(ts string) string {
 	for i, r := range ts {
 		if r == 'T' || r == ' ' {
@@ -102,8 +95,6 @@ func shortTS(ts string) string {
 	return ts
 }
 
-// relativeTS returns a human-relative label ("now", "5m", "2h", "3d") for use
-// in <abbr> display alongside the full ISO timestamp as the title.
 func relativeTS(ts string) string {
 	t, ok := parseTS(ts)
 	if !ok {
@@ -122,17 +113,10 @@ func relativeTS(ts string) string {
 	}
 }
 
-// abbrTS is the one renderer for a timestamp cell: relative label visible, full
-// ISO form on hover (SCREENS.md principle 7).
 func abbrTS(ts string) string {
 	return `<abbr title="` + esc(ts) + `">` + esc(relativeTS(ts)) + `</abbr>`
 }
 
-// remainingTS is relativeTS for a FUTURE deadline: "12m", "2h", "3d" of time
-// left. It exists because relativeTS measures time.Since, so every not-yet-
-// reached deadline lands in its `d < time.Minute` arm and renders "now" — an
-// engagement window with 28 minutes left would read as expiring this second.
-// A deadline already passed renders "expired" rather than a negative span.
 func remainingTS(ts string) string {
 	t, ok := parseTS(ts)
 	if !ok {
@@ -153,9 +137,6 @@ func remainingTS(ts string) string {
 	}
 }
 
-// folderPath URL-encodes a group folder for use in path segments.
-// Nested folders like "rhias/nemo" become "rhias%2Fnemo" so Go's
-// net/http mux {folder} wildcard matches them as a single segment.
 func folderPath(folder string) string {
 	return url.PathEscape(folder)
 }
@@ -183,36 +164,22 @@ func main() {
 		accentOverride = v
 	}
 
-	// store.OpenOwner probes for the `acl` entity, so an endpoint routd has never
-	// booted against fails loudly at boot instead of serving an empty dashboard
-	// (BUGS F58).
 	routdOwn, err := store.OpenOwner(store.OwnerRoutd)
 	if err != nil {
 		slog.Error("open routd's store", "err", err)
 		os.Exit(1)
 	}
-	defer routdOwn.Close() //nolint:errcheck // the process is ending
+	defer routdOwn.Close()
 
 	slog.Info("dashd started", "store", dynstore.URL(), "port", port)
 
-	// APP_SRC_DIR is the container-side path to ant/ (routd/runed read stock
-	// skills the same way); HOST_APP_DIR is a HOST path and unusable from
-	// inside the container unless mounted (BUGS F54).
 	appDir := os.Getenv("APP_SRC_DIR")
 	if appDir == "" {
 		appDir = os.Getenv("HOST_APP_DIR")
 	}
 
-	// guard admits a request that PROVES it transited proxyd, then trusts the
-	// proxyd-stamped X-User-Sub/-Groups as the END-USER identity. dashd's authz reads
-	// those headers directly, so — unlike webd's MCP gate — the bearer must NOT become
-	// the identity: it carries service:proxyd, not the user. No verifier (AUTHD_URL
-	// unset) → guard is open.
 	var ks *auth.KeySet
-	// svcSrc is dashd's service:dashd ES256 token source, presented on the only
-	// daemon-to-daemon call dashd makes: the operator WhatsApp re-pair proxy to
-	// whapd's /v1/pair/*. nil → local dev (no AUTHD_URL); the pair call goes out
-	// unauthenticated.
+
 	var svcSrc func(context.Context) (string, error)
 	if authdURL := strings.TrimRight(os.Getenv("AUTHD_URL"), "/"); authdURL != "" {
 		ctx, cancel := context.WithCancel(context.Background())
@@ -236,9 +203,6 @@ func main() {
 		slog.Warn("AUTHD_URL unset in dashd — identity verification disabled, dashd open (local dev)")
 	}
 
-	// audit_log is routd's (its owner, routd migration 0016), which is the store
-	// opened above — so the audit sink, the /dash/audit/ reader, and every admin
-	// mutation share one handle.
 	audit.Init(routdOwn.Obj(), os.Getenv("ARIZUKO_INSTANCE"))
 	audit.Emit(context.Background(), audit.Event{
 		Category: audit.CategorySystem,
@@ -252,16 +216,9 @@ func main() {
 		},
 	})
 
-	// onbod OWNS invites/onboarding_gates; the invites page writes them directly,
-	// same FS-access discipline.
-	//
-	// The path is CONFIGURED, never derived as a sibling of dsn: under per-owner
-	// subdirectories the siblings are not siblings, and deriving one owner's file from
-	// another's is the pattern CLAUDE.md bans. Unavailable = onbod's profile is off,
-	// and the view renders a "store unavailable" banner.
 	var onbodHandle objstore.Store
 	if onbodOwn := openSiblingOwner(store.OwnerOnbod); onbodOwn != nil {
-		defer onbodOwn.Close() //nolint:errcheck // the process is ending
+		defer onbodOwn.Close()
 		onbodHandle = onbodOwn.Obj()
 	}
 
@@ -274,11 +231,6 @@ func main() {
 		slog.Warn("SECRETS_KEY unset in dashd; /dash/me/env and /dash/me/secrets writes will fail until the operator sets it")
 	}
 
-	// Surrogate OAuth (spec 5/15): the "Connect <provider>" dance under
-	// /dash/me/connections. Engine loads the embedded provider registry; creds
-	// come from .env (SURROGATE_<PROVIDER>_CLIENT_ID/_SECRET). stateSecret HMAC-
-	// signs the CSRF state cookie (AUTH_SECRET); connBaseURL is the configured
-	// callback base (AUTH_BASE_URL, then WEB_HOST).
 	surrogateEng, serr := surrogate.NewEngine(dataDir)
 	if serr != nil {
 		slog.Error("build surrogate engine", "err", serr)
@@ -315,19 +267,10 @@ func main() {
 	}
 }
 
-// backendURL resolves a sibling daemon's intra-container base URL: the env override
-// when set, else the compose service name on the fixed in-container port. Root
-// CLAUDE.md pins every daemon to :8080, so the URL is derivable, not configuration
-// — compose emits neither PROXYD_URL nor RUNED_URL, and without the default the
-// kill button answered 503 in every deploy (BUGS F23). One renderer for both.
 func backendURL(envKey, service string) string {
 	return strings.TrimRight(core.EnvOr(envKey, "http://"+service+":8080"), "/")
 }
 
-// upstreamMessage pulls the operator-readable half out of a sibling daemon's error
-// body. routd and proxyd both answer apiv1.Err, so `message` is preferred and
-// `error` is the fallback. A body that is not that shape is returned raw rather
-// than swallowed: a bare status number tells an operator nothing.
 func upstreamMessage(body []byte) string {
 	var e struct {
 		Error   string `json:"error"`
@@ -344,71 +287,38 @@ func upstreamMessage(body []byte) string {
 	return strings.TrimSpace(string(body))
 }
 
-// upstreamErr renders a non-2xx from a sibling daemon as one operator-readable
-// sentence. One renderer for every daemon dashd calls; proxydUpstreamErr wraps
-// it to add the 403 grant hint that is proxyd's alone.
 func upstreamErr(daemon string, status int, body []byte) string {
 	return fmt.Sprintf("%s said %d: %s", daemon, status, upstreamMessage(body))
 }
 
 type dash struct {
-	// routd is the handle onto routd's tables — dashd's ONLY message/config
-	// store. routd OWNS acl/groups/routes/route_tokens/secrets/audit_log AND the
-	// live messages/chats/sessions/user_profiles tables (spec 5/16-mcp-rest-unification); dashd
-	// reads+writes them here. A handle rather than a pool, so the same handlers
-	// run on an instance served from a DynamoDB endpoint (spec 6/42-dynamo-over-postgres §7). nil in
-	// read-only tests.
+	taskSnapshot  objstore.Snapshot[[]resources.ScheduledTasksRow]
+	routeSnapshot objstore.Snapshot[[]core.Route]
+
 	routd objstore.Store
-	// onbod is the handle onto onbod's tables. onbod OWNS invites/onboarding_gates
-	// in the split topology (spec 5/16-mcp-rest-unification); dashd's invites page reads+writes them
-	// here. nil when that optional profile is off.
+
 	onbod     objstore.Store
 	groupsDir string
-	appDir    string                                // APP_SRC_DIR (container path to ant/); used to enumerate stock skills
-	ks        *auth.KeySet                          // authd JWKS; verifies proxyd's ES256 transit bearer (nil → local dev open)
-	svc       func(context.Context) (string, error) // service:dashd token for the whapd re-pair proxy (nil → local dev)
-	runedURL  string                                // runed's /v1 face; target of the /dash/runed/kill operator-kill proxy. backendURL defaults it to the compose service name, so it is empty only in tests ("" → kill 503s)
-	// proxydURL is proxyd's own /v1 face, read+written by /dash/proxyd/. proxyd
-	// OWNS proxyd_routes, so dashd goes over HTTP rather than into the table —
-	// that is also what makes proxyd write the audit row in the mutation's tx.
+	appDir    string
+	ks        *auth.KeySet
+	svc       func(context.Context) (string, error)
+	runedURL  string
+
 	proxydURL string
-	// routdURL is routd's /v1 face, read AND written by /dash/engagement/. routd OWNS
-	// the engagement columns, so dashd asks over HTTP rather than touching
-	// chat_reply_state directly — that is what puts the containment check and the audit
-	// row on the mutation's own transaction.
+
 	routdURL string
-	// authdURL is authd's /v1 face. /dash/audit/ reads its GET /v1/audit — the
-	// login rows that record which provider identity was presented, which live
-	// in auth.db and nowhere else. dashd is NOT FS-mounted on auth.db and must
-	// not become so; HTTP is the only contract authd offers for them.
+
 	authdURL string
-	// onbodURL is onbod's /v1 face. dashd IS FS-mounted on onbod.db, but the audit read
-	// still goes over HTTP: /dash/audit/ is a fan-out of ONE path across four owners,
-	// and a direct-DB fourth source would be a second mechanism that drifts from the
-	// other three (spec 5/I-tool-call-logging, BUGS F35).
+
 	onbodURL string
-	// secretKeyring is the SECRETS_KEY material handed to secretStore so user-secret
-	// writes seal at rest under the same key routd reads with. Empty → plaintext.
+
 	secretKeyring [][]byte
 
-	// surrogate drives the /dash/me/connections "Connect <provider>" OAuth dance
-	// (spec 5/15); nil in read-only tests / when no engine is wired. stateSecret
-	// HMAC-signs the dance's CSRF state cookie (reuses auth.SignState). connBaseURL
-	// is the absolute base the provider redirects the callback to — configured
-	// (must match the provider app), never derived from the request.
 	surrogate   *surrogate.Engine
 	stateSecret []byte
 	connBaseURL string
 }
 
-// routdStore is routd's tables as the store package reads and writes them — the
-// one door the admin paths (grants/groups/routes/route_tokens) and every page
-// read go through. routd OWNS those tables in the split topology, so dashd
-// points its admin reads straight at routd's own store.
-//
-// nil when there is no handle, which is how the pages know to banner instead of
-// render. Built per call rather than held, so secretStore can set the keyring
-// on its own copy and on nobody else's.
 func (d *dash) routdStore() *store.Store {
 	if d.routd == nil {
 		return nil
@@ -416,9 +326,6 @@ func (d *dash) routdStore() *store.Store {
 	return store.NewOver(d.routd)
 }
 
-// onbodStore is onbod's tables the same way. onbod OWNS invites in the split
-// topology, so the invites page asks onbod's own store; nil when that profile
-// is off and the page banners.
 func (d *dash) onbodStore() *store.Store {
 	if d.onbod == nil {
 		return nil
@@ -426,19 +333,8 @@ func (d *dash) onbodStore() *store.Store {
 	return store.NewOver(d.onbod)
 }
 
-// ds returns dashd's storage layer over routd's tables — every statement dashd
-// runs lives behind it (dashd/dashstore, spec 6/37 step 1). nil for a nil
-// handle, the same banner path routdStore answers on.
 func (d *dash) ds() *dashstore.Store { return dashstore.New(d.routd) }
 
-// openSiblingOwner opens another daemon's owner store through store.OpenOwner.
-// That door is the only place the dial is written (spec 6/42-dynamo-over-postgres §7), so dashd asks
-// it rather than deciding for itself what it is talking to.
-//
-// A store that will not open means that daemon's profile is off — an optional
-// compose profile onbod has and routd does not — so nil is the honest answer
-// and the page banners. The reason is logged, because an endpoint whose owner
-// has never booted reads like an owner that is simply not deployed.
 func openSiblingOwner(owner string) *store.Store {
 	s, err := store.OpenOwner(owner)
 	if err != nil {
@@ -449,11 +345,6 @@ func openSiblingOwner(owner string) *store.Store {
 	return s
 }
 
-// secretStore is routd's store with the SECRETS_KEY keyring set, so user-secret
-// writes (PutSecretRow) seal `v2:` values the same way routd's secretStore does
-// — the BYOA encryption-at-rest path. The keys land on the store routdStore
-// just built and on no other, so the admin door stays unable to seal one. nil
-// when there is no handle (some read-only tests).
 func (d *dash) secretStore() *store.Store {
 	s := d.routdStore()
 	if s == nil {
@@ -465,32 +356,14 @@ func (d *dash) secretStore() *store.Store {
 	return s
 }
 
-// operatorCtxKey carries the caller's operator verdict for the length of one
-// request, so callerScope and dashNavFor cannot answer differently. dashNavFor
-// reading the stamped header alone is what served an operator BY GRANT the
-// pages and then showed no links to them (BUGS L324).
 type operatorCtxKey struct{}
 type policyCtxKey struct{}
 
-// operatorFromCtx reports the verdict the guard decided, and whether it decided
-// one. A handler mounted outside the guard has none, and says so rather than
-// reading a false `false`.
 func operatorFromCtx(ctx context.Context) (bool, bool) {
 	v, ok := ctx.Value(operatorCtxKey{}).(bool)
 	return v, ok
 }
 
-// guard proves a request transited proxyd before letting a handler trust the
-// proxyd-stamped identity, and decides the operator verdict once for the
-// handlers below it. The bearer is a TRANSIT proof only — dashd's authz reads
-// X-User-Sub/-Groups directly, so we deliberately do NOT stamp the bearer's own
-// subject over them; failure redirects to /auth/login.
-//
-// THE WRAPPER IS UNCONDITIONAL. A nil keyset means local dev with no AUTHD_URL
-// — the transit check cannot run — but the verdict still must, and returning
-// `next` bare skipped BOTH. That is also how every dashd test runs, so a fix
-// seated here and gated on the keyset would have been invisible to the suite
-// that covers it.
 func (d *dash) guard(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		r = r.WithContext(obs.ExtractRequest(r))
@@ -509,18 +382,11 @@ func (d *dash) guard(next http.HandlerFunc) http.HandlerFunc {
 }
 
 func (d *dash) registerRoutes(mux *http.ServeMux) {
-	// Public — no signed identity required. /health is the container
-	// healthcheck target; /openapi.json is mounted before auth by contract;
-	// the htmx asset is a static file. Guarding any of these breaks the
-	// healthcheck or the unauthenticated doc/asset surface.
+
 	mux.HandleFunc("GET /health", d.handleHealth)
 	mux.HandleFunc("GET /openapi.json", resreg.OpenAPIHandler("dashd", mux))
 	mux.HandleFunc("GET /dash/assets/htmx.min.js", handleHtmxAsset)
 
-	// Everything below is operator UI / mutations — every handler reads the
-	// proxyd-stamped X-User-Sub. guard verifies proxyd's service:proxyd transit
-	// bearer (open when AUTHD_URL is unset for local dev) so a request bypassing
-	// proxyd cannot forge an operator identity.
 	g := d.guard
 	mux.HandleFunc("GET /dash/", g(d.handlePortal))
 	mux.HandleFunc("GET /dash/services/", g(d.handleServices))
@@ -533,15 +399,7 @@ func (d *dash) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /dash/model-pauses/", g(d.handleModelPauses))
 	mux.HandleFunc("POST /dash/model-pauses/clear", g(d.handleModelPauseClear))
 	mux.HandleFunc("POST /dash/engagement/disengage", g(d.handleEngagementDisengage))
-	// /dash/routd/ moved to routd itself (spec 6/28, 6/30): proxyd routes the
-	// prefix to routd:8080, so a copy here would be unreachable code rendering
-	// the same data from a direct read of routd.db.
-	// /dash/runed/ moved to runed itself (spec 6/28, 6/30).
-	// /dash/authd/ moved to authd itself (spec 6/28, 6/30).
 
-	// proxyd control plane — the reverse-proxy route table. proxyd owns it, so
-	// every handler here is an HTTP call to proxyd's /v1/proxyd_routes.
-	// /dash/proxyd/ moved to proxyd itself, forms included (spec 6/28, 6/30).
 	mux.HandleFunc("GET /dash/status/", g(d.handleStatus))
 	mux.HandleFunc("GET /dash/tasks/", g(d.handleTasks))
 	mux.HandleFunc("GET /dash/activity/", g(d.handleActivity))
@@ -557,9 +415,6 @@ func (d *dash) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /dash/tasks/", g(d.handleTaskCreate))
 	mux.HandleFunc("POST /dash/tasks/{id}/{action}", g(d.handleTaskAction))
 
-	// /dash/me/secrets — capability credential CRUD (GITHUB_TOKEN, etc.).
-	// /dash/me/env   — env-profile key CRUD (ANTHROPIC_API_KEY, etc.).
-	// Both identity-bound to signed-in X-User-Sub; CSRF on writes.
 	mux.HandleFunc("GET /dash/me/secrets", g(d.handleMeSecrets))
 	mux.HandleFunc("POST /dash/me/secrets", g(d.handleMeSecretCreate))
 	mux.HandleFunc("PATCH /dash/me/secrets/{key}", g(d.handleMeSecretUpdate))
@@ -569,20 +424,15 @@ func (d *dash) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PATCH /dash/me/env/{key}", g(d.handleMeEnvUpdate))
 	mux.HandleFunc("DELETE /dash/me/env/{key}", g(d.handleMeEnvDelete))
 
-	// /dash/me/connections — surrogate OAuth (spec 5/15). "Connect <provider>"
-	// runs the outbound dance and writes the token to the same secrets row a PAT
-	// lands in. start/callback/disconnect; identity-bound to X-User-Sub.
 	mux.HandleFunc("GET /dash/me/connections", g(d.handleMeConnections))
 	mux.HandleFunc("POST /dash/me/connections/{provider}/start", g(d.handleMeConnectionStart))
 	mux.HandleFunc("GET /dash/me/connections/{provider}/callback", g(d.handleMeConnectionCallback))
 	mux.HandleFunc("DELETE /dash/me/connections/{provider}", g(d.handleMeConnectionDelete))
 
-	// WhatsApp re-pair — operator-only (** super-grant). Spec 8/15.
 	mux.HandleFunc("GET /dash/channels/whatsapp/pair", g(d.handleWhatsappPair))
 	mux.HandleFunc("GET /dash/channels/whatsapp/pair/status", g(d.handleWhatsappPairStatus))
 	mux.HandleFunc("POST /dash/channels/whatsapp/pair/start", g(d.handleWhatsappPairStart))
 
-	// Routes editor — admin-gated CRUD against the `routes` table.
 	mux.HandleFunc("GET /dash/routes/", g(d.handleRoutes))
 	mux.HandleFunc("POST /dash/routes/", g(d.handleRouteCreate))
 	mux.HandleFunc("PATCH /dash/routes/{id}", g(d.handleRouteUpdate))
@@ -592,10 +442,6 @@ func (d *dash) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /dash/github_sources/", g(d.handleGitHubSourceCreate))
 	mux.HandleFunc("POST /dash/github_sources/delete", g(d.handleGitHubSourceDelete))
 
-	// Group create / delete / settings — admin-gated. Settings + delete use
-	// trailing-wildcard ({folder...}) dispatchers so nested folders like
-	// "corp/eng/sre" (multi-segment) address correctly; Go's single-segment
-	// {folder} would let them fall through to the list/other handlers.
 	mux.HandleFunc("GET /dash/groups/new", g(d.handleGroupNewForm))
 	mux.HandleFunc("POST /dash/groups/new", g(d.handleGroupCreate))
 	mux.HandleFunc("POST /dash/groups/{folder...}", g(d.dispatchGroupsPost))
@@ -605,12 +451,9 @@ func (d *dash) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /dash/groups/{folder}/grants", g(d.handleGroupGrantAdd))
 	mux.HandleFunc("POST /dash/groups/{folder}/grants/revoke", g(d.handleGroupGrantRevoke))
 
-	// Route tokens: list + revoke only. No POST /dash/tokens/{folder}/ — the
-	// cockpit mints nothing (routd's route_tokens resource owns issuance).
 	mux.HandleFunc("GET /dash/tokens/{folder}/", g(d.handleTokensFolder))
 	mux.HandleFunc("POST /dash/tokens/{folder}/{jid}/revoke", g(d.handleTokensRevoke))
 
-	// Invite management — operator-gated.
 	mux.HandleFunc("GET /dash/invites/", g(d.handleInvites))
 	mux.HandleFunc("POST /dash/invites/", g(d.handleInviteCreate))
 	mux.HandleFunc("POST /dash/invites/{ref}/revoke", g(d.handleInviteRevoke))
@@ -627,10 +470,6 @@ func handleHtmxAsset(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(htmxJS)
 }
 
-// navLinks: nav order + href + label + operator-only flag. Path-prefix match decides
-// aria-current, with /dash/ special-cased so child pages don't light up the home
-// link. Operator-only links render only for callers holding `**`; the scoped links
-// always show, since their pages filter to visible folders.
 var navLinks = []struct {
 	Href, Label string
 	operator    bool
@@ -653,10 +492,6 @@ var navLinks = []struct {
 	{"/dash/memory/", "memory", false},
 }
 
-// dashNavFor renders the top nav with aria-current="page" on the link whose
-// href is a prefix of the request path. urlPath "" or "/dash/" lights the home
-// link only. Operator-only links are hidden from non-operators (`**` absent
-// from the signed X-User-Groups).
 func dashNavFor(r *http.Request) string {
 	urlPath := r.URL.Path
 	operator, _ := operatorFromCtx(r.Context())
@@ -704,8 +539,7 @@ const navActiveScript = `<script>document.addEventListener('htmx:afterSettle',fu
 
 func dashHead(title string) string {
 	css := theme.CSS
-	// accentOverride is an operator-set env var (DASH_ACCENT_COLOR), not user
-	// input, so it goes into the <style> block raw — no untrusted HTML path.
+
 	if accentOverride != "" {
 		css += `:root{--accent:` + accentOverride + `}`
 	}
@@ -715,9 +549,6 @@ func dashHead(title string) string {
 		`<style>` + css + `</style>` + theme.ThemeScript + theme.ToggleScript + navActiveScript + `</head>`
 }
 
-// portalTmpl is the portal's INNER content only — the shell (head, nav,
-// #content) comes from pageShell like every other page, so boosted nav links
-// keep their swap target on the portal too.
 var portalTmpl = template.Must(template.New("portal").Parse(`<h1 class="brand">{{.Brand}}</h1>
 <p class="dim">{{.Subtitle}}</p>
 {{if eq .GroupCount 0}}<div class="banner-warn">No groups configured. <a href="/dash/groups/new">Create your first group</a> to get started.</div>{{end}}
@@ -749,10 +580,6 @@ func (d *dash) handlePortal(w http.ResponseWriter, r *http.Request) {
 	erroredCount := d.countVisibleErroredChats(allowed)
 	failedTasks := d.countVisibleFailedTasks(allowed)
 
-	// The nudge counts only the calls this caller may answer, which is what the
-	// page it links to shows (spec 5/19): a verdict needs `admin` on the held
-	// call's folder, so a world owner is nudged about their own world and nobody
-	// is nudged toward a queue that renders empty for them.
 	heldApprovals := d.countHeldApprovals(r)
 
 	statusDot := "dot-ok"
@@ -789,14 +616,8 @@ func (d *dash) handlePortal(w http.ResponseWriter, r *http.Request) {
 	pageClose(w, r)
 }
 
-// crumb is one breadcrumb segment; an empty Href renders a plain label.
 type crumb struct{ Href, Label string }
 
-// pageShell opens the page shell (Content-Type→DOCTYPE→head→nav→#content) —
-// the ONE shell renderer, portal included, so #content exists on every page
-// the nav's hx-boost targets (a page without it makes every boosted nav click
-// die on htmx:targetError). htmx swaps skip the shell: the fragment lands as
-// innerHTML of the existing #content div; emitting it again would nest it.
 func pageShell(w http.ResponseWriter, r *http.Request, title string) {
 	if isHtmx(r) {
 		return
@@ -805,7 +626,6 @@ func pageShell(w http.ResponseWriter, r *http.Request, title string) {
 		dashHead(title), dashNavFor(r))
 }
 
-// pageTopFor renders the page shell (or htmx partial) with crumbs + h1.
 func pageTopFor(w http.ResponseWriter, r *http.Request, title string, crumbs ...crumb) {
 	pageShell(w, r, title)
 	if len(crumbs) > 0 {
@@ -827,8 +647,6 @@ func pageTopFor(w http.ResponseWriter, r *http.Request, title string, crumbs ...
 	_, _ = fmt.Fprintf(w, `<h1>%s</h1>`, esc(title))
 }
 
-// pageClose closes the full shell. htmx swaps emit bare content — no wrapper
-// to close.
 func pageClose(w http.ResponseWriter, r *http.Request) {
 	if isHtmx(r) {
 		return
@@ -863,11 +681,7 @@ func (d *dash) handleStatus(w http.ResponseWriter, r *http.Request) {
 
 		counts, err := d.sessionCountsViaRoutd(r.Context())
 		if err != nil {
-			// An unreachable owner is an ERROR and never empty data (spec 6/29):
-			// an absent session table reads as "no sessions", which is a false
-			// statement an operator acts on. The Answering section directly above
-			// renders the same failure as a banner, and one page cannot hold two
-			// answers to "what does a dead routd look like" (BUGS L325).
+
 			slog.Warn("status: session counts via routd", "err", err)
 			_, _ = fmt.Fprint(w, htmlBanner("err", "could not reach routd for session counts"))
 		} else {
@@ -926,13 +740,7 @@ func (d *dash) handleTasksPartial(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d *dash) writeTaskRows(ctx context.Context, w http.ResponseWriter, allowed auth.Policy) {
-	// routd owns scheduled_tasks; the page asks rather than reads its file
-	// (6/28). dashd's service token carries an empty folder claim, which routd
-	// reads as list-all and does not cap — so the visibility filter and the
-	// display window both apply HERE, after the full set is in hand. That
-	// ordering is the point: filtering after a SQL `LIMIT 500` dropped a scoped
-	// user's tasks whenever 500 other-owner rows sorted ahead (the reason the
-	// old query pushed the scope into its WHERE).
+
 	tasks, err := d.tasksViaRoutd(ctx)
 	if err != nil {
 		slog.Warn("tasks: read via routd", "err", err)
@@ -977,11 +785,8 @@ func (d *dash) writeTaskRows(ctx context.Context, w http.ResponseWriter, allowed
 	}
 }
 
-// taskPageSize bounds the rendered task table. It is a DISPLAY window applied
-// after the visibility filter, never a fetch cap applied before it.
 const taskPageSize = 500
 
-// activityPageSize is the rendered window for one activity page.
 const activityPageSize = 50
 
 func (d *dash) handleActivity(w http.ResponseWriter, r *http.Request) {
@@ -989,8 +794,7 @@ func (d *dash) handleActivity(w http.ResponseWriter, r *http.Request) {
 	before := strings.TrimSpace(r.URL.Query().Get("before"))
 	pageTopFor(w, r, "Activity")
 	_, _ = fmt.Fprint(w, `<p class="dim">Last 50 messages across all channels.</p>`)
-	// Auto-refresh only the live (first) page: polling an "older" page back to
-	// the newest 50 would silently discard the operator's pagination.
+
 	tableAttrs := ""
 	if before == "" {
 		tableAttrs = ` hx-get="/dash/activity/x/recent" hx-trigger="every 10s" hx-target="tbody" hx-swap="innerHTML"`
@@ -1012,24 +816,17 @@ func (d *dash) handleActivityPartial(w http.ResponseWriter, r *http.Request) {
 	d.writeActivityRows(r.Context(), w, allowed, operator, "")
 }
 
-// writeActivityRows renders up to activityPageSize rows older than the before
-// cursor (a raw timestamp string; empty = newest). It returns the cursor for
-// the next "older" page, or "" when there is nothing further back.
 func (d *dash) writeActivityRows(ctx context.Context, w http.ResponseWriter, allowed auth.Policy, operator bool, before string) string {
 	if d.routdStore() == nil {
 		_, _ = fmt.Fprint(w, `<tr><td colspan=6 class="empty">backend unavailable</td></tr>`)
 		return ""
 	}
-	// Non-operators may filter out most of the newest page; over-fetch so a
-	// scoped view still fills the table. Operators read one past the page size
-	// so we can tell "exactly 50" from "more behind it".
+
 	limit := activityPageSize + 1
 	if !operator {
 		limit = 1000
 	}
-	// routd owns `messages` and truncates the preview itself, so this page can
-	// never widen it (6/28 read path, BUGS L142). The per-row folder visibility
-	// below is still dashd's job — routd's limit is the outer bound.
+
 	feed, err := d.activityViaRoutd(ctx, before, limit)
 	if err != nil {
 		slog.Warn("activity: read via routd", "err", err)
@@ -1039,7 +836,7 @@ func (d *dash) writeActivityRows(ctx context.Context, w http.ResponseWriter, all
 	var n int
 	var lastTS string
 	var more bool
-	folderOf := map[string]string{} // memoize chat_jid → folder across rows
+	folderOf := map[string]string{}
 	for _, m := range feed {
 		if n >= activityPageSize {
 			more = true
@@ -1080,9 +877,6 @@ func (d *dash) writeActivityRows(ctx context.Context, w http.ResponseWriter, all
 	return lastTS
 }
 
-// dispatchGroupsGet routes GET /dash/groups/{folder...}. The trailing
-// wildcard captures the whole tail so multi-segment folders (corp/eng/sre)
-// resolve; we split off the known action suffix and delegate.
 func (d *dash) dispatchGroupsGet(w http.ResponseWriter, r *http.Request) {
 	rest := r.PathValue("folder")
 	switch {
@@ -1099,8 +893,6 @@ func (d *dash) dispatchGroupsGet(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// dispatchGroupsPost routes POST /dash/groups/{folder...} (settings save,
-// delete alias, grant add/revoke) for nested folders.
 func (d *dash) dispatchGroupsPost(w http.ResponseWriter, r *http.Request) {
 	rest := r.PathValue("folder")
 	switch {
@@ -1119,8 +911,6 @@ func (d *dash) dispatchGroupsPost(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// groupFromPath extracts the folder from a trailing-wildcard {folder...}
-// path value by stripping the trailing action segment(s).
 func groupFromPath(r *http.Request, suffix string) string {
 	rest := r.PathValue("folder")
 	return strings.TrimSuffix(rest, suffix)
@@ -1151,16 +941,14 @@ func (d *dash) handleGroups(w http.ResponseWriter, r *http.Request) {
 		}
 		folders = append(folders, folder)
 	}
-	// Bulk-fetch usage in one pass; fall through with empty map on error.
+
 	type usageKey struct {
 		tokens7d, cents7d, msgCount int
 		lastActive                  string
 	}
 	usageMap := map[string]usageKey{}
 	if len(folders) > 0 && d.routdStore() != nil {
-		// The metered flag is the usage page's concern: this listing shows a
-		// spend figure only when there is one, so an unmetered instance simply
-		// omits it rather than needing to say so per row.
+
 		if summaries, _, err := d.groupUsageBulk(r.Context(), folders); err != nil {
 			slog.Warn("groups: usage query", "err", err)
 		} else {
@@ -1237,7 +1025,6 @@ func (d *dash) writeGroupRoutes(w http.ResponseWriter, folder string) {
 	_, _ = fmt.Fprint(w, `</tbody></table>`)
 }
 
-// Allowed: MEMORY.md, .claude/CLAUDE.md, *.md under diary/facts/users/episodes/ (no subdirs).
 func memoryPathAllowed(rel string) bool {
 	if rel == "" || strings.HasPrefix(rel, "/") || strings.Contains(rel, "..") {
 		return false
@@ -1258,10 +1045,6 @@ func memoryPathAllowed(rel string) bool {
 	return false
 }
 
-// parseMemoryPath splits /dash/memory/<folder>/<rel> into (folder, rel) where folder
-// may be multi-segment. Splitting on the first '/' misattributed nested folders, so
-// instead scan split points from the right and pick the one whose trailing part is
-// an allowed memory path.
 func parseMemoryPath(urlPath string) (string, string) {
 	const prefix = "/dash/memory/"
 	if !strings.HasPrefix(urlPath, prefix) {
@@ -1278,7 +1061,6 @@ func parseMemoryPath(urlPath string) (string, string) {
 	return "", ""
 }
 
-// indexByteFrom returns the index of c in s at or after start, or -1.
 func indexByteFrom(s string, c byte, start int) int {
 	if start > len(s) {
 		return -1
@@ -1393,8 +1175,6 @@ func (d *dash) handleMemory(w http.ResponseWriter, r *http.Request) {
 	allowed, _ := d.callerScope(r)
 	selectedGroup := r.URL.Query().Get("group")
 
-	// Refuse to render another tenant's files: a non-operator who hand-crafts
-	// ?group=foreign gets 403 before any file read.
 	if selectedGroup != "" && !visible(allowed, selectedGroup) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
@@ -1450,7 +1230,7 @@ func (d *dash) renderMemorySection(w http.ResponseWriter, folder string) {
 		_, _ = fmt.Fprint(w, `<p>Invalid group path.</p>`)
 		return
 	}
-	// Resolve symlinks to block escapes; ErrNotExist is fine (group dir may not exist yet).
+
 	if real, err := filepath.EvalSymlinks(groupDir); err == nil {
 		if real != d.groupsDir && !strings.HasPrefix(real, d.groupsDir+string(filepath.Separator)) {
 			_, _ = fmt.Fprint(w, `<p>Invalid group path.</p>`)

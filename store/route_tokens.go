@@ -1,20 +1,5 @@
 package store
 
-// route_tokens.go holds every read and write of `route_tokens`: one item per
-// ingress credential, addressed by hex(sha256(token)).
-//
-// The partition is OwnerRoutd because resreg's entity path writes these items
-// too (resreg.SubsystemRoutd IS store.OwnerRoutd). The digest is the only
-// field that can be the coordinate: krons carries 43 rows over 27 distinct
-// jids, so a key on the jid would collide 16 live credentials onto one item
-// (BUGS L260). Every read that is not a resolution scans the partition (43
-// items); the two hot-path reads, LookupRouteToken and PeekPairing, are exact
-// key reads.
-//
-// `kind` IS ALWAYS WRITTEN: it is the resource's own row filter (`kind =
-// 'route'`), and an ABSENT attribute answers no comparison, so a row that left
-// it off would be invisible to export and untouched by apply.
-
 import (
 	"context"
 	"crypto/rand"
@@ -32,7 +17,6 @@ import (
 	"github.com/kronael/arizuko/objstore"
 )
 
-// The attributes a token item carries. `token_hash` is the coordinate.
 const (
 	attrTokJID          = "jid"
 	attrTokOwnerFolder  = "owner_folder"
@@ -79,8 +63,8 @@ var ErrRouteTokenTargetTaken = errors.New("jid already delivers to a different f
 // The JID-derived kind of a route token: which inbound surface its JID names.
 // Distinct from the stored `kind` attribute below.
 const (
-	RouteTokenJIDKindChat = "chat" // jid prefix "web:"
-	RouteTokenJIDKindHook = "hook" // jid prefix "hook:"
+	RouteTokenJIDKindChat = "chat"
+	RouteTokenJIDKindHook = "hook"
 )
 
 // The stored `kind` attribute (spec 5/31-identity-pairing). Route delivery resolves only
@@ -91,7 +75,6 @@ const (
 	RouteTokenKindPair  = "pair"
 )
 
-// routeTokenKey is the coordinate of one token: the digest of the raw bearer.
 func routeTokenKey(rawToken string) (objstore.Key, error) {
 	if rawToken == "" {
 		return objstore.Key{}, errors.New("route token is empty, so it has no coordinate")
@@ -99,7 +82,6 @@ func routeTokenKey(rawToken string) (objstore.Key, error) {
 	return objstore.Key{Partition: OwnerRoutd, Sort: TokenRef(rawToken)}, nil
 }
 
-// routeTokenFrom reads one item back.
 func routeTokenFrom(it objstore.Item) RouteToken {
 	t := RouteToken{
 		JID:          it.Attrs[attrTokJID],
@@ -111,8 +93,6 @@ func routeTokenFrom(it objstore.Item) RouteToken {
 	return t
 }
 
-// routeTokensOfKind reads every token of one kind: the ONE scan the attribute
-// reads share, so they cannot disagree about which rows count.
 func routeTokensOfKind(ctx context.Context, q EntityQuerier, kind string) ([]objstore.Item, error) {
 	items, err := q.Query(ctx, objstore.Query{
 		Entity: RouteTokens, Partition: OwnerRoutd,
@@ -170,19 +150,18 @@ func CheckRouteTokenTarget(ctx context.Context, s objstore.Store, jid, target st
 // CheckRouteTokenTarget keeps a JID bound to ONE folder, so the first answer
 // is the whole answer.
 func RouteTokenTargetByJID(ctx context.Context, s objstore.Store, jid string) (string, error) {
-	items, err := routeTokensOfKind(ctx, s, RouteTokenKindRoute)
+	items, err := objstore.IndexItems(ctx, s, indexPartition("route_tokens/jid", jid), objstore.KeyPredicate{}, 0)
 	if err != nil {
 		return "", err
 	}
 	for _, it := range items {
-		if it.Attrs[attrTokJID] == jid && it.Attrs[attrTokTargetFolder] != "" {
+		if it.Attrs[attrTokKind] == RouteTokenKindRoute && it.Attrs[attrTokJID] == jid && it.Attrs[attrTokTargetFolder] != "" {
 			return it.Attrs[attrTokTargetFolder], nil
 		}
 	}
 	return "", nil
 }
 
-// routeTokenPut renders the write that stores one token.
 func routeTokenPut(rawToken string, t RouteToken, kind string) (objstore.Write, error) {
 	key, err := routeTokenKey(rawToken)
 	if err != nil {
@@ -245,8 +224,6 @@ func (s *Store) InsertRouteToken(rawToken string, t RouteToken) error {
 	})
 }
 
-// routeTokenItem reads the item one raw token names, kind-scoped so a pairing
-// credential never resolves as a delivery bearer and the reverse.
 func routeTokenItem(ctx context.Context, s objstore.Store, rawToken, kind string) (objstore.Item, bool, error) {
 	key, err := routeTokenKey(rawToken)
 	if err != nil {
@@ -334,8 +311,7 @@ func (s *Store) RevokeRouteToken(jid, ownerFolder string) (bool, error) {
 	if len(writes) == 0 {
 		return false, nil
 	}
-	// Every mint of this jid adds a row, so the revoke is a sweep: a row that
-	// survives a part-way failure is still revocable by the next run.
+
 	if _, err := applyChunks(ctx, "revoke "+jid, writes,
 		func(ctx context.Context, chunk []objstore.Write) (bool, error) {
 			return s.TryWriteEntities(ctx, nil, chunk...)
@@ -358,12 +334,6 @@ func (s *Store) RevokeRouteToken(jid, ownerFolder string) (bool, error) {
 	}
 	return true, nil
 }
-
-// --- the archive lane (spec 5/8 "Secret and token values") ----------------
-//
-// The archive carries a route token's VALUE, which the config manifest never
-// does, so the functions below are this table's second reader, beside its
-// first.
 
 // ArchiveRouteTokenRow is one row of the archive's route_tokens document:
 // RouteTokensRow's shape (resreg/resources/route_tokens.go) plus TokenHash, the

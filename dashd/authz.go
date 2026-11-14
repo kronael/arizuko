@@ -7,7 +7,9 @@ import (
 	"strings"
 
 	"github.com/kronael/arizuko/auth"
+	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
+	"github.com/kronael/arizuko/router"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -46,9 +48,6 @@ func (d *dash) requireVisible(w http.ResponseWriter, r *http.Request, folder str
 	return true
 }
 
-// requireOperator gates an instance-wide section (invites, channels) to an
-// operator (`**`). Non-operators get 403; the matching nav links are also
-// hidden. Returns false if the handler should abort.
 func (d *dash) requireOperator(w http.ResponseWriter, r *http.Request) bool {
 	if _, ok := requireUser(w, r); !ok {
 		return false
@@ -60,16 +59,8 @@ func (d *dash) requireOperator(w http.ResponseWriter, r *http.Request) bool {
 	return true
 }
 
-// jidFolder maps a message chat_jid to its routing-target folder for visibility
-// filtering. A web:/hook: JID resolves through the folder its mint RECORDED, because
-// the JID grammar reads `hook:a/b/c` as folder `a/b` and would show tenant `a`'s
-// message to tenant `a/b` (BUGS L4); the grammar stays the fallback for a token minted
-// before the column. Empty when no folder can be determined — such a message is
-// invisible to every non-operator.
 func (d *dash) jidFolder(jid string) string {
-	// No routd.db → no route_tokens or routes table to resolve through.
-	// Unresolvable, not a panic: pages that render JIDs off HTTP-only data
-	// (approvals) reach here with a nil handle.
+
 	if d.routdStore() == nil {
 		return ""
 	}
@@ -77,8 +68,7 @@ func (d *dash) jidFolder(jid string) string {
 		target, err := store.RouteTokenTargetByJID(
 			context.Background(), d.routd, jid)
 		if err != nil {
-			// Fail closed: the grammar's answer can name another tenant, and
-			// this gate decides who sees the message.
+
 			slog.Error("route token target read failed; message stays invisible",
 				"jid", jid, "err", err)
 			return ""
@@ -88,7 +78,14 @@ func (d *dash) jidFolder(jid string) string {
 		}
 		return groupfolder.JidFolder(jid)
 	}
-	return d.routdStore().DefaultFolderForJID(jid)
+	routes, err := d.routeSnapshot.Read(context.Background(), d.routd, store.OwnerScope(store.OwnerRoutd), func(context.Context) ([]core.Route, error) {
+		return d.routdStore().RouteTable()
+	})
+	if err != nil {
+		slog.Error("read dashboard routes", "err", err)
+		return ""
+	}
+	return core.ParseRouteTarget(router.ResolveRoute(core.Message{ChatJID: jid, Verb: "message"}, routes)).Folder
 }
 
 func (d *dash) countVisible(name string, p auth.Policy,
@@ -111,29 +108,21 @@ func (d *dash) countVisible(name string, p auth.Policy,
 
 func folderIdentity(f string) string { return f }
 
-// countVisibleGroups counts groups the caller may see.
 func (d *dash) countVisibleGroups(p auth.Policy) int {
 	st := d.ds()
 	return d.countVisible("groups", p, st.GroupFolders, folderIdentity)
 }
 
-// countVisibleErroredChats counts distinct errored chat_jids whose
-// routing-target folder the caller may see.
 func (d *dash) countVisibleErroredChats(p auth.Policy) int {
 	st := d.ds()
 	return d.countVisible("errored-chats", p, st.ErroredChatJIDs, d.jidFolder)
 }
 
-// countVisibleFailedTasks counts task runs that errored in the last day whose
-// owning group folder the caller may see.
 func (d *dash) countVisibleFailedTasks(p auth.Policy) int {
 	st := d.ds()
 	return d.countVisible("failed-tasks", p, st.FailedTaskOwners, folderIdentity)
 }
 
-// reviewerSub is the proxyd-verified human behind this request, in the spelling
-// acl rows carry: ES256 subs arrive with a "user:" prefix and acl_membership
-// keys on the bare sub. Empty when the request carries no verified identity.
 func reviewerSub(r *http.Request) string {
 	return strings.TrimPrefix(strings.TrimSpace(r.Header.Get("X-User-Sub")), "user:")
 }
@@ -161,8 +150,6 @@ func (d *dash) requireWriter(w http.ResponseWriter, r *http.Request) (string, bo
 	return strings.TrimPrefix(sub, "user:"), true
 }
 
-// requireAdmin gates a write to scope via adminOn; deny-wins, no tier-default
-// fallback. Returns false if the handler must abort.
 func (d *dash) requireAdmin(w http.ResponseWriter, r *http.Request, scope string) (string, bool) {
 	sub, ok := d.requireWriter(w, r)
 	if !ok {

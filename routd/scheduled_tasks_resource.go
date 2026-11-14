@@ -25,24 +25,17 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
-// list reuses resreg.ActionList so it stays read-only (no tx); the rest are
-// custom strings so Mutates() is true and each sends the mutation+audit batch.
 const (
 	tasksActionSchedule = resreg.Action("schedule")
 	tasksActionPause    = resreg.Action("pause")
 	tasksActionResume   = resreg.Action("resume")
 	tasksActionCancel   = resreg.Action("cancel")
-	// tasksActionPatch is the PATCH verb: {status} pause/resume + {next_run}
-	// override. Its MCP face is reschedule_task, which carries {next_run} only.
+
 	tasksActionPatch = resreg.Action("patch")
 )
 
-// tasksMCPNames is the action→flat-tool-name map, single-sourced in
-// resreg/resources; the REST-only `patch` verb has no entry.
 var tasksMCPNames = resources.ScheduledTasksMCPNames
 
-// scheduledTasksResource is the single renderer for BOTH faces; contain is the
-// per-face target-containment seam.
 func (s *Server) scheduledTasksResource(contain containFn, elevated bool) resreg.Resource {
 	r := resreg.Mount(resources.ScheduledTasksName)
 	r.Store = s.db.store()
@@ -52,25 +45,19 @@ func (s *Server) scheduledTasksResource(contain containFn, elevated bool) resreg
 	return r
 }
 
-// scheduledTasksHandler runs schedule/pause/resume/cancel/list: cron/interval/
-// one-shot parsing, active-task dedup, DefaultFolderForJID target resolution.
-// Per-task/target containment is the injected contain seam.
 func (s *Server) scheduledTasksHandler(ctx context.Context, x resreg.Execution, contain containFn, elevated bool) (any, error) {
 	switch x.Action {
 	case resreg.ActionList:
-		// The list-all key differs by surface. Agent: a root caller (the /root
-		// elevation or the "" sentinel) sees every task. REST: only a
-		// root/service token (empty jwt_folder claim) sees all; a folder-SCOPED
-		// token, a top-level one included, lists ONLY its own. The REST caller is
-		// detected by the jwt_folder claim it always sets; the agent keeps the
-		// turn's EXPLICIT elevation, since a re-resolve of the caller folder
-		// under /root from a deep folder read non-root.
+
 		all := elevated || x.Caller.Folder == ""
 		if _, rest := x.Caller.Claims["jwt_folder"]; rest {
 			all = x.Caller.Folder == ""
 		}
-		tasks := s.db.Tasks(x.Caller.Folder, all)
-		// REST ?status= filter (inert for MCP: list_tasks declares no status arg).
+		tasks, err := s.db.store().ListTasksChecked(x.Caller.Folder, all)
+		if err != nil {
+			return nil, err
+		}
+
 		if st := argString(x.Args, "status"); st != "" {
 			kept := tasks[:0]
 			for _, t := range tasks {
@@ -108,7 +95,7 @@ func (s *Server) scheduledTasksHandler(ctx context.Context, x resreg.Execution, 
 			return nil, resreg.Errorf(http.StatusBadRequest, "%v", err)
 		}
 		prompt := argString(x.Args, "prompt")
-		// Dedup: an active task with the same cron + prompt is returned as-is.
+
 		if cronStore != "" {
 			for _, t := range s.db.Tasks(targetFolder, false) {
 				if t.Status == core.TaskActive && t.Cron == cronStore && t.Prompt == prompt {
@@ -132,12 +119,11 @@ func (s *Server) scheduledTasksHandler(ctx context.Context, x resreg.Execution, 
 		if !ok {
 			return nil, resreg.Errorf(http.StatusNotFound, "task not found")
 		}
-		// PER-TASK-ID cap: the caller must contain the task's owner.
+
 		if err := contain(x.Caller, x.Action, task.Owner); err != nil {
 			return nil, err
 		}
-		// A status flip is an Update, so a task removed between the read above
-		// and the batch refuses it — the 404 the read would have given.
+
 		gone := resreg.Errorf(http.StatusNotFound, "task not found")
 		var err error
 		switch x.Action {
@@ -154,10 +140,7 @@ func (s *Server) scheduledTasksHandler(ctx context.Context, x resreg.Execution, 
 		return map[string]any{"ok": true}, nil
 
 	case resreg.ActionGet:
-		// Get-one (REST only): the Gate's ownsFolder on the JWT folder is a
-		// no-op for a per-task op, so the real cap is contain() on the task's
-		// OWNER — a tenant must not read a task outside its subtree by guessing
-		// its ID. A root/operator token still reads any task.
+
 		task, ok := s.db.GetTask(argString(x.Args, "taskId"))
 		if !ok {
 			return nil, resreg.Errorf(http.StatusNotFound, "task not found")
@@ -168,10 +151,7 @@ func (s *Server) scheduledTasksHandler(ctx context.Context, x resreg.Execution, 
 		return task, nil
 
 	case tasksActionPatch:
-		// PATCH and reschedule_task: {status} pause/resume + {next_run} override,
-		// one or both; the same contain seam as pause/resume/cancel. The scheduler
-		// re-arms a task when it enqueues the prompt, so a next_run written
-		// from the job's own turn lands after it and stands.
+
 		taskID := argString(x.Args, "taskId")
 		task, ok := s.db.GetTask(taskID)
 		if !ok {
@@ -194,9 +174,7 @@ func (s *Server) scheduledTasksHandler(ctx context.Context, x resreg.Execution, 
 		case status == core.TaskActive && nextRun == "" && task.Status == core.TaskPaused:
 			err = s.db.store().ResumeTaskInto(x.Writes, task, gone)
 		default:
-			// A new next_run on a completed one-shot re-arms it; on a firing task
-			// it takes the task out of 'firing', so the scheduler re-arm, conditional on
-			// 'firing', cannot overwrite it.
+
 			if status == "" && nextRun != "" &&
 				(task.Status == core.TaskCompleted || task.Status == store.TaskStatusFiring) {
 				status = core.TaskActive
@@ -206,8 +184,7 @@ func (s *Server) scheduledTasksHandler(ctx context.Context, x resreg.Execution, 
 		if err != nil {
 			return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
 		}
-		// Echo the updated task: the batch has not been sent, so GetTask would
-		// read the pre-patch row.
+
 		if status != "" {
 			task.Status = status
 		}
@@ -221,11 +198,8 @@ func (s *Server) scheduledTasksHandler(ctx context.Context, x resreg.Execution, 
 	return nil, resreg.Errorf(http.StatusBadRequest, "unknown action %q", x.Action)
 }
 
-// scheduledTasksPostBuild mounts the task tools on the agent socket. The Gate
-// is a no-op; the per-task/target cap lives in the handler.
 func (s *Server) scheduledTasksPostBuild(folder, callerSub string, authorize authorizeFn, visible func(string) bool, callerID auth.Identity) func(*mcpserver.MCPServer) {
-	// One evaluator on the resolved task owner; /root elevates via authorize's
-	// allow-all.
+
 	contain := func(_ resreg.Caller, a resreg.Action, target string) error {
 		name := tasksMCPNames[a]
 		if !authorize(target, "mcp:"+name, nil) {
@@ -238,11 +212,6 @@ func (s *Server) scheduledTasksPostBuild(folder, callerSub string, authorize aut
 	return mountAgentResource(res, callerSub, folder, visible)
 }
 
-// parseTaskSchedule reads the `cron` arg into (next_run, stored-cron): an
-// RFC3339 timestamp is a one-shot (empty stored cron, explicit next_run; the
-// task is completed after one firing); anything else is core.NextRun's value
-// space, stored verbatim with next_run empty for the scheduler to fill. The
-// parse here only refuses a cron that could never run.
 func parseTaskSchedule(cronExpr string) (*time.Time, string, error) {
 	if cronExpr == "" {
 		return nil, "", nil

@@ -15,7 +15,7 @@ type stateIndexes struct{}
 
 func (stateIndexes) Indexed(entity string) bool {
 	switch entity {
-	case ScheduledTasks, TurnContexts, TurnArchive, MessageDelivery, Messages, Onboarding, OnboardingGates, OnboardingWork, ACLMembership:
+	case ScheduledTasks, TurnContexts, TurnArchive, MessageDelivery, Messages, Onboarding, OnboardingGates, OnboardingWork, ACLMembership, RouteTokens:
 		return true
 	}
 	return false
@@ -23,6 +23,11 @@ func (stateIndexes) Indexed(entity string) bool {
 
 func (stateIndexes) Keys(entity string, it objstore.Item) []objstore.Key {
 	switch entity {
+	case RouteTokens:
+		if it.Attrs[attrTokKind] == RouteTokenKindRoute && it.Attrs[attrTokTargetFolder] != "" {
+			return []objstore.Key{{Partition: indexPartition("route_tokens/jid", it.Attrs[attrTokJID]), Sort: it.Key.Sort}}
+		}
+		return nil
 	case Onboarding:
 		return onboardingIndexes(it)
 	case OnboardingGates:
@@ -79,6 +84,9 @@ func (s *Store) MigrateStateIndexes(ctx context.Context) error {
 		return err
 	}
 	if err := objstore.Reindex(ctx, s.Obj(), "pairings-v1", []objstore.Query{{Entity: ACLMembership, Partition: OwnerRoutd}}); err != nil {
+		return err
+	}
+	if err := objstore.Reindex(ctx, s.Obj(), "route-tokens-v1", []objstore.Query{{Entity: RouteTokens, Partition: OwnerRoutd}}); err != nil {
 		return err
 	}
 	marker := objstore.Key{Partition: "migrations", Sort: "messages-v1"}

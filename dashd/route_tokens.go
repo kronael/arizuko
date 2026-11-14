@@ -14,20 +14,6 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
-// Route tokens dashboard: per-folder list + revoke. READ-AND-REVOKE ONLY —
-// the cockpit mints nothing. Mounted at:
-//
-//	GET  /dash/tokens/{folder}/             — folder-scoped list
-//	POST /dash/tokens/{folder}/{jid}/revoke — revoke by JID
-//
-// Minting lives with the resource owner: routd's route_tokens resource serves
-// both faces (POST /v1/route_tokens/{chat,hook} for operators, issue_chat_link
-// / issue_webhook / issue_pairing_link for agents), and `arizuko token` for the
-// CLI. A mint form here was a second writer over the same table with its own
-// label validation — the shape that drifts (BUGS V2,
-// spec 6/30-per-daemon-dashboards §webd: "There
-// is no token minting anywhere in the cockpit").
-
 func (d *dash) handleTokensFolder(w http.ResponseWriter, r *http.Request) {
 	folder := r.PathValue("folder")
 	if !d.requireVisible(w, r, folder) {
@@ -35,15 +21,6 @@ func (d *dash) handleTokensFolder(w http.ResponseWriter, r *http.Request) {
 	}
 	pageTopFor(w, r, "Tokens — "+folder)
 
-	// READ through routd's /v1, not routd.db (spec 6/28 §"Read-path: /v1 only,
-	// no direct DB"). routd owns route_tokens and already serves the same rows
-	// to the agent and the CLI, so this page is a third face on one reader
-	// rather than a second projection of the table.
-	//
-	// The revoke below still writes through the store, deliberately: it uses
-	// Store.AsUser to put the OPERATOR on the audit row, and bearerCall carries
-	// only dashd's service bearer, so moving the WRITE would quietly re-attribute
-	// every revoke to service:dashd. That half waits on 6/29's identity decision.
 	tokens, err := d.listRouteTokens(r.Context(), folder)
 	if err != nil {
 		slog.Warn("tokens page: list", "folder", folder, "err", err)
@@ -81,8 +58,7 @@ func (d *dash) handleTokensFolder(w http.ResponseWriter, r *http.Request) {
 
 func (d *dash) handleTokensRevoke(w http.ResponseWriter, r *http.Request) {
 	folder := r.PathValue("folder")
-	// The {jid} segment was url.PathEscape'd into the revoke link; Go's mux
-	// unescapes it back to the raw JID here (same as folderPath/{folder}).
+
 	jid := r.PathValue("jid")
 
 	sub, ok := d.requireAdmin(w, r, folder)
@@ -93,8 +69,7 @@ func (d *dash) handleTokensRevoke(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "read-only", http.StatusServiceUnavailable)
 		return
 	}
-	// RevokeRouteToken, the audited writer (routd.db has audit_log since routd
-	// migration 0016). AsUser attributes the revoke to the operator.
+
 	hit, err := d.routdStore().AsUser(sub).RevokeRouteToken(jid, folder)
 	if err != nil || !hit {
 		http.Error(w, "revoke failed", http.StatusInternalServerError)
@@ -103,18 +78,10 @@ func (d *dash) handleTokensRevoke(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/dash/tokens/"+folderPath(folder)+"/", http.StatusSeeOther)
 }
 
-// encodeJID escapes a JID into a single URL path segment. url.PathEscape is
-// reversible (Go's mux unescapes it back in PathValue), unlike the old "/"→"--"
-// scheme, which collided with labels containing "--" (labels allow "-").
 func encodeJID(jid string) string {
 	return url.PathEscape(jid)
 }
 
-// listRouteTokens reads one folder's delivery tokens from routd's /v1 face.
-//
-// The row type is resources.RouteTokensRow — the SAME struct routd's handler
-// serves and /openapi.json emits a schema from — so the page cannot drift into
-// rendering a field the API does not have.
 func (d *dash) listRouteTokens(ctx context.Context, folder string) ([]resources.RouteTokensRow, error) {
 	body, status, err := d.bearerCall(ctx, d.routdURL, http.MethodGet,
 		"/v1/route_tokens?folder="+url.QueryEscape(folder), nil)
@@ -131,14 +98,6 @@ func (d *dash) listRouteTokens(ctx context.Context, folder string) ([]resources.
 	return rows, nil
 }
 
-// foldersViaRoutd lists every registered group folder through routd's /v1,
-// which is what 6/28's read path requires: routd owns `groups`, so dashd asks
-// rather than reads its file.
-//
-// One reader, many callers. `SELECT folder FROM groups ORDER BY folder LIMIT
-// 500` was copy-pasted into the groups page, the memory page and the usage
-// page — projections of one table, each free to drift into a WHERE the owner
-// would not serve (BUGS L142).
 func (d *dash) foldersViaRoutd(ctx context.Context) ([]string, error) {
 	body, status, err := d.bearerCall(ctx, d.routdURL, http.MethodGet, "/v1/groups", nil)
 	if err != nil {
@@ -153,9 +112,7 @@ func (d *dash) foldersViaRoutd(ctx context.Context) ([]string, error) {
 	if err := json.Unmarshal(body, &rows); err != nil {
 		return nil, err
 	}
-	// routd serves rows in table order; the pages render a sorted list, and
-	// sorting HERE keeps that a property of the reader rather than of four
-	// callers that must each remember.
+
 	out := make([]string, 0, len(rows))
 	for _, r := range rows {
 		if r.Folder != "" {
@@ -166,15 +123,14 @@ func (d *dash) foldersViaRoutd(ctx context.Context) ([]string, error) {
 	return out, nil
 }
 
-// tasksViaRoutd lists every scheduled task through routd's /v1. dashd's service
-// token carries an empty folder claim, which routd's tasksTarget reads as
-// list-all; the row type is the one routd's handler serves, so the page cannot
-// render a field the API does not have.
 func (d *dash) tasksViaRoutd(ctx context.Context) ([]resources.ScheduledTasksRow, error) {
-	// GET /v1/tasks, not /v1/<name>: the scheduled_tasks resource deliberately
-	// serves a different REST path for callers across the container
-	// boundary (resources/scheduled_tasks.go, BUGS F21). Assuming the resource
-	// name IS the path answered 404 on the first attempt.
+	if d.routd == nil {
+		return nil, fmt.Errorf("routd store unavailable")
+	}
+	return d.taskSnapshot.Read(ctx, d.routd, store.OwnerScope(store.OwnerRoutd), d.loadTasks)
+}
+func (d *dash) loadTasks(ctx context.Context) ([]resources.ScheduledTasksRow, error) {
+
 	body, status, err := d.bearerCall(ctx, d.routdURL, http.MethodGet, "/v1/tasks", nil)
 	if err != nil {
 		return nil, err
@@ -196,8 +152,6 @@ type SessionCount struct {
 	Count  int    `json:"count"`
 }
 
-// sessionCountsViaRoutd reads the Status page's per-folder session tally from
-// the daemon that owns `sessions` (6/28, BUGS L142).
 func (d *dash) sessionCountsViaRoutd(ctx context.Context) ([]SessionCount, error) {
 	body, status, err := d.bearerCall(ctx, d.routdURL, http.MethodGet, "/v1/sessions/counts", nil)
 	if err != nil {
@@ -288,13 +242,6 @@ func (d *dash) principalsViaRoutd(ctx context.Context) ([]Principal, error) {
 	return rows, nil
 }
 
-// answeringViaRoutd reads whether agents are answering people from the daemon
-// that owns `messages` and `turn_context` (6/28). It is the whole
-// GET /v1/routing/answering envelope, because the two halves are one question
-// and the page shows them together.
-//
-// It shares routd's apiv1 struct rather than re-declaring a twin, so the page
-// cannot drift into rendering a field the API does not serve.
 func (d *dash) answeringViaRoutd(ctx context.Context) (apiv1.AnsweringResponse, error) {
 	var out apiv1.AnsweringResponse
 	body, status, err := d.bearerCall(ctx, d.routdURL, http.MethodGet, "/v1/routing/answering", nil)

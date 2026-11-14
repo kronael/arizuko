@@ -48,6 +48,11 @@ store that does not open means that profile is off, and the page banners
 dashd only over their `/v1` with the `service:dashd` bearer. runed owns its
 durable run records and exposes them through its API.
 
+Task refreshes reuse the REST result only while routd's settled owner version
+matches. Each render applies current authorization before its display limit.
+Activity resolves routes from the same verified snapshot protocol and token
+JIDs through exact index partitions. Store errors do not become empty snapshots.
+
 **Writes stay direct on the owner's tables.** `Store.AsUser` puts the
 operator's sub on the `audit_log` row, inside the write's own batch. A call
 over `/v1` carries only `service:dashd`, and routd accepts a forwarded user

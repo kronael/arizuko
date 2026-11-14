@@ -334,14 +334,6 @@ func (s *Store) DueTasks(now time.Time) ([]core.Task, error) {
 	return out, nil
 }
 
-// fillNextRun gives an active task that carries a cron and no next_run the
-// first instant that cron names, without firing it this poll: the scheduler is
-// the only writer of a recurring task's first run, so every creator leaves
-// next_run empty. A cron that will not parse moves the task to 'error'. Both
-// writes are conditional on the task still being active and still without a
-// next_run, so a concurrent poller's fill or an explicit next_run wins. An
-// active task with neither a cron nor a next_run can never fire: it moves to
-// 'error' too, so it is visible instead of scheduled.
 func (s *Store) fillNextRun(ctx context.Context, it objstore.Item) error {
 	t := taskFrom(it)
 	w := objstore.Write{
@@ -404,13 +396,19 @@ func (s *Store) TaskByID(id string) (core.Task, bool, error) {
 // caller. `owner` is an attribute, so this reads the partition and filters;
 // `created_at` DESC is applied after the read.
 func (s *Store) ListTasks(folder string, isRoot bool) []core.Task {
+	tasks, _ := s.ListTasksChecked(folder, isRoot)
+	return tasks
+}
+
+// ListTasksChecked returns the task list or its read failure.
+func (s *Store) ListTasksChecked(folder string, isRoot bool) ([]core.Task, error) {
 	owner := folder
 	if isRoot {
 		owner = ""
 	}
 	items, err := s.allTasks(context.Background())
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	var out []core.Task
 	for _, it := range items {
@@ -419,9 +417,9 @@ func (s *Store) ListTasks(folder string, isRoot bool) []core.Task {
 		}
 		out = append(out, taskFrom(it))
 	}
-	// Stable, so two tasks stamped in the same instant keep coordinate order.
+
 	slices.SortStableFunc(out, func(a, b core.Task) int { return b.Created.Compare(a.Created) })
-	return out
+	return out, nil
 }
 
 func (s *Store) CountActiveTasks() int {
@@ -435,7 +433,6 @@ func (s *Store) CountActiveTasks() int {
 	return len(items)
 }
 
-// Keep in sync with ant migration 055 which backfills legacy groups.
 var defaultTasks = [...]struct{ prompt, cron string }{
 	{"/compact-memories episodes day", "0 2 * * *"},
 	{"/compact-memories episodes week", "0 3 * * 1"},
@@ -479,10 +476,6 @@ func (s *Store) SeedDefaultTasks(folder, chatJID string) error {
 	}
 	return nil
 }
-
-// The four writers below buffer their mutation on the caller's write set, for
-// routd's `/v1/tasks` face: the mutation and the one audit_log row that records
-// it ride ONE batch, where the audited twins would record one act twice.
 
 // CreateTaskInto buffers one scheduled task's creation: CreateTask's write-set
 // twin, refusing a taken id for the same reason.

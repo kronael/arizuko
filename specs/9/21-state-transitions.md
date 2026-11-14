@@ -418,6 +418,20 @@ future files; an idle pass reads one marker. Seven guard mutations fail,
 including due range, hydration state, binding incarnation, revision, backoff
 and elapsed time across earlier files. Restart retains cursors and deadlines.
 
+## Dashboard refreshes
+
+Task refreshes reuse the immutable REST result under the existing settled
+routd version. Authorization runs on each render, before the 500-row window.
+Activity keeps its bounded time-key feed and resolves ordinary chats against a
+verified route snapshot. Token JIDs read only their indexed credentials; token
+writers create or remove those pointers atomically. `route-tokens-v1` backfills
+existing credentials once. Unreadable or held snapshots never expose rows.
+No HTTP fields or authorization rules change. Task-list failures propagate as
+errors; they cannot be cached as successful empty results. Two unchanged
+refreshes read two markers and no tables. One token JID among forty unrelated
+credentials reads two rows, then zero after revocation. Three access-path
+mutations fail; a task-read fault test fails before error propagation.
+
 ## Open questions
 
 - The archive adds optional `work` and `delivery` metadata. Does any external

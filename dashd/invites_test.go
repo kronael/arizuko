@@ -23,7 +23,15 @@ import (
 func testDBWithInvites(t *testing.T) objstore.Store {
 	t.Helper()
 	db := routdDB(t)
-	d, ok := db.(store.Driver)
+	raw := db
+	for {
+		indexed, ok := raw.(*objstore.Indexed)
+		if !ok {
+			break
+		}
+		raw = indexed.Store
+	}
+	d, ok := raw.(store.Driver)
 	if !ok {
 		t.Fatalf("routd's handle is %T, which makes no entities", db)
 	}
