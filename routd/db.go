@@ -24,6 +24,7 @@ import (
 type DB struct {
 	obj      objstore.Store
 	progress sync.Map
+	verdicts verdictWaiters
 
 	// SECRETS_KEY material, raw. Empty → reads stay ciphertext and writes
 	// store plaintext.
@@ -124,6 +125,7 @@ func OpenMem() (*DB, error) {
 // reading after Close returns keeps touching a namespace its owner believes it
 // has released.
 func (d *DB) Close() error {
+	d.verdicts.close()
 	if d.searchStop != nil {
 		d.searchStop()
 		<-d.searchDone

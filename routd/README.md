@@ -297,6 +297,9 @@ Providing both id and the header returns 400 ambiguous_idempotency.
 Task runlog and reschedule writes require tasks:write; runlog reads require tasks:read.
 `GET /v1/cost/summary` requires a since window and reads the model gateway's meter.
 Pending-action approval stays off the held agent's MCP socket.
+Verdict writes schedule durable work in the same transaction. One consumer
+wakes registered waiters and acknowledges its generation. Held rows are not
+polled; the waiter retains its deadline and conditional expiry.
 
 ## Dependencies
 

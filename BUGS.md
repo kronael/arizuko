@@ -13,26 +13,15 @@
 > work items are their own entries. A record has nothing to fix and never will,
 > so counting one as open overstates the queue.
 
-## L845 — dashboard refreshes rediscover unchanged tasks and routes (2026-11-14)
+## L847 — approval waiters reread held rows on a two-second clock (2026-11-14)
 
-`writeTaskRows` requests all tasks every 10 seconds: 360N rows/hour per open
-page. Activity reads at most 1,000 messages but resolves each distinct chat
-through whole route/token partitions. Computed cost is messages + chats ×
-(routes or tokens). The task window must still follow authorization filtering.
-**Fix:** reuse verified owner-version task and route snapshots; resolve token
-JIDs through writer-maintained keys. Preserve immediate revocation and the
-existing task/activity HTTP contracts. Backfill token keys once.
-**Test:** counting reads, changed task/route visibility, held-marker refusal,
-scoped task window, token migration and revocation.
-
-## L846 — task read errors become a successful empty snapshot (2026-11-14)
-
-`ListTasks` discards its store error; the REST handler returns HTTP 200/null.
-A verified dashboard snapshot can retain that false empty result after the
-store recovers, until an unrelated owner write changes the version.
-**Fix:** propagate task-list errors through the existing REST/MCP handler.
-**Test:** fail only ScheduledTasks reads; restore reads without a mutation.
-The first refresh must fail and the second must return the existing task.
+`awaitVerdict` sleeps and exact-reads each pending action until a verdict:
+computed 1,800 reads/hour per held call, even with no state change.
+**Fix:** verdict writes atomically create keyed work; one DB consumer notifies
+registered waiters and acknowledges the observed generation. Register before
+reading the row. Preserve deadline expiry and the closing-instant verdict.
+**Test:** forty held rows yield zero work reads; cross-process writes wake the
+waiter; rejected commits do not wake it; stale acknowledgments retain new work.
 
 ## What needs you
 

@@ -125,6 +125,14 @@ Sources: `routd/loop.go`, `routd/turn_control.go`, `routd/turn_status.go`,
   job: prepare the owner's internal index and bound bulk writes
   names: [EntitiesByOwner]
   never: registers internal work as a management resource
+- path: store/routd_work.go (new)
+  job: schedule and acknowledge coalesced router obligations
+  names: [DueWork, AcknowledgeWork]
+  never: acknowledges another generation
+- path: routd/approval_work.go (new)
+  job: notify registered waiters from durable verdict work
+  names: [waitForApproval, publishApprovalWork]
+  never: polls unchanged pending-action rows
 - path: store/onboarding_state.go (new)
   job: schedule greetings, pairing acknowledgments, notices and gate admissions
   names:
@@ -431,6 +439,26 @@ errors; they cannot be cached as successful empty results. Two unchanged
 refreshes read two markers and no tables. One token JID among forty unrelated
 credentials reads two rows, then zero after revocation. Three access-path
 mutations fail; a task-read fault test fails before error propagation.
+
+## Approval verdicts
+
+Held calls register a waiter before reading their authoritative row. A verdict,
+expiry or removal writes one coalesced `routd_work` obligation in the same
+transaction. The DB's consumer reads at most 200 due approval keys, sends wake hints and
+acknowledges only the observed generation. An unchanged held row owns no work.
+Waiters reread under the settled owner version after notification; store errors
+schedule a read retry. A held manifest replacement cannot authorize a call or
+turn its temporary deletion into a final verdict. Their
+deadline still uses conditional expiry and a final read when another verdict
+wins. The consumer starts on registration, parks without a timer when no waiters
+remain, and cancels its reads before joining at DB close.
+`approvals-v1` backfills existing final verdicts once. Work is hot internal
+state; pending actions retain their existing management resource.
+
+The counting test measures zero rows for forty held calls, two rows for one
+verdict and zero after acknowledgment. Nine mutations fail: scheduling,
+generation, notification, registration order, retry, removal, cancellation and
+batch bound and settled version.
 
 ## Open questions
 

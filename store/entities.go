@@ -25,6 +25,7 @@ const (
 	// addressed by its jid.
 	Onboarding     = "onboarding"
 	OnboardingWork = "onboarding_work"
+	RoutdWork      = "routd_work"
 	// OnboardingGates holds one item per admission gate, addressed by the
 	// gate key.
 	OnboardingGates = "onboarding_gates"
@@ -165,7 +166,7 @@ const (
 // a point delete whose refusal IS the claim (onbod/main.go).
 var EntitiesByOwner = map[string][]string{
 	OwnerRoutd: {
-		objstore.IndexEntity,
+		objstore.IndexEntity, RoutdWork,
 		PaneSessions, SecretUseLog, Counters,
 		ACL, ACLMembership, Groups, Routes, RouteTokens, ScheduledTasks, Secrets,
 		PendingActions, NetworkRules, ProxydRoutes, WebRoutes, InstalledPackages,

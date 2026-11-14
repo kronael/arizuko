@@ -47,7 +47,7 @@ func onboardingIndexes(it objstore.Item) []objstore.Key {
 	return keys
 }
 
-func (stateIndexes) Companions(entity string, before, after objstore.Item) []objstore.Write {
+func onboardingCompanions(entity string, before, after objstore.Item) []objstore.Write {
 	var gates []string
 	switch entity {
 	case OnboardingGates:

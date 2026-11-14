@@ -15,7 +15,7 @@ type stateIndexes struct{}
 
 func (stateIndexes) Indexed(entity string) bool {
 	switch entity {
-	case ScheduledTasks, TurnContexts, TurnArchive, MessageDelivery, Messages, Onboarding, OnboardingGates, OnboardingWork, ACLMembership, RouteTokens:
+	case ScheduledTasks, TurnContexts, TurnArchive, MessageDelivery, Messages, Onboarding, OnboardingGates, OnboardingWork, ACLMembership, RouteTokens, PendingActions, RoutdWork:
 		return true
 	}
 	return false
@@ -23,6 +23,10 @@ func (stateIndexes) Indexed(entity string) bool {
 
 func (stateIndexes) Keys(entity string, it objstore.Item) []objstore.Key {
 	switch entity {
+	case PendingActions:
+		return nil
+	case RoutdWork:
+		return []objstore.Key{objstore.DueIndexKey("routd_work/"+it.Key.Partition, it.Attrs["due"], entity, it.Key)}
 	case RouteTokens:
 		if it.Attrs[attrTokKind] == RouteTokenKindRoute && it.Attrs[attrTokTargetFolder] != "" {
 			return []objstore.Key{{Partition: indexPartition("route_tokens/jid", it.Attrs[attrTokJID]), Sort: it.Key.Sort}}
@@ -87,6 +91,9 @@ func (s *Store) MigrateStateIndexes(ctx context.Context) error {
 		return err
 	}
 	if err := objstore.Reindex(ctx, s.Obj(), "route-tokens-v1", []objstore.Query{{Entity: RouteTokens, Partition: OwnerRoutd}}); err != nil {
+		return err
+	}
+	if err := objstore.Reindex(ctx, s.Obj(), "approvals-v1", []objstore.Query{{Entity: PendingActions, Partition: OwnerRoutd}}); err != nil {
 		return err
 	}
 	marker := objstore.Key{Partition: "migrations", Sort: "messages-v1"}
