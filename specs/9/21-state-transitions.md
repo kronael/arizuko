@@ -147,6 +147,20 @@ terminal. A received guest exit frame takes precedence over a later control
 error. Clean EOF without an exit frame retains crash recovery. Neither the
 execution port nor its values gain fields.
 
+`provider_reasons` declares provider classes in the same policy. Authentication
+is permanent; outage and rate limiting are transient. A spend limit is permanent
+unless a valid future reset proves it temporary. Unknown reasons stop. Only a
+transient class retains its future reset as a retry lower bound.
+
+The refusal callback atomically stores `provider_failure_kind` with the attempt
+marker and reset. Completion and notices consume that stored fact; another
+folder's pause or an elapsed reset cannot change it. The callback does not charge
+the retry count. Completion retains terminal, reply, recorded-result, stop and
+deadline gates. A clean runtime exit cannot erase a recorded provider refusal.
+The breaker remains independent. An absent legacy kind means unknown; malformed
+present values fail decoding. The archive retains the internal field, and the
+stored keys remain unchanged.
+
 Due times and counts persist with messages, turns, retained ingress, onboarding
 output and Google file work. These obligations outlive the worker. A terminal
 transition removes its due pointer but retains the failed payload and cause.
@@ -293,7 +307,15 @@ Its first failed fetch commits the deadline and due pointer atomically.
 ```yaml
 - path: retry/policy.json (new)
   job: declare the single delay, budget, failure classes and notice templates
-  names: [base_ms, max_ms, max_failures, transient_statuses, notices]
+  names:
+    [
+      base_ms,
+      max_ms,
+      max_failures,
+      transient_statuses,
+      notices,
+      provider_reasons,
+    ]
   never: declares per-feature profiles or override budgets
 - path: retry/retry.go (new)
   job: decide the next due time and render failure notices from the declaration
@@ -302,6 +324,7 @@ Its first failed fetch commits the deadline and due pointer atomically.
     - 'Decision{Failures, NextAt, Stop}'
     - 'Next(failures, failure, now, deadline) Decision'
     - 'HTTPFailure(status, retryAfter, err, now) Failure'
+    - 'ProviderFailure(reason, resetAt, now) Failure'
     - 'Error{Failure, Err}; Error() string; Unwrap() error'
     - 'FromError(err, now) Failure'
     - 'Wait(ctx, at) error'
@@ -309,17 +332,22 @@ Its first failed fetch commits the deadline and due pointer atomically.
   never: owns payloads, stores or a worker loop
 - path: retry/retry.mjs (new)
   job: apply the same declaration in Node, Bun and browsers
-  names: [next, notice, httpFailure]
+  names: [next, notice, httpFailure, providerFailure]
   never: copies policy values into a second declaration
 - path: retry/retry.d.mts (new)
   job: expose the JavaScript policy types to TypeScript callers
-  names: [Failure, Decision]
+  names: [Failure, Decision, providerFailure]
   never: adds runtime state
+- path: retry/fixtures.json (changed)
+  job: share literal expectations for decisions and provider classification
+  names: [reason, resetAt, kind, retryAt]
+  never: duplicates fixture sets across languages
 - path: retry/retry_test.go (new)
   job: prove failure boundaries, deadlines and cross-language decisions
   names:
     [
       TestPolicy,
+      TestJavaScriptPolicy,
       TestWaitCancellation,
       TestHTTPFailureCombinedFacts,
       TestRetryAfterParity,
@@ -382,10 +410,6 @@ Its first failed fetch commits the deadline and due pointer atomically.
   names:
     [MigrateStateIndexes, RecoverableTurns, LiveTurnsInFolder, LiveTurnsInChat]
   never: exposes an operator-managed resource
-- path: store/turn_context.go (changed)
-  job: fence input ownership against attachment retirement with the chat revision
-  names: [OpenTurnContext]
-  never: creates a chat solely to acquire input
 - path: store/attachment_retry.go (new)
   job: persist attachment retry state on exact messages and select due work
   names:
@@ -464,7 +488,7 @@ Its first failed fetch commits the deadline and due pointer atomically.
   names: [TestDueTasksReadOnlyDueRows, TestStateIndexKeepsConcurrentTransition]
   never: uses a live instance
 - path: store/turn_context.go (changed)
-  job: decode capacity metadata and read recovery and expiry work by key
+  job: bind input and decode retry facts while selecting recovery and expiry by key
   names:
     [
       OpenTurnContext,
@@ -473,10 +497,12 @@ Its first failed fetch commits the deadline and due pointer atomically.
       SweepExpiredRunning,
       TurnsSince,
       TurnWaitingCapacity,
+      ProviderFailureKind,
+      turnFrom,
     ]
-  never: expires a concurrently restarted turn
+  never: invents missing provider facts, creates an inputless chat or expires a restarted turn
 - path: store/turn_control.go (changed)
-  job: guard capacity transitions, due claims and status intents
+  job: guard capacity transitions, due claims, provider facts and status intents
   names:
     [
       DeferredTurns,
@@ -486,11 +512,12 @@ Its first failed fetch commits the deadline and due pointer atomically.
       RequeueDeferredTurn,
       ClaimControlledTurn,
       claimDeferredTurn,
+      RecordControlledProviderFailure,
     ]
   never: filters the live partition to discover work
 - path: store/turn_archive.go (changed)
-  job: keep capacity metadata and archived history keyed by start time
-  names: [archivedTurnsSince, MigrateTurnArchive]
+  job: keep retry facts and archived history keyed by start time
+  names: [archivedTurnsSince, MigrateTurnArchive, turnAttrs]
   never: drops an existing migration
 - path: store/model_pauses.go (changed)
   job: propagate invalid capacity metadata during folder retirement
@@ -507,9 +534,25 @@ Its first failed fetch commits the deadline and due pointer atomically.
     ]
   never: uses a live instance
 - path: store/turn_control_test.go (changed)
-  job: prove guarded controlled claims retain their control snapshot
-  names: [TestClaimControlledTurn]
+  job: prove controlled claims and provider writes retain their observed state
+  names: [TestClaimControlledTurn, TestControlledProviderFailureGuards]
   never: admits a stale claim
+- path: store/turn_context_test.go (changed)
+  job: reject malformed provider metadata without guessing legacy facts
+  names: [TestProviderFailureKindMetadata]
+  never: accepts a present empty kind
+- path: store/turn_archive_test.go (changed)
+  job: preserve attempt facts in the existing archive journey
+  names: [TestFinishedTurnMovesToTheArchiveWhole]
+  never: drops provider classification at completion
+- path: store/model_pauses_test.go (changed)
+  job: verify provider facts share the existing atomic refusal write
+  names: [recordPause, TestModelPauseStoreErrorsHoldAndRefusalIsAtomic]
+  never: infers classification in the storage writer
+- path: store/README.md (changed)
+  job: document the stored attempt classification
+  names: [provider_failure_kind]
+  never: advertises a second provider retry policy
 - path: routd/model_pauses_retirement_test.go (changed)
   job: prove a capacity binding survives a destination route change
   names: [TestDeletionPreservesSurvivingReboundInput]
@@ -538,8 +581,30 @@ Its first failed fetch commits the deadline and due pointer atomically.
       runForGroup,
       classifyTurn,
       complete,
+      refuse,
     ]
   never: treats an occupied folder as abandoned
+- path: routd/turn_control_provider_test.go (changed)
+  job: verify provider facts across callback, restart and completion
+  names:
+    [TestTurnControlProviderFailureFacts, TestTurnControlProviderInstancePause]
+  never: lets provider classification override terminal or recorded outcomes
+- path: routd/model_pauses_test.go and routd/model_pauses_admission_test.go (changed)
+  job: model transient provider outcomes with nonterminal runtime verdicts
+  names: [pauseProvider.Run, admissionProvider.Run]
+  never: removes explicit terminal-outage coverage
+- path: dashd/model_pauses_test.go and cmd/arizuko/model_pauses_test.go (changed)
+  job: supply classification in direct refusal-writer fixtures
+  names:
+    [
+      TestModelPausesDashboardOperatorClearAndAudit,
+      TestModelPausesCLIUsesOperatorResourceAndAudit,
+    ]
+  never: changes operator production behavior
+- path: routd/README.md (changed)
+  job: document refusal classification and terminal notices
+  names: [provider refusal]
+  never: promises universal provider replay
 - path: routd/turn_control_retry_test.go (changed)
   job: distinguish request refusals from actual execution crashes
   names:
@@ -653,8 +718,16 @@ Its first failed fetch commits the deadline and due pointer atomically.
   names: [SetDisabledGroups, mutedGroup, sendOutbound]
   never: persists mute configuration or changes a storage port
 - path: routd/mcp.go and routd/turn_status.go (changed)
-  job: apply the source-folder send gate after destination and thread resolution
-  names: [buildRoutdFns, mcpDeliver, mcpAppendDoc, mcpSendVoice, executeStatus]
+  job: apply source-folder send gates and render stored provider facts
+  names:
+    [
+      buildRoutdFns,
+      mcpDeliver,
+      mcpAppendDoc,
+      mcpSendVoice,
+      executeStatus,
+      publishOwedStatusLocked,
+    ]
   never: suppresses authorization, placement or existing-message mutations
 - path: routd/muted_mcp_test.go (changed)
   job: prove muted message creation preserves evidence without platform effects
@@ -1034,6 +1107,8 @@ its current contract ends on quiet time rather than a turn completion event.
 
 ## Open questions
 
+- Can external turn-callback clients accept a recorded terminal refusal for an
+  unknown provider reason? The canonical classifier stops unknown failures.
 - Should external runed Go clients consume the added `APIError.RetryAfter` field?
 - Can external channel clients consume the standardized failure status and
   Retry-After header contract? No new JSON failure schema is introduced.

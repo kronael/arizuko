@@ -32,6 +32,49 @@ func modelPauseDue(t *testing.T, l *Loop) {
 	l.q.now = func() time.Time { return control.NextProbeAt }
 }
 
+func TestTurnControlProviderFailureFacts(t *testing.T) {
+	t.Skip("L878: provider markers force permanent authentication failures to retry")
+	db, l, p, _ := pauseFixture(t)
+	now := time.Date(2026, 11, 14, 12, 0, 0, 0, time.UTC)
+	l.q.now = func() time.Time { return now }
+	pauseInput(t, db, "web:a", "refused", "u", "saved", now)
+	msg, _ := db.MessageByID("web:a", "refused")
+	keys, err := turnMessageKeys([]core.Message{msg})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := db.store().OpenTurnContext("refused", "a", "", "web:a", "u", "",
+		&store.TurnAdmission{AttemptID: "attempt", InputLast: store.MessageCursor(msg), InputKeys: keys}); err != nil || !ok {
+		t.Fatalf("open attempt: %v %v", ok, err)
+	}
+	reset := now.Add(4 * time.Hour)
+	req := apiv1.TurnResult{Status: "error", ProviderFailure: &apiv1.ProviderFailure{
+		Reason: "authentication", ResetAt: core.TS(reset)}}
+	if _, err := p.srv.recordTurnResultAttempt("refused", "attempt", req); err != nil {
+		t.Fatal(err)
+	}
+	tc, ok := db.GetTurnContext("refused")
+	if !ok || tc.RetryCount != 0 {
+		t.Fatalf("callback charged a retry: %+v", tc)
+	}
+	deferred, err := l.q.complete(l, tc, runedv1.RunOutcome{Outcome: runedv1.OutcomeError}, nil, turnWork{})
+	if err != nil || deferred {
+		t.Fatalf("authentication retried: deferred=%v err=%v", deferred, err)
+	}
+	tc, ok = db.GetTurnContext("refused")
+	if !ok || tc.State != store.TurnDone || tc.RetryCount != 0 {
+		t.Fatalf("completed refusal: %+v", tc)
+	}
+	due, err := db.store().DeferredTurns(t.Context(), reset.Add(time.Hour))
+	if err != nil || len(due) != 0 {
+		t.Fatalf("terminal retry work: %+v err=%v", due, err)
+	}
+	control, _, err := db.store().ReadTurnControl(t.Context())
+	if err != nil || control.Phase != "open" || !control.NextProbeAt.Equal(now.Add(time.Hour)) {
+		t.Fatalf("terminal cooldown: %+v err=%v", control, err)
+	}
+}
+
 func TestTurnControlProviderInstancePause(t *testing.T) {
 	db, l, p, _ := pauseFixture(t)
 	now := time.Now().UTC()
