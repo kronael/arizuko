@@ -353,7 +353,7 @@ No test — contract.
 - **Operator action:** the live instances keep their hand-written files. The
   operator re-runs `/find` on the 53 live facts without `summary:` and moves
   live boards, threads and briefings out of `facts/`.
-## ✅ FIXED 2026-11-13 c71953dc7 a537a9e7c L833 — one slow attachment fetch loses the file and the agent asks the user to send it again (2026-11-13)
+## ✅ FIXED 2026-11-13 6a22e8770 7b2d367b2 L833 — one slow attachment fetch loses the file and the agent asks the user to send it again (2026-11-13)
 
 MEASURED 2026-11-13 on krons: a user sent `zmena.pdf` (4,588,279 bytes) to
 `telegram:group/1004358948112`, routed to `rhias/nemo` through teled-rhias. At
@@ -398,7 +398,7 @@ Three defects turn that one slow answer into a lost file:
   permanent failure (a 4xx, too large) keeps today's marker. teled bounds each
   Telegram call by its response headers only, passes a getFile 4xx through, and
   logs the failing step with its time.
-- **Status:** fixed in c71953dc7 (routd) and a537a9e7c (teled); not deployed.
+- **Status:** fixed in 6a22e8770 (routd) and 7b2d367b2 (teled); not deployed.
   Tests, each red under its own mutation: `routd/enrich_fetch_test.go`
   `TestTurn_ASlowAttachmentDefersTheTurnUntilItArrives` (no deferral; no
   cleanup of a sibling fetched before the deferral),
