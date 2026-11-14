@@ -14,18 +14,6 @@
 > so counting one as open overstates the queue.
 
 
-## L874 — Retry-After date readers disagree (2026-11-14)
-
-Go rejects a padded HTTP date and resolves RFC850 year 70 to 1970 with now 2026.
-JavaScript accepts ISO and 31 February, and interprets asctime in the local zone.
-**Measured:** `tmp/_retry_http_facts/facts_test.go` fails in 0.196s; the JavaScript
-asctime result differs by 18,000,000ms under America/New_York.
-Evidence: `tmp/retry-logs/http-facts-parent-red.log`.
-The parent parity extension also found Go accepting RFC850 with `UTC`, while
-JavaScript rejects it; `http-dates-parent-extended.log` fails in 0.159s.
-**Fix:** accept HTTP date forms in UTC with one supplied-clock year rule;
-retain unsigned seconds and reject invalid calendar values.
-
 ## L857 — the full router gate loses its test database control plane (2026-11-14)
 
 At candidate `66e8e2f4b7ebf9a6bc41a5fd9a027ecdc0249f7b`, the single full
