@@ -14,6 +14,13 @@
 > so counting one as open overstates the queue.
 
 
+## L876 — hourly successor restart loses the turn coordinate (2026-11-14)
+
+`routd/turn_control_replay_test.go::TestTurnControlExecutionRestart/hourly_successor`
+fails because reconciliation passes a turn context without a turn ID; no successor
+launch occurs. **Measured:** the test fails in 18.272s with the original completion
+classification restored; log: `tmp/retry-logs/execution-restart-baseline.log`.
+
 ## L875 — execution client discards retry and body failure facts (2026-11-14)
 
 `runed/api/v1/client.go` drops Retry-After and does not expose the HTTP status
