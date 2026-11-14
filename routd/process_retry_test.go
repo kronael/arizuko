@@ -49,6 +49,34 @@ func TestProcessRetryPolicy(t *testing.T) {
 	})
 }
 
+func TestProcessRetryMaintenanceCannotRearm(t *testing.T) {
+	t.Skip("L881: maintenance bypasses processing due time and Stop")
+	for _, transient := range []bool{false, true} {
+		t.Run(fmt.Sprint(transient), func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				q := newTurnControl(1)
+				defer q.Shutdown()
+				calls := 0
+				var cause error = errors.New("permanent")
+				if transient {
+					cause = &retry.Error{Failure: retry.Failure{Kind: "transient"}, Err: cause}
+				}
+				q.SetProcessMessagesFn(func(string) (bool, error) {
+					calls++
+					return false, cause
+				})
+				q.EnqueueMessageCheck("chat")
+				synctest.Wait()
+				q.EnqueueMessageCheck("chat")
+				synctest.Wait()
+				if calls != 1 {
+					t.Fatalf("maintenance bypassed retry state: calls=%d", calls)
+				}
+			})
+		})
+	}
+}
+
 func TestProcessRetryAgainAndStop(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		q := newTurnControl(1)
