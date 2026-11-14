@@ -162,10 +162,13 @@ type deleteBeforeRefusal struct {
 }
 
 func (s *deleteBeforeRefusal) GuardedBatch(ctx context.Context, checks []objstore.Check, writes []objstore.Write) (bool, error) {
-	if !s.fired && len(writes) == 3 && writes[0].Entity == ModelPauses && writes[2].Entity == TurnContexts {
-		s.fired = true
-		if _, _, err := NewOver(s.Store).DeleteGroup("g"); err != nil {
-			return false, err
+	for _, write := range writes {
+		if !s.fired && write.Entity == ModelPauses && write.Op != objstore.Delete {
+			s.fired = true
+			if _, _, err := NewOver(s.Store).DeleteGroup("g"); err != nil {
+				return false, err
+			}
+			break
 		}
 	}
 	return s.Store.GuardedBatch(ctx, checks, writes)
