@@ -13,6 +13,12 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+### Added
+
+- gitd delivers a push to the repository's default branch with verb `merge`, so
+  a route `verb=merge` sends merges to master to a group that writes changelogs.
+  Every other push keeps verb `push`; the message text is unchanged.
+
 ### Fixed
 
 - L833: one slow attachment download lost the file. routd gave it the TTS

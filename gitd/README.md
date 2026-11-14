@@ -173,6 +173,9 @@ To let CI continue an open
 conversation, add one route above the fallback, for example
 `chat_jid=github:o/r/pr/* verb=check_run` to `team/reviewer?engaged#{jid}`
 ([`ROUTING.md`](../ROUTING.md)). gitd carries no flag for this.
+A push to the repository's default branch (`refs/heads/` + `repository.default_branch`) carries
+verb `merge`; every other push carries `push`. Routes do not match the ref, so a group that
+distills merges takes `chat_jid=github:o/r verb=merge` to `team/changelog#{jid}`.
 Repo rows sit at seq 10/100, org at 20/200, app at
 30/300, so a narrower registration wins. Operators can edit the route rows.
 Subscribe to `issue_comment`, `issues`, `pull_request`, `pull_request_review`,

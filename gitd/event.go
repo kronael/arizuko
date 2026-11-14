@@ -43,9 +43,10 @@ type payload struct {
 	Ref        string `json:"ref"`
 	Forced     bool   `json:"forced"`
 	Repository *struct {
-		FullName string `json:"full_name"`
-		Name     string `json:"name"`
-		Owner    struct {
+		FullName      string `json:"full_name"`
+		Name          string `json:"name"`
+		DefaultBranch string `json:"default_branch"`
+		Owner         struct {
 			Login string `json:"login"`
 		} `json:"owner"`
 	} `json:"repository"`
@@ -324,6 +325,12 @@ func parseTime(s string, fallback time.Time) time.Time {
 	return fallback
 }
 
+// isDefaultBranchPush reports a push that landed on the repository's
+// default branch: routes match the verb, not the ref, so it rides as `merge`.
+func (p *payload) isDefaultBranchPush() bool {
+	return p.Repository != nil && p.Ref == "refs/heads/"+p.Repository.DefaultBranch
+}
+
 func (p *payload) isStateAction(event string) bool {
 	return (event == "pull_request" && p.Action != "review_requested" &&
 		p.Action != "review_request_removed" && p.Action != "assigned" && p.Action != "unassigned") ||
@@ -394,6 +401,9 @@ func mapEvent(kind, name, event, delivery string, body []byte, now time.Time, bo
 			fmt.Fprintf(&b, "\n- %s %s", sha, firstLine(c.Message))
 		}
 		msg.Content = b.String()
+		if p.isDefaultBranchPush() {
+			msg.Verb = "merge"
+		}
 		if p.HeadCommit != nil {
 			msg.Timestamp = parseTime(p.HeadCommit.Timestamp, now).Unix()
 		}

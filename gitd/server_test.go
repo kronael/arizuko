@@ -119,7 +119,7 @@ func TestWebhook_PushDelivered(t *testing.T) {
 		t.Fatalf("routd got %d messages", len(got))
 	}
 	m := got[0]
-	if m.ChatJID != "github:kronael/arizuko" || m.Verb != "push" || m.ID != "gh-d11111111-aaaa" || m.Sender != "github:kronael" || m.Source != "" && m.Source != "github" {
+	if m.ChatJID != "github:kronael/arizuko" || m.Verb != "merge" || m.ID != "gh-d11111111-aaaa" || m.Sender != "github:kronael" || m.Source != "" && m.Source != "github" {
 		t.Errorf("message = %+v", m)
 	}
 	if !strings.Contains(w.Body.String(), `"jid":"github:kronael/arizuko"`) {
