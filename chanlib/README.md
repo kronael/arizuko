@@ -71,6 +71,12 @@ cares about message order on a socket.
   forwards a verb only when the adapter registered its capability
   (`chanreg/README.md` § Capabilities).
 
+Retaining an inbound message writes its due pointer and increments the backlog
+count atomically. Reschedule moves that pointer; acceptance or permanent
+refusal deletes it and decrements the count. The 15-second retry timer reads
+only due pointers, sorts them by first receipt and loads at most 50 payloads.
+`/health` reads the count by key. Adapter startup backfills these keys once.
+
 ### Four error classes decide retry and the claim
 
 An adapter's verb returns one of four classes, and `writeBotResult`

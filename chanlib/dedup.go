@@ -46,6 +46,9 @@ func OpenAdapterStore(service string) (AdapterStore, error) {
 		}
 	}
 	as.Chan = chanstore.New(as.Driver)
+	if err := as.Chan.MigrateInbound(context.Background()); err != nil {
+		return AdapterStore{}, err
+	}
 	return as, nil
 }
 

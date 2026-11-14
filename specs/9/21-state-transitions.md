@@ -132,6 +132,18 @@ Sources: `routd/loop.go`, `routd/turn_control.go`, `routd/turn_status.go`,
   job: reconcile returned runs during runtime and live runs at startup
   names: [recover]
   never: treats an occupied folder as abandoned
+- path: chanlib/chanstore/inbound_index.go (new)
+  job: declare retry keys and migrate retained messages and the backlog count
+  names: [MigrateInbound]
+  never: changes a primary message ID
+- path: chanlib/chanstore/inbound_pending.go (changed)
+  job: schedule retained retries and maintain their count atomically
+  names: [Retain, Reschedule, Drop, DueForRedelivery, HeldCount]
+  never: loads payloads outside the selected due batch
+- path: chanlib/dedup.go (changed)
+  job: finish adapter migrations before serving requests
+  names: [OpenAdapterStore]
+  never: touches another adapter's namespace
 ```
 
 ## Atomic work keys
@@ -189,6 +201,21 @@ at commit, so a concurrent restart cannot expire a fresh run.
 Counting tests select one of 40 turns using two reads (pointer and primary),
 and zero after acknowledgment. A concurrent restart mutation expires a fresh
 run without the deadline guard and fails the test.
+
+## Retained inbound transitions
+
+`Retain` enters held state once per message ID and writes both the due pointer
+and backlog increment in the same guarded batch. A repeated platform event
+changes neither deadline nor count. The clock selects due pointers, sorts
+only that set by `first_seen_at` and ID, and loads at most 50 payloads.
+Transient failure moves the due pointer. Acceptance or permanent refusal
+removes the primary and pointer and decrements the count exactly once.
+
+The startup `inbound-due-v1` marker gates pointer backfill; the counter's
+create-if-absent write gates its initial count. A restarted migration reads
+only those two keys. The HTTP `pending_inbound` field retains its meaning.
+One of 40 due messages reads two rows; health reads one. Sixty due messages
+read 60 pointers and 50 payloads, preserving the existing oldest-first order.
 
 ## Open questions
 

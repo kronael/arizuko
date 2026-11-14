@@ -15,7 +15,7 @@
 
 ## What needs you
 
-- `L835` — turn maintenance filters live and archive partitions; keyed lifecycle transitions approved on 2026-11-14.
+- `L836` — inbound retention reads future work and full payloads; keyed retry and health count approved on 2026-11-14.
 
 - `L826` — one folder's crash closes the whole instance for an hour; per-folder breaker or a 30 s probe; needs sign-off.
 - `L822` — gitd's `/health` reads its whole held-inbound backlog per probe; dropping `pending_inbound` changes the documented contract; needs sign-off.
@@ -713,18 +713,17 @@ pre-breaker state.
   serve both by-id and by-time reads. A crash between a turn's finish and its
   status acknowledgement leaves it live, `done`, owing nothing.
 
-## L835 — turn maintenance discovers work by filtering live rows (2026-11-14)
+## L836 — retained inbound sweeps read future work and every payload (2026-11-14)
 
-Computed from `store/turn_context.go` and `store/turn_control.go`: each 30-second
-recovery pass reads N live turns for running work and N for due retries; status
-recovery reads N more. Hourly expiry reads N. `TurnsSince` reads the complete
-archive plus live rows on every dashboard request. These filters are not keys.
-**Fix:** atomic retry, recovery, owed-status, expiry and history pointers, with
-run-once markers. Startup recovers live runs; runtime recovers returned runs.
-**Test:** counting-store tests seed unrelated/future rows and require reads
-proportional to eligible work (2 rows for one of 40; zero after acknowledgement).
-Range, runtime-recovery and concurrent-expiry mutations each fail their tests.
-Owner approved this redesign on 2026-11-14.
+`chanstore.DueForRedelivery` filters the whole inbound partition every 15 s.
+Computed with L822's recorded 17,816 rows: 4,275,840 rows/hour for discovery,
+plus 2,137,920 rows/hour from the 30 s health probe. The limit of 50 applies
+only after every due payload has been read and sorted.
+**Fix:** atomic due pointers, retain/drop counter, and marked backfill; preserve
+oldest-first order among due work and the documented `pending_inbound` count.
+**Test:** counting-store fixture with one due and 39 future messages; duplicate
+retain/drop must leave the count exact; mutations remove due/counter guards.
+Owner approved this redesign on 2026-11-14; L822 needs no field change.
 
 ## L822 — gitd's `/health` reads its whole held-inbound backlog on every probe (2026-11-12, open — needs sign-off)
 
