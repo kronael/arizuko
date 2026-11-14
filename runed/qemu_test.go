@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -456,7 +457,6 @@ func cfgFor(t *testing.T) *core.Config {
 }
 
 func TestQemuPreparationFailureIsTerminal(t *testing.T) {
-	t.Skip("L877: preparation errors lose their type before terminal classification")
 	root := filepath.Join(t.TempDir(), "vm-root")
 	if err := os.WriteFile(root, nil, 0o600); err != nil {
 		t.Fatal(err)
@@ -483,7 +483,7 @@ func TestAwaitDoesNotSendDeadlineWarning(t *testing.T) {
 		defer cancel()
 		q := &qemuRuntime{paths: qemuPaths{Grace: time.Second}}
 		done := make(chan turnEnd, 1)
-		go func() { done <- q.await(ctx, sess, nil, nil, Turn{}) }()
+		go func() { end, _ := q.await(ctx, sess, nil, nil, Turn{}); done <- end }()
 		time.Sleep(2 * time.Minute)
 		synctest.Wait()
 		got := sess.seq.Load()
@@ -519,9 +519,9 @@ func TestAwaitTakesTheExitFrameWhenQemuExitsInTheSameMoment(t *testing.T) {
 			time.Sleep(time.Millisecond)
 		}
 		qemuDone <- nil
-		end := q.await(context.Background(), sess, qemuDone, served, Turn{Folder: "solo/inbox"})
+		end, err := q.await(context.Background(), sess, qemuDone, served, Turn{Folder: "solo/inbox"})
 		host.Close()
-		if !end.framed || end.code != 78 {
+		if err != nil || !end.framed || end.code != 78 {
 			t.Fatalf("round %d: await = %+v, want the guest's own exit 78", i, end)
 		}
 	}
@@ -570,8 +570,8 @@ func TestReadyIsMeasuredOnceBeforeExit(t *testing.T) {
 			guest.Close()
 			qemuDone := make(chan error, 1)
 			qemuDone <- nil
-			end := q.await(context.Background(), sess, qemuDone, served, Turn{Folder: "solo/inbox"})
-			if !end.framed || end.code != 78 {
+			end, err := q.await(context.Background(), sess, qemuDone, served, Turn{Folder: "solo/inbox"})
+			if err != nil || !end.framed || end.code != 78 {
 				t.Fatalf("await = %+v, want guest exit 78", end)
 			}
 			<-sess.done
@@ -620,8 +620,8 @@ func TestAwaitReportsAGuestThatNeverSaidHowItExited(t *testing.T) {
 	guest.Close()
 	qemuDone := make(chan error, 1)
 	qemuDone <- nil
-	end := q.await(context.Background(), sess, qemuDone, served, Turn{Folder: "solo/inbox"})
-	if end.framed {
+	end, err := q.await(context.Background(), sess, qemuDone, served, Turn{Folder: "solo/inbox"})
+	if err != nil || end.framed {
 		t.Fatalf("await = %+v, want framed=false for a guest that said nothing", end)
 	}
 }
@@ -728,7 +728,7 @@ func (s *cursorCompletion) Query(ctx context.Context, query objstore.Query) ([]o
 }
 
 func TestTurnEndingThroughManagerAndRouter(t *testing.T) {
-	for _, name := range []string{"timeout", "crash", "stop", "renderer"} {
+	for _, name := range []string{"timeout", "crash", "stop", "renderer", "preparation"} {
 		t.Run(name, func(t *testing.T) {
 			baseDB, err := routd.OpenMem()
 			if err != nil {
@@ -746,8 +746,20 @@ func TestTurnEndingThroughManagerAndRouter(t *testing.T) {
 			started, release := make(chan struct{}), make(chan struct{})
 			unblock := sync.OnceFunc(func() { close(release) })
 			defer unblock()
-			runtime := FakeRuntime{Fn: func(context.Context, Turn) RunResult {
+			root := filepath.Join(t.TempDir(), "vm-root")
+			if err := os.WriteFile(root, nil, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			q := &qemuRuntime{
+				cfg: &core.Config{Name: "test", MaxAgents: 1},
+				paths: qemuPaths{VMRoot: root, CIDBase: 3,
+					TapSubnet: "10.97.0.0/24"},
+			}
+			runtime := FakeRuntime{Fn: func(ctx context.Context, turn Turn) RunResult {
 				launches.Add(1)
+				if name == "preparation" {
+					return q.Run(ctx, turn)
+				}
 				if name == "stop" {
 					close(started)
 					<-release
@@ -1140,5 +1152,87 @@ func TestProxyEnvSetsLowerCaseNames(t *testing.T) {
 		if env[lower] != env[name] {
 			t.Errorf("%s = %q, want %q (the value of %s)", lower, env[lower], env[name], name)
 		}
+	}
+}
+
+func TestAwaitPreservesControlFailure(t *testing.T) {
+	for _, first := range []bool{false, true} {
+		t.Run(fmt.Sprintf("qemuFirst=%v", first), func(t *testing.T) {
+			host, guest := net.Pipe()
+			defer host.Close()
+			defer guest.Close()
+			sess := newCtlSession(host, nil, nil)
+			served := make(chan error, 1)
+			go func() { served <- sess.serve() }()
+			var qemuDone chan error
+			if first {
+				qemuDone = make(chan error)
+			}
+			release := make(chan struct{})
+			if first {
+				go func() { qemuDone <- nil; close(release) }()
+			} else {
+				close(release)
+			}
+			go func() { <-release; _, _ = guest.Write([]byte("{invalid}\n")); guest.Close() }()
+			q := &qemuRuntime{paths: qemuPaths{Grace: time.Second}}
+			end, err := q.await(context.Background(), sess, qemuDone, served, Turn{})
+			var syntax *json.SyntaxError
+			if !errors.As(err, &syntax) || end.framed {
+				t.Fatalf("await = %+v, %v", end, err)
+			}
+		})
+	}
+}
+
+func TestAwaitExitFramePrecedesControlError(t *testing.T) {
+	for range 50 {
+		host, guest := net.Pipe()
+		defer host.Close()
+		defer guest.Close()
+		sess := newCtlSession(host, nil, nil)
+		served := make(chan error, 1)
+		go func() { served <- sess.serve() }()
+		frame, err := encodeCtlFrame(ctlFrame{Kind: ctlExit, Code: 78})
+		if err != nil {
+			t.Fatal(err)
+		}
+		go func() { _, _ = guest.Write(append(frame, []byte("{invalid}\n")...)); guest.Close() }()
+		<-sess.done
+		q := &qemuRuntime{paths: qemuPaths{Grace: time.Second}}
+		end, err := q.await(context.Background(), sess, nil, served, Turn{})
+		if err != nil || !end.framed || end.code != 78 {
+			t.Fatalf("await = %+v, %v", end, err)
+		}
+	}
+}
+
+func TestAwaitCancellationDuringGrace(t *testing.T) {
+	for _, qemuFirst := range []bool{false, true} {
+		t.Run(fmt.Sprint(qemuFirst), func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				host, guest := net.Pipe()
+				defer host.Close()
+				defer guest.Close()
+				sess := newCtlSession(host, nil, nil)
+				qemuDone := make(chan error, 1)
+				served := make(chan error, 1)
+				if qemuFirst {
+					qemuDone <- nil
+				} else {
+					served <- nil
+				}
+				ctx, cancel := context.WithCancel(context.Background())
+				done := make(chan error, 1)
+				q := &qemuRuntime{paths: qemuPaths{Grace: time.Second}}
+				go func() { _, err := q.await(ctx, sess, qemuDone, served, Turn{}); done <- err }()
+				synctest.Wait()
+				cancel()
+				time.Sleep(time.Second)
+				if err := <-done; err != context.Canceled {
+					t.Fatalf("await error = %v", err)
+				}
+			})
+		})
 	}
 }

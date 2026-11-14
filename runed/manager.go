@@ -343,8 +343,7 @@ func (m *Manager) execute(
 		var err error
 		turn, err = renderTurn(m.cfg, m.folders, req, handle, ttl)
 		if err != nil {
-			return RunResult{Outcome: runedv1.OutcomeError, Terminal: true,
-				Error: fmt.Sprintf("render turn: %v", err)}
+			return runFailure(ctx, fmt.Errorf("render turn: %w", err))
 		}
 	}
 	// RegisterSteer wires the steer callback once the guest + IPC are up; a

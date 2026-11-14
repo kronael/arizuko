@@ -24,6 +24,7 @@ import (
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/obs"
+	"github.com/kronael/arizuko/retry"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 	"github.com/kronael/arizuko/substrate"
 )
@@ -238,10 +239,9 @@ func (q *qemuRuntime) spawn(ctx context.Context, t Turn) RunResult {
 	// routd's retry line names the turn without the reason, so a turn that never
 	// started left the operator nothing but "turn failed without reply" (measured
 	// on krons 2026-09-25, on three different causes in a row).
-	fail := func(f string, a ...any) RunResult {
-		msg := fmt.Sprintf(f, a...)
-		slog.Error("turn did not start", "folder", t.Folder, "handle", t.Handle, "err", msg)
-		return RunResult{Outcome: runedv1.OutcomeError, Error: msg}
+	fail := func(err error) RunResult {
+		slog.Error("turn did not start", "folder", t.Folder, "handle", t.Handle, "err", err)
+		return runFailure(ctx, err)
 	}
 
 	// Step 1: the CID, the two ports and the record, before anything is started.
@@ -249,7 +249,7 @@ func (q *qemuRuntime) spawn(ctx context.Context, t Turn) RunResult {
 	rec, allocErr := q.allocate(t)
 	q.alloc.Unlock()
 	if allocErr != nil {
-		return fail("%v", allocErr)
+		return fail(allocErr)
 	}
 	tree := treeFor(rec.TurnDir)
 	// One teardown for every exit, in the order spec 6/41 §"The turn" step 9
@@ -273,10 +273,10 @@ func (q *qemuRuntime) spawn(ctx context.Context, t Turn) RunResult {
 	// Step 2: the staging tree and the two shares.
 	plan := treePlan(t.Mounts)
 	if err := tree.stageTargets(plan); err != nil {
-		return fail("%v", err)
+		return fail(err)
 	}
 	if err := tree.bindAll(plan); err != nil {
-		return fail("%v", err)
+		return fail(err)
 	}
 	rootSock := filepath.Join(rec.TurnDir, rootSockName)
 	turnSock := filepath.Join(rec.TurnDir, turnSockName)
@@ -288,30 +288,30 @@ func (q *qemuRuntime) spawn(ctx context.Context, t Turn) RunResult {
 	// artifact is shared by content hash (BUGS `L381`).
 	rootfsRO, err := tree.bindRootfs(q.paths.Rootfs)
 	if err != nil {
-		return fail("%v", err)
+		return fail(err)
 	}
 	if err := q.startVirtiofsd(rec, rootSock, rootfsRO, false); err != nil {
-		return fail("%v", err)
+		return fail(err)
 	}
 	if err := q.startVirtiofsd(rec, turnSock, tree.dir, true); err != nil {
-		return fail("%v", err)
+		return fail(err)
 	}
 
 	// Step 3: the tap, its rule set and this turn's proxy — all before the guest
 	// exists, so a guest never runs with a route it was not granted.
 	if err := q.tapUp(rec); err != nil {
-		return fail("%v", err)
+		return fail(err)
 	}
 	if err := q.rulesUp(rec); err != nil {
-		return fail("%v", err)
+		return fail(err)
 	}
 	eg, proxyURL, err := q.startEgress(rec, t.Egress)
 	if err != nil {
-		return fail("%v", err)
+		return fail(err)
 	}
 	rec.EgressPid = eg.Process.Pid
 	if err := rec.save(); err != nil {
-		return fail("vm record: %v", err)
+		return fail(fmt.Errorf("vm record: %w", err))
 	}
 	go func() { _ = eg.Wait() }()
 	// The guest's environment is the rendered one plus this substrate's own
@@ -325,12 +325,12 @@ func (q *qemuRuntime) spawn(ctx context.Context, t Turn) RunResult {
 	// take; runed never picks another port.
 	ctlL, err := vsockListen(rec.CtlPort)
 	if err != nil {
-		return fail("%v", err)
+		return fail(err)
 	}
 	defer func() { _ = ctlL.Close() }()
 	mcpL, err := vsockListen(rec.McpPort)
 	if err != nil {
-		return fail("%v", err)
+		return fail(err)
 	}
 
 	// Step 5: the MCP bridge, one child per turn, running as the agent's uid so
@@ -338,11 +338,11 @@ func (q *qemuRuntime) spawn(ctx context.Context, t Turn) RunResult {
 	bridge, err := q.startBridge(rec, mcpL)
 	_ = mcpL.Close() // the child holds it now
 	if err != nil {
-		return fail("%v", err)
+		return fail(err)
 	}
 	rec.BridgePid = bridge.Process.Pid
 	if err := rec.save(); err != nil {
-		return fail("vm record: %v", err)
+		return fail(fmt.Errorf("vm record: %w", err))
 	}
 	go func() { _ = bridge.Wait() }()
 
@@ -364,12 +364,11 @@ func (q *qemuRuntime) spawn(ctx context.Context, t Turn) RunResult {
 	qemu.Stderr = newPrefixWriter("qemu", t.Folder)
 	bootStart := time.Now()
 	if err := qemu.Start(); err != nil {
-		return RunResult{Outcome: runedv1.OutcomeError,
-			Error: "qemu start: " + err.Error()}
+		return fail(fmt.Errorf("qemu start: %w", err))
 	}
 	rec.QemuPid = qemu.Process.Pid
 	if err := rec.save(); err != nil {
-		return fail("vm record: %v", err)
+		return fail(fmt.Errorf("vm record: %w", err))
 	}
 	qemuDone := make(chan error, 1)
 	peak := &guestPeak{done: make(chan struct{})}
@@ -412,22 +411,24 @@ func (q *qemuRuntime) spawn(ctx context.Context, t Turn) RunResult {
 	select {
 	case a := <-ac:
 		if a.err != nil {
-			return fail("guest did not open ctl within %s (kernel console: %s): %v",
-				q.paths.Boot, console, a.err)
+			return fail(fmt.Errorf("guest did not open ctl within %s (kernel console: %s): %w",
+				q.paths.Boot, console, a.err))
 		}
 		if a.cid != rec.CID {
 			_ = a.conn.Close()
-			return fail("ctl peer cid %d is not this guest's %d", a.cid, rec.CID)
+			return fail(fmt.Errorf("ctl peer cid %d is not this guest's %d", a.cid, rec.CID))
 		}
 		conn = a.conn
 	case werr := <-qemuDone:
 		// QEMU died before the guest said anything. Its own status and the
 		// console are the whole story, and reporting them now beats waiting out
 		// the boot timeout on every turn.
-		return fail("qemu exited before the guest opened ctl (code %d, kernel console: %s)",
-			exitCodeOf(werr), console)
+		return fail(&retry.Error{Failure: retry.Failure{Kind: "transient"},
+			Err: fmt.Errorf("qemu exited before the guest opened ctl (code %d, kernel console: %s)",
+				exitCodeOf(werr), console)})
 	case <-ctx.Done():
-		return fail("turn deadline reached before the guest opened ctl (kernel console: %s)", console)
+		return fail(fmt.Errorf("turn deadline reached before the guest opened ctl (kernel console: %s): %w",
+			console, ctx.Err()))
 	}
 	defer func() { _ = conn.Close() }()
 
@@ -441,11 +442,11 @@ func (q *qemuRuntime) spawn(ctx context.Context, t Turn) RunResult {
 
 	// Step 8: the turn itself — its environment and its payload, on ctl.
 	if err := sess.send(ctlFrame{Kind: ctlTurn, Env: env, Stdin: t.Stdin}); err != nil {
-		return fail("send turn frame: %v", err)
+		return fail(fmt.Errorf("send turn frame: %w", err))
 	}
 	t.RegisterSteer(func(batch string) bool { return sess.steer(batch, q.paths.Grace) })
 
-	end := q.await(ctx, sess, qemuDone, served, t)
+	end, awaitErr := q.await(ctx, sess, qemuDone, served, t)
 	code, timedOut := end.code, end.timedOut
 	elapsed := time.Since(start)
 	peakKiB := peak.after(qemu.Process, q.paths.Grace)
@@ -471,6 +472,9 @@ func (q *qemuRuntime) spawn(ctx context.Context, t Turn) RunResult {
 		},
 	})
 
+	if awaitErr != nil {
+		return runFailure(ctx, awaitErr)
+	}
 	return turnResult(end, elapsed, console, failureReason(logbuf.String()))
 }
 
@@ -562,64 +566,63 @@ func (q *qemuRuntime) allocate(t Turn) (*vmRecord, error) {
 // not prove QEMU exited.
 func (q *qemuRuntime) await(
 	ctx context.Context, sess *ctlSession, qemuDone <-chan error, served <-chan error, t Turn,
-) turnEnd {
+) (turnEnd, error) {
 	for {
 		select {
 		case code := <-sess.exit:
-			// The guest's own exit frame. QEMU is on its way out; the reap
-			// waits for the pid with its bounded grace either way.
-			return turnEnd{code: code, framed: true}
+			return turnEnd{code: code, framed: true}, nil
 		case err := <-served:
-			// The control channel ended. That happens right AFTER a guest sends
-			// its exit frame, so the frame is looked for first — see lastWord.
-			if err != nil {
-				slog.Error("ctl channel failed", "folder", t.Folder, "err", err)
-			}
 			if code, ok := drainExit(sess); ok {
-				return turnEnd{code: code, framed: true}
+				return turnEnd{code: code, framed: true}, nil
 			}
-			// The guest died without saying how. QEMU's own status is the only
-			// remaining word on what happened.
+			if err != nil {
+				return turnEnd{}, err
+			}
+			end := turnEnd{}
 			select {
 			case werr := <-qemuDone:
-				return turnEnd{code: exitCodeOf(werr)}
+				end.code = exitCodeOf(werr)
 			case <-time.After(q.paths.Grace):
-				return turnEnd{}
 			}
+			if ctx.Err() != nil {
+				return turnEnd{}, ctx.Err()
+			}
+			return end, nil
 		case werr := <-qemuDone:
-			// QEMU exited first: a guest that powered off, or a VMM that died.
-			if code, ok := lastWord(sess, served, q.paths.Grace); ok {
-				return turnEnd{code: code, framed: true}
+			code, ok, err := lastWord(sess, served, q.paths.Grace)
+			if ok {
+				return turnEnd{code: code, framed: true}, nil
 			}
-			return turnEnd{code: exitCodeOf(werr)}
+			if ctx.Err() != nil {
+				return turnEnd{}, ctx.Err()
+			}
+			if err != nil {
+				return turnEnd{}, err
+			}
+			return turnEnd{code: exitCodeOf(werr)}, nil
 		case <-ctx.Done():
 			slog.Info("turn deadline reached, stopping guest", "folder", t.Folder, "handle", t.Handle)
 			_ = sess.stop()
-			if code, ok := lastWord(sess, served, q.paths.Grace); ok {
-				return turnEnd{code: code, timedOut: true, framed: true}
+			if code, ok, _ := lastWord(sess, served, q.paths.Grace); ok {
+				return turnEnd{code: code, timedOut: true, framed: true}, nil
 			}
-			return turnEnd{timedOut: true}
+			return turnEnd{timedOut: true}, nil
 		}
 	}
 }
 
-// lastWord waits for the guest's exit frame once something else has ended the
-// turn.
-//
-// The frame and the process exit RACE: QEMU's status lands on one channel while
-// the guest's last bytes are still in the reader, and a select over both picks
-// either. Deciding "no exit frame" on that coin toss would report a turn that
-// went perfectly as one with no result, which is worse than the silence it was
-// meant to catch. The read loop dispatches the frame BEFORE it returns and the
-// exit channel is buffered, so one look after `served` fires is conclusive.
-func lastWord(sess *ctlSession, served <-chan error, grace time.Duration) (int, bool) {
+// The reader publishes the exit frame before returning. Draining after served
+// preserves that frame when process completion races the control reader.
+func lastWord(sess *ctlSession, served <-chan error, grace time.Duration) (int, bool, error) {
 	select {
 	case code := <-sess.exit:
-		return code, true
-	case <-served:
-		return drainExit(sess)
+		return code, true, nil
+	case err := <-served:
+		code, ok := drainExit(sess)
+		return code, ok, err
 	case <-time.After(grace):
-		return drainExit(sess)
+		code, ok := drainExit(sess)
+		return code, ok, nil
 	}
 }
 

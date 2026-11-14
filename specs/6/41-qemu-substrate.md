@@ -149,8 +149,7 @@ The deadline is `ctx`. `Manager.spawn` arms it from `RunTTL`, and the group's
 `RUNED_RUN_TIMEOUT` is that one deadline, never a
 substrate's timer. A substrate with a timer of its own reads `ctx.Deadline()`.
 A run that reaches the deadline returns `RunResult.Terminal`: routd does not
-spend a retry on an exhausted deadline (`specs/5/12-turn-retry.md`). A
-substrate that fails to start returns a retryable error.
+spend a retry on an exhausted deadline (`specs/5/12-turn-retry.md`). Preparation and control failures use the common retry policy before their causes become text.
 
 **The renderer.** The envelope half of `container.Run` — `prepareInput`,
 `buildMounts`, `seedSettings`, `spawnSecrets`, `pickOutputStyle`, the

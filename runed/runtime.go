@@ -2,8 +2,11 @@ package runed
 
 import (
 	"context"
+	"time"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/retry"
+	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 )
 
 // The turn's boundaries, read by whatever substrate runs it. These are the
@@ -70,4 +73,10 @@ type RunResult struct {
 	MessageCount int
 	// Terminal forbids automatic retry, including after a run timeout.
 	Terminal bool
+}
+
+func runFailure(ctx context.Context, err error) RunResult {
+	failure := retry.FromError(err, time.Now())
+	return RunResult{Outcome: runedv1.OutcomeError, Error: err.Error(),
+		Terminal: ctx.Err() != nil || (failure.Kind != "transient" && failure.Kind != "timeout")}
 }

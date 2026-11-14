@@ -268,15 +268,15 @@ The run deadline sends `stop`. `guest-init` sends SIGTERM to the agent and power
 
 ### How a turn ends
 
-| How the guest ended                                          | Outcome routd reads                       |
-| ------------------------------------------------------------ | ----------------------------------------- |
-| `exit` frame, code 0                                         | `ok`; the reply already went out over MCP |
-| `exit` frame, code 78 (`EX_CONFIG`, the agent's own verdict) | `error`, `terminal`                       |
-| `exit` frame, any other code                                 | `error`, retryable                        |
-| QEMU ended with no `exit` frame                              | `error`: no frame is no result            |
-| the deadline                                                 | `error`, `terminal`, "Guest timed out"    |
-| QEMU did not start                                           | `error`, retryable                        |
-| no renderer; a gateway and no key                            | `error`, `terminal`                       |
+| How the guest ended                                          | Outcome routd reads                        |
+| ------------------------------------------------------------ | ------------------------------------------ |
+| `exit` frame, code 0                                         | `ok`; the reply already went out over MCP  |
+| `exit` frame, code 78 (`EX_CONFIG`, the agent's own verdict) | `error`, `terminal`                        |
+| `exit` frame, any other code                                 | `error`, retryable                         |
+| QEMU ended with no `exit` frame                              | `error`, retryable: no frame is no result  |
+| the deadline                                                 | `error`, `terminal`, "Guest timed out"     |
+| Preparation or control failure                               | `error`, classified by common retry policy |
+| no renderer; a gateway and no key                            | `error`, `terminal`                        |
 
 runed decides whether a failure is terminal or retryable. The decision rides `RunOutcome.Terminal`, and its zero value is retryable. routd then skips the retry and shows a short cause from its own list. The raw exit code never leaves runed. If routd classified the prose of runed, it would need a second classification path on a format string. `guest-init` reports its own failures as 71 and never as 78, so it cannot impersonate the verdict of the agent.
 

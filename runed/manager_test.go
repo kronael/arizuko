@@ -2,12 +2,16 @@ package runed
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
+	"github.com/kronael/arizuko/retry"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 	"github.com/kronael/arizuko/types"
 )
@@ -371,5 +375,32 @@ func TestAgentRunWithoutARendererIsRefused(t *testing.T) {
 	}
 	if ran.Load() {
 		t.Error("the runtime ran with no envelope to deliver")
+	}
+}
+
+func TestRunFailureClassification(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		err      error
+		terminal bool
+	}{
+		{"unknown", errors.New("unknown"), true},
+		{"permanent", syscall.ENOTDIR, true},
+		{"transport", fmt.Errorf("wrapped: %w", syscall.ECONNRESET), false},
+		{"timeout", context.DeadlineExceeded, false},
+		{"fact", &retry.Error{Failure: retry.Failure{Kind: "transient"}, Err: errors.New("crash")}, false},
+		{"permanent fact", &retry.Error{Failure: retry.Failure{Kind: "permanent"}, Err: syscall.ECONNRESET}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result := runFailure(context.Background(), tc.err)
+			if result.Terminal != tc.terminal || result.Error != tc.err.Error() || result.Outcome != runedv1.OutcomeError {
+				t.Fatalf("result = %+v", result)
+			}
+		})
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if result := runFailure(ctx, syscall.ECONNRESET); !result.Terminal {
+		t.Fatalf("canceled result = %+v", result)
 	}
 }
