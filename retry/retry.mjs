@@ -25,8 +25,40 @@ export function httpFailure(status, retryAfter, error, now) {
   if (!(status >= policy.transient_status_range[0] && status <= policy.transient_status_range[1]) && !policy.transient_statuses.includes(status) && !(!status && transport))
     return { kind: 'permanent', retryAt: 0 }
   const value = (retryAfter || '').trim()
-  const retryAt = /^\d+$/.test(value) ? Math.min(now + Number(value) * 1000, policy.latest_retry_ms) : Date.parse(value)
+  const retryAt = /^\d+$/.test(value) ? Math.min(now + Number(value) * 1000, policy.latest_retry_ms) : httpDate(value, now)
   return { kind: 'transient', retryAt: Number.isFinite(retryAt) ? retryAt : 0 }
+}
+
+function httpDate(value, now) {
+  const months = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']
+  const shortDay = '(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)'
+  const longDay = '(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)'
+  let match = value.match(new RegExp(`^${shortDay}, (\\d{2}) (\\w{3}) (\\d{4}) (\\d{2}):(\\d{2}):(\\d{2}) GMT$`, 'i'))
+  let rfc850 = false
+  if (!match) {
+    match = value.match(new RegExp(`^${longDay}, (\\d{2})-(\\w{3})-(\\d{2}) (\\d{2}):(\\d{2}):(\\d{2}) GMT$`, 'i'))
+    rfc850 = !!match
+  }
+  if (!match) {
+    const ascii = value.match(new RegExp(`^${shortDay} (\\w{3}) ( [1-9]|[0-2]\\d|3[01]) (\\d{2}):(\\d{2}):(\\d{2}) (\\d{4})$`, 'i'))
+    if (!ascii) return 0
+    match = [ascii[0], ascii[2].trim(), ascii[1], ascii[6], ascii[3], ascii[4], ascii[5]]
+  }
+  const [, dayText, monthText, yearText, hourText, minuteText, secondText] = match
+  if (value.includes(',') && !value.endsWith(' GMT')) return 0
+  const month = months.indexOf(monthText.toLowerCase()), day = Number(dayText), hour = Number(hourText), minute = Number(minuteText), second = Number(secondText)
+  let year = Number(yearText)
+  if (month < 0 || day < 1 || hour > 23 || minute > 59 || second > 59) return 0
+  const cutoff = new Date(now)
+  cutoff.setUTCFullYear(cutoff.getUTCFullYear() + 50)
+  if (rfc850) {
+    year += Math.floor(cutoff.getUTCFullYear() / 100) * 100
+  }
+  const build = () => { const date = new Date(0); date.setUTCFullYear(year, month, day); date.setUTCHours(hour, minute, second, 0); return date }
+  let date = build()
+  if (rfc850 && date > cutoff) { year -= 100; date = build() }
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month || date.getUTCDate() !== day) return 0
+  return date.getTime()
 }
 
 export function notice(cause, decision) {

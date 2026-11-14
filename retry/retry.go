@@ -148,7 +148,23 @@ func HTTPFailure(status int, retryAfter string, err error, now time.Time) Failur
 		} else {
 			failure.RetryAt = time.Unix(now.Unix()+seconds, int64(now.Nanosecond()))
 		}
-	} else if date, parseErr := http.ParseTime(retryAfter); parseErr == nil {
+	} else if date, parseErr := http.ParseTime(value); parseErr == nil {
+		if strings.Contains(value, ",") && !strings.HasSuffix(value, " GMT") {
+			return failure
+		}
+		if strings.Contains(value, "-") {
+			cutoff := now.UTC().AddDate(50, 0, 0)
+			year := cutoff.Year()/100*100 + date.Year()%100
+			candidate := time.Date(year, date.Month(), date.Day(), date.Hour(), date.Minute(), date.Second(), 0, time.UTC)
+			if candidate.After(cutoff) {
+				year -= 100
+				candidate = time.Date(year, date.Month(), date.Day(), date.Hour(), date.Minute(), date.Second(), 0, time.UTC)
+			}
+			if candidate.Month() != date.Month() || candidate.Day() != date.Day() {
+				return failure
+			}
+			date = candidate
+		}
 		failure.RetryAt = date
 	}
 	return failure

@@ -160,6 +160,57 @@ assert.equal(httpFailure(0, '', {cause:{cause:{code:'ECONNRESET'}}}, now).kind, 
 	}
 }
 
+func TestRetryAfterParity(t *testing.T) {
+	now := time.Date(2026, 11, 14, 12, 0, 0, 0, time.UTC)
+	cases := []struct {
+		Hint      string
+		Now, Want int64
+	}{
+		{"", now.UnixMilli(), 0}, {"invalid", now.UnixMilli(), 0},
+		{"+30", now.UnixMilli(), 0}, {"-1", now.UnixMilli(), 0}, {"1.5", now.UnixMilli(), 0},
+		{"2026-11-14", now.UnixMilli(), 0}, {"2026-11-14T12:00:00Z", now.UnixMilli(), 0},
+		{"Sat, 31 Feb 2026 12:00:00 GMT", now.UnixMilli(), 0},
+		{"Sat, 14 Nov 2026 24:00:00 GMT", now.UnixMilli(), 0}, {"Sat, 14 Nov 2026 12:60:00 GMT", now.UnixMilli(), 0},
+		{"0", now.UnixMilli(), now.UnixMilli()}, {"7200", now.UnixMilli(), now.Add(2 * time.Hour).UnixMilli()},
+		{"999999999999999999999999999999999", now.UnixMilli(), 253402300799000},
+		{"  Sat, 14 Nov 2026 14:00:00 GMT  ", now.UnixMilli(), now.Add(2 * time.Hour).UnixMilli()},
+		{"Saturday, 14-Nov-26 14:00:00 GMT", now.UnixMilli(), now.Add(2 * time.Hour).UnixMilli()},
+		{"Sat Nov 14 14:00:00 2026", now.UnixMilli(), now.Add(2 * time.Hour).UnixMilli()},
+		{"Sun Nov  6 08:49:37 1994", now.UnixMilli(), time.Date(1994, 11, 6, 8, 49, 37, 0, time.UTC).UnixMilli()},
+		{"Saturday, 14-Nov-26 14:00:00 UTC", now.UnixMilli(), 0},
+		{"sat, 14 nov 2026 14:00:00 GMT", now.UnixMilli(), now.Add(2 * time.Hour).UnixMilli()},
+		{"Sun Nov 01 14:00:00 2026", now.UnixMilli(), time.Date(2026, 11, 1, 14, 0, 0, 0, time.UTC).UnixMilli()},
+		{"Thursday, 06-Nov-70 08:49:37 GMT", now.UnixMilli(), time.Date(2070, 11, 6, 8, 49, 37, 0, time.UTC).UnixMilli()},
+		{"Saturday, 14-Nov-76 11:59:59 GMT", now.UnixMilli(), time.Date(2076, 11, 14, 11, 59, 59, 0, time.UTC).UnixMilli()},
+		{"Saturday, 14-Nov-76 12:00:00 GMT", now.UnixMilli(), time.Date(2076, 11, 14, 12, 0, 0, 0, time.UTC).UnixMilli()},
+		{"Saturday, 14-Nov-76 12:00:01 GMT", now.UnixMilli(), time.Date(1976, 11, 14, 12, 0, 1, 0, time.UTC).UnixMilli()},
+		{"Sunday, 06-Nov-40 08:49:37 GMT", time.Date(1994, 11, 14, 12, 0, 0, 0, time.UTC).UnixMilli(), time.Date(2040, 11, 6, 8, 49, 37, 0, time.UTC).UnixMilli()},
+		{"Sunday, 29-Feb-00 08:49:37 GMT", time.Date(2050, 11, 14, 12, 0, 0, 0, time.UTC).UnixMilli(), 0},
+		{"Sunday, 29-Feb-00 08:49:37 GMT", time.Date(2050, 1, 1, 12, 0, 0, 0, time.UTC).UnixMilli(), time.Date(2000, 2, 29, 8, 49, 37, 0, time.UTC).UnixMilli()},
+	}
+	for _, c := range cases {
+		got := HTTPFailure(429, c.Hint, nil, time.UnixMilli(c.Now)).RetryAt
+		var ms int64
+		if !got.IsZero() {
+			ms = got.UnixMilli()
+		}
+		if ms != c.Want {
+			t.Errorf("Go %q: got %d, want %d", c.Hint, ms, c.Want)
+		}
+	}
+	data, err := json.Marshal(cases)
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := `import assert from 'node:assert/strict'; import {httpFailure} from './retry.mjs';
+ for (const c of JSON.parse(process.argv[1])) assert.equal(httpFailure(429, c.Hint, null, c.Now).retryAt, c.Want, c.Hint);`
+	cmd := exec.Command("bun", "-e", script, string(data))
+	cmd.Env = append(os.Environ(), "TZ=America/New_York")
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Errorf("JavaScript: %v\n%s", err, output)
+	}
+}
+
 func TestJavaScriptPolicy(t *testing.T) {
 	script := `
 import assert from 'node:assert/strict';
