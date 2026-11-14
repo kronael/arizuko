@@ -46,17 +46,6 @@ uses guarded due-time transitions. Keep replay safety and the breaker separate.
 **Measurement:** source tables and call sites above; no test — design.
 Each implementation concern must add a failing regression and kill its guard mutations.
 
-## L865 — the concurrent probe fixture omits its observed turn snapshot (2026-11-14)
-
-`TestControlledEightConcurrentProbeClaims` constructs claims with only a turn ID,
-folder and attempt. The guarded claim now needs the stored state, revision and
-deadline. All eight candidates fail before the test reaches its single-winner
-assertion: `probe winners=0`.
-**Measured:** `tmp/retry-logs/capacity-store-baseline.log`, FAIL 11.180s;
-the eight errors are `claim turn candidate-N: missing attempt`.
-**Fix:** hydrate each seeded turn before launching its concurrent claim. Preserve
-the simultaneous start and exact single-winner assertion.
-
 ## L866 — the native panel does not register its SSE message swap (2026-11-14)
 
 `webd/pages.go` emits `sse-swap:message="beforeend"` on the thread element.
