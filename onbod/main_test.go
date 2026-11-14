@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"context"
 	"fmt"
 	"html"
 	"net/http"
@@ -1727,9 +1726,6 @@ func TestDashboardUnauthenticated(t *testing.T) {
 	}
 }
 
-// promptUnprompted POSTs the greeting + pairing link to routd's /v1/outbound,
-// presenting the service:onbod bearer. A test HTTP server captures the wire
-// format without mocking.
 func TestPromptUnpromptedSendsGreeting(t *testing.T) {
 	db := testDB(t)
 	seedAdmission(t, db, store.ArchiveOnboardingRow{JID: "telegram:1", Status: "awaiting_message"})
@@ -1739,31 +1735,6 @@ func TestPromptUnpromptedSendsGreeting(t *testing.T) {
 	if err != nil || len(rows) != 1 || rows[0].ChatJID != "telegram:1" || !strings.HasPrefix(rows[0].Content, "Welcome\nSet up your account:") || !strings.Contains(rows[0].Content, "/pair/") {
 		t.Fatalf("queued greeting: %v %v", rows, err)
 	}
-}
-
-// sendReply gracefully handles non-2xx — the prompt still claims the row.
-func TestSendReplyHandlesNon2xx(t *testing.T) {
-	db := testDB(t)
-	seedAdmission(t, db, store.ArchiveOnboardingRow{JID: "t:1", Status: "awaiting_message"})
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusInternalServerError)
-	}))
-	defer srv.Close()
-	cfg := config{gatedURL: srv.URL, authBaseURL: "https://ex.com"}
-	// Should not panic even when router returns 500.
-	promptUnprompted(db, db, cfg, awaitingRows(t, db))
-	if admission(t, db, "t:1").PromptedAt == "" {
-		t.Error("row should still be claimed after send failure")
-	}
-}
-
-// sendReply swallows transport errors (unreachable URL).
-func TestSendReplyHandlesTransportError(t *testing.T) {
-	db := testDB(t)
-	seedAdmission(t, db, store.ArchiveOnboardingRow{JID: "t:1", Status: "awaiting_message"})
-	// Point at a closed port to force Do() to fail.
-	cfg := config{gatedURL: "http://127.0.0.1:1", authBaseURL: "https://ex.com"}
-	promptUnprompted(db, db, cfg, awaitingRows(t, db)) // must not panic
 }
 
 // ensureCSRFToken is idempotent: an incoming request that already carries the
@@ -1973,15 +1944,12 @@ func TestTokenHash(t *testing.T) {
 // pollInterval parsing.
 func TestLoadConfig(t *testing.T) {
 	dir := t.TempDir()
-	authd, _ := fakeAuthdToken(t)
 	t.Setenv("DATA_DIR", dir)
 	t.Setenv("ARIZUKO_DEV", "true")
 	t.Setenv("ONBOARD_POLL_INTERVAL", "5s")
 	t.Setenv("ONBOARDING_GREETING", "hi")
-	t.Setenv("ROUTER_URL", "http://r:1")
 	t.Setenv("AUTH_BASE_URL", "https://auth.example.com")
-	t.Setenv("AUTHD_URL", authd.URL)
-	t.Setenv("AUTHD_SERVICE_KEY", "boot-onbod")
+	t.Setenv("AUTHD_URL", "http://authd:8080")
 
 	cfg, err := loadConfig()
 	if err != nil {
@@ -1993,26 +1961,18 @@ func TestLoadConfig(t *testing.T) {
 	if cfg.greeting != "hi" {
 		t.Errorf("greeting not propagated")
 	}
-	if cfg.gatedURL != "http://r:1" {
-		t.Errorf("gatedURL not propagated, got %q", cfg.gatedURL)
-	}
 	if !cfg.secureCookie {
 		t.Errorf("secureCookie should be true for https AUTH_BASE_URL")
-	}
-	if cfg.svcToken == nil {
-		t.Errorf("svcToken must be set (AUTHD required)")
 	}
 }
 
 // loadConfig with invalid poll interval falls back to default (10s).
 func TestLoadConfigBadPollInterval(t *testing.T) {
 	dir := t.TempDir()
-	authd, _ := fakeAuthdToken(t)
 	t.Setenv("DATA_DIR", dir)
 	t.Setenv("ARIZUKO_DEV", "true")
 	t.Setenv("ONBOARD_POLL_INTERVAL", "not-a-duration")
-	t.Setenv("AUTHD_URL", authd.URL)
-	t.Setenv("AUTHD_SERVICE_KEY", "boot-onbod")
+	t.Setenv("AUTHD_URL", "http://authd:8080")
 
 	cfg, err := loadConfig()
 	if err != nil {
@@ -2151,27 +2111,16 @@ func TestAdminFolders_HonoursSubtreeGrant(t *testing.T) {
 	}
 }
 
-// L67: sendReply used to return nothing, so promptUnprompted logged
-// "sent pairing link" on the line directly after "send reply non-2xx". The
-// outcome must reach the caller; the claim deliberately survives (releasing it
-// would re-mint a token every tick for a permanently unroutable jid).
-func TestSendReplyReportsNon2xxToTheCaller(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusBadGateway)
-	}))
-	defer srv.Close()
-	cfg := config{gatedURL: srv.URL, svcToken: func(context.Context) (string, error) { return "t", nil }}
-	err := sendReply(cfg, "Coach", "hi")
-	if err == nil {
-		t.Fatal("a 502 must reach the caller; swallowing it is what logged success over the failure")
+func TestLoadConfigWithoutOutboundCredentials(t *testing.T) {
+	t.Setenv("DATA_DIR", t.TempDir())
+	t.Setenv("ARIZUKO_DEV", "true")
+	t.Setenv("AUTHD_URL", "http://authd:8080")
+	t.Setenv("AUTHD_SERVICE_KEY", "")
+	if _, err := loadConfig(); err != nil {
+		t.Fatalf("unused outbound credential required: %v", err)
 	}
-	if !strings.Contains(err.Error(), "502") {
-		t.Errorf("the error must name the status, got %v", err)
-	}
-}
-
-func TestSendReplyReportsMissingServiceToken(t *testing.T) {
-	if err := sendReply(config{gatedURL: "http://127.0.0.1:1"}, "t:1", "hi"); err == nil {
-		t.Fatal("a nil svcToken must be an error, not a silent drop")
+	t.Setenv("AUTHD_URL", "")
+	if _, err := loadConfig(); err == nil {
+		t.Fatal("inbound verifier URL became optional")
 	}
 }

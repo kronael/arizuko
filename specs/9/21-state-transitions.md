@@ -543,7 +543,14 @@ tests preserve wildcard deny behavior. Nine mutations cover selection,
 principal parsing, pointer production, migration validation and its marker,
 read errors, rename maintenance, upgrade readiness and its error cause.
 
+Onbod queues deliveries through its existing routd store handle. It has no
+outbound HTTP client or service-token exchange. `AUTHD_URL` remains required
+for inbound token verification.
+
 ## Open questions
+
+- May provisioning drop onbod's unused `AUTHD_SERVICE_KEY` and `ROUTER_URL`?
+  The daemon accepts existing environments and does not need those values.
 
 - The archive adds optional `work` and `delivery` metadata. Does any external
   archive consumer require a version signal for these additive fields?

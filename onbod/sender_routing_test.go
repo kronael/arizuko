@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -87,12 +86,7 @@ func TestUnresolvedOnboardingSenderWaitsForInbound(t *testing.T) {
 	if err := xdb.PutMembership(chat, "github:alice", store.PairingAddedBy); err != nil {
 		t.Fatal(err)
 	}
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-	t.Cleanup(srv.Close)
-	cfg := config{gatedURL: srv.URL, authBaseURL: "https://example.test",
-		svcToken: func(context.Context) (string, error) { return "service", nil }}
+	cfg := config{authBaseURL: "https://example.test"}
 	promptUnprompted(xdb, obdb, cfg, awaitingRows(t, obdb))
 	observePairings(xdb, obdb, cfg, awaitingRows(t, obdb))
 	row := admission(t, obdb, chat)

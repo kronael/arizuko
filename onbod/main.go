@@ -1,9 +1,7 @@
 package main
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"html"
@@ -42,13 +40,10 @@ type gate struct {
 type config struct {
 	core         *core.Config
 	listenAddr   string
-	gatedURL     string
 	pollInterval time.Duration
 	greeting     string
 	authBaseURL  string
 	secureCookie bool
-
-	svcToken func(context.Context) (string, error)
 }
 
 func main() {
@@ -211,7 +206,6 @@ func loadConfig() (config, error) {
 		authBaseURL:  coreCfg.AuthBaseURL,
 		secureCookie: strings.HasPrefix(coreCfg.AuthBaseURL, "https://"),
 		greeting:     os.Getenv("ONBOARDING_GREETING"),
-		gatedURL:     core.EnvOr("ROUTER_URL", "http://routd:8080"),
 		listenAddr:   core.EnvOr("ONBOD_LISTEN_ADDR", ":8080"),
 		pollInterval: 10 * time.Second,
 	}
@@ -221,15 +215,9 @@ func loadConfig() (config, error) {
 		}
 	}
 
-	authdURL, key := os.Getenv("AUTHD_URL"), os.Getenv("AUTHD_SERVICE_KEY")
-	if authdURL == "" || key == "" {
-		return config{}, fmt.Errorf("onbod: AUTHD_URL + AUTHD_SERVICE_KEY required")
+	if os.Getenv("AUTHD_URL") == "" {
+		return config{}, fmt.Errorf("onbod: AUTHD_URL required")
 	}
-	src, err := auth.ServiceToken(authdURL, "onbod", key)
-	if err != nil {
-		return config{}, fmt.Errorf("onbod service-token source: %w", err)
-	}
-	cfg.svcToken = src.Token
 	return cfg, nil
 }
 
@@ -1193,34 +1181,6 @@ func renderDashboard(w http.ResponseWriter, db, obdb *store.Store, userSub, user
 		theme.Head("Dashboard"),
 		esc(initial), esc(username), esc(userSub),
 		jidsHTML, groupsHTML.String(), routesHTML)
-}
-
-var httpClient = &http.Client{Timeout: 10 * time.Second}
-
-func sendReply(cfg config, jid, text string) error {
-	payload := map[string]string{"jid": jid, "text": text}
-	body, _ := json.Marshal(payload)
-	req, _ := http.NewRequest("POST", cfg.gatedURL+"/v1/outbound", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-
-	if cfg.svcToken == nil {
-		return fmt.Errorf("onbod has no service token")
-	}
-	tok, err := cfg.svcToken(req.Context())
-	if err != nil {
-		return fmt.Errorf("service-token exchange: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+tok)
-	obs.InjectRequest(req.Context(), req)
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("post outbound: %w", err)
-	}
-	_ = resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("outbound %s: status %d", jid, resp.StatusCode)
-	}
-	return nil
 }
 
 func userFolders(db *store.Store, sub string) []string {

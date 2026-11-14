@@ -1,12 +1,6 @@
 package main
 
-// Integration tests for onbod: exercise the HTTP server end-to-end
-// through a real httptest.Server with a FakePlatform standing in for
-// gated's /v1/outbound. The existing main_test.go covers handler-level
-// logic; these tests wire the whole mux together.
-
 import (
-	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -20,12 +14,8 @@ import (
 	"github.com/kronael/arizuko/objstore/dynstore/dyntest"
 	"github.com/kronael/arizuko/routd"
 	"github.com/kronael/arizuko/store"
-	"github.com/kronael/arizuko/tests/testutils"
 )
 
-// tokenFromLink pulls the raw bearer out of an outbound "…/pair/<raw>" prompt.
-// route_tokens holds only sha256(token), so a test that needs the redeemable
-// value must read it where the user does: the sent link.
 func tokenFromLink(t *testing.T, body string) string {
 	t.Helper()
 	_, after, ok := strings.Cut(body, "/pair/")
@@ -36,11 +26,6 @@ func tokenFromLink(t *testing.T, body string) string {
 	return strings.TrimSpace(tok)
 }
 
-// onbodInst is the pair of databases onbod runs against: X is routd.db
-// (user_profiles, groups, acl, acl_membership, routes, route_tokens), Ob is
-// onbod.db (onboarding, onboarding_gates, invites, invite_redemptions). Each is
-// built by the chain its owner ships and migrates, so a rename on either side
-// reaches these tests instead of passing against a single stand-in schema.
 type onbodInst struct {
 	X   *store.Store
 	Ob  *store.Store
@@ -61,29 +46,17 @@ func newOnbodInst(t *testing.T) *onbodInst {
 	return &onbodInst{X: store.NewOver(rdb.Obj()), Ob: store.NewOver(ob), Tmp: t.TempDir()}
 }
 
-// newOnbodServer wires the real mux against onbod's two databases and a fake
-// gated /v1/outbound endpoint. Returns server + a recorder of outbound calls.
-func newOnbodServer(t *testing.T) (*httptest.Server, *onbodInst, *testutils.FakePlatform, config) {
+func newOnbodServer(t *testing.T) (*httptest.Server, *onbodInst, config) {
 	t.Helper()
 	inst := newOnbodInst(t)
 
-	fake := testutils.NewFakePlatform()
-	t.Cleanup(fake.Close)
-	fake.On("POST /v1/outbound", func(_ testutils.PlatformReq) (int, any) {
-		return http.StatusOK, map[string]string{"ok": "1"}
-	})
-
-	// Give core.LoadConfig() a sane sandbox so handleCreateWorld's
-	// SetupGroup fallback doesn't pollute cwd.
 	t.Setenv("DATA_DIR", inst.Tmp)
 	t.Setenv("HOST_DATA_DIR", inst.Tmp)
 	t.Setenv("ARIZUKO_DEV", "true")
 
 	cfg := config{
-		gatedURL:    fake.URL(),
 		authBaseURL: "https://example.com",
 		greeting:    "Hi!",
-		svcToken:    func(context.Context) (string, error) { return "test-svc-token", nil },
 	}
 
 	mux := http.NewServeMux()
@@ -102,21 +75,19 @@ func newOnbodServer(t *testing.T) (*httptest.Server, *onbodInst, *testutils.Fake
 
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
-	return srv, inst, fake, cfg
+	return srv, inst, cfg
 }
 
 // TestOnboardingFlow walks the full onboarding state machine after the fold
-// (spec 5/31-identity-pairing): awaiting_message -> prompt (a PAIRING token, outbound fired) ->
+// (spec 5/31-identity-pairing): awaiting_message -> prompt (a PAIRING token, outbound queued) ->
 // RedeemPairing writes the edge -> the poll observer admits -> approved + group
 // folder seeded on disk + groups + acl + routes rows.
 func TestOnboardingFlow(t *testing.T) {
-	srv, inst, _, cfg := newOnbodServer(t)
+	srv, inst, cfg := newOnbodServer(t)
 
 	jid := "telegram:42"
 	seedAdmission(t, inst.Ob, store.ArchiveOnboardingRow{JID: jid, Status: "awaiting_message"})
 
-	// Trigger the poll step: promptUnprompted mints the pairing token, issues a
-	// POST to gatedURL and stamps prompted_at on the row.
 	promptUnprompted(inst.X, inst.Ob, cfg, awaitingRows(t, inst.Ob))
 
 	queued, err := inst.X.PendingOutbound(t.Context(), time.Now().Add(time.Second), 10)
@@ -132,13 +103,11 @@ func TestOnboardingFlow(t *testing.T) {
 	if len(pairs) != 1 {
 		t.Fatalf("minted %d pairing rows for %s, want 1", len(pairs), jid)
 	}
-	// The coordinate IS the verifier, so a table that kept the bearer would
-	// address the item by it.
+
 	if pairs[0].Key.Sort == token {
 		t.Fatal("token stored in the clear — route_tokens must keep the hash, not the bearer")
 	}
-	// GET /pair is webd's and is side-effect-free; the redemption POST it fronts
-	// is store.RedeemPairing, which is what writes the edge.
+
 	sub := "github:alice"
 	if err := inst.X.CreateUserProfile(sub, sub, "Alice"); err != nil {
 		t.Fatalf("seed user_profiles: %v", err)
@@ -154,14 +123,12 @@ func TestOnboardingFlow(t *testing.T) {
 			addedBy, store.PairingAddedBy)
 	}
 
-	// Admission is a poll now, not part of redemption.
 	status := admissionStatus(t, inst.Ob, jid)
 	if status != "awaiting_message" {
 		t.Errorf("redemption advanced admission on its own: status=%q", status)
 	}
 	observePairings(inst.X, inst.Ob, cfg, awaitingRows(t, inst.Ob))
 
-	// Confirm onboarding row now approved and user_sub bound.
 	admitted := admission(t, inst.Ob, jid)
 	gotSub, gotStatus := admitted.UserSub, admitted.Status
 	if gotSub != sub {
@@ -174,8 +141,7 @@ func TestOnboardingFlow(t *testing.T) {
 	c := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
 		return http.ErrUseLastResponse
 	}}
-	// The pair success page sends the user here; /onboard is where the world
-	// choice happens (spec 5/18 step 6).
+
 	reqG, _ := http.NewRequest("GET", srv.URL+"/onboard", nil)
 	reqG.Header.Set("X-User-Sub", sub)
 	respG, err := c.Do(reqG)
@@ -197,8 +163,6 @@ func TestOnboardingFlow(t *testing.T) {
 		t.Fatal("csrf cookie not set by dashboard GET")
 	}
 
-	// POST create_world. The authority is a redeemed top-level invite, recorded
-	// in invite_redemptions — there is no cookie to bring along (BUGS F50).
 	seedRedemption(t, inst.Ob, sub, "/")
 	form := url.Values{
 		"action":   {"create_world"},
@@ -219,22 +183,18 @@ func TestOnboardingFlow(t *testing.T) {
 		t.Fatalf("create_world: status=%d body=%s", respP.StatusCode, pbody)
 	}
 
-	// Group row, user_groups row, and route present.
 	if folder := folderName(t, inst.X, "alice"); folder != "alice" {
 		t.Errorf("groups row missing, got %q", folder)
 	}
-	// Subtree scope: an exact-folder grant authorizes the world and nothing
-	// under it, so the creator could never reach their own subgroups (W1).
+
 	if ug := firstScope(t, inst.X, sub); ug != "alice/**" {
 		t.Errorf("creator grant should be subtree-scoped, got %q", ug)
 	}
-	// create_world itself writes no route (5/18 step 7) — the route is the act
-	// the /onboard landing performs, and it names who did it.
+
 	if routeN := countRoutes(t, inst.X); routeN != 0 {
 		t.Errorf("create_world wrote %d route(s) as a side effect; want 0", routeN)
 	}
 
-	// Follow the redirect the POST returned; that landing routes the chat.
 	reqR, _ := http.NewRequest("GET", srv.URL+"/onboard", nil)
 	reqR.Header.Set("X-User-Sub", sub)
 	respR, err := c.Do(reqR)
@@ -255,7 +215,6 @@ func TestOnboardingFlow(t *testing.T) {
 			routeAddedBy, addedVia, sub, routeViaSoleWorld)
 	}
 
-	// SetupGroup side-effect: group folder + .claude dir exist on disk.
 	groupDir := filepath.Join(inst.Tmp, "groups", "alice")
 	if st, err := os.Stat(groupDir); err != nil || !st.IsDir() {
 		t.Errorf("expected group dir %s on disk: err=%v", groupDir, err)
@@ -265,7 +224,7 @@ func TestOnboardingFlow(t *testing.T) {
 // TestGateRateLimit: with a wildcard gate of 2/day, admitting 3 paired jids
 // queues all 3 and admitFromQueue approves only 2, leaving the third queued.
 func TestGateRateLimit(t *testing.T) {
-	_, inst, _, _ := newOnbodServer(t)
+	_, inst, _ := newOnbodServer(t)
 
 	seedGateRow(t, inst.Ob, "*", 2, true)
 
@@ -291,7 +250,6 @@ func TestGateRateLimit(t *testing.T) {
 		t.Errorf("still queued = %d, want 1 (rejected by limit)", stillQueued)
 	}
 
-	// Second admission pass same day must not exceed the limit.
 	admitFromQueue(inst.Ob)
 	approved = countAdmissions(t, inst.Ob, "approved")
 	if approved != 2 {

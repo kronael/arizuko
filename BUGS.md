@@ -13,22 +13,16 @@
 > work items are their own entries. A record has nothing to fix and never will,
 > so counting one as open overstates the queue.
 
-## L853 — recurring authorization scans every ACL row (2026-11-14)
+## L854 — onbod requires credentials for an unused delivery path (2026-11-14)
 
-`ACLWildcardRows` reads the whole owner partition and filters principal globs
-in Go. Dashboard refreshes call it through both proxyd and dashd authorization.
-At ten seconds per refresh, those two checks select about 720 × N rows/hour.
-The two-second WhatsApp status refresh and onbod's thirty-second queue refresh
-also reach it. The cost includes every unrelated exact-principal grant.
-`TestWildcardPolicyWaitsForBackfill` also measured an allow during an unfinished
-upgrade: the exact allow exists but the legacy wildcard deny has no pointer.
-**Fix:** require the migration marker before policy reads, then index
-wildcard-principal grants, hydrate and decode their original
-rows, and read that index fresh on every authorization. Preserve policy rules,
-consistent reads and failure handling. Validate and backfill legacy rows once.
-**Test:** forty unrelated exact principals cost no wildcard reads; wildcard
-allow/deny and revocation remain fresh; replacement/rename preserve pointers;
-malformed legacy coordinates abort migration before its completion marker.
+Production search finds no caller of `sendReply`; greetings and notices enter
+the durable routd queue. `loadConfig` still constructs its service-token source
+and refuses startup without `AUTHD_SERVICE_KEY`. The unused HTTP client, router
+URL and tests describe a second delivery path that cannot run.
+**Fix:** delete that path and its config; retain AUTHD_URL for inbound JWT
+verification. Existing provisioned credentials need no live change.
+**Test:** configuration succeeds without outbound credentials and still refuses
+an absent verifier URL; durable greeting and notice tests remain authoritative.
 
 ## What needs you
 

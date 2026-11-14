@@ -228,30 +228,29 @@ The complete resource and operator-action paths appear below under Resource map 
 
 ## Configuration
 
-| Variable                                   | Default             | Meaning                                                                                                           |
-| ------------------------------------------ | ------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `ONBOARDING_ENABLED`                       | unset               | Literal `0` exits immediately; other values do not disable this binary.                                           |
-| `ONBOARDING_GREETING`                      | empty               | Text prepended to the setup link.                                                                                 |
-| `ONBOD_LISTEN_ADDR`                        | `:8080`             | HTTP listener; LISTEN_ADDR is not read.                                                                           |
-| `ONBOARD_POLL_INTERVAL`                    | `10s`               | Go duration for greeting and pairing scans. Configure a positive duration.                                        |
-| `ROUTER_URL`                               | `http://routd:8080` | routd base URL for outbound messages.                                                                             |
-| `AUTHD_URL, AUTHD_SERVICE_KEY`             | required            | JWKS and fixed service:onbod bootstrap. AUTHD_SERVICE_NAME is not read.                                           |
-| `AUTH_BASE_URL`                            | unset               | Public auth origin used to build links.                                                                           |
-| `AUTH_SECRET`                              | unset               | Shared state configuration loaded with the instance.                                                              |
-| `WEB_HOST`                                 | unset               | Shared public web origin.                                                                                         |
-| `DATA_DIR`                                 | working directory   | Root for group and web-slot creation.                                                                             |
-| `ASSISTANT_NAME`                           | `arizuko`           | Instance display name from core config.                                                                           |
-| `SECRETS_KEY`                              | unset               | Keyring loaded by core config for group setup context.                                                            |
-| `DYNAMODB_URL`                             | required            | Store endpoint.                                                                                                   |
-| `AWS_REGION`                               | `us-east-1`         | Store signing region.                                                                                             |
-| `AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY` | required            | Daemon store identity.                                                                                            |
-| `STORE_CA`                                 | unset               | Base64 PEM endpoint certificate; unset uses system trust.                                                         |
-| `ARIZUKO_INSTANCE`                         | unset               | Audit and observability instance label.                                                                           |
-| `LOG_LEVEL`                                | `info`              | JSON stderr verbosity.                                                                                            |
-| `OTEL_EXPORTER_OTLP_ENDPOINT`              | unset               | Optional OTLP logs through obs.                                                                                   |
-| `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`       | unset               | Optional OTLP trace export; independent of the log endpoint.                                                      |
-| `MAX_CONCURRENT_CONTAINERS`                | absent              | Shared config rejects this variable whenever it is present; configure MAX_CONCURRENT_AGENTS for execution limits. |
-| `METRICS_ENABLED`                          | `false`             | Literal true mounts public GET /metrics.                                                                          |
+| Variable                                   | Default           | Meaning                                                                                                           |
+| ------------------------------------------ | ----------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `ONBOARDING_ENABLED`                       | unset             | Literal `0` exits immediately; other values do not disable this binary.                                           |
+| `ONBOARDING_GREETING`                      | empty             | Text prepended to the setup link.                                                                                 |
+| `ONBOD_LISTEN_ADDR`                        | `:8080`           | HTTP listener; LISTEN_ADDR is not read.                                                                           |
+| `ONBOARD_POLL_INTERVAL`                    | `10s`             | Go duration for greeting and pairing scans. Configure a positive duration.                                        |
+| `AUTHD_URL`                                | required          | JWKS endpoint for inbound token verification.                                                                     |
+| `AUTH_BASE_URL`                            | unset             | Public auth origin used to build links.                                                                           |
+| `AUTH_SECRET`                              | unset             | Shared state configuration loaded with the instance.                                                              |
+| `WEB_HOST`                                 | unset             | Shared public web origin.                                                                                         |
+| `DATA_DIR`                                 | working directory | Root for group and web-slot creation.                                                                             |
+| `ASSISTANT_NAME`                           | `arizuko`         | Instance display name from core config.                                                                           |
+| `SECRETS_KEY`                              | unset             | Keyring loaded by core config for group setup context.                                                            |
+| `DYNAMODB_URL`                             | required          | Store endpoint.                                                                                                   |
+| `AWS_REGION`                               | `us-east-1`       | Store signing region.                                                                                             |
+| `AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY` | required          | Daemon store identity.                                                                                            |
+| `STORE_CA`                                 | unset             | Base64 PEM endpoint certificate; unset uses system trust.                                                         |
+| `ARIZUKO_INSTANCE`                         | unset             | Audit and observability instance label.                                                                           |
+| `LOG_LEVEL`                                | `info`            | JSON stderr verbosity.                                                                                            |
+| `OTEL_EXPORTER_OTLP_ENDPOINT`              | unset             | Optional OTLP logs through obs.                                                                                   |
+| `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`       | unset             | Optional OTLP trace export; independent of the log endpoint.                                                      |
+| `MAX_CONCURRENT_CONTAINERS`                | absent            | Shared config rejects this variable whenever it is present; configure MAX_CONCURRENT_AGENTS for execution limits. |
+| `METRICS_ENABLED`                          | `false`           | Literal true mounts public GET /metrics.                                                                          |
 
 [core/config.go](../core/config.go) also parses the shared instance fields; OAuth login itself belongs to authd.
 
@@ -328,7 +327,7 @@ Startup runs greeting, pairing observation, and queue admission once.
 The configured poll consumes due greetings, pairings, gate work and notices
 every 10 s by default. State changes wake gates atomically. Exhausted gates
 wait until UTC midnight; quota or configuration changes wake them sooner.
-The outbound HTTP client has a 10 s timeout. SIGTERM closes HTTP immediately.
+Deliveries enter the durable routd queue directly. SIGTERM closes HTTP immediately.
 A failed enqueue reschedules its generation after 30 s. Routd retries queued
 delivery and rejects pairing greetings after credential expiry. Store errors
 leave work pending. Startup migrations backfill work once, with durable markers.
@@ -343,4 +342,3 @@ Sources: [boot, config, loops](main.go), [owned store](db.go), [resource contrac
 [entity ownership](../store/entities.go), [owner reach](../store/owner_reach.go).
 
 JWKS keys load lazily during verification through auth.FetchKeys; there is no fixed background JWKS ticker.
-Service tokens refresh on demand within 60 s of expiry, with a 10 s exchange timeout ([auth/service.go](../auth/service.go)).
