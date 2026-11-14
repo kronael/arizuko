@@ -676,7 +676,9 @@ the observed delivery revision. A stale attempt cannot adopt newer work by rerea
 MCP returns the common notice only after persistence succeeds, with the router
 as the scheduled resend owner. File sends and unknown create outcomes stop.
 The unkeyed REST outbound endpoint records a terminal first failure; it cannot
-promise safe replay. Both paths retain thread placement and failed-message evidence.
+promise safe replay. Its failure response is HTTP 400, including a failure to
+record that outcome. A successful platform send returns HTTP 200 even if recording
+fails. Both paths retain thread placement and failed-message evidence.
 
 The consumer reads at most 200 due pointers and exact delivery/message keys.
 Two hundred delayed messages cannot hide one due delivery: that fixture reads
@@ -919,6 +921,8 @@ its current contract ends on quiet time rather than a turn completion event.
 
 - Can external channel clients consume the standardized failure status and
   Retry-After header contract? No new JSON failure schema is introduced.
+- Can external `/v1/outbound` callers accept HTTP 400 for terminal delivery
+  failures? The unkeyed create cannot promise safe automatic replay.
 
 - Should clients accept `waiting_capacity` as an additive turn-state value in
   the existing REST and MCP surfaces? The existing pending-retry count includes it.

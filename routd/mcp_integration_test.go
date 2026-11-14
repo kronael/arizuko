@@ -3,14 +3,17 @@ package routd
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"net"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/ipc"
+	"github.com/kronael/arizuko/retry"
 )
 
 // replyForTest drives the actual reply handler when a lifecycle fixture needs
@@ -215,5 +218,37 @@ func TestMCPReplyRetryReusesIdempotencyKey(t *testing.T) {
 	if sends[1].idem != firstKey {
 		t.Fatalf("retry key=%q, first send key=%q — a mismatch posts the message twice",
 			sends[1].idem, firstKey)
+	}
+}
+
+func TestMCPFirstFailureKeepsThreadAndDue(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := db.PutGroup(core.Group{Folder: "demo"}); err != nil {
+		t.Fatal(err)
+	}
+	doSetRoutes(t, db, []core.Route{{Match: "platform=slack", Target: "demo"}})
+	const jid = "slack:team/channel/c1"
+	_ = db.SetChatIsGroup(jid, true)
+	threadTurn(t, db, "t1", "demo", jid, "root-9")
+	dl := &fakeDeliverer{sendErr: &retry.Error{Failure: retry.Failure{Kind: "transient"}, Err: errors.New("unavailable")}}
+	srv := NewServer(db, nil, dl, nil, 0, "")
+	bound := turnMCP{folder: "demo", chatJID: jid, turnID: "t1", trigger: "u1"}
+	sock := t.TempDir() + "/mcp.sock"
+	stop, err := ipc.ServeMCP(sock, srv.buildRoutdFns(bound), srv.buildStoreFns(bound), "demo", true, 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stop()
+	_, errText := callToolOverSock(t, sock, "reply", map[string]any{"chatJid": jid, "text": "answer"})
+	if !strings.Contains(errText, "router will resend") {
+		t.Fatalf("error=%q", errText)
+	}
+	rows, err := db.PendingOutbound(time.Now().Add(time.Hour), 10)
+	if err != nil || len(rows) != 1 || rows[0].Attempts != 1 || rows[0].Topic != "root-9" || !rows[0].NextAttemptAt.After(time.Now()) {
+		t.Fatalf("pending=%+v err=%v", rows, err)
 	}
 }

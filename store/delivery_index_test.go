@@ -367,3 +367,56 @@ func TestOutboundRetryMigrationPreservesConcurrentFailure(t *testing.T) {
 		t.Fatalf("concurrent failure: %+v fired=%v ok=%v err=%v", row, race.fired, ok, err)
 	}
 }
+
+func TestFirstOutboundFailure(t *testing.T) {
+	s := openMem(t)
+	defer s.Close()
+	now := time.Now().UTC()
+	due := now.Add(time.Hour).Truncate(time.Millisecond)
+	m := core.Message{ID: "first", ChatJID: "chat", Content: "original", BotMsg: true, Timestamp: now}
+	d, err := s.PutOutboundFailure(t.Context(), m, retry.Failure{Kind: "transient", RetryAt: due})
+	if err != nil || d.Failures != 1 || d.Stop || !d.NextAt.Equal(due) {
+		t.Fatalf("decision=%+v err=%v", d, err)
+	}
+	pending := pendingForTest(t, s, m)
+	if pending.Attempts != 1 || !pending.NextAttemptAt.Equal(due) {
+		t.Fatalf("pending=%+v", pending)
+	}
+	m.Content = "replacement"
+	again, err := s.PutOutboundFailure(t.Context(), m, retry.Failure{Kind: "permanent"})
+	if err != nil || again != d {
+		t.Fatalf("duplicate=%+v err=%v", again, err)
+	}
+	pending = pendingForTest(t, s, m)
+	if pending.Content != "original" || pending.Attempts != 1 || !pending.NextAttemptAt.Equal(due) {
+		t.Fatalf("duplicate pending=%+v", pending)
+	}
+	if err := s.MarkDelivered(t.Context(), pending.Message, "pid"); err != nil {
+		t.Fatal(err)
+	}
+	again, err = s.PutOutboundFailure(t.Context(), m, retry.Failure{Kind: "transient"})
+	if err != nil || again != (retry.Decision{}) {
+		t.Fatalf("sent duplicate=%+v err=%v", again, err)
+	}
+	terminal := core.Message{ID: "terminal", ChatJID: "chat", BotMsg: true, Timestamp: now}
+	d, err = s.PutOutboundFailure(t.Context(), terminal, retry.Failure{Kind: "permanent"})
+	if err != nil || !d.Stop || d.Failures != 1 || !d.NextAt.IsZero() {
+		t.Fatalf("terminal=%+v err=%v", d, err)
+	}
+	key, err := s.deliveryMessageKey(t.Context(), terminal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	item, ok, err := s.itemAt(t.Context(), MessageDelivery, deliveryKey(core.MessageStatusFailed, key))
+	if err != nil || !ok || item.Attrs["next_attempt_at"] != "" {
+		t.Fatalf("terminal item=%+v ok=%v err=%v", item, ok, err)
+	}
+	dueRows, err := s.PendingOutbound(t.Context(), time.Now().Add(24*time.Hour), 10)
+	if err != nil || len(dueRows) != 0 {
+		t.Fatalf("terminal due=%+v err=%v", dueRows, err)
+	}
+	dead, err := s.DeadLetters(t.Context(), "", 10)
+	if err != nil || len(dead) != 1 || dead[0].Attempts != 1 || !dead[0].NextAttemptAt.IsZero() {
+		t.Fatalf("dead=%+v err=%v", dead, err)
+	}
+}

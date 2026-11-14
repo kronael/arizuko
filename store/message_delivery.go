@@ -69,6 +69,52 @@ func (s *Store) PutOutbound(ctx context.Context, m core.Message, status string) 
 	return err
 }
 
+// PutOutboundFailure records the first failed attempt with its delivery state.
+func (s *Store) PutOutboundFailure(ctx context.Context, m core.Message, failure retry.Failure) (retry.Decision, error) {
+	decision := retry.Next(0, failure, time.Now(), time.Time{})
+	status := core.MessageStatusPending
+	if decision.Stop {
+		status = core.MessageStatusFailed
+	}
+	stored, err := s.putMessage(ctx, m, status, messageOptions{delivery: deliveryRetryAttrs(decision)})
+	if err != nil {
+		return retry.Decision{}, err
+	}
+	key, err := messageKeyOf(stored)
+	if err != nil {
+		return retry.Decision{}, err
+	}
+	for _, status := range []string{core.MessageStatusPending, core.MessageStatusFailed} {
+		it, ok, err := s.itemAt(ctx, MessageDelivery, deliveryKey(status, key))
+		if err != nil {
+			return retry.Decision{}, err
+		}
+		if !ok {
+			continue
+		}
+		count, err := parseCount(it.Attrs[attrDelAttempts])
+		if err != nil {
+			return retry.Decision{}, err
+		}
+		result := retry.Decision{Failures: count, Stop: status == core.MessageStatusFailed}
+		if !result.Stop {
+			result.NextAt, err = deliveryDueAt(it)
+		}
+		return result, err
+	}
+	return retry.Decision{}, nil
+}
+
+func deliveryRetryAttrs(decision retry.Decision) map[string]string {
+	attrs := map[string]string{attrDelAttempts: strconv.Itoa(decision.Failures)}
+	if decision.Stop {
+		attrs["last_error"] = retry.Notice("Delivery failed", decision)
+	} else {
+		attrs["next_attempt_at"] = core.TS(decision.NextAt)
+	}
+	return attrs
+}
+
 // PutOutboundOnce keeps an exact, deterministic coordinate across delivery retries.
 func (s *Store) PutOutboundOnce(ctx context.Context, m core.Message) (bool, error) {
 	_, exists, err := s.messageAt(ctx, m.ChatJID, m.ID)
@@ -184,14 +230,10 @@ func (s *Store) transitionDelivery(ctx context.Context, pending PendingMessage, 
 	if attrs == nil {
 		return false, fmt.Errorf("delivery %s has no observed state", pending.ID)
 	}
-	if decision.Failures > 0 {
-		attrs[attrDelAttempts] = strconv.Itoa(decision.Failures)
-	}
+	maps.Copy(attrs, deliveryRetryAttrs(decision))
 	if decision.Stop {
 		delete(attrs, "next_attempt_at")
-		attrs["last_error"] = retry.Notice("Delivery failed", decision)
 	} else {
-		attrs["next_attempt_at"] = core.TS(decision.NextAt)
 		delete(attrs, "last_error")
 	}
 	cond := objstore.Cond{Item: objstore.ItemPresent, Where: []objstore.Cmp{attrIs(objstore.IndexRevision, it.Attrs[objstore.IndexRevision])}}

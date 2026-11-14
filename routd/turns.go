@@ -90,47 +90,6 @@ func returnTarget(tc TurnContext, jid string) string {
 	return jid
 }
 
-// deliverRow attempts the send, stamps platform_id on success, and ANSWERS the
-// status the caller stores the row under: `sent` is the absence of a delivery
-// item, so the status decides whether an item is written at all
-// (store/message_delivery.go). threadRoot is non-empty only for a REPLY that
-// starts a new platform thread. A SEND_DISABLED_GROUPS folder skips the send
-// but lands `sent`, so the retry sweep never sees it.
-func (s *Server) deliverRow(tc TurnContext, jid string, row *core.Message,
-	threadRoot, threadID string) string {
-	if s.mutedGroup(tc.Folder) {
-		return core.MessageStatusSent
-	}
-	// A bare-folder jid has no channel (a system/auto turn or a mis-targeted
-	// delegation). The row lands `failed`, NOT `sent`: `failed`
-	// IS the dead-letter state with delivery_attempts=0, so the content stays
-	// visible in dead_letters instead of recording a delivery that never
-	// happened (BUGS L76).
-	if !strings.Contains(jid, ":") {
-		slog.Warn("no channel for this jid; the message is dead-lettered, not delivered",
-			"jid", jid, "folder", tc.Folder, "msg_id", row.ID)
-		return core.MessageStatusFailed
-	}
-	if s.deliver == nil {
-		return core.MessageStatusPending
-	}
-	// STAMPED BEFORE THE SEND: a failed send returns `pending` and the row is
-	// stored as it stands, so a row stamped after the error has no topic and
-	// the outbound sweep re-sends it TOP-LEVEL (BUGS L169). The thread ID IS
-	// threadRoot on Discord and Slack, so the root holds whether or not this
-	// send lands.
-	if threadRoot != "" && row.Topic == "" {
-		row.Topic = threadRoot
-	}
-	pid, err := s.deliver.Send(jid, row.Content, row.ReplyToID, threadID, threadRoot, row.ID)
-	if err != nil {
-		slog.Error("deliver send failed", "jid", jid, "folder", tc.Folder, "err", err)
-		return core.MessageStatusPending
-	}
-	row.PlatformID = pid
-	return core.MessageStatusSent
-}
-
 // gateway is the model gateway's client, or nil when the instance is not
 // metered. The Loop owns it because the mint brackets a dispatch; one
 // declaration, so no surface decides differently whether this instance is

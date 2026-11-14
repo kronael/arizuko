@@ -22,6 +22,7 @@ import (
 	"github.com/kronael/arizuko/githubapp"
 	"github.com/kronael/arizuko/ipc"
 	"github.com/kronael/arizuko/resreg"
+	"github.com/kronael/arizuko/retry"
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
 	"github.com/kronael/arizuko/store"
 )
@@ -586,29 +587,23 @@ func (s *Server) handleOutbound(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	// A daemon's message is a messages row like the agent's: routd is the sole
-	// appender, and a send with no row is invisible to find_messages, the
-	// transcript and dead_letters. A refused send lands `failed` with
-	// delivery_attempts=0, so the pending sweep never retries it.
 	row := core.Message{
 		ID: "out-" + randHex(8), ChatJID: req.JID, Sender: sub, Content: req.Text,
 		Timestamp: time.Now().UTC(), BotMsg: true, FromMe: true,
 	}
-	status := core.MessageStatusSent
 	pid, sendErr := s.deliver.SendVia(req.Channel, req.JID, req.Text)
 	if sendErr != nil {
-		status = core.MessageStatusFailed
-	} else {
-		row.PlatformID = pid
-	}
-	// A store failure after a successful send is logged, not returned: a 5xx
-	// makes the caller send it twice.
-	if err := s.db.PutOutbound(row, status); err != nil {
-		slog.Error("outbound row not stored", "jid", req.JID, "sender", sub, "status", status, "err", err)
-	}
-	if sendErr != nil {
-		writeErr(w, 502, "delivery_failed", sendErr.Error())
+		decision, err := s.db.PutOutboundFailure(row, retry.Failure{Kind: "permanent"})
+		if err != nil {
+			writeErr(w, 400, "delivery_failed", fmt.Sprintf("%v; recording delivery failure: %v", sendErr, err))
+			return
+		}
+		writeErr(w, 400, "delivery_failed", fmt.Sprintf("%v (%s)", sendErr, retry.Notice("Delivery failed", decision)))
 		return
+	}
+	row.PlatformID = pid
+	if err := s.db.PutOutbound(row, core.MessageStatusSent); err != nil {
+		slog.Error("outbound row not stored", "jid", req.JID, "sender", sub, "err", err)
 	}
 	writeJSON(w, 200, apiv1.OK{OK: true})
 }

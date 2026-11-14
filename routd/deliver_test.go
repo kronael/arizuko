@@ -1,7 +1,9 @@
 package routd
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,7 +13,9 @@ import (
 
 	"github.com/kronael/arizuko/chanreg"
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/objstore"
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
+	"github.com/kronael/arizuko/store"
 )
 
 // fakeAdapter is a minimal platform adapter: it records /send hits and returns
@@ -366,8 +370,8 @@ func TestOutboundAppendsMessagesRow(t *testing.T) {
 	// (`failed`, never `pending`), and the sweep never re-sends it.
 	rec = doJSON(t, h, "POST", "/v1/outbound", "",
 		apiv1.OutboundRequest{JID: "slack:T/C/U", Text: "nobody home"})
-	if rec.Code != 502 {
-		t.Fatalf("refused outbound status=%d, want 502", rec.Code)
+	if rec.Code != 400 {
+		t.Fatalf("refused outbound status=%d, want 400", rec.Code)
 	}
 	refused := outboundRowOf(t, db, "slack:T/C/U")
 	status := statusOf(t, db, refused.ID)
@@ -377,6 +381,24 @@ func TestOutboundAppendsMessagesRow(t *testing.T) {
 	if rows, _ := db.PendingOutbound(time.Now().Add(time.Hour), 10); len(rows) != 0 {
 		t.Fatalf("dead-lettered outbound row is in the retry feed: %+v", rows)
 	}
+	rec = doJSON(t, h, "POST", "/v1/outbound", "", apiv1.OutboundRequest{JID: "atlas", Text: "no channel"})
+	if rec.Code != 400 {
+		t.Fatalf("bare folder status=%d", rec.Code)
+	}
+	bare := outboundRowOf(t, db, "atlas")
+	if statusOf(t, db, bare.ID) != core.MessageStatusFailed {
+		t.Fatal("bare folder must retain failed evidence")
+	}
+	dead, err := db.store().DeadLetters(t.Context(), "", 10)
+	if err != nil || len(dead) != 2 {
+		t.Fatalf("dead letters=%+v err=%v", dead, err)
+	}
+	for _, row := range dead {
+		if row.Attempts != 1 || !row.NextAttemptAt.IsZero() {
+			t.Fatalf("dead letter=%+v", row)
+		}
+	}
+
 }
 
 // outboundRowOf reads the one bot row a chat holds — the outbound the handler
@@ -397,4 +419,30 @@ func outboundRowOf(t *testing.T, db *DB, jid string) core.Message {
 		t.Fatalf("%s holds %d outbound rows, want 1", jid, len(out))
 	}
 	return out[0]
+}
+
+type failOutboundWrite struct{ objstore.Store }
+
+func (s failOutboundWrite) GuardedBatch(ctx context.Context, checks []objstore.Check, writes []objstore.Write) (bool, error) {
+	for _, w := range writes {
+		if w.Entity == store.Messages {
+			return false, fmt.Errorf("store unavailable")
+		}
+	}
+	return s.Store.GuardedBatch(ctx, checks, writes)
+}
+
+func TestOutboundAcceptedSendSurvivesStoreFailure(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	db.obj = failOutboundWrite{db.obj}
+	deliver := &recDeliverer{pid: "accepted"}
+	srv := NewServer(db, nil, deliver, nil, 0, "")
+	rec := doJSON(t, srv.Handler(), "POST", "/v1/outbound", "", apiv1.OutboundRequest{JID: "slack:channel", Text: "hello"})
+	if rec.Code != 200 {
+		t.Fatalf("accepted send status=%d body=%s", rec.Code, rec.Body.String())
+	}
 }

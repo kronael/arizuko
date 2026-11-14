@@ -3,7 +3,6 @@ package routd
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -449,49 +448,6 @@ func (d *fakeDeliverer) SendVoice(_, _, _, _, _ string) (string, error) {
 	return d.platformID, nil
 }
 
-// TestDeliverRow_SkipsBareFolderJid: a system/auto turn (e.g. /migrate) delivers
-// its prose to a bare folder jid (no `platform:` prefix, no channel). deliverRow
-// must SKIP the send — no retry — instead of ERROR-spamming a doomed Send that
-// trips the per-folder breaker en masse on a MIGRATION_VERSION bump and blocks
-// real replies for that folder. A real channel jid still delivers.
-//
-// The row must land `failed`, not `sent`: `sent` records a delivery that never
-// happened, and it hid two operator alerts — one reporting a skills-breaking
-// guard (BUGS L76). `failed` IS the dead-letter state, so the content stays
-// visible on the dead_letters surface. Terminal either way; PendingOutbound
-// selects status='pending' only, so nothing re-sends it.
-func TestDeliverRow_SkipsBareFolderJid(t *testing.T) {
-	dl := &fakeDeliverer{platformID: "pid-1"}
-	srv := &Server{deliver: dl}
-
-	row := &core.Message{ID: "out-1"}
-	status := srv.deliverRow(TurnContext{Folder: "atlas"}, "atlas", row, "", "")
-	if status != core.MessageStatusFailed {
-		t.Fatalf("bare-folder jid: want failed (dead-lettered, not delivered), got %q", status)
-	}
-	if dl.sends != 0 {
-		t.Fatalf("bare-folder jid must NOT call Send, got %d", dl.sends)
-	}
-
-	// A prefix-less ROOM takes the same path as a bare folder: it names a chat,
-	// but with no `platform:` no adapter can own it, so ForJID has no answer and
-	// there is nothing better to resolve it to. It dead-letters rather than
-	// routing anywhere — the shape a stale route leaves behind.
-	rowRoom := &core.Message{ID: "out-room"}
-	statusRoom := srv.deliverRow(TurnContext{Folder: "atlas"}, "user/137865889", rowRoom, "", "")
-	if statusRoom != core.MessageStatusFailed {
-		t.Fatalf("prefix-less room: want failed (dead-lettered), got %q", statusRoom)
-	}
-	if dl.sends != 0 {
-		t.Fatalf("prefix-less room must NOT call Send, got %d", dl.sends)
-	}
-
-	row2 := &core.Message{ID: "out-2"}
-	status2 := srv.deliverRow(TurnContext{Folder: "atlas"}, "slack:T/C/1", row2, "", "")
-	if dl.sends != 1 || status2 != core.MessageStatusSent {
-		t.Fatalf("channel jid: want 1 Send + sent, got sends=%d status=%q", dl.sends, status2)
-	}
-}
 func (d *fakeDeliverer) Post(_, _ string, _ []string) (string, error)       { return d.platformID, nil }
 func (d *fakeDeliverer) Forward(_, _, _ string) (string, error)             { return d.platformID, nil }
 func (d *fakeDeliverer) Quote(_, _, _ string) (string, error)               { return d.platformID, nil }
@@ -537,46 +493,6 @@ func doJSONKey(t *testing.T, h http.Handler, method, path, idemKey string, body 
 	h.ServeHTTP(rec, req)
 	_ = time.Now
 	return rec
-}
-
-// A reply aimed at a thread must carry that thread on the row even when the
-// send FAILS. PutOutbound stores the row as it stands, and the outbound sweep
-// re-sends it with threadRoot="" — so a row left with no topic came back
-// TOP-LEVEL, outside the thread it was written for (BUGS L169).
-func TestDeliverRow_AFailedSendStillRecordsItsThread(t *testing.T) {
-	dl := &fakeDeliverer{platformID: "pid-1", sendErr: errors.New("platform said no")}
-	srv := &Server{deliver: dl}
-
-	row := &core.Message{ID: "out-1"}
-	status := srv.deliverRow(TurnContext{Folder: "atlas"}, "slack:T/C/1", row, "root-9", "")
-
-	if status != core.MessageStatusPending {
-		t.Fatalf("status = %q, want pending — the sweep re-sends this row", status)
-	}
-	if row.Topic != "root-9" {
-		t.Errorf("row.Topic = %q, want root-9; the sweep has no thread to aim at", row.Topic)
-	}
-}
-
-// A send that succeeds records the same thread, and a row that already has a
-// topic keeps its own — the stamp fills a gap, it does not overwrite.
-func TestDeliverRow_TheThreadStampFillsOnlyAnEmptyTopic(t *testing.T) {
-	dl := &fakeDeliverer{platformID: "pid-1"}
-	srv := &Server{deliver: dl}
-
-	fresh := &core.Message{ID: "out-1"}
-	if st := srv.deliverRow(TurnContext{Folder: "atlas"}, "slack:T/C/1", fresh, "root-9", ""); st != core.MessageStatusSent {
-		t.Fatalf("status = %q, want sent", st)
-	}
-	if fresh.Topic != "root-9" {
-		t.Errorf("a sent reply lost its thread: %q", fresh.Topic)
-	}
-
-	owned := &core.Message{ID: "out-2", Topic: "its-own"}
-	srv.deliverRow(TurnContext{Folder: "atlas"}, "slack:T/C/1", owned, "root-9", "")
-	if owned.Topic != "its-own" {
-		t.Errorf("the stamp overwrote an existing topic: %q", owned.Topic)
-	}
 }
 
 // Agent-to-agent delegation reaches the child as a `send`, and every

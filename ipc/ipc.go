@@ -24,6 +24,7 @@ import (
 	"github.com/kronael/arizuko/mountsec"
 	"github.com/kronael/arizuko/obs"
 	"github.com/kronael/arizuko/resreg"
+	"github.com/kronael/arizuko/retry"
 	routv1 "github.com/kronael/arizuko/routd/api/v1"
 	"github.com/kronael/arizuko/router"
 	"github.com/kronael/arizuko/store"
@@ -187,8 +188,9 @@ type StoreFns struct {
 	// deciding which sweep owns it. It is a door of its own because a delivery
 	// status is not a field of a message: `sent` is the absence of a delivery
 	// item, so an already-delivered row goes through PutMessage.
-	PutOutbound    func(m core.Message, status string) error
-	GetLastReplyID func(jid, topic string) string
+	PutOutbound        func(m core.Message, status string) error
+	PutOutboundFailure func(m core.Message, failure retry.Failure) (retry.Decision, error)
+	GetLastReplyID     func(jid, topic string) string
 	// SetLastReply upserts last_reply_id and engaged_folder for (jid,
 	// topic). Always called on outbound; BumpEngagement is the separate
 	// timed-aware bump. Spec 5/G-engagement.
@@ -731,44 +733,31 @@ func numArg(args map[string]any, key string) (int, bool) {
 
 // recordOutbound appends the durable row for a DELIVERED outbound message.
 func recordOutbound(routd RoutdFns, db StoreFns, jid, text, platformID, folder, msgID string) {
-	putOutboundRow(routd, db, jid, text, platformID, folder, "", db.CurrentTopic, msgID, core.MessageStatusSent, "")
+	putOutboundRow(routd, db, jid, text, platformID, folder, "", db.CurrentTopic, msgID, core.MessageStatusSent, "", nil)
 }
 
 // recordOutboundReply records the thread resolved by the delivery path.
 func recordOutboundReply(routd RoutdFns, db StoreFns, jid, text, platformID, folder, threadRoot, msgID, verb string) {
-	putOutboundRow(routd, db, jid, text, platformID, folder, "", threadRoot, msgID, core.MessageStatusSent, verb)
+	putOutboundRow(routd, db, jid, text, platformID, folder, "", threadRoot, msgID, core.MessageStatusSent, verb, nil)
 }
 
-// recordOutboundFailure appends the durable row for an outbound message the
-// platform did NOT accept, so a failed send leaves evidence, and returns the
-// error the tool hands back to the agent.
-//
-// A transient failure lands 'pending' and routd's sweep re-sends it. A permanent
-// refusal lands 'failed'. retryable=false forces the dead letter for a file send,
-// which the text-only sweep would repeat as a captionless, fileless message.
-//
-// threadRoot is the thread the send MEANT to root, known before the send: a
-// pending reply without it cannot be put back where it belonged, so the retry
-// landed in the parent channel instead (BUGS L169 link 2).
-//
-// The status decided here is also what the agent needs, so it goes into the
-// returned error rather than into a second classifier at the call site: one
-// declaration, two readers. A bare "failed" leaves the retry with two owners —
-// a `reply` answered 502, the sweep delivered the row 52 s later, and the agent,
-// told only that it failed, re-sent the same text six seconds after that, so the
-// channel got both copies (BUGS L165).
 func recordOutboundFailure(routd RoutdFns, db StoreFns, jid, text, folder, replyToID, threadRoot, msgID, verb string, retryable bool, err error) error {
-	status := core.MessageStatusPending
-	if !retryable || errors.Is(err, chanlib.ErrPermanent) {
-		status = core.MessageStatusFailed
+	failure := retry.FromError(err, time.Now())
+	if !retryable {
+		failure = retry.Failure{Kind: "permanent"}
 	}
-	slog.Error("outbound send failed: recording undelivered row",
-		"folder", folder, "jid", jid, "status", status, "err", err)
-	putOutboundRow(routd, db, jid, text, "", folder, replyToID, threadRoot, msgID, status, verb)
-	if status == core.MessageStatusPending {
-		return fmt.Errorf("%w (queued: the router re-sends this message — do NOT send it again)", err)
+	decision, saveErr := putOutboundRow(routd, db, jid, text, "", folder, replyToID, threadRoot, msgID, "", verb, &failure)
+	if saveErr != nil {
+		return fmt.Errorf("%w; recording delivery failure: %v", err, saveErr)
 	}
-	return fmt.Errorf("%w (not delivered, and no retry follows — the message is dead-lettered)", err)
+	if decision.Failures == 0 && decision.NextAt.IsZero() && !decision.Stop {
+		return err
+	}
+	notice := retry.Notice("Delivery failed", decision)
+	if !decision.Stop {
+		notice += " The router will resend this message; do not send it again."
+	}
+	return fmt.Errorf("%w (%s)", err, notice)
 }
 
 // putOutboundRow is the ONE writer of an MCP-originated outbound row. Both
@@ -777,7 +766,7 @@ func recordOutboundFailure(routd RoutdFns, db StoreFns, jid, text, folder, reply
 // A verb whose Deliverer takes no idempotency key — voice, post and the social
 // verbs — passes msgID="" and the row mints its own id: there is nothing for it
 // to have to match.
-func putOutboundRow(routd RoutdFns, db StoreFns, jid, text, platformID, folder, replyToID, threadRoot, msgID, status, verb string) {
+func putOutboundRow(routd RoutdFns, db StoreFns, jid, text, platformID, folder, replyToID, threadRoot, msgID, status, verb string, failure *retry.Failure) (retry.Decision, error) {
 	// Key last-reply + engagement under the active turn's topic — same
 	// key the gateway seeds (SetLastReply at turn start). "" would chain
 	// the next in-thread reply off the wrong (root) key.
@@ -798,38 +787,44 @@ func putOutboundRow(routd RoutdFns, db StoreFns, jid, text, platformID, folder, 
 	if msgID == "" {
 		msgID = core.MsgID("mcp")
 	}
-	if db.PutOutbound != nil {
-		err := db.PutOutbound(core.Message{
-			ID:        msgID,
-			ChatJID:   jid,
-			Sender:    folder,
-			Content:   text,
-			Timestamp: time.Now(),
-			FromMe:    true,
-			BotMsg:    true,
-			TurnID:    db.CurrentTurnID,
-			Verb:      verb,
-			// An undelivered row carries the reply target so the sweep re-sends
-			// it into the same thread. A delivered row leaves it empty: its own
-			// platform id belongs in platform_id.
-			ReplyToID: replyToID,
-			// Store the sent message's own platform id in platform_id: a later human
-			// reply carries this id in reply_to, and the reply-to-bot → verb=mention
-			// promotion (spec 5/L) matches it. reply-tool sends were dropping it, so
-			// threads rooted on a tool reply never re-promoted.
-			PlatformID: platformID,
-			// The folder the turn ran in, which is what `routed_to` names and what
-			// the folder feed is partitioned by. The chat's jid is already the
-			// row's ChatJID, and a jid here makes a folder-scoped read miss the
-			// reply it is looking for.
-			RoutedTo: folder,
-			Topic:    topic,
-		}, status)
-		if err != nil {
-			slog.Error("outbound row not stored", "folder", folder, "jid", jid,
-				"status", status, "err", err)
-		}
+	row := core.Message{
+		ID:        msgID,
+		ChatJID:   jid,
+		Sender:    folder,
+		Content:   text,
+		Timestamp: time.Now(),
+		FromMe:    true,
+		BotMsg:    true,
+		TurnID:    db.CurrentTurnID,
+		Verb:      verb,
+		// An undelivered row carries the reply target so the sweep re-sends
+		// it into the same thread. A delivered row leaves it empty: its own
+		// platform id belongs in platform_id.
+		ReplyToID:  replyToID,
+		PlatformID: platformID,
+		// The folder the turn ran in, which is what `routed_to` names and what
+		// the folder feed is partitioned by. The chat's jid is already the
+		// row's ChatJID, and a jid here makes a folder-scoped read miss the
+		// reply it is looking for.
+		RoutedTo: folder,
+		Topic:    topic,
 	}
+	if failure != nil {
+		if db.PutOutboundFailure == nil {
+			return retry.Decision{}, fmt.Errorf("outbound failure store not configured")
+		}
+		return db.PutOutboundFailure(row, *failure)
+	}
+	var err error
+	if db.PutOutbound == nil {
+		err = fmt.Errorf("outbound store not configured")
+	} else {
+		err = db.PutOutbound(row, status)
+	}
+	if err != nil {
+		slog.Error("outbound row not stored", "folder", folder, "jid", jid, "status", status, "err", err)
+	}
+	return retry.Decision{}, err
 }
 
 // internalSend delivers one MCP send and records it. Both outcomes write a

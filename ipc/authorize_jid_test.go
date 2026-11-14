@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/retry"
 )
 
 // A mention-only sub-folder must be allowed to reply to its chat even though
@@ -173,14 +175,14 @@ func TestRecordOutboundReply_RecordsTheResolvedDestinationTopic(t *testing.T) {
 func TestRecordOutboundFailure_KeepsTheThreadTheReplyMeantToRoot(t *testing.T) {
 	var got core.Message
 	var gotStatus string
-	db := StoreFns{PutOutbound: func(m core.Message, status string) error {
-		got, gotStatus = m, status
-		return nil
+	db := StoreFns{PutOutboundFailure: func(m core.Message, failure retry.Failure) (retry.Decision, error) {
+		got, gotStatus = m, core.MessageStatusPending
+		return retry.Next(0, failure, time.Now(), time.Time{}), nil
 	}}
 
 	const root = "1545760882322182276"
 	_ = recordOutboundFailure(RoutdFns{}, db, "discord:g/channel/C1", "answer", "sloth/desk",
-		"parent-msg", root, "", "reply", true, errors.New("502 bad gateway"))
+		"parent-msg", root, "", "reply", true, &retry.Error{Failure: retry.Failure{Kind: "transient"}, Err: errors.New("502 bad gateway")})
 
 	if got.Topic != root {
 		t.Fatalf("Topic = %q, want the thread it meant to root (%s) — the sweep cannot put it back without one", got.Topic, root)
@@ -200,17 +202,19 @@ func TestRecordOutboundFailure_KeepsTheThreadTheReplyMeantToRoot(t *testing.T) {
 // returned error must name the owner, and must still carry the platform's own
 // message and sentinel so nothing downstream loses the classification.
 func TestRecordOutboundFailure_TellsTheAgentWhoOwnsTheRetry(t *testing.T) {
-	db := StoreFns{PutOutbound: func(core.Message, string) error { return nil }}
+	db := StoreFns{PutOutboundFailure: func(_ core.Message, failure retry.Failure) (retry.Decision, error) {
+		return retry.Next(0, failure, time.Now(), time.Time{}), nil
+	}}
 
 	transient := recordOutboundFailure(RoutdFns{}, db, "discord:g/channel/C1", "answer",
-		"sloth/desk", "", "", "", "reply", true, errors.New("502 bad gateway"))
+		"sloth/desk", "", "", "", "reply", true, &retry.Error{Failure: retry.Failure{Kind: "transient"}, Err: errors.New("502 bad gateway")})
 	if transient == nil {
 		t.Fatal("transient failure returned nil, want the error the tool hands the agent")
 	}
 	if !strings.Contains(transient.Error(), "502 bad gateway") {
 		t.Errorf("transient = %q, want the platform's own message kept", transient)
 	}
-	if !strings.Contains(transient.Error(), "do NOT send it again") {
+	if !strings.Contains(transient.Error(), "do not send it again") {
 		t.Errorf("transient = %q, want the agent told the router owns this retry", transient)
 	}
 
@@ -219,10 +223,10 @@ func TestRecordOutboundFailure_TellsTheAgentWhoOwnsTheRetry(t *testing.T) {
 	if permanent == nil {
 		t.Fatal("permanent failure returned nil, want the error the tool hands the agent")
 	}
-	if !strings.Contains(permanent.Error(), "dead-lettered") {
+	if !strings.Contains(permanent.Error(), "Automatic retries stopped") {
 		t.Errorf("permanent = %q, want the agent told no retry follows", permanent)
 	}
-	if strings.Contains(permanent.Error(), "do NOT send it again") {
+	if strings.Contains(permanent.Error(), "do not send it again") {
 		t.Errorf("permanent = %q, want the dead letter NOT described as queued", permanent)
 	}
 	if !errors.Is(permanent, chanlib.ErrPermanent) {

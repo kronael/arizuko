@@ -205,6 +205,10 @@ func (d *DB) PutMessage(m core.Message) error {
 	return nil
 }
 
+func (d *DB) PutOutboundFailure(m core.Message, failure retry.Failure) (retry.Decision, error) {
+	return d.store().PutOutboundFailure(context.Background(), m, failure)
+}
+
 // PutOutbound appends one outbound row and the delivery state it still owes.
 // `sent` writes no delivery item, which is what makes it the absence of one.
 func (d *DB) PutOutbound(m core.Message, status string) error {

@@ -296,6 +296,9 @@ func (s *Store) appendMessage(ctx context.Context, m core.Message, status string
 	writes = append(writes, activityWrite(key, m))
 	if w, ok := deliveryWrite(key, m, status, 0); ok {
 		maps.Copy(w.Attrs, options.delivery)
+		if options.delivery != nil && status == core.MessageStatusFailed {
+			delete(w.Attrs, "next_attempt_at")
+		}
 		writes = append(writes, w)
 	}
 	writes = append(writes, options.also...)

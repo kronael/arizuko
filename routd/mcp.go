@@ -596,11 +596,12 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 			}
 			return out
 		},
-		PutMessage:     func(m core.Message) error { return s.putAgentMessage(t, m) },
-		PutOutbound:    s.db.PutOutbound,
-		GetLastReplyID: s.db.LastReplyID,
-		SetLastReply:   s.db.SetLastReply,
-		SetEngagement:  s.db.store().BumpEngagement,
+		PutMessage:         func(m core.Message) error { return s.putAgentMessage(t, m) },
+		PutOutbound:        s.db.PutOutbound,
+		PutOutboundFailure: s.db.PutOutboundFailure,
+		GetLastReplyID:     s.db.LastReplyID,
+		SetLastReply:       s.db.SetLastReply,
+		SetEngagement:      s.db.store().BumpEngagement,
 		BumpEngagement: func(jid, topic, folder string, until time.Time) error {
 			return s.db.store().RenewEngagement(t.turnID, jid, topic, folder, until)
 		},

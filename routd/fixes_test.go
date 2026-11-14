@@ -122,8 +122,8 @@ func (d *recDeliverer) SendOptions(jid, text string, options []chanlib.Option, t
 // an explicit `channel` selected.
 func (d *recDeliverer) SendVia(channel, jid, text string) (string, error) {
 	d.mu.Lock()
-	defer d.mu.Unlock()
 	d.viaChannels = append(d.viaChannels, channel)
+	d.mu.Unlock()
 	return d.Send(jid, text, "", "", "", "")
 }
 func (d *recDeliverer) React(_, _, _ string) error {

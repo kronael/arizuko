@@ -250,6 +250,10 @@ The binary is `routd/cmd/routd/main.go`; LISTEN_ADDR defaults to :8080.
 The Resource names and agent tools table lists the resreg endpoints.
 These additional mux patterns serve ingress, runtime state, and operator pages:
 
+`POST /v1/outbound` makes one unkeyed send. A failed send returns terminal HTTP 400;
+automatic replay is unsafe. An accepted send returns HTTP 200 even if recording
+the message fails.
+
 | Method and path                  | Handler owner |
 | -------------------------------- | ------------- |
 | `GET /health`                    | routd         |
