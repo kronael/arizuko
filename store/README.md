@@ -129,7 +129,7 @@ An incomplete backfill fails closed; only routd migrates the existing rows.
 
 Message identity, status and reply lookups use chat-scoped pointers. Delivery
 transitions resolve the stored coordinate, including append-order adjustments.
-`messages-v1` backfills pointers once; group rename updates them atomically.
+`messages-v1` backfills pointers once; group rename updates them atomically. Attachment deadlines and failure counts stay on their message; the due key indexes pending work.
 Onboarding writes schedule greeting and notice generations, pairing
 acknowledgments, and due `onboarding_work` gate records. Admission uses keyed
 queues and today's quota, fenced by the owner version. Gate and admission
@@ -163,7 +163,7 @@ policy is written:
 
 Primary methods (by domain):
 
-- Messages: `PutMessage`, `NewMessagesForChat`, `MessagesSince`, `EnrichMessage`, `MarkMessagesErrored`, `DeleteErroredMessages`, `LatestSource`
+- Messages: `PutMessage`, `NewMessagesForChat`, `MessagesSince`, `CompleteAttachments`, `MarkMessagesErrored`, `DeleteErroredMessages`, `LatestSource`
 - Groups: `PutGroup`, `DeleteGroup`, `AllGroups`, `GroupByFolder`, `SetGroupSettings`
 - Sessions: `GetSession`, `SetSession`, `EnsureTopicLineage`, `ForkTopic`, `TopicLineage` — the run history is runed's, over its own `/v1`
 - Sticky: `StickyPins` (both at once), `SetStickyGroup`, `SetStickyTopic`

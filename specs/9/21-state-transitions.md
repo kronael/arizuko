@@ -205,6 +205,27 @@ inside one spawn/kill attempt. The failed spawn itself returns to the saved turn
 Compose supervisor restarts and dependency-owned SDK internals are external
 mechanisms, inventoried here without adding a second arizuko policy.
 
+## Attachment retries
+
+Attachment retry state belongs to the exact message coordinate. A pending state
+indexes its deadline in `attachments/due`; a failed state has no due pointer.
+The message stores its failure count and deadline. Completion
+clears the raw input and retry metadata. Terminal failure retains the input and
+commits the common unavailable notice once. Every transition guards the observed
+revision, raw input and content. An appended identity is immutable;
+archive import restores its raw input and retry metadata together.
+
+Enrichment runs before turn admission. A pending saved turn postpones its existing
+deadline without spending an execution retry. The due index wakes the original
+chat; it does not acknowledge work. A turn acquiring input keys touches the chat
+revision atomically, or guards its absence when the chat does not exist. Retirement
+uses that revision to refuse a concurrent owner. One attempt makes one request per attachment
+and removes all files it created when a transient failure postpones the message.
+
+Startup discovers unread input through the chat sweep and saved input through the
+deferred-turn index. A message without retry metadata starts with zero failures.
+Its first failed fetch commits the deadline and due pointer atomically.
+
 ## Module map
 
 ```yaml
@@ -291,6 +312,25 @@ mechanisms, inventoried here without adding a second arizuko policy.
   names:
     [MigrateStateIndexes, RecoverableTurns, LiveTurnsInFolder, LiveTurnsInChat]
   never: exposes an operator-managed resource
+- path: store/turn_context.go (changed)
+  job: fence input ownership against attachment retirement with the chat revision
+  names: [OpenTurnContext]
+  never: creates a chat solely to acquire input
+- path: store/attachment_retry.go (new)
+  job: persist attachment retry state on exact messages and select due work
+  names:
+    [
+      AttachmentRetry,
+      ReadAttachmentRetry,
+      DeferAttachments,
+      CompleteAttachments,
+      DueAttachments,
+    ]
+  never: stores attachment work in a separate primary or an in-memory timer
+- path: routd/enrich.go and routd/dispatch.go (changed)
+  job: enrich attachments before turn admission using guarded retry decisions
+  names: [enrichAttachments, downloadFile, runBoundTurn, processChat]
+  never: exposes uncommitted enrichment or spends a turn retry on attachment work
 - path: store/messages.go (changed)
   job: resolve chat identities and turn work by key
   names:
@@ -763,7 +803,7 @@ its current contract ends on quiet time rather than a turn completion event.
 - May provisioning drop onbod's unused `AUTHD_SERVICE_KEY` and `ROUTER_URL`?
   The daemon accepts existing environments and does not need those values.
 
-- The archive adds optional `work` and `delivery` metadata. Does any external
+- The archive adds optional `work`, `delivery` and `attachment_retry` metadata. Does any external
   archive consumer require a version signal for these additive fields?
 - Onbod uses its existing routd store handle to enqueue greetings atomically
   and acknowledge pairing revisions. If this handle becomes remote, which

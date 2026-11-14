@@ -15,7 +15,9 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/objstore"
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
+	"github.com/kronael/arizuko/store"
 )
 
 func setFetchTimeouts(t *testing.T, header, bodyBase time.Duration) {
@@ -218,7 +220,17 @@ func TestTurn_ASlowAttachmentDefersTheTurnUntilItArrives(t *testing.T) {
 		t.Fatalf("cursor advanced past the deferred message: %q", got)
 	}
 
-	expireBusyWait(t, srv.loop, "telegram:group/1")
+	rows, err := db.store().NewMessagesForChat(context.Background(), "telegram:group/1", "", 10)
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("read input: %v %v", rows, err)
+	}
+	snapshot, found, err := db.store().ReadAttachmentRetry(context.Background(), rows[0])
+	if err != nil || !found {
+		t.Fatalf("read retry: %v %v", found, err)
+	}
+	if _, err := db.store().TryWriteEntities(context.Background(), nil, objstore.Write{Op: objstore.Update, Entity: store.Messages, Key: snapshot.Observed.Key, Attrs: map[string]string{"attachment_retry_at": core.TS(time.Now().Add(-time.Second))}}); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := srv.loop.processGroupMessages("telegram:group/1"); err != nil {
 		t.Fatalf("retry: %v", err)
 	}
@@ -248,25 +260,24 @@ func TestTurn_APermanentlyRefusedAttachmentRunsTheTurnAtOnce(t *testing.T) {
 	if _, err := srv.loop.processGroupMessages("telegram:group/1"); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(html.UnescapeString(runner.gotBatch), `unavailable="the file could not be fetched"`) {
+	if !strings.Contains(html.UnescapeString(runner.gotBatch), `unavailable="Attachment unavailable`) {
 		t.Fatalf("the agent was not told the file is unavailable: %q", runner.gotBatch)
 	}
 }
 
-// A message whose file stayed unreachable for fetchGiveUp runs with a marker
-// that says how long it was tried, so the chat is not held forever.
-func TestTurn_AnAttachmentStillUnreachableAfterTheGiveUpRunsTheTurn(t *testing.T) {
+// An old message retains the same retry budget as a new message.
+func TestTurn_OldAttachmentRetainsRetryBudget(t *testing.T) {
 	files := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "bad gateway", http.StatusBadGateway)
 	}))
 	defer files.Close()
 	_, srv, runner, _ := attachmentRoutd(t)
-	sendAttachments(t, srv, []apiv1.Attachment{pdf(files.URL + "/files/abc")}, time.Now().Add(-fetchGiveUp-time.Minute))
+	sendAttachments(t, srv, []apiv1.Attachment{pdf(files.URL + "/files/abc")}, time.Now().Add(-24*time.Hour))
 
 	if _, err := srv.loop.processGroupMessages("telegram:group/1"); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(runner.gotBatch, "could not be fetched within 30 minutes") {
-		t.Fatalf("the turn did not run with the give-up marker: %q", runner.gotBatch)
+	if runner.gotTurn != "" {
+		t.Fatalf("old attachment ran before its retry: %q", runner.gotBatch)
 	}
 }

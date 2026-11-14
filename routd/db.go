@@ -211,21 +211,6 @@ func (d *DB) PutOutbound(m core.Message, status string) error {
 	return d.store().PutOutbound(context.Background(), m, status)
 }
 
-// EnrichMessage replaces a message's content with the media-enriched body and
-// clears its attachments, so later turns' observed context sees the transcript.
-func (d *DB) EnrichMessage(m core.Message, content string) error {
-	row, err := store.IndexedFrom(m)
-	if err != nil {
-		return err
-	}
-	if err := d.store().EnrichMessage(m, content); err != nil {
-		return err
-	}
-	row.Content = content
-	d.search.Put(row)
-	return nil
-}
-
 // NewMessagesForChat returns one chat's rows after its watermark, oldest first.
 // The cursor is a whole message key, so a row at exactly the cursor instant is
 // consumed once.

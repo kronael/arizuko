@@ -208,6 +208,9 @@ func messageIndexes(it objstore.Item) []objstore.Key {
 	}
 	jid, a := it.Key.Partition, it.Attrs
 	keys := []objstore.Key{{Partition: indexPartition("message/id", jid, id), Sort: it.Key.Sort}}
+	if a[attachmentState] == "pending" && a[attachmentRetryAt] != "" {
+		keys = append(keys, objstore.DueIndexKey("attachments/due", a[attachmentRetryAt], Messages, it.Key))
+	}
 	add := func(kind string, values ...string) {
 		keys = append(keys, objstore.Key{Partition: indexPartition("message/"+kind, append([]string{jid}, values...)...), Sort: it.Key.Sort})
 	}

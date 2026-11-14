@@ -393,6 +393,26 @@ func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed boo
 	}
 	admission := store.TurnAdmission{AttemptID: randHex(16),
 		InputLast: store.MessageCursor(last), InputKeys: inputKeys, AmbientKeys: ambientKeys}
+	if l.media.Enabled {
+		for i := range trigger {
+			if err := l.enrichAttachments(ctx, &trigger[i], folder, true); err != nil {
+				var deferred *attachmentDeferred
+				if !errors.As(err, &deferred) {
+					return false, false, false, "", err
+				}
+				if saved != nil {
+					due := deferred.at
+					if saved.NextAttemptAt.After(due) {
+						due = saved.NextAttemptAt
+					}
+					if _, err := l.db.store().RequeueDeferredTurn(ctx, *saved, due); err != nil {
+						return false, false, false, "", err
+					}
+				}
+				return false, false, true, "", nil
+			}
+		}
+	}
 	unlock := lockTurn(turnID)
 	work, live, err := l.q.admit(l, TurnContext{TurnID: turnID, Folder: folder, Topic: topic,
 		ChatJID: chatJID, Trigger: last.Sender, ReturnTo: last.ForwardedFrom,
@@ -422,17 +442,6 @@ func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed boo
 		}()
 	}
 
-	if l.media.Enabled {
-		for i := range trigger {
-			if err := l.enrichAttachments(context.Background(), &trigger[i], folder, true); err != nil {
-				requeueAt = l.q.noteBusy(chatJID, last.ID)
-				if saved == nil {
-					time.AfterFunc(requeueAt.Sub(l.q.now()), func() { l.q.EnqueueMessageCheck(chatJID) })
-				}
-				return false, false, true, "", nil
-			}
-		}
-	}
 	if saved == nil || saved.RetryCount == 0 {
 		for i := range trigger {
 			if _, ok := l.pendingElevation.LoadAndDelete(trigger[i].ID); ok {

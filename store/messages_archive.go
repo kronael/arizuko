@@ -48,6 +48,7 @@ type ArchiveMessageRow struct {
 	// restore a queue whose every row claims never to have been tried.
 	DeliveryAttempts int               `json:"delivery_attempts,omitempty"`
 	Delivery         map[string]string `json:"delivery,omitempty"`
+	AttachmentRetry  map[string]string `json:"attachment_retry,omitempty"`
 }
 
 var deliveryWorkAttrs = []string{"operation", "queued_at", "next_attempt_at", "expires_at", "last_error"}
@@ -147,30 +148,37 @@ func (s *Store) ExportMessagesJSONL(ctx context.Context, w io.Writer) (int, erro
 
 func archiveRowFrom(it objstore.Item) ArchiveMessageRow {
 	ts, id, _ := MsgCoord(it.Key.Sort)
+	retryAttrs := map[string]string{}
+	for _, name := range attachmentAttrs {
+		if value, ok := it.Attrs[name]; ok {
+			retryAttrs[name] = value
+		}
+	}
 	return ArchiveMessageRow{
-		ID:            id,
-		ChatJID:       it.Key.Partition,
-		Sender:        it.Attrs[attrMsgSender],
-		SenderName:    it.Attrs[attrMsgSenderName],
-		Content:       it.Attrs[attrMsgContent],
-		Timestamp:     ts,
-		IsFromMe:      it.Attrs[attrMsgFromMe] == flagSet,
-		IsBotMessage:  it.Attrs[attrMsgBot] == flagSet,
-		ForwardedFrom: it.Attrs[attrMsgForwardedFrom],
-		ReplyToID:     it.Attrs[attrMsgReplyToID],
-		ReplyToText:   it.Attrs[attrMsgReplyToText],
-		ReplyToSender: it.Attrs[attrMsgReplyToSender],
-		Topic:         it.Attrs[attrMsgTopic],
-		RoutedTo:      it.Attrs[attrMsgRoutedTo],
-		Verb:          it.Attrs[attrMsgVerb],
-		Attachments:   it.Attrs[attrMsgAttachments],
-		Source:        it.Attrs[attrMsgSource],
-		IsObserved:    it.Attrs[attrMsgObserved] == flagSet,
-		TurnID:        it.Attrs[attrMsgTurnID],
-		PlatformID:    it.Attrs[AttrMsgPlatformID],
-		ChatName:      it.Attrs[attrMsgChatName],
-		Errored:       it.Attrs[attrMsgErrored] == flagSet,
-		LinkContext:   it.Attrs[attrMsgLinkContext],
+		AttachmentRetry: retryAttrs,
+		ID:              id,
+		ChatJID:         it.Key.Partition,
+		Sender:          it.Attrs[attrMsgSender],
+		SenderName:      it.Attrs[attrMsgSenderName],
+		Content:         it.Attrs[attrMsgContent],
+		Timestamp:       ts,
+		IsFromMe:        it.Attrs[attrMsgFromMe] == flagSet,
+		IsBotMessage:    it.Attrs[attrMsgBot] == flagSet,
+		ForwardedFrom:   it.Attrs[attrMsgForwardedFrom],
+		ReplyToID:       it.Attrs[attrMsgReplyToID],
+		ReplyToText:     it.Attrs[attrMsgReplyToText],
+		ReplyToSender:   it.Attrs[attrMsgReplyToSender],
+		Topic:           it.Attrs[attrMsgTopic],
+		RoutedTo:        it.Attrs[attrMsgRoutedTo],
+		Verb:            it.Attrs[attrMsgVerb],
+		Attachments:     it.Attrs[attrMsgAttachments],
+		Source:          it.Attrs[attrMsgSource],
+		IsObserved:      it.Attrs[attrMsgObserved] == flagSet,
+		TurnID:          it.Attrs[attrMsgTurnID],
+		PlatformID:      it.Attrs[AttrMsgPlatformID],
+		ChatName:        it.Attrs[attrMsgChatName],
+		Errored:         it.Attrs[attrMsgErrored] == flagSet,
+		LinkContext:     it.Attrs[attrMsgLinkContext],
 	}
 }
 
@@ -346,6 +354,14 @@ func importedMessageWrites(m ArchiveMessageRow) ([]objstore.Write, error) {
 		return nil, err
 	}
 	attrs := messageAttrs(msg)
+	for _, name := range attachmentAttrs {
+		if value, ok := m.AttachmentRetry[name]; ok {
+			attrs[name] = value
+		}
+	}
+	if _, err := attachmentRetryFrom(objstore.Item{Key: key, Attrs: attrs}); err != nil {
+		return nil, err
+	}
 	setFlag(attrs, attrMsgObserved, m.IsObserved)
 	writes := []objstore.Write{
 		{Op: objstore.Put, Entity: Messages, Key: key, Attrs: attrs,

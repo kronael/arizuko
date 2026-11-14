@@ -6,8 +6,7 @@ package store
 // ONE CONSTANT PARTITION, sorted by the message's own position: answering from
 // the chats themselves transferred 10,525 items on krons to show 1,000. It
 // carries the PROJECTION, not a pointer, because this page renders a thousand
-// rows; the fields are exactly what the HTTP surface serves, and
-// `EnrichMessage` rewrites the preview with the body.
+// rows; the fields are exactly what the HTTP surface serves.
 //
 // RETENTION IS THIRTY DAYS: an index with no drainage is the mistake
 // `turn_context` records. Thirty holds about 2,200 items on the busiest

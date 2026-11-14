@@ -377,27 +377,6 @@ func PostGroup(putMessage func(core.Message) error, folder, text, origin string)
 	return id, err
 }
 
-// EnrichMessage replaces a message's content with the media-enriched body and
-// clears its attachments, so the observed-context render on later turns sees
-// the transcript rather than the raw refs.
-func (s *Store) EnrichMessage(m core.Message, content string) error {
-	key, err := messageKeyOf(m)
-	if err != nil {
-		return err
-	}
-	// A message nobody appended is nothing to enrich: the Update refuses
-	// rather than creating a half-built row.
-	_, err = s.TryWriteEntities(context.Background(), nil, objstore.Write{
-		Op: objstore.Update, Entity: Messages, Key: key,
-		Attrs:  map[string]string{attrMsgContent: content},
-		Remove: []string{attrMsgAttachments},
-	})
-	if err != nil {
-		return fmt.Errorf("enrich %s: %w", m.ID, err)
-	}
-	return nil
-}
-
 // NewMessagesForChat answers a chat's messages after its own watermark, oldest
 // first: the poll loop's feed. The cursor is a whole message key and the read
 // is `> cursor`. An empty cursor feeds the chat from the start.

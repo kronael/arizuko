@@ -262,6 +262,14 @@ func (l *Loop) Run(ctx context.Context) {
 			l.q.Shutdown()
 			return
 		case <-t.C:
+			attachments, err := l.db.store().DueAttachments(ctx, time.Now())
+			if err != nil {
+				slog.Warn("read attachment retries", "err", err)
+			} else {
+				for _, attachment := range attachments {
+					l.q.EnqueueMessageCheck(attachment.Message.ChatJID)
+				}
+			}
 			l.srv.flushProgress(time.Now())
 			l.maybeRecoverTurns(time.Now())
 			l.maybeRetryOutbound(time.Now())

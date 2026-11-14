@@ -8,6 +8,7 @@ package routd
 // behaviour is proved beside it (routd/msgsearch).
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -98,15 +99,13 @@ func TestTheBootWalkFillsTheIndexFromTheStore(t *testing.T) {
 // Media enrichment rewrites a body in place, so the search must answer the
 // words the agent can actually read in the transcript.
 func TestEnrichmentRewritesWhatAnswers(t *testing.T) {
-	db := memDB(t)
-	m := core.Message{
-		ID: "m1", ChatJID: "tg:1", Sender: "u", Timestamp: time.Now(),
-		Content: "look at this https://example.test/a.jpg", Attachments: "https://example.test/a.jpg",
-	}
+	db, loop, _ := enrichLoop(t, mediaConfig{Enabled: true, MaxBytes: 1024})
+	db.StartSearch()
+	m := core.Message{ID: "m1", ChatJID: "tg:1", Sender: "u", Timestamp: time.Now(), Content: "look at this", Attachments: `[{"data":"ZmlsZQ==","filename":"whiteboard.png","mime":"image/png"}]`}
 	if err := db.PutMessage(m); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.EnrichMessage(m, "look at this <attachment>whiteboard photo</attachment>"); err != nil {
+	if err := loop.enrichAttachments(context.Background(), &m, "demo", true); err != nil {
 		t.Fatal(err)
 	}
 	if hits := searched(t, db, "whiteboard", "", "", "", 10); len(hits) != 1 {

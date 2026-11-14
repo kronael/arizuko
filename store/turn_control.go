@@ -326,15 +326,19 @@ func (s *Store) RequeueDeferredTurn(ctx context.Context, tc TurnContext, due tim
 	if err != nil {
 		return false, err
 	}
+	where := []objstore.Cmp{
+		{Attr: attrTurnState, Op: objstore.Eq, Value: tc.State},
+		{Attr: "attempt_id", Op: objstore.Eq, Value: tc.AttemptID},
+		{Attr: attrTurnFolder, Op: objstore.Eq, Value: tc.Folder},
+	}
+	if tc.State == TurnPendingRetry {
+		where = append(where, attrIs("next_attempt_at", core.TS(tc.NextAttemptAt)))
+	}
 	return s.TryWriteEntities(ctx, []objstore.Check{{Entity: Groups, Key: group,
 		Cond: objstore.Cond{Item: objstore.ItemPresent}}}, objstore.Write{
 		Op: objstore.Update, Entity: TurnContexts, Key: key,
 		Attrs: map[string]string{attrTurnState: TurnPendingRetry, "next_attempt_at": core.TS(due)},
-		Cond: objstore.Cond{Where: []objstore.Cmp{
-			{Attr: attrTurnState, Op: objstore.Eq, Value: TurnRunning},
-			{Attr: "attempt_id", Op: objstore.Eq, Value: tc.AttemptID},
-			{Attr: attrTurnFolder, Op: objstore.Eq, Value: tc.Folder},
-		}},
+		Cond:  objstore.Cond{Where: where},
 	})
 }
 

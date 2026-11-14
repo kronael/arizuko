@@ -299,11 +299,16 @@ func TestEnrich_DownloadsWithoutTranscriptWhenVoiceOff(t *testing.T) {
 	}))
 	defer mediaSrv.Close()
 
-	_, l, _ := enrichLoop(t, mediaConfig{
+	db, l, _ := enrichLoop(t, mediaConfig{
 		Enabled: true, MaxBytes: 1 << 20, WhisperURL: whisper.URL, VoiceEnabled: false,
 	})
-	msg := &core.Message{ID: "m1", ChatJID: "tg:1", Content: "v", Attachments: voiceAtt(mediaSrv.URL + "/n.ogg")}
-	l.enrichAttachments(context.Background(), msg, "demo", false)
+	msg := &core.Message{ID: "m1", ChatJID: "tg:1", Content: "v", Timestamp: time.Now().UTC(), Attachments: voiceAtt(mediaSrv.URL + "/n.ogg")}
+	if err := db.PutMessage(*msg); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.enrichAttachments(context.Background(), msg, "demo", false); err != nil {
+		t.Fatal(err)
+	}
 
 	if whisperHit {
 		t.Error("whisper hit while VoiceEnabled=false")

@@ -161,10 +161,15 @@ func TestEnrich_Base64Attachment(t *testing.T) {
 // an adapter restart empties the in-memory /files/<id> map and put 12 of these
 // on sloth in six seconds (BUGS L163, fixed in dcef71ab).
 func TestEnrich_NamesAnAttachmentWithNoSource(t *testing.T) {
-	_, l, _ := enrichLoop(t, mediaConfig{Enabled: true, MaxBytes: 1 << 20})
+	db, l, _ := enrichLoop(t, mediaConfig{Enabled: true, MaxBytes: 1 << 20})
 	raw, _ := json.Marshal([]chanlib.InboundAttachment{{Mime: "audio/ogg", Filename: "ghost.ogg"}})
-	msg := &core.Message{ID: "m1", ChatJID: "tg:1", Content: "no media here", Attachments: string(raw)}
-	l.enrichAttachments(context.Background(), msg, "demo", false)
+	msg := &core.Message{ID: "m1", ChatJID: "tg:1", Content: "no media here", Timestamp: time.Now().UTC(), Attachments: string(raw)}
+	if err := db.PutMessage(*msg); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.enrichAttachments(context.Background(), msg, "demo", false); err != nil {
+		t.Fatal(err)
+	}
 
 	if !strings.Contains(msg.Content, "unavailable=") {
 		t.Fatalf("no unavailable element, so the agent runs blind on a file it never got: %q", msg.Content)

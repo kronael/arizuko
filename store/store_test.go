@@ -378,8 +378,12 @@ func TestEnrichMessage(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := s.EnrichMessage(m, "[Voice message]\n<attachment path=\"/groups/main/media/voice.ogg\" mime=\"audio/ogg\" filename=\"voice.ogg\" transcript=\"hello world\"/>"); err != nil {
-		t.Fatal(err)
+	snapshot, found, err := s.ReadAttachmentRetry(context.Background(), m)
+	if err != nil || !found {
+		t.Fatalf("read attachment: %v %v", found, err)
+	}
+	if ok, err := s.CompleteAttachments(context.Background(), snapshot, "[Voice message]\n<attachment path=\"/groups/main/media/voice.ogg\" mime=\"audio/ogg\" filename=\"voice.ogg\" transcript=\"hello world\"/>"); err != nil || !ok {
+		t.Fatalf("complete: %v %v", ok, err)
 	}
 
 	msgs, err := s.NewMessagesForChat(context.Background(), "tg:1", "", 10)

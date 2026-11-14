@@ -128,18 +128,14 @@ adapter runs.
 
 routd's enricher downloads each attachment from the URL the adapter gave:
 the adapter's own `/files/<id>` when the platform's URL expires or needs the
-bot's token, else the platform's URL. It sends routd's `service:routd` bearer
-with every download, whatever host the URL names. It writes the file under
-`groups/<folder>/media/<YYYYMMDD>/`, and APPENDS one `<attachment …/>` line,
-with a transcript for audio, to the message content. `EnrichMessage` stores
-the rewritten content, so a later turn that reads the message as observed
-context sees the transcript too (`routd/enrich.go`). A download waits 45 s
-for headers, then 30 s plus one second per 256 KiB of body. A 4xx answer or
-an oversized body becomes `<attachment … unavailable="…"/>`, so the agent
-knows the file is missing. Any other failure on a message a turn answers
-defers that turn after the busy backoff and fetches again; only a message 30
-minutes old runs with the unavailable line. A row read only as observed
-context gets the line after one failed download.
+bot's token, else the platform's URL. Only a registered adapter origin receives
+routd's `service:routd` bearer. Files go under `groups/<folder>/media/<YYYYMMDD>/`;
+guarded completion appends an `<attachment …/>` line and any audio transcript
+to the stored message. A download waits 45 s for headers, then 30 s plus one
+second per 256 KiB of body. The [shared retry policy](../specs/9/21-state-transitions.md#one-retry-policy)
+classifies failures and sets the persisted due time. Pending attachment work
+postpones turn admission. Terminal failure retains the raw input and appends
+the common unavailable notice once. Observed context gets one attempt.
 
 ## Public API
 

@@ -219,6 +219,21 @@ func (s *Store) OpenTurnContext(turnID, folder, topic, chatJID, trigger, returnT
 	checks := []objstore.Check{{Entity: Groups, Key: group,
 		Cond: objstore.Cond{Item: objstore.ItemPresent}}}
 	var claim []objstore.Write
+	if admission != nil && len(admission.InputKeys) > 0 {
+		chat, err := chatKey(chatJID)
+		if err != nil {
+			return false, err
+		}
+		_, exists, err := s.itemAt(ctx, Chats, chat)
+		if err != nil {
+			return false, err
+		}
+		if exists {
+			claim = append(claim, objstore.Write{Op: objstore.Update, Entity: Chats, Key: chat, Cond: objstore.Cond{Item: objstore.ItemPresent}})
+		} else {
+			checks = append(checks, objstore.Check{Entity: Chats, Key: chat, Cond: objstore.Cond{Item: objstore.ItemAbsent}})
+		}
+	}
 	if admission != nil && admission.Controlled {
 		controlChecks, controlWrites := controlAdmission(admission.ControlBefore, admission.ControlAfter)
 		checks = append(checks, controlChecks...)

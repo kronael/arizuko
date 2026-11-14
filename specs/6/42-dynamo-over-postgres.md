@@ -621,9 +621,9 @@ pages and 2.4 MB of FTS5 index, so the index is tens of megabytes.
   and the two flags — about 25 pages of 1 MB. Until the walk finishes,
   `find_messages` answers "index warming" as a refusal the caller can show,
   never an empty hit list.
-- **Live.** routd is the sole appender, so the feed is the four writes on
-  `routd.DB` that touch an indexed attribute: the append, the media rewrite
-  (`EnrichMessage`), the observe stamp (`MarkMessagesObserved`) and the
+- **Live.** routd feeds the four writes that touch an indexed attribute:
+  the append, guarded media completion (`enrichAttachments`),
+  the observe stamp (`MarkMessagesObserved`) and the
   breaker's prune (`DeleteErroredMessages`). Each applies in-process after its
   own batch commits, so the record is written first and the index second. NOT
   the per-chat poll: `processGroupMessages` advances `chats.agent_cursor` past

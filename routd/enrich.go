@@ -21,6 +21,8 @@ import (
 	"github.com/kronael/arizuko/chanreg"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
+	"github.com/kronael/arizuko/retry"
+	"github.com/kronael/arizuko/store"
 )
 
 // mediaConfig is routd's slice of the media/transcription env. Audio AND video
@@ -70,40 +72,50 @@ func (c mediaConfig) bearerFor(rawURL string) func(context.Context) (string, err
 	return nil
 }
 
-// enrichAttachments downloads inbound attachments into the group's dated media
-// dir, transcribes voice/video via Whisper, and rewrites msg.Content with
-// <attachment .../> blocks, persisted via EnrichMessage. A failed attachment is
-// marked unavailable and the turn proceeds, except when deferrable: a transient
-// fetch failure on a message younger than fetchGiveUp then changes nothing and
-// returns errFetchDeferred, so the caller runs the turn later.
 func (l *Loop) enrichAttachments(ctx context.Context, msg *core.Message, folder string, deferrable bool) error {
 	if !l.media.Enabled || msg.Attachments == "" {
 		return nil
 	}
+	snapshot, found, err := l.db.store().ReadAttachmentRetry(ctx, *msg)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return fmt.Errorf("attachment message missing: %s", msg.ID)
+	}
+	caller := msg
+	msg = &snapshot.Message
+	if snapshot.State == "failed" {
+		*caller = *msg
+		return nil
+	}
+	now := time.Now()
+	if deferrable && snapshot.State == "pending" && snapshot.NextAt.After(now) {
+		return &attachmentDeferred{at: snapshot.NextAt}
+	}
 	var atts []chanlib.InboundAttachment
-	if err := json.Unmarshal([]byte(msg.Attachments), &atts); err != nil {
-		slog.Warn("enrich: attachments will not parse", "id", msg.ID, "err", err)
-		return nil
+	malformed := json.Unmarshal([]byte(msg.Attachments), &atts) != nil || len(atts) == 0
+	if malformed {
+		atts = []chanlib.InboundAttachment{{}}
 	}
-	if len(atts) == 0 {
-		return nil
-	}
-
 	groupPath, err := l.folders.GroupPath(folder)
 	if err != nil {
-		slog.Warn("enrich: group path", "folder", folder, "err", err)
-		return nil
+		return err
 	}
-	day := time.Now().Format("20060102")
+	day := now.Format("20060102")
 	mediaDir := groupfolder.GroupMediaDir(groupPath, day)
 	if err := os.MkdirAll(mediaDir, 0o755); err != nil {
-		slog.Warn("enrich: mkdir", "dir", mediaDir, "err", err)
-		return nil
+		return err
 	}
-
 	langs := readWhisperLanguages(groupPath)
 	var extra strings.Builder
-	var fetched []string
+	var created []string
+	var terminal *retry.Decision
+	cleanup := func() {
+		for _, path := range created {
+			_ = os.Remove(path)
+		}
+	}
 	for i, att := range atts {
 		ext := extFromMime(att.Mime, att.Filename)
 		fname := sanitizeFilename(att.Filename)
@@ -115,48 +127,53 @@ func (l *Loop) enrichAttachments(ctx context.Context, msg *core.Message, folder 
 			fname = fmt.Sprintf("%s-%d%s", msg.ID, i, ext)
 			dest = filepath.Join(mediaDir, fname)
 		}
-
-		if att.URL == "" {
-			if att.Data == "" {
-				// Neither a URL nor inline base64: the adapter built the attachment
-				// without a reachable file ref (teled with LISTEN_URL unset).
-				slog.Warn("enrich: attachment has no URL or data", "id", msg.ID, "mime", att.Mime, "filename", att.Filename)
-				extra.WriteString(unavailableAttachment(att, "the adapter sent no file reference"))
-				continue
-			}
+		var failure retry.Failure
+		if malformed || att.URL == "" && att.Data == "" {
+			failure.Kind = "permanent"
+		} else if att.URL == "" {
 			raw, err := base64.StdEncoding.DecodeString(att.Data)
 			if err != nil {
-				slog.Warn("enrich: base64 decode", "err", err)
-				extra.WriteString(unavailableAttachment(att, "the inline data did not decode"))
-				continue
+				failure.Kind = "permanent"
+			} else if err = os.WriteFile(dest, raw, 0o644); err != nil {
+				failure.Kind = "permanent"
+			} else {
+				created = append(created, dest)
 			}
-			if err := os.WriteFile(dest, raw, 0o644); err != nil {
-				slog.Warn("enrich: write base64", "dest", dest, "err", err)
-				extra.WriteString(unavailableAttachment(att, "the file could not be written"))
-				continue
+		} else if err := downloadFile(ctx, att.URL, dest, l.media.bearerFor(att.URL), l.media.MaxBytes); err != nil {
+			var fetch *attachmentFetchError
+			if errors.As(err, &fetch) {
+				failure = fetch.failure
+			} else if errors.Is(err, errFetchPermanent) {
+				failure.Kind = "permanent"
+			} else if errors.Is(err, errFetchTimeout) {
+				failure.Kind = "timeout"
+			} else {
+				failure = retry.HTTPFailure(0, "", err, now)
 			}
 		} else {
-			err := downloadFile(ctx, att.URL, dest, l.media.bearerFor(att.URL), l.media.MaxBytes)
-			transient := err != nil && !errors.Is(err, errFetchPermanent)
-			if transient && deferrable && time.Since(msg.Timestamp) < fetchGiveUp {
-				slog.Warn("enrich: download failed, turn deferred", "url", att.URL, "err", err)
-				for _, path := range fetched {
-					_ = os.Remove(path)
-				}
-				return errFetchDeferred
-			}
-			if err != nil {
-				slog.Warn("enrich: download failed", "url", att.URL, "err", err)
-				why := "the file could not be fetched"
-				if transient && deferrable {
-					why = fmt.Sprintf("the file could not be fetched within %d minutes of the message", int(fetchGiveUp.Minutes()))
-				}
-				extra.WriteString(unavailableAttachment(att, why))
-				continue
-			}
-			fetched = append(fetched, dest)
+			created = append(created, dest)
 		}
-
+		if failure.Kind != "" {
+			decision := retry.Next(snapshot.Failures, failure, now, time.Time{})
+			if !deferrable {
+				decision.Stop = true
+				decision.NextAt = time.Time{}
+			}
+			if !decision.Stop {
+				cleanup()
+				committed, err := l.db.store().DeferAttachments(ctx, snapshot, decision, "")
+				if err != nil {
+					return err
+				}
+				if !committed {
+					return fmt.Errorf("attachment changed during enrichment")
+				}
+				return &attachmentDeferred{at: decision.NextAt}
+			}
+			terminal = &decision
+			extra.WriteString(unavailableAttachment(att, retry.Notice("Attachment unavailable", decision)))
+			continue
+		}
 		displayName := att.Filename
 		if displayName == "" {
 			displayName = fname
@@ -174,25 +191,50 @@ func (l *Loop) enrichAttachments(ctx context.Context, msg *core.Message, folder 
 		}
 		containerPath := core.ContainerHome + "/media/" + day + "/" + fname
 		if transcript != "" {
-			fmt.Fprintf(&extra, "\n<attachment path=%q mime=%q filename=%q transcript=%q/>",
-				containerPath, att.Mime, displayName, transcript)
+			fmt.Fprintf(&extra, "\n<attachment path=%q mime=%q filename=%q transcript=%q/>", containerPath, att.Mime, displayName, transcript)
 		} else {
-			fmt.Fprintf(&extra, "\n<attachment path=%q mime=%q filename=%q/>",
-				containerPath, att.Mime, displayName)
+			fmt.Fprintf(&extra, "\n<attachment path=%q mime=%q filename=%q/>", containerPath, att.Mime, displayName)
 		}
 	}
-
-	if extra.String() == "" {
-		return nil
+	content := msg.Content + extra.String()
+	var committed bool
+	if terminal != nil {
+		committed, err = l.db.store().DeferAttachments(ctx, snapshot, *terminal, content)
+	} else {
+		committed, err = l.db.store().CompleteAttachments(ctx, snapshot, content)
 	}
-
-	msg.Content += extra.String()
-	msg.Attachments = ""
-	if err := l.db.EnrichMessage(*msg, msg.Content); err != nil {
-		slog.Warn("enrich: store update failed", "id", msg.ID, "err", err)
+	if err != nil || !committed {
+		cleanup()
+		if err != nil {
+			return err
+		}
+		return fmt.Errorf("attachment changed during enrichment")
 	}
+	msg.Content = content
+	if terminal == nil {
+		msg.Attachments = ""
+	}
+	row, err := store.IndexedFrom(*msg)
+	if err != nil {
+		return err
+	}
+	l.db.search.Put(row)
+	*caller = *msg
 	return nil
 }
+
+type attachmentDeferred struct{ at time.Time }
+
+func (e *attachmentDeferred) Error() string { return errFetchDeferred.Error() }
+func (e *attachmentDeferred) Unwrap() error { return errFetchDeferred }
+
+type attachmentFetchError struct {
+	failure retry.Failure
+	err     error
+}
+
+func (e *attachmentFetchError) Error() string { return e.err.Error() }
+func (e *attachmentFetchError) Unwrap() error { return e.err }
 
 // unavailableAttachment is the ONE renderer for a file that did not arrive:
 // the agent is TOLD, otherwise the turn runs on a message that names a file it
@@ -219,7 +261,6 @@ const (
 	// fetchBodyRate is the slowest body transfer, in bytes per second, a
 	// download is given time for.
 	fetchBodyRate = 256 << 10
-	fetchGiveUp   = 30 * time.Minute
 )
 
 var (
@@ -255,11 +296,12 @@ func downloadFile(ctx context.Context, url, dest string, bearer func(context.Con
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != 200 {
-		code := resp.StatusCode
-		if code >= 400 && code < 500 && code != http.StatusRequestTimeout && code != http.StatusTooManyRequests {
-			return fmt.Errorf("%w: HTTP %d", errFetchPermanent, code)
+		failure := retry.HTTPFailure(resp.StatusCode, resp.Header.Get("Retry-After"), nil, time.Now())
+		err := fmt.Errorf("HTTP %d", resp.StatusCode)
+		if failure.Kind == "permanent" {
+			err = fmt.Errorf("%w: %w", errFetchPermanent, err)
 		}
-		return fmt.Errorf("HTTP %d", code)
+		return &attachmentFetchError{failure: failure, err: err}
 	}
 	size := resp.ContentLength
 	if size < 0 {
