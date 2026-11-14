@@ -262,6 +262,18 @@ use `aws.NopRetryer` so the owner receives each failed attempt once. Discord's
 `MaxRestRetries` and `ShouldRetryOnRateLimit` both control nested retries; set
 them to zero/false while retaining proactive rate-bucket waiting.
 
+Ant's exposed failure verdicts consume the canonical provider and HTTP classifiers.
+Only an explicit transient verdict permits another execution attempt; unknown
+failures stop. One fresh attempt after unusable continuity remains a protocol repair.
+
+The Claude dependency lock resolves `@anthropic-ai/claude-agent-sdk` to `0.3.278`;
+the image installs `@latest`. That SDK exposes `api_retry` events with attempt,
+budget, delay and status fields. Ant does not consume them. The built image's
+numeric retry budget, backoff, classification and give-up rules remain unverified.
+Codex stops after three matching WAITING errors; a nonerror event resets the count.
+The Codex CLI's internal backoff remains unverified. Pi explicitly enables two
+retries with a two-second base delay, a ten-second cap and zero provider retries.
+
 The breaker remains distinct: it limits admission across operations to prevent
 loops (L826). Its episode, probe ownership and one-hour safety closure are not
 an operation retry budget. Provider libraries also own stream/session protocol
@@ -353,6 +365,94 @@ Its first failed fetch commits the deadline and due pointer atomically.
       TestRetryAfterParity,
     ]
   never: derives expected values from the policy under test
+- path: ant/Makefile (changed)
+  job: build the repository context with -f Dockerfile .. from ant/
+  names: [image]
+  never: introduces a second image target
+- path: ant/Dockerfile (changed)
+  job: install Ant in /app and the canonical reader and declaration in /retry
+  names: ['COPY ant/package*.json ./', 'COPY ant/ ./', 'COPY retry/ /retry/']
+  never: copies a second policy into Ant or changes /app/src
+- path: ant/.dockerignore (removed)
+  job: leave context exclusions to the repository root
+  names: []
+  never: supplies a second exclusion list
+- path: .dockerignore (changed)
+  job: exclude host Ant dependencies and generated output from the root context
+  names: [ant/node_modules, ant/.next, ant/dist]
+  never: excludes the canonical retry directory
+- path: runed/mounts.go (changed)
+  job: mount the canonical retry directory read-only beside the existing dev source mount
+  names: [buildMounts, ARIZUKO_DEV]
+  never: mounts /retry in release mode or introduces another dev flag
+- path: runed/mounts_test.go (changed)
+  job: verify exact dev sources, read-only retry access and release-mode absence
+  names:
+    [
+      TestBuildMounts_ArizukoDevAcceptsTrueSpelling,
+      TestBuildMounts_RetrySourceIsDevOnly,
+    ]
+  never: requires Docker or a running guest
+- path: runed/env_contract_test.go (changed)
+  job: join the actual Ant reader import to the release COPY layout and exclusions
+  names: [TestAntRetryPackagingContract]
+  never: uses a dummy import or claims image-build verification
+- path: ant/src/backend.ts (changed)
+  job: decode provider envelopes and classify their facts through the canonical reader
+  names: [providerFailure, isProviderFailurePermanent]
+  never: declares provider classes or changes Turn and Frame fields
+- path: ant/src/claude.ts (changed)
+  job: decode failed Claude payloads and select their final canonical verdict
+  names: [ClaudeTurn.push, runClaude, claudeAPIError]
+  never: classifies assistant or tool text or overrides final facts with an earlier rate event
+- path: ant/src/codex.ts (changed)
+  job: classify provider failures when emitting failed results
+  names: [CodexTurn.push, CodexTurn.finish]
+  never: changes the private stream-completion flag or WAITING protocol
+- path: ant/src/index.ts (changed)
+  job: retain the selected verdict through submission and process exit
+  names: [runAttempt, runTurn, main, failureExitCode]
+  never: adds execution retries, submission retries or wire fields
+- path: ant/src/backend.test.ts (changed)
+  job: verify provider classification through the Ant reader
+  names: [isProviderFailurePermanent]
+  never: duplicates the provider reason declaration
+- path: ant/src/provider-failure.test.ts (changed)
+  job: verify provider facts and verdicts through reducers and turn submission
+  names:
+    [
+      'Claude rejected rate-limit fixture',
+      'provider transient result permits replay',
+    ]
+  never: treats arbitrary model text as a provider refusal
+- path: ant/src/claude.test.ts (changed)
+  job: verify final-error precedence and explicit transient HTTP verdicts
+  names: [ClaudeTurn, runClaude, claudeAPIError]
+  never: retains permanentAPIError or a second text-to-status parser
+- path: ant/src/codex.test.ts (changed)
+  job: verify failed-event and stream-exit provider verdicts
+  names: [CodexTurn.push, CodexTurn.finish, WAITING_LIMIT]
+  never: treats stream completion as failure permanence
+- path: ant/src/index.test.ts (changed)
+  job: verify conservative failures and verdict retention across failed submission
+  names: [runTurn]
+  never: spends another execution attempt after an unknown or failed fresh repair
+- path: ant/src/pi.test.ts (changed)
+  job: verify opaque Pi failures stop through the common Ant consumer
+  names: [PiTurn.finish]
+  never: changes Pi retry settings or invents provider facts from diagnostics
+- path: ant/src/harness-main.test.ts (changed)
+  job: verify actual process exits and one submission under callback failure
+  names: [main, failureExitCode]
+  never: requires credentials or a paid model
+- path: ant/testdata/harness-main.ts (changed)
+  job: script adapter and submission failures for entrypoint tests
+  names: [adapter, submitTurn]
+  never: introduces product configuration
+- path: ant/README.md (changed)
+  job: state Ant verdict ownership and canonical reader packaging
+  names: ['Timers and failure diagnosis']
+  never: claims a verified SDK retry budget
 - path: objstore/indexed.go (new)
   job: commit a primary mutation and its derived index pointers atomically
   names: [Indexed, Indexer, IndexItems, QueryIndex, DueIndexKey, Reindex]
