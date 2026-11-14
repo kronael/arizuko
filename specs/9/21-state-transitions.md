@@ -220,10 +220,6 @@ mechanisms, inventoried here without adding a second arizuko policy.
   job: prove failure boundaries, deadlines and cross-language decisions
   names: [TestPolicy, TestWaitCancellation]
   never: derives expected values from the policy under test
-- path: retry/retry.test.ts (new)
-  job: run the shared decision fixtures through the JavaScript reader
-  names: [policy]
-  never: changes ant's requested final test frequency
 - path: objstore/indexed.go (new)
   job: commit a primary mutation and its derived index pointers atomically
   names: [Indexed, Indexer, IndexItems, QueryIndex, DueIndexKey, Reindex]
@@ -384,9 +380,8 @@ mechanisms, inventoried here without adding a second arizuko policy.
   names: [Open]
   never: migrates routd data
 - path: store/message_delivery.go (changed)
-  job: commit retry deadlines, attempts and acknowledgments atomically
-  names:
-    [PendingOutbound, RecordDeliveryFailure, DeliveryBackoff, MarkDelivered]
+  job: commit common retry decisions and acknowledgments atomically
+  names: [PendingOutbound, RecordDeliveryFailure, FailStatus, MarkDelivered]
   never: finds retry eligibility after loading unrelated payloads
 - path: routd/loop.go (changed)
   job: deliver only the due work selected by the store
@@ -722,6 +717,16 @@ timeout. The operator-direct path still reads the indexed reply range because
 its current contract ends on quiet time rather than a turn completion event.
 
 ## Open questions
+
+- Retained ingress stops after ten failures and keeps its payload without a due
+  pointer. Should its existing operator surface expose exact-ID replay? Keep
+  the payload and failed health state; duplicate ingress must not reset it.
+- The unified policy removes `MAX_TURN_RETRY` and `MAX_OUTBOUND_RETRY`.
+  Existing environment files remain readable, but those values no longer select
+  behavior. Should the CLI report obsolete retry settings during generation?
+- Browser EventSource errors expose neither HTTP status nor Retry-After.
+  Treat lost streams as transient under the common budget. A richer fetch-based
+  stream decoder would expose those facts but adds a separate protocol change.
 
 - Which stream/auth/completion contract should replace operator-direct send's
   keyed reply poll? The `/me` stream needs a public endpoint, live user grants

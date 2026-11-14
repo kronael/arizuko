@@ -1,0 +1,12 @@
+{
+  "base_ms": 30000,
+  "max_ms": 3600000,
+  "max_failures": 10,
+  "latest_retry_ms": 253402300799000,
+  "transient_statuses": [408, 425, 429],
+  "transient_status_range": [500, 599],
+  "notices": {
+    "retry": "{cause}. Retry scheduled.",
+    "terminal": "{cause}. Automatic retries stopped."
+  }
+}

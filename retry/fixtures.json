@@ -1,0 +1,92 @@
+[
+  {
+    "failures": 0,
+    "kind": "transient",
+    "now": 1000000,
+    "retryAt": 0,
+    "deadline": 0,
+    "wantFailures": 1,
+    "wantNextAt": 1030000,
+    "stop": false
+  },
+  {
+    "failures": 1,
+    "kind": "timeout",
+    "now": 1000000,
+    "retryAt": 0,
+    "deadline": 0,
+    "wantFailures": 2,
+    "wantNextAt": 1060000,
+    "stop": false
+  },
+  {
+    "failures": 8,
+    "kind": "transient",
+    "now": 1000000,
+    "retryAt": 0,
+    "deadline": 0,
+    "wantFailures": 9,
+    "wantNextAt": 4600000,
+    "stop": false
+  },
+  {
+    "failures": 9,
+    "kind": "transient",
+    "now": 1000000,
+    "retryAt": 0,
+    "deadline": 0,
+    "wantFailures": 10,
+    "wantNextAt": 0,
+    "stop": true
+  },
+  {
+    "failures": 0,
+    "kind": "transient",
+    "now": 1000000,
+    "retryAt": 9000000,
+    "deadline": 0,
+    "wantFailures": 1,
+    "wantNextAt": 9000000,
+    "stop": false
+  },
+  {
+    "failures": 0,
+    "kind": "transient",
+    "now": 1000000,
+    "retryAt": 0,
+    "deadline": 1030000,
+    "wantFailures": 1,
+    "wantNextAt": 0,
+    "stop": true
+  },
+  {
+    "failures": 0,
+    "kind": "permanent",
+    "now": 1000000,
+    "retryAt": 0,
+    "deadline": 0,
+    "wantFailures": 1,
+    "wantNextAt": 0,
+    "stop": true
+  },
+  {
+    "failures": 0,
+    "kind": "unknown",
+    "now": 1000000,
+    "retryAt": 0,
+    "deadline": 0,
+    "wantFailures": 1,
+    "wantNextAt": 0,
+    "stop": true
+  },
+  {
+    "failures": 0,
+    "kind": "canceled",
+    "now": 1000000,
+    "retryAt": 0,
+    "deadline": 0,
+    "wantFailures": 1,
+    "wantNextAt": 0,
+    "stop": true
+  }
+]
