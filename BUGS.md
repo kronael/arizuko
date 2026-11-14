@@ -14,36 +14,18 @@
 > so counting one as open overstates the queue.
 
 
-## L858 — work entities lack folder classification and a chat fixture omits them (2026-11-14)
 
-The full store gate reports three unclassified entities: `onboarding_work`,
-`routd_work`, `state_index`. Its chat reopen fixture prepares only `chats`, so
-SetAgentCursor fails querying the newly required work entities.
-**Fix:** declare why group purge keeps shared work/index partitions; primary
-writes already maintain their pointers. Prepare all required hot entities in
-that isolated fixture and retain its reopen assertions.
-**Test:** `TestFolderScope_ClassifiesEveryDeclaredEntity` and
-`TestChatThreadRepliesPreservesRowAcrossReopen` both failed in the full gate.
 
-## L859 — duplicate appends attempt an unnecessary state transition (2026-11-14)
 
-`TestAppendMessageLateRedeliveryBounded` seeds 300 messages and measures seven
-selected rows for one duplicate, above its four-row bound. `appendInstant`
-finds the existing identity, but append still reads chat state, builds work and
-attempts a batch before reading that same message again after refusal.
-**Fix:** return an existing message by identity before preparing a transition.
-Keep timestamp validation, exact imports and concurrent append guards intact.
-**Test:** the existing bound, original stored timestamp and concurrent-span
-regressions; disable the early return to prove the duplicate guard.
+## L861 — the pairing diagram still shows the removed HTTP delivery path (2026-11-14)
 
-## L860 — the folder-retirement race fixture assumes three physical writes (2026-11-14)
-
-`TestDeleteFolderDefeatsInFlightRefusal` reports `fired=false`: its injector
-matches an exact three-write batch, but atomic index/work writes enlarge it.
-The test never deletes the group during the provider-refusal transition.
-**Fix:** trigger on the semantic model-pause write, independent of physical
-batch shape. Preserve the checks that retirement defeats the stale refusal.
-**Test:** restore the old matcher and the existing race regression must fail.
+The one final `make lint` run fails `TestTwinsAreByteEqual`: `onbod/README.md`
+shows durable token/message enqueue, but its HTML twin still shows the old
+HTTP send. Both go-vet passes, specrefs and bugsindex pass; golangci-lint is
+not installed. The disk has 2,957,668,352 available bytes after the gate.
+**Fix:** copy the current diagram into its existing onboarding HTML twin.
+**Test:** decoded bytes must match; the original HTML fails that comparison.
+No additional build or Go gate runs below the requested three-billion-byte floor.
 
 
 ## L857 — the full router gate loses its test database control plane (2026-11-14)

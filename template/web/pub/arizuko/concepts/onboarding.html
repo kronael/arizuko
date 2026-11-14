@@ -80,8 +80,8 @@
 │ onboarding row   │   one per chat JID, carries inbound sender
 │ awaiting_message │
 └────────┬─────────┘
-         │ promptUnprompted: mint route_tokens kind=pair,
-         │ claim prompted_at, send through routd /v1/outbound
+         │ claim greeting generation; commit pair token
+         │ and outbound message together in routd's store
          ▼
 chat: greeting + https://&lt;host&gt;/pair/&lt;token&gt;
          │ the person opens it in a browser
@@ -147,7 +147,7 @@ arizuko invite -i &lt;instance&gt; revoke &lt;ref&gt;</code></pre>
       <dt><code>github:org=kronael</code></dt>
       <dd>Every GitHub account. The gate does not check the organisation. To limit GitHub sign-in to one organisation, set <code>GITHUB_ALLOWED_ORG</code> for <code>authd</code>.</dd>
     </dl>
-    <p>Each gate can carry a daily limit. The <code>admitFromQueue</code> loop runs about every 60 seconds. It counts the admissions of the current day and moves queued users to <code>approved</code> until the gate reaches its limit.</p>
+    <p>Each gate can carry a daily limit. Every ten seconds, <code>admitFromQueue</code> selects due gate work. Each admission batch counts today's approvals and advances the oldest queued users within that gate's limit. A full gate waits until midnight UTC or a configuration change.</p>
     <p>A queued user sees the position in the queue on <code>/onboard</code>, which refreshes every 30 seconds. An operator approves users manually in <a href="../components/dashd.html">dashd</a> or changes the gate configuration.</p>
     <p>A refusal goes to the chat. If gates exist and none matches the account, the chat gets a message that says so. The person does not get a browser error on a page that they already closed. With no gates at all, everyone who pairs is approved.</p>
 
@@ -183,7 +183,7 @@ arizuko invite -i &lt;instance&gt; revoke &lt;ref&gt;</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/concepts/onboarding.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-28">2026-10-28</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-13">2026-11-13</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>
