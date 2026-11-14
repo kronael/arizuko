@@ -244,7 +244,7 @@ func main() {
 		groupfolder.ParseVhostAliases(os.Getenv("WEB_VHOST_ALIASES")),
 	)
 	// SEND_DISABLED_GROUPS: muted folders persist outbound but don't deliver it
-	// (Server.mutedGroup). SEND_DISABLED_CHANNELS (jid-prefix) stays in the
+	// (DB.mutedGroup). SEND_DISABLED_CHANNELS (jid-prefix) stays in the
 	// Deliverer; group-folder mute is configured on the server.
 	srv.SetDisabledGroups(core.ParseCSV(os.Getenv("SEND_DISABLED_GROUPS")))
 	// send_voice synthesis config (TTS_* env); unset TTS_ENABLED leaves voice

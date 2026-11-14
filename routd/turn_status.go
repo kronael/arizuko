@@ -141,7 +141,7 @@ func (s *Server) publishProgress(tc TurnContext, progress *turnProgress, now tim
 		return nil
 	}
 	jid := returnTarget(tc, tc.ChatJID)
-	if s.mutedGroup(tc.Folder) || !canShowProgress(s.deliver, jid) {
+	if s.db.mutedGroup(tc.Folder) || !canShowProgress(s.deliver, jid) {
 		slog.Debug("progress update dropped: no line can live here", "turn_id", tc.TurnID, "jid", jid)
 		return nil
 	}
@@ -516,7 +516,9 @@ func executeStatus(db *DB, dl Deliverer, pending store.PendingMessage) error {
 			if key == "" {
 				key = row.ID
 			}
-			pid, err = dl.Send(place.jid, row.Content, row.ReplyToID, place.threadID, place.threadRoot, key)
+			pid, err = db.sendOutbound(row.RoutedTo, func() (string, error) {
+				return dl.Send(place.jid, row.Content, row.ReplyToID, place.threadID, place.threadRoot, key)
+			})
 		}
 	}
 	if err == nil {

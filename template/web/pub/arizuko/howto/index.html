@@ -248,14 +248,14 @@ arizuko apply -i demo rows.yml          # write only the rows in the file</code>
     <p><a href="../concepts/">Concepts</a> explains routing, auth, grants and route tokens. <a href="../reference/">Reference</a> lists the CLI, the env vars, the MCP tools and the schema.</p>
 
     <h2 id="audit-mode">Audit mode stops outbound messages</h2>
-    <p>Two variables on <code>routd</code> mute a group or a platform. The agent still runs turns, and every outbound row goes into <code>messages</code>. No message reaches the channel.</p>
+    <p>Two variables on <code>routd</code> mute a group or a platform. The agent still runs turns. New messages from muted source folders do not reach the channel. Edits, reactions, and other existing-message actions still run.</p>
     <dl>
       <dt><code>SEND_DISABLED_GROUPS</code></dt>
       <dd>A comma-separated list of folder names. Example: <code>SEND_DISABLED_GROUPS=atlas,research</code>.</dd>
       <dt><code>SEND_DISABLED_CHANNELS</code></dt>
       <dd>A comma-separated list of platform prefixes, the part of a JID before <code>:</code>. Example: <code>SEND_DISABLED_CHANNELS=discord</code>.</dd>
     </dl>
-    <p>Inbound messages do not change. The agent does not know about the mute, because <code>reply</code> and <code>send</code> return success. You see the rows at <code>/dash/activity/</code> and through the <code>inspect_messages</code> MCP tool. Sources: <code>routd/server.go</code> for the group mute, <code>routd/deliver.go</code> for the channel mute.</p>
+    <p>Inbound messages do not change. The agent does not know about the mute, because <code>reply</code> and <code>send</code> return success. You see the rows at <code>/dash/activity/</code> and through the <code>inspect_messages</code> MCP tool. Sources: <code>routd/db.go</code> for the group mute, <code>routd/deliver.go</code> for the channel mute.</p>
 
 
       <nav class="docs-pager" aria-label="Pager">
@@ -263,7 +263,7 @@ arizuko apply -i demo rows.yml          # write only the rows in the file</code>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/howto/index.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-11-11">2026-11-11</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-14">2026-11-14</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

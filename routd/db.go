@@ -23,9 +23,10 @@ import (
 // lifecycle + route tokens. routd is the SOLE appender of messages. Times are
 // core.TSLayout UTC, computed in Go.
 type DB struct {
-	obj      objstore.Store
-	progress sync.Map
-	verdicts verdictWaiters
+	obj            objstore.Store
+	progress       sync.Map
+	verdicts       verdictWaiters
+	disabledGroups []string
 
 	// SECRETS_KEY material, raw. Empty → reads stay ciphertext and writes
 	// store plaintext.
@@ -44,6 +45,22 @@ type DB struct {
 	search     *msgsearch.Index
 	searchStop context.CancelFunc
 	searchDone chan struct{}
+}
+
+func (d *DB) mutedGroup(folder string) bool {
+	for _, f := range d.disabledGroups {
+		if strings.EqualFold(f, folder) {
+			return true
+		}
+	}
+	return false
+}
+
+func (d *DB) sendOutbound(folder string, send func() (string, error)) (string, error) {
+	if d.mutedGroup(folder) {
+		return "", nil
+	}
+	return send()
 }
 
 // SetSurrogate wires the surrogate-OAuth engine ConnectorSecrets refreshes

@@ -235,7 +235,7 @@ func TestReplyIntoBotRootedThreadCopiesParentSession(t *testing.T) {
 	srv := NewServer(db, loop, dl, nil, 0, "")
 	_ = db.SetChatIsGroup(jid, true)
 	threadTurn(t, db, "t1", folder, jid, jid+"/151")
-	if _, root, err := srv.mcpDeliver("t1", jid, "answer", "", "m1", true); err != nil || root != "151" {
+	if _, root, err := srv.mcpDeliver("t1", folder, jid, "answer", "", "m1", true); err != nil || root != "151" {
 		t.Fatalf("mcpDeliver thread root = %q, %v; want the bare thread id 151", root, err)
 	}
 	if got := dl.sends[0].threadRoot; got != "151" {

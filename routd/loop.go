@@ -340,7 +340,9 @@ func (l *Loop) retryOutbound(now time.Time, p store.PendingMessage) {
 			place.threadID, place.threadRoot = "", m.Topic
 		}
 	}
-	pid, derr := l.deliver.Send(place.jid, m.Content, m.ReplyToID, place.threadID, place.threadRoot, m.ID)
+	pid, derr := l.db.sendOutbound(m.RoutedTo, func() (string, error) {
+		return l.deliver.Send(place.jid, m.Content, m.ReplyToID, place.threadID, place.threadRoot, m.ID)
+	})
 	switch {
 	case derr == nil:
 		if err := l.db.MarkDelivered(m, pid); err != nil {

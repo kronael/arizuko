@@ -91,14 +91,14 @@ func (s *Server) buildRoutdFns(t turnMCP) ipc.RoutdFns {
 		Audit:                s.audit,
 		FetchPlatformHistory: s.fetchPlatformHistory,
 		SendMessage: func(jid, text, msgID string) (string, string, error) {
-			return s.mcpDeliver(t.turnID, jid, text, "", msgID, false)
+			return s.mcpDeliver(t.turnID, t.folder, jid, text, "", msgID, false)
 		},
 		QueueIssueNotice: s.db.QueueIssueNotice,
 		SendReply: func(jid, text, replyTo, msgID string) (string, string, error) {
-			return s.mcpDeliver(t.turnID, jid, text, replyTo, msgID, true)
+			return s.mcpDeliver(t.turnID, t.folder, jid, text, replyTo, msgID, true)
 		},
 		SendDocument: func(jid, path, filename, caption, replyTo, _, msgID string) (string, string, error) {
-			return s.mcpAppendDoc(t.turnID, jid, path, filename, caption, replyTo, "", msgID)
+			return s.mcpAppendDoc(t.turnID, t.folder, jid, path, filename, caption, replyTo, "", msgID)
 		},
 		SendVoice: func(jid, text, voice, folder, _ string) (string, string, error) {
 			return s.mcpSendVoice(t.turnID, jid, text, voice, folder, "")
@@ -128,15 +128,17 @@ func (s *Server) buildRoutdFns(t turnMCP) ipc.RoutdFns {
 				func() error { return s.deliver.Unpin(jid, target, all) })
 		},
 		Post: func(jid, content string, media []string) (string, error) {
-			return s.deliver.Post(jid, content, media)
+			return s.db.sendOutbound(t.folder, func() (string, error) { return s.deliver.Post(jid, content, media) })
 		},
 		Forward: func(src, target, comment string) (string, error) {
-			return s.deliver.Forward(src, target, comment)
+			return s.db.sendOutbound(t.folder, func() (string, error) { return s.deliver.Forward(src, target, comment) })
 		},
 		Quote: func(jid, src, comment string) (string, error) {
-			return s.deliver.Quote(jid, src, comment)
+			return s.db.sendOutbound(t.folder, func() (string, error) { return s.deliver.Quote(jid, src, comment) })
 		},
-		Repost:         func(jid, src string) (string, error) { return s.deliver.Repost(jid, src) },
+		Repost: func(jid, src string) (string, error) {
+			return s.db.sendOutbound(t.folder, func() (string, error) { return s.deliver.Repost(jid, src) })
+		},
 		PaneSetPrompts: func(jid string, p []core.PanePrompt) error { return s.deliver.SetSuggestions(jid, p) },
 		PaneSetTitle:   func(jid, title string) error { return s.deliver.SetName(jid, title) },
 		ClearSession:   func(folder string) { _ = s.db.DeleteSession(folder, t.topic) },
@@ -328,7 +330,7 @@ func ensureGroupGitRepo(groupDir string) {
 // turn to the origin; threaded marks the REPLY verb. It returns the thread root
 // because the ipc layer writes the row and cannot see it — without it an MCP
 // reply that rooted a thread recorded no thread (BUGS L166).
-func (s *Server) mcpDeliver(turnID, jid, text, replyTo, msgID string, threaded bool) (string, string, error) {
+func (s *Server) mcpDeliver(turnID, folder, jid, text, replyTo, msgID string, threaded bool) (string, string, error) {
 	if s.deliver == nil {
 		return "", "", nil
 	}
@@ -352,7 +354,7 @@ func (s *Server) mcpDeliver(turnID, jid, text, replyTo, msgID string, threaded b
 			}
 		}
 	}
-	pid, err := s.deliver.Send(jid, text, replyTo, topic, threadRoot, msgID)
+	pid, err := s.db.sendOutbound(folder, func() (string, error) { return s.deliver.Send(jid, text, replyTo, topic, threadRoot, msgID) })
 	if err != nil {
 		slog.Warn("mcp deliver failed", "turn_id", turnID, "jid", jid, "err", err)
 	}
@@ -365,7 +367,7 @@ func (s *Server) mcpDeliver(turnID, jid, text, replyTo, msgID string, threaded b
 // mcpAppendDoc is the in-process send_file: deliver-only (recordOutbound
 // persists the row, keyed on the platform id so a later human reply
 // re-promotes). An empty threadID falls back to the turn's topic.
-func (s *Server) mcpAppendDoc(turnID, jid, path, name, caption, replyTo, threadID, msgID string) (string, string, error) {
+func (s *Server) mcpAppendDoc(turnID, folder, jid, path, name, caption, replyTo, threadID, msgID string) (string, string, error) {
 	if s.deliver == nil {
 		return "", "", nil
 	}
@@ -377,7 +379,9 @@ func (s *Server) mcpAppendDoc(turnID, jid, path, name, caption, replyTo, threadI
 			return "", "", err
 		}
 	}
-	pid, err := s.deliver.Document(place.jid, path, name, caption, replyTo, place.threadID, msgID, place.threadRoot)
+	pid, err := s.db.sendOutbound(folder, func() (string, error) {
+		return s.deliver.Document(place.jid, path, name, caption, replyTo, place.threadID, msgID, place.threadRoot)
+	})
 	if err != nil {
 		slog.Warn("mcp deliver document failed", "turn_id", turnID, "jid", jid, "err", err)
 	}
@@ -396,7 +400,9 @@ func (s *Server) mcpSendVoice(turnID, jid, text, voice, folder, threadID string)
 			return "", "", err
 		}
 	}
-	pid, err := s.sendVoice(place.jid, text, voice, folder, place.threadID, place.threadRoot)
+	pid, err := s.db.sendOutbound(folder, func() (string, error) {
+		return s.sendVoice(place.jid, text, voice, folder, place.threadID, place.threadRoot)
+	})
 	if err != nil {
 		slog.Warn("mcp send voice failed", "turn_id", turnID, "jid", jid, "err", err)
 	}

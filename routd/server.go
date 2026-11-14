@@ -106,10 +106,6 @@ type Server struct {
 	// nil → no prior sessions.
 	sessions SessionResolver
 
-	// SEND_DISABLED_GROUPS: muted folders whose outbound persists (status=sent)
-	// but is NOT delivered. SEND_DISABLED_CHANNELS stays in the Deliverer.
-	disabledGroups []string
-
 	// Back the file-path agent tools (send_file, vhosts).
 	groupsDir string
 	webDir    string
@@ -166,17 +162,7 @@ func (s *Server) webPresence(folder string) ipc.WebPresence {
 }
 
 // SetDisabledGroups supplies SEND_DISABLED_GROUPS.
-func (s *Server) SetDisabledGroups(folders []string) { s.disabledGroups = folders }
-
-// mutedGroup reports whether folder is in SEND_DISABLED_GROUPS.
-func (s *Server) mutedGroup(folder string) bool {
-	for _, f := range s.disabledGroups {
-		if strings.EqualFold(f, folder) {
-			return true
-		}
-	}
-	return false
-}
+func (s *Server) SetDisabledGroups(folders []string) { s.db.disabledGroups = folders }
 
 // SetTTS supplies the send_voice synthesis config; the zero value leaves voice off.
 func (s *Server) SetTTS(c ttsConfig) { s.tts = c }
