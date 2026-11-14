@@ -13,16 +13,17 @@
 > work items are their own entries. A record has nothing to fix and never will,
 > so counting one as open overstates the queue.
 
-## L854 — onbod requires credentials for an unused delivery path (2026-11-14)
+## L855 — token send waits poll snapshots and streams expire after thirty seconds (2026-11-14)
 
-Production search finds no caller of `sendReply`; greetings and notices enter
-the durable routd queue. `loadConfig` still constructs its service-token source
-and refuses startup without `AUTHD_SERVICE_KEY`. The unused HTTP client, router
-URL and tests describe a second delivery path that cannot run.
-**Fix:** delete that path and its config; retain AUTHD_URL for inbound JWT
-verification. Existing provisioned credentials need no live change.
-**Test:** configuration succeeds without outbound credentials and still refuses
-an absent verifier URL; durable greeting and notice tests remain authoritative.
+`cmdSend` chooses `pollRound` for `--wait`: one snapshot request each second,
+although the same turn already exposes a replaying SSE stream. Its client has
+`Timeout: 30s`, so `--stream` also loses a healthy turn after thirty seconds.
+Computed cost: 3,600 snapshot requests/hour per waiting token caller.
+**Fix:** use the existing turn stream for both flags; remove its body deadline
+on a copied client. Preserve the POST timeout and direct operator semantics.
+**Test:** a stream that outlives the caller's timeout still reaches round_done;
+the caller's timeout remains unchanged. Mutate both guards independently.
+
 
 ## What needs you
 

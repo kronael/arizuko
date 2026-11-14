@@ -27,7 +27,7 @@ import (
 //
 // arizuko send <instance> <folder> "<msg>"           fire and forget
 // arizuko send <instance> <folder> "<msg>" --wait    block on round_done
-// arizuko send <instance> <folder> "<msg>" --stream  same, but SSE
+// arizuko send <instance> <folder> "<msg>" --stream  alias for --wait
 // arizuko send <instance> <folder> --stdin           read body from stdin
 //
 // Two paths:
@@ -127,10 +127,7 @@ func cmdSend(args []string) {
 
 	turnURL := fmt.Sprintf("%s/chat/%s/%s", base, chatToken, url.PathEscape(posted.TurnID))
 
-	if stream {
-		os.Exit(streamRound(client, turnURL+"/sse"))
-	}
-	os.Exit(pollRound(client, turnURL))
+	os.Exit(streamRound(client, turnURL+"/sse"))
 }
 
 // operatorInject hands the message to routd's ingest, as an adapter does, as an
@@ -203,7 +200,9 @@ func operatorInject(st *store.Store, dataDir, folder, sender, msg, topic string,
 // streamRound subscribes to /sse and prints message frames as they arrive.
 // Returns 0 on round_done success, 1 on failed status, 2 on transport error.
 func streamRound(client *http.Client, sseURL string) int {
-	resp, code := openSSE(client, sseURL, nil)
+	streamClient := *client
+	streamClient.Timeout = 0
+	resp, code := openSSE(&streamClient, sseURL, nil)
 	if resp == nil {
 		return code
 	}
@@ -288,54 +287,6 @@ func handleSSEFrame(event, data string) int {
 		return 1
 	}
 	return -1
-}
-
-// pollRound polls /slink/<token>/<id>?after=<seq> at 1s cadence, prints
-// frames as they arrive, exits 0 on done, 1 on failed.
-func pollRound(client *http.Client, turnURL string) int {
-	after := ""
-	for {
-		u := turnURL
-		if after != "" {
-			u += "?after=" + url.QueryEscape(after)
-		}
-		req, _ := http.NewRequest("GET", u, nil)
-		req.Header.Set("Accept", "application/json")
-		resp, err := client.Do(req)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed: poll: %v\n", err)
-			return 2
-		}
-		var snap struct {
-			Status      string `json:"status"`
-			LastFrameID string `json:"last_frame_id"`
-			Frames      []struct {
-				Content, Kind string
-			} `json:"frames"`
-		}
-		derr := json.NewDecoder(resp.Body).Decode(&snap)
-		_ = resp.Body.Close()
-		if derr != nil {
-			// A snapshot that will not parse has no status, and the loop would poll
-			// on for it forever.
-			fmt.Fprintf(os.Stderr, "Failed: poll decode: %v\n", derr)
-			return 2
-		}
-		for _, f := range snap.Frames {
-			fmt.Println(f.Content)
-		}
-		if snap.LastFrameID != "" {
-			after = snap.LastFrameID
-		}
-		switch snap.Status {
-		case "success":
-			return 0
-		case "failed":
-			fmt.Fprintln(os.Stderr, "round failed")
-			return 1
-		}
-		time.Sleep(1 * time.Second)
-	}
 }
 
 func loadInstanceEnv(dataDir string) (map[string]string, error) {

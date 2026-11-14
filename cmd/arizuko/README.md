@@ -200,7 +200,7 @@ It uses the owners' shared schema and handlers. It writes CLI audit events to th
 ## Waiting and failure behavior
 
 Direct `send --wait` reads replies every 1 s, waits up to 120 s for the first reply, and stops after 15 s of quiet.
-Route-token status fallback polls every 1 s. The send HTTP client uses 30 s; talk MCP calls use 60 s.
+Route-token `send --wait` and `--stream` use the same replaying SSE stream with no total body deadline. The send POST uses 30 s; talk MCP calls use 60 s.
 `probe` uses a 10 s client timeout; `model-pauses` uses 15 s.
 A successful direct inject means queued input, not proof that runed started or that an answer reached a platform.
 Store failure returns a nonzero status; no local fallback database holds the write.

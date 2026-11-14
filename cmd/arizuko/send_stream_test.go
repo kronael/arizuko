@@ -9,11 +9,6 @@ import (
 	"time"
 )
 
-// `arizuko send --wait` blocks on the round. Both wait paths -- SSE and the
-// polling fallback -- decide when to stop from frames the server sends, and
-// neither had a test. A frame the parser does not recognise is not a wrong
-// answer: it is a CLI that never returns.
-
 func TestHandleSSEFrameStopsOnlyOnRoundDone(t *testing.T) {
 	cases := []struct {
 		name, event, data string
@@ -105,77 +100,21 @@ func TestStreamRoundReportsANon200AndAnUnreachableServer(t *testing.T) {
 	}
 }
 
-// pollRound — the fallback for a client with no SSE.
-
-// The poller advances its cursor with last_frame_id. Without that the same
-// frames reprint every second forever.
-func TestPollRoundAdvancesItsCursorAndStopsOnSuccess(t *testing.T) {
-	var seen []string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		after := r.URL.Query().Get("after")
-		seen = append(seen, after)
-		switch after {
-		case "":
-			_, _ = fmt.Fprint(w, `{"status":"running","last_frame_id":"f1","frames":[{"content":"one"}]}`)
-		case "f1":
-			_, _ = fmt.Fprint(w, `{"status":"success","last_frame_id":"f2","frames":[{"content":"two"}]}`)
-		default:
-			t.Errorf("unexpected cursor %q", after)
-			_, _ = fmt.Fprint(w, `{"status":"failed"}`)
-		}
-	}))
-	t.Cleanup(srv.Close)
-
-	done := make(chan int, 1)
-	go func() { done <- pollRound(srv.Client(), srv.URL) }()
-	select {
-	case got := <-done:
-		if got != 0 {
-			t.Errorf("pollRound = %d, want 0", got)
-		}
-	case <-time.After(10 * time.Second):
-		t.Fatal("pollRound never returned; the CLI would hang")
-	}
-
-	if len(seen) != 2 || seen[0] != "" || seen[1] != "f1" {
-		t.Errorf("cursors = %v, want [\"\" \"f1\"] — the poller must advance", seen)
-	}
-}
-
-func TestPollRoundReturnsOneOnFailedAndTwoOnTransportError(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = fmt.Fprint(w, `{"status":"failed"}`)
-	}))
-	t.Cleanup(srv.Close)
-	if got := pollRound(srv.Client(), srv.URL); got != 1 {
-		t.Errorf("pollRound on a failed round = %d, want 1", got)
-	}
-
-	dead := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
-	url, client := dead.URL, dead.Client()
-	dead.Close()
-	if got := pollRound(client, url); got != 2 {
-		t.Errorf("pollRound against a closed server = %d, want 2", got)
-	}
-}
-
-// A snapshot body the poller cannot read carries no status, and the loop used
-// to poll on for one forever — the same "CLI that never returns" this file was
-// written against, reached through a bad body instead of a bad frame.
-func TestPollRoundStopsOnAnUnreadableSnapshot(t *testing.T) {
+func TestStreamRoundOutlivesRequestTimeout(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = fmt.Fprint(w, `{not json`)
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		w.(http.Flusher).Flush()
+		time.Sleep(80 * time.Millisecond)
+		_, _ = fmt.Fprint(w, "event: round_done\ndata: {\"status\":\"success\"}\n\n")
 	}))
 	t.Cleanup(srv.Close)
-
-	done := make(chan int, 1)
-	go func() { done <- pollRound(srv.Client(), srv.URL) }()
-	select {
-	case got := <-done:
-		if got != 2 {
-			t.Errorf("pollRound on an unreadable snapshot = %d, want 2", got)
-		}
-	case <-time.After(10 * time.Second):
-		t.Fatal("pollRound never returned; the CLI would hang")
+	client := srv.Client()
+	client.Timeout = 20 * time.Millisecond
+	if got := streamRound(client, srv.URL); got != 0 {
+		t.Fatalf("stream ended at request timeout: exit %d", got)
+	}
+	if client.Timeout != 20*time.Millisecond {
+		t.Fatal("stream changed caller's request timeout")
 	}
 }

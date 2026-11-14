@@ -547,7 +547,17 @@ Onbod queues deliveries through its existing routd store handle. It has no
 outbound HTTP client or service-token exchange. `AUTHD_URL` remains required
 for inbound token verification.
 
+Token `send --wait` and `--stream` share the existing replaying turn stream.
+The SSE client has no total body deadline; the POST keeps its thirty-second
+timeout. The operator-direct path still reads the indexed reply range because
+its current contract ends on quiet time rather than a turn completion event.
+
 ## Open questions
+
+- Which stream/auth/completion contract should replace operator-direct send's
+  keyed reply poll? The `/me` stream needs a public endpoint, live user grants
+  and a topic; it has no replay or equivalent quiet-time completion contract.
+  Keep the existing local operator contract until that decision.
 
 - May provisioning drop onbod's unused `AUTHD_SERVICE_KEY` and `ROUTER_URL`?
   The daemon accepts existing environments and does not need those values.
