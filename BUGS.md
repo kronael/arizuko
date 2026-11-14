@@ -14,24 +14,6 @@
 > so counting one as open overstates the queue.
 
 
-## L879 — Ant marks transient provider refusals terminal (2026-11-14)
-
-Claude and Codex emit `terminal: true` for every recognized provider failure.
-The router cannot replay a transient refusal without overriding terminal safety.
-**Measured:** `ant/src/provider-failure.test.ts::Claude rejected rate-limit fixture`
-expects `terminal: false` for a rejected rate-limit event. The current result has
-`terminal: true`; the focused test fails in 622ms at
-`92e9defb38f882abe56363a6fed767a0f0d9802e`. Log: `tmp/retry-logs/ant-provider-parent-red.log`.
-**Additional measurement:** a thrown SDK HTTP 408 escapes without a verdict;
-`ant/src/provider-failure.test.ts::SDK thrown HTTP status selects verdict` failed
-in 363ms. Log: `tmp/retry-logs/ant-verdict-thrown-red.log`.
-The parent also measured the SDK's text-form HTTP408 escaping without a verdict
-(440ms; `tmp/retry-logs/ant-parent-thrown-text-red.log`).
-`SDK cancellation overrides transient facts` also fails: a canceled HTTP408
-emits `terminal: false` (508ms; `tmp/retry-logs/ant-parent-cancel-red.log`).
-**Fix:** use the common provider and HTTP classifiers in Ant; keep explicit
-terminal outcomes authoritative through submission and process exit.
-
 ## L857 — the full router gate loses its test database control plane (2026-11-14)
 
 At candidate `66e8e2f4b7ebf9a6bc41a5fd9a027ecdc0249f7b`, the single full
