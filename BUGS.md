@@ -60,31 +60,6 @@ through the common reconnect owner. Add a regression for the actual panel markup
 and a streamed message; remove the attribute/listener guard and require failure.
 The browser retry integration owns this fix after the current serial capacity work.
 
-## L867 — Slack application errors release unknown-create claims (2026-11-14)
-
-`slakd/bot.go` marks every `ok:false` send response `ErrNotDelivered`.
-`deliverOnce` then releases the claim. Slack documents possible partial success
-for `internal_error` and `fatal_error`; neither proves that no message exists.
-**Measured:** the source branch and `TestSendClassifiesAnOKFalseRefusal` explicitly
-expect claim-release proof for `fatal_error`. The primary API contract is
-[chat.postMessage](https://docs.slack.dev/reference/methods/chat.postMessage/).
-**Severity:** medium, correctness — a repeated key can create a second message.
-**Fix:** release only known refusals; retain unknown outcomes. Verify the real
-handler with repeated keys and mutate the proof guard. The unified-retry request
-authorizes this repair. No live duplicate is claimed.
-
-## L868 — outbound retry fixtures omit their transient failure fact (2026-11-14)
-
-`routd/fixes_test.go` defines `errSendT` with only `Error()`, but delivery
-tests use it to represent a temporary adapter outage. Shared classification
-correctly stops unknown errors. The parent HTTP integration gate fails
-`TestOutboundTransientFailureDeadLettersAtCap` and
-`TestOutboundRetrySucceedsBeforeCap`: both stop after failure one.
-**Measured:** `tmp/retry-logs/http-parent-restored-routd.log`, FAIL 29.734s.
-**Fix:** carry an actual transient HTTP fact in the fixture. Retain a separate
-unknown-failure assertion; never restore the production default-transient rule.
-**Severity:** low, coverage. The unified-retry request owns this fixture update.
-
 ## What needs you
 
 - `L862` — retry timing, failure classification and exhaustion differ by feature; unification approved, implementation in progress.
@@ -176,7 +151,6 @@ line; none can be answered from the code.
   replayed one agree? It changes `platform_id`, which other readers compare.
 - `L439` — the first status frame has no topic because routd writes the row
   with no reply-to; the fix is in the send path, not inside webd.
-- `L434` — may gitd hold the dedup claim on a 5xx and dead-letter visibly?
   It changes delivery semantics for every adapter.
 - `L133` — one question after that re-measure: `ext:` is a third namespace the
   proposal would break.
@@ -3527,38 +3501,6 @@ for match predicates and the folder for targets. Restoring the original
 match-only helper in `TestGitHubSourceRemoveKeepsOtherTargets` removes both
 owners' child-target routes. L709 binds revocation to the recorded target and
 route identities; legacy rows without that metadata refuse revocation.
-
-## L434 — adapter 5xx responses release unknown-create claims (2026-10-17)
-
-Found while fixing `L426`, in the same function, and left alone there on
-purpose. `gitd/bot.go` `call` wraps every `>=500` in `chanlib.ErrNotDelivered`,
-and `chanlib/dedup.go` reads that sentinel as proof nothing was posted, so it
-releases the claim and routd re-sends.
-
-`specs/5/34-channel-protocol.md` puts a 5xx in the AMBIGUOUS class for the
-opposite reason: a proxy 502 on a POST may already have created the comment
-upstream. Both cannot be right.
-
-This is the inverse risk of `L413`. There the fix stopped a duplicate comment
-by refusing to classify a transport error; here the code still asserts
-not-delivered on a response that says nothing about whether the write landed.
-gitd is the adapter whose posts are public, so the cost of being wrong is a
-double comment on someone's pull request.
-
-The 2026-11-14 retry inventory confirms the same path in `googd/main.go:223`:
-`bot.call` wraps every 5xx in `ErrNotDelivered`, including the POST used by
-`bot.Send` at line 160. `chanlib/dedup.go:93` releases the delivery claim for
-that sentinel. This is source evidence of a permitted second create, not a
-measured duplicate on a live service. The unified-retry request authorizes
-repairing this classification while preserving replay safety.
-
-- **Severity:** medium — one duplicate per 5xx that actually wrote, and
-  nothing reports it
-- **Scope:** `gitd/bot.go` `statusErr`, `googd/main.go` `bot.call`, and
-  `chanlib/dedup.go`, against `specs/5/34-channel-protocol.md`
-- **Status:** approved by the 2026-11-14 unified-retry request; preserve the
-  claim after an unknown create outcome and expose the common terminal notice.
-- **Related:** `L413` is the same seam from the other side
 
 ## L422 — thirteen daemons read env keys generation never delivers, so setting them in .env does nothing (2026-10-16, open — needs sign-off)
 
