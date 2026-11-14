@@ -463,11 +463,17 @@ func (l *Loop) isSavedExecution(tc TurnContext) bool {
 }
 
 func (q *turnControl) recover(l *Loop, startup bool) error {
-	control, _, err := l.db.store().ReadTurnControl(context.Background())
+	var turns []TurnContext
+	var err error
+	if startup {
+		turns, err = l.db.RunningTurns()
+	} else {
+		turns, err = l.db.store().RecoverableTurns(context.Background())
+	}
 	if err != nil {
 		return err
 	}
-	turns, err := l.db.RunningTurns()
+	control, _, err := l.db.store().ReadTurnControl(context.Background())
 	if err != nil {
 		return err
 	}

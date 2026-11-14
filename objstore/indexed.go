@@ -11,7 +11,7 @@ import (
 )
 
 const IndexEntity = "state_index"
-const IndexBatchSize = 10
+const IndexBatchSize = 8
 const indexRevision = "_index_revision"
 
 type Indexer interface {

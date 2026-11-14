@@ -57,6 +57,7 @@ func TestFinishedTurnMovesToTheArchiveWhole(t *testing.T) {
 	archived, ok := archivedTurn(t, s, "t1")
 	want := maps.Clone(before.Attrs)
 	want[attrTurnState] = TurnDone
+	want["_index_revision"] = archived.Attrs["_index_revision"]
 	if !ok || !maps.Equal(archived.Attrs, want) {
 		t.Fatalf("archive holds %v, want %v", archived.Attrs, want)
 	}
@@ -240,7 +241,9 @@ func TestMigrateTurnArchiveMovesFinishedRowsOnce(t *testing.T) {
 		if _, ok := liveTurn(t, s, id); ok {
 			t.Errorf("%s is still live", id)
 		}
-		if it, ok := archivedTurn(t, s, id); !ok || !maps.Equal(it.Attrs, rows[id]) {
+		it, ok := archivedTurn(t, s, id)
+		delete(it.Attrs, "_index_revision")
+		if !ok || !maps.Equal(it.Attrs, rows[id]) {
 			t.Errorf("%s archived as %v, want %v", id, it.Attrs, rows[id])
 		}
 	}

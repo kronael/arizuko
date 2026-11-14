@@ -124,13 +124,11 @@ func (s *Store) turnItem(ctx context.Context, turnID string) (objstore.Item, boo
 }
 
 func (s *Store) archivedTurnsSince(ctx context.Context, since string) ([]objstore.Item, error) {
-	return s.Obj().Query(ctx, objstore.Query{
-		Entity: TurnArchive, Partition: OwnerRoutd,
-		Where: []objstore.Cmp{{Attr: AttrTurnStartedAt, Op: objstore.Ge, Value: since}},
-	})
+	return objstore.IndexItems(ctx, s.Obj(), TurnArchive+"/started",
+		objstore.KeyPredicate{Op: objstore.GeKey, Value: since}, 0)
 }
 
-const archiveBatch = objstore.MaxBatchActions / 2
+const archiveBatch = objstore.IndexBatchSize / 2
 
 // MigrateTurnArchive moves the finished turns `turn_context` held before the
 // archive existed, once, and records the run of each live turn in `run_turns`.

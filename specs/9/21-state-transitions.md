@@ -86,7 +86,7 @@ Sources: `routd/loop.go`, `routd/turn_control.go`, `routd/turn_status.go`,
   never: separates a row from its work pointers
 - path: store/state_index.go (new)
   job: declare access keys for state transitions and migrate existing rows once
-  names: [MigrateStateIndexes]
+  names: [MigrateStateIndexes, RecoverableTurns]
   never: exposes an operator-managed resource
 - path: store/store.go (changed)
   job: give every writer the same index-maintaining storage handle
@@ -116,6 +116,22 @@ Sources: `routd/loop.go`, `routd/turn_control.go`, `routd/turn_status.go`,
   job: prove due-only reads, atomic transitions, and migration restart behavior
   names: [TestDueTasksReadOnlyDueRows, TestStateIndexKeepsConcurrentTransition]
   never: uses a live instance
+- path: store/turn_context.go (changed)
+  job: read recovery and expiry work by key
+  names: [RunningTurns, SweepExpiredRunning, TurnsSince]
+  never: expires a concurrently restarted turn
+- path: store/turn_control.go (changed)
+  job: select due retries and unacknowledged status intents
+  names: [DeferredTurns, OwedTurnStatuses]
+  never: filters the live partition to discover work
+- path: store/turn_archive.go (changed)
+  job: keep archived history keyed by start time
+  names: [archivedTurnsSince, MigrateTurnArchive]
+  never: drops an existing migration
+- path: routd/turn_control.go (changed)
+  job: reconcile returned runs during runtime and live runs at startup
+  names: [recover]
+  never: treats an occupied folder as abandoned
 ```
 
 ## Atomic work keys
@@ -153,6 +169,26 @@ removes that due key. Reschedule writes the next due key or a terminal state.
 Pause and delete remove work. A missing initial cron time is a scheduled
 initialization obligation; its consumer computes the first real deadline.
 The startup recovery reader selects only `firing` keys.
+
+## Turn transitions
+
+Admission writes `running` and its startup/live and expiry pointers. A runtime
+return writes the recovery obligation; a live guest is not runtime recovery
+work. Startup reads only live pointers. The runtime consumer reconciles only
+returned runs and the explicit breaker probe. Successful reconciliation
+finishes the turn or schedules `pending_retry` at `next_attempt_at`.
+
+A retry claim removes its due key. A status intent creates a status pointer;
+publishing and acknowledging that exact attempt removes it. Finishing moves
+the primary into `turn_archive` with its history pointer atomically. Both live
+and archived history are keyed by start time. Expiry selects only older running
+turns without an outstanding provider failure and guards the deadline again
+at commit, so a concurrent restart cannot expire a fresh run.
+
+`turns-v1` backfills both primary partitions once. The task migration remains.
+Counting tests select one of 40 turns using two reads (pointer and primary),
+and zero after acknowledgment. A concurrent restart mutation expires a fresh
+run without the deadline guard and fails the test.
 
 ## Open questions
 

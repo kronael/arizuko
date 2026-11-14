@@ -423,27 +423,8 @@ func (s *Store) TurnGatewayKey(turnID string) (string, error) {
 	return it.Attrs[attrTurnGatewayKey], nil
 }
 
-// RunningTurns lists the turns crash recovery re-feeds: the ones still running
-// or waiting for a retry. The exact set is named HERE, because a filter is a
-// conjunction and "one of these two states" is not one; naming the set rather
-// than testing for "not terminal" keeps a state added later out of the
-// crash-recovery feed until someone decides it belongs there.
 func (s *Store) RunningTurns() ([]TurnContext, error) {
-	items, err := s.Obj().Query(context.Background(), objstore.Query{
-		Entity: TurnContexts, Partition: OwnerRoutd,
-		Where: []objstore.Cmp{{Attr: attrTurnState, Op: objstore.Ne, Value: TurnDone}},
-	})
-	if err != nil {
-		return nil, fmt.Errorf("read the turns still in flight: %w", err)
-	}
-	var out []TurnContext
-	for _, it := range items {
-		switch it.Attrs[attrTurnState] {
-		case TurnRunning, TurnPendingRetry:
-			out = append(out, turnFrom(it))
-		}
-	}
-	return out, nil
+	return s.indexedTurns(context.Background(), "turns/live", objstore.KeyPredicate{})
 }
 
 // TurnsSince answers every turn dispatched at or after `since`, whatever state
@@ -451,12 +432,8 @@ func (s *Store) RunningTurns() ([]TurnContext, error) {
 // A turn bound again after it expired is answered once, live.
 func (s *Store) TurnsSince(since time.Time) ([]TurnContext, error) {
 	ctx := context.Background()
-	live, err := s.Obj().Query(ctx, objstore.Query{
-		Entity: TurnContexts, Partition: OwnerRoutd,
-		Where: []objstore.Cmp{
-			{Attr: AttrTurnStartedAt, Op: objstore.Ge, Value: core.TS(since)},
-		},
-	})
+	live, err := objstore.IndexItems(ctx, s.Obj(), TurnContexts+"/started",
+		objstore.KeyPredicate{Op: objstore.GeKey, Value: core.TS(since)}, 0)
 	if err != nil {
 		return nil, fmt.Errorf("read the turns dispatched since %s: %w", core.TS(since), err)
 	}
@@ -484,13 +461,8 @@ func (s *Store) TurnsSince(since time.Time) ([]TurnContext, error) {
 func (s *Store) SweepExpiredRunning(timeout time.Duration) (int64, error) {
 	ctx := context.Background()
 	cutoff := core.TS(time.Now().Add(-timeout))
-	items, err := s.Obj().Query(ctx, objstore.Query{
-		Entity: TurnContexts, Partition: OwnerRoutd,
-		Where: []objstore.Cmp{
-			{Attr: attrTurnState, Op: objstore.Eq, Value: TurnRunning},
-			{Attr: AttrTurnStartedAt, Op: objstore.Lt, Value: cutoff},
-		},
-	})
+	items, err := objstore.IndexItems(ctx, s.Obj(), "turns/expiry",
+		objstore.KeyPredicate{Op: objstore.LtKey, Value: cutoff}, 0)
 	if err != nil {
 		return 0, fmt.Errorf("read the stale running turns: %w", err)
 	}
@@ -508,6 +480,7 @@ func (s *Store) SweepExpiredRunning(timeout time.Duration) (int64, error) {
 			Attrs: map[string]string{attrTurnState: TurnExpired},
 			Cond: objstore.Cond{Where: []objstore.Cmp{
 				{Attr: attrTurnState, Op: objstore.Eq, Value: TurnRunning},
+				{Attr: AttrTurnStartedAt, Op: objstore.Lt, Value: cutoff},
 				marker,
 			}},
 		})

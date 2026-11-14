@@ -527,3 +527,22 @@ func TestPassAndRunEndExamineOnlyLiveTurns(t *testing.T) {
 		t.Errorf("turn_context rows examined = %d, want at most 3: one live turn, three reads", got)
 	}
 }
+
+func TestRuntimeRecoveryReadsNoRunningRows(t *testing.T) {
+	db, l, c := countedLoop(t)
+	if err := db.PutGroup(core.Group{Folder: "eng"}); err != nil {
+		t.Fatal(err)
+	}
+	for i := range 40 {
+		if _, err := db.store().OpenTurnContext(fmt.Sprint(i), "eng", "", "chat", "u", "", nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	clear(c.reads)
+	if err := l.q.recover(l, false); err != nil {
+		t.Fatal(err)
+	}
+	if n := c.count(store.TurnContexts); n != 0 {
+		t.Fatalf("runtime recovery read %d running turns", n)
+	}
+}

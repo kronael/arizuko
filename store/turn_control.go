@@ -224,17 +224,7 @@ func (s *Store) FinishControlledTurn(ctx context.Context, tc TurnContext, before
 }
 
 func (s *Store) DeferredTurns(ctx context.Context, now time.Time) ([]TurnContext, error) {
-	items, err := s.Obj().Query(ctx, objstore.Query{Entity: TurnContexts, Partition: OwnerRoutd,
-		Where: []objstore.Cmp{{Attr: attrTurnState, Op: objstore.Eq, Value: TurnPendingRetry},
-			{Attr: "next_attempt_at", Op: objstore.Le, Value: core.TS(now)}}})
-	if err != nil {
-		return nil, err
-	}
-	turns := make([]TurnContext, 0, len(items))
-	for _, item := range items {
-		turns = append(turns, turnFrom(item))
-	}
-	return turns, nil
+	return s.indexedTurns(ctx, "turns/retry", objstore.KeyPredicate{Op: objstore.LtKey, Value: core.TS(now) + "\x7f"})
 }
 
 func (s *Store) DeferredMessages(ctx context.Context, keys []objstore.Key) ([]core.Message, error) {
@@ -368,15 +358,7 @@ func (s *Store) claimDeferredTurn(ctx context.Context, tc TurnContext, attemptID
 
 // OwedTurnStatuses includes completed turns whose lifecycle status still needs publication.
 func (s *Store) OwedTurnStatuses(ctx context.Context) ([]TurnContext, error) {
-	items, err := s.Obj().Query(ctx, objstore.Query{Entity: TurnContexts, Partition: OwnerRoutd, Where: []objstore.Cmp{{Attr: "status_owed", Op: objstore.Present}}})
-	if err != nil {
-		return nil, err
-	}
-	var turns []TurnContext
-	for _, it := range items {
-		turns = append(turns, turnFrom(it))
-	}
-	return turns, nil
+	return s.indexedTurns(ctx, "turns/status", objstore.KeyPredicate{})
 }
 
 func (s *Store) AcknowledgeTurnStatus(ctx context.Context, tc TurnContext) error {

@@ -15,7 +15,7 @@
 
 ## What needs you
 
-- `L834` — scheduled-task discovery reads every task each minute; keyed transitions approved on 2026-11-14.
+- `L835` — turn maintenance filters live and archive partitions; keyed lifecycle transitions approved on 2026-11-14.
 
 - `L826` — one folder's crash closes the whole instance for an hour; per-folder breaker or a 30 s probe; needs sign-off.
 - `L822` — gitd's `/health` reads its whole held-inbound backlog per probe; dropping `pending_inbound` changes the documented contract; needs sign-off.
@@ -713,18 +713,18 @@ pre-breaker state.
   serve both by-id and by-time reads. A crash between a turn's finish and its
   status acknowledgement leaves it live, `done`, owing nothing.
 
-## L834 — scheduled work is discovered by a whole-partition read (2026-11-14)
+## L835 — turn maintenance discovers work by filtering live rows (2026-11-14)
 
-`store/tasks.go::DueTasks` filters `scheduled_tasks` on `status` and compares
-parsed deadlines after the read. Computed at `ba80338b4`: N task rows per
-60-second pass, including paused and future rows. `RecoverFiringTasks` reads
-the same partition at startup. The writers do not record a keyed obligation.
-**Fix:** atomic due/firing pointers maintained by all writers, including resreg
-apply, with a marked migration. Owner approved this redesign on 2026-11-14.
-**Test:** `store/state_index_test.go::TestDueTasksReadOnlyDueRows` seeds 40
-tasks with one due: baseline read 40; indexed claim reads at most four, then zero.
-Revision, deadline, migration-marker and resreg-writer mutations each failed
-their covering test; restored guards pass.
+Computed from `store/turn_context.go` and `store/turn_control.go`: each 30-second
+recovery pass reads N live turns for running work and N for due retries; status
+recovery reads N more. Hourly expiry reads N. `TurnsSince` reads the complete
+archive plus live rows on every dashboard request. These filters are not keys.
+**Fix:** atomic retry, recovery, owed-status, expiry and history pointers, with
+run-once markers. Startup recovers live runs; runtime recovers returned runs.
+**Test:** counting-store tests seed unrelated/future rows and require reads
+proportional to eligible work (2 rows for one of 40; zero after acknowledgement).
+Range, runtime-recovery and concurrent-expiry mutations each fail their tests.
+Owner approved this redesign on 2026-11-14.
 
 ## L822 — gitd's `/health` reads its whole held-inbound backlog on every probe (2026-11-12, open — needs sign-off)
 
