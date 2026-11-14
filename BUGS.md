@@ -14,24 +14,6 @@
 > so counting one as open overstates the queue.
 
 
-## L872 — retry notice tests expect superseded text (2026-11-14)
-
-The retry notice uses the shared policy wording, but `routd/thread_retry_test.go`
-and `routd/telegram_recovery_test.go` assert the former wording.
-**Measured:** six `TestThreadReplyRetryPreservesPlacement` subtests failed in
-48.07s during a 128.261s focused run; `tmp/retry-logs/mute-replay-placement.log`.
-**Fix:** assert the current notice while retaining delivery and retry checks.
-
-## L870 — folder mute does not suppress MCP text sends (2026-11-14)
-
-`SEND_DISABLED_GROUPS` promises to suppress a folder's outbound delivery, but
-`routd/mcp.go` sends text without consulting `mutedGroup`. The MCP socket
-regression `TestMutedFolderMCPText` delivered one message from a muted folder.
-**Measured:** `go test -short -count=1 ./routd -run '^TestMutedFolderMCPText$'`
-failed in 8.714s; `tmp/retry-logs/l870-muted-mcp.log`.
-**Fix:** apply the folder mute at the actual outbound entrypoints and retain
-message evidence; the regression remains skipped until that separate change.
-
 ## L857 — the full router gate loses its test database control plane (2026-11-14)
 
 At candidate `66e8e2f4b7ebf9a6bc41a5fd9a027ecdc0249f7b`, the single full
