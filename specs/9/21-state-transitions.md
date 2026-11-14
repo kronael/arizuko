@@ -371,6 +371,23 @@ unreadable access-rule table never means an empty rule set. With forty routes,
 read on reuse. Six mutations fail: reuse, version comparison, held marker,
 consistent reload, missing version and HTTP error propagation.
 
+## WhatsApp retained files
+
+The ledger recovers its existing JSON files once at startup. A successful
+retain write adds the payload to the pending set. An accepted delivery removes
+the file and its pending entry together; failed unlink keeps the entry.
+Acknowledgments identify the payload generation, so a newer retain survives an
+older send. One drain sends the oldest pending payloads and stops at the first
+delivery failure. A remaining obligation schedules a retry after 30 seconds;
+an empty set owns no timer. Startup recovery is immediate. No file-format
+migration is needed.
+Each retain orders the pending set; each send selects its current oldest row
+after the previous await. A shared serializer also covers failed-retention
+delivery. One callback updates delivery health for every successful send.
+The counting filesystem test measures zero directory or payload reads on
+repeated drains. Nine mutations fail, including discovery, overlap, generation,
+clone, unlink, empty timer, startup recovery, transport serialization and order.
+
 ## Open questions
 
 - The archive adds optional `work` and `delivery` metadata. Does any external

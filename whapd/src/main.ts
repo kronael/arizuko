@@ -27,12 +27,11 @@ import {
   extractContent as extractContentPure,
   isOwnEcho,
 } from './inbound.js';
+import type { RouterMessage } from './inbound.js';
 import { log } from './log.js';
 import { startServer } from './server.js';
 import { TypingRefresher } from './typing.js';
-
 const logger = pino({ level: 'warn' });
-
 function env(k: string, def?: string): string {
   const v = process.env[k] || def;
   if (!v) {
@@ -41,34 +40,19 @@ function env(k: string, def?: string): string {
   }
   return v;
 }
-
 const assistantName = (process.env['ASSISTANT_NAME'] ?? '').toLowerCase();
 const dataDir = process.env['DATA_DIR'] ?? '';
-
 const authDir = env(
   'WHATSAPP_AUTH_DIR',
   dataDir ? `${dataDir}/store/whatsapp-auth` : '/srv/data/store/whatsapp-auth',
 );
-
-// Outbound dedup is a delivery guarantee, not a nicety: without the ledger
-// routd's re-send of a still-pending row posts a second WhatsApp message
-// (BUGS L32). The directory must be MOUNTED — an unmounted one dies with the
-// container and every claim is forgotten, which is the same as having none.
 const stateDir = env(
   'WHAPD_STATE_DIR',
   dataDir ? `${dataDir}/store/whapd` : '/srv/data/store/whapd',
 );
 const ledger = new DedupLedger(`${stateDir}/outbound-dedup`);
-// Inbound retention is the other half of the same guarantee: the read receipt
-// tells WhatsApp never to offer the message again, so it may only be sent once
-// the message survives a routd restart (BUGS L39).
 const inbound = new InboundLedger(`${stateDir}/inbound-pending`);
-// How often the sweep re-offers what routd has not accepted. It also runs once
-// at startup, which is the case that matters: whapd outlives a routd restart.
-const INBOUND_SWEEP_MS = 30_000;
-
-// Baileys writes creds.json non-atomically; restore from .bak if a prior crash
-// left the live file empty.
+const INBOUND_SWEEP_MS = 30000;
 function recoverCredsIfEmpty(dir: string): void {
   const creds = `${dir}/creds.json`;
   const backup = `${dir}/creds.json.bak`;
@@ -83,7 +67,6 @@ function recoverCredsIfEmpty(dir: string): void {
     }
   } catch {}
 }
-
 function backupCreds(dir: string): void {
   const creds = `${dir}/creds.json`;
   try {
@@ -91,7 +74,6 @@ function backupCreds(dir: string): void {
       fs.copyFileSync(creds, `${dir}/creds.json.bak`);
   } catch {}
 }
-
 async function makeSocket(): Promise<{
   s: WASocket;
   saveCreds: () => Promise<void>;
@@ -120,15 +102,9 @@ async function makeSocket(): Promise<{
   s.ev.on('creds.update', saveCreds);
   return { s, saveCreds };
 }
-
-// Runs one pairing attempt and resolves on 'open'. Handles Baileys' 515
-// "restart required after pairing" by recursing WITHOUT re-requesting a new
-// pair code (that confuses the server and invalidates the session).
 async function pairOnce(phone?: string): Promise<void> {
   const { s, saveCreds } = await makeSocket();
-
   if (phone) {
-    // Baileys needs a completed handshake before requestPairingCode works.
     setTimeout(async () => {
       try {
         const code = await s.requestPairingCode(phone);
@@ -145,7 +121,6 @@ async function pairOnce(phone?: string): Promise<void> {
       }
     }, 3000);
   }
-
   await new Promise<void>((resolve, reject) => {
     s.ev.on('connection.update', (update) => {
       const { connection, lastDisconnect } = update;
@@ -170,17 +145,7 @@ async function pairOnce(phone?: string): Promise<void> {
     });
   });
 }
-
-// Live socket handle. Kept as a module-level binding so existing helpers
-// (queue flush, presence, message handlers) read the current connection
-// without threading the bot through every callsite. `bot.sock` is the
-// authoritative source; we mirror writes here.
 let sock: WASocket | null = null;
-
-// pairSocketBuilder: feeds WhapdBot.requestPair. Builds a fresh socket,
-// kicks requestPairingCode after the handshake, and exposes both a
-// code-resolved promise and an open-resolved promise so the bot can
-// transition states distinctly (requesting -> pending -> idle).
 const pairSocketBuilder: SocketBuilder = async (phone) => {
   const { s, saveCreds } = await makeSocket();
   let codeResolve: (v: string) => void;
@@ -212,26 +177,16 @@ const pairSocketBuilder: SocketBuilder = async (phone) => {
     }
     if (connection === 'close') {
       const code = (lastDisconnect?.error as any)?.output?.statusCode;
-      if (code === 515) return; // Baileys restarts after pairing; ignore.
+      if (code === 515) return;
       openReject(new Error(`connection closed: ${code}`));
     }
   });
   return { sock: s, codePromise, openPromise };
 };
-
 const bot = new WhapdBot(pairSocketBuilder, () => authDirHasCreds(authDir));
-
 const routerURL = env('ROUTER_URL');
 const listenAddr = env('LISTEN_ADDR', ':9002');
 const listenURL = env('LISTEN_URL', 'http://whapd:9002');
-
-// Split (spec 5/1) routd↔adapter auth — ES256 service tokens, no CHANNEL_SECRET
-// (HMAC retire step 6). Outbound: exchange AUTHD_SERVICE_KEY for a
-// service:<daemon> JWT (principal = AUTHD_SERVICE_NAME, the base daemon name,
-// NOT the channel name) and present it on every routd call. Inbound: verifyRoutd
-// pins service:routd against authd's JWKS. AUTHD_URL unset → local dev: bearer
-// '' + verifier null (gate open), mirroring Go chanlib (run.go exits if a key is
-// missing only when AUTHD_URL is set; chanlib.Auth opens the gate at ks==nil).
 const authdURL = process.env['AUTHD_URL'];
 const verifier: RoutdVerifier = buildVerifier();
 let bearer: () => Promise<string> = async () => '';
@@ -248,14 +203,12 @@ if (authdURL) {
 const rc = new RouterClient(routerURL, bearer);
 let reconnectAttempts = 0;
 let connected = false;
-// Unix seconds of the most recent successful inbound delivery to the
-// router. Initialized so /health doesn't flip stale before the first
-// message. Updated only after rc.sendMessage resolves.
 let lastInboundAt = Math.floor(Date.now() / 1000);
 
-// Wraps the pure extractContent + Baileys media download, since downloads
-// need a live socket. Pure logic lives in inbound.ts; this function is
-// the only place the socket leaks in.
+async function sendInbound(payload: RouterMessage) {
+  await rc.sendMessage(payload);
+  lastInboundAt = Math.floor(Date.now() / 1000);
+}
 async function extractWithMedia(msg: WAMessage): Promise<{
   extracted: ReturnType<typeof extractContentPure>;
   mediaBuffer: Buffer | null;
@@ -283,7 +236,6 @@ async function extractWithMedia(msg: WAMessage): Promise<{
     return { extracted, mediaBuffer: null };
   }
 }
-
 async function connect(): Promise<void> {
   if (bot.suspended) {
     log('info', 'connect: bot suspended for pair flow; skipping reconnect');
@@ -291,29 +243,15 @@ async function connect(): Promise<void> {
   }
   ({ s: sock } = await makeSocket());
   bot.sock = sock;
-
   sock.ev.on('connection.update', (update) => {
     const { connection, lastDisconnect, qr } = update;
-
     if (qr) {
       log('info', 'scan QR code to authenticate');
       qrcode.generate(qr, { small: true });
     }
-
     if (connection === 'close') {
       connected = false;
       const code = (lastDisconnect?.error as any)?.output?.statusCode;
-      // 405 / loggedOut = server-side session termination. Re-pair required.
-      //
-      // STAY UP. A server-side logout is not a crash and it is not transient, so
-      // there is nothing to retry; and the pairing endpoints an operator
-      // re-pairs through live in THIS process, so exiting takes away the one
-      // surface that fixes it. krons restarted 2,820 times on this branch, and
-      // routd could not even resolve the name to say why (BUGS L303).
-      //
-      // Suspended stops the reconnect loop; /health answers 503 disconnected and
-      // /v1/pair/status answers `unauthenticated`, which is where an operator
-      // looks.
       if (code === DisconnectReason.loggedOut || code === 405) {
         log(
           'error',
@@ -350,7 +288,6 @@ async function connect(): Promise<void> {
         delay,
       );
     }
-
     if (connection === 'open') {
       reconnectAttempts = 0;
       connected = true;
@@ -359,10 +296,6 @@ async function connect(): Promise<void> {
       sock!.sendPresenceUpdate('unavailable').catch(() => {});
     }
   });
-
-  // Inbound emoji reactions: classify to like/dislike, propagate so
-  // the gateway can route the engagement signal. Reaction removal
-  // (text falsey) is dropped — we only signal additions.
   sock.ev.on('messages.reaction', async (events) => {
     for (const ev of events) {
       const payload = buildReactionPayload(ev as any, () =>
@@ -380,33 +313,23 @@ async function connect(): Promise<void> {
       }
     }
   });
-
   sock.ev.on('messages.upsert', async ({ messages }) => {
     for (const msg of messages) {
       if (!msg.message) continue;
       const jid = msg.key.remoteJid;
       if (!jid || jid === 'status@broadcast') continue;
       if (msg.key.fromMe) continue;
-      // Loop guard: skip our own echoes in group chats (matched by push name).
       if (isOwnEcho(msg, assistantName)) continue;
-
       const { extracted, mediaBuffer } = await extractWithMedia(msg);
       const payload = buildMessagePayload(msg, extracted, mediaBuffer, () =>
         Math.floor(Date.now() / 1000),
       );
       if (!payload) continue;
-
-      // Retain BEFORE the read receipt. readMessages tells WhatsApp the
-      // message is handled and Baileys never offers it again, so sending it
-      // first meant a routd that was restarting lost the message outright
-      // (BUGS L39). A retain that fails withholds the receipt instead.
       const held = inbound.retain(payload);
       if (held) sock!.readMessages([msg.key]).catch(() => {});
-
       try {
-        await rc.sendMessage(payload);
-        if (held) inbound.settle(payload.id);
-        lastInboundAt = Math.floor(Date.now() / 1000);
+        if (held) await inbound.sweep(sendInbound);
+        else await inbound.deliver(payload, sendInbound);
       } catch (e) {
         log(
           'error',
@@ -424,20 +347,12 @@ async function connect(): Promise<void> {
     }
   });
 }
-
 export function getSocket(): WASocket | null {
-  // bot.sock is the post-pair-swap authority; fall back to the module
-  // binding for boot-time callers that fire before the first connect().
   return bot.sock ?? sock;
 }
-
 export function isConnected(): boolean {
   return connected;
 }
-
-// WhatsApp 'composing' presence decays ~25s server-side, so long agent runs
-// need periodic re-sends. 15s refresh gives safety margin; 10min hard cap
-// matches the Go adapters via chanlib.TypingRefresher.
 async function pushPresence(
   status: 'composing' | 'paused',
   jid: string,
@@ -450,18 +365,15 @@ async function pushPresence(
     log('warn', 'presence update failed', { jid, status, err: String(e) });
   }
 }
-
 const typing = new TypingRefresher(
-  15_000,
+  15000,
   10 * 60 * 1000,
   (jid) => pushPresence('composing', jid),
   (jid) => pushPresence('paused', jid),
 );
-
 export function setTyping(jid: string, on: boolean): void {
   typing.set(jid, on);
 }
-
 async function registerWithRetry(): Promise<void> {
   let attempt = 0;
   while (true) {
@@ -481,7 +393,6 @@ async function registerWithRetry(): Promise<void> {
     }
   }
 }
-
 async function main() {
   const pairIdx = process.argv.indexOf('--pair');
   if (pairIdx >= 0) {
@@ -494,31 +405,9 @@ async function main() {
     await pairOnce(phone);
     process.exit(0);
   }
-
   await connect();
-
-  // Never exit on register failure: docker restart loops race Baileys'
-  // non-atomic creds writes and corrupt the session. Stay up; gated catches up.
-  //
-  // Note: whapd does NOT expose `fetch_history`. Baileys has no reliable
-  // history API — the in-memory sync store was removed in current versions
-  // and LID/JID translation makes offline lookup unsafe. The gateway falls
-  // back to its local-DB cache for history queries.
   registerWithRetry();
-
-  // The sweep re-offers what routd has not accepted. It runs at startup first,
-  // which is the case it exists for: whapd outlives a routd restart, so the
-  // messages that arrived during one are already on disk and nothing else will
-  // hand them over.
-  const sweepInbound = () => {
-    void inbound
-      .sweep((m) => rc.sendMessage(m))
-      .catch((e) => log('error', 'inbound sweep failed', { err: String(e) }));
-  };
-  sweepInbound();
-  const inboundTimer = setInterval(sweepInbound, INBOUND_SWEEP_MS);
-  inboundTimer.unref();
-
+  const stopInbound = inbound.start(sendInbound, INBOUND_SWEEP_MS);
   const srv = startServer(
     listenAddr,
     verifier,
@@ -529,20 +418,18 @@ async function main() {
     bot,
     ledger,
   );
-
   async function shutdown() {
     log('info', 'shutting down');
+    stopInbound();
     typing.stop();
     await rc.deregister();
     sock?.end(undefined);
     srv.close();
     process.exit(0);
   }
-
   process.on('SIGTERM', shutdown);
   process.on('SIGINT', shutdown);
 }
-
 main().catch((e) => {
   log('error', 'fatal', { err: String(e) });
   process.exit(1);

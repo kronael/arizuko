@@ -172,8 +172,13 @@ There are no store tables, resreg resources, MCP socket, `/openapi.json`, or `/m
 Baileys auth files, `creds.json`, and `creds.json.bak` live in `WHATSAPP_AUTH_DIR`.
 `WHAPD_STATE_DIR/outbound-dedup` holds one JSON record per delivery key.
 `WHAPD_STATE_DIR/inbound-pending` holds message payloads before WhatsApp receives the read receipt.
-The startup sweep and a 30 s interval replay retained messages oldest first and stop at the first failed delivery.
-Accepted messages leave the ledger. Failed retention withholds the receipt and logs the failure.
+Startup reads retained files once. Successful retain writes maintain an ordered
+pending set. Live sends and retries share one serialized transport; each drain
+selects the current oldest payload and stops on failure. Pending work retries
+after 30 s; an empty ledger owns no timer. Accepted messages leave the ledger
+only after successful file removal. A stale acknowledgment cannot remove a
+replacement payload. Unreadable recovery data fails startup. Failed retention
+withholds the receipt and logs the failure.
 Reaction events do not use this inbound ledger.
 
 Registration retries forever with a linear 2 s delay per failure capped at 30 s.

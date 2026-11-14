@@ -13,21 +13,21 @@
 > work items are their own entries. A record has nothing to fix and never will,
 > so counting one as open overstates the queue.
 
-## L842 — proxyd rereads unchanged route tables on every request (2026-11-14)
+## L843 — WhatsApp rereads every retained file on each retry tick (2026-11-14)
 
-`routesResource.snapshot` selects every `proxyd_routes` row and rebuilds its
-proxy map per request. `webSnapshot` also selects every `web_routes` row.
-Computed cost: R requests × N routes, even with no state changes.
-**Fix:** retain a consistent snapshot under the existing owner version. Read
-one settled marker per request; rebuild only after a committed change. A held
-replace or read failure must fail closed. Keep route and proxy data together.
-**Test:** counting store proves unchanged requests read only the marker;
-mutations refresh immediately, held replacements fail closed, and changes
-during snapshot construction cannot publish mixed state.
-Review found that returning nil web rules on a held or unreadable scope falls
-through to public file serving. Request-level checks must return 503 on lookup
-failure, preserving auth/deny rules during replacement.
-Missing marker versions must also fail closed rather than match an empty cache.
+`InboundLedger.sweep` calls `pending`, which lists the directory, reads every
+JSON payload and sorts them every 30 seconds: computed 120N payload reads/hour.
+Overlapping asynchronous sweeps can send the same retained row concurrently.
+**Fix:** recover the existing files once, then retain/settle writes maintain
+the pending set. Serialize drains and arm a retry only while work remains.
+An unsuccessful unlink keeps its obligation; a stale acknowledgment cannot
+delete a replacement payload. File format and oldest-first ordering stay intact.
+**Test:** no recurring directory reads, restart recovery, overlapping drains,
+retain during delivery, replacement acknowledgment, and failed unlink.
+Review cases: retaining timestamp 20 while timestamp 10 awaits must precede
+the existing timestamp 30; reusing the same payload object must not defeat
+generation fencing. Failed-retention sends share the transport serializer,
+and every successful send updates health through the same callback.
 
 ## What needs you
 

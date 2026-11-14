@@ -1,21 +1,3 @@
-// Durable inbound retention — whapd's half of the inbound delivery guarantee
-// (spec 5/34). whapd sent the WhatsApp read receipt BEFORE routd had accepted
-// the message, and the failure path only logged, so a routd that was restarting
-// lost the message and Baileys never offered it again (BUGS L39). slakd and
-// discd have had the durable answer since L25, as `chanlib.RouterClient
-// .RetainInbound`; whapd is TypeScript and cannot call it, so this is the same
-// shape in TS.
-//
-// ONE FILE PER MESSAGE, not a database, for the reason dedup.ts gives: node:22
-// has no stable `node:sqlite`, and the filesystem already provides the only
-// atomicity this needs. The directory lives under whapd's own MOUNTED state
-// dir — an unmounted one dies with the container, which is the same as having
-// no ledger at all.
-//
-// The record is written BEFORE the read receipt. That ordering is the whole
-// fix: after it, losing the message needs the disk to fail, not routd to be
-// busy.
-
 import fs from 'node:fs';
 import path from 'node:path';
 import { keyFile } from './dedup.js';
@@ -23,21 +5,34 @@ import { log } from './log.js';
 import type { RouterMessage } from './inbound.js';
 
 export class InboundLedger {
+  private rows = new Map<string, RouterMessage>();
+  private draining = false;
+  private sending = Promise.resolve();
+  private timer: ReturnType<typeof setTimeout> | undefined;
+  private send: ((m: RouterMessage) => Promise<void>) | undefined;
+  private retryMs = 30_000;
+
   constructor(private dir: string) {
     fs.mkdirSync(dir, { recursive: true });
+    for (const row of this.pending()) this.rows.set(row.id, row);
   }
 
   // retain writes the payload down and reports whether it is now durable. A
   // false answer means the caller must NOT acknowledge the message to
   // WhatsApp: acknowledging something neither routd nor the disk holds is
   // exactly the loss this ledger exists to stop.
-  retain(payload: RouterMessage): boolean {
+  retain(payload: RouterMessage) {
     if (!payload.id) return false;
     const file = keyFile(this.dir, payload.id);
     try {
       const tmp = file + '.tmp';
       fs.writeFileSync(tmp, JSON.stringify(payload));
       fs.renameSync(tmp, file);
+      this.rows.set(payload.id, { ...payload });
+      this.rows = new Map(
+        Array.from(this.rows).sort(([, a], [, b]) => a.timestamp - b.timestamp),
+      );
+      this.schedule(this.retryMs);
       return true;
     } catch (e) {
       log(
@@ -53,29 +48,34 @@ export class InboundLedger {
     }
   }
 
-  // settle drops the record once routd has accepted the message.
-  settle(id: string): void {
+  settle(id: string, expected?: RouterMessage) {
+    if (expected && this.rows.get(id) !== expected) return false;
     try {
       fs.unlinkSync(keyFile(this.dir, id));
     } catch (e) {
-      if ((e as NodeJS.ErrnoException).code === 'ENOENT') return;
-      log('error', 'dropping a settled inbound record failed', {
-        id,
-        err: String(e),
-      });
+      if (!(e instanceof Error && 'code' in e && e.code === 'ENOENT')) {
+        log('error', 'dropping a settled inbound record failed', {
+          id,
+          err: String(e),
+        });
+        return false;
+      }
     }
+    this.rows.delete(id);
+    if (this.rows.size === 0) {
+      clearTimeout(this.timer);
+      this.timer = undefined;
+    }
+    return true;
   }
 
   // pending reads every message routd has not accepted yet, oldest first by
   // the timestamp the payload carries.
-  pending(): RouterMessage[] {
+  pending() {
     let names: string[];
     try {
       names = fs.readdirSync(this.dir);
     } catch (e) {
-      // An empty answer here reads as "nothing to deliver", so a disk fault
-      // after the constructor's mkdir would retire the whole ledger silently
-      // and every retained message with it (BUGS L346).
       log(
         'error',
         'the inbound ledger is unreadable; retained messages are NOT being swept',
@@ -84,7 +84,7 @@ export class InboundLedger {
           err: String(e),
         },
       );
-      return [];
+      throw e;
     }
     const out: RouterMessage[] = [];
     for (const name of names) {
@@ -95,40 +95,78 @@ export class InboundLedger {
             fs.readFileSync(path.join(this.dir, name), 'utf8'),
           ) as RouterMessage,
         );
-      } catch {
-        // A half-written record is not a message. Leave it: the sweep reports
-        // the count, and an operator can see the file.
+      } catch (e) {
+        log('error', 'retained inbound record is unreadable', {
+          file: name,
+          err: String(e),
+        });
+        throw e;
       }
     }
     out.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
     return out;
   }
 
-  // sweep re-offers every retained message to routd, oldest first, and settles
-  // each one routd accepts. It stops at the first failure: routd being down is
-  // the ordinary reason a sweep has work, and walking the rest only repeats the
-  // same error while reordering a chat's messages.
-  async sweep(send: (m: RouterMessage) => Promise<void>): Promise<number> {
-    const rows = this.pending();
-    if (rows.length === 0) return 0;
+  async sweep(send: (m: RouterMessage) => Promise<void>) {
+    if (this.draining) return 0;
+    clearTimeout(this.timer);
+    this.timer = undefined;
+    this.draining = true;
+    let delay = this.retryMs;
     let delivered = 0;
-    for (const row of rows) {
-      try {
-        await send(row);
-      } catch (e) {
-        log('warn', 'inbound sweep stopped; messages still held', {
-          held: rows.length - delivered,
-          id: row.id,
-          err: String(e),
-        });
-        return delivered;
+    try {
+      while (this.rows.size > 0) {
+        const row = this.rows.values().next().value;
+        if (!row) break;
+        try {
+          await this.deliver(row, send);
+        } catch (e) {
+          log('warn', 'inbound sweep stopped; messages still held', {
+            held: this.rows.size,
+            id: row.id,
+            err: String(e),
+          });
+          break;
+        }
+        if (this.settle(row.id, row)) delivered++;
+        else {
+          if (this.rows.get(row.id) !== row) delay = 0;
+          break;
+        }
       }
-      this.settle(row.id);
-      delivered++;
+      return delivered;
+    } finally {
+      this.draining = false;
+      this.schedule(delay);
     }
-    log('info', 'inbound sweep delivered messages routd had not accepted', {
-      delivered,
-    });
-    return delivered;
+  }
+
+  deliver(payload: RouterMessage, send: (m: RouterMessage) => Promise<void>) {
+    const result = this.sending.then(() => send(payload));
+    this.sending = result.catch(() => {});
+    return result;
+  }
+
+  start(send: (m: RouterMessage) => Promise<void>, retryMs = 30_000) {
+    this.send = send;
+    this.retryMs = retryMs;
+    this.schedule(0);
+    return () => {
+      this.send = undefined;
+      clearTimeout(this.timer);
+      this.timer = undefined;
+    };
+  }
+
+  private schedule(delay: number) {
+    const send = this.send;
+    if (!send || this.timer || this.draining || this.rows.size === 0) return;
+    this.timer = setTimeout(() => {
+      this.timer = undefined;
+      void this.sweep(send).catch((e) =>
+        log('error', 'inbound sweep failed', { err: String(e) }),
+      );
+    }, delay);
+    this.timer.unref();
   }
 }
