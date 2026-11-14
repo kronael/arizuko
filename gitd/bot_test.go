@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -9,14 +10,72 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/objstore/dynstore/dyntest"
+	"github.com/kronael/arizuko/retry"
 	"github.com/kronael/arizuko/store"
 )
+
+func TestSendHTTPFailureKinds(t *testing.T) {
+	for _, tc := range []struct {
+		code int
+		kind string
+	}{{400, "permanent"}, {408, "transient"}, {425, "transient"}} {
+		resp := &http.Response{StatusCode: tc.code, Header: http.Header{}}
+		got := retry.FromError(statusErr(resp, nil), time.Now())
+		if got.Kind != tc.kind {
+			t.Errorf("status %d: %+v", tc.code, got)
+		}
+	}
+}
+
+func TestRateLimitDeadlines(t *testing.T) {
+	now := time.Now()
+	reset := now.Add(2 * time.Hour).Truncate(time.Second)
+	for _, tc := range []struct {
+		name    string
+		headers http.Header
+		minimum time.Time
+	}{
+		{"primary", http.Header{"X-Ratelimit-Remaining": {"0"}, "X-Ratelimit-Reset": {strconv.FormatInt(reset.Unix(), 10)}}, reset},
+		{"secondary", http.Header{}, now.Add(time.Minute)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resp := &http.Response{StatusCode: http.StatusTooManyRequests, Header: tc.headers}
+			failure := retry.FromError(statusErr(resp, nil), now)
+			if failure.Kind != "transient" || failure.RetryAt.Before(tc.minimum) {
+				t.Fatalf("failure = %+v", failure)
+			}
+		})
+	}
+}
+
+func TestUnknownCreateKeepsClaim(t *testing.T) {
+	creates := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		creates++
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+	b := testBot(config{Token: "ghp_test", APIBase: server.URL})
+	mux := chanlib.NewAdapterMux("github", []string{"github:"}, b, b.isConnected, b.LastInboundAt, adapterStore(t))
+	body := []byte(`{"chat_jid":"github:kronael/arizuko/pr/12","content":"hi","idempotency_key":"unknown"}`)
+	for i := 0; i < 2; i++ {
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/send", bytes.NewReader(body)))
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("status = %d, body = %s", w.Code, w.Body)
+		}
+	}
+	if creates != 1 {
+		t.Fatalf("creates = %d", creates)
+	}
+}
 
 type testSources []store.GitHubSource
 
@@ -189,8 +248,8 @@ func TestSend_Refusals(t *testing.T) {
 	}
 	down, _, _ := fakeGitHub(t, 503, `{"message":"unavailable"}`)
 	b = testBot(config{Token: "ghp_test", APIBase: down.URL})
-	if _, err := b.Send(chanlib.SendRequest{ChatJID: "github:kronael/arizuko/pr/12", Content: "x"}); !errors.Is(err, chanlib.ErrNotDelivered) {
-		t.Errorf("503 err = %v, want ErrNotDelivered", err)
+	if _, err := b.Send(chanlib.SendRequest{ChatJID: "github:kronael/arizuko/pr/12", Content: "x"}); err == nil || errors.Is(err, chanlib.ErrNotDelivered) {
+		t.Errorf("503 err = %v, want unknown delivery", err)
 	}
 }
 

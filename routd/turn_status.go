@@ -522,7 +522,7 @@ func executeStatus(db *DB, dl Deliverer, pending store.PendingMessage) error {
 	if err == nil {
 		return db.MarkDelivered(row, pid)
 	}
-	if saveErr := db.store().FailStatus(context.Background(), pending, deliveryFailure(err)); saveErr != nil {
+	if saveErr := db.store().FailStatus(context.Background(), pending, retry.FromError(err, time.Now())); saveErr != nil {
 		return saveErr
 	}
 	return err

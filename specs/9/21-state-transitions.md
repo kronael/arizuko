@@ -505,9 +505,13 @@ Its first failed fetch commits the deadline and due pointer atomically.
   names: [Retain, Reschedule, Drop, DueForRedelivery, HeldCount]
   never: loads payloads outside the selected due batch
 - path: chanlib/dedup.go (changed)
-  job: finish adapter migrations before serving requests
-  names: [OpenAdapterStore]
-  never: touches another adapter's namespace
+  job: claim creates and release only on proof that no delivery occurred
+  names: [OpenAdapterStore, deliverOnce]
+  never: replays an unknown or partial create
+- path: chanlib/chanlib.go and chanreg/httpchan.go (changed)
+  job: carry bounded HTTP failure reasons and Retry-After through the adapter boundary
+  names: [StatusError, ResponseError, Post, postInbound, adapterErr]
+  never: repeats a transport attempt except changed legacy credential repair
 - path: runed/runstore/state_index.go (new)
   job: declare spawn expiry and live pointers with a marked backfill
   names: [MigrateStateIndexes]
@@ -858,6 +862,16 @@ read errors, rename maintenance, upgrade readiness and its error cause.
 
 ## Delivery and CLI cleanup
 
+Adapter requests make one transport attempt. Structured refusals carry the
+shared failure fact and Retry-After over HTTP; unknown or partial creates stop
+as unresolved. A first refusal releases the claim only with explicit proof
+that no delivery occurred. Discord and Telegram retain partial chunk claims.
+Legacy credential repair and rejected HTML repair each allow one changed request.
+Slack `ok:false` alone does not prove refusal: `internal_error` and `fatal_error`
+can follow partial success, per [Slack's message API](https://docs.slack.dev/reference/methods/chat.postMessage/).
+GitHub rate-limit facts retain the primary reset and the secondary minimum when
+no retry header is supplied, per the [GitHub rate-limit documentation](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api).
+
 Onbod queues deliveries through its existing routd store handle. It has no
 outbound HTTP client or service-token exchange. `AUTHD_URL` remains required
 for inbound token verification.
@@ -868,6 +882,9 @@ timeout. The operator-direct path still reads the indexed reply range because
 its current contract ends on quiet time rather than a turn completion event.
 
 ## Open questions
+
+- Can external channel clients consume the standardized failure status and
+  Retry-After header contract? No new JSON failure schema is introduced.
 
 - Should clients accept `waiting_capacity` as an additive turn-state value in
   the existing REST and MCP surfaces? The existing pending-retry count includes it.

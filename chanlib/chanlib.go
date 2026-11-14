@@ -267,9 +267,7 @@ func (r *RouterClient) SendMessage(msg InboundMsg) error {
 	return err
 }
 
-// postInbound is the bare delivery: two attempts, re-registering once on a
-// monolith 401. It is the ONLY place an InboundMsg goes on the wire — the live
-// path and the retention sweep both call it, so neither can drift.
+// postInbound sends once, with one credential repair on a legacy 401.
 func (r *RouterClient) postInbound(msg InboundMsg) error {
 	r.regMu.Lock()
 	if msg.Source == "" {
@@ -283,36 +281,33 @@ func (r *RouterClient) postInbound(msg InboundMsg) error {
 	if mark != nil {
 		mark.note(msg)
 	}
-	var last error
+	token := r.bearer()
+	if !r.usingServiceToken() {
+		token = r.getToken()
+	}
 	for attempt := range 2 {
-		if attempt > 0 {
-			slog.Warn("send retry", "err", last)
-			// A 401 on the monolith path means routd lost our registration token.
-			// With a service-token source the JWT is independent of registration,
-			// so re-registering would not fix it — just back off.
-			if isAuthErr(last) && !r.usingServiceToken() {
-				if rerr := r.reregister(); rerr != nil {
-					slog.Error("re-register failed", "err", rerr)
-					return last
-				}
-			} else {
-				time.Sleep(500 * time.Millisecond)
-			}
-		}
 		var resp struct {
 			OK    bool   `json:"ok"`
 			Error string `json:"error"`
 		}
-		if err := r.Post("/v1/messages", msg, r.bearer(), &resp); err != nil {
-			last = err
-			continue
+		if err := r.Post("/v1/messages", msg, token, &resp); err != nil {
+			if attempt == 0 && isAuthErr(err) && !r.usingServiceToken() {
+				if rerr := r.reregister(); rerr != nil {
+					return rerr
+				}
+				if next := r.getToken(); next != token {
+					token = next
+					continue
+				}
+			}
+			return err
 		}
 		if resp.OK {
 			return nil
 		}
-		last = fmt.Errorf("deliver: %s", resp.Error)
+		return fmt.Errorf("deliver: %s", resp.Error)
 	}
-	return last
+	return nil
 }
 
 func isAuthErr(err error) bool {
@@ -330,12 +325,25 @@ func (r *RouterClient) usingServiceToken() bool {
 // classify by number: retention must tell a restarting routd from one that
 // rejected the payload, and a substring test cannot.
 type StatusError struct {
-	Path string
-	Code int
+	Path       string
+	Code       int
+	Reason     string
+	RetryAfter string
 }
 
 func (e *StatusError) Error() string {
-	return fmt.Sprintf("router %s: status %d", e.Path, e.Code)
+	return fmt.Sprintf("%s: status %d: %s", e.Path, e.Code, e.Reason)
+}
+
+func (e *StatusError) HTTPStatusCode() int    { return e.Code }
+func (e *StatusError) HTTPRetryAfter() string { return e.RetryAfter }
+
+func ResponseError(resp *http.Response, path string) error {
+	var body struct {
+		Error string `json:"error"`
+	}
+	_ = json.NewDecoder(io.LimitReader(resp.Body, 4096)).Decode(&body)
+	return &StatusError{Path: path, Code: resp.StatusCode, Reason: body.Error, RetryAfter: resp.Header.Get("Retry-After")}
 }
 
 func (r *RouterClient) Post(path string, body any, auth string, out any) error {
@@ -358,7 +366,7 @@ func (r *RouterClient) Post(path string, body any, auth string, out any) error {
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != 200 {
-		return &StatusError{Path: path, Code: resp.StatusCode}
+		return ResponseError(resp, path)
 	}
 	return json.NewDecoder(io.LimitReader(resp.Body, maxRouterResponseBytes)).Decode(out)
 }

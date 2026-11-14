@@ -60,6 +60,31 @@ through the common reconnect owner. Add a regression for the actual panel markup
 and a streamed message; remove the attribute/listener guard and require failure.
 The browser retry integration owns this fix after the current serial capacity work.
 
+## L867 — Slack application errors release unknown-create claims (2026-11-14)
+
+`slakd/bot.go` marks every `ok:false` send response `ErrNotDelivered`.
+`deliverOnce` then releases the claim. Slack documents possible partial success
+for `internal_error` and `fatal_error`; neither proves that no message exists.
+**Measured:** the source branch and `TestSendClassifiesAnOKFalseRefusal` explicitly
+expect claim-release proof for `fatal_error`. The primary API contract is
+[chat.postMessage](https://docs.slack.dev/reference/methods/chat.postMessage/).
+**Severity:** medium, correctness — a repeated key can create a second message.
+**Fix:** release only known refusals; retain unknown outcomes. Verify the real
+handler with repeated keys and mutate the proof guard. The unified-retry request
+authorizes this repair. No live duplicate is claimed.
+
+## L868 — outbound retry fixtures omit their transient failure fact (2026-11-14)
+
+`routd/fixes_test.go` defines `errSendT` with only `Error()`, but delivery
+tests use it to represent a temporary adapter outage. Shared classification
+correctly stops unknown errors. The parent HTTP integration gate fails
+`TestOutboundTransientFailureDeadLettersAtCap` and
+`TestOutboundRetrySucceedsBeforeCap`: both stop after failure one.
+**Measured:** `tmp/retry-logs/http-parent-restored-routd.log`, FAIL 29.734s.
+**Fix:** carry an actual transient HTTP fact in the fixture. Retain a separate
+unknown-failure assertion; never restore the production default-transient rule.
+**Severity:** low, coverage. The unified-retry request owns this fixture update.
+
 ## What needs you
 
 - `L862` — retry timing, failure classification and exhaustion differ by feature; unification approved, implementation in progress.

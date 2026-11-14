@@ -19,6 +19,7 @@ import (
 	tgbotapi "github.com/matterbridge/telegram-bot-api/v6"
 
 	"github.com/kronael/arizuko/chanlib"
+	"github.com/kronael/arizuko/retry"
 )
 
 type bot struct {
@@ -461,7 +462,7 @@ func (b *bot) Send(req chanlib.SendRequest) (string, error) {
 		sent, err := b.api.Send(m)
 		if err != nil {
 			var tgErr *tgbotapi.Error
-			if errors.As(err, &tgErr) && tgErr.Code == 400 {
+			if errors.As(err, &tgErr) && tgErr.Code == 400 && m.Text != p {
 				// Plain-text fallback must carry the same reply target,
 				// otherwise an explicit reply silently flattens to a fresh msg.
 				pm := tgbotapi.NewMessage(id, p)
@@ -486,19 +487,17 @@ func (b *bot) Send(req chanlib.SendRequest) (string, error) {
 	return firstID, nil
 }
 
-// classifySendErr maps a failed chunk send onto chanlib's dedup taxonomy. 400/403
-// after the plain-text fallback are caller-side and permanent (chat gone, bot kicked)
-// → ErrInvalidRequest, a clear agent error instead of a 502. Any other STRUCTURED API
-// error proves Telegram sent nothing — but the dedup claim may be released only while
-// NO chunk has landed; after a delivered chunk the claim stays held and routd
-// dead-letters visibly. Transport errors stay unclassified.
 func classifySendErr(err error, firstID string) error {
 	var tgErr *tgbotapi.Error
-	if errors.As(err, &tgErr) && (tgErr.Code == 400 || tgErr.Code == 403) {
-		return fmt.Errorf("%w: telegram %s", chanlib.ErrInvalidRequest, tgErr.Message)
-	}
-	if errors.As(err, &tgErr) && firstID == "" {
-		return fmt.Errorf("telegram send: %v: %w", err, chanlib.ErrNotDelivered)
+	if errors.As(err, &tgErr) {
+		failure := retry.HTTPFailure(tgErr.Code, strconv.Itoa(tgErr.RetryAfter), nil, time.Now())
+		err = &retry.Error{Failure: failure, Err: err}
+		if tgErr.Code == 400 || tgErr.Code == 403 {
+			err = fmt.Errorf("%w: %w", chanlib.ErrInvalidRequest, err)
+		}
+		if firstID == "" && tgErr.Code >= 400 && tgErr.Code < 500 && tgErr.Code != 408 {
+			return fmt.Errorf("%w: %w", chanlib.ErrNotDelivered, err)
+		}
 	}
 	return fmt.Errorf("telegram send: %w", err)
 }

@@ -8,6 +8,7 @@ import (
 
 	"github.com/kronael/arizuko/chanlib/chanstore"
 	"github.com/kronael/arizuko/objstore/dynstore"
+	"github.com/kronael/arizuko/retry"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -56,14 +57,14 @@ func OpenAdapterStore(service string) (AdapterStore, error) {
 // settled: posting again may duplicate the message and skipping may drop it,
 // so the adapter reports the ambiguity and routd dead-letters the row for an
 // operator (spec 5/34-channel-protocol).
-var ErrDeliveryUnresolved = errors.New("earlier delivery attempt never settled")
+var ErrDeliveryUnresolved = &retry.Error{Failure: retry.Failure{Kind: "permanent"}, Err: errors.New("earlier delivery attempt never settled")}
 
 // deliverOnce runs post exactly once per idempotency key — the single place
 // the outbound dedup contract is enforced (spec 5/E-routd). The claim lands BEFORE
 // the platform call: a lost response leaves the key inflight, and the next
 // attempt is refused (ErrDeliveryUnresolved) rather than duplicated — routd
 // dead-letters it, visible, not doubled (BUGS D5). A failure that proves
-// nothing was posted (the permanent family, ErrNotDelivered) releases the
+// nothing was posted (ErrNotDelivered) releases the
 // claim; every other error leaves it, because "the platform failed" and "the
 // response was lost" look identical from here. st == nil or key == ""
 // disables dedup. EVERY STORE CALL RUNS ON context.Background(): routd's
@@ -72,7 +73,11 @@ var ErrDeliveryUnresolved = errors.New("earlier delivery attempt never settled")
 func deliverOnce(st *chanstore.Store, key, jid string,
 	post func() (string, error)) (string, error) {
 	if st == nil || key == "" {
-		return post()
+		id, err := post()
+		if err != nil && !errors.Is(err, ErrNotDelivered) {
+			return "", fmt.Errorf("%w: %w", ErrDeliveryUnresolved, err)
+		}
+		return id, err
 	}
 	ctx := context.Background()
 	claim, err := st.ClaimDelivery(ctx, key, jid)
@@ -89,16 +94,16 @@ func deliverOnce(st *chanstore.Store, key, jid string,
 	}
 	id, err := post()
 	if err != nil {
-		if errors.Is(err, ErrPermanent) || errors.Is(err, ErrUnsupported) ||
-			errors.Is(err, ErrInvalidRequest) || errors.Is(err, ErrNotDelivered) {
+		if errors.Is(err, ErrNotDelivered) {
 			if rerr := st.ReleaseUnsentClaim(ctx, key); rerr != nil {
 				// The key stays claimed, so routd's retry dead-letters a message
 				// nothing was posted for. Loud, because only a log says why.
 				slog.Error("releasing an undelivered dedup claim failed",
 					"idempotency_key", key, "err", rerr)
 			}
+			return "", err
 		}
-		return "", err
+		return "", fmt.Errorf("%w: %w", ErrDeliveryUnresolved, err)
 	}
 	if err := st.RecordDelivered(ctx, key, id); err != nil {
 		// The message IS delivered; only the record failed. The next attempt on

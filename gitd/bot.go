@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -20,6 +21,7 @@ import (
 
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/githubapp"
+	"github.com/kronael/arizuko/retry"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -184,11 +186,28 @@ func isRateLimited(h http.Header) bool {
 // so the reply, the thread lookup and the boot probe cannot read the same
 // status differently.
 func statusErr(resp *http.Response, raw []byte) error {
-	if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 ||
+	if resp.StatusCode == http.StatusTooManyRequests ||
 		(resp.StatusCode == http.StatusForbidden && isRateLimited(resp.Header)) {
-		return fmt.Errorf("%w: github %s: %s", chanlib.ErrNotDelivered, resp.Status, bytes.TrimSpace(raw))
+		cause := &chanlib.StatusError{Path: "github", Code: resp.StatusCode, Reason: string(bytes.TrimSpace(raw)), RetryAfter: resp.Header.Get("Retry-After")}
+		now := time.Now()
+		fact := retry.HTTPFailure(http.StatusTooManyRequests, resp.Header.Get("Retry-After"), nil, now)
+		if resp.Header.Get("X-RateLimit-Remaining") == "0" {
+			if epoch, err := strconv.ParseInt(resp.Header.Get("X-RateLimit-Reset"), 10, 64); err == nil {
+				reset := time.Unix(epoch, 0)
+				if reset.After(fact.RetryAt) {
+					fact.RetryAt = reset
+				}
+			}
+		} else if resp.Header.Get("Retry-After") == "" {
+			fact.RetryAt = now.Add(time.Minute)
+		}
+		return fmt.Errorf("%w: %w", chanlib.ErrNotDelivered, &retry.Error{Failure: fact, Err: cause})
 	}
-	return fmt.Errorf("%w: github %s: %s", chanlib.ErrPermanent, resp.Status, bytes.TrimSpace(raw))
+	err := &chanlib.StatusError{Path: "github", Code: resp.StatusCode, Reason: string(bytes.TrimSpace(raw)), RetryAfter: resp.Header.Get("Retry-After")}
+	if retry.FromError(err, time.Now()).Kind == "permanent" {
+		return fmt.Errorf("%w: %w", chanlib.ErrPermanent, err)
+	}
+	return err
 }
 
 // callToken makes one GitHub request with token and returns its body, or the
@@ -223,7 +242,14 @@ func (b *bot) callToken(ctx context.Context, method, url string, body []byte, wa
 	defer resp.Body.Close() //nolint:errcheck
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if !slices.Contains(want, resp.StatusCode) {
-		return nil, statusErr(resp, raw)
+		err := statusErr(resp, raw)
+		if resp.StatusCode >= 400 && resp.StatusCode < 500 && resp.StatusCode != http.StatusRequestTimeout && !errors.Is(err, chanlib.ErrNotDelivered) {
+			return nil, fmt.Errorf("%w: %w", chanlib.ErrNotDelivered, err)
+		}
+		if method == http.MethodGet && resp.StatusCode >= 500 {
+			return nil, fmt.Errorf("%w: %w", chanlib.ErrNotDelivered, err)
+		}
+		return nil, err
 	}
 	return raw, nil
 }

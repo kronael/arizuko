@@ -1,7 +1,9 @@
 package chanlib
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -9,9 +11,74 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/retry"
 )
+
+type inboundTimeoutTransport struct{ calls int }
+
+func (t *inboundTimeoutTransport) RoundTrip(*http.Request) (*http.Response, error) {
+	t.calls++
+	return nil, context.DeadlineExceeded
+}
+
+func TestInboundTimeoutOneAttempt(t *testing.T) {
+	transport := &inboundTimeoutTransport{}
+	rc := NewRouterClient("http://example.test")
+	rc.client = &http.Client{Transport: transport}
+	err := rc.postInbound(InboundMsg{ID: "1"})
+	if !errors.Is(err, context.DeadlineExceeded) || transport.calls != 1 {
+		t.Fatalf("err = %v, calls = %d", err, transport.calls)
+	}
+}
+
+func TestInboundRepairFailurePreservesFacts(t *testing.T) {
+	var registrations int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/channels/register" {
+			registrations++
+			if registrations == 1 {
+				_, _ = w.Write([]byte(`{"ok":true,"token":"old"}`))
+				return
+			}
+			w.Header().Set("Retry-After", "7200")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+	rc := NewRouterClient(srv.URL)
+	if _, err := rc.Register("tg", srv.URL, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	failure := retry.FromError(rc.postInbound(InboundMsg{ID: "1"}), time.Now())
+	if failure.Kind != "transient" || time.Until(failure.RetryAt) < time.Hour {
+		t.Fatalf("repair failure = %+v", failure)
+	}
+}
+
+func TestInboundUnchangedCredentialStops(t *testing.T) {
+	var messages int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/channels/register" {
+			_, _ = w.Write([]byte(`{"ok":true,"token":"same"}`))
+			return
+		}
+		messages++
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+	rc := NewRouterClient(srv.URL)
+	if _, err := rc.Register("tg", srv.URL, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := rc.postInbound(InboundMsg{ID: "1"}); !isAuthErr(err) || messages != 1 {
+		t.Fatalf("err = %v, messages = %d", err, messages)
+	}
+}
 
 func TestChunk(t *testing.T) {
 	tests := []struct {
@@ -229,7 +296,7 @@ func TestSendMessageSuccessFirstTry(t *testing.T) {
 	}
 }
 
-func TestSendMessageRetrySuccess(t *testing.T) {
+func TestSendMessageDoesNotRetryFailure(t *testing.T) {
 	var calls atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		n := calls.Add(1)
@@ -244,11 +311,11 @@ func TestSendMessageRetrySuccess(t *testing.T) {
 	rc := NewRouterClient(srv.URL)
 	rc.SetToken("tok")
 	err := rc.SendMessage(InboundMsg{ID: "1", Content: "hi"})
-	if err != nil {
-		t.Fatalf("send: %v", err)
+	if err == nil {
+		t.Fatal("send succeeded after refusal")
 	}
-	if c := calls.Load(); c != 2 {
-		t.Fatalf("calls = %d, want 2", c)
+	if c := calls.Load(); c != 1 {
+		t.Fatalf("calls = %d, want 1", c)
 	}
 }
 
@@ -281,8 +348,11 @@ func TestSendMessage_401_TriggersReregisterAndRetries(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/v1/channels/register":
-			registerCalls.Add(1)
-			w.Write([]byte(`{"ok":true,"token":"new-tok"}`))
+			if registerCalls.Add(1) == 1 {
+				w.Write([]byte(`{"ok":true,"token":"old-tok"}`))
+			} else {
+				w.Write([]byte(`{"ok":true,"token":"new-tok"}`))
+			}
 		case "/v1/messages":
 			sendCalls.Add(1)
 			if firstSendIs401.Swap(false) {

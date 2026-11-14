@@ -11,7 +11,23 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/kronael/arizuko/retry"
 )
+
+func TestFailureFactsOnHTTP(t *testing.T) {
+	due := time.Now().UTC().Add(3 * time.Hour).Truncate(time.Second)
+	w := httptest.NewRecorder()
+	writeBotResult(w, "", &retry.Error{Failure: retry.Failure{Kind: "transient", RetryAt: due}, Err: errors.New("limited")})
+	if w.Code != http.StatusServiceUnavailable || w.Header().Get("Retry-After") != due.Format(http.TimeFormat) {
+		t.Fatalf("status = %d, Retry-After = %q", w.Code, w.Header().Get("Retry-After"))
+	}
+	w = httptest.NewRecorder()
+	writeBotResult(w, "", errors.New("unknown"))
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("unknown status = %d", w.Code)
+	}
+}
 
 type mockBot struct {
 	sendReq   SendRequest
@@ -499,7 +515,7 @@ func TestWriteBotResult_StatusByErrorClass(t *testing.T) {
 		{"ok", nil, 200},
 		{"unsupported", ErrUnsupported, 501},
 		{"invalid", fmt.Errorf("%w: bad emoji", ErrInvalidRequest), 400},
-		{"upstream", errors.New("boom"), 502},
+		{"upstream", errors.New("boom"), 400},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

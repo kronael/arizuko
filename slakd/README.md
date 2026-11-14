@@ -13,7 +13,7 @@ slakd receives Slack events from the Events API webhook, which proxyd forwards t
 - It derives `Verb="mention"` when the text of a group message contains `<@bot_user_id>`, and for every `app_mention` event. A channel message without a mention emits `Verb=""`. A DM emits `Verb=""`. `thread_broadcast` messages are dropped, because the original reply already arrived as a regular message event.
 - It serves the outbound verbs. The table below shows the Slack call behind each verb.
 - It proxies `url_private` file URLs through `GET /files/<id>` and adds the upstream header `Authorization: Bearer $SLACK_BOT_TOKEN`.
-- Every outbound Web API call goes through `chanlib.DoWithRetry`. A 429 answer honours `Retry-After`, up to a cap of 30 s. A 5xx answer and a network error retry with jittered backoff of about 300 ms and 800 ms, for 3 attempts in total.
+- Each outbound Web API call makes one attempt. A 429 preserves `Retry-After` for the retry owner. Unknown create outcomes retain their delivery claim.
 
 ## Entry points
 

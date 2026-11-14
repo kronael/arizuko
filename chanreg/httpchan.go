@@ -15,6 +15,7 @@ import (
 
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/retry"
 )
 
 // ErrUnsupported is returned when an adapter responds 501 to a social
@@ -56,25 +57,17 @@ func decodeUnsupported(body io.Reader, fallbackTool, fallbackPlatform string) er
 // classifies by the same sentinel.
 var ErrPermanent = chanlib.ErrPermanent
 
-// classifyStatus wraps a non-200 adapter status: 4xx → ErrPermanent, else plain.
-func classifyStatus(status int) error {
-	if status >= 400 && status < 500 {
-		return fmt.Errorf("%w: status %d", ErrPermanent, status)
-	}
-	return fmt.Errorf("status %d", status)
-}
-
 // adapterErr classifies a non-200 send response and carries the reason the
 // adapter's `{"error": ...}` body names. Without it a Discord refusal reached
 // routd and the agent as a bare "status 502", and the journal held no record
 // of why (sloth 2026-09-05).
-func adapterErr(resp *http.Response) error {
-	err := classifyStatus(resp.StatusCode)
-	var body struct {
-		Error string `json:"error"`
+func adapterErr(resp *http.Response, tool, platform string) error {
+	if resp.StatusCode == http.StatusNotImplemented {
+		return decodeUnsupported(io.LimitReader(resp.Body, 4096), tool, platform)
 	}
-	if json.NewDecoder(io.LimitReader(resp.Body, 4096)).Decode(&body) == nil && body.Error != "" {
-		return fmt.Errorf("%w: %s", err, body.Error)
+	err := chanlib.ResponseError(resp, "adapter")
+	if retry.FromError(err, time.Now()).Kind == "permanent" {
+		return fmt.Errorf("%w: %w", ErrPermanent, err)
 	}
 	return err
 }
@@ -150,7 +143,7 @@ func (h *HTTPChannel) SendOptionsCtx(ctx context.Context, jid, text string, opti
 		if httpResp.StatusCode == http.StatusOK {
 			return decodeSentID(httpResp.Body, h.entry.Name, "send"), nil
 		}
-		err = adapterErr(httpResp)
+		err = adapterErr(httpResp, "send", h.entry.Name)
 	}
 	return "", fmt.Errorf("channel %s send: %w", h.entry.Name, err)
 }
@@ -177,7 +170,7 @@ func (h *HTTPChannel) SendFileCtx(ctx context.Context, jid, path, name, caption,
 		if resp.StatusCode == http.StatusOK {
 			return decodeSentID(resp.Body, h.entry.Name, "send-file"), nil
 		}
-		err = adapterErr(resp)
+		err = adapterErr(resp, "send_file", h.entry.Name)
 	}
 	return "", fmt.Errorf("channel %s send-file: %w", h.entry.Name, err)
 }
@@ -199,7 +192,7 @@ func (h *HTTPChannel) SendVoiceCtx(ctx context.Context, jid, audioPath, caption,
 		return "", decodeUnsupported(resp.Body, "send_voice", h.entry.Name)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("channel %s send-voice: status %d", h.entry.Name, resp.StatusCode)
+		return "", fmt.Errorf("channel %s send-voice: %w", h.entry.Name, adapterErr(resp, "send_voice", h.entry.Name))
 	}
 	return decodeSentID(resp.Body, h.entry.Name, "send-voice"), nil
 }
@@ -359,7 +352,7 @@ func (h *HTTPChannel) postVerb(ctx context.Context, verb, endpoint string, body 
 		return "", decodeUnsupported(resp.Body, verb, h.entry.Name)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("channel %s %s: %w", h.entry.Name, verb, adapterErr(resp))
+		return "", fmt.Errorf("channel %s %s: %w", h.entry.Name, verb, adapterErr(resp, verb, h.entry.Name))
 	}
 	return decodeSentID(resp.Body, h.entry.Name, verb), nil
 }

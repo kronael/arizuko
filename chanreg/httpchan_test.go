@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -11,7 +12,65 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/chanlib"
+	"github.com/kronael/arizuko/retry"
 )
+
+type limitedBot struct {
+	chanlib.NoSocial
+	chanlib.NoFileSender
+	chanlib.NoVoiceSender
+	due time.Time
+}
+
+func (b limitedBot) Send(chanlib.SendRequest) (string, error) {
+	err := &retry.Error{Failure: retry.Failure{Kind: "transient", RetryAt: b.due}, Err: errors.New("429")}
+	return "", fmt.Errorf("%w: %w", chanlib.ErrNotDelivered, err)
+}
+
+func (limitedBot) Typing(string, bool) {}
+
+func TestHTTPChannelHandlerRateLimitDecision(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Second)
+	due := now.Add(3*time.Hour + 500*time.Millisecond)
+	mux := chanlib.NewAdapterMux("test", []string{"tg:"}, limitedBot{due: due}, func() bool { return true }, func() int64 { return 0 }, nil)
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	ch := NewHTTPChannel(&Entry{Name: "tg", URL: srv.URL, Capabilities: map[string]bool{"send_text": true}}, nil)
+	_, err := ch.SendOptionsCtx(context.Background(), "tg:1", "hi", nil, "", "", "", "")
+	decision := retry.Next(0, retry.FromError(err, now), now, time.Time{})
+	if decision.Stop || decision.NextAt.Before(due) || !decision.NextAt.Equal(now.Add(3*time.Hour+time.Second)) {
+		t.Fatalf("decision = %+v, err = %v", decision, err)
+	}
+}
+
+func TestHTTPChannelSendUnsupportedHints(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotImplemented)
+		_, _ = w.Write([]byte(`{"tool":"send","platform":"discord","hint":"use another channel"}`))
+	}))
+	defer srv.Close()
+	ch := NewHTTPChannel(&Entry{Name: "discord", URL: srv.URL, Capabilities: map[string]bool{"send_text": true}}, nil)
+	_, err := ch.SendOptionsCtx(context.Background(), "discord:1", "hi", nil, "", "", "", "")
+	var unsupported *chanlib.UnsupportedError
+	if !errors.As(err, &unsupported) || unsupported.Hint != "use another channel" || retry.FromError(err, time.Now()).Kind != "permanent" {
+		t.Fatalf("unsupported = %+v, err = %v", unsupported, err)
+	}
+}
+
+func TestHTTPChannelPreservesRetryAfter(t *testing.T) {
+	due := time.Now().UTC().Add(3 * time.Hour).Truncate(time.Second)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", due.Format(http.TimeFormat))
+		http.Error(w, `{"error":"limited"}`, http.StatusServiceUnavailable)
+	}))
+	defer srv.Close()
+	ch := NewHTTPChannel(&Entry{Name: "tg", URL: srv.URL, Capabilities: map[string]bool{"send_text": true}}, nil)
+	_, err := ch.SendOptionsCtx(context.Background(), "tg:1", "hi", nil, "", "", "", "")
+	failure := retry.FromError(err, time.Now())
+	if failure.Kind != "transient" || !failure.RetryAt.Equal(due) {
+		t.Fatalf("failure = %+v, err = %v", failure, err)
+	}
+}
 
 // staticBearer wraps a fixed token as a bearer getter (test helper; the
 // production egress getter is the rotating service:routd source).

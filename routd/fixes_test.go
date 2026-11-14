@@ -204,7 +204,8 @@ var errSend = errSendT("send failed")
 
 type errSendT string
 
-func (e errSendT) Error() string { return string(e) }
+func (e errSendT) Error() string       { return string(e) }
+func (e errSendT) HTTPStatusCode() int { return 503 }
 
 // TestSubmitStatusDeliversInterimWithoutEndingTurn is the mid-turn streaming
 // fix: submit_status delivers the agent's <status> text immediately as a "⏳ ..."

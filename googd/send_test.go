@@ -1,15 +1,59 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/kronael/arizuko/chanlib"
+	"github.com/kronael/arizuko/chanlib/chanstore"
+	"github.com/kronael/arizuko/objstore/dynstore/dyntest"
+	"github.com/kronael/arizuko/retry"
 )
+
+func TestSendHTTPFailureKinds(t *testing.T) {
+	for _, tc := range []struct {
+		code int
+		kind string
+	}{{400, "permanent"}, {408, "transient"}, {425, "transient"}} {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(tc.code) }))
+		b := &bot{cred: &credential{apiBase: server.URL, http: server.Client()}}
+		_, err := b.Send(chanlib.SendRequest{ChatJID: "gdrive:file/c/thread", Content: "hi"})
+		got := retry.FromError(err, time.Now())
+		server.Close()
+		if got.Kind != tc.kind {
+			t.Errorf("status %d: %+v", tc.code, got)
+		}
+	}
+}
+
+func TestUnknownCreateKeepsClaim(t *testing.T) {
+	creates := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		creates++
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+	b := &bot{cred: &credential{apiBase: server.URL, http: server.Client()}}
+	st := chanstore.New(dyntest.Store(t, chanstore.Entities...))
+	mux := chanlib.NewAdapterMux("google", []string{"gdrive:"}, b, b.isConnected, b.LastInboundAt, st)
+	body := []byte(`{"chat_jid":"gdrive:file/c/thread","content":"hi","idempotency_key":"unknown"}`)
+	for i := 0; i < 2; i++ {
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/send", bytes.NewReader(body)))
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("status = %d, body = %s", w.Code, w.Body)
+		}
+	}
+	if creates != 1 {
+		t.Fatalf("creates = %d", creates)
+	}
+}
 
 func TestSendReply(t *testing.T) {
 	status := http.StatusOK
@@ -34,11 +78,15 @@ func TestSendReply(t *testing.T) {
 	for _, tc := range []struct {
 		status int
 		want   error
-	}{{429, chanlib.ErrNotDelivered}, {503, chanlib.ErrNotDelivered}, {403, chanlib.ErrPermanent}} {
+	}{{429, chanlib.ErrNotDelivered}, {403, chanlib.ErrPermanent}} {
 		status = tc.status
 		if _, err := b.Send(req); !errors.Is(err, tc.want) {
 			t.Errorf("status %d: %v", status, err)
 		}
+	}
+	status = 503
+	if _, err := b.Send(req); err == nil || errors.Is(err, chanlib.ErrNotDelivered) {
+		t.Errorf("503 err = %v, want unknown delivery", err)
 	}
 	req.ChatJID = "gdrive:file"
 	if _, err := b.Send(req); !errors.Is(err, chanlib.ErrInvalidRequest) {
@@ -89,6 +137,17 @@ func TestDeleteReply(t *testing.T) {
 }
 
 func TestReplyOperationRefusals(t *testing.T) {
+	t.Run("server error is not create proof", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusServiceUnavailable)
+		}))
+		defer server.Close()
+		b := &bot{cred: &credential{apiBase: server.URL, http: server.Client()}}
+		err := b.Edit(chanlib.EditRequest{ChatJID: "gdrive:file/c/thread", TargetID: "gd-rfile.thread.reply", Content: "retry"})
+		if err == nil || errors.Is(err, chanlib.ErrNotDelivered) {
+			t.Fatalf("edit error = %v", err)
+		}
+	})
 	for _, tc := range []struct {
 		status       int
 		edit, delete error
@@ -96,7 +155,6 @@ func TestReplyOperationRefusals(t *testing.T) {
 		{403, chanlib.ErrPermanent, chanlib.ErrPermanent},
 		{404, chanlib.ErrPermanent, nil},
 		{429, chanlib.ErrNotDelivered, chanlib.ErrNotDelivered},
-		{503, chanlib.ErrNotDelivered, chanlib.ErrNotDelivered},
 	} {
 		calls := 0
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

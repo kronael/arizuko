@@ -140,15 +140,12 @@ func (l *Loop) enrichAttachments(ctx context.Context, msg *core.Message, folder 
 				created = append(created, dest)
 			}
 		} else if err := downloadFile(ctx, att.URL, dest, l.media.bearerFor(att.URL), l.media.MaxBytes); err != nil {
-			var fetch *attachmentFetchError
-			if errors.As(err, &fetch) {
-				failure = fetch.failure
-			} else if errors.Is(err, errFetchPermanent) {
+			if errors.Is(err, errFetchPermanent) {
 				failure.Kind = "permanent"
 			} else if errors.Is(err, errFetchTimeout) {
 				failure.Kind = "timeout"
 			} else {
-				failure = retry.HTTPFailure(0, "", err, now)
+				failure = retry.FromError(err, now)
 			}
 		} else {
 			created = append(created, dest)
@@ -228,14 +225,6 @@ type attachmentDeferred struct{ at time.Time }
 func (e *attachmentDeferred) Error() string { return errFetchDeferred.Error() }
 func (e *attachmentDeferred) Unwrap() error { return errFetchDeferred }
 
-type attachmentFetchError struct {
-	failure retry.Failure
-	err     error
-}
-
-func (e *attachmentFetchError) Error() string { return e.err.Error() }
-func (e *attachmentFetchError) Unwrap() error { return e.err }
-
 // unavailableAttachment is the ONE renderer for a file that did not arrive:
 // the agent is TOLD, otherwise the turn runs on a message that names a file it
 // never received and nobody can see anything is missing (BUGS L163).
@@ -301,7 +290,7 @@ func downloadFile(ctx context.Context, url, dest string, bearer func(context.Con
 		if failure.Kind == "permanent" {
 			err = fmt.Errorf("%w: %w", errFetchPermanent, err)
 		}
-		return &attachmentFetchError{failure: failure, err: err}
+		return &retry.Error{Failure: failure, Err: err}
 	}
 	size := resp.ContentLength
 	if size < 0 {

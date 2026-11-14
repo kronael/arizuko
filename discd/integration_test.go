@@ -1,8 +1,8 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -15,8 +15,43 @@ import (
 	"github.com/bwmarrin/discordgo"
 
 	"github.com/kronael/arizuko/chanlib"
+	"github.com/kronael/arizuko/chanlib/chanstore"
+	"github.com/kronael/arizuko/objstore/dynstore/dyntest"
 	"github.com/kronael/arizuko/tests/testutils"
 )
+
+func TestMain(m *testing.M) { dyntest.Main(m) }
+
+func TestPartialSendKeepsClaim(t *testing.T) {
+	var calls int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if atomic.AddInt32(&calls, 1) == 1 {
+			_, _ = w.Write([]byte(`{"id":"first"}`))
+			return
+		}
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"message":"bad"}`))
+	}))
+	defer server.Close()
+	defer mockDiscordEndpoints(server.URL)()
+	b := &bot{session: newTestSession(t)}
+	st := chanstore.New(dyntest.Store(t, chanstore.Entities...))
+	mux := chanlib.NewAdapterMux("discord", []string{"discord:"}, b, func() bool { return true }, b.LastInboundAt, st)
+	body, err := json.Marshal(chanlib.SendRequest{ChatJID: "discord:ch-1", Content: strings.Repeat("x", 2001), IdempotencyKey: "partial"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/send", bytes.NewReader(body)))
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("status = %d, body = %s", w.Code, w.Body)
+		}
+	}
+	if calls != 2 {
+		t.Fatalf("provider calls = %d, want 2", calls)
+	}
+}
 
 // TestOnMessage_SkipsSelfAuthor verifies user-mode self-echo filter:
 // Discord delivers our own MESSAGE_CREATE over the gateway, and in user
@@ -63,44 +98,6 @@ func TestOnMessage_SkipsSelfAuthor(t *testing.T) {
 	}
 }
 
-// TestIsRateLimit exercises every detection branch of isRateLimit.
-func TestIsRateLimit(t *testing.T) {
-	if isRateLimit(nil) {
-		t.Error("nil should not be rate limit")
-	}
-	if isRateLimit(errors.New("plain error")) {
-		t.Error("plain error should not be rate limit")
-	}
-	if !isRateLimit(errors.New("HTTP 429 Too Many Requests")) {
-		t.Error("429 substring should detect")
-	}
-	if !isRateLimit(errors.New("you are being RATE LIMITED")) {
-		t.Error("rate limit substring should detect")
-	}
-
-	// Typed RESTError with 429
-	rest := &discordgo.RESTError{
-		Response: &http.Response{StatusCode: http.StatusTooManyRequests},
-	}
-	if !isRateLimit(rest) {
-		t.Error("RESTError 429 should detect")
-	}
-	// RESTError with non-429 status and clean message — should not detect.
-	rest500 := &discordgo.RESTError{
-		Response:     &http.Response{StatusCode: 500},
-		ResponseBody: []byte(`{"code":50007}`),
-	}
-	if isRateLimit(rest500) {
-		t.Error("500 status should not detect")
-	}
-
-	// Typed RateLimitError
-	rl := &discordgo.RateLimitError{RateLimit: &discordgo.RateLimit{URL: "x"}}
-	if !isRateLimit(rl) {
-		t.Error("RateLimitError should detect")
-	}
-}
-
 // mockDiscordEndpoints overrides the package-level endpoint vars used by
 // Session.ChannelMessageSend / ChannelTyping so requests land on httptest.
 // Restores previous values via the returned cleanup.
@@ -130,8 +127,6 @@ func newTestSession(t *testing.T) *discordgo.Session {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Disable rate-limit retries inside discordgo so our own retry loop is
-	// what exercises the isRateLimit path.
 	s.ShouldRetryOnRateLimit = false
 	s.MaxRestRetries = 0
 	s.State = discordgo.NewState()
@@ -282,37 +277,32 @@ func TestSend_Reply(t *testing.T) {
 	}
 }
 
-func TestSend_RateLimitRetries(t *testing.T) {
-	var calls int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		n := atomic.AddInt32(&calls, 1)
-		if n == 1 {
-			w.WriteHeader(http.StatusTooManyRequests)
-			w.Header().Set("Content-Type", "application/json")
-			w.Write([]byte(`{"message":"You are being rate limited.","retry_after":0.01,"global":false}`))
-			return
-		}
-		w.Write([]byte(`{"id":"ok"}`))
-	}))
-	defer srv.Close()
-	defer mockDiscordEndpoints(srv.URL)()
+func TestSend_RateLimitOneAttempt(t *testing.T) {
+	for _, status := range []int{http.StatusTooManyRequests, http.StatusBadGateway} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			var calls int32
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				n := atomic.AddInt32(&calls, 1)
+				if n == 1 {
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(status)
+					w.Write([]byte(`{"message":"You are being rate limited.","retry_after":0.01,"global":false}`))
+					return
+				}
+				w.Write([]byte(`{"id":"ok"}`))
+			}))
+			defer srv.Close()
+			defer mockDiscordEndpoints(srv.URL)()
 
-	b := &bot{session: newTestSession(t)}
-	start := time.Now()
-	id, err := b.Send(chanlib.SendRequest{ChatJID: "discord:ch-1", Content: "hi"})
-	elapsed := time.Since(start)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if id != "ok" {
-		t.Errorf("id = %q", id)
-	}
-	if atomic.LoadInt32(&calls) < 2 {
-		t.Errorf("should have retried; calls = %d", calls)
-	}
-	// Sleep is 1s between attempts — but test with 2 calls should be ~1s.
-	if elapsed > 5*time.Second {
-		t.Errorf("elapsed %v; should be under 5s", elapsed)
+			b, err := newBot(config{DiscordToken: "test-token"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = b.Send(chanlib.SendRequest{ChatJID: "discord:ch-1", Content: "hi"})
+			if err == nil || atomic.LoadInt32(&calls) != 1 {
+				t.Errorf("err = %v, calls = %d", err, calls)
+			}
+		})
 	}
 }
 

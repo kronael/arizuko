@@ -27,6 +27,7 @@ import (
 
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/chanlib/chanstore"
+	"github.com/kronael/arizuko/retry"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -1228,11 +1229,13 @@ func (b *bot) Send(req chanlib.SendRequest) (string, error) {
 		if slackSendClientErrors[resp.Error] {
 			// Permanent caller-side error (channel gone, archived, bot not in
 			// channel) → clear agent error (400), not a 502 the agent retries.
-			return "", fmt.Errorf("%w: slack %s", chanlib.ErrInvalidRequest, resp.Error)
+			return "", fmt.Errorf("%w: %w: slack %s", chanlib.ErrNotDelivered, chanlib.ErrInvalidRequest, resp.Error)
 		}
-		// `ok:false` IS Slack's proof that chat.postMessage created nothing,
-		// so the dedup claim is released and the sweep's retry may post.
-		return "", fmt.Errorf("slack send: %s: %w", resp.Error, chanlib.ErrNotDelivered)
+		err := fmt.Errorf("slack send: %s", resp.Error)
+		if resp.Error == "internal_error" {
+			err = &retry.Error{Failure: retry.Failure{Kind: "transient"}, Err: err}
+		}
+		return "", err
 	}
 	slog.Debug("send", "chat_jid", req.ChatJID, "message_id", resp.TS, "source", "slack")
 	b.markSent(resp.TS)
@@ -1736,16 +1739,6 @@ func (b *bot) conversationsInfo(channelID string) (*slackConvInfo, error) {
 	return resp.Channel, nil
 }
 
-// slackNonIdempotent names the endpoints that CREATE something and take no
-// idempotency key of their own. They retry a 429 (a documented refusal, with
-// Retry-After) but never a 5xx or a dropped connection, which may have created
-// the message already (BUGS D5). Every other endpoint is a read or a mutation
-// addressed by target id, so a full retry is free.
-var slackNonIdempotent = map[string]bool{
-	"/chat.postMessage":             true,
-	"/files.completeUploadExternal": true,
-}
-
 func (b *bot) postForm(ctx context.Context, path string, form url.Values, out any) error {
 	req, err := http.NewRequestWithContext(ctx, "POST", b.api+path, strings.NewReader(form.Encode()))
 	if err != nil {
@@ -1754,23 +1747,16 @@ func (b *bot) postForm(ctx context.Context, path string, form url.Values, out an
 	req.Header.Set("Authorization", "Bearer "+b.cfg.BotToken)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded; charset=utf-8")
 	req.Header.Set("User-Agent", chanlib.UserAgent)
-	policy := chanlib.RetryTransient
-	if slackNonIdempotent[path] {
-		policy = chanlib.RetryRateLimitOnly
-	}
-	resp, err := chanlib.DoWithPolicy(b.http, req, policy)
+	resp, err := b.http.Do(req)
 	if err != nil {
 		return fmt.Errorf("slack %s: %w", path, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode == 429 {
-		// A 429 that outlived DoWithPolicy's budget is still a documented
-		// refusal — nothing was created — so the dedup claim must be
-		// released for the sweep's retry, not held until dead-letter.
-		return fmt.Errorf("slack %s: status 429: %w", path, chanlib.ErrNotDelivered)
+		return fmt.Errorf("%w: %w", chanlib.ErrNotDelivered, chanlib.ResponseError(resp, path))
 	}
 	if resp.StatusCode/100 != 2 {
-		return fmt.Errorf("slack %s: status %d", path, resp.StatusCode)
+		return chanlib.ResponseError(resp, path)
 	}
 	return json.NewDecoder(io.LimitReader(resp.Body, 4<<20)).Decode(out)
 }

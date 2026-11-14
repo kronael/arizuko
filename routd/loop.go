@@ -2,7 +2,6 @@ package routd
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -12,7 +11,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/retry"
@@ -349,7 +347,7 @@ func (l *Loop) retryOutbound(now time.Time, p store.PendingMessage) {
 			slog.Error("retry outbound: mark sent", "id", m.ID, "err", err)
 		}
 	default:
-		failure := deliveryFailure(derr)
+		failure := retry.FromError(derr, time.Now())
 		attempts, dead, err := l.db.RecordDeliveryFailure(m, failure)
 		if err != nil {
 			slog.Error("retry outbound: count attempt", "id", m.ID, "err", err)
@@ -748,17 +746,4 @@ func onboardingAllowed(jid string, platforms []string) bool {
 	}
 	p, _, _ := strings.Cut(jid, ":")
 	return slices.Contains(platforms, p)
-}
-
-func deliveryFailure(err error) retry.Failure {
-	if errors.Is(err, chanlib.ErrPermanent) || errors.Is(err, chanlib.ErrUnsupported) || errors.Is(err, chanlib.ErrInvalidRequest) {
-		return retry.Failure{Kind: "permanent"}
-	}
-	if errors.Is(err, context.Canceled) {
-		return retry.Failure{Kind: "canceled"}
-	}
-	if errors.Is(err, context.DeadlineExceeded) {
-		return retry.Failure{Kind: "timeout"}
-	}
-	return retry.Failure{Kind: "transient"}
 }

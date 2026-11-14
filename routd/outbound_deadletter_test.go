@@ -1,12 +1,7 @@
-// Bounded outbound delivery: the retry sweep must stop. A permanent refusal
-// dead-letters at once and spends no attempt; a transient failure spends one
-// attempt and dead-letters at the cap. Before the bound, the sweep discarded
-// the send error and re-sent every pending row every 30s for 24h — about 2880
-// attempts on a message the platform had already rejected for good.
-
 package routd
 
 import (
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -15,6 +10,32 @@ import (
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/store"
 )
+
+type unknownDeliverer struct{ recDeliverer }
+
+func (d *unknownDeliverer) Send(jid, text, replyTo, threadID, threadRoot, idem string) (string, error) {
+	d.sends = append(d.sends, sentMsg{jid: jid, idem: idem})
+	return "", errors.New("unknown delivery failure")
+}
+
+func TestOutboundUnknownFailureStops(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	deliver := &unknownDeliverer{}
+	loop := NewLoop(db, runnerFn(nil), LoopConfig{Deliver: deliver})
+	now := time.Now().UTC()
+	if err := db.PutOutbound(core.Message{ID: "unknown", ChatJID: "slack:T/C/U", Sender: "demo", Content: "hi", Timestamp: now, BotMsg: true}, core.MessageStatusPending); err != nil {
+		t.Fatal(err)
+	}
+	sweepNow(loop, now.Add(time.Hour))
+	sweepNow(loop, now.Add(2*time.Hour))
+	if statusOf(t, db, "unknown") != core.MessageStatusFailed || attemptsOf(t, db, "unknown") != 1 || len(deliver.sends) != 1 {
+		t.Fatalf("status = %q, attempts = %d, sends = %d", statusOf(t, db, "unknown"), attemptsOf(t, db, "unknown"), len(deliver.sends))
+	}
+}
 
 // attemptsOf reads a row's attempt count off its DELIVERY item: the pending
 // feed while the row is still retriable, the dead-letter set once it is not. A
@@ -48,11 +69,6 @@ func sweepNow(l *Loop, now time.Time) {
 	l.maybeRetryOutbound(now)
 }
 
-// TestOutboundPermanentFailureDeadLettersOnFirstAttempt: the platform refuses
-// the message for a reason a retry cannot repair (a 4xx →
-// chanlib.ErrPermanent). The sweep dead-letters the row on the FIRST attempt
-// and spends no attempt budget, so the retry cap is free for the failures that
-// a retry can repair.
 func TestOutboundPermanentFailureDeadLettersOnFirstAttempt(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {

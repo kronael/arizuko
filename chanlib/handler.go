@@ -16,6 +16,7 @@ import (
 
 	"github.com/kronael/arizuko/chanlib/chanstore"
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/retry"
 )
 
 type SendRequest struct {
@@ -132,21 +133,18 @@ type UnpinRequest struct {
 }
 
 // ErrUnsupported marks a social action not implemented on this platform (maps to 501).
-var ErrUnsupported = errors.New("unsupported")
+var ErrUnsupported = &retry.Error{Failure: retry.Failure{Kind: "permanent"}, Err: errors.New("unsupported")}
 
 // ErrInvalidRequest marks a caller-input error (400), so the agent learns its
 // input was wrong instead of seeing a 502 "upstream failed".
-var ErrInvalidRequest = errors.New("invalid request")
+var ErrInvalidRequest = &retry.Error{Failure: retry.Failure{Kind: "permanent"}, Err: errors.New("invalid request")}
 
 // ErrPermanent marks a delivery failure a retry cannot repair; routd
 // dead-letters the row at once. It lives here so the MCP wall (ipc)
 // classifies by the SAME sentinel without importing chanreg.
-var ErrPermanent = errors.New("permanent")
+var ErrPermanent = &retry.Error{Failure: retry.Failure{Kind: "permanent"}, Err: errors.New("permanent")}
 
-// ErrNotDelivered marks a TRANSIENT failure that PROVES the platform accepted
-// nothing (a 429, an `ok:false`). deliverOnce releases the dedup claim on it:
-// without this class every adapter-side rate limit left the claim `inflight`,
-// a guaranteed dead-letter.
+// ErrNotDelivered proves the platform accepted nothing, allowing claim release.
 var ErrNotDelivered = errors.New("not delivered")
 
 // UnsupportedError is the structured form; the HTTP layer encodes
@@ -167,7 +165,7 @@ func (e *UnsupportedError) Error() string {
 	return fmt.Sprintf("unsupported: %s on %s: %s", e.Tool, e.Platform, e.Hint)
 }
 
-func (e *UnsupportedError) Is(target error) bool { return target == ErrUnsupported }
+func (e *UnsupportedError) Unwrap() error { return ErrUnsupported }
 
 func Unsupported(tool, platform, hint string) error {
 	return &UnsupportedError{Tool: tool, Platform: platform, Hint: hint}
@@ -516,15 +514,19 @@ func writeBotResult(w http.ResponseWriter, id string, err error) {
 		WriteErr(w, 501, "unsupported")
 		return
 	}
-	// Both say a retry cannot repair this, and 400 is the one status routd
-	// reads that way (chanreg classifyStatus). Left at 502 a permanent refusal
-	// read as transient: routd spent all ten attempts on it and the MCP path
-	// told the agent the router would re-send a message that never sends.
-	if errors.Is(err, ErrInvalidRequest) || errors.Is(err, ErrPermanent) {
-		WriteErr(w, 400, err.Error())
-		return
+	failure := retry.FromError(err, time.Now())
+	if failure.Kind == "transient" || failure.Kind == "timeout" {
+		if !failure.RetryAt.IsZero() {
+			due := failure.RetryAt.UTC()
+			if due.Nanosecond() != 0 {
+				due = due.Truncate(time.Second).Add(time.Second)
+			}
+			w.Header().Set("Retry-After", due.Format(http.TimeFormat))
+		}
+		WriteErr(w, http.StatusServiceUnavailable, err.Error())
+	} else {
+		WriteErr(w, http.StatusBadRequest, err.Error())
 	}
-	WriteErr(w, 502, err.Error())
 }
 
 func handlePost(bot BotHandler) http.HandlerFunc {

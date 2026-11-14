@@ -6,11 +6,29 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/bwmarrin/discordgo"
 
 	"github.com/kronael/arizuko/chanlib"
+	"github.com/kronael/arizuko/retry"
 )
+
+func TestSendHTTPFailureKinds(t *testing.T) {
+	for _, tc := range []struct {
+		code int
+		kind string
+	}{{400, "permanent"}, {408, "transient"}, {425, "transient"}} {
+		err := &discordgo.RESTError{Response: &http.Response{StatusCode: tc.code, Status: http.StatusText(tc.code)}}
+		got := retry.FromError(classifySendErr(err, ""), time.Now())
+		if got.Kind != tc.kind {
+			t.Errorf("status %d: %+v", tc.code, got)
+		}
+		if tc.code == http.StatusRequestTimeout && errors.Is(classifySendErr(err, ""), chanlib.ErrNotDelivered) {
+			t.Errorf("status 408 proves no delivery")
+		}
+	}
+}
 
 func TestReplaceMentions(t *testing.T) {
 	u := &discordgo.User{ID: "123456"}
@@ -88,12 +106,6 @@ func TestReplaceMentions_NoLeadingAtPrefix(t *testing.T) {
 	}
 }
 
-// classifySendErr releases the dedup claim (ErrNotDelivered) only for a rate
-// limit with NO chunk delivered — a 429 proves Discord created nothing, while
-// after a delivered chunk a re-post would duplicate it, and a transport error
-// may have sent the message. A Discord 4xx is a refusal of the request as
-// formed (ErrInvalidRequest): the reason travels to the agent and routd
-// dead-letters instead of retrying; a 5xx stays transient.
 func TestClassifySendErr(t *testing.T) {
 	rl := &discordgo.RateLimitError{RateLimit: &discordgo.RateLimit{
 		TooManyRequests: &discordgo.TooManyRequests{}, URL: "/channels/1/messages",
@@ -116,7 +128,8 @@ func TestClassifySendErr(t *testing.T) {
 		{"rate limit before any chunk", rl, "", true, false},
 		{"rate limit after a delivered chunk", rl, "17", false, false},
 		{"transport error", errors.New("connection reset"), "", false, false},
-		{"discord 400 refusal", refused, "", false, true},
+		{"discord 400 refusal", refused, "", true, true},
+		{"discord 400 after a chunk", refused, "17", false, true},
 		{"discord 500 stays transient", upstream, "", false, false},
 	}
 	for _, c := range cases {

@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,6 +16,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 
 	"github.com/kronael/arizuko/chanlib"
+	"github.com/kronael/arizuko/retry"
 )
 
 type bot struct {
@@ -45,6 +45,8 @@ func newBot(cfg config) (*bot, error) {
 	if err != nil {
 		return nil, fmt.Errorf("discord session: %w", err)
 	}
+	s.MaxRestRetries = 0
+	s.ShouldRetryOnRateLimit = false
 	if cfg.UserMode {
 		// User-account IDENTIFY. The default discordgo Identify struct encodes
 		// Intents=0 with no omitempty — the user gateway reads that as "intent
@@ -415,17 +417,7 @@ func (b *bot) Send(req chanlib.SendRequest) (string, error) {
 			// banner is decoration.
 			send.Reference = &discordgo.MessageReference{MessageID: replyTo, FailIfNotExists: &neverFailOnReference}
 		}
-		for attempt := range 3 {
-			msg, err = b.session.ChannelMessageSendComplex(chID, send)
-			if err == nil {
-				break
-			}
-			if !isRateLimit(err) {
-				break
-			}
-			slog.Warn("discord rate limited, retrying", "attempt", attempt+1, "max_attempts", 3, "err", err)
-			time.Sleep(time.Second)
-		}
+		msg, err = b.session.ChannelMessageSendComplex(chID, send)
 		if err != nil {
 			return "", classifySendErr(err, firstID)
 		}
@@ -736,53 +728,32 @@ func (b *bot) sendTyping(jid string) bool {
 	return true
 }
 
-// classifySendErr maps a failed chunk send onto chanlib's dedup taxonomy. A 429 that
-// outlived the local retries proves Discord created nothing — but the dedup claim may
-// be released only while NO chunk has landed; after a delivered chunk a re-post would
-// duplicate it, so the claim stays held and routd dead-letters visibly. Everything
-// else stays unclassified: a lost response may have sent the message.
 func classifySendErr(err error, firstID string) error {
-	if isRateLimit(err) && firstID == "" {
-		return fmt.Errorf("discord send: %v: %w", err, chanlib.ErrNotDelivered)
-	}
-	if isClientRefusal(err) {
-		// Discord refused the request as formed (a bad reference, a missing
-		// channel, no permission); a retry cannot repair it. ErrInvalidRequest
-		// maps to a 400 that carries Discord's own reason, so routd dead-letters
-		// the row and the agent reads why, instead of the bare "status 502" that
-		// the sweep retried ten times.
-		return fmt.Errorf("%w: discord send: %v", chanlib.ErrInvalidRequest, err)
-	}
-	return fmt.Errorf("discord send: %w", err)
-}
-
-// isClientRefusal reports a Discord 4xx other than a rate limit.
-func isClientRefusal(err error) bool {
 	var rest *discordgo.RESTError
-	if !errors.As(err, &rest) || rest.Response == nil {
-		return false
+	var limited *discordgo.RateLimitError
+	var failure retry.Failure
+	refused, invalid := false, false
+	if errors.As(err, &limited) {
+		failure = retry.Failure{Kind: "transient", RetryAt: time.Now().Add(limited.RetryAfter)}
+		refused = true
+	} else if errors.As(err, &rest) && rest.Response != nil {
+		code := rest.Response.StatusCode
+		failure = retry.HTTPFailure(code, rest.Response.Header.Get("Retry-After"), nil, time.Now())
+		refused = code >= 400 && code < 500 && code != 408
+		invalid = failure.Kind == "permanent" && code >= 400 && code < 500
+	} else {
+		return fmt.Errorf("discord send: %w", err)
 	}
-	code := rest.Response.StatusCode
-	return code >= 400 && code < 500 && code != http.StatusTooManyRequests
-}
-
-// isRateLimit detects Discord 429 errors via typed discordgo errors with substring fallback.
-func isRateLimit(err error) bool {
-	if err == nil {
-		return false
+	wrapped := &retry.Error{Failure: failure, Err: err}
+	if invalid {
+		err = fmt.Errorf("%w: %w", chanlib.ErrInvalidRequest, wrapped)
+	} else {
+		err = wrapped
 	}
-	var rest *discordgo.RESTError
-	if errors.As(err, &rest) {
-		if rest.Response != nil && rest.Response.StatusCode == http.StatusTooManyRequests {
-			return true
-		}
+	if firstID == "" && refused {
+		return fmt.Errorf("%w: %w", chanlib.ErrNotDelivered, err)
 	}
-	var rl *discordgo.RateLimitError
-	if errors.As(err, &rl) {
-		return true
-	}
-	es := strings.ToLower(err.Error())
-	return strings.Contains(es, "429") || strings.Contains(es, "rate limit")
+	return err
 }
 
 // isMentioned returns true when the bot is in the Discord-populated

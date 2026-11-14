@@ -93,6 +93,14 @@ func TestDeleteComment(t *testing.T) {
 }
 
 func TestCommentOperationRefusals(t *testing.T) {
+	t.Run("server error is not create proof", func(t *testing.T) {
+		gh, _, _ := fakeGitHub(t, http.StatusServiceUnavailable, `{}`)
+		b := testBot(config{Token: "ghp_test", APIBase: gh.URL})
+		err := b.Edit(chanlib.EditRequest{ChatJID: "github:kronael/arizuko/pr/12", TargetID: "gh-c777", Content: "retry"})
+		if err == nil || errors.Is(err, chanlib.ErrNotDelivered) {
+			t.Fatalf("edit error = %v", err)
+		}
+	})
 	for _, tc := range []struct {
 		status       int
 		edit, delete error
@@ -100,7 +108,6 @@ func TestCommentOperationRefusals(t *testing.T) {
 		{403, chanlib.ErrPermanent, chanlib.ErrPermanent},
 		{404, chanlib.ErrPermanent, nil},
 		{429, chanlib.ErrNotDelivered, chanlib.ErrNotDelivered},
-		{503, chanlib.ErrNotDelivered, chanlib.ErrNotDelivered},
 	} {
 		gh, reqs, _ := fakeGitHub(t, tc.status, `{}`)
 		b := testBot(config{Token: "ghp_test", APIBase: gh.URL})

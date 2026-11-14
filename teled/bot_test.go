@@ -6,10 +6,12 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	tgbotapi "github.com/matterbridge/telegram-bot-api/v6"
 
 	"github.com/kronael/arizuko/chanlib"
+	"github.com/kronael/arizuko/retry"
 	"github.com/kronael/arizuko/tests/testutils"
 )
 
@@ -484,12 +486,6 @@ func TestChunk(t *testing.T) {
 	}
 }
 
-// classifySendErr maps a failed chunk onto chanlib's dedup taxonomy: 400/403
-// are caller-side (ErrInvalidRequest, dead-letter at once); any other
-// STRUCTURED API error proves Telegram sent nothing and releases the claim
-// (ErrNotDelivered) — but only while no chunk landed, because after a
-// delivered chunk a re-post would duplicate it. Transport errors stay
-// unclassified (a lost response may have sent the message).
 func TestClassifySendErr(t *testing.T) {
 	api429 := &tgbotapi.Error{Code: 429, Message: "Too Many Requests"}
 	cases := []struct {
@@ -499,13 +495,22 @@ func TestClassifySendErr(t *testing.T) {
 		want    error
 	}{
 		{"chat gone", &tgbotapi.Error{Code: 403, Message: "bot was kicked"}, "", chanlib.ErrInvalidRequest},
+		{"chat gone after a chunk", &tgbotapi.Error{Code: 403, Message: "bot was kicked"}, "17", chanlib.ErrInvalidRequest},
 		{"429 before any chunk", api429, "", chanlib.ErrNotDelivered},
+		{"408 unknown outcome", &tgbotapi.Error{Code: 408}, "", nil},
+		{"425 refusal", &tgbotapi.Error{Code: 425}, "", chanlib.ErrNotDelivered},
 		{"429 after a delivered chunk", api429, "17", nil},
+		{"server error", &tgbotapi.Error{Code: 500, Message: "server error"}, "", nil},
 		{"transport error", errors.New("connection reset"), "", nil},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			got := classifySendErr(c.err, c.firstID)
+			if c.name == "408 unknown outcome" || c.name == "425 refusal" {
+				if failure := retry.FromError(got, time.Now()); failure.Kind != "transient" {
+					t.Fatalf("failure = %+v", failure)
+				}
+			}
 			if got == nil {
 				t.Fatal("classifySendErr must always return an error")
 			}
@@ -514,6 +519,9 @@ func TestClassifySendErr(t *testing.T) {
 			}
 			if c.want == nil && (errors.Is(got, chanlib.ErrNotDelivered) || errors.Is(got, chanlib.ErrInvalidRequest)) {
 				t.Fatalf("err = %v, want unclassified", got)
+			}
+			if c.firstID != "" && errors.Is(got, chanlib.ErrNotDelivered) {
+				t.Fatalf("partial delivery released: %v", got)
 			}
 		})
 	}

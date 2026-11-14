@@ -33,6 +33,7 @@ type tgMock struct {
 	fileReplyTo []string // reply_to_message_id seen on each file-method call
 	fileThreads []string
 	actionHits  int32
+	sendCalls   atomic.Int32
 	// force an error on the next sendMessage call (for 400 fallback)
 	failMarkdownOnce atomic.Int32
 	// fail the HTML send (400) once for any chunk whose text contains this
@@ -61,6 +62,7 @@ func newTGMock() *tgMock {
 				"id": 1, "is_bot": true, "username": m.username, "first_name": "Test",
 			})
 		case "sendMessage":
+			m.sendCalls.Add(1)
 			if m.failMarkdownOnce.Load() == 1 && r.Form.Get("parse_mode") == "HTML" {
 				m.failMarkdownOnce.Store(0)
 				writeTGErr(w, 400, "bad entity")
@@ -214,6 +216,21 @@ func TestBotSend_HTMLFallbackOnBadEntity(t *testing.T) {
 	if len(m.lastSent) != 1 {
 		t.Fatalf("want 1 successful send (fallback), got %d", len(m.lastSent))
 	}
+	if m.sendCalls.Load() != 2 {
+		t.Fatalf("send calls = %d", m.sendCalls.Load())
+	}
+}
+
+func TestBotSend_UnchangedTextDoesNotRepair(t *testing.T) {
+	m := newTGMock()
+	defer m.close()
+	m.failMarkdownOnce.Store(1)
+	b := newTestBot(t, m, config{Name: "telegram"})
+	defer b.typing.Stop()
+	_, err := b.Send(chanlib.SendRequest{ChatJID: "telegram:1/user/123", Content: "plain"})
+	if err == nil || m.sendCalls.Load() != 1 {
+		t.Fatalf("err = %v, calls = %d", err, m.sendCalls.Load())
+	}
 }
 
 // TestBotSendFile_DispatchesByExtension asserts the SendFile switch
@@ -292,7 +309,7 @@ func TestBotSend_MultiChunkHTMLFallbackNoDup(t *testing.T) {
 	b := newTestBot(t, m, config{Name: "telegram"})
 	defer b.typing.Stop()
 
-	content := strings.Repeat("a", 4096) + "MARK tail"
+	content := strings.Repeat("a", 4096) + "**MARK** tail"
 	if _, err := b.Send(chanlib.SendRequest{ChatJID: "telegram:1/user/123", Content: content}); err != nil {
 		t.Fatal(err)
 	}

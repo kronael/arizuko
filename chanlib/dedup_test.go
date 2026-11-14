@@ -97,22 +97,20 @@ func TestDeliverOnceRefusesAnUnsettledRedelivery(t *testing.T) {
 	}
 }
 
-// ErrPermanent is the one failure that proves nothing was posted, so it frees
-// the key. Holding it would dead-letter a message the operator can still fix.
-func TestDeliverOncePermanentFailureFreesTheKey(t *testing.T) {
+func TestDeliverOncePermanentFailureKeepsTheKey(t *testing.T) {
 	st := testStore(t)
 	refused := &counter{err: fmt.Errorf("bad channel: %w", ErrPermanent)}
 
-	if _, err := deliverOnce(st, "row-3", "slack:c/1", refused.post); err == nil {
-		t.Fatal("permanent failure must surface")
+	if _, err := deliverOnce(st, "row-3", "slack:c/1", refused.post); !errors.Is(err, ErrDeliveryUnresolved) {
+		t.Fatalf("first failure = %v, want unresolved", err)
 	}
 	next := &counter{id: "plat-3"}
-	id, err := deliverOnce(st, "row-3", "slack:c/1", next.post)
-	if err != nil || id != "plat-3" {
-		t.Fatalf("retry after a permanent failure = (%q, %v), want (plat-3, nil)", id, err)
+	_, err := deliverOnce(st, "row-3", "slack:c/1", next.post)
+	if !errors.Is(err, ErrDeliveryUnresolved) {
+		t.Fatalf("retry after a permanent failure = %v, want unresolved", err)
 	}
-	if next.n != 1 {
-		t.Fatalf("platform called %d times, want 1", next.n)
+	if next.n != 0 {
+		t.Fatalf("platform called %d times, want 0", next.n)
 	}
 }
 

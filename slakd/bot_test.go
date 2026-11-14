@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
@@ -15,7 +16,67 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/chanlib"
+	"github.com/kronael/arizuko/retry"
 )
+
+func TestSendApplicationFailureClaim(t *testing.T) {
+	for _, code := range []string{"internal_error", "fatal_error", "unknown_error"} {
+		t.Run(code, func(t *testing.T) {
+			calls := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				calls++
+				_, _ = w.Write([]byte(`{"ok":false,"error":"` + code + `"}`))
+			}))
+			defer server.Close()
+			b, err := newBotWithBase(config{Name: "slack", BotToken: "x"}, server.URL)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = b.Send(chanlib.SendRequest{ChatJID: "slack:T012/channel/C0HJK", Content: "hi"})
+			kind := "permanent"
+			if code == "internal_error" {
+				kind = "transient"
+			}
+			if errors.Is(err, chanlib.ErrNotDelivered) || retry.FromError(err, time.Now()).Kind != kind {
+				t.Errorf("error = %v, failure = %+v", err, retry.FromError(err, time.Now()))
+			}
+			calls = 0
+			mux := chanlib.NewAdapterMux("slack", []string{"slack:"}, b, func() bool { return true }, b.LastInboundAt, markStore(t))
+			body := []byte(`{"chat_jid":"slack:T012/channel/C0HJK","content":"hi","idempotency_key":"one"}`)
+			for i := 0; i < 2; i++ {
+				w := httptest.NewRecorder()
+				mux.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/send", bytes.NewReader(body)))
+				if w.Code != http.StatusBadRequest {
+					t.Errorf("status = %d, body = %s", w.Code, w.Body)
+				}
+			}
+			if calls != 1 {
+				t.Errorf("calls = %d, want 1", calls)
+			}
+		})
+	}
+}
+
+type timeoutTransport struct{ calls int }
+
+func (t *timeoutTransport) RoundTrip(*http.Request) (*http.Response, error) {
+	t.calls++
+	return nil, context.DeadlineExceeded
+}
+
+func TestPostFormTimeoutOneAttempt(t *testing.T) {
+	b, err := newBotWithBase(config{Name: "slack", BotToken: "x"}, "http://example.test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport := &timeoutTransport{}
+	b.http = &http.Client{Transport: transport}
+	var out map[string]any
+	err = b.postForm(context.Background(), "/chat.postMessage", url.Values{}, &out)
+	if !errors.Is(err, context.DeadlineExceeded) || transport.calls != 1 {
+		t.Fatalf("err = %v, calls = %d", err, transport.calls)
+	}
+}
 
 func TestParseJID(t *testing.T) {
 	cases := []struct {
@@ -398,16 +459,13 @@ func TestToMrkdwn_Mentions(t *testing.T) {
 	}
 }
 
-// A 500 may mean Slack created the message and lost the answer, so a create
-// call is attempted once. An endpoint addressed by target id is safe to retry,
-// and still is (BUGS D5). A 429 is a different case — see the 429 test below.
 func TestPostFormDoesNotRetryACreateCallOn500(t *testing.T) {
 	for _, c := range []struct {
 		path  string
 		wantN int
 	}{
 		{"/chat.postMessage", 1},
-		{"/reactions.add", 3}, // chanlib.DoWithRetry: 2 backoffs + the first try
+		{"/reactions.add", 1},
 	} {
 		t.Run(c.path, func(t *testing.T) {
 			var n int
@@ -429,9 +487,7 @@ func TestPostFormDoesNotRetryACreateCallOn500(t *testing.T) {
 	}
 }
 
-// A 429 IS retried even for a create call: Slack refused it outright and says
-// when to try again, so nothing was posted and waiting is the documented fix.
-func TestPostFormRetriesACreateCallOn429(t *testing.T) {
+func TestPostFormOneAttemptOn429(t *testing.T) {
 	var n int
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		n++
@@ -445,15 +501,12 @@ func TestPostFormRetriesACreateCallOn429(t *testing.T) {
 	}
 	var out map[string]any
 	_ = b.postForm(context.Background(), "/chat.postMessage", url.Values{}, &out)
-	if n != 3 {
-		t.Fatalf("/chat.postMessage attempted %d times on 429, want 3", n)
+	if n != 1 {
+		t.Fatalf("/chat.postMessage attempted %d times on 429, want 1", n)
 	}
 }
 
-// An exhausted 429 is still a documented refusal — nothing was created — so
-// postForm classifies it ErrNotDelivered and deliverOnce releases the dedup
-// claim for routd's sweep instead of holding it until dead-letter.
-func TestPostFormClassifiesAnExhausted429AsNotDelivered(t *testing.T) {
+func TestPostFormClassifies429AsNotDelivered(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Retry-After", "0")
 		w.WriteHeader(429)
@@ -470,16 +523,11 @@ func TestPostFormClassifiesAnExhausted429AsNotDelivered(t *testing.T) {
 	}
 }
 
-// `ok:false` IS Slack's proof that chat.postMessage created nothing: an
-// unknown application error classifies ErrNotDelivered (claim released, sweep
-// retries), while a known caller-side error stays ErrInvalidRequest (claim
-// released, routd dead-letters at once).
 func TestSendClassifiesAnOKFalseRefusal(t *testing.T) {
 	for _, c := range []struct {
 		slackErr string
 		want     error
 	}{
-		{"fatal_error", chanlib.ErrNotDelivered},
 		{"channel_not_found", chanlib.ErrInvalidRequest},
 	} {
 		t.Run(c.slackErr, func(t *testing.T) {
@@ -495,6 +543,9 @@ func TestSendClassifiesAnOKFalseRefusal(t *testing.T) {
 			_, err = b.Send(chanlib.SendRequest{ChatJID: "slack:T012/channel/C0HJK", Content: "hi"})
 			if !errors.Is(err, c.want) {
 				t.Fatalf("Send err = %v, want %v", err, c.want)
+			}
+			if !errors.Is(err, chanlib.ErrNotDelivered) {
+				t.Fatalf("refusal lacks proof: %v", err)
 			}
 		})
 	}

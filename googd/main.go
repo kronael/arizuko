@@ -15,6 +15,7 @@ import (
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/googd/googstore"
+	"github.com/kronael/arizuko/retry"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -220,11 +221,15 @@ func (b *bot) call(method, url string, body []byte) ([]byte, error) {
 	if method == http.MethodDelete && resp.StatusCode == http.StatusNotFound {
 		return nil, nil
 	}
-	if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
-		return nil, fmt.Errorf("%w: drive reply: %s", chanlib.ErrNotDelivered, resp.Status)
-	}
-	if resp.StatusCode >= 400 && resp.StatusCode < 500 {
-		return nil, fmt.Errorf("%w: drive reply: %s", chanlib.ErrPermanent, resp.Status)
+	if resp.StatusCode >= 400 {
+		err := chanlib.ResponseError(resp, "drive reply")
+		if retry.FromError(err, time.Now()).Kind == "permanent" {
+			err = fmt.Errorf("%w: %w", chanlib.ErrPermanent, err)
+		}
+		if (resp.StatusCode >= 400 && resp.StatusCode < 500 && resp.StatusCode != http.StatusRequestTimeout) || method == http.MethodGet {
+			err = fmt.Errorf("%w: %w", chanlib.ErrNotDelivered, err)
+		}
+		return nil, err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("drive reply: %s", resp.Status)

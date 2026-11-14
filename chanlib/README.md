@@ -77,25 +77,13 @@ refusal deletes it and decrements the count. The 15-second retry timer reads
 only due pointers, sorts them by first receipt and loads at most 50 payloads.
 `/health` reads the count by key. Adapter startup backfills these keys once.
 
-### Four error classes decide retry and the claim
+### Failure facts and claims
 
-An adapter's verb returns one of four classes, and `writeBotResult`
-(`handler.go`) maps each to a status routd understands:
-
-| Class                                | Status | Ledger claim | routd                        |
-| ------------------------------------ | ------ | ------------ | ---------------------------- |
-| `ErrInvalidRequest`, `ErrPermanent`  | 400    | released     | dead-letters the row at once |
-| `ErrUnsupported`, `UnsupportedError` | 501    | released     | the agent gets the hint      |
-| `ErrNotDelivered`, e.g. a 429        | 502    | released     | retries on the sweep         |
-| anything else                        | 502    | held         | retries are refused, below   |
-
-`ErrNotDelivered` proves the platform accepted nothing, so the claim can go.
-Without that class every adapter-side rate limit left the claim held, and
-the retry became a dead letter. A held claim is the ambiguous case: a lost
-response and a failed post look the same from the adapter, so every retry
-gets `ErrDeliveryUnresolved` instead of a second post, and the row runs out
-of attempts into `failed`. A visible dead letter beats a doubled message. A chunked sender, teled or
-discd, releases the claim only while no chunk has landed.
+`writeBotResult` maps transient and timeout facts to 503 and permanent or
+unknown facts to 400. It preserves Retry-After and structured unsupported
+hints use 501. `ErrNotDelivered` proves the platform accepted nothing and
+releases the claim. Any other create failure becomes `ErrDeliveryUnresolved`
+and keeps the claim. A chunked sender releases it only before any chunk lands.
 
 ### One dashboard page for every adapter
 
@@ -213,7 +201,7 @@ adapter enforces it:
 3. A key still in flight is refused with `ErrDeliveryUnresolved`, and routd
    dead-letters the row. A visible dead letter beats a doubled message: a
    lost response and a failed post look the same from the adapter.
-4. A failure in a released class (§ Four error classes) frees the claim.
+4. An `ErrNotDelivered` failure frees the claim.
    Every other error keeps it.
 5. A success records the platform id under the key.
 
@@ -268,7 +256,6 @@ sorted into the wrong place (BUGS `L97`).
   gets its page with no per-adapter edit at all
 - `github_jid.go` — `GitHubJID`, `ParseGitHubJID`
 - `auth.go` — `Auth` middleware (ES256 service:routd verification)
-- `retry.go` — outbound retry policy
 - `typing.go` — `TypingRefresher`
 - `mark.go` — `AckMark`
 - `urlcache.go` — `URLCache`
