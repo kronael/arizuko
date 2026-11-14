@@ -126,7 +126,7 @@ type statusAckInterleave struct {
 }
 
 func (s *statusAckInterleave) GuardedBatch(ctx context.Context, checks []objstore.Check, writes []objstore.Write) (bool, error) {
-	if s.armed && len(writes) == 2 && writes[1].Entity == MessageDelivery && writes[1].Op == objstore.Delete {
+	if s.armed && len(writes) >= 2 && writes[1].Entity == MessageDelivery && writes[1].Op == objstore.Delete {
 		s.armed = false
 		if err := NewOver(s.Store).QueueStatus(ctx, s.msg, "new", "waiting"); err != nil {
 			return false, err

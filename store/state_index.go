@@ -12,7 +12,7 @@ type stateIndexes struct{}
 
 func (stateIndexes) Indexed(entity string) bool {
 	switch entity {
-	case ScheduledTasks, TurnContexts, TurnArchive:
+	case ScheduledTasks, TurnContexts, TurnArchive, MessageDelivery:
 		return true
 	}
 	return false
@@ -21,6 +21,13 @@ func (stateIndexes) Indexed(entity string) bool {
 func (stateIndexes) Keys(entity string, it objstore.Item) []objstore.Key {
 	if entity == TurnContexts || entity == TurnArchive {
 		return turnIndexes(entity, it)
+	}
+	if entity == MessageDelivery {
+		if it.Key.Partition != core.MessageStatusPending {
+			return nil
+		}
+		due, _ := deliveryDueAt(it)
+		return []objstore.Key{{Partition: "outbound/due", Sort: core.TS(due)}}
 	}
 	switch it.Attrs[attrTaskStatus] {
 	case core.TaskActive:
@@ -41,9 +48,12 @@ func (s *Store) MigrateStateIndexes(ctx context.Context) error {
 	}); err != nil {
 		return err
 	}
-	return objstore.Reindex(ctx, s.Obj(), "turns-v1", []objstore.Query{
+	if err := objstore.Reindex(ctx, s.Obj(), "turns-v1", []objstore.Query{
 		{Entity: TurnContexts, Partition: OwnerRoutd}, {Entity: TurnArchive, Partition: OwnerRoutd},
-	})
+	}); err != nil {
+		return err
+	}
+	return objstore.Reindex(ctx, s.Obj(), "outbound-v1", []objstore.Query{{Entity: MessageDelivery, Partition: core.MessageStatusPending}})
 }
 
 func turnIndexes(entity string, it objstore.Item) []objstore.Key {

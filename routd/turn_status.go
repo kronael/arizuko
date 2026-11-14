@@ -328,7 +328,7 @@ func (l *Loop) retryProgress(now time.Time, pending store.PendingMessage) bool {
 		l.retryOutbound(now, current)
 		return true
 	}
-	if now.Sub(current.QueuedAt) < backoffDelay(current.Attempts) {
+	if now.Before(current.NextAttemptAt) {
 		return true
 	}
 	if err := executeStatus(l.db, l.deliver, current, l.maxOutboundRetry); err != nil {

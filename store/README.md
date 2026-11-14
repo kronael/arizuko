@@ -112,7 +112,9 @@ the table.
 
 Task and turn writes maintain `state_index` pointers in the same guarded batch.
 The `tasks/due` partition orders work by UTC due time; `tasks/firing` contains
-claimed work for startup recovery. Turns have separate live, returned-run,
+claimed work for startup recovery. `outbound/due` selects persisted delivery
+deadlines; a failed attempt writes its next deadline in the same batch as its
+attempt count or dead-letter transition. Turns have separate live, returned-run,
 retry-time, status-intent, expiry and history keys. The source row retains its identity and
 wire fields. `_index_revision` guards pointer changes against concurrent writes.
 `objstore.Indexed` implements this protocol over the two storage methods.

@@ -52,6 +52,11 @@ A progress row confers a reply obligation. Final delivery and last-answer tracki
 
 `Typing(on)` fires at dispatch. `Typing(off)` fires when the turn ends in `finishTurn`, the one writer of `done`. `finishTurn` deletes the progress line, marks the row `✓` or `✗` without a platform edit and does nothing at a second end. A line whose first send never landed is dead-lettered so the outbound sweep never posts it. A refused delete is logged and leaves the row as it was. A run that returns without ending its turn clears `Typing` and leaves the line at `⏳`.
 
+Outbound retry reads only due delivery keys, at most 200 per pass. A transient
+failure writes the next deadline from the failure time, doubling the delay up
+to one hour. Exhaustion moves the row to failed; confirmed delivery removes
+both pending and failed work. Status revisions fence late acknowledgments.
+
 ## routd fires scheduled tasks
 
 ```text

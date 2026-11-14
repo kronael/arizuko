@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/store"
 )
 
 func TestBackoffDelayGrowsAndCaps(t *testing.T) {
@@ -26,7 +27,7 @@ func TestBackoffDelayGrowsAndCaps(t *testing.T) {
 		{20, time.Hour}, // stays capped, never overflows
 	}
 	for _, c := range cases {
-		if got := backoffDelay(c.attempts); got != c.want {
+		if got := store.DeliveryBackoff(c.attempts); got != c.want {
 			t.Errorf("backoffDelay(%d) = %v, want %v", c.attempts, got, c.want)
 		}
 	}
@@ -64,8 +65,8 @@ func TestOutboundRetryHonorsPerRowBackoff(t *testing.T) {
 		t.Fatalf("status=%q want still pending", st)
 	}
 
-	// 65s elapsed: now past backoffDelay(1)=60s, so the sweep retries it.
-	later := now.Add(20 * time.Second)
+	// A full minute has passed since the failure, so the sweep retries it.
+	later := now.Add(61 * time.Second)
 	loop.nextRetryAt = later.Add(-time.Second)
 	loop.maybeRetryOutbound(later)
 	if len(dl.sends) != 1 || dl.sends[0].idem != "once-failed" {

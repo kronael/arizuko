@@ -15,7 +15,8 @@
 
 ## What needs you
 
-- `L838` — run retention and liveness filter spawn history; keyed state transitions approved on 2026-11-14.
+- `L840` — progress and message identity reads scan chat history; canonical delivery coordinates need a keyed lookup.
+- `L839` — outbound discovery reads delayed work and backoff uses creation time; keyed deadlines approved on 2026-11-14.
 
 - `L826` — one folder's crash closes the whole instance for an hour; per-folder breaker or a 30 s probe; needs sign-off.
 - `L816` — gitd loses GitHub webhooks while the store is unreachable; retention lives in that store; proposal, needs sign-off.
@@ -713,18 +714,29 @@ pre-breaker state.
   status acknowledgement leaves it live, `done`, owing nothing.
 
 
-## L838 — run retention reads the complete spawn history (2026-11-14)
+## L840 — progress maintenance resolves messages by scanning chat history (2026-11-14)
 
-`runstore.DropSpawnsBefore` filters `created_at` on the whole spawn partition
-hourly: N rows per pass even with no expired runs. Liveness reads and startup
-orphan recovery filter that same history. These are computed costs from the
-query keys at `ba80338b4`.
-**Fix:** expiry and live-state pointers maintained with each spawn transition;
-marked startup migration. Preserve the seven-day, all-state retention rule.
-**Test:** 40 spawns with one expired and one live; counting store must read
-only eligible rows (one count pointer, at most three expiry reads), and ending
-a run removes its live obligation. Range and concurrent-replacement mutations
-fail their covering tests.
+`store.messageAt` and `MessageByID` query all messages in one chat. Progress
+publication and retry reach these lookups. A test fixture also measured that
+`PutOutbound` can clamp a message timestamp while `RecordDeliveryFailure`
+uses the caller's old coordinate: 190 of 200 failure writes found no row.
+**Fix:** message identity and turn/status pointers, a marked backfill, and
+canonical-coordinate resolution for delivery transitions. Progress reads only
+updates whose publication deadline is due.
+**Test:** long unrelated history cannot affect one progress/retry pass; a
+clamped outbound timestamp still transitions the stored delivery.
+
+## L839 — outbound discovery ignores retry deadlines (2026-11-14)
+
+`PendingOutbound` selects the oldest 200 pending messages by creation time;
+`maybeRetryOutbound` checks exponential backoff only after hydrating them.
+Computed cost: up to 400 row reads per pass for zero due deliveries, and 200
+old delayed rows can hide a newer due row. Backoff ages from message creation,
+so a message over an hour old can spend every remaining retry 30 seconds apart.
+**Fix:** persist the next deadline on each failure and select only due keys;
+acknowledgment, retry and dead-letter are guarded state transitions.
+**Test:** 200 delayed messages cannot hide one due message; an old message waits
+a full backoff after its latest failure; concurrent acknowledgment wins.
 
 ## ✅ FIXED 2026-11-11 efeb37294 L818 — package sources resolve against the shared host checkout (`catalog:`) instead of being fetched (2026-11-11)
 

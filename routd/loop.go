@@ -339,35 +339,16 @@ func (l *Loop) sweepOrphanSocks() {
 // Maintenance cadence: the retry sweep, turn recovery and the stale-turn GC.
 const (
 	outboundRetryEvery = 30 * time.Second
-	outboundRetryAfter = 30 * time.Second
-	// retryAt's shortest delay; each pass reads turn_context whole three times.
+	// retryAt's shortest delay.
 	turnsEvery = 30 * time.Second
 	gcEvery    = time.Hour
 
 	// MAX_OUTBOUND_RETRY raises it for a flaky platform.
 	defaultMaxOutboundRetry = 10
-
-	// maxOutboundBackoff caps one retry gap: uncapped doubling spends the
-	// attempts over ~17h, and a flat 30s cadence dead-lettered live traffic
-	// during a routine adapter restart (BUGS L22).
-	maxOutboundBackoff = time.Hour
 )
 
-// backoffDelay returns how long a pending row with attempts prior failures
-// must age past its own timestamp before the sweep retries it.
-func backoffDelay(attempts int) time.Duration {
-	d := outboundRetryAfter
-	for range attempts {
-		d *= 2
-		if d >= maxOutboundBackoff {
-			return maxOutboundBackoff
-		}
-	}
-	return d
-}
-
 // maybeRetryOutbound re-dispatches bot rows that still owe a delivery, each
-// gated by its own backoffDelay; the adapter dedups on message_id. A permanent
+// selected by its due key; the adapter dedups on message_id. A permanent
 // refusal dead-letters at once and spends no attempt; a transient failure
 // spends one. There is no outright age bound: one killed a row the sweep had
 // never tried, losing a message no platform refused.
@@ -377,7 +358,7 @@ func (l *Loop) maybeRetryOutbound(now time.Time) {
 	}
 	l.nextRetryAt = now.Add(outboundRetryEvery)
 	l.recoverStatuses()
-	rows, err := l.db.PendingOutbound(now.Add(-outboundRetryAfter), 200)
+	rows, err := l.db.PendingOutbound(now, 200)
 	if err != nil {
 		slog.Warn("retry outbound: list pending", "err", err)
 		return
@@ -392,8 +373,7 @@ func (l *Loop) maybeRetryOutbound(now time.Time) {
 
 func (l *Loop) retryOutbound(now time.Time, p store.PendingMessage) {
 	m := p.Message
-	// PendingOutbound's fixed 30s floor only bounds the youngest rows.
-	if now.Sub(m.Timestamp) < backoffDelay(p.Attempts) {
+	if now.Before(p.NextAttemptAt) {
 		return
 	}
 	place := deliveryPlace{jid: m.ChatJID, threadID: m.Topic}

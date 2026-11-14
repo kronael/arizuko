@@ -145,7 +145,7 @@ func TestOutboundRetrySucceedsBeforeCap(t *testing.T) {
 		core.MessageStatusPending)
 
 	sweepNow(loop, now)
-	sweepNow(loop, now.Add(time.Minute))
+	sweepNow(loop, now.Add(61*time.Second))
 	if st := statusOf(t, db, "recovers"); st != core.MessageStatusPending {
 		t.Fatalf("status=%q want pending inside the budget", st)
 	}
@@ -156,7 +156,7 @@ func TestOutboundRetrySucceedsBeforeCap(t *testing.T) {
 	}
 
 	dl.failSend = false
-	sweepNow(loop, now.Add(2*time.Minute))
+	sweepNow(loop, now.Add(121*time.Second))
 	if st := statusOf(t, db, "recovers"); st != core.MessageStatusSent {
 		t.Fatalf("status=%q want sent after the adapter recovered", st)
 	}

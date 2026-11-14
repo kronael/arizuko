@@ -883,7 +883,7 @@ func TestOutboundRetryFailureKeepsRowPendingAndContinues(t *testing.T) {
 	// where the in-memory one was discarded.
 	dl.failIdem = ""
 	loop.nextRetryAt = now.Add(-time.Second)
-	loop.maybeRetryOutbound(now)
+	loop.maybeRetryOutbound(now.Add(61 * time.Second))
 	if st := statusOf(t, db, "dead"); st != core.MessageStatusSent {
 		t.Errorf("dead row status=%q want sent after the adapter recovered", st)
 	}

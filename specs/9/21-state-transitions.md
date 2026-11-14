@@ -156,6 +156,15 @@ Sources: `routd/loop.go`, `routd/turn_control.go`, `routd/turn_status.go`,
   job: migrate runed work before serving
   names: [Open]
   never: migrates routd data
+- path: store/message_delivery.go (changed)
+  job: commit retry deadlines, attempts and acknowledgments atomically
+  names:
+    [PendingOutbound, RecordDeliveryFailure, DeliveryBackoff, MarkDelivered]
+  never: finds retry eligibility after loading unrelated payloads
+- path: routd/loop.go (changed)
+  job: deliver only the due work selected by the store
+  names: [maybeRetryOutbound, retryOutbound]
+  never: computes a second retry schedule
 ```
 
 ## Atomic work keys
@@ -239,6 +248,22 @@ expiry key. Startup reads only live pointers for orphan teardown. Admission
 counts live pointers and dereferences only live runs for a folder check.
 The hourly retention timer reads and deletes only expired keys and guards
 creation time at deletion. `spawns-v1` backfills existing data once.
+
+## Outbound transitions
+
+Queuing a delivery writes its next attempt deadline and due pointer. Each
+transient failure atomically increments the attempt count and schedules a full
+backoff from that failure, capped at one hour. Exhaustion or permanent refusal
+moves pending to failed under a must-exist guard. A confirmed delivery removes
+pending and failed work together; status acknowledgments still fence revisions.
+Replay moves a failed row back to pending, due immediately, with a fresh budget.
+
+The consumer reads at most 200 due pointers and exact delivery/message keys.
+Two hundred delayed messages cannot hide one due delivery: that fixture reads
+three rows. `outbound-v1` backfills existing pending work once. Legacy rows
+have no recorded last-attempt instant, so their initial key preserves the
+creation/queued-time calculation; subsequent failures write explicit deadlines.
+`PendingMessage.NextAttemptAt` is internal data, not a REST/MCP field.
 
 ## Open questions
 

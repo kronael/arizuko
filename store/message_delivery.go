@@ -62,9 +62,10 @@ func deliveryWrite(msgKey objstore.Key, m core.Message, status string,
 // how many attempts it has already spent.
 type PendingMessage struct {
 	core.Message
-	Attempts  int
-	Operation string
-	QueuedAt  time.Time
+	Attempts      int
+	Operation     string
+	QueuedAt      time.Time
+	NextAttemptAt time.Time
 }
 
 // PutOutbound appends one outbound row and the delivery state it owes. A door
@@ -97,18 +98,13 @@ func (s *Store) PutOutboundOnce(ctx context.Context, m core.Message) (bool, erro
 	return err == nil, err
 }
 
-// PendingOutbound answers the bot rows still owed a delivery whose position is
-// at or before a cutoff, oldest first: the outbound retry feed.
-func (s *Store) PendingOutbound(ctx context.Context, cutoff time.Time,
+// PendingOutbound selects deliveries whose next attempt is due, in deadline order.
+func (s *Store) PendingOutbound(ctx context.Context, now time.Time,
 	limit int) ([]PendingMessage, error) {
 	if limit <= 0 {
 		limit = 50
 	}
-	items, err := s.Obj().Query(ctx, objstore.Query{
-		Entity: MessageDelivery, Partition: core.MessageStatusPending,
-		Key:   objstore.KeyPredicate{Op: objstore.LtKey, Value: msgStampPast(cutoff)},
-		Limit: limit,
-	})
+	items, err := objstore.IndexItems(ctx, s.Obj(), "outbound/due", objstore.KeyPredicate{Op: objstore.LtKey, Value: core.TS(now) + "\x7f"}, limit)
 	if err != nil {
 		return nil, fmt.Errorf("read the pending outbound feed: %w", err)
 	}
@@ -133,7 +129,11 @@ func (s *Store) pendingFrom(ctx context.Context, items []objstore.Item) ([]Pendi
 		if err != nil {
 			return nil, fmt.Errorf("%s's attempt count: %w", it.Key.Sort, err)
 		}
-		out = append(out, PendingMessage{Message: m, Attempts: n, Operation: it.Attrs["operation"], QueuedAt: deliveryQueuedAt(it, m)})
+		due, err := deliveryDueAt(it)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, PendingMessage{Message: m, Attempts: n, Operation: it.Attrs["operation"], QueuedAt: deliveryQueuedAt(it, m), NextAttemptAt: due})
 	}
 	return out, nil
 }
@@ -168,7 +168,7 @@ func (s *Store) MarkDelivered(ctx context.Context, m core.Message, platformID st
 	writes := []objstore.Write{{
 		Op: objstore.Delete, Entity: MessageDelivery,
 		Key: deliveryKey(core.MessageStatusPending, key),
-	}}
+	}, {Op: objstore.Delete, Entity: MessageDelivery, Key: deliveryKey(core.MessageStatusFailed, key)}}
 	if platformID != "" {
 		writes = append(writes, objstore.Write{
 			Op: objstore.Update, Entity: Messages, Key: key,
@@ -192,45 +192,50 @@ func (s *Store) DeadLetter(ctx context.Context, m core.Message, attempts int) er
 	}
 	// Two items, one batch: a row that left `pending` without arriving in
 	// `failed` would be a message nothing owns.
-	return s.WriteEntities(ctx, nil,
+	_, err = s.TryWriteEntities(ctx, nil,
 		objstore.Write{Op: objstore.Delete, Entity: MessageDelivery,
-			Key: deliveryKey(core.MessageStatusPending, key)},
+			Key: deliveryKey(core.MessageStatusPending, key), Cond: objstore.Cond{Item: objstore.ItemPresent}},
 		objstore.Write{Op: objstore.Put, Entity: MessageDelivery,
 			Key: deliveryKey(core.MessageStatusFailed, key), Attrs: attrs})
+	return err
 }
 
-// RecordDeliveryFailure counts one transient delivery failure and dead-letters
-// the row when the count reaches maxAttempts. It answers the new count and
-// whether the row died. THE COUNT IS objstore.Increment: the engine decides
-// the winner and the caller gets the new value without a second read. A
-// missing item is a row another sweep already resolved, not a failure to count.
 func (s *Store) RecordDeliveryFailure(ctx context.Context, m core.Message,
 	maxAttempts int) (int, bool, error) {
 	key, err := messageKeyOf(m)
 	if err != nil {
 		return 0, false, err
 	}
-	item := deliveryKey(core.MessageStatusPending, key)
-	// The attempt count is absent until the first failure, so the first
-	// failure seeds it rather than incrementing nothing.
-	if _, err := s.TryWriteEntities(ctx, nil, objstore.Write{
-		Op: objstore.Update, Entity: MessageDelivery, Key: item,
-		Attrs: map[string]string{attrDelAttempts: "0"},
-		Cond:  objstore.Cond{Where: []objstore.Cmp{{Attr: attrDelAttempts, Op: objstore.Absent}}},
-	}); err != nil {
-		return 0, false, fmt.Errorf("open %s's attempt count: %w", m.ID, err)
+	pending := deliveryKey(core.MessageStatusPending, key)
+	for range retryRounds {
+		it, exists, err := s.itemAt(ctx, MessageDelivery, pending)
+		if err != nil || !exists {
+			return 0, false, err
+		}
+		n, err := parseCount(it.Attrs[attrDelAttempts])
+		if err != nil {
+			return 0, false, err
+		}
+		n++
+		cond := objstore.Cond{Item: objstore.ItemPresent, Where: []objstore.Cmp{attrIs(attrDelAttempts, it.Attrs[attrDelAttempts])}}
+		attrs := map[string]string{attrDelAttempts: strconv.Itoa(n), "next_attempt_at": core.TS(time.Now().Add(DeliveryBackoff(n)))}
+		writes := []objstore.Write{{Op: objstore.Update, Entity: MessageDelivery, Key: pending, Attrs: attrs, Cond: cond}}
+		dead := n >= maxAttempts
+		if dead {
+			for k, v := range it.Attrs {
+				if _, changed := attrs[k]; !changed {
+					attrs[k] = v
+				}
+			}
+			writes = []objstore.Write{{Op: objstore.Delete, Entity: MessageDelivery, Key: pending, Cond: cond},
+				{Op: objstore.Put, Entity: MessageDelivery, Key: deliveryKey(core.MessageStatusFailed, key), Attrs: attrs}}
+		}
+		ok, err := s.TryWriteEntities(ctx, nil, writes...)
+		if err != nil || ok {
+			return n, dead && ok, err
+		}
 	}
-	n, committed, err := s.incrementEntity(ctx, MessageDelivery, item, attrDelAttempts, 1, nil, nil)
-	if err != nil {
-		return 0, false, fmt.Errorf("count a delivery failure on %s: %w", m.ID, err)
-	}
-	if !committed {
-		return 0, false, fmt.Errorf("%s's attempt count refused its own increment", m.ID)
-	}
-	if n < maxAttempts {
-		return n, false, nil
-	}
-	return n, true, s.DeadLetter(ctx, m, n)
+	return 0, false, fmt.Errorf("record delivery failure %s: too many concurrent changes", m.ID)
 }
 
 // DeadLetters answers the outbound rows routd gave up on, newest first,
@@ -272,7 +277,11 @@ func (s *Store) DeadLetters(ctx context.Context, folder string, limit int) ([]Pe
 		if err != nil {
 			return nil, fmt.Errorf("%s's attempt count: %w", it.Key.Sort, err)
 		}
-		out = append(out, PendingMessage{Message: m, Attempts: n, Operation: it.Attrs["operation"], QueuedAt: deliveryQueuedAt(it, m)})
+		due, err := deliveryDueAt(it)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, PendingMessage{Message: m, Attempts: n, Operation: it.Attrs["operation"], QueuedAt: deliveryQueuedAt(it, m), NextAttemptAt: due})
 	}
 	return out, nil
 }
@@ -317,13 +326,15 @@ func (s *Store) ReplayDeadLetter(ctx context.Context, m core.Message) (bool, err
 	if m.StatusRevision > 0 {
 		checks = append(checks, objstore.Check{Entity: Messages, Key: key, Cond: statusRevisionGuard(m)})
 	}
+	attrs := statusDeliveryAttrs(m)
+	attrs["next_attempt_at"] = core.NowTS()
 	return s.TryWriteEntities(ctx, checks,
 		objstore.Write{Op: objstore.Delete, Entity: MessageDelivery,
 			Key:  deliveryKey(core.MessageStatusFailed, key),
 			Cond: objstore.Cond{Item: objstore.ItemPresent}},
 		objstore.Write{Op: objstore.Put, Entity: MessageDelivery,
 			Key:   deliveryKey(core.MessageStatusPending, key),
-			Attrs: statusDeliveryAttrs(m)})
+			Attrs: attrs})
 }
 
 // CountPendingOutbound answers how many rows still owe a delivery: the /status
@@ -336,9 +347,10 @@ func (s *Store) CountPendingOutbound(ctx context.Context) (int, error) {
 }
 
 func statusDeliveryAttrs(m core.Message) map[string]string {
-	attrs := map[string]string{attrDelChatJID: m.ChatJID}
+	attrs := map[string]string{attrDelChatJID: m.ChatJID, "next_attempt_at": core.TS(m.Timestamp.Add(DeliveryBackoff(0)))}
 	if m.StatusRevision > 0 {
 		attrs["queued_at"] = core.TS(time.Now())
+		attrs["next_attempt_at"] = core.TS(time.Now().Add(DeliveryBackoff(0)))
 		attrs["revision"] = strconv.Itoa(m.StatusRevision)
 		switch {
 		case m.StatusPhase == "cleared":
@@ -422,7 +434,8 @@ func (s *Store) ackStatus(ctx context.Context, m core.Message, platformID string
 			current.PlatformID = platformID
 			writes = append(writes, objstore.Write{Op: objstore.Put, Entity: MessageDelivery, Key: deliveryKey(core.MessageStatusPending, key), Attrs: statusDeliveryAttrs(current)})
 		} else {
-			writes = append(writes, objstore.Write{Op: objstore.Delete, Entity: MessageDelivery, Key: deliveryKey(core.MessageStatusPending, key)})
+			writes = append(writes, objstore.Write{Op: objstore.Delete, Entity: MessageDelivery, Key: deliveryKey(core.MessageStatusPending, key)},
+				objstore.Write{Op: objstore.Delete, Entity: MessageDelivery, Key: deliveryKey(core.MessageStatusFailed, key)})
 		}
 		ok, err := s.TryWriteEntities(ctx, nil, writes...)
 		if err != nil || ok {
@@ -440,6 +453,7 @@ func (s *Store) FailStatus(ctx context.Context, pending PendingMessage, permanen
 	n := pending.Attempts + 1
 	attrs := statusDeliveryAttrs(pending.Message)
 	attrs[attrDelAttempts] = strconv.Itoa(n)
+	attrs["next_attempt_at"] = core.TS(time.Now().Add(DeliveryBackoff(n)))
 	if permanent {
 		delete(attrs, attrDelAttempts)
 	}
@@ -491,4 +505,34 @@ func (s *Store) PendingDelivery(ctx context.Context, m core.Message) (PendingMes
 		return PendingMessage{}, false, err
 	}
 	return rows[0], true, nil
+}
+
+func DeliveryBackoff(attempts int) time.Duration {
+	delay := 30 * time.Second
+	for range attempts {
+		delay = min(delay*2, time.Hour)
+		if delay == time.Hour {
+			break
+		}
+	}
+	return delay
+}
+
+func deliveryDueAt(it objstore.Item) (time.Time, error) {
+	if value := it.Attrs["next_attempt_at"]; value != "" {
+		return time.Parse(time.RFC3339Nano, value)
+	}
+	stamp, _, _ := MsgCoord(it.Key.Sort)
+	if queued := it.Attrs["queued_at"]; queued != "" {
+		stamp = queued
+	}
+	at, err := time.Parse(time.RFC3339Nano, stamp)
+	if err != nil {
+		return time.Time{}, err
+	}
+	n, err := parseCount(it.Attrs[attrDelAttempts])
+	if err != nil {
+		return time.Time{}, err
+	}
+	return at.Add(DeliveryBackoff(n)), nil
 }
