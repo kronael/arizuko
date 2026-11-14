@@ -390,7 +390,7 @@ The substrate adds `HTTP_PROXY` and its five companion variables to the environm
 - `hold.go` serves `POST /v1/holds`, the claim on the run slot of a folder.
 - `dash.go` serves `/dash/runed/` and its kill form.
 - `db.go` persists spawns and sessions, and it holds the boot that dials the store endpoint.
-- `runstore/` holds the two entities and their coordinates, with no SQL.
+- `runstore/` holds execution entities and their derived indexes, with no SQL.
 
 ## HTTP route and resource map
 
@@ -415,7 +415,7 @@ The guest sees `/run/ipc/gated.sock`; the bridge ends at routd's per-turn host s
 `StoreReach["runed"]` reaches only `runed`.
 `runed.spawns` holds claims and outcomes, `runed.session_log` holds session attempts, and `runed.audit_log` holds operator mutations.
 `PrepareOwner` also creates `resreg_scopes` for owner versioning.
-The hourly spawn sweep deletes completed records older than seven days; session_log has no corresponding retention sweep.
+The hourly spawn sweep selects `state_index` expiry keys for records created more than seven days ago, in every state. `session_log` has no retention sweep.
 Startup expires orphan spawn rows and reaps VM records before accepting work.
 
 VM records and staging trees live under `RUNED_VM_DIR` (default `DATA_DIR/vms`).

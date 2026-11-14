@@ -8,7 +8,7 @@ Work is a durable obligation that a state-changing write schedules and its consu
 
 ## The problem
 
-At `ba80338b4`, timers discover work by filtering ordinary rows. Their cost grows with unrelated data.
+At `ba80338b4b372c61374e3534f5f326d069baf96b`, timers discover work by filtering ordinary rows. Their cost grows with unrelated data.
 The owner approved replacing these reads with explicit transitions on 2026-11-14.
 `objstore.Store` remains exactly `Query` and `GuardedBatch`.
 
@@ -29,38 +29,42 @@ Queries, claims and acknowledgements retain their existing ownership and authori
 
 ## Inventory
 
-Computed costs below count rows selected by keys before attribute filters, per pass.
-`N` means all rows in the named partition; `D` means due rows; `A` means active rows.
-Startup and run-once migration walks are distinct from recurring work discovery.
+Costs count rows selected by keys before attribute filters, per pass. `N` is
+all rows in a partition; `D` is due work; `A` is live work; `Q` is today's
+approved rows for one gate. Snapshot rebuilds cost `N` only after a verified
+owner-version change. Startup and marked migrations are separate from recurring
+work discovery. The after column describes the implemented code.
 
-| Component / entry                          | State sought and current access                                    | Frequency                      | Before → target                                              |
-| ------------------------------------------ | ------------------------------------------------------------------ | ------------------------------ | ------------------------------------------------------------ |
-| routd `maybeRecoverTurns`                  | running/retry turns; `RunningTurns` filters live partition         | 30 s                           | N → recovery obligations                                     |
-| routd `turnControl.tick`                   | retries; `DeferredTurns` filters state and deadline                | 30 s                           | N → D                                                        |
-| routd input ordering                       | whole chats plus live turns, then folder/cursor filters            | each dispatch                  | N chats + A turns → time candidates + folder/chat live turns |
-| routd breaker                              | `ReadTurnControl` exact singleton; refused chats in memory         | 30 s                           | 1 → 1 at deadline                                            |
-| routd `recoverStatuses`                    | `status_owed`; filters live turns                                  | 30 s                           | N → owed pointers                                            |
-| routd `maybeRetryOutbound`                 | pending delivery by creation time; backoff checked after hydration | 30 s, limit 200                | up to 200 non-due payloads → D                               |
-| routd `maybeGC`                            | running turns filtered by start time; activity already time-keyed  | hourly                         | N + expired activity → expired rows                          |
-| routd `flushProgress`                      | memory pending updates; exact turn/status reads                    | loop tick, publish ≥5 s        | pending updates → due updates                                |
-| routd `ScheduleLoop`                       | all active tasks, parses deadlines; fills missing schedules        | startup + 60 s                 | N → D                                                        |
-| routd approval wait                        | exact pending-action id                                            | 2 s                            | 1 → verdict notification / deadline                          |
-| onbod pending check                        | whole onboarding partition; alias reads per awaiting sender        | 10 s                           | N + awaiting senders → state work                            |
-| onbod gate admission                       | gates plus onboarding filtered twice per gate                      | about 60 s                     | gates × N → due gate queue                                   |
-| chanlib retention: gitd, slakd, discd      | all retained inbound; deadline filter, oldest-first limit 50       | 15 s                           | N + payload bytes → D pointers + ≤50 payloads                |
-| chanlib adapter health                     | whole retained inbound for `pending_inbound`                       | chanreg 30 s + requests        | N → 1 count                                                  |
-| runed spawn retention                      | whole spawns filtered on creation time                             | hourly                         | N → expired rows                                             |
-| runed VM sweep                             | host runtime records; no store poll                                | startup                        | filesystem only                                              |
-| googd file polling                         | whole bound-file resource, local deadline check                    | default 30 s, minimum 10 s     | N → due files                                                |
-| proxyd snapshots                           | whole route tables on requests; no ticker                          | each request                   | N → version point read, changed snapshot only                |
-| dashd                                      | request-driven dashboard/HTMX reads                                | browser refresh                | filtered partitions → requested key ranges                   |
-| webd SSE                                   | ping only; messages arrive through hub publication                 | 15 s                           | 0 → 0 store reads                                            |
-| CLI `send` / `pollRound`                   | bot replies by chat/time range or exact turn snapshot              | 1 s                            | bounded keys → notification where available                  |
-| whapd retained inbound                     | reads and sorts every retained JSON file                           | 30 s                           | N files → scheduled retained files                           |
-| adapter marks                              | exact mark lookup on expiry; startup recovery only                 | per-mark deadline              | 1 → 1                                                        |
-| adapter registration / health, API retries | platform or HTTP calls; health counting listed above               | configured heartbeat / backoff | no other store discovery                                     |
-| emaid                                      | IMAP polling fallback / IDLE renewal                               | 30 s / 28 min                  | 0 store reads on empty polls                                 |
-| teled / discd / slakd                      | platform reconnect, readiness, typing refresh                      | platform deadlines             | 0 store discovery reads                                      |
+| Component / entry                   | State and former discovery                         | Frequency                       | Before → after                                                         |
+| ----------------------------------- | -------------------------------------------------- | ------------------------------- | ---------------------------------------------------------------------- |
+| routd `maybeRecoverTurns`           | running/retry rows; filtered live partition        | 30 s                            | N → due control + returned-run pointers; idle 0 rows                   |
+| routd `turnControl.tick`            | retry state/deadline; filtered live partition      | 30 s                            | N → D pointers + primaries                                             |
+| routd input ordering                | chats and live turns filtered by folder/cursor     | each dispatch                   | N chats + A turns → preceding spans + folder/chat live keys            |
+| routd breaker                       | exact singleton; refused chats in memory           | 30 s                            | 1 each pass → singleton only with due control work                     |
+| routd `recoverStatuses`             | owed flag; filtered live partition                 | 30 s                            | N → owed pointers + primaries                                          |
+| routd `maybeRetryOutbound`          | pending by creation time; backoff after hydration  | 30 s, limit 200                 | ≤200 non-due payloads → ≤200 D pointers + payloads                     |
+| routd `maybeGC`                     | running age; activity already time-keyed           | hourly                          | N + expired activity → expired keys                                    |
+| routd `flushProgress`               | memory updates then exact turn/status reads        | loop tick; publish ≥5 s         | all pending updates → only publish-due updates                         |
+| routd `ScheduleLoop`                | active partition; parse/fill deadlines             | startup + 60 s                  | N → D; startup firing keys only                                        |
+| routd approvals                     | exact held pending-action id per waiter            | 2 s                             | waiter count → coalesced verdict work; held rows 0                     |
+| onbod pending check                 | onboarding partition + sender aliases              | 10 s                            | N + awaiting senders → due prompt/notice and pairing work              |
+| onbod gate admission                | gates × two onboarding filters                     | formerly ~60 s; now 10 s        | gates × N → D gate work + queue candidates; Q per admission batch      |
+| chanlib retention: gitd/slakd/discd | retained partition; deadline filter then oldest 50 | 15 s                            | N payloads → D pointers + ≤50 payloads                                 |
+| chanlib/gitd health                 | retained partition for backlog count               | registration 30 s + requests    | N → 1 exact counter                                                    |
+| runed spawn retention               | partition filtered by creation time                | hourly                          | N → expired keys                                                       |
+| runed VM recovery                   | runtime records on filesystem                      | startup                         | filesystem only; unchanged                                             |
+| googd file polling                  | all bindings; local deadline filter                | default 30 s, minimum 10 s      | N → 1 owner marker + D; N on owner-version changes                     |
+| proxyd route/web snapshots          | full route partitions per request                  | request-driven                  | N → 1 owner marker per snapshot; N on changes                          |
+| dashd tasks/routes/tokens           | full task/route/token partitions                   | browser refresh, generally 10 s | N → snapshot markers; tokens by JID; N on changes                      |
+| wildcard ACL policy                 | full ACL partition filtered in Go                  | auth on refresh/request         | N → readiness marker + wildcard pointers/primaries                     |
+| webd SSE                            | hub notifications and heartbeat                    | ping 15 s                       | 0 → 0 timer store reads; replay by turn/chat keys                      |
+| CLI token `send --wait`             | exact turn snapshot and frames                     | 1 s                             | 3,600 requests/hour → one replaying SSE stream                         |
+| CLI operator-direct `send`          | replies by chat/time                               | 1 s                             | keyed reply range retained; stream contract open                       |
+| whapd retained inbound              | reads/sorts every JSON file                        | formerly 30 s                   | N files → startup load once; writer/retry timer drains due generations |
+| adapter marks                       | exact mark at expiry                               | per-mark deadline               | 1 → 1; startup restore once                                            |
+| adapter health/API retries          | platform/HTTP, count listed above                  | heartbeat/backoff               | no other store discovery                                               |
+| emaid                               | IMAP fallback/IDLE renewal                         | 30 s / 28 min                   | 0 empty-poll store reads                                               |
+| teled/discd/slakd                   | reconnect/readiness/typing                         | platform deadlines              | 0 store discovery reads                                                |
 
 For a backlog of 17,816 held messages, the 15-second retention sweep plus
 30-second registry health probe selects 6,413,760 rows per hour per adapter.
@@ -73,6 +77,24 @@ Sources: `routd/loop.go`, `routd/turn_control.go`, `routd/turn_status.go`,
 `routd/schedule.go`, `store/tasks.go`, `store/message_delivery.go`,
 `onbod/main.go`, `chanlib/chanstore/inbound_pending.go`, `runed/runstore/spawns.go`,
 `googd/main.go`, `proxyd/main.go`, `webd/hub.go`, `webd/turn.go`.
+
+## Removed recurring scans
+
+- `DueTasks`: active-task partition and deadline filtering.
+- `RunningTurns` during runtime recovery, `DeferredTurns`, `OwedTurnStatuses`,
+  turn expiry and `TurnsSince`: live/archive partition filtering.
+- `oldestModelInput`: all chats and all live turns before folder selection.
+- `PendingOutbound`: creation-time candidates whose retry deadline is not due.
+- Message ID, status, frame, bot-reply and chat-turn selection: chat-partition
+  filters now use their dedicated access keys.
+- `pollOnboarding`: onboarding, pairing-edge and per-gate partition scans.
+- `DueForRedelivery` and `HeldCount`: retained payload discovery/counting.
+- `DropSpawnsBefore`, `ExpireOrphans`, live spawn/folder capacity reads:
+  spawn-history filtering.
+- `googd.sweep`: whole bound-file discovery on unchanged configuration.
+- Proxyd route/web and dashd task/route snapshots on unchanged owner versions;
+  dashboard token matching and `ACLWildcardRows` full partitions.
+- WhatsApp retained-file directory rediscovery and CLI `pollRound` snapshots.
 
 ## Module map
 
@@ -101,6 +123,34 @@ Sources: `routd/loop.go`, `routd/turn_control.go`, `routd/turn_status.go`,
   job: index active file deadlines and migrate channel work once
   names: [Open, Due]
   never: adds an objstore method
+- path: googd/poll.go (changed)
+  job: consume due file generations and save cursor, result and next deadline together
+  names: [sweep, save, pollFile]
+  never: commits a result against a newer binding generation
+- path: whapd/src/retain.ts (changed)
+  job: schedule retained file delivery from writes and acknowledged generations
+  names: [InboundLedger, retain, start]
+  never: removes a newer retained generation on old completion
+- path: whapd/src/main.ts (changed)
+  job: start and stop the durable inbound ledger consumer
+  names: [InboundLedger]
+  never: discovers retained files on a periodic directory walk
+- path: dashd/route_tokens.go (changed)
+  job: cache verified task views and select tokens through JID keys
+  names: [tasksViaRoutd, listRouteTokens]
+  never: caches an authorization verdict
+- path: dashd/authz.go (changed)
+  job: resolve chat folders through a verified route snapshot
+  names: [jidFolder]
+  never: reuses routes after an unreadable owner marker
+- path: cmd/arizuko/send.go (changed)
+  job: follow token turns through one replaying event stream
+  names: [cmdSend, streamRound]
+  never: applies the POST body deadline to a healthy event stream
+- path: store/served.go (changed)
+  job: establish ACL index readiness only in fresh test-owned namespaces
+  names: [TestOwner]
+  never: migrates a foreign production owner's tables
 - path: store/state_index.go (new)
   job: declare access keys for state transitions and migrate existing rows once
   names:
@@ -153,7 +203,7 @@ Sources: `routd/loop.go`, `routd/turn_control.go`, `routd/turn_status.go`,
   names: [ExportMessagesJSONL, ImportMessagesJSONL]
   never: restores an expiring credential without its expiry
 - path: routd/db.go (changed)
-  job: migrate task pointers before serving requests
+  job: migrate owner access paths before serving requests
   names: [Open, Obj]
   never: runs a migration on a periodic timer
 - path: resreg/entity.go (changed)
@@ -235,21 +285,8 @@ bytes, including legacy timestamp widths; pointer derivation uses the full
 next state without rewriting that full state. Replace/import uses the same handle.
 Batch packing includes derived writes; no atomic transaction is split.
 
-Current `store/tasks.go`, `DueTasks`:
-
-```go
-items, err := s.Obj().Query(ctx, objstore.Query{
-    Entity: ScheduledTasks, Partition: OwnerRoutd,
-    Where: []objstore.Cmp{{Attr: attrTaskStatus, Op: objstore.Eq, Value: core.TaskActive}},
-})
-```
-
-Proposed:
-
-```go
-items, err := objstore.IndexItems(ctx, s.Obj(), "tasks/due",
-    objstore.KeyPredicate{Op: objstore.LtKey, Value: core.TS(now) + "\x7f"}, 0)
-```
+`store.DueTasks` selects the `tasks/due` key range through
+`objstore.IndexItems`. The primary remains the schedule authority.
 
 Active schedules enter a due-time index. Claim moves them to `firing` and
 removes that due key. Reschedule writes the next due key or a terminal state.
@@ -404,7 +441,8 @@ these fields. Restores preserve pending work without copying index revisions.
 
 Measured by `TestOnboardingReadsOnlyDueWork`: forty unrelated rows plus one
 greeting read two items; the acknowledged pass reads zero. An idle daemon tick
-reads no onboarding rows. Quota reads exclude historical days. Tests cover
+reads no onboarding rows. Each admission batch recounts today's approved keys;
+quota reads exclude historical days. Tests cover
 pairing before onboarding, reprompt, FIFO admission, midnight, gate replacement,
 quota release, owner-version races and archive restoration. Eleven disabled
 guards fail their tests; stale-notice, archive-loss and delivery-metadata races
@@ -543,6 +581,8 @@ tests preserve wildcard deny behavior. Nine mutations cover selection,
 principal parsing, pointer production, migration validation and its marker,
 read errors, rename maintenance, upgrade readiness and its error cause.
 
+## Delivery and CLI cleanup
+
 Onbod queues deliveries through its existing routd store handle. It has no
 outbound HTTP client or service-token exchange. `AUTHD_URL` remains required
 for inbound token verification.
@@ -573,6 +613,8 @@ its current contract ends on quiet time rather than a turn completion event.
 - Run retention currently deletes every state after seven days. Should active
   spawns be exempt? This change preserves the existing all-state contract.
 
+## Preserved contracts
+
 1. Proxyd route/ACL freshness is a request contract. Keep immediate revocation
    and use existing version markers; do not introduce a time-based cache.
 2. Retention orders due rows by `first_seen_at`. Keep that order by sorting
@@ -582,9 +624,11 @@ its current contract ends on quiet time rather than a turn completion event.
 
 ## Contract
 
-Baseline: detached `ba80338b4`; no live-instance actions are authorized.
+Baseline: detached `ba80338b4b372c61374e3534f5f326d069baf96b`; no live-instance actions are authorized.
 Counting stores measure key-selected rows, including rows hidden by filters.
-Every changed consumer must read O(D) work rows and exact primary keys.
+Work consumers read O(D) work rows and exact primary keys. Each admission batch reads only today's approved rows for its gate. Configuration snapshots check exact version keys;
+current ACL reads select all wildcard-principal grants before matching. These costs are separate
+from due work and remain explicit in the inventory.
 Tests cover entry, reschedule, acknowledgement, deletion, competing writes,
 restart migration and a second migration run that reads only its marker.
 Each guard is disabled in a mutation run and must make its test fail.

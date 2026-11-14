@@ -40,9 +40,9 @@ A healthy adapter does not prove routd accepted messages.
 
 `StoreReach["googd"]` opens `routd` and `googd`.
 `routd.gdrive_files` binds file IDs to target folders; routd owns management through `/v1/gdrive_files`.
-`googd.file_poll` holds each file's cursor, name, status, and last poll time, partitioned by channel name.
+`googd.file_poll` holds each file's cursor, name, status, last poll time, next deadline and backoff, partitioned by channel name.
 The cursor advances only after routd accepts the fetched comments and the store saves the status.
-A save failure restores the in-memory cursor. googd owns no persistent local files.
+A save failure leaves the persisted cursor and schedule unchanged. googd owns no persistent local files.
 
 | Entity            | Contents                                                                 |
 | ----------------- | ------------------------------------------------------------------------ |

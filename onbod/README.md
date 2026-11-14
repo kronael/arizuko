@@ -176,7 +176,8 @@ those identity edges after its authority check. onbod mints the pairing link
 and observes the result; it is
 not in the redemption path.
 
-**Greeting cadence.** A row is greeted when `prompted_at IS NULL`. The re-arm
+**Greeting cadence.** A due prompt starts one delivery generation. `prompted_at`
+records that start; pending delivery remains durable until acknowledged or expired. The re-arm
 lives in `store.InsertOnboarding`, which routd calls once per route MISS: a
 chat that messages again after `store.PairingTTL` gets a fresh link, while a
 since-routed or silent chat is never greeted again. The dashboard reprompt
@@ -187,8 +188,8 @@ resets the row (verdict included) so the observer can advance it.
 
 `onboarding`, `invites`, `invite_redemptions`, `onboarding_gates`, hot
 `onboarding_work`, derived `state_index`, and its own `audit_log`.
-onbod OWNS these and runs no migration chain: all four are objstore entities
-and the driver builds them from the declarations in `store/entities.go`.
+onbod owns these entities. The driver prepares their declarations in
+`store/entities.go`; marked startup migrations backfill existing work keys once.
 `store.OwnerDriver` is the door (`onbod/db.go` `openOwned`): it dials onbod's
 own table prefix on the instance's store server, and onbod is the only daemon
 that makes those tables.
@@ -233,7 +234,7 @@ The complete resource and operator-action paths appear below under Resource map 
 | `ONBOARDING_ENABLED`                       | unset             | Literal `0` exits immediately; other values do not disable this binary.                                           |
 | `ONBOARDING_GREETING`                      | empty             | Text prepended to the setup link.                                                                                 |
 | `ONBOD_LISTEN_ADDR`                        | `:8080`           | HTTP listener; LISTEN_ADDR is not read.                                                                           |
-| `ONBOARD_POLL_INTERVAL`                    | `10s`             | Go duration for greeting and pairing scans. Configure a positive duration.                                        |
+| `ONBOARD_POLL_INTERVAL`                    | `10s`             | Go duration for due greeting, pairing, gate and notice checks. Use a positive duration.                           |
 | `AUTHD_URL`                                | required          | JWKS endpoint for inbound token verification.                                                                     |
 | `AUTH_BASE_URL`                            | unset             | Public auth origin used to build links.                                                                           |
 | `AUTH_SECRET`                              | unset             | Shared state configuration loaded with the instance.                                                              |

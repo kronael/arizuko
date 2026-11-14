@@ -13,6 +13,28 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+> arizuko — work follows state changes
+>
+> Writers schedule the next step, so idle checks stop reading unrelated history.
+>
+> • Delivery and admission — retries, pairing and queued greetings keep durable deadlines and acknowledgements.
+> • Store load — due keys replace task, turn, adapter and spawn scans; unchanged dashboards and proxy routes reuse verified snapshots.
+> • Recovery — migrations preserve existing rows, and guards keep concurrent transitions from losing work.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Changed
+
+- L834–L853: task, turn, delivery, onboarding, adapter and spawn writers maintain
+  their work keys atomically. Startup backfills existing rows once behind retained
+  migration markers. Due checks read due work; backlog health reads one counter.
+- Proxy and dashboard snapshots verify owner versions on every use. Missing,
+  held or unreadable markers fail closed. Authorization reads current indexed
+  wildcard policy after its backfill completes.
+- L854–L855: onboarding uses its durable delivery queue without an unused HTTP
+  credential. Token `send --wait` shares the replaying SSE stream with `--stream`;
+  a long turn no longer expires at the POST client's thirty-second deadline.
+
 ### Fixed
 
 - L833: one slow attachment download lost the file. routd gave it the TTS

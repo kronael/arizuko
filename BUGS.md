@@ -13,15 +13,6 @@
 > work items are their own entries. A record has nothing to fix and never will,
 > so counting one as open overstates the queue.
 
-## L856 — router read-failure fixtures reject the indexed store (2026-11-14)
-
-`dropEntity` asserts `DB.Obj()` is `*dynstore.Store`, but the production handle
-now always wraps that driver in `*objstore.Indexed`. The ACL read-failure tests
-stop before they remove a table, so they cannot verify the error response.
-**Fix:** drop the entity through the fixture's private raw driver.
-**Test:** run the existing two ACL failure tests and every caller of dropEntity;
-restoring the direct assertion must fail before the policy check.
-
 
 ## What needs you
 
@@ -716,10 +707,11 @@ pre-breaker state.
   `TestMigrateTurnArchiveMovesFinishedRowsOnce` (no marker; moves skipped);
   `routd/typing_owner_test.go::TestTypingJIDsForRunCoversASteeredTurnInAnotherChat`
   (run chats read from `turn_context`).
-- **Left:** `TurnsSince` (`GET /v1/routing/answering`, dashd) filters the
-  whole archive on `started_at`: a turn id carries no time, so one key cannot
-  serve both by-id and by-time reads. A crash between a turn's finish and its
-  status acknowledgement leaves it live, `done`, owing nothing.
+- **Follow-up:** `d40d0364a33ed25351040d464f8a8145113562ab` adds start-time
+  history keys and indexes live recovery, retry, status and expiry work.
+  Runtime passes no longer read the whole live partition. Finished rows with
+  no remaining run or status obligation move to the archive atomically.
+
 
 
 ## ✅ FIXED 2026-11-11 efeb37294 L818 — package sources resolve against the shared host checkout (`catalog:`) instead of being fetched (2026-11-11)

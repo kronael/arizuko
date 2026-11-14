@@ -170,7 +170,7 @@ proxyd never caches the decision, because a cached answer is a revocation that d
 
 routd owns `acl`, and the standing rule is that another daemon reaches the rows of an owner over the HTTP face of the owner. proxyd uses the hot-path exception. **It holds a reader on the tables of the owner and reads them on the per-request hot path.** `store.OpenOwner(store.OwnerRoutd, …)` opens the endpoint that `DYNAMODB_URL` names. proxyd declares none of the tables that it reads.
 
-proxyd reads three things per request: `proxyd_routes`, `web_routes` under `/pub/*`, and `acl` through `auth.UserScopes` in `groupsForSub` for every ES256-authenticated caller. webd resolves route tokens, so that row has one reader. The alternative to the `acl` read is to trust the `Scope` snapshot in the JWT from login time. A revoked grant would then keep working until the next token refresh of the caller, up to 15 minutes (`accessTTL` in `authd/main.go`). Reading `acl` per request makes a revocation take effect on the next request. `proxyd/hotpath_read_test.go` pins both halves.
+proxyd verifies settled owner versions per request and reloads `proxyd_routes` and `/pub/*` web-rule snapshots only after a version change. It reads current `acl` through `auth.UserScopes` in `groupsForSub` for every ES256-authenticated caller. webd resolves route tokens, so that row has one reader. The alternative to the `acl` read is to trust the `Scope` snapshot in the JWT from login time. A revoked grant would then keep working until the next token refresh of the caller, up to 15 minutes (`accessTTL` in `authd/main.go`). Reading `acl` per request makes a revocation take effect on the next request. `proxyd/hotpath_read_test.go` pins both halves.
 
 The exception does not mean that a daemon with a reader may read anything. dashd holds a reader too, and its audit page reads over HTTP, because that page is not on a per-request path.
 
@@ -293,14 +293,14 @@ There is no MCP/IPC socket or durable request queue. webd forwards operator MCP 
 
 Backends come from rows, including `dashd`, `webd`, `onbod`, `authd`, `runed`, `davd`, and installed adapters.
 The code opens routd's store directly; it does not ask routd over HTTP for every request.
-Store setup failure exits at boot. A runtime route read failure logs `proxyd: read proxyd_routes` and supplies an empty snapshot.
-A web-rule read failure logs `proxyd: read web_routes` and supplies no rules; this is not a cached policy snapshot.
+Store setup or initial route-read failure exits at boot. A runtime route or web-rule read failure returns 503.
+A missing or held owner marker also fails closed. The next request verifies the marker again; cached snapshots never bypass a failed check.
 Check those logs before interpreting an unexpected redirect or public-file response.
 An unreachable proxy backend normally returns 502. There is no application replay or request-retention queue.
 An authd outage can prevent refresh or a new transit token even while locally verified access tokens remain valid.
 
 The public redirect probe runs on demand, caches its result for 30 s, and has a 2 s HEAD timeout.
-No background route-reload loop runs: the next request reads current rows.
+No background route-reload loop runs: the next request verifies the current owner version.
 Signal shutdown allows 5 s. `/health` does not probe the store, authd, or backends.
 Grep `proxyd starting`, `proxyd: read proxyd_routes`, `proxyd: read web_routes`,
 `untrusted edge proxy`, `dav blocked`, and `AUTHD_URL/AUTHD_SERVICE_KEY unset`.

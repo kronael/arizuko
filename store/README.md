@@ -110,7 +110,7 @@ the table.
 
 `Store.Obj` returns the object-store handle. Production uses dynstore without a local pool; `Close` performs the opener's cleanup when supplied.
 
-Task and turn writes maintain `state_index` pointers in the same guarded batch.
+State-changing writes maintain `state_index` pointers in the same guarded batch.
 The `tasks/due` partition orders work by UTC due time; `tasks/firing` contains
 claimed work for startup recovery. `outbound/due` selects persisted delivery
 deadlines; a failed attempt writes its next deadline in the same batch as its
@@ -118,6 +118,8 @@ attempt count or dead-letter transition. Turns have separate live, returned-run,
 retry-time, status-intent, expiry and history keys. The source row retains its identity and
 wire fields. `_index_revision` guards pointer changes against concurrent writes.
 `objstore.Indexed` implements this protocol over the two storage methods.
+Approval and breaker transitions also write generation-guarded `routd_work`
+obligations. Their consumers acknowledge or postpone only the observed generation.
 Manifest replacement uses the same writer. Migrations commit a completion
 marker only after all existing rows have their pointers.
 

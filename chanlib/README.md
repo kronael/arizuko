@@ -228,7 +228,7 @@ and leave the key in flight.
 ## Storage
 
 chanlib holds NO SQL and no `CREATE TABLE`. Its storage is `chanlib/chanstore`,
-which is `objstore`'s two primitives over four entities.
+which uses `objstore`'s two primitives over adapter-owned entities and derived indexes.
 
 `OpenAdapterStore(service)` is the door and it reaches the same server every
 other owner does, under the adapter's own table prefix. The prefix is the
@@ -240,12 +240,13 @@ already scoped to the account that made them.
 That one storage layer serves every adapter, which is why a statement here
 would put itself in all of them at once.
 
-| entity            | coordinate                          | why                                                                                                      |
-| ----------------- | ----------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `outbound_dedup`  | the idempotency key, as both halves | every read is a point read and the ledger never drains, so a constant partition would grow without bound |
-| `inbound_pending` | one constant, then the message id   | the sweep and the health count both ask about the WHOLE queue, and the queue drains                      |
-| `file_urls`       | the attachment id, as both halves   | every read is a point read by the id in a `/files/<id>` path                                             |
-| `ack_marks`       | one constant, then the chat JID     | the boot sweep reads the WHOLE set, and a mark is deleted when its turn ends, so the set drains          |
+| entity            | coordinate                           | why                                                                                                      |
+| ----------------- | ------------------------------------ | -------------------------------------------------------------------------------------------------------- |
+| `outbound_dedup`  | the idempotency key, as both halves  | every read is a point read and the ledger never drains, so a constant partition would grow without bound |
+| `inbound_pending` | one constant, then the message id    | stable message identity; due pointers select retries and one atomic counter serves health                |
+| `file_urls`       | the attachment id, as both halves    | every read is a point read by the id in a `/files/<id>` path                                             |
+| `ack_marks`       | one constant, then the chat JID      | startup restores marks; per-mark deadlines read exact keys                                               |
+| `state_index`     | access path, then due time or marker | retry pointers, exact health count and migration markers                                                 |
 
 The message id is the sort key because id-uniqueness is the guarantee: a Put
 under `ItemAbsent` is what keeps a platform's re-delivery of the same event from
