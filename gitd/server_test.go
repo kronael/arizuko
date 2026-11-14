@@ -223,15 +223,15 @@ func TestWebhook_RetainedWhenRoutdDown(t *testing.T) {
 	}
 }
 
-func TestWebhook_PermanentRefusalNotRetained(t *testing.T) {
+func TestWebhook_PermanentRefusalRetainsStoppedInput(t *testing.T) {
 	e := newTestEnv(t, secretMap{"org/kronael": "s3cret"})
 	e.routd.status = 400
 	w := e.deliver(t, "/github/org/kronael", "s3cret", "push", "d-refused", fixture(t, "push"))
 	if w.Code != 400 || !strings.Contains(w.Body.String(), "routd refused") {
 		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
 	}
-	if n, _ := chanlib.PendingInboundCount(t.Context(), e.srv.chanStore); n != 0 {
-		t.Fatalf("pending inbound = %d, want 0", n)
+	if n, _ := chanlib.PendingInboundCount(t.Context(), e.srv.chanStore); n != 1 {
+		t.Fatalf("pending inbound = %d, want 1", n)
 	}
 }
 
@@ -258,14 +258,31 @@ func dropGitdEntities() {
 // 202 that claims retention (BUGS L415).
 func TestWebhook_LostWhenRoutdAndRetentionBothFail(t *testing.T) {
 	e := newTestEnv(t, secretMap{"org/kronael": "s3cret"})
-	e.up.Close()
-	dropGitdEntities()
+	e.routd.statusFor = func(chanlib.InboundMsg) int { dropGitdEntities(); return 503 }
 	w := e.deliver(t, "/github/org/kronael", "s3cret", "push", "d-lost", fixture(t, "push"))
 	if w.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status=%d body=%s, want 503", w.Code, w.Body.String())
 	}
 	if strings.Contains(w.Body.String(), `"retained":true`) {
 		t.Fatalf("body claims retention for a message nothing holds: %s", w.Body.String())
+	}
+}
+
+func TestWebhook_RetentionUnavailableBeforeDelivery(t *testing.T) {
+	e := newTestEnv(t, secretMap{"org/kronael": "s3cret"})
+	dropGitdEntities()
+	w := e.deliver(t, "/github/org/kronael", "s3cret", "push", "d-unavailable", fixture(t, "push"))
+	if w.Code != http.StatusServiceUnavailable || len(e.routd.messages()) != 0 {
+		t.Fatalf("status=%d messages=%v", w.Code, e.routd.messages())
+	}
+}
+
+func TestWebhook_PermanentRefusalAndRetentionFailureIsLost(t *testing.T) {
+	e := newTestEnv(t, secretMap{"org/kronael": "s3cret"})
+	e.routd.statusFor = func(chanlib.InboundMsg) int { dropGitdEntities(); return 400 }
+	w := e.deliver(t, "/github/org/kronael", "s3cret", "push", "d-lost-400", fixture(t, "push"))
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
 	}
 }
 

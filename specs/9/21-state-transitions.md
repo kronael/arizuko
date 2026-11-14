@@ -781,16 +781,23 @@ Its first failed fetch commits the deadline and due pointer atomically.
     - 'Retain(ctx, id, payload, firstSeenAt, decision, notice) error'
     - 'Reschedule(ctx, observed, decision, notice) error'
     - 'Drop(ctx, observed) error'
+    - 'ReadInboundFailure(ctx, id) (*retry.Error, error)'
+    - 'parseInboundDecision(item) (retry.Decision, error)'
     - DueForRedelivery
     - HeldCount
   never: loads payloads outside the selected due batch
 - path: chanlib/inbound.go (changed)
   job: record each failed delivery and gate failed discovery with Decision
-  names: [retainInbound, sweepInbound, 'SweepInboundOnce(ctx) error']
+  names: [sweepInbound, 'SweepInboundOnce(ctx) error', ErrInboundUnavailable]
   never: retries stopped payloads or hides storage failures
 - path: chanlib/inbound_test.go (changed)
   job: prove permanent retention, failure limits and visible persistence errors
-  names: [TestRefusedInboundRemainsHeldWithoutRedelivery, TestSweep]
+  names:
+    [
+      TestRefusedInboundRemainsHeldWithoutRedelivery,
+      TestRetainedInboundDuplicateDoesNotPost,
+      TestSweep,
+    ]
   never: changes the real postInbound boundary
 - path: chanlib/chanstore/chanstore_test.go and chanlib/chanstore/inbound_index_test.go (changed)
   job: prove observed completion, migration restart and due selection
@@ -814,7 +821,8 @@ Its first failed fetch commits the deadline and due pointer atomically.
   never: replays an unknown or partial create
 - path: chanlib/chanlib.go and chanreg/httpchan.go (changed)
   job: carry bounded HTTP failure reasons and Retry-After through the adapter boundary
-  names: [StatusError, ResponseError, Post, postInbound, adapterErr]
+  names:
+    [StatusError, ResponseError, Post, SendMessage, postInbound, adapterErr]
   never: repeats a transport attempt except changed legacy credential repair
 - path: runed/runstore/state_index.go (new)
   job: declare spawn expiry and live pointers with a marked backfill
@@ -962,8 +970,19 @@ only that set by `first_seen_at` and ID, and loads at most 50 payloads.
 Transient failure moves the due pointer. Permanent or exhausted failure retains
 the payload and count with `retry_state=failed` and removes its due pointer.
 Acceptance removes the primary and pointer and decrements the count exactly once.
-Completion guards the observed revision and failure count. Duplicate retention
-does not reset a stopped episode. Malformed payloads stop without an HTTP request.
+Completion guards the observed revision and failure count. A stale completion
+does nothing and returns no storage error; the winning row owns the next action.
+Duplicate retention does not reset a stopped episode. Malformed payloads stop
+without an HTTP request.
+
+Before a direct send, a retention-enabled client reads the exact message key.
+A held row returns its stored failure and notice without another POST, even when
+due; the sweep owns replay. Pending state carries an explicit transient class
+and stored retry time; stopped state carries a permanent class. Lookup or metadata
+failure returns `ErrInboundUnavailable`, since custody is unconfirmed. GitHub
+returns 503 for that condition before classifying a held failure. A missing row
+permits the first direct attempt. Concurrent first admissions can both read absence;
+the router's stable message ID prevents duplicate ingestion.
 
 The stored `attempts` is the failed-attempt count. One renderer writes the count,
 `retry_state`, canonical notice and pending deadline. Due reads validate the count,
@@ -1277,6 +1296,9 @@ its current contract ends on quiet time rather than a turn completion event.
 - Retained ingress stops after ten failures and keeps its payload without a due
   pointer. Should its existing operator surface expose exact-ID replay? Keep
   the payload and failed health state; duplicate ingress must not reset it.
+- Should Slack acknowledgement wait for confirmed durable acceptance? A failed
+  retention lookup blocks HTTP delivery to preserve stored retry limits. Events
+  already acknowledged by the platform have no confirmed custody in that case.
 - The unified policy removes `MAX_TURN_RETRY` and `MAX_OUTBOUND_RETRY`.
   Existing environment files remain readable, but those values no longer select
   behavior. Should the CLI report obsolete retry settings during generation?

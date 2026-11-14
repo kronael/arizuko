@@ -2,12 +2,16 @@ package chanstore
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/objstore"
+	"github.com/kronael/arizuko/retry"
 )
 
 const (
@@ -16,6 +20,7 @@ const (
 	attrFirstSeenAt   = "first_seen_at"
 	attrNextAttemptAt = "next_attempt_at"
 	attrLastError     = "last_error"
+	attrRetryState    = "retry_state"
 )
 
 const pendingPartition = "inbound"
@@ -24,27 +29,83 @@ type Held struct {
 	ID       string
 	Payload  string
 	Attempts int
+	Revision string
+}
+
+func retryAttrs(d retry.Decision, notice string) (map[string]string, []string) {
+	attrs := map[string]string{attrAttempts: strconv.Itoa(d.Failures), attrLastError: notice, attrRetryState: "failed"}
+	if d.Stop {
+		return attrs, []string{attrNextAttemptAt}
+	}
+	attrs[attrRetryState] = "pending"
+	attrs[attrNextAttemptAt] = core.TS(d.NextAt)
+	return attrs, nil
+}
+
+func heldCond(h Held) objstore.Cond {
+	revision := objstore.Cmp{Attr: objstore.IndexRevision, Op: objstore.Eq, Value: h.Revision}
+	if h.Revision == "" {
+		revision.Op = objstore.Absent
+	}
+	return objstore.Cond{Item: objstore.ItemPresent, Where: []objstore.Cmp{revision, {Attr: attrAttempts, Op: objstore.Eq, Value: strconv.Itoa(h.Attempts)}}}
 }
 
 func pendingKey(id string) objstore.Key {
 	return objstore.Key{Partition: pendingPartition, Sort: id}
 }
 
-func (s *Store) Retain(ctx context.Context, id, payload, firstSeenAt, nextAttemptAt,
-	lastError string) error {
+func parseInboundDecision(it objstore.Item) (retry.Decision, error) {
+	attempts, err := strconv.Atoi(it.Attrs[attrAttempts])
+	if err != nil || attempts < 0 {
+		return retry.Decision{}, fmt.Errorf("invalid inbound %s attempts %q", it.Key.Sort, it.Attrs[attrAttempts])
+	}
+	if it.Attrs[attrLastError] == "" {
+		return retry.Decision{}, fmt.Errorf("invalid inbound %s notice", it.Key.Sort)
+	}
+	d := retry.Decision{Failures: attempts}
+	switch it.Attrs[attrRetryState] {
+	case "failed":
+		if _, ok := it.Attrs[attrNextAttemptAt]; ok {
+			return d, fmt.Errorf("failed inbound %s has deadline", it.Key.Sort)
+		}
+		d.Stop = true
+	case "pending":
+		d.NextAt, err = time.Parse(time.RFC3339Nano, it.Attrs[attrNextAttemptAt])
+		if err != nil {
+			return d, fmt.Errorf("invalid inbound %s deadline: %w", it.Key.Sort, err)
+		}
+	default:
+		return d, fmt.Errorf("invalid inbound %s state %q", it.Key.Sort, it.Attrs[attrRetryState])
+	}
+	return d, nil
+}
+
+func (s *Store) ReadInboundFailure(ctx context.Context, id string) (*retry.Error, error) {
+	it, ok, err := s.point(ctx, InboundPending, pendingKey(id), attrAttempts, attrRetryState, attrNextAttemptAt, attrLastError)
+	if err != nil || !ok {
+		return nil, err
+	}
+	d, err := parseInboundDecision(it)
+	if err != nil {
+		return nil, err
+	}
+	failure := retry.Failure{Kind: "transient", RetryAt: d.NextAt}
+	if d.Stop {
+		failure.Kind = "permanent"
+	}
+	return &retry.Error{Failure: failure, Err: errors.New(it.Attrs[attrLastError])}, nil
+}
+
+func (s *Store) Retain(ctx context.Context, id, payload, firstSeenAt string, decision retry.Decision, notice string) error {
 	if err := s.ensureHeldCount(ctx); err != nil {
 		return err
 	}
+	attrs, _ := retryAttrs(decision, notice)
+	attrs[attrPayload], attrs[attrFirstSeenAt] = payload, firstSeenAt
 	_, _, err := objstore.Increment(ctx, s.s, objstore.IndexEntity, heldCountKey, "count", 1, nil, []objstore.Write{{
 		Op: objstore.Put, Entity: InboundPending, Key: pendingKey(id),
-		Attrs: map[string]string{
-			attrPayload:       payload,
-			attrAttempts:      "0",
-			attrFirstSeenAt:   firstSeenAt,
-			attrNextAttemptAt: nextAttemptAt,
-			attrLastError:     lastError,
-		},
-		Cond: objstore.Cond{Item: objstore.ItemAbsent},
+		Attrs: attrs,
+		Cond:  objstore.Cond{Item: objstore.ItemAbsent},
 	}})
 	if err != nil {
 		return fmt.Errorf("retain inbound %s: %w", id, err)
@@ -53,6 +114,10 @@ func (s *Store) Retain(ctx context.Context, id, payload, firstSeenAt, nextAttemp
 }
 
 func (s *Store) DueForRedelivery(ctx context.Context, now string, limit int) ([]Held, error) {
+	at, err := time.Parse(time.RFC3339Nano, now)
+	if err != nil {
+		return nil, err
+	}
 	refs, err := s.s.Query(ctx, objstore.Query{Entity: objstore.IndexEntity, Partition: "inbound/due",
 		Key: objstore.KeyPredicate{Op: objstore.LtKey, Value: now + "\x7f"}})
 	if err != nil {
@@ -68,54 +133,45 @@ func (s *Store) DueForRedelivery(ctx context.Context, now string, limit int) ([]
 	if limit > 0 && len(refs) > limit {
 		refs = refs[:limit]
 	}
-	items := make([]objstore.Item, 0, len(refs))
+	due := make([]Held, 0, len(refs))
 	for _, ref := range refs {
 		it, ok, err := s.point(ctx, InboundPending, pendingKey(ref.Attrs["source_sort"]))
 		if err != nil {
 			return nil, err
 		}
-		if ok && it.Attrs[attrNextAttemptAt] <= now {
-			items = append(items, it)
+		if !ok {
+			continue
 		}
-	}
-	due := make([]Held, 0, len(items))
-	for _, it := range items {
-		attempts, err := strconv.Atoi(it.Attrs[attrAttempts])
+		decision, err := parseInboundDecision(it)
 		if err != nil {
-			return nil, fmt.Errorf("read the due inbound: %s carries attempts %q: %w",
-				it.Key.Sort, it.Attrs[attrAttempts], err)
+			return nil, err
 		}
-		due = append(due, Held{ID: it.Key.Sort, Payload: it.Attrs[attrPayload], Attempts: attempts})
+		if !decision.IsDue(at) {
+			continue
+		}
+		due = append(due, Held{ID: it.Key.Sort, Payload: it.Attrs[attrPayload], Attempts: decision.Failures, Revision: it.Attrs[objstore.IndexRevision]})
 	}
 	return due, nil
 }
 
-func (s *Store) Reschedule(ctx context.Context, id string, attempts int,
-	nextAttemptAt, lastError string) error {
-	committed, err := s.s.GuardedBatch(ctx, nil, []objstore.Write{{
-		Op: objstore.Update, Entity: InboundPending, Key: pendingKey(id),
-		Attrs: map[string]string{
-			attrAttempts:      strconv.Itoa(attempts),
-			attrNextAttemptAt: nextAttemptAt,
-			attrLastError:     lastError,
-		},
+func (s *Store) Reschedule(ctx context.Context, observed Held, decision retry.Decision, notice string) error {
+	attrs, remove := retryAttrs(decision, notice)
+	_, err := s.s.GuardedBatch(ctx, nil, []objstore.Write{{
+		Op: objstore.Update, Entity: InboundPending, Key: pendingKey(observed.ID),
+		Attrs: attrs, Remove: remove, Cond: heldCond(observed),
 	}})
 	if err != nil {
-		return fmt.Errorf("back off inbound %s: %w", id, err)
-	}
-	if !committed {
-		return fmt.Errorf("back off inbound %s: the sweep read it and it is no longer there, "+
-			"so something outside the sweep is writing this queue", id)
+		return fmt.Errorf("back off inbound %s: %w", observed.ID, err)
 	}
 	return nil
 }
 
-func (s *Store) Drop(ctx context.Context, id string) error {
+func (s *Store) Drop(ctx context.Context, observed Held) error {
 	if err := s.ensureHeldCount(ctx); err != nil {
 		return err
 	}
 	_, _, err := objstore.Increment(ctx, s.s, objstore.IndexEntity, heldCountKey, "count", -1, nil, []objstore.Write{{
-		Op: objstore.Delete, Entity: InboundPending, Key: pendingKey(id), Cond: objstore.Cond{Item: objstore.ItemPresent},
+		Op: objstore.Delete, Entity: InboundPending, Key: pendingKey(observed.ID), Cond: heldCond(observed),
 	}})
 	return err
 }

@@ -11,6 +11,7 @@ import (
 
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/chanlib/chanstore"
+	"github.com/kronael/arizuko/retry"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -128,10 +129,10 @@ func (s *server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	lost, retained := false, false
 	for _, message := range messages {
 		sendErr := s.rc.SendMessage(message)
-		if sendErr != nil && !chanlib.PermanentIngress(sendErr) {
-			if errors.Is(sendErr, chanlib.ErrInboundLost) {
+		if sendErr != nil {
+			if errors.Is(sendErr, chanlib.ErrInboundLost) || errors.Is(sendErr, chanlib.ErrInboundUnavailable) {
 				lost = true
-			} else {
+			} else if !retry.Next(0, retry.FromError(sendErr, s.now()), s.now(), time.Time{}).Stop {
 				retained = true
 			}
 		}
@@ -139,12 +140,9 @@ func (s *server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 	switch {
 	case lost:
-		// GitHub never redelivers on its own and this response IS its
-		// acknowledgement, so a 202 here retires the only copy of the message.
-		// A 5xx leaves the redeliver button in GitHub's UI meaningful.
-		slog.Error("github webhook neither delivered nor retained",
+		slog.Error("github webhook inbound custody unconfirmed",
 			"source", key, "id", msg.ID, "chat_jid", msg.ChatJID, "err", err)
-		chanlib.WriteErr(w, http.StatusServiceUnavailable, "neither routd nor retention took the message: "+err.Error())
+		chanlib.WriteErr(w, http.StatusServiceUnavailable, "inbound delivery unavailable: "+err.Error())
 	case retained:
 		s.bot.markDelivery(key, s.now())
 		w.Header().Set("Content-Type", "application/json")

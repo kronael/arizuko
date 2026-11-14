@@ -178,14 +178,17 @@ User and conversation caches and the sent-message filter are process-local.
 | `OTEL_EXPORTER_OTLP_ENDPOINT`                | unset       | Optional OTLP log export.                        |
 
 The Go entry point requires authd URL and key. Initial registration, store open, or `auth.test` failure exits.
-Registration repeats every 3 minutes. Router calls time out after 60 s and inbound tries twice with a 500 ms wait.
-Failed inbound messages enter a 15 s sweep, up to 50 rows, with 30 s exponential backoff capped at 15 minutes.
-Permanent routd refusals (400, 403, 413, 422) drop the retained row with an error log.
+Registration repeats every 3 minutes. Router calls time out after 60 s and make one transport attempt.
+Changed legacy credentials permit one authentication repair.
+Retained inbound uses a 15 s sweep with at most 50 due payloads.
+The [shared retry policy](../specs/9/21-state-transitions.md#one-retry-policy)
+sets classification, count, deadline and notice. Stopped payloads remain held
+without a due pointer and stay in the health backlog count.
 If both routd and retention fail after Slack receives its acknowledgement, the event can be lost.
 Keyed text and file sends claim before posting; ambiguous results retain the claim and a repeat returns 409.
 A store failure refuses a keyed send before posting. `/health` can remain connected during that outage.
 The watchdog prunes sent-message entries older than 10 minutes. Graceful HTTP shutdown allows 10 s.
-Grep `slack auth.test failed`, `channel heartbeat failed`, `inbound retain failed`, and `ack mark: record failed`.
+Grep `slack auth.test failed`, `channel heartbeat failed`, `Automatic retries stopped`, and `ack mark: record failed`.
 
 Sources: [entry point](main.go), [Slack API and watchdog](bot.go), [webhooks](server.go),
 [shared retention](../chanlib/inbound.go), [store reach](../store/owner_reach.go).

@@ -154,6 +154,7 @@ func importWrites(snap Snapshot) ([]objstore.Write, Counts, error) {
 		attrs := map[string]string{
 			attrPayload:       h.Payload,
 			attrAttempts:      strconv.Itoa(h.Attempts),
+			attrRetryState:    "pending",
 			attrFirstSeenAt:   h.FirstSeenAt,
 			attrNextAttemptAt: h.NextAttemptAt,
 		}

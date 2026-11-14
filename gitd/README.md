@@ -316,17 +316,19 @@ The following shared variables also reach gitd:
 ## Retention and recovery
 
 Initial router registration or store setup failure exits. Heartbeat registration runs every 3 minutes.
-Each router call has a 60 s timeout. Inbound makes two immediate attempts with a 500 ms wait.
+Each router call has a 60 s timeout and makes one transport attempt.
+Changed legacy credentials permit one authentication repair.
 The retention sweep runs every 15 s with a 50-row batch.
-The first retained retry waits 30 s; repeated failures double the wait to 15 minutes.
-400, 403, 413, and 422 refuse permanently; network faults, 401, 429, and 5xx retain the row.
+The [shared retry policy](../specs/9/21-state-transitions.md#one-retry-policy)
+sets classification, count, deadline and notice. Stopped payloads remain held
+without a due pointer and stay in the health backlog count.
 The acknowledgement mark has a 10 minute backstop and a startup cleanup sweep.
 API calls use a 15 s client timeout. Graceful HTTP shutdown allows 10 s.
 
 A store outage can stop source lookup before retention can run ([BUGS L816](../BUGS.md)).
 GitHub does not automatically retry these failed deliveries; use Recent deliveries to redeliver after recovery.
 `/health` does not prove store availability or permission to post a reply.
-Grep `retained inbound still undelivered`, `inbound retain failed`, `routd store open failed`, and `github identity still unanswered`.
+Grep `Automatic retries stopped`, `inbound custody unconfirmed`, `routd store open failed`, and `github identity still unanswered`.
 The GitHub 5xx non-delivery classification remains a design concern ([BUGS L434](../BUGS.md)).
 A connector using another identity can reintroduce own comments ([BUGS L420](../BUGS.md)).
 
@@ -339,8 +341,10 @@ GitHub's "Recent deliveries" tab shows gitd's answer: `200 {"ok":true,"id",
 "jid","verb"}` delivered, `202 {"retained":true}` routd was down and the row
 waits in gitd's own tables for re-delivery, `200 {"dropped":"bot"|"self"}` ignored,
 `401` bad signature, `404` unknown source, `400` payload outside the source or
-refused by routd, `503` neither routd nor retention took the message —
-GitHub's redeliver button is then the recovery path. `GET /dash/gitd/` — mounted by `chanlib.NewAdapterMux` from
+refused by routd, `503` delivery or retention is unconfirmed —
+GitHub's redeliver button is then the recovery path. A routd refusal retains the
+stopped payload; duplicate webhook delivery does not reset its retry count.
+`GET /dash/gitd/` — mounted by `chanlib.NewAdapterMux` from
 the one renderer in `chanlib/dash.go` — lists the last accepted
 delivery per source.
 

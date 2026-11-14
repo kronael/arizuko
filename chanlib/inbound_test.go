@@ -7,12 +7,170 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
+	"syscall"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/kronael/arizuko/chanlib/chanstore"
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/objstore"
+	"github.com/kronael/arizuko/objstore/dynstore/dyntest"
+	"github.com/kronael/arizuko/retry"
 )
+
+type failingInboundStore struct {
+	objstore.Store
+	fail bool
+}
+
+var errInboundWrite = errors.New("inbound write failed")
+
+type failingInboundQuery struct {
+	objstore.Store
+	calls atomic.Int32
+}
+
+func (s *failingInboundQuery) Query(context.Context, objstore.Query) ([]objstore.Item, error) {
+	s.calls.Add(1)
+	return nil, syscall.ECONNRESET
+}
+
+func TestSweepConsumerBackoffAndStop(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		store := &failingInboundQuery{}
+		rc := NewRouterClient("http://unused")
+		ctx, cancel := context.WithCancel(t.Context())
+		rc.RetainInbound(ctx, chanstore.New(store))
+		synctest.Wait()
+		time.Sleep(15 * time.Second)
+		synctest.Wait()
+		if n := store.calls.Load(); n != 1 {
+			t.Fatalf("first tick calls=%d", n)
+		}
+		time.Sleep(15 * time.Second)
+		synctest.Wait()
+		if n := store.calls.Load(); n != 1 {
+			t.Fatalf("backoff calls=%d", n)
+		}
+		time.Sleep(15 * time.Second)
+		synctest.Wait()
+		if n := store.calls.Load(); n != 2 {
+			t.Fatalf("due calls=%d", n)
+		}
+		time.Sleep(24 * time.Hour)
+		synctest.Wait()
+		if n := store.calls.Load(); n != 10 {
+			t.Fatalf("stopped calls=%d", n)
+		}
+		cancel()
+	})
+}
+
+func (s *failingInboundStore) GuardedBatch(ctx context.Context, checks []objstore.Check, writes []objstore.Write) (bool, error) {
+	if s.fail {
+		return false, errInboundWrite
+	}
+	return s.Store.GuardedBatch(ctx, checks, writes)
+}
+
+func TestSweepPropagatesTransitionErrors(t *testing.T) {
+	for _, status := range []int{http.StatusOK, http.StatusServiceUnavailable} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			raw := dyntest.Store(t)
+			for _, entity := range chanstore.Entities {
+				if err := raw.CreateEntity(t.Context(), entity); err != nil {
+					t.Fatal(err)
+				}
+			}
+			failing := &failingInboundStore{Store: raw}
+			st := chanstore.New(failing)
+			msg := InboundMsg{ID: "x", ChatJID: "slack:c/1"}
+			payload, err := json.Marshal(msg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			now := time.Now()
+			if err := st.Retain(t.Context(), msg.ID, string(payload), core.TS(now), retry.Decision{Failures: 1, NextAt: now.Add(-time.Hour)}, "retry"); err != nil {
+				t.Fatal(err)
+			}
+			_, srv := newRoutdStub(status)
+			defer srv.Close()
+			rc := NewRouterClient(srv.URL)
+			rc.pending = st
+			failing.fail = true
+			if err := rc.SweepInboundOnce(t.Context()); !errors.Is(err, errInboundWrite) {
+				t.Fatalf("sweep err=%v", err)
+			}
+		})
+	}
+}
+
+func TestInboundMalformedMetadataDoesNotPost(t *testing.T) {
+	raw := dyntest.Store(t)
+	for _, entity := range chanstore.Entities {
+		if err := raw.CreateEntity(t.Context(), entity); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, err := raw.GuardedBatch(t.Context(), nil, []objstore.Write{{Op: objstore.Put, Entity: chanstore.InboundPending, Key: objstore.Key{Partition: "inbound", Sort: "x"}, Attrs: map[string]string{"attempts": "bad", "retry_state": "failed", "last_error": "stopped"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stub, srv := newRoutdStub(http.StatusOK)
+	defer srv.Close()
+	rc := NewRouterClient(srv.URL)
+	rc.pending = chanstore.New(raw)
+	err = rc.SendMessage(InboundMsg{ID: "x", ChatJID: "slack:c/1"})
+	if !errors.Is(err, ErrInboundUnavailable) || len(stub.ids()) != 0 {
+		t.Fatalf("err=%v posts=%v", err, stub.ids())
+	}
+}
+
+func TestSweepStopsFailedPayloads(t *testing.T) {
+	for _, tc := range []struct {
+		name, payload   string
+		failures, posts int
+	}{
+		{"exhausted", `{"id":"x","chat_jid":"slack:c/1"}`, 9, 1},
+		{"malformed", `{`, 1, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			raw := dyntest.Store(t)
+			for _, entity := range chanstore.Entities {
+				if err := raw.CreateEntity(t.Context(), entity); err != nil {
+					t.Fatal(err)
+				}
+			}
+			st := chanstore.New(raw)
+			now := time.Now()
+			if err := st.Retain(t.Context(), "x", tc.payload, core.TS(now),
+				retry.Decision{Failures: tc.failures, NextAt: now.Add(-time.Minute)}, "retry"); err != nil {
+				t.Fatal(err)
+			}
+			stub, srv := newRoutdStub(http.StatusServiceUnavailable)
+			defer srv.Close()
+			rc := NewRouterClient(srv.URL)
+			rc.pending = st
+			for range 2 {
+				if err := rc.SweepInboundOnce(t.Context()); err != nil {
+					t.Fatal(err)
+				}
+			}
+			failure, err := st.ReadInboundFailure(t.Context(), "x")
+			if err != nil || failure == nil || failure.Failure.Kind != "permanent" || len(stub.ids()) != tc.posts {
+				t.Fatalf("failure=%v err=%v posts=%v", failure, err, stub.ids())
+			}
+			rows, err := raw.Query(t.Context(), objstore.Query{Entity: chanstore.InboundPending, Partition: "inbound"})
+			if err != nil || len(rows) != 1 || rows[0].Attrs["payload"] != tc.payload {
+				t.Fatalf("retained payload=%v err=%v", rows, err)
+			}
+			if count, err := st.HeldCount(t.Context()); err != nil || count != 1 {
+				t.Fatalf("held count=%d err=%v", count, err)
+			}
+		})
+	}
+}
 
 // routdStub answers /v1/messages with whatever status the test dials in, and
 // records every id it received.
@@ -74,7 +232,7 @@ func TestRetainedInboundIsDeliveredAfterRoutdRecovers(t *testing.T) {
 	defer srv.Close()
 	st := testStore(t)
 	rc := NewRouterClient(srv.URL)
-	rc.RetainInbound(context.Background(), st)
+	rc.RetainInbound(t.Context(), st)
 
 	msg := InboundMsg{ID: "slack:c/1/17", ChatJID: "slack:c/1", Content: "hello"}
 	err := rc.SendMessage(msg)
@@ -111,12 +269,11 @@ func TestRetainedInboundIsDeliveredAfterRoutdRecovers(t *testing.T) {
 }
 
 func TestRefusedInboundRemainsHeldWithoutRedelivery(t *testing.T) {
-	t.Skip("L880: permanent ingress refusal discards the payload")
 	_, srv := newRoutdStub(400)
 	defer srv.Close()
 	st := testStore(t)
 	rc := NewRouterClient(srv.URL)
-	rc.RetainInbound(context.Background(), st)
+	rc.RetainInbound(t.Context(), st)
 
 	err := rc.SendMessage(InboundMsg{ID: "x", ChatJID: "slack:c/1", Content: "hi"})
 	if err == nil || errors.Is(err, ErrInboundLost) {
@@ -130,14 +287,41 @@ func TestRefusedInboundRemainsHeldWithoutRedelivery(t *testing.T) {
 	}
 }
 
-// A retained row whose payload routd later refuses is dropped by the sweep
-// instead of retried forever.
-func TestSweepDropsARowRoutdRefuses(t *testing.T) {
+func TestRetainedInboundDuplicateDoesNotPost(t *testing.T) {
+	for _, status := range []int{http.StatusBadRequest, http.StatusServiceUnavailable} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			stub, srv := newRoutdStub(status)
+			defer srv.Close()
+			st := testStore(t)
+			rc := NewRouterClient(srv.URL)
+			rc.RetainInbound(t.Context(), st)
+			msg := InboundMsg{ID: "duplicate", ChatJID: "slack:c/1", Content: "hi"}
+			first := rc.SendMessage(msg)
+			if status == http.StatusServiceUnavailable {
+				dueNow(t, st, msg.ID)
+			}
+			before := len(stub.ids())
+			second := rc.SendMessage(msg)
+			var failure *retry.Error
+			if !errors.As(second, &failure) {
+				t.Fatalf("duplicate error=%v, first=%v", second, first)
+			}
+			if (failure.Failure.Kind == "permanent") != (status == http.StatusBadRequest) {
+				t.Fatalf("duplicate failure=%+v", failure)
+			}
+			if got := len(stub.ids()); got != before {
+				t.Fatalf("duplicate posted: before=%d after=%d", before, got)
+			}
+		})
+	}
+}
+
+func TestSweepRetainsARowRoutdRefuses(t *testing.T) {
 	stub, srv := newRoutdStub(502)
 	defer srv.Close()
 	st := testStore(t)
 	rc := NewRouterClient(srv.URL)
-	rc.RetainInbound(context.Background(), st)
+	rc.RetainInbound(t.Context(), st)
 
 	_ = rc.SendMessage(InboundMsg{ID: "x", ChatJID: "slack:c/1", Content: "hi"})
 	if n := pendingRows(t, st); n != 1 {
@@ -146,8 +330,8 @@ func TestSweepDropsARowRoutdRefuses(t *testing.T) {
 	stub.status.Store(400)
 	dueNow(t, st, "x")
 	rc.SweepInboundOnce(context.Background())
-	if n := pendingRows(t, st); n != 0 {
-		t.Fatalf("retained inbound = %d, want 0 — a refused message must be dropped", n)
+	if n := pendingRows(t, st); n != 1 {
+		t.Fatalf("retained inbound = %d, want 1", n)
 	}
 }
 
@@ -157,7 +341,7 @@ func TestSweepBacksOffAStillFailingRow(t *testing.T) {
 	defer srv.Close()
 	st := testStore(t)
 	rc := NewRouterClient(srv.URL)
-	rc.RetainInbound(context.Background(), st)
+	rc.RetainInbound(t.Context(), st)
 
 	_ = rc.SendMessage(InboundMsg{ID: "x", ChatJID: "slack:c/1", Content: "hi"})
 	dueNow(t, st, "x")
@@ -167,8 +351,8 @@ func TestSweepBacksOffAStillFailingRow(t *testing.T) {
 	if !ok {
 		t.Fatal("the still-failing message was dropped instead of backed off")
 	}
-	if got.Attempts != 1 {
-		t.Fatalf("attempts = %d, want 1", got.Attempts)
+	if got.Attempts != 2 {
+		t.Fatalf("attempts = %d, want 2", got.Attempts)
 	}
 	// The backoff is checked through the sweep's own read: nothing is due 30s
 	// from now, which is what "backed off beyond the base wait" means to the
@@ -202,7 +386,7 @@ func TestRetainKeepsTheFirstRowsBackoff(t *testing.T) {
 	defer srv.Close()
 	st := testStore(t)
 	rc := NewRouterClient(srv.URL)
-	rc.RetainInbound(context.Background(), st)
+	rc.RetainInbound(t.Context(), st)
 
 	msg := InboundMsg{ID: "x", ChatJID: "slack:c/1", Content: "hi"}
 	_ = rc.SendMessage(msg)
@@ -214,59 +398,38 @@ func TestRetainKeepsTheFirstRowsBackoff(t *testing.T) {
 	if !ok {
 		t.Fatal("the redelivered message replaced the row instead of leaving it")
 	}
-	if got.Attempts != 1 {
-		t.Fatalf("attempts = %d after a platform redelivery, want the sweep's 1", got.Attempts)
+	if got.Attempts != 2 {
+		t.Fatalf("attempts = %d after a platform redelivery, want the sweep's 2", got.Attempts)
 	}
 	if n := pendingRows(t, st); n != 1 {
 		t.Fatalf("retained inbound = %d, want 1", n)
 	}
 }
 
-func TestPermanentIngressClassification(t *testing.T) {
-	for _, tc := range []struct {
-		code int
-		want bool
-	}{{400, true}, {403, true}, {413, true}, {422, true},
-		{401, false}, {429, false}, {500, false}, {502, false}, {503, false}} {
-		if got := PermanentIngress(&StatusError{Path: "/v1/messages", Code: tc.code}); got != tc.want {
-			t.Errorf("PermanentIngress(%d) = %v, want %v", tc.code, got, tc.want)
-		}
-	}
-	if PermanentIngress(errDial) {
-		t.Error("a transport error must not classify as permanent")
-	}
-}
-
-var errDial = &StatusError{Path: "/v1/messages", Code: 0}
-
-// dueNow makes one retained message due, so a test drives the sweep without
-// sleeping through the backoff. It resets the attempt count to zero along the
-// way, which every caller wants: each one forces a message the sweep has not
-// touched yet.
+// dueNow makes one retained message due without changing its failure count.
 func dueNow(t *testing.T, st *chanstore.Store, id string) {
 	t.Helper()
-	if err := st.Reschedule(t.Context(), id, 0, core.TS(time.Now().Add(-time.Hour)),
+	row, ok := held(t, st, id)
+	if !ok {
+		t.Fatalf("missing held inbound %s", id)
+	}
+	if err := st.Reschedule(t.Context(), row, retry.Decision{Failures: row.Attempts, NextAt: time.Now().Add(-time.Hour)},
 		"forced due by a test"); err != nil {
 		t.Fatalf("force due: %v", err)
 	}
 }
 
-// Neither routd nor the retention store took the message, which is ONE event:
-// both ride the same store. SendMessage must say so, because an adapter whose
-// HTTP response acknowledges the platform cannot otherwise tell this apart
-// from a retained message and answers success for a message nothing holds
-// (BUGS L415).
-func TestInboundNeitherDeliveredNorRetainedIsReportedLost(t *testing.T) {
-	_, srv := newRoutdStub(503)
+func TestInboundUnavailableDoesNotPost(t *testing.T) {
+	stub, srv := newRoutdStub(503)
 	defer srv.Close()
 	st := testStore(t)
 	rc := NewRouterClient(srv.URL)
-	rc.RetainInbound(context.Background(), st)
+	rc.RetainInbound(t.Context(), st)
 	// The store goes away under the adapter, the way extenddb does.
 	dropAdapterEntities("testadapter")
 
 	err := rc.SendMessage(InboundMsg{ID: "slack:c/1/18", ChatJID: "slack:c/1", Content: "hello"})
-	if !errors.Is(err, ErrInboundLost) {
-		t.Fatalf("SendMessage err = %v, want ErrInboundLost", err)
+	if !errors.Is(err, ErrInboundUnavailable) || len(stub.ids()) != 0 {
+		t.Fatalf("SendMessage err = %v, posts = %v", err, stub.ids())
 	}
 }

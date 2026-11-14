@@ -19,7 +19,9 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/chanlib/chanstore"
+	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/obs"
+	"github.com/kronael/arizuko/retry"
 )
 
 // maxRouterResponseBytes caps decoded router responses to guard against OOM.
@@ -249,21 +251,37 @@ func (r *RouterClient) Deregister() error {
 	return r.Post("/v1/channels/deregister", nil, r.getToken(), &resp)
 }
 
-// SendMessage delivers one inbound to routd. With RetainInbound wired, a
-// transient failure is ALSO retained for the sweep (spec 5/34-channel-protocol, BUGS L25). The
-// error still returns: an adapter that gates a platform cursor on delivery
-// must keep seeing the failure. When the retention write fails too — routd and
-// the adapter store ride the same store, so one outage fails both — nothing
-// holds the message and the error says ErrInboundLost, the fact an adapter
-// whose response acknowledges the platform has to answer with.
+// SendMessage delivers an inbound or retains its failure for the sweep.
+// ErrInboundUnavailable means custody is unknown; ErrInboundLost means retention failed.
 func (r *RouterClient) SendMessage(msg InboundMsg) error {
+	st := r.pendingStore()
+	if st != nil && msg.ID != "" {
+		failure, err := st.ReadInboundFailure(context.Background(), msg.ID)
+		if err != nil {
+			return fmt.Errorf("%w: %w", ErrInboundUnavailable, err)
+		}
+		if failure != nil {
+			return failure
+		}
+	}
 	err := r.postInbound(msg)
-	if err == nil {
-		return nil
+	if err == nil || st == nil {
+		return err
 	}
-	if !r.retainInbound(msg, err) {
-		return fmt.Errorf("%w: %w", ErrInboundLost, err)
+	if msg.ID == "" {
+		return fmt.Errorf("%w: inbound has no id: %w", ErrInboundLost, err)
 	}
+	payload, encodeErr := json.Marshal(msg)
+	if encodeErr != nil {
+		return fmt.Errorf("%w: %w", ErrInboundLost, encodeErr)
+	}
+	now := time.Now().UTC()
+	decision := retry.Next(0, retry.FromError(err, now), now, time.Time{})
+	notice := retry.Notice(err.Error(), decision)
+	if retainErr := st.Retain(context.Background(), msg.ID, string(payload), core.TS(now), decision, notice); retainErr != nil {
+		return fmt.Errorf("%w: %w: %w", ErrInboundLost, err, retainErr)
+	}
+	slog.Warn(notice, "id", msg.ID, "chat_jid", msg.ChatJID)
 	return err
 }
 

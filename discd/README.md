@@ -81,11 +81,12 @@ Defaults below come from the Go code. Container fragments set `LISTEN_ADDR=:8080
 ## Loops and failure diagnosis
 
 Inbound retention sweeps every 15 s, up to 50 due rows per sweep.
-The first retry waits 30 s; later failures double the wait to a 15 minute maximum.
-Responses 400, 403, 413, and 422 are permanent refusals and drop the row with an error log.
-Network faults, 401, 429, and 5xx retain the row.
+The [shared retry policy](../specs/9/21-state-transitions.md#one-retry-policy)
+sets failure classification, count, deadline and notice.
+Permanent or exhausted failures remain held without a due pointer.
+The health backlog count includes those stopped payloads.
 If the router and retention store both fail, no durable queue holds that event.
-Grep `inbound retained for re-delivery`, `retained inbound still undelivered`, and `inbound retain failed`.
+Grep `Retry scheduled`, `Automatic retries stopped`, and `inbound retention unavailable`.
 
 Discordgo manages gateway reconnection. A disconnected gateway makes `/health` return 503.
 Typing refreshes every 4 s and stops after 10 minutes.

@@ -22,6 +22,10 @@ Transient redelivery has no failure limit and uses a separate backoff.
 fails in 1.407s at `b6bb6c34460364fb763461b67dcbed28990b7626`:
 the actual HTTP refusal returns `inbound neither delivered nor retained`.
 Log: `tmp/retry-logs/ingress-parent-red.log`.
+**Additional measurement:** duplicate input with the same ID repeats the HTTP
+request after both 400 and 503, bypassing the retained failure state.
+The focused regression sees POST count 1 become 2 and fails in 3.662s.
+Log: `tmp/retry-logs/ingress-duplicate-red.log`.
 **Fix:** retain stopped payloads without a due pointer; use shared retry decisions
 and guarded observed completions. Normalize legacy counts with a marked migration.
 

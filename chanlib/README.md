@@ -72,10 +72,16 @@ cares about message order on a socket.
   (`chanreg/README.md` § Capabilities).
 
 Retaining an inbound message writes its due pointer and increments the backlog
-count atomically. Reschedule moves that pointer; acceptance or permanent
-refusal deletes it and decrements the count. The 15-second retry timer reads
+count atomically. Acceptance deletes the payload and decrements the count.
+The [shared retry policy](../specs/9/21-state-transitions.md#one-retry-policy)
+sets each failure's count, deadline and notice. A stopped payload stays held
+without a due pointer. The 15-second retry timer reads
 only due pointers, sorts them by first receipt and loads at most 50 payloads.
-`/health` reads the count by key. Adapter startup backfills these keys once.
+`/health` reads the held count by key, including stopped payloads.
+Adapter startup migrates retry state once. Duplicate ingress preserves the episode.
+Before a direct send, the adapter checks the exact retained key. A held message
+returns its stored failure; only the sweep can replay it. An unreadable retained
+state returns `ErrInboundUnavailable` without a delivery attempt.
 
 ### Failure facts and claims
 
@@ -133,9 +139,9 @@ the common unavailable notice once. Observed context gets one attempt.
 - `RouterClient.SetServiceToken(src)` — install service-token source (ES256 JWT from authd)
 - `RouterClient.RetainInbound(ctx, st)` — durable inbound for adapters that
   consume their platform event on arrival (slakd, discd, gitd). A failed
-  `SendMessage` is retained in the adapter's own store and a 15s sweep
-  re-delivers it; a routd REFUSAL (400/403/413/422) is dropped with an ERROR
-  line instead. Cursor-gated adapters (teled, emaid) must
+  `SendMessage` is retained in the adapter's own store. A 15s sweep
+  delivers due input; permanent or exhausted failures remain held without retries.
+  Cursor-gated adapters (teled, emaid) must
   NOT wire it — the platform is already their queue (BUGS `L25`).
 - `OpenAdapterStore(service) (AdapterStore, error)` — prepares chanlib's
   entities on the adapter's own table prefix on the instance's store server.

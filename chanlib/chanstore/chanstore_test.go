@@ -18,6 +18,7 @@ import (
 	"github.com/kronael/arizuko/chanlib/chanstore"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/objstore/dynstore/dyntest"
+	"github.com/kronael/arizuko/retry"
 )
 
 func TestMain(m *testing.M) { dyntest.Main(m) }
@@ -197,9 +198,24 @@ func TestRecordDeliveredRefusesAMissingClaim(t *testing.T) {
 func retain(t *testing.T, st *chanstore.Store, id string, seen time.Time) {
 	t.Helper()
 	if err := st.Retain(t.Context(), id, `{"id":"`+id+`"}`, ts(seen),
-		ts(seen.Add(-time.Hour)), "routd said 503"); err != nil {
+		retry.Decision{NextAt: seen.Add(-time.Hour)}, "routd said 503"); err != nil {
 		t.Fatalf("retain %s: %v", id, err)
 	}
+}
+
+func observed(t *testing.T, st *chanstore.Store, id string) chanstore.Held {
+	t.Helper()
+	rows, err := st.DueForRedelivery(t.Context(), ts(time.Now().Add(24*time.Hour)), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range rows {
+		if row.ID == id {
+			return row
+		}
+	}
+	t.Fatalf("missing inbound %s", id)
+	return chanstore.Held{}
 }
 
 // The sweep drains OLDEST FIRST and the limit bounds one pass, so a backlog
@@ -234,7 +250,7 @@ func TestDueForRedeliveryAnswersOldestFirstWithinTheLimit(t *testing.T) {
 func TestDueForRedeliveryExcludesWhatIsNotYetDue(t *testing.T) {
 	st := newStore(t)
 	if err := st.Retain(t.Context(), "later", `{}`, ts(time.Now()),
-		ts(time.Now().Add(time.Hour)), "routd said 503"); err != nil {
+		retry.Decision{NextAt: time.Now().Add(time.Hour)}, "routd said 503"); err != nil {
 		t.Fatal(err)
 	}
 	due, err := st.DueForRedelivery(t.Context(), ts(time.Now()), 0)
@@ -256,7 +272,7 @@ func TestRetainLeavesAMessageAlreadyHeld(t *testing.T) {
 	st := newStore(t)
 	base := time.Now().Add(-time.Hour)
 	retain(t, st, "x", base)
-	if err := st.Reschedule(t.Context(), "x", 4, ts(time.Now().Add(time.Hour)), "still down"); err != nil {
+	if err := st.Reschedule(t.Context(), observed(t, st, "x"), retry.Decision{Failures: 4, NextAt: time.Now().Add(time.Hour)}, "still down"); err != nil {
 		t.Fatal(err)
 	}
 	retain(t, st, "x", time.Now()) // the platform hands the same event over again
@@ -278,7 +294,7 @@ func TestRetainLeavesAMessageAlreadyHeld(t *testing.T) {
 func TestRescheduleMovesTheMessageOutOfTheDueSet(t *testing.T) {
 	st := newStore(t)
 	retain(t, st, "x", time.Now().Add(-time.Hour))
-	if err := st.Reschedule(t.Context(), "x", 1, ts(time.Now().Add(time.Hour)), "503"); err != nil {
+	if err := st.Reschedule(t.Context(), observed(t, st, "x"), retry.Decision{Failures: 1, NextAt: time.Now().Add(time.Hour)}, "503"); err != nil {
 		t.Fatal(err)
 	}
 	if due, err := st.DueForRedelivery(t.Context(), ts(time.Now()), 0); err != nil || len(due) != 0 {
@@ -290,29 +306,57 @@ func TestRescheduleMovesTheMessageOutOfTheDueSet(t *testing.T) {
 	}
 }
 
-// Rescheduling a message the sweep just read and nothing else deletes cannot
-// silently write nothing: an Update needs its item, and a refusal here means
-// something outside the sweep is writing the queue.
-func TestRescheduleRefusesAMessageThatIsGone(t *testing.T) {
+func TestRescheduleDoesNotRestoreAMessageThatIsGone(t *testing.T) {
 	st := newStore(t)
-	if err := st.Reschedule(t.Context(), "ghost", 1, ts(time.Now()), "503"); err == nil {
-		t.Fatal("rescheduling a message nothing holds must surface")
+	if err := st.Reschedule(t.Context(), chanstore.Held{ID: "ghost"}, retry.Decision{Failures: 1, NextAt: time.Now()}, "503"); err != nil {
+		t.Fatal(err)
+	}
+	if count, err := st.HeldCount(t.Context()); err != nil || count != 0 {
+		t.Fatalf("count=%d err=%v", count, err)
 	}
 }
 
-// Dropping is what the sweep does for a message routd took and for one routd
-// refused, and it runs on a message already gone when a pass overlaps.
 func TestDropStopsHoldingAndIsIdempotent(t *testing.T) {
 	st := newStore(t)
 	retain(t, st, "x", time.Now().Add(-time.Hour))
-	if err := st.Drop(t.Context(), "x"); err != nil {
+	row := observed(t, st, "x")
+	if err := st.Drop(t.Context(), row); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.Drop(t.Context(), "x"); err != nil {
+	if err := st.Drop(t.Context(), row); err != nil {
 		t.Fatalf("dropping a message already dropped must be a no-op: %v", err)
 	}
 	if n, err := st.HeldCount(t.Context()); err != nil || n != 0 {
 		t.Fatalf("HeldCount = %d, %v after the drop", n, err)
+	}
+}
+
+func TestStaleInboundTransitionsPreserveRow(t *testing.T) {
+	for _, field := range []string{"revision", "attempts"} {
+		t.Run(field, func(t *testing.T) {
+			st := newStore(t)
+			retain(t, st, "x", time.Now().Add(-time.Hour))
+			row := observed(t, st, "x")
+			stale := row
+			if field == "revision" {
+				stale.Revision = "wrong"
+			} else {
+				stale.Attempts++
+			}
+			if err := st.Reschedule(t.Context(), stale, retry.Decision{Stop: true, Failures: 9}, "stale"); err != nil {
+				t.Fatal(err)
+			}
+			if err := st.Drop(t.Context(), stale); err != nil {
+				t.Fatal(err)
+			}
+			got := observed(t, st, "x")
+			if got != row {
+				t.Fatalf("row changed: got=%+v want=%+v", got, row)
+			}
+			if count, err := st.HeldCount(t.Context()); err != nil || count != 1 {
+				t.Fatalf("count=%d err=%v", count, err)
+			}
+		})
 	}
 }
 
@@ -325,7 +369,7 @@ func TestHeldCountAgreesWithTheSweepsRead(t *testing.T) {
 	for i, id := range []string{"a", "b", "c"} {
 		retain(t, st, id, base.Add(time.Duration(i)*time.Minute))
 	}
-	if err := st.Drop(t.Context(), "b"); err != nil {
+	if err := st.Drop(t.Context(), observed(t, st, "b")); err != nil {
 		t.Fatal(err)
 	}
 	n, err := st.HeldCount(t.Context())
@@ -346,7 +390,7 @@ func TestHeldCountAgreesWithTheSweepsRead(t *testing.T) {
 // what turns that into a refusal at the write.
 func TestATimestampOfTheWrongWidthIsRefused(t *testing.T) {
 	st := newStore(t)
-	err := st.Retain(t.Context(), "x", `{}`, "2026-09-07T00:00:00Z", ts(time.Now()), "503")
+	err := st.Retain(t.Context(), "x", `{}`, "2026-09-07T00:00:00Z", retry.Decision{NextAt: time.Now()}, "503")
 	if err == nil {
 		t.Fatal("a first_seen_at that is not core.TS's width must be refused")
 	}
