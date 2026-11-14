@@ -215,10 +215,11 @@ func TestJavaScriptPolicy(t *testing.T) {
 	script := `
 import assert from 'node:assert/strict';
 import fixtures from './fixtures.json';
-import { httpFailure, next, notice } from './retry.mjs';
+import { httpFailure, providerFailure, next, notice } from './retry.mjs';
 for (const c of fixtures)
   assert.deepEqual(next(c.failures, { kind: c.kind, retryAt: c.retryAt }, c.now, c.deadline),
     { failures: c.wantFailures, nextAt: c.wantNextAt, stop: c.stop });
+for (const c of fixtures) if (c.reason !== undefined) assert.deepEqual(providerFailure(c.reason, c.resetAt, c.now), { kind: c.kind, retryAt: c.retryAt });
 for (const status of [408, 425, 429, 500, 599]) assert.equal(httpFailure(status, '', null, 1000000).kind, 'transient');
 for (const status of [400, 600]) assert.equal(httpFailure(status, '', null, 1000000).kind, 'permanent');
 assert.equal(httpFailure(0, '', new Error('validation'), 1000000).kind, 'permanent');
@@ -247,6 +248,8 @@ func TestPolicy(t *testing.T) {
 	var cases []struct {
 		Failures               int
 		Kind                   string
+		Reason                 *string
+		ResetAt                int64
 		Now, RetryAt, Deadline int64
 		WantFailures           int
 		WantNextAt             int64
@@ -262,6 +265,12 @@ func TestPolicy(t *testing.T) {
 		return time.UnixMilli(ms)
 	}
 	for _, c := range cases {
+		if c.Reason != nil {
+			got := ProviderFailure(*c.Reason, toTime(c.ResetAt), toTime(c.Now))
+			if got.Kind != c.Kind || !got.RetryAt.Equal(toTime(c.RetryAt)) {
+				t.Errorf("provider %+v: %+v", c, got)
+			}
+		}
 		got := Next(c.Failures, Failure{Kind: c.Kind, RetryAt: toTime(c.RetryAt)}, toTime(c.Now), toTime(c.Deadline))
 		if got.Failures != c.WantFailures || !got.NextAt.Equal(toTime(c.WantNextAt)) || got.Stop != c.Stop {
 			t.Errorf("%+v: got %+v", c, got)

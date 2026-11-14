@@ -176,7 +176,7 @@ func (s *Store) RecordControlledProviderFailure(ctx context.Context, tc TurnCont
 	if err != nil {
 		return false, err
 	}
-	if tc.AttemptID == "" || tc.ProviderFailureAttempt == tc.AttemptID || after == nil || after.Folder != tc.Folder || controlAfter == nil {
+	if (tc.ProviderFailureKind != "transient" && tc.ProviderFailureKind != "permanent") || tc.AttemptID == "" || tc.ProviderFailureAttempt == tc.AttemptID || after == nil || after.Folder != tc.Folder || controlAfter == nil {
 		return false, fmt.Errorf("record provider failure %s: invalid binding", tc.TurnID)
 	}
 	marker := objstore.Cmp{Attr: "provider_failure_attempt", Op: objstore.Eq, Value: tc.ProviderFailureAttempt}
@@ -189,7 +189,7 @@ func (s *Store) RecordControlledProviderFailure(ctx context.Context, tc TurnCont
 		pause.Op = objstore.Update
 		pause.Remove = missingAttrs(pause.Attrs, "next_attempt_at")
 	}
-	attrs := map[string]string{"provider_failure_attempt": tc.AttemptID, "status_owed": "waiting", "failure_cause": tc.FailureCause}
+	attrs := map[string]string{"provider_failure_attempt": tc.AttemptID, "provider_failure_kind": tc.ProviderFailureKind, "status_owed": "waiting", "failure_cause": tc.FailureCause}
 	var remove []string
 	if tc.NextAttemptAt.IsZero() {
 		remove = []string{"next_attempt_at"}

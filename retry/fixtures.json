@@ -88,5 +88,77 @@
     "wantFailures": 1,
     "wantNextAt": 0,
     "stop": true
+  },
+  {
+    "reason": "authentication",
+    "resetAt": 2000000,
+    "failures": 0,
+    "kind": "permanent",
+    "now": 1000000,
+    "retryAt": 0,
+    "deadline": 0,
+    "wantFailures": 1,
+    "wantNextAt": 0,
+    "stop": true
+  },
+  {
+    "reason": "outage",
+    "resetAt": 2000000,
+    "failures": 0,
+    "kind": "transient",
+    "now": 1000000,
+    "retryAt": 2000000,
+    "deadline": 0,
+    "wantFailures": 1,
+    "wantNextAt": 2000000,
+    "stop": false
+  },
+  {
+    "reason": "rate_limit",
+    "resetAt": 0,
+    "failures": 0,
+    "kind": "transient",
+    "now": 1000000,
+    "retryAt": 0,
+    "deadline": 0,
+    "wantFailures": 1,
+    "wantNextAt": 1030000,
+    "stop": false
+  },
+  {
+    "reason": "spend_limit",
+    "resetAt": 2000000,
+    "failures": 0,
+    "kind": "transient",
+    "now": 1000000,
+    "retryAt": 2000000,
+    "deadline": 0,
+    "wantFailures": 1,
+    "wantNextAt": 2000000,
+    "stop": false
+  },
+  {
+    "reason": "spend_limit",
+    "resetAt": 1000000,
+    "failures": 0,
+    "kind": "permanent",
+    "now": 1000000,
+    "retryAt": 0,
+    "deadline": 0,
+    "wantFailures": 1,
+    "wantNextAt": 0,
+    "stop": true
+  },
+  {
+    "reason": "unknown",
+    "resetAt": 2000000,
+    "failures": 0,
+    "kind": "permanent",
+    "now": 1000000,
+    "retryAt": 0,
+    "deadline": 0,
+    "wantFailures": 1,
+    "wantNextAt": 0,
+    "stop": true
   }
 ]

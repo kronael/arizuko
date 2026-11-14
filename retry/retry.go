@@ -27,6 +27,10 @@ var policy struct {
 	TransientStatuses    []int             `json:"transient_statuses"`
 	TransientStatusRange [2]int            `json:"transient_status_range"`
 	Notices              map[string]string `json:"notices"`
+	ProviderReasons      map[string]struct {
+		Kind                string `json:"kind"`
+		KindWithFutureReset string `json:"kind_with_future_reset"`
+	} `json:"provider_reasons"`
 }
 
 func init() {
@@ -42,6 +46,22 @@ func init() {
 type Failure struct {
 	Kind    string
 	RetryAt time.Time
+}
+
+func ProviderFailure(reason string, resetAt, now time.Time) Failure {
+	rule, ok := policy.ProviderReasons[reason]
+	if !ok {
+		return Failure{Kind: "permanent"}
+	}
+	kind := rule.Kind
+	if resetAt.After(now) && rule.KindWithFutureReset != "" {
+		kind = rule.KindWithFutureReset
+	}
+	failure := Failure{Kind: kind}
+	if kind == "transient" && resetAt.After(now) {
+		failure.RetryAt = resetAt
+	}
+	return failure
 }
 
 type Error struct {

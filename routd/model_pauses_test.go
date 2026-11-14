@@ -77,7 +77,7 @@ func (p *pauseProvider) Run(_ context.Context, req runedv1.RunRequest) (runedv1.
 	}
 	out := runedv1.RunOutcome{RunID: fmt.Sprintf("run-%d", n), Outcome: runedv1.OutcomeOK}
 	if reason != "" {
-		out.Outcome, out.Terminal = runedv1.OutcomeError, true
+		out.Outcome = runedv1.OutcomeError
 	}
 	return out, p.runErr
 }

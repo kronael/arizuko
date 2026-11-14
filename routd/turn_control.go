@@ -244,20 +244,28 @@ func (q *turnControl) complete(l *Loop, tc TurnContext, out runedv1.RunOutcome, 
 		return false, nil
 	}
 	replied := l.db.TurnHasBotReply(returnTarget(tc, tc.ChatJID), tc.TurnID)
-	decision := classifyTurn(out, runErr, result, replied)
-	if work.probe != nil && !out.Busy && !out.Steered && runErr == nil && out.Outcome == runedv1.OutcomeOK &&
+	provider := tc.AttemptID != "" && tc.ProviderFailureAttempt == tc.AttemptID
+	providerOut := out
+	if provider {
+		providerOut.Outcome = runedv1.OutcomeError
+	}
+	decision := classifyTurn(providerOut, runErr, result, replied)
+	if work.probe != nil && !out.Busy && !out.Steered && runErr == nil && providerOut.Outcome == runedv1.OutcomeOK &&
 		result.Status == "pending" && !replied {
 		decision = turnDecision{trip: true, cause: "Agent could not complete the request"}
 	}
-	if tc.ProviderFailureAttempt == tc.AttemptID && !out.Busy && !out.Steered &&
-		!errors.Is(runErr, context.Canceled) && !errors.Is(runErr, context.DeadlineExceeded) {
-		decision = turnDecision{trip: true, retry: !replied, cause: "Model unavailable"}
+	if provider && decision.trip && !errors.Is(runErr, context.DeadlineExceeded) {
+		decision.cause = "Model unavailable"
 	}
 	failure := retry.FromError(runErr, q.now())
-	if runErr == nil && out.Outcome == runedv1.OutcomeError && !out.Terminal || tc.ProviderFailureAttempt == tc.AttemptID {
-		failure.Kind = "transient"
+	if provider {
+		failure = retry.Failure{Kind: tc.ProviderFailureKind, RetryAt: tc.NextAttemptAt}
+	} else {
+		if runErr == nil && out.Outcome == runedv1.OutcomeError && !out.Terminal {
+			failure.Kind = "transient"
+		}
+		failure.RetryAt = maxTime(failure.RetryAt, tc.NextAttemptAt)
 	}
-	failure.RetryAt = maxTime(failure.RetryAt, tc.NextAttemptAt)
 	retryDecision := retry.Next(tc.RetryCount, failure, q.now(), time.Time{})
 	shouldRetry := decision.retry && tc.State == store.TurnRunning && !retryDecision.Stop
 	resetAt := tc.NextAttemptAt
@@ -337,13 +345,13 @@ func (q *turnControl) complete(l *Loop, tc TurnContext, out runedv1.RunOutcome, 
 
 func (q *turnControl) refuse(l *Loop, tc TurnContext, reason string, reset time.Time) (*store.ModelPause, error) {
 	ctx := context.Background()
-	switch reason {
-	case "spend_limit", "rate_limit", "authentication", "outage":
-	default:
-		return nil, fmt.Errorf("unknown provider failure %q", reason)
-	}
+	now := q.now()
+	failure := retry.ProviderFailure(reason, reset, now)
 	for {
-		current, ok := l.db.GetTurnContext(tc.TurnID)
+		current, ok, err := l.db.store().ReadTurnContext(ctx, tc.TurnID)
+		if err != nil {
+			return nil, err
+		}
 		if !ok || !l.db.GroupExists(tc.Folder) || current.AttemptID != tc.AttemptID || current.RunReturned ||
 			current.State != store.TurnRunning || current.ProviderFailureAttempt == tc.AttemptID {
 			return nil, fmt.Errorf("turn attempt is closed")
@@ -369,13 +377,14 @@ func (q *turnControl) refuse(l *Loop, tc TurnContext, reason string, reset time.
 		after := before
 		after.Episode = randHex(16)
 		current.FailureCause = "Model unavailable"
-		current.NextAttemptAt = reset
+		current.NextAttemptAt = failure.RetryAt
+		current.ProviderFailureKind = failure.Kind
 		if !exists || before.Phase == "closed" ||
 			(before.ProbeTurnID == tc.TurnID && before.ProbeAttemptID == tc.AttemptID) {
-			decision := retry.Next(current.RetryCount, retry.Failure{Kind: "transient", RetryAt: reset}, q.now(), time.Time{})
+			decision := retry.Next(current.RetryCount, failure, now, time.Time{})
 			nextProbe := decision.NextAt
 			if decision.Stop {
-				nextProbe = maxTime(reset, q.now().Add(time.Hour))
+				nextProbe = maxTime(failure.RetryAt, now.Add(time.Hour))
 			}
 			after.Phase, after.NextProbeAt = "open", nextProbe
 			after.ProbeTurnID, after.ProbeAttemptID = tc.TurnID, tc.AttemptID

@@ -39,6 +39,7 @@ func recordPause(s *Store, tc TurnContext, now time.Time) (*ModelPause, error) {
 	if exists {
 		prior = &before
 	}
+	tc.ProviderFailureKind = "transient"
 	_, err = s.RecordControlledProviderFailure(context.Background(), tc, nil, p, prior,
 		&TurnControlState{Phase: "open", Episode: tc.AttemptID, NextProbeAt: now.Add(time.Minute)})
 	return p, err

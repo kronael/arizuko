@@ -83,6 +83,7 @@ type TurnContext struct {
 	CapacityWakeCursor     string
 	AttemptID              string
 	InputLast              string
+	ProviderFailureKind    string `json:"-"`
 	ProviderFailureAttempt string
 	TurnID                 string
 	StartedAt              time.Time
@@ -137,6 +138,12 @@ func turnFrom(it objstore.Item) (TurnContext, error) {
 		RunID:                  it.Attrs[attrTurnRunID],
 		RunReturned:            it.Attrs[attrTurnRunReturned] == flagSet,
 		Addressed:              it.Attrs[attrTurnAddressed] == flagSet,
+	}
+	if kind, present := it.Attrs["provider_failure_kind"]; present {
+		if kind != "transient" && kind != "permanent" {
+			return TurnContext{}, fmt.Errorf("invalid provider failure kind %q", kind)
+		}
+		tc.ProviderFailureKind = kind
 	}
 	tc.StartedAt, _ = time.Parse(time.RFC3339Nano, it.Attrs[AttrTurnStartedAt])
 	tc.RetryCount, _ = strconv.Atoi(it.Attrs[attrTurnRetryCount])

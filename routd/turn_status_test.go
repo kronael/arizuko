@@ -442,6 +442,64 @@ func TestTurnStatusDuplicateResultKeepsSuccess(t *testing.T) {
 	}
 }
 
+func TestTurnStatusProviderMetadata(t *testing.T) {
+	for _, sample := range []struct {
+		name, kind string
+		legacy     bool
+	}{
+		{name: "legacy", legacy: true},
+		{name: "empty kind", kind: ""},
+		{name: "invalid kind", kind: "invalid"},
+	} {
+		t.Run(sample.name, func(t *testing.T) {
+			dl := &recDeliverer{}
+			db, _ := progressWithRow(t, dl)
+			loop := NewLoop(db, &recRunner{}, LoopConfig{Deliver: dl})
+			loop.StopQueue()
+			tc, ok := db.GetTurnContext("t1")
+			if !ok {
+				t.Fatal("missing turn")
+			}
+			tc.StatusOwed = "waiting"
+			due := time.Date(2026, 11, 14, 12, 30, 0, 0, time.UTC)
+			attrs := map[string]string{"status_owed": "waiting", "failure_cause": "Agent unavailable", "next_attempt_at": core.TS(due), "retry_count": "2"}
+			var remove []string
+			if sample.legacy {
+				remove = []string{"attempt_id", "provider_failure_attempt", "provider_failure_kind"}
+				tc.AttemptID = ""
+			} else {
+				attrs["provider_failure_kind"] = sample.kind
+			}
+			if err := db.store().WriteEntities(t.Context(), nil, objstore.Write{Op: objstore.Update, Entity: store.TurnContexts, Key: objstore.Key{Partition: store.OwnerRoutd, Sort: "t1"}, Attrs: attrs, Remove: remove}); err != nil {
+				t.Fatal(err)
+			}
+			if !sample.legacy {
+				if _, err := loop.q.refuse(loop, tc, "outage", time.Time{}); err == nil || !strings.Contains(err.Error(), "invalid provider failure kind") {
+					t.Fatalf("refusal error = %v", err)
+				}
+			}
+			err := loop.publishOwedStatus(tc)
+			if !sample.legacy {
+				if err == nil || !strings.Contains(err.Error(), "invalid provider failure kind") {
+					t.Fatalf("status error = %v", err)
+				}
+				if len(dl.edits) != 0 {
+					t.Fatalf("malformed turn published: %+v", dl.edits)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			row, ok := db.LastStatusRow(progressJID, "t1")
+			want := "Agent unavailable. Retry scheduled. Retry 2 at 12:30:00 UTC."
+			if !ok || row.StatusPhase != "waiting" || row.Content != want {
+				t.Fatalf("legacy status: %+v", row)
+			}
+		})
+	}
+}
+
 func TestTurnStatusRetiredIntentDoesNotRetry(t *testing.T) {
 	dl := &recDeliverer{}
 	db, _ := progressWithRow(t, dl)

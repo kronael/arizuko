@@ -94,7 +94,7 @@ in `schedule_test.go` cover firing and retry behavior.
   | `ok`                                               | advances the cursor and the observed cursor, ends the turn                              |
   | `silent`                                           | does the same and counts no output                                                      |
   | `ok` with no result and no bot row                 | tells the chat and never retries, because a clean run that delivered nothing is a fault |
-  | `submit_turn.provider_failure`                     | saves the input, opens the instance breaker and retries no earlier than the reset time  |
+  | `submit_turn.provider_failure`                     | records the failure and opens the instance breaker                                      |
   | `error`, no reply, not `terminal`                  | saves the input, opens the instance breaker, retries on the schedule below              |
   | `error` with a reply, retries spent, or `terminal` | edits the turn status to the final cause, advances                                      |
   | timeout                                            | edits the turn status to "Time limit reached", never retries                            |
@@ -117,18 +117,16 @@ in `schedule_test.go` cover firing and retry behavior.
 
 ## Provider refusals pause the instance
 
-`ProviderFailure` comes from an attempt-ending provider error. Its `reason`
-is `spend_limit`, `rate_limit`, `authentication` or `outage`. `reset_at` is
-optional. Exit 78, assistant text, tool errors and unknown errors alone do
-not count.
+`ProviderFailure` comes from an attempt-ending provider error. Authentication
+and unknown reasons are permanent. Outage and rate limit are transient. Spend
+limit is transient only when the report includes a future reset. A transient
+failure retains its future reset as the earliest retry time.
 
-One guarded batch saves the refused turn for retry no earlier than `reset_at`,
-records the reporting folder's `model_pauses` row (reason, attempts,
-evidence) and opens the instance breaker with that turn as its probe. Later
-callbacks from the refused attempt are closed. The status message says "Model
-unavailable" with the retry time. A probe that completes without a refusal
-closes the breaker and clears the episode's `model_pauses` rows. The guest
-report is untrusted; it is bound to the reporting turn's attempt.
+One guarded batch records the classification for the exact attempt, the folder's
+`model_pauses` row and the instance breaker. Later callbacks from that attempt
+are closed. Completion applies the stored classification and the normal turn
+eligibility gates. A successful probe closes the breaker and clears the episode's
+pause rows. The guest report is bound to the reporting turn's attempt.
 
 Operators list or clear the folder rows through one audited REST/MCP resource:
 `GET /v1/model_pauses` returns each folder's row with its queued input count

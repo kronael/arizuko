@@ -208,6 +208,7 @@ func TestControlledProviderFailureGuards(t *testing.T) {
 		t.Fatalf("open: %v %v", ok, err)
 	}
 	tc, _ := s.TurnContextOf("provider")
+	tc.ProviderFailureKind = "transient"
 	tc.NextAttemptAt = now.Add(4 * time.Hour)
 	before := TurnControlState{Phase: "closed", Episode: "one"}
 	if ok, err := s.WriteTurnControl(ctx, nil, before); err != nil || !ok {
@@ -254,7 +255,7 @@ func TestControlledProviderFailureGuards(t *testing.T) {
 	current, _ = s.TurnContextOf(tc.TurnID)
 	p, err = s.ReadModelPause(ctx, tc.Folder)
 	control, exists, controlErr := s.ReadTurnControl(ctx)
-	if err != nil || p == nil || p.Reason != "outage" || current.State != TurnRunning || current.ProviderFailureAttempt != tc.AttemptID || !current.NextAttemptAt.Equal(tc.NextAttemptAt) || controlErr != nil || !exists || control.Episode != after.Episode {
+	if err != nil || p == nil || p.Reason != "outage" || current.State != TurnRunning || current.ProviderFailureAttempt != tc.AttemptID || current.ProviderFailureKind != "transient" || !current.NextAttemptAt.Equal(tc.NextAttemptAt) || controlErr != nil || !exists || control.Episode != after.Episode {
 		t.Fatalf("refusal: %+v %+v %+v %v %v", current, p, control, err, controlErr)
 	}
 	if ok, err := s.RecordControlledProviderFailure(ctx, tc, &pause, &pause, &after, &after); err != nil || ok {

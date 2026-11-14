@@ -11,6 +11,14 @@ export function next(failures, failure, now, deadline = 0) {
   return { failures, nextAt, stop: false }
 }
 
+export function providerFailure(reason, resetAt, now) {
+  const rule = Object.hasOwn(policy.provider_reasons, reason) ? policy.provider_reasons[reason] : undefined
+  if (!rule) return { kind: 'permanent', retryAt: 0 }
+  const future = Number.isFinite(resetAt) && resetAt > now
+  const kind = future && rule.kind_with_future_reset ? rule.kind_with_future_reset : rule.kind
+  return { kind, retryAt: kind === 'transient' && future ? resetAt : 0 }
+}
+
 export function httpFailure(status, retryAfter, error, now) {
   let timeout = false
   let transport = false

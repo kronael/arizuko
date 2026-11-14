@@ -33,7 +33,6 @@ func modelPauseDue(t *testing.T, l *Loop) {
 }
 
 func TestTurnControlProviderFailureFacts(t *testing.T) {
-	t.Skip("L878: provider markers force permanent authentication failures to retry")
 	db, l, p, _ := pauseFixture(t)
 	now := time.Date(2026, 11, 14, 12, 0, 0, 0, time.UTC)
 	l.q.now = func() time.Time { return now }
@@ -54,7 +53,7 @@ func TestTurnControlProviderFailureFacts(t *testing.T) {
 		t.Fatal(err)
 	}
 	tc, ok := db.GetTurnContext("refused")
-	if !ok || tc.RetryCount != 0 {
+	if !ok || tc.RetryCount != 0 || tc.ProviderFailureKind != "permanent" || !tc.NextAttemptAt.IsZero() {
 		t.Fatalf("callback charged a retry: %+v", tc)
 	}
 	deferred, err := l.q.complete(l, tc, runedv1.RunOutcome{Outcome: runedv1.OutcomeError}, nil, turnWork{})
@@ -88,7 +87,7 @@ func TestTurnControlProviderInstancePause(t *testing.T) {
 		t.Fatal(err)
 	}
 	reset := now.Add(4 * time.Hour)
-	req := apiv1.TurnResult{Status: "error", ProviderFailure: &apiv1.ProviderFailure{Reason: "rate_limit", ResetAt: core.TS(reset)}}
+	req := apiv1.TurnResult{Status: "error", ProviderFailure: &apiv1.ProviderFailure{Reason: "spend_limit", ResetAt: core.TS(reset)}}
 	if _, err := p.srv.recordTurnResultAttempt("refused", "attempt", req); err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +97,7 @@ func TestTurnControlProviderInstancePause(t *testing.T) {
 		t.Fatal("provider callback did not immediately block the instance")
 	}
 	tc, _ := db.GetTurnContext("refused")
-	if tc.State != store.TurnRunning || tc.RunReturned || !tc.NextAttemptAt.Equal(reset) {
+	if tc.State != store.TurnRunning || tc.RunReturned || tc.ProviderFailureKind != "transient" || !tc.NextAttemptAt.Equal(reset) {
 		t.Fatalf("callback released execution or lost reset: %+v", tc)
 	}
 	control, _, _ := db.store().ReadTurnControl(t.Context())
@@ -118,14 +117,25 @@ func TestTurnControlProviderInstancePause(t *testing.T) {
 	if _, err := fns.CheckTurn("a", tc.TurnID); err == nil {
 		t.Fatal("refused attempt accepted a delivery check")
 	}
+	if _, err := db.store().OpenTurnContext("later-refusal", "a", "", "web:a", "u", "", nil); err != nil {
+		t.Fatal(err)
+	}
+	later, _ := db.GetTurnContext("later-refusal")
+	if _, err := l.q.refuse(l, later, "authentication", time.Time{}); err != nil {
+		t.Fatal(err)
+	}
+	pause, err := db.store().ReadModelPause(t.Context(), "a")
+	if err != nil || pause == nil || pause.Reason != "authentication" {
+		t.Fatalf("later pause: %+v %v", pause, err)
+	}
 	now = reset.Add(time.Minute)
 	processPauseChat(t, l, "web:b")
 	if len(p.runs) != 0 {
 		t.Fatal("provider callback admitted another run before runtime return")
 	}
-	deferred, err := l.q.complete(l, tc, runedv1.RunOutcome{Outcome: runedv1.OutcomeError, Terminal: true}, nil, turnWork{})
+	deferred, err := l.q.complete(l, tc, runedv1.RunOutcome{Outcome: runedv1.OutcomeError}, nil, turnWork{})
 	if err != nil || !deferred {
-		t.Fatalf("provider terminal bit defeated retry: %v %v", deferred, err)
+		t.Fatalf("provider refusal failed to retry: %v %v", deferred, err)
 	}
 	tc, _ = db.GetTurnContext("refused")
 	if tc.State != store.TurnPendingRetry || tc.RetryCount != 1 || !tc.NextAttemptAt.Equal(now.Add(30*time.Second)) || db.GetAgentCursor("web:a") != tc.InputLast {
@@ -328,8 +338,20 @@ func TestTurnControlProviderSavedReplay(t *testing.T) {
 }
 
 func TestTurnControlProviderDeadline(t *testing.T) {
-	for _, failure := range []error{context.Canceled, context.DeadlineExceeded} {
-		t.Run(failure.Error(), func(t *testing.T) {
+	for _, sample := range []struct {
+		name     string
+		failure  error
+		terminal bool
+		result   bool
+		reply    bool
+	}{
+		{name: "canceled", failure: context.Canceled},
+		{name: "deadline", failure: context.DeadlineExceeded},
+		{name: "terminal", terminal: true},
+		{name: "result", result: true},
+		{name: "reply", reply: true},
+	} {
+		t.Run(sample.name, func(t *testing.T) {
 			db, l, p, _ := pauseFixture(t)
 			pauseInput(t, db, "web:a", "refused", "u", "saved", time.Now())
 			msg, _ := db.MessageByID("web:a", "refused")
@@ -341,7 +363,15 @@ func TestTurnControlProviderDeadline(t *testing.T) {
 				t.Fatal(err)
 			}
 			tc, _ = db.GetTurnContext("refused")
-			if deferred, err := l.q.complete(l, tc, runedv1.RunOutcome{}, failure, turnWork{}); err != nil || deferred {
+			if sample.result {
+				if _, err := db.store().RecordTurnResult(tc.Folder, tc.TurnID, "", "success", "", store.TurnUsage{}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if sample.reply {
+				p.srv.replyForTest(t, tc.TurnID, tc.ChatJID, "answered")
+			}
+			if deferred, err := l.q.complete(l, tc, runedv1.RunOutcome{Terminal: sample.terminal}, sample.failure, turnWork{}); err != nil || deferred {
 				t.Fatalf("stop/deadline retried: %v %v", deferred, err)
 			}
 		})

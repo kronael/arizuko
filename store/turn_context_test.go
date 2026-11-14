@@ -396,3 +396,21 @@ func TestMarkingAnUnboundTurnAddressedBindsNothing(t *testing.T) {
 		}
 	}
 }
+
+func TestProviderFailureKindMetadata(t *testing.T) {
+	for _, sample := range []struct {
+		kind           string
+		present, valid bool
+	}{
+		{"", false, true}, {"transient", true, true}, {"permanent", true, true}, {"", true, false}, {"other", true, false},
+	} {
+		attrs := map[string]string{}
+		if sample.present {
+			attrs["provider_failure_kind"] = sample.kind
+		}
+		tc, err := turnFrom(objstore.Item{Attrs: attrs})
+		if (err == nil) != sample.valid || (sample.valid && tc.ProviderFailureKind != sample.kind) {
+			t.Errorf("%+v: %+v %v", sample, tc, err)
+		}
+	}
+}

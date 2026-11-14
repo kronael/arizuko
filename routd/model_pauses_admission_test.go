@@ -44,7 +44,7 @@ func (p *admissionProvider) Run(_ context.Context, req runedv1.RunRequest) (rune
 	fns := p.srv.buildRoutdFns(turnMCP{folder: tc.Folder, turnID: tc.TurnID, attempt: tc.AttemptID})
 	result := ipc.TurnResult{TurnID: req.TurnID, Status: "error", ProviderFailure: &apiv1.ProviderFailure{Reason: "outage"}}
 	_, err := fns.SubmitTurn(tc.Folder, result)
-	return runedv1.RunOutcome{RunID: "admission-run", Outcome: runedv1.OutcomeError, Terminal: true}, err
+	return runedv1.RunOutcome{RunID: "admission-run", Outcome: runedv1.OutcomeError}, err
 }
 
 // A deletion between routing and admission must not restore the deleted input.

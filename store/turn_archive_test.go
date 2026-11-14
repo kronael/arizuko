@@ -47,6 +47,10 @@ func TestFinishedTurnMovesToTheArchiveWhole(t *testing.T) {
 			t.Fatal(set)
 		}
 	}
+	key, _ := turnKey("t1")
+	if ok, err := s.TryWriteEntities(t.Context(), nil, objstore.Write{Op: objstore.Update, Entity: TurnContexts, Key: key, Attrs: map[string]string{"provider_failure_kind": "transient", "provider_failure_attempt": "attempt"}}); err != nil || !ok {
+		t.Fatalf("write provider facts: %v %v", ok, err)
+	}
 	before, _ := liveTurn(t, s, "t1")
 	if err := s.SetTurnState("t1", TurnDone); err != nil {
 		t.Fatal(err)
@@ -62,7 +66,7 @@ func TestFinishedTurnMovesToTheArchiveWhole(t *testing.T) {
 		t.Fatalf("archive holds %v, want %v", archived.Attrs, want)
 	}
 	tc, ok := s.TurnContextOf("t1")
-	if !ok || tc.State != TurnDone || tc.ReturnTo != "tg:origin" {
+	if !ok || tc.State != TurnDone || tc.ReturnTo != "tg:origin" || tc.ProviderFailureKind != "transient" {
 		t.Fatalf("by id: %+v ok=%v", tc, ok)
 	}
 	if hash, err := s.TurnGatewayKey("t1"); err != nil || hash != "sha256:k" {

@@ -8,5 +8,20 @@
   "notices": {
     "retry": "{cause}. Retry scheduled.",
     "terminal": "{cause}. Automatic retries stopped."
+  },
+  "provider_reasons": {
+    "authentication": {
+      "kind": "permanent"
+    },
+    "outage": {
+      "kind": "transient"
+    },
+    "rate_limit": {
+      "kind": "transient"
+    },
+    "spend_limit": {
+      "kind": "permanent",
+      "kind_with_future_reset": "transient"
+    }
   }
 }

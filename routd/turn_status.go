@@ -585,7 +585,10 @@ func (l *Loop) publishOwedStatus(tc TurnContext) error {
 }
 
 func (l *Loop) publishOwedStatusLocked(tc TurnContext) error {
-	current, ok := l.db.GetTurnContext(tc.TurnID)
+	current, ok, err := l.db.store().ReadTurnContext(context.Background(), tc.TurnID)
+	if err != nil {
+		return err
+	}
 	if !ok || current.AttemptID != tc.AttemptID || current.StatusOwed == "" {
 		return nil
 	}
@@ -596,14 +599,14 @@ func (l *Loop) publishOwedStatusLocked(tc TurnContext) error {
 	if status.cause == "" {
 		status.cause = "Agent could not complete the request"
 	}
-	if current.State == store.TurnRunning && current.ProviderFailureAttempt == current.AttemptID {
+	if current.State == store.TurnRunning && current.AttemptID != "" && current.ProviderFailureAttempt == current.AttemptID {
 		control, _, err := l.db.store().ReadTurnControl(context.Background())
 		if err != nil {
 			return err
 		}
 		status.at = control.NextProbeAt
 		status.retry++
-		if retry.Next(current.RetryCount, retry.Failure{Kind: "transient"}, l.q.now(), time.Time{}).Stop {
+		if retry.Next(current.RetryCount, retry.Failure{Kind: current.ProviderFailureKind, RetryAt: current.NextAttemptAt}, l.q.now(), time.Time{}).Stop {
 			status.phase = "final"
 			status.retry = current.RetryCount
 		}

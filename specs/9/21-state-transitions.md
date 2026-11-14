@@ -729,6 +729,10 @@ Its first failed fetch commits the deadline and due pointer atomically.
       publishOwedStatusLocked,
     ]
   never: suppresses authorization, placement or existing-message mutations
+- path: routd/turn_status_test.go (changed)
+  job: preserve ordinary legacy status and reject malformed provider facts
+  names: [TestTurnStatusProviderMetadata]
+  never: treats two absent attempt IDs as a provider refusal
 - path: routd/muted_mcp_test.go (changed)
   job: prove muted message creation preserves evidence without platform effects
   names: [TestMutedFolderMCPText]
