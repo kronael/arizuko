@@ -144,6 +144,18 @@ Sources: `routd/loop.go`, `routd/turn_control.go`, `routd/turn_status.go`,
   job: finish adapter migrations before serving requests
   names: [OpenAdapterStore]
   never: touches another adapter's namespace
+- path: runed/runstore/state_index.go (new)
+  job: declare spawn expiry and live pointers with a marked backfill
+  names: [MigrateStateIndexes]
+  never: changes the execution port
+- path: runed/runstore/spawns.go (changed)
+  job: select expiry and liveness from their work populations
+  names: [DropSpawnsBefore, ExpireOrphans, countLive, LiveSpawnInFolder]
+  never: reads finished history to discover active runs
+- path: runed/db.go (changed)
+  job: migrate runed work before serving
+  names: [Open]
+  never: migrates routd data
 ```
 
 ## Atomic work keys
@@ -219,7 +231,19 @@ only those two keys. The HTTP `pending_inbound` field retains its meaning.
 One of 40 due messages reads two rows; health reads one. Sixty due messages
 read 60 pointers and 50 payloads, preserving the existing oldest-first order.
 
+## Run transitions
+
+A queued spawn writes expiry and live pointers. Start keeps it live. Exit,
+error and kill remove live pointers; immutable creation time determines its
+expiry key. Startup reads only live pointers for orphan teardown. Admission
+counts live pointers and dereferences only live runs for a folder check.
+The hourly retention timer reads and deletes only expired keys and guards
+creation time at deletion. `spawns-v1` backfills existing data once.
+
 ## Open questions
+
+- Run retention currently deletes every state after seven days. Should active
+  spawns be exempt? This change preserves the existing all-state contract.
 
 1. Proxyd route/ACL freshness is a request contract. Keep immediate revocation
    and use existing version markers; do not introduce a time-based cache.

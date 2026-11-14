@@ -29,7 +29,7 @@ func TestEntitiesAreExactlyWhatRunedReads(t *testing.T) {
 	}
 	defer db.Close()
 
-	want := []string{runstore.Spawns, runstore.SessionLog}
+	want := []string{runstore.Spawns, runstore.SessionLog, objstore.IndexEntity}
 	if len(runstore.Entities) != len(want) {
 		t.Fatalf("runstore declares %v, want exactly %v", runstore.Entities, want)
 	}

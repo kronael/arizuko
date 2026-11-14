@@ -15,7 +15,7 @@
 
 ## What needs you
 
-- `L837` — index updates must preserve untouched legacy data; compatibility check in progress.
+- `L838` — run retention and liveness filter spawn history; keyed state transitions approved on 2026-11-14.
 
 - `L826` — one folder's crash closes the whole instance for an hour; per-folder breaker or a 30 s probe; needs sign-off.
 - `L816` — gitd loses GitHub webhooks while the store is unreachable; retention lives in that store; proposal, needs sign-off.
@@ -713,17 +713,18 @@ pre-breaker state.
   status acknowledgement leaves it live, `done`, owing nothing.
 
 
-## L837 — index updates rewrite untouched fields (2026-11-14)
+## L838 — run retention reads the complete spawn history (2026-11-14)
 
-The new index writer copies the complete preimage into an Update. Code-level
-measurement: an empty migration update writes every attribute plus the
-revision. A legacy timestamp accepted before an ordered-width declaration
-is therefore revalidated as new input and can prevent startup migration.
-**Fix:** compute pointers from the complete next state, but write only the
-caller's changed attributes and the revision; Put still replaces the row.
-**Test:** an objstore returning a legacy-width start time must accept an
-unrelated state update without receiving that timestamp as a write. Red run
-failed on `started_at is 20 bytes`; restored semantics and concurrency tests pass.
+`runstore.DropSpawnsBefore` filters `created_at` on the whole spawn partition
+hourly: N rows per pass even with no expired runs. Liveness reads and startup
+orphan recovery filter that same history. These are computed costs from the
+query keys at `ba80338b4`.
+**Fix:** expiry and live-state pointers maintained with each spawn transition;
+marked startup migration. Preserve the seven-day, all-state retention rule.
+**Test:** 40 spawns with one expired and one live; counting store must read
+only eligible rows (one count pointer, at most three expiry reads), and ending
+a run removes its live obligation. Range and concurrent-replacement mutations
+fail their covering tests.
 
 ## ✅ FIXED 2026-11-11 efeb37294 L818 — package sources resolve against the shared host checkout (`catalog:`) instead of being fetched (2026-11-11)
 

@@ -26,7 +26,7 @@ const (
 
 // Entities is the set a driver must serve before runed boots, applied by
 // whoever holds the driver (runed's opener, the import tool).
-var Entities = []string{Spawns, SessionLog}
+var Entities = []string{Spawns, SessionLog, objstore.IndexEntity}
 
 // EntityMaker is a driver that needs its entities declared before they answer.
 // An engine with no DDL implements it as a no-op, which is why it is not on
@@ -58,7 +58,7 @@ var ErrNotFound = errors.New("not found")
 type Store struct{ s objstore.Store }
 
 // New wraps a driver.
-func New(s objstore.Store) *Store { return &Store{s: s} }
+func New(s objstore.Store) *Store { return &Store{s: objstore.WithIndexes(s, spawnIndex{})} }
 
 // point is the read that addresses ONE item and applies no predicate. It
 // answers "is it there, and what does it carry".
@@ -90,7 +90,7 @@ func set(attrs map[string]string, name, value string) {
 func (s *Store) applyInChunks(ctx context.Context, what string, writes []objstore.Write) (int, error) {
 	done := 0
 	for len(writes) > 0 {
-		n := min(len(writes), objstore.MaxBatchActions)
+		n := min(len(writes), objstore.IndexBatchSize)
 		committed, err := s.s.GuardedBatch(ctx, nil, writes[:n])
 		if err != nil {
 			return done, err

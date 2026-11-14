@@ -21,7 +21,7 @@ runed does these jobs:
 - It serves `POST /v1/runs`, the contract between routd and runed: claim, spawn, return.
 - It serves `POST /v1/holds`. A hold claims the run slot of a folder for an external job that needs the folder alone. Examples are a filesystem restore, a vacuum and a migration. No agent turn starts in that folder until the hold ends.
 - It runs the lifecycle of each KVM guest: one `qemu-system-x86_64` process, its virtio-fs shares, its tap and its egress proxy. A ctl frame over vsock carries the stop. A kill reaps every pid that the record of the turn names. The section "The guest's turn, step by step" describes the steps.
-- It enforces `RUNED_RUN_TIMEOUT` per run. An hourly sweep deletes spawns older than seven days. The retention bounds the one partition that all spawns share.
+- It enforces `RUNED_RUN_TIMEOUT` per run. An hourly timer deletes only expiry keys older than seven days. Create and teardown maintain expiry and live pointers atomically. Startup migrates these pointers once before orphan recovery.
 - On graceful shutdown it drains HTTP handlers for RUNED_SHUTDOWN_GRACE. Request cancellation can end a guest; disk records support startup reaping.
 
 ## Entities runed owns
@@ -222,7 +222,7 @@ Core is required. Package selection is an input to the renderer, outside the
 | cap `MAX_CONCURRENT_AGENTS` full | `busy`                                     | the same                                    |
 | idle, under the cap              | a `spawns` row in `queued`, then the guest | waits for the outcome                       |
 
-- Admission uses store records; per-guest process and network state lives in VM records on disk. Every admission decision reads the `spawns` rows under one mutex for check and claim. A map in memory would lie after a restart: a folder would stay wedged, or the cap would reset. At boot, `ExpireOrphans` ends every row that a dead runed left live, as `exited` with outcome `error` and never `killed` (`runstore/spawns.go`).
+- Admission uses store records; per-guest process and network state lives in VM records on disk. Every admission decision reads live spawn pointers under one mutex for check and claim. A map in memory would lie after a restart: a folder would stay wedged, or the cap would reset. At boot, `ExpireOrphans` ends every row that a dead runed left live, as `exited` with outcome `error` and never `killed` (`runstore/spawns.go`).
 - `StartSpawn` takes the claim with a condition on `state='queued'`. A `DELETE` that lands between the claim and the launch wins, and the run answers `busy`. A `killed` row makes the folder read free, so a launch without this guard would put two guests on one mount.
 - routd owns session lineage. It mints the id and sends it on the request. runed mints an id only for a request that carries none, which is an isolated task. `spawns.session_id` is an echo.
 - Readiness is spawn success. There is no `/readyz` probe, because a probe on the spawn path adds a failure mode. `Manager.spawn` arms the one deadline from `RUNED_RUN_TIMEOUT`. The substrate keeps no timer. ant sends the wrap-up warning five minutes before its query deadline.

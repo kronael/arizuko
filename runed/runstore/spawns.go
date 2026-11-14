@@ -1,18 +1,5 @@
 package runstore
 
-// spawns.go holds every read and write of `spawns`: one item per container
-// spawn, the execution-session envelope routd claims a folder's run slot with.
-//
-// THE PARTITION IS A CONSTANT AND THE SORT KEY IS THE RUN ID, not the folder
-// 6/37 rule 1 predicted: six operations address a spawn by its run id and
-// hold no folder at all, and Start, End and Kill are guarded transitions,
-// which name ONE item. The cost is that folder reads are whole-partition
-// reads with an attribute filter and newest-first order is applied by the
-// reader. What makes that affordable is DRAINAGE: DropSpawnsBefore keeps the
-// partition a window (seven days), not an archive. Folder containment is
-// applied by RecentSpawns through groupfolder.Contains, never LIKE (BUGS
-// L122, L252).
-
 import (
 	"context"
 	"fmt"
@@ -273,16 +260,15 @@ func (s *Store) RecentSpawns(ctx context.Context, state, folder string, limit in
 // is EXACT, not a subtree: a parent holding a child's slot would serialize a
 // whole tenant onto one run.
 func (s *Store) LiveSpawnInFolder(ctx context.Context, folder string) (*ActiveSpawn, error) {
-	items, err := s.s.Query(ctx, objstore.Query{
-		Entity: Spawns, Partition: spawnPartition,
-		Where:   append([]objstore.Cmp{{Attr: attrFolder, Op: objstore.Eq, Value: folder}}, live()...),
-		Project: []string{attrCreatedAt},
-	})
+	items, err := objstore.IndexItems(ctx, s.s, "spawns/live", objstore.KeyPredicate{}, 0)
 	if err != nil {
 		return nil, fmt.Errorf("read %s's live run: %w", folder, err)
 	}
 	var newest *objstore.Item
 	for i := range items {
+		if value, exists := items[i].Attrs[attrFolder]; !exists || value != folder {
+			continue
+		}
 		if newest == nil || items[i].Attrs[attrCreatedAt] > newest.Attrs[attrCreatedAt] {
 			newest = &items[i]
 		}
@@ -295,28 +281,24 @@ func (s *Store) LiveSpawnInFolder(ctx context.Context, folder string) (*ActiveSp
 
 // LiveSpawnCount answers how many spawns of EVERY kind still hold a slot.
 func (s *Store) LiveSpawnCount(ctx context.Context) (int, error) {
-	return s.countLive(ctx, nil)
+	return s.countLive(ctx, false)
 }
 
 // LiveAgentSpawnCount answers how many AGENT spawns hold a slot, the global
 // concurrency cap's budget (spec 5/8): a containerless kind must not compete
 // with agent turns for the cap.
 func (s *Store) LiveAgentSpawnCount(ctx context.Context) (int, error) {
-	return s.countLive(ctx, []objstore.Cmp{{Attr: attrKind, Op: objstore.Eq, Value: KindAgent}})
+	return s.countLive(ctx, true)
 }
 
-// countLive is the one read behind both counts. It projects one small
-// attribute: a cap check must not pull every spawn's document to count them.
-func (s *Store) countLive(ctx context.Context, extra []objstore.Cmp) (int, error) {
-	items, err := s.s.Query(ctx, objstore.Query{
-		Entity: Spawns, Partition: spawnPartition,
-		Where:   append(live(), extra...),
-		Project: []string{attrKind},
-	})
-	if err != nil {
-		return 0, fmt.Errorf("count the live runs: %w", err)
+// countLive reads only pointers for the requested live population.
+func (s *Store) countLive(ctx context.Context, agent bool) (int, error) {
+	partition := "spawns/live"
+	if agent {
+		partition = "spawns/live_agent"
 	}
-	return len(items), nil
+	items, err := s.s.Query(ctx, objstore.Query{Entity: objstore.IndexEntity, Partition: partition})
+	return len(items), err
 }
 
 // ExpireOrphans ends every spawn left holding a slot after runed was killed
@@ -325,9 +307,7 @@ func (s *Store) countLive(ctx context.Context, extra []objstore.Cmp) (int, error
 // rows then, and a condition that did not hold means a second process is on
 // this database.
 func (s *Store) ExpireOrphans(ctx context.Context) (int, error) {
-	items, err := s.s.Query(ctx, objstore.Query{
-		Entity: Spawns, Partition: spawnPartition, Where: live(), Project: []string{attrState},
-	})
+	items, err := objstore.IndexItems(ctx, s.s, "spawns/live", objstore.KeyPredicate{}, 0)
 	if err != nil {
 		return 0, fmt.Errorf("read the orphaned runs: %w", err)
 	}
@@ -350,17 +330,14 @@ func (s *Store) ExpireOrphans(ctx context.Context) (int, error) {
 // not a retention this package computes: a test that waits seven days is one
 // nobody runs.
 func (s *Store) DropSpawnsBefore(ctx context.Context, cutoff time.Time) (int, error) {
-	items, err := s.s.Query(ctx, objstore.Query{
-		Entity: Spawns, Partition: spawnPartition,
-		Where:   []objstore.Cmp{{Attr: attrCreatedAt, Op: objstore.Lt, Value: core.TS(cutoff)}},
-		Project: []string{attrCreatedAt},
-	})
+	items, err := objstore.IndexItems(ctx, s.s, "spawns/expiry", objstore.KeyPredicate{Op: objstore.LtKey, Value: core.TS(cutoff)}, 0)
 	if err != nil {
 		return 0, fmt.Errorf("read the aged runs: %w", err)
 	}
 	writes := make([]objstore.Write, 0, len(items))
 	for _, it := range items {
-		writes = append(writes, objstore.Write{Op: objstore.Delete, Entity: Spawns, Key: it.Key})
+		writes = append(writes, objstore.Write{Op: objstore.Delete, Entity: Spawns, Key: it.Key,
+			Cond: objstore.Cond{Where: []objstore.Cmp{{Attr: attrCreatedAt, Op: objstore.Lt, Value: core.TS(cutoff)}}}})
 	}
 	return s.applyInChunks(ctx, "drop the aged runs", writes)
 }
