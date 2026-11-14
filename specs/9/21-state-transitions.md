@@ -96,9 +96,134 @@ Sources: `routd/loop.go`, `routd/turn_control.go`, `routd/turn_status.go`,
   dashboard token matching and `ACLWildcardRows` full partitions.
 - WhatsApp retained-file directory rediscovery and CLI `pollRound` snapshots.
 
+## One retry policy
+
+A retry is another attempt at an unfinished operation, scheduled from its last failure.
+The owner approved unifying retry policy on 2026-11-14. The baseline for this
+extension is `635ca04ea3a5d1ed0de889d3b894d6167e8c3d57`; L862 records the drift.
+
+```text
+failure + replay safety ──► retry policy (new) ──► stop + common notice
+                                  │
+                                  └── due time ──► existing owner state (changed)
+                                                        │
+                             next attempt ◄── due key ──┘
+per-feature delay tables and budgets (removed)
+```
+
+`retry/policy.json` declares the policy once. Go, Node/Bun and browser readers
+use that declaration. The policy owns classification, delay, exhaustion and
+notice text. Owners retain payloads, idempotency, authorization and guarded
+state transitions. The policy has no store, queue or daemon dependencies.
+
+The first failure schedules 30 seconds, then doubles to a one-hour cap.
+The tenth failed attempt stops automatic execution. A server's retry time is
+a lower bound; a caller or credential deadline can stop earlier. Cancellation,
+permanent errors and unknown failures stop. HTTP 408/425/429 and 5xx, plus
+identified transport failures, are transient. An owner must establish safe
+replay before scheduling: an unknown result of a non-idempotent create cannot
+be retried merely because the transport failed. Success starts a new failure
+episode. No feature-specific budget or delay setting overrides this policy.
+
+Due times and counts persist with messages, turns, retained ingress, onboarding
+output and Google file work. These obligations outlive the worker. A terminal
+transition removes its due pointer but retains the failed payload and cause.
+The owner renders the common failure notice once; delivery of that notice uses
+the existing outbound queue. A failed notice cannot create another notice.
+Unavailable channels expose the retained failure through their health/operator
+surface, since they cannot promise delivery through the failed channel.
+
+Connection attempts and request-scoped reads retain state only for their
+caller lifetime. Their cancellation ends the operation. Durable owners make
+one transport attempt per due transition; nested HTTP retries must not multiply
+the operation's budget. Existing stored deadlines remain authoritative across
+the upgrade. A changed stored key requires a marked migration; no migration
+from the state-transition implementation may be removed.
+
+## Retry inventory
+
+The before column is measured from the extension baseline. The target column
+states this extension's contract, not its current completion status. `P` means
+persisted; `M` means memory. References name the implementation, not a second policy.
+
+| Retry / source                                                                                                                    | Before: budget; delay; classification                                                        | Exhaustion / notice; state                                       | Target                                                                          |
+| --------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| Attachment fetch: `routd/enrich.go`, `dispatch.go`                                                                                | Message age <30 min; busy 4–60 s; most 4xx permanent, other errors transient                 | Attachment unavailable text; M timer, persisted payload          | Shared decision; P due/count/cause; common notice                               |
+| Outbound and status: `store/message_delivery.go`, `routd/loop.go`, `turn_status.go`                                               | Default 10 retries; 30 s doubling to 1 h; delivery error markers                             | Dead letter; operator/status surface; P                          | One shared budget, due time and notice; preserve revision fences                |
+| Turn recovery: `routd/turn_control.go`                                                                                            | ≤3 retries; 30/120/300 s, scheduled 15/45/180 min; terminal/replied/deadline gates           | Stop status; P                                                   | Shared decision and notice; saved input and replay gates retained               |
+| Busy run / processing error: `routd/turn_control.go`, `dispatch.go`                                                               | Unbounded; 4 s doubling to 60 s, processing errors fixed 4 s                                 | Log; mostly M, deferred-turn deadline P                          | Shared policy and durable input obligation                                      |
+| Startup chat read: `routd/loop.go`                                                                                                | Unbounded; 30 s; any read error                                                              | Log until cancellation; M                                        | Caller-lifetime shared policy                                                   |
+| Channel HTTP: `chanlib/retry.go`, Slack/Telegram callers                                                                          | 3 attempts; 300/800 ms ±20%; transport/5xx or 429-only; Retry-After capped at 30 s           | Return last result; M                                            | One transport attempt under durable owner; shared classification                |
+| Ingress POST: `chanlib/chanlib.go`                                                                                                | 2 attempts; 500 ms; any error, with legacy 401 repair                                        | Return error; M                                                  | Single delivery attempt; credential repair remains separate                     |
+| Retained ingress: `chanlib/inbound.go`, `chanstore`                                                                               | Unbounded; 30 s doubling to 15 min; 400/403/413/422 permanent                                | Drop permanent payload, log; P                                   | Shared decision; terminal payload retained without due pointer                  |
+| Discord send: `discd/bot.go`                                                                                                      | 3 attempts; 1 s; 429-only around SDK retries                                                 | ErrNotDelivered / permanent / unknown error; M                   | Outer delivery owns retry; SDK retry settings must not multiply it              |
+| Telegram poll: `teled/bot.go`                                                                                                     | Unbounded; 3 s; any poll error                                                               | Warning; platform cursor plus M wait                             | Shared connection policy; platform remains input authority                      |
+| Telegram HTML send: `teled/bot.go`                                                                                                | One plain-text retry after HTML 400                                                          | Return final result; M                                           | Protocol repair exception: request representation changes                       |
+| Typing: `chanreg/httpchan.go`                                                                                                     | 4 attempts; 1 s; transport errors only                                                       | Log and swallow; M                                               | Caller-lifetime shared decision; no durable obsolete indicator                  |
+| Audit webhook: `audit/audit.go`                                                                                                   | 3 attempts; 2/4 s; transport and all non-2xx                                                 | Warning; M                                                       | Shared classification and budget within caller lifetime; replay safety explicit |
+| WhatsApp reconnect: `whapd/src/main.ts`                                                                                           | 10 retries; 3 s doubling to 60 s; logged-out/405 terminal                                    | Exit or re-pair health; M                                        | Shared connection policy; re-pair remains terminal                              |
+| WhatsApp registration: `whapd/src/main.ts`                                                                                        | Unbounded; linear 2 s steps to 30 s; any error                                               | Warning; M                                                       | Shared connection policy                                                        |
+| WhatsApp retention: `whapd/src/retain.ts`                                                                                         | Unbounded; fixed 30 s; any send error                                                        | Warning; payload P, timer/count M                                | Shared P count/deadline; terminal files retained                                |
+| IMAP reconnect/poll errors: `emaid/imap.go`                                                                                       | Unbounded; 1 s doubling to 60 s; authentication terminal                                     | Log and stop on authentication failure; platform UID plus M wait | Shared connection policy; IDLE renewal remains protocol work                    |
+| Google files: `googd/poll.go`, `googstore`                                                                                        | Unbounded; 30 s doubling to 15 min on 429/5xx/quota403; other failures use ordinary interval | Log; P cursor/backoff/deadline                                   | Shared failed-attempt state; successful polling keeps its own interval          |
+| Onboarding output: `store/onboarding_state.go`, `onbod/main.go`                                                                   | Unbounded; 30 s; any failed enqueue                                                          | Log; P generation/deadline                                       | Shared P budget/cause; preserve generation and credential expiry                |
+| Approval read failure: `routd/pending_actions.go`, `approval_work.go`                                                             | Repeat after 2 s until hold/caller deadline                                                  | Caller error or verdict; M waiter, verdict work P                | Shared read policy; unchanged held rows still own no timer                      |
+| Auth refresh: `ipc/extcall.go`                                                                                                    | Once after 401, only with a changed credential                                               | Agent sees final error; M                                        | Protocol repair exception; unchanged secret never retries                       |
+| CAS: `objstore/{protocol,consistent,reach,indexed}.go`                                                                            | 8 or 16 immediate conflicts; actual errors return                                            | Refusal/error; M                                                 | Concurrency protocol exception: no failed external operation to reschedule      |
+| Domain CAS: `store/{messages,turn_archive,model_pauses,message_delivery}.go`, `onbod/main.go`, `emaid/emaistore/email_threads.go` | Bounded immediate version races, generally 3/8/16                                            | Refusal/error; M                                                 | Same CAS exception; preserve atomic semantic guards                             |
+| Ant fresh session: `ant/src/index.ts`                                                                                             | One fresh-session attempt after unusable continuity                                          | Turn failure; M                                                  | Protocol repair exception; never replay a completed side effect                 |
+| Ant provider: `ant/src/{claude,codex,pi}.ts`                                                                                      | Claude SDK-owned; Codex stops after 3 WAITING events; pi max2, 2–10 s, provider retries0     | Provider failure to routd; M                                     | Provider protocol stays distinct; common classification/notice where exposed    |
+| Browser SSE: `webd/route_token.go`, `assets/arizuko-client.js`                                                                    | Fixed 3 s / native EventSource reconnect; unbounded                                          | Connection UI/error callback; M                                  | Shared connection budget and notice; preserve event replay cursor               |
+| Scheduler enqueue: `routd/schedule.go`                                                                                            | Claimed task failure revisits schedule; no separate failed-attempt budget                    | Task run log; P schedule                                         | Shared failed-attempt due state; ordinary cron cadence stays separate           |
+
+The breaker remains distinct: it limits admission across operations to prevent
+loops (L826). Its episode, probe ownership and one-hour safety closure are not
+an operation retry budget. Provider libraries also own stream/session protocol
+state; replacing those internals with a message retry would replay different
+work. The exposed failure still reaches routd's durable policy.
+
+Successful periodic checks are not retries: channel registration heartbeats,
+gitd/googd credential rechecks, Slack/chanreg health probes, Google ordinary
+polls, IMAP renewal, SSE heartbeat and CLI reply waiting retain their cadence.
+QEMU/egress/socket readiness, guest-init connection establishment and teardown
+polls stay bounded by the lifecycle deadline; they observe a changing resource
+inside one spawn/kill attempt. The failed spawn itself returns to the saved turn.
+Compose supervisor restarts and dependency-owned SDK internals are external
+mechanisms, inventoried here without adding a second arizuko policy.
+
 ## Module map
 
 ```yaml
+- path: retry/policy.json (new)
+  job: declare the single delay, budget, failure classes and notice templates
+  names: [base_ms, max_ms, max_failures, transient_statuses, notices]
+  never: declares per-feature profiles or override budgets
+- path: retry/retry.go (new)
+  job: decide the next due time and render failure notices from the declaration
+  names:
+    - 'Failure{Kind, RetryAt}'
+    - 'Decision{Failures, NextAt, Stop}'
+    - 'Next(failures, failure, now, deadline) Decision'
+    - 'HTTPFailure(status, retryAfter, err, now) Failure'
+    - 'Wait(ctx, at) error'
+    - 'Notice(cause, decision) string'
+  never: owns payloads, stores or a worker loop
+- path: retry/retry.mjs (new)
+  job: apply the same declaration in Node, Bun and browsers
+  names: [next, notice, httpFailure]
+  never: copies policy values into a second declaration
+- path: retry/retry.d.mts (new)
+  job: expose the JavaScript policy types to TypeScript callers
+  names: [Failure, Decision]
+  never: adds runtime state
+- path: retry/retry_test.go (new)
+  job: prove failure boundaries, deadlines and cross-language decisions
+  names: [TestPolicy, TestWaitCancellation]
+  never: derives expected values from the policy under test
+- path: retry/retry.test.ts (new)
+  job: run the shared decision fixtures through the JavaScript reader
+  names: [policy]
+  never: changes ant's requested final test frequency
 - path: objstore/indexed.go (new)
   job: commit a primary mutation and its derived index pointers atomically
   names: [Indexed, Indexer, IndexItems, QueryIndex, DueIndexKey, Reindex]

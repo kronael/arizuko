@@ -31,8 +31,24 @@ server error. No live instance was inspected or changed. The full router gate
 was interrupted once and was not repeated. Evidence: `tmp/state-final-routd.log`.
 
 
+## L862 — retry policy differs by feature (2026-11-14)
+
+At `635ca04ea3a5d1ed0de889d3b894d6167e8c3d57`, `chanlib/retry.go`
+repeats HTTP calls after 300/800 ms, `chanlib/inbound.go` doubles from 30 s
+to 15 min without exhaustion, and `store/message_delivery.go` doubles from
+30 s to one hour with a caller-supplied budget. `routd/turn_control.go`
+chooses different tables for ordinary and scheduled turns. Attachment
+deferral uses message age and an in-memory busy timer. These independent
+rules change the result of the same failure and lose pending timing on restart.
+**Status:** approved by the owner's 2026-11-14 unified-retry request.
+**Fix:** one shared policy, consumed by each existing owner; durable work
+uses guarded due-time transitions. Keep replay safety and the breaker separate.
+**Measurement:** source tables and call sites above; no test — design.
+Each implementation concern must add a failing regression and kill its guard mutations.
+
 ## What needs you
 
+- `L862` — retry timing, failure classification and exhaustion differ by feature; unification approved, implementation in progress.
 
 - `L826` — one folder's crash closes the whole instance for an hour; per-folder breaker or a 30 s probe; needs sign-off.
 - `L816` — gitd loses GitHub webhooks while the store is unreachable; retention lives in that store; proposal, needs sign-off.
