@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -76,6 +77,32 @@ func TestProcessRetryAgainAndStop(t *testing.T) {
 			t.Fatalf("shutdown calls=%d", calls)
 		}
 	})
+}
+
+func TestProcessRetryWrappedTransient(t *testing.T) {
+	for _, cause := range []error{context.DeadlineExceeded, &net.DNSError{Err: "lookup failed"}} {
+		synctest.Test(t, func(t *testing.T) {
+			q := newTurnControl(1)
+			defer q.Shutdown()
+			calls := 0
+			q.SetProcessMessagesFn(func(string) (bool, error) {
+				calls++
+				return false, fmt.Errorf("%w: %w", ErrDependencyDown, cause)
+			})
+			q.EnqueueMessageCheck("chat")
+			synctest.Wait()
+			time.Sleep(29 * time.Second)
+			synctest.Wait()
+			if calls != 1 {
+				t.Fatalf("wrapped %v called %d times before due", cause, calls)
+			}
+			time.Sleep(time.Second)
+			synctest.Wait()
+			if calls != 2 {
+				t.Fatalf("wrapped %v called %d times at due", cause, calls)
+			}
+		})
+	}
 }
 
 func TestProcessRetryWrappedPermanent(t *testing.T) {

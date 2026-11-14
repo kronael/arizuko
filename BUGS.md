@@ -60,6 +60,19 @@ through the common reconnect owner. Add a regression for the actual panel markup
 and a streamed message; remove the attribute/listener guard and require failure.
 The browser retry integration owns this fix after the current serial capacity work.
 
+## L869 — joined transport errors lose their retry classification (2026-11-14)
+
+`retry.HTTPFailure` follows only `Unwrap() error` to a leaf. A multi-cause
+error instead exposes `Unwrap() []error`, so joined deadlines and DNS failures
+become permanent. `routd/dispatch.go` joins `ErrDependencyDown` with its cause.
+**Measured:** `retry/retry_test.go::TestHTTPFailureErrorTree` fails for joined
+deadline, DNS and DNS-timeout errors; `tmp/retry-logs/error-tree-red.log`, FAIL
+0.005s. Wrapped ordinary timeouts and joined TLS refusals already pass.
+**Severity:** medium, correctness — a temporary dependency failure stops recovery.
+**Fix:** inspect the complete error tree while preserving cancellation and explicit
+failure priority. Cover the actual router processing path and mutate each guard.
+The unified-retry request authorizes this repair.
+
 ## What needs you
 
 - `L862` — retry timing, failure classification and exhaustion differ by feature; unification approved, implementation in progress.

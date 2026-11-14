@@ -111,14 +111,26 @@ func HTTPFailure(status int, retryAfter string, err error, now time.Time) Failur
 	for _, code := range policy.TransientStatuses {
 		transient = transient || status == code
 	}
-	leaf := err
-	for errors.Unwrap(leaf) != nil {
-		leaf = errors.Unwrap(leaf)
+	dnsError := false
+	for pending := []error{err}; len(pending) > 0; {
+		current := pending[len(pending)-1]
+		pending = pending[:len(pending)-1]
+		if current == nil {
+			continue
+		}
+		if networkError, ok := current.(net.Error); ok && networkError.Timeout() {
+			return Failure{Kind: "timeout"}
+		}
+		if _, ok := current.(*net.DNSError); ok {
+			dnsError = true
+		}
+		switch wrapped := current.(type) {
+		case interface{ Unwrap() []error }:
+			pending = append(pending, wrapped.Unwrap()...)
+		case interface{ Unwrap() error }:
+			pending = append(pending, wrapped.Unwrap())
+		}
 	}
-	if networkError, ok := leaf.(net.Error); ok && networkError.Timeout() {
-		return Failure{Kind: "timeout"}
-	}
-	_, dnsError := leaf.(*net.DNSError)
 	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || dnsError || errors.Is(err, syscall.ECONNRESET) || errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, syscall.EPIPE) || errors.Is(err, syscall.ENETUNREACH) || errors.Is(err, syscall.EHOSTUNREACH) {
 		transient = true
 	}

@@ -68,6 +68,36 @@ func TestFromError(t *testing.T) {
 	}
 }
 
+type falseTimeout struct{ error }
+
+func (e falseTimeout) Timeout() bool   { return false }
+func (e falseTimeout) Temporary() bool { return false }
+func (e falseTimeout) Unwrap() error   { return e.error }
+
+func TestHTTPFailureErrorTree(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		err  error
+		kind string
+	}{
+		{"joined deadline", fmt.Errorf("%w: %w", errors.New("dependency down"), context.DeadlineExceeded), "timeout"},
+		{"joined DNS", errors.Join(errors.New("dependency down"), &net.DNSError{Err: "lookup failed"}), "transient"},
+		{"joined DNS timeout", errors.Join(errors.New("dependency down"), &net.DNSError{Err: "lookup failed", IsTimeout: true}), "timeout"},
+		{"wrapped timeout", &url.Error{Op: "GET", Err: fmt.Errorf("wrapped: %w", os.ErrDeadlineExceeded)}, "timeout"},
+		{"nested false timeout", falseTimeout{context.DeadlineExceeded}, "timeout"},
+		{"joined transport", errors.Join(errors.New("dependency down"), syscall.ECONNRESET), "transient"},
+		{"canceled before timeout", errors.Join(context.DeadlineExceeded, context.Canceled), "canceled"},
+		{"explicit permanent before timeout", errors.Join(context.DeadlineExceeded, &Error{Failure: Failure{Kind: "permanent"}, Err: errors.New("refused")}), "permanent"},
+		{"joined TLS", errors.Join(errors.New("dependency down"), x509.UnknownAuthorityError{}), "permanent"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := FromError(tc.err, time.Now()); got.Kind != tc.kind {
+				t.Fatalf("failure = %+v, want %s", got, tc.kind)
+			}
+		})
+	}
+}
+
 func TestJavaScriptPolicy(t *testing.T) {
 	script := `
 import assert from 'node:assert/strict';
