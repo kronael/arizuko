@@ -14,16 +14,6 @@
 > so counting one as open overstates the queue.
 
 
-## L876 — hourly successor restart loses the turn coordinate (2026-11-14)
-
-`routd/turn_control_replay_test.go::TestTurnControlExecutionRestart/hourly_successor`
-fails because admission reads an empty `ProbeTurnID`. Completion clears that owner
-for a successor; the open breaker remains valid. **Measured:** the test fails in
-18.272s with the original completion classification restored; no successor starts.
-Log: `tmp/retry-logs/execution-restart-baseline.log`.
-**Fix:** skip the owner lookup only when its ID is empty; keep the existing
-cooldown, oldest-candidate selection and errors from nonempty owner lookups.
-
 ## L857 — the full router gate loses its test database control plane (2026-11-14)
 
 At candidate `66e8e2f4b7ebf9a6bc41a5fd9a027ecdc0249f7b`, the single full
