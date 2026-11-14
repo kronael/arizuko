@@ -340,6 +340,8 @@ Its first failed fetch commits the deadline and due pointer atomically.
   names:
     - 'Failure{Kind, RetryAt}'
     - 'Decision{Failures, NextAt, Stop}'
+    - 'Decision.IsDue(now) bool'
+    - 'Decision.Record(err, now, deadline)'
     - 'Next(failures, failure, now, deadline) Decision'
     - 'HTTPFailure(status, retryAfter, err, now) Failure'
     - 'ProviderFailure(reason, resetAt, now) Failure'
@@ -367,6 +369,7 @@ Its first failed fetch commits the deadline and due pointer atomically.
       TestPolicy,
       TestJavaScriptPolicy,
       TestWaitCancellation,
+      TestDecisionEpisode,
       TestHTTPFailureCombinedFacts,
       TestRetryAfterParity,
     ]
@@ -768,13 +771,43 @@ Its first failed fetch commits the deadline and due pointer atomically.
   names: [TestCallFailureFacts]
   never: substitutes a fabricated APIError for the response boundary
 - path: chanlib/chanstore/inbound_index.go (new)
-  job: declare retry keys and migrate retained messages and the backlog count
+  job: declare retry keys and migrate retained messages, counts and failure state
   names: [MigrateInbound]
   never: changes a primary message ID
 - path: chanlib/chanstore/inbound_pending.go (changed)
-  job: schedule retained retries and maintain their count atomically
-  names: [Retain, Reschedule, Drop, DueForRedelivery, HeldCount]
+  job: apply observed retry decisions and maintain the held count atomically
+  names:
+    - 'Held{ID, Payload, Attempts, Revision}'
+    - 'Retain(ctx, id, payload, firstSeenAt, decision, notice) error'
+    - 'Reschedule(ctx, observed, decision, notice) error'
+    - 'Drop(ctx, observed) error'
+    - DueForRedelivery
+    - HeldCount
   never: loads payloads outside the selected due batch
+- path: chanlib/inbound.go (changed)
+  job: record each failed delivery and gate failed discovery with Decision
+  names: [retainInbound, sweepInbound, 'SweepInboundOnce(ctx) error']
+  never: retries stopped payloads or hides storage failures
+- path: chanlib/inbound_test.go (changed)
+  job: prove permanent retention, failure limits and visible persistence errors
+  names: [TestRefusedInboundRemainsHeldWithoutRedelivery, TestSweep]
+  never: changes the real postInbound boundary
+- path: chanlib/chanstore/chanstore_test.go and chanlib/chanstore/inbound_index_test.go (changed)
+  job: prove observed completion, migration restart and due selection
+  names: [Retain, Reschedule, Drop, MigrateInbound, DueForRedelivery]
+  never: treats failed rows as lost payloads
+- path: chanlib/chanstore/import_test.go (changed)
+  job: use normalized pending state in the active import fixture
+  names: [TestImport]
+  never: normalizes fixtures that exercise legacy migration
+- path: gitd/server.go and gitd/server_test.go (changed)
+  job: preserve failed-retention errors before permanent ingress classification
+  names: [webhook, TestWebhookPermanentRefusalRetainsStoppedInput]
+  never: acknowledges an input neither destination retained
+- path: chanlib/README.md, slakd/README.md, discd/README.md and gitd/README.md (changed)
+  job: describe bounded retention with stopped payloads included in health counts
+  names: [retained inbound]
+  never: promises unbounded redelivery
 - path: chanlib/dedup.go (changed)
   job: claim creates and release only on proof that no delivery occurred
   names: [OpenAdapterStore, deliverOnce]
@@ -926,12 +959,28 @@ requires the atomic lifecycle guard. Thirteen guard mutations fail their tests.
 and backlog increment in the same guarded batch. A repeated platform event
 changes neither deadline nor count. The clock selects due pointers, sorts
 only that set by `first_seen_at` and ID, and loads at most 50 payloads.
-Transient failure moves the due pointer. Acceptance or permanent refusal
-removes the primary and pointer and decrements the count exactly once.
+Transient failure moves the due pointer. Permanent or exhausted failure retains
+the payload and count with `retry_state=failed` and removes its due pointer.
+Acceptance removes the primary and pointer and decrements the count exactly once.
+Completion guards the observed revision and failure count. Duplicate retention
+does not reset a stopped episode. Malformed payloads stop without an HTTP request.
+
+The stored `attempts` is the failed-attempt count. One renderer writes the count,
+`retry_state`, canonical notice and pending deadline. Due reads validate the count,
+state and deadline, then recheck the hydrated state and deadline before delivery.
+Each row owns its delivery failures. `SweepInboundOnce` returns discovery and
+transition errors; the sweep's local `Decision` gates retries of those operations.
+A successful sweep clears that local episode. A stopped episode parks until a
+new consumer lifetime. The existing 15-second tick remains the healthy clock.
 
 The startup `inbound-due-v1` marker gates pointer backfill; the counter's
-create-if-absent write gates its initial count. A restarted migration reads
-only those two keys. The HTTP `pending_inbound` field retains its meaning.
+create-if-absent write gates its initial count. `inbound-retry-v1` then normalizes
+rows without `retry_state` through the shared decision using their prior count.
+Active rows retain the exact stored deadline. Exhausted rows retain their payload
+without a due pointer. Each guarded row update records its normalized state, so
+an interrupted migration cannot charge the same failure twice. The marker is last.
+A completed migration reads only those three keys. All migration steps remain.
+The HTTP `pending_inbound` field counts every held payload, including stopped rows.
 One of 40 due messages reads two rows; health reads one. Sixty due messages
 read 60 pointers and 50 payloads, preserving the existing oldest-first order.
 
