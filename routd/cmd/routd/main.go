@@ -212,9 +212,6 @@ func main() {
 		OnboardingPlatforms: core.ParseCSV(os.Getenv("ONBOARDING_PLATFORMS")),
 		// Turn retry on SIGKILL/OOM/timeout (spec 5/12). Default 3.
 		MaxTurnRetry: core.EnvInt("MAX_TURN_RETRY", 3),
-		// Transient delivery failures a pending bot row absorbs before the
-		// outbound sweep dead-letters it (spec 5/34-channel-protocol). Default 10.
-		MaxOutboundRetry: core.EnvInt("MAX_OUTBOUND_RETRY", 10),
 		// Inbound media enrichment (download + Whisper transcription); unset
 		// MEDIA_ENABLED leaves it off. The MEDIA_* and WHISPER_MODEL defaults
 		// mirror core.LoadConfig, which runed reads for the agent's media config.

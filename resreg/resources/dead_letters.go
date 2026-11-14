@@ -7,11 +7,6 @@ import (
 	"github.com/kronael/arizuko/resreg"
 )
 
-// DeadLetterRow is one outbound message routd gave up on: `messages` with
-// status='failed' AND is_bot_message=1. There is no dead-letter TABLE;
-// 'failed' IS the state, and `delivery_attempts` tells the two causes apart:
-// 0 means the platform refused it permanently, the cap means the retries ran
-// out (BUGS L23).
 type DeadLetterRow struct {
 	ID               string `db:"id"                json:"id"`
 	ChatJID          string `db:"chat_jid"          json:"chat_jid"`
@@ -22,6 +17,7 @@ type DeadLetterRow struct {
 	Source           string `db:"source"            json:"source,omitempty"`
 	TurnID           string `db:"turn_id"           json:"turn_id,omitempty"`
 	DeliveryAttempts int    `db:"delivery_attempts" json:"delivery_attempts"`
+	Notice           string `db:"notice"            json:"notice,omitempty"`
 }
 
 // DeadLettersResponses: the list handler PROJECTS core.Message onto the row;
@@ -47,8 +43,8 @@ var DeadLettersMCPNames = map[resreg.Action]string{
 var DeadLettersMCPDoc = map[resreg.Action]string{
 	resreg.ActionList: "List outbound messages routd gave up delivering in `folder` — " +
 		"what was lost, to which chat, and how many attempts it took before the give-up. " +
-		"`delivery_attempts` 0 means the platform refused the message permanently; the " +
-		"configured cap means the retries ran out. Use it to answer 'did my reply " +
+		"`delivery_attempts` counts failed attempts; `notice` states that automatic retries stopped. " +
+		"Use it to answer 'did my reply " +
 		"actually reach them' when a user says they never saw one.",
 	resreg.Action("replay"): "Put one dead-lettered message back on the delivery queue by `id`. " +
 		"The row returns to `pending` with a fresh attempt budget and routd's outbound " +

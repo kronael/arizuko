@@ -50,7 +50,7 @@ type ArchiveMessageRow struct {
 	Delivery         map[string]string `json:"delivery,omitempty"`
 }
 
-var deliveryWorkAttrs = []string{"operation", "queued_at", "next_attempt_at", "expires_at"}
+var deliveryWorkAttrs = []string{"operation", "queued_at", "next_attempt_at", "expires_at", "last_error"}
 
 const naiveDatetime = "2006-01-02 15:04:05"
 

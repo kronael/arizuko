@@ -60,7 +60,7 @@ func TestOutboundPermanentFailureDeadLettersOnFirstAttempt(t *testing.T) {
 	}
 	defer db.Close()
 	dl := &recDeliverer{permIdem: "refused"}
-	loop := NewLoop(db, runnerFn(nil), LoopConfig{Deliver: dl, MaxOutboundRetry: 10})
+	loop := NewLoop(db, runnerFn(nil), LoopConfig{Deliver: dl})
 
 	now := time.Now().UTC()
 	_ = db.PutOutbound(core.Message{ID: "refused", ChatJID: "slack:T/C/U", Sender: "demo",
@@ -75,8 +75,8 @@ func TestOutboundPermanentFailureDeadLettersOnFirstAttempt(t *testing.T) {
 	if st := statusOf(t, db, "refused"); st != core.MessageStatusFailed {
 		t.Fatalf("status=%q want failed — a permanent refusal must dead-letter at once", st)
 	}
-	if n := attemptsOf(t, db, "refused"); n != 0 {
-		t.Fatalf("delivery_attempts=%d want 0 — a permanent refusal must not spend the retry budget", n)
+	if n := attemptsOf(t, db, "refused"); n != 1 {
+		t.Fatalf("delivery_attempts=%d want 1 for a permanent refusal", n)
 	}
 
 	// A dead-lettered row leaves the retry feed for good.
@@ -87,7 +87,7 @@ func TestOutboundPermanentFailureDeadLettersOnFirstAttempt(t *testing.T) {
 }
 
 // TestOutboundTransientFailureDeadLettersAtCap: an adapter that keeps failing
-// with a transient error gets exactly MaxOutboundRetry attempts, then the row
+// with a transient error gets exactly ten attempts, then the row
 // dead-letters. It never retries forever.
 func TestOutboundTransientFailureDeadLettersAtCap(t *testing.T) {
 	db, err := OpenMem()
@@ -95,9 +95,9 @@ func TestOutboundTransientFailureDeadLettersAtCap(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	const maxAttempts = 3
+	const maxAttempts = 10
 	dl := &recDeliverer{failSend: true}
-	loop := NewLoop(db, runnerFn(nil), LoopConfig{Deliver: dl, MaxOutboundRetry: maxAttempts})
+	loop := NewLoop(db, runnerFn(nil), LoopConfig{Deliver: dl})
 
 	now := time.Now().UTC()
 	_ = db.PutOutbound(core.Message{ID: "flaky", ChatJID: "slack:T/C/U", Sender: "demo",
@@ -105,7 +105,7 @@ func TestOutboundTransientFailureDeadLettersAtCap(t *testing.T) {
 		core.MessageStatusPending)
 
 	for i := 1; i <= maxAttempts; i++ {
-		sweepNow(loop, now.Add(time.Duration(i)*time.Minute))
+		sweepNow(loop, now.Add(time.Duration(i)*time.Hour))
 		if n := attemptsOf(t, db, "flaky"); n != i {
 			t.Fatalf("after sweep %d: delivery_attempts=%d want %d", i, n, i)
 		}
@@ -119,7 +119,7 @@ func TestOutboundTransientFailureDeadLettersAtCap(t *testing.T) {
 	}
 
 	// Past the cap the sweep must not touch the row again.
-	sweepNow(loop, now.Add(time.Hour))
+	sweepNow(loop, now.Add(11*time.Hour))
 	if len(dl.sends) != maxAttempts {
 		t.Fatalf("sweep attempted %d sends, want %d — the cap must stop the retries", len(dl.sends), maxAttempts)
 	}
@@ -138,7 +138,7 @@ func TestOutboundRetrySucceedsBeforeCap(t *testing.T) {
 	}
 	defer db.Close()
 	dl := &recDeliverer{failSend: true}
-	loop := NewLoop(db, runnerFn(nil), LoopConfig{Deliver: dl, MaxOutboundRetry: 5})
+	loop := NewLoop(db, runnerFn(nil), LoopConfig{Deliver: dl})
 
 	now := time.Now().UTC()
 	_ = db.PutOutbound(core.Message{ID: "recovers", ChatJID: "slack:T/C/U", Sender: "demo",
@@ -186,7 +186,7 @@ func TestExistingPendingRowKeepsFullBudget(t *testing.T) {
 	}
 
 	dl := &recDeliverer{failSend: true}
-	loop := NewLoop(db, runnerFn(nil), LoopConfig{Deliver: dl, MaxOutboundRetry: 10})
+	loop := NewLoop(db, runnerFn(nil), LoopConfig{Deliver: dl})
 	sweepNow(loop, time.Now().UTC())
 
 	if st := statusOf(t, db, "legacy"); st != core.MessageStatusPending {

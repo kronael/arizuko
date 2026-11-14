@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/retry"
 	"github.com/kronael/arizuko/routd"
 	"github.com/kronael/arizuko/store"
 )
@@ -106,8 +107,8 @@ func TestMessagesRoundTripEveryColumn(t *testing.T) {
 
 	dying := core.Message{ID: full.ID, ChatJID: full.ChatJID,
 		Timestamp: mustInstant(t, full.Timestamp)}
-	for range 2 {
-		if _, _, err := srcSt.RecordDeliveryFailure(context.Background(), dying, 2); err != nil {
+	for range 10 {
+		if _, _, err := srcSt.RecordDeliveryFailure(context.Background(), dying, retry.Failure{Kind: "transient"}); err != nil {
 			t.Fatalf("record a delivery failure: %v", err)
 		}
 	}
@@ -154,8 +155,11 @@ func TestMessagesRoundTripEveryColumn(t *testing.T) {
 	if len(dead) != 1 {
 		t.Fatalf("%d dead letters restored, want 1", len(dead))
 	}
-	if dead[0].Attempts != 2 {
-		t.Errorf("the restored dead letter reports %d attempts, want the 2 it cost",
+	if dead[0].Notice != retry.Notice("Delivery failed", retry.Decision{Stop: true}) {
+		t.Fatalf("restored notice = %q", dead[0].Notice)
+	}
+	if dead[0].Attempts != 10 {
+		t.Errorf("the restored dead letter reports %d attempts, want the 10 it cost",
 			dead[0].Attempts)
 	}
 }

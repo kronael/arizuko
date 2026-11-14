@@ -333,7 +333,7 @@ func (l *Loop) retryProgress(now time.Time, pending store.PendingMessage) bool {
 	if now.Before(current.NextAttemptAt) {
 		return true
 	}
-	if err := executeStatus(l.db, l.deliver, current, l.maxOutboundRetry); err != nil {
+	if err := executeStatus(l.db, l.deliver, current); err != nil {
 		slog.Warn("retry status delivery", "err", err)
 	}
 	return true
@@ -498,10 +498,10 @@ func flushStatus(db *DB, dl Deliverer, row core.Message) error {
 	if err != nil || !ok {
 		return err
 	}
-	return executeStatus(db, dl, pending, defaultMaxOutboundRetry)
+	return executeStatus(db, dl, pending)
 }
 
-func executeStatus(db *DB, dl Deliverer, pending store.PendingMessage, maxAttempts int) error {
+func executeStatus(db *DB, dl Deliverer, pending store.PendingMessage) error {
 	row := pending.Message
 	pid := ""
 	var err error
@@ -528,8 +528,7 @@ func executeStatus(db *DB, dl Deliverer, pending store.PendingMessage, maxAttemp
 	if err == nil {
 		return db.MarkDelivered(row, pid)
 	}
-	permanent := errors.Is(err, chanlib.ErrPermanent) || errors.Is(err, chanlib.ErrUnsupported) || errors.Is(err, chanlib.ErrInvalidRequest)
-	if saveErr := db.store().FailStatus(context.Background(), pending, permanent, maxAttempts); saveErr != nil {
+	if saveErr := db.store().FailStatus(context.Background(), pending, deliveryFailure(err)); saveErr != nil {
 		return saveErr
 	}
 	return err

@@ -8,6 +8,7 @@ import (
 
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/objstore"
+	"github.com/kronael/arizuko/retry"
 )
 
 func TestMessageWorkReadsOnlyItsKeys(t *testing.T) {
@@ -64,7 +65,7 @@ func TestDeliveryUsesClampedMessageCoordinate(t *testing.T) {
 	if err := s.PutOutbound(t.Context(), m, core.MessageStatusPending); err != nil {
 		t.Fatal(err)
 	}
-	if n, dead, err := s.RecordDeliveryFailure(t.Context(), m, 10); err != nil || dead || n != 1 {
+	if n, dead, err := s.RecordDeliveryFailure(t.Context(), m, retry.Failure{Kind: "transient"}); err != nil || dead || n != 1 {
 		t.Fatalf("clamped delivery lost: %d %v %v", n, dead, err)
 	}
 	if err := s.MarkDelivered(t.Context(), m, "accepted"); err != nil {
@@ -103,7 +104,7 @@ func TestMessageIndexMigrationPreservesLegacyRows(t *testing.T) {
 		}
 	}
 	c := &stateReadCounter{Store: s.obj}
-	if err := NewOver(c).MigrateStateIndexes(t.Context()); err != nil || c.rows != 11 {
+	if err := NewOver(c).MigrateStateIndexes(t.Context()); err != nil || c.rows != 12 {
 		t.Fatalf("repeat migration: %v rows=%d", err, c.rows)
 	}
 }

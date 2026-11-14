@@ -74,6 +74,9 @@ func (stateIndexes) Keys(entity string, it objstore.Item) []objstore.Key {
 			return nil
 		}
 		due, _ := deliveryDueAt(it)
+		if it.Attrs["next_attempt_at"] == "" {
+			due, _ = legacyDeliveryDueAt(it)
+		}
 		if expires, err := time.Parse(time.RFC3339Nano, it.Attrs["expires_at"]); err == nil && expires.Before(due) {
 			due = expires
 		}
@@ -101,6 +104,9 @@ func (s *Store) MigrateStateIndexes(ctx context.Context) error {
 	if err := objstore.Reindex(ctx, s.Obj(), "turns-v1", []objstore.Query{
 		{Entity: TurnContexts, Partition: OwnerRoutd}, {Entity: TurnArchive, Partition: OwnerRoutd},
 	}); err != nil {
+		return err
+	}
+	if err := s.migrateOutboundRetry(ctx); err != nil {
 		return err
 	}
 	if err := objstore.Reindex(ctx, s.Obj(), "outbound-v1", []objstore.Query{{Entity: MessageDelivery, Partition: core.MessageStatusPending}}); err != nil {
@@ -247,4 +253,41 @@ func (s *Store) migrateACLWildcard(ctx context.Context) error {
 		return err
 	}
 	return objstore.Reindex(ctx, s.Obj(), marker.Sort, []objstore.Query{q})
+}
+
+func (s *Store) migrateOutboundRetry(ctx context.Context) error {
+	marker := objstore.Key{Partition: "migrations", Sort: "outbound-retry-v1"}
+	_, done, err := s.itemAt(ctx, objstore.IndexEntity, marker)
+	if err != nil || done {
+		return err
+	}
+	rows, err := s.Obj().Query(ctx, objstore.Query{Entity: MessageDelivery, Partition: core.MessageStatusPending})
+	if err != nil {
+		return err
+	}
+	for _, row := range rows {
+		if row.Attrs["next_attempt_at"] != "" {
+			continue
+		}
+		due, err := legacyDeliveryDueAt(row)
+		if err != nil {
+			return err
+		}
+		cond := objstore.Cond{Item: objstore.ItemPresent, Where: []objstore.Cmp{attrIs(objstore.IndexRevision, row.Attrs[objstore.IndexRevision]), {Attr: "next_attempt_at", Op: objstore.Absent}}}
+		ok, err := s.TryWriteEntities(ctx, nil, objstore.Write{Op: objstore.Update, Entity: MessageDelivery, Key: row.Key, Attrs: map[string]string{"next_attempt_at": core.TS(due)}, Cond: cond})
+		if err != nil {
+			return err
+		}
+		if !ok {
+			current, exists, err := s.itemAt(ctx, MessageDelivery, row.Key)
+			if err != nil {
+				return err
+			}
+			if exists && current.Attrs["next_attempt_at"] == "" {
+				return fmt.Errorf("outbound retry migration conflict: %s", row.Key.Sort)
+			}
+		}
+	}
+	_, err = s.TryWriteEntities(ctx, nil, objstore.Write{Op: objstore.Put, Entity: objstore.IndexEntity, Key: marker, Attrs: map[string]string{"done": "1"}, Cond: objstore.Cond{Item: objstore.ItemAbsent}})
+	return err
 }

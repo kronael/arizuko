@@ -9,6 +9,7 @@ import (
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/objstore"
+	"github.com/kronael/arizuko/retry"
 )
 
 // The attributes a delivery item carries: the pointer, and the attempt count.
@@ -47,6 +48,7 @@ type PendingMessage struct {
 	QueuedAt      time.Time
 	NextAttemptAt time.Time
 	ExpiresAt     time.Time
+	Notice        string
 }
 
 // PutOutbound appends one outbound row and the delivery state it owes. A door
@@ -113,7 +115,7 @@ func (s *Store) pendingFrom(ctx context.Context, items []objstore.Item) ([]Pendi
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, PendingMessage{ExpiresAt: expires, Message: m, Attempts: n, Operation: it.Attrs["operation"], QueuedAt: deliveryQueuedAt(it, m), NextAttemptAt: due})
+		out = append(out, PendingMessage{ExpiresAt: expires, Notice: it.Attrs["last_error"], Message: m, Attempts: n, Operation: it.Attrs["operation"], QueuedAt: deliveryQueuedAt(it, m), NextAttemptAt: due})
 	}
 	return out, nil
 }
@@ -168,6 +170,7 @@ func (s *Store) DeadLetter(ctx context.Context, m core.Message, attempts int) er
 		return err
 	}
 	attrs := current.Attrs
+	attrs["last_error"] = retry.Notice("Delivery failed", retry.Decision{Stop: true})
 	if attempts > 0 {
 		attrs[attrDelAttempts] = strconv.Itoa(attempts)
 	}
@@ -182,7 +185,7 @@ func (s *Store) DeadLetter(ctx context.Context, m core.Message, attempts int) er
 }
 
 func (s *Store) RecordDeliveryFailure(ctx context.Context, m core.Message,
-	maxAttempts int) (int, bool, error) {
+	failure retry.Failure) (int, bool, error) {
 	key, err := s.deliveryMessageKey(ctx, m)
 	if err != nil {
 		return 0, false, err
@@ -197,11 +200,21 @@ func (s *Store) RecordDeliveryFailure(ctx context.Context, m core.Message,
 		if err != nil {
 			return 0, false, err
 		}
-		n++
+		expiry, err := deliveryExpiry(it)
+		if err != nil {
+			return 0, false, err
+		}
+		decision := retry.Next(n, failure, time.Now(), expiry)
+		n = decision.Failures
 		cond := objstore.Cond{Item: objstore.ItemPresent, Where: []objstore.Cmp{attrIs(attrDelAttempts, it.Attrs[attrDelAttempts])}}
-		attrs := map[string]string{attrDelAttempts: strconv.Itoa(n), "next_attempt_at": core.TS(time.Now().Add(DeliveryBackoff(n)))}
+		attrs := map[string]string{attrDelAttempts: strconv.Itoa(n)}
+		if !decision.Stop {
+			attrs["next_attempt_at"] = core.TS(decision.NextAt)
+		} else {
+			attrs["last_error"] = retry.Notice("Delivery failed", decision)
+		}
 		writes := []objstore.Write{{Op: objstore.Update, Entity: MessageDelivery, Key: pending, Attrs: attrs, Cond: cond}}
-		dead := n >= maxAttempts
+		dead := decision.Stop
 		if dead {
 			for k, v := range it.Attrs {
 				if _, changed := attrs[k]; !changed {
@@ -258,15 +271,18 @@ func (s *Store) DeadLetters(ctx context.Context, folder string, limit int) ([]Pe
 		if err != nil {
 			return nil, fmt.Errorf("%s's attempt count: %w", it.Key.Sort, err)
 		}
-		due, err := deliveryDueAt(it)
-		if err != nil {
-			return nil, err
+		var due time.Time
+		if it.Attrs["next_attempt_at"] != "" {
+			due, err = deliveryDueAt(it)
+			if err != nil {
+				return nil, err
+			}
 		}
 		expires, err := deliveryExpiry(it)
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, PendingMessage{ExpiresAt: expires, Message: m, Attempts: n, Operation: it.Attrs["operation"], QueuedAt: deliveryQueuedAt(it, m), NextAttemptAt: due})
+		out = append(out, PendingMessage{ExpiresAt: expires, Notice: it.Attrs["last_error"], Message: m, Attempts: n, Operation: it.Attrs["operation"], QueuedAt: deliveryQueuedAt(it, m), NextAttemptAt: due})
 	}
 	return out, nil
 }
@@ -347,10 +363,10 @@ func (s *Store) CountPendingOutbound(ctx context.Context) (int, error) {
 }
 
 func statusDeliveryAttrs(m core.Message) map[string]string {
-	attrs := map[string]string{attrDelChatJID: m.ChatJID, "next_attempt_at": core.TS(m.Timestamp.Add(DeliveryBackoff(0)))}
+	attrs := map[string]string{attrDelChatJID: m.ChatJID, "next_attempt_at": core.TS(retry.Next(0, retry.Failure{Kind: "transient"}, m.Timestamp, time.Time{}).NextAt)}
 	if m.StatusRevision > 0 {
 		attrs["queued_at"] = core.TS(time.Now())
-		attrs["next_attempt_at"] = core.TS(time.Now().Add(DeliveryBackoff(0)))
+		attrs["next_attempt_at"] = core.TS(retry.Next(0, retry.Failure{Kind: "transient"}, time.Now(), time.Time{}).NextAt)
 		attrs["revision"] = strconv.Itoa(m.StatusRevision)
 		switch {
 		case m.StatusPhase == "cleared":
@@ -445,21 +461,26 @@ func (s *Store) ackStatus(ctx context.Context, m core.Message, platformID string
 }
 
 // FailStatus counts only the attempted revision and retains the operation on dead letters.
-func (s *Store) FailStatus(ctx context.Context, pending PendingMessage, permanent bool, maxAttempts int) error {
+func (s *Store) FailStatus(ctx context.Context, pending PendingMessage, failure retry.Failure) error {
 	key, err := s.deliveryMessageKey(ctx, pending.Message)
 	if err != nil {
 		return err
 	}
-	n := pending.Attempts + 1
+	decision := retry.Next(pending.Attempts, failure, time.Now(), pending.ExpiresAt)
 	attrs := statusDeliveryAttrs(pending.Message)
-	attrs[attrDelAttempts] = strconv.Itoa(n)
-	attrs["next_attempt_at"] = core.TS(time.Now().Add(DeliveryBackoff(n)))
-	if permanent {
-		delete(attrs, attrDelAttempts)
+	attrs[attrDelAttempts] = strconv.Itoa(decision.Failures)
+	if decision.Stop {
+		delete(attrs, "next_attempt_at")
+		attrs["last_error"] = retry.Notice("Delivery failed", decision)
+	} else {
+		attrs["next_attempt_at"] = core.TS(decision.NextAt)
+	}
+	if !pending.ExpiresAt.IsZero() {
+		attrs["expires_at"] = core.TS(pending.ExpiresAt)
 	}
 	attrs["queued_at"] = core.TS(pending.QueuedAt)
 	target := core.MessageStatusPending
-	if permanent || n >= maxAttempts {
+	if decision.Stop {
 		target = core.MessageStatusFailed
 	}
 	cond := objstore.Cond{Item: objstore.ItemPresent, Where: []objstore.Cmp{{Attr: "revision", Op: objstore.Eq, Value: strconv.Itoa(pending.StatusRevision)}}}
@@ -507,21 +528,11 @@ func (s *Store) PendingDelivery(ctx context.Context, m core.Message) (PendingMes
 	return rows[0], true, nil
 }
 
-func DeliveryBackoff(attempts int) time.Duration {
-	delay := 30 * time.Second
-	for range attempts {
-		delay = min(delay*2, time.Hour)
-		if delay == time.Hour {
-			break
-		}
-	}
-	return delay
+func deliveryDueAt(it objstore.Item) (time.Time, error) {
+	return time.Parse(time.RFC3339Nano, it.Attrs["next_attempt_at"])
 }
 
-func deliveryDueAt(it objstore.Item) (time.Time, error) {
-	if value := it.Attrs["next_attempt_at"]; value != "" {
-		return time.Parse(time.RFC3339Nano, value)
-	}
+func legacyDeliveryDueAt(it objstore.Item) (time.Time, error) {
 	stamp, _, _ := MsgCoord(it.Key.Sort)
 	if queued := it.Attrs["queued_at"]; queued != "" {
 		stamp = queued
@@ -534,7 +545,14 @@ func deliveryDueAt(it objstore.Item) (time.Time, error) {
 	if err != nil {
 		return time.Time{}, err
 	}
-	return at.Add(DeliveryBackoff(n)), nil
+	delay := 30 * time.Second
+	for range n {
+		delay = min(delay*2, time.Hour)
+		if delay == time.Hour {
+			break
+		}
+	}
+	return at.Add(delay), nil
 }
 
 func (s *Store) deliveryMessageKey(ctx context.Context, m core.Message) (objstore.Key, error) {

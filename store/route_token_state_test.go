@@ -47,7 +47,7 @@ func TestRouteTokenStateMigrationRunsOnce(t *testing.T) {
 		t.Fatalf("target %s %v", got, err)
 	}
 	c := &stateReadCounter{Store: s.Obj()}
-	if err := NewOver(c).MigrateStateIndexes(t.Context()); err != nil || c.rows != 11 {
+	if err := NewOver(c).MigrateStateIndexes(t.Context()); err != nil || c.rows != 12 {
 		t.Fatalf("repeat rows=%d err=%v", c.rows, err)
 	}
 }

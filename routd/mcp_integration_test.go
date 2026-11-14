@@ -205,7 +205,7 @@ func TestMCPReplyRetryReusesIdempotencyKey(t *testing.T) {
 			pending[0].ID, firstKey)
 	}
 
-	loop := NewLoop(db, runnerFn(nil), LoopConfig{Deliver: deliver, MaxOutboundRetry: 10})
+	loop := NewLoop(db, runnerFn(nil), LoopConfig{Deliver: deliver})
 	sweepNow(loop, time.Now().Add(2*time.Minute))
 
 	sends = deliver.sentMsgs()

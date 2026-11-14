@@ -20,6 +20,7 @@ import (
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/ipc"
+	"github.com/kronael/arizuko/retry"
 )
 
 // deadLetterFixture seeds two tenants plus a child folder, and one
@@ -182,9 +183,11 @@ func TestReplayDeadLetterRequeuesForTheExistingSweep(t *testing.T) {
 	// Spend the row's whole budget so it dead-letters with attempts on it: a
 	// replay that kept them would die again on its first retry.
 	owed := msgs["still-pending-hq"]
-	n, died, err := db.RecordDeliveryFailure(owed, 1)
-	if err != nil || !died || n != 1 {
-		t.Fatalf("seed attempts: n=%d died=%v err=%v", n, died, err)
+	for i := 1; i <= 10; i++ {
+		n, died, err := db.RecordDeliveryFailure(owed, retry.Failure{Kind: "transient"})
+		if err != nil || died != (i == 10) || n != i {
+			t.Fatalf("seed attempts: n=%d died=%v err=%v", n, died, err)
+		}
 	}
 	moved, err := db.ReplayDeadLetter(owed)
 	if err != nil || !moved {

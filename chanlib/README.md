@@ -54,7 +54,7 @@ cares about message order on a socket.
   adapters hold none. The adapter's 200 on `/send` is the acknowledgement.
   The row's stable id travels as `idempotency_key` into the adapter's
   durable ledger, so a re-send after a lost response posts nothing twice.
-  Retries run out at `MAX_OUTBOUND_RETRY`; the row then becomes `failed`,
+  Retries stop after ten failures; the row then becomes `failed`,
   the dead letter.
 - **Inbound has no adapter queue unless the platform forgets.** A
   cursor-gated adapter (teled, emaid) leaves the

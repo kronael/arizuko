@@ -77,7 +77,7 @@ func TestStateIndexMigrationRunsOnce(t *testing.T) {
 		t.Fatalf("migration lost work: %v %v", tasks, err)
 	}
 	c := &stateReadCounter{Store: s.obj}
-	if err := NewOver(c).MigrateStateIndexes(ctx); err != nil || c.rows != 11 {
+	if err := NewOver(c).MigrateStateIndexes(ctx); err != nil || c.rows != 12 {
 		t.Fatalf("second migration: %v, read %d rows", err, c.rows)
 	}
 }

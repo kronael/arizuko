@@ -14,6 +14,7 @@ import (
 	"github.com/kronael/arizuko/auth/surrogate"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/objstore"
+	"github.com/kronael/arizuko/retry"
 	"github.com/kronael/arizuko/routd/msgsearch"
 	"github.com/kronael/arizuko/store"
 )
@@ -260,16 +261,14 @@ func (d *DB) MarkDelivered(m core.Message, platformID string) error {
 	return d.store().MarkDelivered(context.Background(), m, platformID)
 }
 
-// DeadLetter moves an outbound row to the terminal state. attempts=0 says the
-// platform refused it permanently; the cap says the retries ran out.
+// DeadLetter moves an outbound row to the terminal state with its failure count.
 func (d *DB) DeadLetter(m core.Message, attempts int) error {
 	return d.store().DeadLetter(context.Background(), m, attempts)
 }
 
-// RecordDeliveryFailure counts one transient delivery failure and dead-letters
-// the row when the count reaches maxAttempts.
-func (d *DB) RecordDeliveryFailure(m core.Message, maxAttempts int) (int, bool, error) {
-	return d.store().RecordDeliveryFailure(context.Background(), m, maxAttempts)
+// RecordDeliveryFailure records one failure and its retry decision.
+func (d *DB) RecordDeliveryFailure(m core.Message, failure retry.Failure) (int, bool, error) {
+	return d.store().RecordDeliveryFailure(context.Background(), m, failure)
 }
 
 // PendingOutbound returns the bot rows still owed a delivery at or before

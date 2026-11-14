@@ -1,9 +1,3 @@
-// L22: the retry sweep used a flat 30s-forever cadence, so a row with
-// MAX_OUTBOUND_RETRY=10 dead-lettered ~5 minutes after its first failure —
-// too short for the outages that actually happen (a whapd reconnect, an
-// adapter container restart). backoffDelay grows the gap with the row's own
-// delivery_attempts instead of retrying every row on the same fixed clock.
-
 package routd
 
 import (
@@ -11,31 +5,9 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/core"
-	"github.com/kronael/arizuko/store"
+	"github.com/kronael/arizuko/retry"
 )
 
-func TestBackoffDelayGrowsAndCaps(t *testing.T) {
-	cases := []struct {
-		attempts int
-		want     time.Duration
-	}{
-		{0, 30 * time.Second},
-		{1, 60 * time.Second},
-		{2, 120 * time.Second},
-		{3, 240 * time.Second},
-		{7, time.Hour},  // uncapped would be 3840s; capped at maxOutboundBackoff
-		{20, time.Hour}, // stays capped, never overflows
-	}
-	for _, c := range cases {
-		if got := store.DeliveryBackoff(c.attempts); got != c.want {
-			t.Errorf("backoffDelay(%d) = %v, want %v", c.attempts, got, c.want)
-		}
-	}
-}
-
-// TestOutboundRetryHonorsPerRowBackoff is the sweep-level assertion: a row
-// that already failed once must wait backoffDelay(1)=60s, not the flat 30s
-// every other pending row gets on its first attempt.
 func TestOutboundRetryHonorsPerRowBackoff(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
@@ -51,11 +23,11 @@ func TestOutboundRetryHonorsPerRowBackoff(t *testing.T) {
 	if err := db.PutOutbound(owed, core.MessageStatusPending); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := db.RecordDeliveryFailure(owed, 10); err != nil {
+	if _, _, err := db.RecordDeliveryFailure(owed, retry.Failure{Kind: "transient"}); err != nil {
 		t.Fatal(err)
 	}
 
-	// 45s elapsed, backoffDelay(1)=60s: not due yet.
+	// The deadline is still in the future.
 	loop.nextRetryAt = now.Add(-time.Second)
 	loop.maybeRetryOutbound(now)
 	if len(dl.sends) != 0 {
@@ -65,8 +37,8 @@ func TestOutboundRetryHonorsPerRowBackoff(t *testing.T) {
 		t.Fatalf("status=%q want still pending", st)
 	}
 
-	// A full minute has passed since the failure, so the sweep retries it.
-	later := now.Add(61 * time.Second)
+	// The sweep retries the row after its deadline.
+	later := now.Add(31 * time.Second)
 	loop.nextRetryAt = later.Add(-time.Second)
 	loop.maybeRetryOutbound(later)
 	if len(dl.sends) != 1 || dl.sends[0].idem != "once-failed" {

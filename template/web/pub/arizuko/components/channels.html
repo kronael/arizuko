@@ -90,7 +90,7 @@
 </dl>
 
 <h2>An adapter never posts the same message twice</h2>
-<p><code>routd</code> writes an outbound row as <code>pending</code>, gives it to the adapter, and marks it <code>sent</code> when the adapter answers. If no answer arrives, the row stays <code>pending</code>, and a sweep every 30 seconds gives it to the adapter again. <code>MAX_OUTBOUND_RETRY</code>, 10 by default, limits the attempts, and then the row goes to the dead letters. So an adapter can see the same message more than once by design, and it must not post it twice.</p>
+<p><code>routd</code> writes an outbound row as <code>pending</code>, gives it to the adapter, and marks it <code>sent</code> when the adapter answers. If no answer arrives, the row stays <code>pending</code>, and a sweep every 30 seconds gives it to the adapter again. Ten failures stop the retries, and then the row goes to the dead letters. So an adapter can see the same message more than once by design, and it must not post it twice.</p>
 
 <p>Each send carries an <code>idempotency_key</code>: the stable id of the outbound row. Before the adapter calls the platform, it claims that key in its own table. After the post lands, it settles the claim with the message id from the platform. A repeat of a settled key returns the recorded id and calls nothing.</p>
 

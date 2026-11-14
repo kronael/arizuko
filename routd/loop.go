@@ -15,6 +15,7 @@ import (
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
+	"github.com/kronael/arizuko/retry"
 	"github.com/kronael/arizuko/router"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 	"github.com/kronael/arizuko/store"
@@ -84,8 +85,6 @@ type Loop struct {
 	onboardingPlatforms []string
 
 	maxTurnRetry int
-
-	maxOutboundRetry int
 }
 
 // SetOnbodClient wires the onbod federation for the /invite + /gate commands.
@@ -141,10 +140,6 @@ type LoopConfig struct {
 	// MaxTurnRetry bounds retries of a turn that fails without a reply
 	// (SIGKILL/OOM/timeout). Default 3.
 	MaxTurnRetry int
-
-	// MaxOutboundRetry bounds the transient delivery failures a pending bot
-	// row absorbs before dead-letter. Default 10; -1 dead-letters on the first.
-	MaxOutboundRetry int
 }
 
 // NewLoop builds the Loop and its per-folder queue; folder-for-jid maps a
@@ -169,12 +164,6 @@ func NewLoop(db *DB, runner Runner, cfg LoopConfig) *Loop {
 		slog.Warn("MAX_TURN_RETRY capped at three", "configured", maxRetry)
 		maxRetry = 3
 	}
-	maxOutRetry := cfg.MaxOutboundRetry
-	if maxOutRetry < 0 {
-		maxOutRetry = 1
-	} else if maxOutRetry == 0 {
-		maxOutRetry = defaultMaxOutboundRetry
-	}
 	l := &Loop{
 		db:              db,
 		done:            make(chan struct{}),
@@ -196,7 +185,6 @@ func NewLoop(db *DB, runner Runner, cfg LoopConfig) *Loop {
 		onboardingPlatforms: cfg.OnboardingPlatforms,
 		maxTurnRetry:        maxRetry,
 		engagementTTL:       cfg.EngagementTTL,
-		maxOutboundRetry:    maxOutRetry,
 	}
 	l.q = newTurnControl(cfg.MaxAgents)
 	l.q.SetProcessMessagesFn(l.processGroupMessages)
@@ -320,15 +308,9 @@ const (
 
 	turnsEvery = 30 * time.Second
 	gcEvery    = time.Hour
-
-	defaultMaxOutboundRetry = 10
 )
 
-// maybeRetryOutbound re-dispatches bot rows that still owe a delivery, each
-// selected by its due key; the adapter dedups on message_id. A permanent
-// refusal dead-letters at once and spends no attempt; a transient failure
-// spends one. There is no outright age bound: one killed a row the sweep had
-// never tried, losing a message no platform refused.
+// maybeRetryOutbound retries due rows; adapters deduplicate on message ID.
 func (l *Loop) maybeRetryOutbound(now time.Time) {
 	if l.deliver == nil || now.Before(l.nextRetryAt) {
 		return
@@ -375,25 +357,17 @@ func (l *Loop) retryOutbound(now time.Time, p store.PendingMessage) {
 		if err := l.db.MarkDelivered(m, pid); err != nil {
 			slog.Error("retry outbound: mark sent", "id", m.ID, "err", err)
 		}
-	case errors.Is(derr, chanlib.ErrPermanent):
-		if err := l.db.DeadLetter(m, 0); err != nil {
-			slog.Error("retry outbound: dead-letter", "id", m.ID, "err", err)
-		}
-		slog.Error("outbound dead-lettered: platform refused the message",
-			"id", m.ID, "jid", m.ChatJID, "err", derr)
 	default:
-		attempts, dead, err := l.db.RecordDeliveryFailure(m, l.maxOutboundRetry)
+		failure := deliveryFailure(derr)
+		attempts, dead, err := l.db.RecordDeliveryFailure(m, failure)
 		if err != nil {
 			slog.Error("retry outbound: count attempt", "id", m.ID, "err", err)
 			return
 		}
 		if dead {
-			slog.Error("outbound dead-lettered: retries exhausted",
-				"id", m.ID, "jid", m.ChatJID, "attempts", attempts, "err", derr)
+			slog.Error(retry.Notice("Delivery failed", retry.Decision{Stop: true}), "id", m.ID, "jid", m.ChatJID, "attempts", attempts, "err", derr)
 		} else {
-			slog.Warn("retry outbound: delivery failed",
-				"id", m.ID, "jid", m.ChatJID, "attempts", attempts,
-				"max", l.maxOutboundRetry, "err", derr)
+			slog.Warn("retry outbound: delivery failed", "id", m.ID, "jid", m.ChatJID, "attempts", attempts, "err", derr)
 		}
 	}
 }
@@ -784,4 +758,17 @@ func onboardingAllowed(jid string, platforms []string) bool {
 	}
 	p, _, _ := strings.Cut(jid, ":")
 	return slices.Contains(platforms, p)
+}
+
+func deliveryFailure(err error) retry.Failure {
+	if errors.Is(err, chanlib.ErrPermanent) || errors.Is(err, chanlib.ErrUnsupported) || errors.Is(err, chanlib.ErrInvalidRequest) {
+		return retry.Failure{Kind: "permanent"}
+	}
+	if errors.Is(err, context.Canceled) {
+		return retry.Failure{Kind: "canceled"}
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return retry.Failure{Kind: "timeout"}
+	}
+	return retry.Failure{Kind: "transient"}
 }

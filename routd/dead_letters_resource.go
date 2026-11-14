@@ -1,14 +1,5 @@
 package routd
 
-// dead_letters_resource.go publishes routd's dead-lettered outbound on both
-// faces (BUGS L23). It adds NO state: 'failed' is the dead-letter state, the
-// row stays in `messages`, and `delivery_attempts` separates the causes (0:
-// refused; the cap: retries ran out). Replay flips the row back to 'pending',
-// which PendingOutbound selects, so the EXISTING sweep sends it — no second
-// delivery path. Containment is by `routed_to`, resolved in the handler
-// because it bounds ROWS, not the call; on the agent socket a missing folder
-// is refused outright, on REST the Gate already proved instance-wide authority.
-
 import (
 	"context"
 	"net/http"
@@ -101,7 +92,7 @@ func (s *Server) deadLettersHandler(_ context.Context, x resreg.Execution) (any,
 				ID: m.ID, ChatJID: m.ChatJID, Content: m.Content,
 				Timestamp: m.Timestamp.UTC().Format(time.RFC3339Nano),
 				Topic:     m.Topic, RoutedTo: m.RoutedTo, Source: m.Source,
-				TurnID: m.TurnID, DeliveryAttempts: m.Attempts,
+				TurnID: m.TurnID, DeliveryAttempts: m.Attempts, Notice: m.Notice,
 			}
 		}
 		return rows, nil

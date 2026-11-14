@@ -7,6 +7,7 @@ import (
 
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/objstore"
+	"github.com/kronael/arizuko/retry"
 )
 
 func TestStatusDeliveryRevision(t *testing.T) {
@@ -41,16 +42,16 @@ func TestStatusDeliveryRevision(t *testing.T) {
 		t.Fatal(err)
 	}
 	edit := pending()
-	if err := s.FailStatus(ctx, edit, false, 3); err != nil {
+	if err := s.FailStatus(ctx, edit, retry.Failure{Kind: "transient"}); err != nil {
 		t.Fatal(err)
 	}
 	if got := pending(); got.Attempts != 1 || got.Operation != "edit" {
 		t.Fatalf("transient edit lost: %+v", got)
 	}
-	if err := s.FailStatus(ctx, pending(), false, 4); err != nil {
+	if err := s.FailStatus(ctx, pending(), retry.Failure{Kind: "transient"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.FailStatus(ctx, edit, false, 4); err != nil {
+	if err := s.FailStatus(ctx, edit, retry.Failure{Kind: "transient"}); err != nil {
 		t.Fatal(err)
 	}
 	if got := pending(); got.Attempts != 2 {
@@ -67,24 +68,24 @@ func TestStatusDeliveryRevision(t *testing.T) {
 	if deletion.Operation != "delete" || deletion.PlatformID != "platform" {
 		t.Fatalf("stale edit cleared delete: %+v", deletion)
 	}
-	if err := s.FailStatus(ctx, edit, true, 3); err != nil {
+	if err := s.FailStatus(ctx, edit, retry.Failure{Kind: "permanent"}); err != nil {
 		t.Fatal(err)
 	}
 	if got := pending(); got.Operation != "delete" {
 		t.Fatalf("stale failure replaced delete: %+v", got)
 	}
-	if err := s.FailStatus(ctx, deletion, true, 3); err != nil {
+	if err := s.FailStatus(ctx, deletion, retry.Failure{Kind: "permanent"}); err != nil {
 		t.Fatal(err)
 	}
 	dead, err := s.DeadLetters(ctx, "", 10)
-	if err != nil || len(dead) != 1 || dead[0].Operation != "delete" {
+	if err != nil || len(dead) != 1 || dead[0].Operation != "delete" || dead[0].Notice != retry.Notice("Delivery failed", retry.Decision{Stop: true}) {
 		t.Fatalf("dead letters=%+v err=%v", dead, err)
 	}
 	if ok, err := s.ReplayDeadLetter(ctx, deletion.Message); err != nil || !ok {
 		t.Fatalf("replay=%v %v", ok, err)
 	}
-	if got := pending(); got.Operation != "delete" {
-		t.Fatalf("replay lost operation: %+v", got)
+	if got := pending(); got.Operation != "delete" || got.Notice != "" || got.Attempts != 0 {
+		t.Fatalf("replay retained failure state or lost operation: %+v", got)
 	}
 	if err := s.MarkDelivered(ctx, deletion.Message, ""); err != nil {
 		t.Fatal(err)
