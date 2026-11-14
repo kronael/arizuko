@@ -201,10 +201,23 @@ group. Saved replay retains its binding. Expiry and runtime recovery do
 not treat a capacity wait as a guest. A matching breaker probe is rearmed without
 runtime teardown. Legacy empty run IDs do not prove a Busy result.
 
-Processing errors use the common decision with a process-lifetime failure count.
-Success resets the count. An already recorded wake takes priority over a timer;
-the timer only reenqueues the existing processor. Exhaustion leaves durable work
-for a later event or restart. Shutdown prevents new processing.
+Processing errors retain the common decision for the process lifetime. Routine
+checks honor its deadline and Stop, including checks received during processing.
+Confirmed new human input and explicit control changes clear the deadline and
+Stop without resetting the count. Only successful processing resets the count.
+A wake received during processing applies after its outcome. Existing timers
+compare their captured decision under the queue mutex before admission.
+Shutdown prevents admission through every path.
+
+`AppendMessage` returns the stored message, confirmed insertion and error.
+Duplicates and ambiguous writes do not prove insertion. If an ambiguous write
+commits, its duplicate cannot rearm stopped processing; durable input awaits
+later new input or restart. This is a process-lifetime consumer limit, not a
+second retry budget on each stored message. Control recovery has one consumer
+and one singleton work key. It remembers that work's existing generation before
+waking refused or in-flight candidates, then acknowledges the observation.
+A repeated failed acknowledgement cannot rearm processing again. Restart clears
+both the consumer decision and this remembered generation.
 
 ## Retry inventory
 
@@ -529,10 +542,17 @@ Its first failed fetch commits the deadline and due pointer atomically.
   names: [enrichAttachments, downloadFile, runBoundTurn, processChat]
   never: exposes uncommitted enrichment or spends a turn retry on attachment work
 - path: store/messages.go (changed)
-  job: resolve chat identities and turn work by key
+  job: resolve chat identities and report confirmed insertion from the guarded append
   names:
-    [MessageByID, ActiveProgress, LastStatusRow, TurnFrames, BotRepliesSince]
-  never: reinterprets a clamped timestamp as a stored coordinate
+    - MessageByID
+    - ActiveProgress
+    - LastStatusRow
+    - TurnFrames
+    - BotRepliesSince
+    - 'AppendMessage(m) (core.Message, bool, error)'
+    - 'putMessage(ctx, m, status, options) (core.Message, bool, error)'
+    - 'appendMessage(ctx, m, status, options) (core.Message, bool, bool, error)'
+  never: confuses the private CAS-retry result with confirmed insertion
 - path: cmd/arizuko/group_rename.go (changed)
   job: commit primary and derived pointer changes from guarded journal images
   names: [renameApplyBatch, renameSteps]
@@ -564,7 +584,13 @@ Its first failed fetch commits the deadline and due pointer atomically.
 - path: store/onboarding_state.go (new)
   job: schedule greetings, pairing acknowledgments, notices and gate admissions
   names:
-    [AdmitGate, PairingWork, ReadyOnboardingPrompts, ReadyOnboardingNotices]
+    [
+      AdmitGate,
+      PairingWork,
+      ReadyOnboardingPrompts,
+      ReadyOnboardingNotices,
+      QueuePairingGreeting,
+    ]
   never: consumes another generation's work
 - path: onbod/main.go (changed)
   job: consume due work and enqueue each generation durably
@@ -575,9 +601,9 @@ Its first failed fetch commits the deadline and due pointer atomically.
   names: [ExportMessagesJSONL, ImportMessagesJSONL]
   never: restores an expiring credential without its expiry
 - path: routd/db.go (changed)
-  job: migrate owner access paths before serving requests
-  names: [Open, Obj]
-  never: runs a migration on a periodic timer
+  job: migrate owner access paths and index the stored append result
+  names: [Open, Obj, 'AppendMessage(m) (core.Message, bool, error)', PutMessage]
+  never: reports an ambiguous write or a duplicate as confirmed insertion
 - path: resreg/entity.go (changed)
   job: preserve indexes during manifest replacement
   names: [On]
@@ -673,7 +699,7 @@ Its first failed fetch commits the deadline and due pointer atomically.
     ]
   never: changes a newer execution attempt
 - path: routd/turn_control.go (changed)
-  job: claim capacity waits, reconcile runs and classify execution failures
+  job: claim capacity waits and admit processing through the retained retry decision
   names:
     [
       savePending,
@@ -685,8 +711,33 @@ Its first failed fetch commits the deadline and due pointer atomically.
       classifyTurn,
       complete,
       refuse,
+      groupState.processRetry,
+      turnControl.controlWakeGeneration,
+      'EnqueueMessageCheck(groupJid, wake)',
+      'wakeRefused(generation)',
+      drainWaitingLocked,
     ]
-  never: treats an occupied folder as abandoned
+  never: lets maintenance, stale timers or repeated control generations rearm a stopped episode
+- path: routd/process_retry_test.go and routd/control_work_test.go (changed)
+  job: measure maintenance, active wakes, stale timers, count retention and control acknowledgement failures
+  names:
+    [
+      TestProcessRetryMaintenanceCannotRearm,
+      TestControlWakeRetainsInFlightCandidate,
+    ]
+  never: replaces actual saved-input replay or ingress with only a queue stub
+- path: store/messages_test.go and store/message_index_test.go (changed)
+  job: distinguish insertion from duplicate and concurrent guarded refusal
+  names: [AppendMessage]
+  never: treats an ambiguous committed write as confirmed insertion
+- path: routd/server.go and routd/mcp.go (changed)
+  job: wake processing only for confirmed insertion of human input
+  names: [ingest, putAgentMessage]
+  never: treats a duplicate or bot message as new input
+- path: routd/steer.go and routd/dispatch.go (changed)
+  job: identify explicit command, delegation and newer-input capacity wakes
+  names: [cmdRoot, cmdNew, handlePrefixLayer, delegate, WakeCapacityTurn]
+  never: wakes after a failed message write or unchanged capacity cursor
 - path: routd/turn_control_provider_test.go (changed)
   job: verify provider facts across callback, restart and completion
   names:
@@ -879,9 +930,16 @@ Its first failed fetch commits the deadline and due pointer atomically.
   names: [TestMutedFolderMCPText]
   never: substitutes a test-only sender for the MCP entrypoint
 - path: routd/loop.go (changed)
-  job: apply the source-folder send gate to due work selected by the store
-  names: [maybeRetryOutbound, retryOutbound]
-  never: computes a second retry schedule
+  job: distinguish genuine wakes from due-work checks and apply source-folder send gates
+  names:
+    [
+      maybeRetryOutbound,
+      retryOutbound,
+      'Enqueue(chatJID, wake)',
+      Run,
+      sweepChats,
+    ]
+  never: runs synchronous command processing for a maintenance check
 ```
 
 ## Atomic work keys
@@ -1279,6 +1337,8 @@ its current contract ends on quiet time rather than a turn completion event.
 
 ## Open questions
 
+- Can external Go callers accept the confirmed-insertion result added to
+  `Store.AppendMessage`? `PutMessage` retains its error-only signature.
 - Can external turn-callback clients accept a recorded terminal refusal for an
   unknown provider reason? The canonical classifier stops unknown failures.
 - Should external runed Go clients consume the added `APIError.RetryAfter` field?
