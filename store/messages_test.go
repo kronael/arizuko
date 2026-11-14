@@ -54,8 +54,8 @@ func TestAppendMessageLateRedeliveryBounded(t *testing.T) {
 	if !got.Timestamp.Equal(first.Timestamp) {
 		t.Errorf("redelivery instant = %s, want %s", got.Timestamp, first.Timestamp)
 	}
-	if reads.rows > 4 {
-		t.Fatalf("redelivery read %d rows, want at most four", reads.rows)
+	if reads.rows > 2 {
+		t.Fatalf("redelivery read %d rows, want at most two", reads.rows)
 	}
 	reads.rows = 0
 	if _, err := counted.AppendMessage(core.Message{

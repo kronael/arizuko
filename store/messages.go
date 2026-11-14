@@ -232,6 +232,13 @@ func (s *Store) appendMessage(ctx context.Context, m core.Message, status string
 		return m, false, fmt.Errorf("message %s in %s carries no instant, and the instant is half its "+
 			"position", m.ID, m.ChatJID)
 	}
+	if !options.exact {
+		if existing, ok, err := s.messageAt(ctx, m.ChatJID, m.ID); err != nil {
+			return m, false, err
+		} else if ok {
+			return messageFrom(existing), false, nil
+		}
+	}
 	chat, chatExists, err := s.chatItemVia(ctx, m.ChatJID)
 	if err != nil {
 		return m, false, err
@@ -322,12 +329,6 @@ func (s *Store) appendMessage(ctx context.Context, m core.Message, status string
 }
 
 func (s *Store) appendInstant(ctx context.Context, m core.Message) (time.Time, error) {
-	if it, exists, err := s.messageAt(ctx, m.ChatJID, m.ID); err != nil {
-		return time.Time{}, err
-	} else if exists {
-		at, _, _ := MsgCoord(it.Key.Sort)
-		return time.Parse(time.RFC3339Nano, at)
-	}
 	own := MsgStamp(core.TS(m.Timestamp), m.ID)
 	floor, err := s.newestMessageKey(ctx, m.ChatJID)
 	if err != nil {

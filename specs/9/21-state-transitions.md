@@ -388,6 +388,10 @@ creation/queued-time calculation; subsequent failures write explicit deadlines.
 
 ## Message and progress transitions
 
+An append resolves an existing message identity before reading chat state or
+preparing a write. Duplicate delivery returns the stored row without scheduling
+work again. New appends retain the observed chat-revision guard.
+
 Appending a message writes chat-scoped identity, platform/status aliases,
 turn/status or turn/reply pointers, and bot/source time pointers in the same
 batch. A delivery resolves the stored identity before changing its state, so
