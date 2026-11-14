@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"maps"
 	"strconv"
 	"time"
 
@@ -49,6 +50,7 @@ type PendingMessage struct {
 	NextAttemptAt time.Time
 	ExpiresAt     time.Time
 	Notice        string
+	observed      objstore.Item
 }
 
 // PutOutbound appends one outbound row and the delivery state it owes. A door
@@ -115,7 +117,7 @@ func (s *Store) pendingFrom(ctx context.Context, items []objstore.Item) ([]Pendi
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, PendingMessage{ExpiresAt: expires, Notice: it.Attrs["last_error"], Message: m, Attempts: n, Operation: it.Attrs["operation"], QueuedAt: deliveryQueuedAt(it, m), NextAttemptAt: due})
+		out = append(out, PendingMessage{ExpiresAt: expires, Notice: it.Attrs["last_error"], Message: m, Attempts: n, Operation: it.Attrs["operation"], QueuedAt: deliveryQueuedAt(it, m), NextAttemptAt: due, observed: it})
 	}
 	return out, nil
 }
@@ -157,79 +159,53 @@ func (s *Store) MarkDelivered(ctx context.Context, m core.Message, platformID st
 	return s.WriteEntities(ctx, nil, writes...)
 }
 
-// DeadLetter moves a row from the retry feed to the dead-letter set: the
-// terminal state, where no sweep sends it again and the row keeps its content
-// so the operator can read what was lost.
-func (s *Store) DeadLetter(ctx context.Context, m core.Message, attempts int) error {
-	key, err := s.deliveryMessageKey(ctx, m)
-	if err != nil {
-		return err
+// DeadLetter moves an observed delivery to the terminal state.
+func (s *Store) DeadLetter(ctx context.Context, pending PendingMessage, attempts int) error {
+	if attempts == 0 {
+		attempts = pending.Attempts
 	}
-	current, exists, err := s.itemAt(ctx, MessageDelivery, deliveryKey(core.MessageStatusPending, key))
-	if err != nil || !exists {
-		return err
-	}
-	attrs := current.Attrs
-	attrs["last_error"] = retry.Notice("Delivery failed", retry.Decision{Stop: true})
-	if attempts > 0 {
-		attrs[attrDelAttempts] = strconv.Itoa(attempts)
-	}
-	// A refused transition was acknowledged or replaced.
-	_, err = s.TryWriteEntities(ctx, nil,
-		objstore.Write{Op: objstore.Delete, Entity: MessageDelivery,
-			Key: deliveryKey(core.MessageStatusPending, key), Cond: objstore.Cond{Item: objstore.ItemPresent,
-				Where: []objstore.Cmp{attrIs(objstore.IndexRevision, current.Attrs[objstore.IndexRevision])}}},
-		objstore.Write{Op: objstore.Put, Entity: MessageDelivery,
-			Key: deliveryKey(core.MessageStatusFailed, key), Attrs: attrs})
+	_, err := s.transitionDelivery(ctx, pending, retry.Decision{Failures: attempts, Stop: true})
 	return err
 }
 
-func (s *Store) RecordDeliveryFailure(ctx context.Context, m core.Message,
+func (s *Store) RecordDeliveryFailure(ctx context.Context, pending PendingMessage,
 	failure retry.Failure) (int, bool, error) {
-	key, err := s.deliveryMessageKey(ctx, m)
-	if err != nil {
+	decision := retry.Next(pending.Attempts, failure, time.Now(), pending.ExpiresAt)
+	ok, err := s.transitionDelivery(ctx, pending, decision)
+	if !ok || err != nil {
 		return 0, false, err
 	}
-	pending := deliveryKey(core.MessageStatusPending, key)
-	for range retryRounds {
-		it, exists, err := s.itemAt(ctx, MessageDelivery, pending)
-		if err != nil || !exists {
-			return 0, false, err
-		}
-		n, err := parseCount(it.Attrs[attrDelAttempts])
-		if err != nil {
-			return 0, false, err
-		}
-		expiry, err := deliveryExpiry(it)
-		if err != nil {
-			return 0, false, err
-		}
-		decision := retry.Next(n, failure, time.Now(), expiry)
-		n = decision.Failures
-		cond := objstore.Cond{Item: objstore.ItemPresent, Where: []objstore.Cmp{attrIs(attrDelAttempts, it.Attrs[attrDelAttempts])}}
-		attrs := map[string]string{attrDelAttempts: strconv.Itoa(n)}
-		if !decision.Stop {
-			attrs["next_attempt_at"] = core.TS(decision.NextAt)
-		} else {
-			attrs["last_error"] = retry.Notice("Delivery failed", decision)
-		}
-		writes := []objstore.Write{{Op: objstore.Update, Entity: MessageDelivery, Key: pending, Attrs: attrs, Cond: cond}}
-		dead := decision.Stop
-		if dead {
-			for k, v := range it.Attrs {
-				if _, changed := attrs[k]; !changed {
-					attrs[k] = v
-				}
-			}
-			writes = []objstore.Write{{Op: objstore.Delete, Entity: MessageDelivery, Key: pending, Cond: cond},
-				{Op: objstore.Put, Entity: MessageDelivery, Key: deliveryKey(core.MessageStatusFailed, key), Attrs: attrs}}
-		}
-		ok, err := s.TryWriteEntities(ctx, nil, writes...)
-		if err != nil || ok {
-			return n, dead && ok, err
-		}
+	return decision.Failures, decision.Stop, nil
+}
+
+func (s *Store) transitionDelivery(ctx context.Context, pending PendingMessage, decision retry.Decision) (bool, error) {
+	it := pending.observed
+	attrs := maps.Clone(it.Attrs)
+	if attrs == nil {
+		return false, fmt.Errorf("delivery %s has no observed state", pending.ID)
 	}
-	return 0, false, fmt.Errorf("record delivery failure %s: too many concurrent changes", m.ID)
+	if decision.Failures > 0 {
+		attrs[attrDelAttempts] = strconv.Itoa(decision.Failures)
+	}
+	if decision.Stop {
+		delete(attrs, "next_attempt_at")
+		attrs["last_error"] = retry.Notice("Delivery failed", decision)
+	} else {
+		attrs["next_attempt_at"] = core.TS(decision.NextAt)
+		delete(attrs, "last_error")
+	}
+	cond := objstore.Cond{Item: objstore.ItemPresent, Where: []objstore.Cmp{attrIs(objstore.IndexRevision, it.Attrs[objstore.IndexRevision])}}
+	write := objstore.Write{Op: objstore.Update, Entity: MessageDelivery, Key: it.Key, Attrs: attrs, Remove: []string{"last_error"}, Cond: cond}
+	writes := []objstore.Write{write}
+	if decision.Stop {
+		writes[0] = objstore.Write{Op: objstore.Delete, Entity: MessageDelivery, Key: it.Key, Cond: cond}
+		write.Op = objstore.Put
+		write.Key.Partition = core.MessageStatusFailed
+		write.Remove = nil
+		write.Cond = objstore.Cond{}
+		writes = append(writes, write)
+	}
+	return s.TryWriteEntities(ctx, nil, writes...)
 }
 
 // DeadLetters answers the outbound rows routd gave up on, newest first,
@@ -282,7 +258,7 @@ func (s *Store) DeadLetters(ctx context.Context, folder string, limit int) ([]Pe
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, PendingMessage{ExpiresAt: expires, Notice: it.Attrs["last_error"], Message: m, Attempts: n, Operation: it.Attrs["operation"], QueuedAt: deliveryQueuedAt(it, m), NextAttemptAt: due})
+		out = append(out, PendingMessage{ExpiresAt: expires, Notice: it.Attrs["last_error"], Message: m, Attempts: n, Operation: it.Attrs["operation"], QueuedAt: deliveryQueuedAt(it, m), NextAttemptAt: due, observed: it})
 	}
 	return out, nil
 }
@@ -462,44 +438,7 @@ func (s *Store) ackStatus(ctx context.Context, m core.Message, platformID string
 
 // FailStatus counts only the attempted revision and retains the operation on dead letters.
 func (s *Store) FailStatus(ctx context.Context, pending PendingMessage, failure retry.Failure) error {
-	key, err := s.deliveryMessageKey(ctx, pending.Message)
-	if err != nil {
-		return err
-	}
-	decision := retry.Next(pending.Attempts, failure, time.Now(), pending.ExpiresAt)
-	attrs := statusDeliveryAttrs(pending.Message)
-	attrs[attrDelAttempts] = strconv.Itoa(decision.Failures)
-	if decision.Stop {
-		delete(attrs, "next_attempt_at")
-		attrs["last_error"] = retry.Notice("Delivery failed", decision)
-	} else {
-		attrs["next_attempt_at"] = core.TS(decision.NextAt)
-	}
-	if !pending.ExpiresAt.IsZero() {
-		attrs["expires_at"] = core.TS(pending.ExpiresAt)
-	}
-	attrs["queued_at"] = core.TS(pending.QueuedAt)
-	target := core.MessageStatusPending
-	if decision.Stop {
-		target = core.MessageStatusFailed
-	}
-	cond := objstore.Cond{Item: objstore.ItemPresent, Where: []objstore.Cmp{{Attr: "revision", Op: objstore.Eq, Value: strconv.Itoa(pending.StatusRevision)}}}
-	count := objstore.Cmp{Attr: attrDelAttempts, Op: objstore.Eq, Value: strconv.Itoa(pending.Attempts)}
-	if pending.Attempts == 0 {
-		count.Op = objstore.Absent
-	}
-	cond.Where = append(cond.Where, count)
-	write := objstore.Write{Op: objstore.Put, Entity: MessageDelivery, Key: deliveryKey(target, key), Attrs: attrs}
-	if target == core.MessageStatusPending {
-		write.Op = objstore.Update
-		write.Cond = cond
-	}
-	writes := []objstore.Write{write}
-	if target == core.MessageStatusFailed {
-		writes = append(writes, objstore.Write{Op: objstore.Delete, Entity: MessageDelivery, Key: deliveryKey(core.MessageStatusPending, key), Cond: cond})
-	}
-	// A refused write is a resolved or superseded operation.
-	_, err = s.TryWriteEntities(ctx, nil, writes...)
+	_, _, err := s.RecordDeliveryFailure(ctx, pending, failure)
 	return err
 }
 

@@ -108,7 +108,11 @@ func TestMessagesRoundTripEveryColumn(t *testing.T) {
 	dying := core.Message{ID: full.ID, ChatJID: full.ChatJID,
 		Timestamp: mustInstant(t, full.Timestamp)}
 	for range 10 {
-		if _, _, err := srcSt.RecordDeliveryFailure(context.Background(), dying, retry.Failure{Kind: "transient"}); err != nil {
+		pending, ok, err := srcSt.PendingDelivery(t.Context(), dying)
+		if err != nil || !ok {
+			t.Fatalf("pending delivery: %v %v", ok, err)
+		}
+		if _, _, err := srcSt.RecordDeliveryFailure(context.Background(), pending, retry.Failure{Kind: "transient"}); err != nil {
 			t.Fatalf("record a delivery failure: %v", err)
 		}
 	}

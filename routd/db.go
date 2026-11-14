@@ -247,13 +247,13 @@ func (d *DB) MarkDelivered(m core.Message, platformID string) error {
 }
 
 // DeadLetter moves an outbound row to the terminal state with its failure count.
-func (d *DB) DeadLetter(m core.Message, attempts int) error {
-	return d.store().DeadLetter(context.Background(), m, attempts)
+func (d *DB) DeadLetter(p store.PendingMessage, attempts int) error {
+	return d.store().DeadLetter(context.Background(), p, attempts)
 }
 
 // RecordDeliveryFailure records one failure and its retry decision.
-func (d *DB) RecordDeliveryFailure(m core.Message, failure retry.Failure) (int, bool, error) {
-	return d.store().RecordDeliveryFailure(context.Background(), m, failure)
+func (d *DB) RecordDeliveryFailure(p store.PendingMessage, failure retry.Failure) (int, bool, error) {
+	return d.store().RecordDeliveryFailure(context.Background(), p, failure)
 }
 
 // PendingOutbound returns the bot rows still owed a delivery at or before

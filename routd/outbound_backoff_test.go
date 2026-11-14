@@ -6,6 +6,7 @@ import (
 
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/retry"
+	"github.com/kronael/arizuko/store"
 )
 
 func TestOutboundRetryHonorsPerRowBackoff(t *testing.T) {
@@ -23,7 +24,7 @@ func TestOutboundRetryHonorsPerRowBackoff(t *testing.T) {
 	if err := db.PutOutbound(owed, core.MessageStatusPending); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := db.RecordDeliveryFailure(owed, retry.Failure{Kind: "transient"}); err != nil {
+	if _, _, err := db.RecordDeliveryFailure(pendingDeliveryForTest(t, db, owed), retry.Failure{Kind: "transient"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -47,4 +48,13 @@ func TestOutboundRetryHonorsPerRowBackoff(t *testing.T) {
 	if st := statusOf(t, db, "once-failed"); st != core.MessageStatusSent {
 		t.Fatalf("status=%q want sent (re-delivered once due)", st)
 	}
+}
+
+func pendingDeliveryForTest(t *testing.T, db *DB, m core.Message) store.PendingMessage {
+	t.Helper()
+	pending, ok, err := db.store().PendingDelivery(t.Context(), m)
+	if err != nil || !ok {
+		t.Fatalf("pending delivery: %v %v", ok, err)
+	}
+	return pending
 }

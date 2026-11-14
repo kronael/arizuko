@@ -11,6 +11,15 @@ import (
 	"github.com/kronael/arizuko/retry"
 )
 
+func pendingForTest(t *testing.T, s *Store, m core.Message) PendingMessage {
+	t.Helper()
+	pending, ok, err := s.PendingDelivery(t.Context(), m)
+	if err != nil || !ok {
+		t.Fatalf("pending delivery: %v %v", ok, err)
+	}
+	return pending
+}
+
 func TestOutboundDueRowsCannotHideBehindBackoff(t *testing.T) {
 	s := openMem(t)
 	defer s.Close()
@@ -24,7 +33,7 @@ func TestOutboundDueRowsCannotHideBehindBackoff(t *testing.T) {
 			t.Fatal(err)
 		}
 		if i < 200 {
-			if _, _, err := s.RecordDeliveryFailure(t.Context(), m, retry.Failure{Kind: "transient"}); err != nil {
+			if _, _, err := s.RecordDeliveryFailure(t.Context(), pendingForTest(t, s, m), retry.Failure{Kind: "transient"}); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -51,7 +60,7 @@ func TestOutboundFailureSchedulesFromAttempt(t *testing.T) {
 	if err := s.PutOutbound(t.Context(), m, core.MessageStatusPending); err != nil {
 		t.Fatal(err)
 	}
-	if n, dead, err := s.RecordDeliveryFailure(t.Context(), m, retry.Failure{Kind: "transient"}); err != nil || n != 1 || dead {
+	if n, dead, err := s.RecordDeliveryFailure(t.Context(), pendingForTest(t, s, m), retry.Failure{Kind: "transient"}); err != nil || n != 1 || dead {
 		t.Fatalf("failure=%d %v %v", n, dead, err)
 	}
 	if due, err := s.PendingOutbound(t.Context(), now.Add(29*time.Second), 10); err != nil || len(due) != 0 {
@@ -71,10 +80,17 @@ func TestOutboundTenthFailureStops(t *testing.T) {
 		t.Fatal(err)
 	}
 	for i := 1; i <= 10; i++ {
-		n, dead, err := s.RecordDeliveryFailure(t.Context(), m, retry.Failure{Kind: "transient"})
+		n, dead, err := s.RecordDeliveryFailure(t.Context(), pendingForTest(t, s, m), retry.Failure{Kind: "transient"})
 		if err != nil || n != i || dead != (i == 10) {
 			t.Fatalf("failure %d: n=%d dead=%v err=%v", i, n, dead, err)
 		}
+	}
+	failed, err := s.DeadLetters(t.Context(), "", 10)
+	if err != nil || len(failed) != 1 || failed[0].Attempts != 10 || !failed[0].NextAttemptAt.IsZero() {
+		t.Fatalf("terminal delivery: %+v %v", failed, err)
+	}
+	if rows, err := s.PendingOutbound(t.Context(), time.Now().Add(24*time.Hour), 10); err != nil || len(rows) != 0 {
+		t.Fatalf("terminal delivery remains due: %+v %v", rows, err)
 	}
 }
 
@@ -88,7 +104,7 @@ func TestOutboundFailureRespectsRetryAtAndExpiry(t *testing.T) {
 		if _, err := s.putMessage(t.Context(), m, core.MessageStatusPending, messageOptions{exact: true, delivery: map[string]string{"expires_at": core.TS(expiry)}}); err != nil {
 			t.Fatal(err)
 		}
-		n, dead, err := s.RecordDeliveryFailure(t.Context(), m, retry.Failure{Kind: "transient", RetryAt: retryAt})
+		n, dead, err := s.RecordDeliveryFailure(t.Context(), pendingForTest(t, s, m), retry.Failure{Kind: "transient", RetryAt: retryAt})
 		if err != nil || n != 1 || dead != expiry.Equal(retryAt) {
 			t.Fatalf("expiry %v: n=%d dead=%v err=%v", expiry, n, dead, err)
 		}
@@ -116,7 +132,11 @@ func (r *deliveryRace) GuardedBatch(ctx context.Context, checks []objstore.Check
 				return false, err
 			}
 		} else {
-			if _, _, err := r.other.RecordDeliveryFailure(ctx, r.m, retry.Failure{Kind: "transient"}); err != nil {
+			pending, ok, err := r.other.PendingDelivery(ctx, r.m)
+			if err != nil || !ok {
+				return false, fmt.Errorf("pending: %v %v", ok, err)
+			}
+			if _, _, err := r.other.RecordDeliveryFailure(ctx, pending, retry.Failure{Kind: "transient"}); err != nil {
 				return false, err
 			}
 		}
@@ -132,13 +152,19 @@ func TestOutboundFailureKeepsConcurrentTransitions(t *testing.T) {
 			if err := s.PutOutbound(t.Context(), m, core.MessageStatusPending); err != nil {
 				t.Fatal(err)
 			}
+			pending := pendingForTest(t, s, m)
 			race := NewOver(&deliveryRace{Store: s.obj, other: s, m: m, ack: ack})
-			n, dead, err := race.RecordDeliveryFailure(t.Context(), m, retry.Failure{Kind: "transient"})
+			n, dead, err := race.RecordDeliveryFailure(t.Context(), pending, retry.Failure{Kind: "transient"})
 			if err != nil || dead {
 				t.Fatalf("concurrent transition lost: n=%d dead=%v err=%v", n, dead, err)
 			}
-			if !ack && n != 2 {
-				t.Fatalf("failure count=%d, want 2", n)
+			if n != 0 {
+				t.Fatalf("stale failure count=%d, want 0", n)
+			}
+			if !ack {
+				if got := pendingForTest(t, s, m); got.Attempts != 1 {
+					t.Fatalf("concurrent failure count=%d", got.Attempts)
+				}
 			}
 			if ack {
 				if due, err := s.PendingOutbound(t.Context(), time.Now().Add(time.Hour), 10); err != nil || len(due) != 0 {
@@ -149,6 +175,33 @@ func TestOutboundFailureKeepsConcurrentTransitions(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestOutboundStaleSnapshotDoesNotReplaceDelivery(t *testing.T) {
+	s := openMem(t)
+	m := core.Message{ID: "stale", ChatJID: "chat", Sender: "bot", BotMsg: true, Timestamp: time.Now().Add(-time.Hour)}
+	if err := s.PutOutbound(t.Context(), m, core.MessageStatusPending); err != nil {
+		t.Fatal(err)
+	}
+	stale := pendingForTest(t, s, m)
+	due := time.Now().Add(3 * time.Hour).UTC().Truncate(time.Millisecond)
+	if err := s.WriteEntities(t.Context(), nil, objstore.Write{Op: objstore.Update, Entity: MessageDelivery, Key: stale.observed.Key, Attrs: map[string]string{"next_attempt_at": core.TS(due)}}); err != nil {
+		t.Fatal(err)
+	}
+	if n, dead, err := s.RecordDeliveryFailure(t.Context(), stale, retry.Failure{Kind: "permanent"}); err != nil || n != 0 || dead {
+		t.Fatalf("stale failure: %d %v %v", n, dead, err)
+	}
+	if err := s.DeadLetter(t.Context(), stale, stale.Attempts); err != nil {
+		t.Fatal(err)
+	}
+	got := pendingForTest(t, s, m)
+	if got.Attempts != 0 || !got.NextAttemptAt.Equal(due) {
+		t.Fatalf("newer delivery replaced: %+v", got)
+	}
+	failed, err := s.DeadLetters(t.Context(), "", 10)
+	if err != nil || len(failed) != 0 {
+		t.Fatalf("stale dead letter: %+v %v", failed, err)
 	}
 }
 

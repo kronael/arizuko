@@ -323,7 +323,7 @@ func (l *Loop) retryProgress(now time.Time, pending store.PendingMessage) bool {
 			return true
 		}
 		if len(active) == 0 {
-			if err := l.db.DeadLetter(current.Message, 0); err != nil {
+			if err := l.db.DeadLetter(current, 0); err != nil {
 				slog.Error("retire status", "err", err)
 			}
 			return true

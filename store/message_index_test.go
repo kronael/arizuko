@@ -65,7 +65,7 @@ func TestDeliveryUsesClampedMessageCoordinate(t *testing.T) {
 	if err := s.PutOutbound(t.Context(), m, core.MessageStatusPending); err != nil {
 		t.Fatal(err)
 	}
-	if n, dead, err := s.RecordDeliveryFailure(t.Context(), m, retry.Failure{Kind: "transient"}); err != nil || dead || n != 1 {
+	if n, dead, err := s.RecordDeliveryFailure(t.Context(), pendingForTest(t, s, m), retry.Failure{Kind: "transient"}); err != nil || dead || n != 1 {
 		t.Fatalf("clamped delivery lost: %d %v %v", n, dead, err)
 	}
 	if err := s.MarkDelivered(t.Context(), m, "accepted"); err != nil {

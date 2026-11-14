@@ -78,7 +78,7 @@ func TestOnboardingArchiveKeepsCredentialExpiry(t *testing.T) {
 				t.Fatalf("pending: %v %v", work, err)
 			}
 			if failed {
-				if err := s.DeadLetter(t.Context(), work[0].Message, 3); err != nil {
+				if err := s.DeadLetter(t.Context(), work[0], 3); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -115,7 +115,7 @@ func TestOnboardingDeliveryKeepsConcurrentMetadata(t *testing.T) {
 			}
 			status := core.MessageStatusPending
 			if replay {
-				if err := s.DeadLetter(t.Context(), m, 1); err != nil {
+				if err := s.DeadLetter(t.Context(), pendingForTest(t, s, m), 1); err != nil {
 					t.Fatal(err)
 				}
 				status = core.MessageStatusFailed
@@ -133,7 +133,7 @@ func TestOnboardingDeliveryKeepsConcurrentMetadata(t *testing.T) {
 				if ok, err := r.ReplayDeadLetter(t.Context(), m); err != nil || ok {
 					t.Fatalf("stale replay: %v %v", ok, err)
 				}
-			} else if err := r.DeadLetter(t.Context(), m, 1); err != nil {
+			} else if err := r.DeadLetter(t.Context(), pendingForTest(t, s, m), 1); err != nil {
 				t.Fatal(err)
 			}
 			after, exists, err := s.itemAt(t.Context(), MessageDelivery, source)
@@ -375,7 +375,7 @@ func TestExpiredCredentialCannotBeReplayed(t *testing.T) {
 	if err != nil || len(due) != 1 {
 		t.Fatalf("expiry not due: %v %v", due, err)
 	}
-	if err := s.DeadLetter(t.Context(), m, 0); err != nil {
+	if err := s.DeadLetter(t.Context(), due[0], 0); err != nil {
 		t.Fatal(err)
 	}
 	if ok, err := s.ReplayDeadLetter(t.Context(), m); err == nil || ok {

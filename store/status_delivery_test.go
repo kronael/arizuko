@@ -96,6 +96,31 @@ func TestStatusDeliveryRevision(t *testing.T) {
 	}
 }
 
+func TestStatusFailureDoesNotReplaceNewRevision(t *testing.T) {
+	s := openTurnEntities(t)
+	ctx := t.Context()
+	m := core.Message{ID: "stale-status", ChatJID: "chat", Verb: "status", BotMsg: true, Timestamp: time.Now()}
+	if err := s.QueueStatus(ctx, m, "old", "waiting"); err != nil {
+		t.Fatal(err)
+	}
+	m, _ = s.MessageByID(m.ChatJID, m.ID)
+	stale := pendingForTest(t, s, m)
+	if err := s.QueueStatus(ctx, m, "new", "waiting"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.FailStatus(ctx, stale, retry.Failure{Kind: "permanent"}); err != nil {
+		t.Fatal(err)
+	}
+	current := pendingForTest(t, s, m)
+	if current.Content != "new" || current.Attempts != 0 || current.StatusRevision == stale.StatusRevision {
+		t.Fatalf("new status replaced: %+v", current)
+	}
+	failed, err := s.DeadLetters(ctx, "", 10)
+	if err != nil || len(failed) != 0 {
+		t.Fatalf("stale status failed: %+v %v", failed, err)
+	}
+}
+
 func TestStatusDeliveryReadRevision(t *testing.T) {
 	s := openTurnEntities(t)
 	msg := core.Message{ID: "status-read", ChatJID: "web:demo", Verb: "status", BotMsg: true, Timestamp: time.Now()}

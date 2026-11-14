@@ -184,7 +184,7 @@ func TestReplayDeadLetterRequeuesForTheExistingSweep(t *testing.T) {
 	// replay that kept them would die again on its first retry.
 	owed := msgs["still-pending-hq"]
 	for i := 1; i <= 10; i++ {
-		n, died, err := db.RecordDeliveryFailure(owed, retry.Failure{Kind: "transient"})
+		n, died, err := db.RecordDeliveryFailure(pendingDeliveryForTest(t, db, owed), retry.Failure{Kind: "transient"})
 		if err != nil || died != (i == 10) || n != i {
 			t.Fatalf("seed attempts: n=%d died=%v err=%v", n, died, err)
 		}
