@@ -13,16 +13,14 @@
 > work items are their own entries. A record has nothing to fix and never will,
 > so counting one as open overstates the queue.
 
-## L855 — token send waits poll snapshots and streams expire after thirty seconds (2026-11-14)
+## L856 — router read-failure fixtures reject the indexed store (2026-11-14)
 
-`cmdSend` chooses `pollRound` for `--wait`: one snapshot request each second,
-although the same turn already exposes a replaying SSE stream. Its client has
-`Timeout: 30s`, so `--stream` also loses a healthy turn after thirty seconds.
-Computed cost: 3,600 snapshot requests/hour per waiting token caller.
-**Fix:** use the existing turn stream for both flags; remove its body deadline
-on a copied client. Preserve the POST timeout and direct operator semantics.
-**Test:** a stream that outlives the caller's timeout still reaches round_done;
-the caller's timeout remains unchanged. Mutate both guards independently.
+`dropEntity` asserts `DB.Obj()` is `*dynstore.Store`, but the production handle
+now always wraps that driver in `*objstore.Indexed`. The ACL read-failure tests
+stop before they remove a table, so they cannot verify the error response.
+**Fix:** drop the entity through the fixture's private raw driver.
+**Test:** run the existing two ACL failure tests and every caller of dropEntity;
+restoring the direct assertion must fail before the policy check.
 
 
 ## What needs you

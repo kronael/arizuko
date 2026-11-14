@@ -18,9 +18,9 @@ func dropACL(t *testing.T, db *DB) { dropEntity(t, db, store.ACL) }
 // dropEntity takes one entity away from the store under test.
 func dropEntity(t *testing.T, db *DB, entity string) {
 	t.Helper()
-	d, ok := db.Obj().(*dynstore.Store)
+	d, ok := db.obj.(*dynstore.Store)
 	if !ok {
-		t.Fatalf("this fixture is not served: %T", db.Obj())
+		t.Fatalf("this fixture is not served: %T", db.obj)
 	}
 	if err := d.DropEntity(context.Background(), entity); err != nil {
 		t.Fatalf("drop %s: %v", entity, err)
