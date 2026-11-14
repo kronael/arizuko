@@ -17,21 +17,12 @@
 ## L876 — hourly successor restart loses the turn coordinate (2026-11-14)
 
 `routd/turn_control_replay_test.go::TestTurnControlExecutionRestart/hourly_successor`
-fails because reconciliation passes a turn context without a turn ID; no successor
-launch occurs. **Measured:** the test fails in 18.272s with the original completion
-classification restored; log: `tmp/retry-logs/execution-restart-baseline.log`.
-
-## L875 — execution client discards retry and body failure facts (2026-11-14)
-
-`runed/api/v1/client.go` drops Retry-After and does not expose the HTTP status
-to the shared classifier. It also discards response body read errors, so a
-truncated HTTP 200 response can make `Kill` return success.
-**Measured:** the real client against an httptest server classifies HTTP 503
-as permanent without its two-hour bound and returns nil for a cut HTTP 200 body.
-`tmp/_retry_http_facts/execution_test.go::TestExecutionHTTPFacts` fails in 0.011s;
-log: `tmp/retry-logs/execution-facts-parent-red.log`.
-**Fix:** preserve response facts and successful-body read errors; turn completion
-must classify the resulting error instead of assuming every failure is transient.
+fails because admission reads an empty `ProbeTurnID`. Completion clears that owner
+for a successor; the open breaker remains valid. **Measured:** the test fails in
+18.272s with the original completion classification restored; no successor starts.
+Log: `tmp/retry-logs/execution-restart-baseline.log`.
+**Fix:** skip the owner lookup only when its ID is empty; keep the existing
+cooldown, oldest-candidate selection and errors from nonempty owner lookups.
 
 ## L857 — the full router gate loses its test database control plane (2026-11-14)
 
