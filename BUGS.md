@@ -14,6 +14,55 @@
 > so counting one as open overstates the queue.
 
 
+## L858 — work entities lack folder classification and a chat fixture omits them (2026-11-14)
+
+The full store gate reports three unclassified entities: `onboarding_work`,
+`routd_work`, `state_index`. Its chat reopen fixture prepares only `chats`, so
+SetAgentCursor fails querying the newly required work entities.
+**Fix:** declare why group purge keeps shared work/index partitions; primary
+writes already maintain their pointers. Prepare all required hot entities in
+that isolated fixture and retain its reopen assertions.
+**Test:** `TestFolderScope_ClassifiesEveryDeclaredEntity` and
+`TestChatThreadRepliesPreservesRowAcrossReopen` both failed in the full gate.
+
+## L859 — duplicate appends attempt an unnecessary state transition (2026-11-14)
+
+`TestAppendMessageLateRedeliveryBounded` seeds 300 messages and measures seven
+selected rows for one duplicate, above its four-row bound. `appendInstant`
+finds the existing identity, but append still reads chat state, builds work and
+attempts a batch before reading that same message again after refusal.
+**Fix:** return an existing message by identity before preparing a transition.
+Keep timestamp validation, exact imports and concurrent append guards intact.
+**Test:** the existing bound, original stored timestamp and concurrent-span
+regressions; disable the early return to prove the duplicate guard.
+
+## L860 — the folder-retirement race fixture assumes three physical writes (2026-11-14)
+
+`TestDeleteFolderDefeatsInFlightRefusal` reports `fired=false`: its injector
+matches an exact three-write batch, but atomic index/work writes enlarge it.
+The test never deletes the group during the provider-refusal transition.
+**Fix:** trigger on the semantic model-pause write, independent of physical
+batch shape. Preserve the checks that retirement defeats the stale refusal.
+**Test:** restore the old matcher and the existing race regression must fail.
+
+
+## L857 — the full router gate loses its test database control plane (2026-11-14)
+
+At candidate `66e8e2f4b7ebf9a6bc41a5fd9a027ecdc0249f7b`, the single full
+`./routd -short -timeout 45m` run returned 31 failed test/subtest headers.
+Every listed failure is fixture `CreateTable`: HTTP 500 `InternalServerError`
+after three attempts. Failures start at `TestApprovalCloseCancelsWorkRead`;
+the preceding log includes canceled approval-work transactions. That sequence
+is evidence, not proof that cancellation caused the backend failure.
+The test process used eight CPU seconds over nineteen minutes. SIGQUIT stopped
+only test PID 2852476 and showed `PrepareOwner → CreateEntity → CreateTable`
+in retry/HTTP waits. Package result: FAIL 1153.155s. Its isolated ExtendDB
+container has a logging driver that cannot supply `docker logs`.
+**Status:** open, cause unmeasured; do not change transition guards to hide a
+server error. No live instance was inspected or changed. The full router gate
+was interrupted once and was not repeated. Evidence: `tmp/state-final-routd.log`.
+
+
 ## What needs you
 
 
