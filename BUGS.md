@@ -14,15 +14,6 @@
 > so counting one as open overstates the queue.
 
 
-## L873 — transport errors override authoritative HTTP retry facts (2026-11-14)
-
-`retry.HTTPFailure` and `httpFailure` classify HTTP 400 plus a connection reset
-as transient. HTTP 429/503 plus a timeout loses the server's Retry-After bound.
-The JavaScript reader also misses cancellation inside an error cause.
-**Measured:** `tmp/_retry_http_facts/facts_test.go` fails against the unchanged
-readers in 0.196s; `tmp/retry-logs/http-facts-parent-red.log` records both languages.
-**Fix:** cancellation wins, then known HTTP status/header, then transport facts.
-
 ## L874 — Retry-After date readers disagree (2026-11-14)
 
 Go rejects a padded HTTP date and resolves RFC850 year 70 to 1970 with now 2026.
