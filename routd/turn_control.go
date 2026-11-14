@@ -365,31 +365,34 @@ func maxTime(a, b time.Time) time.Time {
 func (q *turnControl) rearm(l *Loop, probe store.TurnControlState) error {
 	after := probe
 	after.Phase, after.ProbeAttemptID = "open", ""
+	// A refused rearm leaves the newer control generation pending.
 	_, err := l.db.store().WriteTurnControl(context.Background(), &probe, after)
 	return err
 }
 
-func (q *turnControl) interrupt(l *Loop, tc TurnContext) (store.TurnControlState, error) {
-	for {
-		before, exists, err := l.db.store().ReadTurnControl(context.Background())
-		if err != nil {
-			return store.TurnControlState{}, err
-		}
-		after := before
-		var prior *store.TurnControlState
-		if exists {
-			prior = &before
-		}
-		if !exists || before.Phase == "closed" {
-			after = store.TurnControlState{NextProbeAt: q.now().Add(time.Hour),
-				ProbeTurnID: tc.TurnID, ProbeAttemptID: tc.AttemptID}
-		}
-		after.Phase, after.Episode = "probe", randHex(16)
-		ok, err := l.db.store().WriteTurnControl(context.Background(), prior, after)
-		if err != nil || ok {
-			return after, err
-		}
+func (q *turnControl) interrupt(l *Loop, tc TurnContext, expected ...store.TurnControlState) (store.TurnControlState, error) {
+	before, exists, err := l.db.store().ReadTurnControl(context.Background())
+	if err != nil {
+		return store.TurnControlState{}, err
 	}
+	if len(expected) > 0 && (!exists || before != expected[0]) {
+		return store.TurnControlState{}, store.ErrRefused
+	}
+	after := before
+	var prior *store.TurnControlState
+	if exists {
+		prior = &before
+	}
+	if !exists || before.Phase == "closed" {
+		after = store.TurnControlState{NextProbeAt: q.now().Add(time.Hour),
+			ProbeTurnID: tc.TurnID, ProbeAttemptID: tc.AttemptID}
+	}
+	after.Phase, after.Episode = "probe", randHex(16)
+	ok, err := l.db.store().InterruptTurn(context.Background(), tc, prior, after)
+	if err == nil && !ok {
+		err = store.ErrRefused
+	}
+	return after, err
 }
 
 func retryAt(now time.Time, sender string, retry int) time.Time {
@@ -401,6 +404,9 @@ func retryAt(now time.Time, sender string, retry int) time.Time {
 }
 
 func (q *turnControl) tick(l *Loop) {
+	if err := q.recover(l, false); err != nil {
+		slog.Error("recover deferred turns", "err", err)
+	}
 	turns, err := l.db.store().DeferredTurns(context.Background(), q.now())
 	if err != nil {
 		slog.Error("select deferred turns", "err", err)
@@ -409,25 +415,19 @@ func (q *turnControl) tick(l *Loop) {
 	for _, tc := range turns {
 		l.Enqueue(deferredWorkPrefix + tc.TurnID)
 	}
-	control, _, err := l.db.store().ReadTurnControl(context.Background())
-	if err != nil {
-		slog.Error("read the breaker", "err", err)
-		return
-	}
-	if control.Phase == "probe" || control.Phase == "open" && q.now().Before(control.NextProbeAt) {
-		return
-	}
+}
+
+func (q *turnControl) wakeRefused() {
 	var refused []string
 	q.mu.Lock()
 	for jid, s := range q.groups {
-		if s.refused {
-			s.refused = false
+		if s.refused || s.candidate {
 			refused = append(refused, jid)
 		}
 	}
 	q.mu.Unlock()
 	for _, jid := range refused {
-		l.Enqueue(jid)
+		q.EnqueueMessageCheck(jid)
 	}
 }
 
@@ -463,8 +463,12 @@ func (l *Loop) isSavedExecution(tc TurnContext) bool {
 }
 
 func (q *turnControl) recover(l *Loop, startup bool) error {
+	ctx := context.Background()
+	work, err := l.db.store().DueWork(ctx, "control", q.now())
+	if err != nil || !startup && len(work) == 0 {
+		return err
+	}
 	var turns []TurnContext
-	var err error
 	if startup {
 		turns, err = l.db.RunningTurns()
 	} else {
@@ -496,7 +500,11 @@ func (q *turnControl) recover(l *Loop, startup bool) error {
 		}
 		ok, err := q.WithIdleFolder(tc.Folder, func() error {
 			var err error
-			recovery, err = q.interrupt(l, tc)
+			var expected []store.TurnControlState
+			if isProbe {
+				expected = append(expected, control)
+			}
+			recovery, err = q.interrupt(l, tc, expected...)
 			if err != nil {
 				return err
 			}
@@ -524,16 +532,34 @@ func (q *turnControl) recover(l *Loop, startup bool) error {
 	if !blocked && recovery.Phase == "probe" {
 		return q.rearm(l, recovery)
 	}
+	due := time.Time{}
+	if blocked || control.Phase == "probe" {
+		due = q.now().Add(30 * time.Second)
+	} else if control.Phase == "open" && q.now().Before(control.NextProbeAt) {
+		due = control.NextProbeAt
+	} else {
+		q.wakeRefused()
+	}
+	for _, it := range work {
+		if due.IsZero() {
+			err = l.db.store().AcknowledgeWork(ctx, it)
+		} else {
+			err = l.db.store().RescheduleWork(ctx, it, due)
+		}
+		if err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
 var ErrDependencyDown = errors.New("execution plane unreachable")
 
-// again: the chat was enqueued while it ran, so its run passes once more.
 type groupState struct {
-	active  bool
-	again   bool
-	refused bool
+	active    bool
+	again     bool
+	refused   bool
+	candidate bool
 }
 
 type turnReservation struct {
@@ -580,8 +606,6 @@ func (q *turnControl) noteBusy(chatJID, lastMsgID string) time.Time {
 
 type processMessagesFn func(groupJid string) (bool, error)
 
-// parkedFn is told, outside q.mu, each time EnqueueMessageCheck parks a chat
-// behind another run (its folder is held, or the run cap is full).
 type parkedFn func(groupJid string)
 
 type turnControl struct {

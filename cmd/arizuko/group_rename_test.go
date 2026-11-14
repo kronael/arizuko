@@ -183,11 +183,15 @@ func renameSeed(t *testing.T, inventory *renameInventory, drivers map[string]obj
 type renameFaultStore struct {
 	objstore.Store
 	Calls, Fail, Queries int
+	WholeQueries         int
 	After                bool
 }
 
 func (driver *renameFaultStore) Query(ctx context.Context, query objstore.Query) ([]objstore.Item, error) {
 	driver.Queries++
+	if query.Key.Op == objstore.AnyKey {
+		driver.WholeQueries++
+	}
 	return driver.Store.Query(ctx, query)
 }
 
@@ -228,7 +232,7 @@ func TestGroupRenameResumeRollback(t *testing.T) {
 			if counter.Queries > 4 {
 				t.Fatalf("preflight made %d queries for two partitions and a marker", counter.Queries)
 			}
-			preflightQueries := counter.Queries
+			preflightQueries, preflightWhole := counter.Queries, counter.WholeQueries
 			journal := filepath.Join(t.TempDir(), "journal")
 			fault := &renameFaultStore{Store: drivers["routd"], Fail: 2, After: afterCommit}
 			drivers["routd"] = fault
@@ -239,8 +243,14 @@ func TestGroupRenameResumeRollback(t *testing.T) {
 			if err = renameExecute(context.Background(), journal, plan, drivers, true, false); err != nil {
 				t.Fatal(err)
 			}
-			if used := counter.Queries - preflightQueries; used > 2*len(plan.Rows)+4*40+2 {
-				t.Fatalf("resume/execution made %d reads; expected per-row checks, uncertain batch and final partitions", used)
+			// Each row checks two journal images and two indexed primaries; each
+			// batch reads one control obligation. A failed batch repeats at resume.
+			bound := 4*len(plan.Rows) + len(renameSteps(plan)) + 8*(objstore.IndexBatchSize/2) + 2
+			if used := counter.Queries - preflightQueries; used > bound {
+				t.Fatalf("resume/execution reads=%d bound=%d", used, bound)
+			}
+			if whole := counter.WholeQueries - preflightWhole; whole != 2 {
+				t.Fatalf("resume/execution scanned %d partitions; want two final verifications", whole)
 			}
 			items, err := drivers["routd"].Query(context.Background(), objstore.Query{Entity: store.Groups, Partition: "routd"})
 			if err != nil {

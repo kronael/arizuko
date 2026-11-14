@@ -313,13 +313,29 @@ func TestBreakerRefusedChatRunsWhenDue(t *testing.T) {
 	}
 	clock.Store(open.NextProbeAt.Add(time.Second).UnixNano())
 	probe := open
-	probe.Phase = "probe"
+	probe.Phase, probe.ProbeTurnID, probe.ProbeAttemptID = "probe", "active-probe", "probe-attempt"
+	if ok, err := db.store().OpenTurnContext(probe.ProbeTurnID, "demo", "", "web:probe", "u", "",
+		&store.TurnAdmission{AttemptID: probe.ProbeAttemptID}); err != nil || !ok {
+		t.Fatalf("probe turn: %v %v", ok, err)
+	}
+	l.q.mu.Lock()
+	l.q.activeFolders["demo"] = "web:probe"
+	l.q.mu.Unlock()
 	if ok, err := db.store().WriteTurnControl(t.Context(), &open, probe); err != nil || !ok {
 		t.Fatalf("start a probe: %v %v", ok, err)
 	}
 	l.q.tick(l)
 	if isWoken() {
 		t.Fatal("the tick woke the chat while another turn probes")
+	}
+	l.q.mu.Lock()
+	delete(l.q.activeFolders, "demo")
+	l.q.mu.Unlock()
+	if err := db.SetTurnState(probe.ProbeTurnID, store.TurnDone); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetRunReturned(probe.ProbeTurnID); err != nil {
+		t.Fatal(err)
 	}
 	if ok, err := db.store().WriteTurnControl(t.Context(), &probe, open); err != nil || !ok {
 		t.Fatalf("reopen the breaker: %v %v", ok, err)

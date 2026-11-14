@@ -48,52 +48,38 @@ type Loop struct {
 	pollEvery  time.Duration
 	runTimeout time.Duration
 
-	// Wait reads done so a caller holds the DB open until the last poll has
-	// finished (BUGS L160).
 	done chan struct{}
 
-	// Set post-construction via BindServer (Loop↔Server is a deliberate
-	// cycle); runTurn skips the socket when srv is nil.
 	srv     *Server
 	folders *groupfolder.Resolver
 
-	// Prompt-envelope inputs (buildAgentPrompt).
 	instanceName    string
 	observeMessages int
 	observeChars    int
 	groupsDir       string
 
-	// pendingElevation is the ONLY source of Elevated: cmdRoot (gated on `**`)
-	// writes it, an agent/user cannot forge a map entry, so root is never
-	// reached by message content. One-shot (LoadAndDelete per turn).
-	pendingElevation sync.Map // message_id → struct{}
+	pendingElevation sync.Map
 	engagementTTL    time.Duration
 
 	// waiting is the chats whose typing is on while no run owns it: parked
 	// behind another run, or refused Busy. Value is the chat that shows it.
 	// A run's start hands it to the run; a cursor advance without a run clears it.
-	waiting sync.Map // chatJID → reply chatJID
+	waiting sync.Map
 
-	// Loop-driven maintenance cadence, no free tickers.
 	nextRetryAt time.Time
 	nextTurnsAt time.Time
 	nextGCAt    time.Time
 
-	// False bypasses the pre-spawn budget gate — the operator escape hatch.
 	costCapsEnabled bool
 
-	// Non-nil: every turn mints its own virtual key and the GATEWAY is the
-	// ledger; arizuko stores no spend of its own (specs 6/23, 6/39).
 	gateway *modelGateway
 
 	media mediaConfig
 
 	sessionIdle time.Duration
 
-	// nil → the /invite + /gate commands report the federation gap.
 	onbod OnbodClient
 
-	// onbod OWNS the onboarding table; routd federates the insert over HTTP.
 	onboardingEnabled   bool
 	onboardingPlatforms []string
 
@@ -175,7 +161,7 @@ func NewLoop(db *DB, runner Runner, cfg LoopConfig) *Loop {
 	}
 	maxRetry := cfg.MaxTurnRetry
 	if maxRetry < 0 {
-		maxRetry = 0 // explicit disable via -1
+		maxRetry = 0
 	} else if maxRetry == 0 {
 		maxRetry = 3
 	}
@@ -185,7 +171,7 @@ func NewLoop(db *DB, runner Runner, cfg LoopConfig) *Loop {
 	}
 	maxOutRetry := cfg.MaxOutboundRetry
 	if maxOutRetry < 0 {
-		maxOutRetry = 1 // explicit disable via -1: the first transient failure dead-letters
+		maxOutRetry = 1
 	} else if maxOutRetry == 0 {
 		maxOutRetry = defaultMaxOutboundRetry
 	}
@@ -222,8 +208,6 @@ func NewLoop(db *DB, runner Runner, cfg LoopConfig) *Loop {
 // per-turn MCP socket.
 func (l *Loop) BindServer(s *Server) { l.srv = s }
 
-// recentSessions federates the prior-session continuity hint through the
-// bound Server; nil srv → nil ("no prior session").
 func (l *Loop) recentSessions(folder string, n int) []core.SessionRecord {
 	if l.srv == nil {
 		return nil
@@ -271,8 +255,6 @@ func (l *Loop) Wait(timeout time.Duration) bool {
 	}
 }
 
-// publishRoundDone fans a closed-turn notice to the web SSE channel, keyed on
-// the chat JID verbatim.
 func (l *Loop) publishRoundDone(chatJID, turnID string) {
 	if l == nil || l.deliver == nil {
 		return
@@ -317,9 +299,6 @@ func (l *Loop) Run(ctx context.Context) {
 	}
 }
 
-// sweepOrphanSocks removes stale per-folder socks a crashed prior run left.
-// ipc.ServeMCP also removes its sock pre-listen, so this matters only for
-// folders that get no run this boot.
 func (l *Loop) sweepOrphanSocks() {
 	base := l.folders.IpcDir
 	if base == "" {
@@ -336,14 +315,12 @@ func (l *Loop) sweepOrphanSocks() {
 	}
 }
 
-// Maintenance cadence: the retry sweep, turn recovery and the stale-turn GC.
 const (
 	outboundRetryEvery = 30 * time.Second
-	// retryAt's shortest delay.
+
 	turnsEvery = 30 * time.Second
 	gcEvery    = time.Hour
 
-	// MAX_OUTBOUND_RETRY raises it for a flaky platform.
 	defaultMaxOutboundRetry = 10
 )
 
@@ -421,7 +398,6 @@ func (l *Loop) retryOutbound(now time.Time, p store.PendingMessage) {
 	}
 }
 
-// maybeGC runs the hourly housekeeping.
 func (l *Loop) maybeGC(now time.Time) {
 	if now.Before(l.nextGCAt) {
 		return
@@ -434,7 +410,7 @@ func (l *Loop) maybeGC(now time.Time) {
 			slog.Info("gc: swept stale running turns", "count", n)
 		}
 	}
-	// The activity feed is an index with a retention window; it drains here.
+
 	if n, err := l.db.SweepActivity(now); err != nil {
 		slog.Warn("gc: sweep the activity feed", "err", err)
 	} else if n > 0 {
@@ -442,9 +418,6 @@ func (l *Loop) maybeGC(now time.Time) {
 	}
 }
 
-// recoverPending recovers interrupted turns and re-arms the due retries. A turn
-// a crash left running keeps its input past the chat's cursor, so sweepChats
-// re-feeds it (turn_results dedups any submit_turn the old run delivered).
 func (l *Loop) recoverPending() {
 	if err := l.q.recover(l, true); err != nil {
 		slog.Error("recover deferred turns", "err", err)
@@ -453,8 +426,6 @@ func (l *Loop) recoverPending() {
 	l.q.tick(l)
 }
 
-// folderForJid resolves a chat JID to the folder its pending batch dispatches
-// to, deciding the batch with the worker's resolveBatch.
 func (l *Loop) folderForJid(chatJID string) string {
 	if turnID, ok := strings.CutPrefix(chatJID, deferredWorkPrefix); ok {
 		tc, _ := l.db.GetTurnContext(turnID)
@@ -470,27 +441,16 @@ func (l *Loop) folderForJid(chatJID string) string {
 	return b.Folder
 }
 
-// pollBatch bounds how many of one chat's messages a single poll takes. The
-// cursor is a whole message key, so a batch that stops mid-instant resumes
-// exactly there.
 const pollBatch = 200
 
-// maybeRecoverTurns re-arms the turns recovery and the retry deadlines owe a
-// run. New messages never wait for it: every writer enqueues its chat.
 func (l *Loop) maybeRecoverTurns(now time.Time) {
 	if now.Before(l.nextTurnsAt) {
 		return
 	}
 	l.nextTurnsAt = now.Add(turnsEvery)
-	if err := l.q.recover(l, false); err != nil {
-		slog.Error("recover deferred turns", "err", err)
-	}
 	l.q.tick(l)
 }
 
-// sweepChats enqueues each chat with a message past its OWN watermark. It runs
-// once at startup, for the messages written while routd was down; the worker
-// decides each batch, as it does for every other wake.
 func (l *Loop) sweepChats(ctx context.Context) {
 	jids, err := l.db.ChatJIDs()
 	for err != nil {
@@ -513,25 +473,19 @@ func (l *Loop) sweepChats(ctx context.Context) {
 	}
 }
 
-// routeMiss is the ONLY miss handler: two copies drifted, and a new chat's
-// first message vanished without onboarding (krons 2026-07-12). The cursor
-// advances past the batch either way — a re-fed miss would replay forever.
 func (l *Loop) routeMiss(chatJID string, msgs []core.Message, r resolution) {
 	last := msgs[len(msgs)-1]
 	if r.Observe != "" {
-		// Observe rule: silent ingest, no turn.
+
 		l.observeRows(chatJID, r.Observe, msgs)
 	} else {
-		// A route-missed /chatid still answers: it is how a NEW user self-reports
-		// their JID for `arizuko group add`; the routed twin is in handleCommand.
-		// It does not consume the miss — the message still queues onboarding.
+
 		if head, _ := lookupCommand(last.Content); head == "/chatid" &&
 			!last.BotMsg && !strings.HasPrefix(last.Sender, "timed-") {
 			l.ack(chatJID, chatJID)
 		}
 		if l.onboardingEnabled && l.onbod != nil {
-			// Discord guild channels onboard only on an explicit @mention, so a
-			// busy server does not queue every poster.
+
 			discordGuild := strings.HasPrefix(chatJID, "discord:") &&
 				!strings.HasPrefix(chatJID, "discord:dm/")
 			if onboardingAllowed(chatJID, l.onboardingPlatforms) &&
@@ -541,7 +495,7 @@ func (l *Loop) routeMiss(chatJID string, msgs []core.Message, r resolution) {
 					l.noticeOnboarding(chatJID, last.Sender)
 				}
 				if err != nil {
-					// Without the row the new user gets silence forever: tell the chat.
+
 					slog.Error("insert onboarding failed", "jid", chatJID, "err", err)
 					if l.deliver != nil {
 						_, _ = l.deliver.Send(chatJID, onboardingFailedNotice, "", "", "", "onboard-"+last.ID)
@@ -553,8 +507,6 @@ func (l *Loop) routeMiss(chatJID string, msgs []core.Message, r resolution) {
 	l.advance(chatJID, last)
 }
 
-// noticeOnboarding tells the `?issues` chats that a new chat asks to onboard.
-// It names no token. The queue delivers it; no `?issues` route means no notice.
 func (l *Loop) noticeOnboarding(chatJID, sender string) {
 	text := fmt.Sprintf("New onboarding request: %s in chat %s. Approve or deny it on the onbod dashboard, /dash/onbod/.", sender, chatJID)
 	if _, err := l.db.QueueIssueNotice(text); err != nil {
@@ -562,13 +514,10 @@ func (l *Loop) noticeOnboarding(chatJID, sender string) {
 	}
 }
 
-// observeRows stores rows as ambient context of folder, the one writer for the
-// observe rule and for the rows a dispatch consumes without a turn of their
-// own. Enriched so later turns see downloaded media, not raw URLs.
 func (l *Loop) observeRows(chatJID, folder string, rows []core.Message) {
 	for i := range rows {
 		if l.media.Enabled {
-			// not deferrable, so it marks a failed file and returns nil
+
 			_ = l.enrichAttachments(context.Background(), &rows[i], folder, false)
 		}
 	}
@@ -577,18 +526,13 @@ func (l *Loop) observeRows(chatJID, folder string, rows []core.Message) {
 	}
 }
 
-// onboardingFailedNotice is sent to an unrouted chat when the admission-queue
-// insert fails — the alternative is permanent silence.
 const onboardingFailedNotice = "⚠️ Couldn't register this chat for setup — please try again later."
 
-// resolution is the outcome of route resolution for one chat's latest message.
-// ok=true → dispatch to Folder; Observe non-empty → silent ingest, no turn;
-// neither → route miss.
 type resolution struct {
 	Folder      string
-	Topic       string // route-pinned topic (rt.Topic), "" leaves the message's own
+	Topic       string
 	TopicPinned bool
-	Observe     string // observe-mode folder; messages get is_observed=1, no turn
+	Observe     string
 	// Addressed: a person put a question to this folder and is owed an answer
 	// (spec 6/47 §"Addressed"). Declared here once and stored on the turn.
 	Addressed bool
@@ -598,32 +542,20 @@ type resolution struct {
 	ok     bool
 }
 
-// resolveGroup is resolve for callers that only need (folder, ok).
 func (l *Loop) resolveGroup(chatJID string, last core.Message) (string, bool) {
 	r := l.resolve(chatJID, last)
 	return r.Folder, r.ok
 }
 
-// resolve picks the folder for the chat's latest message and records whether
-// the turn is addressed. A timed or system sender is never addressed: a task
-// is not a person (the same predicate turnCallerSub reads).
 func (l *Loop) resolve(chatJID string, last core.Message) resolution {
 	return l.resolveRows(chatJID, []core.Message{last})[0]
 }
 
-// batchResolution is the one decision on a batch of rows. The embedded
-// resolution is the newest user row's that dispatches on its own, or the newest
-// user row's when none does. rows[i] is msgs[i]'s own resolution (zero for a
-// bot row): whether it dispatches and whether it is addressed are facts about
-// the row, so each turn takes them from its own rows.
 type batchResolution struct {
 	resolution
 	rows []resolution
 }
 
-// resolveBatch decides a batch for the worker and folderForJid. The route
-// table is read once. A bot row never resolves a batch,
-// so msgs must hold a user row (newestUserIdx >= 0).
 func (l *Loop) resolveBatch(chatJID string, msgs []core.Message) batchResolution {
 	var users []core.Message
 	var at []int
@@ -648,10 +580,9 @@ func (l *Loop) resolveBatch(chatJID string, msgs []core.Message) batchResolution
 	return b
 }
 
-// resolveRows resolves each row on its own, reading the route table once.
 func (l *Loop) resolveRows(chatJID string, rows []core.Message) []resolution {
 	out := make([]resolution, len(rows))
-	// 1. Direct address: a web:/hook: JID or a bare registered folder.
+
 	direct := l.directFolder(chatJID)
 	isDirect := direct != "" && l.db.GroupExists(direct)
 	var routes []core.Route
@@ -660,8 +591,7 @@ func (l *Loop) resolveRows(chatJID string, rows []core.Message) []resolution {
 		var err error
 		routes, err = l.db.Routes()
 		if err != nil {
-			// A read failure looks identical to a clean miss. The fail-forward
-			// stays (a retry risks a poison-message loop) but the drop is LOUD.
+
 			slog.Error("resolve: route table read failed; message dropped as route-miss",
 				"jid", chatJID, "err", err)
 		}
@@ -670,8 +600,7 @@ func (l *Loop) resolveRows(chatJID string, rows []core.Message) []resolution {
 	reads := &chatReads{db: l.db, chatJID: chatJID}
 	for i, m := range rows {
 		if isDirect {
-			// Only a person typing in a web chat is a question; a hook is an event
-			// and a bare folder is a system turn.
+
 			out[i] = resolution{Folder: direct, ok: true, Addressed: core.JidPlatform(chatJID) == "web"}
 		} else {
 			out[i] = l.resolveFolder(reads, m, routes, routesOK)
@@ -683,13 +612,8 @@ func (l *Loop) resolveRows(chatJID string, rows []core.Message) []resolution {
 	return out
 }
 
-// resolveFolder is the one place a leading @name addresses a message. The
-// first matching route wins, an `at` row like any other. A plain-target `at`
-// row selects the group; with no `at` row the nearest <ancestor>/<name> does.
-// Either starts a turn there, even when the chat's own route only observes.
 func (l *Loop) resolveFolder(reads *chatReads, last core.Message, routes []core.Route, routesOK bool) resolution {
-	// The row is matched against the typed text, so the envelope gitd adds in
-	// front never hides the prefix.
+
 	probe := last
 	_, probe.Content = typedText(last.Content)
 	var row core.Route
@@ -718,26 +642,21 @@ func (l *Loop) resolveFolder(reads *chatReads, last core.Message, routes []core.
 	return res
 }
 
-// routedFolder decides a message from its matched route rt (empty on a miss),
-// then from engagement.
 func (l *Loop) routedFolder(reads *chatReads, last core.Message, rt core.RouteTarget) resolution {
-	// 2. Route table.
+
 	if rt.Folder != "" {
 		engTopic := reads.effectiveTopic(last.Topic)
 		if rt.HasTopic {
 			engTopic = last.Topic
 		}
-		// ?engaged extends engagement to the rows the rule matches, whatever
-		// their verb: it fires in the engaged folder while the chat and topic
-		// are engaged and is observed under the target otherwise. Never addressed.
+
 		if rt.Mode == "engaged" {
 			if folder, ok := reads.engagedFolder(engTopic); ok {
 				return resolution{Folder: folder, Topic: last.Topic, TopicPinned: rt.HasTopic, ok: true}
 			}
 			return resolution{Observe: rt.Folder, Topic: last.Topic, TopicPinned: rt.HasTopic}
 		}
-		// A trigger rule addresses the folder whether or not the chat is also
-		// engaged; an observe rule on an engaged chat is engagement alone.
+
 		addressed := rt.Mode != "observe"
 		if folder, ok := reads.engaged(engTopic, last); ok {
 			return resolution{Folder: folder, Topic: last.Topic, TopicPinned: rt.HasTopic, ok: true, Addressed: addressed}
@@ -747,7 +666,7 @@ func (l *Loop) routedFolder(reads *chatReads, last core.Message, rt core.RouteTa
 		}
 		return resolution{Folder: rt.Folder, Topic: last.Topic, TopicPinned: rt.HasTopic, ok: true, Addressed: true}
 	}
-	// 3. Engagement fallback on a route miss (topic-root normalized).
+
 	engTopic := reads.effectiveTopic(last.Topic)
 	if folder, ok := reads.engaged(engTopic, last); ok {
 		return resolution{Folder: folder, ok: true}
@@ -755,19 +674,14 @@ func (l *Loop) routedFolder(reads *chatReads, last core.Message, rt core.RouteTa
 	return resolution{}
 }
 
-// chatReads holds the engagement facts of one chat that a resolveRows call has
-// read: a batch of 200 rows on one topic asks the store once, not 200 times.
-// It lives for one call; nothing here is shared across calls.
 type chatReads struct {
 	db      *DB
 	chatJID string
 	pin     *string
-	// folders maps a topic to its live engagement folder, "" when none is live.
+
 	folders map[string]string
 }
 
-// effectiveTopic resolves the topic a turn dispatches under: a set sticky
-// #topic overrides the message's own topic.
 func (r *chatReads) effectiveTopic(msgTopic string) string {
 	if r.pin == nil {
 		_, sticky := r.db.StickyState(r.chatJID)
@@ -779,17 +693,11 @@ func (r *chatReads) effectiveTopic(msgTopic string) string {
 	return msgTopic
 }
 
-// engaged returns the live engagement folder for (chatJID, topic) when the row
-// rides engagement: only a person's message or mention does. An empty
-// engaged folder (a stale ingress claim) is NOT a route: false, so resolve
-// falls through instead of dispatching to "".
 func (r *chatReads) engaged(topic string, last core.Message) (string, bool) {
 	if last.Verb != "" && last.Verb != "message" && last.Verb != "mention" {
 		return "", false
 	}
-	// A reply to a stored message that is not the bot's and does not mention it
-	// is addressed to that message's author (BUGS L652): an observation, not a
-	// turn. An explicit mention (verb=mention) still rides.
+
 	if last.Verb != "mention" && last.ReplyToID != "" {
 		if parent, ok := r.db.MessageByID(r.chatJID, last.ReplyToID); ok && !parent.AddressesBot() {
 			return "", false
@@ -798,9 +706,6 @@ func (r *chatReads) engaged(topic string, last core.Message) (string, bool) {
 	return r.engagedFolder(topic)
 }
 
-// engagedFolder is the live engagement folder for (chatJID, topic), whatever
-// the verb of the row asking. The topic falls back to the root window unless
-// the thread was disengaged.
 func (r *chatReads) engagedFolder(topic string) (string, bool) {
 	if folder, read := r.folders[topic]; read {
 		return folder, folder != ""
@@ -831,13 +736,6 @@ func (r *chatReads) remember(topic, folder string) {
 	r.folders[topic] = folder
 }
 
-// directFolder returns the folder a JID directly addresses, or "". For a
-// web:/hook: JID the mint RECORDS the delivery folder (spec 5/W) and the record
-// is read FIRST: the grammar cannot recover it once a suffix is added —
-// `web:t/sfx` reads as `t/sfx`, `hook:a/b/c` as `a/b` (BUGS L4, L1) — and
-// reading it only after a grammar miss delivers `hook:a/b/c` to an existing
-// folder `a/b`, the wrong tenant. The grammar is the fallback for a token
-// minted before the column existed.
 func (l *Loop) directFolder(jid string) string {
 	if folder := groupfolder.JidFolder(jid); folder != "" {
 		if target := l.db.RouteTokenTarget(jid); target != "" {
@@ -851,7 +749,6 @@ func (l *Loop) directFolder(jid string) string {
 	return ""
 }
 
-// advance moves the chat's agent_cursor past the last seen row.
 func (l *Loop) advance(chatJID string, last core.Message) {
 	// Any cursor advance is progress past the batch a Busy refusal parked.
 	l.q.busyWait.Delete(chatJID)
@@ -863,18 +760,14 @@ func (l *Loop) advance(chatJID string, last core.Message) {
 	}
 }
 
-// sessionIdleExpiry is the default spawn-time stale-session threshold;
-// SESSION_IDLE_EXPIRY overrides it.
 const sessionIdleExpiry = 2 * 24 * time.Hour
 
-// sessionIdleExpired reports whether the chat's agent_cursor is older than the
-// idle threshold. An empty or unparseable cursor is never expired.
 func (l *Loop) sessionIdleExpired(chatJID string) bool {
 	cur := l.db.GetAgentCursor(chatJID)
 	if cur == "" {
 		return false
 	}
-	// The cursor is a message key, so the instant is its lead.
+
 	t, ok := store.CursorInstant(cur)
 	if !ok || t.IsZero() {
 		return false
@@ -882,10 +775,6 @@ func (l *Loop) sessionIdleExpired(chatJID string) bool {
 	return time.Since(t) > l.sessionIdle
 }
 
-// onboardingAllowed reports whether jid's platform prefix is eligible for
-// chat-initiated onboarding. Empty platforms = all allowed. A JID with no
-// platform prefix is a bare folder chat, the platform's own system chat, never
-// a person.
 func onboardingAllowed(jid string, platforms []string) bool {
 	if core.JidPlatform(jid) == "" {
 		return false

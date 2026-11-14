@@ -129,7 +129,7 @@ Sources: `routd/loop.go`, `routd/turn_control.go`, `routd/turn_status.go`,
   never: registers internal work as a management resource
 - path: store/routd_work.go (new)
   job: schedule and acknowledge coalesced router obligations
-  names: [DueWork, AcknowledgeWork]
+  names: [DueWork, AcknowledgeWork, RescheduleWork]
   never: acknowledges another generation
 - path: routd/approval_work.go (new)
   job: notify registered waiters from durable verdict work
@@ -170,7 +170,7 @@ Sources: `routd/loop.go`, `routd/turn_control.go`, `routd/turn_status.go`,
   never: expires a concurrently restarted turn
 - path: store/turn_control.go (changed)
   job: select due retries and unacknowledged status intents
-  names: [DeferredTurns, OwedTurnStatuses]
+  names: [DeferredTurns, OwedTurnStatuses, InterruptTurn]
   never: filters the live partition to discover work
 - path: store/turn_archive.go (changed)
   job: keep archived history keyed by start time
@@ -272,6 +272,38 @@ at commit, so a concurrent restart cannot expire a fresh run.
 Counting tests select one of 40 turns using two reads (pointer and primary),
 and zero after acknowledgment. A concurrent restart mutation expires a fresh
 run without the deadline guard and fails the test.
+
+## Breaker obligations
+
+Control writes schedule one immediate `routd_work/control/singleton` generation.
+The consumer processes returned runs, then parks open state at `next_probe_at`.
+Only the consumer can postpone work; concurrent producers always make it due.
+Turn lifecycle, unread-span and route/group changes also schedule reconciliation.
+Runtime recovery reads returned turns only when this work is due. Startup
+still reconciles live turns. A busy probe schedules another attempt in 30 s;
+a failed transition leaves its work pending. The work survives archival until
+the breaker leaves probe state. Probe interruption compares the observed control
+state and atomically guards the hydrated turn lifecycle, so a concurrent
+successful completion cannot be reopened. Acknowledgment and rescheduling bind the
+consumed generation, so they cannot erase a concurrent transition.
+
+Dispatch registers an in-flight candidate before reading input or admission.
+A control wake enqueues both refused and in-flight candidates; an active
+worker retains the wake as another pass. Each new attempt clears its previous
+refusal. This closes the read-to-refusal registration race.
+
+The control wake enters the queue directly; it does not reenter synchronous
+command processing while a candidate holds the chat lock.
+
+`control-work-v1` backfills the singleton once. Route and group writes need no
+backfill: startup rebuilds the chat queue and their next mutation schedules work.
+
+`TestControlWorkReadsOnlyDueState` measures zero breaker reads between
+transitions and deadlines. The control tests preserve concurrent generations,
+hydrated deadlines, completed probes, archived retries and busy recovery.
+`TestControlWorkRearmsUnownedProbe` prevents a probe without an owner from
+remaining closed to admission. `TestInterruptTurnKeepsConcurrentCompletion`
+requires the atomic lifecycle guard. Thirteen guard mutations fail their tests.
 
 ## Retained inbound transitions
 

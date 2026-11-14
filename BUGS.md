@@ -13,31 +13,42 @@
 > work items are their own entries. A record has nothing to fix and never will,
 > so counting one as open overstates the queue.
 
-## L848 — input ordering still selects every chat (2026-11-14)
+## L850 — breaker recovery rereads unchanged control state (2026-11-14)
 
-`InputCursorsBefore` uses an attribute filter on the entire chats partition.
-Each dispatch selects N chats before checking pending spans. `oldestModelInput`
-also reads every live turn before selecting its folder. L827 bounds message
-reads but leaves these two discovery costs.
-**Fix:** index unconsumed chat spans by their earliest possible timestamp;
-verify the complete cursor after hydration. Read live turns from a per-folder
-partition. Backfill both key sets once and retain earlier migrations.
-**Test:** forty idle/future chats and unrelated live turns do not count toward
-one candidate's read cost; consumed input removes its key; cursor ties remain
-correct; repeat migration reads markers only.
+`turnControl.tick` and runtime `recover` each read the singleton every 30 s,
+even without a deadline or returned run. Refused input depends on that read
+for its next wake. Recovery must also retain the obligation if a done probe
+moves to the archive before rearming fails.
+**Fix:** state writes schedule one generation-fenced router obligation. Returned execution, control and changed input/routing
+schedule immediate reconciliation; its consumer sets the next deadline. Busy recovery reschedules itself. Register
+in-flight candidates before reading admission so a concurrent wake is retained.
+**Test:** unchanged/future control reads no primary rows; due work wakes refused
+input; stale acknowledgment preserves new work; failed archived probe recovery
+retries. The unowned-probe regression measured a stuck probe after recovery
+changed its episode; a second pass must rearm it. Input advancement and route changes wake ordering waiters.
 
-## L849 — concurrent appends overwrite the unread input span (2026-11-14)
+## L851 — stale probe recovery reopens a completed breaker (2026-11-14)
 
-Two appends can read the same consumed chat span, then each writes its own
-`input_first` and `input_last`. The later commit erases the earlier unread
-bound. The index wrapper guards the revision it rereads, not the advisory row
-from which `putMessage` computed those fields. A cursor advance can then remove
-work while a later message remains unread.
-**Fix:** guard the span write against that observed chat revision and retry the
-whole append on conflict, including timestamp selection. Distinguish conflicts
-from message-ID duplicates; keep the message, span and counts atomic.
-**Test:** inject a competing append after the advisory read; both messages
-remain discoverable and consuming the earlier one keeps the later work.
+`TestControlWorkDoesNotReopenCompletedProbe` closes the breaker after recovery
+reads its probe state. Recovery finds the archived turn, then `interrupt`
+adopts the newer closed state and reopens it. The measured result is open
+control plus one unnecessary stop of a completed probe.
+**Fix:** bind probe interruption to the control state recovery observed; a
+changed state refuses the interruption and leaves its new work pending. The
+turn state and attempt also guard the interruption atomically; the earlier
+hydration race reproduces when completion precedes the control read.
+**Test:** concurrent completion keeps control closed and performs no stop;
+removing the observed-control fence must fail that test.
+
+## L852 — a control wake reenters chat processing (2026-11-14)
+
+`TestControlWakeRetainsInFlightCandidate` blocks in `wakeRefused → Enqueue →
+processChat → lockTurn` while the candidate already holds that chat lock.
+The test stack confirms the control wake enters the immediate-command path.
+**Fix:** enqueue the queue's next pass directly; a control transition carries
+no newly ingested command to process synchronously.
+**Test:** a wake inside the admission read returns and sets `again`; mutation
+back to the immediate-command enqueue blocks that regression.
 
 ## What needs you
 

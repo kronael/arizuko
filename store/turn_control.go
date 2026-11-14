@@ -91,6 +91,24 @@ func (s *Store) WriteTurnControl(ctx context.Context, before *TurnControlState, 
 	return s.TryWriteEntities(ctx, nil, controlWrite(before, after))
 }
 
+// InterruptTurn fences recovery against the observed turn lifecycle and control.
+func (s *Store) InterruptTurn(ctx context.Context, tc TurnContext, before *TurnControlState, after TurnControlState) (bool, error) {
+	key, err := turnKey(tc.TurnID)
+	if err != nil {
+		return false, err
+	}
+	entity, it, exists, err := s.findTurn(ctx, key)
+	if err != nil || !exists {
+		return false, err
+	}
+	current := turnFrom(it)
+	if current.State != tc.State || current.AttemptID != tc.AttemptID || current.RunReturned != tc.RunReturned || current.Folder != tc.Folder {
+		return false, nil
+	}
+	checks := []objstore.Check{{Entity: entity, Key: key, Cond: objstore.Cond{Item: objstore.ItemPresent, Where: unchanged(it.Attrs)}}}
+	return s.TryWriteEntities(ctx, checks, controlWrite(before, after))
+}
+
 type DeferredTurn struct {
 	Turn          TurnContext
 	PriorCursor   string
@@ -374,7 +392,7 @@ func (s *Store) AcknowledgeTurnStatus(ctx context.Context, tc TurnContext) error
 	if tc.AttemptID == "" {
 		attempt.Op = objstore.Absent
 	}
-	// Stale acknowledgements must leave current intent unchanged.
+
 	_, err = s.writeTurn(ctx, nil, nil, objstore.Write{Op: objstore.Update, Entity: TurnContexts, Key: key, Remove: []string{"status_owed"}, Cond: objstore.Cond{Item: objstore.ItemPresent, Where: []objstore.Cmp{
 		attempt, {Attr: "status_owed", Op: objstore.Eq, Value: tc.StatusOwed}, {Attr: attrTurnState, Op: objstore.Eq, Value: tc.State}, count,
 	}}})

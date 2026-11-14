@@ -7,6 +7,7 @@ import (
 
 	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/objstore/dynstore/dyntest"
+	"github.com/kronael/arizuko/store"
 )
 
 // The manifest helpers decide what a `.yaml` document means before any
@@ -185,7 +186,7 @@ type GroupRow struct {
 func folderEngine(t *testing.T) Backend {
 	t.Helper()
 	reset()
-	s := dyntest.Store(t)
+	s := dyntest.Store(t, objstore.IndexEntity, store.RoutdWork)
 	if err := s.CreateEntity(t.Context(), "audit_log"); err != nil {
 		t.Fatalf("audit_log: %v", err)
 	}
