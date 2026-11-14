@@ -14,20 +14,6 @@
 > so counting one as open overstates the queue.
 
 
-
-
-
-## L861 — the pairing diagram still shows the removed HTTP delivery path (2026-11-14)
-
-The one final `make lint` run fails `TestTwinsAreByteEqual`: `onbod/README.md`
-shows durable token/message enqueue, but its HTML twin still shows the old
-HTTP send. Both go-vet passes, specrefs and bugsindex pass; golangci-lint is
-not installed. The disk has 2,957,668,352 available bytes after the gate.
-**Fix:** copy the current diagram into its existing onboarding HTML twin.
-**Test:** decoded bytes must match; the original HTML fails that comparison.
-No additional build or Go gate runs below the requested three-billion-byte floor.
-
-
 ## L857 — the full router gate loses its test database control plane (2026-11-14)
 
 At candidate `66e8e2f4b7ebf9a6bc41a5fd9a027ecdc0249f7b`, the single full
@@ -744,7 +730,6 @@ pre-breaker state.
   no remaining run or status obligation move to the archive atomically.
 
 
-
 ## ✅ FIXED 2026-11-11 efeb37294 L818 — package sources resolve against the shared host checkout (`catalog:`) instead of being fetched (2026-11-11)
 
 MEASURED 2026-11-11 at v0.75.8: `catalog:<name>` (`cmd/arizuko/products.go`
@@ -1017,7 +1002,6 @@ posts nothing unless the script exits non-zero.
   (b) operator-only commands from a fixed host allowlist, never from the
   group folder. Agents never set a command in either option.
 - **Status:** open — proposal, needs sign-off
-
 
 
 ## L790 — the hold e2e test fails under host load (2026-11-08, open)
