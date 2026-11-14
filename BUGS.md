@@ -15,10 +15,9 @@
 
 ## What needs you
 
-- `L836` — inbound retention reads future work and full payloads; keyed retry and health count approved on 2026-11-14.
+- `L837` — index updates must preserve untouched legacy data; compatibility check in progress.
 
 - `L826` — one folder's crash closes the whole instance for an hour; per-folder breaker or a 30 s probe; needs sign-off.
-- `L822` — gitd's `/health` reads its whole held-inbound backlog per probe; dropping `pending_inbound` changes the documented contract; needs sign-off.
 - `L816` — gitd loses GitHub webhooks while the store is unreachable; retention lives in that store; proposal, needs sign-off.
 - `L803` — morha repeats recovery reports and replies to an old GitHub comment; cause unmeasured.
 - `L804` — Codex topic forks do not inherit the parent's model context; observed messages remain available.
@@ -713,41 +712,18 @@ pre-breaker state.
   serve both by-id and by-time reads. A crash between a turn's finish and its
   status acknowledgement leaves it live, `done`, owing nothing.
 
-## L836 — retained inbound sweeps read future work and every payload (2026-11-14)
 
-`chanstore.DueForRedelivery` filters the whole inbound partition every 15 s.
-Computed with L822's recorded 17,816 rows: 4,275,840 rows/hour for discovery,
-plus 2,137,920 rows/hour from the 30 s health probe. The limit of 50 applies
-only after every due payload has been read and sorted.
-**Fix:** atomic due pointers, retain/drop counter, and marked backfill; preserve
-oldest-first order among due work and the documented `pending_inbound` count.
-**Test:** counting-store fixture with one due and 39 future messages; duplicate
-retain/drop must leave the count exact; mutations remove due/counter guards.
-Owner approved this redesign on 2026-11-14; L822 needs no field change.
+## L837 — index updates rewrite untouched fields (2026-11-14)
 
-## L822 — gitd's `/health` reads its whole held-inbound backlog on every probe (2026-11-12, open — needs sign-off)
-
-MEASURED 2026-11-12 19:50 on sloth: `gitd.inbound_pending` holds 17,816
-messages, all with the error `Client.Timeout exceeded while awaiting headers`
-from routd, held since 2026-11-11 21:05; 17,798 were never retried. 98% are CI
-events (workflow_run 6,224, check_run 4,839, workflow_job 4,391, check_suite
-2,228). The table took 25 whole reads per minute, 356 k rows. `chanlib/handler.go`
-`handleHealth` calls `PendingInboundCount` on every probe; `HeldCount` reads
-the whole partition, so each probe costs a read proportional to the backlog
-(`health: pending inbound count failed`, context canceled). docker reports
-gitd `unhealthy`; that the count's latency causes it is an inference. The
-sweep also reads the whole due set every 15 s to pick 50. The backlog is
-`L821`'s effect; the read per probe is this entry.
-
-- **Severity:** medium — each probe reads the backlog from the shared store.
-- **Status:** open — needs sign-off: `pending_inbound` on `/health` is
-  documented in `specs/5/34-channel-protocol.md` and `chanlib/README.md`, and
-  every retaining adapter (gitd, slakd, discd) serves it. No test — contract.
-- **Options:** (a) `/health` stops counting; the backlog stays visible in the
-  `inbound retained` and `retained inbound still undelivered` logs, and
-  `PendingInboundCount` goes; (b) keep the count.
-- **Default if nothing is decided:** (b); with `L821` fixed the backlog drains
-  and the read shrinks with it.
+The new index writer copies the complete preimage into an Update. Code-level
+measurement: an empty migration update writes every attribute plus the
+revision. A legacy timestamp accepted before an ordered-width declaration
+is therefore revalidated as new input and can prevent startup migration.
+**Fix:** compute pointers from the complete next state, but write only the
+caller's changed attributes and the revision; Put still replaces the row.
+**Test:** an objstore returning a legacy-width start time must accept an
+unrelated state update without receiving that timestamp as a write. Red run
+failed on `started_at is 20 bytes`; restored semantics and concurrency tests pass.
 
 ## ✅ FIXED 2026-11-11 efeb37294 L818 — package sources resolve against the shared host checkout (`catalog:`) instead of being fetched (2026-11-11)
 

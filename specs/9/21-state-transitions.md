@@ -157,7 +157,9 @@ primary state (changed) ── same guarded batch ──► work pointer (new)
 The index protocol reads only the primary keys named by a write. It guards the
 observed revision and writes the state and pointer changes in the same batch.
 A concurrent writer causes a reread, never a stale pointer. A failed caller
-condition changes neither data nor work. Replace/import uses the same handle.
+condition changes neither data nor work. Updates preserve untouched attribute
+bytes, including legacy timestamp widths; pointer derivation uses the full
+next state without rewriting that full state. Replace/import uses the same handle.
 Batch packing includes derived writes; no atomic transaction is split.
 
 Current `store/tasks.go`, `DueTasks`:

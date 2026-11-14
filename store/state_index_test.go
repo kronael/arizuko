@@ -190,3 +190,29 @@ func TestStateIndexWriteSemantics(t *testing.T) {
 		t.Fatalf("deleted state remains indexed: %v %v rows=%d", tasks, err, c.rows)
 	}
 }
+
+type legacyTurnData struct{ objstore.Store }
+
+func (l legacyTurnData) Query(ctx context.Context, q objstore.Query) ([]objstore.Item, error) {
+	rows, err := l.Store.Query(ctx, q)
+	if q.Entity == TurnContexts {
+		for i := range rows {
+			rows[i].Attrs[AttrTurnStartedAt] = "2020-01-01T00:00:00Z"
+		}
+	}
+	return rows, err
+}
+func TestIndexUpdatePreservesUntouchedLegacyData(t *testing.T) {
+	s := openTurnEntities(t)
+	if ok, err := s.obj.GuardedBatch(t.Context(), nil, []objstore.Write{{Op: objstore.Put, Entity: TurnContexts,
+		Key: objstore.Key{Partition: OwnerRoutd, Sort: "legacy"}, Attrs: map[string]string{
+			attrTurnState: TurnRunning, AttrTurnStartedAt: "2020-01-01T00:00:00.000000000Z",
+		}}}); err != nil || !ok {
+		t.Fatalf("seed: %v %v", ok, err)
+	}
+	legacy := NewOver(legacyTurnData{s.obj})
+	if err := legacy.WriteEntities(t.Context(), nil, objstore.Write{Op: objstore.Update, Entity: TurnContexts,
+		Key: objstore.Key{Partition: OwnerRoutd, Sort: "legacy"}, Attrs: map[string]string{attrTurnRunReturned: flagSet}}); err != nil {
+		t.Fatal(err)
+	}
+}

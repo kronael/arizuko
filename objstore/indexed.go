@@ -71,18 +71,29 @@ func (s *Indexed) GuardedBatch(ctx context.Context, checks []Check, writes []Wri
 				guard.Op, guard.Value = Eq, revision
 			}
 			w.Cond.Where = append(slices.Clone(w.Cond.Where), guard)
-			w.Init, w.Remove = nil, nil
-			w.Attrs = next
-			w.Attrs[indexRevision] = rand.Text()
+
+			next[indexRevision] = rand.Text()
+			w.Init = nil
 			if w.Op != Delete {
-				if exists {
-					w.Op = Update
-					for name := range old.Attrs {
-						if _, kept := next[name]; !kept {
-							w.Remove = append(w.Remove, name)
-						}
+				if exists && w.Op != Put {
+					w.Attrs = maps.Clone(w.Attrs)
+					if w.Attrs == nil {
+						w.Attrs = map[string]string{}
 					}
 				} else {
+					w.Attrs = next
+					w.Remove = nil
+					if exists {
+						for name := range old.Attrs {
+							if _, kept := next[name]; !kept {
+								w.Remove = append(w.Remove, name)
+							}
+						}
+					}
+				}
+				w.Attrs[indexRevision] = next[indexRevision]
+				w.Op = Update
+				if !exists {
 					w.Op = Put
 					w.Cond = Cond{Item: ItemAbsent}
 				}
