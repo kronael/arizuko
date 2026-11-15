@@ -328,6 +328,17 @@ reads those words now.
   **Proposal:** stop the build on the first failed submake. This is an adjacent
   build-gate repair; scope approval is pending.
 
+## L883 — the new-product checklist names a spec path that no longer exists (2026-11-15, open)
+
+`template/web/CLAUDE.md:374` step 4 of "Adding a new product" says to create
+`specs/7/product-<name>.md`. `specs/7/` holds no `product-*` file, and the product
+specs were deleted on purpose (`specs/17/index.md:60-70`), so an agent following
+the checklist writes a file the project removed. No test — docs.
+
+**Fix:** delete step 4 and renumber the list.
+
+- **Status:** open (record only).
+
 ## L882 — Discord typing follows the newest message in the channel, not the turn's thread (2026-11-15, open — needs sign-off)
 
 routd keys typing by chat JID only (`routd/turn_status.go:230`, `routd/deliver.go:175`);
