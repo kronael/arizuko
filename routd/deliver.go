@@ -9,7 +9,17 @@ import (
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/chanreg"
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/retry"
 )
+
+// errNoChannel is transient: an adapter is deregistered while it restarts and
+// nothing was sent, so a replay is safe (BUGS L883).
+func errNoChannel(jid string) error {
+	return &retry.Error{
+		Failure: retry.Failure{Kind: "transient"},
+		Err:     fmt.Errorf("no channel for jid %s", jid),
+	}
+}
 
 // chanDeliverer is routd's production Deliverer: it resolves the owning
 // adapter through the channel registry and fans out over chanreg.HTTPChannel.
@@ -97,7 +107,7 @@ func (d *chanDeliverer) send(channel, jid, text string, options []chanlib.Option
 	}
 	ch := d.resolve(channel, jid)
 	if ch == nil {
-		return "", fmt.Errorf("no channel for jid %s", jid)
+		return "", errNoChannel(jid)
 	}
 	return ch.SendOptionsCtx(context.Background(), jid, text, options, replyToID, threadID, threadRoot, idempotencyKey)
 }
@@ -108,7 +118,7 @@ func (d *chanDeliverer) Document(jid, path, name, caption, replyToID, threadID, 
 	}
 	ch := d.resolve("", jid)
 	if ch == nil {
-		return "", fmt.Errorf("no channel for jid %s", jid)
+		return "", errNoChannel(jid)
 	}
 	return ch.SendFile(jid, path, name, caption, replyToID, threadID, idempotencyKey, threadRoot)
 }
@@ -119,7 +129,7 @@ func (d *chanDeliverer) SendVoice(jid, audioPath, caption, threadID, threadRoot 
 	}
 	ch := d.resolve("", jid)
 	if ch == nil {
-		return "", fmt.Errorf("no channel for jid %s", jid)
+		return "", errNoChannel(jid)
 	}
 	return ch.SendVoice(jid, audioPath, caption, threadID, threadRoot)
 }
@@ -127,7 +137,7 @@ func (d *chanDeliverer) SendVoice(jid, audioPath, caption, threadID, threadRoot 
 func (d *chanDeliverer) React(jid, platformID, reaction string) error {
 	ch := d.resolve("", jid)
 	if ch == nil {
-		return fmt.Errorf("no channel for jid %s", jid)
+		return errNoChannel(jid)
 	}
 	return ch.Like(context.Background(), jid, platformID, reaction)
 }
@@ -135,7 +145,7 @@ func (d *chanDeliverer) React(jid, platformID, reaction string) error {
 func (d *chanDeliverer) Edit(jid, platformID, content, threadID string) error {
 	ch := d.resolve("", jid)
 	if ch == nil {
-		return fmt.Errorf("no channel for jid %s", jid)
+		return errNoChannel(jid)
 	}
 	return ch.Edit(context.Background(), jid, platformID, content, threadID)
 }
@@ -151,7 +161,7 @@ func (d *chanDeliverer) HasCapability(jid, capability string) bool {
 func (d *chanDeliverer) Delete(jid, platformID, threadID string) error {
 	ch := d.resolve("", jid)
 	if ch == nil {
-		return fmt.Errorf("no channel for jid %s", jid)
+		return errNoChannel(jid)
 	}
 	return ch.Delete(context.Background(), jid, platformID, threadID)
 }
@@ -159,7 +169,7 @@ func (d *chanDeliverer) Delete(jid, platformID, threadID string) error {
 func (d *chanDeliverer) Pin(jid, platformID string) error {
 	ch := d.resolve("", jid)
 	if ch == nil {
-		return fmt.Errorf("no channel for jid %s", jid)
+		return errNoChannel(jid)
 	}
 	return ch.Pin(context.Background(), jid, platformID)
 }
@@ -167,7 +177,7 @@ func (d *chanDeliverer) Pin(jid, platformID string) error {
 func (d *chanDeliverer) Unpin(jid, platformID string, all bool) error {
 	ch := d.resolve("", jid)
 	if ch == nil {
-		return fmt.Errorf("no channel for jid %s", jid)
+		return errNoChannel(jid)
 	}
 	return ch.Unpin(context.Background(), jid, platformID, all)
 }
@@ -189,7 +199,7 @@ func (d *chanDeliverer) Post(jid, content string, mediaPaths []string) (string, 
 	}
 	ch := d.resolve("", jid)
 	if ch == nil {
-		return "", fmt.Errorf("no channel for jid %s", jid)
+		return "", errNoChannel(jid)
 	}
 	return ch.Post(context.Background(), jid, content, mediaPaths)
 }
@@ -197,7 +207,7 @@ func (d *chanDeliverer) Post(jid, content string, mediaPaths []string) (string, 
 func (d *chanDeliverer) Forward(sourceMsgID, targetJID, comment string) (string, error) {
 	ch := d.resolve("", targetJID)
 	if ch == nil {
-		return "", fmt.Errorf("no channel for jid %s", targetJID)
+		return "", errNoChannel(targetJID)
 	}
 	return ch.Forward(context.Background(), sourceMsgID, targetJID, comment)
 }
@@ -205,7 +215,7 @@ func (d *chanDeliverer) Forward(sourceMsgID, targetJID, comment string) (string,
 func (d *chanDeliverer) Quote(jid, sourceMsgID, comment string) (string, error) {
 	ch := d.resolve("", jid)
 	if ch == nil {
-		return "", fmt.Errorf("no channel for jid %s", jid)
+		return "", errNoChannel(jid)
 	}
 	return ch.Quote(context.Background(), jid, sourceMsgID, comment)
 }
@@ -213,7 +223,7 @@ func (d *chanDeliverer) Quote(jid, sourceMsgID, comment string) (string, error) 
 func (d *chanDeliverer) Repost(jid, sourceMsgID string) (string, error) {
 	ch := d.resolve("", jid)
 	if ch == nil {
-		return "", fmt.Errorf("no channel for jid %s", jid)
+		return "", errNoChannel(jid)
 	}
 	return ch.Repost(context.Background(), jid, sourceMsgID)
 }
@@ -221,7 +231,7 @@ func (d *chanDeliverer) Repost(jid, sourceMsgID string) (string, error) {
 func (d *chanDeliverer) Dislike(jid, platformID string) error {
 	ch := d.resolve("", jid)
 	if ch == nil {
-		return fmt.Errorf("no channel for jid %s", jid)
+		return errNoChannel(jid)
 	}
 	return ch.Dislike(context.Background(), jid, platformID)
 }
@@ -229,7 +239,7 @@ func (d *chanDeliverer) Dislike(jid, platformID string) error {
 func (d *chanDeliverer) SetSuggestions(jid string, prompts []core.PanePrompt) error {
 	ch := d.resolve("", jid)
 	if ch == nil {
-		return fmt.Errorf("no channel for jid %s", jid)
+		return errNoChannel(jid)
 	}
 	return ch.SetSuggestions(context.Background(), jid, prompts)
 }
@@ -237,7 +247,7 @@ func (d *chanDeliverer) SetSuggestions(jid string, prompts []core.PanePrompt) er
 func (d *chanDeliverer) SetName(jid, title string) error {
 	ch := d.resolve("", jid)
 	if ch == nil {
-		return fmt.Errorf("no channel for jid %s", jid)
+		return errNoChannel(jid)
 	}
 	return ch.SetName(context.Background(), jid, title)
 }
@@ -247,7 +257,7 @@ func (d *chanDeliverer) SetName(jid, title string) error {
 func (d *chanDeliverer) FetchHistory(jid string, before time.Time, limit int) ([]byte, error) {
 	ch := d.resolve("", jid)
 	if ch == nil {
-		return nil, fmt.Errorf("no channel for jid %s", jid)
+		return nil, errNoChannel(jid)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
