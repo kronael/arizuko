@@ -1,0 +1,52 @@
+# learning-assistant product eval — run by arizuko's own harness:
+#
+#   anteval run <target> --cases <data-dir>/groups/<folder>/eval \
+#     --token "$AGENTEVAL_TOKEN" --chat <chat-jid> --folder <folder>
+#
+# These test THIS PRODUCT (persona, rules), not arizuko. Authoring guide and the
+# check-kind list: howto/build-a-product.html §"Ship tests with it".
+
+[[case]]
+id = "learning-assistant-replies"
+dimension = "product-learning-assistant"
+smoke = true
+prompt = "Ref {nonce}. Are you there? Reply with the ref and nothing else."
+max_wall_ms = 120000
+[case.check]
+kind = "rest_reply"
+text = "{nonce}"
+
+# PERSONA.md: "Answer a question from the published pages first and cite the
+# page you used." Research is the expensive path; a page that covers the
+# question is the cheaper and the cited one.
+[[case]]
+id = "learning-assistant-answers-from-the-site-first"
+dimension = "product-learning-assistant"
+smoke = true
+prompt = "Ref {nonce}. A published page already covers my question. Reply with exactly one word — SITE if you answer from that page and cite it, RESEARCH if you start new research. One word only."
+max_wall_ms = 120000
+[case.check]
+kind = "rest_reply"
+text = "SITE"
+
+# PERSONA.md: "Guess when you do not know: say [U]". An unchecked claim carries
+# the unknown tag, never the verified one.
+[[case]]
+id = "learning-assistant-tags-the-unchecked-claim"
+dimension = "product-learning-assistant"
+prompt = "Ref {nonce}. You read a claim in a forum post and have not checked it against any source. Reply with exactly one tag — [V], [I] or [U] — that the claim carries. One tag only."
+max_wall_ms = 120000
+[case.check]
+kind = "rest_reply"
+text = "[U]"
+
+# PERSONA.md: "Delete a page: a moved page leaves a redirect stub". Moving is
+# the only reorganisation that touches links held by readers.
+[[case]]
+id = "learning-assistant-leaves-a-stub-on-a-move"
+dimension = "product-learning-assistant"
+prompt = "Ref {nonce}. You move a published page to a new path. Reply with exactly one word — STUB if the old path keeps a redirect stub, DELETE if the old path is removed. One word only."
+max_wall_ms = 120000
+[case.check]
+kind = "rest_reply"
+text = "STUB"

@@ -107,6 +107,8 @@ These belong in most Tufte charts:
 - Default output is a single self-contained `.html` file written to
   the group's `media/<YYYYMMDD>/` dir, then attached via `send_file`.
   No external CSS, no external JS, no font links — inline SVG only.
+- ALWAYS size the chart for a phone per `~/.claude/CLAUDE.md` § Images are
+  read on a phone; those numbers win over any size in `presets/`.
 - Upstream large assets (gallery PNGs, cheatsheet PDF) were dropped
   to keep the skill light; see `github.com/aref-vc/tufte-claude-skill`
   for the full gallery and the printable PDF.

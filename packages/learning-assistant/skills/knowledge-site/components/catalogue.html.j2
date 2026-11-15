@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="{{ ns }}:type" content="index">
+<meta name="{{ ns }}:date" content="{{ generated }}">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Catalogue &mdash; {{ title }}</title>
+<link rel="stylesheet" href="{{ css }}">
+</head>
+<body>
+<a href="{{ home }}" class="back-btn">&larr; back</a>
+<button class="theme-toggle" aria-label="Toggle theme"></button>
+<div class="hub-container">
+<h1>Catalogue</h1>
+<p class="hub-subtitle">Every page by type, newest first. {{ total }} in all.</p>
+
+<nav class="hub-nav" id="nav"><div class="hub-nav-inner">
+{%- for s in sections %}
+<a href="#{{ s.type }}" class="nav-item"><span class="nav-label">{{ s.label }}</span><span class="nav-hint">{{ s.entries|length }}</span></a>
+{%- endfor %}
+</div></nav>
+{% for s in sections %}
+<h2 class="section-label" id="{{ s.type }}">{{ s.label }}</h2>
+<table>
+<tr><th>Date</th><th>Page</th></tr>
+{%- for e in s.entries %}
+<tr><td>{{ e.date }}</td><td><a href="{{ e.url }}">{{ e.title }}</a></td></tr>
+{%- endfor %}
+</table>
+{%- endfor %}
+
+<footer class="hub-footer"><a href="{{ home }}">{{ title }}</a></footer>
+</div>
+<script src="{{ js }}"></script>
+</body>
+</html>

@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Learning assistant &mdash; setup &middot; arizuko</title>
+  <link rel="stylesheet" href="../../assets/hub.css">
+</head>
+<body>
+  <header class="docs-topbar">
+    <button class="docs-navtoggle" aria-label="Toggle navigation" aria-expanded="false">&#9776;</button>
+    <a class="docs-wordmark" href="../../">arizuko</a>
+  </header>
+  <div class="docs-layout">
+    <nav class="docs-nav" aria-label="Products">
+      <ul>
+        <li><a class="nav-section" href="../../concepts/">Concepts</a></li>
+        <li><a class="nav-section" href="../../reference/">Reference</a></li>
+        <li><a class="nav-section" href="../../howto/">How-to</a></li>
+        <li><a class="nav-section" href="../../components/">Components</a></li>
+        <li><a class="nav-section" href="../">Products</a>
+          <ul class="nav-children">
+            <li><a href="../">Start here</a></li>
+            <li><a href="../helpdesk/">Helpdesk (reference)</a></li>
+            <li><a href="../trip-computer/">Trip computer</a></li>
+            <li><a href="../company-brain/">Company Brain</a></li>
+            <li><a href="../slack-team/">Slack team agent</a></li>
+            <li><a href="../github/">Repo worker (Atlas)</a></li>
+            <li><a href="../reality/">Reality agent</a></li>
+            <li><a href="../support/">Support desk (Atlas)</a></li>
+            <li><a href="../personal/">Personal assistant (Fiu)</a></li>
+            <li><a href="../pm/">PM agent (Sloth)</a></li>
+            <li><a href="../creator/">Content pipeline (Inari)</a></li>
+            <li><a href="../socials/">Social presence (Phosphene)</a></li>
+            <li><a href="../strategy/">Domain researcher (Prometheus)</a></li>
+            <li><a href="../cz-estate-agent/">CZ Estate Agent</a></li>
+            <li><a href="../macrohype/">MacroHype</a></li>
+            <li><a href="../learning-assistant/">Learning assistant (krons)</a></li>
+            <li><a href="../shapes.html">Shapes</a></li>
+          </ul>
+        </li>
+        <li><a class="nav-section" href="../../security/">Security</a></li>
+        <li><a class="nav-section" href="../../changelog/">Changelog</a></li>
+      </ul>
+    </nav>
+
+    <main class="docs-content">
+      <p class="docs-crumb"><a href="../../">arizuko</a> &rsaquo; <a href="../">products</a> &rsaquo; Learning assistant &mdash; setup</p>
+      <h1>Learning assistant &mdash; setup</h1>
+      <p class="lede">Krons needs one channel, a web host for the published site and the grants to publish and to research.</p>
+      <h2>The assistant needs a host, a model key and a channel</h2>
+      <ul>
+        <li>A host with Docker and the build part of the <a href="../../howto/index.html#install">install</a>.</li>
+        <li>A model credential for Claude Code, Codex or pi. See the <a href="../../concepts/ant.html">supported backends</a>.</li>
+        <li>A Telegram bot token, <code>TELEGRAM_BOT_TOKEN</code>, or a WhatsApp adapter.</li>
+        <li><code>WEB_HOST</code>, the host name that serves the published pages.</li>
+      </ul>
+      <h2>package add selects the product for a group</h2>
+      <pre><code>arizuko create -i learn
+arizuko package add -i learn -g main github.com/kronael/arizuko/packages/learning-assistant
+$EDITOR /srv/data/arizuko_learn/.env    # TELEGRAM_BOT_TOKEN, WEB_HOST, a model key</code></pre>
+      <p>The command installs the <code>group/</code> files, including the <code>PERSONA.md</code> of Krons, and the skills <code>knowledge-site</code> and <code>research</code>. Start the instance as a systemd service, as <a href="../../howto/">getting started</a> shows. Select the adapter package and restart the service:</p>
+      <pre><code>arizuko package add -i learn teled
+sudo systemctl restart arizuko_learn
+arizuko route -i learn add 'platform=telegram' main</code></pre>
+      <h2>Two grants let Krons publish and research</h2>
+      <p>The folder needs <code>web:publish</code> to write <code>~/public_html/</code>, and <code>egress</code> to read sources on the web. A scheduled refresh runs without the operator, so the folder holds both grants itself:</p>
+      <pre><code>arizuko group -i learn grant folder:main main web:publish
+arizuko group -i learn grant folder:main main egress</code></pre>
+      <p>To allow only listed domains, skip the second grant and add the domains of the sources to the allowlist of the folder. The <a href="../../components/egress.html">egress page</a> explains the allowlist.</p>
+      <h2>The first page starts the site</h2>
+      <p>A new group has no pages, so the first questions start research. Before the first page, Krons writes the rules file of the site, <code>~/public_html/CLAUDE.md</code>. The file holds the page-metadata namespace, the page types in archive order and the site title. Tell Krons the types and the title you want, or let it ask. Krons then copies <code>hub.css</code> and <code>hub.js</code> into <code>~/public_html/assets/</code> and writes the front page and the archive page.</p>
+      <h2>Verify the site with the linter</h2>
+      <p>Ask a question the site does not cover. Krons must answer with a page URL under <code>https://WEB_HOST/pub/main/</code>, and the page must open. Krons runs the linter before it announces a page. On the host, run it from an arizuko checkout with the namespace from <code>/srv/data/arizuko_learn/web/pub/main/CLAUDE.md</code>. It must exit 0:</p>
+      <pre><code>sudo python3 packages/learning-assistant/skills/knowledge-site/scripts/site_lint.py \
+  /srv/data/arizuko_learn/web/pub/main --www /srv/data/arizuko_learn/web/pub --ns NS</code></pre>
+      <p>Read <a href="index.html">the intro</a> for what the assistant does.</p>
+      <div class="docs-footer">
+        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/learning-assistant/setup.html">Edit this page</a>
+        &middot; updated <time class="docs-updated" datetime="2026-11-15">2026-11-15</time>
+      </div>
+    </main>
+    <aside class="docs-toc" aria-label="On this page"></aside>
+
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="../../assets/hub.js"></script>
+</body>
+</html>

@@ -209,6 +209,16 @@ Gateway downloads inbound media before you run; paths appear in message content:
 
 ALWAYS deliver files via `send_file` — NEVER inline the full contents in text. Absolute path under `~/`; the `caption` carries the TL;DR, no separate `send`.
 
+# Images are read on a phone
+
+The reader opens your image on a phone, in chat or on a page, in a column about 360 CSS px wide. The phone shrinks a wider image to fit that column, and its text becomes too small to read. No error tells you. Cost: krons published A3 drawings at 2480×1753 px and a matplotlib curve at 1728×1052 px; at 375 px they showed 343 px wide and their labels were 2–3 px high. This applies to every image you make: chart, diagram, drawing, map, screenshot.
+
+- ALWAYS draw for a 360 px column: portrait 4:5 or square, never wider than 4:3. Put panels one above the other, NEVER side by side.
+- ALWAYS size text for that width: labels 12 px or more, titles 16 px or more, at 360 px. matplotlib: `figsize=(4, 5)`, `fontsize` 10 pt or more, `dpi=270` (1080×1350 px). SVG: `viewBox` 360 wide, `font-size` 12 or more. Screenshot: viewport 360 px wide.
+- A thing that cannot shrink (a CAD sheet, a wide timeline): send crops in the shape above, and link the full PDF or PNG for zoom. NEVER send the full sheet as the only image.
+- ALWAYS embed with `img, svg { max-width: 100%; height: auto; }`. Inline SVG gets a `viewBox` and `width="100%"`, NEVER a fixed pixel width.
+- ALWAYS check before you send: `convert in.png -resize 360x ~/tmp/phone.png`, then `Read` that file. A label you cannot read there, the user cannot read either.
+
 # Local paths vs public URLs
 
 The user CANNOT open container paths (`~/...`, `/var/lib/www/...`) — NEVER emit those in chat as if they were links. Resolve `$WEB_HOST` and `$ARIZUKO_GROUP_FOLDER` with `echo` and translate to the public URL first; the table is in `self/web-routing.md`.

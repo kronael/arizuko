@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Learning assistant &middot; arizuko</title>
+  <link rel="stylesheet" href="../../assets/hub.css">
+</head>
+<body>
+  <header class="docs-topbar">
+    <button class="docs-navtoggle" aria-label="Toggle navigation" aria-expanded="false">&#9776;</button>
+    <a class="docs-wordmark" href="../../">arizuko</a>
+  </header>
+  <div class="docs-layout">
+    <nav class="docs-nav" aria-label="Products">
+      <ul>
+        <li><a class="nav-section" href="../../concepts/">Concepts</a></li>
+        <li><a class="nav-section" href="../../reference/">Reference</a></li>
+        <li><a class="nav-section" href="../../howto/">How-to</a></li>
+        <li><a class="nav-section" href="../../components/">Components</a></li>
+        <li><a class="nav-section" href="../">Products</a>
+          <ul class="nav-children">
+            <li><a href="../">Start here</a></li>
+            <li><a href="../helpdesk/">Helpdesk (reference)</a></li>
+            <li><a href="../trip-computer/">Trip computer</a></li>
+            <li><a href="../company-brain/">Company Brain</a></li>
+            <li><a href="../slack-team/">Slack team agent</a></li>
+            <li><a href="../github/">Repo worker (Atlas)</a></li>
+            <li><a href="../reality/">Reality agent</a></li>
+            <li><a href="../support/">Support desk (Atlas)</a></li>
+            <li><a href="../personal/">Personal assistant (Fiu)</a></li>
+            <li><a href="../pm/">PM agent (Sloth)</a></li>
+            <li><a href="../creator/">Content pipeline (Inari)</a></li>
+            <li><a href="../socials/">Social presence (Phosphene)</a></li>
+            <li><a href="../strategy/">Domain researcher (Prometheus)</a></li>
+            <li><a href="../cz-estate-agent/">CZ Estate Agent</a></li>
+            <li><a href="../macrohype/">MacroHype</a></li>
+            <li><a href="../learning-assistant/">Learning assistant (krons)</a></li>
+            <li><a href="../shapes.html">Shapes</a></li>
+          </ul>
+        </li>
+        <li><a class="nav-section" href="../../security/">Security</a></li>
+        <li><a class="nav-section" href="../../changelog/">Changelog</a></li>
+      </ul>
+    </nav>
+
+    <main class="docs-content">
+      <p class="docs-crumb"><a href="../../">arizuko</a> &rsaquo; <a href="../">products</a> &rsaquo; Learning assistant</p>
+      <h1>Learning assistant</h1>
+      <p class="lede">Ask a question and get an answer from the pages the agent has already published, with the page cited. When no page covers it, the agent researches it and publishes one.</p>
+      <p>Krons is an agent for one user and one published site. The template is in <code>packages/learning-assistant/</code>.</p>
+      <h2>The persona answers from the site first</h2>
+      <p>The persona tells Krons to search the published pages before it researches, and to cite the page URL in the answer. It tells Krons to tag each claim <code>[V]</code> when a source checked it, <code>[I]</code> when it is inferred and <code>[U]</code> when it is unknown, and never to tag <code>[V]</code> a claim it did not check.</p>
+      <h2>Four jobs make the assistant</h2>
+      <dl>
+        <dt>Answer</dt>
+        <dd>Krons reads the pages under <code>~/public_html/</code> and answers with the page URL and the sources that page lists.</dd>
+        <dt>Research</dt>
+        <dd>For a topic the site does not cover, Krons runs the core <code>find</code> skill for primary sources and publishes the result as a page with tagged claims.</dd>
+        <dt>Organise</dt>
+        <dd>Hub pages list the pages of each section. A moved page leaves a redirect stub at the old path. A retired page leaves its hub and stays in the archive. Krons never deletes a page on its own.</dd>
+        <dt>Refresh</dt>
+        <dd>A scheduled task names a researched page. Krons rechecks its <code>[V]</code> claims, retags them and updates the date.</dd>
+      </dl>
+      <h2>Two skills carry the four jobs</h2>
+      <dl>
+        <dt><code>research</code></dt>
+        <dd>Answers from the site, researches what it does not cover, tags each claim and sets the refresh schedule of a page.</dd>
+        <dt><code>knowledge-site</code></dt>
+        <dd>Holds the page contract, the site order, a linter and the archive script. Every page has the same skeleton, built from <code>page.html</code>, <code>hub.css</code> and <code>hub.js</code>. The script <code>hub.js</code> runs the theme toggle and adds a banner to each research page.</dd>
+      </dl>
+      <p>Each site states its page-metadata namespace once, in <code>~/public_html/CLAUDE.md</code>. Every page carries <code>&lt;meta name="NS:type"&gt;</code> and <code>&lt;meta name="NS:date"&gt;</code> with that prefix. The same file lists the page types and the site title.</p>
+      <h2>The linter must pass before Krons announces a page</h2>
+      <p><code>site_lint.py</code> reports each finding as an error on one line and exits 1 on any finding. It has six rules:</p>
+      <dl>
+        <dt><code>html-balance</code></dt><dd>The first unclosed or stray tag on a page.</dd>
+        <dt><code>title-h1</code></dt><dd>An empty <code>&lt;title&gt;</code> or no <code>&lt;h1&gt;</code>.</dd>
+        <dt><code>links</code></dt><dd>An empty URL, a missing page or file, or a missing <code>#fragment</code>. A link that starts with <code>/</code> resolves against the directory that holds every published site.</dd>
+        <dt><code>css-class</code></dt><dd>A class that no loaded stylesheet or script defines.</dd>
+        <dt><code>page-meta</code></dt><dd>A missing or malformed <code>NS:type</code> or <code>NS:date</code>.</dd>
+        <dt><code>redirect-stub</code></dt><dd>A redirect stub whose target is missing or whose body links another page.</dd>
+      </dl>
+      <p><code>catalogue.py</code> writes the archive page: every stamped page, grouped by type and newest first.</p>
+      <p>The package eval has four cases: a reply check and three cases that each test one line of the persona. The <a href="setup.html">setup guide</a> shows the install.</p>
+      <h2>The package differs from two neighbours</h2>
+      <dl>
+        <dt><a href="../strategy/">Domain researcher</a></dt><dd>Delivers briefings on a watchlist. The learning assistant keeps a site that answers questions.</dd>
+        <dt><code>hub</code> skill</dt><dd>Builds one page. The learning assistant keeps a whole site in order.</dd>
+      </dl>
+      <div class="docs-footer">
+        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/learning-assistant/index.html">Edit this page</a>
+        &middot; updated <time class="docs-updated" datetime="2026-11-15">2026-11-15</time>
+      </div>
+    </main>
+    <aside class="docs-toc" aria-label="On this page"></aside>
+
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="../../assets/hub.js"></script>
+</body>
+</html>
