@@ -31,6 +31,11 @@ func deliveryWrite(msgKey objstore.Key, m core.Message, status string,
 		return objstore.Write{}, false
 	}
 	attrs := statusDeliveryAttrs(m)
+	// Only a pending delivery is swept again; a stopped one carries no deadline
+	// (BUGS L893).
+	if status != core.MessageStatusPending {
+		delete(attrs, "next_attempt_at")
+	}
 	if attempts > 0 {
 		attrs[attrDelAttempts] = strconv.Itoa(attempts)
 	}
