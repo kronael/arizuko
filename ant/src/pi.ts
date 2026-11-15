@@ -86,7 +86,7 @@ interface PiMessage {
 const RESUME_MISS = /No session found matching/;
 
 // PiTurn reduces pi's --mode json event stream to frames. Recorded shape (pi
-// 0.51.6): session {id} · agent_start · turn_start · message_start/message_end
+// 1.4.0): session {id} · agent_start · turn_start · message_start/message_end
 // {message} · turn_end · agent_end, with auto_retry_* wrapping repeated
 // attempts. agent_end fires once PER ATTEMPT, so the terminal is the process
 // exit, not any stream event.

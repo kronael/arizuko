@@ -14,7 +14,7 @@ import { GATEWAY_KEY_ENV, modelGateway } from './gateway.js';
 const PI_HONOURS: Array<Verdict['kind']> = ['deny', 'inject', 'rewrite'];
 
 // The two pi events the table binds to, in pi's own shape (docs/extensions.md,
-// pi 0.51.6).
+// pi 1.4.0).
 interface PiToolCallEvent {
   toolName: string;
   toolCallId: string;
@@ -26,8 +26,8 @@ interface PiToolResultEvent extends PiToolCallEvent {
   isError?: boolean;
 }
 
-// PiProviderConfig is the override shape of pi.registerProvider (pi 0.51.6
-// docs/extensions.md): baseUrl alone re-points an existing provider and keeps
+// PiProviderConfig is the override shape of pi.registerProvider (pi 1.4.0
+// docs/custom-provider.md): baseUrl alone re-points an existing provider and keeps
 // its models; apiKey references an env var pi resolves at call time.
 interface PiProviderConfig {
   baseUrl: string;
@@ -139,8 +139,8 @@ export function registerWith(pi: PiApi, ctx: PolicyContext): void {
 // openai sends the Responses format to `<url>/v1` (pi-ai appends /responses).
 // Which one a turn uses follows from the model id, as today. The key is a
 // fallback: pi consults it only when no real credential for that provider is
-// present, which is exactly the gateway deployment. Read from pi 0.51.6's
-// model-registry.js, not measured against a live gateway.
+// present, which is exactly the gateway deployment. Read from pi 1.4.0's
+// provider-composer.js, not measured against a live gateway.
 export function registerGateway(pi: Pick<PiApi, 'registerProvider'>, env: Record<string, string | undefined>): void {
   const gw = modelGateway(env);
   if (!gw) return;

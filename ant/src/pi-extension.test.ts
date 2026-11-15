@@ -228,7 +228,7 @@ describe('pi runs the same policy rows claude and codex do', () => {
   });
 
   // pi's ToolResultEvent.content is (TextContent|ImageContent)[] (types.d.ts,
-  // pi 0.51.6) — stringifying it printed "[object Object]" in place of the
+  // pi 1.4.0) — stringifying it printed "[object Object]" in place of the
   // real tool output on every steering injection. The blocks must survive
   // verbatim, with the steering appended as one more text block.
   test('queued steering rides back on the tool result — pi has no other channel', async () => {
@@ -262,7 +262,7 @@ describe('pi is re-pointed at the model gateway', () => {
     expect(r.calls).toEqual([]);
   });
 
-  // Override mode (baseUrl only keeps the models — pi 0.51.6 docs/extensions.md):
+  // Override mode (baseUrl only keeps the models — pi 1.4.0 docs/custom-provider.md):
   // anthropic at the bare URL (pi-ai appends /v1/messages), openai at /v1 (pi-ai
   // appends /responses). The key travels as the env var NAME pi resolves at
   // call time, never as its value.
