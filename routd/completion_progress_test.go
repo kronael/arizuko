@@ -8,10 +8,15 @@ import (
 
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/objstore"
+	"github.com/kronael/arizuko/retry"
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 	"github.com/kronael/arizuko/store"
 )
+
+func transientFact(err error) error {
+	return &retry.Error{Failure: retry.Failure{Kind: "transient"}, Err: err}
+}
 
 // A failed terminal edit retries the persisted completion outcome at run return.
 func TestCompletionProgressRetryPreservesOutcome(t *testing.T) {
@@ -45,9 +50,9 @@ func TestCompletionProgressRetryPreservesOutcome(t *testing.T) {
 					}
 				}
 				if mode == "delivered" || mode == "social" {
-					dl.deleteErr = errors.New("transient delete failed")
+					dl.deleteErr = transientFact(errors.New("transient delete failed"))
 				} else {
-					dl.editErr = errors.New("transient edit failed")
+					dl.editErr = transientFact(errors.New("transient edit failed"))
 				}
 				ack, err := srv.recordTurnResult(req.TurnID, apiv1.TurnResult{
 					TurnID: req.TurnID, Status: "success", TimedOut: mode == "timeout",

@@ -247,11 +247,12 @@ func TestMediaInbound_DownloadsAndInlines(t *testing.T) {
 	}
 }
 
-// TestMediaInbound_DownloadFailureGracefulSkip: a 500 from the file server →
+// TestMediaInbound_DownloadFailureGracefulSkip: a 404 from the file server (a
+// permanent refusal; a 500 defers the input until the attachment retry is due) →
 // the attachment is skipped, the turn still runs, the raw [Document] label
 // survives in the prompt (no <attachment> tag, no crash).
 func TestMediaInbound_DownloadFailureGracefulSkip(t *testing.T) {
-	fs := newFileServer(t, nil, 500)
+	fs := newFileServer(t, nil, 404)
 	f := bootMediaFed(t, true, "", 20*1024*1024)
 
 	turn := f.ingestWithAttachment(t, "doc.fail", "[Document: broken.pdf]", routdv1.Attachment{

@@ -17,6 +17,7 @@ import (
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/chanlib/chanstore"
 	"github.com/kronael/arizuko/objstore/dynstore/dyntest"
+	"github.com/kronael/arizuko/retry"
 	"github.com/kronael/arizuko/store"
 	"github.com/kronael/arizuko/tests/testutils"
 )
@@ -734,7 +735,8 @@ func TestOutbound_SendThreading(t *testing.T) {
 	}
 }
 
-// Rate-limit Retry-After respected.
+// A 429 is one request: the durable owner retries, with Retry-After as the
+// lower bound of the next attempt.
 func TestOutbound_RateLimitRetry(t *testing.T) {
 	mock := newSlackMock()
 	defer mock.Close()
@@ -746,12 +748,18 @@ func TestOutbound_RateLimitRetry(t *testing.T) {
 		ChatJID: "slack:T012/channel/C0HJK",
 		Content: "hello",
 	})
-	elapsed := time.Since(start)
-	if err != nil {
-		t.Fatal(err)
+	if err == nil {
+		t.Fatal("429 was retried inline: the second request succeeded")
 	}
-	if elapsed < 700*time.Millisecond {
-		t.Errorf("rate-limit retry did not sleep Retry-After (%v)", elapsed)
+	if elapsed := time.Since(start); elapsed >= 700*time.Millisecond {
+		t.Errorf("Send slept Retry-After inline (%v)", elapsed)
+	}
+	failure := retry.FromError(err, start)
+	if failure.Kind != "transient" {
+		t.Fatalf("kind = %q, want transient", failure.Kind)
+	}
+	if got := failure.RetryAt.Sub(start); got < 900*time.Millisecond || got > 1100*time.Millisecond {
+		t.Errorf("RetryAt = start+%v, want Retry-After (1s)", got)
 	}
 }
 

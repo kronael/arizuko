@@ -14,6 +14,7 @@ import (
 	"github.com/kronael/arizuko/chanreg"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/ipc"
+	"github.com/kronael/arizuko/retry"
 	"github.com/kronael/arizuko/routd"
 	"github.com/kronael/arizuko/tests/testutils"
 )
@@ -69,6 +70,18 @@ func TestNativeTelegramMissingTargetReachesMCPAndAllowsRecovery(t *testing.T) {
 					statuses <- status
 					return nil
 				},
+				PutOutboundFailure: func(row core.Message, failure retry.Failure) (retry.Decision, error) {
+					if row.ChatJID != "telegram:1/user/555" || row.TurnID != "turn" {
+						t.Error("MCP changed delivery context", row)
+					}
+					decision := retry.Next(0, failure, time.Now(), time.Time{})
+					status := core.MessageStatusPending
+					if decision.Stop {
+						status = core.MessageStatusFailed
+					}
+					statuses <- status
+					return decision, nil
+				},
 			}
 			socket := filepath.Join(t.TempDir(), "mcp.sock")
 			stop, err := ipc.ServeMCP(socket, gated, fns, "demo", true, 0, "")
@@ -78,7 +91,7 @@ func TestNativeTelegramMissingTargetReachesMCPAndAllowsRecovery(t *testing.T) {
 			defer stop()
 			args := map[string]any{"chatJid": "telegram:1/user/555", "text": "answer", "replyToId": "999"}
 			message := telegramRecoveryCall(t, socket, "reply", args)
-			if !strings.Contains(message, "message to be replied not found") || !strings.Contains(message, "not delivered, and no retry follows") {
+			if !strings.Contains(message, "message to be replied not found") || !strings.Contains(message, "Automatic retries stopped") {
 				t.Fatal("MCP lost permanent Telegram reason", message)
 			}
 			if status := <-statuses; status != core.MessageStatusFailed {
@@ -108,8 +121,8 @@ func TestNativeTelegramMissingTargetReachesMCPAndAllowsRecovery(t *testing.T) {
 			if tool == "send" {
 				want = ""
 			}
-			if len(targets) != 3 || targets[0] != "999" || targets[1] != "999" || targets[2] != want {
-				t.Fatalf("HTML fallback or agent recovery changed targets: %+v", targets)
+			if len(targets) != 2 || targets[0] != "999" || targets[1] != want {
+				t.Fatalf("plain text was resent or agent recovery changed targets: %+v", targets)
 			}
 		})
 	}

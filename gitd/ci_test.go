@@ -37,13 +37,16 @@ func TestCIFanoutAcknowledgesMixedDeliveryOutcomes(t *testing.T) {
 		base, pr, want, pending int
 		lost                    bool
 	}{
-		{"permanent then retained", 400, 500, 202, 1, false},
-		{"retained then permanent", 500, 400, 202, 1, false},
+		{"permanent then retained", 400, 500, 202, 2, false},
+		{"retained then permanent", 500, 400, 202, 2, false},
 		{"permanent then lost", 400, 500, 503, 0, true},
 		{"lost then permanent", 500, 400, 503, 0, true},
-		{"only permanent failure", 400, 200, 400, 0, false},
-		{"all permanent", 400, 400, 400, 0, false},
+		{"only permanent failure", 400, 200, 400, 1, false},
+		{"all permanent", 400, 400, 400, 2, false},
 	} {
+		// A permanent refusal is retained as failed and stays in the held
+		// count; a failed retention lookup blocks the post, so a lost
+		// store delivers nothing.
 		t.Run(scenario.name, func(t *testing.T) {
 			e := newTestEnv(t, secretMap{"repo/kronael/arizuko": "fixture-secret"})
 			e.srv.bot.login.Store(botLogin)
@@ -64,7 +67,11 @@ func TestCIFanoutAcknowledgesMixedDeliveryOutcomes(t *testing.T) {
 				}
 				ids[message.ID] = true
 			}
-			if got.Code != scenario.want || len(ids) != 2 {
+			wantIDs := 2
+			if scenario.lost {
+				wantIDs = 0
+			}
+			if got.Code != scenario.want || len(ids) != wantIDs {
 				t.Fatalf("status=%d want=%d messages=%+v body=%s", got.Code, scenario.want, e.routd.messages(), got.Body.String())
 			}
 			if !scenario.lost {
