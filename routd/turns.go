@@ -152,6 +152,11 @@ func (s *Server) recordTurnResultAttempt(turnID, attempt string, req apiv1.TurnR
 		notice = &turnStatus{phase: "final", cause: "The model refused this request (provider safety filter)"}
 		end = endFailed
 	}
+	if req.Status == "budget" {
+		slog.Warn("agent turn stopped by spent budget", "folder", tc.Folder, "turn_id", turnID, "err", req.Error)
+		notice = &turnStatus{phase: "final", cause: "Budget reached for today"}
+		end = endFailed
+	}
 	if req.Status == "success" {
 		if req.TimedOut {
 			notice = &turnStatus{phase: "timeout"}
