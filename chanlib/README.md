@@ -73,7 +73,7 @@ cares about message order on a socket.
 
 Retaining an inbound message writes its due pointer and increments the backlog
 count atomically. Acceptance deletes the payload and decrements the count.
-The [shared retry policy](../specs/9/21-state-transitions.md#one-retry-policy)
+The shared retry policy
 sets each failure's count, deadline and notice. A stopped payload stays held
 without a due pointer. The 15-second retry timer reads
 only due pointers, sorts them by first receipt and loads at most 50 payloads.
@@ -126,7 +126,7 @@ bot's token, else the platform's URL. Only a registered adapter origin receives
 routd's `service:routd` bearer. Files go under `groups/<folder>/media/<YYYYMMDD>/`;
 guarded completion appends an `<attachment …/>` line and any audio transcript
 to the stored message. A download waits 45 s for headers, then 30 s plus one
-second per 256 KiB of body. The [shared retry policy](../specs/9/21-state-transitions.md#one-retry-policy)
+second per 256 KiB of body. The shared retry policy
 classifies failures and sets the persisted due time. Pending attachment work
 postpones turn admission. Terminal failure retains the raw input and appends
 the common unavailable notice once. Observed context gets one attempt.

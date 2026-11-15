@@ -29,7 +29,7 @@ func openOwned() (*store.Store, error) {
 	}
 	s := store.NewOver(d)
 	if err := s.MigrateOnboardingIndexes(context.Background()); err != nil {
-		closeStore()
+		closeStore() //nolint:errcheck // the migration already failed
 		return nil, err
 	}
 	return s, nil

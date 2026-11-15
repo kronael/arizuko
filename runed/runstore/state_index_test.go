@@ -73,7 +73,7 @@ func TestSpawnWorkReadsOnlyEligibleRows(t *testing.T) {
 }
 func TestSpawnIndexMigrationRunsOnce(t *testing.T) {
 	s, c := spawnFixture(t)
-	ok, err := c.Store.GuardedBatch(t.Context(), nil, []objstore.Write{{Op: objstore.Put, Entity: Spawns, Key: spawnKey("legacy"),
+	ok, err := c.GuardedBatch(t.Context(), nil, []objstore.Write{{Op: objstore.Put, Entity: Spawns, Key: spawnKey("legacy"),
 		Attrs: map[string]string{attrState: "running", attrKind: KindAgent, attrCreatedAt: core.TS(time.Now().Add(-8 * 24 * time.Hour))}}})
 	if err != nil || !ok {
 		t.Fatalf("seed: %v %v", ok, err)

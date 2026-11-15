@@ -181,7 +181,7 @@ The Go entry point requires authd URL and key. Initial registration, store open,
 Registration repeats every 3 minutes. Router calls time out after 60 s and make one transport attempt.
 Changed legacy credentials permit one authentication repair.
 Retained inbound uses a 15 s sweep with at most 50 due payloads.
-The [shared retry policy](../specs/9/21-state-transitions.md#one-retry-policy)
+The shared retry policy
 sets classification, count, deadline and notice. Stopped payloads remain held
 without a due pointer and stay in the health backlog count.
 If both routd and retention fail after Slack receives its acknowledgement, the event can be lost.

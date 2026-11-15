@@ -85,8 +85,8 @@ func (r *RouterClient) SweepInboundOnce(ctx context.Context) error {
 			continue
 		}
 		err := r.postInbound(msg)
-		switch {
-		case err == nil:
+		switch err {
+		case nil:
 			if err := st.Drop(ctx, d); err != nil {
 				return err
 			}

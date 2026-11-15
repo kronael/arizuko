@@ -34,7 +34,7 @@ func TestInboundMigrationResumesWithoutDoubleCharge(t *testing.T) {
 	s, c := countedInbound(t)
 	now := ts(time.Now())
 	for _, id := range []string{"a", "b"} {
-		_, err := c.Store.GuardedBatch(t.Context(), nil, []objstore.Write{{Op: objstore.Put, Entity: chanstore.InboundPending,
+		_, err := c.GuardedBatch(t.Context(), nil, []objstore.Write{{Op: objstore.Put, Entity: chanstore.InboundPending,
 			Key: objstore.Key{Partition: "inbound", Sort: id}, Attrs: map[string]string{"payload": id, "first_seen_at": now, "next_attempt_at": now, "attempts": "1"}}})
 		if err != nil {
 			t.Fatal(err)
@@ -43,12 +43,12 @@ func TestInboundMigrationResumesWithoutDoubleCharge(t *testing.T) {
 	if err := s.MigrateInbound(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	_, err := c.Store.GuardedBatch(t.Context(), nil, []objstore.Write{{Op: objstore.Delete, Entity: objstore.IndexEntity, Key: objstore.Key{Partition: "migrations", Sort: "inbound-retry-v1"}}})
+	_, err := c.GuardedBatch(t.Context(), nil, []objstore.Write{{Op: objstore.Delete, Entity: objstore.IndexEntity, Key: objstore.Key{Partition: "migrations", Sort: "inbound-retry-v1"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, id := range []string{"a", "b"} {
-		_, err = c.Store.GuardedBatch(t.Context(), nil, []objstore.Write{{Op: objstore.Update, Entity: chanstore.InboundPending, Key: objstore.Key{Partition: "inbound", Sort: id}, Attrs: map[string]string{"attempts": "1"}, Remove: []string{"retry_state"}}})
+		_, err = c.GuardedBatch(t.Context(), nil, []objstore.Write{{Op: objstore.Update, Entity: chanstore.InboundPending, Key: objstore.Key{Partition: "inbound", Sort: id}, Attrs: map[string]string{"attempts": "1"}, Remove: []string{"retry_state"}}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -130,7 +130,7 @@ func TestInboundHydrationRechecksStateAndDeadline(t *testing.T) {
 				attrs = map[string]string{"retry_state": "failed"}
 				remove = []string{"next_attempt_at"}
 			}
-			ok, err := c.Store.GuardedBatch(t.Context(), nil, []objstore.Write{{Op: objstore.Update, Entity: chanstore.InboundPending,
+			ok, err := c.GuardedBatch(t.Context(), nil, []objstore.Write{{Op: objstore.Update, Entity: chanstore.InboundPending,
 				Key: objstore.Key{Partition: "inbound", Sort: "x"}, Attrs: attrs, Remove: remove}})
 			if err != nil || !ok {
 				t.Fatalf("update primary after pointer snapshot: %v %v", ok, err)
@@ -150,7 +150,7 @@ func TestReadInboundFailureValidatesMetadata(t *testing.T) {
 		{"attempts": "1", "retry_state": "failed"},
 	} {
 		s, c := countedInbound(t)
-		_, err := c.Store.GuardedBatch(t.Context(), nil, []objstore.Write{{Op: objstore.Put, Entity: chanstore.InboundPending, Key: objstore.Key{Partition: "inbound", Sort: "x"}, Attrs: attrs}})
+		_, err := c.GuardedBatch(t.Context(), nil, []objstore.Write{{Op: objstore.Put, Entity: chanstore.InboundPending, Key: objstore.Key{Partition: "inbound", Sort: "x"}, Attrs: attrs}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -163,7 +163,7 @@ func TestReadInboundFailureValidatesMetadata(t *testing.T) {
 func TestInboundMigrationRetainsExhaustedPayload(t *testing.T) {
 	s, c := countedInbound(t)
 	now := ts(time.Now())
-	_, err := c.Store.GuardedBatch(t.Context(), nil, []objstore.Write{{Op: objstore.Put, Entity: chanstore.InboundPending,
+	_, err := c.GuardedBatch(t.Context(), nil, []objstore.Write{{Op: objstore.Put, Entity: chanstore.InboundPending,
 		Key: objstore.Key{Partition: "inbound", Sort: "x"}, Attrs: map[string]string{"payload": "original", "first_seen_at": now, "next_attempt_at": now, "attempts": "9", "last_error": "unavailable"}}})
 	if err != nil {
 		t.Fatal(err)
@@ -279,7 +279,7 @@ func TestInboundLimitReadsOnlySelectedPayloads(t *testing.T) {
 func TestInboundMigrationRunsOnce(t *testing.T) {
 	s, c := countedInbound(t)
 	now := ts(time.Now().Add(time.Hour))
-	if ok, err := c.Store.GuardedBatch(t.Context(), nil, []objstore.Write{{Op: objstore.Put, Entity: chanstore.InboundPending,
+	if ok, err := c.GuardedBatch(t.Context(), nil, []objstore.Write{{Op: objstore.Put, Entity: chanstore.InboundPending,
 		Key: objstore.Key{Partition: "inbound", Sort: "legacy"}, Attrs: map[string]string{"payload": "data", "first_seen_at": now, "next_attempt_at": now, "attempts": "0"}}}); err != nil || !ok {
 		t.Fatalf("seed: %v %v", ok, err)
 	}
@@ -315,7 +315,7 @@ func TestInboundMigrationSkipsMalformedRows(t *testing.T) {
 	}
 	for id, attrs := range rows {
 		attrs["payload"], attrs["first_seen_at"] = id, now
-		if ok, err := c.Store.GuardedBatch(t.Context(), nil, []objstore.Write{{Op: objstore.Put, Entity: chanstore.InboundPending,
+		if ok, err := c.GuardedBatch(t.Context(), nil, []objstore.Write{{Op: objstore.Put, Entity: chanstore.InboundPending,
 			Key: objstore.Key{Partition: "inbound", Sort: id}, Attrs: attrs}}); err != nil || !ok {
 			t.Fatalf("seed %s: %v %v", id, ok, err)
 		}

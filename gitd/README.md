@@ -322,7 +322,7 @@ Initial router registration or store setup failure exits. Heartbeat registration
 Each router call has a 60 s timeout and makes one transport attempt.
 Changed legacy credentials permit one authentication repair.
 The retention sweep runs every 15 s with a 50-row batch.
-The [shared retry policy](../specs/9/21-state-transitions.md#one-retry-policy)
+The shared retry policy
 sets classification, count, deadline and notice. Stopped payloads remain held
 without a due pointer and stay in the health backlog count.
 The acknowledgement mark has a 10 minute backstop and a startup cleanup sweep.

@@ -81,7 +81,7 @@ Defaults below come from the Go code. Container fragments set `LISTEN_ADDR=:8080
 ## Loops and failure diagnosis
 
 Inbound retention sweeps every 15 s, up to 50 due rows per sweep.
-The [shared retry policy](../specs/9/21-state-transitions.md#one-retry-policy)
+The shared retry policy
 sets failure classification, count, deadline and notice.
 Permanent or exhausted failures remain held without a due pointer.
 The health backlog count includes those stopped payloads.

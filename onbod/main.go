@@ -66,7 +66,7 @@ func main() {
 		slog.Error("open onbod's store", "err", err)
 		os.Exit(1)
 	}
-	defer obdb.Close()
+	defer obdb.Close() //nolint:errcheck
 	slog.Info("onbod owns its tables", "store", dynstore.URL())
 
 	xdb, err := store.OpenOwner(store.OwnerRoutd)
@@ -74,7 +74,7 @@ func main() {
 		slog.Error("open routd's store", "err", err)
 		os.Exit(1)
 	}
-	defer xdb.Close()
+	defer xdb.Close() //nolint:errcheck
 	slog.Info("onbod cross-reads routd's tables", "store", dynstore.URL())
 
 	audit.Init(obdb.Obj(), os.Getenv("ARIZUKO_INSTANCE"))

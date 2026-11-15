@@ -57,7 +57,7 @@ func TestProcessRetryMaintenanceCannotRearm(t *testing.T) {
 				q := newTurnControl(1)
 				defer q.Shutdown()
 				calls := 0
-				var cause error = errors.New("permanent")
+				cause := errors.New("permanent")
 				if transient {
 					cause = &retry.Error{Failure: retry.Failure{Kind: "transient"}, Err: cause}
 				}

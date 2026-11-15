@@ -169,7 +169,7 @@ func main() {
 		slog.Error("open routd's store", "err", err)
 		os.Exit(1)
 	}
-	defer routdOwn.Close()
+	defer routdOwn.Close() //nolint:errcheck
 
 	slog.Info("dashd started", "store", dynstore.URL(), "port", port)
 
@@ -218,7 +218,7 @@ func main() {
 
 	var onbodHandle objstore.Store
 	if onbodOwn := openSiblingOwner(store.OwnerOnbod); onbodOwn != nil {
-		defer onbodOwn.Close()
+		defer onbodOwn.Close() //nolint:errcheck
 		onbodHandle = onbodOwn.Obj()
 	}
 

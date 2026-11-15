@@ -150,7 +150,7 @@ func TestCallFailureFacts(t *testing.T) {
 type responseTransport struct{ err error }
 
 func (transport responseTransport) RoundTrip(*http.Request) (*http.Response, error) {
-	return &http.Response{StatusCode: http.StatusServiceUnavailable, Header: http.Header{"Retry-After": []string{"7200"}}, Body: io.NopCloser(errorReader{transport.err})}, nil
+	return &http.Response{StatusCode: http.StatusServiceUnavailable, Header: http.Header{"Retry-After": []string{"7200"}}, Body: io.NopCloser(errorReader(transport))}, nil
 }
 
 type errorReader struct{ err error }

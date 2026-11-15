@@ -733,12 +733,14 @@ func numArg(args map[string]any, key string) (int, bool) {
 
 // recordOutbound appends the durable row for a DELIVERED outbound message.
 func recordOutbound(routd RoutdFns, db StoreFns, jid, text, platformID, folder, msgID string) {
-	putOutboundRow(routd, db, jid, text, platformID, folder, "", db.CurrentTopic, msgID, core.MessageStatusSent, "", nil)
+	// The platform already holds the message and putOutboundRow logs a store failure; an error here would invite a duplicate send.
+	_, _ = putOutboundRow(routd, db, jid, text, platformID, folder, "", db.CurrentTopic, msgID, core.MessageStatusSent, "", nil)
 }
 
 // recordOutboundReply records the thread resolved by the delivery path.
 func recordOutboundReply(routd RoutdFns, db StoreFns, jid, text, platformID, folder, threadRoot, msgID, verb string) {
-	putOutboundRow(routd, db, jid, text, platformID, folder, "", threadRoot, msgID, core.MessageStatusSent, verb, nil)
+	// Same as recordOutbound: the store failure is logged by putOutboundRow.
+	_, _ = putOutboundRow(routd, db, jid, text, platformID, folder, "", threadRoot, msgID, core.MessageStatusSent, verb, nil)
 }
 
 func recordOutboundFailure(routd RoutdFns, db StoreFns, jid, text, folder, replyToID, threadRoot, msgID, verb string, retryable bool, err error) error {

@@ -2074,24 +2074,6 @@ func TestPromptUnprompted_DoesNotResetClaimedRow(t *testing.T) {
 	}
 }
 
-// Small helper: drain a body without importing io at the top of the file.
-func readAll(r interface{ Read(p []byte) (int, error) }) ([]byte, error) {
-	var out []byte
-	buf := make([]byte, 1024)
-	for {
-		n, err := r.Read(buf)
-		if n > 0 {
-			out = append(out, buf[:n]...)
-		}
-		if err != nil {
-			if err.Error() == "EOF" {
-				return out, nil
-			}
-			return out, err
-		}
-	}
-}
-
 // W1: a creator's grant must reach the world's SUBGROUPS, and the reader that
 // resolves "which folder may this user administer" must honour the pattern
 // rather than compare strings. The old `JOIN acl a ON a.scope = g.folder`

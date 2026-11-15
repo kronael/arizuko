@@ -517,14 +517,6 @@ func (s *Store) QueuedJIDs(gate string, limit int) ([]string, error) {
 	return ids, nil
 }
 
-func onboardingJIDs(rows []OnboardingRow) []string {
-	var out []string
-	for _, r := range rows {
-		out = append(out, r.JID)
-	}
-	return out
-}
-
 // QueuedAdmission answers which gate is holding a user and since when.
 // (zero, false) when the user is not queued.
 func (s *Store) QueuedAdmission(userSub string) (OnboardingRow, bool, error) {

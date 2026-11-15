@@ -217,7 +217,7 @@ func (b *bot) call(method, url string, body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("drive reply: %w", err)
 	}
 
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 	if method == http.MethodDelete && resp.StatusCode == http.StatusNotFound {
 		return nil, nil
 	}
