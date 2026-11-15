@@ -123,7 +123,7 @@ func (p *poller) save(ctx context.Context, item objstore.Item, state *filePoll) 
 		return err
 	}
 	if !ok {
-		return fmt.Errorf("poll state changed during request: Drive")
+		return fmt.Errorf("poll state changed during the Drive request")
 	}
 	return nil
 }

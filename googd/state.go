@@ -81,7 +81,7 @@ func (p *poller) reconcileBindings(ctx context.Context) error {
 			return err
 		}
 		if !ok {
-			return fmt.Errorf("bindings changed during reconciliation: Drive")
+			return fmt.Errorf("bindings changed during Drive reconciliation")
 		}
 		writes = writes[n:]
 	}
