@@ -44,7 +44,7 @@ func TestMapEvent_Fixtures(t *testing.T) {
 	}{
 		{"ping", "ping", "github:kronael/arizuko", "ping", "", "gh-dd-ping",
 			"github:kronael", "", "ping: Keep it logically awesome.", fixedNow.Unix()},
-		{"push", "push", "github:kronael/arizuko", "push", "", "gh-dd-push",
+		{"push", "push", "github:kronael/arizuko", "merge", "", "gh-dd-push",
 			"github:kronael", "", "kronael pushed 2 commit(s) to refs/heads/main\n- b7c8d9e fix(routd): drop the stale topic cursor\n- 0f1e2d3 docs(changelog): v0.63.1",
 			time.Date(2026, 9, 5, 9, 14, 44, 0, time.UTC).Unix()},
 		{"issues_opened", "issues", "github:kronael/arizuko/issue/3", "message", "", "gh-dd-issues_opened",
@@ -240,6 +240,36 @@ func TestMapEvent_AppInstallationID(t *testing.T) {
 		if _, _, err := mapEvent(store.GitHubSourceApp, "x", "release", "d", body, fixedNow, ""); err == nil {
 			t.Errorf("installation id %s accepted", id)
 		}
+	}
+}
+
+// A push to the default branch is `merge`, so a route can watch merges to
+// master; routes cannot match the ref itself.
+func TestMapEvent_DefaultBranchPushIsMerge(t *testing.T) {
+	cases := []struct {
+		name, ref, repoExtra, verb string
+	}{
+		{"default branch", "refs/heads/master", `,"default_branch":"master"`, "merge"},
+		{"feature branch", "refs/heads/feat", `,"default_branch":"master"`, "push"},
+		{"no default_branch", "refs/heads/master", "", "push"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			body := []byte(`{"ref":"` + c.ref + `","commits":[{"id":"abc","message":"fix"}],
+				"sender":{"login":"rhias","type":"User"},"installation":{"id":1},
+				"repository":{"name":"arizuko","full_name":"kronael/arizuko","owner":{"login":"kronael"}` +
+				c.repoExtra + `}}`)
+			msg, drop, err := mapEvent(store.GitHubSourceApp, "x", "push", "d", body, fixedNow, botLogin)
+			if err != nil || drop != "" {
+				t.Fatalf("err=%v drop=%q", err, drop)
+			}
+			if msg.Verb != c.verb {
+				t.Errorf("verb = %q, want %q", msg.Verb, c.verb)
+			}
+			if !strings.Contains(msg.Content, "rhias pushed 1 commit(s) to "+c.ref) {
+				t.Errorf("content = %q", msg.Content)
+			}
+		})
 	}
 }
 
