@@ -114,6 +114,18 @@ replay is the spec's open question. A malformed row is logged and left in place,
 never a startup failure; its consumer then parks on it, as plan-09 settles for a
 malformed row.
 
+## L891 — `googd TestPollDeadlineStartsAfterEarlierFiles` fails under host load (2026-11-15)
+
+The test asserts the last file's next deadline is at least `time.Now()` taken
+AFTER the sweep plus the interval minus 15 ms. Any delay over 15 ms between the
+last poll and that read fails it, whatever the code does.
+**Measured:** at `e3cc9c7fd8fef3caf3daa0a598c1623331ceff68` the whole `./googd`
+run failed it once ("next deadline … omits earlier files",
+`rel16/tmp/g/aff-googd.log`, host swapping); `-run` of the test alone passed
+3 of 3.
+**Fix:** take the clock before the sweep and require the deadline to include
+the earlier file's 20 ms poll plus the interval.
+
 ## ✅ FIXED 2026-11-15 b442aedf917b43e8e013f202b00568ec3d7da69d L890 — a DynamoDB throttle is a permanent failure (2026-11-15)
 
 When the AWS SDK's own retries run out, a throttle reaches the owner.
