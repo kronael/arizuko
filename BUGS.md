@@ -15,6 +15,7 @@
 
 ## What needs you
 
+- `L882` — Discord typing follows the newest message in the channel, not the turn's thread; typing request needs the topic; needs sign-off.
 - `L826` — one folder's crash closes the whole instance for an hour; per-folder breaker or a 30 s probe; needs sign-off.
 - `L822` — gitd's `/health` reads its whole held-inbound backlog per probe; dropping `pending_inbound` changes the documented contract; needs sign-off.
 - `L816` — gitd loses GitHub webhooks while the store is unreachable; retention lives in that store; proposal, needs sign-off.
@@ -326,6 +327,36 @@ reads those words now.
   `/tmp/arizuko-github-baseline-build.log`. No test — ops.
   **Proposal:** stop the build on the first failed submake. This is an adjacent
   build-gate repair; scope approval is pending.
+
+## L882 — Discord typing follows the newest message in the channel, not the turn's thread (2026-11-15, open — needs sign-off)
+
+routd keys typing by chat JID only (`routd/turn_status.go:230`, `routd/deliver.go:175`);
+a Discord thread is a topic of its parent channel. discd guesses the thread from
+`activeThread` (`discd/bot.go:30,189-194,727-731`), one slot per parent channel that
+every inbound human message in that channel overwrites.
+
+Measured on sloth, #log-system `1544671974079463464`, 2026-11-15 (times from message
+snowflakes and the routd log):
+
+| time UTC | event |
+|---|---|
+| 09:07:26 | owner mention in the channel root; turn A 09:07:27–09:11:27 replies in the root |
+| 09:08:16 | owner "?" in thread `1571451555251748966`; `activeThread` now points at the thread |
+| 09:08:33 | owner "I see. I was not clear with the no typing in the thread..." |
+| 09:11:29–09:12:53 | another chat's turn holds folder `sloth/discord` |
+| 09:12:56 | the thread's turn starts, 4 min 40 s after "?" |
+
+From 09:08:16 turn A's root typing renders in the thread, and the thread's own
+waiting indicator shares turn A's key, so turn A's stop at 09:11:27 also ends it. The
+owner reported no typing in the thread. Not measured: what Discord displayed; no
+`discord typing failed` line exists for the window.
+
+**Fix (proposal):** carry the turn's topic in the typing request (routd already has it
+at dispatch and park time), key the refresher by JID + topic, and let discd type in the
+topic channel. Delete `activeThread`. Adapters without topics ignore the field.
+**Test:** a root turn running while a thread message waits types in the root for the
+turn and in the thread for the waiting message; the root turn's stop leaves the
+thread's indicator on.
 
 ## ✅ FIXED 2026-11-13 7ba411c30 L832 — four products tell the agent to write `facts/` by hand; the manual forbids it (2026-11-13)
 
