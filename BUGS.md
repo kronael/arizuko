@@ -114,6 +114,21 @@ replay is the spec's open question. A malformed row is logged and left in place,
 never a startup failure; its consumer then parks on it, as plan-09 settles for a
 malformed row.
 
+## L894 — two routd tests still assert origin/main's mechanics; one hangs the package (2026-11-15)
+
+`routd TestScheduleWaitsForRecovery` gates on a `ScheduledTasks` Query with
+`Where status=firing` / `status=active`; the candidate's `RecoverFiringTasks`
+and `DueTasks` read the `tasks/firing` and `tasks/due` index instead
+(`store/tasks.go`), so the gate never opens and the test blocks until the
+package timeout. `TestProgress_FailedEditWaitsBeforeRetry` injects a plain
+`errors.New("edit failed")`, which plan-09 classifies permanent, so the edit is
+not retried.
+**Measured:** whole `./routd` at `8a47a5a36b10e3ec5c0bd6ea7b11c6b1bdb06e6e` on a
+fresh DynamoDB Local: the second fails ("retry: [...]" one edit), the first runs
+15 m until the 1 h timeout (`rel16/tmp/g/h4-routd.log`). Both tests are
+unchanged from origin/main.
+**Fix:** gate on the index queries the candidate makes; inject a transient fact.
+
 ## ✅ FIXED 2026-11-15 7a1ae6d28d3d64849ee83e2dcb35dc647c2f9389 L893 — an archived dead letter comes back with a retry deadline (2026-11-15)
 
 `store/message_delivery.go` `deliveryWrite` takes `statusDeliveryAttrs`, which
