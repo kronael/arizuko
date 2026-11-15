@@ -41,6 +41,8 @@ the subtree files it references (`<mode>/<slug>/references/...`, `scripts/`,
   stays in `art/p5js.md`).
 - Manim via the script-to-video pipeline → `video/render.md` flavor table;
   Manim as the primary deliverable → `video/manim.md`.
+- ALWAYS size a still image (diagram, logo sheet, poster) for a phone per
+  `~/.claude/CLAUDE.md` § Images are read on a phone.
 
 Related, NOT in this router: `humanize` (strip AI-isms from prose),
 `diagrams` (Unicode box diagrams inside docs), `create-eval` (scaffold a
