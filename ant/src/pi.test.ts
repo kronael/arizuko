@@ -2,7 +2,7 @@
 // 0.51.6, captured 2026-08-20). Both live captures errored, so the success shape
 // is constructed from pi-ai's published types.
 
-import { test, expect } from 'bun:test';
+import { test, expect, spyOn } from 'bun:test';
 import { PiTurn, piArgs, piEnv, piMcpConfig, codexAuth } from './pi.js';
 import type { Frame } from './backend.js';
 
@@ -288,4 +288,56 @@ test('Pi failures are retryable through runTurn', async () => {
     const result = await runTurn(harness, 'p', undefined, { prompt: 'p', groupFolder: 'g', chatJid: 'j' }, {}, 't', async () => {}, async () => ({ remind: false }));
     expect(result.failed).toBe('retryable');
   }
+});
+
+// Runs a turn with `models` as the read-only /mnt/pi/models.json and returns the
+// models.json the fake pi found in its agent directory (undefined if none).
+async function runWithMountedModels(models: unknown, env: Record<string, string>): Promise<string | undefined> {
+  const fs = (await import('fs')).default;
+  const os = await import('os');
+  const path = await import('path');
+  const { piHarness } = await import('./pi.js');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pi-models-'));
+  const capture = path.join(dir, 'capture');
+  fs.writeFileSync(path.join(dir, 'pi'), '#!/bin/sh\ncat "$PI_CODING_AGENT_DIR/models.json" > "$CAPTURE" 2>/dev/null\nprintf \'%s\\n\' \'{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"ok"}],"stopReason":"stop"}}\'\n', { mode: 0o755 });
+  const file = '/mnt/pi/models.json';
+  const exists = fs.existsSync, real = fs.realpathSync, read = fs.readFileSync;
+  const spies = [
+    spyOn(fs, 'existsSync').mockImplementation(((f: string) => f === file || exists(f)) as typeof fs.existsSync),
+    spyOn(fs, 'realpathSync').mockImplementation(((f: string) => f === file ? f : real(f)) as typeof fs.realpathSync),
+    spyOn(fs, 'readFileSync').mockImplementation(((f: string, ...rest: unknown[]) =>
+      f === '/proc/self/mountinfo' ? '36 35 98:0 / /mnt/pi ro,relatime - ext4 /dev/x rw\n'
+        : f === file ? JSON.stringify(models)
+        : (read as (...a: unknown[]) => unknown)(f, ...rest)) as typeof fs.readFileSync),
+  ];
+  try {
+    for await (const _ of piHarness.run({ cwd: dir, prompt: 'hi', turnID: 't', deadline: Date.now() + 10000,
+      env: { PATH: `${dir}:/usr/bin:/bin`, CAPTURE: capture, ...env } })) { /* drain */ }
+  } finally {
+    for (const spy of spies) spy.mockRestore();
+  }
+  return exists(capture) ? read(capture, 'utf8') || undefined : undefined;
+}
+
+test('pi in gateway mode accepts a models.json provider under the gateway URL', async () => {
+  const models = { providers: {
+    gw: { baseUrl: 'http://gateway/v1', api: 'openai-completions', models: [{ id: 'local-large' }] },
+    root: { baseUrl: 'http://gateway/', api: 'openai-completions', models: [{ id: 'm' }] },
+    bare: { baseUrl: 'http://gateway', api: 'openai-completions', models: [{ id: 'm' }] },
+  } };
+  const env = { MODEL_GATEWAY_URL: 'http://gateway/', MODEL_GATEWAY_KEY: 'vk' };
+  expect(JSON.parse((await runWithMountedModels(models, env))!)).toEqual(models);
+});
+
+test('pi in gateway mode rejects a models.json provider that bypasses the gateway', async () => {
+  const env = { MODEL_GATEWAY_URL: 'http://gateway', MODEL_GATEWAY_KEY: 'vk' };
+  for (const baseUrl of ['http://elsewhere/v1', 'http://gateway.evil', 'http://gateway.evil/v1', 'http://gatewayx/v1'])
+    await expect(runWithMountedModels({ providers: { evil: { baseUrl } } }, env)).rejects.toThrow('evil');
+  await expect(runWithMountedModels({ providers: { nourl: { api: 'openai-completions' } } }, env)).rejects.toThrow('nourl');
+  await expect(runWithMountedModels({ providers: { gw: { baseUrl: 'http://gateway/v1' }, evil: { baseUrl: 'http://x' } } }, env)).rejects.toThrow('evil');
+});
+
+test('pi without a gateway passes any models.json provider through', async () => {
+  const models = { providers: { local: { baseUrl: 'http://localhost:11434/v1' }, nourl: { api: 'openai-completions' } } };
+  expect(JSON.parse((await runWithMountedModels(models, {}))!)).toEqual(models);
 });

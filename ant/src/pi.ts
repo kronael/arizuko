@@ -12,6 +12,7 @@ import {
   ResultFrame,
   Turn,
 } from './backend.js';
+import { modelGateway } from './gateway.js';
 import { scanSkills } from './skills-scan.js';
 import type { ModelUsage } from './mcp.js';
 import type { McpServerConfig } from './mcp-servers.js';
@@ -235,8 +236,13 @@ async function* runPi(turn: Turn): AsyncGenerator<Frame> {
     const models = readMountedFile('/mnt/pi/models.json');
     if (models) {
       const parsed = JSON.parse(models);
-      if (turn.env.MODEL_GATEWAY_URL && Object.keys(parsed.providers ?? {}).length) {
-        throw new Error('pi models configuration cannot override the model gateway');
+      const gateway = modelGateway(turn.env);
+      if (gateway) {
+        for (const [name, provider] of Object.entries<{ baseUrl?: unknown }>(parsed.providers ?? {})) {
+          const base = provider.baseUrl;
+          if (typeof base !== 'string' || (base !== gateway.url && !base.startsWith(`${gateway.url}/`)))
+            throw new Error(`pi provider ${name} bypasses the model gateway`);
+        }
       }
       fs.writeFileSync(path.join(dir, 'models.json'), JSON.stringify(parsed), { mode: 0o600 });
     }
