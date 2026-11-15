@@ -77,13 +77,7 @@ Acceptance remains partial. Remaining:
 - The real pi turn through routd's `gated.sock`, including delivery, submission,
   authorization and audit evidence, with the local-model reachability and privacy
   measurement (LIVE).
-- Documentation, the next step's: `template/web/pub/arizuko/concepts/secrets.html`
-  and `security/index.html` (the credential sources, the "private model call"
-  scope), a `CHANGELOG.md` entry, and `SECURITY.md`, which says pi has no MCP
-  client and tools `none`.
-- The comments in `ant/src/pi.ts` and `ant/src/pi-extension.ts` that name pi 0.51.6
-  while the pin is 1.4.0.
-- Full acceptance gates in step 6, including the image and live checks.
+- Full acceptance gates in step 6, including the image and live checks (LIVE).
 
 Any pi provider works through its normal operator configuration and a
 `network_rules` row for the provider host. A local model uses that same setup.
