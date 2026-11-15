@@ -114,6 +114,18 @@ replay is the spec's open question. A malformed row is logged and left in place,
 never a startup failure; its consumer then parks on it, as plan-09 settles for a
 malformed row.
 
+## L893 — an archived dead letter comes back with a retry deadline (2026-11-15)
+
+`store/message_delivery.go` `deliveryWrite` takes `statusDeliveryAttrs`, which
+always sets `next_attempt_at`, for every unsent status. Importing an archived
+`failed` row (and `PutOutbound` with `failed`) therefore stores a due time on a
+stopped delivery, and the export no longer matches the source.
+**Measured:** `store TestMessagesRoundTripEveryColumn` fails at
+`8c93eea1af713c46c2fa9b6083441fd5f1264851`: the re-export adds
+`"next_attempt_at":"2026-08-27T10:00:30.000000000Z"` to the dead letter's
+`delivery` (`rel16/tmp/g/h2-store.log`).
+**Fix:** only a pending delivery carries `next_attempt_at`.
+
 ## L892 — two candidate writes drop a `TryWriteEntities` verdict with no reason (2026-11-15)
 
 `store TestNoCallerDropsTheVerdict` (the BUGS L268 guard) fails:
