@@ -114,7 +114,7 @@ replay is the spec's open question. A malformed row is logged and left in place,
 never a startup failure; its consumer then parks on it, as plan-09 settles for a
 malformed row.
 
-## L894 — two routd tests still assert origin/main's mechanics; one hangs the package (2026-11-15)
+## ✅ FIXED 2026-11-15 49f51493ae7ecbdcab5a3984aac22339b5cb1700 L894 — two routd tests still assert origin/main's mechanics; one hangs the package (2026-11-15)
 
 `routd TestScheduleWaitsForRecovery` gates on a `ScheduledTasks` Query with
 `Where status=firing` / `status=active`; the candidate's `RecoverFiringTasks`
