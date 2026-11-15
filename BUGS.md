@@ -134,6 +134,47 @@ comparison of any `baseUrl` to the gateway URL.
 rejecting one that points elsewhere; a test inspects the outgoing URL and
 `Authorization` header, as the spec requires.
 
+## L908 — the skill guard refuses a SKILL.md with CRLF line ends or a leading byte-order mark (2026-11-15, open — owner asked for the fix)
+
+`validateFrontmatter` (`ant/src/skillguard.ts:121`) matches `/^---\n([\s\S]*?)\n---/`, so a
+valid skill whose first bytes are a BOM or whose line ends are `\r\n` reports
+`frontmatter_missing`, category `structural`, which blocks. pi's edit tool keeps a file's
+CRLF and BOM (`ant/node_modules/@earendil-works/pi-coding-agent/dist/core/tools/edit.js:120-125`,
+`edit-diff.js:9-23`), so an agent that edits such a skill through pi is refused at write time,
+and the load-time rescan quarantines the file. `scanSkills` (`ant/src/skills-scan.ts:53`) holds
+a second copy of the same regex.
+**Measured:** a bun script calling `validateFrontmatter` on `---\nname: x\ndescription: does
+x\n---\nbody\n` at `7046baa78dc29b75bf320e086102629b664d3117`, in four forms, printed
+`LF []`, `CRLF [["frontmatter_missing","structural"]]`,
+`BOM [["frontmatter_missing","structural"]]`,
+`BOM+CRLF [["frontmatter_missing","structural"]]`.
+**Fix:** one recogniser, `frontmatterOf` in `skillguard.ts`, accepts an optional leading BOM
+and `\r\n`, returns the block with LF line ends, and both call sites use it. A file with no
+block still blocks; no other rule changes. Tests: the four forms give no finding and the same
+parsed `name` and `description`; a missing `name` is a finding in every form; `scanSkills`
+loads a CRLF and a BOM skill; a native edit of a CRLF and a BOM SKILL.md is guarded.
+
+## L909 — a pi turn re-sends every completed `<status>` block on every later text delta (2026-11-15, open — owner asked for the fix)
+
+`PiTurn.push` (`ant/src/pi.ts:115-116`) returns a status frame holding the cumulative text of
+the message on each `message_update` text delta, and another with the full text at
+`message_end` (`ant/src/pi.ts:141`). The chassis (`streamStatuses`, `ant/src/index.ts:155`,
+over `statusBlocks`, line 146) submits every complete block in each frame and keeps no
+memory, so a block completed early in a long message is submitted again on every following
+delta. `specs/7/60-pi-bridge.md:619` says "The chassis parses and deduplicates tags"; it does
+not.
+**Measured:** the real `runTurn` with `piHarness` and a fake `pi` on `PATH`, one
+`<status>one</status>` delta followed by N one-word deltas and a `message_end`, at
+`7046baa78dc29b75bf320e086102629b664d3117`: `submit_status` calls carrying `one` were 2 for
+N=0, 7 for N=5, 22 for N=20, 102 for N=100 (N+2).
+**Fix:** `PiTurn` emits each completed block once. Per content part it remembers how far the
+text has been handed on, and a status frame carries the text from there to the end of the
+part's last complete `</status>`; no frame while no new block has completed; the memory
+resets when an assistant message starts. The chassis and the other backends stay as they are
+and no dedupe set is added. Tests: one block then N deltas is submitted once; blocks arrive
+in order and whole; a tag split across deltas arrives whole; two blocks in one delta both
+arrive; a new message starts clean.
+
 ## ✅ FIXED 2026-11-15 abc8f10fe64698ef052375b6813d42b929c6fbf4 a0c823184f54c32164af1f14cc40a652fc639188 L883 — a reply to a chat with no registered adapter is dead-lettered at once (2026-11-15)
 
 `retry.HTTPFailure` calls an error with no HTTP status and no transport cause
@@ -412,6 +453,8 @@ The browser retry integration owns this fix after the current serial capacity wo
 
 - `L896` — the CLI README still says to use `/new` before a backend change; docs fix, record only.
 - `L895` — the new-product checklist names a removed spec path; docs fix, record only.
+- `L908` — the skill guard refuses a SKILL.md with CRLF line ends or a BOM; fix asked.
+- `L909` — a pi turn re-sends every completed `<status>` block on each later delta; fix asked.
 - `L826` — one folder's crash closes the whole instance for an hour; per-folder breaker or a 30 s probe; needs sign-off.
 - `L816` — gitd loses GitHub webhooks while the store is unreachable; retention lives in that store; proposal, needs sign-off.
 - `L803` — morha repeats recovery reports and replies to an old GitHub comment; cause unmeasured.
