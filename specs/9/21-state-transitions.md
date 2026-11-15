@@ -1363,6 +1363,9 @@ its current contract ends on quiet time rather than a turn completion event.
   Existing environment files remain readable, but those values no longer select
   behavior; routd logs an error at startup when either is set. Should the CLI
   also report obsolete retry settings during generation?
+- A permanent discovery or transition error parks the retained-inbound sweep
+  until the adapter restarts (BUGS L885). Should the sweep keep its 15-second
+  tick after such an error, as the per-row budgets already bound each message?
 - An agent failure with no typed fact stops the turn: the Claude CLI reports a
   lost connection only as prose, and pi reports provider errors with no status.
   Both stop after the provider's own retries (BUGS L887). Should the harness exit transient for a failure it

@@ -44,13 +44,18 @@ place of the 401 when no registration was saved.
 want status 401".
 **Fix:** ingress treats 401 as transient and returns the 401 when re-register fails.
 
-## L885 — one sweep-level inbound error stops all redelivery until restart (2026-11-15)
+## L885 — one sweep-level inbound error stops all redelivery until restart (2026-11-15, open — needs sign-off)
 
 `chanlib/inbound.go:48-56` keeps one `retry.Decision` for the whole sweep. A
 discovery or store error recorded as permanent sets Stop, and `IsDue` never
 turns true again in that process. origin/main swept every 15 s regardless.
-**Measured:** source; red test to follow with the fix.
-**Fix:** delete the sweep-level decision; each tick sweeps and logs its error.
+**Measured:** source.
+Plan-09 and `specs/9/21-state-transitions.md` ("Retained inbound transitions")
+settle this: the sweep's local `Decision` gates retries of discovery and
+transition errors, and a stopped episode parks until a new consumer lifetime.
+L890 removes the likeliest false stop (a DynamoDB throttle read as permanent).
+**Decision needed:** keep parking, or let the sweep keep its 15 s tick after a
+permanent store error. Recorded as an open question in the spec.
 
 ## L886 — turn retries rose from 3 to 10 and the retry env vars are ignored (2026-11-15)
 
@@ -181,6 +186,7 @@ The browser retry integration owns this fix after the current serial capacity wo
 
 ## What needs you
 
+- `L885` — a permanent store error during the inbound sweep parks redelivery until restart; plan-09 rule versus main's 15 s sweep; needs sign-off.
 - `L887` — an agent failure with no typed fact (Claude connection loss, pi provider error) stops the turn; plan-09 rule versus main's retry; needs sign-off.
 - `L882` — Discord typing follows the newest message in the channel, not the turn's thread; typing request needs the topic; needs sign-off.
 - `L826` — one folder's crash closes the whole instance for an hour; per-folder breaker or a 30 s probe; needs sign-off.
