@@ -393,22 +393,18 @@ func clearPresence(dl Deliverer, topic string, jids []string) {
 }
 
 type turnStatus struct {
-	end        turnEnd
-	scope      string
-	spent, cap int
-	phase      string
-	cause      string
-	retry      int
-	at         time.Time
-	text       string
+	end   turnEnd
+	phase string
+	cause string
+	retry int
+	at    time.Time
+	text  string
 }
 
 func renderTurnStatus(status turnStatus) string {
 	switch status.phase {
 	case "cleared":
 		return status.end.mark() + status.text
-	case "budget":
-		return fmt.Sprintf("Budget reached for today (%s spent %d of %d cents). Resumes at 00:00 UTC.", status.scope, status.spent, status.cap)
 	case "progress":
 		return progressMark + status.text
 	case "waiting":
@@ -475,7 +471,7 @@ func applyStatus(db *DB, dl Deliverer, tc TurnContext, jid string, status turnSt
 	}
 	content := renderTurnStatus(status)
 	phase := status.phase
-	if phase == "timeout" || phase == "silent" || phase == "setup" || phase == "stopped" || phase == "recovered" || phase == "budget" {
+	if phase == "timeout" || phase == "silent" || phase == "setup" || phase == "stopped" || phase == "recovered" {
 		phase = "final"
 	}
 	if err := db.store().QueueStatus(context.Background(), row, content, phase); err != nil {

@@ -27,7 +27,7 @@ func axesDB(t *testing.T, folder string) *DB {
 
 // TestTurnAuthorize_SenderReachesTheEvaluator: a grant written against the SENDER
 // authorizes the turn that sender triggered, and no other. Before this, the sender
-// was computed (turnCallerSub) for the budget gate and dropped; every tool call
+// was computed (turnCallerSub) for the cap reconcile and dropped; every tool call
 // authorized as the destination folder alone.
 //
 // Falsifiable: have turnAuthorize ignore t.trigger (pass "" as the sender) and the

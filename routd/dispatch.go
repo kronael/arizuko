@@ -548,25 +548,6 @@ func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed boo
 		}
 	}()
 
-	// A gateway that will not answer fails the turn as a dependency outage;
-	// spawning anyway would run a turn no cap can stop.
-	msg, gerr := l.budgetGate(ctx, folder, turnCallerSub(last.Sender))
-	if gerr != nil {
-		slog.Error("model gateway did not answer the budget gate; no spawn",
-			"folder", folder, "turn_id", turnID, "err", gerr)
-		return false, false, false, "", fmt.Errorf("%w: model gateway budget gate: %w",
-			ErrDependencyDown, gerr)
-	}
-	// A spent cap delivers a refusal and consumes the batch.
-	if msg != nil {
-		current, _ := l.db.GetTurnContext(turnID)
-		if err := l.publishStatus(current, *msg); err != nil {
-			return false, false, false, "", err
-		}
-		finishTurn(l.db, l.deliver, turnID, endDone)
-		return true, false, false, "", nil
-	}
-
 	l.emitSystemEvents(folder, chatJID)
 	l.ensureTopicWithFork(folder, topic, l.forkParent(folder, last))
 	rendered, observedMark := l.buildBoundPrompt(folder, topic, trigger, ambient, saved != nil)
@@ -611,8 +592,15 @@ func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed boo
 	// The turn's own virtual key at the model gateway (spec 6/23): TTL = the run
 	// ceiling, attributed to the folder and the caller, revoked by the deferred
 	// delete. The alias ends in random hex because a retry re-dispatches the
-	// SAME turn_id. A gateway that will not mint is a dependency outage: no
-	// guest starts.
+	// SAME turn_id. The gateway's team and caps are reconciled first, since the
+	// mint needs the team. A gateway that will not answer the reconcile or the
+	// mint is a dependency outage: no guest starts.
+	if err := l.reconcileCaps(ctx, folder, turnCallerSub(last.Sender)); err != nil {
+		slog.Error("model gateway did not answer the cap reconcile; no spawn",
+			"folder", folder, "turn_id", turnID, "err", err)
+		return false, false, false, "", fmt.Errorf("%w: model gateway cap reconcile: %w",
+			ErrDependencyDown, err)
+	}
 	var gwKey turnKey
 	if l.gateway != nil {
 		k, gerr := l.gateway.mint(ctx, "arizuko-"+turnID+"-"+randHex(4),

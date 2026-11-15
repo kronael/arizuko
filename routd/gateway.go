@@ -41,7 +41,7 @@ const (
 )
 
 // errGatewayNotFound is a distinct condition, not an error to log: the absence
-// is exactly what tells the gate to create the entity.
+// is exactly what tells reconcileCaps to create the entity.
 var errGatewayNotFound = errors.New("gateway: no such entity")
 
 // newGatewayIfConfigured returns nil when the instance names no gateway. The
@@ -69,11 +69,10 @@ type turnKey struct {
 	Hash string
 }
 
-// budget is what the gateway is metering for one folder or person, in cents.
+// budget is the cap the gateway holds for one folder or person, in cents.
 // Cap 0 means the gateway holds no ceiling for this entity.
 type budget struct {
-	SpentCents int
-	CapCents   int
+	CapCents int
 }
 
 // mint asks the gateway for this turn's key, carrying team = the folder and
@@ -114,12 +113,11 @@ func (g *modelGateway) revoke(ctx context.Context, key string) error {
 	return g.call(ctx, http.MethodPost, "/key/delete", map[string]any{"keys": []string{key}}, nil)
 }
 
-// teamBudget reads a folder's charged spend and cap. errGatewayNotFound means
-// the folder has no team yet — the gate's signal to create one.
+// teamBudget reads a folder's cap. errGatewayNotFound means
+// the folder has no team yet — reconcileTeam's signal to create one.
 func (g *modelGateway) teamBudget(ctx context.Context, folder string) (budget, error) {
 	var out struct {
 		Info struct {
-			Spend     float64  `json:"spend"`
 			MaxBudget *float64 `json:"max_budget"`
 		} `json:"team_info"`
 	}
@@ -128,8 +126,7 @@ func (g *modelGateway) teamBudget(ctx context.Context, folder string) (budget, e
 		return budget{}, err
 	}
 	return budget{
-		SpentCents: dollarsToCents(out.Info.Spend),
-		CapCents:   dollarsToCents(deref(out.Info.MaxBudget)),
+		CapCents: dollarsToCents(deref(out.Info.MaxBudget)),
 	}, nil
 }
 
@@ -145,20 +142,19 @@ func (g *modelGateway) createTeam(ctx context.Context, folder string, capCents i
 	return g.call(ctx, http.MethodPost, "/team/new", body, nil)
 }
 
-// updateTeam moves a folder's team onto the cap the operator now holds; the
-// gate calls it only when the two disagree.
+// updateTeam moves a folder's team onto the cap the operator now holds;
+// reconcileTeam calls it only when the two disagree.
 func (g *modelGateway) updateTeam(ctx context.Context, folder string, capCents int) error {
 	body := map[string]any{"team_id": folder}
 	applyBudget(body, capCents)
 	return g.call(ctx, http.MethodPost, "/team/update", body, nil)
 }
 
-// userBudget reads one person's charged spend and cap. errGatewayNotFound is
+// userBudget reads one person's cap. errGatewayNotFound is
 // the normal state for an uncapped caller.
 func (g *modelGateway) userBudget(ctx context.Context, userSub string) (budget, error) {
 	var out struct {
 		Info struct {
-			Spend     float64  `json:"spend"`
 			MaxBudget *float64 `json:"max_budget"`
 		} `json:"user_info"`
 	}
@@ -167,8 +163,7 @@ func (g *modelGateway) userBudget(ctx context.Context, userSub string) (budget, 
 		return budget{}, err
 	}
 	return budget{
-		SpentCents: dollarsToCents(out.Info.Spend),
-		CapCents:   dollarsToCents(deref(out.Info.MaxBudget)),
+		CapCents: dollarsToCents(deref(out.Info.MaxBudget)),
 	}, nil
 }
 

@@ -79,29 +79,6 @@ func TestNoticeSend_FailureIsLogged(t *testing.T) {
 		assertNoticeLogged(t, logs, "slack:T/C/U")
 	})
 
-	t.Run("budget", func(t *testing.T) {
-		logs := captureWarnings(t)
-		db, loop, _, fake := gatewayLoop(t, "demo")
-		dl := &noticeFailingDeliverer{&recDeliverer{}}
-		loop.deliver = dl
-		if err := db.SetFolderCap("demo", 1000); err != nil {
-			t.Fatal(err)
-		}
-		seedUser(t, db, "google:dave", 30)
-		fake.setTeam("demo", 0, 1000)
-		fake.setUser("google:dave", 30, 30)
-		_ = db.PutMessage(core.Message{ID: "b", ChatJID: "web:demo", Sender: "google:dave",
-			Content: "expensive question", Timestamp: time.Now().UTC()})
-
-		if _, err := loop.processGroupMessages("web:demo"); err != nil {
-			t.Fatal(err)
-		}
-		if len(dl.sentMsgs()) != 1 {
-			t.Fatalf("sends=%+v, want the budget refusal", dl.sentMsgs())
-		}
-		assertNoticeLogged(t, logs, "web:demo")
-	})
-
 	for _, tc := range []struct{ mode, notice string }{
 		{"silent", renderTurnStatus(turnStatus{phase: "silent"})},
 		{"error", renderTurnStatus(turnStatus{phase: "final", cause: "Agent could not complete the request"})},

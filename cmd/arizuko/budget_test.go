@@ -10,7 +10,7 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
-// budgetDB is an in-memory ROUTD.DB — the DB routd's budgetGate enforces from.
+// budgetDB is an in-memory ROUTD.DB — the DB routd's reconcileCaps reads the caps from.
 // The verb used to run against store.OpenMem (the frozen messages.db schema),
 // which is why every cap it wrote was invisible to enforcement (BUGS.md Q1).
 func budgetDB(t *testing.T) *routd.DB {
@@ -45,7 +45,7 @@ func TestRunBudgetSet_Folder(t *testing.T) {
 }
 
 // TestRunBudgetSet_ReachesEnforcementReads is the Q1 regression: the cap the
-// verb writes must be visible to the EXACT readers routd's budgetGate calls
+// verb writes must be visible to the EXACT readers routd's reconcileCaps calls
 // (DB.FolderCap / DB.UserCap on routd.db). Against the frozen messages.db this
 // read returned 0 no matter what `budget set` wrote.
 func TestRunBudgetSet_ReachesEnforcementReads(t *testing.T) {
@@ -64,12 +64,12 @@ func TestRunBudgetSet_ReachesEnforcementReads(t *testing.T) {
 		t.Fatalf("runBudgetSet user: %v", err)
 	}
 
-	// The two reads budgetGate makes, on the same handle routd opens.
+	// The two reads reconcileCaps makes, on the same handle routd opens.
 	if got, err := s.FolderCap("team"); err != nil || got != 250 {
-		t.Errorf("budgetGate's FolderCap = %d (err %v), want 250", got, err)
+		t.Errorf("reconcileCaps's FolderCap = %d (err %v), want 250", got, err)
 	}
 	if got, err := s.UserCap("google:bob"); err != nil || got != 75 {
-		t.Errorf("budgetGate's UserCap = %d (err %v), want 75", got, err)
+		t.Errorf("reconcileCaps's UserCap = %d (err %v), want 75", got, err)
 	}
 }
 

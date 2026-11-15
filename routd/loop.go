@@ -107,7 +107,7 @@ type LoopConfig struct {
 
 	GroupsDir string
 
-	// CostCapsEnabled toggles the pre-spawn budget gate (COST_CAPS_ENABLED).
+	// CostCapsEnabled toggles the cap reconcile at the gateway (COST_CAPS_ENABLED).
 	// Default-on at the cmd layer.
 	CostCapsEnabled bool
 

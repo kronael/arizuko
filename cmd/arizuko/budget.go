@@ -15,9 +15,9 @@ import (
 //
 // The cap is arizuko's policy and lives in ROUTD.DB
 // (`groups.cost_cap_cents_per_day` / `user_profiles.cost_cap_cents_per_day`);
-// routd's pre-spawn budgetGate pushes it to the model gateway, which meters the
+// routd's reconcileCaps pushes it to the model gateway, which meters the
 // spend and refuses the request itself. The verb goes through *routd.DB so it
-// writes the exact rows the gate reads; opening the frozen messages.db here made
+// writes the exact rows reconcileCaps reads; opening the frozen messages.db here made
 // `budget set` a silent no-op (BUGS.md Q1).
 //
 // Spend is NOT reported here. It belongs to the gateway, and reaching it needs

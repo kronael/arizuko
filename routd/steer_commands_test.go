@@ -679,41 +679,29 @@ func TestDelegateToExistingChildStillWorks(t *testing.T) {
 	}
 }
 
-// TestBudgetGateRefusesOverCap: a folder at/over its daily cost cap refuses the
-// turn pre-spawn — no run dispatched, a channel-visible refusal delivered, and
-// the cursor advances past the batch. The spend is the GATEWAY's; arizuko holds
-// none to disagree with it.
-func TestBudgetGateRefusesOverCap(t *testing.T) {
+// TestSpentCapStillSpawns: a folder whose gateway spend is over its cap is
+// spawned like any other. The gateway refuses the model call itself; routd only
+// moves the team onto the operator's cap.
+func TestSpentCapStillSpawns(t *testing.T) {
 	db, loop, runner, fake := gatewayLoop(t, "demo")
-	dl := &recDeliverer{}
-	loop.deliver = dl
-	// cap = 100 cents; the gateway has already metered 150 today.
 	if err := db.SetFolderCap("demo", 100); err != nil {
 		t.Fatal(err)
 	}
-	fake.setTeam("demo", 150, 100)
+	fake.setTeam("demo", 150, 50)
 
-	had, err := loop.processGroupMessages("web:demo")
-	if err != nil {
+	if _, err := loop.processGroupMessages("web:demo"); err != nil {
 		t.Fatalf("process: %v", err)
 	}
-	if runner.req.TurnID != "" {
-		t.Fatalf("over-cap turn dispatched a run: %+v", runner.req)
+	if runner.req.TurnID == "" {
+		t.Fatal("spent-cap turn was not spawned; the gateway enforces the cap, routd does not")
 	}
-	if !had {
-		t.Fatal("over-cap refusal should report hadOutput=true (consumed)")
-	}
-	want := "Budget reached for today (channel spent 150 of 100 cents). Resumes at 00:00 UTC."
-	if got := lastAck(t, dl); got != want {
-		t.Fatalf("refusal=%q want %q", got, want)
-	}
-	if db.GetAgentCursor("web:demo") == "" {
-		t.Fatal("refused turn did not advance cursor")
+	if cap, _ := fake.teamCap("demo"); cap != 100 {
+		t.Errorf("gateway team cap = %d cents, want the operator's 100", cap)
 	}
 }
 
-// TestBudgetGateAllowsUnderCap: a folder under its cap dispatches normally.
-func TestBudgetGateAllowsUnderCap(t *testing.T) {
+// TestSpawnsUnderCap: a folder under its cap dispatches normally.
+func TestSpawnsUnderCap(t *testing.T) {
 	db, loop, runner, fake := gatewayLoop(t, "demo")
 	if err := db.SetFolderCap("demo", 1000); err != nil {
 		t.Fatal(err)
@@ -728,9 +716,9 @@ func TestBudgetGateAllowsUnderCap(t *testing.T) {
 	}
 }
 
-// TestBudgetGateZeroCapUncapped: a folder with cap=0 (the default) is uncapped
+// TestSpawnsZeroCapUncapped: a folder with cap=0 (the default) is uncapped
 // regardless of what the gateway metered — the turn dispatches.
-func TestBudgetGateZeroCapUncapped(t *testing.T) {
+func TestSpawnsZeroCapUncapped(t *testing.T) {
 	_, loop, runner, fake := gatewayLoop(t, "demo") // cap defaults to 0
 	fake.setTeam("demo", 9999, 0)
 
@@ -742,9 +730,9 @@ func TestBudgetGateZeroCapUncapped(t *testing.T) {
 	}
 }
 
-// TestBudgetGateDisabledBypasses: costCapsEnabled=false bypasses the gate even
-// when the gateway's meter is over the cap (the operator escape hatch).
-func TestBudgetGateDisabledBypasses(t *testing.T) {
+// TestSpawnsWithCapsDisabled: costCapsEnabled=false spawns even when the
+// gateway's meter is over the cap (the operator escape hatch).
+func TestSpawnsWithCapsDisabled(t *testing.T) {
 	db, loop, runner, fake := gatewayLoop(t, "demo")
 	loop.costCapsEnabled = false
 	if err := db.SetFolderCap("demo", 10); err != nil {
@@ -756,7 +744,7 @@ func TestBudgetGateDisabledBypasses(t *testing.T) {
 		t.Fatalf("process: %v", err)
 	}
 	if runner.req.TurnID == "" {
-		t.Fatal("disabled gate still refused the turn")
+		t.Fatal("caps disabled but the turn was not spawned")
 	}
 }
 

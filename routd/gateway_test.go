@@ -8,7 +8,6 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -182,7 +181,7 @@ func (g *fakeGateway) writeInfo(w http.ResponseWriter, b *fakeBudget, key string
 
 // upsert is the /team/new + /team/update pair (and the user twin). create=true
 // refuses a duplicate with 400, which is what the real /team/new does and why
-// the gate has to read before it writes.
+// reconcileCaps has to read before it writes.
 func (g *fakeGateway) upsert(w http.ResponseWriter, r *http.Request, into map[string]*fakeBudget, idField string, create bool) {
 	var body map[string]any
 	_ = json.NewDecoder(r.Body).Decode(&body)
@@ -211,7 +210,7 @@ func (g *fakeGateway) snapshot() ([]map[string]any, []string) {
 
 // teamCap reports the cap the gateway now holds for a team, in cents, and
 // whether it holds a team at all.
-// userCap is teamCap for the user half. The two halves of the gate reconcile
+// userCap is teamCap for the user half. The two halves of reconcileCaps reconcile
 // symmetrically, so the fake exposes both the same way (BUGS `L402`).
 func (g *fakeGateway) userCap(id string) (int, bool) {
 	g.mu.Lock()
@@ -351,13 +350,12 @@ func TestGateCreatesTheTeamWhenTheGatewayHasNone(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	refusal, err := loop.budgetGate(context.Background(), "demo", "user:a")
-	if err != nil || refusal != nil {
-		t.Fatalf("gate = (%v, %v), want the turn allowed", refusal, err)
+	if err := loop.reconcileCaps(context.Background(), "demo", "user:a"); err != nil {
+		t.Fatalf("reconcileCaps: %v", err)
 	}
 	cap, ok := fake.teamCap("demo")
 	if !ok {
-		t.Fatal("the gate did not create the folder's team; every model call on this turn's key would 404")
+		t.Fatal("reconcileCaps did not create the folder's team; every model call on this turn's key would 404")
 	}
 	if cap != 500 {
 		t.Errorf("created team cap = %d cents, want the operator's 500", cap)
@@ -373,7 +371,7 @@ func TestGateConvergesTheTeamOnTheOperatorsCap(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := loop.budgetGate(context.Background(), "demo", "user:a"); err != nil {
+	if err := loop.reconcileCaps(context.Background(), "demo", "user:a"); err != nil {
 		t.Fatalf("gate: %v", err)
 	}
 	if cap, _ := fake.teamCap("demo"); cap != 900 {
@@ -391,7 +389,7 @@ func TestGateClearsTheGatewayCapWhenTheOperatorRemovesIt(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := loop.budgetGate(context.Background(), "demo", "user:a"); err != nil {
+	if err := loop.reconcileCaps(context.Background(), "demo", "user:a"); err != nil {
 		t.Fatalf("gate: %v", err)
 	}
 	cap, ok := fake.teamCap("demo")
@@ -403,7 +401,7 @@ func TestGateClearsTheGatewayCapWhenTheOperatorRemovesIt(t *testing.T) {
 	}
 }
 
-// An unchanged cap costs no write. The gate runs on every turn, so a blind
+// An unchanged cap costs no write. reconcileCaps runs on every turn, so a blind
 // update would be one pointless round trip per dispatch.
 func TestGateDoesNotRewriteAnUnchangedCap(t *testing.T) {
 	db, loop, _, fake := gatewayLoop(t, "demo")
@@ -412,46 +410,11 @@ func TestGateDoesNotRewriteAnUnchangedCap(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := loop.budgetGate(context.Background(), "demo", "user:a"); err != nil {
+	if err := loop.reconcileCaps(context.Background(), "demo", "user:a"); err != nil {
 		t.Fatalf("gate: %v", err)
 	}
 	if n := fake.callCount("/team/update"); n != 0 {
 		t.Errorf("/team/update called %d times for an unchanged cap, want 0", n)
-	}
-}
-
-// The refusal quotes the GATEWAY's numbers, because they are the only ones
-// there are — arizuko holds no spend to disagree with them.
-func TestGateRefusesOnTheGatewaysFolderMeter(t *testing.T) {
-	db, loop, _, fake := gatewayLoop(t, "demo")
-	fake.setTeam("demo", 700, 500)
-	if err := db.SetFolderCap("demo", 500); err != nil {
-		t.Fatal(err)
-	}
-
-	refusal, err := loop.budgetGate(context.Background(), "demo", "user:a")
-	if err != nil {
-		t.Fatalf("gate: %v", err)
-	}
-	if !strings.Contains(renderTurnStatus(*refusal), "channel spent 700 of 500 cents") {
-		t.Errorf("refusal = %v, want the gateway's own spend and cap in it", refusal)
-	}
-}
-
-// The person axis refuses on the same meter, so a caller who has spent their
-// day's budget is stopped in a folder that still has headroom.
-func TestGateRefusesOnTheGatewaysUserMeter(t *testing.T) {
-	db, loop, _, fake := gatewayLoop(t, "demo")
-	fake.setTeam("demo", 0, 0)
-	fake.setUser("user:a", 300, 200)
-	seedUser(t, db, "user:a", 200)
-
-	refusal, err := loop.budgetGate(context.Background(), "demo", "user:a")
-	if err != nil {
-		t.Fatalf("gate: %v", err)
-	}
-	if !strings.Contains(renderTurnStatus(*refusal), "you spent 300 of 200 cents") {
-		t.Errorf("refusal = %v, want the gateway's per-person numbers", refusal)
 	}
 }
 
@@ -460,7 +423,7 @@ func TestGateReadsAnUncappedCallerWithoutWriting(t *testing.T) {
 	_, loop, _, fake := gatewayLoop(t, "demo")
 	fake.setTeam("demo", 0, 0)
 
-	if _, err := loop.budgetGate(context.Background(), "demo", "telegram:user/1"); err != nil {
+	if err := loop.reconcileCaps(context.Background(), "demo", "telegram:user/1"); err != nil {
 		t.Fatalf("gate: %v", err)
 	}
 	if n := fake.callCount("/user/info"); n != 1 {
@@ -476,7 +439,7 @@ func TestGateReadsAnUncappedCallerWithoutWriting(t *testing.T) {
 // A gateway that will not answer leaves the cap blind, and a turn dispatched
 // against a blind meter is the second ledger this spec removes. It fails as a
 // dependency outage so the batch re-feeds, exactly like a refused mint.
-func TestGateRefusesToSpawnWhenTheGatewayIsSilent(t *testing.T) {
+func TestTurnFailsAsOutageWhenTheCapReconcileGetsNoAnswer(t *testing.T) {
 	db, loop, runner, fake := gatewayLoop(t, "demo")
 	fake.teamInfoStatus = http.StatusInternalServerError
 	if err := db.SetFolderCap("demo", 500); err != nil {
@@ -571,9 +534,8 @@ func TestNoGatewaySpawnsAndEnforcesNothing(t *testing.T) {
 	_ = db.PutMessage(core.Message{ID: "a", ChatJID: "web:demo", Sender: "u",
 		Content: "q", Timestamp: time.Now().UTC()})
 
-	refusal, err := loop.budgetGate(context.Background(), "demo", "user:a")
-	if err != nil || refusal != nil {
-		t.Fatalf("gate = (%v, %v); with no meter there is nothing to refuse on", refusal, err)
+	if err := loop.reconcileCaps(context.Background(), "demo", "user:a"); err != nil {
+		t.Fatalf("reconcileCaps = %v; with no meter there is nothing to reconcile", err)
 	}
 	if _, err := loop.processGroupMessages("web:demo"); err != nil {
 		t.Fatalf("an instance with no gateway must still run turns: %v", err)
@@ -593,7 +555,7 @@ func TestNewGatewayIfConfigured(t *testing.T) {
 }
 
 // A read for an entity the gateway does not hold is a distinct condition, not a
-// failure: it is exactly what tells the gate to create one. Reporting it as an
+// failure: it is exactly what tells reconcileCaps to create one. Reporting it as an
 // error would make every folder's first turn a dependency outage.
 func TestAbsentEntityReadsAsNotFound(t *testing.T) {
 	_, url := newFakeGateway(t)
