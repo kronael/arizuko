@@ -166,6 +166,12 @@ func renameFixture(t *testing.T) (renameInventory, map[string]objstore.Store) {
 				t.Fatal(err)
 			}
 			inventory.Owners[owner][store.ScopeEntity]["resreg"] = 1
+			if owner == "routd" {
+				// Startup completes this marker before any authorization read (store.OpenMem does the same).
+				if err := store.NewOver(driver).MigrateStateIndexes(context.Background()); err != nil {
+					t.Fatal(err)
+				}
+			}
 		}
 	}
 	return inventory, drivers
