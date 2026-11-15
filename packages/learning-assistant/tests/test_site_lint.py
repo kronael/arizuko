@@ -135,6 +135,8 @@ class SiteLintTests(unittest.TestCase):
         self.assertIn('undefined class layout-only', finding)
 
     def test_css_class_js_string_defines(self):
+        with (self.site / 'assets/hub.js').open('a') as js:
+            js.write("document.body.classList.add('arrow');\n")
         self.edit('index.html', 'class="hub-container theme-accent"', 'class="hub-container theme-accent arrow"')
         self.assertEqual(self.findings('css-class'), [])
         self.edit('assets/hub.js', "'arrow'", "'other'")
