@@ -1019,10 +1019,10 @@ func main() {
 
 	aud := audit.New(audit.LoadConfig(coreCfg.HostProjectRoot, coreCfg.Name))
 
-	// audit_log lives in routd.db (its owner, routd migration 0016); proxyd is
-	// FS-mounted but owns no DB of its own, so it writes into the owner DB via
-	// the same stRoutd handle used for routing + auth (no proxyd.db, no
-	// messages.db straddle — BUGS.md Y1, split write-discipline).
+	// audit_log is an entity in routd's tables on the store server (its owner,
+	// routd migration 0016); proxyd owns none of its own, so it writes through
+	// the same stRoutd handle used for routing + auth (BUGS.md Y1, split
+	// write-discipline).
 	audit.Init(stRoutd.Obj(), coreCfg.Name)
 	audit.Emit(context.Background(), audit.Event{
 		Category: audit.CategorySystem,
