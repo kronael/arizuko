@@ -106,7 +106,8 @@ export type Frame =
       // timedOut marks the graceful query-timeout summary, not a normal
       // completion. routd logs a WARN.
       timedOut?: boolean;
-      // Only an explicit false permits another execution after failure.
+      // Only an explicit true forbids another execution after failure; an unmarked
+      // failure is retried within the turn budget.
       terminal?: boolean;
       providerFailure?: ProviderFailure;
       refused?: boolean;

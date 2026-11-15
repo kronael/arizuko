@@ -30,6 +30,7 @@ function adapter(name: string) { return { name, profile, run: async function* (t
   if (mode === 'transport') throw Object.assign(new Error('connection reset'), { code: 'ECONNRESET' });
   if (mode === 'unknown') throw new Error('unknown failure');
   if (mode === 'transient') yield { kind: 'result', ok: false, terminal: false };
+  else if (mode === 'permanent') yield { kind: 'result', ok: false, terminal: true };
   else if (mode === 'opaque') yield { kind: 'result', ok: false };
   else yield { kind: 'result', ok: true };
 } }; }

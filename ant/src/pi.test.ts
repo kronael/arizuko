@@ -276,8 +276,8 @@ esac
   ]);
 });
 
-/** Opaque Pi errors, aborts, malformed streams and CLI exits stop at the consumer. */
-test('Pi failures are terminal through runTurn', async () => {
+/** Opaque Pi errors, aborts, malformed streams and CLI exits retry at the consumer (BUGS L887). */
+test('Pi failures are retryable through runTurn', async () => {
   const { runTurn } = await import('./index.js');
   for (const [reason, exit] of [['error', 0], ['aborted', 0], ['', 0], ['', 1]] as const) {
     const turn = new PiTurn();
@@ -286,6 +286,6 @@ test('Pi failures are terminal through runTurn', async () => {
     const frame = turn.finish(exit, '');
     const harness = { name: 'pi', profile: { continuity: 'none', tools: 'none', guard: 'none', steering: 'between-turn', manual: 'native', status: 'terminal-only' }, run: async function* () { yield frame; } } as const;
     const result = await runTurn(harness, 'p', undefined, { prompt: 'p', groupFolder: 'g', chatJid: 'j' }, {}, 't', async () => {}, async () => ({ remind: false }));
-    expect(result.failed).toBe('terminal');
+    expect(result.failed).toBe('retryable');
   }
 });

@@ -9,7 +9,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { submitTurn, submitStatus, type ModelUsage, type TurnAck } from './mcp.js';
 import { injectMcpEnv } from './mcp-servers.js';
-import { Harness, HarnessProfile, Turn, addUsage, parseHarness, selectHarness } from './backend.js';
+import { Harness, HarnessConfigError, HarnessProfile, Turn, addUsage, parseHarness, selectHarness } from './backend.js';
 import { DEADLINE_NOTE_LEAD_MS, DEADLINE_TEXT, STEER_SPOOL, appendLines, drainSteering, nudgeProgress } from './spool.js';
 export { DEADLINE_TEXT } from './spool.js';
 
@@ -321,7 +321,7 @@ async function runAttempt(
           // `error`, so routd delivers its own failure notice rather than
           // handing the user "API Error: 400 …" as the agent's reply.
           if (!frame.ok && !frame.refused) {
-            out.failed = frame.retryFresh || frame.terminal !== false ? 'terminal' : 'retryable';
+            out.failed = frame.retryFresh || frame.terminal === true ? 'terminal' : 'retryable';
             out.failedReason = frame.text;
           }
           const ack = await deliver(turnID, {
@@ -346,7 +346,7 @@ async function runAttempt(
     // occupant.
     if (resultCount === 0 && !out.retryFresh && !closedDuringQuery) {
       log('Harness produced no result frame, delivering an error turn');
-      out.failed = 'terminal';
+      out.failed = 'retryable';
       resultCount++;
       await deliver(turnID, {
         status: 'error',
@@ -372,9 +372,12 @@ async function runAttempt(
   return out;
 }
 
-function failureExitCode(error: unknown) {
-  const kind = httpFailure(0, '', error, Date.now()).kind;
-  return kind === 'transient' || kind === 'timeout' ? 1 : EXIT_TERMINAL;
+// An error the shared reader cannot classify exits transient: the turn budget
+// bounds the retries (BUGS L887). Only a misconfigured harness and a canceled
+// turn stop.
+export function failureExitCode(error: unknown) {
+  if (error instanceof HarnessConfigError) return EXIT_TERMINAL;
+  return httpFailure(0, '', error, Date.now()).kind === 'canceled' ? EXIT_TERMINAL : 1;
 }
 
 export async function runTurn(

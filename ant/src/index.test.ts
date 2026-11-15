@@ -2,7 +2,8 @@
 // harness only has to put its assistant text on the frame.
 
 import { describe, test, expect } from 'bun:test';
-import { DEADLINE_TEXT, buildSystemPrompt, checkIpcMessage, runTurn, statusBlocks } from './index.js';
+import { DEADLINE_TEXT, buildSystemPrompt, checkIpcMessage, failureExitCode, runTurn, statusBlocks } from './index.js';
+import { HarnessConfigError } from './backend.js';
 import type { Frame, Harness } from './backend.js';
 import type { SubmitStatusPayload } from './mcp.js';
 import { NUDGE_TEXT, STEER_SPOOL, appendLines, drainLines } from './spool.js';
@@ -92,11 +93,12 @@ test('runTurn: retryFresh on an already-fresh turn delivers an error, never sile
 // SDK terminal state with nothing to say) still owes the user a reply.
 test('runTurn: a harness that yields no result frame still delivers an error turn', async () => {
   const { deliveries, deliver } = spy();
-  await runTurn(scripted([{ kind: 'continuity', token: 't', sessionId: 's' }]),
+  const r = await runTurn(scripted([{ kind: 'continuity', token: 't', sessionId: 's' }]),
     'p', undefined, INPUT, {}, 'turn-1', deliver, statusSpy().send);
   expect(deliveries).toHaveLength(1);
   expect(deliveries[0].status).toBe('error');
   expect(deliveries[0].error).toContain('no result');
+  expect(r.failed).toBe('retryable');
 });
 
 test('runTurn: a normal result is delivered exactly once', async () => {
@@ -257,7 +259,7 @@ test('runTurn: a failed turn sends its text as error, never as the reply', async
   expect(deliveries[0].status).toBe('error');
   expect(deliveries[0]).not.toHaveProperty('result');
   expect(deliveries[0].error).toBe('API Error: 400 fake says no');
-  expect(r.failed).toBe('terminal');
+  expect(r.failed).toBe('retryable');
 });
 
 // The exit code is what puts the turn on routd's existing failure path, and a
@@ -313,7 +315,7 @@ test('runTurn: a failure with no text leaves failedReason unset', async () => {
   const { deliver } = spy();
   const r = await runTurn(scripted([{ kind: 'result', ok: false }]),
     'p', undefined, INPUT, {}, 'turn-1', deliver, statusSpy().send);
-  expect(r.failed).toBe('terminal');
+  expect(r.failed).toBe('retryable');
   expect(r.failedReason).toBeUndefined();
 });
 
@@ -497,18 +499,27 @@ test.each([['1', { ARIZUKO_PROGRESS: '1' }], ['empty', { ARIZUKO_PROGRESS: '' }]
 
 /** Failed verdicts survive a failed submission and are never submitted twice. */
 test('runTurn preserves selected verdict when delivery throws', async () => {
-  for (const [terminal, expected] of [[true, 'terminal'], [false, 'retryable'], [undefined, 'terminal']] as const) {
+  for (const [terminal, expected] of [[true, 'terminal'], [false, 'retryable'], [undefined, 'retryable']] as const) {
     let calls = 0;
     const result = await runTurn(scripted([{ kind: 'result', ok: false, terminal }]), 'p', undefined, INPUT, {}, 't',
       async () => { calls++; throw new Error('offline'); }, statusSpy().send);
     expect(result.failed).toBe(expected);
     expect(calls).toBe(1);
   }
-  for (const frames of [[], [{ kind: 'result', ok: false, retryFresh: true, terminal: false }] as Frame[]]) {
+  for (const [frames, expected] of [[[], 'retryable'], [[{ kind: 'result', ok: false, retryFresh: true, terminal: false }] as Frame[], 'terminal']] as const) {
     let calls = 0;
     const result = await runTurn(scripted(frames), 'p', undefined, INPUT, {}, 't',
       async () => { calls++; throw new Error('offline'); }, statusSpy().send);
-    expect(result.failed).toBe('terminal');
+    expect(result.failed).toBe(expected);
     expect(calls).toBe(1);
   }
+});
+
+// BUGS L887: an error nothing classifies exits transient (1); only a harness
+// misconfiguration or a canceled turn exits terminal (78).
+test('failureExitCode: unclassified is transient, config and cancel are terminal', () => {
+  expect(failureExitCode(new Error('Connection dropped (ECONNRESET)'))).toBe(1);
+  expect(failureExitCode(new Error('anything else'))).toBe(1);
+  expect(failureExitCode(new HarnessConfigError('unknown harness backend x'))).toBe(78);
+  expect(failureExitCode(Object.assign(new Error('aborted'), { name: 'AbortError' }))).toBe(78);
 });

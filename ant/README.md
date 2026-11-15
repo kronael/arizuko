@@ -326,7 +326,7 @@ Readers claim batches by rename; unclaimed batches stay for a later read.
 Transcripts and exported conversations live in the group home. runed owns the temporary guest filesystem and persistent mounts.
 
 A disconnected MCP socket prevents tools and terminal reporting. ant owns no durable result retry queue.
-Recognized provider refusals can carry a structured `provider_failure` report. Ant uses the shared `retry/policy.json` reader to select retryable or terminal outcomes; routd owns retry timing and the instance breaker. The image copies the reader to `/retry`, and development mounts it there read-only. Unknown failures are terminal.
+Recognized provider refusals can carry a structured `provider_failure` report. Ant uses the shared `retry/policy.json` reader to select retryable or terminal outcomes; routd owns retry timing and the instance breaker. The image copies the reader to `/retry`, and development mounts it there read-only. An unclassified failure is retryable; the turn budget bounds the retries. A permanent provider refusal, a non-transient HTTP status, `HarnessConfigError` and a canceled turn are terminal.
 Malformed harness JSON fails before a backend starts. Pi uses the same MCP boundary through its native mcp.json configuration.
 Grep `submit_status failed`, `Query timeout: process deadline reached, aborting`, and `Close sentinel detected during query`.
 There is no obs.Setup or OTLP exporter in ant; runed captures per-turn logs and routd records lifecycle results.

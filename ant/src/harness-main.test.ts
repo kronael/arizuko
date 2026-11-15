@@ -41,7 +41,7 @@ test('missing prompt fails before starting a turn', async () => {
 
 /** Local and frame failures choose the process verdict and submit only once. */
 test('failure verdict controls exit and submission', async () => {
- for (const [mode, code] of [['unknown', 78], ['transport', 1], ['opaque', 78], ['transient', 1]] as const) {
+ for (const [mode, code] of [['unknown', 1], ['transport', 1], ['opaque', 1], ['transient', 1], ['permanent', 78]] as const) {
   const result = await run(undefined, mode);
   expect(result.code).toBe(code);
   expect(result.output.match(/SUBMIT /g)).toHaveLength(1);
@@ -50,7 +50,7 @@ test('failure verdict controls exit and submission', async () => {
 
 /** A failed callback cannot replace the original process verdict. */
 test('callback failure preserves the original verdict', async () => {
- for (const [mode, code] of [['unknown', 78], ['transport', 1], ['opaque', 78], ['transient', 1]] as const) {
+ for (const [mode, code] of [['unknown', 1], ['transport', 1], ['opaque', 1], ['transient', 1], ['permanent', 78]] as const) {
   const result = await run(undefined, mode, true);
   expect(result.code).toBe(code);
   expect(result.output.match(/SUBMIT /g)).toHaveLength(1);
