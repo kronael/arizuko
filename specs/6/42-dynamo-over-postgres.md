@@ -28,7 +28,7 @@ server the owner's direction names, is designed here (§4) and ships only if
 ExtendDB fails a gate that upstream does not close inside the window of §10.
 
 The interface does not change. `objstore.Store` stays two methods, the four
-protocols stay package functions, and `objstore/conformance` (22 bodies) stays
+protocols stay package functions, and `objstore/conformance` (25 bodies at `cc1cf9b95568c7317137f77b9e8f4fac42fb3ad4`) stays
 the proof; this spec adds one driver and removes one, and every daemon changes
 by zero lines at the storage seam.
 
@@ -158,8 +158,8 @@ protocol and a container image, so the coupling is the same as to `litellm`
 (`template/services/litellm.yml`): a third-party image whose env is what the
 fragment names. The risks are maturity — "v0.1 … for experimentation", by its
 own words — and a language the house does not write. The gate answers the
-first: the 22 bodies and the `-race` runs pass against it or it is not
-adopted. The wire protocol answers the second: a fix arizuko cannot make
+first: the conformance bodies and the `-race` runs pass against it or it is
+not adopted. The wire protocol answers the second: a fix arizuko cannot make
 upstream is a fix arizuko makes in `dynad` (§4), against the same suite, with
 no daemon changing. Building first would spend twelve to sixteen engineer-days
 (§11) to reach a server the gate can already be pointed at today.
@@ -311,7 +311,7 @@ Latency under high write load is a user report, not arizuko's load: krons
 writes about 1,560 audit rows and 140 messages a day (`6/37`).
 
 **The gate.** `objstore/conformance` through `dynstore` against
-`extenddb/extenddb-postgres` on `postgres:17-alpine`, all 22 bodies, `-race`
+`extenddb/extenddb-postgres` on `postgres:17-alpine`, every body, `-race`
 on the three concurrent ones; then the same suite against DynamoDB Local. A
 body that fails against ExtendDB and passes against DynamoDB Local is an
 ExtendDB defect; it is reported upstream, and if it is not closed inside the
@@ -561,13 +561,13 @@ and foreign-prefix denial on PostgreSQL-backed ExtendDB, including kept keys.
 Additional user/group policies can widen access. Narrowing access to only the owner's HTTP API remains the
 federation work.
 
-**The compose fragment.** `template/services/extenddb.yml` declares
-`extenddb` (`extenddb/extenddb-postgres`, `control_plane_delay_seconds 0`),
-its bootstrap, and a `postgres:17-alpine` whose data directory sits under the
-instance directory — unlike `litellm_db`'s named volume, because this IS
-arizuko's state and backup owns it. Whether `litellm_db` folds into that
-server is `6/37` §"One server, three owners", not this spec. Every daemon's
-fragment gains the five env lines above and loses its `DB_PATH` mount.
+**The store server is external.** No compose fragment declares it and no
+PostgreSQL is bundled: the server and its PostgreSQL run outside the instance's
+Compose project and systemd unit, each instance is one account on it, and
+`INSTALL.md` §"The store server holds every table of the instance" is the
+operator's procedure. Whether `litellm_db` folds into that server is `6/37`
+§"One server, three owners", not this spec. Every daemon's fragment gains the
+five env lines above and loses its `DB_PATH` mount.
 
 **The copy is hand-driven, and the binary carries no migration.** Decision
 (maintainer, 2026-09-13): an instance moves under an operator who watches it,
@@ -589,18 +589,20 @@ gateway the ledger. Verification is mechanical: per table the row count and
 the `Query` count agree, and every `chats` cursor reads back at the same
 position (234 cursors on the three instances, `6/37` step 5).
 
-**`make test` needs the server.** In-memory SQLite is what let `go test
-./...` run with no service, and there is no in-memory ExtendDB the house may
-use: its dev image is SQLite-backed, and a second backend is the drift the
-conformance suite refuses. `make store` starts `extenddb/extenddb-postgres`
-and `postgres:17-alpine` from a compose file under `tests/`, with the delay at
-0 and one test key; the store tests take `DYNAMODB_URL` from the environment
-and fail with one message naming `make store` when it is unset. CI runs the
-same two images as services.
+**`make test` starts the server itself.** There is no in-memory ExtendDB. `dyntest`
+(`objstore/dynstore/dyntest/dyntest.go`) starts `dyntest.Image`,
+`ghcr.io/extenddb/extenddb-dev:0.1.11`, the development build over SQLite with the
+control-plane and index delays at zero, unless `ARIZUKO_TEST_DYNAMO_ENDPOINT` names
+an endpoint that already runs; it needs docker. There is no `make store` target
+and no compose file under `tests/`. The default run therefore uses a different
+engine from the deployment, and the drift between them is what the same
+conformance bodies run against PostgreSQL-backed ExtendDB and DynamoDB Local
+refuse (§13).
 
-**Backups.** `arizuko dump` is a logical export through resreg and
-does not change. The file-level backup (`sqlite3 .backup` in `6/37`'s
-rehearsals) becomes `pg_dump` of the instance's database, in `INSTALL.md`.
+**Backups.** `arizuko dump` is a logical export through resreg. The server's own
+backup belongs to the operator and is separate from the instance: the catalog,
+the data database, the TLS files and the configuration, with the catalog's
+`encryption_key` setting (`INSTALL.md` §"A tar or a dump restores an instance").
 
 ## 8. Ranked search without SQLite
 
@@ -688,12 +690,12 @@ stays FTS5 on a SQLite deployment" — because there is no SQLite deployment.
   is empty after the deletion release. This one line replaces both
   `opener_test.go` and `sql_layer_test.go`, and it sees a handle passed across
   a package boundary, which `L251` records the string guard cannot.
-- `make test` on a fresh clone with only `make store` running: green, and its
-  wall time is in the changelog (§12).
+- `make test` on a fresh clone with docker available: green, and its wall time is
+  in the changelog (§12).
 - krons: the copy verifies (counts equal per table; every `chats` cursor at
   the same position), `anteval --smoke` green on the new store, fourteen green
-  days, and `compose/compose_test.go` asserts that no service mounts `store/routd`,
-  `store/onbod` or `store/runed`.
+  days. `TestNoServiceMountsAnOwnerStoreDir` (`compose/contain_test.go`) asserts that
+  no generated line mounts `store/routd`, `store/onbod` or `store/runed`.
 - `find_messages` on krons: for twenty recorded queries, the top-ten hit set
   from the in-memory index equals FTS5's for exact-term queries, and the
   overlap for the rest is in the changelog.
@@ -768,10 +770,9 @@ cannot match FTS5's hit sets and bleve comes in). Not counted: closing
 UPDATE` is two statements per action; the InfoQ report of 300 ms p90 is
    under a write load arizuko does not have, and this is the number that says
    so or not.
-3. **The classes §0 could not reach.** After §8 lands and before the driver
-   swap: `store` and `onbod` on Postgres with the SQL driver, `-race`. Any
-   failure that is not FTS5 is a Postgres-semantics defect this design has to
-   name before krons moves.
+3. **The classes §0 could not reach.** ANSWERED: the SQL driver is deleted
+   (`objstore/sqlstore` and `db_utils` do not exist), so `store` and `onbod` run on
+   the DynamoDB driver only and there is no SQL run to make.
 4. **The index.** ANSWERED (2026-09-13, `routd/msgsearch/parity_test.go`):
    over a seeded corpus of 24,296 messages in 136 chats the walk takes 283 ms
    and the index holds 18.8 MB of heap, against the reopen trigger's one
@@ -785,7 +786,12 @@ UPDATE` is two statements per action; the InfoQ report of 300 ms p90 is
 a)` concurrently, a thousand times: the answer must be one commit and one
    refusal-then-commit on retry, never an error reaching the caller and never
    a lost write. If the abort surfaces as `InternalServerError`, the SDK's 5xx
-   retry with the same token is the mechanism, and the test proves it.
+   retry with the same token is the mechanism. The conformance body
+   `TwoBatchesOverTheSameItemsInOppositeOrderBothLand` runs the thousand rounds
+   (`deadlockRounds`, `objstore/conformance/conformance.go`) and requires every
+   write to land with no error reaching the caller. Only PostgreSQL-backed ExtendDB
+   raises `40P01`, so the run that answers this is against that server, and it is
+   not recorded.
 6. **The planner and `COLLATE "C"`.** ExtendDB's key columns carry no
    collation and its comparisons do (§3); `EXPLAIN` on a `begins_with` query
    over the largest krons partition (10,688 messages) says whether the
@@ -799,9 +805,10 @@ a)` concurrently, a thousand times: the answer must be one commit and one
    (https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/bp-partition-key-design.html).
    A capacity fact about a target nobody has chosen, recorded so that choosing
    it later starts from a measurement rather than a surprise.
-8. **Whether `ItemAbsent` on a `Check` joins the surface.** `dynstore` renders
-   it and ExtendDB honours it (§3); `ValidateBatch` admits it; no production
-   caller asks for it. It gets a conformance body when one does.
+8. **Whether `ItemAbsent` on a `Check` joins the surface.** ANSWERED: it is on the
+   surface. Production callers ask for it (`audit/audit_log.go:187`,
+   `authd/authstore/signing_keys.go:86`, `store/groups.go:245`) and the conformance
+   suite exercises it (`objstore/conformance/conformance.go:263`, `:300`).
 
 ## 13. Built and remaining
 
@@ -831,9 +838,24 @@ The default run unset the endpoint and CA variables.
 The DynamoDB Local run set `ARIZUKO_TEST_DYNAMO_ENDPOINT=http://127.0.0.1:18000`
 with static local credentials.
 
+The daemon `Dockerfile` installs no sqlite package (build stage and runtime
+stage); the image build is not run. `TwoBatchesOverTheSameItemsInOppositeOrderBothLand`
+is the 25th conformance body. `compose/contain_test.go`
+`TestNoServiceMountsAnOwnerStoreDir` is the mount assertion of §9.
+
 ### Remaining
 
-- Record the required twenty-query search comparison and deployment soak evidence (`routd/README.md`, `CHANGELOG.md`).
+All remaining items are LIVE:
+
+- The twenty-query search comparison on krons and the fourteen-day deployment soak
+  with `anteval --smoke` evidence (`routd/README.md`, `CHANGELOG.md`;
+  `routd/msgsearch/parity_test.go` seeds twelve queries).
+- §12 item 1: `make test` wall time with the server.
+- §12 items 2 and 6: `TransactWriteItems` p50 and p99, and `EXPLAIN` on `begins_with`
+  over the 10,688-message partition.
+- §12 item 5: a recorded run of the opposite-order body against PostgreSQL-backed
+  ExtendDB.
+- A daemon image build with the sqlite packages dropped.
 
 ## Ties
 

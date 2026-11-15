@@ -33,9 +33,12 @@ never chose them:
   Claude Code reads on every turn because `settingSources` is
   `['project', 'user']` (`ant/src/claude.ts:473`) and the turn's cwd is
   the home (`ant/src/index.ts:243`).
-- `CLAUDE.md` at the repo root — 579 lines, 28,733 bytes, 40 sections.
+- `CLAUDE.md` at the repo root — 348 lines, 19,247 bytes, 16 sections.
   Read by every maintainer session and every subagent opened in the repo.
 
+The root file's counts were measured on 2026-11-15 at
+`5ce1066d76ee58d490282b665feaec2542ed3947`: `wc -l -c CLAUDE.md`, and the top-level
+headings outside code fences in that file.
 The `ant/CLAUDE.md` counts, the case count and the `ant/skills/self/` figures were measured
 on 2026-11-15 at `8e319b2237d535e0e9eba2bbdbf9d63b3b03079c`: `wc -l -c ant/CLAUDE.md`;
 top-level headings outside code fences in that file; `grep -c '^\[\[case\]\]'
@@ -79,9 +82,9 @@ platform file is 30–48 % of it. Tokens are not measured on this host (no
 tokenizer installed); bytes ÷ 4 is the working estimate, so the platform
 file alone is ≈8,500 tokens per turn.
 
-A maintainer session has the same shape: root `CLAUDE.md` 28.7 KB +
+A maintainer session has the same shape: root `CLAUDE.md` 19.2 KB +
 `~/.claude/CLAUDE.md` 14.6 KB + `MEMORY.md` 23.3 KB + the listing of 86
-global and 2 project skills. The root file is ≈40 % of that fixed text.
+global and 2 project skills.
 
 ### The second copy is already there
 
@@ -210,48 +213,35 @@ The reader is a maintainer session. Its on-demand surfaces are the global
 skills, the two project skills (`.claude/skills/eval`, `create-eval`), and
 directory-scoped `CLAUDE.md` files that Claude Code loads when a file in
 that directory is read — `specs/CLAUDE.md` and `template/web/CLAUDE.md` are the repo's own precedent for
-on-demand rules. The root file has no conformance harness, so this table
+on-demand rules. The root file has no conformance harness, so a change to it
 moves **explanations, never rule lines**: every invariant keeps its one
-sentence resident and sends its cost narrative to the spec or bug that
-recorded it. L / B are the sizes this audit measured.
+sentence resident and its cost narrative lives in the spec or bug that
+recorded it.
 
-| Section                               | L / B     | Verdict                | Rule | Destination and remainder                                                                                                                                                                                                                                                                        |
-| ------------------------------------- | --------- | ---------------------- | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Identity is configured, never derived | 4 / 466   | keep                   | 2    | derivation looks right until the container moves                                                                                                                                                                                                                                                 |
-| Canonical paths                       | 12 / 587  | keep, trim             | 1    | module path before any import. The rename history line is `CHANGELOG.md`'s                                                                                                                                                                                                                       |
-| Response Style                        | 7 / 291   | keep                   | 2    | the project override of the global register                                                                                                                                                                                                                                                      |
-| Minimality and orthogonality          | 86 / 5422 | keep rules, move costs | 2    | eight rule sentences stay (≈25 lines). Each "Cost:" narrative goes to its owner — `5/8` (manifests, `L44`/`L45`), `5/17` + `5/33` (auth middleware, wire identity), `BUGS.md` already holds the rest. `specs/CLAUDE.md` §"Architectural invariants" then points at the root instead of restating |
-| Essence                               | 11 / 588  | merge                  | —    | it says "read `README.md`"; that is a row in When to read what                                                                                                                                                                                                                                   |
-| Build & Test                          | 18 / 586  | keep                   | 1    | the commands before any action                                                                                                                                                                                                                                                                   |
-| Architecture / Core vs integrations   | 13 / 517  | move                   | —    | `ARCHITECTURE.md` § Core vs integrations holds it                                                                                                                                                                                                                                                |
-| Discoverability                       | 25 / 1339 | move, 1-line rule      | —    | `resregtest.AssertServesNoForeignResource` is the detection, so the explanation lives in `resreg/README.md` + `5/8`. Resident: every daemon mounts `/openapi.json`, engine-emitted                                                                                                               |
-| Observability                         | 18 / 832  | move, 1-line rule      | —    | `obs/README.md`. Resident: `defer obs.Setup(...)()` in every `main()`                                                                                                                                                                                                                            |
-| Docs layout / When to read what       | 26 / 1312 | keep, grow             | 3    | this IS the map; it absorbs Essence, Layout, Service Architecture, Entrypoint, Migrating from kanipi as rows                                                                                                                                                                                     |
-| Updating the web docs                 | 41 / 1869 | move                   | —    | `template/web/CLAUDE.md` owns "Deploy to live krons" and loads when the tree is touched; the "visuals are load-bearing" paragraph moves with it. Resident: one row                                                                                                                               |
-| Layout                                | 7 / 293   | merge                  | —    | a row                                                                                                                                                                                                                                                                                            |
-| Refine scope                          | 20 / 937  | keep                   | 4    | `~/.claude/skills/refine` reads the live project `CLAUDE.md` for its lenses (step 3), so this section is that skill's project half                                                                                                                                                               |
-| Conventions                           | 39 / 2311 | split                  | 2    | resident rows: `.jl`, XML-in-prompts/JSON-in-IPC, `submit_turn`, `:8080` everywhere, dynamic-vs-static in one sentence. The `L45` narrative → `EXTENDING.md`; "adding a channel adapter" → `EXTENDING.md`                                                                                        |
-| Trust boundaries                      | 8 / 358   | move                   | —    | `SECURITY.md` §"Identity header trust" owns it                                                                                                                                                                                                                                                   |
-| Split write-discipline                | 6 / 198   | keep                   | 2    | a direct write to another daemon's DB works until it does not                                                                                                                                                                                                                                    |
-| Subagent worktrees                    | 16 / 792  | keep 2 lines           | —    | the parallel-edit ban is in `~/.claude/CLAUDE.md` word for word; resident: the >5-files worktree threshold                                                                                                                                                                                       |
-| Design principles                     | 13 / 562  | move                   | —    | `ARCHITECTURE.md`; not needed before acting                                                                                                                                                                                                                                                      |
-| Data Dir                              | 15 / 700  | move                   | —    | `runed/README.md` § Mounts already maps `<data>/groups/<folder>/`                                                                                                                                                                                                                                |
-| Config                                | 16 / 768  | keep 1 line, move      | 2    | resident: `APP_SRC_DEV` never on an instance (`M1`). The var list → `INSTALL.md`                                                                                                                                                                                                                 |
-| Entrypoint                            | 12 / 453  | move                   | —    | it says "full list in `cmd/arizuko/README.md`"                                                                                                                                                                                                                                                   |
-| Quick Setup                           | 14 / 520  | keep 1 line, move      | 2    | resident: deploy = `systemctl restart`, `arizuko run` is setup only. The rest is `INSTALL.md` by its own first sentence                                                                                                                                                                          |
-| Service Architecture                  | 7 / 246   | merge                  | —    | a row                                                                                                                                                                                                                                                                                            |
-| Operational check (five gates)        | 61 / 3048 | move, 2-line rule      | —    | `.claude/skills/eval/SKILL.md` exists for exactly this and gate 4 already invokes it. Resident: a deploy is not done until `anteval --smoke` passes, and the reason (`L149` shipped green through gates 1–4)                                                                                     |
-| OTLP export                           | 10 / 520  | move                   | —    | `obs/README.md`                                                                                                                                                                                                                                                                                  |
-| Shipping changes                      | 14 / 761  | move, 1-line rule      | 2    | The migration instructions owned the steps. Resident: every release bumps `MIGRATION_VERSION`, docs-only included — forgetting it is silent                                                                                                                                                      |
-| Tagging a new version                 | 16 / 947  | keep                   | 4    | `~/.claude/skills/release` step 0 reads the project `CLAUDE.md` for the steps that override its defaults                                                                                                                                                                                         |
-| Announcing                            | 20 / 533  | keep                   | 4    | `~/.claude/skills/release` reads `## Announcing` for the tagline and footer; `CHANGELOG.md`'s head points here and states no rule of its own                                                                                                                                                     |
-| Deploy policy                         | 6 / 210   | keep                   | 2    | deploying to a second instance unasked raises no error                                                                                                                                                                                                                                           |
-| "Nothing works" checklist             | 13 / 708  | move                   | —    | `.claude/skills/eval/` method; `INSTALL.md:305` already has exit 125                                                                                                                                                                                                                             |
-| Migrating from kanipi                 | 3 / 46    | merge                  | —    | a row                                                                                                                                                                                                                                                                                            |
+The file has 16 sections. Lines and bytes per section, measured with the same
+split (each section runs from its `## ` heading to the next, headings included):
 
-Resident today: 14.5 KB in 274 lines, of the 28.7 KB above. Every rule
-line stays resident; what leaves is narrative a spec, a bug entry or a
-directory-scoped file already records.
+| Section                                       | L / B     |
+| --------------------------------------------- | --------- |
+| Identity is configured, never derived         | 4 / 466   |
+| Canonical paths                               | 11 / 498  |
+| Response Style                                | 7 / 291   |
+| Minimality and orthogonality (non-negotiable) | 90 / 5647 |
+| Build & Test                                  | 21 / 911  |
+| When to read what                             | 37 / 2218 |
+| Discoverability                               | 7 / 309   |
+| Observability                                 | 7 / 269   |
+| Bug triage records a finding, then fixes it   | 32 / 1684 |
+| Refine scope                                  | 11 / 562  |
+| Conventions                                   | 55 / 3545 |
+| Subagent worktrees                            | 8 / 321   |
+| Deploying                                     | 19 / 1075 |
+| Shipping changes                              | 8 / 378   |
+| Tagging a new version                         | 11 / 566  |
+| Announcing                                    | 18 / 494  |
+
+The sections add to 346 lines and 19,234 bytes; the title line and the blank line
+before the first section are the other 2 lines and 13 bytes.
 
 ## The carve-out, argued
 

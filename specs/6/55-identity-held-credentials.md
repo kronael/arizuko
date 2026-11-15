@@ -425,8 +425,8 @@ caller := types.UserSub(turnCallerSub(trigger))
 secrets := l.db.EnvProfileSecrets(string(caller))
 ```
 
-Proposed resolution in `runTurn`, before the budget gate at
-`routd/dispatch.go:389`:
+Proposed resolution in `runTurn`, before the `reconcileCaps` call in
+`routd/dispatch.go`:
 
 ```go
 modelSub, err := l.srv.ResolveInitiator(last.Sender)
@@ -444,7 +444,7 @@ secrets, err := l.db.EnvProfileSecrets(modelSub)
 ```
 
 The internal-turn branch skips the personal reader. Move the turn binding
-before credential resolution. Keep gateway budget and mint operations only
+before credential resolution. Keep the gateway cap reconcile and mint only
 on the internal-turn branch. runed validates caller, trigger and payer before
 rendering, then repeats the gateway refusal. At `runed/server.go:105`, retain
 the verified bearer subject. An empty payer requires `service:routd` and a declared internal
@@ -554,8 +554,9 @@ credentials. Separate processes and env scrubbing do not close that boundary.
 Gateway virtual keys remain operator credentials for system turns.
 `user_id` metadata alone never satisfies personal billing. Do not mint a key,
 claim a personal run, or report a successful personal connection as usable
-through a gateway that lacks upstream credential selection. Existing gateway
-budget gates and accounting continue for operator turns. Direct personal
+through a gateway that lacks upstream credential selection. The gateway's cap
+reconcile, its refusal of a model call over a cap, and its accounting continue
+for operator turns. Direct personal
 turns have no LiteLLM spend record or enforced gateway cap. They use the existing unmetered response at `routd/reads_http.go:295`.
 They must not show zero spend as a measured bill. A gateway or cost cap never justifies charging
 the operator after personal authentication fails.
@@ -705,7 +706,7 @@ The vendor may reject the token sooner. This delivery boundary is question 1.
 | Unpaired, anonymous, conflicting or stale identity              | Authenticate/pair or repair the association          | Consume once; do not spawn or trip the folder breaker.                       |
 | authd, membership, secret read or decrypt outage                | Credential service unavailable                       | Preserve the batch through `queue.ErrDependencyDown`; no model call.         |
 | Missing, expired, ambiguous or incompatible personal credential | Connect or reconnect the named model credential      | One terminal refusal; no operator fallback or retry loop.                    |
-| Personal request with configured model gateway                  | Personal billing unavailable through this gateway    | One refusal before budget/mint/spawn.                                        |
+| Personal request with configured model gateway                  | Personal billing unavailable through this gateway    | One refusal before the cap reconcile, mint and spawn.                        |
 | Vendor permission or adapter support absent                     | Provider unavailable, with the required prerequisite | No enrollment presented as usable and no model request.                      |
 | Known vendor authentication or quota failure during execution   | Delivered terminal adapter error                     | Codex sets the existing result `terminal` field; no retry or account switch. |
 | Disconnect after credential acquisition                         | Connection removed; admitted attempt keeps snapshot  | Subsequent acquisitions refuse; the admitted attempt may still start.        |

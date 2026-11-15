@@ -27,19 +27,22 @@ D1 and D2 define rendering; D3 is declined.
 
 - Build the agent image containing the progress skill and native hooks (`Makefile`, `ant/Dockerfile`).
 - Measure addressed Claude and Codex turns on krons through Telegram, Discord and web, including platform IDs, coalescing, deletion and reconnect; check GitHub and silent tasks separately (`anteval/cases/anteval.toml`).
-- Measure checklist adoption on the declared closed-parent-turn sample, including reminder delivery and explained omissions (`ant/skills/progress/SKILL.md`).
+- Measure checklist adoption on the declared closed-parent-turn sample, including reminder delivery and explained omissions: write the sampler, then run it (`ant/skills/progress/SKILL.md`).
+- Test the built-in page script in a browser: the `delete` listener and the `progress` reconcile in `webd/route_token.go` have Go frame tests only.
+- Probe whether Drive's `replies.update` changes a reply's `content` (§"Unverified"; LIVE).
 
 ## Problem
 
 At `b869bd16a5ee985a07d377b1e680666bfbf1c427`, two senders replace the same text:
-`ant/src/todo-status.ts:57` sends a checklist, and `ant/src/index.ts:166`
+the checklist sender (`todoStatus`, the job the `completion` row of
+`ant/src/policy.ts` carries) sends a checklist, and `ant/src/index.ts:166`
 sends a `<status>` block. The second sender can overwrite the checklist.
 The `TodoWrite` matcher in `ant/src/policy.ts:90` misses Claude task tools
 and Codex plans. The policy does not exclude child calls.
 
 `ant/src/index.ts:316` requests a status every 180 seconds when display is enabled.
 It does not check for a checklist. The policy ignores empty and single-item
-lists (`ant/src/todo-status.ts:54`). Neither sender bounds the text.
+lists (`todoStatus`'s filter). Neither sender bounds the text.
 `chanlib.Chunk` counts UTF-8 bytes; teled and discd split sends at 4,096 and
 2,000 bytes (`teled/bot.go:439`, `discd/bot.go:399`). Only the first ID is retained.
 
@@ -73,20 +76,15 @@ ant checklist renderer and independent text suppression (removed)
 ## Module map
 
 ```yaml
-- path: ant/src/todo-status.ts (changed)
-  job: sends unchanged native checklist snapshots through submit_status
-  names: [todoStatus]
-  never: owns checklist state or renders progress text
-  remove: renderTodos and the minimum-two-items filter
 - path: ant/src/claude.ts (changed)
   job: identifies Claude snapshots and delivers the current reminder while waiting on background agents
   names: [claudeHarness, claudeHooks]
   never: treats Agent, TaskStop, or scheduler jobs as checklist entries
 - path: ant/src/policy.ts (changed)
-  job: observes parent tool completions and preserves the existing steering delivery
+  job: the `completion` row sends unchanged native checklist snapshots through submit_status, observes parent tool completions and preserves the existing steering delivery
   names: [ToolEvent, bindings]
-  never: owns progress state or counts child calls
-  remove: the Claude-only TodoWrite matcher
+  never: owns progress state, renders progress text or counts child calls
+  remove: the Claude-only TodoWrite matcher, `renderTodos` and the minimum-two-items filter
 - path: ant/src/index.ts (changed)
   job: sends fallback statuses and the one-shot time trigger through submit_status
   names: [runTurn, statusBlocks]
@@ -184,21 +182,21 @@ The following state is checked against `b869bd16a5ee985a07d377b1e680666bfbf1c427
 The skill and manual rows describe this spec amendment.
 The receiver gate is checked at `dda72103a266faaff0a2ae19a1b192907bf164b3`.
 
-| Contract                                                              | State        | Evidence or remaining work                                                  |
-| --------------------------------------------------------------------- | ------------ | --------------------------------------------------------------------------- |
-| Presence, persisted ID, equal-text suppression, edit and End deletion | built        | `routd/turn_status.go`                                                      |
-| Shared acknowledgement mark                                           | built        | `chanlib/mark.go`, `gitd/main.go`                                           |
-| Web edit/delete server and widget SDK callback                        | built        | `webd/channel.go`, `webd/assets/arizuko-client.js`                          |
-| Built-in browser deletion and active reconnect replay                 | built        | `webd/progress_test.go`, `store/turns_containment_test.go`                  |
-| One parent-scoped producer across Claude and Codex                    | built        | `routd/progress_reducer_test.go` merges raw snapshots through submit_status |
-| Bounded rendering, list clearing, coalescing, retry state             | built        | `routd/progress_coalesce_test.go`                                           |
-| Addressed publication gate at receiver                                | built        | `routd/mcp.go` checks addressed, closure, mute and capabilities             |
-| One reminder at eight calls or 180 seconds                            | built        | `routd/progress_reminder_test.go`, `ant/src/claude.test.ts`                 |
-| Progress skill, manual sentence and solve routing                     | present      | adoption requires measurement                                               |
-| D3 Typing port change                                                 | declined     | no port change                                                              |
-| GitHub and Drive edit/delete                                          | built        | `gitd/bot.go`, `googd/main.go`, `routd/turn_status_test.go`                 |
-| pi checklist                                                          | unavailable  | backend selection rejects pi until its MCP bridge ships                     |
-| Cross-harness acceptance and krons adoption                           | not measured | §"Acceptance"                                                               |
+| Contract                                                              | State        | Evidence or remaining work                                                                                                                                                                                                                      |
+| --------------------------------------------------------------------- | ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Presence, persisted ID, equal-text suppression, edit and End deletion | built        | `routd/turn_status.go`                                                                                                                                                                                                                          |
+| Shared acknowledgement mark                                           | built        | `chanlib/mark.go`, `gitd/main.go`                                                                                                                                                                                                               |
+| Web edit/delete server and widget SDK callback                        | built        | `webd/channel.go`, `webd/assets/arizuko-client.js`                                                                                                                                                                                              |
+| Built-in browser deletion and active reconnect replay                 | built        | `webd/progress_test.go`, `store/turns_containment_test.go`                                                                                                                                                                                      |
+| One parent-scoped producer across Claude and Codex                    | built        | `routd/progress_reducer_test.go` merges raw snapshots through submit_status                                                                                                                                                                     |
+| Bounded rendering, list clearing, coalescing, retry state             | built        | `routd/progress_coalesce_test.go`                                                                                                                                                                                                               |
+| Addressed publication gate at receiver                                | built        | `routd/mcp.go` checks addressed, closure, mute and capabilities                                                                                                                                                                                 |
+| One reminder at eight calls or 180 seconds                            | built        | `routd/progress_reminder_test.go`, `ant/src/claude.test.ts`                                                                                                                                                                                     |
+| Progress skill, manual sentence and solve routing                     | present      | adoption requires measurement                                                                                                                                                                                                                   |
+| D3 Typing port change                                                 | declined     | no port change                                                                                                                                                                                                                                  |
+| GitHub and Drive edit/delete                                          | built        | `gitd/bot.go`, `googd/main.go`, `routd/turn_status_test.go`                                                                                                                                                                                     |
+| pi checklist                                                          | unavailable  | pi is selectable (`selectHarness`, `ant/src/backend.ts`) and has no native checklist tool: `registerWith` binds the table with an empty turn id, so its `completion` row sends no snapshot and no reminder; pi shows `<status>` fallback blocks |
+| Cross-harness acceptance and krons adoption                           | not measured | §"Acceptance"                                                                                                                                                                                                                                   |
 
 ## The declaration
 
@@ -209,8 +207,8 @@ the existing `submit_status` method on routd's MCP socket.
 The parent-scoped reducer runs under `lockTurn` in `routd/turns.go`.
 It normalizes native snapshots, owns checklist state, and renders one snapshot for every sink.
 
-`todoStatus` in `ant/src/todo-status.ts` becomes a plain event sender.
-Its `renderTodos` moves to routd. `streamStatuses` in `ant/src/index.ts`
+The `completion` row in `ant/src/policy.ts` is a plain event sender: it sends
+the unchanged snapshot and renders nothing. `renderTodos` lives in routd. `streamStatuses` in `ant/src/index.ts`
 becomes a plain fallback sender without its whole-turn text set.
 The existing RPC carries checklist operations, native call IDs and parent scope,
 fallback text, and reminder triggers. It returns any reminder decision through
@@ -345,7 +343,7 @@ first send through its Markdown-to-HTML helper; edits use plain text.
 The rendering tests must check that labels stay plain and safe on both paths.
 The web server, built-in browser and widget SDK support deletion.
 Active replay uses the turn lifecycle independently of message cursors.
-GitHub and Drive show one status comment or reply. pi remains disabled until its MCP bridge ships.
+GitHub and Drive show one status comment or reply. pi shows only `<status>` fallback blocks, because it has no native checklist.
 
 An adapter's capability map says what it renders. routd reads it; it never
 probes a platform error to find out.
@@ -572,7 +570,7 @@ A lint result does not satisfy these requirements.
 | Publication gate     | Unaddressed, muted, closed and unsupported turns publish no progress. A forged or mismatched turn ID fails the bound callback.                                                                                                                                                                                                                                                                                                                                               |
 | Web clients          | The built-in browser removes the node on delete. Turn replay, topic replay, and history-on-open return only active progress, including a snapshot edited before the cursor. Reload after End shows no progress, including after failed deletion. A disconnect spanning End deletion leaves no stale node after reconnect.                                                                                                                                                    |
 | Cleanup              | End deletes once after success. Failed deletion preserves row text, logs an error, and still ends the turn. An outbound send racing End either finishes before deletion or is cancelled; no status appears after End. An unsent status never posts after End.                                                                                                                                                                                                                |
-| Sink exceptions      | GitHub and Drive keep one status comment or reply, edited and deleted at End; GitHub removes its eyes mark at End. Email posts first and final status only. pi remains rejected.                                                                                                                                                                                                                                                                                             |
+| Sink exceptions      | GitHub and Drive keep one status comment or reply, edited and deleted at End; GitHub removes its eyes mark at End. Email posts first and final status only. pi has no checklist and shows fallback status blocks.                                                                                                                                                                                                                                                            |
 
 Retain the lifecycle checks in `routd/progress_test.go`, `routd/typing_test.go`
 and `routd/fixes_test.go`. Retain the mark checks in `chanlib/mark_test.go`,

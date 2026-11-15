@@ -259,7 +259,7 @@ written/adapted to the probe contract:
 | ---------- | -------- | -------------------------------------------------------------------------------------------------------------------- | ------------------- | ---------------------- |
 | `unread`   | —        | messages-since-agent-cursor for this folder's chat JID(s)                                                            | COUNT, 1 row        | `unread: 3`            |
 | `errors`   | —        | errored-chat count **scoped to folder** (today `CountErroredChats` is global — needs a `WHERE folder=?` variant)     | COUNT, 1 row        | `errors: 1`            |
-| `siblings` | —        | `SiblingFolders(folder)` (already folder-scoped, `open=1`)                                                           | ≤ N names           | `siblings: eng, sre`   |
+| `siblings` | —        | `SiblingFolders(folder) ([]string, error)` (already folder-scoped, `open=1`)                                         | ≤ N names           | `siblings: eng, sre`   |
 | `topics`   | `limit?` | active topics for folder (today `Topics` is web-JID-only, `LIMIT 100` — needs scoping + a small `limit`)             | ≤ limit (default 5) | `topics: eng-sync, q3` |
 | `tasks`    | —        | active scheduled-task count **for folder** (today `CountActiveTasks` is global — needs `WHERE chat_jid LIKE folder`) | COUNT, 1 row        | `tasks: 1 active`      |
 

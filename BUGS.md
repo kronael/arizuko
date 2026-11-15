@@ -14,15 +14,15 @@
 > so counting one as open overstates the queue.
 
 
-## L901 — routd asks the model gateway for the budget before every spawn, even for a handler that calls no model (2026-11-15, open — owner signed off)
+## ✅ FIXED 2026-11-15 bd3ddd79f068affc4b27fcf8df85950a81e5cddb 6a0a46feb0c5bb96102e72ebb720f422f0f01cc7 378cdc43efb50fae2c7166b8e2365873135d0532 L901 — routd asked the model gateway for the budget before every spawn, even for a handler that calls no model (2026-11-15)
 
-`routd/dispatch.go:553` calls `l.budgetGate(...)` before every spawn. A gateway that
-does not answer returns `ErrDependencyDown` (`routd/dispatch.go:557-558`) and fails
-the turn; a spent cap publishes a refusal and consumes the batch
-(`routd/dispatch.go:561-568`). The call does not look at what the handler does, so a
-static handler waits for the gateway like `ant` does.
-`specs/7/57-group-handler.md` § "The gateway check stays before every spawn" states
-this as the recommendation, awaiting the owner's review.
+`routd/dispatch.go:553` called `l.budgetGate(...)` before every spawn. A gateway that
+did not answer returned `ErrDependencyDown` (`routd/dispatch.go:557-558`) and failed
+the turn; a spent cap published a refusal and consumed the batch
+(`routd/dispatch.go:561-568`). The call did not look at what the handler does, so a
+static handler waited for the gateway like `ant` does.
+`specs/7/57-group-handler.md` stated this as the recommendation, awaiting the owner's
+review; its § "The gateway refuses the model call, not the spawn" now says what is built.
 **Decision (owner, 2026-11-15):** "don't check model credits for non-model
 invocations. ant should do that, or the gateway only offers those in env".
 **Measured:** `grep -n "budgetGate\|ErrDependencyDown" routd/dispatch.go` at
@@ -32,148 +32,196 @@ on the handler kind; `routd/budget.go:18` `budgetGate` has no handler parameter,
 one of three spend codes, so the gateway's 429 `budget_exceeded`
 (`specs/6/39-gateway-owns-spend.md` § "What LiteLLM already holds") reads as a rate
 limit.
-**Fix:** the pre-spawn refusal goes. `routd/budget.go` keeps only the cap reconcile
-(the folder's team exists; team and user carry the operator's cap) and runs at the
-key-mint site (`routd/dispatch.go:618`, `routd/gateway.go:84`), which already needs
-the team. The gateway refuses the model call itself (429 `budget_exceeded`). `ant`
-classifies code `budget_exceeded` as `spend_limit` in `providerFailure`.
+**Fix:** `bd3ddd79f068affc4b27fcf8df85950a81e5cddb` removes the pre-spawn refusal.
+`routd/budget.go` `reconcileCaps` runs before the key mint (`routd/dispatch.go:598`)
+and only keeps the gateway's team and user caps in step with the operator's; the
+gateway refuses the model call itself. `378cdc43efb50fae2c7166b8e2365873135d0532`
+(ant): every backend ends a gateway budget refusal as a result refused as `budget`
+(`isBudgetRefusal`, `ant/src/backend.ts:65`); it is never a provider failure.
+`6a0a46feb0c5bb96102e72ebb720f422f0f01cc7` (routd): `submit_turn` status `budget`
+ends the turn once with the notice "Budget reached for today. Automatic retries
+stopped." (`routd/turns.go:155-159`) and opens neither the instance breaker nor a
+model pause (`routd/turn_budget_test.go`). `6d9ad04c03924913e54fb919c01f1a8221c27104`
+adds the tests for `specs/7/57-group-handler.md` acceptance 2 and 3.
+**Facts the fix rests on:** any failed execution opens the instance breaker
+(`specs/5/12-turn-retry.md` § "One breaker per instance"), so a budget refusal must
+end as a result and not as a failure. LiteLLM answers `budget_exceeded` with HTTP 422
+by default (`litellm/__init__.py:393` at BerriAI/litellm
+`923162a4e7c2c59583afe82c6bc357db30e0c9aa`) and with 429 when configured; ant matches
+the code and message, not the status.
 
-## L902 — a token refreshed during a turn on the borrowed Codex login is lost (2026-11-15, open — owner signed off)
+## ✅ FIXED 2026-11-15 2800aaa62321d60bd211edca39149ee4c0399086 2693951f8c53508f390457ad80d7234f2fb31694 L902 — a token refreshed during a turn on the borrowed Codex login was lost (2026-11-15)
 
-The borrowed login is read-only at every hop. `runed/mounts.go:291-325`
-`stageCodexCreds` copies each file at mode 0400 and mounts it `RO: true` (line 322);
-`removeCodexStage` (`runed/mounts.go:333`, deferred at `runed/manager.go:341`) deletes
-the copy when the turn ends. `compose/compose.go:1189` binds every `hostViewPaths`
+The borrowed login was read-only at every hop. `runed/mounts.go:291-325`
+`stageCodexCreds` copied each file at mode 0400 and mounted it `RO: true` (line 322);
+`removeCodexStage` (`runed/mounts.go:333`, deferred at `runed/manager.go:341`) deleted
+the copy when the turn ended. `compose/compose.go:1189` bound every `hostViewPaths`
 entry, `HOST_CODEX_DIR` among them, as `:ro`. `ant/src/pi.ts:201-211` `readMountedFile`
-throws unless the mount is `ro`; `runPi` converts the login into a temporary
+threw unless the mount was `ro`; `runPi` converted the login into a temporary
 `PI_CODING_AGENT_DIR` (`ant/src/pi.ts:241-252`) that the `finally` at line 256
-deletes. A refresh token rotated mid-turn exists only in that directory, so the next
-turn presents the invalidated one. `specs/7/60-pi-bridge.md` § "Implementation
-status" and § "Deferred credential ownership" accept snapshot-only borrowing.
+deleted. A refresh token rotated mid-turn existed only in that directory, so the next
+turn presented the invalidated one. `specs/7/60-pi-bridge.md` accepted snapshot-only
+borrowing; its § "Borrowed-login ownership" now records the decision.
 **Decision (owner, 2026-11-15):** "the tokens need to be read/write of course,
 otherwise the rotation won't work".
 **Measured:** `grep -n "RO:\|0o400" runed/mounts.go`, `sed -n 1189p
 compose/compose.go` and `grep -n "read-only mount\|rmSync" ant/src/pi.ts` at
 `4e40076b6e7973c7bafc6726c9d8d740246ce8eb` show the 0400 copy, the `RO: true` mount,
 the `:ro` bind, the read-only check and the deleted temporary directory. No path
-writes a changed token back to `HOST_CODEX_DIR`.
-**Fix:** runed stages `auth.json` writable; when the turn ends, a changed and valid
-staged copy replaces `HOST_CODEX_DIR/auth.json` atomically, keeping the operator
-file's owner and mode. compose binds `HOST_CODEX_DIR` read-write into runed. `ant`
-writes pi's refreshed `openai-codex` record back into `~/.codex/auth.json`.
-`config.toml` stays read-only.
+wrote a changed token back to `HOST_CODEX_DIR`.
+**Fix:** `2800aaa62321d60bd211edca39149ee4c0399086`: runed stages `auth.json` writable
+(`runed/mounts.go` `stageCodexCreds`); at turn end `endCodexStage` calls
+`writeBackCodexLogin`, which replaces `HOST_CODEX_DIR/auth.json` atomically when the
+staged copy is newer, differs and is a usable login, keeping the operator file's owner
+and mode. compose binds `HOST_CODEX_DIR` read-write into runed
+(`compose/compose.go`); `container.CodexROMounts` is `container.CodexCredMounts`;
+`config.toml` stays read-only. `2693951f8c53508f390457ad80d7234f2fb31694` (ant): pi's
+refreshed `openai-codex` record is written into `~/.codex/auth.json`
+(`refreshedCodexLogin`, `ant/src/pi.ts`); the login must be a mount point of its own.
 
-## L903 — dashd edits a group's harness as one raw JSON textarea and writes it straight to the store (2026-11-15, open — owner asked for the fix)
+## L903 — dashd writes a group's harness to the store, and `6/53` says to write it through `/v1` (2026-11-15, open — owner decision)
 
-`dashd/groups_admin.go:274` renders `Harness JSON` as one `<textarea name="harness">`;
-lines 352-357 pass the trimmed text as a `json.RawMessage` to
-`d.routdStore().AsUser(sub).SetGroupSettings`. `routdStore` (`dashd/main.go:337-342`)
-is `store.NewOver(d.routd)`, dashd's own handle on routd's object store, so the write
-bypasses routd's `PATCH /v1/groups/{folder}` door (`resreg/resources/groups.go:32`,
-served by `routd/groups_http.go:15` and `routd/groups_resource.go:75-90`).
-`specs/6/53-per-group-harness.md:237-241` requires: "dashd uses free-text backend,
-model and effort fields, plus one explicit "Use instance defaults" control. Saving
-constructs one document; blank optional fields are omitted." and "dashd calls the
-groups update through `/v1` with the caller's authority." The diagram at line 210-215
-lists `dashd SetGroupModel write (removed)`; no row says in so many words that dashd
-never writes the store for this, and that line is the closest statement.
-**Measured:** `grep -n "Use instance defaults" dashd/*.go` finds nothing;
-`dashd/chat_settings_test.go:151` asserts the textarea
-`<textarea name="harness">` + the whole document + `</textarea>`, pinning the raw form.
-`dashd/groups_admin.go:357` is the only dashd call to `SetGroupSettings`.
-**Fix:** replace the textarea with backend, model and effort text fields and a "Use
-instance defaults" control; build one document, omit blank fields, and send it with a
-`PATCH /v1/groups/{folder}` carrying the caller's authority. Update the test at line
-151 to the new form.
+`dashd/groups_admin.go` renders backend, model and effort fields and a "Use instance
+defaults" control (`eef747b5ff0b749a3c234be0929ee5ec0a3db306`) and builds one document
+from the non-blank fields, as `specs/6/53-per-group-harness.md` § "One groups update
+serves the dashboard and agents" asks. The write still goes to the store:
+`d.routdStore().AsUser(sub).SetGroupSettings` (`dashd/groups_admin.go:379`; `routdStore`
+is `store.NewOver(d.routd)`, `dashd/main.go:337-342`), not through routd's
+`PATCH /v1/groups/{folder}` (`resreg/resources/groups.go:32`, `routd/groups_http.go:15`).
+Two specs disagree. `specs/6/29-dashd-hub.md` "The WRITES stay on the DB, by rule" keeps
+operator writes on the store: `Store.AsUser` puts the operator on the `audit_log` row and
+a `service:dashd` bearer cannot. `specs/6/53-per-group-harness.md` says "dashd calls the
+groups update through `/v1` with the caller's authority." and its module map gives
+`dashd/groups_admin.go` the line `never: write harness settings directly to the store`.
+The code follows `6/29`.
+**Measured:** `grep -n "SetGroupSettings" dashd/groups_admin.go` in `wharness` at
+`cc1cf9b95568c7317137f77b9e8f4fac42fb3ad4` finds the one call at line 379;
+`dashd/chat_settings_test.go` asserts the fields and the control.
+**Options:** (a) keep the write on the store and change `6/53` to say so: the audit row
+names the operator and `/v1` needs no new bearer rule; (b) send the write through
+`PATCH /v1/groups/{folder}` with the operator's authority carried to `/v1`, which changes
+`6/29`'s rule for this one write and decides who the audit row names.
+**Default if nothing is decided:** the write stays on the store.
+**Type:** design, no test — design.
 
-## L904 — `settingsOf` returns an empty settings value for a malformed stored document (2026-11-15, open — owner asked for the fix)
+## L904 — `GroupObserveWindow` reads a malformed stored settings document as "not set" (2026-11-15, open — owner asked for the fix)
 
-`store/groups.go:65-71` maps a `decodeSettings` error to `map[string]any{}`, with the
-comment "An absent or unparseable one is the EMPTY document". Its callers act on
-defaults silently: `setSetting` (`store/groups.go:466`, which then rewrites the
-document from the empty map and so erases the malformed original's other keys),
-`GroupObserveWindow` (`:497`, reports "not set"), `SetGroupObserveWindow` (`:518`,
-same rewrite as `setSetting`) and `SiblingFolders` (`:615`, treats a malformed row as
-open). `specs/6/53-per-group-harness.md:176-177` requires: "Malformed stored
-settings produce a visible read failure, never the empty-default result of
+`store/groups.go:65-71` `settingsOf` maps a `decodeSettings` error to `map[string]any{}`,
+with the comment "An absent or unparseable one is the EMPTY document".
+`0787043a3` made `setSetting`, `SetGroupObserveWindow` and `SiblingFolders` return the
+decode error. `GroupObserveWindow` (`store/groups.go:494`) still reads through
+`settingsOf` and reports (-1,-1), "not set", for a malformed row.
+`specs/6/53-per-group-harness.md` § "Ant owns selection and validation" requires: "Malformed
+stored settings produce a visible read failure, never the empty-default result of
 `store/groups.go:66`."
-**Measured:** `grep -n "settingsOf\|decodeSettings" store/*.go` at
-`4e40076b6e7973c7bafc6726c9d8d740246ce8eb` lists exactly those four callers; the
-function body is at lines 65-71. `SetGroupSettings` (`store/groups.go:565-570`) already
-fails on malformed JSON with `invalid settings JSON`.
-**Fix:** the four callers use `decodeSettings` and return its error;
-`GroupObserveWindow` and `SiblingFolders` log it and fail the read as the spec
-requires; delete `settingsOf`.
+**Fan-out:** `GroupObserveWindow(folder string) (msgs, chars int)` has no error to
+return, so propagating one changes its signature and every caller: `routd/prompt.go:221`
+(the prompt's observe window), the `ipc` deps field `GroupObserveWindow`
+(`ipc/ipc.go:79`, used at `ipc/ipc.go:1873`, wired at `routd/mcp.go:159`), and six test
+files (`store/groups_test.go`, `ipc/untested_tools_test.go`, `routd/harness_carry_test.go`,
+`routd/groups_detail_test.go`, `routd/parity_extra_test.go`, and four files under `tests/`).
+**Measured:** `grep -rn "GroupObserveWindow" --include=*.go .` in `wharness` at
+`cc1cf9b95568c7317137f77b9e8f4fac42fb3ad4` lists those sites; `sed -n 494,508p
+store/groups.go` shows the `settingsOf` call.
+**Fix:** `GroupObserveWindow` returns `(msgs, chars int, err error)` through
+`decodeSettings`; `routd/prompt.go` logs the error and falls back to the env defaults,
+the `ipc` tool answers it; then `settingsOf` is deleted.
 
-## L905 — googd reads `SHEETS_API_URL` but compose does not pass it (2026-11-15, open — owner asked for the fix)
+## ✅ FIXED 2026-11-15 83b759360bba05b321ce45a9460a5fc15672a88a L905 — googd reads `SHEETS_API_URL` but compose did not pass it (2026-11-15)
 
 `googd/main.go:294` reads `core.EnvOr("SHEETS_API_URL", "https://sheets.googleapis.com")`
 (documented in `googd/README.md:69`). The `googd` key list at `compose/compose.go:220`
-ends `"GDRIVE_POLL_INTERVAL", "GDRIVE_API_URL"`, so an operator's `SHEETS_API_URL`
-never reaches the daemon on an instance and the default always applies.
+ended `"GDRIVE_POLL_INTERVAL", "GDRIVE_API_URL"`, so an operator's `SHEETS_API_URL`
+never reached the daemon on an instance and the default always applied.
 **Measured:** `grep -rn "SHEETS_API_URL" --include=*.go .` at
 `4e40076b6e7973c7bafc6726c9d8d740246ce8eb` finds `googd/main.go:294` and
 `googd/passthrough_test.go:93`; `compose/compose.go` has no match.
-**Fix:** add `"SHEETS_API_URL"` to the `googd` entry at `compose/compose.go:220`.
+**Fix:** `83b759360bba05b321ce45a9460a5fc15672a88a` adds `"SHEETS_API_URL"` to the
+`googd` entry of `compose/compose.go`; `compose/compose_test.go` asserts the rendered
+service carries it.
 
-## L906 — pi cannot take gateway models from the operator's `models.json` (2026-11-15, open — owner asked for the fix)
+## ✅ FIXED 2026-11-15 312fc3a5f2e609f77a744eb46af8c99de82b9249 L906 — pi could not take gateway models from the operator's `models.json` (2026-11-15)
 
-`ant/src/pi.ts:235-237` throws `pi models configuration cannot override the model
-gateway` whenever `MODEL_GATEWAY_URL` is set and the mounted `models.json` has any
+`ant/src/pi.ts:235-237` threw `pi models configuration cannot override the model
+gateway` whenever `MODEL_GATEWAY_URL` was set and the mounted `models.json` had any
 provider. `specs/7/60-pi-bridge.md:570` says: "Native `models.json` supplies
 non-catalog gateway models, including the API and model ID served by the gateway."
 Line 571 limits this: "Reject a selected model override that bypasses a configured
-gateway." The code rejects every provider declaration, including one whose `baseUrl`
-is the gateway, so a model the gateway serves that is not in pi's catalog cannot be
+gateway." The code rejected every provider declaration, including one whose `baseUrl`
+is the gateway, so a model the gateway serves that is not in pi's catalog could not be
 selected.
 **Measured:** `sed -n 233,238p ant/src/pi.ts` and `sed -n 570,571p
-specs/7/60-pi-bridge.md` at `4e40076b6e7973c7bafc6726c9d8d740246ce8eb`; the check is
+specs/7/60-pi-bridge.md` at `4e40076b6e7973c7bafc6726c9d8d740246ce8eb`; the check was
 `turn.env.MODEL_GATEWAY_URL && Object.keys(parsed.providers ?? {}).length` with no
 comparison of any `baseUrl` to the gateway URL.
-**Fix:** in gateway mode accept a provider whose `baseUrl` is the gateway URL and keep
-rejecting one that points elsewhere; a test inspects the outgoing URL and
-`Authorization` header, as the spec requires.
+**Fix:** `312fc3a5f2e609f77a744eb46af8c99de82b9249`: in gateway mode `runPi` accepts a
+provider whose `baseUrl` is the gateway URL or a path under it and refuses any other
+by name (`pi provider <name> bypasses the model gateway`). A custom-named provider
+needs its own `apiKey` entry in `models.json`. `7046baa78dc29b75bf320e086102629b664d3117`
+adds the test that reads the outgoing URL and credential on the wire.
 
-## L908 — the skill guard refuses a SKILL.md with CRLF line ends or a leading byte-order mark (2026-11-15, open — owner asked for the fix)
+## ✅ FIXED 2026-11-15 1e3e90cf270018b512132305deafb634bc8c3e73 L908 — the skill guard refused a SKILL.md with CRLF line ends or a leading byte-order mark (2026-11-15)
 
-`validateFrontmatter` (`ant/src/skillguard.ts:121`) matches `/^---\n([\s\S]*?)\n---/`, so a
-valid skill whose first bytes are a BOM or whose line ends are `\r\n` reports
+`validateFrontmatter` (`ant/src/skillguard.ts:121`) matched `/^---\n([\s\S]*?)\n---/`, so a
+valid skill whose first bytes are a BOM or whose line ends are `\r\n` reported
 `frontmatter_missing`, category `structural`, which blocks. pi's edit tool keeps a file's
 CRLF and BOM (`ant/node_modules/@earendil-works/pi-coding-agent/dist/core/tools/edit.js:120-125`,
 `edit-diff.js:9-23`), so an agent that edits such a skill through pi is refused at write time,
-and the load-time rescan quarantines the file. `scanSkills` (`ant/src/skills-scan.ts:53`) holds
+and the load-time rescan quarantines the file. `scanSkills` (`ant/src/skills-scan.ts:53`) held
 a second copy of the same regex.
 **Measured:** a bun script calling `validateFrontmatter` on `---\nname: x\ndescription: does
 x\n---\nbody\n` at `7046baa78dc29b75bf320e086102629b664d3117`, in four forms, printed
 `LF []`, `CRLF [["frontmatter_missing","structural"]]`,
 `BOM [["frontmatter_missing","structural"]]`,
 `BOM+CRLF [["frontmatter_missing","structural"]]`.
-**Fix:** one recogniser, `frontmatterOf` in `skillguard.ts`, accepts an optional leading BOM
-and `\r\n`, returns the block with LF line ends, and both call sites use it. A file with no
-block still blocks; no other rule changes. Tests: the four forms give no finding and the same
-parsed `name` and `description`; a missing `name` is a finding in every form; `scanSkills`
-loads a CRLF and a BOM skill; a native edit of a CRLF and a BOM SKILL.md is guarded.
+**Fix:** `1e3e90cf270018b512132305deafb634bc8c3e73`: one recogniser, `frontmatterOf` in
+`ant/src/skillguard.ts`, accepts an optional leading BOM and `\r\n` and returns the block
+with LF line ends; `scanSkills` uses it too. A file with no block still blocks; no other
+rule changes. Tests in `skillguard.test.ts`, `skills-scan.test.ts` and
+`pi-extension.test.ts`.
 
-## L909 — a pi turn re-sends every completed `<status>` block on every later text delta (2026-11-15, open — owner asked for the fix)
+## ✅ FIXED 2026-11-15 2f88624d2cc8f703ecc1616ff98d927e3b676fc7 L909 — a pi turn re-sent every completed `<status>` block on every later text delta (2026-11-15)
 
-`PiTurn.push` (`ant/src/pi.ts:115-116`) returns a status frame holding the cumulative text of
+`PiTurn.push` (`ant/src/pi.ts:115-116`) returned a status frame holding the cumulative text of
 the message on each `message_update` text delta, and another with the full text at
 `message_end` (`ant/src/pi.ts:141`). The chassis (`streamStatuses`, `ant/src/index.ts:155`,
-over `statusBlocks`, line 146) submits every complete block in each frame and keeps no
-memory, so a block completed early in a long message is submitted again on every following
-delta. `specs/7/60-pi-bridge.md:619` says "The chassis parses and deduplicates tags"; it does
+over `statusBlocks`, line 146) submitted every complete block in each frame and kept no
+memory, so a block completed early in a long message was submitted again on every following
+delta. `specs/7/60-pi-bridge.md:619` said "The chassis parses and deduplicates tags"; it did
 not.
 **Measured:** the real `runTurn` with `piHarness` and a fake `pi` on `PATH`, one
 `<status>one</status>` delta followed by N one-word deltas and a `message_end`, at
 `7046baa78dc29b75bf320e086102629b664d3117`: `submit_status` calls carrying `one` were 2 for
 N=0, 7 for N=5, 22 for N=20, 102 for N=100 (N+2).
-**Fix:** `PiTurn` emits each completed block once. Per content part it remembers how far the
-text has been handed on, and a status frame carries the text from there to the end of the
-part's last complete `</status>`; no frame while no new block has completed; the memory
-resets when an assistant message starts. The chassis and the other backends stay as they are
-and no dedupe set is added. Tests: one block then N deltas is submitted once; blocks arrive
-in order and whole; a tag split across deltas arrives whole; two blocks in one delta both
-arrive; a new message starts clean.
+**Fix:** `2f88624d2cc8f703ecc1616ff98d927e3b676fc7`: `PiTurn` hands each completed status
+block on once. A status frame carries the text from where the last one stopped to the end of
+the part's last complete `</status>`; there is no frame while no new block has completed.
+The chassis and the other backends are unchanged and no dedupe set exists. Tests in
+`ant/src/pi.test.ts` and `ant/src/index.test.ts`.
+
+## L910 — the Google connector has no tool to resolve or reopen a comment thread (2026-11-15, open — needs sign-off)
+
+`template/connectors/google.toml` declares one `rest` tool, `read_sheet_range`
+(`eda1a25ca feat(template)`). Resolving and reopening a Drive comment thread are each a
+`replies.create` whose JSON body carries a fixed `action` (`resolve` or `reopen`).
+`routd/ext.go` `extToolConfig` has `name`, `description`, `scope`, `method`, `path` and
+typed `param` fields only; a param is an argument the model supplies, and the
+connector-level `body` table renders credential placeholders for every tool of the
+connector. No schema field fixes a constant body value for one tool, so a tool declared
+to resolve would also reopen or reply, whatever the scope says. `specs/6/45-gdrive-comments-channel.md`
+names the resolve and reopen tools as part of the connector.
+**Measured:** `grep -n "action" template/connectors/google.toml routd/ext.go` in `wharness`
+at `eda1a25caf7abd973903d47695a2dce4966abfc5` finds only the closing comment of the
+`.toml`; `extToolConfig` and `extParamConfig` (`routd/ext.go:37-56`) hold no constant body
+field.
+**Options:** (a) add a schema field to `extToolConfig` for constant body values
+(`body = { action = "resolve" }`), so one `rest` tool fixes the action and the scope per
+tool; a change to the contract of every `rest` connector; (b) add separate endpoints to
+googd (`POST /google/threads/{id}/resolve` and `/reopen`) that build the `replies.create`
+body themselves, so the connector keeps its present schema and googd owns the Drive
+vocabulary.
+**Default if nothing is decided:** no resolve or reopen tool; the agent reads sheets only.
+**Type:** design, no test — design.
 
 ## ✅ FIXED 2026-11-15 abc8f10fe64698ef052375b6813d42b929c6fbf4 a0c823184f54c32164af1f14cc40a652fc639188 L883 — a reply to a chat with no registered adapter is dead-lettered at once (2026-11-15)
 
@@ -453,8 +501,9 @@ The browser retry integration owns this fix after the current serial capacity wo
 
 - `L896` — the CLI README still says to use `/new` before a backend change; docs fix, record only.
 - `L895` — the new-product checklist names a removed spec path; docs fix, record only.
-- `L908` — the skill guard refuses a SKILL.md with CRLF line ends or a BOM; fix asked.
-- `L909` — a pi turn re-sends every completed `<status>` block on each later delta; fix asked.
+- `L903` — dashd writes a group's harness to the store; `6/53` says through `/v1`, `6/29` says the store; owner decision, default is the store.
+- `L904` — `GroupObserveWindow` reads a malformed settings document as "not set"; changing it crosses `routd/prompt.go`, the `ipc` deps field and six test files; fix asked.
+- `L910` — the Google connector has no resolve or reopen tool; the `rest` schema cannot fix a body field; needs sign-off.
 - `L826` — one folder's crash closes the whole instance for an hour; per-folder breaker or a 30 s probe; needs sign-off.
 - `L816` — gitd loses GitHub webhooks while the store is unreachable; retention lives in that store; proposal, needs sign-off.
 - `L803` — morha repeats recovery reports and replies to an old GitHub comment; cause unmeasured.

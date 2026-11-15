@@ -23,15 +23,15 @@ Verified 2026-09-06 against a running `ghcr.io/berriai/litellm:main-latest`:
 routes extracted from the image's own source, request models read by pydantic
 introspection, every call below driven against the booted proxy.
 
-| Capability    | Where                                                                                    |
-| ------------- | ---------------------------------------------------------------------------------------- |
-| the spend row | `LiteLLM_SpendLogs`: api key (sha256), user, team, tags, end user, model, spend, tokens  |
-| budgets       | key, internal user, team, team member, end user, tag, and per model                      |
-| budget resets | `budget_duration`, e.g. `"1d"`; absent, a budget never resets                            |
-| refusal       | 429 `budget_exceeded`: `Budget has been exceeded! Team=… Current cost: …, Max budget: …` |
-| rate limits   | `tpm_limit`, `rpm_limit` per key, team and user; `model_tpm_limit` per model             |
-| model access  | `models` on a key or user                                                                |
-| folder reads  | `/team/info` (current window), `/team/daily/activity` (per team per day)                 |
+| Capability    | Where                                                                                                                                                                                                                       |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| the spend row | `LiteLLM_SpendLogs`: api key (sha256), user, team, tags, end user, model, spend, tokens                                                                                                                                     |
+| budgets       | key, internal user, team, team member, end user, tag, and per model                                                                                                                                                         |
+| budget resets | `budget_duration`, e.g. `"1d"`; absent, a budget never resets                                                                                                                                                               |
+| refusal       | `budget_exceeded`, HTTP 422 by default and 429 when configured: `Budget has been exceeded! Team=… Current cost: …, Max budget: …` (`litellm/__init__.py:393` at BerriAI/litellm `923162a4e7c2c59583afe82c6bc357db30e0c9aa`) |
+| rate limits   | `tpm_limit`, `rpm_limit` per key, team and user; `model_tpm_limit` per model                                                                                                                                                |
+| model access  | `models` on a key or user                                                                                                                                                                                                   |
+| folder reads  | `/team/info` (current window), `/team/daily/activity` (per team per day)                                                                                                                                                    |
 
 Every one of those is a thing arizuko either does by hand today or does not do
 at all. Rate limits and per-model access it does not do at all.
@@ -76,13 +76,13 @@ operator set.
 A key minted with a `team_id` that has no team row is accepted, and then every
 model call on it fails `404 Team doesn't exist in db`. So reconciling the team is
 not an optimisation that can be skipped for an uncapped folder — it is a
-precondition of the turn. The gate does it, which is why the gate runs even when
-`COST_CAPS_ENABLED` is off.
+precondition of the turn. `reconcileCaps` (`routd/budget.go`) does it before the
+key is minted, which is why it runs even when `COST_CAPS_ENABLED` is off.
 
-One `GET /team/info` per turn does all three jobs: it creates the team when the
-folder has none, it converges the team's `max_budget` on the cap the operator set,
-and it reads the spend the refusal decides on. One read, one number, no cache to
-invalidate.
+One `GET /team/info` per turn does two jobs: it creates the team when the folder
+has none, and it converges the team's `max_budget` on the cap the operator set.
+The caller's `GET /user/info` does the same for the person. routd reads no spend
+and refuses nothing; the gateway refuses the model call itself.
 
 ## What "synchronous" means here, honestly
 
@@ -106,15 +106,31 @@ folder's cap. A call the agent makes outside the gateway is a bypassed gateway,
 and the answer to that is a log line, not a row.
 
 The mid-turn `<budget_notice>` nudge is not built and is not planned. A turn
-that approaches the cap gets no warning inside the turn; the gate refuses the
-next turn instead. The nudge needs a spend number during the run, and the
-gateway answers `/spend/logs` only after the run returns.
+that approaches the cap gets no warning inside the turn; the gateway refuses the
+first model call over the cap (§"A refused call ends the turn"). The nudge needs a
+spend number during the run, and the gateway answers `/spend/logs` only after the
+run returns.
+
+## A refused call ends the turn
+
+The refusal is the gateway's answer to a model call, so it reaches the harness
+inside the turn, not routd before it. Every ant backend ends it as a result
+refused as `budget` (`isBudgetRefusal`, `ant/src/backend.ts`), matching the code
+`budget_exceeded` and the gateway's message, not the HTTP status, so 422 and 429
+read the same. It is never a provider failure: no `ProviderFailure`, no
+`model_pauses` row. The chassis submits `submit_turn` status `budget`, and routd
+ends the turn once with the notice "Budget reached for today. Automatic retries
+stopped." (`routd/turns.go`). A turn that ends this way is not a failed
+execution, so it opens no instance breaker
+([`5/12-turn-retry.md`](../5/12-turn-retry.md) §"One breaker per instance") and
+other folders keep running (`routd/turn_budget_test.go`). A handler that calls no
+model never meets the refusal.
 
 ## What arizuko keeps, and why
 
 - **The cap decision.** What a folder may spend is an operator policy in
   arizuko's `groups` row, and what a person may spend is theirs in
-  `user_profiles`. Only ENFORCEMENT moves; the gate pushes both to the gateway.
+  `user_profiles`. Only ENFORCEMENT moves; `reconcileCaps` pushes both to the gateway.
 - **The turn record, including which key metered it.** `turn_context` keeps the
   turn, its folder, its caller, its outcome and the sha256 of the key minted for
   it. Which credential paid is the turn's own identity; what it bought is not.
@@ -212,7 +228,7 @@ reason: it is history from before a gateway metered anything.
 `MODEL_GATEWAY_URL` unset is a supported deployment, and it has no meter. Then
 there is no spend surface at all: the dashboard says so rather than showing a
 number the agent chose. A cap set on such an instance is enforced by nothing, so
-the gate says so in the log rather than pretending — that is the honest reading
+`reconcileCaps` says so in the log rather than pretending — that is the honest reading
 of a harness the operator did not put a meter in front of, and it is the reason a
 cap needs a gateway.
 
@@ -221,11 +237,13 @@ cap needs a gateway.
 - `routd/gateway.go` — the one client for the admin surface: `mint` (team +
   user on the key), `teamBudget`/`createTeam`/`updateTeam`, the user twins,
   `keySpend` (one turn) and `spendByFolder` (the operator window).
-- `routd/budget.go` — the gate: `folderMeter` reconciles and reads, `userMeter`
-  does the person axis, and a gateway that will not answer returns an error the
-  dispatcher turns into `queue.ErrDependencyDown`.
-- `routd/dispatch.go` — the gate runs before the mint, and the minted key's
+- `routd/budget.go` — `reconcileCaps`: `reconcileTeam` moves the folder's team onto
+  the operator's cap (creating it when absent), `reconcileUser` does the person
+  axis, and a gateway that will not answer returns an error the dispatcher turns
+  into `queue.ErrDependencyDown`. It compares no spend and refuses nothing.
+- `routd/dispatch.go` — `reconcileCaps` runs before the mint, and the minted key's
   hash is recorded on the turn.
+- `routd/turns.go` — status `budget` ends the turn with its notice.
 - `routd/reads_http.go` — `GET /v1/cost` resolves the turn to its key and asks;
   `GET /v1/cost/summary` is the one read every operator surface goes through.
 - `routd/migrations/0045` (the turn's key hash), `0046` (the archive rename).

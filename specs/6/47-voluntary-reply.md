@@ -31,6 +31,8 @@ acceptance run remains.
 - Measure unaddressed GitHub silence, an addressed reply and one correction after a printed answer on sloth without a live-instance anteval run (`routd/turns.go`, `routd/README.md`; operator acceptance).
 - Prove a Codex smoke turn reaches `reply` through its MCP configuration (`anteval/cases/anteval.toml`, `ant/src/codex.ts`).
 - Measure the silent outcome rate after a nudge over the specified week (`obs/metrics.go`, `obs/README.md`).
+- The `<think>` convention is still taught in packaged skills: `ant/skills/solve/SKILL.md`, `ant/skills/oracle/SKILL.md` and `ant/skills/recall-memories/SKILL.md`.
+- Two docs name deleted code: `ipc/README.md` (`router.FormatOutbound`) and `ant/README.md` (`router.ExtractStatusBlocks` and `TestStatusGrammarAgreesAcrossLanguages`, which has no replacement guard).
 
 ## Problem
 
@@ -148,7 +150,7 @@ action, not a management entity, so no resreg resource.
 | pi      | MCP (`ant/src/pi.ts` `piMcpConfig`, `builtin:mcp`) | none; delivery uses submission                                                                                            | `submit_turn` response round |
 
 Pi uses the same delivery tools over `gated.sock`. Submission supplies its one
-nudge round. Image smoke and live acceptance remain deferred in
+nudge round. The image gate and the live turn through routd remain open in
 `../7/60-pi-bridge.md`.
 
 ## The nudge
@@ -208,15 +210,14 @@ the agent that a reply is due now, so a turn it reaches is not stale.
 ## Format, checked where it can fail
 
 "The intended format" is checkable only where text is an argument. The door
-(`ipc/ipc.go:1250` `reply`, `:1227` `send`, `:1359` `post`, the `caption` of
-`:1282` `send_file`) refuses, before any send, with the reason as the tool
-error:
+(`refuseText`, `ipc/ipc.go:1035`) checks the text of `reply`, `send`, `send_voice`,
+`post` and `edit` and the `caption` of `send_file`, and refuses, before any send,
+with the reason as the tool error (`ipc/delivery_text_test.go`):
 
-| Check                                            | Refusal reason                                                                             |
-| ------------------------------------------------ | ------------------------------------------------------------------------------------------ |
-| `text` empty after trim                          | `text is empty`                                                                            |
-| `text` contains the literal `$WEB_HOST`          | `resolve $WEB_HOST with echo before you send it` (`ant/CLAUDE.md:151`)                     |
-| `text` contains `/home/node/` or `/var/lib/www/` | `a container path is not a link; translate it (self/web-routing.md)` (`ant/CLAUDE.md:200`) |
+| Check                                                       | Refusal reason                                                 |
+| ----------------------------------------------------------- | -------------------------------------------------------------- |
+| text empty after trim (a `send_file` caption may be empty)  | `delivery text is empty`                                       |
+| text contains `$WEB_HOST`, `/home/node/` or `/var/lib/www/` | `delivery text contains <literal>; use the public URL instead` |
 
 Each is string containment on an argument: exact, zero false positives, loud to
 the agent because a refused call returns its reason. Length is not checked
@@ -318,7 +319,7 @@ existing turn context (`addressed`, `nudged`), owned by routd like
 | the outcome table, one test per row, each red before the change                                                                                                                  | `routd/fixes_test.go` replaces `TestSubmitTurnResult*` (`:1143-1234`)             |
 | the addressed table, one test per row                                                                                                                                            | `routd/loop_test.go`                                                              |
 | one nudge per turn across both readers                                                                                                                                           | `routd` `check_turn` then `submit_turn` on one turn: the second hands out nothing |
-| the door refuses each format row; mutate the literal and the test goes red                                                                                                       | `ipc/ipc_test.go`                                                                 |
+| the door refuses each format row; mutate the literal and the test goes red                                                                                                       | `ipc/delivery_text_test.go`                                                       |
 | a nudge round keeps the turn id and the continuity token                                                                                                                         | `ant/src/index.test.ts`                                                           |
 | a `Stop` row renders to `block` on claude, to `hooks.json` on codex, to a log line on pi                                                                                         | `ant/src/claude.test.ts`, `codex.test.ts`, `pi-extension.test.ts`                 |
 | pi is selected with an MCP tools profile                                                                                                                                         | `ant/src/backend.test.ts`                                                         |
@@ -337,7 +338,7 @@ existing turn context (`addressed`, `nudged`), owned by routd like
 
 ## Declined
 
-- **A `status` tool.** pi has no tools; `../5/24-live-tasklist-status.md` moved progress off model-invoked
+- **A `status` tool.** `../5/24-live-tasklist-status.md` moved progress off model-invoked
   mechanisms on purpose; a tool beside the block is a second interim path.
 - **A `silent` tool.** Silence is the absence of a call. A tool makes silence
   something the agent can forget to do.
@@ -366,14 +367,14 @@ existing turn context (`addressed`, `nudged`), owned by routd like
   `defaultVerb` is why the `verb` attribute is always present for the query.
 - `ipc/ipc.go:566` `handleSubmitTurn` — the response gains `nudge`; `:63`
   `RoutdFns.SubmitTurn` returns it; `check_turn` is registered beside `:610`.
-- `ipc/ipc.go:1227`, `:1250`, `:1282`, `:1359` — the door and its three checks.
+- `ipc/ipc.go:1035` `refuseText` — the door and its two checks.
 - `ant/src/index.ts:117` `deliverTurn`, `:357` the `result` that leaves the
   payload, `:468` the turn id a nudge round keeps.
 - `ant/src/mcp.ts:44` `rpc` — returns the response body so a nudge can ride it.
 - `ant/src/policy.ts:27` `PolicyEvent`, `:59` `bindings` — the `Stop` row;
   `ant/src/claude.ts:283` `asHookCallback`, `ant/src/codex.ts:260`
   `codexHooksConfig`, `ant/src/pi-extension.ts:14` `PI_HONOURS` — its three renderers.
-- `ant/src/backend.ts:119` `selectHarness`, `ant/src/pi.ts:216` — the pi refusal.
+- `selectHarness` in `ant/src/backend.ts` and `piHarness` in `ant/src/pi.ts` — how pi is selected.
 - `ant/CLAUDE.md:75`, `:95-97`, `:125-136` — the manual lines §"Narration" replaces.
 - `ant/skills/progress/SKILL.md`,
   `ant/skills/self/mcp.md` §"Messaging" — the skills that teach the door.

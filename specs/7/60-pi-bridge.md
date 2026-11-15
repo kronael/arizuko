@@ -27,7 +27,7 @@ Pi uses the same tools and explicit delivery as Claude Code and Codex.
 `--network none` and `ant/smoke/pi-models.json` mounted read-only. The smoke
 starts the installed `ant` with `ARIZUKO_BACKEND=pi` against a scripted
 OpenAI-compatible provider at `127.0.0.1:23456` and a recording `gated.sock`.
-It checks three cases:
+It checks ten cases:
 
 - Reply over `gated.sock`: the model is offered `mcp__arizuko__reply`, one wire
   `tools/call` carries `reply` with `pong`, and final prose never reaches the
@@ -37,31 +37,52 @@ It checks three cases:
   with model `model:1b` and the key from `$OPENAI_API_KEY`.
 - Bounded provider failure: a provider that answers 502 gets three calls, then
   `submit_turn` reports the error, nothing is delivered and `ant` exits non-zero.
+- A 403 answer: the retries are finite, `submit_turn` reports the provider error
+  with its 403, and nothing is delivered.
+- A refused connection: one error that names no grant, nothing delivered, the
+  turn ends within a minute.
+- A stalled stream: the turn ends within the deadline and `submit_turn` reports
+  it flagged `timed_out`; the provider was asked once.
+- The gateway on the wire: the model request goes to `<gateway>/v1/responses`
+  and `Authorization` carries the gateway key.
+- Hostile project configuration: no project extension runs, the tools offered
+  and the provider and model are unchanged, and delivery is still one wire
+  `reply` and one success.
+- Split status tags: `submit_status` receives both blocks whole and no partial tag.
+- Tool-only completion: one wire `reply` and one success with no final prose.
+
+Unit tests cover the rest of step 1 to 4. `ant/src/pi-extension.test.ts` has the
+native edit fixtures (fuzzy, disjoint, overlapping, tilde path, CRLF and BOM,
+including a CRLF and a BOM `SKILL.md`) and
+`the pinned pi sends its model request to the gateway`, which reads the request
+URL and credential the installed pi puts on the wire for an OpenAI and an
+Anthropic model, with and without a gateway key. `ant/src/index.test.ts` has
+`runTurn with the pi harness and a fake pi executable`: split status tags,
+tool-only completion, the nudge that resumes the session, a provider failure and
+a pi that exits non-zero without an assistant message. `ant/src/pi.test.ts` covers
+the `models.json` gateway rule and the login write-back
+(§"Borrowed-login ownership").
 
 On 2026-11-12 `make agent` could not run: the build host had 178 MB free disk.
-The smoke ran in the release rootfs `rootfs-5aa0ae1f225b` instead, whose
+The three-case smoke ran in the release rootfs `rootfs-5aa0ae1f225b` instead, whose
 `/app/src` matches this tree, through a read-only overlay with only loopback.
 All 14 checks passed. Removing `builtin:mcp` failed the two reply checks,
 `maxRetries: 5` failed the retry bound with six calls, and dropping the nudge
-failed the two continuation checks.
+failed the two continuation checks. The ten-case smoke ran once outside the
+image, in a sandbox, with 38 checks ok.
 
-Acceptance remains partial. These items are deferred:
+Acceptance remains partial. Remaining:
 
-- The `make agent && make -C ant pi-smoke` gate on a freshly built image.
-- Smoke cases for hostile project configuration, split status tags, a 403
-  answer, a refused connection and a stalled stream.
-- Native edit fixtures in step 1 for fuzzy and disjoint edits, tilde paths and CRLF/BOM input.
-- Pi-specific chassis integration tests in step 4. Reducer fixtures cover split
-  status and tool-only completion; the chassis nudge tests use a fake harness.
+- The `make agent && make -C ant pi-smoke` gate on a freshly built image (LIVE).
 - The real pi turn through routd's `gated.sock`, including delivery, submission,
-  authorization and audit evidence. Local-model reachability and privacy are unmeasured.
-- Borrowed-login renewal ownership, an open owner decision (§"Deferred
-  credential ownership"). Today each turn copies the read-only
-  `.codex/auth.json` into the turn's temporary `PI_CODING_AGENT_DIR`, and
-  `runPi` deletes that directory when the turn ends. A token pi refreshes
-  during a turn is lost, and the next turn starts from the mounted snapshot
-  again. If the provider rotates the refresh token on use, a later turn fails
-  until the operator renews the host login. Nothing writes the host login.
+  authorization and audit evidence, with the local-model reachability and privacy
+  measurement (LIVE).
+- Documentation, the next step's: `template/web/pub/arizuko/concepts/secrets.html`
+  and `security/index.html` (the credential sources, the "private model call"
+  scope), a `CHANGELOG.md` entry, and `SECURITY.md`, which says pi has no MCP
+  client and tools `none`.
+- The comments in `ant/src/pi.ts` and `ant/src/pi-extension.ts` that name pi 0.51.6
+  while the pin is 1.4.0.
 - Full acceptance gates in step 6, including the image and live checks.
 
 Any pi provider works through its normal operator configuration and a
@@ -129,7 +150,8 @@ steps:
         job: translate native tool calls and render the existing policy rows
         names:
           [
-            'canonicalCall(name, input)',
+            'canonicalToolName(name)',
+            'canonicalInput(toolName, input)',
             'registerWith(pi, ctx)',
             'PI_HONOURS',
             'native edit/write operations',
@@ -340,7 +362,7 @@ The work record owns snapshots, execution results, and release actions.
 ## The pinned package keeps the guard effective
 
 ```text
-pi native input (changed) ──► canonicalCall (changed) ──► bindings
+pi native input (changed) ──► canonicalToolName, canonicalInput (changed) ──► bindings
 pi native input (changed) ◄── bash rewrite (new)     ◄── bash-scrub
 ```
 
@@ -381,15 +403,13 @@ if (toolName === 'Edit') {
 }
 ```
 
-Proposed boundary shape, replacing `canonicalToolName` and `canonicalInput`:
+Boundary shape (`toToolEvent` composes `canonicalToolName` and `canonicalInput`, `ant/src/pi-extension.ts:44-80`):
 
 ```ts
-canonicalCall('edit', { path, edits: [{ oldText, newText }] });
-// => { name: 'MultiEdit', input: {
-//      file_path: absolutePath, edits: [{ old_string: oldText, new_string: newText }]
-//    } }
-canonicalCall('mcp__arizuko__reply', input);
-// => { name: 'mcp__arizuko__reply', input }
+canonicalToolName('edit'); // => 'Edit'; toToolEvent reports an edit as 'MultiEdit'
+canonicalInput('Edit', { path, edits: [{ oldText, newText }] });
+// => { file_path: absolutePath, edits: [{ old_string: oldText, new_string: newText }] }
+canonicalToolName('mcp__arizuko__reply'); // => 'mcp__arizuko__reply', input unchanged
 ```
 
 This mapping supplies canonical logging names and inputs. MCP names remain byte-for-byte intact.
@@ -526,17 +546,17 @@ The gate, authorization, and audit remain routd's responsibility.
 
 ```text
 existing env-profile keys ──► pi child env (changed) ──► native providers
-existing codex RO login ────► native auth snapshot (new) ──► openai-codex
+existing codex login (rw) ──► native auth copy (new) ──► openai-codex
 existing RO host mount ────► native models.json (new) ──► selected provider
 MODEL_GATEWAY_URL/key ─────► registerGateway (changed) ──► existing gateway
 ```
 
-| Existing source                                                      | Pi adaptation in ant                                                                                                                                                                                                                            |
-| -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `store/secrets.go:248`, `runed/secrets.go:38`: five env-profile keys | Keep `ANTHROPIC_API_KEY`, `ANTHROPIC_OAUTH_TOKEN`, and `OPENAI_API_KEY`. Alias `CLAUDE_CODE_OAUTH_TOKEN` to pi's Anthropic OAuth slot and `CODEX_API_KEY` to its OpenAI slot when that slot is absent. Explicit provider-native values win.     |
-| `runed/mounts.go:173`: `HOST_CODEX_DIR` and the `codex` grant        | Read the existing read-only `.codex/auth.json` snapshot. Translate Codex token fields into pi's native `openai-codex` OAuth record in temporary `auth.json`. Never read host paths directly or persist refreshed credentials in the group home. |
-| `runed/render.go:115`: gateway URL and per-turn virtual key          | Use `registerGateway`. In gateway mode, do not import a borrowed vendor login. Native provider configuration must use the gateway and virtual key for the selected model.                                                                       |
-| `runed/mounts.go:179`, `EXTENDING.md:35`: existing read-only mounts  | Copy the operator's native `/mnt/pi/models.json` into the temporary agent directory. Mount with `Container: "pi", RO: true`. Pi owns the provider schema, API choice, model metadata, and compatibility settings.                               |
+| Existing source                                                      | Pi adaptation in ant                                                                                                                                                                                                                                                                                                                   |
+| -------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `store/secrets.go:248`, `runed/secrets.go:38`: five env-profile keys | Keep `ANTHROPIC_API_KEY`, `ANTHROPIC_OAUTH_TOKEN`, and `OPENAI_API_KEY`. Alias `CLAUDE_CODE_OAUTH_TOKEN` to pi's Anthropic OAuth slot and `CODEX_API_KEY` to its OpenAI slot when that slot is absent. Explicit provider-native values win.                                                                                            |
+| `runed/mounts.go:173`: `HOST_CODEX_DIR` and the `codex` grant        | Read the staged `.codex/auth.json`, a mount point of its own. Translate Codex token fields into pi's native `openai-codex` OAuth record in temporary `auth.json`, and write the refreshed tokens back after the turn (§"Borrowed-login ownership"). Never read host paths directly or persist refreshed credentials in the group home. |
+| `runed/render.go:115`: gateway URL and per-turn virtual key          | Use `registerGateway`. In gateway mode, do not import a borrowed vendor login. Native provider configuration must use the gateway and virtual key for the selected model.                                                                                                                                                              |
+| `runed/mounts.go:179`, `EXTENDING.md:35`: existing read-only mounts  | Copy the operator's native `/mnt/pi/models.json` into the temporary agent directory. Mount with `Container: "pi", RO: true`. Pi owns the provider schema, API choice, model metadata, and compatibility settings.                                                                                                                      |
 
 `/mnt/pi/models.json` is an ant-side mount convention, not a daemon field or an arizuko provider schema.
 Require an actual read-only mounted source. Reject a writable source, symlink escape, or malformed configuration.
@@ -568,18 +588,19 @@ const auth = gw.key ? { apiKey: `$${GATEWAY_KEY_ENV}` } : {};
 Pi 1.4.0 treats an unprefixed key name as a literal.
 Keep built-in gateway rendering in `registerGateway`, using `modelGateway` from `ant/src/gateway.ts:18`.
 Native `models.json` supplies non-catalog gateway models, including the API and model ID served by the gateway.
+In gateway mode `runPi` accepts a provider whose `baseUrl` is the gateway URL or a path under it and refuses any other by name.
+`registerGateway` registers the key for the `anthropic` and `openai` providers only, so a custom-named provider needs its own `apiKey` entry in `models.json`.
 Pi composes native model configuration above registered providers. Reject a selected model override that bypasses a configured gateway.
 Tests must inspect the outgoing URL and Authorization header, not only mocked registration arguments.
 
-Only read the borrowed login when its existing mount is read-only and no gateway takes precedence.
+Only read the borrowed login when it is a mount point of its own and no gateway takes precedence.
 Translate `tokens.access_token`, `tokens.refresh_token`, and `tokens.account_id` from a Codex OAuth fixture.
 Use the access token's expiry claim for pi's `expires`; do not fabricate expiry from `last_refresh`.
 The native target record is `{type:"oauth", access, refresh, expires, accountId}` under `openai-codex`.
 Verify the source fixture against the installed Codex format before implementing the converter.
 Handle a key-based Codex login through the corresponding native API-key path, not as fabricated OAuth.
 Reject malformed or unusable credentials with a clear auth error.
-Keep credentials out of logs, argv, and MCP config. Native refresh can update only the temporary copy.
-Durable shared renewal needs owner decision 1.
+Keep credentials out of logs, argv, and MCP config. Pi refreshes its temporary copy; ant writes the refreshed tokens back to the staged login and runed carries them to the host (§"Borrowed-login ownership").
 
 The existing Go/TypeScript contract test at `runed/env_contract_test.go:95` checks only `turnEnv` emissions.
 Ant's credential aliases also read keys carried in stdin, through `spawnSecrets` at `runed/render.go:75`.
@@ -616,7 +637,7 @@ reply ──► gated.sock                     submit_turn ──► routd
 | MCP tools and gate           | Both render `Turn.tools`; `ant/src/claude.ts:565`, `ant/src/codex.ts:59`.                                              | Adapted in `pi.ts`: native MCP, direct tools, same socket, hold, grant, and audit path.                                                                                                                                                                                                                                                |
 | Delivery and `submit_turn`   | Tools deliver. The chassis submits completion through `ant/src/mcp.ts:94`.                                             | Same chassis. Successful tool-only completion must not require terminal prose. `submit_turn` stays hidden from model tools.                                                                                                                                                                                                            |
 | `[deliver]` Stop nudge       | `reply-owed` binds Stop at `ant/src/policy.ts:69`; submission is the shared backstop.                                  | Adapted in `pi.ts`: keep the owner's no-Stop choice. `runTurn` at `ant/src/index.ts:397` resumes the same turn, latest session, and deadline. One nudge and the silent-turn notice still apply.                                                                                                                                        |
-| `<status>` progress          | Frames pass through `statusBlocks` at `ant/src/index.ts:157`.                                                          | Adapted in `PiTurn.push`: accumulate text deltas and emit cumulative status frames before `message_end`. The chassis parses and deduplicates tags.                                                                                                                                                                                     |
+| `<status>` progress          | Frames pass through `statusBlocks` at `ant/src/index.ts:157`.                                                          | Adapted in `PiTurn.push`: accumulate text deltas by content part and emit each completed `<status>` block once, before `message_end`. The chassis keeps no memory of what it submitted.                                                                                                                                                |
 | Steering                     | Shared spool and PostToolUse injection at `ant/src/policy.ts:89`; Claude also accepts prompts while active.            | Same post-tool injection through `registerWith`, preserving text and image blocks. Queued input without a later tool becomes the next turn. Keep `between-turn`, matching codex. Immediate external prompt injection is impossible with the current one-way print invocation; a bidirectional pi mode would need extra ant adaptation. |
 | Skills and guard             | One scan and policy table, with native loading or an index.                                                            | Adapted in `pi.ts` and `pi-extension.ts`: scanned explicit skill paths, native edit/write shapes, and the shared post-tool rescan.                                                                                                                                                                                                     |
 | Manual                       | Claude reads the resident manual natively; codex receives rendered text.                                               | Same rendered path at `ant/src/index.ts:53`, passed through `--system-prompt`. No pi manual copy.                                                                                                                                                                                                                                      |
@@ -646,7 +667,7 @@ Proposed event reduction:
 ```text
 message_start: reset current assistant text blocks
 message_update.assistantMessageEvent.text_delta: append delta by contentIndex
-message_update: emit status with accumulated assistant text
+message_update: emit each newly completed status block once
 message_end: replace with authoritative content; account usage once
 session: emit the existing continuity frame
 process exit: emit one result, including failure after an error or abort
@@ -738,13 +759,31 @@ Implementation closeout requires the build, lint, short Go tests, Bun tests, typ
 repo/web documentation checks, and live gate in the map.
 The release record uses v0.75.4 from this main release line and the project's release gates.
 
-## Deferred credential ownership
+## Borrowed-login ownership
 
-1. **OWNER DECISION — acceptance setup and borrowed-login renewal.**
-   Recommendation: use a throwaway setup, a valid borrowed Codex snapshot, and an operator-managed native provider declaration.
-   Pi refreshes only its temporary credential copy. Rotated credentials do not update the read-only host login.
-   Accept snapshot-only borrowing for this release. Durable shared renewal needs a separate ownership contract.
-   No runed change or host credential write belongs in this bridge.
+Decided (owner, 2026-11-15): "the tokens need to be read/write of course, otherwise
+the rotation won't work". A refresh token the provider rotates on use must reach the
+host login, or the next turn presents an invalidated one. It is built at three places:
+
+- runed (`runed/mounts.go` `stageCodexCreds`) stages `auth.json` at mode 0600, mounts
+  it read-write over `~/.codex/auth.json` and gives it the operator file's
+  modification time; `config.toml` stays 0400 and read-only. When the turn ends,
+  `endCodexStage` calls `writeBackCodexLogin`, which replaces
+  `HOST_CODEX_DIR/auth.json` by an atomic rename when the staged copy is newer,
+  differs and is a usable login (a non-empty refresh token or `OPENAI_API_KEY`),
+  keeping the operator file's owner, group and mode. An operator edit made during
+  the turn is never overwritten by the older copy. A failed write-back is logged
+  and does not fail the turn. It applies only without a model gateway.
+- compose binds `HOST_CODEX_DIR` read-write into runed (`runedService` in
+  `compose/compose.go`), because the replace needs the directory writable.
+  `container.CodexCredMounts` names the two files.
+- ant (`refreshedCodexLogin`, `ant/src/pi.ts`) writes pi's refreshed `openai-codex`
+  record into the staged `~/.codex/auth.json` in Codex's format when the turn ends,
+  failed or not: `tokens.access_token`, `tokens.refresh_token`, `tokens.account_id`
+  when it changed, and `last_refresh`. A key-based login is never rewritten, and a
+  failed save logs only the error code. The login must be a mount point of its own,
+  read-only or read-write (`readMountedFile`); in gateway mode ant neither reads nor
+  writes it.
 
 Settled: keep pi's default context window; omit pi Stop while submission supplies the nudge.
 Settled (owner, 2026-11-08: "pi local is just a way to use it … we dont need to do anything special"): a local model is one of pi's native providers and gets no arizuko mechanism. The operator declares it like any provider and adds its host to `network_rules`; a model reachable only on host loopback is outside this spec.

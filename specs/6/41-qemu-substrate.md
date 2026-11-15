@@ -41,8 +41,12 @@ proxy policy, two-guest CID isolation, the startup sweep after SIGKILL, steering
 
 ## Remaining
 
-- Prove a guest tool that resolves names locally through the disposable eval lifecycle; eight smoke cases already pass on VM guests (`anteval/cases/anteval.toml`).
-- Complete release-image rollout and the declared peak-memory sample before claiming the host budget on deployment (`runed/README.md`, `runed/guestpeak_test.go`).
+All remaining items are LIVE:
+
+- Prove a guest tool that resolves names locally through the disposable eval lifecycle (Open question 1); eight smoke cases already pass on VM guests (`anteval/cases/anteval.toml`).
+- Complete release-image rollout and the declared peak-memory sample before claiming the host budget on deployment (Open question 3; `runed/README.md`, `runed/guestpeak_test.go`).
+- Run `TestGuestReadOnlyMountAnswersEROFS` as root with KVM (`runed/qemu_turn_boot_test.go`).
+- Test balloon page reporting while virtiofsd maps the same memfd, under load (§"The host budget").
 
 ## What the design must answer — measured 2026-09-12 on hel1v5 (the krons host)
 
@@ -59,7 +63,7 @@ is not shipped.
 | Host                           | 2 vCPU, 15 GB RAM, QEMU 7.2.22 (Debian 12), `/dev/kvm`, `/dev/vhost-vsock`, `/dev/net/tun` present; kernel ships `fs/fuse/virtiofs.ko` and the vsock transports; `socat 1.7.4.4` built `WITH_VSOCK`.                                                                                                                                                                                                                                                   |
 | QEMU 7.2 devices               | `-M microvm`, `vhost-user-fs-device`, `vhost-vsock-device`, `memory-backend-memfd`, `-sandbox on` all present (`-M help`, `-device help`, `-object help`).                                                                                                                                                                                                                                                                                             |
 | Image                          | `arizuko-ant:latest` is **8.26 GB** (`node:22-slim` + ~40 tool installs, `ant/Dockerfile`). The rootfs pipeline moves this once per release, never per turn.                                                                                                                                                                                                                                                                                           |
-| Packages the runed image needs | Alpine carries `qemu-system-x86_64`, `virtiofsd`, `socat` (`apk search` from `arizuko:latest`, 2026-09-12); none of the three is installed in `arizuko:latest` today, so the image gains them (§"The runed deploy topology"). `nftables`/`iptables` verified at build, §Open.                                                                                                                                                                          |
+| Packages the runed image needs | Alpine carries `qemu-system-x86_64`, `virtiofsd`, `socat` (`apk search` from `arizuko:latest`, 2026-09-12); none of the three is installed in `arizuko:latest` today, so the image gains them (§"The runed deploy topology"). `iptables` is the rule renderer's firewall binary (`runed/qemuhost.go`) and the `arizuko` image installs it with the others (`Dockerfile`).                                                                              |
 | Host disk                      | hel1v5: **9.4 GB free of 256 GB** after `docker builder prune -f` recovered 4.37 GB of layer cache (2026-09-23); before it, 5.2 GB. `arizuko-ant` holds `latest` at 7.85 GB and two release tags at 8.26 GB. One rootfs export fits, and the operator reclaims (§"The host budget").                                                                                                                                                                   |
 | virtiofsd and the uid clamp    | The packaged daemon is QEMU's C build at `/usr/lib/qemu/virtiofsd` (not on `PATH`), with NO id-mapping flags, and it needs real root: `setgroups()` fails in a user namespace, unprivileged, and in both sandbox modes. `mount_setattr(MOUNT_ATTR_IDMAP)` works on this 6.1 kernel but translates the caller, so it refuses a root caller with `EOVERFLOW`. The clamp is therefore the Rust `virtiofsd` (§"The peer credential"), measured 2026-09-24. |
 | Host memory and concurrency    | `MAX_CONCURRENT_AGENTS` defaults to **5** (`core/config.go:229`) and caps total live spawns (`runed/manager.go:47-53`). Five guests at `-m 4G` is 20 GB against 15 GB total and ~5 GB free, so the guest size and the cap are one budget (§"The host budget").                                                                                                                                                                                         |
@@ -289,6 +293,16 @@ VSOCK-CONNECT:2:<mcp>` on a guest-local tmpfs and execs ant as uid 1000
    malformed-control cases. The turn proof requires cleanup after normal
    completion, Kill and cancellation. The bounded grace and `SIGKILL` remain
    independent of the guest's shutdown path.
+
+   PID 1 writes its log to `/dev/kmsg` (`kernel/guest-init/main.go`). `/dev/ttyS0`
+   and `/dev/console` both open and then fail every write with `EIO`: a 16550A
+   with no carrier rejects writes unless `CLOCAL` is set, and `-serial file:` never
+   asserts the modem lines (measured 2026-09-24). `/dev/kmsg` needs no termios,
+   carrier state cannot silence it, and it lands in the stream the kernel console
+   already writes to, the turn log, so ordering with kernel messages is free. A
+   guest that cannot say what is wrong needs a channel that is not the thing under
+   test; the failed `virtiofs` mount whose source name carried the message was the
+   one channel that worked while the console did not.
 
 `RunResult.ExitCode` is the `{exit}` frame; `Outcome` and `NewSessionID`
 arrive by `submit_turn` over MCP, unchanged.
@@ -633,7 +647,7 @@ any of them. Measured on hel1v5 (the krons host) 2026-09-23.
   reservation — but two guests that each touch 2 GB already exceed what is
   free, and the host has no swap headroom to hide it. **`-m` and the cap are
   one setting**: runed refuses to start when `guest_mem × MAX_CONCURRENT_AGENTS`
-  exceeds the host's `MemTotal`, and the pair is set from Open question 4's
+  exceeds the host's `MemTotal`, and the pair is set from Open question 3's
   peak-RSS measurement rather than from the 4 GB placeholder.
 - **The guest returns freed pages during a turn.** The machine has a
   `virtio-balloon-device,free-page-reporting=on` (MMIO, as the other devices
@@ -667,7 +681,7 @@ any of them. Measured on hel1v5 (the krons host) 2026-09-23.
   entry**, against the 2 GB `RUNED_GUEST_MEM` default and leaving `/dev/shm` the
   gigabyte `runner.go:682` gives it. They are consts in `guest-init`, not
   per-instance tunables, so an instance that raises `-m` does not raise them;
-  Open question 4's peak-RSS measurement is what says whether they should move
+  Open question 3's peak-RSS measurement is what says whether they should move
   onto the command line beside `ARIZUKO_CTL` and `ARIZUKO_MCP`.
 - **Disk holds rootfs trees.** The export is
   8.26 GB uncompressed. Free space is the operator's, not a guard in the build:
@@ -941,14 +955,16 @@ checks.
   guest-observable smoke remain separate checks.
 - ⚠ A turn on krons completes end to end over the VM substrate: prompt in,
   `submit_turn` out, `RunResult.ExitCode` from the `{exit}` frame — **met**, see
-  the MET record above. `anteval --smoke` green — **not met**: the harness
-  cannot observe a guest (BUGS `L379`), so its score says nothing about the
-  substrate.
+  the MET record above. `anteval --smoke` runs on VM guests: the callback sink a
+  guest can reach was BUGS `L379`, fixed (`anteval/cmd/anteval/lifecycle.go` takes a
+  DNS-named sink and allows only its hostname), and the smoke cases pass.
 - A guest whose bridge is pinned to CID _N_ cannot reach folder _B_'s socket
   from a guest with CID _M_; `TestGuestMCPBridgeRejectsOtherGuest` boots two
   guests and dials the first guest's `mcp` port from the second.
-- A write to every `ro` family from the guest returns `EROFS`; a write to
-  `home/` lands on the host as uid 1000.
+- A write to every `ro` family from the guest returns `EROFS`
+  (`TestGuestReadOnlyMountAnswersEROFS`, `runed/qemu_turn_boot_test.go`; it skips
+  without root and KVM and has not been run); a write to `home/` lands on the host
+  as uid 1000.
 - From the guest: `curl` to an allowlisted name succeeds through the proxy;
   `curl` to a listed-out name is refused by the proxy; `getent hosts
 example.com` fails; a raw `nc` to any address off the tap times out.
@@ -966,60 +982,33 @@ example.com` fails; a raw `nc` to any address off the tap times out.
 - **runed refuses to start** when `guest_mem × MAX_CONCURRENT_AGENTS`
   exceeds the host's `MemTotal`, and the refusal names both settings
   (§"The host budget").
-- ❌ **A `SIGKILL` of runed mid-turn leaves nothing running.** Start a turn, kill
+- ✅ **A `SIGKILL` of runed mid-turn leaves nothing running.** Start a turn, kill
   runed with `-9`, restart it, and the disk scan reaps the QEMU process, both
-  `virtiofsd`, the `egress` proxy, the tap and the staging tree — the test
-  asserts each pid is gone by name, not that the scan returned. **No such test
-  exists**: `q.sweep()` has no test caller (measured 2026-09-29), and
-  `TestReapReleasesTheCIDWhenOnlyTheTreeIsStuck` covers the record half only.
-  The sweep is the one path that runs after a crash, so it is the one with no
-  operator watching it.
+  `virtiofsd`, the `egress` proxy, the tap and the staging tree.
+  `TestStartupSweepAfterRuntimeSIGKILL` (`runed/vmrecord_test.go`) runs that
+  sequence; it skips without root and KVM. `TestReapReleasesTheCIDWhenOnlyTheTreeIsStuck`
+  covers the record half.
 - **A squatted vsock port fails the turn and never moves.** Bind the port runed
   would take, start a turn, and assert the turn fails with the bind error and
   that runed binds no other port (§"The peer credential").
-- **After three releases exactly two unpacked rootfs trees remain**, named by
-  version, and the third-oldest is gone (§"The host budget").
+- **`arizuko images --prune` keeps the trees the instance names.** The in-use
+  rootfs tree and the in-use kernel tree stay, every other tree is removed, and a
+  tree with a mount refuses the prune with nothing removed
+  (`pruneImageTrees`, `cmd/arizuko/images.go`; §"The host budget").
 
 ## Open questions — each with the measurement that settles it
 
-1. **Which guest tools resolve names locally** and therefore fail without a
-   resolver: run `anteval --smoke` on the VM substrate with the proxy-only
-   tap and read the failures. If a required tool resolves locally, the
-   proxy gains a `/etc/resolv.conf`-facing UDP/53 answerer that returns
-   `NXDOMAIN` for a name off the allowlist — the shape `L136` names.
-2. **What the Rust `virtiofsd` costs to build and carry.** The clamp needs it
-   and three cheaper mechanisms are measured out (§"The peer credential"), so
-   the question is its price: the Rust stage in the `arizuko` image, the build
-   time per image, and whether `--sandbox=none` with `--translate-uid` lands a
-   guest-uid-0 write on the host id. Measure by adding the stage and running the
-   acceptance test.
-3. **Peak guest memory, which sets `-m` AND the concurrency cap.** Sample
-   `docker stats` on krons over seven days for the ant container's peak RSS.
-   `-m 4G` is a placeholder and the pair must satisfy
-   `guest_mem × MAX_CONCURRENT_AGENTS ≤ MemTotal` (§"The host budget"), so
-   this measurement decides two settings, not one.
-4. **`nftables` versus `iptables` in the Alpine image.** `apk search`
-   listed `qemu-system-x86_64`, `virtiofsd`, `socat`; the rule renderer
-   uses `iptables` today. Verify the package at the first image build.
-5. **Device discovery and poweroff pass together.** The selected ACPI microvm
-   configuration on the release image mounts both shares, opens control and MCP
-   channels, completes a turn, enforces proxy policy and powers off.
-   The [runed measurements](../../runed/README.md#boot-timing-measures-the-first-ready-frame)
-   own the paired host-clock results.
-6. **PID 1's stdio — ANSWERED 2026-09-24, and it is `/dev/kmsg`.** A guest wrote
-   nothing while its own mount syscalls reached the kernel log from the same
-   function. `/dev/ttyS0` and `/dev/console` both OPEN and then fail every write
-   with `EIO`: a 16550A with no carrier rejects writes unless `CLOCAL` is set, and
-   `-serial file:` never asserts the modem lines. `guest-init` writes to
-   `/dev/kmsg`, which needs no termios, cannot be silenced by carrier state, and
-   lands in the same stream the kernel console already writes to — the turn log —
-   so ordering with kernel messages is free. The diagnosis itself came through a
-   failed `virtiofs` mount whose SOURCE NAME carried the message, which is the one
-   channel that works while the console does not; a guest that cannot say what is
-   wrong needs a channel that is not the thing under test.
-7. **Natural poweroff passes for both machine variants.** The boot test waits
-   for QEMU to exit without host termination after normal and malformed-control
-   boots. Runtime cleanup retains its bounded termination path.
+**Open question 1.** Which guest tools resolve names locally and therefore fail
+without a resolver: run `anteval --smoke` on the VM substrate with the proxy-only
+tap and read the failures. If a required tool resolves locally, the proxy gains a
+`/etc/resolv.conf`-facing UDP/53 answerer that returns `NXDOMAIN` for a name off
+the allowlist — the shape `L136` names.
+
+**Open question 3.** Peak guest memory, which sets `-m` AND the concurrency cap.
+Sample `docker stats` on krons over seven days for the ant container's peak RSS.
+`-m 4G` is a placeholder and the pair must satisfy
+`guest_mem × MAX_CONCURRENT_AGENTS ≤ MemTotal` (§"The host budget"), so this
+measurement decides two settings, not one.
 
 ## Ties
 

@@ -31,8 +31,8 @@ supplied by the agent in `submit_turn`, and it is **optional**:
 (`ipc/ipc.go:225`) is likewise an MCP tool the agent calls to record its
 own non-Anthropic spend.
 
-`routd/dispatch.go:261` gates spawns on today's folder spend. A gate fed
-by the metered party enforces nothing: an agent that under-reports, or
+A cap that routd decides from the folder's spend as the agent reported it
+enforces nothing: an agent that under-reports, or
 reports nothing, writes no `cost_log` row and spends against a view that
 sees zero. The field is documented as absent for "ant versions before the
 cost-caps cutover", so a stale agent image produces unmetered turns with
@@ -61,8 +61,8 @@ send it.
 
 ## The shape
 
-- routd mints a **virtual key per turn** carrying a budget and a TTL, and
-  hands it to runed with the run; runed emits it plus the base URL into
+- routd mints a **virtual key per turn** carrying the folder as team, the caller
+  as user and a TTL, and hands it to runed with the run; runed emits it plus the base URL into
   the container.
 - The gateway holds the real provider credential. The container never
   sees one, and `spawnSecrets` (`container/runner.go:787`) withholds the
@@ -137,8 +137,10 @@ spend — and runed has no store at all (`5/E`). The same daemon owns
 `cost_log`, so the measurement comes back where its only writer lives.
 
 The lifecycle is one bracket around one dispatch (`routd/dispatch.go`):
-`budgetGate` yields the refusal and the remaining cents, `mint` turns the
-cents into `max_budget` and the run ceiling into `duration`, and
+`reconcileCaps` (`routd/budget.go`) puts the gateway's team and user caps on the
+operator's and refuses nothing, `mint` turns the run ceiling into `duration`
+(the key carries no budget of its own), the gateway refuses a model call over a
+cap ([`6/39-gateway-owns-spend.md`](39-gateway-owns-spend.md)), and
 `dispatchRun` carries the key in `RunRequest.ModelGatewayKey` the way it
 already carries routd-resolved `Secrets`. One `defer` closes the bracket —
 `recordGatewayCost` (`routd/dispatch.go:558`) reads what the key was

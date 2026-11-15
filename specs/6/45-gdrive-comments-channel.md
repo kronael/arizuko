@@ -30,7 +30,16 @@ Drive and Sheets passthrough is built. The owner's framing — a document is a
 group, a comment thread is a topic — holds
 only in part (§"The owner's framing, tested"), and nine facts the design rests
 on are marked unverified until a probe against a real file measures them
-(§"Unverified").
+(§"Unverified"). The Google connector (`template/connectors/google.toml`)
+declares one `rest` tool, `read_sheet_range`; resolve and reopen are not
+declared (BUGS `L910`).
+
+## Remaining
+
+- The connector's resolve and reopen tools: the `rest` tool schema cannot fix the
+  `action` field of a `replies.create` body (BUGS `L910`, needs sign-off).
+- Run the nine probes of §"Unverified" on a real file (LIVE).
+- A live Drive acceptance: no googd case exists in `anteval/cases/anteval.toml` (LIVE).
 
 ## Problem
 
@@ -232,6 +241,13 @@ are Developer Preview and carry no comment tool today; any MCP server over the
 `batchUpdate` comment requests fits. Its credential is googd's key, through
 the passthrough below.
 
+`template/connectors/google.toml` declares one tool: `read_sheet_range`, a `GET` of
+`/sheets/v4/spreadsheets/{spreadsheet_id}/values/{range}` under scope
+`ext:google:sheets:read`, with the bearer `GOOGD_CONNECTOR_TOKEN`. Resolve and
+reopen are not declared. Each is a `replies.create` whose JSON body carries a fixed
+`action`, the `rest` tool schema (`routd/ext.go`) has no field for a constant body
+value, and a tool that could only resolve would also reopen or reply (BUGS `L910`).
+
 ### The connector runs on googd's key, through googd
 
 A `[[connector]]` block renders a STATIC secret into a request header
@@ -412,7 +428,8 @@ anchored comments render reliably.
 
 `compose/compose.go` lists which host `.env` keys each daemon's generated env
 file receives; the `googd` entry names `AUTHD_URL`, `AUTHD_SERVICE_KEY`,
-`GDRIVE_SA_KEY_JSON`, `GDRIVE_IMPERSONATE` and `GOOGD_CONNECTOR_TOKEN`. The
+`GDRIVE_SA_KEY_JSON`, `GDRIVE_IMPERSONATE`, `GOOGD_CONNECTOR_TOKEN`,
+`GDRIVE_POLL_INTERVAL`, `GDRIVE_API_URL` and `SHEETS_API_URL`. The
 compose fragment has the shape of `template/services/gitd/gitd.yml` without
 `SECRETS_KEY`: googd unseals no row, so the key that opens every secret on the
 instance has no reader here.

@@ -34,6 +34,8 @@ quotations, tool errors, generic 403s and unknown errors stay per-turn. Exit 78
 alone never pauses: HTTP 400 content errors also produce it. routd accepts four
 reasons — `spend_limit`, `rate_limit`, `authentication`, `outage` — and
 refuses any other (`routd/turn_control.go` `refuse`).
+A turn that ends with status `budget` (the gateway refused a model call over a
+spent cap) is not a provider failure: it opens no pause and no breaker.
 
 ## The refused turn is the probe
 

@@ -94,7 +94,9 @@ breaker refuses is woken by the 30 s recovery tick once the breaker admits
 again. Startup reads the breaker before admitting work. A provider refusal also sets the turn's due time no earlier
 than the provider's reset time and records the reporting folder's
 `model_pauses` row ([`6/60-model-credential-pause.md`](../6/60-model-credential-pause.md)).
-An intentional stop never opens the breaker. The breaker is automatic runtime
+An intentional stop never opens the breaker, and neither does a turn that ends with
+status `budget` (the gateway refused a model call over a spent cap: one notice, no
+replay). The breaker is automatic runtime
 state with no operator write API.
 
 **Agent limits.** `MAX_CONCURRENT_AGENTS` (default 5) bounds the agents that

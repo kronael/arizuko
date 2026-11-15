@@ -22,12 +22,20 @@ its re-arm: the restarted router fires the task again under the same
 the task. The fire carries the scheduled instant, so the store drops the
 repeat (BUGS `L819`, fixed).
 
-These acceptance items stay open:
+Checks 1 to 3 have tests. Check 1: `TestGenerateHasNoViteOrTimedDeployment`
+(`compose/compose_test.go`) finds no vite or timed name in the generated
+deployment, and `Dockerfile`, `Makefile` and `.gitignore` name neither. Check 2:
+`proxyd/static_test.go`, with `TestStaticFilesContentTypeAndRange` for MIME types
+and ranges. Check 3: `TestStaticFilesChangeOnDiskWithoutReload`.
+
+Remaining, all LIVE:
 
 - The per-fold memory record in § Contract. No before and after sample with
   identical packages, data and build exists, so no saving is claimed.
 - Check 5. No test runs an outside 6/59 package, the isolated guest and the
   8/60 minimum behavior on the folded deployment.
+- Check 1's same-run proof: one fresh instance, with vited and timed absent,
+  serves a file and fires a scheduled task in the same run.
 
 The owner keeps onbod and dashd as separate processes (2026-11-15, BUGS `L688`, `L689` ruled
 won't-do). Their folds need no measured saving, and nothing here builds them.

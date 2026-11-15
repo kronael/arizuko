@@ -10,11 +10,27 @@ Opaque storage, HTTP carry, ant validation, whole-document replacement,
 Codex effort and model-credential delivery have implementation tests in
 `routd/harness_carry_test.go`, `ant/src/harness-main.test.ts`,
 `routd/groups_detail_test.go`, `store/groups_test.go` and `runed/mounts_test.go`.
+The carry after a bulk import is `TestApplyRows_CarriesHarnessDocument`
+(`cmd/arizuko/apply_harness_test.go`). The dashboard form is in
+`dashd/chat_settings_test.go`. An anteval case names its group's harness with the
+case field `harness` (`anteval/pkg/spec/spec.go`): the runner writes the document
+before the case's first turn and clears it after, a case whose backend is `codex`
+needs the Codex login (`HOST_CODEX_DIR`) and the hosts `chatgpt.com` and
+`auth.openai.com`, and the eval bearer gains `routes:write:own_group` only for a run
+with such a case (`anteval/cmd/anteval/lifecycle.go`).
 
 ## Remaining
 
-- Review flat overrides and Codex grant/deny rows before rollout (`cmd/arizuko/README.md`; operator data).
-- Build the packaged agent image and prove Claude and Codex replies on one disposable instance with explicit egress (`Makefile`, `anteval/cases/anteval.toml`). anteval selects one backend per run (`ARIZUKO_BACKEND`), so this needs a per-case harness selector in anteval first.
+- Owner decision: dashd saves the harness through the store as the operator, and
+  this spec says it calls `/v1` (BUGS `L903`). The default is the store.
+- `GroupObserveWindow` reads a malformed stored settings document as not set
+  (BUGS `L904`); changing it crosses `routd/prompt.go`, the `ipc` deps field and
+  six test files.
+- Build the packaged agent image and run a case of each backend on one disposable
+  instance with explicit egress, using the `harness` case field (LIVE;
+  `Makefile`, `anteval/cases/anteval.toml`).
+- Review flat overrides and Codex grant/deny rows in operator data before rollout
+  (`cmd/arizuko/README.md`; operator review).
 
 ## The platform must carry the document without interpreting it
 
@@ -41,7 +57,7 @@ dashd (changed) ──► groups update / derived MCP (new)
                        ant parse (changed)
                               │ selected adapter
                               ▼
-                     Claude / Codex / Pi refusal
+                     Claude / Codex / Pi
 
 routd default resolution (removed)
 RunRequest.Model / Effort (removed)
@@ -123,9 +139,9 @@ No Go type declares the document's backend, model or effort fields.
   names: [Server]
   never: authorize a write with read scope
 - path: dashd/groups_admin.go (changed)
-  job: edit the whole document through the groups resource
+  job: edit backend, model and effort as fields and one "Use instance defaults" control
   names: [handleGroupSettingsSave]
-  never: write harness settings directly to the store
+  never: validate backend, model or effort values (the write path is BUGS L903)
 - path: store/acl.go (changed)
   job: remove codex from accepted grant actions after approval
   names: [ACLActionChoices, ValidateACLAction]
@@ -153,7 +169,7 @@ Ant requires an object with a nonempty `backend` string. Optional `model` and
 `effort` must be nonempty strings when present. Ant rejects unknown fields,
 unknown backends, wrong types and unsupported effort values. Model IDs pass
 verbatim without a model list. The adapter reports vendor rejection visibly.
-Pi keeps its explicit MCP-delivery refusal at `ant/src/backend.ts:116`.
+Pi is a backend ant accepts (`selectHarness` and `parseHarness` in `ant/src/backend.ts`; `specs/7/60-pi-bridge.md`).
 
 `runed/api/v1/types.go` carries the opaque value:
 
@@ -174,7 +190,10 @@ it. One request encoder stays; no hand-written splice and no second schema.
 Settings writes and import must preserve that same raw value, including when
 another setting changes. Remove the harness's route through `map[string]any`
 and whole-config canonicalization. Malformed stored settings produce a visible
-read failure, never the empty-default result of `store/groups.go:66`.
+read failure, never the empty-default result of `store/groups.go:66`: `setSetting`,
+`SetGroupObserveWindow` and `SiblingFolders` return the decode error, and
+`GroupObserveWindow` still reads through `settingsOf` and reports "not set"
+(BUGS `L904`).
 
 The instance keeps `ARIZUKO_BACKEND`, `ARIZUKO_DEFAULT_MODEL` and
 `ARIZUKO_DEFAULT_EFFORT`. Compose sends them to runed; `Config.AgentEnv` maps
@@ -236,10 +255,16 @@ Neither the list branch nor the current read scopes authorize this write.
 
 dashd uses free-text backend, model and effort fields, plus one explicit
 "Use instance defaults" control. Saving constructs one document; blank
-optional fields are omitted. There are no backend, effort or model lists,
-per-key inheritance controls, or effective-value resolver in Go.
-GET exposes the saved document for reload. dashd calls the groups update
-through `/v1` with the caller's authority. No new CLI setter or MCP tool.
+optional fields are omitted, and a document needs its backend. There are no
+backend, effort or model lists, per-key inheritance controls, or
+effective-value resolver in Go. GET exposes the saved document for reload.
+dashd saves through the store as the operator (`dashd/groups_admin.go`), not
+through `/v1`. The two specs disagree: `specs/6/29-dashd-hub.md` §"The WRITES stay
+on the DB, by rule" keeps operator writes on the store so the audit row names the
+operator, which a `service:dashd` bearer cannot do, and this spec says dashd
+calls the groups update through `/v1` with the caller's authority. That is the
+owner's decision (BUGS `L903`); until it is made the write stays on the store.
+No new CLI setter or MCP tool.
 Bulk `arizuko apply` retains its existing interchange role and raw config
 format; it neither resolves defaults nor validates ant's schema.
 
@@ -322,8 +347,8 @@ Go must not infer an override's backend.
   `runed/env_contract_test.go:120`.
 - Resource tests prove save/reload/clear, unrelated-setting preservation,
   audit atomicity and REST/MCP foreign-folder denial. Dashboard tests prove
-  free-text fields use that operation. Codex tests observe the CLI effort
-  argument on exec and resume; Pi tests retain the named refusal.
+  the fields and the control build one document and omit blank fields. Codex tests observe the CLI effort
+  argument on exec and resume; Pi is selectable as a backend.
 - Credential tests cover a direct Codex turn without a codex grant, caller
   API-key delivery, operator-login staging and gateway withholding of both
   credential forms. Keep egress denial independent of selection. A disposable
