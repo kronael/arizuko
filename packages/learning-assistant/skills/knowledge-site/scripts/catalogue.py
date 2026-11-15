@@ -13,13 +13,16 @@ itself is never listed. Needs jinja2 (`uv run --with jinja2 catalogue.py ...`).
 import argparse
 import datetime
 import os
+import stat
 import sys
 from dataclasses import dataclass
 from html.parser import HTMLParser
 from pathlib import Path
+from urllib.parse import quote
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
+PAGE_SUFFIXES = ('.html', '.htm')
 COMPONENTS = Path(__file__).resolve().parents[1] / 'components'
 DEFAULT_OUT = 'archive/index.html'
 
@@ -30,6 +33,13 @@ class Entry:
     type: str
     date: str
     title: str
+
+
+def is_regular(path: Path) -> bool:
+    try:
+        return stat.S_ISREG(os.stat(path).st_mode)
+    except (OSError, ValueError):
+        return False
 
 
 class _Done(Exception):
@@ -76,6 +86,8 @@ def read_entry(path: Path, rel: str, ns: str) -> Entry | None:
         parser.feed(path.read_text(encoding='utf-8', errors='replace'))
     except _Done:
         pass
+    except OSError:
+        return None
     if parser.type is None or parser.refresh:
         return None
     return Entry(rel, parser.type, parser.date, ' '.join(parser.title.split()) or rel)
@@ -86,7 +98,7 @@ def collect(site: Path, ns: str, out: Path) -> list[Entry]:
     for dirpath, _, files in os.walk(site):
         for f in files:
             path = Path(dirpath) / f
-            if not f.endswith('.html') or path == out:
+            if not f.lower().endswith(PAGE_SUFFIXES) or path == out or not is_regular(path):
                 continue
             entry = read_entry(path, path.relative_to(site).as_posix(), ns)
             if entry:
@@ -96,14 +108,17 @@ def collect(site: Path, ns: str, out: Path) -> list[Entry]:
 
 def page_url(rel: str, base: Path, site: Path) -> str:
     target = os.path.relpath(site / rel, base)
-    return target.removesuffix('index.html') if rel.endswith('index.html') else target
+    if rel.endswith('index.html'):
+        target = target.removesuffix('index.html') or './'
+    return quote(target)
 
 
 def render(site: Path, out: Path, entries: list[Entry], types: list[str], ns: str, title: str) -> str:
     base = out.parent
     sections = []
     for t in types:
-        rows = sorted((e for e in entries if e.type == t), key=lambda e: (e.date, e.path), reverse=True)
+        by_path = sorted((e for e in entries if e.type == t), key=lambda e: e.path)
+        rows = sorted(by_path, key=lambda e: e.date, reverse=True)
         if rows:
             sections.append({
                 'type': t,

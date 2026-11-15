@@ -1,3 +1,4 @@
+import os
 import shutil
 import subprocess
 import sys
@@ -16,9 +17,9 @@ class CatalogueTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         base = Path(self.tmp.name)
-        shutil.copytree(FIXTURES / 'site', base / 'site')
         shutil.copytree(FIXTURES / 'www', base / 'www')
-        self.site = base / 'site'
+        shutil.copytree(FIXTURES / 'site', base / 'www/site')
+        self.site = base / 'www/site'
         self.www = base / 'www'
 
     def tearDown(self):
@@ -91,6 +92,44 @@ class CatalogueTests(unittest.TestCase):
         (self.site / 'section/new.html').write_text(page)
         result = self.lint()
         self.assertEqual(result.returncode, 0, result.stdout)
+
+    def test_same_directory_index_is_dot_slash_not_empty(self):
+        out = self.site / 'cat.html'
+        self.assertEqual(self.catalogue('--out', str(out)).returncode, 0)
+        self.assertNotIn('href=""', out.read_text())
+        self.assertIn('href="./"', out.read_text())
+        self.assertEqual(self.lint().returncode, 0, self.lint().stdout)
+
+    def test_same_date_entries_sort_by_path_ascending(self):
+        for name in ('c', 'a', 'b'):
+            (self.site / f'{name}.html').write_text(
+                f'<!doctype html><meta name="site:type" content="art"><meta name="site:date" content="2026-05-05"><title>{name}</title>')
+        self.catalogue()
+        text = self.archive()
+        self.assertLess(text.index('href="../a.html"'), text.index('href="../b.html"'))
+        self.assertLess(text.index('href="../b.html"'), text.index('href="../c.html"'))
+
+    def test_file_names_are_percent_encoded(self):
+        (self.site / 'q#1 x.html').write_text(
+            '<!doctype html><meta name="site:type" content="art"><meta name="site:date" content="2026-05-05"><title>q</title><h1>q</h1>')
+        self.catalogue()
+        self.assertIn('href="../q%231%20x.html"', self.archive())
+        self.assertEqual(self.lint().returncode, 0, self.lint().stdout)
+
+    def test_odd_files_do_not_crash_or_hang(self):
+        os.symlink('missing-target.html', self.site / 'dangling.html')
+        os.symlink('loop.html', self.site / 'loop.html')
+        os.mkfifo(self.site / 'pipe.html')
+        result = subprocess.run(
+            [sys.executable, '-B', str(SCRIPTS / 'catalogue.py'), str(self.site), '--ns', 'site', '--types', TYPES, '--title', 'F'],
+            check=False, capture_output=True, text=True, timeout=20)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_htm_pages_are_listed(self):
+        (self.site / 'old.htm').write_text(
+            '<!doctype html><meta name="site:type" content="art"><meta name="site:date" content="2026-05-05"><title>old</title>')
+        self.catalogue()
+        self.assertIn('href="../old.htm"', self.archive())
 
 
 if __name__ == '__main__':
