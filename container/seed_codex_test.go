@@ -20,7 +20,7 @@ func TestSeedCodexMountTargetsCreatesTheTargets(t *testing.T) {
 
 	SeedCodexMountTargets(dir)
 
-	for _, name := range CodexROMounts {
+	for _, name := range CodexCredMounts {
 		p := filepath.Join(dir, name)
 		fi, err := os.Stat(p)
 		if err != nil {
@@ -45,7 +45,7 @@ func TestSeedCodexMountTargetsCreatesTheTargets(t *testing.T) {
 // repair must never remove one.
 func TestSeedCodexMountTargetsKeepsContent(t *testing.T) {
 	dir := t.TempDir()
-	p := filepath.Join(dir, CodexROMounts[0])
+	p := filepath.Join(dir, CodexCredMounts[0])
 	if err := os.WriteFile(p, []byte(`{"token":"real"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -77,10 +77,10 @@ func TestSeedCodexMountTargetsKeepsContent(t *testing.T) {
 func TestSeedCodexMountTargetsIdempotent(t *testing.T) {
 	dir := t.TempDir()
 	SeedCodexMountTargets(dir)
-	p := filepath.Join(dir, CodexROMounts[0])
+	p := filepath.Join(dir, CodexCredMounts[0])
 	first, err := os.Stat(p)
 	if err != nil {
-		t.Fatalf("first pass did not seed %s: %v", CodexROMounts[0], err)
+		t.Fatalf("first pass did not seed %s: %v", CodexCredMounts[0], err)
 	}
 	if err := os.Link(p, filepath.Join(dir, "held-stub")); err != nil {
 		t.Fatal(err)
@@ -88,7 +88,7 @@ func TestSeedCodexMountTargetsIdempotent(t *testing.T) {
 	SeedCodexMountTargets(dir)
 	second, err := os.Stat(p)
 	if err != nil {
-		t.Fatalf("second pass removed %s: %v", CodexROMounts[0], err)
+		t.Fatalf("second pass removed %s: %v", CodexCredMounts[0], err)
 	}
 	if !os.SameFile(first, second) {
 		t.Fatal("second pass replaced an already-owned stub")

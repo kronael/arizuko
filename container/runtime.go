@@ -6,16 +6,17 @@ import (
 	"path/filepath"
 )
 
-// CodexROMounts are the shared-credential files the mount renderer overmounts
-// RO into the group's ~/.codex. Declared once: the renderer reads it to build
-// the mount list, SeedCodexMountTargets reads it to own the targets first.
-var CodexROMounts = []string{"auth.json", "config.toml"}
+// CodexCredMounts are the shared-credential files the mount renderer overmounts
+// into the group's ~/.codex (auth.json writable, the rest read-only). Declared
+// once: the renderer reads it to build the mount list, SeedCodexMountTargets
+// reads it to own the targets first.
+var CodexCredMounts = []string{"auth.json", "config.toml"}
 
-// SeedCodexMountTargets creates the RO overmount targets under a group's
+// SeedCodexMountTargets creates the overmount targets under a group's
 // .codex/ for RunUID. Existing nonempty files remain untouched.
 func SeedCodexMountTargets(codexDir string) {
 	uid, _ := RunUID()
-	for _, name := range CodexROMounts {
+	for _, name := range CodexCredMounts {
 		p := filepath.Join(codexDir, name)
 		if fi, err := os.Lstat(p); err == nil {
 			if !fi.Mode().IsRegular() || fi.Size() > 0 || isOwnedByRunUID(fi) {

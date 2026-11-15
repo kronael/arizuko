@@ -338,7 +338,7 @@ func (m *Manager) execute(
 			}
 		}
 		if ipcDir, err := m.folders.IpcPath(string(req.Folder)); err == nil {
-			defer removeCodexStage(ipcDir)
+			defer endCodexStage(m.cfg, ipcDir)
 		}
 		var err error
 		turn, err = renderTurn(m.cfg, m.folders, req, handle, ttl)

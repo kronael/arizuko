@@ -1,12 +1,14 @@
 package runed
 
 import (
+	"bytes"
 	"encoding/json"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 
 	"github.com/kronael/arizuko/container"
 	"github.com/kronael/arizuko/core"
@@ -160,9 +162,9 @@ func buildMounts(
 		}
 	}
 
-	// Layered codex mount: per-group writable dir first, then RO file overmounts for
-	// shared creds. Order matters for volume layering. No os.Stat — HOST paths
-	// are resolved by the substrate at spawn time.
+	// Layered codex mount: per-group writable dir first, then file overmounts for
+	// shared creds (auth.json writable, the rest RO). Order matters for volume
+	// layering. No os.Stat — HOST paths are resolved by the substrate at spawn time.
 	//
 	// The group dir mounts UNCONDITIONALLY: it holds the rollouts `codex exec resume`
 	// reads (spec 5/P-runed § "The container model"). Gating it on HostCodexDir
@@ -289,30 +291,52 @@ func mkSlot(dir string) {
 }
 
 // codexStagePrefix names the per-turn copies of the host codex credentials in
-// the folder's ipc dir. removeCodexStage deletes them when the turn ends.
+// the folder's ipc dir. endCodexStage deletes them when the turn ends.
 const codexStagePrefix = "codex-cred-"
 
+// codexLoginFile is the one staged file the guest may write: codex and pi rotate
+// the OAuth refresh token in place, and endCodexStage carries the rotation back.
+const codexLoginFile = "auth.json"
+
 // stageCodexCreds copies each host codex credential file into ipcDir, owned by
-// the agent's uid at mode 0400, and returns the RO mounts over ~/.codex. The
-// host files are an operator's own 0600 files; the guest uid cannot open them,
-// and widening them would touch the operator's home. A file that is absent is
-// skipped (codex reads what exists); one that cannot be staged is named in the
-// log and left out, because a mount the uid cannot read reads as "not logged in".
+// the agent's uid, and returns the mounts over ~/.codex. auth.json is mode 0600,
+// mounted read-write, and takes the operator file's modification time, so a later
+// mtime on the copy means the guest wrote it; every other file is 0400 and
+// read-only. The host files are an operator's own 0600 files; the guest uid
+// cannot open them, and widening them would touch the operator's home. A file
+// that is absent is skipped (codex reads what exists); one that cannot be staged
+// is named in the log and left out, because a mount the uid cannot read reads as
+// "not logged in".
 func stageCodexCreds(hostCodexDir, ipcDir string) []core.Mount {
 	uid, _ := container.RunUID()
 	var out []core.Mount
-	for _, name := range container.CodexROMounts {
-		data, err := os.ReadFile(filepath.Join(hostCodexDir, name))
+	for _, name := range container.CodexCredMounts {
+		src := filepath.Join(hostCodexDir, name)
+		data, err := os.ReadFile(src)
 		if os.IsNotExist(err) {
 			continue
+		}
+		writable := name == codexLoginFile
+		mode := os.FileMode(0o400)
+		if writable {
+			mode = 0o600
 		}
 		dst := filepath.Join(ipcDir, codexStagePrefix+name)
 		if err == nil {
 			_ = os.Remove(dst)
-			err = os.WriteFile(dst, data, 0o400)
+			err = os.WriteFile(dst, data, mode)
+		}
+		if err == nil {
+			err = os.Chmod(dst, mode)
 		}
 		if err == nil {
 			err = os.Chown(dst, uid, uid)
+		}
+		if err == nil && writable {
+			var fi os.FileInfo
+			if fi, err = os.Stat(src); err == nil {
+				err = os.Chtimes(dst, fi.ModTime(), fi.ModTime())
+			}
 		}
 		if err != nil {
 			_ = os.Remove(dst)
@@ -323,15 +347,120 @@ func stageCodexCreds(hostCodexDir, ipcDir string) []core.Mount {
 		out = append(out, core.Mount{
 			Host:      dst,
 			Container: core.ContainerHome + "/.codex/" + name,
-			RO:        true,
+			RO:        !writable,
 		})
 	}
 	return out
 }
 
+// endCodexStage closes one folder's turn on the borrowed login: it carries the
+// guest's refreshed auth.json back to the operator, then deletes the staged
+// copies. The same conditions as buildMounts gate the write-back; with them
+// unmet nothing was staged.
+func endCodexStage(cfg *core.Config, ipcDir string) {
+	if cfg.HostCodexDir != "" && cfg.ModelGatewayURL == "" {
+		writeBackCodexLogin(cfg.HostCodexDir, ipcDir)
+	}
+	removeCodexStage(ipcDir)
+}
+
+// writeBackCodexLogin replaces HOST_CODEX_DIR/auth.json with the staged copy when
+// the guest rewrote it: the copy is newer than the operator file (stageCodexCreds
+// gave it the operator's mtime, so an operator who changed the file during the
+// turn is never overwritten by the older copy), its bytes differ, and it is a
+// usable login. A copy that is not usable (a torn write from a killed guest) is
+// named and dropped. The replace is a rename of a temporary file in the same
+// directory, so a reader never sees half a file, and keeps the operator file's
+// owner, group and mode. A failure is logged and does not fail the turn.
+func writeBackCodexLogin(hostCodexDir, ipcDir string) {
+	staged := filepath.Join(ipcDir, codexStagePrefix+codexLoginFile)
+	stagedInfo, err := os.Stat(staged)
+	if err != nil {
+		return
+	}
+	operator := filepath.Join(hostCodexDir, codexLoginFile)
+	operatorInfo, err := os.Stat(operator)
+	if err != nil {
+		slog.Error("codex login refreshed in the guest but not written back; the next turn will present the stale token",
+			"file", operator, "err", err)
+		return
+	}
+	if !stagedInfo.ModTime().After(operatorInfo.ModTime()) {
+		return
+	}
+	data, err := os.ReadFile(staged)
+	if err != nil {
+		slog.Error("staged codex login unreadable; the next turn will present the stale token",
+			"file", staged, "err", err)
+		return
+	}
+	old, err := os.ReadFile(operator)
+	if err == nil && bytes.Equal(data, old) {
+		return
+	}
+	if !usableCodexLogin(data) {
+		slog.Error("staged codex login is not a usable login (torn write?); not written back",
+			"file", staged)
+		return
+	}
+	if err := replaceFile(operator, data, operatorInfo); err != nil {
+		slog.Error("codex login refreshed in the guest but not written back; the next turn will present the stale token",
+			"file", operator, "err", err)
+	}
+}
+
+// usableCodexLogin reports whether data is a JSON object carrying a non-empty
+// refresh token (ChatGPT login) or a non-empty OPENAI_API_KEY.
+func usableCodexLogin(data []byte) bool {
+	var login struct {
+		Tokens *struct {
+			RefreshToken any `json:"refresh_token"`
+		} `json:"tokens"`
+		APIKey any `json:"OPENAI_API_KEY"`
+	}
+	if json.Unmarshal(data, &login) != nil {
+		return false
+	}
+	if s, ok := login.APIKey.(string); ok && s != "" {
+		return true
+	}
+	if login.Tokens != nil {
+		s, ok := login.Tokens.RefreshToken.(string)
+		return ok && s != ""
+	}
+	return false
+}
+
+// replaceFile atomically replaces path with data, giving the new file the
+// owner, group and mode of the file it replaces (like).
+func replaceFile(path string, data []byte, like os.FileInfo) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+"-")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name())
+	_, err = tmp.Write(data)
+	if err == nil {
+		err = tmp.Chmod(like.Mode().Perm())
+	}
+	if st, ok := like.Sys().(*syscall.Stat_t); ok && err == nil {
+		err = tmp.Chown(int(st.Uid), int(st.Gid))
+	}
+	if err == nil {
+		err = tmp.Sync()
+	}
+	if cerr := tmp.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), path)
+}
+
 // removeCodexStage deletes the staged credential copies of one folder's turn.
 func removeCodexStage(ipcDir string) {
-	for _, name := range container.CodexROMounts {
+	for _, name := range container.CodexCredMounts {
 		_ = os.Remove(filepath.Join(ipcDir, codexStagePrefix+name))
 	}
 }

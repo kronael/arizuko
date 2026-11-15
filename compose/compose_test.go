@@ -1106,7 +1106,7 @@ func TestRunedEnvKeysCoverEveryRunedVar(t *testing.T) {
 // child, so a guest can be shown only what runed can open: a host path outside the
 // data dir needs a mount in runed's own service or the staging tree refuses it and
 // the turn fails. On krons that was HOST_CODEX_DIR, and every turn in a folder with
-// codex credentials failed.
+// codex credentials failed. Every view is read-only but HOST_CODEX_DIR (BUGS L902).
 //
 // Each path lands at the SAME absolute path, so the renderer's own string resolves
 // and nothing reads a second spelling.
@@ -1114,13 +1114,21 @@ func TestRunedSeesTheOperatorsHostPaths(t *testing.T) {
 	dir := seed(t, "HOST_CODEX_DIR=/home/op/.codex\nMOUNT_ALLOWED_ROOTS=/srv/shared,/mnt/data\n")
 	out := service(t, gen(t, dir), "runed")
 	for _, want := range []string{
-		"- /home/op/.codex:/home/op/.codex:ro",
 		"- /srv/shared:/srv/shared:ro",
 		"- /mnt/data:/mnt/data:ro",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("runed cannot open a path a turn will mount, so the turn fails: want %q in\n%s", want, out)
 		}
+	}
+
+	// The Codex dir is the one writable view: the guest's refreshed login is
+	// written back into it, by replacing auth.json, when the turn ends.
+	if !strings.Contains(out, "\n      - /home/op/.codex:/home/op/.codex\n") {
+		t.Errorf("runed must bind HOST_CODEX_DIR read-write so a refreshed login can be written back:\n%s", out)
+	}
+	if strings.Contains(out, "/home/op/.codex:/home/op/.codex:ro") {
+		t.Errorf("HOST_CODEX_DIR bound read-only; a rotated token cannot reach auth.json:\n%s", out)
 	}
 
 	// A path nobody declared stays invisible, which is what MOUNT_ALLOWED_ROOTS is

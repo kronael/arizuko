@@ -1,12 +1,15 @@
 package runed
 
 import (
+	"bytes"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/kronael/arizuko/container"
 	"github.com/kronael/arizuko/core"
@@ -310,7 +313,7 @@ func TestBuildMountsOwnsTheGroupCodexDirBeforeDockerSeesIt(t *testing.T) {
 	if err != nil || !fi.IsDir() {
 		t.Fatalf("buildMounts did not create %s (err=%v)", codex, err)
 	}
-	for _, name := range container.CodexROMounts {
+	for _, name := range container.CodexCredMounts {
 		if _, err := os.Stat(filepath.Join(codex, name)); err != nil {
 			t.Errorf("overmount target %s not seeded: %v", name, err)
 		}
@@ -379,8 +382,13 @@ func TestBuildMounts_DocsSubtreeWithoutWebPublish(t *testing.T) {
 func TestBuildMountsCodexCredentials(t *testing.T) {
 	cfg, folders := fhsConfig(t)
 	cfg.HostCodexDir = t.TempDir()
-	for _, n := range container.CodexROMounts {
-		if err := os.WriteFile(filepath.Join(cfg.HostCodexDir, n), []byte("{}"), 0o600); err != nil {
+	operatorTime := time.Now().Add(-time.Hour).Truncate(time.Second)
+	for _, n := range container.CodexCredMounts {
+		p := filepath.Join(cfg.HostCodexDir, n)
+		if err := os.WriteFile(p, []byte("{}"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(p, operatorTime, operatorTime); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -396,13 +404,16 @@ func TestBuildMountsCodexCredentials(t *testing.T) {
 	}
 	dir := indexOfMount(mounts, "/home/node/.codex")
 	uid, _ := container.RunUID()
-	for _, n := range container.CodexROMounts {
+	for _, n := range container.CodexCredMounts {
 		i := indexOfMount(mounts, "/home/node/.codex/"+n)
 		if i < 0 {
 			t.Fatalf("no overmount for %s", n)
 		}
-		if !mounts[i].RO {
-			t.Errorf("overmount %s is writable; a shared credential is read-only", n)
+		// auth.json is the one writable file: codex and pi rotate the OAuth token in
+		// place, and the turn's end writes the rotation back to the operator.
+		writable := n == "auth.json"
+		if mounts[i].RO == writable {
+			t.Errorf("overmount %s RO = %v, want %v", n, mounts[i].RO, !writable)
 		}
 		if mounts[i].Host == filepath.Join(cfg.HostCodexDir, n) {
 			t.Errorf("overmount %s binds the operator's own file", n)
@@ -414,8 +425,15 @@ func TestBuildMountsCodexCredentials(t *testing.T) {
 		if got := int(fi.Sys().(*syscall.Stat_t).Uid); got != uid {
 			t.Errorf("staged %s owner = %d, want run uid %d", n, got, uid)
 		}
-		if fi.Mode().Perm()&0o400 == 0 {
-			t.Errorf("staged %s mode %v is not readable by its owner", n, fi.Mode().Perm())
+		wantMode := os.FileMode(0o400)
+		if writable {
+			wantMode = 0o600
+		}
+		if fi.Mode().Perm() != wantMode {
+			t.Errorf("staged %s mode = %v, want %v", n, fi.Mode().Perm(), wantMode)
+		}
+		if writable && !fi.ModTime().Equal(operatorTime) {
+			t.Errorf("staged %s mtime = %v, want the operator file's %v", n, fi.ModTime(), operatorTime)
 		}
 		if dir > i {
 			t.Errorf("the group .codex dir (%d) must precede the %s overmount (%d)", dir, n, i)
@@ -427,7 +445,7 @@ func TestBuildMountsCodexCredentials(t *testing.T) {
 	if findMount(gatewayMounts, "/home/node/.codex") == nil {
 		t.Fatal("gateway lost rollouts")
 	}
-	for _, n := range container.CodexROMounts {
+	for _, n := range container.CodexCredMounts {
 		if findMount(gatewayMounts, "/home/node/.codex/"+n) != nil {
 			t.Fatalf("gateway exposes %s", n)
 		}
@@ -435,8 +453,8 @@ func TestBuildMountsCodexCredentials(t *testing.T) {
 
 	// The turn's end removes the copies; the operator's files stay.
 	ipcDir, _ := folders.IpcPath(string(req.Folder))
-	removeCodexStage(ipcDir)
-	for _, n := range container.CodexROMounts {
+	endCodexStage(cfg, ipcDir)
+	for _, n := range container.CodexCredMounts {
 		if _, err := os.Stat(filepath.Join(ipcDir, codexStagePrefix+n)); !os.IsNotExist(err) {
 			t.Errorf("staged %s survives the turn (err=%v)", n, err)
 		}
@@ -490,5 +508,230 @@ func TestBuildMountsNewGroupHomeWritable(t *testing.T) {
 	}
 	if owner := info.Sys().(*syscall.Stat_t).Uid; owner != 0 {
 		t.Fatalf("existing group home owner = %d, want 0", owner)
+	}
+}
+
+const (
+	loginOld     = `{"tokens":{"refresh_token":"rt-old","access_token":"at-old"}}`
+	loginRefresh = `{"tokens":{"refresh_token":"rt-new","access_token":"at-new"}}`
+)
+
+// stagedLogin stages the operator's login for one turn and returns the config,
+// the ipc dir holding the copies and the operator's auth.json path. The
+// operator file is 0640 with an old mtime, so a write-back that mints a new
+// file shows in its mode, and "the guest wrote it" is a plain mtime compare.
+func stagedLogin(t *testing.T) (cfg *core.Config, ipcDir, operator string) {
+	t.Helper()
+	cfg, folders := fhsConfig(t)
+	cfg.HostCodexDir = t.TempDir()
+	operator = filepath.Join(cfg.HostCodexDir, "auth.json")
+	if err := os.WriteFile(operator, []byte(loginOld), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(operator, 0o640); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(operator, old, old); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfg.HostCodexDir, "config.toml"), []byte("model = \"x\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	req := runedv1.RunRequest{Packages: []string{"core"}, Folder: "atlas/support"}
+	groupDir := filepath.Join(cfg.GroupsDir, string(req.Folder))
+	if err := os.MkdirAll(groupDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mustBuildMounts(t, cfg, folders, req, core.GroupConfig{}, groupDir)
+	ipcDir, _ = folders.IpcPath(string(req.Folder))
+	return cfg, ipcDir, operator
+}
+
+// captureLog routes slog to a buffer for the test and returns it.
+func captureLog(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+	return &buf
+}
+
+// guestWrites is the guest rewriting its staged auth.json in place: the file
+// takes new bytes and a modification time of now. The chmod is a no-op while the
+// stage is writable (mode 0600), which is the contract under test.
+func guestWrites(t *testing.T, staged, content string) {
+	t.Helper()
+	if err := os.Chmod(staged, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(staged, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func readFile(t *testing.T, p string) string {
+	t.Helper()
+	b, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+// TestCodexLoginSurvivesTheTurn is BUGS L902: codex and pi rotate the refresh
+// token in the guest's copy, and the copy is deleted when the turn ends, so the
+// next turn presented the invalidated token.
+func TestCodexLoginSurvivesTheTurn(t *testing.T) {
+	for name, refreshed := range map[string]string{
+		"refresh token": loginRefresh,
+		"api key":       `{"OPENAI_API_KEY":"sk-new"}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			cfg, ipcDir, operator := stagedLogin(t)
+			before, err := os.Stat(operator)
+			if err != nil {
+				t.Fatal(err)
+			}
+			staged := filepath.Join(ipcDir, codexStagePrefix+"auth.json")
+			guestWrites(t, staged, refreshed)
+
+			endCodexStage(cfg, ipcDir)
+
+			if got := readFile(t, operator); got != refreshed {
+				t.Fatalf("operator auth.json = %q, want the refreshed login %q", got, refreshed)
+			}
+			after, err := os.Stat(operator)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if after.Mode().Perm() != before.Mode().Perm() {
+				t.Errorf("mode = %v, want the operator's %v", after.Mode().Perm(), before.Mode().Perm())
+			}
+			bs, as := before.Sys().(*syscall.Stat_t), after.Sys().(*syscall.Stat_t)
+			if as.Uid != bs.Uid || as.Gid != bs.Gid {
+				t.Errorf("owner = %d:%d, want the operator's %d:%d", as.Uid, as.Gid, bs.Uid, bs.Gid)
+			}
+			entries, _ := os.ReadDir(cfg.HostCodexDir)
+			var names []string
+			for _, e := range entries {
+				names = append(names, e.Name())
+			}
+			if strings.Join(names, ",") != "auth.json,config.toml" {
+				t.Errorf("codex dir holds %v; a temporary file was left behind", names)
+			}
+			if _, err := os.Stat(staged); !os.IsNotExist(err) {
+				t.Errorf("staged copy survives the turn (err=%v)", err)
+			}
+		})
+	}
+}
+
+func TestCodexLoginUntouchedStageLeavesTheOperatorFile(t *testing.T) {
+	t.Run("nothing changed", func(t *testing.T) {
+		cfg, ipcDir, operator := stagedLogin(t)
+		before, _ := os.Stat(operator)
+		endCodexStage(cfg, ipcDir)
+		after, _ := os.Stat(operator)
+		if readFile(t, operator) != loginOld || !after.ModTime().Equal(before.ModTime()) {
+			t.Error("an untouched staged copy rewrote the operator file")
+		}
+	})
+	// The operator re-logged in while the turn ran and the guest wrote nothing:
+	// the staged copy holds the older login and must not replace the newer one.
+	t.Run("operator changed meanwhile", func(t *testing.T) {
+		cfg, ipcDir, operator := stagedLogin(t)
+		if err := os.WriteFile(operator, []byte(loginRefresh), 0o640); err != nil {
+			t.Fatal(err)
+		}
+		endCodexStage(cfg, ipcDir)
+		if got := readFile(t, operator); got != loginRefresh {
+			t.Errorf("operator auth.json = %q; the stale staged copy overwrote the newer login", got)
+		}
+	})
+}
+
+func TestCodexLoginUnusableStageIsNeverWrittenBack(t *testing.T) {
+	for name, junk := range map[string]string{
+		"torn":                `{"tokens":{"refresh_token":"rt-n`,
+		"empty":               ``,
+		"not an object":       `["rt"]`,
+		"no token":            `{}`,
+		"empty refresh token": `{"tokens":{"refresh_token":""}}`,
+		"refresh not string":  `{"tokens":{"refresh_token":5}}`,
+		"empty api key":       `{"OPENAI_API_KEY":""}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			cfg, ipcDir, operator := stagedLogin(t)
+			staged := filepath.Join(ipcDir, codexStagePrefix+"auth.json")
+			guestWrites(t, staged, junk)
+			logs := captureLog(t)
+
+			endCodexStage(cfg, ipcDir)
+
+			if got := readFile(t, operator); got != loginOld {
+				t.Errorf("operator auth.json = %q; an unusable staged copy was written back", got)
+			}
+			if out := logs.String(); !strings.Contains(out, "level=ERROR") || !strings.Contains(out, staged) {
+				t.Errorf("want an ERROR naming %s, got %q", staged, out)
+			}
+		})
+	}
+}
+
+func TestCodexLoginWriteBackFailureIsLoudAndNotFatal(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root writes into a read-only directory")
+	}
+	cfg, ipcDir, operator := stagedLogin(t)
+	guestWrites(t, filepath.Join(ipcDir, codexStagePrefix+"auth.json"), loginRefresh)
+	if err := os.Chmod(cfg.HostCodexDir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(cfg.HostCodexDir, 0o700) })
+	logs := captureLog(t)
+
+	endCodexStage(cfg, ipcDir)
+
+	if got := readFile(t, operator); got != loginOld {
+		t.Errorf("operator auth.json = %q after a failed write-back", got)
+	}
+	if out := logs.String(); !strings.Contains(out, "level=ERROR") || !strings.Contains(out, "next turn") {
+		t.Errorf("want an ERROR saying the next turn presents the stale token, got %q", out)
+	}
+	if _, err := os.Stat(filepath.Join(ipcDir, codexStagePrefix+"auth.json")); !os.IsNotExist(err) {
+		t.Errorf("staged copy survives a failed write-back (err=%v)", err)
+	}
+}
+
+// A gateway instance withholds the host login from the guest, so nothing is
+// staged and nothing may flow back to the operator's file.
+func TestCodexLoginGatewayStagesAndWritesNothing(t *testing.T) {
+	cfg, ipcDir, operator := stagedLogin(t)
+	for _, n := range container.CodexCredMounts {
+		os.Remove(filepath.Join(ipcDir, codexStagePrefix+n))
+	}
+	cfg.ModelGatewayURL = "http://gateway"
+	req := runedv1.RunRequest{Packages: []string{"core"}, Folder: "atlas/support"}
+	groupDir := filepath.Join(cfg.GroupsDir, string(req.Folder))
+	mounts := mustBuildMounts(t, cfg, resolverFor(cfg), req, core.GroupConfig{}, groupDir)
+	for _, n := range container.CodexCredMounts {
+		if findMount(mounts, "/home/node/.codex/"+n) != nil {
+			t.Errorf("gateway mode mounts %s", n)
+		}
+		if _, err := os.Stat(filepath.Join(ipcDir, codexStagePrefix+n)); !os.IsNotExist(err) {
+			t.Errorf("gateway mode staged %s (err=%v)", n, err)
+		}
+	}
+
+	// A copy that somehow exists is not written back either.
+	planted := filepath.Join(ipcDir, codexStagePrefix+"auth.json")
+	if err := os.WriteFile(planted, []byte(loginRefresh), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	endCodexStage(cfg, ipcDir)
+	if got := readFile(t, operator); got != loginOld {
+		t.Errorf("gateway mode wrote %q back to the operator file", got)
 	}
 }

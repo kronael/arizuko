@@ -1187,9 +1187,16 @@ func runedService(app, flavor, dataDir string, env map[string]string) string {
 	// mount here or the turn's staging tree refuses it (BUGS `L370`). Each one
 	// lands at the SAME absolute path, so the string the renderer already holds
 	// resolves and no code reads a second spelling. Read-only, because these are
-	// the operator's own files and a turn has no business writing them.
+	// the operator's own files and a turn has no business writing them — except
+	// HOST_CODEX_DIR, which is read-write: codex and pi rotate the OAuth refresh
+	// token in the guest's staged copy, and runed writes it back to auth.json at
+	// the turn's end by replacing the file, which needs the directory writable.
 	for _, p := range hostViewPaths(env) {
-		fmt.Fprintf(&b, "      - %s:%s:ro\n", p, p)
+		mode := ":ro"
+		if p == strings.TrimSpace(env["HOST_CODEX_DIR"]) {
+			mode = ""
+		}
+		fmt.Fprintf(&b, "      - %s:%s%s\n", p, p, mode)
 	}
 	vol, src := appSrc(env)
 	runedEnv := map[string]string{"DATA_DIR": ContainerDataMount, "APP_SRC_DIR": src}
