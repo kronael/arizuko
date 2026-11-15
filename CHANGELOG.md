@@ -13,6 +13,11 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+### Added
+
+- The `learning-assistant` package: persona, eval cases and product pages for an
+  agent that answers from its published pages and researches what they miss.
+
 ## [v0.75.15] — 2026-11-14
 
 > arizuko v0.75.15 — a slow file download no longer loses the file

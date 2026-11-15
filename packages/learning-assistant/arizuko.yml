@@ -1,0 +1,6 @@
+name: learning-assistant
+brand: krons
+tagline: Learning assistant — research, answer and keep a published knowledge site current.
+env:
+  TELEGRAM_BOT_TOKEN:
+    hint: Primary channel (Telegram or WhatsApp — set at least one)

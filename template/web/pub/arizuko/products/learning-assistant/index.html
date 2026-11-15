@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Learning assistant &middot; arizuko</title>
+  <link rel="stylesheet" href="../../assets/hub.css">
+</head>
+<body>
+  <header class="docs-topbar">
+    <button class="docs-navtoggle" aria-label="Toggle navigation" aria-expanded="false">&#9776;</button>
+    <a class="docs-wordmark" href="../../">arizuko</a>
+  </header>
+  <div class="docs-layout">
+    <nav class="docs-nav" aria-label="Products">
+      <ul>
+        <li><a class="nav-section" href="../../concepts/">Concepts</a></li>
+        <li><a class="nav-section" href="../../reference/">Reference</a></li>
+        <li><a class="nav-section" href="../../howto/">How-to</a></li>
+        <li><a class="nav-section" href="../../components/">Components</a></li>
+        <li><a class="nav-section" href="../">Products</a>
+          <ul class="nav-children">
+            <li><a href="../">Start here</a></li>
+            <li><a href="../helpdesk/">Helpdesk (reference)</a></li>
+            <li><a href="../trip-computer/">Trip computer</a></li>
+            <li><a href="../company-brain/">Company Brain</a></li>
+            <li><a href="../slack-team/">Slack team agent</a></li>
+            <li><a href="../github/">Repo worker (Atlas)</a></li>
+            <li><a href="../reality/">Reality agent</a></li>
+            <li><a href="../support/">Support desk (Atlas)</a></li>
+            <li><a href="../personal/">Personal assistant (Fiu)</a></li>
+            <li><a href="../pm/">PM agent (Sloth)</a></li>
+            <li><a href="../creator/">Content pipeline (Inari)</a></li>
+            <li><a href="../socials/">Social presence (Phosphene)</a></li>
+            <li><a href="../strategy/">Domain researcher (Prometheus)</a></li>
+            <li><a href="../cz-estate-agent/">CZ Estate Agent</a></li>
+            <li><a href="../macrohype/">MacroHype</a></li>
+            <li><a href="../learning-assistant/">Learning assistant (krons)</a></li>
+            <li><a href="../shapes.html">Shapes</a></li>
+          </ul>
+        </li>
+        <li><a class="nav-section" href="../../security/">Security</a></li>
+        <li><a class="nav-section" href="../../changelog/">Changelog</a></li>
+      </ul>
+    </nav>
+
+    <main class="docs-content">
+      <p class="docs-crumb"><a href="../../">arizuko</a> &rsaquo; <a href="../">products</a> &rsaquo; Learning assistant</p>
+      <h1>Learning assistant</h1>
+      <p class="lede">Ask a question and get an answer from the pages the agent has already published, with the page cited. When no page covers it, the agent researches it and publishes one.</p>
+      <p>Krons is an agent for one user and one published site. The template is in <code>packages/learning-assistant/</code>.</p>
+      <h2>The persona answers from the site first</h2>
+      <p>The persona tells Krons to search the published pages before it researches, and to cite the page URL in the answer. It tells Krons to tag each claim <code>[V]</code> when a source checked it, <code>[I]</code> when it is inferred and <code>[U]</code> when it is unknown, and never to tag <code>[V]</code> a claim it did not check.</p>
+      <h2>Four jobs make the assistant</h2>
+      <dl>
+        <dt>Answer</dt>
+        <dd>Krons reads the pages under <code>~/public_html/</code> and answers with the page URL and the sources that page lists.</dd>
+        <dt>Research</dt>
+        <dd>For a topic the site does not cover, Krons searches with primary sources and publishes the result as a page with tagged claims.</dd>
+        <dt>Organise</dt>
+        <dd>Hub pages group related pages. A moved page leaves a redirect stub at the old path. A retired page goes to the archive. Krons never deletes a page.</dd>
+        <dt>Refresh</dt>
+        <dd>A scheduled task names a researched page. Krons rechecks its <code>[V]</code> claims, retags them and updates the date.</dd>
+      </dl>
+      <p>The persona is the first part of the package. The skills for publishing, linting and research follow it. The <a href="setup.html">setup guide</a> shows the install.</p>
+      <h2>The package differs from two neighbours</h2>
+      <dl>
+        <dt><a href="../strategy/">Domain researcher</a></dt><dd>Delivers briefings on a watchlist. The learning assistant keeps a site that answers questions.</dd>
+        <dt><code>hub</code> skill</dt><dd>Builds one page. The learning assistant keeps a whole site in order.</dd>
+      </dl>
+      <div class="docs-footer">
+        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/learning-assistant/index.html">Edit this page</a>
+        &middot; updated <time class="docs-updated" datetime="2026-11-10">2026-11-10</time>
+      </div>
+    </main>
+    <aside class="docs-toc" aria-label="On this page"></aside>
+
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="../../assets/hub.js"></script>
+</body>
+</html>

@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Learning assistant &mdash; setup &middot; arizuko</title>
+  <link rel="stylesheet" href="../../assets/hub.css">
+</head>
+<body>
+  <header class="docs-topbar">
+    <button class="docs-navtoggle" aria-label="Toggle navigation" aria-expanded="false">&#9776;</button>
+    <a class="docs-wordmark" href="../../">arizuko</a>
+  </header>
+  <div class="docs-layout">
+    <nav class="docs-nav" aria-label="Products">
+      <ul>
+        <li><a class="nav-section" href="../../concepts/">Concepts</a></li>
+        <li><a class="nav-section" href="../../reference/">Reference</a></li>
+        <li><a class="nav-section" href="../../howto/">How-to</a></li>
+        <li><a class="nav-section" href="../../components/">Components</a></li>
+        <li><a class="nav-section" href="../">Products</a>
+          <ul class="nav-children">
+            <li><a href="../">Start here</a></li>
+            <li><a href="../helpdesk/">Helpdesk (reference)</a></li>
+            <li><a href="../trip-computer/">Trip computer</a></li>
+            <li><a href="../company-brain/">Company Brain</a></li>
+            <li><a href="../slack-team/">Slack team agent</a></li>
+            <li><a href="../github/">Repo worker (Atlas)</a></li>
+            <li><a href="../reality/">Reality agent</a></li>
+            <li><a href="../support/">Support desk (Atlas)</a></li>
+            <li><a href="../personal/">Personal assistant (Fiu)</a></li>
+            <li><a href="../pm/">PM agent (Sloth)</a></li>
+            <li><a href="../creator/">Content pipeline (Inari)</a></li>
+            <li><a href="../socials/">Social presence (Phosphene)</a></li>
+            <li><a href="../strategy/">Domain researcher (Prometheus)</a></li>
+            <li><a href="../cz-estate-agent/">CZ Estate Agent</a></li>
+            <li><a href="../macrohype/">MacroHype</a></li>
+            <li><a href="../learning-assistant/">Learning assistant (krons)</a></li>
+            <li><a href="../shapes.html">Shapes</a></li>
+          </ul>
+        </li>
+        <li><a class="nav-section" href="../../security/">Security</a></li>
+        <li><a class="nav-section" href="../../changelog/">Changelog</a></li>
+      </ul>
+    </nav>
+
+    <main class="docs-content">
+      <p class="docs-crumb"><a href="../../">arizuko</a> &rsaquo; <a href="../">products</a> &rsaquo; Learning assistant &mdash; setup</p>
+      <h1>Learning assistant &mdash; setup</h1>
+      <p class="lede">Krons needs one channel and a web host for the published site.</p>
+      <h2>The assistant needs a host, a model key and a channel</h2>
+      <ul>
+        <li>A host with Docker and the build part of the <a href="../../howto/index.html#install">install</a>.</li>
+        <li>A model credential for Claude Code, Codex or pi. See the <a href="../../concepts/ant.html">supported backends</a>.</li>
+        <li>A Telegram bot token, <code>TELEGRAM_BOT_TOKEN</code>, or a WhatsApp adapter.</li>
+      </ul>
+      <h2>package add selects the product for a group</h2>
+      <pre><code>arizuko create -i learn
+arizuko package add -i learn -g main github.com/kronael/arizuko/packages/learning-assistant
+$EDITOR /srv/data/arizuko_learn/.env    # TELEGRAM_BOT_TOKEN, a model key</code></pre>
+      <p>The command installs the <code>group/</code> files, including the <code>PERSONA.md</code> of Krons. Start the instance as a systemd service, as <a href="../../howto/">getting started</a> shows. Select the adapter package and restart the service:</p>
+      <pre><code>arizuko package add -i learn teled
+sudo systemctl restart arizuko_learn
+arizuko route -i learn add 'platform=telegram' main</code></pre>
+      <h2>Answers come from the published pages</h2>
+      <p>Krons answers from the pages under <code>~/public_html/</code> of the group. A new group has none, so the first questions start research.</p>
+      <p>Read <a href="index.html">the intro</a> for what the assistant does.</p>
+      <div class="docs-footer">
+        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/learning-assistant/setup.html">Edit this page</a>
+        &middot; updated <time class="docs-updated" datetime="2026-11-10">2026-11-10</time>
+      </div>
+    </main>
+    <aside class="docs-toc" aria-label="On this page"></aside>
+
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="../../assets/hub.js"></script>
+</body>
+</html>
