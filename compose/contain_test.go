@@ -81,3 +81,22 @@ func TestCheckSourcedFragment(t *testing.T) {
 		})
 	}
 }
+
+// The owner databases are gone from the instance tree: the store server holds
+// them (spec 6/42 §9). A volume line that names one of the three old
+// directories would hand a service a bind to a path nothing writes, so no
+// line of the generated deployment may carry one, whichever service it is
+// under.
+func TestNoServiceMountsAnOwnerStoreDir(t *testing.T) {
+	out := gen(t, seed(t, "API_PORT=8080\n"))
+	if !strings.Contains(out, "  routd:\n") || !strings.Contains(out, "volumes:") {
+		t.Fatalf("generated deployment has no services or volumes:\n%s", out)
+	}
+	for _, line := range strings.Split(out, "\n") {
+		for _, owner := range []string{"routd", "onbod", "runed"} {
+			if strings.Contains(line, "store/"+owner) {
+				t.Errorf("a generated line reaches store/%s: %s", owner, line)
+			}
+		}
+	}
+}
