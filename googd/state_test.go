@@ -218,8 +218,9 @@ func TestPollDeadlineStartsAfterEarlierFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	last := due[len(due)-1].Key.Sort
-	p.sweep(t.Context(), time.Now())
-	if next := db.state(last).next; next.Before(time.Now().Add(time.Second - 15*time.Millisecond)) {
-		t.Fatalf("next deadline %v omits earlier files", next)
+	start := time.Now()
+	p.sweep(t.Context(), start)
+	if next, floor := db.state(last).next, start.Add(time.Second+20*time.Millisecond); next.Before(floor) {
+		t.Fatalf("next deadline %v is before %v: omits the earlier file's 20ms poll", next, floor)
 	}
 }
