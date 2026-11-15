@@ -1,3 +1,4 @@
+import os
 import shutil
 import subprocess
 import sys
@@ -14,9 +15,9 @@ class SiteLintTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         base = Path(self.tmp.name)
-        shutil.copytree(FIXTURES / 'site', base / 'site')
         shutil.copytree(FIXTURES / 'www', base / 'www')
-        self.site = base / 'site'
+        shutil.copytree(FIXTURES / 'site', base / 'www/site')
+        self.site = base / 'www/site'
         self.www = base / 'www'
 
     def tearDown(self):
@@ -24,7 +25,7 @@ class SiteLintTests(unittest.TestCase):
 
     def run_lint(self, *extra):
         args = [str(self.site), '--www', str(self.www), '--ns', 'site', *extra]
-        return subprocess.run([sys.executable, '-B', str(LINT), *args], check=False, capture_output=True, text=True)
+        return subprocess.run([sys.executable, '-B', str(LINT), *args], check=False, capture_output=True, text=True, timeout=20)
 
     def edit(self, rel, old, new):
         path = self.site / rel
@@ -113,8 +114,8 @@ class SiteLintTests(unittest.TestCase):
         self.assertIn('/shared/gone.html → no such page', finding)
 
     def test_links_root_relative_without_www_dir_fires(self):
-        shutil.rmtree(self.www)
-        self.assertTrue(any('--www' in line for line in self.findings('links')))
+        result = self.run_lint('--rule', 'links', '--www', str(self.www / 'missing'))
+        self.assertTrue(any('--www' in line for line in result.stdout.splitlines()))
 
     def test_links_non_static_prefix_and_external_are_skipped(self):
         self.edit('index.html', '/priv/inbox', '/auth/login')
@@ -201,10 +202,92 @@ class SiteLintTests(unittest.TestCase):
         (finding,) = self.findings('redirect-stub')
         self.assertIn('does not link the refresh target', finding)
 
-    def test_redirect_stub_empty_target_fires(self):
-        self.edit('moved.html', 'content="0; url=section/one.html"', 'content="0"')
-        (finding,) = self.findings('redirect-stub')
-        self.assertIn('empty URL', finding)
+    def test_meta_refresh_without_url_is_not_a_stub(self):
+        self.edit('moved.html', 'content="0; url=section/one.html"', 'content="60"')
+        self.assertEqual(self.findings('redirect-stub'), [])
+        self.assertTrue(any('moved.html' in line and 'missing <h1>' in line for line in self.findings('title-h1')))
+
+    def add_to_one(self, head='', body=''):
+        self.edit('section/one.html', '</head>', head + '</head>')
+        self.edit('section/one.html', '</div>\n</body>', body + '</div>\n</body>')
+
+    def test_vhost_resolves_root_relative_links_like_the_server(self):
+        self.add_to_one(body='<a href="/section/two.html">a</a><a href="/pub/section/two.html">b</a><a href="/shared/note.html">c</a>')
+        plain = [line for line in self.findings('links') if line.startswith('ERROR section/one.html')]
+        self.assertTrue(any('/section/two.html' in line for line in plain))
+        self.assertFalse(any('/shared/note.html' in line for line in plain))
+        out = self.run_lint('--rule', 'links', '--vhost', 'site').stdout.splitlines()
+        vhost = [line for line in out if line.startswith('ERROR section/one.html')]
+        self.assertEqual(len(vhost), 1, vhost)
+        self.assertIn('/shared/note.html', vhost[0])
+
+    def test_vhost_follows_a_stub_to_the_slot(self):
+        self.edit('moved.html', 'url=section/one.html', 'url=/section/one.html')
+        self.edit('moved.html', '<a href="section/one.html">', '<a href="/section/one.html">')
+        result = self.run_lint('--rule', 'redirect-stub', '--vhost', 'site')
+        self.assertEqual(result.returncode, 0, result.stdout)
+
+    def test_vhost_must_be_a_folder_under_www(self):
+        self.assertNotEqual(self.run_lint('--vhost', 'nope').returncode, 0)
+
+    def test_css_class_skipped_when_a_local_stylesheet_does_not_resolve(self):
+        self.add_to_one(head='<link rel="stylesheet" href="../assets/nope.css">', body='<p class="invented">x</p>')
+        self.assertEqual(self.findings('css-class'), [])
+        self.assertEqual(len(self.findings('links')), 1)
+
+    def test_odd_files_do_not_crash_or_hang(self):
+        os.symlink('missing-target.html', self.site / 'dangling.html')
+        os.symlink('loop.html', self.site / 'loop.html')
+        os.mkfifo(self.site / 'pipe.html')
+        self.add_to_one(body=f'<a href="{"a" * 300}.html">long</a><a href="%00.html">nul</a>')
+        result = self.run_lint()
+        self.assertNotIn('Traceback', result.stderr)
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(len(self.findings('links')), 2)
+
+    def test_relative_link_outside_www_is_a_finding(self):
+        self.add_to_one(body='<a href="../../../../../../../../etc/hostname">x</a><a href="../../../../../../../../etc/x.html#a">y</a>')
+        found = self.findings('links')
+        self.assertEqual(len(found), 2, found)
+        self.assertTrue(all('leaves --www' in line for line in found))
+
+    def test_relative_link_outside_site_without_www_is_a_finding(self):
+        self.add_to_one(body='<a href="../../shared/note.html#n1">x</a>')
+        args = [str(self.site), '--ns', 'site', '--rule', 'links']
+        out = subprocess.run([sys.executable, '-B', str(LINT), *args], check=False, capture_output=True, text=True, timeout=20).stdout
+        self.assertIn('../../shared/note.html#n1 leaves the site', out)
+
+    def test_textarea_and_title_content_is_raw_text(self):
+        self.add_to_one(body='<textarea><div></textarea>')
+        self.edit('section/one.html', '<title>One — Section</title>', '<title>One <b> Section</title>')
+        self.assertEqual(self.findings('html-balance'), [])
+        self.assertEqual(self.findings('title-h1'), [])
+
+    def test_css_class_escaped_attribute_and_template_literal_definitions(self):
+        self.add_to_one(
+            head='<style>.md\\:flex{} [class~=attrsel]{}</style>',
+            body='<script>const c = `${on ? \'tpl\' : \'off\'}`</script><p class="md:flex attrsel tpl off">x</p>',
+        )
+        self.assertEqual(self.findings('css-class'), [])
+
+    def test_redirect_stub_to_itself_or_each_other_fires(self):
+        for name, target in (('self.html', 'self.html'), ('g1.html', 'g2.html'), ('g2.html', 'g1.html')):
+            (self.site / name).write_text(
+                f'<!doctype html><meta http-equiv="refresh" content="0; url={target}"><a href="{target}">go</a>')
+        found = self.findings('redirect-stub')
+        self.assertEqual(len(found), 3, found)
+        self.assertTrue(all('leads back to this page' in line for line in found))
+
+    def test_htm_and_upper_case_html_pages_are_scanned(self):
+        (self.site / 'A.HTML').write_text('<!doctype html><title>t</title><h1>t</h1><div>')
+        (self.site / 'b.htm').write_text('<!doctype html><title>t</title><h1>t</h1><div>')
+        found = self.findings('html-balance')
+        self.assertEqual(len(found), 2, found)
+
+    def test_closing_tags_do_not_cost_quadratic_time(self):
+        (self.site / 'deep.html').write_text('<!doctype html><title>t</title><h1>t</h1>' + '<b>' * 20000 + '</i>' * 20000)
+        result = self.run_lint('--rule', 'html-balance')
+        self.assertEqual(len(self.findings('html-balance')), 1, result.stdout)
 
 
 if __name__ == '__main__':

@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
 """site_lint — static linter for a published knowledge site.
 
-Usage: site_lint.py SITE --ns NS [--www DIR] [--rule NAME ...]     exit 1 on any finding
+Usage: site_lint.py SITE --ns NS [--www DIR [--vhost FOLDER]] [--rule NAME ...]     exit 1 on any finding
 
 SITE holds the pages to check. NS is the site's page-metadata namespace
 (`<meta name="NS:type">`). Root-relative links (`/pub/x/y.html`, `/x/y.html`)
 resolve under --www, the directory every published tree is served from
-(default /var/lib/www); a leading `pub/` segment is optional there.
+(default /var/lib/www); a leading `pub/` segment is optional there. A relative
+link must stay inside --www, or inside SITE when --www is not given.
+--vhost names the site folder under --www that a mapped vhost serves: the server
+sends a root-relative path outside /pub/ to that folder and a /pub/ path found
+nowhere else to the same folder, and the linter resolves the same way.
 
 A rule is one function `check(site)` that yields Finding(page, message);
 register it with @rule("name"). Every finding is an error.
@@ -16,7 +20,9 @@ import argparse
 import datetime
 import os
 import re
+import stat
 import sys
+from collections import Counter
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
@@ -32,6 +38,8 @@ OPTIONAL_END = {
     'html', 'head', 'body', 'p', 'li', 'dt', 'dd', 'tr', 'td', 'th', 'thead', 'tbody', 'tfoot',
     'option', 'optgroup', 'colgroup', 'caption', 'rt', 'rp',
 }
+RAW_TEXT = {'textarea', 'title'}
+PAGE_SUFFIXES = ('.html', '.htm')
 LINK_ATTR = {
     'a': 'href',
     'link': 'href',
@@ -42,6 +50,20 @@ LINK_ATTR = {
     'video': 'src',
     'audio': 'src',
 }
+
+
+def is_regular(path: Path) -> bool:
+    try:
+        return stat.S_ISREG(os.stat(path).st_mode)
+    except (OSError, ValueError):
+        return False
+
+
+def is_directory(path: Path) -> bool:
+    try:
+        return stat.S_ISDIR(os.stat(path).st_mode)
+    except (OSError, ValueError):
+        return False
 
 
 @dataclass
@@ -90,6 +112,7 @@ class _Parser(HTMLParser):
         self.in_title = False
         self.title_done = False
         self.h1_depth = 0
+        self.open: Counter[str] = Counter()
 
     def fail(self, message: str):
         if not self.page.imbalance:
@@ -115,8 +138,9 @@ class _Parser(HTMLParser):
             page.metas.setdefault(a['name'], a['content'])
         if tag == 'meta' and a.get('http-equiv', '').lower() == 'refresh':
             found = re.search(r'url\s*=\s*[\'"]?([^\'";]+)', a.get('content', ''), re.IGNORECASE)
-            page.refresh = found[1].strip() if found else ''
-            page.refresh_line = line
+            if found:
+                page.refresh = found[1].strip()
+                page.refresh_line = line
         if tag in ('script', 'style'):
             self.raw = tag
         if tag == 'title' and not self.title_done:
@@ -129,6 +153,9 @@ class _Parser(HTMLParser):
         self.collect(tag, attrs)
         if tag not in VOID:
             self.stack.append((tag, self.getpos()[0]))
+            self.open[tag] += 1
+        if tag in RAW_TEXT:
+            self.set_cdata_mode(tag)
 
     def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]):
         self.collect(tag, attrs)
@@ -155,12 +182,13 @@ class _Parser(HTMLParser):
             self.title_done = True
         if tag == 'h1' and self.h1_depth:
             self.h1_depth -= 1
-        if tag not in (t for t, _ in self.stack):
+        if not self.open[tag]:
             if tag != 'p':
                 self.fail(f'line {self.getpos()[0]}: unexpected </{tag}>')
             return
         while self.stack:
             top, line = self.stack.pop()
+            self.open[top] -= 1
             if top == tag:
                 return
             if top not in OPTIONAL_END:
@@ -170,7 +198,7 @@ class _Parser(HTMLParser):
 def parse_page(name: str, path: Path) -> Page:
     page = Page(name, path)
     parser = _Parser(page)
-    parser.feed(path.read_text(encoding='utf-8', errors='replace'))
+    parser.feed(read_text(path))
     parser.close()
     for tag, line in parser.stack:
         if tag not in OPTIONAL_END:
@@ -186,16 +214,18 @@ class Resolution:
 
 
 class Site:
-    def __init__(self, scope: Path, www: Path, ns: str):
+    def __init__(self, scope: Path, www: Path, ns: str, fence: Path | None = None, vhost: str = ''):
         self.root = scope
         self.www = www
+        self.fence = fence or scope
+        self.vhost = vhost
         self.ns = ns
         self.cache: dict[Path, Page] = {}
         self.pages: dict[str, Page] = {}
         for dirpath, _, files in os.walk(scope):
             for f in sorted(files):
-                if f.endswith('.html'):
-                    path = Path(dirpath) / f
+                path = Path(dirpath) / f
+                if f.lower().endswith(PAGE_SUFFIXES) and is_regular(path):
                     self.pages[path.relative_to(scope).as_posix()] = self.parse_at(path)
 
     def parse_at(self, path: Path) -> Page:
@@ -224,22 +254,29 @@ class Site:
                 return Resolution()
             if not self.www.is_dir():
                 return Resolution(error=f'{url} is root-relative and --www {self.www} is not a directory')
-            candidates = [rel]
-            if rel.startswith('pub/'):
-                candidates.append(rel[4:])
+            if self.vhost and rel.startswith('pub/'):
+                candidates = [(rel[4:], self.www), (f'{self.vhost}/{rel[4:]}', self.www / self.vhost)]
+            elif self.vhost:
+                candidates = [(f'{self.vhost}/{rel}', self.www / self.vhost)]
+            else:
+                candidates = [(rel, self.www)]
+                if rel.startswith('pub/'):
+                    candidates.append((rel[4:], self.www))
             base = self.www
+            where = '--www'
         else:
-            candidates = [path]
+            candidates = [(path, self.fence)]
             base = page.path.parent
-        for rel in candidates:
+            where = '--www' if self.fence != self.root else 'the site'
+        for rel, fence in candidates:
             target = Path(os.path.normpath(base / rel))
-            if base == self.www and not target.is_relative_to(self.www):
-                return Resolution(error=f'{url} leaves --www')
-            if path.endswith('/') or target.is_dir():
+            if not target.is_relative_to(fence):
+                return Resolution(error=f'{url} leaves {where}')
+            if path.endswith('/') or is_directory(target):
                 target = target / 'index.html'
-            if target.is_file():
+            if is_regular(target):
                 return Resolution(target, frag)
-        kind = 'page' if Path(path.rstrip('/')).suffix in ('', '.html') else 'file'
+        kind = 'page' if Path(path.rstrip('/')).suffix.lower() in ('', *PAGE_SUFFIXES) else 'file'
         return Resolution(error=f'{url} → no such {kind}')
 
     def local_file(self, page: Page, link: Link) -> Path | None:
@@ -293,22 +330,32 @@ def check_links(site: Site) -> Iterator[Finding]:
             elif (
                 res.path
                 and res.frag not in ('', 'top')
-                and res.path.suffix == '.html'
+                and res.path.suffix.lower() in PAGE_SUFFIXES
                 and res.frag not in site.parse_at(res.path).ids
             ):
                 yield Finding(page.name, f'line {link.line}: {link.url} → no id "{res.frag}"')
 
 
-CSS_CLASS = re.compile(r'\.([a-zA-Z_][\w-]*)')
+CSS_CLASS = re.compile(r'\.((?:[a-zA-Z_]|\\.)(?:[\w-]|\\.)*)')
+CSS_ATTR_CLASS = re.compile(r'\[\s*class\s*[~|^$*]?=\s*["\']?([^"\'\]\s]+)')
 JS_STRING = re.compile(r'\'([^\'\\\n]*)\'|"([^"\\\n]*)"|`([^`]*)`')
 
 
 def css_classes(css: str) -> set[str]:
-    return set(CSS_CLASS.findall(re.sub(r'/\*.*?\*/', '', css, flags=re.DOTALL)))
+    css = re.sub(r'/\*.*?\*/', '', css, flags=re.DOTALL)
+    escaped = {re.sub(r'\\(.)', r'\1', name) for name in CSS_CLASS.findall(css)}
+    return escaped | set(CSS_ATTR_CLASS.findall(css))
 
 
 def js_tokens(js: str) -> set[str]:
-    return {tok for m in JS_STRING.finditer(js) for s in m.groups() if s for tok in s.split()}
+    tokens: set[str] = set()
+    for m in JS_STRING.finditer(js):
+        for s in m.groups():
+            if s:
+                tokens.update(s.split())
+        if m[3]:
+            tokens |= js_tokens(m[3])
+    return tokens
 
 
 def is_remote(url: str) -> bool:
@@ -317,7 +364,10 @@ def is_remote(url: str) -> bool:
 
 
 def read_text(path: Path) -> str:
-    return path.read_text(encoding='utf-8', errors='replace')
+    try:
+        return path.read_text(encoding='utf-8', errors='replace')
+    except OSError:
+        return ''
 
 
 @rule('css-class')
@@ -326,15 +376,20 @@ def check_css_class(site: Site) -> Iterator[Finding]:
         if any(TAILWIND in link.url or (link.kind == 'stylesheet' and is_remote(link.url)) for link in page.links):
             continue
         defined = css_classes(page.inline_css) | js_tokens(page.inline_js)
+        unresolved = False
         for link in page.links:
-            if link.kind not in ('stylesheet', 'script'):
+            if link.kind not in ('stylesheet', 'script') or is_remote(link.url):
                 continue
             path = site.local_file(page, link)
-            if path:
+            if not path:
+                unresolved = True
+            else:
                 if link.kind == 'stylesheet':
                     defined |= css_classes(read_text(path))
                 else:
                     defined |= js_tokens(read_text(path))
+        if unresolved:
+            continue
         seen: set[str] = set()
         for use in page.classes:
             if use.name not in defined and use.name not in seen and not use.name.startswith(CODE_LANGUAGE):
@@ -362,13 +417,29 @@ def check_page_meta(site: Site) -> Iterator[Finding]:
             yield Finding(page.name, f'{site.ns}:date missing or not a valid YYYY-MM-DD: {date!r}')
 
 
+def is_redirect_loop(site: Site, page: Page, target: Path) -> bool:
+    seen = {page.path}
+    while target not in seen:
+        seen.add(target)
+        stub = site.parse_at(target)
+        if not is_stub(stub):
+            return False
+        res = site.resolve(stub, Link(stub.refresh_line, stub.refresh or '', 'refresh'))
+        if not res.path:
+            return False
+        target = res.path
+    return target == page.path
+
+
 @rule('redirect-stub')
 def check_redirect_stub(site: Site) -> Iterator[Finding]:
     for page in site.pages.values():
         if not is_stub(page):
             continue
         res = site.resolve(page, Link(page.refresh_line, page.refresh or '', 'refresh'))
-        if res.error:
+        if res.path and is_redirect_loop(site, page, res.path):
+            yield Finding(page.name, f'line {page.refresh_line}: refresh target {page.refresh} leads back to this page')
+        elif res.error:
             yield Finding(page.name, f'line {page.refresh_line}: refresh target: {res.error}')
         elif not res.path:
             yield Finding(page.name, f'line {page.refresh_line}: refresh target {page.refresh} is not a local page')
@@ -382,7 +453,8 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=(__doc__ or '').splitlines()[0])
     ap.add_argument('site')
     ap.add_argument('--ns', required=True)
-    ap.add_argument('--www', default=DEFAULT_WWW)
+    ap.add_argument('--www')
+    ap.add_argument('--vhost', default='')
     ap.add_argument('--rule', action='append', default=[])
     a = ap.parse_args(argv)
     unknown = set(a.rule) - set(RULES)
@@ -390,7 +462,11 @@ def main(argv: list[str] | None = None) -> int:
         ap.error(f'unknown rule(s): {", ".join(sorted(unknown))}; known: {", ".join(RULES)}')
     if not os.path.isdir(a.site):
         ap.error(f'not a directory: {a.site}')
-    site = Site(Path(a.site).resolve(), Path(a.www).resolve(), a.ns)
+    root = Path(a.site).resolve()
+    www = Path(a.www or DEFAULT_WWW).resolve()
+    if a.vhost and (not a.www or '/' in a.vhost or not is_directory(www / a.vhost)):
+        ap.error(f'--vhost {a.vhost} must be a folder directly under --www')
+    site = Site(root, www, a.ns, www if a.www else root, a.vhost)
     if not site.pages:
         ap.error('site has no HTML pages')
     names = a.rule or list(RULES)

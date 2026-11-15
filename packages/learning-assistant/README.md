@@ -48,11 +48,13 @@ The agent writes that file when it starts a site (`knowledge-site` § Start a si
 ## site_lint.py checks six rules
 
 ```sh
-python3 ~/.claude/skills/knowledge-site/scripts/site_lint.py ~/public_html --ns NS [--www DIR] [--rule NAME ...]
+python3 ~/.claude/skills/knowledge-site/scripts/site_lint.py ~/public_html --ns NS [--www DIR [--vhost FOLDER]] [--rule NAME ...]
 ```
 
 Every finding is an error, one line each, and any finding exits 1.
 Root-relative links (`/pub/x/` or `/x/`) resolve under `--www`, default `/var/lib/www`, the read-only view of every published tree.
+A relative link must stay inside `--www`, or inside the site when `--www` is not given.
+On a mapped vhost, `--vhost FOLDER` (a folder directly under `--www`) resolves root-relative links as the server does: a path outside `/pub/` goes to that folder, and a `/pub/` path found nowhere else goes there too.
 
 | rule | finds |
 | --- | --- |

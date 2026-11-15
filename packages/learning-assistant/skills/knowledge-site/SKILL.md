@@ -55,7 +55,11 @@ python3 ~/.claude/skills/knowledge-site/scripts/site_lint.py ~/public_html --ns 
 
 Every finding is an error, one line each; exit 0 means clean. `--rule
 NAME` reruns one rule. Root-relative links resolve under `--www`
-(default `/var/lib/www`, the read-only view of every published tree).
+(default `/var/lib/www`, the read-only view of every published tree);
+a relative link must stay inside `--www`, or inside the site without it.
+On a vhost add `--vhost FOLDER` (the site folder under `--www`): the
+server sends a root-relative path outside `/pub/` to that folder, and so
+does the linter.
 
 | rule | finds | fix |
 | --- | --- | --- |
