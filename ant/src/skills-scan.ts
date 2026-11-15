@@ -6,7 +6,7 @@
 
 import fs from 'fs';
 import path from 'path';
-import { blockingVerdict, scalarOf } from './skillguard.js';
+import { blockingVerdict, frontmatterOf, scalarOf } from './skillguard.js';
 
 export interface SkillRef {
   name: string;
@@ -50,8 +50,7 @@ export function scanSkills(dir: string): SkillScan {
       out.excluded.push(`${e.name}: ${f.patternId} (${f.description})`);
       continue;
     }
-    const fm = /^---\n([\s\S]*?)\n---/.exec(text);
-    const body = fm ? fm[1] : '';
+    const body = frontmatterOf(text) ?? '';
     out.clean.push({
       // validateFrontmatter passed, so name/description exist; the fallbacks
       // are for the type system, not a data path.

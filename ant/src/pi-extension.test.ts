@@ -177,6 +177,24 @@ describe('pi runs the same policy rows claude and codex do', () => {
     expect(fs.readFileSync(file, 'utf8')).toBe('﻿fine\n');
   });
 
+  // A SKILL.md keeps pi's CRLF and BOM through the edit, so the guard's frontmatter
+  // check must read the same bytes pi writes.
+  test('native edit: a CRLF SKILL.md is edited and guarded', async () => {
+    const bytes = `${FRONT}PLACEHOLDER\n`.replace(/\n/g, '\r\n');
+    await denied('crlf-skill-deny', bytes, [{ oldText: 'PLACEHOLDER', newText: BAD }]);
+    const file = skillFile('crlf-skill-ok', bytes);
+    await allowed('crlf-skill-ok', bytes, [{ oldText: 'PLACEHOLDER', newText: 'fine' }], file);
+    expect(fs.readFileSync(file, 'utf8')).toBe(`${FRONT}fine\n`.replace(/\n/g, '\r\n'));
+  });
+
+  test('native edit: a BOM SKILL.md is edited and guarded', async () => {
+    const bytes = `\ufeff${FRONT}PLACEHOLDER\n`;
+    await denied('bom-skill-deny', bytes, [{ oldText: 'PLACEHOLDER', newText: BAD }]);
+    const file = skillFile('bom-skill-ok', bytes);
+    await allowed('bom-skill-ok', bytes, [{ oldText: 'PLACEHOLDER', newText: 'fine' }], file);
+    expect(fs.readFileSync(file, 'utf8')).toBe(`\ufeff${FRONT}fine\n`);
+  });
+
   test('bash input receives the shared scrub', async () => {
     const input = { command: 'echo hello' };
     await fakePi().onCall({ toolName: 'bash', toolCallId: 'tc', input });

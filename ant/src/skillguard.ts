@@ -112,14 +112,23 @@ export function scalarOf(body: string, key: string): string | null {
   return out.join(' ').trim();
 }
 
+// frontmatterOf returns the text between a SKILL.md's `---` fences with LF line
+// ends, or null when there is no block. pi's edit tool keeps a file's CRLF and
+// BOM (edit.js:120-125), so both are accepted here; every reader of the block
+// goes through this one recogniser.
+export function frontmatterOf(text: string): string | null {
+  const fm = /^\ufeff?---\r?\n([\s\S]*?)\r?\n---/.exec(text);
+  return fm ? fm[1].replace(/\r\n/g, '\n') : null;
+}
+
 // validateFrontmatter enforces SKILL.md's contract: `name` and `description` are
 // what skill dispatch matches on, so a skill missing either is invisible to the
 // agent that wrote it. Every finding here is category `structural`, which is what
 // makes it BLOCK — broken rather than suspicious, so no false-positive budget.
 export function validateFrontmatter(text: string): Finding[] {
   const findings: Finding[] = [];
-  const fm = /^---\n([\s\S]*?)\n---/.exec(text);
-  if (!fm) {
+  const body = frontmatterOf(text);
+  if (body === null) {
     return [{
       patternId: 'frontmatter_missing',
       severity: 'high',
@@ -129,7 +138,6 @@ export function validateFrontmatter(text: string): Finding[] {
       description: 'SKILL.md has no --- frontmatter block',
     }];
   }
-  const body = fm[1];
   const name = scalarOf(body, 'name');
   const description = scalarOf(body, 'description');
   if (!name) {

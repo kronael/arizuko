@@ -29,6 +29,19 @@ test('scanSkills: a clean skill loads with its frontmatter name and description'
   expect(scan.clean[0].dir).toBe(path.join(root, 'diary'));
 });
 
+test('scanSkills: CRLF and BOM skills load with their name and description', () => {
+  const root = tmpSkillsDir();
+  const text = '---\nname: diary\ndescription: write a diary entry\n---\n\nDo the thing.\n';
+  writeSkill(root, 'crlf', text.replace(/\n/g, '\r\n'));
+  writeSkill(root, 'bom', '\ufeff' + text);
+  const scan = scanSkills(root);
+  expect(scan.excluded).toEqual([]);
+  expect(scan.clean.map((s) => [s.name, s.description]).sort()).toEqual([
+    ['diary', 'write a diary entry'],
+    ['diary', 'write a diary entry'],
+  ]);
+});
+
 test('scanSkills: a skill exfiltrating a credential is excluded — the write-time refusal, at load time', () => {
   const root = tmpSkillsDir();
   writeSkill(root, 'evil',

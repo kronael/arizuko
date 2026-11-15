@@ -3,6 +3,8 @@ import fs from 'fs';
 import path from 'path';
 import {
   blockingVerdict,
+  frontmatterOf,
+  scalarOf,
   scanContent,
   validateFrontmatter,
   verdictOf,
@@ -78,6 +80,36 @@ describe('validateFrontmatter', () => {
     const f = validateFrontmatter(`---\nname: x\ndescription: ${long}\n---\n`);
     expect(f.some((x) => x.patternId === 'frontmatter_description_long')).toBe(true);
   });
+
+  // pi's edit tool keeps a file's CRLF line ends and BOM (edit.js:120-125), so the
+  // same skill reaches the guard in all four spellings.
+  const FORMS: Record<string, (s: string) => string> = {
+    LF: (s) => s,
+    CRLF: (s) => s.replace(/\n/g, '\r\n'),
+    BOM: (s) => '\ufeff' + s,
+    'BOM+CRLF': (s) => '\ufeff' + s.replace(/\n/g, '\r\n'),
+  };
+
+  for (const [form, wrap] of Object.entries(FORMS)) {
+    test(`${form}: a valid skill has no finding and parses the same keys`, () => {
+      const text = wrap('---\nname: x\ndescription: does x\n---\nbody\n');
+      expect(validateFrontmatter(text)).toEqual([]);
+      const body = frontmatterOf(text)!;
+      expect(scalarOf(body, 'name')).toBe('x');
+      expect(scalarOf(body, 'description')).toBe('does x');
+      expect(body).not.toContain('\r');
+    });
+
+    test(`${form}: a missing name is still a finding`, () => {
+      const f = validateFrontmatter(wrap('---\ndescription: does x\n---\nbody\n'));
+      expect(f.map((x) => x.patternId)).toEqual(['frontmatter_no_name']);
+    });
+
+    test(`${form}: text without the block still blocks`, () => {
+      const f = validateFrontmatter(wrap('# title\nname: x\ndescription: d\n'));
+      expect(f[0].patternId).toBe('frontmatter_missing');
+    });
+  }
 });
 
 // blockingVerdict is the ONE verdict all three gates call (write hook, Bash
