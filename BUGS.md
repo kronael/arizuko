@@ -114,7 +114,7 @@ replay is the spec's open question. A malformed row is logged and left in place,
 never a startup failure; its consumer then parks on it, as plan-09 settles for a
 malformed row.
 
-## L891 — `googd TestPollDeadlineStartsAfterEarlierFiles` fails under host load (2026-11-15)
+## ✅ FIXED 2026-11-15 895e5c5aa1572a61f9d8bafdb9af2bae48615177 L891 — `googd TestPollDeadlineStartsAfterEarlierFiles` fails under host load (2026-11-15)
 
 The test asserts the last file's next deadline is at least `time.Now()` taken
 AFTER the sweep plus the interval minus 15 ms. Any delay over 15 ms between the
