@@ -378,22 +378,6 @@ def check_redirect_stub(site: Site) -> Iterator[Finding]:
             yield Finding(page.name, f'line {page.refresh_line}: body does not link the refresh target {page.refresh}')
 
 
-@rule('orphan')
-def check_orphan(site: Site) -> Iterator[Finding]:
-    linked: set[Path] = set()
-    for page in site.pages.values():
-        links = [link for link in page.links if link.kind == 'a']
-        if is_stub(page):
-            links.append(Link(page.refresh_line, page.refresh or '', 'refresh'))
-        for link in links:
-            res = site.resolve(page, link)
-            if res.path and not res.error and res.path != page.path:
-                linked.add(res.path)
-    for name, page in site.pages.items():
-        if name != 'index.html' and not is_stub(page) and page.path not in linked:
-            yield Finding(name, 'no other page links here')
-
-
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=(__doc__ or '').splitlines()[0])
     ap.add_argument('site')

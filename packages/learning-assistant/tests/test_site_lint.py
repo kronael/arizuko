@@ -204,28 +204,6 @@ class SiteLintTests(unittest.TestCase):
         (finding,) = self.findings('redirect-stub')
         self.assertIn('empty URL', finding)
 
-    def test_orphan_unlinked_page_fires(self):
-        self.edit('section/index.html', '<li><a href="two.html">Two</a>\n', '')
-        self.edit('index.html', '<a href="section/two.html#details">Details</a>', '')
-        self.edit('index.html', '<a href="section/two.html#legacy">Legacy anchor</a>', '')
-        (finding,) = self.findings('orphan')
-        self.assertIn('section/two.html', finding)
-
-    def test_orphan_self_link_does_not_count(self):
-        self.edit('section/index.html', '<li><a href="one.html">One</a>\n', '')
-        self.edit('section/one.html', 'the <a href="./">section</a>', 'the <a href="one.html">page</a>')
-        for _ in range(3):
-            self.edit('moved.html', 'section/one.html', 'section/two.html')
-        self.edit('section/two.html', ' <a href="one.html">One</a>', '')
-        self.assertIn('section/one.html', ' '.join(self.findings('orphan')))
-
-    def test_orphan_stub_exempt_and_refresh_counts(self):
-        self.assertEqual(self.findings('orphan'), [])
-        self.edit('index.html', '<a href="moved.html">Moved</a>', '')
-        self.edit('section/index.html', '<li><a href="one.html">One</a>\n', '')
-        self.edit('section/one.html', 'the <a href="./">section</a>', '')
-        self.assertEqual(self.findings('orphan'), [])
-
 
 if __name__ == '__main__':
     unittest.main()
