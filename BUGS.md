@@ -54,8 +54,9 @@ Plan-09 and `specs/9/21-state-transitions.md` ("Retained inbound transitions")
 settle this: the sweep's local `Decision` gates retries of discovery and
 transition errors, and a stopped episode parks until a new consumer lifetime.
 L890 removes the likeliest false stop (a DynamoDB throttle read as permanent).
-**Decision needed:** keep parking, or let the sweep keep its 15 s tick after a
-permanent store error. Recorded as an open question in the spec.
+**Decision (owner sign-off 2026-11-15):** the sweep keeps its 15 s tick after a
+permanent store error; no process-wide park. Per-row budgets still bound each
+message.
 
 ## ✅ FIXED 2026-11-15 2d51e15b6cb2f97fe99fa49aa28657c4a8a73ef8 L886 — turn retries rose from 3 to 10 and the retry env vars are ignored (2026-11-15)
 
@@ -84,9 +85,10 @@ the failure with no typed fact: the Claude CLI reports a lost connection only as
 prose (its binary renders "Connection error." as "Connection dropped (ECONNRESET)"
 and similar), and pi reports provider errors with no status, so both stop after
 the provider's own retries; main retried the whole turn.
-**Decision needed:** keep stopping, or let the harness exit transient for a
-failure it cannot classify. Recorded as an open question in
-`specs/9/21-state-transitions.md`.
+**Decision (owner sign-off 2026-11-15):** the harness exits transient
+(`terminal: false`) for a failure it cannot classify, in ant and in runed
+preparation; the turn budget of ten bounds the retries. Render failures and
+`HarnessConfigError` stay terminal.
 
 ## ✅ FIXED 2026-11-15 691b3b288f68ac1bef8d8dd5df9bd69982fead69 L888 — the startup backfill rewrites every row silently (2026-11-15)
 
@@ -650,7 +652,7 @@ waiting indicator shares turn A's key, so turn A's stop at 09:11:27 also ends it
 owner reported no typing in the thread. Not measured: what Discord displayed; no
 `discord typing failed` line exists for the window.
 
-**Fix (proposal):** carry the turn's topic in the typing request (routd already has it
+**Fix (owner sign-off 2026-11-15):** carry the turn's topic in the typing request (routd already has it
 at dispatch and park time), key the refresher by JID + topic, and let discd type in the
 topic channel. Delete `activeThread`. Adapters without topics ignore the field.
 **Test:** a root turn running while a thread message waits types in the root for the

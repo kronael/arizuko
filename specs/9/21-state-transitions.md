@@ -142,8 +142,9 @@ error; a nonterminal execution outcome without a request error retains the
 explicit crash retry, subject to recorded-result, reply and cancellation gates.
 
 Runtime preparation and control errors retain their causes until common
-classification sets the existing `Terminal` bit. An ended turn context is
-terminal. A received guest exit frame takes precedence over a later control
+classification sets the existing `Terminal` bit. An explicit permanent fact, a
+render failure and an ended turn context are terminal; a preparation failure the
+classifier cannot place is transient, bounded by the turn budget. A received guest exit frame takes precedence over a later control
 error. Clean EOF without an exit frame retains crash recovery. Neither the
 execution port nor its values gain fields.
 
@@ -276,14 +277,15 @@ use `aws.NopRetryer` so the owner receives each failed attempt once. Discord's
 them to zero/false while retaining proactive rate-bucket waiting.
 
 Ant's exposed failure verdicts consume the canonical provider and HTTP classifiers.
-Only an explicit transient verdict permits another execution attempt; unknown
-failures stop. One fresh attempt after unusable continuity remains a protocol repair.
+An explicit permanent verdict and `HarnessConfigError` stop. A failure the
+harness cannot classify is transient (`terminal: false`): the turn budget of ten
+bounds its replays. One fresh attempt after unusable continuity remains a protocol repair.
 Claude reads failed-result diagnostics from the SDK's `errors` array. Only an exact
 missing conversation or resume-message UUID permits fresh-session repair. Known
 API failures and provider facts bypass that repair. Generic execution and resume
 failures do not prove another execution safe.
 Multiple diagnostics have no final-error ordering contract. Their joined text is
-terminal unknown and cannot adopt an earlier rate-limit event.
+unclassified and cannot adopt an earlier rate-limit event.
 
 The Claude dependency lock resolves `@anthropic-ai/claude-agent-sdk` to `0.3.278`;
 the image installs `@latest`. That SDK exposes `api_retry` events with attempt,
@@ -452,9 +454,9 @@ Its first failed fetch commits the deadline and due pointer atomically.
 - path: ant/src/index.test.ts (changed)
   job: verify conservative failures and verdict retention across failed submission
   names: [runTurn]
-  never: spends another execution attempt after an unknown or failed fresh repair
+  never: spends another execution attempt after a failed fresh repair
 - path: ant/src/pi.test.ts (changed)
-  job: verify opaque Pi failures stop through the common Ant consumer
+  job: verify opaque Pi failures stay transient through the common Ant consumer
   names: [PiTurn.finish]
   never: changes Pi retry settings or invents provider facts from diagnostics
 - path: ant/src/harness-main.test.ts (changed)
@@ -789,7 +791,7 @@ Its first failed fetch commits the deadline and due pointer atomically.
 - path: runed/qemu_test.go (changed)
   job: exercise real preparation and control boundaries without guest processes
   names:
-    - TestQemuPreparationFailureIsTerminal
+    - TestQemuPreparationFailureIsTransient
     - TestAwaitPreservesControlFailure
     - TestAwaitTakesTheExitFrameWhenQemuExitsInTheSameMoment
     - TestAwaitReportsAGuestThatNeverSaidHowItExited
@@ -1046,9 +1048,9 @@ The stored `attempts` is the failed-attempt count. One renderer writes the count
 `retry_state`, canonical notice and pending deadline. Due reads validate the count,
 state and deadline, then recheck the hydrated state and deadline before delivery.
 Each row owns its delivery failures. `SweepInboundOnce` returns discovery and
-transition errors; the sweep's local `Decision` gates retries of those operations.
-A successful sweep clears that local episode. A stopped episode parks until a
-new consumer lifetime. The existing 15-second tick remains the healthy clock.
+transition errors; the sweep logs them and runs again on its next 15-second tick.
+A permanent store error never parks the sweep; each message's own budget bounds
+its redelivery.
 
 The startup `inbound-due-v1` marker gates pointer backfill; the counter's
 create-if-absent write gates its initial count. `inbound-retry-v1` then normalizes
@@ -1363,13 +1365,6 @@ its current contract ends on quiet time rather than a turn completion event.
   Existing environment files remain readable, but those values no longer select
   behavior; routd logs an error at startup when either is set. Should the CLI
   also report obsolete retry settings during generation?
-- A permanent discovery or transition error parks the retained-inbound sweep
-  until the adapter restarts (BUGS L885). Should the sweep keep its 15-second
-  tick after such an error, as the per-row budgets already bound each message?
-- An agent failure with no typed fact stops the turn: the Claude CLI reports a
-  lost connection only as prose, and pi reports provider errors with no status.
-  Both stop after the provider's own retries (BUGS L887). Should the harness exit transient for a failure it
-  cannot classify, or should the classifier stay strict?
 - Browser EventSource errors expose neither HTTP status nor Retry-After.
   Treat lost streams as transient under the common budget. A richer fetch-based
   stream decoder would expose those facts but adds a separate protocol change.
