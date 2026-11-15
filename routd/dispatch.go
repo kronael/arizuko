@@ -708,7 +708,13 @@ func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed boo
 		if !committed {
 			return false, false, false, "", store.ErrRefused
 		}
-		l.pauseProgress(replyJID, out.RunID)
+		// A capacity wait that will re-feed keeps typing on (BUGS L897); a
+		// stop or a saved replay clears it.
+		if decision.Stop || saved != nil {
+			l.pauseProgress(replyJID, out.RunID)
+		} else {
+			l.waiting.Store(chatJID, replyJID)
+		}
 		if decision.Stop {
 			current, _, err = l.db.store().ReadTurnContext(ctx, turnID)
 			if err != nil {
