@@ -114,7 +114,7 @@ replay is the spec's open question. A malformed row is logged and left in place,
 never a startup failure; its consumer then parks on it, as plan-09 settles for a
 malformed row.
 
-## ✅ FIXED 2026-11-15 9cfc51e1c0fdbdc2f46bcfc86e57ae594c49c845 L896 — a paused folder's waiting notice no longer reaches a forwarded message's origin (2026-11-15)
+## ✅ FIXED 2026-11-15 9cfc51e1c0fdbdc2f46bcfc86e57ae594c49c845 L900 — a paused folder's waiting notice no longer reaches a forwarded message's origin (2026-11-15)
 
 `routd TestTurnControlForwardedNoticeAndOldestTies` (spend-limit pause, input
 forwarded from `slack:origin`) expects one `waiting` status at the origin and a
@@ -131,7 +131,7 @@ a reset stays covered in `routd/turn_control_provider_test.go`.
 
 `routd TestTyping_BusyKeepsTypingOn` expects typing to stay on while runed
 refuses the turn as Busy; the candidate sends one typing-off ("ons=1 offs=1").
-**Measured:** same runs and SHAs as L896; passes on origin/main. Cause not yet
+**Measured:** same runs and SHAs as L900; passes on origin/main. Cause not yet
 traced; plan-09 makes Busy a persisted capacity wait (`waiting_capacity`).
 Cause: the Busy branch of `routd/dispatch.go` always called `pauseProgress`;
 main kept typing on (`l.waiting`) unless the turn stopped or was a saved replay.
@@ -151,7 +151,7 @@ ARIZUKO_TEST_MOVE_*) fail identically on main. Cause: the candidate's
 `ACLWildcardRows` fails closed until the `acl-wildcard-v1` marker exists, which
 startup writes; the rename fixture never ran that startup step. Fixture fix.
 
-## ✅ FIXED 2026-11-15 999ec079ecdf17059272b192f6f5ba2896952397 L895 — `routd TestKilledTurnResumesItsOwnSession` kills the run with an untyped error (2026-11-15)
+## ✅ FIXED 2026-11-15 999ec079ecdf17059272b192f6f5ba2896952397 L899 — `routd TestKilledTurnResumesItsOwnSession` kills the run with an untyped error (2026-11-15)
 
 The fixture's runner fails the first attempt with
 `errors.New("read: connection reset by peer")`. Plan-09 classifies transport
