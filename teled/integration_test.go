@@ -418,9 +418,9 @@ func TestBotTyping_SendsChatAction(t *testing.T) {
 	b := newTestBot(t, m, config{Name: "telegram"})
 	defer b.typing.Stop()
 
-	b.Typing("telegram:1/user/123", true)
+	b.Typing("telegram:1/user/123", "", true)
 	time.Sleep(200 * time.Millisecond)
-	b.Typing("telegram:1/user/123", false)
+	b.Typing("telegram:1/user/123", "", false)
 
 	if atomic.LoadInt32(&m.actionHits) < 1 {
 		t.Errorf("expected chat action; hits = %d", m.actionHits)

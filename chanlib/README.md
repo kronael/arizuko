@@ -172,7 +172,7 @@ the common unavailable notice once. Observed context gets one attempt.
 - `DashSection`, `DashSectioner` — an adapter's own dashboard sections
 - `CapImplReport(b, caps) []string` — drift report: advertised caps vs actual verb stubs
 - `SlackJID`, `ParseSlackJID`, `FormatSlackJID` — Slack JID parsing (format: `slack:<workspace>/<kind>/<id>`)
-- `TypingRefresher` — presence re-sender with hard TTL
+- `TypingRefresher` — presence re-sender with hard TTL, keyed by an opaque string the adapter chooses (discd: the channel it types in)
 - `AckMark` — the `👀` mark for adapters with no native presence (slakd, gitd): pins the trigger message, persists the mark in `ack_marks`, removes it at turn end, backstop TTL, `Sweep` at boot; `Stop` removes no mark
 - `URLCache` — 12-hex LRU short-ID proxy (cap 4096) shared by discd and slakd
 - `FileProxyHandler(opts)` — /files/<id> handler with opaque-id→CDN resolution

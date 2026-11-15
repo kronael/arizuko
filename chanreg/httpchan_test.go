@@ -27,7 +27,7 @@ func (b limitedBot) Send(chanlib.SendRequest) (string, error) {
 	return "", fmt.Errorf("%w: %w", chanlib.ErrNotDelivered, err)
 }
 
-func (limitedBot) Typing(string, bool) {}
+func (limitedBot) Typing(string, string, bool) {}
 
 func TestHTTPChannelHandlerRateLimitDecision(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)
@@ -204,18 +204,43 @@ func TestHTTPChannelTypingPostsBody(t *testing.T) {
 	}
 	ch := NewHTTPChannel(e, staticBearer("secret"))
 
-	if err := ch.Typing("tg:123", true); err != nil {
+	if err := ch.Typing("tg:123", "", true); err != nil {
 		t.Fatal(err)
 	}
 	if got["chat_jid"] != "tg:123" || got["on"] != true {
 		t.Errorf("typing body = %v", got)
 	}
 
-	if err := ch.Typing("tg:123", false); err != nil {
+	if err := ch.Typing("tg:123", "", false); err != nil {
 		t.Fatal(err)
 	}
 	if got["chat_jid"] != "tg:123" || got["on"] != false {
 		t.Errorf("typing off body = %v", got)
+	}
+}
+
+// The topic rides in the request only when the turn has one.
+func TestHTTPChannelTypingTopic(t *testing.T) {
+	var got map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = nil
+		_ = json.NewDecoder(r.Body).Decode(&got)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+	ch := NewHTTPChannel(&Entry{Name: "dc", URL: srv.URL, JIDPrefixes: []string{"dc:"},
+		Capabilities: map[string]bool{"typing": true}}, staticBearer("secret"))
+	if err := ch.Typing("dc:1", "th-9", true); err != nil {
+		t.Fatal(err)
+	}
+	if got["topic"] != "th-9" {
+		t.Errorf("typing body = %v, want topic th-9", got)
+	}
+	if err := ch.Typing("dc:1", "", true); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := got["topic"]; ok {
+		t.Errorf("typing body = %v, want no topic key", got)
 	}
 }
 
@@ -233,7 +258,7 @@ func TestHTTPChannelTypingNoCap(t *testing.T) {
 			Capabilities: caps,
 		}
 		ch := NewHTTPChannel(e, staticBearer("secret"))
-		if err := ch.Typing("tg:123", true); err != nil {
+		if err := ch.Typing("tg:123", "", true); err != nil {
 			t.Fatal(err)
 		}
 		if called {
@@ -261,7 +286,7 @@ func TestHTTPChannelTypingSwallowsFailures(t *testing.T) {
 				Capabilities: map[string]bool{"typing": true},
 			}
 			ch := NewHTTPChannel(e, staticBearer("secret"))
-			if err := ch.Typing("tg:123", true); err != nil {
+			if err := ch.Typing("tg:123", "", true); err != nil {
 				t.Fatal(err)
 			}
 		})
@@ -372,7 +397,7 @@ func TestTypingRetriesARefusedConnection(t *testing.T) {
 	}()
 	ch := NewHTTPChannel(&Entry{Name: "tg", URL: "http://" + addr, JIDPrefixes: []string{"tg:"},
 		Capabilities: map[string]bool{"typing": true}}, staticBearer("secret"))
-	_ = ch.Typing("tg:123", true)
+	_ = ch.Typing("tg:123", "", true)
 	select {
 	case <-got:
 	case <-time.After(time.Second):

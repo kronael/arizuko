@@ -592,7 +592,7 @@ func (b *bot) SendVoice(jid, audioPath, caption, threadID, _ string) (string, er
 	return strconv.Itoa(sent.MessageID), nil
 }
 
-func (b *bot) Typing(jid string, on bool) { b.typing.Set(jid, on) }
+func (b *bot) Typing(jid, _ string, on bool) { b.typing.Set(jid, on) }
 
 // Forward: source_msg_id must be "<sourceChatJid>|<msgId>".
 func (b *bot) Forward(req chanlib.ForwardRequest) (string, error) {

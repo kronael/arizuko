@@ -155,10 +155,10 @@ func (d *recDeliverer) Delete(jid, platformID, threadID string) error {
 }
 func (d *recDeliverer) Pin(_, _ string) error           { return nil }
 func (d *recDeliverer) Unpin(_, _ string, _ bool) error { return nil }
-func (d *recDeliverer) Typing(jid string, on bool) error {
+func (d *recDeliverer) Typing(jid, topic string, on bool) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	d.typings = append(d.typings, typingEvent{jid, on})
+	d.typings = append(d.typings, typingEvent{jid, topic, on})
 	return nil
 }
 func (d *recDeliverer) Document(jid, _, _, _, replyTo, threadID, idem, threadRoot string) (string, error) {

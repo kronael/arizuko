@@ -53,7 +53,7 @@ func (sb *stubBot) SendFile(jid, _, name, _, _, _, _ string) (string, error) {
 	return "", nil
 }
 
-func (sb *stubBot) Typing(_ string, on bool) {
+func (sb *stubBot) Typing(_, _ string, on bool) {
 	sb.typings = append(sb.typings, on)
 }
 

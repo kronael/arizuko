@@ -1043,10 +1043,10 @@ func TestTyping_Reaction(t *testing.T) {
 	b.handleEvent(body, httptest.NewRecorder())
 
 	jid := "slack:T012/dm/D0XY"
-	b.Typing(jid, true)
+	b.Typing(jid, "", true)
 
 	// No-op: unknown JID has no stored TS.
-	b.Typing("slack:T012/channel/CNOPE", true)
+	b.Typing("slack:T012/channel/CNOPE", "", true)
 
 	waitFor := func(field *[]map[string]string, want int) {
 		deadline := time.Now().Add(5 * time.Second)
@@ -1079,7 +1079,7 @@ func TestTyping_Reaction(t *testing.T) {
 		t.Errorf("ts = %q", r["ts"])
 	}
 
-	b.Typing(jid, false)
+	b.Typing(jid, "", false)
 	waitFor(&mock.unreacted, 1)
 
 	mock.mu.Lock()
@@ -1119,9 +1119,9 @@ func TestTyping_OffTargetsTheMarkedMessage(t *testing.T) {
 	const jid = "slack:T012/dm/D0XY"
 
 	b.handleEvent(dmEvent("1700000001.000100"), httptest.NewRecorder())
-	b.Typing(jid, true)
+	b.Typing(jid, "", true)
 	b.handleEvent(dmEvent("1700000002.000100"), httptest.NewRecorder())
-	b.Typing(jid, false)
+	b.Typing(jid, "", false)
 
 	added, removed := mock.reactions()
 	if len(added) != 1 || added[0]["ts"] != "1700000001.000100" {
@@ -1141,10 +1141,10 @@ func TestTyping_OffAfterARestartRemovesTheReaction(t *testing.T) {
 	first, _ := setupBotOn(t, mock, st)
 	const jid = "slack:T012/dm/D0XY"
 	first.handleEvent(dmEvent("1700000001.000100"), httptest.NewRecorder())
-	first.Typing(jid, true)
+	first.Typing(jid, "", true)
 
 	second, _ := setupBotOn(t, mock, st)
-	second.Typing(jid, false)
+	second.Typing(jid, "", false)
 
 	_, removed := mock.reactions()
 	if len(removed) != 1 || removed[0]["ts"] != "1700000001.000100" {
@@ -1161,7 +1161,7 @@ func TestSweep_ClearsAReactionAKilledProcessLeft(t *testing.T) {
 	first, _ := setupBotOn(t, mock, st)
 	const jid = "slack:T012/dm/D0XY"
 	first.handleEvent(dmEvent("1700000001.000100"), httptest.NewRecorder())
-	first.Typing(jid, true)
+	first.Typing(jid, "", true)
 
 	prev := chanlib.DefaultTypingMaxTTL
 	chanlib.DefaultTypingMaxTTL = 50 * time.Millisecond

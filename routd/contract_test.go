@@ -431,13 +431,13 @@ func (d *fakeDeliverer) SendOptions(_, _ string, _ []chanlib.Option, _, _ string
 	d.sends++
 	return d.platformID, nil
 }
-func (d *fakeDeliverer) React(_, _, _ string) error      { return nil }
-func (d *fakeDeliverer) Edit(_, _, _, _ string) error    { return nil }
-func (d *fakeDeliverer) HasCapability(_, _ string) bool  { return false }
-func (d *fakeDeliverer) Delete(_, _, _ string) error     { return nil }
-func (d *fakeDeliverer) Pin(_, _ string) error           { return nil }
-func (d *fakeDeliverer) Unpin(_, _ string, _ bool) error { return nil }
-func (d *fakeDeliverer) Typing(_ string, _ bool) error   { return nil }
+func (d *fakeDeliverer) React(_, _, _ string) error       { return nil }
+func (d *fakeDeliverer) Edit(_, _, _, _ string) error     { return nil }
+func (d *fakeDeliverer) HasCapability(_, _ string) bool   { return false }
+func (d *fakeDeliverer) Delete(_, _, _ string) error      { return nil }
+func (d *fakeDeliverer) Pin(_, _ string) error            { return nil }
+func (d *fakeDeliverer) Unpin(_, _ string, _ bool) error  { return nil }
+func (d *fakeDeliverer) Typing(_, _ string, _ bool) error { return nil }
 func (d *fakeDeliverer) Document(_, _, _, _, _, _, _, _ string) (string, error) {
 	if d.docErr != nil {
 		return "", d.docErr

@@ -9,6 +9,7 @@ import (
 	"github.com/kronael/arizuko/core"
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
+	"github.com/kronael/arizuko/store"
 )
 
 // holdRunner blocks every Run until release closes.
@@ -121,5 +122,66 @@ func TestTyping_BusyKeepsTypingOn(t *testing.T) {
 	}
 	if dl.ons() == 0 || dl.offs() != 0 {
 		t.Fatalf("Busy: ons=%d offs=%d, want typing on and never off", dl.ons(), dl.offs())
+	}
+}
+
+// seedThreadMsg ingests an addressed message posted in thread topic of jid.
+func seedThreadMsg(t *testing.T, db *DB, srv *Server, jid, topic string) {
+	t.Helper()
+	seedTypingMsg(t, db, srv, jid)
+	rec := doJSON(t, srv.Handler(), "POST", "/v1/messages", "", apiv1.Message{ID: "tm-thread", ChatJID: jid, Sender: "u1", Content: "in the thread", Verb: "message", Topic: topic})
+	if rec.Code != 200 {
+		t.Fatalf("ingest status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func hasTypingIn(dl *typingDeliverer, jid, topic string, on bool) bool {
+	for _, e := range dl.snapshot() {
+		if e.jid == jid && e.topic == topic && e.on == on {
+			return true
+		}
+	}
+	return false
+}
+
+// A root turn runs while a thread message of the same chat waits: the root
+// types in the root, the waiting message in its thread, and the root turn's
+// stop leaves the thread's indicator on (BUGS L882).
+func TestTyping_WaitingThreadSurvivesRootTurnStop(t *testing.T) {
+	dl := &typingDeliverer{}
+	db, srv := newTypingRoutd(t, &stubRunner{t: t}, dl)
+	const jid, thread = "slack:T/C/U1", "th-1"
+	seedThreadMsg(t, db, srv, jid, thread)
+	// tm1 (root) is consumed by the running turn; only the thread row waits.
+	if err := db.store().AdvanceAgentCursor(jid, store.MessageCursor(core.Message{ID: "tm1"})); err != nil {
+		t.Fatal(err)
+	}
+	srv.loop.beginProgress(jid, "")
+	srv.loop.noteParked(jid)
+	if !hasTypingIn(dl, jid, thread, true) {
+		t.Fatalf("the waiting thread message shows no typing in its thread: %+v", dl.snapshot())
+	}
+	srv.loop.pauseProgress(jid, "", "")
+	if !hasTypingIn(dl, jid, "", false) {
+		t.Fatalf("the root turn's stop did not clear the root: %+v", dl.snapshot())
+	}
+	if hasTypingIn(dl, jid, thread, false) {
+		t.Fatalf("the root turn's stop cleared the thread's indicator: %+v", dl.snapshot())
+	}
+}
+
+// A thread turn types and stops in its thread, never in the chat root.
+func TestTyping_ThreadTurnTypesInItsThread(t *testing.T) {
+	dl := &typingDeliverer{}
+	sr := &stubRunner{t: t}
+	db, srv := newTypingRoutd(t, sr, dl)
+	sr.srv = srv
+	const jid, thread = "slack:T/C/U1", "th-1"
+	seedThreadMsg(t, db, srv, jid, thread)
+	if _, err := srv.loop.processGroupMessages(jid); err != nil {
+		t.Fatal(err)
+	}
+	if !hasTypingIn(dl, jid, thread, true) || !hasTypingIn(dl, jid, thread, false) {
+		t.Fatalf("thread turn did not type on and off in its thread: %+v", dl.snapshot())
 	}
 }

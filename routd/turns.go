@@ -125,7 +125,7 @@ func (s *Server) recordTurnResultAttempt(turnID, attempt string, req apiv1.TurnR
 		if err != nil {
 			return ipc.TurnAck{}, err
 		}
-		s.loop.pauseProgress(returnTarget(tc, tc.ChatJID), tc.RunID)
+		s.loop.pauseProgress(returnTarget(tc, tc.ChatJID), tc.Topic, tc.RunID)
 		if err := s.loop.publishOwedStatusLocked(tc); err != nil {
 			return ipc.TurnAck{}, err
 		}

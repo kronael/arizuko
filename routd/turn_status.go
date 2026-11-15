@@ -225,12 +225,12 @@ func canShowProgress(dl Deliverer, jid string) bool {
 	return dl != nil && dl.HasCapability(jid, "edit") && dl.HasCapability(jid, "delete")
 }
 
-func (l *Loop) beginProgress(jid string) {
+func (l *Loop) beginProgress(jid, topic string) {
 	if l.deliver == nil {
 		return
 	}
 	// Presence failure must not fail a turn.
-	_ = l.deliver.Typing(jid, true)
+	_ = l.deliver.Typing(jid, topic, true)
 }
 
 func (l *Loop) noteParked(chatJID string) {
@@ -252,8 +252,12 @@ func (l *Loop) noteParked(chatJID string) {
 		return
 	}
 	reply := replyChat(chatJID, msgs[i])
-	l.waiting.Store(chatJID, reply)
-	l.beginProgress(reply)
+	topic := msgs[i].Topic
+	if _, pin := l.db.StickyState(chatJID); pin != "" {
+		topic = pin
+	}
+	l.waiting.Store(chatJID, presence{reply, topic})
+	l.beginProgress(reply, topic)
 }
 
 func (s *Server) updateProgress(tc TurnContext, jid, text string) error {
@@ -350,7 +354,7 @@ func endProgress(db *DB, dl Deliverer, turnID string, end turnEnd) error {
 		return err
 	}
 	if dl != nil {
-		clearPresence(dl, jids)
+		clearPresence(dl, tc.Topic, jids)
 	}
 	for _, jid := range jids {
 		row, ok := db.LastStatusRow(jid, turnID)
@@ -365,17 +369,26 @@ func endProgress(db *DB, dl Deliverer, turnID string, end turnEnd) error {
 	return nil
 }
 
-func (l *Loop) pauseProgress(jid, runID string) {
+func (l *Loop) pauseProgress(jid, topic, runID string) {
 	if l.deliver == nil {
 		return
 	}
-	clearPresence(l.deliver, l.db.chatsOwnedBy(jid, runID))
+	clearPresence(l.deliver, topic, l.db.chatsOwnedBy(jid, runID))
 }
 
-func clearPresence(dl Deliverer, jids []string) {
-	for _, jid := range jids {
+// presence names one typing indicator: a chat and the topic (thread) inside it.
+type presence struct{ jid, topic string }
+
+// clearPresence turns off the indicators a turn owned. jids[0] is the turn's
+// own chat and carries its topic; the other chats a run owed carry none.
+func clearPresence(dl Deliverer, topic string, jids []string) {
+	for i, jid := range jids {
+		t := ""
+		if i == 0 {
+			t = topic
+		}
 		// Presence failure must not fail a turn.
-		_ = dl.Typing(jid, false)
+		_ = dl.Typing(jid, t, false)
 	}
 }
 

@@ -183,7 +183,7 @@ func (s *server) Send(req chanlib.SendRequest) (string, error) {
 	return "", sendReply(s.cfg, t.FromAddress, t.RootMsgID, inReplyTo, req.Content)
 }
 
-func (s *server) Typing(string, bool) {}
+func (s *server) Typing(string, string, bool) {}
 
 // FetchHistory searches IMAP for messages in the requested thread before
 // the given date. `Before` is date-only per IMAP spec. Limit clamps at 50.

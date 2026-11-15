@@ -77,13 +77,13 @@ func (l *Loop) pendingBatch(jid, cursor string, limit int) ([]core.Message, batc
 	return msgs, l.resolveBatch(jid, msgs), nil
 }
 
-func (l *Loop) holdModelInput(chatJID string, trigger []core.Message) error {
+func (l *Loop) holdModelInput(chatJID, topic string, trigger []core.Message) error {
 	l.waiting.Delete(chatJID)
 	l.q.mu.Lock()
 	l.q.getGroup(chatJID).refused = true
 	l.q.mu.Unlock()
 	if l.deliver != nil {
-		clearPresence(l.deliver, []string{replyChat(chatJID, trigger[len(trigger)-1])})
+		clearPresence(l.deliver, topic, []string{replyChat(chatJID, trigger[len(trigger)-1])})
 	}
 	return nil
 }

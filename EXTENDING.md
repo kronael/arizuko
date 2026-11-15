@@ -404,8 +404,10 @@ the adapter. It sends a channel nothing that the adapter did not advertise.
 Advertise only what you implement. `chanlib.CapImplReport` checks every verb in
 the map except `typing`.
 
-- `typing` commits `POST /typing {chat_jid, on}` to show presence while a turn
-  runs. `on` arrives at dispatch, and `off` arrives when the turn ends and not
+- `typing` commits `POST /typing {chat_jid, topic, on}` to show presence while
+  a turn runs. `topic` is optional: the thread the turn answers in, so two turns
+  of one chat show and stop their indicators apart. An adapter without topics
+  ignores it. `on` arrives at dispatch, and `off` arrives when the turn ends and not
   at the first reply. The indicator therefore outlives a `reply` in the middle
   of the turn. `off` can fail to arrive, so a native indicator goes through
   `chanlib.TypingRefresher`, which stops by itself at

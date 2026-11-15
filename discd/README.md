@@ -89,7 +89,9 @@ If the router and retention store both fail, no durable queue holds that event.
 Grep `Retry scheduled`, `Automatic retries stopped`, and `inbound retention unavailable`.
 
 Discordgo manages gateway reconnection. A disconnected gateway makes `/health` return 503.
-Typing refreshes every 4 s and stops after 10 minutes.
+Typing refreshes every 4 s and stops after 10 minutes. The request's `topic` is
+the thread, so typing shows in the thread channel for a thread turn and in the
+parent channel for a root turn; each is its own indicator.
 Connected inbound silence over 5 minutes reports `stale` with HTTP 200.
 Grep `discord auth failed`, `discord connect failed`, and `adapter store open failed`.
 Group mentions and replies to the bot carry `mention`; other group messages carry `message`.

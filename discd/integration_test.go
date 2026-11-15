@@ -421,10 +421,10 @@ func TestTyping_DebouncesAndSends(t *testing.T) {
 	b.typing = chanlib.NewTypingRefresher(20*time.Millisecond, time.Second, b.sendTyping, nil)
 	defer b.typing.Stop()
 
-	b.Typing("discord:ch-1", true)
+	b.Typing("discord:ch-1", "", true)
 	// Allow at least one tick
 	time.Sleep(80 * time.Millisecond)
-	b.Typing("discord:ch-1", false)
+	b.Typing("discord:ch-1", "", false)
 
 	if atomic.LoadInt32(&calls) < 1 {
 		t.Errorf("expected typing send; calls = %d", calls)
@@ -444,7 +444,7 @@ func TestTyping_Off_NoSend(t *testing.T) {
 	defer b.typing.Stop()
 
 	// Set off without ever setting on — should not trigger any API call.
-	b.Typing("discord:ch-1", false)
+	b.Typing("discord:ch-1", "", false)
 	time.Sleep(60 * time.Millisecond)
 	if atomic.LoadInt32(&calls) != 0 {
 		t.Errorf("typing=off without on should not call API; calls = %d", calls)
@@ -852,4 +852,45 @@ func TestIsMentioned(t *testing.T) {
 			t.Fatal("plain message should not count as mention")
 		}
 	})
+}
+
+// A thread turn types in the thread channel and a root turn in the parent; the
+// two indicators are independent (BUGS L882).
+func TestTyping_TopicTargetsThread(t *testing.T) {
+	var mu sync.Mutex
+	hit := map[string]int{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		hit[r.URL.Path]++
+		mu.Unlock()
+		w.WriteHeader(204)
+	}))
+	defer srv.Close()
+	defer mockDiscordEndpoints(srv.URL)()
+
+	b := &bot{session: newTestSession(t)}
+	b.typing = chanlib.NewTypingRefresher(20*time.Millisecond, time.Second, b.sendTyping, nil)
+	defer b.typing.Stop()
+
+	count := func(path string) int {
+		mu.Lock()
+		defer mu.Unlock()
+		return hit[path]
+	}
+	b.Typing("discord:g/parent", "thread-1", true)
+	b.Typing("discord:g/parent", "", true)
+	if count("/channels/thread-1/typing") < 1 || count("/channels/parent/typing") < 1 {
+		t.Fatalf("typing hits = %v, want a send in thread-1 and in parent", hit)
+	}
+	// Stopping the root leaves the thread's indicator refreshing.
+	b.Typing("discord:g/parent", "", false)
+	time.Sleep(30 * time.Millisecond)
+	root, thread := count("/channels/parent/typing"), count("/channels/thread-1/typing")
+	time.Sleep(100 * time.Millisecond)
+	if count("/channels/parent/typing") != root {
+		t.Errorf("root kept typing after its stop")
+	}
+	if count("/channels/thread-1/typing") <= thread {
+		t.Errorf("the root's stop ended the thread's indicator")
+	}
 }

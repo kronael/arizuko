@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -26,10 +25,6 @@ type bot struct {
 	typing        *chanlib.TypingRefresher
 	files         *chanlib.URLCache
 	lastInboundAt atomic.Int64
-	// activeThread maps a parent-channel jid → the thread id its live
-	// conversation is in, so the typing indicator shows in the thread where the
-	// reply lands, not leaking to the channel root. Set/cleared on each inbound.
-	activeThread sync.Map
 }
 
 func (b *bot) LastInboundAt() int64 { return b.lastInboundAt.Load() }
@@ -188,13 +183,6 @@ func (b *bot) onMessage(_ *discordgo.Session, m *discordgo.MessageCreate) {
 	content = replaceMentions(content, b.cfg.AssistantName, b.session.State.User, m.Mentions)
 
 	jid, topic, ch := b.chatAndTopic(m.GuildID, m.ChannelID)
-	// Track where this chat's live conversation sits so typing shows in the
-	// thread (topic), not the parent channel root.
-	if topic != "" {
-		b.activeThread.Store(jid, topic)
-	} else {
-		b.activeThread.Delete(jid)
-	}
 	chatName := b.channelName(m.ChannelID)
 	isGroup := isGroupChannel(ch)
 
@@ -577,7 +565,16 @@ func discordMimeFor(name string) string {
 	return ""
 }
 
-func (b *bot) Typing(jid string, on bool) { b.typing.Set(jid, on) }
+// Typing keys the refresher by the channel it types in: the thread when the
+// turn has a topic, else the parent channel (BUGS L882).
+func (b *bot) Typing(jid, topic string, on bool) { b.typing.Set(typingChannel(jid, topic), on) }
+
+func typingChannel(jid, topic string) string {
+	if topic != "" {
+		return topic
+	}
+	return chanID(jid)
+}
 
 func (b *bot) Post(chanlib.PostRequest) (string, error) {
 	return "", chanlib.Unsupported("post", "discord",
@@ -716,13 +713,9 @@ func (b *bot) FetchHistory(req chanlib.HistoryRequest) (chanlib.HistoryResponse,
 	return chanlib.HistoryResponse{Source: "platform", Messages: out}, nil
 }
 
-func (b *bot) sendTyping(jid string) bool {
-	ch := chanID(jid)
-	if th, ok := b.activeThread.Load(jid); ok {
-		ch = th.(string) // type in the live thread, not the channel root
-	}
+func (b *bot) sendTyping(ch string) bool {
 	if err := b.session.ChannelTyping(ch); err != nil {
-		slog.Warn("discord typing failed", "jid", jid, "err", err)
+		slog.Warn("discord typing failed", "channel", ch, "err", err)
 		return false
 	}
 	return true

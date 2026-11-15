@@ -43,6 +43,7 @@ type mockBot struct {
 	voiceErr  error
 	voiceID   string
 	typJID    string
+	typTopic  string
 	typOn     bool
 	NoSocial
 }
@@ -65,8 +66,9 @@ func (m *mockBot) SendVoice(jid, audioPath, caption, _, _ string) (string, error
 	return m.voiceID, m.voiceErr
 }
 
-func (m *mockBot) Typing(jid string, on bool) {
+func (m *mockBot) Typing(jid, topic string, on bool) {
 	m.typJID = jid
+	m.typTopic = topic
 	m.typOn = on
 }
 
@@ -310,15 +312,17 @@ func TestHandlerSendFilePathTraversalFilename(t *testing.T) {
 
 func TestHandlerTyping(t *testing.T) {
 	for _, tt := range []struct {
-		name string
-		body any
-		code int
-		jid  string
-		on   bool
+		name  string
+		body  any
+		code  int
+		jid   string
+		on    bool
+		topic string
 	}{
-		{"on", map[string]any{"chat_jid": "test:1", "on": true}, 200, "test:1", true},
-		{"off", map[string]any{"chat_jid": "test:1", "on": false}, 200, "test:1", false},
-		{"missing_jid", map[string]any{"on": true}, 400, "", false},
+		{"topic", map[string]any{"chat_jid": "test:1", "topic": "th-9", "on": true}, 200, "test:1", true, "th-9"},
+		{"on", map[string]any{"chat_jid": "test:1", "on": true}, 200, "test:1", true, ""},
+		{"off", map[string]any{"chat_jid": "test:1", "on": false}, 200, "test:1", false, ""},
+		{"missing_jid", map[string]any{"on": true}, 400, "", false, ""},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			bot := &mockBot{}
@@ -331,7 +335,7 @@ func TestHandlerTyping(t *testing.T) {
 			if w.Code != tt.code {
 				t.Fatalf("status = %d, want %d", w.Code, tt.code)
 			}
-			if tt.code == 200 && (bot.typJID != tt.jid || bot.typOn != tt.on) {
+			if tt.code == 200 && (bot.typJID != tt.jid || bot.typOn != tt.on || bot.typTopic != tt.topic) {
 				t.Errorf("typing = %q %v, want %q %v", bot.typJID, bot.typOn, tt.jid, tt.on)
 			}
 		})
@@ -502,7 +506,7 @@ type mockBotPost struct {
 }
 
 func (m *mockBotPost) Send(SendRequest) (string, error) { return "", nil }
-func (m *mockBotPost) Typing(string, bool)              {}
+func (m *mockBotPost) Typing(string, string, bool)      {}
 func (m *mockBotPost) Post(PostRequest) (string, error) { return "", m.err }
 
 // writeBotResult maps error classes to HTTP status: a caller-input error

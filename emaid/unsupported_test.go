@@ -58,6 +58,6 @@ func TestEveryUnimplementedVerbRefusesWithAHint(t *testing.T) {
 // Typing is a no-op rather than a refusal: every outbound path calls it
 // unconditionally, so an error there would break sends that are fine.
 func TestTypingIsASilentNoOp(t *testing.T) {
-	(&server{}).Typing("email:thread/1", true)
-	(&server{}).Typing("email:thread/1", false)
+	(&server{}).Typing("email:thread/1", "", true)
+	(&server{}).Typing("email:thread/1", "", false)
 }

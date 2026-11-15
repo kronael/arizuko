@@ -121,7 +121,7 @@ type fakeBot struct {
 }
 
 func (fakeBot) Send(SendRequest) (string, error) { return "", nil }
-func (fakeBot) Typing(string, bool)              {}
+func (fakeBot) Typing(string, string, bool)      {}
 
 // realDislikeBot overrides Dislike with a real impl (non-Unsupported error).
 type realDislikeBot struct{ fakeBot }
@@ -174,7 +174,7 @@ type fullBot struct {
 }
 
 func (b *fullBot) Send(SendRequest) (string, error) { return "", nil }
-func (b *fullBot) Typing(string, bool)              {}
+func (b *fullBot) Typing(string, string, bool)      {}
 func (b *fullBot) Post(PostRequest) (string, error) { return "", nil }
 func (b *fullBot) Like(LikeRequest) error           { return b.likeErr }
 func (b *fullBot) Delete(DeleteRequest) error       { return b.deleteErr }

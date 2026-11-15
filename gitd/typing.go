@@ -49,7 +49,7 @@ func targetPath(jid, target string) (chanlib.GitHubJID, string, bool) {
 // The port returns nothing and the turn must not wait on decoration, so a
 // GitHub refusal is logged at warn by the mark and goes no further; the reply
 // is the product.
-func (b *bot) Typing(jid string, on bool) {
+func (b *bot) Typing(jid, _ string, on bool) {
 	if b.cfg.Token == "" && b.app == nil || b.mark == nil {
 		return
 	}

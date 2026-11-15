@@ -49,7 +49,7 @@ type Deliverer interface {
 	Pin(jid, platformID string) error
 	Unpin(jid, platformID string, all bool) error
 	// Typing is best-effort; web / no-presence channels are no-ops.
-	Typing(jid string, on bool) error
+	Typing(jid, topic string, on bool) error
 	// Document delivers a file at path on the shared group volume both routd
 	// and the adapter mount.
 	Document(jid, path, name, caption, replyToID, threadID, idempotencyKey, threadRoot string) (platformID string, err error)

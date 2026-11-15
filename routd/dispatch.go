@@ -273,13 +273,13 @@ func (l *Loop) processChat(chatJID string, commandsOnly bool) (bool, error) {
 			if gi > 0 {
 				l.advanceFinished(chatJID, folder, msgs, batch[0], marks)
 			}
-			return hadAny, l.holdModelInput(chatJID, batch)
+			return hadAny, l.holdModelInput(chatJID, topic, batch)
 		}
 		if errors.Is(derr, store.ErrModelPaused) {
 			if gi > 0 {
 				l.advanceFinished(chatJID, folder, msgs, batch[0], marks)
 			}
-			return hadAny, l.holdModelInput(chatJID, batch)
+			return hadAny, l.holdModelInput(chatJID, topic, batch)
 		}
 		if derr != nil {
 
@@ -501,7 +501,7 @@ func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed boo
 		InputLast: admission.InputLast}, &admission, saved)
 	unlock()
 	if errors.Is(err, errTurnBlocked) {
-		l.pauseProgress(replyChat(chatJID, last), "")
+		l.pauseProgress(replyChat(chatJID, last), topic, "")
 		l.q.mu.Lock()
 		l.q.getGroup(workKey).refused = true
 		l.q.mu.Unlock()
@@ -642,7 +642,7 @@ func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed boo
 
 	replyJID := replyChat(chatJID, last)
 	l.waiting.Delete(chatJID)
-	l.beginProgress(replyJID)
+	l.beginProgress(replyJID, topic)
 
 	progress := addressed && canShowProgress(l.deliver, replyJID)
 	currentStatus, _ := l.db.GetTurnContext(turnID)
@@ -662,7 +662,7 @@ func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed boo
 		_ = l.db.SetTurnRunID(turnID, out.RunID)
 	}
 	if derr != nil {
-		l.pauseProgress(replyJID, out.RunID)
+		l.pauseProgress(replyJID, topic, out.RunID)
 		if err := l.db.SetRunReturned(turnID); err != nil {
 			return false, false, false, "", err
 		}
@@ -711,9 +711,9 @@ func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed boo
 		// A capacity wait that will re-feed keeps typing on (BUGS L897); a
 		// stop or a saved replay clears it.
 		if decision.Stop || saved != nil {
-			l.pauseProgress(replyJID, out.RunID)
+			l.pauseProgress(replyJID, topic, out.RunID)
 		} else {
-			l.waiting.Store(chatJID, replyJID)
+			l.waiting.Store(chatJID, presence{replyJID, topic})
 		}
 		if decision.Stop {
 			current, _, err = l.db.store().ReadTurnContext(ctx, turnID)
@@ -746,7 +746,7 @@ func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed boo
 		return false, false, false, "", err
 	}
 	if deferred {
-		l.pauseProgress(replyJID, out.RunID)
+		l.pauseProgress(replyJID, topic, out.RunID)
 		return false, false, false, "", nil
 	}
 	if out.Outcome == runedv1.OutcomeError {

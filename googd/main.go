@@ -237,7 +237,7 @@ func (b *bot) call(method, url string, body []byte) ([]byte, error) {
 	return io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 }
 
-func (b *bot) Typing(string, bool) {}
+func (b *bot) Typing(string, string, bool) {}
 
 // DashSections shows the credential first: the account's address is what an
 // operator shares a document with, and a refusal is why nothing arrives.

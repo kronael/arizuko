@@ -1403,7 +1403,7 @@ func (b *bot) SendFile(jid, path, name, caption, replyTo, threadID, threadRoot s
 
 // Typing adds (on=true) or removes (on=false) the 👀 reaction on the trigger
 // message for any channel type — pane or regular. One path, no setStatus.
-func (b *bot) Typing(jid string, on bool) {
+func (b *bot) Typing(jid, _ string, on bool) {
 	if b.mark != nil {
 		b.mark.Typing(jid, on)
 	}

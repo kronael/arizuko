@@ -34,7 +34,7 @@ func (b *stubBot) SendFile(jid, _, name, _, _, _, _ string) (string, error) {
 	return "", nil
 }
 
-func (b *stubBot) Typing(_ string, on bool) { b.typings = append(b.typings, on) }
+func (b *stubBot) Typing(_, _ string, on bool) { b.typings = append(b.typings, on) }
 
 func stubHandler(secret string) (http.Handler, *stubBot) {
 	sb := &stubBot{}

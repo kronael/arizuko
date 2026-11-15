@@ -268,11 +268,15 @@ var (
 	typingRetryWait = time.Second
 )
 
-func (h *HTTPChannel) Typing(jid string, on bool) error {
+func (h *HTTPChannel) Typing(jid, topic string, on bool) error {
 	if !h.entry.HasCap("typing") {
 		return nil
 	}
-	b, _ := json.Marshal(map[string]any{"chat_jid": jid, "on": on})
+	req := map[string]any{"chat_jid": jid, "on": on}
+	if topic != "" {
+		req["topic"] = topic
+	}
+	b, _ := json.Marshal(req)
 	// An adapter that is still starting refuses the connection; typing is sent
 	// once per turn, so a refused call would leave the whole turn without it.
 	resp, err := h.post(context.Background(), "/typing", b)

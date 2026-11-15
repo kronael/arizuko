@@ -168,12 +168,12 @@ func (fedDeliverer) SendVia(_, _, _ string) (string, error)       { return "plat
 func (fedDeliverer) SendOptions(_, _ string, _ []chanlib.Option, _, _ string) (string, error) {
 	return "platform-fed-1", nil
 }
-func (fedDeliverer) React(_, _, _ string) error      { return nil }
-func (fedDeliverer) Edit(_, _, _, _ string) error    { return nil }
-func (fedDeliverer) Delete(_, _, _ string) error     { return nil }
-func (fedDeliverer) Pin(_, _ string) error           { return nil }
-func (fedDeliverer) Unpin(_, _ string, _ bool) error { return nil }
-func (fedDeliverer) Typing(_ string, _ bool) error   { return nil }
+func (fedDeliverer) React(_, _, _ string) error       { return nil }
+func (fedDeliverer) Edit(_, _, _, _ string) error     { return nil }
+func (fedDeliverer) Delete(_, _, _ string) error      { return nil }
+func (fedDeliverer) Pin(_, _ string) error            { return nil }
+func (fedDeliverer) Unpin(_, _ string, _ bool) error  { return nil }
+func (fedDeliverer) Typing(_, _ string, _ bool) error { return nil }
 func (fedDeliverer) Document(_, _, _, _, _, _, _, _ string) (string, error) {
 	return "platform-fed-doc", nil
 }

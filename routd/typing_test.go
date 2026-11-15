@@ -19,8 +19,9 @@ type typingDeliverer struct {
 }
 
 type typingEvent struct {
-	jid string
-	on  bool
+	jid   string
+	topic string
+	on    bool
 }
 
 func (d *typingDeliverer) Send(_, _, _, _, _, _ string) (string, error) { return "pid-1", nil }
@@ -49,9 +50,9 @@ func (d *typingDeliverer) RoundDone(_, _, _, _ string) error                  { 
 func (d *typingDeliverer) FetchHistory(_ string, _ time.Time, _ int) ([]byte, error) {
 	return nil, nil
 }
-func (d *typingDeliverer) Typing(jid string, on bool) error {
+func (d *typingDeliverer) Typing(jid, topic string, on bool) error {
 	d.mu.Lock()
-	d.events = append(d.events, typingEvent{jid, on})
+	d.events = append(d.events, typingEvent{jid, topic, on})
 	d.mu.Unlock()
 	return nil
 }

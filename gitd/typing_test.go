@@ -129,8 +129,8 @@ func TestTyping_ReactsOnTheTriggerComment(t *testing.T) {
 			api, url := newReactionAPI(t)
 			e := typingBot(t, url)
 			e.comment(t, prJID, c.id, "mention")
-			e.b.Typing(prJID, true)
-			e.b.Typing(prJID, false)
+			e.b.Typing(prJID, "", true)
+			e.b.Typing(prJID, "", false)
 			wantCalls(t, api, "POST "+c.path, "DELETE "+c.path+"/101")
 			if api.bodies[0] != `{"content":"eyes"}` {
 				t.Errorf("reaction body = %s", api.bodies[0])
@@ -145,9 +145,9 @@ func TestTyping_OffRemovesTheReactionSet(t *testing.T) {
 	api, url := newReactionAPI(t)
 	e := typingBot(t, url)
 	e.comment(t, prJID, "gh-c1", "message")
-	e.b.Typing(prJID, true)
+	e.b.Typing(prJID, "", true)
 	e.comment(t, prJID, "gh-c2", "message")
-	e.b.Typing(prJID, false)
+	e.b.Typing(prJID, "", false)
 	wantCalls(t, api,
 		"POST /repos/kronael/arizuko/issues/comments/1/reactions",
 		"DELETE /repos/kronael/arizuko/issues/comments/1/reactions/101")
@@ -161,15 +161,15 @@ func TestTyping_TargetFollowsTheTrigger(t *testing.T) {
 	e := typingBot(t, url)
 	e.comment(t, prJID, "gh-c1", "message")
 	e.comment(t, prJID, "gh-c2", "issue_comment")
-	e.b.Typing(prJID, true)
-	e.b.Typing(prJID, false)
+	e.b.Typing(prJID, "", true)
+	e.b.Typing(prJID, "", false)
 	wantCalls(t, api,
 		"POST /repos/kronael/arizuko/issues/comments/1/reactions",
 		"DELETE /repos/kronael/arizuko/issues/comments/1/reactions/101")
 
 	e.comment(t, prJID, "gh-r77", "message")
-	e.b.Typing(prJID, true)
-	e.b.Typing(prJID, false)
+	e.b.Typing(prJID, "", true)
+	e.b.Typing(prJID, "", false)
 	if got := len(api.seen()); got != 2 {
 		t.Errorf("a review trigger sent %d more requests, want none", got-2)
 	}
@@ -179,8 +179,8 @@ func TestTyping_NoTokenSendsNothing(t *testing.T) {
 	api, url := newReactionAPI(t)
 	e := newTypingEnv(t, adapterStore(t), config{APIBase: url})
 	e.comment(t, prJID, "gh-c1", "message")
-	e.b.Typing(prJID, true)
-	e.b.Typing(prJID, false)
+	e.b.Typing(prJID, "", true)
+	e.b.Typing(prJID, "", false)
 	wantCalls(t, api)
 }
 
@@ -190,8 +190,8 @@ func TestTyping_AlreadyReactedIsSuccess(t *testing.T) {
 	api.postStatus = 200
 	e := typingBot(t, url)
 	e.comment(t, prJID, "gh-c1", "message")
-	e.b.Typing(prJID, true)
-	e.b.Typing(prJID, false)
+	e.b.Typing(prJID, "", true)
+	e.b.Typing(prJID, "", false)
 	if got := api.seen(); len(got) != 2 || !strings.HasPrefix(got[1], "DELETE ") {
 		t.Errorf("requests = %q", got)
 	}
@@ -210,8 +210,8 @@ func TestTyping_RefusalIsLoggedNotRaised(t *testing.T) {
 	api.postReply = `{"message":"Resource not accessible by integration"}`
 	e := typingBot(t, url)
 	e.comment(t, prJID, "gh-c1", "message")
-	e.b.Typing(prJID, true)
-	e.b.Typing(prJID, false)
+	e.b.Typing(prJID, "", true)
+	e.b.Typing(prJID, "", false)
 
 	wantCalls(t, api, "POST /repos/kronael/arizuko/issues/comments/1/reactions")
 	for _, want := range []string{"level=WARN", "ack mark: add failed", "Resource not accessible by integration"} {
@@ -226,9 +226,9 @@ func TestTyping_AlreadyGoneIsSuccess(t *testing.T) {
 	api, url := newReactionAPI(t)
 	e := typingBot(t, url)
 	e.comment(t, prJID, "gh-c1", "message")
-	e.b.Typing(prJID, true)
+	e.b.Typing(prJID, "", true)
 	api.deleteStatus = 404
-	e.b.Typing(prJID, false)
+	e.b.Typing(prJID, "", false)
 	if marks, _ := e.st.Marks(t.Context()); len(marks) != 0 {
 		t.Errorf("a 404 on the delete kept the record: %+v", marks)
 	}
@@ -241,7 +241,7 @@ func TestTyping_BackstopRemovesALostOff(t *testing.T) {
 	api, url := newReactionAPI(t)
 	e := typingBot(t, url)
 	e.comment(t, prJID, "gh-c1", "message")
-	e.b.Typing(prJID, true)
+	e.b.Typing(prJID, "", true)
 	select {
 	case <-api.deleted:
 	case <-time.After(5 * time.Second):
@@ -265,7 +265,7 @@ func TestStop_KeepsTheStandingReaction(t *testing.T) {
 	api, url := newReactionAPI(t)
 	e := typingBot(t, url)
 	e.comment(t, prJID, "gh-c1", "message")
-	e.b.Typing(prJID, true)
+	e.b.Typing(prJID, "", true)
 	e.b.stop()
 	wantCalls(t, api, "POST /repos/kronael/arizuko/issues/comments/1/reactions")
 }
@@ -277,10 +277,10 @@ func TestTyping_OffAfterARestartRemovesTheReaction(t *testing.T) {
 	st := adapterStore(t)
 	first := newTypingEnv(t, st, config{Token: "ghp_test", APIBase: url})
 	first.comment(t, prJID, "gh-c1", "message")
-	first.b.Typing(prJID, true)
+	first.b.Typing(prJID, "", true)
 
 	second := newTypingEnv(t, st, config{Token: "ghp_test", APIBase: url})
-	second.b.Typing(prJID, false)
+	second.b.Typing(prJID, "", false)
 
 	wantCalls(t, api,
 		"POST /repos/kronael/arizuko/issues/comments/1/reactions",
@@ -295,7 +295,7 @@ func TestSweep_ClearsAReactionAKilledProcessLeft(t *testing.T) {
 	st := adapterStore(t)
 	first := newTypingEnv(t, st, config{Token: "ghp_test", APIBase: url})
 	first.comment(t, prJID, "gh-rc9", "mention")
-	first.b.Typing(prJID, true)
+	first.b.Typing(prJID, "", true)
 	wantCalls(t, api, "POST /repos/kronael/arizuko/pulls/comments/9/reactions")
 
 	shortBackstop(t)
@@ -329,8 +329,8 @@ func TestWebhook_RecordsTheTriggerComment(t *testing.T) {
 		}
 		msgs := e.routd.messages()
 		jid := msgs[len(msgs)-1].ChatJID
-		e.srv.bot.Typing(jid, true)
-		e.srv.bot.Typing(jid, false)
+		e.srv.bot.Typing(jid, "", true)
+		e.srv.bot.Typing(jid, "", false)
 		got := api.seen()
 		if len(got) < 2 || got[len(got)-2] != "POST "+c.path {
 			t.Errorf("%s: requests %q, want a POST to %s", c.event, got, c.path)
@@ -347,6 +347,6 @@ func TestWebhook_DroppedCommentIsNotATrigger(t *testing.T) {
 	if w.Code != 200 || !strings.Contains(w.Body.String(), `"dropped"`) {
 		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
 	}
-	e.srv.bot.Typing(prJID, true)
+	e.srv.bot.Typing(prJID, "", true)
 	wantCalls(t, api)
 }

@@ -182,7 +182,7 @@ func (d *chanDeliverer) Unpin(jid, platformID string, all bool) error {
 	return ch.Unpin(context.Background(), jid, platformID, all)
 }
 
-func (d *chanDeliverer) Typing(jid string, on bool) error {
+func (d *chanDeliverer) Typing(jid, topic string, on bool) error {
 	if d.disabled(jid) {
 		return nil
 	}
@@ -190,7 +190,7 @@ func (d *chanDeliverer) Typing(jid string, on bool) error {
 	if ch == nil {
 		return nil // best-effort; never fail the turn
 	}
-	return ch.Typing(jid, on)
+	return ch.Typing(jid, topic, on)
 }
 
 func (d *chanDeliverer) Post(jid, content string, mediaPaths []string) (string, error) {

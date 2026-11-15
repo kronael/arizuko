@@ -60,7 +60,9 @@ type BotHandler interface {
 	Send(req SendRequest) (string, error)
 	SendFile(jid, path, name, caption, replyTo, threadID, threadRoot string) (string, error)
 	SendVoice(jid, audioPath, caption, threadID, threadRoot string) (string, error)
-	Typing(jid string, on bool)
+	// Typing names a chat and an optional topic (a thread inside it); an
+	// adapter without topics ignores topic.
+	Typing(jid, topic string, on bool)
 	Post(req PostRequest) (string, error)
 	Like(req LikeRequest) error
 	Delete(req DeleteRequest) error
@@ -472,6 +474,7 @@ func handleTyping(bot BotHandler) http.HandlerFunc {
 		r.Body = http.MaxBytesReader(w, r.Body, MaxAdapterJSONBody)
 		var req struct {
 			ChatJID string `json:"chat_jid"`
+			Topic   string `json:"topic"`
 			On      bool   `json:"on"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -483,7 +486,7 @@ func handleTyping(bot BotHandler) http.HandlerFunc {
 			WriteErr(w, 400, "chat_jid required")
 			return
 		}
-		bot.Typing(req.ChatJID, req.On)
+		bot.Typing(req.ChatJID, req.Topic, req.On)
 		WriteJSON(w, map[string]any{"ok": true})
 	}
 }

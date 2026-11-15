@@ -376,7 +376,7 @@ func TestProgress_EndDeletesTheLine(t *testing.T) {
 	if tc, _ := db.GetTurnContext("t1"); tc.State != store.TurnDone {
 		t.Fatalf("turn state = %q, want done", tc.State)
 	}
-	if len(dl.typings) != 1 || dl.typings[0] != (typingEvent{progressJID, false}) {
+	if len(dl.typings) != 1 || dl.typings[0] != (typingEvent{progressJID, "", false}) {
 		t.Fatalf("typings=%+v, want one off on %s", dl.typings, progressJID)
 	}
 }
