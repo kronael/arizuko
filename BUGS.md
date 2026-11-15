@@ -123,7 +123,7 @@ and `DueTasks` read the `tasks/firing` and `tasks/due` index instead
 package timeout. `TestProgress_FailedEditWaitsBeforeRetry` injects a plain
 `errors.New("edit failed")`, which plan-09 classifies permanent, so the edit is
 not retried.
-**Measured:** whole `./routd` at `8a47a5a36b10e3ec5c0bd6ea7b11c6b1bdb06e6e` on a
+**Measured:** whole `./routd` at `8a47a5a3625b947a62e139ef087e7894215d8fff` on a
 fresh DynamoDB Local: the second fails ("retry: [...]" one edit), the first runs
 15 m until the 1 h timeout (`rel16/tmp/g/h4-routd.log`). Both tests are
 unchanged from origin/main.
