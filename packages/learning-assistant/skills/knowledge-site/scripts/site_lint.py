@@ -13,6 +13,7 @@ register it with @rule("name"). Every finding is an error.
 """
 
 import argparse
+import datetime
 import os
 import re
 import sys
@@ -74,6 +75,8 @@ class Page:
     h1: str = ''
     has_h1: bool = False
     refresh: str | None = None
+    refresh_line: int = 0
+    metas: dict[str, str] = field(default_factory=dict)
     imbalance: str = ''
 
 
@@ -107,9 +110,12 @@ class _Parser(HTMLParser):
             if tag == 'link' and 'stylesheet' in a.get('rel', '').lower().split():
                 kind = 'stylesheet'
             page.links.append(Link(line, a[key], kind))
+        if tag == 'meta' and a.get('name') and 'content' in a:
+            page.metas.setdefault(a['name'], a['content'])
         if tag == 'meta' and a.get('http-equiv', '').lower() == 'refresh':
             found = re.search(r'url\s*=\s*[\'"]?([^\'";]+)', a.get('content', ''), re.IGNORECASE)
             page.refresh = found[1].strip() if found else ''
+            page.refresh_line = line
         if tag in ('script', 'style'):
             self.raw = tag
         if tag == 'title' and not self.title_done:
@@ -328,6 +334,58 @@ def check_css_class(site: Site) -> Iterator[Finding]:
             if use.name not in defined and use.name not in seen:
                 seen.add(use.name)
                 yield Finding(page.name, f'line {use.line}: undefined class {use.name}')
+
+
+META_TYPE = re.compile(r'[a-z][a-z-]*')
+
+
+@rule('page-meta')
+def check_page_meta(site: Site) -> Iterator[Finding]:
+    for page in site.pages.values():
+        if is_stub(page):
+            continue
+        kind = page.metas.get(f'{site.ns}:type')
+        if kind is None or not META_TYPE.fullmatch(kind):
+            yield Finding(page.name, f'{site.ns}:type missing or not [a-z][a-z-]*: {kind!r}')
+        date = page.metas.get(f'{site.ns}:date')
+        try:
+            if date is None or not re.fullmatch(r'\d{4}-\d{2}-\d{2}', date):
+                raise ValueError(date)
+            datetime.date.fromisoformat(date)
+        except ValueError:
+            yield Finding(page.name, f'{site.ns}:date missing or not a valid YYYY-MM-DD: {date!r}')
+
+
+@rule('redirect-stub')
+def check_redirect_stub(site: Site) -> Iterator[Finding]:
+    for page in site.pages.values():
+        if not is_stub(page):
+            continue
+        res = site.resolve(page, Link(page.refresh_line, page.refresh or '', 'refresh'))
+        if res.error:
+            yield Finding(page.name, f'line {page.refresh_line}: refresh target: {res.error}')
+        elif not res.path:
+            yield Finding(page.name, f'line {page.refresh_line}: refresh target {page.refresh} is not a local page')
+        elif not any(
+            link.kind == 'a' and site.resolve(page, link).path == res.path for link in page.links
+        ):
+            yield Finding(page.name, f'line {page.refresh_line}: body does not link the refresh target {page.refresh}')
+
+
+@rule('orphan')
+def check_orphan(site: Site) -> Iterator[Finding]:
+    linked: set[Path] = set()
+    for page in site.pages.values():
+        links = [link for link in page.links if link.kind == 'a']
+        if is_stub(page):
+            links.append(Link(page.refresh_line, page.refresh or '', 'refresh'))
+        for link in links:
+            res = site.resolve(page, link)
+            if res.path and not res.error and res.path != page.path:
+                linked.add(res.path)
+    for name, page in site.pages.items():
+        if name != 'index.html' and not is_stub(page) and page.path not in linked:
+            yield Finding(name, 'no other page links here')
 
 
 def main(argv: list[str] | None = None) -> int:

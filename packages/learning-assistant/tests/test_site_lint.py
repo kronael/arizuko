@@ -151,6 +151,71 @@ class SiteLintTests(unittest.TestCase):
         self.edit('tailwind.html', '<script src="https://cdn.tailwindcss.com"></script>', '')
         self.assertIn('undefined class flex', ' '.join(self.findings('css-class')))
 
+    def test_page_meta_bad_type_fires(self):
+        self.edit('section/one.html', 'name="site:type" content="research"', 'name="site:type" content="Research1"')
+        (finding,) = self.findings('page-meta')
+        self.assertIn('section/one.html', finding)
+        self.assertIn('site:type', finding)
+
+    def test_page_meta_missing_type_fires(self):
+        self.edit('section/one.html', '<meta name="site:type" content="research">\n', '')
+        (finding,) = self.findings('page-meta')
+        self.assertIn('site:type', finding)
+
+    def test_page_meta_invalid_date_fires(self):
+        self.edit('section/one.html', 'content="2026-02-01"', 'content="2026-02-30"')
+        (finding,) = self.findings('page-meta')
+        self.assertIn('site:date', finding)
+
+    def test_page_meta_uses_namespace_and_exempts_stub(self):
+        result = subprocess.run(
+            [sys.executable, '-B', str(LINT), str(self.site), '--www', str(self.www), '--ns', 'other', '--rule', 'page-meta'],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertIn('other:type missing', result.stdout)
+        self.assertNotIn('moved.html', result.stdout)
+
+    def test_redirect_stub_missing_target_fires(self):
+        self.edit('moved.html', 'url=section/one.html', 'url=section/gone.html')
+        self.edit('moved.html', 'href="section/one.html">', 'href="section/gone.html">')
+        (finding,) = self.findings('redirect-stub')
+        self.assertIn('moved.html', finding)
+        self.assertIn('no such page', finding)
+
+    def test_redirect_stub_body_link_mismatch_fires(self):
+        self.edit('moved.html', '<a href="section/one.html">', '<a href="section/two.html">')
+        (finding,) = self.findings('redirect-stub')
+        self.assertIn('does not link the refresh target', finding)
+
+    def test_redirect_stub_empty_target_fires(self):
+        self.edit('moved.html', 'content="0; url=section/one.html"', 'content="0"')
+        (finding,) = self.findings('redirect-stub')
+        self.assertIn('empty URL', finding)
+
+    def test_orphan_unlinked_page_fires(self):
+        self.edit('section/index.html', '<li><a href="two.html">Two</a>\n', '')
+        self.edit('index.html', '<a href="section/two.html#details">Details</a>', '')
+        self.edit('index.html', '<a href="section/two.html#legacy">Legacy anchor</a>', '')
+        (finding,) = self.findings('orphan')
+        self.assertIn('section/two.html', finding)
+
+    def test_orphan_self_link_does_not_count(self):
+        self.edit('section/index.html', '<li><a href="one.html">One</a>\n', '')
+        self.edit('section/one.html', 'the <a href="./">section</a>', 'the <a href="one.html">page</a>')
+        for _ in range(3):
+            self.edit('moved.html', 'section/one.html', 'section/two.html')
+        self.edit('section/two.html', ' <a href="one.html">One</a>', '')
+        self.assertIn('section/one.html', ' '.join(self.findings('orphan')))
+
+    def test_orphan_stub_exempt_and_refresh_counts(self):
+        self.assertEqual(self.findings('orphan'), [])
+        self.edit('index.html', '<a href="moved.html">Moved</a>', '')
+        self.edit('section/index.html', '<li><a href="one.html">One</a>\n', '')
+        self.edit('section/one.html', 'the <a href="./">section</a>', '')
+        self.assertEqual(self.findings('orphan'), [])
+
 
 if __name__ == '__main__':
     unittest.main()
