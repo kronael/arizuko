@@ -97,4 +97,4 @@ cd packages/learning-assistant && PYTHONDONTWRITEBYTECODE=1 python3 -m pytest te
 The linter tests run all six rules on the clean fixture site in `tests/fixtures/site/`, built from the components, then break a copy of that site for each case and expect the rule to fire.
 The catalogue tests cover grouping, order, stub skipping and the unknown-type exit.
 The package tests check the persona frontmatter and that every path a skill names exists.
-`eval/learning-assistant.toml` holds four `anteval` cases, and each one cites the persona line it tests.
+`eval/learning-assistant.toml` holds four `anteval` cases: a reply check and three cases that each cite the persona line they test.
