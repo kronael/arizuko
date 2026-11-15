@@ -6,12 +6,14 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"maps"
 	"slices"
 )
 
 const IndexEntity = "state_index"
 const IndexBatchSize = 8
+const reindexProgressRows = 1000
 const IndexRevision = "_index_revision"
 
 type Indexer interface {
@@ -235,13 +237,16 @@ func QueryIndex(ctx context.Context, s Store, q Query) ([]Item, error) {
 }
 
 // Reindex runs before the owner's workers start. The marker commits only
-// after every row has its pointers, so an interrupted run can resume.
+// after every row has its pointers, so an interrupted run can resume. It logs
+// its start, every reindexProgressRows rows and its end (BUGS L888).
 func Reindex(ctx context.Context, s Store, marker string, partitions []Query) error {
 	key := Key{Partition: "migrations", Sort: marker}
 	_, done, err := indexPoint(ctx, s, IndexEntity, key)
 	if err != nil || done {
 		return err
 	}
+	slog.Info("reindex start", "marker", marker)
+	total := 0
 	for _, q := range partitions {
 		rows, err := s.Query(ctx, q)
 		if err != nil {
@@ -255,8 +260,12 @@ func Reindex(ctx context.Context, s Store, marker string, partitions []Query) er
 			if !ok {
 				return fmt.Errorf("reindex %s/%s: row changed", q.Entity, it.Key.Sort)
 			}
+			if total++; total%reindexProgressRows == 0 {
+				slog.Info("reindex progress", "marker", marker, "rows", total)
+			}
 		}
 	}
+	slog.Info("reindex end", "marker", marker, "rows", total)
 	_, err = s.GuardedBatch(ctx, nil, []Write{{Op: Put, Entity: IndexEntity, Key: key,
 		Attrs: map[string]string{"done": "1"}, Cond: Cond{Item: ItemAbsent}}})
 	return err
