@@ -98,12 +98,12 @@ type recoveryGate struct {
 }
 
 func (g *recoveryGate) Query(ctx context.Context, q objstore.Query) ([]objstore.Item, error) {
-	if q.Entity == store.ScheduledTasks && len(q.Where) == 1 && q.Where[0].Attr == "status" {
-		switch q.Where[0].Value {
-		case store.TaskStatusFiring:
+	if q.Entity == objstore.IndexEntity {
+		switch q.Partition {
+		case "tasks/firing":
 			close(g.entered)
 			<-g.release
-		case core.TaskActive:
+		case "tasks/due":
 			close(g.tick)
 		}
 	}
@@ -118,7 +118,11 @@ func TestScheduleWaitsForRecovery(t *testing.T) {
 	loop.BindServer(srv)
 	ctx, cancel := context.WithCancel(context.Background())
 	go loop.Run(ctx)
-	<-gate.entered
+	select {
+	case <-gate.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("recovery never queried the tasks/firing index")
+	}
 	select {
 	case <-gate.tick:
 		t.Error("scheduler started before recovery finished")

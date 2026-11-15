@@ -77,7 +77,7 @@ func TestProgress_CoalescesLatestAndRetries(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	dl.editErr = errors.New("edit failed")
+	dl.editErr = transientFact(errors.New("edit failed"))
 	srv.flushProgress(time.Now().Add(progressInterval))
 	if rows := statusRows(t, db, progressJID); !strings.Contains(rows[0].Content, "C") {
 		t.Fatalf("failed edit lost desired content: %+v", rows)
@@ -109,7 +109,7 @@ func TestProgress_FailedEditWaitsBeforeRetry(t *testing.T) {
 	progress := value.(*turnProgress)
 	progress.lastPublished = time.Now().Add(-progressInterval)
 	progress.lastAttempt = progress.lastPublished
-	dl.editErr = errors.New("edit failed")
+	dl.editErr = transientFact(errors.New("edit failed"))
 	if _, err := srv.submitStatus(ipc.TurnStatus{TurnID: "t1", Text: "second"}); err == nil {
 		t.Fatal("edit error not returned")
 	}
