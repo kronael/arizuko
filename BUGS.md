@@ -14,6 +14,126 @@
 > so counting one as open overstates the queue.
 
 
+## L901 — routd asks the model gateway for the budget before every spawn, even for a handler that calls no model (2026-11-15, open — owner signed off)
+
+`routd/dispatch.go:553` calls `l.budgetGate(...)` before every spawn. A gateway that
+does not answer returns `ErrDependencyDown` (`routd/dispatch.go:557-558`) and fails
+the turn; a spent cap publishes a refusal and consumes the batch
+(`routd/dispatch.go:561-568`). The call does not look at what the handler does, so a
+static handler waits for the gateway like `ant` does.
+`specs/7/57-group-handler.md` § "The gateway check stays before every spawn" states
+this as the recommendation, awaiting the owner's review.
+**Decision (owner, 2026-11-15):** "don't check model credits for non-model
+invocations. ant should do that, or the gateway only offers those in env".
+**Measured:** `grep -n "budgetGate\|ErrDependencyDown" routd/dispatch.go` at
+`4e40076b6e7973c7bafc6726c9d8d740246ce8eb` shows the call at 553 with no condition
+on the handler kind; `routd/budget.go:18` `budgetGate` has no handler parameter, and
+`ant/src/backend.ts:71` `providerFailure` returns `rate_limit` for any 429 that is not
+one of three spend codes, so the gateway's 429 `budget_exceeded`
+(`specs/6/39-gateway-owns-spend.md` § "What LiteLLM already holds") reads as a rate
+limit.
+**Fix:** the pre-spawn refusal goes. `routd/budget.go` keeps only the cap reconcile
+(the folder's team exists; team and user carry the operator's cap) and runs at the
+key-mint site (`routd/dispatch.go:618`, `routd/gateway.go:84`), which already needs
+the team. The gateway refuses the model call itself (429 `budget_exceeded`). `ant`
+classifies code `budget_exceeded` as `spend_limit` in `providerFailure`.
+
+## L902 — a token refreshed during a turn on the borrowed Codex login is lost (2026-11-15, open — owner signed off)
+
+The borrowed login is read-only at every hop. `runed/mounts.go:291-325`
+`stageCodexCreds` copies each file at mode 0400 and mounts it `RO: true` (line 322);
+`removeCodexStage` (`runed/mounts.go:333`, deferred at `runed/manager.go:341`) deletes
+the copy when the turn ends. `compose/compose.go:1189` binds every `hostViewPaths`
+entry, `HOST_CODEX_DIR` among them, as `:ro`. `ant/src/pi.ts:201-211` `readMountedFile`
+throws unless the mount is `ro`; `runPi` converts the login into a temporary
+`PI_CODING_AGENT_DIR` (`ant/src/pi.ts:241-252`) that the `finally` at line 256
+deletes. A refresh token rotated mid-turn exists only in that directory, so the next
+turn presents the invalidated one. `specs/7/60-pi-bridge.md` § "Implementation
+status" and § "Deferred credential ownership" accept snapshot-only borrowing.
+**Decision (owner, 2026-11-15):** "the tokens need to be read/write of course,
+otherwise the rotation won't work".
+**Measured:** `grep -n "RO:\|0o400" runed/mounts.go`, `sed -n 1189p
+compose/compose.go` and `grep -n "read-only mount\|rmSync" ant/src/pi.ts` at
+`4e40076b6e7973c7bafc6726c9d8d740246ce8eb` show the 0400 copy, the `RO: true` mount,
+the `:ro` bind, the read-only check and the deleted temporary directory. No path
+writes a changed token back to `HOST_CODEX_DIR`.
+**Fix:** runed stages `auth.json` writable; when the turn ends, a changed and valid
+staged copy replaces `HOST_CODEX_DIR/auth.json` atomically, keeping the operator
+file's owner and mode. compose binds `HOST_CODEX_DIR` read-write into runed. `ant`
+writes pi's refreshed `openai-codex` record back into `~/.codex/auth.json`.
+`config.toml` stays read-only.
+
+## L903 — dashd edits a group's harness as one raw JSON textarea and writes it straight to the store (2026-11-15, open — owner asked for the fix)
+
+`dashd/groups_admin.go:274` renders `Harness JSON` as one `<textarea name="harness">`;
+lines 352-357 pass the trimmed text as a `json.RawMessage` to
+`d.routdStore().AsUser(sub).SetGroupSettings`. `routdStore` (`dashd/main.go:337-342`)
+is `store.NewOver(d.routd)`, dashd's own handle on routd's object store, so the write
+bypasses routd's `PATCH /v1/groups/{folder}` door (`resreg/resources/groups.go:32`,
+served by `routd/groups_http.go:15` and `routd/groups_resource.go:75-90`).
+`specs/6/53-per-group-harness.md:237-241` requires: "dashd uses free-text backend,
+model and effort fields, plus one explicit "Use instance defaults" control. Saving
+constructs one document; blank optional fields are omitted." and "dashd calls the
+groups update through `/v1` with the caller's authority." The diagram at line 210-215
+lists `dashd SetGroupModel write (removed)`; no row says in so many words that dashd
+never writes the store for this, and that line is the closest statement.
+**Measured:** `grep -n "Use instance defaults" dashd/*.go` finds nothing;
+`dashd/chat_settings_test.go:151` asserts the textarea
+`<textarea name="harness">` + the whole document + `</textarea>`, pinning the raw form.
+`dashd/groups_admin.go:357` is the only dashd call to `SetGroupSettings`.
+**Fix:** replace the textarea with backend, model and effort text fields and a "Use
+instance defaults" control; build one document, omit blank fields, and send it with a
+`PATCH /v1/groups/{folder}` carrying the caller's authority. Update the test at line
+151 to the new form.
+
+## L904 — `settingsOf` returns an empty settings value for a malformed stored document (2026-11-15, open — owner asked for the fix)
+
+`store/groups.go:65-71` maps a `decodeSettings` error to `map[string]any{}`, with the
+comment "An absent or unparseable one is the EMPTY document". Its callers act on
+defaults silently: `setSetting` (`store/groups.go:466`, which then rewrites the
+document from the empty map and so erases the malformed original's other keys),
+`GroupObserveWindow` (`:497`, reports "not set"), `SetGroupObserveWindow` (`:518`,
+same rewrite as `setSetting`) and `SiblingFolders` (`:615`, treats a malformed row as
+open). `specs/6/53-per-group-harness.md:176-177` requires: "Malformed stored
+settings produce a visible read failure, never the empty-default result of
+`store/groups.go:66`."
+**Measured:** `grep -n "settingsOf\|decodeSettings" store/*.go` at
+`4e40076b6e7973c7bafc6726c9d8d740246ce8eb` lists exactly those four callers; the
+function body is at lines 65-71. `SetGroupSettings` (`store/groups.go:565-570`) already
+fails on malformed JSON with `invalid settings JSON`.
+**Fix:** the four callers use `decodeSettings` and return its error;
+`GroupObserveWindow` and `SiblingFolders` log it and fail the read as the spec
+requires; delete `settingsOf`.
+
+## L905 — googd reads `SHEETS_API_URL` but compose does not pass it (2026-11-15, open — owner asked for the fix)
+
+`googd/main.go:294` reads `core.EnvOr("SHEETS_API_URL", "https://sheets.googleapis.com")`
+(documented in `googd/README.md:69`). The `googd` key list at `compose/compose.go:220`
+ends `"GDRIVE_POLL_INTERVAL", "GDRIVE_API_URL"`, so an operator's `SHEETS_API_URL`
+never reaches the daemon on an instance and the default always applies.
+**Measured:** `grep -rn "SHEETS_API_URL" --include=*.go .` at
+`4e40076b6e7973c7bafc6726c9d8d740246ce8eb` finds `googd/main.go:294` and
+`googd/passthrough_test.go:93`; `compose/compose.go` has no match.
+**Fix:** add `"SHEETS_API_URL"` to the `googd` entry at `compose/compose.go:220`.
+
+## L906 — pi cannot take gateway models from the operator's `models.json` (2026-11-15, open — owner asked for the fix)
+
+`ant/src/pi.ts:235-237` throws `pi models configuration cannot override the model
+gateway` whenever `MODEL_GATEWAY_URL` is set and the mounted `models.json` has any
+provider. `specs/7/60-pi-bridge.md:570` says: "Native `models.json` supplies
+non-catalog gateway models, including the API and model ID served by the gateway."
+Line 571 limits this: "Reject a selected model override that bypasses a configured
+gateway." The code rejects every provider declaration, including one whose `baseUrl`
+is the gateway, so a model the gateway serves that is not in pi's catalog cannot be
+selected.
+**Measured:** `sed -n 233,238p ant/src/pi.ts` and `sed -n 570,571p
+specs/7/60-pi-bridge.md` at `4e40076b6e7973c7bafc6726c9d8d740246ce8eb`; the check is
+`turn.env.MODEL_GATEWAY_URL && Object.keys(parsed.providers ?? {}).length` with no
+comparison of any `baseUrl` to the gateway URL.
+**Fix:** in gateway mode accept a provider whose `baseUrl` is the gateway URL and keep
+rejecting one that points elsewhere; a test inspects the outgoing URL and
+`Authorization` header, as the spec requires.
+
 ## ✅ FIXED 2026-11-15 abc8f10fe64698ef052375b6813d42b929c6fbf4 a0c823184f54c32164af1f14cc40a652fc639188 L883 — a reply to a chat with no registered adapter is dead-lettered at once (2026-11-15)
 
 `retry.HTTPFailure` calls an error with no HTTP status and no transport cause
