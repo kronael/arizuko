@@ -136,6 +136,20 @@ traced; plan-09 makes Busy a persisted capacity wait (`waiting_capacity`).
 Cause: the Busy branch of `routd/dispatch.go` always called `pauseProgress`;
 main kept typing on (`l.waiting`) unless the turn stopped or was a saved replay.
 
+## L898 — group rename tests see wildcard ACL params as unauthorized (2026-11-15)
+
+`cmd/arizuko TestAstraWildcardACLParamsPreflight` ("fixture was not
+authorized") and 8 of the subtests of `TestGroupRenameACLExactCoordinateMatchers`
+("native preimage authorization: false want true") fail: an ACL row with a
+`folder=m*` (or empty) params matcher, seeded through the rename fixture, no
+longer authorizes `mcp:send` on `main`.
+**Measured:** fail at `9e05565d16b61d0add86d33620a53ec53cf58148`
+(`rel16/tmp/g/h4-cmd_arizuko.log`); pass on origin/main
+`f5d29966f8c7672ae92803a0174dafafed736137` (`rel16/tmp/g/h7-main-cmd.log`), both on a
+fresh DynamoDB Local. The other 16 `cmd/arizuko` failures (EXTENDDB_PASSWORD,
+ARIZUKO_TEST_MOVE_*) fail identically on main. Cause not yet traced; the
+candidate reads wildcard policy through a new index.
+
 ## ✅ FIXED 2026-11-15 999ec079ecdf17059272b192f6f5ba2896952397 L895 — `routd TestKilledTurnResumesItsOwnSession` kills the run with an untyped error (2026-11-15)
 
 The fixture's runner fails the first attempt with
