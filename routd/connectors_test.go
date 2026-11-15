@@ -2,6 +2,9 @@ package routd
 
 import (
 	"context"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"maps"
 	"net/http"
 	"net/http/httptest"
@@ -616,5 +619,81 @@ Authorization = "Bearer {secret:NOTION_TOKEN}"
 	t.Setenv("CONNECTORS_TOML", bad)
 	if _, err := LoadConnectors(dir); err == nil {
 		t.Error("an unknown key must still fail the boot")
+	}
+}
+
+// template/connectors/google.toml declares its tools over googd's passthrough
+// (spec 6/45). The prefix table lives in googd/passthrough.go as the cases of
+// the switch on the API segment; reading it from source means a renamed prefix
+// breaks this test rather than the first agent call.
+func TestTemplateGoogleConnectorMatchesPassthrough(t *testing.T) {
+	src, err := os.ReadFile(filepath.Join("..", "template", "connectors", "google.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "connectors.toml"), src, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := LoadExtProviders(context.Background(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var tools []ipc.ExtTool
+	for _, tl := range loaded {
+		if strings.HasPrefix(tl.LocalName, "google_") {
+			tools = append(tools, tl)
+		}
+	}
+
+	f, err := parser.ParseFile(token.NewFileSet(), filepath.Join("..", "googd", "passthrough.go"), nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prefixes := map[string]bool{}
+	ast.Inspect(f, func(n ast.Node) bool {
+		if sw, ok := n.(*ast.SwitchStmt); ok {
+			if id, ok := sw.Tag.(*ast.Ident); ok && id.Name == "api" {
+				for _, c := range sw.Body.List {
+					for _, e := range c.(*ast.CaseClause).List {
+						prefixes[strings.Trim(e.(*ast.BasicLit).Value, `"`)] = true
+					}
+				}
+			}
+		}
+		return true
+	})
+	if !prefixes["sheets"] || !prefixes["drive"] {
+		t.Fatalf("passthrough prefix table: %v, want drive and sheets", prefixes)
+	}
+
+	want := map[string]struct{ method, path string }{
+		"google_read_sheet_range": {"GET", "/sheets/v4/spreadsheets/{spreadsheet_id}/values/{range}"},
+	}
+	if len(tools) != len(want) {
+		t.Fatalf("google.toml declares %d tools, want %d: %+v", len(tools), len(want), tools)
+	}
+	for _, tl := range tools {
+		w, ok := want[tl.LocalName]
+		if !ok {
+			t.Errorf("unexpected tool %s", tl.LocalName)
+			continue
+		}
+		if tl.Method != w.method || tl.Path != w.path {
+			t.Errorf("%s: %s %s, want %s %s", tl.LocalName, tl.Method, tl.Path, w.method, w.path)
+		}
+		if !strings.HasSuffix(tl.BaseURL, "/google") {
+			t.Errorf("%s: base %q does not end at googd's /google", tl.LocalName, tl.BaseURL)
+		}
+		if api := strings.SplitN(tl.Path, "/", 3)[1]; !prefixes[api] {
+			t.Errorf("%s: path %s starts with %q, which googd's passthrough does not serve", tl.LocalName, tl.Path, api)
+		}
+		if got := tl.Headers["Authorization"]; got != "Bearer {secret:GOOGD_CONNECTOR_TOKEN}" {
+			t.Errorf("%s: Authorization %q", tl.LocalName, got)
+		}
+		if !strings.Contains(string(tl.InputSchema), `"required":["range","spreadsheet_id"]`) &&
+			!strings.Contains(string(tl.InputSchema), `"required":["spreadsheet_id","range"]`) {
+			t.Errorf("%s: schema %s does not require both path parameters", tl.LocalName, tl.InputSchema)
+		}
 	}
 }
