@@ -27,7 +27,7 @@ interface ContainerInput {
 }
 
 interface ContainerOutput {
-  status: 'success' | 'error' | 'refused';
+  status: 'success' | 'error' | 'refused' | 'budget';
   newSessionId?: string;
   error?: string;
   harness?: string;
@@ -325,7 +325,7 @@ async function runAttempt(
             out.failedReason = frame.text;
           }
           const ack = await deliver(turnID, {
-            status: frame.ok ? 'success' : frame.refused ? 'refused' : 'error',
+            status: frame.ok ? 'success' : frame.refused === 'safety' ? 'refused' : frame.refused ?? 'error',
             newSessionId: out.sessionId,
             error: frame.ok
               ? undefined

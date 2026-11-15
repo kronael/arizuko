@@ -5,6 +5,7 @@ import os from 'os';
 import path from 'path';
 import {
   addUsage,
+  isBudgetRefusal,
   driveCli,
   Frame,
   Harness,
@@ -153,6 +154,8 @@ export class PiTurn {
       && this.lastStop !== 'error'
       && this.lastStop !== 'aborted';
     const err = this.lastError ?? (stderrTail.trim() || `pi exited ${exitCode}`);
+    if (!ok && this.lastStop === 'error' && this.lastError && isBudgetRefusal('', this.lastError))
+      return { kind: 'result', ok, text: err, refused: 'budget' };
     return {
       kind: 'result',
       ok,

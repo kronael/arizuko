@@ -1,8 +1,9 @@
 import { expect, test } from 'bun:test';
 import { ClaudeTurn, runClaude } from './claude.js';
 import { CodexTurn } from './codex.js';
+import { PiTurn } from './pi.js';
 import { runTurn } from './index.js';
-import { isProviderFailurePermanent, type Frame, type Harness } from './backend.js';
+import { isProviderFailurePermanent, providerFailure, type Frame, type Harness } from './backend.js';
 import type { SubmitTurnPayload } from './mcp.js';
 
 const spend = {
@@ -205,4 +206,84 @@ test('SDK cancellation overrides transient facts', async () => {
       env: {}, deadline: Date.now() + 10000 }, query)) frames.push(frame);
     expect(frames[0]).toMatchObject({ ok: false, terminal: true });
   }
+});
+
+const gateway = (status: number, message: string) => ({ status, message,
+  body: `{"error":{"message":"${message}","type":"budget_exceeded","param":null,"code":"${status}"}}` });
+const refusals = [429, 422].flatMap(status => [
+  gateway(status, 'Budget has been exceeded! Team=corp/eng Current cost: 5.2, Max budget: 5.0'),
+  gateway(status, 'ExceededBudget: User=u1 over budget. Spend=5.2, Budget=5.0'),
+]);
+
+/** A gateway budget refusal is one folder's or person's cap, never a provider failure. */
+test('gateway budget refusal is not a provider failure', () => {
+  for (const { status, message } of refusals) {
+    expect(providerFailure(status, String(status), message)).toBeUndefined();
+    expect(providerFailure(status, 'budget_exceeded', 'refused')).toBeUndefined();
+  }
+  expect(providerFailure(429, '429', 'Rate limit reached')).toEqual({ reason: 'rate_limit' });
+});
+
+const budget = { kind: 'result', ok: false, refused: 'budget' };
+const expectBudget = (frame: unknown, text?: string) => {
+  expect(frame).toMatchObject(text === undefined ? budget : { ...budget, text });
+  expect(frame).not.toHaveProperty('providerFailure');
+};
+
+/** Claude delivers the refusal as an API Error result or as a thrown SDK error. */
+test('Claude gateway budget refusal is a budget result', async () => {
+  for (const { status, message, body } of refusals) {
+    expectBudget(new ClaudeTurn().push({ ...spend, result: `API Error: ${status} ${body}` })[0], `API Error: ${status} ${body}`);
+    for (const error of [
+      Object.assign(new Error(`API Error: ${status} ${body}`), { status }),
+      Object.assign(new Error(message), { status, error: { error: { type: 'budget_exceeded', message } } }),
+    ]) {
+      const query = async function* () { throw error; };
+      const frames: Frame[] = [];
+      for await (const frame of runClaude({ prompt: 'p', cwd: '/tmp', turnID: 't',
+        env: {}, deadline: Date.now() + 10000 }, query)) frames.push(frame);
+      expectBudget(frames[0], error.message);
+    }
+  }
+});
+
+/** Codex forwards the refusal inside its "unexpected status" message. */
+test('Codex gateway budget refusal is a budget result', () => {
+  for (const { status, body } of refusals) {
+    const message = `unexpected status ${status} Too Many Requests: ${body}, url: http://gateway/v1/responses, request id: r1`;
+    for (const finish of [false, true]) {
+      const turn = new CodexTurn();
+      turn.push({ type: 'error', message });
+      const frame = finish ? turn.finish(1, '') : turn.push({ type: 'turn.failed', error: { message: 'request failed' } })[0];
+      expectBudget(frame);
+    }
+  }
+});
+
+/** Pi reports the provider error as the errorMessage of a failed assistant message. */
+test('Pi gateway budget refusal is a budget result', () => {
+  for (const { status, message, body } of refusals) {
+    for (const errorMessage of [`${status} ${body}`, `${status} ${message}`]) {
+      const turn = new PiTurn();
+      turn.push({ type: 'message_end', message: { role: 'assistant', content: [], stopReason: 'error', errorMessage } });
+      expectBudget(turn.finish(0, ''), errorMessage);
+    }
+  }
+});
+
+/** Assistant text, tool output and stderr that quote the refusal stay ordinary failures. */
+test('quoted budget refusals do not classify', () => {
+  const quote = refusals[0].message;
+  const turn = new ClaudeTurn();
+  expect(turn.push({ type: 'assistant', message: { content: [{ type: 'text', text: quote }] } })
+    .every(frame => frame.kind !== 'result')).toBe(true);
+  expect(turn.push({ ...spend, result: quote })[0]).not.toHaveProperty('refused', 'budget');
+  const codex = new CodexTurn();
+  codex.push({ type: 'item.completed', item: { type: 'agent_message', text: quote } });
+  expect(codex.finish(1, quote)).toMatchObject({ ok: false });
+  expect(codex.finish(1, quote)).not.toHaveProperty('refused', 'budget');
+  const pi = new PiTurn();
+  pi.push({ type: 'message_end', message: { role: 'assistant', stopReason: 'stop', content: [{ type: 'text', text: quote }] } });
+  expect(pi.finish(1, quote)).toMatchObject({ ok: false });
+  expect(pi.finish(1, quote)).not.toHaveProperty('refused', 'budget');
 });

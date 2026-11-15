@@ -275,11 +275,23 @@ test('runTurn: a terminal failure is reported as terminal', async () => {
 /** A refused message fails its turn through the delivered refusal, and the process stays up, so the run never reaches routd's instance breaker (BUGS L831). */
 test('runTurn: a refused result is delivered as a refusal without failing the run', async () => {
   const { deliveries, deliver } = spy();
-  const r = await runTurn(scripted([{ kind: 'result', ok: false, refused: true, text: 'safeguards flagged this message' }]),
+  const r = await runTurn(scripted([{ kind: 'result', ok: false, refused: 'safety', text: 'safeguards flagged this message' }]),
     'p', undefined, INPUT, {}, 'turn-1', deliver, statusSpy().send);
   expect(deliveries).toHaveLength(1);
   expect(deliveries[0].status).toBe('refused');
   expect(deliveries[0].error).toBe('safeguards flagged this message');
+  expect(r.failed).toBeUndefined();
+});
+
+/** A budget refusal is delivered as status budget, with the gateway's words, and the run is not failed (the instance breaker never sees it). */
+test('runTurn: a budget result is delivered as a budget refusal without failing the run', async () => {
+  const { deliveries, deliver } = spy();
+  const r = await runTurn(scripted([{ kind: 'result', ok: false, refused: 'budget', text: 'Budget has been exceeded! Team=corp/eng' }]),
+    'p', undefined, INPUT, {}, 'turn-1', deliver, statusSpy().send);
+  expect(deliveries).toHaveLength(1);
+  expect(deliveries[0].status).toBe('budget');
+  expect(deliveries[0].error).toBe('Budget has been exceeded! Team=corp/eng');
+  expect(deliveries[0].providerFailure).toBeUndefined();
   expect(r.failed).toBeUndefined();
 });
 

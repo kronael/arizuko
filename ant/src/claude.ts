@@ -16,7 +16,7 @@ import {
 import { Binding, PolicyEvent, ToolEvent, bindings, renderSteering, runRow } from './policy.js';
 import { STEER_SPOOL, drainLines } from './spool.js';
 import type { ModelUsage } from './mcp.js';
-import { timeoutFrame, providerFailure, isProviderFailurePermanent, type ProviderFailure } from './backend.js';
+import { timeoutFrame, providerFailure, isBudgetRefusal, isProviderFailurePermanent, type ProviderFailure } from './backend.js';
 import { httpFailure } from '../../retry/retry.mjs';
 import type { Frame, Harness, Turn } from './backend.js';
 import { modelGateway } from './gateway.js';
@@ -405,7 +405,7 @@ export class ClaudeTurn {
   // throttled. A refusal outlives a retry — sloth's seven-day cap reset eleven
   // hours out — so a result that errors after one is terminal (BUGS L175).
   private rejected: ProviderFailure | undefined;
-  private refused = false;
+  private refused: 'safety' | undefined;
 
   // prior is the per-model total the resumed session saved before this turn.
   constructor(private readonly prior?: SdkModelUsage) {}
@@ -420,7 +420,7 @@ export class ClaudeTurn {
       return [{ kind: 'continuity', token: this.sessionId, sessionId: this.sessionId }];
     }
     if (m.type === 'assistant') {
-      this.refused = (raw as { message?: { stop_reason?: string } }).message?.stop_reason === 'refusal';
+      this.refused = (raw as { message?: { stop_reason?: string } }).message?.stop_reason === 'refusal' ? 'safety' : undefined;
       const frames: Frame[] = [];
       // Each assistant message advances the resume point: the packed token lets the
       // next inner-loop turn resume AT this message instead of after trailing tool
@@ -452,6 +452,7 @@ export class ClaudeTurn {
       const status = claudeResultStatus(m.subtype, text, isError);
       const single = diagnostics.length <= 1;
       const api = status === 'error' && single ? claudeAPIError(text) : undefined;
+      if (api?.budget) return [{ kind: 'result', ok: false, text, refused: 'budget' }];
       const apiTerminal = api && httpFailure(api.status, '', undefined, Date.now()).kind === 'permanent';
       let failure = api?.failure;
       if (status === 'error' && single && !failure && !apiTerminal) {
@@ -482,14 +483,17 @@ export function claudeAPIError(text: string | undefined) {
   if (!match) return undefined;
   const status = Number(match[1]);
   let failure: ProviderFailure | undefined;
+  let budget = false;
   try {
     const body = JSON.parse(match[2] ?? '') as {
       error?: { type?: string; code?: string; message?: string }; reset_at?: unknown;
     };
-    if (body.error && typeof body.error.message === 'string')
+    if (body.error && typeof body.error.message === 'string') {
+      budget = isBudgetRefusal(body.error.type ?? '', body.error.message);
       failure = providerFailure(status, body.error.code ?? body.error.type ?? '', body.error.message, body.reset_at);
+    }
   } catch { /* status remains available */ }
-  return { status, failure };
+  return { status, failure, budget };
 }
 
 // SessionEnd decides when the prompt stream may close. The session is over when
@@ -656,17 +660,22 @@ export async function* runClaude(turn: Turn, run: QueryFn = query): AsyncGenerat
       }; reset_at?: unknown }; message?: string };
       const envelope = error.error?.error;
       const api = claudeAPIError(error.message);
-      const status = typeof error.status === 'number' ? error.status : api?.status;
-      const failure = envelope && typeof envelope.type === 'string' &&
-        typeof envelope.message === 'string'
-        ? providerFailure(status ?? 0, envelope.type, envelope.message, error.error?.reset_at)
-        : api?.failure;
-      if (!failure && !status) throw err;
-      const http = httpFailure(status ?? 0, '', err, Date.now());
-      const terminal = http.kind === 'canceled' ||
-        (failure ? isProviderFailurePermanent(failure) : http.kind === 'permanent');
-      held = { kind: 'result', ok: false, terminal,
-        text: error.message, providerFailure: failure };
+      if (api?.budget || envelope && typeof envelope.type === 'string' && typeof envelope.message === 'string' &&
+          isBudgetRefusal(envelope.type, envelope.message)) {
+        held = { kind: 'result', ok: false, text: error.message, refused: 'budget' };
+      } else {
+        const status = typeof error.status === 'number' ? error.status : api?.status;
+        const failure = envelope && typeof envelope.type === 'string' &&
+          typeof envelope.message === 'string'
+          ? providerFailure(status ?? 0, envelope.type, envelope.message, error.error?.reset_at)
+          : api?.failure;
+        if (!failure && !status) throw err;
+        const http = httpFailure(status ?? 0, '', err, Date.now());
+        const terminal = http.kind === 'canceled' ||
+          (failure ? isProviderFailurePermanent(failure) : http.kind === 'permanent');
+        held = { kind: 'result', ok: false, terminal,
+          text: error.message, providerFailure: failure };
+      }
     }
   } finally {
     clearTimeout(timer);

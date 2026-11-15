@@ -285,7 +285,7 @@ test('ClaudeTurn marks an is_error result as a failure', () => {
 // receive the same refusal. routd retried a 400 three times before telling
 // anyone (BUGS L349); terminal makes it one spawn and names the cause.
 test('API errors retain their status even when the body is malformed', () => {
-  expect(claudeAPIError('API Error: 400 {broken')).toEqual({ status: 400, failure: undefined });
+  expect(claudeAPIError('API Error: 400 {broken')).toEqual({ status: 400, failure: undefined, budget: false });
   expect(claudeAPIError('unknown')).toBeUndefined();
 });
 
@@ -337,7 +337,7 @@ test('ClaudeTurn marks the error result after a refusal stop as refused', () => 
   const r = turn.push({ type: 'result', subtype: 'success', is_error: true, result: SAFEGUARDS })[0];
   if (r.kind !== 'result') throw new Error('expected result frame');
   expect(r.ok).toBe(false);
-  expect(r.refused).toBe(true);
+  expect(r.refused).toBe('safety');
 });
 
 /** A refusal the turn moved past does not mark a later outage as refused, so the outage still retries and trips the breaker. */

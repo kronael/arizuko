@@ -12,6 +12,7 @@ import {
   ResultFrame,
   Turn,
   providerFailure,
+  isBudgetRefusal,
   isProviderFailurePermanent,
   type ProviderFailure,
 } from './backend.js';
@@ -129,6 +130,7 @@ export class CodexTurn {
   private lastError: string | undefined;
   private terminal = false;
   private failure: ProviderFailure | undefined;
+  private budget = false;
   private waiting = 0;
 
   // prior is the thread's running total when the turn started: codex reports
@@ -177,12 +179,16 @@ export class CodexTurn {
       // result with no diagnostic when no assistant text preceded it.
       const err = (obj.error as { message?: string } | undefined)?.message ?? this.lastError;
       const failure = codexProviderFailure(obj.error) ?? this.failure;
+      const error = obj.error as { code?: string; message?: string } | undefined;
+      if (this.budget || isBudgetRefusal(error?.code ?? '', error?.message ?? ''))
+        return [{ kind: 'result', ok: false, text: this.lastText ?? err, refused: 'budget' }];
       return [{ kind: 'result', ok: false, text: this.lastText ?? err,
         providerFailure: failure, terminal: failure ? isProviderFailurePermanent(failure) : undefined }];
     }
     if (type === 'error') {
       this.lastError = (obj.message as string | undefined) ?? 'codex error';
       this.failure = codexProviderFailure(obj);
+      this.budget = isBudgetRefusal((obj.code as string | undefined) ?? '', this.lastError);
       if (WAITING.test(this.lastError) && ++this.waiting >= WAITING_LIMIT) {
         this.terminal = true;
         return [{
@@ -212,6 +218,7 @@ export class CodexTurn {
     }
     const ok = exitCode === 0 && this.lastText !== undefined;
     const err = this.lastError ?? (stderrTail.trim() || `codex exited ${exitCode}`);
+    if (!ok && this.budget) return { kind: 'result', ok, text: err, refused: 'budget' };
     return { kind: 'result', ok, text: ok ? this.lastText : err,
       providerFailure: ok ? undefined : this.failure,
       terminal: !ok && this.failure ? isProviderFailurePermanent(this.failure) : undefined };

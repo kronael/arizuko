@@ -62,9 +62,15 @@ export function addUsage(a: ModelUsage | undefined, b: ModelUsage): ModelUsage {
   return sum;
 }
 
+export function isBudgetRefusal(code: string, message: string): boolean {
+  return code === 'budget_exceeded' || /^(?:\d{3}\s+)?(Budget has been exceeded!|ExceededBudget:)|"type":\s*"budget_exceeded"/.test(message);
+}
+
 export function providerFailure(status: number, code: string, message: string,
   reset?: unknown): ProviderFailure | undefined {
   let reason: ProviderFailure['reason'];
+  if (isBudgetRefusal(code, message))
+    return undefined;
   if (['spend_limit_reached', 'insufficient_quota', 'billing_hard_limit_reached'].includes(code) ||
       /^(Monthly spend limit reached|You've hit your individual spend limit)[.!]?$/.test(message))
     reason = 'spend_limit';
@@ -110,7 +116,7 @@ export type Frame =
       // failure is retried within the turn budget.
       terminal?: boolean;
       providerFailure?: ProviderFailure;
-      refused?: boolean;
+      refused?: 'safety' | 'budget';
     };
 
 // ResultFrame is the terminal variant — what a reducer's finish() synthesizes
