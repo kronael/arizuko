@@ -14,6 +14,83 @@
 > so counting one as open overstates the queue.
 
 
+## L883 — a reply to a chat with no registered adapter is dead-lettered at once (2026-11-15)
+
+`retry.HTTPFailure` calls an error with no HTTP status and no transport cause
+permanent, and `retry/retry_test.go:51` pins it. `routd/deliver.go:100` returns
+the plain `no channel for jid` while an adapter is deregistered, which happens on
+every adapter restart. origin/main retried every unmarked delivery failure.
+**Measured:** at `14f2ffda5863200356ea6a05af6022e028e68e5b`,
+`routd TestReleaseAnnouncementAdapterRegistersAfterStartup` fails: "Delivery
+failed. Automatic retries stopped. attempts=1 err=no channel for jid
+telegram:group/123". `chanlib TestHandlerSendError`/`TestHandlerSendFileError`
+and `emaid TestHandleSend_NoThread` answer 400 for a plain send error; main
+answered 502. Log: `/home/onvos/.claude/jobs/58eb9274/tmp/gate16.log`.
+**Fix:** an unmarked error is transient; only an explicit permanent fact or a
+non-transient HTTP status stops retries.
+
+## L884 — an inbound 401 drops the message instead of retrying (2026-11-15)
+
+`chanlib/chanlib.go:279` classifies the ingress error through `retry.FromError`;
+401 is not in `retry/policy.json`'s transient statuses, so it is permanent.
+origin/main's `PermanentIngress` refused only 400/403/413/422 and retried a 401
+"while authd restarts". `postInbound` also returns the re-register error in
+place of the 401 when no registration was saved.
+**Measured:** source above; `chanlib TestServiceTokenAbsentRejected` fails at
+`14f2ffda5`: "err = re-register: no saved params (Register was never called),
+want status 401".
+**Fix:** ingress treats 401 as transient and returns the 401 when re-register fails.
+
+## L885 — one sweep-level inbound error stops all redelivery until restart (2026-11-15)
+
+`chanlib/inbound.go:48-56` keeps one `retry.Decision` for the whole sweep. A
+discovery or store error recorded as permanent sets Stop, and `IsDue` never
+turns true again in that process. origin/main swept every 15 s regardless.
+**Measured:** source; red test to follow with the fix.
+**Fix:** delete the sweep-level decision; each tick sweeps and logs its error.
+
+## L886 — turn retries rose from 3 to 10 and the retry env vars are ignored (2026-11-15)
+
+`routd/turn_control.go:269` stops a turn at `retry/policy.json` `max_failures:
+10`. origin/main retried a turn 3 times, honoured `MAX_TURN_RETRY` (0 = 3, -1
+disables, capped at 3) and `MAX_OUTBOUND_RETRY` (default 10, -1 fails on the
+first transient error). The candidate reads neither variable.
+**Measured:** `git grep MAX_TURN_RETRY` finds no reader at `14f2ffda5`; source above.
+**Fix:** restore main's turn budget and both variables over the shared decision.
+
+## L887 — unmarked agent and runtime failures became terminal (2026-11-15)
+
+`ant/src/index.ts:324` marks a failed frame terminal unless the harness says
+`terminal: false`, and `:349` marks "no result" terminal; main made both
+retryable. `ant main()` exits terminal for any error the shared reader does not
+call transient; main exited terminal only for `HarnessConfigError`.
+`runed/runtime.go:78-82` makes every preparation failure terminal unless it is a
+recognized transient; main retried them and kept render failures terminal.
+**Measured:** source diff against `f5d29966f8c7672ae92803a0174dafafed736137`.
+**Fix:** restore main's terminality at those sites.
+
+## L888 — the startup backfill rewrites every row silently (2026-11-15)
+
+`store/state_index.go:98-148` runs ten `objstore.Reindex` passes before routd
+serves; `objstore/indexed.go:239-262` rewrites every row of each partition with
+no log, and an interrupted pass starts again from the first row.
+**Measured:** source. Skipping rows by `_index_revision` would also skip them when
+a marker is bumped for a changed index (`turn-access-v2`), so it is not safe.
+**Fix:** log each pass's start, progress and end. Resume is left open.
+
+## L889 — one malformed or long-retried legacy row stops startup or parks the row (2026-11-15)
+
+`chanlib/chanstore/inbound_index.go:60-66` normalizes a legacy inbound row with
+`retry.Next(attempts, …)`, so a row with 9+ attempts (main never exhausted
+inbound) is stopped at migration without another try; a row with invalid
+attempts fails adapter startup. `whapd/src/retain.ts:17,103` throws on one
+unreadable record, so whapd does not start; main skipped it (BUGS L346 kept the
+unreadable-directory case loud). `store/state_index.go:279-294` fails routd
+startup on one unparsable legacy delivery row.
+**Measured:** source.
+**Fix:** a legacy row keeps its due time and gets its next attempt; a malformed
+row is logged and left, never a startup failure.
+
 ## L881 — maintenance wakes bypass processing retry state (2026-11-14)
 
 `routd/turn_control.go::runForGroup` keeps the failure count but discards due time
@@ -75,7 +152,6 @@ The browser retry integration owns this fix after the current serial capacity wo
 
 ## What needs you
 
-- `L862` — retry timing, failure classification and exhaustion differ by feature; unification approved, implementation in progress.
 - `L882` — Discord typing follows the newest message in the channel, not the turn's thread; typing request needs the topic; needs sign-off.
 - `L826` — one folder's crash closes the whole instance for an hour; per-folder breaker or a 30 s probe; needs sign-off.
 - `L816` — gitd loses GitHub webhooks while the store is unreachable; retention lives in that store; proposal, needs sign-off.
