@@ -14,7 +14,7 @@
 > so counting one as open overstates the queue.
 
 
-## L883 — a reply to a chat with no registered adapter is dead-lettered at once (2026-11-15)
+## ✅ FIXED 2026-11-15 abc8f10fe64698ef052375b6813d42b929c6fbf4 a0c823184f54c32164af1f14cc40a652fc639188 L883 — a reply to a chat with no registered adapter is dead-lettered at once (2026-11-15)
 
 `retry.HTTPFailure` calls an error with no HTTP status and no transport cause
 permanent, and `retry/retry_test.go:51` pins it. `routd/deliver.go:100` returns
@@ -32,7 +32,7 @@ was sent, so a replay is safe). The 400 answers follow the settled
 `writeBotResult` rule (an unknown send outcome is a terminal 4xx); those three
 tests change with it.
 
-## L884 — an inbound 401 drops the message instead of retrying (2026-11-15)
+## ✅ FIXED 2026-11-15 905cd0af461aef2a102b4a36abadc0a8cf19015f L884 — an inbound 401 drops the message instead of retrying (2026-11-15)
 
 `chanlib/chanlib.go:279` classifies the ingress error through `retry.FromError`;
 401 is not in `retry/policy.json`'s transient statuses, so it is permanent.
@@ -57,7 +57,7 @@ L890 removes the likeliest false stop (a DynamoDB throttle read as permanent).
 **Decision needed:** keep parking, or let the sweep keep its 15 s tick after a
 permanent store error. Recorded as an open question in the spec.
 
-## L886 — turn retries rose from 3 to 10 and the retry env vars are ignored (2026-11-15)
+## ✅ FIXED 2026-11-15 2d51e15b6cb2f97fe99fa49aa28657c4a8a73ef8 L886 — turn retries rose from 3 to 10 and the retry env vars are ignored (2026-11-15)
 
 `routd/turn_control.go:269` stops a turn at `retry/policy.json` `max_failures:
 10`. origin/main retried a turn 3 times, honoured `MAX_TURN_RETRY` (0 = 3, -1
@@ -88,16 +88,17 @@ the provider's own retries; main retried the whole turn.
 failure it cannot classify. Recorded as an open question in
 `specs/9/21-state-transitions.md`.
 
-## L888 — the startup backfill rewrites every row silently (2026-11-15)
+## ✅ FIXED 2026-11-15 691b3b288f68ac1bef8d8dd5df9bd69982fead69 L888 — the startup backfill rewrites every row silently (2026-11-15)
 
 `store/state_index.go:98-148` runs ten `objstore.Reindex` passes before routd
 serves; `objstore/indexed.go:239-262` rewrites every row of each partition with
 no log, and an interrupted pass starts again from the first row.
 **Measured:** source. Skipping rows by `_index_revision` would also skip them when
 a marker is bumped for a changed index (`turn-access-v2`), so it is not safe.
-**Fix:** log each pass's start, progress and end. Resume is left open.
+**Fix:** log each pass's start, every 1000 rows and its end. Resume is left open:
+an interrupted pass still starts again from the first row.
 
-## L889 — one malformed or long-retried legacy row stops startup or parks the row (2026-11-15)
+## ✅ FIXED 2026-11-15 e7881509834c889f0da21a99ec1df5393f3bbb94 L889 — one malformed or long-retried legacy row stops startup or parks the row (2026-11-15)
 
 `chanlib/chanstore/inbound_index.go:60-66` normalizes a legacy inbound row with
 `retry.Next(attempts, …)`, so a row with 9+ attempts (main never exhausted
@@ -110,9 +111,10 @@ startup on one unparsable legacy delivery row.
 **Fix:** plan-09 settles the legacy normalization (attempts+1; a row at the limit
 becomes failed and keeps its payload and held count), so the 9+ row parks; exact-ID
 replay is the spec's open question. A malformed row is logged and left in place,
-never a startup failure.
+never a startup failure; its consumer then parks on it, as plan-09 settles for a
+malformed row.
 
-## L890 — a DynamoDB throttle is a permanent failure (2026-11-15)
+## ✅ FIXED 2026-11-15 b442aedf917b43e8e013f202b00568ec3d7da69d L890 — a DynamoDB throttle is a permanent failure (2026-11-15)
 
 When the AWS SDK's own retries run out, a throttle reaches the owner.
 `retry.FromError` reads `HTTPStatusCode()` from the SDK's response error, and
