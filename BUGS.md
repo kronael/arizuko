@@ -114,6 +114,19 @@ replay is the spec's open question. A malformed row is logged and left in place,
 never a startup failure; its consumer then parks on it, as plan-09 settles for a
 malformed row.
 
+## L895 — `routd TestKilledTurnResumesItsOwnSession` kills the run with an untyped error (2026-11-15)
+
+The fixture's runner fails the first attempt with
+`errors.New("read: connection reset by peer")`. Plan-09 classifies transport
+failures by type, not text, so the candidate reads it as unknown, stops the
+turn, and the test sees no `pending_retry`. A real reset from the runed client
+carries `syscall.ECONNRESET` and is transient.
+**Measured:** `-run` chunk of `./routd` at
+`9e05565d16b61d0add86d33620a53ec53cf58148` on a fresh DynamoDB Local:
+"interrupted turn not deferred" (`rel16/tmp/g/h6-routd-chunk-04.log`). The test
+is unchanged from origin/main.
+**Fix:** fail the attempt with the typed reset the transport produces.
+
 ## ✅ FIXED 2026-11-15 49f51493ae7ecbdcab5a3984aac22339b5cb1700 L894 — two routd tests still assert origin/main's mechanics; one hangs the package (2026-11-15)
 
 `routd TestScheduleWaitsForRecovery` gates on a `ScheduledTasks` Query with
