@@ -1,5 +1,5 @@
 ---
-status: partial
+status: shipped
 ---
 
 # Live tasklist status — harness-driven, one edited message per turn
@@ -8,8 +8,9 @@ Progress uses a harness hook on the structured task list, delivered as one
 editable checklist that lives while the turn runs. Placement, capability and
 removal belong to `../6/46-turn-progress.md`.
 
-The message lifecycle exists. The shared native checklist producer remains
-unbuilt, as recorded in `../6/46-turn-progress.md` §"Build state".
+The message lifecycle (`routd/turn_status.go`) and the shared native checklist producer
+(`routd/progress_reducer.go`, fed by `ant/src/policy.ts` through `submit_status`) are built.
+The live measurements of the image and of adoption belong to `../6/46-turn-progress.md`.
 
 ## Problem
 

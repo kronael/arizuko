@@ -28,8 +28,9 @@ These acceptance items stay open:
   identical packages, data and build exists, so no saving is claimed.
 - Check 5. No test runs an outside 6/59 package, the isolated guest and the
   8/60 minimum behavior on the folded deployment.
-- onbod and dashd stay separate processes. Their folds wait for a measured
-  saving (BUGS `L688`, `L689`), and nothing here builds them.
+
+The owner keeps onbod and dashd as separate processes (2026-11-15, BUGS `L688`, `L689` ruled
+won't-do). Their folds need no measured saving, and nothing here builds them.
 
 ## Memory savings decide which processes to fold
 
@@ -319,5 +320,5 @@ Acceptance checks:
    Consolidation changes neither table authority nor package discovery.
 6. Remove Vite and timed documentation, image hooks and stale links in the same
    implementation. Run build, lint, short tests, spec-reference and webdoc checks.
-   Report net memory per fold; leave onbod/dashd separate pending the deferred
-   proposals in BUGS L688 and L689.
+   Report net memory per fold; leave onbod/dashd separate, the owner's ruling of
+   2026-11-15 (BUGS `L688`, `L689`).

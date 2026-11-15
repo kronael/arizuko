@@ -18,7 +18,6 @@ binary defaults have tests in `routd/hold_always_test.go`,
 ## Remaining
 
 - Audit stored skip-default copies and obsolete async/targetId rules on each instance; preserve local exceptions (`auth/defaults.go`, `cmd/arizuko/README.md`; operator data, L273).
-- Resolve the own-message delete restriction and approval visibility in tool listings (`ipc/ipc.go`, `routd/mcp.go`; owner decisions).
 
 ## Approval text and standing rules describe one call
 
@@ -157,7 +156,9 @@ Telegram `deleteMessage` (`teled/bot.go:677`) and Discord
 holds the platform's moderator permission, `can_delete_messages` and
 `MANAGE_MESSAGES`. These are the platforms' documented rules, not re-measured
 here. No adapter checks authorship, and the tool text says the platform does
-(`ipc/ipc.go:1469`). The default allows `delete` inside those platform bounds.
+(`ipc/ipc.go:1469`). The default allows `delete` inside those platform bounds, and the agent
+has to be careful with it. An option to deny deleting messages the agent did not send is
+possible and not built.
 
 ## The hold shape
 
@@ -210,10 +211,3 @@ stored: `ask`, `matcher` (the params spec the row would carry), `rule_text`
 - `TestWorld_HoldsOnlyWhatAPersonShouldSee` stays green.
 - `make build && make lint && go test ./... -short` green, tests in the
   shipping commit, and the agent text in the packaged manual.
-
-## Owner decisions
-
-1. Must routd bind `delete` to the agent's own messages through the stored
-   `BotMsg` flag? This adds one store read and refuses unrecorded messages.
-2. Should tool listings disclose which calls wait for approval? This adds
-   one `CheckHold` per tool per listing.

@@ -8,12 +8,18 @@ depends: [../8/A-hierarchical-skills]
 
 The resident manual, on-demand pointers and static carve-out checks exist in
 `ant/CLAUDE.md`, `ant/skills/self/` and `tests/resident/resident_test.go`.
-L188 remains open because static pointers do not prove agent conformance.
+BUGS `L188` lists the moved rules with no anteval case.
 
 ## Remaining
 
-- Cover the externally unobservable rules listed in L188 when a suitable test surface exists; host-mount procedure is outside anteval scope.
-- Run the full catalog, `unknown-addressee` included, through the disposable lifecycle (`anteval/cmd/anteval/lifecycle_test.go`).
+- Run the full case catalog, `unknown-addressee` included, through the disposable
+  lifecycle (`anteval/cmd/anteval/lifecycle_test.go` holds only fakes).
+
+Seventeen of the eighteen rules in BUGS `L188` have no anteval check kind that can observe
+them: sixteen are "not externally observable with current check kinds" and one is out of
+anteval scope. The owner accepts all seventeen as unmeasured (2026-11-15), so guard 1 below
+does not apply to them. The `~/CLAUDE.md` mount procedure (the "Additional mounts" row of
+BUGS `L188`, `EXTENDING.md`) is operator procedure and out of anteval scope.
 
 ## Problem
 
@@ -22,13 +28,19 @@ Turns mount the selected package manuals and skills.
 Two files load without being asked for, on every turn, for a reader who
 never chose them:
 
-- `ant/CLAUDE.md` — 388 lines, 33,921 bytes, 38 sections. Seeded into
+- `ant/CLAUDE.md` — 232 lines, 20,587 bytes, 24 sections. Seeded into
   every group as `~/.claude/CLAUDE.md`, which
   Claude Code reads on every turn because `settingSources` is
   `['project', 'user']` (`ant/src/claude.ts:473`) and the turn's cwd is
   the home (`ant/src/index.ts:243`).
 - `CLAUDE.md` at the repo root — 579 lines, 28,733 bytes, 40 sections.
   Read by every maintainer session and every subagent opened in the repo.
+
+The `ant/CLAUDE.md` counts, the case count and the `ant/skills/self/` figures were measured
+on 2026-11-15 at `8e319b2237d535e0e9eba2bbdbf9d63b3b03079c`: `wc -l -c ant/CLAUDE.md`;
+top-level headings outside code fences in that file; `grep -c '^\[\[case\]\]'
+anteval/cases/anteval.toml`; `find ant/skills/self -type f` piped to `wc -l`, and `cat` of
+those files piped to `wc -c`.
 
 The premise "the root file loads in every group container" is false and
 the correction matters: no code path copies the root file anywhere near a
@@ -73,7 +85,7 @@ global and 2 project skills. The root file is ≈40 % of that fixed text.
 
 ### The second copy is already there
 
-`ant/skills/self/` is a 15-file, 39,820-byte directory whose `SKILL.md`
+`ant/skills/self/` is a 15-file, 50,068-byte directory whose `SKILL.md`
 is a dispatch table — the map this spec wants — and whose siblings carry
 the same content the resident file carries:
 
@@ -292,7 +304,7 @@ guards, one per class of moved content:
    agent conformance basis (`5/9`), `--smoke` is gate 5 of every
    deploy, and the ≈$5 run is what turns "the agent still follows this"
    from a belief into a measurement. Of the sections marked move above,
-   these are covered by the 22 cases in `anteval/cases/anteval.toml`
+   these are covered by the 24 cases in `anteval/cases/anteval.toml`
    today: Publishing (`priv-401`, `priv-deny`, `priv-grant`, `web-route`,
    `spawn-publish-reach`), Egress (`egress-diagnose`,
    `egress-dns-distinguish`, `self-grant-noop`), attachments
@@ -326,7 +338,7 @@ the model performs some fraction of the time, to save cache-read tokens
 that are already discounted. If the maintainer's aim is cost, the tool
 is measurement (the gateway's per-model usage rows carry cache-read
 counts per turn, [`6/39-gateway-owns-spend`](39-gateway-owns-spend.md)) and the answer may be "leave it". If the aim is
-attention — the rule in the middle of a 388-line file being the one
+attention — the rule in the middle of a 232-line file being the one
 skipped — the proposal stands, and `L130` adds a second reason: a codex
 or pi agent receives none of this file today, and the proposal there is
 to prepend it per turn, which prices every resident byte three times.
@@ -339,7 +351,7 @@ to prepend it per turn, which prices every resident byte three times.
 - `ant/src/index.ts:47` — `buildSystemPrompt`; `ant/src/claude.ts:463,473` — preset and `settingSources`.
 - `routd/prompt.go:35` — the envelope renderer.
 - `ant/skills/self/SKILL.md` — the dispatch table that is the map.
-- `anteval/cases/anteval.toml` — the 22 conformance cases; guard 1's ledger.
+- `anteval/cases/anteval.toml` — the 24 conformance cases; guard 1's ledger.
 - `specs/CLAUDE.md`, `template/web/CLAUDE.md` — directory-scoped files, the
   repo's on-demand precedent for the root file.
 - `BUGS.md` `L130`, `L149`, `L150`, `L155` — the failures this spec cites.

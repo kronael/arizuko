@@ -422,8 +422,6 @@ The browser retry integration owns this fix after the current serial capacity wo
 - `L715` — A1/A2: trusted GitHub sender and source-owner binding; proposal, needs sign-off.
 - `L686` — decide whether to retire the four duplicated top-level creative skill names; proposal, needs sign-off.
 - `L687` — decide whether to retire the scheduler's two external write endpoints; proposal, needs sign-off.
-- `L688` — defer folding onbod into routd until measured net savings justify the boundary change; needs sign-off.
-- `L689` — defer folding dashd until measured net savings and reused code justify it; needs sign-off.
 - `L676` — decide whether dashboard group creation must check the creator's new subtree grant.
 - `L675` — the guest's Python is under `/root` (700); fix at the next rootfs build.
 - `L674` — `compose down` fails on a deleted fragment despite `required: false`; proposal.
@@ -452,7 +450,6 @@ The browser retry integration owns this fix after the current serial capacity wo
 - `L473` — how does a newer seeded acl floor reach an existing instance
   without re-adding rows an operator removed?
 - `L597` — choose whether human conversation takes priority over CI in bounded observed context.
-- `L678` — no door writes group `effort`; dashd lists only 4.x models (in the per-group harness spec).
 - `L592` — correct the trading report publish grant and private report placement.
 Every open entry waits on a person, not on work. Grouped by what it waits FOR,
 so the queue can be unblocked without reading 5,000 lines.
@@ -572,6 +569,8 @@ revoked — see its entry.)
 - `L409` — the `vumilan/morha` webhook posts to sloth's App path and gitd
   refuses it without the flagged bypass. Deliveries are accepted behind the
   bypass; repointing the webhook needs admin on `vumilan/morha`.
+- `L907` — the gitd App completion has never run on a credentialed disposable
+  repository; operator task.
 - `L327` — which Discord channels should answer. The inversion CHECK shipped
   (`/eval` 22); which rows to renumber is your call.
 - `L308`, `L181`, `L131`, `L188`.
@@ -621,9 +620,8 @@ reads those words now.
 - `L487`, `L489`, `L491`, `L501`, `L502` — doc and
   comment drift against the code, each naming the sentence to change.
 **Found by the anteval-leak investigation (2026-10-21).**
-- `L72` — sign off the shape in spec `6/50`: anteval makes a disposable
-  instance and never touches a serving one. 47 leaked children held the
-  v0.70.6 release's run slots.
+- `L72` — the disposable anteval lifecycle is built; a passing disposable run
+  and the operator cleanup of krons leftovers remain.
 - `L512` — the eval setup grants egress `*` and two catalog cases need named
   rules; the disposable runner allows only the sink name now.
 **Found by the memory and cleanup pass (2026-10-21).**
@@ -693,27 +691,6 @@ reads those words now.
   token and describe source registration, `github:` routes, and `connectors.toml`.
   Working-tree correction verified by product seed tests, web link tests, and
   a before/after manifest check; commit blocked by read-only `.git`.
-- **GITHUB-TOPIC-REPOSITORY** (MED, design) — `GitHubJID.Topic` at
-  `chanlib/github_jid.go:75` returns only kind and number; `gitd/event.go:298`
-  copies that value to the message, and `store/sessions.go` keys sessions by
-  folder and topic. Two repositories' PR 12 routed to one group therefore share
-  `pr/12`. Source-traced at HEAD `09eef243` on 2026-10-09; no test — design.
-  **Proposal:** include repository identity in GitHub topics, or route each
-  repository to a distinct group. Needs sign-off because the topic contract and
-  existing conversation keys change.
-- **GITHUB-APP-CREDENTIAL-CONTRACT** (MED, design) — `gitd/bot.go` sends
-  comments with a static user token. `routd/mcp.go` resolves connector credentials
-  from user/folder secrets, with no App installation-token provider. The requested
-  installable App therefore cannot act as its bot without a personal token.
-  Source-traced at HEAD `09eef243` on 2026-10-09; no test — design.
-  **Proposal:** one App per instance; one shared token client for gitd and the
-  broker. Resolve the installation through GitHub and restrict each token to the
-  repository in the trusted turn JID. An explicit `GITHUB_INSTALLATION_TOKEN`
-  connector slot selects App credentials; `GITHUB_TOKEN` retains user semantics.
-  App keys stay in daemon env; derived tokens stay outside agent environments
-  and storage. Existing tool grants and holds remain the authority for calls.
-  No relay, credential endpoint, installation table, or wider storage/runtime
-  port. Needs sign-off for the new credential contract.
 - **BUILD-DAEMON-FAILURE-MASKED** (MED, ops) — `Makefile:22` runs daemon
   submakes separated by semicolons. A later success hides an earlier failure.
   Measured 2026-10-09: `make build` returned zero after dashd failed with a
@@ -721,6 +698,20 @@ reads those words now.
   `/tmp/arizuko-github-baseline-build.log`. No test — ops.
   **Proposal:** stop the build on the first failed submake. This is an adjacent
   build-gate repair; scope approval is pending.
+
+## L907 — the gitd App completion has never run on a credentialed disposable repository (2026-11-15, open — operator task)
+
+`specs/6/27-git-channel.md` § "App completion" is built: bot loop suppression, installation
+token renewal, repository bounds, grant and hold behavior and hosted MCP discovery and calls.
+Only fakes and units cover it (`gitd/event_test.go`, `gitd/bot_test.go`, `githubapp/app_test.go`);
+`anteval/cases/anteval.toml` has no github or gitd case. Needs a disposable repository, a
+GitHub App installed on it and the operator's App credentials.
+**Measured:** `grep -n -i "github\|gitd" anteval/cases/anteval.toml` at
+`8e319b2237d535e0e9eba2bbdbf9d63b3b03079c` finds no case.
+- **Severity:** medium — the live claims of `specs/6/27-git-channel.md` § "Acceptance boundary"
+  stay unproven
+- **Type:** ops — no test — ops
+- **Status:** open — operator task
 
 ## L896 — the CLI README says to use /new before a backend change, which ant makes unnecessary (2026-11-15, open)
 
@@ -1518,6 +1509,12 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
   `CheckGrant` with the issuer's policy (`routd/agent_gate.go:26`,
   `routd/acl_resource.go:152`). `isolateElevated` confines the elevated batch
   to the issuer's message (`routd/dispatch.go`).
+- **`L688` — folding onbod into routd needs no measurement: the owner keeps them
+  separate.** Proposed 2026-11-07 as an in-process admission module that keeps onbod's
+  table ownership. Ruled won't-do 2026-11-15.
+- **`L689` — folding dashd into another daemon needs no measurement: the owner keeps it
+  separate.** Proposed 2026-11-07 on the strength of dashd's imports of platform code.
+  Ruled won't-do 2026-11-15.
 
 ## L721 — delegate and escalate turns bounce between root `sloth` and `sloth/discord` for an hour (2026-11-08, open)
 
@@ -1869,37 +1866,6 @@ tests and documentation. The registered external contract can still have outside
 - **Test:** no test — design; caller reachability does not authorize an external API deletion.
 - **Status:** open — needs owner sign-off.
 
-## L688 — folding onbod into routd needs measured savings (2026-11-07, open — deferred proposal, needs sign-off)
-
-onbod owns admission tables and audits in `onbod/db.go`. It opens onbod and
-routd stores in `onbod/main.go`; routd calls it for admission. No matched-workload
-comparison establishes net savings from an in-process admission module.
-
-- **Severity:** low — no demonstrated defect; a deferred process-boundary decision.
-- **Scope:** onbod process and table authority.
-- **Affected:** onbod, routd and any proposed webd page move.
-- **Options:** (a) fold admission into routd while preserving onbod table ownership and gates, after measuring net savings and reused code; (b) keep onbod separate.
-- **Default if nothing is decided:** keep onbod separate, as recommended by the Astra audit. A table migration or new webd protocol needs its own design.
-- **Trigger:** a matched-workload comparison demonstrates net memory savings and exact code reuse.
-- **Test:** no test — design; measurements are pending.
-- **Status:** open — deferred, needs owner sign-off; outside the built slices of `specs/7/26-single-world-deployment.md`.
-
-## L689 — folding dashd needs measured savings and code reuse (2026-11-07, open — deferred proposal, needs sign-off)
-
-dashd imports platform code in `dashd/services.go`. Import coupling does not
-establish reusable work or net memory savings from a process fold.
-The measured 12.5 MiB average across nine daemons is neither dashd's individual
-footprint nor a net saving for this proposal.
-
-- **Severity:** low — no demonstrated defect; a deferred process-boundary decision.
-- **Scope:** dashboard process boundary.
-- **Affected:** dashd and a prospective owning daemon.
-- **Options:** (a) fold dashd after measuring net savings and identifying reused code; (b) keep dashd separate.
-- **Default if nothing is decided:** keep dashd separate, as recommended by the Astra audit. Preserve useful standalone services, platform-adapter processes and runed's execution isolation.
-- **Trigger:** matched-workload measurements and a specific reuse case justify the fold.
-- **Test:** no test — design; measurements are pending.
-- **Status:** open — deferred, needs owner sign-off; outside the built slices of `specs/7/26-single-world-deployment.md`.
-
 ## L690 — source fixtures and case comments name retired services (2026-11-07, ✅ FIXED)
 
 `tests/dashd-playwright/stub-upstream.ts:192` contains a
@@ -1915,20 +1881,6 @@ The fixture values and case comments do not describe the current deployment.
 - **Fix:** align fixture backend and service expectations with proxyd static serving and routd scheduling.
 - **Test:** run the affected Playwright suites with the fixture update; TypeScript and TOML edits are outside this documentation pass.
 - **Status:** ✅ FIXED — fixtures and case comments use current services.
-
-## L678 — no operator door writes a group's `effort`, and dashd lists only 4.x models (2026-11-07, open — folded into the per-group harness spec)
-
-Measured at `3e8d7bf2a`. `store/groups.go:592` reads `effort` from the group
-settings document, and nothing writes it: `cfgEffort` appears only at `:50` and
-`:592`, the `arizuko group` CLI has no set verb (`cmd/arizuko/main.go:411`), and
-the groups resreg resource has no update action. dashd's model select
-(`dashd/groups_admin.go:285-290`) offers only Opus 4.7, Sonnet 4.6 and Haiku
-4.5. The only working door is `arizuko apply` of a groups rows file with a
-hand-written `config` JSON; `rhias/trip` was set to Fable high that way.
-
-- **Severity:** medium (an operator cannot set effort or a current model without hand-written JSON)
-- **Test:** none yet; the per-group harness spec names it.
-- **Fix:** one write door for the group harness (backend, model, effort), in the spec Astra drafts in `.astra-backend`.
 
 ## L676 — dashboard group creation grants more scope than its gate checks (2026-11-07, open — needs sign-off)
 
@@ -4300,7 +4252,7 @@ so context can contain both versions or text that GitHub deleted.
 - **Scope:** `gitd/event.go`, `store/messages.go`
 - **Status:** open — no test, design
 - **Options:** retain immutable history with notices, or approve object
-  revisions and deletion markers from `specs/6/27-git-channel.md`.
+  revisions and deletion markers.
 - **Default if nothing is decided:** preserve history and deliver notices.
 
 ## L419 — a token GitHub refuses at boot restart-loops the whole instance (2026-10-16, ✅ FIXED 2026-10-16 — `1f52b893`)
@@ -7518,7 +7470,7 @@ inline. `5/B` and `5/F` are the specs to amend.
   is `observe_window_*` still the right budget once the window stops meaning
   "what nobody answered" and starts meaning "the channel"?
 
-## L72 — anteval leaks a group per case and every release pays an LLM turn for each (2026-08-23, open — needs sign-off on spec `6/50`)
+## L72 — anteval leaks a group per case and every release pays an LLM turn for each (2026-08-23, open — disposable run unproven)
 
 `anteval` cases create child groups with `register_group` and post tasks with
 `send`, and
@@ -7651,12 +7603,13 @@ rejects. A teardown of what anteval makes on krons is no longer the fix.
 - **Scope:** `anteval/pkg/run`, `anteval/cmd/anteval`,
   `.claude/skills/eval/gates.md`, `specs/5/9-agent-capability-eval.md`
   (now `defected` on this entry: § "Approach" claims a teardown).
-- **Status:** open — needs sign-off on spec `6/50`. **Default if nothing is
-  decided:** anteval keeps running against krons, two children per smoke
-  run, and an operator removes them by hand after each run. The krons rows
-  listed above are an operator action on live data: revoke the 28 tokens
-  (`arizuko token krons revoke`), remove the 48 networks; the platform half
-  is spec `6/50`. No test — design.
+- **Status:** open — the disposable lifecycle of `specs/6/50-anteval-ephemeral-instance.md`
+  is implemented (`anteval/cmd/anteval/lifecycle.go`). Still open: no passing disposable
+  smoke or product run on an isolated store has been recorded, with cleanup after success
+  and after a partial startup (the spec's § "Remaining"); the leftovers on krons listed above
+  (28 tokens, 48 networks, case-built skills and files) are an operator action on live data,
+  unverified; the egress setup of `L512` and the case backfill of `L188` are their own
+  entries. No test — design.
 
 ## ✅ FIXED 2026-10-08 L62 — emaid retries an IMAP authentication rejection forever (2026-08-21, re-aimed 2026-09-25)
 
@@ -10200,9 +10153,12 @@ Local paths table (`link-is-public-url`), the map (`self-skill`).
 - **Severity:** low (measurement gap, no observed regression)
 - **Scope:** anteval cases
 - **Affected:** every backend, every group
-- **Source:** `specs/6/34-resident-prompt.md:276` §"The failure mode, and the three guards" (`status: shipped`); the move
+- **Source:** `specs/6/34-resident-prompt.md:276` §"The failure mode, and the three guards" (`status: partial`); the move
   commit `docs(ant): ant/CLAUDE.md carries only what the rule of 6/34 keeps resident`
-- **Status:** open — the remaining rules need observability beyond the current check kinds or a different test surface.
+- **Status:** open — the owner accepts the 17 rules without an anteval check kind as unmeasured
+  (2026-11-15) and rules the mount-procedure row out of anteval scope. What stays open is the
+  full case catalog through the disposable lifecycle, which
+  `specs/6/34-resident-prompt.md` § "Remaining" holds.
 
 ## L189 — `sandbox/` writes no netfilter rule for a host-name allowlist entry (2026-09-05, SILENT HALF FIXED 2026-09-20; the rule is ANSWERED by `6/41`, pending that spec's step 1)
 
