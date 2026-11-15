@@ -40,9 +40,10 @@ const (
 
 // pendingPartition is the one partition every held message lives in: the
 // database already IS one adapter's queue, so there is nothing to filter by.
-// A message that routd accepts or permanently refuses is deleted, so the steady
-// state is empty (measured 2026-09-07: zero rows in both live teled databases)
-// and the queue only fills while routd is down.
+// Accepted rows leave, so the steady state is empty (measured 2026-09-07: zero
+// rows in both live teled databases) and the queue fills while routd is down.
+// A permanently refused or exhausted row stays held with retry_state=failed: it
+// has no due pointer and still counts as held.
 //
 // The sort key is the message id because id-uniqueness is the guarantee: a row
 // already held keeps its attempt count and its backoff, enforced by a Put under

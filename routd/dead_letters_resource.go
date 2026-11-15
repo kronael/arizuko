@@ -2,8 +2,8 @@ package routd
 
 // dead_letters_resource.go publishes routd's dead-lettered outbound on both
 // faces (BUGS L23). It adds NO state: 'failed' is the dead-letter state, the
-// row stays in `messages`, and `delivery_attempts` separates the causes (0:
-// refused; the cap: retries ran out). Replay flips the row back to 'pending',
+// row stays in `messages`, and `delivery_attempts` counts the failed attempts
+// (last_error says why delivery stopped). Replay makes the delivery due again,
 // which PendingOutbound selects, so the EXISTING sweep sends it — no second
 // delivery path. Containment is by `routed_to`, resolved in the handler
 // because it bounds ROWS, not the call; on the agent socket a missing folder
