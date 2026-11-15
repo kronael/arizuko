@@ -88,6 +88,22 @@ PY
 while :; do sleep 1; done
 `
 
+const readOnlyMountEntry = `#!/bin/sh
+set -eu
+python3 - <<'PY'
+import errno
+for path, mode in (('/mnt/ro/fixed', 'a'), ('/mnt/ro/created', 'w')):
+    try:
+        open(path, mode).write('x')
+    except OSError as err:
+        assert err.errno == errno.EROFS, err
+    else:
+        raise SystemExit('write to ' + path + ' succeeded')
+open('/home/node/ready', 'w').write('ready')
+PY
+while :; do sleep 1; done
+`
+
 func TestGuestMCPBridgeRejectsOtherGuest(t *testing.T) {
 	if testing.Short() {
 		t.Skip("needs isolated KVM environment")
@@ -463,6 +479,121 @@ func TestGuestTurnOverCtl(t *testing.T) {
 	<-dnsDone
 	if dnsRequests.Load() != 0 {
 		t.Errorf("guest DNS reached host listener %d times", dnsRequests.Load())
+	}
+}
+
+// A read-only family is read-only in the GUEST: the host remounts the bind
+// read-only before virtiofsd starts, so a write from inside answers EROFS
+// (spec 6/41 §"The mechanisms"), and the host file keeps its bytes. The file and
+// directory are world-writable, so only the mount can be what refuses.
+func TestGuestReadOnlyMountAnswersEROFS(t *testing.T) {
+	if testing.Short() {
+		t.Skip("needs isolated KVM environment")
+	}
+	if os.Geteuid() != 0 {
+		t.Skip("needs root for guest mounts and networking")
+	}
+	for _, key := range []string{
+		"RUNED_BENCH_ID", "RUNED_BENCH_OUTPUT_DIR", envKernelDir,
+		envRootfsDir, envCIDBase, envVsockBase, envTapSubnet,
+	} {
+		if os.Getenv(key) == "" {
+			t.Skipf("%s is not set", key)
+		}
+	}
+	for _, dev := range []string{
+		"/dev/kvm", "/dev/vhost-vsock", filepath.Join(os.Getenv(envKernelDir), kernelImage),
+		filepath.Join(os.Getenv(envKernelDir), kernelInitrd), os.Getenv(envRootfsDir),
+	} {
+		if _, err := os.Stat(dev); err != nil {
+			t.Skipf("%s unavailable: %v", dev, err)
+		}
+	}
+	root, err := os.MkdirTemp(os.Getenv("RUNED_BENCH_OUTPUT_DIR"), "erofs-proof-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		mounts, err := os.Open("/proc/self/mountinfo")
+		if err != nil {
+			t.Errorf("inspect mounts before cleanup: %v", err)
+			return
+		}
+		left := mountedUnder(mounts, root)
+		_ = mounts.Close()
+		if len(left) != 0 {
+			t.Errorf("test mounts remain: %v", left)
+			return
+		}
+		if err := os.RemoveAll(root); err != nil {
+			t.Errorf("remove test directory: %v", err)
+		}
+	})
+	if err := os.Chmod(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &core.Config{
+		Name: os.Getenv("RUNED_BENCH_ID"), ProjectRoot: root,
+		GroupsDir: filepath.Join(root, "groups"), IpcDir: filepath.Join(root, "ipc"),
+		MaxAgents: 1,
+	}
+	home, shared := filepath.Join(root, "home"), filepath.Join(root, "shared")
+	for _, dir := range []string{
+		filepath.Join(root, "app"), filepath.Join(cfg.IpcDir, "solo", "inbox"),
+		filepath.Join(cfg.GroupsDir, "solo", "inbox"), home, shared,
+	} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Chown(home, 1000, 1000); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(shared, 0o777); err != nil {
+		t.Fatal(err)
+	}
+	fixed := filepath.Join(shared, "fixed")
+	if err := os.WriteFile(fixed, []byte("host"), 0o666); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(fixed, 0o666); err != nil {
+		t.Fatal(err)
+	}
+	entry := filepath.Join(root, "app", "entrypoint.sh")
+	if err := os.WriteFile(entry, []byte(readOnlyMountEntry), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runtime, _, err := NewQemuRuntime(cfg, resolverFor(cfg))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	result := make(chan RunResult, 1)
+	turn := Turn{
+		Handle: "erofs", Folder: "solo/inbox",
+		Mounts: []core.Mount{
+			{Host: home, Container: core.ContainerHome},
+			{Host: entry, Container: "/app/entrypoint.sh", RO: true},
+			{Host: shared, Container: "/mnt/ro", RO: true},
+		},
+		Env:           map[string]string{"HOME": core.ContainerHome},
+		RegisterSteer: func(func(string) bool) {},
+	}
+	go func() { result <- runtime.Run(ctx, turn) }()
+	ended := false
+	t.Cleanup(func() {
+		cancel()
+		if !ended {
+			<-result
+		}
+	})
+	waitTurnProof(t, filepath.Join(home, "ready"), result, &ended)
+	if got, err := os.ReadFile(fixed); err != nil || string(got) != "host" {
+		t.Errorf("host file after the guest's write: %q, err=%v; want %q", got, err, "host")
+	}
+	if _, err := os.Stat(filepath.Join(shared, "created")); !os.IsNotExist(err) {
+		t.Errorf("the guest created a file in a read-only family: %v", err)
 	}
 }
 
