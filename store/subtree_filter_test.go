@@ -39,7 +39,10 @@ func TestSiblingFoldersKeepOnlyExactChildren(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	got := s.SiblingFolders("a_b/one")
+	got, err := s.SiblingFolders("a_b/one")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(got) != 1 || got[0] != "a_b/two" {
 		t.Errorf("SiblingFolders(a_b/one) = %v, want [a_b/two] — not the parent, not aXb's child, not A_B's", got)
 	}

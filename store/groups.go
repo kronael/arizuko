@@ -463,7 +463,10 @@ func (s *Store) setSetting(folder, key string, value any, remove bool) error {
 	if !ok {
 		return fmt.Errorf("group %q has no row to set %s on", folder, key)
 	}
-	cfg := settingsOf(it)
+	cfg, err := decodeSettings(it)
+	if err != nil {
+		return err
+	}
 	if remove {
 		delete(cfg, key)
 	} else {
@@ -515,7 +518,10 @@ func (s *Store) SetGroupObserveWindow(folder string, msgs, chars int) error {
 	if !ok {
 		return fmt.Errorf("group %q has no row to set an observe window on", folder)
 	}
-	cfg := settingsOf(it)
+	cfg, err := decodeSettings(it)
+	if err != nil {
+		return err
+	}
 	cfg[cfgObserveWinMsgs] = nil
 	if msgs >= 0 {
 		cfg[cfgObserveWinMsgs] = msgs
@@ -587,10 +593,10 @@ func (s *Store) SetGroupSettings(folder string, settings map[string]json.RawMess
 // SiblingFolders returns folders that share folder's immediate parent,
 // excluding folder itself and any closed sibling. Root folders have no
 // siblings. Spec 5/F-topic-lineage ambient join.
-func (s *Store) SiblingFolders(folder string) []string {
+func (s *Store) SiblingFolders(folder string) ([]string, error) {
 	parent := groupfolder.ParentOf(folder)
 	if parent == "" {
-		return nil
+		return nil, nil
 	}
 	// begins_with on the coordinate with "/" as the subtree separator: it
 	// matches `parent` and everything under `parent/`, nothing else. That
@@ -600,7 +606,7 @@ func (s *Store) SiblingFolders(folder string) []string {
 		Key: objstore.KeyPredicate{Op: objstore.PrefixKey, Value: parent, Sep: "/"},
 	})
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	var out []string
 	for _, it := range items {
@@ -612,13 +618,17 @@ func (s *Store) SiblingFolders(folder string) []string {
 		if groupfolder.ParentOf(f) != parent {
 			continue
 		}
-		if open, set := settingNum(settingsOf(it), cfgOpen); set && open == 0 {
+		cfg, err := decodeSettings(it)
+		if err != nil {
+			return nil, err
+		}
+		if open, set := settingNum(cfg, cfgOpen); set && open == 0 {
 			continue
 		}
 		out = append(out, f)
 	}
 	slices.Sort(out)
-	return out
+	return out, nil
 }
 
 // costCapOf reads the per-group daily spend cap, in cents. Absent is no cap.

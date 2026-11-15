@@ -108,7 +108,10 @@ func TestSiblingFolders_FiltersClosedAndSelf(t *testing.T) {
 	if err := s.SetGroupOpen("main/c", false); err != nil {
 		t.Fatal(err)
 	}
-	got := s.SiblingFolders("main/a")
+	got, err := s.SiblingFolders("main/a")
+	if err != nil {
+		t.Fatal(err)
+	}
 	want := map[string]bool{"main/b": true}
 	if len(got) != len(want) {
 		t.Fatalf("siblings = %v, want %v", got, want)
@@ -128,8 +131,8 @@ func TestSiblingFolders_RootHasNone(t *testing.T) {
 	defer s.Close()
 	putBareGroup(t, s, "main")
 	putBareGroup(t, s, "other")
-	if got := s.SiblingFolders("main"); len(got) != 0 {
-		t.Errorf("root sibling list = %v, want []", got)
+	if got, err := s.SiblingFolders("main"); err != nil || len(got) != 0 {
+		t.Errorf("root sibling list = %v, %v, want []", got, err)
 	}
 }
 
@@ -427,4 +430,70 @@ func TestGroupAgent(t *testing.T) {
 func groupAgentForTest(s *Store, folder string) (string, error) {
 	g, _, err := s.GroupByFolderChecked(folder)
 	return g.Agent, err
+}
+
+func putRawConfig(t *testing.T, s *Store, folder, raw string) {
+	t.Helper()
+	if err := s.WriteEntities(context.Background(), nil, objstore.Write{Op: objstore.Merge, Entity: Groups, Key: objstore.Key{Partition: OwnerRoutd, Sort: folder}, Attrs: map[string]string{"config": raw}}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func storedConfig(t *testing.T, s *Store, folder string) string {
+	t.Helper()
+	it, ok, err := s.groupItem(context.Background(), folder)
+	if err != nil || !ok {
+		t.Fatalf("group %q: ok=%v err=%v", folder, ok, err)
+	}
+	return it.Attrs[attrGrpConfig]
+}
+
+// A stored settings document that does not parse is a read failure for every
+// reader and setter, and a refused set leaves the stored bytes as they were.
+func TestMalformedSettingsFailVisibly(t *testing.T) {
+	s, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	putBareGroup(t, s, "main/a")
+	putBareGroup(t, s, "main/b")
+	malformed := `{"open":0,"future":{"x":1},"bad"`
+	putRawConfig(t, s, "main/b", malformed)
+
+	if _, err := s.SiblingFolders("main/a"); err == nil || !strings.Contains(err.Error(), "invalid settings JSON") {
+		t.Errorf("SiblingFolders over a malformed row: err = %v", err)
+	}
+	for name, set := range map[string]func() error{
+		"SetGroupOpen":          func() error { return s.SetGroupOpen("main/b", true) },
+		"SetGroupObserveWindow": func() error { return s.SetGroupObserveWindow("main/b", 5, 6) },
+	} {
+		if err := set(); err == nil || !strings.Contains(err.Error(), "invalid settings JSON") {
+			t.Errorf("%s over a malformed document: err = %v", name, err)
+		}
+		if got := storedConfig(t, s, "main/b"); got != malformed {
+			t.Errorf("%s rewrote the stored document to %s", name, got)
+		}
+	}
+}
+
+// An absent settings document is the empty document, not a failure.
+func TestAbsentSettingsReadAsEmpty(t *testing.T) {
+	s, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	putBareGroup(t, s, "main/a")
+	putBareGroup(t, s, "main/b")
+	got, err := s.SiblingFolders("main/a")
+	if err != nil || len(got) != 1 || got[0] != "main/b" {
+		t.Fatalf("siblings = %v, %v", got, err)
+	}
+	if err := s.SetGroupOpen("main/b", false); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetGroupObserveWindow("main/b", 5, 6); err != nil {
+		t.Fatal(err)
+	}
 }
