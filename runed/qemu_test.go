@@ -456,7 +456,7 @@ func cfgFor(t *testing.T) *core.Config {
 	return cfg
 }
 
-func TestQemuPreparationFailureIsTerminal(t *testing.T) {
+func TestQemuPreparationFailureIsTransient(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "vm-root")
 	if err := os.WriteFile(root, nil, 0o600); err != nil {
 		t.Fatal(err)
@@ -467,7 +467,7 @@ func TestQemuPreparationFailureIsTerminal(t *testing.T) {
 			TapSubnet: "10.97.0.0/24"},
 	}
 	out := q.Run(context.Background(), Turn{Handle: "failed", Folder: "demo"})
-	if out.Outcome != runedv1.OutcomeError || !out.Terminal ||
+	if out.Outcome != runedv1.OutcomeError || out.Terminal ||
 		!strings.Contains(out.Error, "not a directory") {
 		t.Fatalf("preparation result: %+v", out)
 	}
@@ -798,11 +798,12 @@ func TestTurnEndingThroughManagerAndRouter(t *testing.T) {
 			}
 			tc, _ := routerDB.GetTurnContext("ending")
 			want := store.TurnDone
-			if name == "crash" {
+			retried := name == "crash" || name == "preparation"
+			if retried {
 				want = store.TurnPendingRetry
 			}
-			if tc.State != want || !tc.RunReturned || (name == "crash" && tc.RetryCount != 1) ||
-				(name != "crash" && tc.RetryCount != 0) {
+			if tc.State != want || !tc.RunReturned || (retried && tc.RetryCount != 1) ||
+				(!retried && tc.RetryCount != 0) {
 				t.Fatalf("ending %s: %+v", name, tc)
 			}
 			if name == "stop" {

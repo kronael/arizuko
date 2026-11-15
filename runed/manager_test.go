@@ -384,8 +384,8 @@ func TestRunFailureClassification(t *testing.T) {
 		err      error
 		terminal bool
 	}{
-		{"unknown", errors.New("unknown"), true},
-		{"permanent", syscall.ENOTDIR, true},
+		{"unknown", errors.New("unknown"), false},
+		{"unclassified errno", syscall.ENOTDIR, false},
 		{"transport", fmt.Errorf("wrapped: %w", syscall.ECONNRESET), false},
 		{"timeout", context.DeadlineExceeded, false},
 		{"fact", &retry.Error{Failure: retry.Failure{Kind: "transient"}, Err: errors.New("crash")}, false},

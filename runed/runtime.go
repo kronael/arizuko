@@ -2,7 +2,7 @@ package runed
 
 import (
 	"context"
-	"time"
+	"errors"
 
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/retry"
@@ -75,8 +75,12 @@ type RunResult struct {
 	Terminal bool
 }
 
+// runFailure marks a preparation or control failure terminal only for an ended
+// context or an explicit permanent fact. An unclassified error
+// is retryable and the turn budget bounds the retries (BUGS L887).
 func runFailure(ctx context.Context, err error) RunResult {
-	failure := retry.FromError(err, time.Now())
+	var fact *retry.Error
+	permanent := errors.As(err, &fact) && fact.Failure.Kind == "permanent"
 	return RunResult{Outcome: runedv1.OutcomeError, Error: err.Error(),
-		Terminal: ctx.Err() != nil || (failure.Kind != "transient" && failure.Kind != "timeout")}
+		Terminal: ctx.Err() != nil || permanent}
 }
