@@ -591,6 +591,30 @@ ${body}
     expect(r.deliveries[0].out.status).toBe('success');
   });
 
+  // PiTurn hands each completed block on once; the chassis keeps no memory, so a
+  // block completed early in a message must not come back on every later delta.
+  test('each completed status block is submitted exactly once, in order, whole', async () => {
+    const words = Array.from({ length: 6 }, (_, i) => delta(` word${i}`));
+    const r = await run(printf(
+      line({ type: 'message_start', message: { role: 'assistant' } }),
+      delta('<status>one</status>'), ...words,
+      delta(' <status>two</status><status>three</status>'), delta(' more <sta'), delta('tus>fo'), delta('ur</status> tail'),
+      ended(assistant({ content: [{ type: 'text', text: '<status>one</status> word0 word1 word2 word3 word4 word5 <status>two</status><status>three</status> more <status>four</status> tail' }], stopReason: 'stop' })),
+    ));
+    expect(r.status).toEqual(['one', 'two', 'three', 'four']);
+    expect(r.deliveries).toHaveLength(1);
+  });
+
+  test('a new assistant message starts the status memory clean', async () => {
+    const msg = (text: string) => [
+      line({ type: 'message_start', message: { role: 'assistant' } }),
+      delta(text), delta(' tail'),
+      ended(assistant({ content: [{ type: 'text', text: `${text} tail` }], stopReason: 'toolUse' })),
+    ];
+    const r = await run(printf(...msg('<status>same</status>'), ...msg('<status>same</status>')));
+    expect(r.status).toEqual(['same', 'same']);
+  });
+
   test('a tool-only completion is a success with no terminal prose', async () => {
     const r = await run(printf(ended(assistant({ stopReason: 'toolUse' }))));
     expect(r.deliveries).toHaveLength(1);

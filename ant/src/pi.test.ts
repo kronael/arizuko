@@ -65,16 +65,13 @@ test('PiTurn: the recorded error stream ends as one error result — even on exi
   expect(result.text).toContain('404');
 });
 
-test('PiTurn: a success stream yields status text and one ok result with usage', () => {
+test('PiTurn: a success stream yields no status frame without a block, and one ok result with usage', () => {
   const turn = new PiTurn();
   const frames = play(turn, [
     { type: 'session', id: 's-1' },
     { type: 'message_end', message: OK_ASSISTANT },
   ]);
-  expect(frames.map((f) => f.kind)).toEqual(['continuity', 'status']);
-  const status = frames[1];
-  if (status.kind !== 'status') throw new Error('expected status frame');
-  expect(status.text).toBe('pong');
+  expect(frames.map((f) => f.kind)).toEqual(['continuity']);
   const result = turn.finish(0, '');
   expect(result.ok).toBe(true);
   expect(result.text).toBe('pong');
@@ -208,12 +205,25 @@ test('pi forwards effort and existing credential aliases', () => {
 test('pi emits split status and accepts a tool-only completion', () => {
   const turn = new PiTurn();
   turn.push({ type: 'message_start', message: { role: 'assistant' } });
-  expect(turn.push({ type: 'message_update', assistantMessageEvent: { type: 'text_delta', contentIndex: 0, delta: '<sta' } })).toEqual([{ kind: 'status', text: '<sta' }]);
+  expect(turn.push({ type: 'message_update', assistantMessageEvent: { type: 'text_delta', contentIndex: 0, delta: '<sta' } })).toEqual([]);
   expect(turn.push({ type: 'message_update', assistantMessageEvent: { type: 'text_delta', contentIndex: 0, delta: 'tus>work</status>' } })).toEqual([{ kind: 'status', text: '<status>work</status>' }]);
   turn.push({ type: 'message_end', message: { role: 'assistant', content: [], stopReason: 'toolUse' } });
   expect(turn.finish(0, '').ok).toBe(true);
 });
 
+test('PiTurn: a block is handed on once per part; message_end carries only what is new', () => {
+  const turn = new PiTurn();
+  const d = (contentIndex: number, delta: string) => turn.push({ type: 'message_update', assistantMessageEvent: { type: 'text_delta', contentIndex, delta } });
+  turn.push({ type: 'message_start', message: { role: 'assistant' } });
+  expect(d(0, 'a <status>one</status> then')).toEqual([{ kind: 'status', text: 'a <status>one</status>' }]);
+  expect(d(0, ' more')).toEqual([]);
+  expect(d(1, '<status>two</status>')).toEqual([{ kind: 'status', text: '<status>two</status>' }]);
+  expect(d(0, ' <status>three</status><status>four</status>')).toEqual([{ kind: 'status', text: ' then more <status>three</status><status>four</status>' }]);
+  const end = { role: 'assistant', stopReason: 'stop', content: [{ type: 'text', text: 'a <status>one</status> then more <status>three</status><status>four</status>' }, { type: 'text', text: '<status>two</status> <status>five</status>' }] };
+  expect(turn.push({ type: 'message_end', message: end })).toEqual([{ kind: 'status', text: ' <status>five</status>' }]);
+  turn.push({ type: 'message_start', message: { role: 'assistant' } });
+  expect(d(0, '<status>one</status>')).toEqual([{ kind: 'status', text: '<status>one</status>' }]);
+});
 
 test('pi converts the existing Codex login without inventing expiry', () => {
   const access = `header.${Buffer.from(JSON.stringify({ exp: 1234 })).toString('base64url')}.signature`;

@@ -90,10 +90,16 @@ const RESUME_MISS = /No session found matching/;
 // {message} · turn_end · agent_end, with auto_retry_* wrapping repeated
 // attempts. agent_end fires once PER ATTEMPT, so the terminal is the process
 // exit, not any stream event.
+//
+// A status frame carries each completed <status> block once: per content part it
+// remembers how far the part's text has been handed on, and a frame holds the text
+// from there to the end of the part's last complete </status>. The chassis keeps no
+// memory of what it has submitted.
 export class PiTurn {
   private lastText: string | undefined;
   private completed = false;
   private textParts: string[] = [];
+  private handed: number[] = [];
   private lastStop: string | undefined;
   private lastError: string | undefined;
   private models: Record<string, ModelUsage> | undefined;
@@ -108,12 +114,12 @@ export class PiTurn {
       // The id is both the continuity token and the lineage session id.
       return id ? [{ kind: 'continuity', token: id, sessionId: id }] : [];
     }
-    if (type === 'message_start' && (obj.message as PiMessage | undefined)?.role === 'assistant') this.textParts = [];
+    if (type === 'message_start' && (obj.message as PiMessage | undefined)?.role === 'assistant') this.reset();
     if (type === 'message_update') {
       const event = obj.assistantMessageEvent as { type?: string; contentIndex?: number; delta?: string } | undefined;
       if (event?.type === 'text_delta' && typeof event.contentIndex === 'number') {
         this.textParts[event.contentIndex] = (this.textParts[event.contentIndex] ?? '') + (event.delta ?? '');
-        return [{ kind: 'status', text: this.textParts.join('') }];
+        return this.completedBlocks();
       }
     }
     if (type !== 'message_end') return [];
@@ -137,8 +143,33 @@ export class PiTurn {
       .map((p) => p.text ?? '')
       .join('');
     this.lastText = text;
-    if (!text) return [];
-    return [{ kind: 'status', text }];
+    (m.content ?? []).forEach((p, i) => {
+      if (p.type === 'text') this.textParts[i] = p.text ?? '';
+    });
+    const frames = this.completedBlocks();
+    this.reset();
+    return frames;
+  }
+
+  private reset(): void {
+    this.textParts = [];
+    this.handed = [];
+  }
+
+  // completedBlocks hands on, from each part, the text up to the end of its last
+  // complete </status> that an earlier frame did not carry. Nothing is emitted
+  // while no new block has completed.
+  private completedBlocks(): Frame[] {
+    let text = '';
+    this.textParts.forEach((part, i) => {
+      const close = part.lastIndexOf('</status>');
+      const end = close + '</status>'.length;
+      const from = this.handed[i] ?? 0;
+      if (close < 0 || end <= from) return;
+      text += part.slice(from, end);
+      this.handed[i] = end;
+    });
+    return text ? [{ kind: 'status', text }] : [];
   }
 
   // finish synthesises the single terminal result at process exit. A run whose
