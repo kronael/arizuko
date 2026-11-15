@@ -35,8 +35,9 @@ func TestHandleSend_NoThread(t *testing.T) {
 	w := httptest.NewRecorder()
 	s.handler().ServeHTTP(w, req)
 
-	if w.Code != 502 {
-		t.Errorf("status = %d, want 502", w.Code)
+	// An unknown send outcome is a terminal 4xx (plan-09 writeBotResult).
+	if w.Code != 400 {
+		t.Errorf("status = %d, want 400", w.Code)
 	}
 }
 

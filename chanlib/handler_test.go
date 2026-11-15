@@ -151,8 +151,9 @@ func TestHandlerSendError(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer secret")
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
-	if w.Code != 502 {
-		t.Fatalf("status = %d, want 502", w.Code)
+	// An unknown send outcome is a terminal 4xx (plan-09 writeBotResult).
+	if w.Code != 400 {
+		t.Fatalf("status = %d, want 400", w.Code)
 	}
 }
 
@@ -237,8 +238,9 @@ func TestHandlerSendFileError(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer secret")
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
-	if w.Code != 502 {
-		t.Fatalf("status = %d, want 502", w.Code)
+	// An unknown send outcome is a terminal 4xx (plan-09 writeBotResult).
+	if w.Code != 400 {
+		t.Fatalf("status = %d, want 400", w.Code)
 	}
 }
 
