@@ -91,7 +91,7 @@ adapter response `chanlib.ErrPermanent`; the adapter refuses the message
 for a reason a retry cannot repair. Such a row dead-letters at once and
 spends no attempt budget. Only a transient failure retries, and each
 attempt increments `messages.delivery_attempts`. The row dead-letters
-when the attempts reach `MAX_OUTBOUND_RETRY` (default 10), so a stuck
+when the failures reach the `retry/policy.json` budget (ten), so a stuck
 message cannot repeat forever — it burned about 2880 sends over 24h
 before this bound.
 

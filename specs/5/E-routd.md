@@ -180,7 +180,7 @@ is a future spec.
 - **Outbound is poll-reconciled.** A bot row is written `status='pending'`,
   delivered inline, marked `sent` on success; `maybeRetryOutbound`
   (`loop.go:358`) re-dispatches rows older than 30s, bounds the retries at
-  `MAX_OUTBOUND_RETRY` and then dead-letters. Delivery never blocks the turn.
+  the `retry/policy.json` budget (ten failures) and then dead-letters. Delivery never blocks the turn.
 - **Dedup is the adapter's contract, and it is durable.** routd sends the bot
   row's stable id as `idempotency_key` on every resend. The adapter mux claims
   that key in its OWN SQLite table BEFORE the platform call and settles it

@@ -25,6 +25,10 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ### Changed
 
+- One retry rule for every owner (`retry/policy.json`): 30 s doubling to one
+  hour, ten failures. A turn now retries up to ten times instead of three.
+  `MAX_TURN_RETRY` and `MAX_OUTBOUND_RETRY` no longer apply; routd logs an error
+  when either is set.
 - L834–L853: task, turn, delivery, onboarding, adapter and spawn writers maintain
   their work keys atomically. Startup backfills existing rows once behind retained
   migration markers. Due checks read due work; backlog health reads one counter.

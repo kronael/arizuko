@@ -30,9 +30,21 @@ import (
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 )
 
+// logIgnoredRetryEnv names each retired retry variable that is still set
+// (BUGS L886); retry/policy.json holds every retry budget.
+func logIgnoredRetryEnv() {
+	for _, name := range []string{"MAX_TURN_RETRY", "MAX_OUTBOUND_RETRY"} {
+		if _, ok := os.LookupEnv(name); ok {
+			slog.Error(name+" is set and ignored; retry/policy.json sets every retry budget", "var", name)
+		}
+	}
+}
+
 func main() {
 	defer obs.Setup("routd", os.Getenv("ARIZUKO_INSTANCE"))()
 	defer obs.SetupTraces("routd", os.Getenv("ARIZUKO_INSTANCE"))()
+
+	logIgnoredRetryEnv()
 
 	dataDir := os.Getenv("DATA_DIR")
 	if dataDir == "" {

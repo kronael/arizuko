@@ -54,7 +54,7 @@ excludes it, and no sweep sends it again. Two rules end the retries:
   request.
 - A **transient** failure spends one attempt
   (`messages.delivery_attempts`, migration 0034). The row dead-letters
-  when the attempts reach `MAX_OUTBOUND_RETRY` (default 10).
+  when the failures reach the `retry/policy.json` budget (ten).
 
 Age is not a bound. The retired 24h rule failed a row that the sweep had
 never attempted — a routd outage longer than 24h discarded the whole
