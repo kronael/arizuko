@@ -217,7 +217,7 @@ var daemonKeys = map[string][]string{
 	// gitd unseals github_sources secrets from routd's store, so it needs the
 	// same SECRETS_KEY. GITHUB_TOKEN is optional: it only enables send_text.
 	"gitd":  {"AUTHD_URL", "AUTHD_SERVICE_KEY", "SECRETS_KEY", "GITHUB_TOKEN", "GITHUB_APP_ID", "GITHUB_APP_PRIVATE_KEY"},
-	"googd": {"AUTHD_URL", "AUTHD_SERVICE_KEY", "GDRIVE_SA_KEY_JSON", "GDRIVE_IMPERSONATE", "GOOGD_CONNECTOR_TOKEN", "GDRIVE_POLL_INTERVAL", "GDRIVE_API_URL"},
+	"googd": {"AUTHD_URL", "AUTHD_SERVICE_KEY", "GDRIVE_SA_KEY_JSON", "GDRIVE_IMPERSONATE", "GOOGD_CONNECTOR_TOKEN", "GDRIVE_POLL_INTERVAL", "GDRIVE_API_URL", "SHEETS_API_URL"},
 	// ttsd's fragment sets its three vars in `environment:`; the entry exists
 	// to move it off the shared .env, which handed it every secret.
 	"ttsd": {},

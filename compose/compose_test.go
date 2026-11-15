@@ -1258,6 +1258,27 @@ func TestGoogdReceivesItsCredential(t *testing.T) {
 	}
 }
 
+// Every key googd reads that README.md documents as the operator's reaches the
+// daemon through its env file. SHEETS_API_URL was read by googd and absent from
+// the list, so the default applied whatever the instance's .env said (BUGS L905).
+func TestGoogdReceivesEveryKeyItDocuments(t *testing.T) {
+	keys := []string{"GDRIVE_SA_KEY_JSON", "GDRIVE_IMPERSONATE", "GDRIVE_API_URL",
+		"SHEETS_API_URL", "GOOGD_CONNECTOR_TOKEN", "GDRIVE_POLL_INTERVAL"}
+	var envFile strings.Builder
+	for _, k := range keys {
+		envFile.WriteString(k + "=" + strings.ToLower(k) + "\n")
+	}
+	dir := seed(t, envFile.String())
+	write(t, dir, "services/googd.yml", "services:\n  googd:\n    image: arizuko:latest\n")
+	gen(t, dir)
+	env := read(t, dir, "env/googd.env")
+	for _, k := range keys {
+		if !strings.Contains(env, k+"="+strings.ToLower(k)+"\n") {
+			t.Errorf("googd environment lacks %s", k)
+		}
+	}
+}
+
 func TestHarnessDefaultsReachRuned(t *testing.T) {
 	dir := seed(t, "ARIZUKO_BACKEND=codex\nARIZUKO_DEFAULT_MODEL=model-id\nARIZUKO_DEFAULT_EFFORT=high\n")
 	gen(t, dir)
