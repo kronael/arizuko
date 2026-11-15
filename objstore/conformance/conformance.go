@@ -23,6 +23,8 @@ package conformance
 
 import (
 	"context"
+	"fmt"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -45,6 +47,7 @@ func Run(t *testing.T, newStore Factory) {
 	}{
 		{"OneClaimWinsAndTheLosersAreNotErrors", OneClaimWinsAndTheLosersAreNotErrors},
 		{"ClaimAndInsertHappenTogetherOrNotAtAll", ClaimAndInsertHappenTogetherOrNotAtAll},
+		{"TwoBatchesOverTheSameItemsInOppositeOrderBothLand", TwoBatchesOverTheSameItemsInOppositeOrderBothLand},
 		{"PrefixDoesNotWiden", PrefixDoesNotWiden},
 		{"PointReadReportsTombstonesRatherThanHidingThem", PointReadReportsTombstonesRatherThanHidingThem},
 		{"SortKeyOrderIsTimeOrder", SortKeyOrderIsTimeOrder},
@@ -140,6 +143,88 @@ func OneClaimWinsAndTheLosersAreNotErrors(t *testing.T, newStore Factory) {
 	got := one(t, s, tokens, key)
 	if _, ok := got.Attrs["used_at"]; !ok {
 		t.Errorf("the winning claim left no used_at on the item: %v", got.Attrs)
+	}
+}
+
+// deadlockRounds is how many times the opposite-order pair runs. Spec 6/42 §12
+// item 5 names a thousand.
+const deadlockRounds = 1000
+
+// TwoBatchesOverTheSameItemsInOppositeOrderBothLand is spec 6/42 §12 item 5:
+// two batches lock the same two items as (a, b) and (b, a) at once. A SQL
+// engine may abort one as a deadlock; the port's answer must still be one
+// commit and one REFUSAL, then a commit on retry — never an error reaching the
+// caller and never a lost write.
+//
+// Each caller is a compare-and-swap on a version both items carry, so the
+// refusal is the port's own: the loser read version 0, the winner made it 1,
+// and the loser re-reads and swaps 1 for 2. A caller retries a refusal and
+// nothing else, so an error from either batch fails the round.
+func TwoBatchesOverTheSameItemsInOppositeOrderBothLand(t *testing.T, newStore Factory) {
+	ctx := context.Background()
+	s := newStore(t, tokens)
+
+	for round := 0; round < deadlockRounds; round++ {
+		a := objstore.Key{Partition: tenant, Sort: fmt.Sprintf("dead/%04d/a", round)}
+		b := objstore.Key{Partition: tenant, Sort: fmt.Sprintf("dead/%04d/b", round)}
+		put(t, s, tokens, a, map[string]string{"ver": "0"})
+		put(t, s, tokens, b, map[string]string{"ver": "0"})
+
+		swap := func(self string, first, second objstore.Key, ver int) []objstore.Write {
+			w := func(k objstore.Key) objstore.Write {
+				return objstore.Write{Op: objstore.Update, Entity: tokens, Key: k,
+					Attrs: map[string]string{"ver": strconv.Itoa(ver + 1), self: "1"},
+					Cond: objstore.Cond{Where: []objstore.Cmp{
+						{Attr: "ver", Op: objstore.Eq, Value: strconv.Itoa(ver)}}}}
+			}
+			return []objstore.Write{w(first), w(second)}
+		}
+
+		errs := make([]error, 2)
+		var wg sync.WaitGroup
+		for i, c := range []struct {
+			self          string
+			first, second objstore.Key
+		}{{"by_ab", a, b}, {"by_ba", b, a}} {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				ver := 0
+				for try := 0; try < 3; try++ {
+					committed, err := s.GuardedBatch(ctx, nil, swap(c.self, c.first, c.second, ver))
+					if err != nil {
+						errs[i] = err
+						return
+					}
+					if committed {
+						return
+					}
+					items, err := s.Query(ctx, objstore.Query{
+						Entity: tokens, Partition: tenant,
+						Key: objstore.KeyPredicate{Op: objstore.ExactKey, Value: a.Sort}})
+					if err != nil || len(items) != 1 {
+						errs[i] = fmt.Errorf("re-read after a refusal: %v, %d items", err, len(items))
+						return
+					}
+					ver, _ = strconv.Atoi(items[0].Attrs["ver"])
+				}
+				errs[i] = fmt.Errorf("%s was refused three times", c.self)
+			}()
+		}
+		wg.Wait()
+
+		for _, err := range errs {
+			if err != nil {
+				t.Fatalf("round %d: %v — a refusal is retried, an error reaches the caller", round, err)
+			}
+		}
+		for _, k := range []objstore.Key{a, b} {
+			got := one(t, s, tokens, k)
+			if got.Attrs["ver"] != "2" || got.Attrs["by_ab"] != "1" || got.Attrs["by_ba"] != "1" {
+				t.Fatalf("round %d: %s holds %v, want both writes at version 2 — a write was lost",
+					round, k.Sort, got.Attrs)
+			}
+		}
 	}
 }
 
