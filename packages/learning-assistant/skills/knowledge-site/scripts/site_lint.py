@@ -311,6 +311,11 @@ def js_tokens(js: str) -> set[str]:
     return {tok for m in JS_STRING.finditer(js) for s in m.groups() if s for tok in s.split()}
 
 
+def is_remote(url: str) -> bool:
+    u = urlparse(url.strip())
+    return bool(u.scheme or u.netloc)
+
+
 def read_text(path: Path) -> str:
     return path.read_text(encoding='utf-8', errors='replace')
 
@@ -318,7 +323,7 @@ def read_text(path: Path) -> str:
 @rule('css-class')
 def check_css_class(site: Site) -> Iterator[Finding]:
     for page in site.pages.values():
-        if any(TAILWIND in link.url for link in page.links):
+        if any(TAILWIND in link.url or (link.kind == 'stylesheet' and is_remote(link.url)) for link in page.links):
             continue
         defined = css_classes(page.inline_css) | js_tokens(page.inline_js)
         for link in page.links:

@@ -155,6 +155,12 @@ class SiteLintTests(unittest.TestCase):
         self.edit('section/one.html', '<p>Back', '<pre><code class="language-python">x</code></pre><p>Back')
         self.assertEqual(self.findings('css-class'), [])
 
+    def test_css_class_page_with_remote_stylesheet_is_exempt(self):
+        self.edit('section/one.html', 'class="hub-container"', 'class="hub-container ghost"')
+        self.assertEqual(len(self.findings('css-class')), 1)
+        self.edit('section/one.html', '</head>', '<link rel="stylesheet" href="https://cdn.example.org/lib.css"></head>')
+        self.assertEqual(self.findings('css-class'), [])
+
     def test_page_meta_bad_type_fires(self):
         self.edit('section/one.html', 'name="site:type" content="research"', 'name="site:type" content="Research1"')
         (finding,) = self.findings('page-meta')
