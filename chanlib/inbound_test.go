@@ -433,3 +433,31 @@ func TestInboundUnavailableDoesNotPost(t *testing.T) {
 		t.Fatalf("SendMessage err = %v, posts = %v", err, stub.ids())
 	}
 }
+
+// A 401 from routd (authd restarting, or routd without the registration) is
+// the daemon being unavailable: the retained row stays due, not failed
+// (BUGS L884).
+func TestRetained401StaysDue(t *testing.T) {
+	raw := dyntest.Store(t)
+	for _, entity := range chanstore.Entities {
+		if err := raw.CreateEntity(t.Context(), entity); err != nil {
+			t.Fatal(err)
+		}
+	}
+	st := chanstore.New(raw)
+	_, srv := newRoutdStub(http.StatusUnauthorized)
+	defer srv.Close()
+	rc := NewRouterClient(srv.URL)
+	rc.pending = st
+	if err := rc.SendMessage(InboundMsg{ID: "x", ChatJID: "slack:c/1"}); !isAuthErr(err) {
+		t.Fatalf("send err=%v, want the 401", err)
+	}
+	failure, err := st.ReadInboundFailure(t.Context(), "x")
+	if err != nil || failure == nil || failure.Failure.Kind != "transient" {
+		t.Fatalf("failure=%v err=%v, want a transient hold", failure, err)
+	}
+	due, err := st.DueForRedelivery(t.Context(), core.TS(time.Now().Add(24*time.Hour)), 10)
+	if err != nil || len(due) != 1 || due[0].ID != "x" {
+		t.Fatalf("due=%v err=%v", due, err)
+	}
+}

@@ -204,10 +204,12 @@ func (r *RouterClient) savedRegistration() (name, url string, prefixes []string,
 	return r.regName, r.regURL, r.regPrefixes, r.regCaps
 }
 
+var errNeverRegistered = errors.New("re-register: no saved params (Register was never called)")
+
 func (r *RouterClient) reregister() error {
 	name, url, prefixes, caps := r.savedRegistration()
 	if name == "" {
-		return fmt.Errorf("re-register: no saved params (Register was never called)")
+		return errNeverRegistered
 	}
 	slog.Warn("re-registering channel after 401", "name", name)
 	_, err := r.Register(name, url, prefixes, caps)
@@ -310,13 +312,19 @@ func (r *RouterClient) postInbound(msg InboundMsg) error {
 		}
 		if err := r.Post("/v1/messages", msg, token, &resp); err != nil {
 			if attempt == 0 && isAuthErr(err) && !r.usingServiceToken() {
-				if rerr := r.reregister(); rerr != nil {
+				if rerr := r.reregister(); errors.Is(rerr, errNeverRegistered) {
+					slog.Warn("re-register after 401 failed", "err", rerr)
+				} else if rerr != nil {
 					return rerr
-				}
-				if next := r.getToken(); next != token {
+				} else if next := r.getToken(); next != token {
 					token = next
 					continue
 				}
+			}
+			if isAuthErr(err) {
+				// authd restarting or routd without the registration: the
+				// daemon is unavailable, not the message refused (BUGS L884).
+				return &retry.Error{Failure: retry.Failure{Kind: "transient"}, Err: err}
 			}
 			return err
 		}
