@@ -1,11 +1,15 @@
 // The chassis <status> pipeline: statusBlocks is THE one extraction site, so a
 // harness only has to put its assistant text on the frame.
 
-import { describe, test, expect } from 'bun:test';
+import { beforeEach, describe, test, expect } from 'bun:test';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
 import { DEADLINE_TEXT, buildSystemPrompt, checkIpcMessage, failureExitCode, runTurn, statusBlocks } from './index.js';
 import { HarnessConfigError } from './backend.js';
 import type { Frame, Harness } from './backend.js';
 import type { SubmitStatusPayload } from './mcp.js';
+import { piHarness } from './pi.js';
 import { NUDGE_TEXT, STEER_SPOOL, appendLines, drainLines } from './spool.js';
 
 test('statusBlocks: extracts each trimmed block in order', () => {
@@ -534,4 +538,101 @@ test('failureExitCode: unclassified is transient, config and cancel are terminal
   expect(failureExitCode(new Error('anything else'))).toBe(1);
   expect(failureExitCode(new HarnessConfigError('unknown harness backend x'))).toBe(78);
   expect(failureExitCode(Object.assign(new Error('aborted'), { name: 'AbortError' }))).toBe(78);
+});
+
+// The real chassis loop with the real pi harness. Only the `pi` executable is
+// fake: a shell script on PATH that prints pi's `--mode json` events (the idiom of
+// pi.test.ts). The harness runs in a temp dir because the chassis home,
+// /home/node, exists only in the image.
+describe('runTurn with the pi harness and a fake pi executable', () => {
+  const line = (event: unknown) => JSON.stringify(event);
+  const assistant = (extra: Record<string, unknown> = {}) => ({ role: 'assistant', content: [], provider: 'p', model: 'm', ...extra });
+  const delta = (text: string) => line({ type: 'message_update', assistantMessageEvent: { type: 'text_delta', contentIndex: 0, delta: text } });
+  const ended = (message: unknown) => line({ type: 'message_end', message });
+
+  // `body` is the script after the preamble, which appends this run's argv and its
+  // prompt file to $CAPTURE and prints the pi session header.
+  async function run(body: string, deliver: (id: string, out: Delivered) => Promise<{ nudge?: string } | void> = async () => {}) {
+    const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'pi-chassis-')));
+    const capture = path.join(dir, 'capture');
+    fs.writeFileSync(path.join(dir, 'pi'), `#!/bin/sh
+for a; do last=$a; done
+printf 'ARGV %s\\n' "$*" >> "$CAPTURE"
+printf 'PROMPT %s\\n' "$(cat "\${last#@}")" >> "$CAPTURE"
+printf '%s\\n' '{"type":"session","id":"s-1"}'
+${body}
+`, { mode: 0o755 });
+    const harness = { ...piHarness, run: (turn: Parameters<Harness['run']>[0]) => piHarness.run({ ...turn, cwd: dir }) };
+    const deliveries: Array<{ id: string; out: Delivered }> = [];
+    const st = statusSpy();
+    const result = await runTurn(harness, 'original prompt', undefined, INPUT,
+      { PATH: `${dir}:/usr/bin:/bin`, CAPTURE: capture, ARIZUKO_PROGRESS: '1' }, 'turn-1',
+      async (id, out) => { deliveries.push({ id, out }); return deliver(id, out); }, st.send);
+    const captured = fs.existsSync(capture) ? fs.readFileSync(capture, 'utf8').split('\n') : [];
+    return { result, deliveries, status: st.sent,
+      argv: captured.filter((l) => l.startsWith('ARGV ')), prompts: captured.filter((l) => l.startsWith('PROMPT ')) };
+  }
+
+  let nudged = 0;
+  beforeEach(() => { nudged = 0; });
+
+  const printf = (...events: string[]) => events.map((e) => `printf '%s\\n' '${e}'`).join('\n');
+
+  test('a status tag split across stream chunks reaches submit_status only whole', async () => {
+    const r = await run(printf(
+      line({ type: 'message_start', message: { role: 'assistant' } }),
+      delta('<status>one</status> and <sta'), delta('tus>tw'), delta('o</status>'),
+      ended(assistant({ content: [{ type: 'text', text: '<status>one</status> and <status>two</status>' }], stopReason: 'stop' })),
+    ));
+    expect(new Set(r.status)).toEqual(new Set(['one', 'two']));
+    expect(r.status.at(-1)).toBe('two');
+    expect(r.status.some((s) => s.includes('<') || s === 'tw')).toBe(false);
+    expect(r.deliveries).toHaveLength(1);
+    expect(r.deliveries[0].out.status).toBe('success');
+  });
+
+  test('a tool-only completion is a success with no terminal prose', async () => {
+    const r = await run(printf(ended(assistant({ stopReason: 'toolUse' }))));
+    expect(r.deliveries).toHaveLength(1);
+    expect(r.deliveries[0].out.status).toBe('success');
+    expect(r.deliveries[0].out.error).toBeUndefined();
+    expect(r.deliveries[0].out).not.toHaveProperty('result');
+    expect(r.result.failed).toBeUndefined();
+    expect(r.status).toEqual([]);
+  });
+
+  test('the submit_turn nudge resumes the same session on the same turn and sums usage', async () => {
+    const usage = (input: number) => ({ input, output: 1, cacheRead: 0, cacheWrite: 0, cost: { total: 0 } });
+    const reply = (text: string, input: number) => printf(ended(assistant({ content: [{ type: 'text', text }], stopReason: 'stop', usage: usage(input) })));
+    const r = await run(`case "$*" in
+  *"--session s-1"*) ${reply('second', 30)} ;;
+  *) ${reply('first', 100)} ;;
+esac`, async (_id, _out) => (++nudged === 1 ? { nudge: '[deliver] call reply' } : undefined));
+    expect(r.argv).toHaveLength(2);
+    expect(r.argv[0]).not.toContain('--session ');
+    expect(r.argv[1]).toContain('--session s-1');
+    expect(r.prompts).toEqual(['PROMPT original prompt', 'PROMPT [deliver] call reply']);
+    expect(r.deliveries.map((d) => d.id)).toEqual(['turn-1', 'turn-1']);
+    expect(r.deliveries.map((d) => d.out.status)).toEqual(['success', 'success']);
+    expect(r.deliveries.map((d) => d.out.newSessionId)).toEqual(['s-1', 's-1']);
+    expect(r.deliveries[1].out.models).toEqual({ 'p/m': { input: 130, output: 2, cache_read: 0, cache_write: 0, cost_cents: 0 } });
+    expect(r.result.sessionId).toBe('s-1');
+  });
+
+  test('a provider failure ends the turn as one error, not a delivery or a nudge', async () => {
+    const r = await run(printf(ended(assistant({ stopReason: 'error', errorMessage: '403 Forbidden: no grant for api.example' }))));
+    expect(r.deliveries).toHaveLength(1);
+    expect(r.deliveries[0].out.status).toBe('error');
+    expect(r.deliveries[0].out.error).toContain('403 Forbidden');
+    expect(r.result.failed).toBe('retryable');
+    expect(r.argv).toHaveLength(1);
+  });
+
+  test('a pi that exits non-zero without an assistant message ends the turn as an error', async () => {
+    const r = await run('echo "connect ECONNREFUSED 127.0.0.1:9" >&2\nexit 1');
+    expect(r.deliveries).toHaveLength(1);
+    expect(r.deliveries[0].out.status).toBe('error');
+    expect(r.deliveries[0].out.error).toContain('ECONNREFUSED');
+    expect(r.result.failed).toBe('retryable');
+  });
 });
