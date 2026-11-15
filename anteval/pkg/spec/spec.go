@@ -4,6 +4,7 @@
 package spec
 
 import (
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"sort"
@@ -32,6 +33,20 @@ type Case struct {
 	// It gates nothing: it is diagnostic, quoted back on failure so the reader
 	// knows which of the two happened.
 	Requires []string `toml:"requires"`
+	// Harness is the group's harness document as JSON text, written to the eval
+	// folder as the platform stores it before the case's first turn and cleared
+	// after its turns end. Empty leaves the group as it is.
+	Harness string `toml:"harness"`
+}
+
+// HarnessBackend is the document's backend string, empty when the case sets no
+// harness or the document names none.
+func (c Case) HarnessBackend() string {
+	var doc struct {
+		Backend string `json:"backend"`
+	}
+	_ = json.Unmarshal([]byte(c.Harness), &doc)
+	return doc.Backend
 }
 
 // Check is a single public-surface assertion on the observable effect.
@@ -92,6 +107,12 @@ func Validate(c Case) error {
 	}
 	if !checkKinds[c.Check.Kind] {
 		return fmt.Errorf("case %s: unknown check kind %q", c.ID, c.Check.Kind)
+	}
+	if c.Harness != "" {
+		var doc map[string]json.RawMessage
+		if err := json.Unmarshal([]byte(c.Harness), &doc); err != nil || doc == nil {
+			return fmt.Errorf("case %s: harness must be a JSON object", c.ID)
+		}
 	}
 	if c.Check.Kind == "http_status" && (c.Check.URL == "" || c.Check.Want == 0) {
 		return fmt.Errorf("case %s: http_status needs url+want", c.ID)

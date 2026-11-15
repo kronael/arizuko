@@ -1,6 +1,7 @@
 package run
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -79,5 +80,34 @@ func TestHTTPTargetSession(t *testing.T) {
 	}
 	if _, err := tgt.Session("other", ""); err == nil {
 		t.Fatal("Session(other): want error on 403, not a silent empty session")
+	}
+}
+
+// SetHarness is a PATCH of /v1/groups/{folder} whose config is the settings
+// object holding the harness document; a non-2xx surfaces.
+func TestHTTPTargetSetHarness(t *testing.T) {
+	var got struct{ Config string }
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPatch || r.Header.Get("Authorization") != "Bearer tok" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		if r.URL.Path != "/v1/groups/eval" {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		json.NewDecoder(r.Body).Decode(&got)
+	}))
+	defer srv.Close()
+
+	tgt := &HTTPTarget{API: srv.URL, Token: "tok"}
+	if err := tgt.SetHarness("eval", `{"backend":"codex","model":"m"}`); err != nil {
+		t.Fatal(err)
+	}
+	if want := `{"harness":{"backend":"codex","model":"m"}}`; got.Config != want {
+		t.Fatalf("config = %s, want %s", got.Config, want)
+	}
+	if err := tgt.SetHarness("other", `{}`); err == nil {
+		t.Fatal("SetHarness(other): want error on 403")
 	}
 }

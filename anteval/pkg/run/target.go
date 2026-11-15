@@ -115,6 +115,25 @@ func (t *HTTPTarget) McpMessages(_, topic string) ([]check.Msg, error) {
 	return t.mcpHistory(t.Folder, topic)
 }
 
+// SetHarness writes the folder's harness document via routd PATCH
+// /v1/groups/{folder}, whose config is the settings object holding it.
+func (t *HTTPTarget) SetHarness(folder, document string) error {
+	config, err := json.Marshal(map[string]json.RawMessage{"harness": json.RawMessage(document)})
+	if err != nil {
+		return err
+	}
+	resp, err := t.do(http.MethodPatch, t.API+"/v1/groups/"+url.PathEscape(folder),
+		map[string]string{"config": string(config)})
+	if err != nil {
+		return err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode >= 300 {
+		return fmt.Errorf("set harness %s: %d", folder, resp.StatusCode)
+	}
+	return nil
+}
+
 // Session reads the persisted resume-session id for (folder, topic) via routd
 // GET /v1/topic_sessions (needs a read scope on the folder; messages:read —
 // already in the documented mint — qualifies). "" = no session stored.

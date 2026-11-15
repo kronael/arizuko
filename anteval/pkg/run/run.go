@@ -33,6 +33,9 @@ type Target interface {
 	// none. The baseline reset (ensurePristineRoot) reads the ROOT topic
 	// through this.
 	Session(folder, topic string) (string, error)
+	// SetHarness writes the folder's harness document through the platform's
+	// groups update; the document `null` clears it.
+	SetHarness(folder, document string) error
 }
 
 // Config parameterizes a run.
@@ -113,6 +116,17 @@ func Drive(cfg Config) ([]report.Result, error) {
 		// injecting the next case now queues it behind this one and spends
 		// its whole budget waiting to start. See BUGS L68.
 		r.Note = settle(cfg, r.TurnID)
+		// The group goes back as the case found it, so a later case without a
+		// harness runs on the instance defaults.
+		if c.Harness != "" {
+			if err := cfg.Target.SetHarness(cfg.Folder, "null"); err != nil {
+				msg := "clear harness: " + err.Error()
+				if !r.Pass && r.Reason != "" {
+					msg = r.Reason + "; " + msg
+				}
+				r.Pass, r.Reason = false, msg
+			}
+		}
 		out = append(out, r)
 	}
 	return out, cfg.Context.Err()
@@ -226,6 +240,13 @@ func runCase(cfg Config, s *sink, c spec.Case) report.Result {
 	if err != nil {
 		r.Reason = "expand prompt: " + err.Error()
 		return r
+	}
+	if c.Harness != "" {
+		if err := cfg.Target.SetHarness(cfg.Folder, c.Harness); err != nil {
+			r.Reason = "set harness: " + err.Error()
+			r.LatencyMs = msSince(start)
+			return r
+		}
 	}
 	turn, err := cfg.Target.Inject(cfg.Chat, nonce, prompt)
 	if err != nil {

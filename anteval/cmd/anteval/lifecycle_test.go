@@ -444,3 +444,83 @@ func TestLifecycleModelCredentialFollowsBackend(t *testing.T) {
 		})
 	}
 }
+
+func TestLifecycleCodexHarnessCaseNeedsLogin(t *testing.T) {
+	for name, harness := range map[string]string{"codex": `{"backend":"codex"}`, "claude": `{"backend":"claude"}`} {
+		t.Run(name, func(t *testing.T) {
+			opts := lifecycleFixture(t)
+			opts.cases[0].Harness = harness
+			f := &fakeLifecycle{}
+			err := doLifecycle(context.Background(), f, opts)
+			if name == "claude" {
+				if err != nil {
+					t.Fatal(err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), "case test-case: backend codex needs HOST_CODEX_DIR") {
+				t.Fatalf("err = %v, want the Codex login refusal naming the case", err)
+			}
+			if len(f.calls) != 0 {
+				t.Fatalf("refused run mutated: %v", f.calls)
+			}
+		})
+	}
+}
+
+func scopeOf(calls []string) string {
+	for _, call := range calls {
+		if _, rest, ok := strings.Cut(call, " --scope "); ok {
+			return strings.Fields(rest)[0]
+		}
+	}
+	return ""
+}
+
+func TestLifecycleHarnessCaseWidensEvalRun(t *testing.T) {
+	login := t.TempDir()
+	if err := os.WriteFile(filepath.Join(login, "auth.json"), []byte("{}"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	run := func(harness string) *fakeLifecycle {
+		opts := lifecycleFixture(t)
+		cfg, err := godotenv.Read(opts.envFile)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cfg["HOST_CODEX_DIR"] = login
+		if err := godotenv.Write(cfg, opts.envFile); err != nil {
+			t.Fatal(err)
+		}
+		opts.cases[0].Harness = harness
+		f := &fakeLifecycle{}
+		if err := doLifecycle(context.Background(), f, opts); err != nil {
+			t.Fatal(err)
+		}
+		return f
+	}
+	const base = "messages:write,messages:read,cost:read"
+	plain := run("")
+	if got := scopeOf(plain.calls); got != base {
+		t.Errorf("scope without a harness case = %q, want %q", got, base)
+	}
+	if calls := strings.Join(plain.calls, "\n"); strings.Contains(calls, "chatgpt.com") || !strings.Contains(calls, "package -i anteval-test add litellm") {
+		t.Errorf("run without a codex case changed: %v", plain.calls)
+	}
+	mixed := run(`{"backend":"codex"}`)
+	if got := scopeOf(mixed.calls); got != base+",routes:write:own_group" {
+		t.Errorf("scope with a harness case = %q", got)
+	}
+	calls := strings.Join(mixed.calls, "\n")
+	if !strings.Contains(calls, "package -i anteval-test add litellm") {
+		t.Errorf("claude instance lost its gateway: %v", mixed.calls)
+	}
+	for _, host := range codexHosts {
+		if !strings.Contains(calls, "network -i anteval-test allow eval "+host) {
+			t.Errorf("missing egress for %s: %v", host, mixed.calls)
+		}
+	}
+	if claude := run(`{"backend":"claude"}`); strings.Contains(strings.Join(claude.calls, "\n"), "chatgpt.com") {
+		t.Errorf("claude harness case got Codex egress: %v", claude.calls)
+	}
+}

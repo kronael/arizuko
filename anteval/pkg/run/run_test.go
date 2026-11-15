@@ -43,6 +43,7 @@ func (a *agentSim) RestMessages(string) ([]check.Msg, error)        { return a.m
 func (a *agentSim) McpMessages(string, string) ([]check.Msg, error) { return a.msgs, nil }
 func (a *agentSim) Cost(string) (int, error)                        { return 7, nil }
 func (a *agentSim) Session(string, string) (string, error)          { return "", nil }
+func (a *agentSim) SetHarness(string, string) error                 { return nil }
 
 func TestDriveCallback(t *testing.T) {
 	c := spec.Case{ID: "self-skill", Dimension: "self", Prompt: "curl {sink}/cb/{nonce}",
@@ -105,6 +106,7 @@ func (silentTarget) RestMessages(string) ([]check.Msg, error)        { return ni
 func (silentTarget) McpMessages(string, string) ([]check.Msg, error) { return nil, nil }
 func (silentTarget) Cost(string) (int, error)                        { return 0, nil }
 func (silentTarget) Session(string, string) (string, error)          { return "", nil }
+func (silentTarget) SetHarness(string, string) error                 { return nil }
 
 type interruptedTarget struct {
 	silentTarget
@@ -479,4 +481,60 @@ func TestExpanderRefusesUnknownAndKeepsValuesLiteral(t *testing.T) {
 	if _, err := render("{missing}"); err == nil {
 		t.Fatal("unknown placeholder accepted")
 	}
+}
+
+// harnessTarget records the order of harness writes and injections.
+type harnessTarget struct {
+	silentTarget
+	events    []string
+	failClear bool
+}
+
+func (h *harnessTarget) Inject(_, _, _ string) (string, error) {
+	h.events = append(h.events, "inject")
+	return "t", nil
+}
+
+func (h *harnessTarget) SetHarness(folder, document string) error {
+	h.events = append(h.events, "set "+folder+" "+document)
+	if document == "null" && h.failClear {
+		return errors.New("403")
+	}
+	return nil
+}
+
+// A case that names a harness has it written to the eval folder before its
+// first turn and cleared after its turns end; a case without one writes
+// nothing.
+func TestDriveSetsHarnessBeforeFirstTurn(t *testing.T) {
+	rec := &harnessTarget{}
+	with := spec.Case{ID: "a", Prompt: "x", MaxWallMs: 20, Harness: `{"backend":"codex"}`,
+		Check: spec.Check{Kind: "callback"}}
+	without := spec.Case{ID: "b", Prompt: "x", MaxWallMs: 20, Check: spec.Check{Kind: "callback"}}
+	mustDrive(t, Config{Target: rec, Cases: []spec.Case{with, without}, Nonce: "R",
+		Folder: "eval", Poll: time.Millisecond})
+	want := []string{`set eval {"backend":"codex"}`, "inject", "set eval null", "inject"}
+	if strings.Join(rec.events, "|") != strings.Join(want, "|") {
+		t.Fatalf("events = %q, want %q", rec.events, want)
+	}
+}
+
+// A clear that fails is the case's failure, however the case itself ended.
+func TestDriveFailedHarnessClearFailsCase(t *testing.T) {
+	rec := &harnessTarget{failClear: true}
+	c := spec.Case{ID: "a", Prompt: "curl {sink}/cb/{nonce}", MaxWallMs: 2000, Harness: `{"backend":"codex"}`,
+		Check: spec.Check{Kind: "callback"}}
+	res := mustDrive(t, Config{Target: &callbackHarnessTarget{harnessTarget: rec}, Cases: []spec.Case{c}, Nonce: "R",
+		Folder: "eval", Poll: time.Millisecond})
+	if res[0].Pass || !strings.Contains(res[0].Reason, "clear harness: 403") {
+		t.Fatalf("result = %+v, want a failure naming the clear", res[0])
+	}
+}
+
+// callbackHarnessTarget lets the case itself pass, so only the clear can fail it.
+type callbackHarnessTarget struct{ *harnessTarget }
+
+func (c *callbackHarnessTarget) Inject(chat, topic, prompt string) (string, error) {
+	c.events = append(c.events, "inject")
+	return (&agentSim{}).Inject(chat, topic, prompt)
 }

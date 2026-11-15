@@ -207,16 +207,35 @@ func tokenValue(out string) (string, error) {
 	}
 	return token, nil
 }
-func modelRoute(cfg map[string]string) (bool, []string, error) {
+func codexLogin(cfg map[string]string) error {
+	dir := cfg["HOST_CODEX_DIR"]
+	if dir == "" {
+		return errors.New("backend codex needs HOST_CODEX_DIR naming a Codex login")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "auth.json")); err != nil {
+		return fmt.Errorf("backend codex needs a Codex login in HOST_CODEX_DIR: %w", err)
+	}
+	return nil
+}
+
+var codexHosts = []string{"chatgpt.com", "auth.openai.com"}
+
+func modelRoute(cfg map[string]string, cases []spec.Case) (bool, []string, error) {
 	if cfg["ARIZUKO_BACKEND"] == "codex" {
-		dir := cfg["HOST_CODEX_DIR"]
-		if dir == "" {
-			return false, nil, errors.New("backend codex needs HOST_CODEX_DIR naming a Codex login")
+		if err := codexLogin(cfg); err != nil {
+			return false, nil, err
 		}
-		if _, err := os.Stat(filepath.Join(dir, "auth.json")); err != nil {
-			return false, nil, fmt.Errorf("backend codex needs a Codex login in HOST_CODEX_DIR: %w", err)
+		return false, codexHosts, nil
+	}
+	var hosts []string
+	for _, c := range cases {
+		if c.HarnessBackend() == "codex" {
+			if err := codexLogin(cfg); err != nil {
+				return false, nil, fmt.Errorf("case %s: %w", c.ID, err)
+			}
+			hosts = codexHosts
+			break
 		}
-		return false, []string{"chatgpt.com", "auth.openai.com"}, nil
 	}
 	if cfg["ANTHROPIC_API_KEY"] == "" && cfg["CLAUDE_CODE_OAUTH_TOKEN"] == "" {
 		backend := cfg["ARIZUKO_BACKEND"]
@@ -225,7 +244,7 @@ func modelRoute(cfg map[string]string) (bool, []string, error) {
 		}
 		return false, nil, fmt.Errorf("backend %s needs ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN", backend)
 	}
-	return true, nil, nil
+	return true, hosts, nil
 }
 
 func doLifecycle(ctx context.Context, cli lifecycleCLI, opts lifecycleOptions) (err error) {
@@ -238,7 +257,7 @@ func doLifecycle(ctx context.Context, cli lifecycleCLI, opts lifecycleOptions) (
 			return fmt.Errorf("%s is required", key)
 		}
 	}
-	isGateway, modelHosts, err := modelRoute(cfg)
+	isGateway, modelHosts, err := modelRoute(cfg, opts.cases)
 	if err != nil {
 		return err
 	}
@@ -413,7 +432,14 @@ func doLifecycle(ctx context.Context, cli lifecycleCLI, opts lifecycleOptions) (
 		walls = append(walls, c.MaxWallMs)
 	}
 	ttl := worstCaseWall(walls, run.DefaultSettleWait) + 10*time.Minute
-	out, err := command(ctx, "token", "issue", "bearer", "eval", "--scope", "messages:write,messages:read,cost:read", "--ttl", ttl.String())
+	scope := "messages:write,messages:read,cost:read"
+	for _, c := range opts.cases {
+		if c.Harness != "" {
+			scope += ",routes:write:own_group"
+			break
+		}
+	}
+	out, err := command(ctx, "token", "issue", "bearer", "eval", "--scope", scope, "--ttl", ttl.String())
 	if err != nil {
 		return err
 	}
