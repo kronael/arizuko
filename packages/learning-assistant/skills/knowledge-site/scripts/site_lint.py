@@ -26,6 +26,7 @@ from urllib.parse import unquote, urlparse
 DEFAULT_WWW = '/var/lib/www'
 NOT_STATIC = {'priv', 'dash', 'chat', 'api', 'x', 'auth'}
 TAILWIND = 'cdn.tailwindcss.com'
+CODE_LANGUAGE = 'language-'
 VOID = {'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr'}
 OPTIONAL_END = {
     'html', 'head', 'body', 'p', 'li', 'dt', 'dd', 'tr', 'td', 'th', 'thead', 'tbody', 'tfoot',
@@ -331,7 +332,7 @@ def check_css_class(site: Site) -> Iterator[Finding]:
                     defined |= js_tokens(read_text(path))
         seen: set[str] = set()
         for use in page.classes:
-            if use.name not in defined and use.name not in seen:
+            if use.name not in defined and use.name not in seen and not use.name.startswith(CODE_LANGUAGE):
                 seen.add(use.name)
                 yield Finding(page.name, f'line {use.line}: undefined class {use.name}')
 

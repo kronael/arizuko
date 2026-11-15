@@ -151,6 +151,10 @@ class SiteLintTests(unittest.TestCase):
         self.edit('tailwind.html', '<script src="https://cdn.tailwindcss.com"></script>', '')
         self.assertIn('undefined class flex', ' '.join(self.findings('css-class')))
 
+    def test_css_class_code_language_marker_is_not_undefined(self):
+        self.edit('section/one.html', '<p>Back', '<pre><code class="language-python">x</code></pre><p>Back')
+        self.assertEqual(self.findings('css-class'), [])
+
     def test_page_meta_bad_type_fires(self):
         self.edit('section/one.html', 'name="site:type" content="research"', 'name="site:type" content="Research1"')
         (finding,) = self.findings('page-meta')
