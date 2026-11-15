@@ -2,7 +2,8 @@ package routd
 
 import (
 	"context"
-	"errors"
+	"net"
+	"syscall"
 	"testing"
 	"time"
 
@@ -22,7 +23,7 @@ func TestKilledTurnResumesItsOwnSession(t *testing.T) {
 	runner := &recoveryRunner{run: runnerFn(func(_ context.Context, req runedv1.RunRequest) (runedv1.RunOutcome, error) {
 		sent = append(sent, req.SessionID)
 		if len(sent) == 1 {
-			return runedv1.RunOutcome{}, errors.New("read: connection reset by peer")
+			return runedv1.RunOutcome{}, &net.OpError{Op: "read", Err: syscall.ECONNRESET}
 		}
 		return runedv1.RunOutcome{Outcome: runedv1.OutcomeOK}, nil
 	})}
