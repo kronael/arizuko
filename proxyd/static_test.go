@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"mime"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -122,6 +124,84 @@ func TestPrivateSymlinkCannotCrossGrant(t *testing.T) {
 		s.route(w, req)
 		if w.Code != tc.status {
 			t.Errorf("%s: got %d, want %d", tc.path, w.Code, tc.status)
+		}
+	}
+}
+
+func TestStaticFilesContentTypeAndRange(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "pub", "a", "b"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	for name, body := range map[string]string{"a/b/index.html": "<p>deep</p>", "page.html": "<p>x</p>", "s.css": "a{}", "s.js": "1", "d.json": "{}", "i.svg": "<svg/>", "i.png": "\x89PNG\r\n\x1a\n", "range.txt": "0123456789"} {
+		if err := os.WriteFile(filepath.Join(dir, "pub", name), []byte(body), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	handler := staticFiles(dir)
+	get := func(url, byteRange string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, url, nil)
+		if byteRange != "" {
+			req.Header.Set("Range", byteRange)
+		}
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+		return w
+	}
+	for url, want := range map[string]string{"/a/b/": "text/html", "/pub/a/b/": "text/html", "/page.html": "text/html", "/s.css": "text/css", "/s.js": "text/javascript", "/d.json": "application/json", "/i.svg": "image/svg+xml", "/i.png": "image/png"} {
+		w := get(url, "")
+		got, _, _ := mime.ParseMediaType(w.Header().Get("Content-Type"))
+		if w.Code != 200 || got != want {
+			t.Errorf("%s: got %d %q, want 200 %q", url, w.Code, w.Header().Get("Content-Type"), want)
+		}
+	}
+	for _, tc := range []struct {
+		byteRange, contentRange, body string
+		status                        int
+	}{
+		{"bytes=2-5", "bytes 2-5/10", "2345", 206},
+		{"bytes=7-", "bytes 7-9/10", "789", 206},
+		{"bytes=-3", "bytes 7-9/10", "789", 206},
+		{"bytes=20-30", "bytes */10", "", 416},
+	} {
+		w := get("/range.txt", tc.byteRange)
+		if w.Code != tc.status || w.Header().Get("Content-Range") != tc.contentRange || (tc.body != "" && w.Body.String() != tc.body) {
+			t.Errorf("%s: got %d %q %q", tc.byteRange, w.Code, w.Header().Get("Content-Range"), w.Body.String())
+		}
+	}
+	if w := get("/range.txt", ""); w.Header().Get("Accept-Ranges") != "bytes" {
+		t.Errorf("Accept-Ranges = %q", w.Header().Get("Accept-Ranges"))
+	}
+}
+
+func TestStaticFilesChangeOnDiskWithoutReload(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "pub"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	handler := staticFiles(dir)
+	for _, name := range []string{"page.html", "site.css", "app.js"} {
+		file := filepath.Join(dir, "pub", name)
+		for _, body := range []string{"first " + name, "second " + name} {
+			if err := os.WriteFile(file, []byte(body), 0644); err != nil {
+				t.Fatal(err)
+			}
+			req := httptest.NewRequest(http.MethodGet, "/"+name, nil)
+			req.Header.Set("Connection", "Upgrade")
+			req.Header.Set("Upgrade", "websocket")
+			w := httptest.NewRecorder()
+			handler.ServeHTTP(w, req)
+			if w.Code != 200 || w.Body.String() != body {
+				t.Fatalf("%s: got %d %q, want %q", name, w.Code, w.Body.String(), body)
+			}
+			if w.Header().Get("Upgrade") != "" || strings.Contains(w.Header().Get("Content-Type"), "event-stream") {
+				t.Errorf("%s: reload channel header %v", name, w.Header())
+			}
+			for _, client := range []string{"/@vite/client", "vite-hmr", "import.meta.hot", "EventSource", "WebSocket", "location.reload"} {
+				if strings.Contains(w.Body.String(), client) {
+					t.Errorf("%s: body carries %s", name, client)
+				}
+			}
 		}
 	}
 }

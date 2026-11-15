@@ -1272,3 +1272,10 @@ func TestHarnessDefaultsReachRuned(t *testing.T) {
 		t.Fatal("routd received harness defaults")
 	}
 }
+
+func TestGenerateHasNoViteOrTimedDeployment(t *testing.T) {
+	out := gen(t, seed(t, "API_PORT=8080\n"))
+	if m := regexp.MustCompile(`(?i)\b(vited?|timed)\b`).FindStringIndex(out); m != nil {
+		t.Errorf("generated deployment still names vite or timed:\n...%s", out[max(0, m[0]-80):min(len(out), m[1]+80)])
+	}
+}

@@ -41,7 +41,6 @@ proxyd/proxyd
 proxyd.test
 *.test
 webd/webd
-timed/timed
 teled/teled
 discd/discd
 emaid/emaid
