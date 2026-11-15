@@ -38,6 +38,12 @@ class CatalogueTests(unittest.TestCase):
     def archive(self):
         return (self.site / 'archive/index.html').read_text()
 
+    def test_a_name_ending_in_index_keeps_its_file_name(self):
+        src = (self.site / 'section/two.html').read_text()
+        (self.site / 'section/myindex.html').write_text(src)
+        self.assertEqual(self.catalogue().returncode, 0)
+        self.assertIn('section/myindex.html', self.archive())
+
     def test_default_out_lists_stamped_pages_and_lints_clean(self):
         result = self.catalogue()
         self.assertEqual(result.returncode, 0, result.stderr)

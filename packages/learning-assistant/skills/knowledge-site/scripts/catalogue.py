@@ -108,7 +108,7 @@ def collect(site: Path, ns: str, out: Path) -> list[Entry]:
 
 def page_url(rel: str, base: Path, site: Path) -> str:
     target = os.path.relpath(site / rel, base)
-    if rel.endswith('index.html'):
+    if Path(rel).name == 'index.html':
         target = target.removesuffix('index.html') or './'
     return quote(target)
 

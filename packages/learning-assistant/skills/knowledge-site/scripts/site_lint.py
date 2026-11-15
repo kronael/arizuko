@@ -30,7 +30,7 @@ from pathlib import Path
 from urllib.parse import unquote, urlparse
 
 DEFAULT_WWW = '/var/lib/www'
-NOT_STATIC = {'priv', 'dash', 'chat', 'api', 'x', 'auth'}
+NOT_STATIC = {'priv', 'dash', 'chat', 'api', 'x', 'auth', 'assets'}
 TAILWIND = 'cdn.tailwindcss.com'
 CODE_LANGUAGE = 'language-'
 VOID = {'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr'}

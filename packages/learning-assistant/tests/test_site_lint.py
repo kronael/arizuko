@@ -227,6 +227,13 @@ class SiteLintTests(unittest.TestCase):
         result = self.run_lint('--rule', 'redirect-stub', '--vhost', 'site')
         self.assertEqual(result.returncode, 0, result.stdout)
 
+    def test_root_assets_route_is_not_the_site(self):
+        # /assets/ is the platform's own route, served from webd's embedded set,
+        # never from the site's files, so the linter cannot resolve it.
+        self.add_to_one(body='<a href="/assets/nope.css">a</a>')
+        out = self.run_lint('--rule', 'links', '--vhost', 'site').stdout
+        self.assertNotIn('/assets/nope.css', out)
+
     def test_vhost_must_be_a_folder_under_www(self):
         self.assertNotEqual(self.run_lint('--vhost', 'nope').returncode, 0)
 
