@@ -103,6 +103,16 @@ a {
 }
 a:hover { text-decoration: underline; }
 
+/* Inline links in prose: underlined, with space between adjacent links.
+   Component links (nav items, jump links, cards, buttons) carry a class
+   and keep their own style. */
+:is(p, li, td, dd, blockquote, .tldr-text, .card-meta) > a:not([class]) {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+  margin: 0 0.25em;
+}
+
 .hub-subtitle {
   color: var(--dim);
   font-size: 0.9em;
