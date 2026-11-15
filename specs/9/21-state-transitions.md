@@ -1361,7 +1361,12 @@ its current contract ends on quiet time rather than a turn completion event.
   already acknowledged by the platform have no confirmed custody in that case.
 - The unified policy removes `MAX_TURN_RETRY` and `MAX_OUTBOUND_RETRY`.
   Existing environment files remain readable, but those values no longer select
-  behavior. Should the CLI report obsolete retry settings during generation?
+  behavior; routd logs an error at startup when either is set. Should the CLI
+  also report obsolete retry settings during generation?
+- An agent failure with no typed fact stops the turn: the Claude CLI reports a
+  lost connection only as prose, and pi reports provider errors with no status.
+  Both stop after the provider's own retries (BUGS L887). Should the harness exit transient for a failure it
+  cannot classify, or should the classifier stay strict?
 - Browser EventSource errors expose neither HTTP status nor Retry-After.
   Treat lost streams as transient under the common budget. A richer fetch-based
   stream decoder would expose those facts but adds a separate protocol change.

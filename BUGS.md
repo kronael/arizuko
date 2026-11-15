@@ -26,8 +26,11 @@ failed. Automatic retries stopped. attempts=1 err=no channel for jid
 telegram:group/123". `chanlib TestHandlerSendError`/`TestHandlerSendFileError`
 and `emaid TestHandleSend_NoThread` answer 400 for a plain send error; main
 answered 502. Log: `/home/onvos/.claude/jobs/58eb9274/tmp/gate16.log`.
-**Fix:** an unmarked error is transient; only an explicit permanent fact or a
-non-transient HTTP status stops retries.
+**Fix:** plan-09 keeps an unknown error permanent, so the source that knows
+better says so: `routd/deliver.go` marks `no channel for jid` transient (nothing
+was sent, so a replay is safe). The 400 answers follow the settled
+`writeBotResult` rule (an unknown send outcome is a terminal 4xx); those three
+tests change with it.
 
 ## L884 — an inbound 401 drops the message instead of retrying (2026-11-15)
 
@@ -56,9 +59,11 @@ turns true again in that process. origin/main swept every 15 s regardless.
 disables, capped at 3) and `MAX_OUTBOUND_RETRY` (default 10, -1 fails on the
 first transient error). The candidate reads neither variable.
 **Measured:** `git grep MAX_TURN_RETRY` finds no reader at `14f2ffda5`; source above.
-**Fix:** restore main's turn budget and both variables over the shared decision.
+**Fix:** plan-09 settles ten failures for every owner, so the budget stays. The
+CHANGELOG states the change, and routd logs an error at startup when either
+variable is set instead of ignoring it silently.
 
-## L887 — unmarked agent and runtime failures became terminal (2026-11-15)
+## L887 — unmarked agent and runtime failures became terminal (2026-11-15, open — needs sign-off)
 
 `ant/src/index.ts:324` marks a failed frame terminal unless the harness says
 `terminal: false`, and `:349` marks "no result" terminal; main made both
@@ -67,7 +72,16 @@ call transient; main exited terminal only for `HarnessConfigError`.
 `runed/runtime.go:78-82` makes every preparation failure terminal unless it is a
 recognized transient; main retried them and kept render failures terminal.
 **Measured:** source diff against `f5d29966f8c7672ae92803a0174dafafed736137`.
-**Fix:** restore main's terminality at those sites.
+These are plan-09's settled verdict rules ("only an identified transient is
+`terminal: false`"). Identified transients stay retryable: a Claude
+`API Error: 429/5xx/529` result decodes to a transient status. The conflict is
+the failure with no typed fact: the Claude CLI reports a lost connection only as
+prose (its binary renders "Connection error." as "Connection dropped (ECONNRESET)"
+and similar), and pi reports provider errors with no status, so both stop after
+the provider's own retries; main retried the whole turn.
+**Decision needed:** keep stopping, or let the harness exit transient for a
+failure it cannot classify. Recorded as an open question in
+`specs/9/21-state-transitions.md`.
 
 ## L888 — the startup backfill rewrites every row silently (2026-11-15)
 
@@ -88,8 +102,23 @@ unreadable record, so whapd does not start; main skipped it (BUGS L346 kept the
 unreadable-directory case loud). `store/state_index.go:279-294` fails routd
 startup on one unparsable legacy delivery row.
 **Measured:** source.
-**Fix:** a legacy row keeps its due time and gets its next attempt; a malformed
-row is logged and left, never a startup failure.
+**Fix:** plan-09 settles the legacy normalization (attempts+1; a row at the limit
+becomes failed and keeps its payload and held count), so the 9+ row parks; exact-ID
+replay is the spec's open question. A malformed row is logged and left in place,
+never a startup failure.
+
+## L890 — a DynamoDB throttle is a permanent failure (2026-11-15)
+
+When the AWS SDK's own retries run out, a throttle reaches the owner.
+`retry.FromError` reads `HTTPStatusCode()` from the SDK's response error, and
+DynamoDB answers `ThrottlingException` and
+`ProvisionedThroughputExceededException` with HTTP 400, which the policy calls
+permanent. A throttled turn, delivery or inbound sweep stops for good; main
+retried these on the next poll.
+**Measured:** source (`retry/retry.go` `FromError`, `objstore/dynstore`); red
+test to follow with the fix.
+**Fix:** dynstore marks the throttle error codes transient (plan-09: a
+provider decoder translates published provider facts).
 
 ## L881 — maintenance wakes bypass processing retry state (2026-11-14)
 
@@ -152,6 +181,7 @@ The browser retry integration owns this fix after the current serial capacity wo
 
 ## What needs you
 
+- `L887` — an agent failure with no typed fact (Claude connection loss, pi provider error) stops the turn; plan-09 rule versus main's retry; needs sign-off.
 - `L882` — Discord typing follows the newest message in the channel, not the turn's thread; typing request needs the topic; needs sign-off.
 - `L826` — one folder's crash closes the whole instance for an hour; per-folder breaker or a 30 s probe; needs sign-off.
 - `L816` — gitd loses GitHub webhooks while the store is unreachable; retention lives in that store; proposal, needs sign-off.
