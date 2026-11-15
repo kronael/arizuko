@@ -201,8 +201,12 @@ export function piEnv(env: Record<string, string>): Record<string, string> {
   return result;
 }
 
-// Only operator-mounted files can supply native pi configuration or login.
-function readMountedFile(file: string): string | undefined {
+// Only operator-mounted files can supply native pi configuration or login. A file
+// under a mounted directory is the agent's own to write, so it never qualifies.
+// `own`: the file must itself be a mount point (read-only or read-write) — the
+// operator-staged overmount of ~/.codex/auth.json. Otherwise it must sit on a
+// read-only mount.
+function readMountedFile(file: string, own = false): string | undefined {
   if (!fs.existsSync(file)) return undefined;
   const real = fs.realpathSync(file);
   if (real !== file) throw new Error(`pi source is a symlink: ${file}`);
@@ -211,7 +215,9 @@ function readMountedFile(file: string): string | undefined {
     return { target: fields[4]?.replace(/\\040/g, ' '), options: fields[5]?.split(',') ?? [] };
   }).filter((m) => m.target && (real === m.target || real.startsWith(`${m.target}/`)));
   mounts.sort((a, b) => b.target.length - a.target.length);
-  if (!mounts[0]?.options.includes('ro')) throw new Error(`pi source is not on a read-only mount: ${file}`);
+  if (own) {
+    if (mounts[0]?.target !== real) throw new Error(`pi login is not a mount point of its own: ${file}`);
+  } else if (!mounts[0]?.options.includes('ro')) throw new Error(`pi source is not on a read-only mount: ${file}`);
   return fs.readFileSync(real, 'utf8');
 }
 
@@ -227,11 +233,33 @@ export function codexAuth(source: string): Record<string, unknown> {
   return { 'openai-codex': { type: 'oauth', access, refresh, accountId, expires: payload.exp * 1000 } };
 }
 
+// refreshedCodexLogin returns the Codex auth.json text carrying the tokens pi
+// refreshed during the turn, or undefined when there is nothing to save. `written`
+// is the pi auth ant handed pi; `piAuth` is pi's auth.json after the turn. Codex's
+// own fields are kept as they are; tokens.access_token, tokens.refresh_token,
+// tokens.account_id (when pi's changed) and last_refresh (RFC 3339) are replaced.
+export function refreshedCodexLogin(source: string, written: Record<string, unknown>, piAuth: string, now: Date): string | undefined {
+  const before = written['openai-codex'] as { access: string; refresh: string; accountId: string } | undefined;
+  if (!before) return undefined;
+  const after = JSON.parse(piAuth)['openai-codex'];
+  if (after?.type !== 'oauth' || typeof after.access !== 'string' || !after.access
+    || typeof after.refresh !== 'string' || !after.refresh) return undefined;
+  if (after.access === before.access && after.refresh === before.refresh) return undefined;
+  const data = JSON.parse(source);
+  data.tokens.access_token = after.access;
+  data.tokens.refresh_token = after.refresh;
+  if (typeof after.accountId === 'string' && after.accountId && after.accountId !== before.accountId) data.tokens.account_id = after.accountId;
+  data.last_refresh = now.toISOString();
+  return JSON.stringify(data, null, 2);
+}
+
 async function* runPi(turn: Turn): AsyncGenerator<Frame> {
   const scan = scanSkills(`${turn.cwd}/.claude/skills`);
   for (const x of scan.excluded) log(`skill excluded by load-time guard: ${x}`);
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ant-pi-'));
   const promptFile = path.join(dir, 'prompt.md');
+  const loginFile = path.join(turn.cwd, '.codex', 'auth.json');
+  let login: { source: string; written: Record<string, unknown> } | undefined;
   try {
     const models = readMountedFile('/mnt/pi/models.json');
     if (models) {
@@ -247,8 +275,11 @@ async function* runPi(turn: Turn): AsyncGenerator<Frame> {
       fs.writeFileSync(path.join(dir, 'models.json'), JSON.stringify(parsed), { mode: 0o600 });
     }
     if (!turn.env.MODEL_GATEWAY_URL) {
-      const login = readMountedFile(path.join(turn.cwd, '.codex', 'auth.json'));
-      if (login) fs.writeFileSync(path.join(dir, 'auth.json'), JSON.stringify(codexAuth(login)), { mode: 0o600 });
+      const source = readMountedFile(loginFile, true);
+      if (source !== undefined) {
+        login = { source, written: codexAuth(source) };
+        fs.writeFileSync(path.join(dir, 'auth.json'), JSON.stringify(login.written), { mode: 0o600 });
+      }
     }
     fs.writeFileSync(promptFile, turn.prompt, { mode: 0o600 });
     fs.writeFileSync(path.join(dir, 'mcp.json'), JSON.stringify(piMcpConfig(turn.tools ?? {})), { mode: 0o600 });
@@ -263,6 +294,17 @@ async function* runPi(turn: Turn): AsyncGenerator<Frame> {
       log,
     );
   } finally {
+    // pi rotates the refresh token inside its agent dir; carry it back before the
+    // dir goes, whether or not the turn succeeded. The file is a mount point, so
+    // it is rewritten in place. Only the error code is logged, never token text.
+    if (login) {
+      try {
+        const text = refreshedCodexLogin(login.source, login.written, fs.readFileSync(path.join(dir, 'auth.json'), 'utf8'), new Date());
+        if (text !== undefined) fs.writeFileSync(loginFile, text);
+      } catch (e) {
+        log(`refreshed Codex token was not saved: ${(e as NodeJS.ErrnoException).code ?? 'invalid login'}`);
+      }
+    }
     fs.rmSync(dir, { recursive: true, force: true });
   }
 }

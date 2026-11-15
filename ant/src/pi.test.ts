@@ -341,3 +341,132 @@ test('pi without a gateway passes any models.json provider through', async () =>
   const models = { providers: { local: { baseUrl: 'http://localhost:11434/v1' }, nourl: { api: 'openai-completions' } } };
   expect(JSON.parse((await runWithMountedModels(models, {}))!)).toEqual(models);
 });
+
+// Borrowed Codex login: pi refreshes the token inside its temporary agent dir, and
+// ant carries the refresh back to ~/.codex/auth.json (BUGS L902).
+const jwt = (exp: number) => `h.${Buffer.from(JSON.stringify({ exp })).toString('base64url')}.s`;
+const OLD = { access: jwt(1000), refresh: 'old-refresh-TOKEN' };
+const NEW = { access: jwt(2000), refresh: 'new-refresh-TOKEN' };
+const piRecord = (t: { access: string; refresh: string }, accountId = 'acct') =>
+  JSON.stringify({ 'openai-codex': { type: 'oauth', ...t, accountId, expires: 2000000 } });
+const OAUTH_LOGIN = {
+  OPENAI_API_KEY: null,
+  tokens: { id_token: 'id.tok.en', access_token: OLD.access, refresh_token: OLD.refresh, account_id: 'acct' },
+  last_refresh: '2020-01-01T00:00:00.000Z',
+  extra: { keep: ['me', 1] },
+};
+
+interface LoginRun { cwd: string; file: string; frames: Frame[]; logs: string[]; before: string; agentAuthBefore: boolean }
+
+// Runs one turn whose ~/.codex/auth.json holds `login`. `mount` is the mountinfo
+// line: 'file' = the file is itself a mount (rw), 'ro' = the same, read-only,
+// 'dir' = only the enclosing ~/.codex directory is mounted. `pi` is the fake pi's
+// shell body after it has looked at its agent dir.
+async function runWithLogin(login: unknown, opts: { mount: 'file' | 'ro' | 'dir'; pi: string; env?: Record<string, string>; failWrite?: boolean }): Promise<LoginRun> {
+  const fs = (await import('fs')).default;
+  const os = await import('os');
+  const path = await import('path');
+  const { piHarness } = await import('./pi.js');
+  const cwd = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'pi-login-')));
+  const file = path.join(cwd, '.codex', 'auth.json');
+  fs.mkdirSync(path.dirname(file));
+  const before = typeof login === 'string' ? login : JSON.stringify(login, null, 2) + '\n';
+  fs.writeFileSync(file, before);
+  fs.writeFileSync(path.join(cwd, 'pi'), `#!/bin/sh
+if [ -f "$PI_CODING_AGENT_DIR/auth.json" ]; then echo yes > "$CAPTURE"; else echo no > "$CAPTURE"; fi
+${opts.pi}
+printf '%s\\n' '{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"ok"}],"stopReason":"stop"}}'
+`, { mode: 0o755 });
+  const mountinfo = opts.mount === 'dir'
+    ? `36 35 98:0 / ${path.dirname(file)} rw,relatime - ext4 /dev/x rw\n`
+    : `36 35 98:0 /auth.json ${file} ${opts.mount === 'ro' ? 'ro' : 'rw'},relatime - ext4 /dev/x rw\n`;
+  const read = fs.readFileSync, write = fs.writeFileSync;
+  const logs: string[] = [];
+  const spies = [
+    spyOn(fs, 'readFileSync').mockImplementation(((f: string, ...rest: unknown[]) =>
+      f === '/proc/self/mountinfo' ? mountinfo : (read as (...a: unknown[]) => unknown)(f, ...rest)) as typeof fs.readFileSync),
+    spyOn(console, 'error').mockImplementation(((m: string) => { logs.push(String(m)); }) as typeof console.error),
+  ];
+  if (opts.failWrite) spies.push(spyOn(fs, 'writeFileSync').mockImplementation(((f: string, ...rest: unknown[]) => {
+    if (f === file) throw Object.assign(new Error(`EROFS: read-only file system, open '${f}'`), { code: 'EROFS' });
+    return (write as (...a: unknown[]) => unknown)(f, ...rest);
+  }) as typeof fs.writeFileSync));
+  const frames: Frame[] = [];
+  try {
+    for await (const frame of piHarness.run({ cwd, prompt: 'hi', turnID: 't', deadline: Date.now() + 10000,
+      env: { PATH: `${cwd}:/usr/bin:/bin`, CAPTURE: path.join(cwd, 'capture'), ...opts.env } })) frames.push(frame);
+  } finally {
+    for (const spy of spies) spy.mockRestore();
+  }
+  return { cwd, file, frames, logs, before, agentAuthBefore: fs.readFileSync(path.join(cwd, 'capture'), 'utf8').trim() === 'yes' };
+}
+const REFRESH_SH = `printf '%s' "$REFRESHED" > "$PI_CODING_AGENT_DIR/auth.json"`;
+const refreshEnv = (t = NEW) => ({ REFRESHED: piRecord(t) });
+
+test('a token pi refreshes during the turn reaches ~/.codex/auth.json in Codex format', async () => {
+  const fs = (await import('fs')).default;
+  const r = await runWithLogin(OAUTH_LOGIN, { mount: 'file', pi: REFRESH_SH, env: refreshEnv() });
+  const after = JSON.parse(fs.readFileSync(r.file, 'utf8'));
+  expect(after.tokens.access_token).toBe(NEW.access);
+  expect(after.tokens.refresh_token).toBe(NEW.refresh);
+  expect(after.tokens.account_id).toBe('acct');
+  expect(after.tokens.id_token).toBe('id.tok.en');
+  expect(after.OPENAI_API_KEY).toBeNull();
+  expect(after.extra).toEqual({ keep: ['me', 1] });
+  expect(after.last_refresh).not.toBe('2020-01-01T00:00:00.000Z');
+  expect(Math.abs(Date.parse(after.last_refresh) - Date.now())).toBeLessThan(60000);
+  expect(r.frames.at(-1)).toMatchObject({ kind: 'result', ok: true });
+});
+
+test('a refresh that changes the account id writes it too', async () => {
+  const fs = (await import('fs')).default;
+  const r = await runWithLogin(OAUTH_LOGIN, { mount: 'file', pi: REFRESH_SH, env: { REFRESHED: piRecord(NEW, 'acct-2') } });
+  expect(JSON.parse(fs.readFileSync(r.file, 'utf8')).tokens.account_id).toBe('acct-2');
+});
+
+test('a pi that refreshes nothing leaves ~/.codex/auth.json byte-identical', async () => {
+  const fs = (await import('fs')).default;
+  const odd = `{"tokens":{"access_token":"${OLD.access}","refresh_token":"${OLD.refresh}","account_id":"acct"},"last_refresh":"x"}\n\n`;
+  const r = await runWithLogin(odd, { mount: 'file', pi: 'true' });
+  expect(fs.readFileSync(r.file, 'utf8')).toBe(odd);
+  const same = await runWithLogin(odd, { mount: 'file', pi: REFRESH_SH, env: { REFRESHED: piRecord(OLD) } });
+  expect(fs.readFileSync(same.file, 'utf8')).toBe(odd);
+});
+
+test('a pi that fails after refreshing still saves the token', async () => {
+  const fs = (await import('fs')).default;
+  const r = await runWithLogin(OAUTH_LOGIN, { mount: 'file', pi: `${REFRESH_SH}\nexit 1`, env: refreshEnv() });
+  expect(r.frames.at(-1)).toMatchObject({ kind: 'result', ok: false });
+  expect(JSON.parse(fs.readFileSync(r.file, 'utf8')).tokens.refresh_token).toBe(NEW.refresh);
+});
+
+test('an API-key login is never rewritten', async () => {
+  const fs = (await import('fs')).default;
+  const r = await runWithLogin({ OPENAI_API_KEY: 'sk-fake' }, { mount: 'file', pi: REFRESH_SH, env: refreshEnv() });
+  expect(fs.readFileSync(r.file, 'utf8')).toBe(r.before);
+});
+
+test('a login that is not its own mount point is refused', async () => {
+  // Only the enclosing ~/.codex directory is mounted: the file is the agent's to write.
+  await expect(runWithLogin(OAUTH_LOGIN, { mount: 'dir', pi: REFRESH_SH, env: refreshEnv() })).rejects.toThrow('mount point');
+});
+
+test('a failed save is logged without token text and does not change the result', async () => {
+  const fs = (await import('fs')).default;
+  const r = await runWithLogin(OAUTH_LOGIN, { mount: 'ro', pi: REFRESH_SH, env: refreshEnv(), failWrite: true });
+  expect(r.frames.at(-1)).toMatchObject({ kind: 'result', ok: true });
+  const line = r.logs.find((l) => l.includes('not saved'));
+  expect(line).toBeDefined();
+  for (const secret of [NEW.access, NEW.refresh, OLD.access, OLD.refresh, 'id.tok.en']) {
+    for (const l of r.logs) expect(l).not.toContain(secret);
+  }
+  expect(fs.readFileSync(r.file, 'utf8')).toBe(r.before);
+});
+
+test('gateway mode imports no login and writes nothing', async () => {
+  const fs = (await import('fs')).default;
+  const r = await runWithLogin(OAUTH_LOGIN, { mount: 'file', pi: REFRESH_SH,
+    env: { ...refreshEnv(), MODEL_GATEWAY_URL: 'http://gateway', MODEL_GATEWAY_KEY: 'vk' } });
+  expect(r.agentAuthBefore).toBe(false);
+  expect(fs.readFileSync(r.file, 'utf8')).toBe(r.before);
+});
