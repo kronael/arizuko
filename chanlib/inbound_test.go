@@ -7,9 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
-	"syscall"
 	"testing"
-	"testing/synctest"
 	"time"
 
 	"github.com/kronael/arizuko/chanlib/chanstore"
@@ -26,45 +24,54 @@ type failingInboundStore struct {
 
 var errInboundWrite = errors.New("inbound write failed")
 
-type failingInboundQuery struct {
+type failOnceQuery struct {
 	objstore.Store
-	calls atomic.Int32
+	armed, failed atomic.Bool
 }
 
-func (s *failingInboundQuery) Query(context.Context, objstore.Query) ([]objstore.Item, error) {
-	s.calls.Add(1)
-	return nil, syscall.ECONNRESET
+func (s *failOnceQuery) Query(ctx context.Context, q objstore.Query) ([]objstore.Item, error) {
+	if s.armed.Load() && !s.failed.Swap(true) {
+		return nil, &retry.Error{Failure: retry.Failure{Kind: "permanent"}, Err: errors.New("store rejected query")}
+	}
+	return s.Store.Query(ctx, q)
 }
 
-func TestSweepConsumerBackoffAndStop(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		store := &failingInboundQuery{}
-		rc := NewRouterClient("http://unused")
-		ctx, cancel := context.WithCancel(t.Context())
-		rc.RetainInbound(ctx, chanstore.New(store))
-		synctest.Wait()
-		time.Sleep(15 * time.Second)
-		synctest.Wait()
-		if n := store.calls.Load(); n != 1 {
-			t.Fatalf("first tick calls=%d", n)
+// A permanent store error must not end redelivery for the process lifetime.
+func TestSweepSurvivesPermanentStoreError(t *testing.T) {
+	raw := dyntest.Store(t)
+	for _, entity := range chanstore.Entities {
+		if err := raw.CreateEntity(t.Context(), entity); err != nil {
+			t.Fatal(err)
 		}
-		time.Sleep(15 * time.Second)
-		synctest.Wait()
-		if n := store.calls.Load(); n != 1 {
-			t.Fatalf("backoff calls=%d", n)
-		}
-		time.Sleep(15 * time.Second)
-		synctest.Wait()
-		if n := store.calls.Load(); n != 2 {
-			t.Fatalf("due calls=%d", n)
-		}
-		time.Sleep(24 * time.Hour)
-		synctest.Wait()
-		if n := store.calls.Load(); n != 10 {
-			t.Fatalf("stopped calls=%d", n)
-		}
-		cancel()
-	})
+	}
+	fq := &failOnceQuery{Store: raw}
+	st := chanstore.New(fq)
+	msg := InboundMsg{ID: "x", ChatJID: "slack:c/1"}
+	payload, err := json.Marshal(msg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	if err := st.Retain(t.Context(), msg.ID, string(payload), core.TS(now), retry.Decision{Failures: 1, NextAt: now.Add(-time.Hour)}, "retry"); err != nil {
+		t.Fatal(err)
+	}
+	fq.armed.Store(true)
+	old := inboundSweepEvery
+	inboundSweepEvery = 20 * time.Millisecond
+	defer func() { inboundSweepEvery = old }()
+	stub, srv := newRoutdStub(http.StatusOK)
+	defer srv.Close()
+	rc := NewRouterClient(srv.URL)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	rc.RetainInbound(ctx, st)
+	deadline := time.Now().Add(5 * time.Second)
+	for len(stub.ids()) == 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if ids := stub.ids(); len(ids) != 1 || ids[0] != "x" {
+		t.Fatalf("redelivered=%v", ids)
+	}
 }
 
 func (s *failingInboundStore) GuardedBatch(ctx context.Context, checks []objstore.Check, writes []objstore.Write) (bool, error) {

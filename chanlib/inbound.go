@@ -12,10 +12,10 @@ import (
 	"github.com/kronael/arizuko/retry"
 )
 
-const (
-	inboundSweepEvery = 15 * time.Second
-	inboundSweepBatch = 50
-)
+const inboundSweepBatch = 50
+
+// inboundSweepEvery is a var so a test can shorten the tick.
+var inboundSweepEvery = 15 * time.Second
 
 // RetainInbound makes this client's inbound durable and starts the re-delivery
 // sweep, which runs until ctx is done. st is the adapter's OWN storage. Wire it
@@ -47,22 +47,18 @@ var ErrInboundLost = errors.New("inbound neither delivered nor retained")
 
 var ErrInboundUnavailable = errors.New("inbound retention unavailable")
 
+// sweepInbound ticks for the life of ctx. A store error never parks it: the row
+// budgets live in the rows, so a stale tick costs one query (BUGS L885).
 func (r *RouterClient) sweepInbound(ctx context.Context) {
 	t := time.NewTicker(inboundSweepEvery)
 	defer t.Stop()
-	var decision retry.Decision
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			now := time.Now()
-			if decision.IsDue(now) {
-				err := r.SweepInboundOnce(ctx)
-				decision.Record(err, time.Now(), time.Time{})
-				if err != nil {
-					slog.Error(retry.Notice(err.Error(), decision))
-				}
+			if err := r.SweepInboundOnce(ctx); err != nil {
+				slog.Error("retained inbound sweep failed", "err", err)
 			}
 		}
 	}
