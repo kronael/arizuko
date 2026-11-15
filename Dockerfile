@@ -2,7 +2,7 @@
 # Reproducibility contract: base images pinned to explicit tags.
 # Bump versions intentionally; digests can be re-pinned via `docker pull` output.
 FROM golang:1.27.3-alpine AS build
-RUN apk add --no-cache gcc musl-dev sqlite-dev make
+RUN apk add --no-cache gcc musl-dev make
 WORKDIR /src
 COPY go.mod go.sum ./
 COPY third_party ./third_party
@@ -24,7 +24,7 @@ FROM alpine:3.20
 # spec planned for is measured, not assumed. docker-cli stays: no turn uses it any
 # more, but the `arizuko` CLI this image also ships drives `docker compose` for
 # run, pair and status.
-RUN apk add --no-cache sqlite-libs ca-certificates docker-cli wget \
+RUN apk add --no-cache ca-certificates docker-cli wget \
     qemu-system-x86_64 virtiofsd socat iptables iproute2 \
     && addgroup -g 1000 node \
     && adduser -D -u 1000 -G node node \
