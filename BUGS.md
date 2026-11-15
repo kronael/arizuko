@@ -114,6 +114,17 @@ replay is the spec's open question. A malformed row is logged and left in place,
 never a startup failure; its consumer then parks on it, as plan-09 settles for a
 malformed row.
 
+## L892 — two candidate writes drop a `TryWriteEntities` verdict with no reason (2026-11-15)
+
+`store TestNoCallerDropsTheVerdict` (the BUGS L268 guard) fails:
+`store/attachment_retry.go:138` (the unowned-attachment cleanup) and
+`store/state_index.go:300` (the `outbound-retry-v1` marker Put) discard the
+refusal without saying what a refusal means there.
+**Measured:** whole `./store` run at `8c93eea1af713c46c2fa9b6083441fd5f1264851` against a fresh DynamoDB Local,
+`rel16/tmp/g/h2-store.log`; the test is unchanged from origin/main.
+**Fix:** state the meaning above each call, or use the must-commit door where a
+refusal is not expected.
+
 ## ✅ FIXED 2026-11-15 895e5c5aa1572a61f9d8bafdb9af2bae48615177 L891 — `googd TestPollDeadlineStartsAfterEarlierFiles` fails under host load (2026-11-15)
 
 The test asserts the last file's next deadline is at least `time.Now()` taken
