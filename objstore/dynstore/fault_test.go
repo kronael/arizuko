@@ -5,10 +5,14 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	"github.com/aws/smithy-go"
 	smithyhttp "github.com/aws/smithy-go/transport/http"
+
+	"github.com/kronael/arizuko/retry"
 )
 
 // When krons' host filesystem filled, the server answered InternalServerError
@@ -66,7 +70,6 @@ func TestServerFaultLeavesEveryOtherErrorAlone(t *testing.T) {
 		errors.New("dial tcp: connection refused"),
 		&types.ConditionalCheckFailedException{},
 		&types.ResourceNotFoundException{},
-		&types.ProvisionedThroughputExceededException{},
 	} {
 		got := serverFault("op", e)
 		if errors.Is(got, ErrServerFault) {
@@ -78,5 +81,28 @@ func TestServerFaultLeavesEveryOtherErrorAlone(t *testing.T) {
 	}
 	if serverFault("op", nil) != nil {
 		t.Error("a nil error became non-nil")
+	}
+}
+
+// DynamoDB answers a throttle with HTTP 400; retry.FromError reads that status
+// as permanent unless the driver marks the error transient (BUGS L890).
+func TestThrottleIsTransient(t *testing.T) {
+	for _, code := range []string{"ThrottlingException", "ProvisionedThroughputExceededException", "RequestLimitExceeded"} {
+		cause := &smithy.GenericAPIError{Code: code, Message: "slow down", Fault: smithy.FaultClient}
+		err := serverFault("query routd.messages", cause)
+		if got := retry.FromError(err, time.Now()); got.Kind != "transient" {
+			t.Errorf("%s: kind %q, want transient", code, got.Kind)
+		}
+		if errors.Is(err, ErrServerFault) {
+			t.Errorf("%s marked as a server fault; a throttle is the caller's rate, not a failed host", code)
+		}
+		var api smithy.APIError
+		if !errors.As(err, &api) || api.ErrorCode() != code || !errors.Is(err, cause) {
+			t.Errorf("%s: the wrap hid the SDK error", code)
+		}
+	}
+	other := &smithy.GenericAPIError{Code: "ValidationException", Message: "bad", Fault: smithy.FaultClient}
+	if got := serverFault("op", other); got != error(other) {
+		t.Errorf("a validation error was rewrapped: %v", got)
 	}
 }

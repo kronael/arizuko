@@ -7,6 +7,9 @@ import (
 
 	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	"github.com/aws/smithy-go"
+
+	"github.com/kronael/arizuko/retry"
 )
 
 // ErrServerFault marks an error the STORE SERVER produced, as opposed to one
@@ -27,8 +30,12 @@ var ErrServerFault = errors.New("the store server failed")
 // serverFault names the operation and marks a server-side failure. It returns
 // err unchanged when the endpoint did not fault, so a condition refusal, a
 // validation error and a dead connection keep the shapes their callers match
-// on.
+// on. A throttle is marked transient: DynamoDB answers it with HTTP 400, which
+// retry.FromError reads as permanent (BUGS L890).
 func serverFault(op string, err error) error {
+	if isThrottle(err) {
+		return &retry.Error{Failure: retry.Failure{Kind: "transient"}, Err: fmt.Errorf("%s: %w", op, err)}
+	}
 	if err == nil || !isServerFault(err) {
 		return err
 	}
@@ -48,6 +55,20 @@ func isServerFault(err error) bool {
 	var resp *awshttp.ResponseError
 	if errors.As(err, &resp) {
 		return resp.HTTPStatusCode() >= http.StatusInternalServerError
+	}
+	return false
+}
+
+// isThrottle reports whether DynamoDB refused the call for capacity, by the
+// error code it published.
+func isThrottle(err error) bool {
+	var api smithy.APIError
+	if !errors.As(err, &api) {
+		return false
+	}
+	switch api.ErrorCode() {
+	case "ThrottlingException", "ProvisionedThroughputExceededException", "RequestLimitExceeded":
+		return true
 	}
 	return false
 }
