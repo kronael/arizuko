@@ -44,7 +44,7 @@ place of the 401 when no registration was saved.
 want status 401".
 **Fix:** ingress treats 401 as transient and returns the 401 when re-register fails.
 
-## L885 — one sweep-level inbound error stops all redelivery until restart (2026-11-15, open — needs sign-off)
+## ✅ FIXED 2026-11-15 c62851eec9b9f913c93f3bb3011520e3f1b8e0d8 L885 — one sweep-level inbound error stops all redelivery until restart (2026-11-15)
 
 `chanlib/inbound.go:48-56` keeps one `retry.Decision` for the whole sweep. A
 discovery or store error recorded as permanent sets Stop, and `IsDue` never
@@ -69,7 +69,7 @@ first transient error). The candidate reads neither variable.
 CHANGELOG states the change, and routd logs an error at startup when either
 variable is set instead of ignoring it silently.
 
-## L887 — unmarked agent and runtime failures became terminal (2026-11-15, open — needs sign-off)
+## ✅ FIXED 2026-11-15 a8ce505b3e84fc940958cf875f36f741bf1f384f 76daab8e510404ca389c5f27c9af9d8df075eacf L887 — unmarked agent and runtime failures became terminal (2026-11-15)
 
 `ant/src/index.ts:324` marks a failed frame terminal unless the harness says
 `terminal: false`, and `:349` marks "no result" terminal; main made both
@@ -292,9 +292,6 @@ The browser retry integration owns this fix after the current serial capacity wo
 
 - `L896` — the CLI README still says to use `/new` before a backend change; docs fix, record only.
 - `L895` — the new-product checklist names a removed spec path; docs fix, record only.
-- `L885` — a permanent store error during the inbound sweep parks redelivery until restart; plan-09 rule versus main's 15 s sweep; needs sign-off.
-- `L887` — an agent failure with no typed fact (Claude connection loss, pi provider error) stops the turn; plan-09 rule versus main's retry; needs sign-off.
-- `L882` — Discord typing follows the newest message in the channel, not the turn's thread; typing request needs the topic; needs sign-off.
 - `L826` — one folder's crash closes the whole instance for an hour; per-folder breaker or a 30 s probe; needs sign-off.
 - `L816` — gitd loses GitHub webhooks while the store is unreachable; retention lives in that store; proposal, needs sign-off.
 - `L803` — morha repeats recovery reports and replies to an old GitHub comment; cause unmeasured.
@@ -629,7 +626,7 @@ the checklist writes a file the project removed. No test — docs.
 
 - **Status:** open (record only).
 
-## L882 — Discord typing follows the newest message in the channel, not the turn's thread (2026-11-15, open — needs sign-off)
+## ✅ FIXED 2026-11-15 dd6bc82e3403b6a1bac59bf1fd51514c7fa6967d L882 — Discord typing follows the newest message in the channel, not the turn's thread (2026-11-15)
 
 routd keys typing by chat JID only (`routd/turn_status.go:230`, `routd/deliver.go:175`);
 a Discord thread is a topic of its parent channel. discd guesses the thread from
@@ -658,6 +655,8 @@ topic channel. Delete `activeThread`. Adapters without topics ignore the field.
 **Test:** a root turn running while a thread message waits types in the root for the
 turn and in the thread for the waiting message; the root turn's stop leaves the
 thread's indicator on.
+**Left open:** slakd and gitd `AckMark` still keep one mark per chat, and a clear
+sends the topic only for the turn's own chat (`run_turns` holds JIDs only).
 
 ## ✅ FIXED 2026-11-13 7ba411c30 L832 — four products tell the agent to write `facts/` by hand; the manual forbids it (2026-11-13)
 
