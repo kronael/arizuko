@@ -271,7 +271,17 @@ func (d *dash) handleGroupSettings(w http.ResponseWriter, r *http.Request) {
 
 	_, _ = fmt.Fprintf(w, `<form method="post" action="/dash/groups/%s/settings">`, folderPath(folder))
 	_, _ = fmt.Fprint(w, htmlFormRow("Agent", fmt.Sprintf(`<input name="agent" value="%s" placeholder="ant">`, esc(g.Agent))))
-	_, _ = fmt.Fprint(w, htmlFormRow("Harness JSON", fmt.Sprintf(`<textarea name="harness">%s</textarea>`, esc(string(g.Harness)))))
+	// The saved document prefills the fields; it is not validated here.
+	var saved struct{ Backend, Model, Effort string }
+	_ = json.Unmarshal(g.Harness, &saved)
+	defaultsChecked := ""
+	if len(g.Harness) == 0 {
+		defaultsChecked = " checked"
+	}
+	_, _ = fmt.Fprint(w, htmlFormRow("Harness backend", fmt.Sprintf(`<input name="harness_backend" value="%s">`, esc(saved.Backend))))
+	_, _ = fmt.Fprint(w, htmlFormRow("Harness model", fmt.Sprintf(`<input name="harness_model" value="%s">`, esc(saved.Model))))
+	_, _ = fmt.Fprint(w, htmlFormRow("Harness effort", fmt.Sprintf(`<input name="harness_effort" value="%s">`, esc(saved.Effort))))
+	_, _ = fmt.Fprintf(w, `<p><label><input type="checkbox" name="harness_default" value="1"%s> Use instance defaults <span class="dim">— removes the harness setting; the fields above are ignored</span></label></p>`, defaultsChecked)
 	_, _ = fmt.Fprintf(w, `<p><label><input type="checkbox" name="open" value="1"%s> open <span class="dim">— sibling groups can see messages sent here</span></label></p>`, openChecked)
 	_, _ = fmt.Fprint(w, htmlFormRow("Messages a nearby group can peek at",
 		fmt.Sprintf(`<input type="number" name="observe_window_messages" value="%s" min="0"> <span class="dim">max messages a sibling sees (blank = default 50)</span>`, numOrBlank(owMsgs))))
@@ -349,9 +359,21 @@ func (d *dash) handleGroupSettingsSave(w http.ResponseWriter, r *http.Request) {
 	if string(chars) == "-1" {
 		chars = []byte("null")
 	}
+	// One document from the non-blank fields replaces the stored one; the
+	// control removes the setting. A document needs its backend.
 	var harness json.RawMessage
-	if value := strings.TrimSpace(r.FormValue("harness")); value != "" {
-		harness = json.RawMessage(value)
+	if r.FormValue("harness_default") != "1" {
+		doc := map[string]string{}
+		for _, key := range []string{"backend", "model", "effort"} {
+			if v := strings.TrimSpace(r.FormValue("harness_" + key)); v != "" {
+				doc[key] = v
+			}
+		}
+		if doc["backend"] == "" {
+			http.Error(w, "harness backend required (or tick Use instance defaults)", http.StatusBadRequest)
+			return
+		}
+		harness, _ = json.Marshal(doc)
 	}
 	settings := map[string]json.RawMessage{"agent": agentValue, "harness": harness, "open": open, "observe_window_messages": msgs, "observe_window_chars": chars}
 	if err := d.routdStore().AsUser(sub).SetGroupSettings(folder, settings); err != nil {

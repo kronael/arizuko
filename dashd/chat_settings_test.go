@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/routd"
 	"github.com/kronael/arizuko/store"
 )
@@ -111,6 +112,12 @@ func TestChatSettingsDashboardAuthorizationAndRoundTrip(t *testing.T) {
 	}
 }
 
+// TestGroupHarnessDashboard covers the harness half of the settings page: three
+// free-text fields (backend, model, effort) and one "Use instance defaults"
+// control. Saving builds ONE document from the non-blank fields and that
+// document REPLACES the stored one, so a stored key the form does not show
+// (options below) is dropped on save. That is the decision, not an accident.
+// The write stays the operator's own store write, so the audit row names them.
 func TestGroupHarnessDashboard(t *testing.T) {
 	db := routdDB(t)
 	seedFolder(t, db, "team")
@@ -131,50 +138,104 @@ func TestGroupHarnessDashboard(t *testing.T) {
 	t.Cleanup(server.Close)
 	d := &dash{routd: db, routdURL: server.URL, groupsDir: filepath.Join(appDir, "groups")}
 	mux := newMux(d)
-	const document = `{"backend":"codex","model":"future-model","effort":"high","options":{"future_key":[1,true,"value"]}}`
-	form := url.Values{"agent": {"custom-handler"}, "harness": {document}}.Encode()
-	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, adminReq("POST", "/dash/groups/team/settings", form, "alice"))
+	s := store.NewOver(db)
+	page := func() string {
+		t.Helper()
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, adminReq("GET", "/dash/groups/team/settings", "", "alice"))
+		if w.Code != 200 {
+			t.Fatalf("page: %d %s", w.Code, w.Body.String())
+		}
+		return w.Body.String()
+	}
+	save := func(form url.Values) *httptest.ResponseRecorder {
+		t.Helper()
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, adminReq("POST", "/dash/groups/team/settings", form.Encode(), "alice"))
+		return w
+	}
+	stored := func() core.Group {
+		g, _ := s.GroupByFolder("team")
+		return g
+	}
+	audits := func() int { return len(auditRowsFor(t, db, "group.settings")) }
+
+	// No harness stored: empty fields, the control is set.
+	html := page()
+	for _, want := range []string{
+		`name="harness_backend" value=""`, `name="harness_model" value=""`, `name="harness_effort" value=""`,
+		`name="harness_default" value="1" checked`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("absent setting: missing %s: %s", want, html)
+		}
+	}
+	if strings.Contains(html, `name="harness"`) {
+		t.Fatalf("raw harness field still rendered: %s", html)
+	}
+
+	// A stored document prefills the three fields and clears the control.
+	const document = `{"backend":"codex","model":"future-model","effort":"high","options":{"future_key":[1,true]}}`
+	if err := s.AsUser("alice").SetGroupSettings("team", map[string]json.RawMessage{"harness": json.RawMessage(document), "future_setting": json.RawMessage(`7`)}); err != nil {
+		t.Fatal(err)
+	}
+	html = page()
+	for _, want := range []string{
+		`name="harness_backend" value="codex"`, `name="harness_model" value="future-model"`, `name="harness_effort" value="high"`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("stored document: missing %s: %s", want, html)
+		}
+	}
+	if strings.Contains(html, `name="harness_default" value="1" checked`) {
+		t.Fatalf("control set with a stored document: %s", html)
+	}
+
+	// Saving builds one document from the form; the stored one is replaced,
+	// options is gone; settings the form does not own survive.
+	before := audits()
+	w := save(url.Values{"agent": {"custom-handler"}, "open": {"1"}, "harness_backend": {"claude"}, "harness_model": {"m1"}, "harness_effort": {"low"}})
 	if w.Code != http.StatusSeeOther {
 		t.Fatalf("save: %d %s", w.Code, w.Body.String())
 	}
-	g, ok := store.NewOver(db).GroupByFolder("team")
-	var harness map[string]json.RawMessage
-	if !ok || g.Agent != "custom-handler" || json.Unmarshal(g.Harness, &harness) != nil || string(g.Harness) != document {
+	g := stored()
+	if string(g.Harness) != `{"backend":"claude","effort":"low","model":"m1"}` || g.Agent != "custom-handler" || !g.Open {
 		t.Fatalf("group: %+v", g)
 	}
-	if rows := auditRowsFor(t, db, "group.settings"); len(rows) != 1 || rows[0].ActorSub != "alice" {
-		t.Fatalf("save audit = %+v, want one mutation by alice", rows)
+	items, err := db.Query(t.Context(), objstore.Query{Entity: store.Groups, Partition: store.OwnerRoutd,
+		Key: objstore.KeyPredicate{Op: objstore.ExactKey, Value: "team"}})
+	if err != nil || len(items) != 1 || !strings.Contains(items[0].Attrs["config"], `"future_setting":7`) {
+		t.Fatalf("unrelated setting lost: %v %+v", err, items)
 	}
+	if rows := auditRowsFor(t, db, "group.settings"); len(rows) != before+1 || rows[0].ActorSub != "alice" {
+		t.Fatalf("save audit = %+v, want one new mutation by alice", rows)
+	}
+
+	// Blank optional fields are omitted from the document.
+	if w = save(url.Values{"harness_backend": {" claude "}}); w.Code != 303 || string(stored().Harness) != `{"backend":"claude"}` {
+		t.Fatalf("blank optionals: %d %s", w.Code, stored().Harness)
+	}
+
+	// Blank backend with the control unset: refused, nothing written.
+	before = audits()
+	w = save(url.Values{"harness_model": {"m2"}})
+	if w.Code != 400 || !strings.Contains(w.Body.String(), "backend") || string(stored().Harness) != `{"backend":"claude"}` || audits() != before {
+		t.Fatalf("blank backend: %d %s harness=%s", w.Code, w.Body.String(), stored().Harness)
+	}
+
+	// Use instance defaults removes the setting, whatever the fields hold.
+	if w = save(url.Values{"harness_default": {"1"}, "harness_backend": {"codex"}}); w.Code != 303 || len(stored().Harness) != 0 {
+		t.Fatalf("defaults: %d %s", w.Code, stored().Harness)
+	}
+	if !strings.Contains(page(), `name="harness_default" value="1" checked`) {
+		t.Fatal("control not set after removal")
+	}
+
+	// A caller who is not an admin writes nothing.
+	before = audits()
 	w = httptest.NewRecorder()
-	mux.ServeHTTP(w, adminReq("GET", "/dash/groups/team/settings", "", "alice"))
-	for _, want := range []string{`name="agent" value="custom-handler"`, `<textarea name="harness">` + esc(document) + `</textarea>`} {
-		if !strings.Contains(w.Body.String(), want) {
-			t.Fatalf("missing field %s: %s", want, w.Body.String())
-		}
-	}
-	for i, form := range []url.Values{{"harness": {`{"backend":"claude","future":42}`}}, {"harness": {""}}} {
-		w = httptest.NewRecorder()
-		mux.ServeHTTP(w, adminReq("POST", "/dash/groups/team/settings", form.Encode(), "alice"))
-		g, _ = store.NewOver(db).GroupByFolder("team")
-		if w.Code != 303 || string(g.Harness) != form.Get("harness") {
-			t.Fatalf("replacement/reset: %d %+v", w.Code, g)
-		}
-		if rows := auditRowsFor(t, db, "group.settings"); len(rows) != i+2 || rows[0].ActorSub != "alice" {
-			t.Fatalf("replacement/reset audit = %+v, want one mutation by alice", rows)
-		}
-	}
-	before := len(auditRowsFor(t, db, "group.settings"))
-	w = httptest.NewRecorder()
-	mux.ServeHTTP(w, adminReq("POST", "/dash/groups/team/settings", form, "stranger"))
-	if w.Code != 403 || len(auditRowsFor(t, db, "group.settings")) != before {
+	mux.ServeHTTP(w, adminReq("POST", "/dash/groups/team/settings", url.Values{"harness_backend": {"codex"}}.Encode(), "stranger"))
+	if w.Code != 403 || audits() != before || len(stored().Harness) != 0 {
 		t.Fatalf("unauthorized save: %d", w.Code)
-	}
-	invalid := url.Values{"agent": {"another-handler"}, "harness": {`[]`}, "open": {"1"}}.Encode()
-	w = httptest.NewRecorder()
-	mux.ServeHTTP(w, adminReq("POST", "/dash/groups/team/settings", invalid, "alice"))
-	g, _ = store.NewOver(db).GroupByFolder("team")
-	if w.Code != 400 || len(g.Harness) != 0 || g.Agent != "" || g.Open || len(auditRowsFor(t, db, "group.settings")) != before {
-		t.Fatalf("invalid document changed settings: %d %+v", w.Code, g)
 	}
 }
