@@ -135,6 +135,8 @@ func (s *Store) DueAttachments(ctx context.Context, now time.Time) ([]Attachment
 			}
 			if !owned {
 				witness := objstore.Check{Entity: Chats, Key: chat.Key, Cond: objstore.Cond{Item: objstore.ItemPresent, Where: []objstore.Cmp{attrIs(objstore.IndexRevision, chat.Attrs[objstore.IndexRevision])}}}
+				// A refusal means the chat or the message changed since it was read;
+				// the next discovery rereads both and decides again.
 				_, err = s.TryWriteEntities(ctx, []objstore.Check{witness}, objstore.Write{Op: objstore.Update, Entity: Messages, Key: it.Key, Remove: attachmentAttrs, Cond: attachmentGuard(it)})
 				if err != nil {
 					return nil, err

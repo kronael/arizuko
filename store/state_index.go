@@ -297,6 +297,7 @@ func (s *Store) migrateOutboundRetry(ctx context.Context) error {
 			}
 		}
 	}
+	// A refusal means another startup already wrote the marker.
 	_, err = s.TryWriteEntities(ctx, nil, objstore.Write{Op: objstore.Put, Entity: objstore.IndexEntity, Key: marker, Attrs: map[string]string{"done": "1"}, Cond: objstore.Cond{Item: objstore.ItemAbsent}})
 	return err
 }

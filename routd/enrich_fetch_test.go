@@ -228,7 +228,7 @@ func TestTurn_ASlowAttachmentDefersTheTurnUntilItArrives(t *testing.T) {
 	if err != nil || !found {
 		t.Fatalf("read retry: %v %v", found, err)
 	}
-	if _, err := db.store().TryWriteEntities(context.Background(), nil, objstore.Write{Op: objstore.Update, Entity: store.Messages, Key: snapshot.Observed.Key, Attrs: map[string]string{"attachment_retry_at": core.TS(time.Now().Add(-time.Second))}}); err != nil {
+	if err := db.store().WriteEntities(context.Background(), nil, objstore.Write{Op: objstore.Update, Entity: store.Messages, Key: snapshot.Observed.Key, Attrs: map[string]string{"attachment_retry_at": core.TS(time.Now().Add(-time.Second))}}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := srv.loop.processGroupMessages("telegram:group/1"); err != nil {
