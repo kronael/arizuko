@@ -288,6 +288,8 @@ The browser retry integration owns this fix after the current serial capacity wo
 
 ## What needs you
 
+- `L896` — the CLI README still says to use `/new` before a backend change; docs fix, record only.
+- `L895` — the new-product checklist names a removed spec path; docs fix, record only.
 - `L885` — a permanent store error during the inbound sweep parks redelivery until restart; plan-09 rule versus main's 15 s sweep; needs sign-off.
 - `L887` — an agent failure with no typed fact (Claude connection loss, pi provider error) stops the turn; plan-09 rule versus main's retry; needs sign-off.
 - `L882` — Discord typing follows the newest message in the channel, not the turn's thread; typing request needs the topic; needs sign-off.
