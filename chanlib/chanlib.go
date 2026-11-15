@@ -253,7 +253,9 @@ func (r *RouterClient) Deregister() error {
 	return r.Post("/v1/channels/deregister", nil, r.getToken(), &resp)
 }
 
-// SendMessage delivers an inbound or retains its failure for the sweep.
+// SendMessage delivers an inbound or retains its failure for the sweep (spec
+// 5/34-channel-protocol, BUGS L25). The error still returns: an adapter that
+// gates a platform cursor on delivery must keep seeing the failure.
 // ErrInboundUnavailable means custody is unknown; ErrInboundLost means retention failed.
 func (r *RouterClient) SendMessage(msg InboundMsg) error {
 	st := r.pendingStore()

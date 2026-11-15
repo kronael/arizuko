@@ -116,6 +116,12 @@ func (s *server) untrustedEdgeOnce(peer string) {
 		"peer", peer, "fix", "add "+peer+" to TRUSTED_PROXIES")
 }
 
+// routeSnapshot returns ONE consistent view of the route table and the proxies
+// built from it. Every dispatch takes it once and passes it down: the route a
+// request matched and the backend it is forwarded to must come from the same
+// read of `proxyd_routes`, or a concurrent mutation pairs one route's auth
+// policy with another's backend (BUGS P3). Slices/maps returned are never
+// mutated in place, so a caller can use them without holding a lock.
 func (s *server) routeSnapshot() ([]Route, map[string]*httputil.ReverseProxy, error) {
 	if s.rr == nil {
 		return nil, nil, nil
@@ -208,6 +214,11 @@ func newServer(cfg config, stRoutd *store.Store, ks *auth.KeySet, svc *auth.Toke
 	}
 }
 
+// loadInitialRoutes reads the boot route table. proxyd_routes is the only source:
+// `arizuko generate` writes the release's routes into it and proxyd re-reads it
+// per request. There is no env var and no seeding, so there is no window in which
+// config stops applying — PROXYD_ROUTES_JSON was seed-once and cost krons seven
+// routes (BUGS L45). Dispatch takes a fresh snapshot per request.
 func loadInitialRoutes(st *store.Store) []Route {
 	if st == nil {
 		return nil
@@ -245,6 +256,11 @@ func buildRouteProxy(r Route) *httputil.ReverseProxy {
 	preserveKeys := append([]string(nil), r.PreserveHeaders...)
 	backendHost := u.Host
 
+	// Rewrite, not Director. Director is deprecated, and the two do not carry the
+	// same defaults: Rewrite strips hop-by-hop headers from Out before this runs and
+	// adds NO X-Forwarded-For unless asked, so SetXForwarded is not optional here —
+	// TRUSTED_PROXIES is written against that header (BUGS `L40`).
+	// TestBuildRouteProxy_ForwardsHostPathAndHeaders pins all four facts.
 	rp := &httputil.ReverseProxy{Rewrite: func(pr *httputil.ProxyRequest) {
 		saved := map[string]string{}
 		for _, k := range preserveKeys {
@@ -270,6 +286,11 @@ func buildRouteProxy(r Route) *httputil.ReverseProxy {
 	return rp
 }
 
+// mux builds proxyd's routing table, catch-all included. Split out of handler
+// so a test can probe the real ServeMux: handler returns the middleware-wrapped
+// http.Handler, and a wrapped handler answers every path — including the ones
+// only the catch-all serves — so the doc-vs-mux guard cannot tell a real mount
+// from the fallback through it (BUGS F40).
 func (s *server) mux() *http.ServeMux {
 	mux := http.NewServeMux()
 
@@ -349,6 +370,12 @@ func (s *server) fixForwardedFor(r *http.Request) {
 		}
 	} else if r.Header.Get("X-Forwarded-For") != "" {
 
+		// An edge proxy is forwarding but we do not trust it, so its own address
+		// replaces the client's below. Every per-source decision then keys on one
+		// value fleet-wide: the anon chat shield shares a single bucket, the
+		// auth-denied log names the hop instead of the scanner, and webd's
+		// anonSender collapses all visitors into one identity. Silent until
+		// anteval hit the shared bucket (2026-08-16), so say it once per peer.
 		s.untrustedEdgeOnce(peer)
 	}
 	if peer == "" {
@@ -358,6 +385,12 @@ func (s *server) fixForwardedFor(r *http.Request) {
 	r.Header.Set("X-Forwarded-For", peer)
 }
 
+// worldForHost recovers a world name from the request Host. An explicit
+// WEB_VHOST_ALIASES entry wins; otherwise the world is derived as the single
+// label in `W.<HOSTING_DOMAIN>` via boundary-checked suffix removal — a raw
+// HasSuffix would let `notkrons.fiu.wtf` map to `krons`. Returns "" for any
+// un-mapped host (bare domain, multi-label subdomain, unknown suffix), which
+// falls through to normal routing. Never trusts X-Forwarded-Host.
 func (s *server) worldForHost(host string) string {
 	if h, _, err := net.SplitHostPort(host); err == nil {
 		host = h
@@ -480,6 +513,11 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// ONE snapshot for the whole dispatch: matching and proxy selection read the
+	// same version of `proxyd_routes`, or a request could be matched against one
+	// and forwarded (or 404'd) against another: old auth policy paired with a new
+	// backend, or a false 404 when the matched path was gone by the second read
+	// (BUGS P3).
 	routes, proxies, err := s.routeSnapshot()
 	if err != nil {
 		http.Error(w, "Route state unavailable", http.StatusServiceUnavailable)
@@ -512,6 +550,10 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/pub"+r.URL.Path, http.StatusFound)
 }
 
+// dispatchRoute applies per-route auth + bespoke handling and forwards via the
+// cached ReverseProxy. It takes the proxy map from the SAME snapshot rt was
+// matched in — never re-reads it — so route and backend cannot come from two
+// versions of the table (BUGS P3).
 func (s *server) dispatchRoute(rt *Route, proxies map[string]*httputil.ReverseProxy, w http.ResponseWriter, r *http.Request) {
 	if rt.RedirectTo != "" {
 		http.Redirect(w, r, rt.RedirectTo, http.StatusFound)
@@ -520,6 +562,11 @@ func (s *server) dispatchRoute(rt *Route, proxies map[string]*httputil.ReversePr
 	rp := proxies[rt.Path]
 	if rp == nil {
 
+		// Unreachable: snapshot() builds a proxy for every non-redirect route in
+		// the same read rt was matched from, and the redirect case returned
+		// above. Matching and proxy selection must read one table version (BUGS
+		// P3). A 404 here would blame the caller for a proxyd bug, so say what
+		// it is.
 		slog.Error("proxyd: matched route has no proxy in its own snapshot",
 			"path", rt.Path, "url", r.URL.Path)
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
@@ -617,6 +664,11 @@ func (s *server) davRoute(rp *httputil.ReverseProxy, w http.ResponseWriter, r *h
 	rp.ServeHTTP(w, r)
 }
 
+// davDestMethods are the verbs whose write target is the Destination header
+// instead of the request line. Measured against davd's binary (dufs 0.46):
+// COPY and MOVE read the header, every other verb it serves writes only where
+// it was addressed, and the match is case-sensitive — a lowercase `move` is a
+// 405 there, so an exact match here refuses exactly what the backend acts on.
 var davDestMethods = map[string]bool{"COPY": true, "MOVE": true}
 
 var davReadMethods = map[string]bool{
@@ -643,6 +695,23 @@ func davAllow(method, rest string) bool {
 	return true
 }
 
+// davDest resolves a WebDAV Destination header to the path dufs will write,
+// in the same shape as `rest`: the part under `/dav/`. It returns false when
+// the header names nothing this route serves — unparseable, a `..` hop, or
+// outside `/dav/`.
+//
+// WebDAV has two write targets, the request line and this header, so a
+// caller granted `coach` moved `/dav/coach/notes.md` onto
+// `Destination: /main/trading/CLAUDE.md` and both guards passed (BUGS L114).
+// Every step below mirrors dufs 0.46, measured against the shipped
+// arizuko-davd image: parse as a URI and discard scheme and authority
+// (`http://evil.example/b/x` writes `b/x`), take the path, percent-decode it
+// ONCE, then walk it with Rust `Path::components` semantics. Decoding precedes
+// the split, so `%2F` is a separator and `%2e%2e` is a parent hop. davRoute
+// then rewrites the header from this result (davDestHeader), which is what
+// makes the guard authoritative: a normalization that diverged from the
+// backend would be a bypass rather than a fix, and the backend never sees the
+// caller's spelling.
 func davDest(v string) (string, bool) {
 	raw, ok := davDestPath(v)
 	if !ok {
@@ -660,6 +729,13 @@ func davDest(v string) (string, bool) {
 	return strings.Join(segs[1:], "/"), true
 }
 
+// davDestPath extracts the URI path the way hyper's `Uri` does, which is what
+// dufs feeds its resolver. A value starting with `/` is origin-form and is a
+// path in full: `//main/x` is the path `//main/x`, NOT authority `main` — that
+// is where net/url disagrees, and reading its Host would have left the write
+// unguarded. Anything else must be absolute-form, whose authority is dropped.
+// The byte filter is hyper's own, measured over the whole ASCII range: visible
+// ASCII less `<`, `>` and backtick, with `?` and `#` ending the path.
 func davDestPath(v string) (string, bool) {
 	if v == "" {
 		return "", false
@@ -784,12 +860,22 @@ func (s *server) groupsForSub(sub string) []string {
 	scopes, err := auth.UserScopes(s.stRoutd, strings.TrimPrefix(sub, "user:"))
 	if err != nil {
 
+		// Stamp no groups — the backend then denies, which is the right direction.
+		// But an unreadable acl table and a user who holds nothing produced the
+		// SAME header, so the resulting 403s had no cause anywhere (BUGS A4).
 		slog.Error("proxyd: scope read failed; stamping no groups", "sub", sub, "err", err)
 		return nil
 	}
 	return scopes
 }
 
+// tryAuth returns an identity-stamped request if the caller has a valid Bearer
+// JWT; otherwise nil. A refresh_token cookie is NOT an identity here — requireAuth
+// trades it for an access token. Bearer verify is ES256 only, against authd's JWKs.
+//
+// ES256 is the only algorithm accepted, and authd is its only signer. A shared
+// secret verified here would turn one AUTH_SECRET leak into arbitrary identity
+// forgery, since proxyd is the sole stamper of X-User-* (BUGS L6).
 func (s *server) tryAuth(r *http.Request) *http.Request {
 	if s.ks == nil {
 		return nil
@@ -848,6 +934,9 @@ func (s *server) tryRefreshViaAuthd(w http.ResponseWriter, r *http.Request) *htt
 func (s *server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 
+		// AUTH_SECRET keys the OAuth CSRF state and verifies no bearer
+		// (BUGS L6), so the login flow cannot complete without it. Denying
+		// here keeps the failure at the door rather than mid-flow.
 		if s.cfg.authSecret == "" {
 			slog.Warn("auth denied", "reason", "auth_secret_unset", "path", r.URL.Path)
 			http.NotFound(w, r)
@@ -930,6 +1019,10 @@ func main() {
 
 	aud := audit.New(audit.LoadConfig(coreCfg.HostProjectRoot, coreCfg.Name))
 
+	// audit_log lives in routd.db (its owner, routd migration 0016); proxyd is
+	// FS-mounted but owns no DB of its own, so it writes into the owner DB via
+	// the same stRoutd handle used for routing + auth (no proxyd.db, no
+	// messages.db straddle — BUGS.md Y1, split write-discipline).
 	audit.Init(stRoutd.Obj(), coreCfg.Name)
 	audit.Emit(context.Background(), audit.Event{
 		Category: audit.CategorySystem,

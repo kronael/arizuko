@@ -51,9 +51,19 @@ func (l *Loop) processChat(chatJID string, commandsOnly bool) (bool, error) {
 	}
 	last := msgs[len(msgs)-1]
 
+	// Three questions, three rows. The busy key is the newest user row; the steer
+	// offer takes the oldest slash command; the folder comes from the newest row
+	// that dispatches on its own (resolveBatch). Sharing one row made a `/root`
+	// followed by an @mention miss a mention-only route and drop the batch
+	// (BUGS L56, L336), and a newer review row that matched only ?observe took a
+	// pending mention with it (BUGS L551).
 	busyIdx := newestUserIdx(msgs)
 	if busyIdx < 0 {
 
+		// An all-bot batch is normally an agent's own output. When another folder
+		// wrote it, it is a delegation that woke nothing (BUGS L2), so say so. The
+		// chat's folder is READ from the mint record, never parsed from the JID —
+		// the grammar is ambiguous (BUGS L4, L1).
 		if author := l.directFolder(chatJID); author != "" && last.Sender != "" && last.Sender != author {
 			slog.Warn("delegation woke nothing: the chat holds only bot rows, so no turn ran",
 				"chat_jid", chatJID, "wrote_by", last.Sender, "chat_folder", author,
@@ -108,6 +118,9 @@ func (l *Loop) processChat(chatJID string, commandsOnly bool) (bool, error) {
 		// handler may run a second time because a later dispatch was refused.
 		l.advance(chatJID, steerMsg)
 
+		// A steer consumes its own row and no other: the older rows still get the
+		// turn below (BUGS L104), and `last` stays at the steered row so the
+		// closing advance does not walk the cursor back over the command.
 		steerConsumed = true
 		msgs, last = msgs[:steerIdx], steerMsg
 	}
@@ -168,6 +181,9 @@ func (l *Loop) processChat(chatJID string, commandsOnly bool) (bool, error) {
 		return m.Topic
 	}
 
+	// web: chats dispatch one turn per topic; everyone else per sender AND
+	// topic. Keying on sender alone answered an older Discord thread inside a
+	// newer one (BUGS L305).
 	var groups [][]core.Message
 	if web {
 		groups = groupByTopic(trigger)
@@ -316,6 +332,9 @@ func (l *Loop) advanceFinished(chatJID, folder string, msgs []core.Message, firs
 	l.advanceObserved(folder, marks)
 }
 
+// advanceObserved moves the finished turns' observed watermarks. They ride the
+// SAME success path as the message cursor: a re-fed turn must still see the
+// context the failed attempt saw (BUGS L58).
 func (l *Loop) advanceObserved(folder string, marks []observedAdvance) {
 	for _, m := range marks {
 		if err := l.db.store().AdvanceObservedCursor(folder, m.topic, m.ts); err != nil {
@@ -345,6 +364,11 @@ func lostSenders(batch []core.Message) []string {
 
 type observedAdvance struct{ topic, ts string }
 
+// steerRowIdx picks the row `steer` is offered: the OLDEST slash command in
+// the batch, else the newest non-bot row. Scanning the newest row only let a
+// `/root` with any row after it reach the agent as plain text (BUGS L336); the
+// oldest keeps the consume contract — rows behind it get their turn, rows
+// after it stay above the cursor (BUGS L104).
 func steerRowIdx(msgs []core.Message) int {
 	for i, m := range msgs {
 		if IsSteerCommand(m) {
@@ -354,6 +378,9 @@ func steerRowIdx(msgs []core.Message) int {
 	return newestUserIdx(msgs)
 }
 
+// newestUserIdx returns the position of the newest non-bot message, or -1 for
+// an all-bot batch. The index, not the row: the rows behind it are the other
+// half of the answer (BUGS L104).
 func newestUserIdx(msgs []core.Message) int {
 	for i := len(msgs) - 1; i >= 0; i-- {
 		if !msgs[i].BotMsg {
@@ -370,6 +397,9 @@ func replyChat(chatJID string, last core.Message) string {
 	return chatJID
 }
 
+// isolateElevated cuts every batch around a row marked in pendingElevation, so
+// the root turn holds only the /root issuer's row and its trigger is the
+// issuer; another sender's row runs in its own unelevated turn (BUGS L666).
 func (l *Loop) isolateElevated(groups [][]core.Message) [][]core.Message {
 	var out [][]core.Message
 	for _, g := range groups {
@@ -518,6 +548,8 @@ func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed boo
 		}
 	}()
 
+	// A gateway that will not answer fails the turn as a dependency outage;
+	// spawning anyway would run a turn no cap can stop.
 	msg, gerr := l.budgetGate(ctx, folder, turnCallerSub(last.Sender))
 	if gerr != nil {
 		slog.Error("model gateway did not answer the budget gate; no spawn",
@@ -576,6 +608,11 @@ func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed boo
 		}
 	}
 
+	// The turn's own virtual key at the model gateway (spec 6/23): TTL = the run
+	// ceiling, attributed to the folder and the caller, revoked by the deferred
+	// delete. The alias ends in random hex because a retry re-dispatches the
+	// SAME turn_id. A gateway that will not mint is a dependency outage: no
+	// guest starts.
 	var gwKey turnKey
 	if l.gateway != nil {
 		k, gerr := l.gateway.mint(ctx, "arizuko-"+turnID+"-"+randHex(4),
@@ -786,6 +823,10 @@ func (l *Loop) ensureTopicWithFork(folder, topic, parent string) {
 	l.inheritParentSession(folder, parent, topic, childUUID)
 }
 
+// inheritParentSession copies the parent's transcript under childUUID or, when
+// it cannot, clears the child's observed cursor. Both halves are one rule: the
+// fork's observed_cursor=now stamp is right ONLY while a transcript carries
+// the rest (BUGS L54). Every fork path goes through here.
 func (l *Loop) inheritParentSession(folder, parent, childTopic, childUUID string) {
 	if l.copyParentSession(folder, parent, childUUID) {
 		return
@@ -846,6 +887,12 @@ func jidScheme(jid string) string {
 	return ""
 }
 
+// turnCallerSub is the ONE rule for "who is this turn acting on behalf of":
+// spawn-time secrets, connector secrets, the budget gate and cost attribution
+// all read it. A timed or system trigger resolves to routd itself; every other
+// sender passes VERBATIM — filtering by scheme empties `user_sub` in cost_log
+// (BUGS L69). It is NOT the tool-call authorization principal, which is
+// folder:<path> (BUGS B2).
 func turnCallerSub(trigger string) string {
 	if isSystemTrigger(trigger) {
 		return "service:routd"

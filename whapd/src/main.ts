@@ -46,11 +46,18 @@ const authDir = env(
   'WHATSAPP_AUTH_DIR',
   dataDir ? `${dataDir}/store/whatsapp-auth` : '/srv/data/store/whatsapp-auth',
 );
+// Outbound dedup is a delivery guarantee, not a nicety: without the ledger
+// routd's re-send of a still-pending row posts a second WhatsApp message
+// (BUGS L32). The directory must be MOUNTED — an unmounted one dies with the
+// container and every claim is forgotten, which is the same as having none.
 const stateDir = env(
   'WHAPD_STATE_DIR',
   dataDir ? `${dataDir}/store/whapd` : '/srv/data/store/whapd',
 );
 const ledger = new DedupLedger(`${stateDir}/outbound-dedup`);
+// Inbound retention is the other half of the same guarantee: the read receipt
+// tells WhatsApp never to offer the message again, so it may only be sent once
+// the message survives a routd restart (BUGS L39).
 const inbound = new InboundLedger(`${stateDir}/inbound-pending`);
 const INBOUND_SWEEP_MS = 30000;
 function recoverCredsIfEmpty(dir: string): void {
@@ -252,6 +259,17 @@ async function connect(): Promise<void> {
     if (connection === 'close') {
       connected = false;
       const code = (lastDisconnect?.error as any)?.output?.statusCode;
+      // 405 / loggedOut = server-side session termination. Re-pair required.
+      //
+      // STAY UP. A server-side logout is not a crash and it is not transient, so
+      // there is nothing to retry; and the pairing endpoints an operator
+      // re-pairs through live in THIS process, so exiting takes away the one
+      // surface that fixes it. krons restarted 2,820 times on this branch, and
+      // routd could not even resolve the name to say why (BUGS L303).
+      //
+      // Suspended stops the reconnect loop; /health answers 503 disconnected and
+      // /v1/pair/status answers `unauthenticated`, which is where an operator
+      // looks.
       if (code === DisconnectReason.loggedOut || code === 405) {
         log(
           'error',
@@ -325,6 +343,10 @@ async function connect(): Promise<void> {
         Math.floor(Date.now() / 1000),
       );
       if (!payload) continue;
+      // Retain BEFORE the read receipt. readMessages tells WhatsApp the
+      // message is handled and Baileys never offers it again, so sending it
+      // first meant a routd that was restarting lost the message outright
+      // (BUGS L39). A retain that fails withholds the receipt instead.
       const held = inbound.retain(payload);
       if (held) sock!.readMessages([msg.key]).catch(() => {});
       try {

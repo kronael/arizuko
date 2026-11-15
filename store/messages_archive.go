@@ -53,6 +53,8 @@ type ArchiveMessageRow struct {
 
 var deliveryWorkAttrs = []string{"operation", "queued_at", "next_attempt_at", "expires_at", "last_error"}
 
+// naiveDatetime is the layout of a hand-written timestamp with no zone. Two
+// krons rows carry one (`2026-04-02 12:38:47`).
 const naiveDatetime = "2006-01-02 15:04:05"
 
 // ReadMessageInstant parses a stored or archived timestamp into the instant a

@@ -1,5 +1,23 @@
 package store
 
+// message_folders.go holds the folder feed: one item per message that carries a
+// `routed_to`, addressed by the folder it was routed to.
+//
+// IT IS AN INDEX, NOT A COPY. Routing is dynamic, so the fact is written when
+// `routed_to` is stamped; the item carries a POINTER (the chat) plus the three
+// attributes the feed FILTERS on, and two copies of a body would be two bodies
+// that can disagree. The partition is the folder and the sort key the
+// message's own, so the observed cursor means the same thing on a folder read
+// and a chat read (5,531 of krons' 24,013 messages, over 95 folders).
+//
+// BOTH WRITERS OF routed_to WRITE HERE, `PutMessage` and `MarkMessagesObserved`:
+// a feed fed by one would miss the half `ObservedSince`'s watched-source
+// branch reads.
+//
+// THE COUNT IS AN ATTRIBUTE OF THE FOLDER, NOT A SCAN: `MessageActivityByFolder`
+// asks over 95 folders at once. objstore.Increment moves the counter in the
+// same batch as the message, so the number cannot drift from the rows.
+
 import (
 	"context"
 	"errors"
@@ -58,6 +76,12 @@ func folderFeedWrite(msgKey objstore.Key, m core.Message) (objstore.Write, bool,
 // once rather than on every message.
 var errNoCounter = errors.New("the folder has no message counter")
 
+// addFolderCount moves one folder's count by delta with `also` riding the same
+// batch, and ANSWERS whether it committed, because the two callers mean
+// different things by a refusal: on the append path a false is the message's
+// own create-if-absent saying the row is already there, exactly when the count
+// must NOT move; every other caller writes unconditional Puts, where a false
+// is a fault. Dropping the bit made both read as success (BUGS L268).
 func (s *Store) addFolderCount(ctx context.Context, folder string, delta int,
 	also []objstore.Write) (bool, error) {
 	_, committed, err := s.incrementEntityVia(ctx, MessageFolderCounts,

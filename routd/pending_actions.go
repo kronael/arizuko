@@ -1,5 +1,15 @@
 package routd
 
+// pending_actions.go — a tool call suspended until a human approves it (spec
+// 5/19); the hold RULE lives in `acl` (auth.CheckHold), this file is only the
+// suspended CALL's state. A held call BLOCKS the agent's turn, and the waiter
+// that suspended it runs it on approval, inline, as the ORIGINAL agent, so the
+// agent reports the real result: returning "held" and letting the agent carry
+// on let it report an action it had not taken. The coordinate and attribute
+// names are store's; the writes are routd's, through *store.Store, never the
+// driver (BUGS L264). THE ID IS THE COORDINATE; every other selection reads
+// the partition and filters. The three timestamps are RFC3339.
+
 import (
 	"context"
 	"encoding/json"
@@ -216,6 +226,9 @@ func (d *DB) ListPendingActions(folder, status string) ([]PendingAction, error) 
 	var out []PendingAction
 	for _, it := range items {
 
+		// Expiry is applied BEFORE the status filter: filtering on the STORED
+		// status made `status=expired` return nothing and `status=held` return
+		// rows this function then relabelled expired (BUGS J7).
 		p := pendingFrom(it)
 		if status != "" && p.Status != status {
 			continue
@@ -299,6 +312,15 @@ func skipApprovalRow(p PendingAction, reviewer string) core.ACLRow {
 	}
 }
 
+// resolveHoldInto is the one funnel both resolution faces run. The verdict
+// and the skip-approval rule an `always` adds ride ONE batch, so a crash
+// cannot leave a call approved with no rule or a rule with no approved call;
+// the waiter that suspended the call runs it itself. `standing` is NOT a third
+// status: the standing answer lives in acl. `never` is deliberately absent:
+// acl rows carry no verdict identity, so a revoke could not tell its deny
+// from standing policy (spec 6/26). WHO MAY ANSWER is decided HERE, on the
+// HELD ROW's folder: testing the CALLER for `**` left a world creator unable
+// to answer a hold in their own world (BUGS L271).
 func (d *DB) resolveHoldInto(ctx context.Context, ws *store.WriteSet, id, verdict, reviewer,
 	note string, standing bool, lost error) (PendingAction, error) {
 
@@ -482,6 +504,9 @@ type holdShape struct {
 	keys []string
 }
 
+// holdShapes declares the tools with a measured case. A tool with no entry
+// reads as its name and its arguments. A tool with no keys gets no `always`:
+// the row would pin nothing and run every call of the tool.
 var holdShapes = map[string]holdShape{
 	"like":    {ask: "react {reaction} to message {targetId}", keys: []string{"reaction"}},
 	"dislike": {ask: "dislike message {targetId}"},

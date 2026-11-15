@@ -1,5 +1,27 @@
 package store
 
+// messages.go holds every read and write of `messages`: one item per message
+// routd has ever appended, inbound and outbound alike.
+//
+// The partition is the chat and the sort key `core.TS + KeySep + id`; the
+// largest chat partition is 10,688 rows on krons against 24,013 in the table.
+// The id is in the key because the instant is not unique: 245 pairs share one
+// instant inside one chat on krons, and a time-only key would put two messages
+// on one item. The fixed-width instant decides the order and the id breaks the
+// tie (objstore.OrderedLead).
+//
+// THE CURSOR IS A WHOLE KEY: a bare instant sorts BELOW every message at it,
+// so `> cursor` would feed a message at exactly the cursor instant once per
+// poll, for ever (messages_migrate_test.go).
+//
+// THE LOG IS APPEND-ORDERED: a live append takes the chat's next position,
+// never one at or below the row the chat already ends on (appendInstant). The
+// archive's restore writes items directly and is NOT this door.
+//
+// platform_id stays here, because MessageByID resolves a reply's parent BY it
+// inside this partition. `status` and `delivery_attempts` are the mutable half
+// and live in message_delivery.go.
+
 import (
 	"context"
 	"fmt"
@@ -41,6 +63,8 @@ const (
 	AttrMsgPlatformID    = "platform_id"
 )
 
+// The ordered declaration is what makes a message key a position: every driver
+// refuses a key whose instant is short (BUGS L97).
 func init() { objstore.OrderedLead(Messages, "", tsWidth) }
 
 // MsgStamp assembles a message's position from a rendered instant and its id,
@@ -331,6 +355,19 @@ func (s *Store) appendMessage(ctx context.Context, m core.Message, status string
 	return m, false, ErrRefused
 }
 
+// appendInstant answers the instant a live append takes: the writer's own, or
+// one nanosecond past the chat's newest row when the writer's own would put
+// the new row at or below it.
+//
+// THE DISPATCH CURSOR IS A HIGH-WATER MARK, so a row written BELOW it is never
+// fed. A steer re-injection carrying the host clock landed behind a platform
+// second three ahead, with no ack and a leaked elevation (BUGS L102); a row of
+// the same second as the batch tail with a lesser id lost eleven of twelve
+// documents (BUGS L103). One floor answers both, the chat's newest position
+// rather than its cursor, because the cursor has not moved when a steer
+// re-injects. The cost is one key-only read; the window left is microseconds.
+// A clamped row is still the caller's row: only the instant moves, by a
+// nanosecond from a value the platform had already rounded to a second.
 func (s *Store) appendInstant(ctx context.Context, m core.Message) (time.Time, error) {
 	own := MsgStamp(core.TS(m.Timestamp), m.ID)
 	floor, err := s.newestMessageKey(ctx, m.ChatJID)
@@ -608,6 +645,9 @@ func truncateRunes(s string, n int) string {
 	return string(r[:n])
 }
 
+// messageAt reads one message of a chat by its id. The id is the TAIL of the
+// key, so this is a partition read with the id compared in the reader; the
+// chat bounds it at 10,688 on krons.
 func (s *Store) messageAt(ctx context.Context, jid, id string) (objstore.Item, bool, error) {
 	if jid == "" || id == "" {
 		return objstore.Item{}, false, nil

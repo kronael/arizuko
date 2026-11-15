@@ -1,5 +1,21 @@
 package store
 
+// onboarding.go holds every read and write of `onboarding` and
+// `onboarding_gates`: one item per unrouted chat waiting to be let in, and one
+// item per admission gate.
+//
+// The partition is store.OwnerOnbod because both tables are registered resreg
+// resources and resreg.SubsystemOnbod IS store.OwnerOnbod; a second spelling
+// would empty `arizuko dump` without any read failing. Every read examines
+// the whole collection (45 admission rows fleet-wide, 2026-09-07; no drainage
+// but DenyOnboarding), because eight of the ten reads select by an attribute.
+//
+// THE TIMESTAMPS ARE 20 BYTES AND THAT IS DECLARED, not re-rendered: every
+// live value is time.RFC3339 of a UTC time, and widening them would move every
+// checksum for nothing. The declaration is what makes `prompted_at <`,
+// `queued_at <` and `admitted_at >=` time comparisons, because they are BYTE
+// comparisons (BUGS L97).
+
 import (
 	"context"
 	"errors"

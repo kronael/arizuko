@@ -1,5 +1,20 @@
 package chanstore
 
+// inbound_pending.go holds every read and write of `inbound_pending`: one item
+// per inbound message routd did not accept, held by the adapter until it does.
+//
+// Only adapters that CONSUME the platform event on arrival keep these items.
+// slakd answers Slack 200 before routd is called (Slack demands the ack inside
+// 3s and redelivers on non-2xx, so deferring the ack turns one slow routd into
+// several copies of the message); discd's gateway hands each event over once;
+// gitd's webhook is delivered once. Neither platform will offer the message
+// again, so a failed routd call would lose it with one ERROR line as the trace
+// (BUGS L25).
+//
+// The id is the adapter's stable message id — the same value routd stores as the
+// messages primary key, so a re-delivery of a row routd already has is a no-op
+// rather than a duplicate.
+
 import (
 	"context"
 	"errors"
@@ -23,6 +38,16 @@ const (
 	attrRetryState    = "retry_state"
 )
 
+// pendingPartition is the one partition every held message lives in: the
+// database already IS one adapter's queue, so there is nothing to filter by.
+// A message that routd accepts or permanently refuses is deleted, so the steady
+// state is empty (measured 2026-09-07: zero rows in both live teled databases)
+// and the queue only fills while routd is down.
+//
+// The sort key is the message id because id-uniqueness is the guarantee: a row
+// already held keeps its attempt count and its backoff, enforced by a Put under
+// ItemAbsent on this key. A time-valued key would let one id land twice — Slack
+// retries a non-2xx ack — and be delivered twice.
 const pendingPartition = "inbound"
 
 type Held struct {

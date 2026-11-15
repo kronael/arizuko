@@ -1,3 +1,19 @@
+// Durable inbound retention — whapd's half of the inbound delivery guarantee
+// (spec 5/34). The WhatsApp read receipt tells Baileys never to offer the
+// message again, so it is sent only after the message is recorded here: a routd
+// that is restarting must not lose it (BUGS L39). slakd and discd hold the same
+// guarantee through `chanlib.RouterClient.RetainInbound` (BUGS L25); whapd is
+// TypeScript and cannot call it, so this is the same shape in TS.
+//
+// ONE FILE PER MESSAGE, not a database, for the reason dedup.ts gives: node:22
+// has no stable `node:sqlite`, and the filesystem already provides the only
+// atomicity this needs. The directory lives under whapd's own MOUNTED state
+// dir — an unmounted one dies with the container, which is the same as having
+// no ledger at all.
+//
+// The record is written BEFORE the read receipt: losing the message then needs
+// the disk to fail, not routd to be busy.
+
 import fs from 'node:fs';
 import path from 'node:path';
 import { keyFile } from './dedup.js';
@@ -78,6 +94,9 @@ export class InboundLedger {
     try {
       names = fs.readdirSync(this.dir);
     } catch (e) {
+      // An empty answer here reads as "nothing to deliver", so a disk fault
+      // after the constructor's mkdir would retire the whole ledger silently and
+      // every retained message with it (BUGS L346).
       log(
         'error',
         'the inbound ledger is unreadable; retained messages are NOT being swept',

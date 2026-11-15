@@ -59,6 +59,12 @@ func (d *dash) requireOperator(w http.ResponseWriter, r *http.Request) bool {
 	return true
 }
 
+// jidFolder maps a message chat_jid to its routing-target folder for visibility
+// filtering. A web:/hook: JID resolves through the folder its mint RECORDED, because
+// the JID grammar reads `hook:a/b/c` as folder `a/b` and would show tenant `a`'s
+// message to tenant `a/b` (BUGS L4); the grammar stays the fallback for a token minted
+// before the column. Empty when no folder can be determined — such a message is
+// invisible to every non-operator.
 func (d *dash) jidFolder(jid string) string {
 
 	if d.routdStore() == nil {

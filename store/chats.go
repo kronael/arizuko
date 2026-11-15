@@ -1,5 +1,29 @@
 package store
 
+// chats.go holds every read and write of `chats`: one item per chat routd has
+// ever seen, carrying the dispatch cursor, the span of a person's input past
+// it, the errored flag and the two navigation pins.
+//
+// The span is `input_first`, the user row appended while none waited past the
+// cursor, and `input_last`, the newest user row. Every user-row append writes
+// them from the chat read it already makes, so ordering a folder's input
+// across chats reads this partition, not every chat's messages (BUGS L827).
+//
+// The partition is OwnerRoutd and the sort key the jid: a chat has no folder.
+// The pins name one, but a chat outlives the folder it points at, so
+// folder_scope.go clears the pins and keeps the row. The reads that name
+// no jid scan the partition: 136 items on krons, bounded by the chats an
+// instance was ever addressed from, never by traffic.
+//
+// agent_cursor is the one ORDERED attribute and holds a WHOLE MESSAGE KEY,
+// `core.TS + KeySep + id`: a bare instant sorts BELOW every message at it, so
+// `> cursor` would hand back an answered message once per poll, for ever. The
+// instant is fixed width and the id is not, so the declaration is an ordered
+// LEAD (BUGS L97).
+//
+// The two flags are "1" or ABSENT: absent is the only null this model has, and
+// a present false flag is a value a tombstone test still finds.
+
 import (
 	"context"
 	"fmt"
@@ -26,6 +50,8 @@ const (
 
 const flagSet = "1"
 
+// The ordered declaration is what makes the dispatch cursor a cursor: every
+// driver refuses a value whose instant is short (BUGS L97).
 func init() { objstore.OrderedLead(Chats, AttrChatAgentCursor, tsWidth) }
 
 func chatKey(jid string) (objstore.Key, error) {

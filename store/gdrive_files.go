@@ -1,5 +1,14 @@
 package store
 
+// gdrive_files.go holds every read and write of `gdrive_files`: one item per
+// Google Drive file a folder binds, addressed by its file id.
+//
+// The partition is OwnerRoutd because resreg's entity path writes these items
+// too (resreg.SubsystemRoutd IS store.OwnerRoutd). googd reads the partition
+// each sweep and polls exactly the files it names. The item holds no secret, so
+// no keyring is involved. `created_at` is core.TS at 30 bytes, the width
+// resreg's entity path stamps (BUGS L97).
+
 import (
 	"context"
 	"errors"

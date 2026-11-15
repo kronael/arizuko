@@ -401,6 +401,9 @@ export class ClaudeTurn {
   // max-turns summary subquery can name the session.
   sessionId: string | undefined;
 
+  // rejected records that the account was refused during this turn, not merely
+  // throttled. A refusal outlives a retry — sloth's seven-day cap reset eleven
+  // hours out — so a result that errors after one is terminal (BUGS L175).
   private rejected: ProviderFailure | undefined;
   private refused = false;
 

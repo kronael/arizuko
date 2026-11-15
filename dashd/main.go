@@ -164,6 +164,9 @@ func main() {
 		accentOverride = v
 	}
 
+	// store.OpenOwner probes for the `acl` entity, so an endpoint routd has never
+	// booted against fails loudly at boot instead of serving an empty dashboard
+	// (BUGS F58).
 	routdOwn, err := store.OpenOwner(store.OwnerRoutd)
 	if err != nil {
 		slog.Error("open routd's store", "err", err)
@@ -173,6 +176,9 @@ func main() {
 
 	slog.Info("dashd started", "store", dynstore.URL(), "port", port)
 
+	// APP_SRC_DIR is the container-side path to ant/ (routd/runed read stock
+	// skills the same way); HOST_APP_DIR is a HOST path and unusable from
+	// inside the container unless mounted (BUGS F54).
 	appDir := os.Getenv("APP_SRC_DIR")
 	if appDir == "" {
 		appDir = os.Getenv("HOST_APP_DIR")
@@ -267,6 +273,11 @@ func main() {
 	}
 }
 
+// backendURL resolves a sibling daemon's intra-container base URL: the env override
+// when set, else the compose service name on the fixed in-container port. Root
+// CLAUDE.md pins every daemon to :8080, so the URL is derivable, not configuration
+// — compose emits neither PROXYD_URL nor RUNED_URL, and without the default the
+// kill button answered 503 in every deploy (BUGS F23). One renderer for both.
 func backendURL(envKey, service string) string {
 	return strings.TrimRight(core.EnvOr(envKey, "http://"+service+":8080"), "/")
 }
@@ -310,6 +321,10 @@ type dash struct {
 
 	authdURL string
 
+	// onbodURL is onbod's /v1 face. dashd IS FS-mounted on onbod.db, but the audit read
+	// still goes over HTTP: /dash/audit/ is a fan-out of ONE path across four owners,
+	// and a direct-DB fourth source would be a second mechanism that drifts from the
+	// other three (spec 5/I-tool-call-logging, BUGS F35).
 	onbodURL string
 
 	secretKeyring [][]byte
@@ -356,6 +371,10 @@ func (d *dash) secretStore() *store.Store {
 	return s
 }
 
+// operatorCtxKey carries the caller's operator verdict for the length of one
+// request, so callerScope and dashNavFor cannot answer differently. dashNavFor
+// reading the stamped header alone is what served an operator BY GRANT the
+// pages and then showed no links to them (BUGS L324).
 type operatorCtxKey struct{}
 type policyCtxKey struct{}
 
@@ -682,6 +701,11 @@ func (d *dash) handleStatus(w http.ResponseWriter, r *http.Request) {
 		counts, err := d.sessionCountsViaRoutd(r.Context())
 		if err != nil {
 
+			// An unreachable owner is an ERROR and never empty data (spec 6/29):
+			// an absent session table reads as "no sessions", which is a false
+			// statement an operator acts on. The Answering section directly above
+			// renders the same failure as a banner, and one page cannot hold two
+			// answers to "what does a dead routd look like" (BUGS L325).
 			slog.Warn("status: session counts via routd", "err", err)
 			_, _ = fmt.Fprint(w, htmlBanner("err", "could not reach routd for session counts"))
 		} else {
@@ -827,6 +851,9 @@ func (d *dash) writeActivityRows(ctx context.Context, w http.ResponseWriter, all
 		limit = 1000
 	}
 
+	// routd owns `messages` and truncates the preview itself, so this page can
+	// never widen it (6/28 read path, BUGS L142). The per-row folder visibility
+	// below is still dashd's job — routd's limit is the outer bound.
 	feed, err := d.activityViaRoutd(ctx, before, limit)
 	if err != nil {
 		slog.Warn("activity: read via routd", "err", err)

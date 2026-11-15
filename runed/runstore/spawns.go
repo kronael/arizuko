@@ -1,5 +1,18 @@
 package runstore
 
+// spawns.go holds every read and write of `spawns`: one item per container
+// spawn, the execution-session envelope routd claims a folder's run slot with.
+//
+// THE PARTITION IS A CONSTANT AND THE SORT KEY IS THE RUN ID, not the folder
+// 6/37 rule 1 predicted: six operations address a spawn by its run id and
+// hold no folder at all, and Start, End and Kill are guarded transitions,
+// which name ONE item. The cost is that folder reads are whole-partition
+// reads with an attribute filter and newest-first order is applied by the
+// reader. What makes that affordable is DRAINAGE: DropSpawnsBefore keeps the
+// partition a window (seven days), not an archive. Folder containment is
+// applied by RecentSpawns through groupfolder.Contains, never LIKE (BUGS
+// L122, L252).
+
 import (
 	"context"
 	"fmt"

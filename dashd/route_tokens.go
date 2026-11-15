@@ -1,5 +1,19 @@
 package main
 
+// Route tokens dashboard: per-folder list + revoke. READ-AND-REVOKE ONLY —
+// the cockpit mints nothing. Mounted at:
+//
+//	GET  /dash/tokens/{folder}/             — folder-scoped list
+//	POST /dash/tokens/{folder}/{jid}/revoke — revoke by JID
+//
+// Minting lives with the resource owner: routd's route_tokens resource serves
+// both faces (POST /v1/route_tokens/{chat,hook} for operators, issue_chat_link
+// / issue_webhook / issue_pairing_link for agents), and `arizuko token` for the
+// CLI. A mint form here was a second writer over the same table with its own
+// label validation — the shape that drifts (BUGS V2,
+// spec 6/30-per-daemon-dashboards §webd: "There
+// is no token minting anywhere in the cockpit").
+
 import (
 	"context"
 	"encoding/json"
@@ -98,6 +112,14 @@ func (d *dash) listRouteTokens(ctx context.Context, folder string) ([]resources.
 	return rows, nil
 }
 
+// foldersViaRoutd lists every registered group folder through routd's /v1,
+// which is what 6/28's read path requires: routd owns `groups`, so dashd asks
+// rather than reads its file.
+//
+// One reader, many callers. `SELECT folder FROM groups ORDER BY folder LIMIT
+// 500` was copy-pasted into the groups page, the memory page and the usage
+// page — projections of one table, each free to drift into a WHERE the owner
+// would not serve (BUGS L142).
 func (d *dash) foldersViaRoutd(ctx context.Context) ([]string, error) {
 	body, status, err := d.bearerCall(ctx, d.routdURL, http.MethodGet, "/v1/groups", nil)
 	if err != nil {
@@ -131,6 +153,10 @@ func (d *dash) tasksViaRoutd(ctx context.Context) ([]resources.ScheduledTasksRow
 }
 func (d *dash) loadTasks(ctx context.Context) ([]resources.ScheduledTasksRow, error) {
 
+	// GET /v1/tasks, not /v1/<name>: the scheduled_tasks resource deliberately
+	// serves a different REST path for callers across the container
+	// boundary (resources/scheduled_tasks.go, BUGS F21). Assuming the resource
+	// name IS the path answered 404 on the first attempt.
 	body, status, err := d.bearerCall(ctx, d.routdURL, http.MethodGet, "/v1/tasks", nil)
 	if err != nil {
 		return nil, err
@@ -152,6 +178,8 @@ type SessionCount struct {
 	Count  int    `json:"count"`
 }
 
+// sessionCountsViaRoutd reads the Status page's per-folder session tally from
+// the daemon that owns `sessions` (6/28, BUGS L142).
 func (d *dash) sessionCountsViaRoutd(ctx context.Context) ([]SessionCount, error) {
 	body, status, err := d.bearerCall(ctx, d.routdURL, http.MethodGet, "/v1/sessions/counts", nil)
 	if err != nil {

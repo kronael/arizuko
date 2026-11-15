@@ -19,7 +19,13 @@ const (
 
 // RetainInbound makes this client's inbound durable and starts the re-delivery
 // sweep, which runs until ctx is done. st is the adapter's OWN storage. Wire it
-// ONLY from an adapter that consumes its platform event on arrival.
+// ONLY from an adapter that consumes its platform event on arrival: slakd acks
+// Slack BEFORE calling routd and discd's gateway hands each event over exactly
+// once, so a routd restart would lose the message (BUGS L25). teled and emaid
+// advance their platform cursor ONLY after routd accepts, so the platform IS
+// their queue and they must NOT wire this. The retained row carries the
+// adapter's own stable message id, the `messages` primary key, so a re-delivery
+// of a row routd already took is a no-op rather than a duplicate.
 func (r *RouterClient) RetainInbound(ctx context.Context, st *chanstore.Store) {
 	if st == nil {
 		panic("chanlib.RetainInbound: the store must not be nil")

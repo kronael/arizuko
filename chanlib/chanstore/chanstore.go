@@ -1,3 +1,24 @@
+// Package chanstore is chanlib's storage layer: every channel adapter asks it
+// what a delivery needs and it answers, so a second driver reimplements this
+// package and no adapter changes (spec 6/37 step 1).
+//
+// It holds no SQL and no DDL. Every method below is objstore's two primitives —
+// Query and GuardedBatch — and the driver is chosen by whoever opens the
+// adapter's database, never in here (spec 6/37 step 5). An entity is a name a
+// driver resolves however it must, so there is no migration chain: preparing
+// the storage is asking the driver for the entities this package declares, and
+// asking twice is a no-op.
+//
+// Four entities, four questions, and they share nothing. `outbound_dedup`
+// answers "was this message already sent"; `inbound_pending` answers "which
+// messages is this adapter still holding"; `file_urls` answers "what platform
+// URL does this proxied attachment id stand for"; `ack_marks` answers "which
+// message carries this chat's acknowledgement mark". No operation spans them,
+// so they get a file each (6/37 rule 1) and no file needs another's coordinate.
+//
+// One database per adapter holds all four. chanlib SHIPS the entities; the FILE
+// belongs to the adapter daemon, one per service, so an adapter stays
+// outage-resistant on its own and no library owns a database.
 package chanstore
 
 import (

@@ -218,6 +218,11 @@ func (rr *routesResource) handle(ctx context.Context, x resreg.Execution) (any, 
 			return nil, resreg.Errorf(http.StatusNotFound, "route %q not found", path)
 		}
 
+		// Editing an arizuko-owned row is not an override — the next `arizuko
+		// generate` rewrites it from the release. Refusing here is the "must be
+		// told" half of that decision: an edit that silently survives until the
+		// next deploy and then vanishes is the failure this refusal prevents
+		// (BUGS L45). The named alternative takes the path over for good.
 		if !store.RouteSurvivesGenerate(routes[idx].Owner) {
 			return nil, resreg.Errorf(http.StatusConflict,
 				"route %q is owned by %q and is rewritten by every `arizuko generate`; "+
@@ -317,6 +322,10 @@ func callerFromHTTP(ks *auth.KeySet) resreg.CallerFromHTTPFunc {
 			return resreg.Caller{}, fmt.Errorf("missing or invalid identity")
 		}
 
+		// The JWT sub is minted prefixed ("user:…"), but acl.principal and
+		// acl_membership.child store BARE subs, so a prefixed principal expands
+		// to itself alone, matches no row and silently denies everything
+		// (BUGS L100).
 		sub := auth.BareSub(r.Header.Get("X-User-Sub"))
 		var groups []string
 		if hdr := r.Header.Get("X-User-Groups"); hdr != "" {

@@ -743,6 +743,23 @@ func recordOutboundReply(routd RoutdFns, db StoreFns, jid, text, platformID, fol
 	_, _ = putOutboundRow(routd, db, jid, text, platformID, folder, "", threadRoot, msgID, core.MessageStatusSent, verb, nil)
 }
 
+// recordOutboundFailure appends the durable row for an outbound message the
+// platform did NOT accept, so a failed send leaves evidence, and returns the
+// error the tool hands back to the agent.
+//
+// A transient failure lands 'pending' and routd's sweep re-sends it; a
+// permanent one lands 'failed'. retryable=false forces the dead letter for a
+// file send, which the text-only sweep would repeat as a captionless, fileless
+// message.
+//
+// threadRoot is the thread the send MEANT to root, known before the send: a
+// pending reply without it cannot be put back where it belonged (BUGS L169).
+//
+// The decision is also what the agent needs, so it goes into the returned
+// error rather than into a second classifier at the call site. A bare "failed"
+// leaves the retry with two owners: a `reply` answered 502, the sweep delivered
+// the row 52 s later, and the agent, told only that it failed, re-sent the same
+// text six seconds after that, so the channel got both copies (BUGS L165).
 func recordOutboundFailure(routd RoutdFns, db StoreFns, jid, text, folder, replyToID, threadRoot, msgID, verb string, retryable bool, err error) error {
 	failure := retry.FromError(err, time.Now())
 	if !retryable {

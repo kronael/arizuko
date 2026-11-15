@@ -1,5 +1,19 @@
 package store
 
+// acl.go holds every read and write of `acl`: one item per grant, addressed by
+// the six fields that ARE the grant.
+//
+// The partition is OwnerRoutd because resreg's entity path writes these items
+// too (resreg.SubsystemRoutd IS store.OwnerRoutd); a second spelling selects
+// nothing, silently. All six fields are in the coordinate because each changes
+// what the row PERMITS. The principal leads, because the evaluator's hot read
+// is one begins_with per principal. ListACLByScope and ACLWildcardRows read the
+// partition and filter in Go: it is 42 rows on krons, and no index answers a
+// substring.
+//
+// A READ FAILURE IS AN ERROR, NEVER AN EMPTY POLICY (BUGS A4): a partial scan
+// could drop a DENY row while keeping the allows above it.
+
 import (
 	"context"
 	"fmt"
@@ -59,6 +73,10 @@ func aclRowFrom(it objstore.Item) (core.ACLRow, error) {
 	}, nil
 }
 
+// aclAttrs renders the three attributes a grant item carries. `grant_option` is
+// ALWAYS written, as "0" or "1": the text resreg's bool encoding renders
+// (resreg/codec.go), because both writers must agree byte for byte.
+// `granted_at` is core.TS at 30 bytes, for the same reason (BUGS L97).
 func aclAttrs(r core.ACLRow) map[string]string {
 	attrs := map[string]string{attrACLGrantOption: "0"}
 	if r.GrantOption {
@@ -116,6 +134,12 @@ func ValidateACLAction(action string) error {
 		action, strings.Join(ACLActionChoices(), ", "))
 }
 
+// aclPut renders the create-if-absent write both acl writers issue: a re-grant
+// must not restamp who granted a row or clear a grant option it holds.
+//
+// The effect is validated HERE because every door renders through this
+// function: the evaluator reads anything but EffectDeny as a grant, so `denny`
+// became an allow (BUGS L272).
 func aclPut(r core.ACLRow) (objstore.Write, error) {
 	if !EffectAllowed(r.Effect) {
 		return objstore.Write{}, fmt.Errorf(
@@ -123,6 +147,9 @@ func aclPut(r core.ACLRow) (objstore.Write, error) {
 				"use %q or %q", r.Effect, r.Action, EffectAllow, EffectDeny)
 	}
 
+	// A predicate on a shell:env: row can only mean "never": ShellEnvKeys
+	// (auth/authorize.go) resolves per folder with no Claims, so the key
+	// silently stops appearing and nothing logs a denial (BUGS L134).
 	if r.Predicate != "" && strings.HasPrefix(r.Action, ShellEnvPrefix) {
 		return objstore.Write{}, fmt.Errorf(
 			"acl: a predicate on %q can never match — the shell-secret resolver is "+

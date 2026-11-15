@@ -18,6 +18,17 @@ func (s *server) handleForwardAuth(w http.ResponseWriter, r *http.Request) {
 	authed := s.decideForwardAuth(r)
 	if authed == nil && s.forwardRouteIsOptional(orig) {
 
+		// An `optional` route admits an anonymous caller and still carries proxyd's
+		// transit proof — the route-token surface, where the token IS the credential
+		// and a stamped sub only decides attribution (6/22 §"Why `optional` attaches
+		// the transit proof on both paths").
+		//
+		// Without this the hop 303s every anonymous /chat/ and /hook/ visitor to
+		// /auth/login, because the decision above knows nothing about the route class
+		// while the in-proxyd path switches on it (main.go `case
+		// "optional"`). The Caddy renderer sends `optional` through the hop
+		// (proxycfg/caddy.go `authenticated`), so the two paths disagreed about the
+		// one class that exists to be anonymous (BUGS `L405`).
 		authed = s.attachTransit(r)
 	}
 	if authed == nil {

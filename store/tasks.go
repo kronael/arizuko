@@ -214,6 +214,11 @@ func (s *Store) writeRearm(w objstore.Write) error {
 	return err
 }
 
+// logBadCron is the loud half of a recurring task whose cron will not parse.
+// Leaving it ('active', no next_run) is the one state nothing recovers from:
+// the row reports itself as scheduled and is never claimed (BUGS L74; sloth and
+// marinade carried 14 such rows, dead since June and invisible). A bad cron is a
+// misconfiguration, not a transient fault, so it stops with status 'error'.
 func logBadCron(t core.Task) {
 	slog.Error("task cron will not parse; marking it error rather than leaving it active with no next run",
 		"task", t.ID, "cron", t.Cron, "jid", t.ChatJID)

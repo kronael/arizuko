@@ -1,5 +1,20 @@
 package store
 
+// route_tokens.go holds every read and write of `route_tokens`: one item per
+// ingress credential, addressed by hex(sha256(token)).
+//
+// The partition is OwnerRoutd because resreg's entity path writes these items
+// too (resreg.SubsystemRoutd IS store.OwnerRoutd). The digest is the only
+// field that can be the coordinate: krons carries 43 rows over 27 distinct
+// jids, so a key on the jid would collide 16 live credentials onto one item
+// (BUGS L260). Every read that is not a resolution scans the partition (43
+// items); the two hot-path reads, LookupRouteToken and PeekPairing, are exact
+// key reads.
+//
+// `kind` IS ALWAYS WRITTEN: it is the resource's own row filter (`kind =
+// 'route'`), and an ABSENT attribute answers no comparison, so a row that left
+// it off would be invisible to export and untouched by apply.
+
 import (
 	"context"
 	"crypto/rand"

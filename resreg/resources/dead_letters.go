@@ -7,6 +7,11 @@ import (
 	"github.com/kronael/arizuko/resreg"
 )
 
+// DeadLetterRow is one outbound message routd gave up on: `messages` with
+// status='failed' AND is_bot_message=1. There is no dead-letter TABLE;
+// 'failed' IS the state, and `delivery_attempts` tells the two causes apart:
+// 0 means the platform refused it permanently, the cap means the retries ran
+// out (BUGS L23).
 type DeadLetterRow struct {
 	ID               string `db:"id"                json:"id"`
 	ChatJID          string `db:"chat_jid"          json:"chat_jid"`

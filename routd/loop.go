@@ -47,6 +47,8 @@ type Loop struct {
 	pollEvery  time.Duration
 	runTimeout time.Duration
 
+	// Wait reads done so a caller holds the DB open until the last poll has
+	// finished (BUGS L160).
 	done chan struct{}
 
 	srv     *Server
@@ -438,6 +440,9 @@ func (l *Loop) sweepChats(ctx context.Context) {
 	}
 }
 
+// routeMiss is the ONLY miss handler: two copies drifted, and a new chat's
+// first message vanished without onboarding (krons 2026-07-12). The cursor
+// advances past the batch either way — a re-fed miss would replay forever.
 func (l *Loop) routeMiss(chatJID string, msgs []core.Message, r resolution) {
 	last := msgs[len(msgs)-1]
 	if r.Observe != "" {
@@ -663,6 +668,9 @@ func (r *chatReads) engaged(topic string, last core.Message) (string, bool) {
 		return "", false
 	}
 
+	// A reply to a stored message that is not the bot's and does not mention it
+	// is addressed to that message's author (BUGS L652): an observation, not a
+	// turn. An explicit mention (verb=mention) still rides.
 	if last.Verb != "mention" && last.ReplyToID != "" {
 		if parent, ok := r.db.MessageByID(r.chatJID, last.ReplyToID); ok && !parent.AddressesBot() {
 			return "", false
@@ -701,6 +709,13 @@ func (r *chatReads) remember(topic, folder string) {
 	r.folders[topic] = folder
 }
 
+// directFolder returns the folder a JID directly addresses, or "". For a
+// web:/hook: JID the mint RECORDS the delivery folder (spec 5/W) and the record
+// is read FIRST: the grammar cannot recover it once a suffix is added —
+// `web:t/sfx` reads as `t/sfx`, `hook:a/b/c` as `a/b` (BUGS L4, L1) — and
+// reading it only after a grammar miss delivers `hook:a/b/c` to an existing
+// folder `a/b`, the wrong tenant. The grammar is the fallback for a token
+// minted before the column existed.
 func (l *Loop) directFolder(jid string) string {
 	if folder := groupfolder.JidFolder(jid); folder != "" {
 		if target := l.db.RouteTokenTarget(jid); target != "" {
