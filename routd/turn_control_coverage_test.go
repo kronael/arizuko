@@ -104,7 +104,7 @@ func TestTurnControlExpiredEngagementPollsSavedInput(t *testing.T) {
 }
 
 func TestTurnControlForwardedNoticeAndOldestTies(t *testing.T) {
-	db, l, provider, dl := pauseFixture(t, "spend_limit")
+	db, l, provider, dl := pauseFixture(t, "rate_limit")
 	pauseChatInFolder(t, db, "web:b", "a")
 	now := time.Date(2026, 11, 9, 3, 0, 0, 0, time.UTC)
 	l.q.now = func() time.Time { return now }
