@@ -3,6 +3,7 @@ package chanstore
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"time"
 
@@ -50,19 +51,21 @@ func (s *Store) MigrateInbound(ctx context.Context) error {
 	for _, row := range rows {
 		if _, ok := row.Attrs[attrRetryState]; ok {
 			if _, err := parseInboundDecision(row); err != nil {
-				return err
+				slog.Error("inbound migration: malformed row left in place", "id", row.Key.Sort, "err", err)
 			}
 			continue
 		}
 		attempts, err := strconv.Atoi(row.Attrs[attrAttempts])
 		if err != nil || attempts < 0 {
-			return fmt.Errorf("invalid inbound %s attempts %q", row.Key.Sort, row.Attrs[attrAttempts])
+			slog.Error("inbound migration: malformed row left in place", "id", row.Key.Sort, "attempts", row.Attrs[attrAttempts])
+			continue
 		}
 		decision := retry.Next(attempts, retry.Failure{Kind: "transient"}, time.Now(), time.Time{})
 		if !decision.Stop {
 			decision.NextAt, err = time.Parse(time.RFC3339Nano, row.Attrs[attrNextAttemptAt])
 			if err != nil {
-				return err
+				slog.Error("inbound migration: malformed row left in place", "id", row.Key.Sort, "err", err)
+				continue
 			}
 		}
 		attrs, remove := retryAttrs(decision, retry.Notice(row.Attrs[attrLastError], decision))

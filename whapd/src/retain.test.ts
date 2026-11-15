@@ -253,15 +253,6 @@ test('retain during delivery wakes the next drain', async () => {
   }
 });
 
-/** Invalid persisted JSON prevents a successful recovery with missing work. */
-test('corrupt retained data fails recovery', () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'whapd-corrupt-'));
-  dirs.push(dir);
-  fs.writeFileSync(path.join(dir, 'bad.json'), '{');
-  expect(() => new InboundLedger(dir)).toThrow();
-  expect(fs.readFileSync(path.join(dir, 'bad.json'), 'utf8')).toBe('{');
-});
-
 /** A new earlier row takes its place before the next send after an await. */
 test('retaining during delivery preserves current timestamp order', async () => {
   const ledger = tmpLedger();
@@ -310,4 +301,19 @@ test('fallback transport shares the delivery serializer', async () => {
   release();
   await Promise.all([drain, fallback]);
   expect(peak).toBe(1);
+});
+
+/** One unreadable record is logged and skipped; the rest still load (BUGS L889). */
+test('pending skips one malformed record and keeps the others', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'whapd-malformed-'));
+  dirs.push(dir);
+  const first = new InboundLedger(dir);
+  expect(first.retain(msg('good', 1))).toBe(true);
+  fs.writeFileSync(path.join(dir, 'broken.json'), '{not json');
+
+  const reopened = new InboundLedger(dir);
+  expect(reopened.pending().map((m) => m.id)).toEqual(['good']);
+  expect(fs.readFileSync(path.join(dir, 'broken.json'), 'utf8')).toBe(
+    '{not json',
+  );
 });

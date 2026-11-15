@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -278,7 +279,8 @@ func (s *Store) migrateOutboundRetry(ctx context.Context) error {
 		}
 		due, err := legacyDeliveryDueAt(row)
 		if err != nil {
-			return err
+			slog.Error("outbound retry migration: malformed row left in place", "id", row.Key.Sort, "err", err)
+			continue
 		}
 		cond := objstore.Cond{Item: objstore.ItemPresent, Where: []objstore.Cmp{attrIs(objstore.IndexRevision, row.Attrs[objstore.IndexRevision]), {Attr: "next_attempt_at", Op: objstore.Absent}}}
 		ok, err := s.TryWriteEntities(ctx, nil, objstore.Write{Op: objstore.Update, Entity: MessageDelivery, Key: row.Key, Attrs: map[string]string{"next_attempt_at": core.TS(due)}, Cond: cond})

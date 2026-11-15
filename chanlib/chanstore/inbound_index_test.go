@@ -301,3 +301,42 @@ func TestInboundMigrationRunsOnce(t *testing.T) {
 		t.Fatalf("second migration: %v rows=%d", err, c.rows)
 	}
 }
+
+// A malformed legacy row is logged and left in place; the valid rows around it
+// still normalize and startup succeeds (BUGS L889).
+func TestInboundMigrationSkipsMalformedRows(t *testing.T) {
+	s, c := countedInbound(t)
+	now := ts(time.Now())
+	rows := map[string]map[string]string{
+		"bad-attempts": {"attempts": "x", "next_attempt_at": now},
+		"bad-deadline": {"attempts": "1", "next_attempt_at": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"},
+		"bad-state":    {"attempts": "1", "next_attempt_at": now, "retry_state": "weird", "last_error": "e"},
+		"good":         {"attempts": "1", "next_attempt_at": now},
+	}
+	for id, attrs := range rows {
+		attrs["payload"], attrs["first_seen_at"] = id, now
+		if ok, err := c.Store.GuardedBatch(t.Context(), nil, []objstore.Write{{Op: objstore.Put, Entity: chanstore.InboundPending,
+			Key: objstore.Key{Partition: "inbound", Sort: id}, Attrs: attrs}}); err != nil || !ok {
+			t.Fatalf("seed %s: %v %v", id, ok, err)
+		}
+	}
+	if err := s.MigrateInbound(t.Context()); err != nil {
+		t.Fatalf("startup failed on a malformed row: %v", err)
+	}
+	got, err := c.Store.Query(t.Context(), objstore.Query{Entity: chanstore.InboundPending, Partition: "inbound"})
+	if err != nil || len(got) != 4 {
+		t.Fatalf("rows=%v err=%v", got, err)
+	}
+	for _, it := range got {
+		switch it.Key.Sort {
+		case "good":
+			if it.Attrs["retry_state"] != "pending" || it.Attrs["attempts"] != "2" {
+				t.Fatalf("good row not normalized: %v", it.Attrs)
+			}
+		case "bad-attempts", "bad-deadline":
+			if _, ok := it.Attrs["retry_state"]; ok || it.Attrs["payload"] != it.Key.Sort {
+				t.Fatalf("%s changed: %v", it.Key.Sort, it.Attrs)
+			}
+		}
+	}
+}

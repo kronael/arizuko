@@ -70,7 +70,9 @@ export class InboundLedger {
   }
 
   // pending reads every message routd has not accepted yet, oldest first by
-  // the timestamp the payload carries.
+  // the timestamp the payload carries. One unreadable record is logged and left
+  // on disk, so it never stops whapd starting (BUGS L889); an unreadable
+  // directory still throws.
   pending() {
     let names: string[];
     try {
@@ -96,11 +98,10 @@ export class InboundLedger {
           ) as RouterMessage,
         );
       } catch (e) {
-        log('error', 'retained inbound record is unreadable', {
+        log('error', 'retained inbound record is unreadable; skipped', {
           file: name,
           err: String(e),
         });
-        throw e;
       }
     }
     out.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));

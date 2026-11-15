@@ -420,3 +420,49 @@ func TestFirstOutboundFailure(t *testing.T) {
 		t.Fatalf("dead=%+v err=%v", dead, err)
 	}
 }
+
+// One legacy delivery row whose deadline cannot be derived is logged and left
+// in place; the migration still finishes and migrates the other rows (BUGS L889).
+func TestOutboundRetryMigrationSkipsMalformedRow(t *testing.T) {
+	s := openMem(t)
+	defer s.Close()
+	ctx := t.Context()
+	if err := s.MigrateStateIndexes(ctx); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	seed := func(id, attempts string) objstore.Key {
+		m := core.Message{ID: id, ChatJID: "chat", Sender: "bot", BotMsg: true, Timestamp: now.Add(-time.Hour)}
+		key, err := messageKeyOf(m)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := s.PutOutbound(ctx, m, core.MessageStatusPending); err != nil {
+			t.Fatal(err)
+		}
+		source := deliveryKey(core.MessageStatusPending, key)
+		if ok, err := s.obj.GuardedBatch(ctx, nil, []objstore.Write{
+			{Op: objstore.Put, Entity: MessageDelivery, Key: source, Attrs: map[string]string{attrDelChatJID: m.ChatJID, attrDelAttempts: attempts}},
+		}); err != nil || !ok {
+			t.Fatalf("seed %s: %v %v", id, ok, err)
+		}
+		return source
+	}
+	bad := seed("legacy-bad", "x")
+	good := seed("legacy-good", "1")
+	if ok, err := s.obj.GuardedBatch(ctx, nil, []objstore.Write{{Op: objstore.Delete, Entity: objstore.IndexEntity, Key: objstore.Key{Partition: "migrations", Sort: "outbound-retry-v1"}}}); err != nil || !ok {
+		t.Fatalf("reset marker: %v %v", ok, err)
+	}
+	if err := s.MigrateStateIndexes(ctx); err != nil {
+		t.Fatalf("startup failed on a malformed row: %v", err)
+	}
+	for key, want := range map[objstore.Key]bool{bad: false, good: true} {
+		it, ok, err := s.itemAt(ctx, MessageDelivery, key)
+		if err != nil || !ok {
+			t.Fatalf("row %v: %v %v", key, ok, err)
+		}
+		if got := it.Attrs["next_attempt_at"] != ""; got != want {
+			t.Fatalf("row %v next_attempt_at=%q, migrated want %v", key, it.Attrs["next_attempt_at"], want)
+		}
+	}
+}
