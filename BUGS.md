@@ -114,6 +114,23 @@ replay is the spec's open question. A malformed row is logged and left in place,
 never a startup failure; its consumer then parks on it, as plan-09 settles for a
 malformed row.
 
+## L896 — a paused folder's waiting notice no longer reaches a forwarded message's origin (2026-11-15)
+
+`routd TestTurnControlForwardedNoticeAndOldestTies` (spend-limit pause, input
+forwarded from `slack:origin`) expects one `waiting` status at the origin and a
+typing stop; the candidate posts none ("notices=0 stopped=true").
+**Measured:** fails 3 of 3 at `a3259c4ae689a9622c88eef1fc53d54ab4c75e64` and at
+`14f2ffda5863200356ea6a05af6022e028e68e5b`; passes on origin/main
+`f5d29966f8c7672ae92803a0174dafafed736137` (`rel16/tmp/g/r_flaky.log`,
+`b_flaky.log`, `m_flaky.log`). Cause not yet traced.
+
+## L897 — a Busy refusal turns the typing indicator off (2026-11-15)
+
+`routd TestTyping_BusyKeepsTypingOn` expects typing to stay on while runed
+refuses the turn as Busy; the candidate sends one typing-off ("ons=1 offs=1").
+**Measured:** same runs and SHAs as L896; passes on origin/main. Cause not yet
+traced; plan-09 makes Busy a persisted capacity wait (`waiting_capacity`).
+
 ## L895 — `routd TestKilledTurnResumesItsOwnSession` kills the run with an untyped error (2026-11-15)
 
 The fixture's runner fails the first attempt with
