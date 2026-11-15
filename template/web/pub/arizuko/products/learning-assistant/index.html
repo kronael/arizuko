@@ -56,13 +56,32 @@
         <dt>Answer</dt>
         <dd>Krons reads the pages under <code>~/public_html/</code> and answers with the page URL and the sources that page lists.</dd>
         <dt>Research</dt>
-        <dd>For a topic the site does not cover, Krons searches with primary sources and publishes the result as a page with tagged claims.</dd>
+        <dd>For a topic the site does not cover, Krons runs the core <code>find</code> skill for primary sources and publishes the result as a page with tagged claims.</dd>
         <dt>Organise</dt>
-        <dd>Hub pages group related pages. A moved page leaves a redirect stub at the old path. A retired page goes to the archive. Krons never deletes a page.</dd>
+        <dd>Hub pages list the pages of each section. A moved page leaves a redirect stub at the old path. A retired page leaves its hub and stays in the archive. Krons never deletes a page on its own.</dd>
         <dt>Refresh</dt>
         <dd>A scheduled task names a researched page. Krons rechecks its <code>[V]</code> claims, retags them and updates the date.</dd>
       </dl>
-      <p>The persona is the first part of the package. The skills for publishing, linting and research follow it. The <a href="setup.html">setup guide</a> shows the install.</p>
+      <h2>Two skills carry the four jobs</h2>
+      <dl>
+        <dt><code>research</code></dt>
+        <dd>Answers from the site, researches what it does not cover, tags each claim and sets the refresh schedule of a page.</dd>
+        <dt><code>knowledge-site</code></dt>
+        <dd>Holds the page contract, the site order, a linter and the archive script. Every page has the same skeleton, built from <code>page.html</code>, <code>hub.css</code> and <code>hub.js</code>. The script <code>hub.js</code> runs the theme toggle and adds a banner to each research page.</dd>
+      </dl>
+      <p>Each site states its page-metadata namespace once, in <code>~/public_html/CLAUDE.md</code>. Every page carries <code>&lt;meta name="NS:type"&gt;</code> and <code>&lt;meta name="NS:date"&gt;</code> with that prefix. The same file lists the page types and the site title.</p>
+      <h2>The linter must pass before Krons announces a page</h2>
+      <p><code>site_lint.py</code> reports each finding as an error on one line and exits 1 on any finding. It has six rules:</p>
+      <dl>
+        <dt><code>html-balance</code></dt><dd>The first unclosed or stray tag on a page.</dd>
+        <dt><code>title-h1</code></dt><dd>An empty <code>&lt;title&gt;</code> or no <code>&lt;h1&gt;</code>.</dd>
+        <dt><code>links</code></dt><dd>An empty URL, a missing page or file, or a missing <code>#fragment</code>. A link that starts with <code>/</code> resolves against the directory that holds every published site.</dd>
+        <dt><code>css-class</code></dt><dd>A class that no loaded stylesheet or script defines.</dd>
+        <dt><code>page-meta</code></dt><dd>A missing or malformed <code>NS:type</code> or <code>NS:date</code>.</dd>
+        <dt><code>redirect-stub</code></dt><dd>A redirect stub whose target is missing or whose body links another page.</dd>
+      </dl>
+      <p><code>catalogue.py</code> writes the archive page: every stamped page, grouped by type and newest first.</p>
+      <p>The package eval has four cases, and each case tests one line of the persona. The <a href="setup.html">setup guide</a> shows the install.</p>
       <h2>The package differs from two neighbours</h2>
       <dl>
         <dt><a href="../strategy/">Domain researcher</a></dt><dd>Delivers briefings on a watchlist. The learning assistant keeps a site that answers questions.</dd>
@@ -70,7 +89,7 @@
       </dl>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/learning-assistant/index.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-11-10">2026-11-10</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-15">2026-11-15</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

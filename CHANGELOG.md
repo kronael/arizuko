@@ -15,8 +15,18 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ### Added
 
-- The `learning-assistant` package: persona, eval cases and product pages for an
-  agent that answers from its published pages and researches what they miss.
+- The `learning-assistant` package: an agent that answers from the pages it has
+  published, researches what they do not cover and keeps the site in order. The
+  `knowledge-site` skill holds the page contract, the page components, the
+  linter `site_lint.py` with six rules and `catalogue.py`, which writes the
+  archive page. The `research` skill answers with the page URL and its sources,
+  tags each claim `[V]`, `[I]` or `[U]` and refreshes a page on a schedule. The
+  package also ships a persona, four eval cases and the product pages.
+- Agents draw every image for a phone column 360 px wide: portrait or square,
+  labels of 12 px or more, and a check at 360 px before the image goes out.
+  Landscape A3 drawings at 2480×1753 px showed labels 2-3 px high on a phone.
+  The rule is in `ant/CLAUDE.md` § Images are read on a phone, and the `tufte`
+  and `create` skills point at it.
 
 ## [v0.75.15] — 2026-11-14
 
