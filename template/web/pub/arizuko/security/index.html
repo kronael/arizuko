@@ -45,6 +45,7 @@
 
       <h2 id="secrets">Model keys enter the guest, and a shell:env grant adds a folder secret</h2>
       <p>A credential takes one of two doors. The five model keys enter the environment of the guest at spawn. They are <code>ANTHROPIC_API_KEY</code>, <code>ANTHROPIC_OAUTH_TOKEN</code>, <code>CLAUDE_CODE_OAUTH_TOKEN</code>, <code>OPENAI_API_KEY</code> and <code>CODEX_API_KEY</code>. The agent runtime spends them, and no tool call exists to attach a broker to.</p>
+      <p>The <code>pi</code> backend spends the same model keys. Without a gateway it can also borrow the operator&rsquo;s Codex login, and a turn that holds that login can replace the operator&rsquo;s <code>auth.json</code> with another usable login. The <a href="../concepts/secrets.html">secrets page</a> has the details, including how a <code>models.json</code> provider reaches the gateway.</p>
       <p>Every other credential stays on the host. When a connector call needs <code>GITHUB_TOKEN</code>, <code>routd</code> looks it up and puts it in the outbound request. The agent receives the answer with the value removed. A <code>shell:env:&lt;KEY&gt;</code> grant is the one way to put a folder secret into the shell of the guest. Infrastructure keys such as <code>SECRETS_KEY</code> never leave the host <code>.env</code>.</p>
       <p>With the <a href="../components/litellm.html">litellm</a> package the model key stays out as well. The gateway holds it, and <code>routd</code> mints a <code>MODEL_GATEWAY_KEY</code> for each turn. AES-256-GCM encrypts the values in the <code>secrets</code> table at rest, and <a href="../reference/env.html#SECRETS_KEY"><code>SECRETS_KEY</code></a> is required. The <a href="../concepts/secrets.html">secrets page</a> draws the two doors.</p>
 
@@ -78,6 +79,7 @@ Authorization: Bearer &lt;ES256 service:proxyd token&gt;</code></pre>
         <li><strong>No SAML or OIDC login of its own.</strong> Sign-in uses GitHub, Google and Discord OAuth, and Dex when <code>DEX_ISSUER</code> and <code>DEX_CLIENT_ID</code> are set. Invite links onboard new users.</li>
         <li><strong>No defense against host root.</strong> The operator owns the host. arizuko does not keep secrets from the person who runs it.</li>
         <li><strong>No revocation list for tokens.</strong> The verifiers stay offline, so an access token lives out its 15 minutes. A refresh token lasts 30 days. An operator ends a login with <code>DELETE /v1/sessions/{family_id}</code>, which stops the renewal. A revoked grant takes effect at the next tool call.</li>
+        <li><strong>A local model keeps only the model calls local.</strong> With <code>pi</code> and a local model, the prompts, model transcripts and tool results that go to that model stay with it. Channels, connector calls, transcription, published pages and shell traffic keep their own destinations. <code>--offline</code> stops pi&rsquo;s automatic network activity, but its model and tool requests still use the network. A live measurement of that routing on a real turn is still open.</li>
         <li><strong>No IPv6 for the guest.</strong> <code>runed</code> turns IPv6 off on the tap before the link comes up. The rule set of the tap covers IPv4 only. A turn whose tap cannot be sealed fails.</li>
       </ul>
 
@@ -117,7 +119,7 @@ Authorization: Bearer &lt;ES256 service:proxyd token&gt;</code></pre>
 
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/security/index.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-10-23">2026-10-23</time>
+        &middot; updated <time class="docs-updated" datetime="2026-10-28">2026-10-28</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

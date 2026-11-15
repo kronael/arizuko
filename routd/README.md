@@ -107,7 +107,14 @@ in `schedule_test.go` cover firing and retry behavior.
 - **Attachment retries.** Failed attachment fetches retain their message and retry deadline across restarts. A transient failure postpones the turn; a terminal failure adds an unavailable marker.
 - **Retry schedule.** A failed turn gets up to nine retries. The delay starts at 30 seconds, doubles, and caps at one hour. The tenth failure stops. A waiting retry saves its input keys and due time on `turn_context` and releases the chat cursor. The poll replays the saved binding.
 - **Instance breaker.** A failed execution opens the `turn_control` singleton: no new agent launches until the failed turn's due retry, the one probe, runs without failure. After the probe turn exhausts its retries the breaker stays open one hour, then the oldest due retry probes, or with none the first turn admitted; the 30 s recovery tick consumes due control work and wakes refused candidates. Active probe recovery remains pending until it rearms or closes the breaker. An intentional stop never opens it.
-- **Turn lifecycle.** `submit_turn` is hidden from `tools/list`. A provider refusal records the attempt and holds input without a `turn_results` row or final delivery. For other results, the `turn_results` key removes duplicates, so the first terminal result wins the cursor and delivery. A `running` turn older than the run timeout moves to `expired`, never `done`. Crash recovery looks for `running`, and the guard against a second live run looks for `done`.
+- **Turn lifecycle.** `submit_turn` is hidden from `tools/list`. A provider refusal records the
+  attempt and holds input without a `turn_results` row or final delivery. A `refused` result (the
+  model declined the request) and a `budget` result (the gateway refused a model call over a spent
+  cap) each end the turn with one notice and a stored cause; neither opens the instance breaker or a
+  model pause, and neither replays the input. For other results, the `turn_results` key removes
+  duplicates, so the first terminal result wins the cursor and delivery. A `running` turn older than
+  the run timeout moves to `expired`, never `done`. Crash recovery looks for `running`, and the
+  guard against a second live run looks for `done`.
 - **Oldest input first.** A turn waits while its folder holds older input: a pending retry, or a user row of another chat that resolves to the folder. Chat spans have timestamp keys for unread input. Dispatch selects only spans that can precede its first row, verifies complete cursors, and reads live turns by folder and chat (`oldestModelInput` in `model_pauses.go`). Appends guard the chat revision so concurrent writes preserve both unread bounds.
 - **One turn per folder.** A new inbound message for a busy folder waits. runed answers `busy`, and routd keeps the batch. After the run ends, routd feeds the batch again with its own turn context and MCP binding. The observed cursor is at-least-once. It advances on the same success path as the message cursor. So a turn that routd feeds again sees the context of the failed attempt.
 - **Outbound.** The pending bot row is the outbox. `chanreg` holds no outbound queue; the adapter stores deduplication claims. A check every 30 s selects at most 200 due delivery keys. Each failed attempt writes its next deadline atomically. The gap starts at 30 s and doubles per failure up to a cap of 1 h. A flat 30 s gap would spend ten attempts in five minutes, and a routine adapter restart lasts longer. A permanent refusal dead-letters the row at once. A transient failure spends one attempt, up to ten. An age rule would discard rows that the sweep never tried, so routd uses no age bound.
@@ -214,12 +221,25 @@ When `MODEL_GATEWAY_URL` is set, the gateway holds the model credential and keep
 | person                   | internal `user_id`, set by routd at mint             | the guest writes the body `user` field and the `x-litellm-end-user-id` header, so the spender would choose whose budget it spends |
 | turn                     | one key: TTL = the run ceiling, no budget of its own | deleting the key revokes it; `turn_context.gateway_key_hash` answers `GET /v1/cost?turn_id=`                                      |
 
-- **One `GET /team/info` per turn.** The gate before spawn creates the team when the gateway has none. A key that names an unknown team is accepted, and then every model call answers 404. The same call sets the team budget to the cap of the operator and reads the spend that the refusal quotes.
-- **The gate runs when `COST_CAPS_ENABLED` is off.** The gate then reports both caps as uncapped and clears them at the gateway. Otherwise the gateway would keep refusing turns that arizuko does not cap.
-- **A spent cap refuses the next turn.** The refusal goes to the chat and consumes the batch. There is no budget notice during a turn. An over-cap turn runs to its end, and the gate of the next turn refuses. A call outside the gateway shows only in the turn's self-reported usage.
-- **A gateway failure is a dependency outage.** When a gate read or a key mint fails, routd returns `ErrDependencyDown` (`dispatch.go`). No guest starts, and routd feeds the batch again. A turn never runs without a meter. A failed spend read is an error and never an empty spend.
+- **One `GET /team/info` per turn.** `reconcileCaps` runs before the key mint and creates the team
+  when the gateway has none. A key that names an unknown team is accepted, and then every model call
+  answers 404. The same call sets the team budget to the cap of the operator. routd reads no spend.
+- **The reconcile runs when `COST_CAPS_ENABLED` is off.** It then reports both caps as uncapped and
+  clears them at the gateway. Otherwise the gateway would keep refusing turns that arizuko does not
+  cap.
+- **The gateway refuses the model call, not the spawn.** routd compares no spend before a spawn.
+  LiteLLM answers a call over a team or user cap with `budget_exceeded`, HTTP 422 by default and 429
+  when configured. `ant` ends that turn with `submit_turn` status `budget`, and routd publishes
+  "Budget reached for today. Automatic retries stopped." once. The turn is not replayed, opens no
+  instance breaker and no model pause, so other folders keep running. A spent folder still boots a
+  guest for each message, because only the model call is refused. A static handler makes no model
+  call, so no cap stops it. A call outside the gateway shows only in the turn's self-reported usage.
+- **A gateway failure is a dependency outage.** When the reconcile or the key mint fails, routd
+  returns `ErrDependencyDown` (`dispatch.go`). No guest starts, and routd feeds the batch again. A
+  turn never runs without a meter. A failed spend read is an error and never an empty spend.
 - **One limit.** A gateway drops the model key of a user, with a warning in the runed log, because nothing translates it into a gateway key. BUGS `L404` tracks this limit.
-- **No gateway means no meter.** The dashboard says so, and shows no number that the agent chose. A cap on such an instance is enforced by nothing, and the gate logs that fact on every turn.
+- **No gateway means no meter.** The dashboard says so, and shows no number that the agent chose. A
+  cap on such an instance is enforced by nothing, and routd logs that fact on every turn.
 
 The package ships its own Postgres (`litellm_db`) for keys and spend. It holds the bookkeeping of the gateway and not the store of the instance. Every operator surface reads spend through `/v1/cost/summary`.
 
@@ -331,7 +351,7 @@ polled; the waiter retains its deadline and conditional expiry.
 | `ENGAGEMENT_TTL`                                                     | `30m`                                     | Conversation engagement duration; zero disables automatic engagement.                                             |
 | `SESSION_IDLE_EXPIRY`                                                | `0` → 48 hours                            | Session idle threshold; zero selects loop default.                                                                |
 | `ARIZUKO_DEFAULT_PRODUCT`                                            | unset                                     | Default-group product recorded when seeding an empty store.                                                       |
-| `COST_CAPS_ENABLED`                                                  | `true`                                    | Literal true enables pre-run cost gate.                                                                           |
+| `COST_CAPS_ENABLED`                                                  | `true`                                    | Literal true pushes the operator's caps to the gateway.                                                           |
 | `OBSERVE_WINDOW_MESSAGES`                                            | `10`                                      | Default number of observed messages in a prompt.                                                                  |
 | `OBSERVE_WINDOW_CHARS`                                               | `4000`                                    | Default observed-text character ceiling.                                                                          |
 | `SEND_DISABLED_GROUPS, SEND_DISABLED_CHANNELS`                       | unset                                     | CSV of source folders suppressing new messages, or JID prefixes suppressing channel output.                       |
@@ -389,7 +409,8 @@ The audit source of truth is the `audit_log` entity in the tables of routd. Ever
 - `server.go` holds the HTTP mux and the auth gates (`Handler`, `authz`).
 - `channels.go` registers and deregisters adapters and runs the channel health loop.
 - `loop.go` is the orchestration loop: poll, claim and dispatch.
-- `dispatch.go` dispatches the turn to runed, enriches it and applies the budget gate.
+- `dispatch.go` dispatches the turn to runed, enriches it and reconciles the gateway's caps before
+  the key mint.
 - `turns.go` handles the end of a turn: the check for an explicit delivery, the one shared nudge decision and `submit_turn` recording.
 - `turn_control.go` owns admission, agent limits, retry deferral, the instance breaker and provider refusals. `model_pauses.go` holds oldest-input selection and restart recovery. `model_pauses_resource.go` serves the operator REST/MCP resource.
 - `turn_status.go` owns the turn's summary, progress message and `finishTurn`. `placement.go` places each delivery of the turn.

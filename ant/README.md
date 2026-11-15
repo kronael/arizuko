@@ -70,7 +70,12 @@ same skillguard table, a different hook point.
 
 Any pi provider works, including a local model, through the operator's normal
 provider setup and a `network_rules` row for the provider host. Custom native
-configuration comes from a read-only mount at `/mnt/pi/models.json`.
+configuration comes from a read-only mount at `/mnt/pi/models.json`. With a model
+gateway, a provider there must set `baseUrl` to the gateway URL or a path under
+it, or the turn stops and names the provider. Only the `anthropic` and `openai`
+providers get the gateway key, so a provider with another name needs its own
+`apiKey`. When pi uses the borrowed Codex login, ant writes the token pi
+refreshed into the staged `~/.codex/auth.json` when the turn ends.
 Extension recipe in `EXTENDING.md` § "Swapping the agent harness".
 
 - **`arizuko` core server** — socat bridge to `/run/ipc/gated.sock`,
@@ -214,7 +219,6 @@ and fails when either side moves. The contract tests check both sources in one a
 | provider refusal | `routd/api/v1.ProviderFailure` | `src/backend.ts` | `tests/contract_ant_test.go` `TestProviderFailureFieldsMatchAcrossLanguages` |
 | per-turn usage record | `routd/api/v1.ModelUsage` | `src/mcp.ts` `ModelUsage` | `tests/contract_ant_test.go` `TestModelUsageFieldsMatchAcrossLanguages` |
 | `submit_status` snapshot and reminder | `ipc.TurnStatus`, `ipc.TurnStatusAck` | `src/mcp.ts` | `tests/contract_ant_test.go` `TestSubmitStatusPayloadFieldsMatchAcrossLanguages`, `TestTurnStatusAckFieldsMatchAcrossLanguages` |
-| `<status>` grammar | `router.ExtractStatusBlocks` | `src/index.ts` | `tests/contract_ant_test.go` `TestStatusGrammarAgreesAcrossLanguages` |
 
 ## Folder layout (agent view)
 
@@ -326,7 +330,14 @@ Readers claim batches by rename; unclaimed batches stay for a later read.
 Transcripts and exported conversations live in the group home. runed owns the temporary guest filesystem and persistent mounts.
 
 A disconnected MCP socket prevents tools and terminal reporting. ant owns no durable result retry queue.
-Recognized provider refusals can carry a structured `provider_failure` report. Ant uses the shared `retry/policy.json` reader to select retryable or terminal outcomes; routd owns retry timing and the instance breaker. The image copies the reader to `/retry`, and development mounts it there read-only. An unclassified failure is retryable; the turn budget bounds the retries. A permanent provider refusal, a non-transient HTTP status, `HarnessConfigError` and a canceled turn are terminal.
+Recognized provider refusals can carry a structured `provider_failure` report. Ant uses the shared
+`retry/policy.json` reader to select retryable or terminal outcomes; routd owns retry timing and the
+instance breaker. The image copies the reader to `/retry`, and development mounts it there
+read-only. An unclassified failure is retryable; the turn budget bounds the retries. A permanent
+provider refusal, a non-transient HTTP status, `HarnessConfigError` and a canceled turn are
+terminal. A model call that the gateway refuses over a spent cap (`budget_exceeded`, HTTP 422 or
+429) is none of these: every backend ends the turn as a result refused as `budget`
+(`isBudgetRefusal` in `src/backend.ts`), and the chassis submits `submit_turn` status `budget`.
 Malformed harness JSON fails before a backend starts. Pi uses the same MCP boundary through its native mcp.json configuration.
 Grep `submit_status failed`, `Query timeout: process deadline reached, aborting`, and `Close sentinel detected during query`.
 There is no obs.Setup or OTLP exporter in ant; runed captures per-turn logs and routd records lifecycle results.

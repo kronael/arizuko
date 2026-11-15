@@ -180,7 +180,7 @@ kubectl -n arizuko logs deploy/arizuko-runed</code></pre>
         <dt>No turn starts</dt>
         <dd><code>runed</code> logs every missing precondition at once and does not start. Read the log of the pod for the device, binary or directory that it names: <code>/dev/kvm</code>, <code>/dev/vhost-vsock</code>, <code>/dev/net/tun</code>, the <code>egress</code> binary, <code>RUNED_KERNEL_DIR</code> or <code>RUNED_ROOTFS_DIR</code>. <a href="../reference/env.html#runed">reference/env &sect; runed</a> has the full set.</dd>
         <dt>Every turn fails with <code>staging tree: mount source</code></dt>
-        <dd>A turn mounts a path that the <code>runed</code> container cannot open. <code>runed</code> checks every source before it binds anything, so the message names the path. Mount that path into the <code>runed</code> pod at the same absolute path: the group volume and everything under <code>MOUNT_ALLOWED_ROOTS</code> or <code>HOST_CODEX_DIR</code>.</dd>
+        <dd>A turn mounts a path that the <code>runed</code> container cannot open. <code>runed</code> checks every source before it binds anything, so the message names the path. Mount that path into the <code>runed</code> pod at the same absolute path: the group volume and everything under <code>MOUNT_ALLOWED_ROOTS</code> or <code>HOST_CODEX_DIR</code>. Mount <code>HOST_CODEX_DIR</code> writable: runed replaces <code>auth.json</code> there when a turn refreshes the login.</dd>
         <dt>The agent starts and has no tools</dt>
         <dd><code>routd</code> and <code>runed</code> run on different filesystems. The bridge of <code>runed</code> then connects to a different socket than the one that <code>routd</code> bound. They must share the volume and the node.</dd>
         <dt>The secrets do not change after a rotation</dt>
@@ -192,7 +192,7 @@ kubectl -n arizuko logs deploy/arizuko-runed</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/howto/kubernetes.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-11-08">2026-11-08</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-13">2026-11-13</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

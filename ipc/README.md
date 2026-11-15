@@ -94,9 +94,10 @@ tool calls. The guest's stdout is discarded.
   hidden `check_turn` method takes `turn_id` and returns
   `{delivered,owed,nudge}` to a Stop hook. Both readers share the same
   persisted nudge count.
-- **What the user never sees.** `router.FormatOutbound` strips `<internal>`,
-  `<think>` and `<status>` blocks, and drops a whole message that only
-  announces silence.
+- **What the user never sees.** The turn's final text is not delivered. Only
+  `reply`, `send` and `send_file` put text in a chat, and none of them rewrites
+  that text. ant lifts `<status>` blocks (`statusBlocks`, `ant/src/index.ts`)
+  and sends them to routd as `submit_status`.
 - **Why a method and not stdout.** A method call makes silence explicit. A
   marker on stdout cannot tell "no output" from "the agent crashed".
 

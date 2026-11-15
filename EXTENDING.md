@@ -573,7 +573,8 @@ proxies `tools/call` and scrubs every resolved value out of the result. The
 loader refuses any other table name or transport value. A misspelled block
 therefore stops `routd` at boot. A block
 without `transport` is `mcp`, see `connectorTransport` in `routd/ext.go`. Copies
-for operators live in `template/connectors/`.
+for operators live in `template/connectors/`: `github.toml`, `buildkite.toml` and
+`google.toml`, which declares one tool, `read_sheet_range`.
 
 The two transports share one block and stay mechanically distinct. An `mcp`
 block reads `headers` only and ignores `query`, `body` and `tool`. A `rest`
@@ -880,7 +881,8 @@ To add one:
    environment variable on `core.Config`. Plumb it through `compose.Generate`
    and the turn renderer, so that it is bind-mounted into spawns. The pattern is
    `HOST_CODEX_DIR`, which has a layered mount at `/home/node/.codex` through
-   `runed/mounts.go`.
+   `runed/mounts.go`: `config.toml` read-only and `auth.json` read-write, because
+   runed carries a refreshed login back to the host file.
 3. Write `ant/skills/<name>/SKILL.md`. It needs a sharp frontmatter
    `description`, because `/dispatch` matches on it. It also needs a "when to
    invoke" section, invocations that can be copied and pasted, and a fallback

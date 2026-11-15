@@ -117,13 +117,13 @@
     <p>arizuko stores no spend. A second ledger can only agree, lag or be wrong, so one number exists, and litellm holds it.</p>
     <dl>
       <dt>A folder is a team</dt>
-      <dd>The folder path is the litellm <code>team_id</code> as written. The <code>cost_cap_cents_per_day</code> of the folder is the <code>max_budget</code> of that team on a <code>1d</code> window. litellm enforces the cap on each request: over the budget, it answers 429 <code>Budget has been exceeded! Team=&lt;folder&gt;</code>, and the call never reaches the model.</dd>
+      <dd>The folder path is the litellm <code>team_id</code> as written. The <code>cost_cap_cents_per_day</code> of the folder is the <code>max_budget</code> of that team on a <code>1d</code> window. litellm enforces the cap on each request: over the budget, it answers <code>budget_exceeded</code> with HTTP 422 by default (429 when configured), and the call never reaches the model. The turn ends with the notice &ldquo;Budget reached for today. Automatic retries stopped.&rdquo; and routd does not retry it.</dd>
       <dt>A person is an internal user</dt>
       <dd>routd sets <code>user_id</code> on the key it creates, so the guest cannot change the person that a turn is charged to.</dd>
       <dt>A turn is a key</dt>
       <dd>One virtual key per turn, valid for the run ceiling, deleted when the turn ends.</dd>
     </dl>
-    <p>The check before a spawn is one <code>GET /team/info</code> that does three things. It creates the team that the key of a turn needs. A key that names a team unknown to litellm fails every model call with 404. It moves the budget of the team to the cap that the operator holds now. It reads the spend that a refusal quotes. Everything the operator sees, on the dashboard or over REST, reads the same meter.</p>
+    <p>Before the key of a turn is minted, routd makes one <code>GET /team/info</code> that does two things. It creates the team that the key needs. A key that names a team unknown to litellm fails every model call with 404. It moves the budget of the team to the cap that the operator holds now. routd compares no spend and refuses no spawn: a folder over its cap still starts a guest for each message, and litellm refuses the model call. Everything the operator sees, on the dashboard or over REST, reads the same meter.</p>
     <p>Spend rows land on a batch timer, <code>proxy_batch_write_at</code>, which is 1 second here, so a row is readable a moment after the call. That is the only lag. Because nothing in arizuko holds a copy of the spend, nothing in arizuko can disagree with the meter.</p>
 
     <h2>Logs go to journald and costs go to OTLP</h2>
@@ -181,7 +181,7 @@ ANTHROPIC_BASE_URL=http://localhost:4000 ANTHROPIC_AUTH_TOKEN=sk-my-virtual-key 
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/components/litellm.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-11-07">2026-11-07</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-11">2026-11-11</time>
       </div>
     </main>
 

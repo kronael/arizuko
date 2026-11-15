@@ -36,7 +36,9 @@ configuration or credentials.
 `ARIZUKO_BACKEND=codex` instead needs `HOST_CODEX_DIR`, the absolute path of
 a Codex login directory holding `auth.json`, such as the operator's `~/.codex`. That run installs no gateway: it runs direct,
 allows `chatgpt.com` and `auth.openai.com` for the eval folder, and each case
-waits out its settle bound because no meter reports the turn.
+waits out its settle bound because no meter reports the turn. A run whose
+cases include one with a codex `harness` (below) also needs `HOST_CODEX_DIR`
+and allows the same two hosts.
 
 The sink hostname must reach this host from the guests. The runner binds its
 declared port and allows that hostname through the eval folder's egress rules.
@@ -107,6 +109,13 @@ case's topic); leave the eval chat unpinned.
 
 Each case declares `requires = [...]`. The runner grants its MCP actions to
 the eval folder before cases start. A timeout includes the declared requirements.
+
+A case may set `harness`, the group's harness document as JSON text (a JSON
+object, for example `{"backend":"codex"}`). The runner writes it to the eval
+folder through routd `PATCH /v1/groups/{folder}` before the case's first turn
+and clears it after the case's turns, so a later case without one runs on the
+instance defaults. A run with at least one such case mints the eval bearer with
+the extra scope `routes:write:own_group`; any other run does not.
 
 Exit is non-zero if any case fails. `dash` renders a saved JSON report.
 

@@ -137,7 +137,7 @@ export DASH_PORT=:8080
 
     <dl>
       <dt><code>/dash/routes/</code></dt><dd>The message-routing table: which folder an inbound message goes to. For the operator, it also lists the <strong>unrouted chats</strong>: every chat that messaged the instance and reaches no group. A <strong>claim</strong> button writes the rule.</dd>
-      <dt><code>/dash/groups/new</code>, <code>/dash/groups/{folder}</code></dt><dd>Create a group, and change its settings, grants and skill toggles, or delete it.</dd>
+      <dt><code>/dash/groups/new</code>, <code>/dash/groups/{folder}</code></dt><dd>Create a group, and change its settings (handler, harness backend, model and effort), grants and skill toggles. The delete route removes nothing and answers with the <code>arizuko group rm</code> command to run on the host.</dd>
       <dt><code>/dash/tasks/</code></dt><dd>Create, pause, resume and cancel tasks. The create form takes a cron expression. It refuses a one-time RFC3339 time, which the <code>schedule_task</code> tool of the agent accepts.</dd>
       <dt><code>/dash/tokens/{folder}/</code></dt><dd>List and revoke route tokens. No dashboard page creates one.</dd>
       <dt><code>/dash/me/secrets</code>, <code>/dash/me/env</code>, <code>/dash/me/connections</code></dt><dd>Your own capability tokens, your model keys and the &ldquo;Connect GitHub&rdquo; OAuth connection.</dd>
@@ -164,7 +164,7 @@ export DASH_PORT=:8080
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/components/dashd.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-11-07">2026-11-07</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-13">2026-11-13</time>
       </div>
     </main>
 

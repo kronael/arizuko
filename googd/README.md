@@ -66,7 +66,7 @@ Defaults below come from the Go code. Container fragments set `LISTEN_ADDR=:8080
 | `GDRIVE_SA_KEY_JSON`                         | unset                           | Service-account JSON itself; missing or malformed JSON disables API work.                        |
 | `GDRIVE_IMPERSONATE`                         | unset                           | User subject for delegated service-account authorization.                                        |
 | `GDRIVE_API_URL`                             | `https://www.googleapis.com`    | Drive API base URL.                                                                              |
-| `SHEETS_API_URL`                             | `https://sheets.googleapis.com` | Sheets API base URL.                                                                             |
+| `SHEETS_API_URL`                             | `https://sheets.googleapis.com` | Sheets API base URL; compose passes it to googd.                                                 |
 | `GOOGD_CONNECTOR_TOKEN`                      | unset                           | Bearer required by `/google/`; unset refuses every passthrough request.                          |
 | `GDRIVE_POLL_INTERVAL`                       | `30s`                           | Go duration, minimum 10 s.                                                                       |
 | `ROUTER_URL`                                 | required                        | routd base URL.                                                                                  |
@@ -99,7 +99,10 @@ Grep `service account credential unusable`, `read Drive bindings`, `poll Drive f
 ## Limits and verification
 
 The `gdrive:` channel advertises text, edit, and delete only after a successful Drive probe.
-Replies require a thread JID. Root-comment editing, resolving, and reopening belong to connector calls.
+Replies require a thread JID. The connector template `template/connectors/google.toml` declares one
+tool, `read_sheet_range`, a read of a sheet range through the passthrough. It does not declare
+resolving or reopening a comment thread: each is a `replies.create` whose body carries a fixed
+`action`, and a `rest` tool cannot fix a body field (BUGS `L910`).
 There is no push receiver. Polling determines inbound delivery.
 Passthrough can access every file the service account can access; connector grants must bound caller access.
 Tests use fake Google endpoints; live sharing, scopes, and delegated identity require an operator check.

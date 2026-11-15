@@ -193,7 +193,7 @@ restart. Ingest verifies the channel, normalizes the event, appends through
      │                        └────────────────────┬─────────────────────┘
      │                                             ▼
      │ Typing on              ┌──────────────────────────────────────────┐
-     │◄───────────────────────┤ runTurn: budget gate, topic fork, prompt │
+     │◄───────────────────────┤ runTurn: cap sync, topic fork, prompt    │
      │ beginProgress          │ turn_context, session id, MCP socket     │
      │                        │ bound, acl ► typed booleans              │
      │                        └────────────────────┬─────────────────────┘

@@ -676,11 +676,13 @@ provider setup and add the provider host to `network_rules`. Custom provider
 configuration uses a read-only `models.json` mount at `/mnt/pi/models.json`,
 as described in [Swapping the agent harness](EXTENDING.md#swapping-the-agent-harness).
 
-To lend the host user's Codex login (ChatGPT sign-in) to chosen folders, set
-`HOST_CODEX_DIR` to that `.codex` directory in `.env`, then grant each folder
-`codex`: `arizuko group grant folder:<f> <f> codex`. A folder without the grant
-gets no login. Codex also needs `chatgpt.com` and `auth.openai.com` in the
-egress allowlist: `arizuko network allow <f> chatgpt.com`.
+To lend the host user's Codex login (ChatGPT sign-in) to every turn that runs
+without a model gateway, set `HOST_CODEX_DIR` to that `.codex` directory in
+`.env`. The directory must be writable by `runed`: compose binds it read-write,
+and when a turn ends runed replaces `auth.json` there with the copy the turn
+refreshed. A turn that holds the login can replace it with another usable login.
+Codex also needs `chatgpt.com` and `auth.openai.com` in the egress allowlist:
+`arizuko network allow <f> chatgpt.com`.
 
 Keep capability tokens in encrypted group secrets. For shell access, follow
 the paired secret and grant recipe in [Secret injection](SECURITY.md#secret-injection).
@@ -774,7 +776,7 @@ cannot choose. The dashboard reads the same number back.
 
 Without a gateway, nothing meters spend. The page `/dash/usage/` says so and
 shows no total. Nothing enforces a cap on such an instance, and `routd` logs
-that fact at ERROR every time the gate runs. A cap needs a gateway.
+that fact at ERROR every turn. A cap needs a gateway.
 
 The JSON log lines of the gateway go to `journalctl -u arizuko_<name>` with the
 logs of every other daemon. When `OTEL_EXPORTER_OTLP_ENDPOINT` is set, the

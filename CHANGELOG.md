@@ -67,8 +67,38 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   credential. Token `send --wait` shares the replaying SSE stream with `--stream`;
   a long turn no longer expires at the POST client's thirty-second deadline.
 
+- L901: routd no longer refuses a turn before the spawn on a spent cap. Before the
+  key mint it moves the gateway's team and user caps onto the operator's, and the
+  model gateway refuses the model call. ant ends that turn with `submit_turn`
+  status `budget`, and routd publishes "Budget reached for today. Automatic
+  retries stopped." once, with no retry, no instance breaker and no model pause.
+  A spent folder still boots a guest for each message.
+- L902: the borrowed Codex login survives a token refresh. runed stages `auth.json`
+  as a writable copy, and when the turn ends a newer, usable copy replaces
+  `HOST_CODEX_DIR/auth.json` atomically; ant saves the token pi refreshes into the
+  staged file. Operator action: compose binds `HOST_CODEX_DIR` read-write into
+  runed, so that directory must be writable by runed. A turn that holds the login
+  can replace it with another usable login.
+- The dashboard's group settings page edits the harness as backend, model and
+  effort fields, with a "Use instance defaults" control. It writes to the store as
+  the operator.
+- L906: pi accepts a `models.json` provider whose `baseUrl` is the model gateway or
+  a path under it, and refuses any other by name.
+- L905: compose passes `SHEETS_API_URL` to googd.
+- L908: the skill guard and the skill scan accept `SKILL.md` frontmatter with CRLF
+  line ends or a byte order mark.
+- L909: pi hands each completed `<status>` block to the chassis once.
+
 ### Added
 
+- anteval: a case may set `harness`, the group's harness document as JSON text. The
+  runner writes it through the groups update before the case's first turn and
+  clears it after its turns. A run with a codex harness case needs `HOST_CODEX_DIR`
+  and allows the Codex hosts, and the eval bearer gains `routes:write:own_group`
+  only for a run with such a case.
+- `template/connectors/google.toml`: a Google Sheets connector over googd's
+  passthrough with one tool, `read_sheet_range`. Resolving and reopening a comment
+  thread are not declared (L910).
 - The `learning-assistant` package: an agent that answers from the pages it has
   published, researches what they do not cover and keeps the site in order. The
   `knowledge-site` skill holds the page contract, the page components, the

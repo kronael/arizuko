@@ -10,8 +10,10 @@ and validation. Settings affect the next run. Before switching backends, end
 active runs and use `/new` on affected topics.
 
 Model API keys use the env-profile policy. Direct mode also stages the
-operator's `HOST_CODEX_DIR` login read-only for each turn, without a capability
-grant. Gateway mode withholds both real model keys and the host login.
+operator's `HOST_CODEX_DIR` login for each turn, without a capability
+grant: `config.toml` read-only, `auth.json` as a writable per-turn copy that
+replaces the operator's file when the turn ends and holds a newer, usable login.
+Gateway mode withholds both real model keys and the host login.
 Backend selection confers no network access; configure egress separately.
 
 runed never appends a message, because routd is the only appender. runed never signs or brokers a token. The credential of a turn is the vsock CID of its guest, which the host kernel stamps on every packet. routd hosts the per-turn MCP socket in its own process, and runed only bridges the guest to that socket. The section "The peer credential" describes the bridge.
@@ -86,7 +88,7 @@ A kill is the one revoke that runed has, because runed mints nothing. `Manager.K
 | `HOST_DATA_DIR`                                                                                    | DATA_DIR                                | Host view of the instance root.                                                                                   |
 | `APP_SRC_DIR`                                                                                      | HOST_APP_DIR, then executable directory | Release assets visible to runed.                                                                                  |
 | `HOST_APP_DIR`                                                                                     | executable directory                    | Host source path and asset fallback.                                                                              |
-| `HOST_CODEX_DIR`                                                                                   | unset                                   | Host Codex login tree staged read-only in direct model mode.                                                      |
+| `HOST_CODEX_DIR`                                                                                   | unset                                   | Host Codex login tree staged per turn in direct mode; runed must write it.                                        |
 | `MOUNT_ALLOWED_ROOTS`                                                                              | empty                                   | CSV roots permitted for extra host mounts.                                                                        |
 | `ARIZUKO_DEV`                                                                                      | false                                   | Boolean parsed by strconv.ParseBool; enables development mount handling.                                          |
 | `ARIZUKO_BACKEND`                                                                                  | unset                                   | Instance harness backend default sent to ant.                                                                     |
@@ -338,7 +340,7 @@ Every host path is the path that runed itself sees. `virtiofsd` is a child of ru
 | ------------------------------------------------- | ----------------------------------------------------------------------------------- | ------------------------------------------------ | --------------------------------------------------- |
 | `/home/node`                                      | `<data>/groups/<folder>/`                                                           | RW                                               | every turn                                          |
 | `~/.codex`                                        | `<data>/groups/<folder>/.codex/`                                                    | RW                                               | every turn: codex reads its rollouts here to resume |
-| `~/.codex/auth.json`, `~/.codex/config.toml`      | per-turn copy of `HOST_CODEX_DIR/<file>` in the ipc dir, owned by the run uid, 0400 | RO                                               | `HOST_CODEX_DIR` set, no model gateway              |
+| `~/.codex/auth.json`, `~/.codex/config.toml`      | per-turn copy of `HOST_CODEX_DIR/<file>` in the ipc dir, run uid owns it, 0600/0400 | `auth.json` RW, `config.toml` RO                 | `HOST_CODEX_DIR` set, no model gateway              |
 | `/opt/arizuko/ant`                                | `<data>/packages/core/`                                                             | RO                                               | every turn                                          |
 | `/opt/arizuko/packages/<name>`                    | `<data>/packages/<name>/`                                                           | RO                                               | selected package                                    |
 | `~/.claude/skills/<name>`                         | effective selected skill                                                            | RO                                               | no local `.disabled` marker                         |

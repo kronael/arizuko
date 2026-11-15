@@ -439,8 +439,16 @@ has its own spender.
   and `config.toml`, a credential of the host user and not of any folder. A
   turn receives it when no model gateway is configured.
   runed copies the two files per turn into the ipc dir, owned by the agent's
-  uid at mode 0400, mounts the copies read-only and deletes them when the turn
-  ends. The operator's files keep their owner and mode. A turn can spend the subscription: codex needs `chatgpt.com` and `auth.openai.com`
+  uid, and deletes the copies when the turn ends. `config.toml` is mode 0400
+  and mounted read-only. `auth.json` is mode 0600 and mounted read-write,
+  because codex and pi rotate the refresh token in it. When the turn ends, a
+  newer `auth.json` that holds a refresh token or an `OPENAI_API_KEY` replaces
+  `HOST_CODEX_DIR/auth.json` by an atomic rename, with the owner and mode of
+  the operator's file. compose binds `HOST_CODEX_DIR` read-write into runed, so
+  that directory must be writable by runed. A turn that holds the login can
+  therefore replace the operator's login with any other usable login, and
+  every later turn of every folder starts from that login. A turn can also
+  spend the subscription: codex needs `chatgpt.com` and `auth.openai.com`
   through the egress allowlist (`arizuko network allow`).
 - **Infrastructure anchors** are `SECRETS_KEY`, `AUTHD_SERVICE_KEY` and bot
   tokens. They live in the host `.env` only and are never a `secrets` row.
@@ -585,8 +593,10 @@ grant or audit row applies to it:
   server map, so `.mcp.json` in `/home/node` is not read, see `ant/src/claude.ts`.
 - codex: `--ignore-user-config` skips `$HOME/.codex/config.toml`, which the
   agent can write, see `ant/src/codex.ts`.
-- pi: pi has no MCP client, and its harness profile declares `tools: 'none'`.
-  The arizuko verbs never reach a pi turn, see `ant/src/pi.ts`.
+- pi: its harness profile declares `tools: 'mcp'`, so a pi turn gets the
+  assembled tools. ant writes the server map to a per-turn `mcp.json` in pi's
+  private agent directory, and `--no-extensions` skips the extensions the agent
+  could write under `~/.pi`, see `ant/src/pi.ts`.
 
 A raw HTTP client inside the guest gets none of the four properties. Examples
 are `aws`, `gh` and a script that the agent just wrote. The client never

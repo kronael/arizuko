@@ -8,8 +8,7 @@ Two concerns, deliberately one package because they share message and
 route data shapes:
 
 1. **Prompt assembly** — render a batch of `core.Message` values as the
-   `<messages>` XML the agent sees, strip `<think>`/`<status>`/
-   `<internal>` blocks from agent output, name the sender by its `users/<id>.md` id.
+   `<messages>` XML the agent sees, name the sender by its `users/<id>.md` id.
 2. **Route evaluation** — match a single inbound `core.Message` against
    the ordered route table loaded by routd and return the resolved
    target folder.
@@ -28,13 +27,6 @@ else loaded.
   `<observed>`; both are sorted by timestamp so the agent sees true
   chronology. Emits `<reply-to>` sibling headers for messages with
   `ReplyToID`.
-- `FormatOutbound(raw string) string` — strip `<internal>`,
-  `<think>`, and `<status>` blocks; trim.
-- `ExtractStatusBlocks(s string) (cleaned string, statuses []string)`
-  — pull `<status>` lines out separately so routd can ship them to the
-  operator surface without showing them to users.
-- `StripThinkBlocks(s string) string` — depth-aware stripper for
-  nested `<think>`.
 - `UserTag(sender string) string` — `<user id="…" />`, the id of the
   sender's `users/<id>.md`. Empty for no sender and for `system`.
 
@@ -63,8 +55,6 @@ semantics, precedence.
   assembly for the agent batch
 - `ipc/` — `<messages>` rendering when the in-container agent fetches
   message context over MCP
-- routd's outbound path uses `FormatOutbound` / `ExtractStatusBlocks`
-  to clean agent output before delivery
 
 ## Dependencies
 
