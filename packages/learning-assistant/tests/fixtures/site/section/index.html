@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="site:type" content="guide">
+<meta name="site:date" content="2026-01-16">
+<title>Section — Fixture Site</title>
+<link rel="stylesheet" href="../assets/hub.css">
+<style>
+.layout-only { display: grid; }
+.toggle { cursor: pointer; }
+</style>
+</head>
+<body>
+<div class="hub-container layout-only">
+  <h1>Section</h1>
+  <ul>
+    <li><a href="one.html">One</a>
+    <li><a href="two.html">Two</a>
+  </ul>
+  <p>Optional end tags stay open.
+  <p>Second paragraph.
+  <table>
+    <tr><td>cell<td>cell
+  </table>
+  <button class="toggle">Toggle</button>
+</div>
+<script>
+document.querySelector('.toggle').addEventListener('click', function (e) {
+  e.target.classList.add('is-open');
+});
+</script>
+</body>
+</html>
