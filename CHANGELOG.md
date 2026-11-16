@@ -13,7 +13,9 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
-> arizuko — work follows state changes
+## [v0.75.16] — 2026-11-16
+
+> arizuko v0.75.16 — work follows state changes
 >
 > Writers schedule the next step, so idle checks stop reading unrelated history.
 >
