@@ -268,7 +268,7 @@ channel after three probes and take ingress with it.
 | ------------------------- | ------------------------ | -------------------------------------------------------------------------------------- |
 | `ROUTER_URL`              | required                 |                                                                                        |
 | `SECRETS_KEY`             | required                 | the keyring routd seals `github_sources` with                                          |
-| `GITHUB_TOKEN`            | unset                    | enables `send_text`, `send_file`, `typing`                                             |
+| `GITHUB_TOKEN`            | unset                    | enables `send_text`, `send_file`, `typing`; `gh` in a `shell:env:GITHUB_TOKEN` shell   |
 | `GITHUB_APP_ID`           | unset                    | GitHub App ID for App source replies                                                   |
 | `GITHUB_APP_PRIVATE_KEY`  | unset                    | base64-encoded GitHub App RSA private key in PEM format                                |
 | `GITHUB_API_URL`          | `https://api.github.com` |                                                                                        |

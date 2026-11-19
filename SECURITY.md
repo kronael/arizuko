@@ -448,7 +448,8 @@ has its own spender.
 A folder secret and a daemon environment variable can have the same name and
 hold different values. `GH_TOKEN` in `.env` belongs to a daemon. `GH_TOKEN` in
 the row of a folder is the value that a connector sends. Identify a credential
-by the door that uses it.
+by the door that uses it. `GITHUB_TOKEN` in `.env` is gitd's bot token, and a
+`shell:env:GITHUB_TOKEN` grant also gives it to `gh` in that folder's shell.
 
 ### Door 1 puts the credential in the environment at spawn
 

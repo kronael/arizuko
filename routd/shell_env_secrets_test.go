@@ -99,3 +99,27 @@ func TestShellEnvSecrets_ModelCredentialNeverCrosses(t *testing.T) {
 		}
 	}
 }
+
+// The instance token gitd holds answers a granted GITHUB_TOKEN when no user or
+// folder row names one, and a folder row still wins over it.
+func TestShellEnvSecrets_InstanceGitHubToken(t *testing.T) {
+	t.Setenv("GITHUB_TOKEN", "ghp_instance")
+	db, _ := shellEnvDB(t)
+	if got := db.ShellEnvSecrets("beta", "telegram:user/7"); len(got) != 0 {
+		t.Fatalf("an ungranted folder resolved %v, want nothing", got)
+	}
+	for _, f := range []string{"atlas", "beta"} {
+		if err := addACLRow(db, core.ACLRow{
+			Principal: "folder:" + f, Action: auth.ShellEnvPrefix + "GITHUB_TOKEN",
+			Scope: f, Effect: "allow",
+		}); err != nil {
+			t.Fatalf("addACLRow: %v", err)
+		}
+	}
+	if got := db.ShellEnvSecrets("beta", "telegram:user/7")["GITHUB_TOKEN"]; got != "ghp_instance" {
+		t.Errorf("beta GITHUB_TOKEN = %q, want the instance ghp_instance", got)
+	}
+	if got := db.ShellEnvSecrets("atlas", "telegram:user/7")["GITHUB_TOKEN"]; got != "ghp_folder" {
+		t.Errorf("atlas GITHUB_TOKEN = %q, want its folder row ghp_folder", got)
+	}
+}

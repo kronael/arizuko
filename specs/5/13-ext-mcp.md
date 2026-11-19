@@ -186,6 +186,12 @@ all-keys row; a deny row wins. `store.EnvProfileKeys` are excluded even under
 `shell:env:*`: they have their own path, and keeping a model credential out of a
 shell the agent drives is the whole of BUGS `L131`.
 
+`GITHUB_TOKEN` has one declaration: the instance `.env` value that gitd reads.
+routd reads the same value, and a granted `GITHUB_TOKEN` resolves user, then
+folder, then that instance token. `gh` in a granted shell and gitd's replies use
+one token, so a rotation in `.env` reaches both. A folder row of the same name
+stays for a folder that acts as a different GitHub account.
+
 **What this tier does NOT enforce.** Once a token is in the shell, arizuko can no
 longer bound what it buys. The four broker escape paths below do not apply: the
 agent holds the credential directly, so it can spend it with `curl` as easily as

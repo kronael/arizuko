@@ -158,7 +158,9 @@ An operator reaching for "let atlas use `gh`" puts `GH_TOKEN` in the instance
 container. Every other name in `.env` is an infra credential that stays on the
 host by construction (`5/14` tier 3). Measured on marinade 2026-08-28 —
 `GH_TOKEN` and `BK_TOKEN` are both present in `.env` and neither reaches the
-agent. Nothing logs a warning, which is what makes it worth writing down.
+agent. Nothing logs a warning, which is what makes it worth writing down. The
+one `.env` key that does reach a shell is `GITHUB_TOKEN`, and only under a
+`shell:env:GITHUB_TOKEN` grant (`5/13` § Shell credentials).
 
 A capability credential lives in the `secrets` table, folder- or user-scoped,
 and reaches a connector subprocess through the broker per call
