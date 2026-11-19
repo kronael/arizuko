@@ -257,7 +257,7 @@ var EnvProfileKeys = map[string]struct{}{
 
 // SharedShellKeys are `.env` credentials a channel daemon uses that a
 // `shell:env:<KEY>` grant also hands to the agent's shell, so the daemon and the
-// CLI hold one value. A user or folder row of the same name wins.
+// CLI hold one value. A user or folder row of the same name is ignored.
 var SharedShellKeys = []string{"GITHUB_TOKEN"}
 
 var secretKeyRE = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)

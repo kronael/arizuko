@@ -23,7 +23,7 @@ func shellEnvDB(t *testing.T) (*DB, *store.Store) {
 	}
 	t.Cleanup(func() { db.Close() })
 	s := seedSecretsStore(t, db, "shell-env-key")
-	if err := s.PutSecretRow(store.ScopeFolder, "atlas", "GITHUB_TOKEN", "ghp_folder"); err != nil {
+	if err := s.PutSecretRow(store.ScopeFolder, "atlas", "NPM_TOKEN", "npm_folder"); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.PutSecretRow(store.ScopeFolder, "atlas", "BUILDKITE_TOKEN", "bkua_folder"); err != nil {
@@ -42,13 +42,13 @@ func TestShellEnvSecrets_NoGrantResolvesNothing(t *testing.T) {
 func TestShellEnvSecrets_GrantedKeyOnly(t *testing.T) {
 	db, _ := shellEnvDB(t)
 	if err := addACLRow(db, core.ACLRow{
-		Principal: "folder:atlas", Action: auth.ShellEnvPrefix + "GITHUB_TOKEN",
+		Principal: "folder:atlas", Action: auth.ShellEnvPrefix + "NPM_TOKEN",
 		Scope: "atlas", Effect: "allow",
 	}); err != nil {
 		t.Fatalf("addACLRow: %v", err)
 	}
 	got := db.ShellEnvSecrets("atlas", "telegram:user/7")
-	want := map[string]string{"GITHUB_TOKEN": "ghp_folder"}
+	want := map[string]string{"NPM_TOKEN": "npm_folder"}
 	if !maps.Equal(got, want) {
 		t.Errorf("ShellEnvSecrets = %v, want exactly %v (BUILDKITE_TOKEN is ungranted)", got, want)
 	}
@@ -59,7 +59,7 @@ func TestShellEnvSecrets_GrantedKeyOnly(t *testing.T) {
 // resolve through the same user-over-folder overlay rather than a second one.
 func TestShellEnvSecrets_UserKeyWinsOverFolder(t *testing.T) {
 	db, s := shellEnvDB(t)
-	if err := s.PutSecretRow(store.ScopeUser, "telegram:user/7", "GITHUB_TOKEN", "ghp_user7"); err != nil {
+	if err := s.PutSecretRow(store.ScopeUser, "telegram:user/7", "NPM_TOKEN", "npm_user7"); err != nil {
 		t.Fatal(err)
 	}
 	if err := addACLRow(db, core.ACLRow{
@@ -68,10 +68,10 @@ func TestShellEnvSecrets_UserKeyWinsOverFolder(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("addACLRow: %v", err)
 	}
-	if got := db.ShellEnvSecrets("atlas", "telegram:user/7")["GITHUB_TOKEN"]; got != "ghp_user7" {
-		t.Errorf("GITHUB_TOKEN = %q, want the caller's own ghp_user7", got)
+	if got := db.ShellEnvSecrets("atlas", "telegram:user/7")["NPM_TOKEN"]; got != "npm_user7" {
+		t.Errorf("NPM_TOKEN = %q, want the caller's own npm_user7", got)
 	}
-	if got := db.ShellEnvSecrets("atlas", "telegram:user/9")["GITHUB_TOKEN"]; got != "ghp_folder" {
+	if got := db.ShellEnvSecrets("atlas", "telegram:user/9")["NPM_TOKEN"]; got != "npm_folder" {
 		t.Errorf("a user with no key of their own got %q, want the folder default", got)
 	}
 }
@@ -100,11 +100,14 @@ func TestShellEnvSecrets_ModelCredentialNeverCrosses(t *testing.T) {
 	}
 }
 
-// The instance token gitd holds answers a granted GITHUB_TOKEN when no user or
-// folder row names one, and a folder row still wins over it.
+// GITHUB_TOKEN is gitd's `.env` token for every granted folder; a folder row of
+// that name never reaches the shell.
 func TestShellEnvSecrets_InstanceGitHubToken(t *testing.T) {
 	t.Setenv("GITHUB_TOKEN", "ghp_instance")
-	db, _ := shellEnvDB(t)
+	db, s := shellEnvDB(t)
+	if err := s.PutSecretRow(store.ScopeFolder, "atlas", "GITHUB_TOKEN", "ghp_folder"); err != nil {
+		t.Fatal(err)
+	}
 	if got := db.ShellEnvSecrets("beta", "telegram:user/7"); len(got) != 0 {
 		t.Fatalf("an ungranted folder resolved %v, want nothing", got)
 	}
@@ -115,11 +118,12 @@ func TestShellEnvSecrets_InstanceGitHubToken(t *testing.T) {
 		}); err != nil {
 			t.Fatalf("addACLRow: %v", err)
 		}
+		if got := db.ShellEnvSecrets(f, "telegram:user/7")["GITHUB_TOKEN"]; got != "ghp_instance" {
+			t.Errorf("%s GITHUB_TOKEN = %q, want the instance ghp_instance", f, got)
+		}
 	}
-	if got := db.ShellEnvSecrets("beta", "telegram:user/7")["GITHUB_TOKEN"]; got != "ghp_instance" {
-		t.Errorf("beta GITHUB_TOKEN = %q, want the instance ghp_instance", got)
-	}
-	if got := db.ShellEnvSecrets("atlas", "telegram:user/7")["GITHUB_TOKEN"]; got != "ghp_folder" {
-		t.Errorf("atlas GITHUB_TOKEN = %q, want its folder row ghp_folder", got)
+	t.Setenv("GITHUB_TOKEN", "")
+	if got, ok := db.ShellEnvSecrets("atlas", "telegram:user/7")["GITHUB_TOKEN"]; ok {
+		t.Errorf("with no instance token atlas got its folder row %q, want nothing", got)
 	}
 }

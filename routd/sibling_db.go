@@ -116,8 +116,8 @@ func (d *DB) EnvProfileSecrets(userSub string) map[string]string {
 // grant marks readable from the agent's own shell — ONLY granted keys, never
 // the whole set, the EnvProfileSecrets discipline. Env-profile keys are dropped
 // even when granted: they already have a path, and the store rejects folder
-// scope for them. A store.SharedShellKeys key resolves user, then folder, then
-// the `.env` value its daemon uses.
+// scope for them. A store.SharedShellKeys key is only the `.env` value its daemon
+// uses; a user or folder row of that name is ignored.
 func (d *DB) ShellEnvSecrets(folder, userSub string) map[string]string {
 	out := map[string]string{}
 	if folder == "" {
@@ -128,8 +128,9 @@ func (d *DB) ShellEnvSecrets(folder, userSub string) map[string]string {
 		vals = map[string]string{}
 	}
 	for _, k := range store.SharedShellKeys {
-		if _, ok := vals[k]; !ok && os.Getenv(k) != "" {
-			vals[k] = os.Getenv(k)
+		delete(vals, k)
+		if v := os.Getenv(k); v != "" {
+			vals[k] = v
 		}
 	}
 	keys := make([]string, 0, len(vals))

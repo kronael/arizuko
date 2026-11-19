@@ -13,6 +13,13 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+### Changed
+
+- A granted `GITHUB_TOKEN` is only gitd's `.env` token; a user or folder row of
+  that name no longer reaches the shell. `store.SharedShellKeys` names such keys.
+- routd indexes stored messages after it starts serving, so a large message
+  store no longer keeps the instance offline at startup.
+
 ## [v0.75.17] — 2026-11-19
 
 > arizuko v0.75.17 — one GitHub token for gitd and `gh`
