@@ -13,6 +13,22 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.75.17] — 2026-11-19
+
+> arizuko v0.75.17 — one GitHub token for gitd and `gh`
+>
+> The GitHub token in `.env` now serves both gitd and an agent's `gh`, so one rotation reaches both.
+>
+> • GitHub — a `shell:env:GITHUB_TOKEN` grant gives `gh` gitd's token; no folder copy can go stale.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Changed
+
+- routd reads `GITHUB_TOKEN`, the token gitd uses. A `shell:env:GITHUB_TOKEN`
+  grant resolves the caller's own row, then the folder's row, then that instance
+  token, so `gh` in the shell and gitd's replies use one value.
+
 ## [v0.75.16] — 2026-11-16
 
 > arizuko v0.75.16 — work follows state changes
