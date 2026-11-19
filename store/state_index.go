@@ -131,9 +131,13 @@ func (s *Store) MigrateStateIndexes(ctx context.Context) error {
 	if err := objstore.Reindex(ctx, s.Obj(), "control-work-v1", []objstore.Query{{Entity: TurnControl, Partition: OwnerRoutd}}); err != nil {
 		return err
 	}
-	if err := s.migrateACLWildcard(ctx); err != nil {
-		return err
-	}
+	return s.migrateACLWildcard(ctx)
+}
+
+// ReindexMessages indexes every stored message once, one write per message;
+// routd runs it after it serves. Until it ends, a lookup of an older message by
+// id or role misses.
+func (s *Store) ReindexMessages(ctx context.Context) error {
 	marker := objstore.Key{Partition: "migrations", Sort: "messages-v1"}
 	if _, done, err := s.itemAt(ctx, objstore.IndexEntity, marker); err != nil || done {
 		return err

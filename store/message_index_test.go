@@ -95,7 +95,10 @@ func TestMessageIndexMigrationPreservesLegacyRows(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("seed legacy: %v %v", ok, err)
 	}
-	if err := s.MigrateStateIndexes(t.Context()); err != nil {
+	if got, ok := s.MessageByID(m.ChatJID, m.ID); ok {
+		t.Fatalf("legacy identity indexed before the reindex: %v", got)
+	}
+	if err := s.ReindexMessages(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	for _, id := range []string{m.ID, m.PlatformID} {
@@ -104,8 +107,8 @@ func TestMessageIndexMigrationPreservesLegacyRows(t *testing.T) {
 		}
 	}
 	c := &stateReadCounter{Store: s.obj}
-	if err := NewOver(c).MigrateStateIndexes(t.Context()); err != nil || c.rows != 12 {
-		t.Fatalf("repeat migration: %v rows=%d", err, c.rows)
+	if err := NewOver(c).ReindexMessages(t.Context()); err != nil || c.rows != 1 {
+		t.Fatalf("repeat reindex: %v rows=%d", err, c.rows)
 	}
 }
 

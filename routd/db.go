@@ -121,6 +121,11 @@ func Open() (*DB, error) {
 	return d, nil
 }
 
+// ReindexMessages indexes the messages stored before their indexes existed.
+func (d *DB) ReindexMessages(ctx context.Context) error {
+	return d.store().ReindexMessages(ctx)
+}
+
 // OpenMem hands ONE test its own private namespace on the endpoint this process
 // dials, with routd's entities and its floor made in it. Close drops it.
 func OpenMem() (*DB, error) {

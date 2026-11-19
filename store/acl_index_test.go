@@ -87,7 +87,7 @@ func TestACLWildcardMigrationValidatesAndResumes(t *testing.T) {
 		t.Fatalf("migrated rows=%v err=%v", rows, err)
 	}
 	c := &stateReadCounter{Store: s.Obj()}
-	if err := NewOver(c).MigrateStateIndexes(ctx); err != nil || c.rows != 12 {
+	if err := NewOver(c).MigrateStateIndexes(ctx); err != nil || c.rows != 11 {
 		t.Fatalf("repeat reads=%d err=%v", c.rows, err)
 	}
 }
