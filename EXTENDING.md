@@ -618,8 +618,7 @@ daemon. `GH_TOKEN` in the `secrets` rows of a folder is the value that the
 broker renders into the request of the connector. Identify a credential by the
 door that uses it and not by the first place where its name appears. The one
 exception is `GITHUB_TOKEN`: a `shell:env:GITHUB_TOKEN` grant gives the shell
-gitd's `.env` token when no user or folder row names one (`specs/5/13-ext-mcp.md`
-§ Shell credentials).
+gitd's `.env` token when no user or folder row names one.
 
 The operator writes the token of a folder with `arizuko secret -i <inst> set
 <folder> KEY --value V`. The operator writes the token of a user with `arizuko
