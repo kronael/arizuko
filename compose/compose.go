@@ -138,8 +138,6 @@ var daemonKeys = map[string][]string{
 		"TTS_ENABLED", "TTS_BASE_URL", "TTS_VOICE", "TTS_MODEL", "TTS_TIMEOUT",
 		// Surrogate OAuth (spec 5/15): routd's broker refreshes near-expiry tokens.
 		"SURROGATE_GITHUB_CLIENT_ID", "SURROGATE_GITHUB_CLIENT_SECRET",
-		// gitd's token; a `shell:env:GITHUB_TOKEN` grant hands it to `gh`.
-		"GITHUB_TOKEN",
 	},
 	// runed: execution plane, the ONLY daemon wired to /dev/kvm.
 	"runed": {
@@ -393,6 +391,9 @@ func writeEnvFile(dataDir, name, daemon, label string, env map[string]string, pe
 		for key := range store.EnvProfileKeys {
 			all = append(all, key)
 		}
+	}
+	if daemon == "routd" {
+		all = append(all, store.SharedShellKeys...)
 	}
 	sort.Strings(all)
 	own := map[string]bool{}

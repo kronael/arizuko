@@ -116,8 +116,8 @@ func (d *DB) EnvProfileSecrets(userSub string) map[string]string {
 // grant marks readable from the agent's own shell — ONLY granted keys, never
 // the whole set, the EnvProfileSecrets discipline. Env-profile keys are dropped
 // even when granted: they already have a path, and the store rejects folder
-// scope for them. GITHUB_TOKEN resolves user, then folder, then the instance
-// token gitd holds, so one `.env` value serves gitd and every granted `gh`.
+// scope for them. A store.SharedShellKeys key resolves user, then folder, then
+// the `.env` value its daemon uses.
 func (d *DB) ShellEnvSecrets(folder, userSub string) map[string]string {
 	out := map[string]string{}
 	if folder == "" {
@@ -127,8 +127,10 @@ func (d *DB) ShellEnvSecrets(folder, userSub string) map[string]string {
 	if vals == nil {
 		vals = map[string]string{}
 	}
-	if _, ok := vals["GITHUB_TOKEN"]; !ok && os.Getenv("GITHUB_TOKEN") != "" {
-		vals["GITHUB_TOKEN"] = os.Getenv("GITHUB_TOKEN")
+	for _, k := range store.SharedShellKeys {
+		if _, ok := vals[k]; !ok && os.Getenv(k) != "" {
+			vals[k] = os.Getenv(k)
+		}
 	}
 	keys := make([]string, 0, len(vals))
 	for k := range vals {
