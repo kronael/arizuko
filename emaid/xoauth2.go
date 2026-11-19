@@ -15,11 +15,9 @@ import (
 // client "must send an empty response" so the server can finish with its
 // final NO / 535. go-sasl has no XOAUTH2 client, so this is the whole of it.
 //
-// The token is a fixed string read once from EMAIL_ACCESS_TOKEN. emaid does not
-// refresh it. When it expires (about an hour for Google) the next login is
-// refused, and the refusal surfaces like any other: IMAP stops the poller and
-// /health goes 503, SMTP returns the 535 to the sender. The operator sets a
-// new token and restarts. Neither the token nor the response is ever logged.
+// Each login trades EMAIL_REFRESH_TOKEN for a fresh access token through the
+// surrogate Google provider. A revoked refresh token stops the poller like a
+// refused password. Neither token nor the response is ever logged.
 
 // xoauth2Response is the raw initial response, before the transport's base64.
 func xoauth2Response(user, token string) []byte {

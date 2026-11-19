@@ -212,7 +212,7 @@ var daemonKeys = map[string][]string{
 	// emaid classifies EVERY inbound as untrusted (fail-closed, spec 11/17)
 	// and EMAIL_STRICT_AUTH can never take effect, so an operator who sets
 	// them in .env would see no change at all.
-	"emaid": {"AUTHD_URL", "AUTHD_SERVICE_KEY", "EMAIL_IMAP_HOST", "EMAIL_SMTP_HOST", "EMAIL_ACCOUNT", "EMAIL_PASSWORD", "EMAIL_ACCESS_TOKEN", "EMAIL_IMAP_PORT", "EMAIL_SMTP_PORT", "EMAIL_TRUSTED_AUTHSERV", "EMAIL_TRUSTED_DOMAINS", "EMAIL_STRICT_AUTH", "EMAIL_UNVERIFIED_SUBJECT_PREFIX", "EMAIL_VERIFY_DKIM"},
+	"emaid": {"AUTHD_URL", "AUTHD_SERVICE_KEY", "EMAIL_IMAP_HOST", "EMAIL_SMTP_HOST", "EMAIL_ACCOUNT", "EMAIL_PASSWORD", "EMAIL_REFRESH_TOKEN", "SURROGATE_GOOGLE_CLIENT_ID", "SURROGATE_GOOGLE_CLIENT_SECRET", "EMAIL_IMAP_PORT", "EMAIL_SMTP_PORT", "EMAIL_TRUSTED_AUTHSERV", "EMAIL_TRUSTED_DOMAINS", "EMAIL_STRICT_AUTH", "EMAIL_UNVERIFIED_SUBJECT_PREFIX", "EMAIL_VERIFY_DKIM"},
 	"whapd": {"AUTHD_URL", "AUTHD_SERVICE_KEY"},
 	// gitd unseals github_sources secrets from routd's store, so it needs the
 	// same SECRETS_KEY. GITHUB_TOKEN is optional: it only enables send_text.

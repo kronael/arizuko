@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/kronael/arizuko/auth/surrogate"
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/core"
 )
@@ -56,7 +57,8 @@ type config struct {
 	SMTPHost      string
 	Account       string
 	Password      string
-	AccessToken   string // EMAIL_ACCESS_TOKEN: XOAUTH2 instead of Password
+	RefreshToken  string            // EMAIL_REFRESH_TOKEN: Gmail XOAUTH2 instead of Password
+	Google        *surrogate.Engine // trades RefreshToken for an access token
 	IMAPPort      string
 	SMTPPort      string
 	RouterURL     string
@@ -73,7 +75,7 @@ func loadConfig() config {
 		SMTPHost:      chanlib.MustEnv("EMAIL_SMTP_HOST"),
 		Account:       chanlib.MustEnv("EMAIL_ACCOUNT"),
 		Password:      os.Getenv("EMAIL_PASSWORD"),
-		AccessToken:   os.Getenv("EMAIL_ACCESS_TOKEN"),
+		RefreshToken:  os.Getenv("EMAIL_REFRESH_TOKEN"),
 		IMAPPort:      core.EnvOr("EMAIL_IMAP_PORT", "993"),
 		SMTPPort:      core.EnvOr("EMAIL_SMTP_PORT", "587"),
 		RouterURL:     chanlib.MustEnv("ROUTER_URL"),
@@ -82,6 +84,12 @@ func loadConfig() config {
 		MaxAttachment: chanlib.EnvBytes("MEDIA_MAX_FILE_BYTES", 20*1024*1024),
 		Auth:          LoadAuthConfig(os.Getenv),
 	}
+	google, err := surrogate.NewEngine("")
+	if err != nil {
+		slog.Error("load the google oauth provider", "err", err)
+		os.Exit(1)
+	}
+	c.Google = google
 	if err := c.checkAuth(); err != nil {
 		slog.Error("email auth misconfigured", "err", err)
 		os.Exit(1)
@@ -90,15 +98,24 @@ func loadConfig() config {
 }
 
 // checkAuth requires exactly one credential. The operator chooses the method
-// by setting EMAIL_PASSWORD or EMAIL_ACCESS_TOKEN; both set is ambiguous and
+// by setting EMAIL_PASSWORD or EMAIL_REFRESH_TOKEN; both set is ambiguous and
 // neither set is a mailbox with no way in, so each stops the boot rather than
 // letting emaid pick a path the operator did not choose.
 func (c config) checkAuth() error {
 	switch {
-	case c.Password != "" && c.AccessToken != "":
-		return errors.New("EMAIL_PASSWORD and EMAIL_ACCESS_TOKEN are both set; set exactly one")
-	case c.Password == "" && c.AccessToken == "":
-		return errors.New("neither EMAIL_PASSWORD nor EMAIL_ACCESS_TOKEN is set; set exactly one")
+	case c.Password != "" && c.RefreshToken != "":
+		return errors.New("EMAIL_PASSWORD and EMAIL_REFRESH_TOKEN are both set; set exactly one")
+	case c.Password == "" && c.RefreshToken == "":
+		return errors.New("neither EMAIL_PASSWORD nor EMAIL_REFRESH_TOKEN is set; set exactly one")
+	case c.RefreshToken != "" && (c.Google == nil || !c.Google.HasCreds("google")):
+		return errors.New("EMAIL_REFRESH_TOKEN needs SURROGATE_GOOGLE_CLIENT_ID and SURROGATE_GOOGLE_CLIENT_SECRET")
 	}
 	return nil
+}
+
+// accessToken trades EMAIL_REFRESH_TOKEN for a fresh Google access token; each
+// login asks for one, so nothing expires between logins.
+func (c config) accessToken(ctx context.Context) (string, error) {
+	t, err := c.Google.Refresh(ctx, "google", c.RefreshToken)
+	return t.Access, err
 }

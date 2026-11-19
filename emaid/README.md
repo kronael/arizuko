@@ -64,8 +64,9 @@ Defaults below come from the Go code. Container fragments set `LISTEN_ADDR=:8080
 | -------------------------------------------- | ------------------- | ------------------------------------------------------------------------------------------------ |
 | `EMAIL_IMAP_HOST`, `EMAIL_SMTP_HOST`         | required            | Incoming and outgoing server hosts.                                                              |
 | `EMAIL_ACCOUNT`                              | required            | Account address and login name.                                                                  |
-| `EMAIL_PASSWORD`                             | unset               | Password or app password; required without an access token.                                      |
-| `EMAIL_ACCESS_TOKEN`                         | unset               | XOAUTH2 credential; takes priority over the password. emaid does not refresh it.                 |
+| `EMAIL_PASSWORD`                             | unset               | Password or app password; set it or `EMAIL_REFRESH_TOKEN`, not both.                             |
+| `EMAIL_REFRESH_TOKEN`                        | unset               | Gmail OAuth refresh token; each login trades it for an access token (XOAUTH2).                   |
+| `SURROGATE_GOOGLE_CLIENT_ID`, `_SECRET`      | unset               | The Google OAuth client the refresh token was issued to; required with `EMAIL_REFRESH_TOKEN`.    |
 | `EMAIL_IMAP_PORT`                            | `993`               | IMAP TLS port.                                                                                   |
 | `EMAIL_SMTP_PORT`                            | `587`               | SMTP submission port; SMTP requires STARTTLS.                                                    |
 | `EMAIL_TRUSTED_AUTHSERV`                     | unset               | Authentication-Results server ID to trust; unset classifies all mail as untrusted.               |

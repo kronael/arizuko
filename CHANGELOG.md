@@ -17,6 +17,9 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 - A granted `GITHUB_TOKEN` is only gitd's `.env` token; a user or folder row of
   that name no longer reaches the shell. `store.SharedShellKeys` names such keys.
+- emaid signs in to Gmail with `EMAIL_REFRESH_TOKEN` and the surrogate Google
+  client (`SURROGATE_GOOGLE_CLIENT_ID/SECRET`), renewing the access token at each
+  login. `EMAIL_ACCESS_TOKEN`, which expired after an hour, is removed.
 - routd indexes stored messages after it starts serving, so a large message
   store no longer keeps the instance offline at startup.
 

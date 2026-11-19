@@ -18,6 +18,7 @@ import (
 	"github.com/emersion/go-imap/v2/imapclient"
 	gomessage "github.com/emersion/go-message/mail"
 
+	"github.com/kronael/arizuko/auth/surrogate"
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/emaid/emaistore"
 )
@@ -103,10 +104,14 @@ func imapConnect(
 }
 
 // imapAuth logs in with the one credential checkAuth allowed: the password via
-// LOGIN, or the access token via AUTHENTICATE XOAUTH2.
+// LOGIN, or a refreshed access token via AUTHENTICATE XOAUTH2.
 func imapAuth(c *imapclient.Client, cfg config) error {
-	if cfg.AccessToken != "" {
-		return c.Authenticate(xoauth2IMAP{cfg.Account, cfg.AccessToken})
+	if cfg.RefreshToken != "" {
+		token, err := cfg.accessToken(context.Background())
+		if err != nil {
+			return err
+		}
+		return c.Authenticate(xoauth2IMAP{cfg.Account, token})
 	}
 	return c.Login(cfg.Account, cfg.Password).Wait()
 }
@@ -123,6 +128,9 @@ var errAuthRejected = errors.New("imap: credential rejected")
 // Anything else — including a bare NO with no code — stays retryable, because a server
 // that refuses a login during maintenance sends one of those too.
 func permanentAuthFailure(err error) bool {
+	if errors.Is(err, surrogate.ErrReconnect) {
+		return true
+	}
 	var ie *imap.Error
 	if !errors.As(err, &ie) {
 		return false
@@ -156,7 +164,7 @@ func (p *poller) run(ctx context.Context, rc *chanlib.RouterClient) {
 		if errors.Is(err, errAuthRejected) {
 			slog.Error("imap: the server rejected this account's credential; emaid is "+
 				"stopping rather than retrying — fix EMAIL_PASSWORD (or the app password), or "+
-				"replace an expired EMAIL_ACCESS_TOKEN, and restart the instance",
+				"replace a revoked EMAIL_REFRESH_TOKEN, and restart the instance",
 				"account", p.cfg.Account, "host", p.cfg.IMAPHost, "err", err)
 			return
 		}

@@ -3,10 +3,15 @@ package main
 import (
 	"bufio"
 	"encoding/base64"
+	"fmt"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"net/smtp"
 	"strings"
 	"testing"
+
+	"github.com/kronael/arizuko/auth/surrogate"
 
 	"github.com/emersion/go-imap/v2/imapclient"
 )
@@ -60,7 +65,7 @@ func TestSendReplyAuthSelection(t *testing.T) {
 	}
 	info := &smtp.ServerInfo{Name: "smtp.example.com", TLS: true}
 
-	cfg := config{Account: exUser, SMTPHost: "smtp.example.com", SMTPPort: "587", AccessToken: exTok}
+	cfg := config{Account: exUser, SMTPHost: "smtp.example.com", SMTPPort: "587", RefreshToken: "rt", Google: googleStub(t, exTok)}
 	if err := sendReply(cfg, "to@example.com", "", "", "hi"); err != nil {
 		t.Fatal(err)
 	}
@@ -126,7 +131,7 @@ func authOverPipe(t *testing.T, cfg config, reject bool) ([]string, error) {
 }
 
 func TestIMAPAuthXOAUTH2OnTheWire(t *testing.T) {
-	lines, err := authOverPipe(t, config{Account: exUser, AccessToken: exTok}, false)
+	lines, err := authOverPipe(t, config{Account: exUser, RefreshToken: "rt", Google: googleStub(t, exTok)}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,7 +153,7 @@ func TestIMAPAuthPasswordStillUsesLogin(t *testing.T) {
 // A refused (e.g. expired) token ends in a permanent auth failure, so the poll
 // loop stops and /health goes 503 instead of retrying a dead credential.
 func TestIMAPAuthXOAUTH2RefusalIsPermanent(t *testing.T) {
-	lines, err := authOverPipe(t, config{Account: exUser, AccessToken: exTok}, true)
+	lines, err := authOverPipe(t, config{Account: exUser, RefreshToken: "rt", Google: googleStub(t, exTok)}, true)
 	if err == nil {
 		t.Fatal("a refused token must return an error")
 	}
@@ -176,7 +181,7 @@ func TestCheckAuth(t *testing.T) {
 		{"neither", "", "", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			err := config{Password: tc.pw, AccessToken: tc.tok}.checkAuth()
+			err := config{Password: tc.pw, RefreshToken: tc.tok, Google: googleStub(t, "at")}.checkAuth()
 			if (err != nil) != tc.wantFail {
 				t.Errorf("checkAuth = %v, wantFail %v", err, tc.wantFail)
 			}
@@ -191,8 +196,44 @@ func TestLoadConfigTokenOnly(t *testing.T) {
 		t.Setenv(k, "x-"+k)
 	}
 	t.Setenv("EMAIL_PASSWORD", "")
-	t.Setenv("EMAIL_ACCESS_TOKEN", "tok")
-	if c := loadConfig(); c.AccessToken != "tok" || c.Password != "" {
+	t.Setenv("EMAIL_REFRESH_TOKEN", "tok")
+	t.Setenv("SURROGATE_GOOGLE_CLIENT_ID", "id")
+	t.Setenv("SURROGATE_GOOGLE_CLIENT_SECRET", "secret")
+	if c := loadConfig(); c.RefreshToken != "tok" || c.Password != "" {
 		t.Errorf("config = %+v", c)
+	}
+}
+
+// googleStub is Google's token endpoint answering every refresh with access.
+func googleStub(t *testing.T, access string) *surrogate.Engine {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.FormValue("grant_type") != "refresh_token" || r.FormValue("refresh_token") == "" {
+			http.Error(w, `{"error":"invalid_grant"}`, http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprintf(w, `{"access_token":%q,"expires_in":3600}`, access)
+	}))
+	t.Cleanup(srv.Close)
+	return surrogate.NewEngineWith(
+		map[string]surrogate.Provider{"google": {TokenURL: srv.URL}},
+		map[string]surrogate.ClientCreds{"google": {ID: "id", Secret: "secret"}})
+}
+
+// A revoked refresh token stops IMAP like a refused password.
+func TestIMAPAuthRevokedRefreshIsPermanent(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":"invalid_grant"}`))
+	}))
+	defer srv.Close()
+	g := surrogate.NewEngineWith(
+		map[string]surrogate.Provider{"google": {TokenURL: srv.URL}},
+		map[string]surrogate.ClientCreds{"google": {ID: "id", Secret: "secret"}})
+	_, err := config{Account: exUser, RefreshToken: "rt", Google: g}.accessToken(t.Context())
+	if !permanentAuthFailure(err) {
+		t.Fatalf("revoked refresh = %v, want a permanent failure", err)
 	}
 }

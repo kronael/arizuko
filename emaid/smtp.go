@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"fmt"
 	"net/smtp"
@@ -89,8 +90,12 @@ func sendReply(cfg config, to, rootMsgID, inReplyTo, text string) error {
 	fmt.Fprintf(&b, "Content-Type: text/plain; charset=utf-8\r\n\r\n%s", text)
 
 	auth := smtp.PlainAuth("", cfg.Account, cfg.Password, cfg.SMTPHost)
-	if cfg.AccessToken != "" {
-		auth = xoauth2SMTP{cfg.Account, cfg.AccessToken}
+	if cfg.RefreshToken != "" {
+		token, err := cfg.accessToken(context.Background())
+		if err != nil {
+			return err
+		}
+		auth = xoauth2SMTP{cfg.Account, token}
 	}
 	addr := cfg.SMTPHost + ":" + cfg.SMTPPort
 	return smtpSender(addr, auth, fromAddr, []string{toAddr}, []byte(b.String()))
