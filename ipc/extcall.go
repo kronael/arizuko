@@ -68,7 +68,11 @@ func CallExtTool(
 
 	vars := make(map[string]string, len(args))
 	for key, value := range args {
-		vars[key] = fmt.Sprint(value)
+		v := fmt.Sprint(value)
+		if strings.Contains(tool.Path, "{"+key+"}") && (strings.ContainsAny(v, "/?#%") || strings.Contains(v, "..")) {
+			return mcp.NewToolResultError(fmt.Sprintf("path parameter %s may not contain / ? # %% or ..", key)), nil
+		}
+		vars[key] = v
 	}
 	path, err := expand.Expand(tool.Path, vars)
 	if err != nil {

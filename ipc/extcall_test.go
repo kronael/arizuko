@@ -234,6 +234,25 @@ func TestCallExtToolRefusesAnUnfilledPathParam(t *testing.T) {
 	}
 }
 
+// A path value cannot leave its segment: "../../drive/v3/files/x" in a sheet id
+// would otherwise reach another API behind the same credential.
+func TestCallExtToolRefusesAPathValueThatLeavesItsSegment(t *testing.T) {
+	var got extRequest
+	srv := extServer(t, &got, status200(), `{}`)
+	tool := ExtTool{BaseURL: srv.URL, Method: "GET", Path: "/sheets/v4/spreadsheets/{id}/values/{range}"}
+	for _, id := range []string{"../../../drive/v3/files/x", "a/b", "a?alt=media", "a#", "a%2F..", ".."} {
+		result, err := CallExtTool(context.Background(), tool,
+			map[string]any{"id": id, "range": "Sheet1!A1:B2"}, nil, nil)
+		if err != nil || !result.IsError || got.path != "" {
+			t.Fatalf("id %q: result = %+v, error = %v, path = %q", id, result, err, got.path)
+		}
+	}
+	if _, err := CallExtTool(context.Background(), tool,
+		map[string]any{"id": "1AbC-d_E", "range": "Sheet1!A1:B2"}, nil, nil); err != nil || got.path != "/sheets/v4/spreadsheets/1AbC-d_E/values/Sheet1!A1:B2" {
+		t.Fatalf("a plain id: error = %v, path = %q", err, got.path)
+	}
+}
+
 func TestCallExtToolPutsArgsInTheQueryOrTheBodyByMethod(t *testing.T) {
 	for _, method := range []string{"GET", "DELETE", "HEAD"} {
 		var got extRequest
