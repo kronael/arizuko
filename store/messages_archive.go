@@ -31,6 +31,7 @@ type ArchiveMessageRow struct {
 	ReplyToText   string `json:"reply_to_text,omitempty"`
 	ReplyToSender string `json:"reply_to_sender,omitempty"`
 	Topic         string `json:"topic,omitempty"`
+	Title         string `json:"title,omitempty"`
 	RoutedTo      string `json:"routed_to,omitempty"`
 	Verb          string `json:"verb,omitempty"`
 	Attachments   string `json:"attachments,omitempty"`
@@ -171,6 +172,7 @@ func archiveRowFrom(it objstore.Item) ArchiveMessageRow {
 		ReplyToText:     it.Attrs[attrMsgReplyToText],
 		ReplyToSender:   it.Attrs[attrMsgReplyToSender],
 		Topic:           it.Attrs[attrMsgTopic],
+		Title:           it.Attrs[attrMsgTitle],
 		RoutedTo:        it.Attrs[attrMsgRoutedTo],
 		Verb:            it.Attrs[attrMsgVerb],
 		Attachments:     it.Attrs[attrMsgAttachments],
@@ -346,7 +348,7 @@ func importedMessageWrites(m ArchiveMessageRow) ([]objstore.Write, error) {
 		ID: m.ID, ChatJID: m.ChatJID, Sender: m.Sender, Name: m.SenderName,
 		Content: m.Content, Timestamp: t, FromMe: m.IsFromMe, BotMsg: m.IsBotMessage,
 		ForwardedFrom: m.ForwardedFrom, ReplyToID: m.ReplyToID, ReplyToText: m.ReplyToText,
-		ReplyToSender: m.ReplyToSender, Topic: m.Topic, RoutedTo: m.RoutedTo, Verb: m.Verb,
+		ReplyToSender: m.ReplyToSender, Topic: m.Topic, Title: m.Title, RoutedTo: m.RoutedTo, Verb: m.Verb,
 		Attachments: m.Attachments, Source: m.Source, TurnID: m.TurnID,
 		PlatformID: m.PlatformID, ChatName: m.ChatName, Errored: m.Errored,
 		LinkContext: m.LinkContext,

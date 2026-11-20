@@ -50,6 +50,7 @@ const (
 	attrMsgReplyToText   = "reply_to_text"
 	attrMsgReplyToSender = "reply_to_sender"
 	attrMsgTopic         = "topic"
+	attrMsgTitle         = "title"
 	attrMsgRoutedTo      = "routed_to"
 	attrMsgVerb          = "verb"
 	attrMsgAttachments   = "attachments"
@@ -151,6 +152,7 @@ func messageAttrs(m core.Message) map[string]string {
 	setAttr(attrs, attrMsgReplyToText, m.ReplyToText)
 	setAttr(attrs, attrMsgReplyToSender, m.ReplyToSender)
 	setAttr(attrs, attrMsgTopic, m.Topic)
+	setAttr(attrs, attrMsgTitle, m.Title)
 	setAttr(attrs, attrMsgRoutedTo, m.RoutedTo)
 	setAttr(attrs, attrMsgVerb, defaultVerb(m.Verb))
 	setAttr(attrs, attrMsgAttachments, m.Attachments)
@@ -180,6 +182,7 @@ func messageFrom(it objstore.Item) core.Message {
 		ReplyToText:   it.Attrs[attrMsgReplyToText],
 		ReplyToSender: it.Attrs[attrMsgReplyToSender],
 		Topic:         it.Attrs[attrMsgTopic],
+		Title:         it.Attrs[attrMsgTitle],
 		RoutedTo:      it.Attrs[attrMsgRoutedTo],
 		Verb:          it.Attrs[attrMsgVerb],
 		Attachments:   it.Attrs[attrMsgAttachments],

@@ -34,6 +34,7 @@ type Message struct {
 	ReplyToSender  string
 	PlatformID     string // platform-native message ID (Slack TS, Telegram msg_id, etc.) for outbound messages
 	Topic          string
+	Title          string
 	RoutedTo       string
 	Verb           string // event type: "message" (default), "join", "edit", "delete", etc.
 	Attachments    string // JSON-encoded []chanlib.InboundAttachment
