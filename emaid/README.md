@@ -112,4 +112,7 @@ emaid parses upstream Authentication-Results; it does not perform cryptographic 
 Sources: [configuration](main.go), [IMAP loop](imap.go), [SMTP](smtp.go), [trust classifier](auth.go), [entities](emaistore/emaistore.go); [shared runtime](../chanlib/run.go), [router client](../chanlib/chanlib.go),
 [HTTP handlers](../chanlib/handler.go), [store reach](../store/owner_reach.go).
 
+A Gmail refresh token comes from the Google OAuth Playground with "Use your own OAuth credentials" set to the
+`SURROGATE_GOOGLE_CLIENT_ID/SECRET` client and the scope `https://mail.google.com/`.
+
 XOAUTH2 rejection behavior still needs a real provider check ([BUGS L425](../BUGS.md)).
