@@ -150,10 +150,10 @@ func TestMcpDeliverReplyThreadsSendDoesNot(t *testing.T) {
 	}
 	threadTurn(t, db, "t1", "demo", jid, "1700000111.000100")
 
-	if _, _, err := srv.mcpDeliver("t1", "demo", jid, "answer", "", "mcp-1", true); err != nil {
+	if _, _, err := srv.mcpDeliver("t1", "demo", jid, "answer", "", "mcp-1", "", true); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := srv.mcpDeliver("t1", "demo", jid, "announce", "", "mcp-2", false); err != nil {
+	if _, _, err := srv.mcpDeliver("t1", "demo", jid, "announce", "", "mcp-2", "", false); err != nil {
 		t.Fatal(err)
 	}
 	if len(dl.sends) != 2 {
@@ -299,7 +299,7 @@ func TestDocumentThreadsOnTopic(t *testing.T) {
 	if _, err := db.PutTurnContext("t1", "demo", "th-9", jid, "u1", ""); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := srv.mcpAppendDoc("t1", "demo", jid, "/tmp/report.pdf", "report.pdf", "", "", "", "mcp-3"); err != nil {
+	if _, _, err := srv.mcpAppendDoc("t1", "demo", jid, "/tmp/report.pdf", "report.pdf", "", "", "", "mcp-3", ""); err != nil {
 		t.Fatal(err)
 	}
 	if len(dl.docs) != 1 || dl.docs[0].threadID != "th-9" {
@@ -325,7 +325,7 @@ func TestDocumentThreadsOnTrigger(t *testing.T) {
 	threadTurn(t, db, "t1", "demo", jid, "root-1")
 	foreign := "discord:g1/ch-2"
 	for _, dest := range []string{jid, foreign} {
-		if _, _, err := srv.mcpAppendDoc("t1", "demo", dest, "/tmp/report.pdf", "report.pdf", "", "", "", "file-"+dest); err != nil {
+		if _, _, err := srv.mcpAppendDoc("t1", "demo", dest, "/tmp/report.pdf", "report.pdf", "", "", "", "file-"+dest, ""); err != nil {
 			t.Fatal(err)
 		}
 	}

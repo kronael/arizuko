@@ -502,7 +502,7 @@ func classifySendErr(err error, firstID string) error {
 	return fmt.Errorf("telegram send: %w", err)
 }
 
-func (b *bot) SendFile(jid, path, name, caption, replyTo, threadID, _ string) (string, error) {
+func (b *bot) SendFile(jid, path, name, caption, replyTo, threadID, _, _ string) (string, error) {
 	id, err := parseChatID(jid, b.api.Self.ID)
 	if err != nil {
 		return "", err
@@ -577,7 +577,7 @@ func threadMsgID(threadID string) int {
 	return n
 }
 
-func (b *bot) SendVoice(jid, audioPath, caption, threadID, _ string) (string, error) {
+func (b *bot) SendVoice(jid, audioPath, caption, threadID, _, _ string) (string, error) {
 	id, err := parseChatID(jid, b.api.Self.ID)
 	if err != nil {
 		return "", err

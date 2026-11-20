@@ -377,7 +377,7 @@ func (b *bot) onPress(_ *discordgo.Session, i *discordgo.InteractionCreate) {
 var neverFailOnReference = false
 
 func (b *bot) Send(req chanlib.SendRequest) (string, error) {
-	chID, err := b.threadDestination(req.ChatJID, req.ThreadID, req.ThreadRoot, req.Content)
+	chID, err := b.threadDestination(req.ChatJID, req.ThreadID, req.ThreadRoot, req.Title)
 	if err != nil {
 		return "", err
 	}
@@ -419,12 +419,21 @@ func (b *bot) Send(req chanlib.SendRequest) (string, error) {
 	return firstID, nil
 }
 
-// threadFrom starts a public thread on rootID in channel chID and returns the
-// thread channel id. A root that already has a thread reuses it — Discord
-// assigns a message-rooted thread the SAME id as its root message.
-func (b *bot) threadFrom(chID, rootID, content string) (string, error) {
+func (b *bot) threadFrom(chID, rootID, title string) (string, error) {
+	title = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(title), "🤖"))
+	if title == "" {
+		thread, err := b.session.Channel(rootID)
+		if err == nil && thread != nil && thread.IsThread() && thread.ID == rootID {
+			return rootID, nil
+		}
+		return "", fmt.Errorf("%w: %w: pass title to start a Discord thread", chanlib.ErrNotDelivered, chanlib.ErrPermanent)
+	}
+	name := []rune("🤖 " + title)
+	if len(name) > 100 {
+		name = name[:100]
+	}
 	th, err := b.session.MessageThreadStartComplex(chID, rootID, &discordgo.ThreadStart{
-		Name:                threadName(content),
+		Name:                string(name),
 		AutoArchiveDuration: 1440,
 	})
 	if err != nil {
@@ -453,28 +462,13 @@ func (b *bot) threadDestination(jid, threadID, threadRoot, title string) (string
 	return thread, nil
 }
 
-// threadName titles a new thread with the first four words of the reply's first
-// line, marked as the bot's with 🤖 and clamped to Discord's 100-char limit.
-func threadName(content string) string {
-	line, _, _ := strings.Cut(strings.TrimSpace(content), "\n")
-	words := strings.Fields(strings.TrimPrefix(strings.TrimSpace(line), "🤖"))
-	if len(words) > 4 {
-		words = words[:4]
-	}
-	name := strings.TrimSpace("🤖 " + strings.Join(words, " "))
-	if r := []rune(name); len(r) > 100 {
-		return string(r[:100])
-	}
-	return name
-}
-
 // SendVoice attaches the synthesized audio as a Discord file. Discord
 // has no native push-to-talk in chat, but inline audio attachments
 // (.ogg/.opus) play with a built-in player, which is the closest
 // equivalent. The agent picks send_voice when the persona is voice-first
 // or the inbound was voice; we deliver a clickable audio bubble.
-func (b *bot) SendVoice(jid, audioPath, caption, threadID, threadRoot string) (string, error) {
-	chID, err := b.threadDestination(jid, threadID, threadRoot, caption)
+func (b *bot) SendVoice(jid, audioPath, caption, threadID, threadRoot, title string) (string, error) {
+	chID, err := b.threadDestination(jid, threadID, threadRoot, title)
 	if err != nil {
 		return "", err
 	}
@@ -497,8 +491,8 @@ func (b *bot) SendVoice(jid, audioPath, caption, threadID, threadRoot string) (s
 	return "", nil
 }
 
-func (b *bot) SendFile(jid, path, name, caption, _, threadID, threadRoot string) (string, error) {
-	chID, err := b.threadDestination(jid, threadID, threadRoot, caption)
+func (b *bot) SendFile(jid, path, name, caption, _, threadID, threadRoot, title string) (string, error) {
+	chID, err := b.threadDestination(jid, threadID, threadRoot, title)
 	if err != nil {
 		return "", err
 	}

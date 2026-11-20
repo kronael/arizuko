@@ -416,7 +416,7 @@ type fakeDeliverer struct {
 	sendErr error
 }
 
-func (d *fakeDeliverer) Send(_, _, _, _, _, _ string) (string, error) {
+func (d *fakeDeliverer) Send(_, _, _, _, _, _ string, _ string) (string, error) {
 	d.sends++
 	if d.sendErr != nil {
 		return "", d.sendErr
@@ -438,13 +438,13 @@ func (d *fakeDeliverer) Delete(_, _, _ string) error      { return nil }
 func (d *fakeDeliverer) Pin(_, _ string) error            { return nil }
 func (d *fakeDeliverer) Unpin(_, _ string, _ bool) error  { return nil }
 func (d *fakeDeliverer) Typing(_, _ string, _ bool) error { return nil }
-func (d *fakeDeliverer) Document(_, _, _, _, _, _, _, _ string) (string, error) {
+func (d *fakeDeliverer) Document(_, _, _, _, _, _, _, _ string, _ string) (string, error) {
 	if d.docErr != nil {
 		return "", d.docErr
 	}
 	return d.platformID, nil
 }
-func (d *fakeDeliverer) SendVoice(_, _, _, _, _ string) (string, error) {
+func (d *fakeDeliverer) SendVoice(_, _, _, _, _ string, _ string) (string, error) {
 	return d.platformID, nil
 }
 

@@ -19,8 +19,8 @@ import (
 
 func TestBuildMCPServer(t *testing.T) {
 	routd := RoutdFns{
-		SendMessage: func(jid, text, msgID string) (string, string, error) { return "", "", nil },
-		SendDocument: func(jid, path, fn, caption, replyTo, threadID, msgID string) (string, string, error) {
+		SendMessage: func(jid, text, msgID string, _ string) (string, string, error) { return "", "", nil },
+		SendDocument: func(jid, path, fn, caption, replyTo, threadID, msgID string, _ string) (string, string, error) {
 			return "", "", nil
 		},
 		ClearSession: func(f string) {},
@@ -36,8 +36,8 @@ func TestBuildMCPServer(t *testing.T) {
 
 func TestBuildMCPServer_NoTools(t *testing.T) {
 	routd := RoutdFns{
-		SendMessage: func(jid, text, msgID string) (string, string, error) { return "", "", nil },
-		SendDocument: func(jid, path, fn, caption, replyTo, threadID, msgID string) (string, string, error) {
+		SendMessage: func(jid, text, msgID string, _ string) (string, string, error) { return "", "", nil },
+		SendDocument: func(jid, path, fn, caption, replyTo, threadID, msgID string, _ string) (string, string, error) {
 			return "", "", nil
 		},
 		ClearSession: func(f string) {},
@@ -53,8 +53,8 @@ func TestBuildMCPServer_NoTools(t *testing.T) {
 
 func TestAllToolsRegistered(t *testing.T) {
 	routd := RoutdFns{
-		SendMessage: func(jid, text, msgID string) (string, string, error) { return "", "", nil },
-		SendDocument: func(jid, path, fn, caption, replyTo, threadID, msgID string) (string, string, error) {
+		SendMessage: func(jid, text, msgID string, _ string) (string, string, error) { return "", "", nil },
+		SendDocument: func(jid, path, fn, caption, replyTo, threadID, msgID string, _ string) (string, string, error) {
 			return "", "", nil
 		},
 		ClearSession:  func(f string) {},
@@ -112,11 +112,11 @@ func TestSocialActionsRegistered(t *testing.T) {
 
 func TestSendReply(t *testing.T) {
 	routd := RoutdFns{
-		SendMessage: func(jid, text, msgID string) (string, string, error) { return "", "", nil },
-		SendDocument: func(jid, path, fn, caption, replyTo, threadID, msgID string) (string, string, error) {
+		SendMessage: func(jid, text, msgID string, _ string) (string, string, error) { return "", "", nil },
+		SendDocument: func(jid, path, fn, caption, replyTo, threadID, msgID string, _ string) (string, string, error) {
 			return "", "", nil
 		},
-		SendReply: func(jid, text, rid, msgID string) (string, string, error) { return "", "", nil },
+		SendReply: func(jid, text, rid, msgID string, _ string) (string, string, error) { return "", "", nil },
 		GroupsDir: "/tmp/groups",
 	}
 	srv := buildMCPServer(routd, StoreFns{}, "world", false, "")
@@ -698,7 +698,7 @@ func TestServeMCP_Reply_ThreadsViaActiveTopic(t *testing.T) {
 		DefaultFolderForJID: func(jid string) string { return "world" }, // route exists → authz passes
 	}
 	routd := RoutdFns{
-		SendReply: func(jid, text, rid, msgID string) (string, string, error) {
+		SendReply: func(jid, text, rid, msgID string, _ string) (string, string, error) {
 			sentReplyTo = rid
 			return "new-id", "", nil
 		},
@@ -772,7 +772,7 @@ func TestServeMCP_Reply_GitHubNeedsReplyToID(t *testing.T) {
 				DefaultFolderForJID: func(jid string) string { return "world" },
 			}
 			routd := RoutdFns{
-				SendReply: func(jid, text, rid, msgID string) (string, string, error) {
+				SendReply: func(jid, text, rid, msgID string, _ string) (string, string, error) {
 					sent = true
 					sentReplyTo = rid
 					return "new-id", "", nil
@@ -839,7 +839,7 @@ func TestServeMCP_SendFile_ThreadsViaActiveTopic(t *testing.T) {
 	}
 	routd := RoutdFns{
 		GroupsDir: dir,
-		SendDocument: func(jid, path, name, caption, replyTo, threadID, msgID string) (string, string, error) {
+		SendDocument: func(jid, path, name, caption, replyTo, threadID, msgID string, _ string) (string, string, error) {
 			sentThreadID = threadID
 			return wantPlatformID, threadID, nil
 		},
@@ -884,7 +884,7 @@ func TestServeMCP_SendVoice_ThreadsViaActiveTopic(t *testing.T) {
 		DefaultFolderForJID: func(jid string) string { return "world" },
 	}
 	routd := RoutdFns{
-		SendVoice: func(jid, text, voice, folder, threadID string) (string, string, error) {
+		SendVoice: func(jid, text, voice, folder, threadID string, _ string) (string, string, error) {
 			sentThreadID = threadID
 			return "voice-id", threadID, nil
 		},

@@ -113,7 +113,7 @@ func (h *HTTPChannel) authHeader(ctx context.Context, req *http.Request) {
 // fold: an adapter without `buttons` never receives options, it receives the
 // answers written into the text as what the reader types.
 func (h *HTTPChannel) SendOptionsCtx(ctx context.Context, jid, text string, options []chanlib.Option,
-	replyTo, threadID, threadRoot, idempotencyKey string) (string, error) {
+	replyTo, threadID, threadRoot, idempotencyKey, title string) (string, error) {
 	if !h.entry.HasCap("send_text") {
 		return "", fmt.Errorf("channel %s: send_text not supported", h.entry.Name)
 	}
@@ -132,6 +132,9 @@ func (h *HTTPChannel) SendOptionsCtx(ctx context.Context, jid, text string, opti
 	}
 	if threadRoot != "" {
 		body["thread_root"] = threadRoot
+	}
+	if title != "" {
+		body["title"] = title
 	}
 	if idempotencyKey != "" {
 		body["idempotency_key"] = idempotencyKey
@@ -156,15 +159,15 @@ func foldOptions(text string, options []chanlib.Option) string {
 	return text
 }
 
-func (h *HTTPChannel) SendFile(jid, path, name, caption, replyTo, threadID, idempotencyKey, threadRoot string) (string, error) {
-	return h.SendFileCtx(context.Background(), jid, path, name, caption, replyTo, threadID, idempotencyKey, threadRoot)
+func (h *HTTPChannel) SendFile(jid, path, name, caption, replyTo, threadID, idempotencyKey, threadRoot, title string) (string, error) {
+	return h.SendFileCtx(context.Background(), jid, path, name, caption, replyTo, threadID, idempotencyKey, threadRoot, title)
 }
 
-func (h *HTTPChannel) SendFileCtx(ctx context.Context, jid, path, name, caption, replyTo, threadID, idempotencyKey, threadRoot string) (string, error) {
+func (h *HTTPChannel) SendFileCtx(ctx context.Context, jid, path, name, caption, replyTo, threadID, idempotencyKey, threadRoot, title string) (string, error) {
 	if !h.entry.HasCap("send_file") {
 		return "", fmt.Errorf("channel %s: send_file not supported", h.entry.Name)
 	}
-	resp, err := h.uploadMultipart(ctx, "/send-file", jid, path, name, caption, replyTo, threadID, idempotencyKey, threadRoot)
+	resp, err := h.uploadMultipart(ctx, "/send-file", jid, path, name, caption, replyTo, threadID, idempotencyKey, threadRoot, title)
 	if err == nil {
 		defer func() { _ = resp.Body.Close() }()
 		if resp.StatusCode == http.StatusOK {
@@ -175,15 +178,15 @@ func (h *HTTPChannel) SendFileCtx(ctx context.Context, jid, path, name, caption,
 	return "", fmt.Errorf("channel %s send-file: %w", h.entry.Name, err)
 }
 
-func (h *HTTPChannel) SendVoice(jid, audioPath, caption, threadID, threadRoot string) (string, error) {
-	return h.SendVoiceCtx(context.Background(), jid, audioPath, caption, threadID, threadRoot)
+func (h *HTTPChannel) SendVoice(jid, audioPath, caption, threadID, threadRoot, title string) (string, error) {
+	return h.SendVoiceCtx(context.Background(), jid, audioPath, caption, threadID, threadRoot, title)
 }
 
-func (h *HTTPChannel) SendVoiceCtx(ctx context.Context, jid, audioPath, caption, threadID, threadRoot string) (string, error) {
+func (h *HTTPChannel) SendVoiceCtx(ctx context.Context, jid, audioPath, caption, threadID, threadRoot, title string) (string, error) {
 	if !h.entry.HasCap("send_voice") {
 		return "", chanlib.Unsupported("send_voice", h.entry.Name, "adapter does not advertise voice capability")
 	}
-	resp, err := h.uploadMultipart(ctx, "/send-voice", jid, audioPath, filepath.Base(audioPath), caption, "", threadID, "", threadRoot)
+	resp, err := h.uploadMultipart(ctx, "/send-voice", jid, audioPath, filepath.Base(audioPath), caption, "", threadID, "", threadRoot, title)
 	if err != nil {
 		return "", fmt.Errorf("channel %s send-voice: %w", h.entry.Name, err)
 	}
@@ -212,7 +215,7 @@ func decodeSentID(body io.Reader, channel, verb string) string {
 }
 
 // uploadMultipart builds a multipart body and POSTs to endpoint.
-func (h *HTTPChannel) uploadMultipart(ctx context.Context, endpoint, jid, path, name, caption, replyTo, threadID, idempotencyKey, threadRoot string) (*http.Response, error) {
+func (h *HTTPChannel) uploadMultipart(ctx context.Context, endpoint, jid, path, name, caption, replyTo, threadID, idempotencyKey, threadRoot, title string) (*http.Response, error) {
 	var buf bytes.Buffer
 	w := multipart.NewWriter(&buf)
 	// chat_jid and filename go out even when empty — the adapters read both by
@@ -222,6 +225,7 @@ func (h *HTTPChannel) uploadMultipart(ctx context.Context, endpoint, jid, path, 
 	for _, kv := range [][2]string{
 		{"idempotency_key", idempotencyKey}, {"caption", caption},
 		{"reply_to", replyTo}, {"thread_id", threadID}, {"thread_root", threadRoot},
+		{"title", title},
 	} {
 		if kv[1] != "" {
 			fields = append(fields, kv)

@@ -122,14 +122,14 @@ func TestMutedCreationPaths(t *testing.T) {
 		name string
 		call func() (string, error)
 	}{
-		{"send", func() (string, error) { id, _, err := f.SendMessage("slack:foreign", "x", "1"); return id, err }},
-		{"reply", func() (string, error) { id, _, err := f.SendReply("slack:foreign", "x", "", "2"); return id, err }},
+		{"send", func() (string, error) { id, _, err := f.SendMessage("slack:foreign", "x", "1", ""); return id, err }},
+		{"reply", func() (string, error) { id, _, err := f.SendReply("slack:foreign", "x", "", "2", ""); return id, err }},
 		{"file", func() (string, error) {
-			id, _, err := f.SendDocument("slack:foreign", "x", "x", "", "", "", "3")
+			id, _, err := f.SendDocument("slack:foreign", "x", "x", "", "", "", "3", "")
 			return id, err
 		}},
 		{"voice", func() (string, error) {
-			id, _, err := f.SendVoice("slack:foreign", "x", "", "demo", "")
+			id, _, err := f.SendVoice("slack:foreign", "x", "", "demo", "", "")
 			return id, err
 		}},
 		{"post", func() (string, error) { return f.Post("slack:foreign", "x", nil) }},
@@ -167,7 +167,7 @@ func TestMutedCreationPaths(t *testing.T) {
 		t.Fatal(err)
 	}
 	f = s.buildRoutdFns(turnMCP{folder: "other", turnID: "t"})
-	if id, _, err := f.SendMessage("slack:foreign", "x", "4"); err != nil || id != "pid" {
+	if id, _, err := f.SendMessage("slack:foreign", "x", "4", ""); err != nil || id != "pid" {
 		t.Fatalf("unmuted id=%q err=%v", id, err)
 	}
 }

@@ -51,7 +51,7 @@ func (l *Loop) canSteer(chatJID string, msg core.Message, folder string, at bool
 // ack sends a steering acknowledgement to the chat; no-op without a Deliverer.
 func (l *Loop) ack(chatJID, text string) {
 	if l.deliver != nil {
-		_, _ = l.deliver.Send(chatJID, text, "", "", "", "ack-"+core.MsgID(""))
+		_, _ = l.deliver.Send(chatJID, text, "", "", "", "ack-"+core.MsgID(""), "")
 	}
 }
 

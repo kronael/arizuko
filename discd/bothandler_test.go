@@ -18,12 +18,16 @@ import (
 // BotHandler surface so they route to a single test server. Returns a
 // cleanup that restores the originals.
 func mockAllDiscordEndpoints(base string) func() {
+	oldChannel := discordgo.EndpointChannel
 	oldMsgs := discordgo.EndpointChannelMessages
 	oldTyping := discordgo.EndpointChannelTyping
 	oldMsg := discordgo.EndpointChannelMessage
 	oldMsgReaction := discordgo.EndpointMessageReaction
 	oldPin := discordgo.EndpointChannelMessagePin
 
+	discordgo.EndpointChannel = func(cID string) string {
+		return base + "/channels/" + cID
+	}
 	discordgo.EndpointChannelMessages = func(cID string) string {
 		return base + "/channels/" + cID + "/messages"
 	}
@@ -40,6 +44,7 @@ func mockAllDiscordEndpoints(base string) func() {
 		return base + "/channels/" + cID + "/pins/" + mID
 	}
 	return func() {
+		discordgo.EndpointChannel = oldChannel
 		discordgo.EndpointChannelMessages = oldMsgs
 		discordgo.EndpointChannelTyping = oldTyping
 		discordgo.EndpointChannelMessage = oldMsg

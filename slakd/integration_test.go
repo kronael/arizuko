@@ -844,7 +844,7 @@ func TestOutbound_SendFile(t *testing.T) {
 	writeFile(t, path, []byte("PNGDATA"))
 
 	for _, threadID := range []string{"", "1716900000.001"} {
-		if _, err := b.SendFile("slack:T012/channel/C0HJK", path, "hello.png", "caption", "", threadID, "1716900000.002"); err != nil {
+		if _, err := b.SendFile("slack:T012/channel/C0HJK", path, "hello.png", "caption", "", threadID, "1716900000.002", ""); err != nil {
 			t.Fatal(err)
 		}
 	}

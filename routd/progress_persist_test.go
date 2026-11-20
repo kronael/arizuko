@@ -19,18 +19,18 @@ type progressRetryDeliverer struct {
 	release chan struct{}
 }
 
-func (d *progressRetryDeliverer) Send(jid, text, replyTo, threadID, root, id string) (string, error) {
+func (d *progressRetryDeliverer) Send(jid, text, replyTo, threadID, root, id string, _ string) (string, error) {
 	select {
 	case d.started <- struct{}{}:
 	default:
 	}
 	<-d.release
-	return d.recDeliverer.Send(jid, text, replyTo, threadID, root, id)
+	return d.recDeliverer.Send(jid, text, replyTo, threadID, root, id, "")
 }
 
-func (d *progressInspectDeliverer) Send(jid, text, replyTo, threadID, root, id string) (string, error) {
+func (d *progressInspectDeliverer) Send(jid, text, replyTo, threadID, root, id string, _ string) (string, error) {
 	d.row, _ = d.db.MessageByID(jid, id)
-	return d.recDeliverer.Send(jid, text, replyTo, threadID, root, id)
+	return d.recDeliverer.Send(jid, text, replyTo, threadID, root, id, "")
 }
 
 func TestProgress_FirstSendIsStoredAndMarkedDelivered(t *testing.T) {

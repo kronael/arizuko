@@ -93,7 +93,7 @@ func TestDelivererSendsToResolvedAdapter(t *testing.T) {
 	registerAdapter(t, reg, "slakd", a.srv.URL, "slack:T1/")
 	d := newChanDeliverer(reg, nil, nil) // nil lookupSource → ForJID only
 
-	pid, err := d.Send("slack:T1/C/U", "hi", "", "", "", "out-1")
+	pid, err := d.Send("slack:T1/C/U", "hi", "", "", "", "out-1", "")
 	if err != nil {
 		t.Fatalf("send: %v", err)
 	}
@@ -122,7 +122,7 @@ func TestDelivererResolutionOrder(t *testing.T) {
 
 	// lookupSource pins the jid to the "zzz" adapter (latest inbound source).
 	d := newChanDeliverer(reg, nil, func(string) string { return "zzz" })
-	if _, err := d.Send("slack:T1/C/U", "hi", "", "", "", "k"); err != nil {
+	if _, err := d.Send("slack:T1/C/U", "hi", "", "", "", "k", ""); err != nil {
 		t.Fatalf("send: %v", err)
 	}
 	if source.count() != 1 || first.count() != 0 {
@@ -133,7 +133,7 @@ func TestDelivererResolutionOrder(t *testing.T) {
 func TestDelivererNoChannel(t *testing.T) {
 	reg := chanreg.New()
 	d := newChanDeliverer(reg, nil, nil)
-	if _, err := d.Send("telegram:42", "hi", "", "", "", "k"); err == nil {
+	if _, err := d.Send("telegram:42", "hi", "", "", "", "k", ""); err == nil {
 		t.Fatal("send to unowned jid returned nil error")
 	}
 }
@@ -146,7 +146,7 @@ func TestDelivererDisabledChannel(t *testing.T) {
 	registerAdapter(t, reg, "slakd", a.srv.URL, "slack:T1/")
 	d := newChanDeliverer(reg, []string{"slack"}, nil)
 
-	pid, err := d.Send("slack:T1/C/U", "hi", "", "", "", "k")
+	pid, err := d.Send("slack:T1/C/U", "hi", "", "", "", "k", "")
 	if err != nil || pid != "" {
 		t.Fatalf("disabled send pid=%q err=%v want \"\",nil", pid, err)
 	}
@@ -167,7 +167,7 @@ func TestDelivererDisabledAllowsReactions(t *testing.T) {
 	d := newChanDeliverer(reg, []string{"discord"}, nil)
 
 	// messaging suppressed (silent no-op, adapter untouched)
-	if pid, err := d.Send("discord:g/c", "hi", "", "", "", "k1"); pid != "" || err != nil {
+	if pid, err := d.Send("discord:g/c", "hi", "", "", "", "k1", ""); pid != "" || err != nil {
 		t.Fatalf("disabled Send pid=%q err=%v want \"\",nil", pid, err)
 	}
 	if _, err := d.Post("discord:g/c", "post", nil); err != nil {
@@ -197,12 +197,12 @@ func TestDelivererResolvesCurrentEntry(t *testing.T) {
 	registerAdapter(t, reg, "slakd", old.srv.URL, "slack:T1/")
 	d := newChanDeliverer(reg, nil, nil)
 
-	if _, err := d.Send("slack:T1/C/U", "first", "", "", "", "k1"); err != nil {
+	if _, err := d.Send("slack:T1/C/U", "first", "", "", "", "k1", ""); err != nil {
 		t.Fatalf("send before move: %v", err)
 	}
 	// The adapter re-registers at a new URL (a restart on a new host/port).
 	registerAdapter(t, reg, "slakd", moved.srv.URL, "slack:T1/")
-	if _, err := d.Send("slack:T1/C/U", "second", "", "", "", "k2"); err != nil {
+	if _, err := d.Send("slack:T1/C/U", "second", "", "", "", "k2", ""); err != nil {
 		t.Fatalf("send after move: %v", err)
 	}
 	if old.count() != 1 || moved.count() != 1 {

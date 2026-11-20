@@ -14,14 +14,14 @@ import (
 // noticeFailingDeliverer refuses every notice a turn owes and delivers the rest.
 type noticeFailingDeliverer struct{ *recDeliverer }
 
-func (d *noticeFailingDeliverer) Send(jid, text, replyTo, threadID, threadRoot, idem string) (string, error) {
+func (d *noticeFailingDeliverer) Send(jid, text, replyTo, threadID, threadRoot, idem string, _ string) (string, error) {
 	for _, prefix := range []string{"status-"} {
 		if strings.HasPrefix(idem, prefix) {
-			_, _ = d.recDeliverer.Send(jid, text, replyTo, threadID, threadRoot, idem)
+			_, _ = d.recDeliverer.Send(jid, text, replyTo, threadID, threadRoot, idem, "")
 			return "", errSend
 		}
 	}
-	return d.recDeliverer.Send(jid, text, replyTo, threadID, threadRoot, idem)
+	return d.recDeliverer.Send(jid, text, replyTo, threadID, threadRoot, idem, "")
 }
 
 func captureWarnings(t *testing.T) *syncBuf {

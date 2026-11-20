@@ -58,7 +58,7 @@ func TestSendVoice_SynthesizesAndDelivers(t *testing.T) {
 	}
 	fns := srv.buildRoutdFns(turnMCP{folder: "demo", topic: "#deploy", chatJID: "tg:42", turnID: "t1"})
 
-	pid, _, err := fns.SendVoice("tg:42", "hello there", "", "demo", "")
+	pid, _, err := fns.SendVoice("tg:42", "hello there", "", "demo", "", "")
 	if err != nil {
 		t.Fatalf("SendVoice: %v", err)
 	}
@@ -105,7 +105,7 @@ func TestSendVoice_CachesSynthesis(t *testing.T) {
 	srv.SetTTS(TTSConfig(true, tts.URL, "v", "m", 5*time.Second, t.TempDir()))
 
 	for i := range 2 {
-		if _, err := srv.sendVoice("tg:7", "same text", "", "", "", ""); err != nil {
+		if _, err := srv.sendVoice("tg:7", "same text", "", "", "", "", ""); err != nil {
 			t.Fatalf("sendVoice #%d: %v", i, err)
 		}
 	}
@@ -129,7 +129,7 @@ func TestSendVoice_ResolvesPersonaVoice(t *testing.T) {
 	srv.SetDirs(groups, "")
 	srv.SetTTS(TTSConfig(true, tts.URL, "instance_default", "m", 5*time.Second, t.TempDir()))
 
-	if _, err := srv.sendVoice("tg:1", "hi", "", "demo", "", ""); err != nil {
+	if _, err := srv.sendVoice("tg:1", "hi", "", "demo", "", "", ""); err != nil {
 		t.Fatalf("sendVoice: %v", err)
 	}
 	if (*reqs)[0]["voice"] != "bf_emma" {
@@ -149,7 +149,7 @@ func TestSendVoice_SkipsWhenDisabled(t *testing.T) {
 	dl := &recDeliverer{}
 	srv := NewServer(db, nil, dl, nil, 0, "")
 	// Zero-value tts config: Enabled=false (SetTTS not called).
-	if _, err := srv.sendVoice("tg:1", "hello", "", "", "", ""); err == nil {
+	if _, err := srv.sendVoice("tg:1", "hello", "", "", "", "", ""); err == nil {
 		t.Fatal("send_voice with TTS off should error (unsupported)")
 	}
 	if hit {
@@ -172,10 +172,10 @@ func TestSendVoice_RejectsEmptyAndOversize(t *testing.T) {
 	srv := NewServer(db, nil, dl, nil, 0, "")
 	srv.SetTTS(TTSConfig(true, tts.URL, "v", "m", 5*time.Second, t.TempDir()))
 
-	if _, err := srv.sendVoice("tg:1", "", "", "", "", ""); err == nil {
+	if _, err := srv.sendVoice("tg:1", "", "", "", "", "", ""); err == nil {
 		t.Error("empty text should be rejected before TTS")
 	}
-	if _, err := srv.sendVoice("tg:1", strings.Repeat("a", 6000), "", "", "", ""); err == nil {
+	if _, err := srv.sendVoice("tg:1", strings.Repeat("a", 6000), "", "", "", "", ""); err == nil {
 		t.Error("6000-char text should be rejected before TTS")
 	}
 	if hit {

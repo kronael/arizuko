@@ -33,7 +33,7 @@ func TestBuildRoutdFnsSendReply(t *testing.T) {
 	}
 
 	fns := srv.buildRoutdFns(turnMCP{folder: "demo", topic: "", chatJID: "tg:42", turnID: "t1", trigger: "u1"})
-	pid, _, err := fns.SendReply("tg:42", "answer", "", "mcp-1")
+	pid, _, err := fns.SendReply("tg:42", "answer", "", "mcp-1", "")
 	if err != nil {
 		t.Fatalf("SendReply: %v", err)
 	}

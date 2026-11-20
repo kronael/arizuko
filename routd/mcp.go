@@ -90,18 +90,18 @@ func (s *Server) buildRoutdFns(t turnMCP) ipc.RoutdFns {
 		GroupsDir:            s.groupsDir,
 		Audit:                s.audit,
 		FetchPlatformHistory: s.fetchPlatformHistory,
-		SendMessage: func(jid, text, msgID string) (string, string, error) {
-			return s.mcpDeliver(t.turnID, t.folder, jid, text, "", msgID, false)
+		SendMessage: func(jid, text, msgID, title string) (string, string, error) {
+			return s.mcpDeliver(t.turnID, t.folder, jid, text, "", msgID, title, false)
 		},
 		QueueIssueNotice: s.db.QueueIssueNotice,
-		SendReply: func(jid, text, replyTo, msgID string) (string, string, error) {
-			return s.mcpDeliver(t.turnID, t.folder, jid, text, replyTo, msgID, true)
+		SendReply: func(jid, text, replyTo, msgID, title string) (string, string, error) {
+			return s.mcpDeliver(t.turnID, t.folder, jid, text, replyTo, msgID, title, true)
 		},
-		SendDocument: func(jid, path, filename, caption, replyTo, _, msgID string) (string, string, error) {
-			return s.mcpAppendDoc(t.turnID, t.folder, jid, path, filename, caption, replyTo, "", msgID)
+		SendDocument: func(jid, path, filename, caption, replyTo, _, msgID, title string) (string, string, error) {
+			return s.mcpAppendDoc(t.turnID, t.folder, jid, path, filename, caption, replyTo, "", msgID, title)
 		},
-		SendVoice: func(jid, text, voice, folder, _ string) (string, string, error) {
-			return s.mcpSendVoice(t.turnID, jid, text, voice, folder, "")
+		SendVoice: func(jid, text, voice, folder, _, title string) (string, string, error) {
+			return s.mcpSendVoice(t.turnID, jid, text, voice, folder, "", title)
 		},
 		Like: func(jid, target, reaction string) error {
 			return s.socialTool(t, "message.like", jid, target, reactionParams(reaction),
@@ -330,7 +330,7 @@ func ensureGroupGitRepo(groupDir string) {
 // turn to the origin; threaded marks the REPLY verb. It returns the thread root
 // because the ipc layer writes the row and cannot see it — without it an MCP
 // reply that rooted a thread recorded no thread (BUGS L166).
-func (s *Server) mcpDeliver(turnID, folder, jid, text, replyTo, msgID string, threaded bool) (string, string, error) {
+func (s *Server) mcpDeliver(turnID, folder, jid, text, replyTo, msgID, title string, threaded bool) (string, string, error) {
 	if s.deliver == nil {
 		return "", "", nil
 	}
@@ -354,7 +354,7 @@ func (s *Server) mcpDeliver(turnID, folder, jid, text, replyTo, msgID string, th
 			}
 		}
 	}
-	pid, err := s.db.sendOutbound(folder, func() (string, error) { return s.deliver.Send(jid, text, replyTo, topic, threadRoot, msgID) })
+	pid, err := s.db.sendOutbound(folder, func() (string, error) { return s.deliver.Send(jid, text, replyTo, topic, threadRoot, msgID, title) })
 	if err != nil {
 		slog.Warn("mcp deliver failed", "turn_id", turnID, "jid", jid, "err", err)
 	}
@@ -367,7 +367,7 @@ func (s *Server) mcpDeliver(turnID, folder, jid, text, replyTo, msgID string, th
 // mcpAppendDoc is the in-process send_file: deliver-only (recordOutbound
 // persists the row, keyed on the platform id so a later human reply
 // re-promotes). An empty threadID falls back to the turn's topic.
-func (s *Server) mcpAppendDoc(turnID, folder, jid, path, name, caption, replyTo, threadID, msgID string) (string, string, error) {
+func (s *Server) mcpAppendDoc(turnID, folder, jid, path, name, caption, replyTo, threadID, msgID, title string) (string, string, error) {
 	if s.deliver == nil {
 		return "", "", nil
 	}
@@ -380,7 +380,7 @@ func (s *Server) mcpAppendDoc(turnID, folder, jid, path, name, caption, replyTo,
 		}
 	}
 	pid, err := s.db.sendOutbound(folder, func() (string, error) {
-		return s.deliver.Document(place.jid, path, name, caption, replyTo, place.threadID, msgID, place.threadRoot)
+		return s.deliver.Document(place.jid, path, name, caption, replyTo, place.threadID, msgID, place.threadRoot, title)
 	})
 	if err != nil {
 		slog.Warn("mcp deliver document failed", "turn_id", turnID, "jid", jid, "err", err)
@@ -391,7 +391,7 @@ func (s *Server) mcpAppendDoc(turnID, folder, jid, path, name, caption, replyTo,
 // mcpSendVoice is the in-process send_voice: synthesize via TTS (tts.go) and
 // deliver as a voice note. Deliver-only, and a delegated turn is redirected to
 // its origin, as in mcpDeliver.
-func (s *Server) mcpSendVoice(turnID, jid, text, voice, folder, threadID string) (string, string, error) {
+func (s *Server) mcpSendVoice(turnID, jid, text, voice, folder, threadID, title string) (string, string, error) {
 	place := deliveryPlace{jid: jid, threadID: threadID}
 	if tc, ok := s.db.GetTurnContext(turnID); ok {
 		var err error
@@ -401,7 +401,7 @@ func (s *Server) mcpSendVoice(turnID, jid, text, voice, folder, threadID string)
 		}
 	}
 	pid, err := s.db.sendOutbound(folder, func() (string, error) {
-		return s.sendVoice(place.jid, text, voice, folder, place.threadID, place.threadRoot)
+		return s.sendVoice(place.jid, text, voice, folder, place.threadID, place.threadRoot, title)
 	})
 	if err != nil {
 		slog.Warn("mcp send voice failed", "turn_id", turnID, "jid", jid, "err", err)

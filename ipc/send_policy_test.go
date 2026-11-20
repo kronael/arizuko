@@ -34,7 +34,7 @@ func TestSendGroupRealPolicy(t *testing.T) {
 		return "world/b"
 	}
 	sent := 0
-	routd := RoutdFns{SendMessage: func(string, string, string) (string, string, error) {
+	routd := RoutdFns{SendMessage: func(string, string, string, string) (string, string, error) {
 		sent++
 		return "m1", "", nil
 	}}

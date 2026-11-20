@@ -86,7 +86,7 @@ type sentEdit struct {
 	threadID                 string
 }
 
-func (d *recDeliverer) Send(jid, text, replyTo, threadID, threadRoot, idem string) (string, error) {
+func (d *recDeliverer) Send(jid, text, replyTo, threadID, threadRoot, idem string, _ string) (string, error) {
 	d.mu.Lock()
 	d.sends = append(d.sends, sentMsg{jid, text, replyTo, threadID, threadRoot, idem, nil})
 	d.mu.Unlock()
@@ -105,7 +105,7 @@ func (d *recDeliverer) Send(jid, text, replyTo, threadID, threadRoot, idem strin
 // SendOptions records the pickable answers alongside the text so a test can
 // assert what a reader is actually offered.
 func (d *recDeliverer) SendOptions(jid, text string, options []chanlib.Option, threadID, idem string) (string, error) {
-	id, err := d.Send(jid, text, "", threadID, "", idem)
+	id, err := d.Send(jid, text, "", threadID, "", idem, "")
 	// Send appends under the lock and releases it, so stamping the options back
 	// onto that row is a second write and needs the lock again. The hold notice
 	// is delivered through THIS method, and it is the one a waiting test reads.
@@ -124,7 +124,7 @@ func (d *recDeliverer) SendVia(channel, jid, text string) (string, error) {
 	d.mu.Lock()
 	d.viaChannels = append(d.viaChannels, channel)
 	d.mu.Unlock()
-	return d.Send(jid, text, "", "", "", "")
+	return d.Send(jid, text, "", "", "", "", "")
 }
 func (d *recDeliverer) React(_, _, _ string) error {
 	d.mu.Lock()
@@ -161,13 +161,13 @@ func (d *recDeliverer) Typing(jid, topic string, on bool) error {
 	d.typings = append(d.typings, typingEvent{jid, topic, on})
 	return nil
 }
-func (d *recDeliverer) Document(jid, _, _, _, replyTo, threadID, idem, threadRoot string) (string, error) {
+func (d *recDeliverer) Document(jid, _, _, _, replyTo, threadID, idem, threadRoot string, _ string) (string, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.docs = append(d.docs, sentMsg{jid: jid, replyTo: replyTo, threadID: threadID, threadRoot: threadRoot, idem: idem})
 	return d.pid, nil
 }
-func (d *recDeliverer) SendVoice(jid, audioPath, caption, threadID, threadRoot string) (string, error) {
+func (d *recDeliverer) SendVoice(jid, audioPath, caption, threadID, threadRoot string, _ string) (string, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.voices = append(d.voices, sentVoice{jid, audioPath, caption, threadID, threadRoot})

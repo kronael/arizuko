@@ -353,7 +353,7 @@ func TestSendFile(t *testing.T) {
 	os_WriteFile(t, path, []byte("hi"))
 
 	b := &bot{session: newTestSession(t)}
-	id, err := b.SendFile("discord:ch-1", path, "hello.txt", "caption", "", "", "")
+	id, err := b.SendFile("discord:ch-1", path, "hello.txt", "caption", "", "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -389,7 +389,7 @@ func TestSendFile_ThreadOverridesChannel(t *testing.T) {
 	os_WriteFile(t, path, []byte("hi"))
 
 	b := &bot{session: newTestSession(t)}
-	if _, err := b.SendFile("discord:ch-1", path, "hello.txt", "caption", "", "thread-99", ""); err != nil {
+	if _, err := b.SendFile("discord:ch-1", path, "hello.txt", "caption", "", "thread-99", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	mu.Lock()
@@ -401,7 +401,7 @@ func TestSendFile_ThreadOverridesChannel(t *testing.T) {
 
 func TestSendFile_OpenFails(t *testing.T) {
 	b := &bot{session: newTestSession(t)}
-	_, err := b.SendFile("discord:ch-1", "/nonexistent/path", "x", "c", "", "", "")
+	_, err := b.SendFile("discord:ch-1", "/nonexistent/path", "x", "c", "", "", "", "")
 	if err == nil {
 		t.Fatal("expected open error")
 	}

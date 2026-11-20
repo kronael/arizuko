@@ -343,7 +343,7 @@ func (l *Loop) retryOutbound(now time.Time, p store.PendingMessage) {
 		}
 	}
 	pid, derr := l.db.sendOutbound(m.RoutedTo, func() (string, error) {
-		return l.deliver.Send(place.jid, m.Content, m.ReplyToID, place.threadID, place.threadRoot, m.ID)
+		return l.deliver.Send(place.jid, m.Content, m.ReplyToID, place.threadID, place.threadRoot, m.ID, m.Title)
 	})
 	switch derr {
 	case nil:
@@ -468,7 +468,7 @@ func (l *Loop) routeMiss(chatJID string, msgs []core.Message, r resolution) {
 
 					slog.Error("insert onboarding failed", "jid", chatJID, "err", err)
 					if l.deliver != nil {
-						_, _ = l.deliver.Send(chatJID, onboardingFailedNotice, "", "", "", "onboard-"+last.ID)
+						_, _ = l.deliver.Send(chatJID, onboardingFailedNotice, "", "", "", "onboard-"+last.ID, "")
 					}
 				}
 			}

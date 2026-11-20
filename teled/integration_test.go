@@ -277,11 +277,11 @@ func TestBotSendFile_DispatchesByExtension(t *testing.T) {
 			defer os.Remove(tmp.Name())
 
 			if tc.isVoice {
-				if _, err := b.SendVoice("telegram:1/user/123", tmp.Name(), "", "", ""); err != nil {
+				if _, err := b.SendVoice("telegram:1/user/123", tmp.Name(), "", "", "", ""); err != nil {
 					t.Fatalf("SendVoice: %v", err)
 				}
 			} else {
-				if _, err := b.SendFile("telegram:1/user/123", tmp.Name(), filepath.Base(tmp.Name()), "", "", "", ""); err != nil {
+				if _, err := b.SendFile("telegram:1/user/123", tmp.Name(), filepath.Base(tmp.Name()), "", "", "", "", ""); err != nil {
 					t.Fatalf("SendFile: %v", err)
 				}
 			}
@@ -365,7 +365,7 @@ func TestBotSendFile_ThreadsReplyTo(t *testing.T) {
 	tmp.Close()
 	defer os.Remove(tmp.Name())
 
-	if _, err := b.SendFile("telegram:1/user/123", tmp.Name(), filepath.Base(tmp.Name()), "cap", "55", "", ""); err != nil {
+	if _, err := b.SendFile("telegram:1/user/123", tmp.Name(), filepath.Base(tmp.Name()), "cap", "55", "", "", ""); err != nil {
 		t.Fatalf("SendFile: %v", err)
 	}
 	m.mu.Lock()
@@ -387,10 +387,10 @@ func TestBotExistingForumTopicCarriesTextFileAndVoice(t *testing.T) {
 	if err := os.WriteFile(path, []byte("result"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := b.SendFile("telegram:1/user/123", path, "result.txt", "result", "", "42", ""); err != nil {
+	if _, err := b.SendFile("telegram:1/user/123", path, "result.txt", "result", "", "42", "", ""); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := b.SendVoice("telegram:1/user/123", path, "result", "42", ""); err != nil {
+	if _, err := b.SendVoice("telegram:1/user/123", path, "result", "42", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	m.mu.Lock()

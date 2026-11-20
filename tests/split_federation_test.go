@@ -163,8 +163,10 @@ func newFedVerifier(t *testing.T, a *fakeAuthd) fedVerifier {
 // test closes via the agent's reply callback, not adapter egress.
 type fedDeliverer struct{}
 
-func (fedDeliverer) Send(_, _, _, _, _, _ string) (string, error) { return "platform-fed-1", nil }
-func (fedDeliverer) SendVia(_, _, _ string) (string, error)       { return "platform-fed-1", nil }
+func (fedDeliverer) Send(_, _, _, _, _, _ string, _ string) (string, error) {
+	return "platform-fed-1", nil
+}
+func (fedDeliverer) SendVia(_, _, _ string) (string, error) { return "platform-fed-1", nil }
 func (fedDeliverer) SendOptions(_, _ string, _ []chanlib.Option, _, _ string) (string, error) {
 	return "platform-fed-1", nil
 }
@@ -174,10 +176,12 @@ func (fedDeliverer) Delete(_, _, _ string) error      { return nil }
 func (fedDeliverer) Pin(_, _ string) error            { return nil }
 func (fedDeliverer) Unpin(_, _ string, _ bool) error  { return nil }
 func (fedDeliverer) Typing(_, _ string, _ bool) error { return nil }
-func (fedDeliverer) Document(_, _, _, _, _, _, _, _ string) (string, error) {
+func (fedDeliverer) Document(_, _, _, _, _, _, _, _ string, _ string) (string, error) {
 	return "platform-fed-doc", nil
 }
-func (fedDeliverer) SendVoice(_, _, _, _, _ string) (string, error)     { return "platform-fed-voice", nil }
+func (fedDeliverer) SendVoice(_, _, _, _, _ string, _ string) (string, error) {
+	return "platform-fed-voice", nil
+}
 func (fedDeliverer) Post(_, _ string, _ []string) (string, error)       { return "platform-fed-post", nil }
 func (fedDeliverer) Forward(_, _, _ string) (string, error)             { return "", nil }
 func (fedDeliverer) Quote(_, _, _ string) (string, error)               { return "", nil }

@@ -1331,7 +1331,7 @@ func (b *bot) setPanePending(team, user, thread string, prompts []panePrompt, ti
 	}
 }
 
-func (b *bot) SendFile(jid, path, name, caption, replyTo, threadID, threadRoot string) (string, error) {
+func (b *bot) SendFile(jid, path, name, caption, replyTo, threadID, threadRoot, _ string) (string, error) {
 	parts, err := parseJID(jid)
 	if err != nil {
 		return "", err

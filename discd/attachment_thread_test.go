@@ -29,6 +29,7 @@ func TestAttachmentHTTPMaterializesItsDeclaredThread(t *testing.T) {
 				for key, value := range map[string]string{
 					"chat_jid": "discord:g1/ch-1", "filename": "report.txt",
 					"thread_root": "root-1", "thread_id": existing,
+					"title": "Chosen attachment title",
 				} {
 					if err := form.WriteField(key, value); err != nil {
 						t.Fatal(err)
@@ -81,9 +82,9 @@ func TestAttachmentThreadFailureNeverPostsAtParent(t *testing.T) {
 			var id string
 			var err error
 			if voice {
-				id, err = b.SendVoice("discord:g1/ch-1", path, "result", "", "root-1")
+				id, err = b.SendVoice("discord:g1/ch-1", path, "result", "", "root-1", "Chosen title")
 			} else {
-				id, err = b.SendFile("discord:g1/ch-1", path, "result.txt", "result", "", "", "root-1")
+				id, err = b.SendFile("discord:g1/ch-1", path, "result.txt", "result", "", "", "root-1", "Chosen title")
 			}
 			if err == nil || id != "" || len(rec.snapshot()) != 1 {
 				t.Fatalf("thread failure must refuse attachment: id=%q err=%v calls=%+v", id, err, rec.snapshot())
@@ -101,7 +102,7 @@ func TestSendOpenerThreadKeepsAValidReplyReferenceRequest(t *testing.T) {
 	b := &bot{session: newTestSession(t)}
 	if _, err := b.Send(chanlib.SendRequest{
 		ChatJID: "discord:g1/ch-1", Content: "the answer",
-		ReplyTo: "human-parent", ThreadRoot: "root-1",
+		ReplyTo: "human-parent", ThreadRoot: "root-1", Title: "Chosen title",
 	}); err != nil {
 		t.Fatal(err)
 	}

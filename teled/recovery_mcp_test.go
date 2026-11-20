@@ -51,12 +51,12 @@ func TestNativeTelegramMissingTargetReachesMCPAndAllowsRecovery(t *testing.T) {
 			}
 			deliver := routd.NewChannelDeliverer(reg, nil, nil)
 			gated := ipc.RoutdFns{
-				SendReply: func(jid, text, replyTo, id string) (string, string, error) {
-					pid, err := deliver.Send(jid, text, replyTo, "", "", id)
+				SendReply: func(jid, text, replyTo, id string, _ string) (string, string, error) {
+					pid, err := deliver.Send(jid, text, replyTo, "", "", id, "")
 					return pid, "", err
 				},
-				SendMessage: func(jid, text, id string) (string, string, error) {
-					pid, err := deliver.Send(jid, text, "", "", "", id)
+				SendMessage: func(jid, text, id string, _ string) (string, string, error) {
+					pid, err := deliver.Send(jid, text, "", "", "", id, "")
 					return pid, "", err
 				},
 			}

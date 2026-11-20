@@ -86,22 +86,22 @@ func (d *chanDeliverer) disabled(jid string) bool {
 	return false
 }
 
-func (d *chanDeliverer) Send(jid, text, replyToID, threadID, threadRoot, idempotencyKey string) (string, error) {
-	return d.send("", jid, text, nil, replyToID, threadID, threadRoot, idempotencyKey)
+func (d *chanDeliverer) Send(jid, text, replyToID, threadID, threadRoot, idempotencyKey, title string) (string, error) {
+	return d.send("", jid, text, nil, replyToID, threadID, threadRoot, idempotencyKey, title)
 }
 
 func (d *chanDeliverer) SendVia(channel, jid, text string) (string, error) {
-	return d.send(channel, jid, text, nil, "", "", "", "")
+	return d.send(channel, jid, text, nil, "", "", "", "", "")
 }
 
 func (d *chanDeliverer) SendOptions(jid, text string, options []chanlib.Option, threadID, idempotencyKey string) (string, error) {
-	return d.send("", jid, text, options, "", threadID, "", idempotencyKey)
+	return d.send("", jid, text, options, "", threadID, "", idempotencyKey, "")
 }
 
 // send is the one text-egress body; Send, SendVia and SendOptions differ only
 // in the pin and the options.
 func (d *chanDeliverer) send(channel, jid, text string, options []chanlib.Option,
-	replyToID, threadID, threadRoot, idempotencyKey string) (string, error) {
+	replyToID, threadID, threadRoot, idempotencyKey, title string) (string, error) {
 	if d.disabled(jid) {
 		return "", nil
 	}
@@ -109,10 +109,10 @@ func (d *chanDeliverer) send(channel, jid, text string, options []chanlib.Option
 	if ch == nil {
 		return "", errNoChannel(jid)
 	}
-	return ch.SendOptionsCtx(context.Background(), jid, text, options, replyToID, threadID, threadRoot, idempotencyKey)
+	return ch.SendOptionsCtx(context.Background(), jid, text, options, replyToID, threadID, threadRoot, idempotencyKey, title)
 }
 
-func (d *chanDeliverer) Document(jid, path, name, caption, replyToID, threadID, idempotencyKey, threadRoot string) (string, error) {
+func (d *chanDeliverer) Document(jid, path, name, caption, replyToID, threadID, idempotencyKey, threadRoot, title string) (string, error) {
 	if d.disabled(jid) {
 		return "", nil
 	}
@@ -120,10 +120,10 @@ func (d *chanDeliverer) Document(jid, path, name, caption, replyToID, threadID, 
 	if ch == nil {
 		return "", errNoChannel(jid)
 	}
-	return ch.SendFile(jid, path, name, caption, replyToID, threadID, idempotencyKey, threadRoot)
+	return ch.SendFile(jid, path, name, caption, replyToID, threadID, idempotencyKey, threadRoot, title)
 }
 
-func (d *chanDeliverer) SendVoice(jid, audioPath, caption, threadID, threadRoot string) (string, error) {
+func (d *chanDeliverer) SendVoice(jid, audioPath, caption, threadID, threadRoot, title string) (string, error) {
 	if d.disabled(jid) {
 		return "", nil
 	}
@@ -131,7 +131,7 @@ func (d *chanDeliverer) SendVoice(jid, audioPath, caption, threadID, threadRoot 
 	if ch == nil {
 		return "", errNoChannel(jid)
 	}
-	return ch.SendVoice(jid, audioPath, caption, threadID, threadRoot)
+	return ch.SendVoice(jid, audioPath, caption, threadID, threadRoot, title)
 }
 
 func (d *chanDeliverer) React(jid, platformID, reaction string) error {

@@ -19,7 +19,7 @@ func TestSendGroupAndPlatform(t *testing.T) {
 	db.PutMessage = func(m core.Message) error { messages = append(messages, m); return nil }
 	sent := 0
 	routd := RoutdFns{
-		SendMessage: func(string, string, string) (string, string, error) { sent++; return "m1", "", nil },
+		SendMessage: func(string, string, string, string) (string, string, error) { sent++; return "m1", "", nil },
 	}
 	stop, err := ServeMCP(sock, routd, db, "world/a", false, 0, "folder:world/a")
 	if err != nil {
@@ -53,7 +53,7 @@ func TestSendIssuesDestination(t *testing.T) {
 	db.DefaultFolderForJID = func(string) string { return "" }
 	sent, queued, dests := 0, []string{}, 1
 	routd := RoutdFns{
-		SendMessage: func(string, string, string) (string, string, error) {
+		SendMessage: func(string, string, string, string) (string, string, error) {
 			sent++
 			return "m1", "", nil
 		},

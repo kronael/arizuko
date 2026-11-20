@@ -13,7 +13,7 @@ import (
 
 type unknownDeliverer struct{ recDeliverer }
 
-func (d *unknownDeliverer) Send(jid, text, replyTo, threadID, threadRoot, idem string) (string, error) {
+func (d *unknownDeliverer) Send(jid, text, replyTo, threadID, threadRoot, idem string, _ string) (string, error) {
 	d.sends = append(d.sends, sentMsg{jid: jid, idem: idem})
 	return "", errors.New("unknown delivery failure")
 }

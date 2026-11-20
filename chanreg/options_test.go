@@ -23,7 +23,7 @@ func optionsEcho(t *testing.T, caps map[string]bool, options []chanlib.Option) m
 
 	e := &Entry{Name: "tg", URL: srv.URL, JIDPrefixes: []string{"tg:"}, Capabilities: caps}
 	ch := NewHTTPChannel(e, staticBearer("secret"))
-	if _, err := ch.SendOptionsCtx(context.Background(), "tg:1", "pick one", options, "", "", "", ""); err != nil {
+	if _, err := ch.SendOptionsCtx(context.Background(), "tg:1", "pick one", options, "", "", "", "", ""); err != nil {
 		t.Fatalf("SendOptionsCtx: %v", err)
 	}
 	return got

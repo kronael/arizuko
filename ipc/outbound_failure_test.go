@@ -45,12 +45,12 @@ func captureStore(rows *[]outboundRow) StoreFns {
 func TestSendTransientFailureRecordsPendingRow(t *testing.T) {
 	var rows []outboundRow
 	routd := RoutdFns{
-		SendMessage: func(string, string, string) (string, string, error) {
+		SendMessage: func(string, string, string, string) (string, string, error) {
 			return "", "", &retry.Error{Failure: retry.Failure{Kind: "transient"}, Err: fmt.Errorf("adapter down")}
 		},
 	}
 
-	_, err := internalSend(routd, captureStore(&rows), "demo", "slack:T/C/U", "do not lose me", nil)
+	_, err := internalSend(routd, captureStore(&rows), "demo", "slack:T/C/U", "do not lose me", "", nil)
 	if err == nil {
 		t.Fatal("internalSend returned nil on a failed send — the agent must get the error")
 	}
@@ -74,12 +74,12 @@ func TestSendTransientFailureRecordsPendingRow(t *testing.T) {
 func TestSendPermanentFailureDeadLetters(t *testing.T) {
 	var rows []outboundRow
 	routd := RoutdFns{
-		SendMessage: func(string, string, string) (string, string, error) {
+		SendMessage: func(string, string, string, string) (string, string, error) {
 			return "", "", fmt.Errorf("channel slack send: %w: status 400", chanlib.ErrPermanent)
 		},
 	}
 
-	_, err := internalSend(routd, captureStore(&rows), "demo", "slack:T/C/U", "the chat is gone", nil)
+	_, err := internalSend(routd, captureStore(&rows), "demo", "slack:T/C/U", "the chat is gone", "", nil)
 	if err == nil {
 		t.Fatal("internalSend returned nil on a permanent refusal")
 	}
@@ -97,13 +97,13 @@ func TestSendPermanentFailureDeadLetters(t *testing.T) {
 func TestSendFileFailureDeadLetters(t *testing.T) {
 	var rows []outboundRow
 	routd := RoutdFns{
-		SendDocument: func(string, string, string, string, string, string, string) (string, string, error) {
+		SendDocument: func(string, string, string, string, string, string, string, string) (string, string, error) {
 			return "", "", fmt.Errorf("adapter down")
 		},
 	}
 
 	_, err := internalSend(routd, captureStore(&rows), "demo", "slack:T/C/U", "the report",
-		[]internalSendFile{{LocalPath: "/srv/x.pdf", Filename: "x.pdf", ReplyTo: "p1"}})
+		"", []internalSendFile{{LocalPath: "/srv/x.pdf", Filename: "x.pdf", ReplyTo: "p1"}})
 	if err == nil {
 		t.Fatal("internalSend returned nil on a failed file send")
 	}
@@ -123,10 +123,10 @@ func TestSendFileFailureDeadLetters(t *testing.T) {
 func TestSendSuccessRecordsSentRow(t *testing.T) {
 	var rows []outboundRow
 	routd := RoutdFns{
-		SendMessage: func(string, string, string) (string, string, error) { return "pid-7", "", nil },
+		SendMessage: func(string, string, string, string) (string, string, error) { return "pid-7", "", nil },
 	}
 
-	id, err := internalSend(routd, captureStore(&rows), "demo", "slack:T/C/U", "hello", nil)
+	id, err := internalSend(routd, captureStore(&rows), "demo", "slack:T/C/U", "hello", "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,7 +152,7 @@ func TestFailureNoticeRequiresPersistedDecision(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			db := StoreFns{PutOutboundFailure: func(core.Message, retry.Failure) (retry.Decision, error) { return tc.decision, tc.saveErr }}
-			err := recordOutboundFailure(RoutdFns{}, db, "chat", "text", "folder", "", "root", "id", "reply", true, &retry.Error{Failure: retry.Failure{Kind: "transient"}, Err: fmt.Errorf("failure")})
+			err := recordOutboundFailure(RoutdFns{}, db, "chat", "text", "folder", "", "root", "id", "reply", "", true, &retry.Error{Failure: retry.Failure{Kind: "transient"}, Err: fmt.Errorf("failure")})
 			if err == nil || tc.want != "" && !strings.Contains(err.Error(), tc.want) || tc.reject != "" && strings.Contains(err.Error(), tc.reject) {
 				t.Fatalf("error=%v", err)
 			}
@@ -162,7 +162,9 @@ func TestFailureNoticeRequiresPersistedDecision(t *testing.T) {
 
 func TestUnknownFailureStops(t *testing.T) {
 	var rows []outboundRow
-	_, err := internalSend(RoutdFns{SendMessage: func(string, string, string) (string, string, error) { return "", "root", fmt.Errorf("unknown outcome") }}, captureStore(&rows), "folder", "chat", "text", nil)
+	_, err := internalSend(RoutdFns{SendMessage: func(string, string, string, string) (string, string, error) {
+		return "", "root", fmt.Errorf("unknown outcome")
+	}}, captureStore(&rows), "folder", "chat", "text", "", nil)
 	if err == nil || len(rows) != 1 || rows[0].Status != core.MessageStatusFailed || rows[0].Topic != "root" {
 		t.Fatalf("rows=%+v err=%v", rows, err)
 	}
@@ -181,7 +183,7 @@ func TestMCPFailureReportsCommittedOwnership(t *testing.T) {
 			db := StoreFns{PutOutboundFailure: func(_ core.Message, failure retry.Failure) (retry.Decision, error) {
 				return retry.Next(0, failure, time.Now(), time.Time{}), tc.saveErr
 			}}
-			routd := RoutdFns{SendMessage: func(string, string, string) (string, string, error) {
+			routd := RoutdFns{SendMessage: func(string, string, string, string) (string, string, error) {
 				return "", "root", &retry.Error{Failure: retry.Failure{Kind: "transient"}, Err: fmt.Errorf("unavailable")}
 			}}
 			sock := t.TempDir() + "/mcp.sock"
@@ -199,7 +201,7 @@ func TestMCPFailureReportsCommittedOwnership(t *testing.T) {
 }
 
 func TestMissingFailureCallbackDoesNotClaimOwnership(t *testing.T) {
-	err := recordOutboundFailure(RoutdFns{}, StoreFns{}, "chat", "text", "demo", "", "", "id", "", true, &retry.Error{Failure: retry.Failure{Kind: "transient"}, Err: fmt.Errorf("send failed")})
+	err := recordOutboundFailure(RoutdFns{}, StoreFns{}, "chat", "text", "demo", "", "", "id", "", "", true, &retry.Error{Failure: retry.Failure{Kind: "transient"}, Err: fmt.Errorf("send failed")})
 	if err == nil || !strings.Contains(err.Error(), "not configured") || strings.Contains(err.Error(), "router will resend") {
 		t.Fatalf("error=%v", err)
 	}

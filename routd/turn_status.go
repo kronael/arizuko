@@ -526,7 +526,7 @@ func executeStatus(db *DB, dl Deliverer, pending store.PendingMessage) error {
 				key = row.ID
 			}
 			pid, err = db.sendOutbound(row.RoutedTo, func() (string, error) {
-				return dl.Send(place.jid, row.Content, row.ReplyToID, place.threadID, place.threadRoot, key)
+				return dl.Send(place.jid, row.Content, row.ReplyToID, place.threadID, place.threadRoot, key, "")
 			})
 		}
 	}
