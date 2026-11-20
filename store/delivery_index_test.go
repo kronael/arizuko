@@ -296,7 +296,7 @@ func TestOutboundRetryMigrationPreservesLegacyDeadline(t *testing.T) {
 		}
 	}
 	counter := &stateReadCounter{Store: s.obj}
-	if err := NewOver(counter).MigrateStateIndexes(ctx); err != nil || counter.rows != 11 {
+	if err := NewOver(counter).MigrateStateIndexes(ctx); err != nil || counter.rows != 12 {
 		t.Fatalf("repeat migration: %v rows=%d", err, counter.rows)
 	}
 	row, ok, err := s.PendingDelivery(ctx, m)

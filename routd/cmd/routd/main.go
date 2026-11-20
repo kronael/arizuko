@@ -317,11 +317,6 @@ func main() {
 		}
 	}()
 	go loop.Run(ctx)
-	go func() {
-		if err := db.ReindexMessages(ctx); err != nil {
-			slog.Error("reindex messages", "err", err)
-		}
-	}()
 
 	<-stop
 	slog.Info("routd stopping")
