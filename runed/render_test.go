@@ -135,7 +135,7 @@ func TestRenderTurnGolden(t *testing.T) {
 		root + "/groups/atlas/share -> /var/lib/share ro",
 		root + "/ipc/atlas/support -> /run/ipc",
 		root + "/groups/atlas/support/.codex -> /home/node/.codex",
-		root + "/ipc/atlas/support/codex-cred-auth.json -> /home/node/.codex/auth.json ro",
+		root + "/ipc/atlas/support/codex-cred-auth.json -> /home/node/.codex/auth.json",
 		root + "/ipc/atlas/support/codex-cred-config.toml -> /home/node/.codex/config.toml ro",
 		root + "/extra -> /mnt/extra ro",
 		root + "/web/pub -> /var/lib/www ro",
