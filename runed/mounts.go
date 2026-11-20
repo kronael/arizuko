@@ -438,7 +438,8 @@ func replaceFile(path string, data []byte, like os.FileInfo) error {
 	if err != nil {
 		return err
 	}
-	defer os.Remove(tmp.Name())
+	// gone after a successful rename; otherwise it removes the leftover
+	defer os.Remove(tmp.Name()) //nolint:errcheck
 	_, err = tmp.Write(data)
 	if err == nil {
 		err = tmp.Chmod(like.Mode().Perm())
