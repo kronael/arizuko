@@ -13,8 +13,37 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.75.18] — 2026-11-20
+
+> arizuko v0.75.18 — one key per GitHub and Gmail account
+>
+> gitd's token is the only GitHub token a shell gets, emaid keeps a Gmail login alive, and a spend limit no longer blocks a turn before it starts.
+>
+> • Credentials — a granted `GITHUB_TOKEN` is gitd's `.env` value; emaid renews its Gmail token at each login.
+> • Budgets — the gateway refuses at the limit and the turn ends with status `budget` and one notice.
+> • pi — a Codex token pi refreshes during a turn is saved back to the operator's login.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Added
+
+- The Google connector template declares `read_sheet_range`, a read of a sheet
+  range through googd. A REST connector refuses a path value that contains
+  `/`, `?`, `#`, `%` or `..`.
+- An anteval case can name its group's harness.
+
 ### Changed
 
+- routd no longer refuses a turn before spawn for budget; the model gateway
+  refuses at the limit, and the turn ends with status `budget` and a notice.
+- A Codex login that pi or codex refreshes during a turn is written back to the
+  operator's file with its owner and mode.
+- dashd edits a group's harness as backend, model and effort fields; a malformed
+  settings document fails the write.
+- pi: one status block per turn reaches the chassis, a gateway budget refusal
+  ends as `budget`, and `models.json` providers work under the model gateway.
+- Skill frontmatter accepts CRLF line ends and a BOM.
+- The daemon image no longer carries the sqlite packages.
 - A granted `GITHUB_TOKEN` is only gitd's `.env` token; a user or folder row of
   that name no longer reaches the shell. `store.SharedShellKeys` names such keys.
 - emaid signs in to Gmail with `EMAIL_REFRESH_TOKEN` and the surrogate Google
