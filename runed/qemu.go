@@ -313,7 +313,6 @@ func (q *qemuRuntime) spawn(ctx context.Context, t Turn) RunResult {
 	if err := rec.save(); err != nil {
 		return fail(fmt.Errorf("vm record: %w", err))
 	}
-	go func() { _ = eg.Wait() }()
 	// The guest's environment is the rendered one plus this substrate's own
 	// proxy address. Copied, because the renderer's map is the Manager's and a
 	// substrate that wrote into it would hand the next reader its own address.
@@ -344,7 +343,6 @@ func (q *qemuRuntime) spawn(ctx context.Context, t Turn) RunResult {
 	if err := rec.save(); err != nil {
 		return fail(fmt.Errorf("vm record: %w", err))
 	}
-	go func() { _ = bridge.Wait() }()
 
 	// Step 6: QEMU.
 	args := qemuArgs(qemuSpec{
@@ -361,23 +359,28 @@ func (q *qemuRuntime) spawn(ctx context.Context, t Turn) RunResult {
 		"cid", rec.CID, "tap", rec.Tap, "mounts", len(plan.Mounts))
 	slog.Debug("qemu args", "folder", t.Folder, "args", strings.Join(args, " "))
 	qemu := exec.Command(q.paths.Qemu, args...)
-	qemu.Stderr = newPrefixWriter("qemu", t.Folder)
+	qemuLog := newPrefixWriter("qemu", t.Folder)
+	qemu.Stderr = qemuLog
 	bootStart := time.Now()
 	if err := qemu.Start(); err != nil {
+		// Closing the pipe only signals EOF.
+		_ = qemuLog.Close()
 		return fail(fmt.Errorf("qemu start: %w", err))
-	}
-	rec.QemuPid = qemu.Process.Pid
-	if err := rec.save(); err != nil {
-		return fail(fmt.Errorf("vm record: %w", err))
 	}
 	qemuDone := make(chan error, 1)
 	peak := &guestPeak{done: make(chan struct{})}
 	go func() {
 		err := qemu.Wait()
+		// Closing the pipe only signals EOF.
+		_ = qemuLog.Close()
 		peak.kib = maxrssKiB(qemu.ProcessState)
 		close(peak.done)
 		qemuDone <- err
 	}()
+	rec.QemuPid = qemu.Process.Pid
+	if err := rec.save(); err != nil {
+		return fail(fmt.Errorf("vm record: %w", err))
+	}
 
 	audit.Emit(context.Background(), audit.Event{
 		Category: audit.CategoryAgent,
@@ -709,7 +712,8 @@ func exitCodeOf(err error) int {
 // exit unnoticed.
 func (q *qemuRuntime) startVirtiofsd(rec *vmRecord, sock, source string, clamp bool) error {
 	cmd := exec.Command(q.paths.Virtiofsd, virtiofsdArgs(sock, source)...)
-	cmd.Stderr = newPrefixWriter("virtiofsd", rec.Folder)
+	log := newPrefixWriter("virtiofsd", rec.Folder)
+	cmd.Stderr = log
 	if clamp {
 		// THE CLAMP: the writable share is exported by a daemon running as the
 		// agent's own uid, so it cannot create a host file owned by anyone else
@@ -723,15 +727,22 @@ func (q *qemuRuntime) startVirtiofsd(rec *vmRecord, sock, source string, clamp b
 		}
 	}
 	if err := cmd.Start(); err != nil {
+		// Closing the pipe only signals EOF.
+		_ = log.Close()
 		return fmt.Errorf("virtiofsd %s: %w", source, err)
 	}
+	died := make(chan error, 1)
+	go func() {
+		err := cmd.Wait()
+		// Closing the pipe only signals EOF.
+		_ = log.Close()
+		died <- err
+	}()
 	rec.VirtiofsdPids = append(rec.VirtiofsdPids, cmd.Process.Pid)
 	if err := rec.save(); err != nil {
 		_ = cmd.Process.Kill()
 		return fmt.Errorf("vm record: %w", err)
 	}
-	died := make(chan error, 1)
-	go func() { died <- cmd.Wait() }()
 	// QEMU connects to the socket, so it must exist before QEMU starts. The
 	// daemon creates it as it comes up.
 	if err := waitForSocket(sock, q.paths.Grace, died); err != nil {
@@ -779,13 +790,21 @@ func (q *qemuRuntime) startBridge(rec *vmRecord, listener *os.File) (*exec.Cmd, 
 	}
 	cmd := exec.Command(self, mcpBridgeFlag, strconv.FormatUint(uint64(rec.CID), 10), socket)
 	cmd.ExtraFiles = []*os.File{listener}
-	cmd.Stderr = newPrefixWriter("mcp-bridge", rec.Folder)
+	log := newPrefixWriter("mcp-bridge", rec.Folder)
+	cmd.Stderr = log
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		Credential: &syscall.Credential{Uid: uint32(uid), Gid: uint32(uid)},
 	}
 	if err := cmd.Start(); err != nil {
+		// Closing the pipe only signals EOF.
+		_ = log.Close()
 		return nil, fmt.Errorf("mcp bridge: %w", err)
 	}
+	go func() {
+		_ = cmd.Wait()
+		// Closing the pipe only signals EOF.
+		_ = log.Close()
+	}()
 	return cmd, nil
 }
 
@@ -880,9 +899,11 @@ func (l *lineBuffer) String() string {
 
 // newPrefixWriter turns a child's stderr into log lines, so a virtiofsd or a
 // proxy that complains is read rather than discarded.
-func newPrefixWriter(what, folder string) io.Writer {
+func newPrefixWriter(what, folder string) io.WriteCloser {
 	r, w := io.Pipe()
 	go func() {
+		// Closing the pipe only unblocks a writer.
+		defer r.Close() //nolint:errcheck
 		sc := bufio.NewScanner(r)
 		sc.Buffer(make([]byte, 16*1024), 1024*1024)
 		clamped := 0

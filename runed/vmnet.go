@@ -250,10 +250,18 @@ func egressArgs(rec *vmRecord, allowlist []string, gatewayURL string) []string {
 func (q *qemuRuntime) startEgress(rec *vmRecord, allowlist []string) (*exec.Cmd, string, error) {
 	args := egressArgs(rec, allowlist, q.cfg.ModelGatewayURL)
 	cmd := exec.Command(q.paths.Egress, args...)
-	cmd.Stderr = newPrefixWriter("egress", rec.Folder)
+	log := newPrefixWriter("egress", rec.Folder)
+	cmd.Stderr = log
 	if err := cmd.Start(); err != nil {
+		// Closing the pipe only signals EOF.
+		_ = log.Close()
 		return nil, "", fmt.Errorf("egress proxy start: %w", err)
 	}
+	go func() {
+		_ = cmd.Wait()
+		// Closing the pipe only signals EOF.
+		_ = log.Close()
+	}()
 	proxyURL := "http://" + net.JoinHostPort(rec.HostIP, strconv.Itoa(rec.ProxyPort))
 	if err := container.WaitHealthy(proxyURL+egress.HealthPath, egressReady); err != nil {
 		_ = cmd.Process.Kill()
