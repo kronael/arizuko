@@ -2,6 +2,9 @@ package routd
 
 import (
 	"context"
+	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -9,6 +12,77 @@ import (
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 	"github.com/kronael/arizuko/store"
 )
+
+func TestMCPSetupFailureSettlesTurn(t *testing.T) {
+	for _, saved := range []bool{false, true} {
+		name := "fresh"
+		if saved {
+			name = "saved"
+		}
+		t.Run(name, func(t *testing.T) {
+			var db *DB
+			var loop *Loop
+			var runner *recRunner
+			var tc TurnContext
+			if saved {
+				db, loop, runner, tc, _ = deferredFixture(t)
+				loop.q.now = func() time.Time { return tc.NextAttemptAt }
+			} else {
+				db, loop, runner = recLoop(t)
+				if err := db.PutGroup(core.Group{Folder: "demo"}); err != nil {
+					t.Fatal(err)
+				}
+				msg := core.Message{ID: "fresh", ChatJID: "web:demo", Sender: "user", Content: "hello", Timestamp: time.Now().UTC()}
+				if err := db.PutMessage(msg); err != nil {
+					t.Fatal(err)
+				}
+				tc = TurnContext{TurnID: msg.ID, ChatJID: msg.ChatJID, Folder: "demo", InputLast: store.MessageCursor(msg)}
+			}
+			base := filepath.Join(t.TempDir(), "file")
+			if err := os.WriteFile(base, []byte("x"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			loop.folders.IpcDir = base
+			loop.BindServer(NewServer(db, loop, nil, nil, 0, ""))
+			var err error
+			if saved {
+				_, err = loop.replay(tc.TurnID)
+			} else {
+				_, err = loop.processGroupMessages(tc.ChatJID)
+			}
+			if !errors.Is(err, ErrDependencyDown) {
+				t.Errorf("setup error = %v", err)
+			}
+			var pathErr *os.PathError
+			if !errors.As(err, &pathErr) {
+				t.Errorf("missing filesystem cause: %v", err)
+			}
+			if len(runner.runs) != 0 {
+				t.Errorf("runner started: %+v", runner.runs)
+			}
+			current, ok := db.GetTurnContext(tc.TurnID)
+			if !ok || current.State == store.TurnRunning {
+				t.Errorf("turn not settled: %+v", current)
+			}
+			if current.Folder != tc.Folder || current.ChatJID != tc.ChatJID || current.InputLast != tc.InputLast {
+				t.Errorf("binding changed: %+v", current)
+			}
+			wantCursor := ""
+			if saved {
+				wantCursor = tc.InputLast
+			}
+			if got := db.GetAgentCursor(tc.ChatJID); got != wantCursor {
+				t.Errorf("cursor = %q, want %q", got, wantCursor)
+			}
+			loop.q.mu.Lock()
+			reservations := len(loop.q.reservations)
+			loop.q.mu.Unlock()
+			if reservations != 0 {
+				t.Errorf("reservations = %d", reservations)
+			}
+		})
+	}
+}
 
 func (l *Loop) runTurn(folder, topic, chatJID, turnID string, addressed bool, trigger, ambient []core.Message) (hadOutput, steered, busy bool, observedMark string, rerr error) {
 	return l.runBoundTurn(folder, topic, chatJID, turnID, addressed, trigger, ambient, nil, store.MessageCursor(trigger[len(trigger)-1]))

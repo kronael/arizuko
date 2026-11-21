@@ -580,16 +580,18 @@ func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed boo
 	_ = l.db.SetLastReply(chatJID, topic, last.ID, folder)
 
 	if l.srv != nil {
-		if ipcDir, ierr := l.folders.IpcPath(folder); ierr == nil {
-			if stop, serr := l.srv.ServeTurnMCP(turnMCP{
-				folder: folder, topic: topic, chatJID: chatJID, turnID: turnID, trigger: last.Sender, elevated: elevated,
-				attempt: tc.AttemptID,
-			}, ipcDir); serr == nil {
-				defer stop()
-			} else {
-				slog.Warn("serve turn mcp", "folder", folder, "turn_id", turnID, "err", serr)
-			}
+		ipcDir, err := l.folders.IpcPath(folder)
+		if err != nil {
+			return false, false, false, "", fmt.Errorf("%w: resolve turn mcp path: %w", ErrDependencyDown, err)
 		}
+		stop, err := l.srv.ServeTurnMCP(turnMCP{
+			folder: folder, topic: topic, chatJID: chatJID, turnID: turnID, trigger: last.Sender, elevated: elevated,
+			attempt: tc.AttemptID,
+		}, ipcDir)
+		if err != nil {
+			return false, false, false, "", fmt.Errorf("%w: serve turn mcp: %w", ErrDependencyDown, err)
+		}
+		defer stop()
 	}
 
 	if l.folders != nil && l.folders.IpcDir != "" {
