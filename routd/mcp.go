@@ -650,6 +650,9 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 					slog.Warn("secret_use_log write failed", "key", k, "err", lerr)
 				}
 			}
+			if err != nil {
+				return nil, err
+			}
 			for key, value := range derived {
 				res[key] = value
 			}
@@ -663,6 +666,9 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 				return nil, err
 			}
 			res, err := s.db.RefreshConnectorSecrets(folder, turnCallerSub(t.trigger), userConnectorSecrets(required))
+			if err != nil {
+				return nil, err
+			}
 			for key, value := range derived {
 				res[key] = value
 			}

@@ -32,9 +32,18 @@ func shellEnvDB(t *testing.T) (*DB, *store.Store) {
 	return db, s
 }
 
+func shellEnv(t *testing.T, db *DB, folder, user string) map[string]string {
+	t.Helper()
+	got, err := db.ShellEnvSecrets(folder, user)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return got
+}
+
 func TestShellEnvSecrets_NoGrantResolvesNothing(t *testing.T) {
 	db, _ := shellEnvDB(t)
-	if got := db.ShellEnvSecrets("atlas", "telegram:user/7"); len(got) != 0 {
+	if got := shellEnv(t, db, "atlas", "telegram:user/7"); len(got) != 0 {
 		t.Fatalf("a folder with secrets but no shell:env grant resolved %v, want nothing", got)
 	}
 }
@@ -47,7 +56,7 @@ func TestShellEnvSecrets_GrantedKeyOnly(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("addACLRow: %v", err)
 	}
-	got := db.ShellEnvSecrets("atlas", "telegram:user/7")
+	got := shellEnv(t, db, "atlas", "telegram:user/7")
 	want := map[string]string{"NPM_TOKEN": "npm_folder"}
 	if !maps.Equal(got, want) {
 		t.Errorf("ShellEnvSecrets = %v, want exactly %v (BUILDKITE_TOKEN is ungranted)", got, want)
@@ -68,10 +77,10 @@ func TestShellEnvSecrets_UserKeyWinsOverFolder(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("addACLRow: %v", err)
 	}
-	if got := db.ShellEnvSecrets("atlas", "telegram:user/7")["NPM_TOKEN"]; got != "npm_user7" {
+	if got := shellEnv(t, db, "atlas", "telegram:user/7")["NPM_TOKEN"]; got != "npm_user7" {
 		t.Errorf("NPM_TOKEN = %q, want the caller's own npm_user7", got)
 	}
-	if got := db.ShellEnvSecrets("atlas", "telegram:user/9")["NPM_TOKEN"]; got != "npm_folder" {
+	if got := shellEnv(t, db, "atlas", "telegram:user/9")["NPM_TOKEN"]; got != "npm_folder" {
 		t.Errorf("a user with no key of their own got %q, want the folder default", got)
 	}
 }
@@ -92,7 +101,7 @@ func TestShellEnvSecrets_ModelCredentialNeverCrosses(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("addACLRow: %v", err)
 	}
-	got := db.ShellEnvSecrets("atlas", "telegram:user/7")
+	got := shellEnv(t, db, "atlas", "telegram:user/7")
 	for key := range store.EnvProfileKeys {
 		if _, bad := got[key]; bad {
 			t.Errorf("shell:env:* leaked model credential %s into the shell tier", key)
@@ -108,7 +117,7 @@ func TestShellEnvSecrets_InstanceGitHubToken(t *testing.T) {
 	if err := s.PutSecretRow(store.ScopeFolder, "atlas", "GITHUB_TOKEN", "ghp_folder"); err != nil {
 		t.Fatal(err)
 	}
-	if got := db.ShellEnvSecrets("beta", "telegram:user/7"); len(got) != 0 {
+	if got := shellEnv(t, db, "beta", "telegram:user/7"); len(got) != 0 {
 		t.Fatalf("an ungranted folder resolved %v, want nothing", got)
 	}
 	for _, f := range []string{"atlas", "beta"} {
@@ -118,12 +127,12 @@ func TestShellEnvSecrets_InstanceGitHubToken(t *testing.T) {
 		}); err != nil {
 			t.Fatalf("addACLRow: %v", err)
 		}
-		if got := db.ShellEnvSecrets(f, "telegram:user/7")["GITHUB_TOKEN"]; got != "ghp_instance" {
+		if got := shellEnv(t, db, f, "telegram:user/7")["GITHUB_TOKEN"]; got != "ghp_instance" {
 			t.Errorf("%s GITHUB_TOKEN = %q, want the instance ghp_instance", f, got)
 		}
 	}
 	t.Setenv("GITHUB_TOKEN", "")
-	if got, ok := db.ShellEnvSecrets("atlas", "telegram:user/7")["GITHUB_TOKEN"]; ok {
+	if got, ok := shellEnv(t, db, "atlas", "telegram:user/7")["GITHUB_TOKEN"]; ok {
 		t.Errorf("with no instance token atlas got its folder row %q, want nothing", got)
 	}
 }

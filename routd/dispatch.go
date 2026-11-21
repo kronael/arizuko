@@ -947,7 +947,10 @@ func (l *Loop) dispatchRun(ctx context.Context, folder, topic, chatJID, turnID, 
 
 	secrets := l.db.EnvProfileSecrets(string(caller))
 
-	shellEnv := l.db.ShellEnvSecrets(folder, string(caller))
+	shellEnv, err := l.db.ShellEnvSecrets(folder, string(caller))
+	if err != nil {
+		return runedv1.RunOutcome{}, err
+	}
 	maps.Copy(secrets, shellEnv)
 
 	sub := "folder:" + folder

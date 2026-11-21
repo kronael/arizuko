@@ -118,14 +118,14 @@ func (d *DB) EnvProfileSecrets(userSub string) map[string]string {
 // even when granted: they already have a path, and the store rejects folder
 // scope for them. A store.SharedShellKeys key is only the `.env` value its daemon
 // uses; a user or folder row of that name is ignored.
-func (d *DB) ShellEnvSecrets(folder, userSub string) map[string]string {
+func (d *DB) ShellEnvSecrets(folder, userSub string) (map[string]string, error) {
 	out := map[string]string{}
 	if folder == "" {
-		return out
+		return out, nil
 	}
-	vals, _ := d.folderSecretsForUser(folder, userSub)
-	if vals == nil {
-		vals = map[string]string{}
+	vals, _, err := d.secretStore().FolderSecretsResolvedForUser(folder, userSub)
+	if err != nil {
+		return nil, err
 	}
 	for _, k := range store.SharedShellKeys {
 		delete(vals, k)
@@ -144,36 +144,7 @@ func (d *DB) ShellEnvSecrets(folder, userSub string) map[string]string {
 	for _, k := range auth.ShellEnvKeys(d.store(), caller, folder, keys) {
 		out[k] = vals[k]
 	}
-	return out
-}
-
-// folderSecrets resolves the folder-scoped set, DECRYPTED via the keyring
-// (deepest-wins ancestry); unset key / read error → empty. Unexported: an
-// exported bulk reader of folder capability secrets is what EnvProfileSecrets
-// exists to deny.
-func (d *DB) folderSecrets(folder string) map[string]string {
-	out, err := d.secretStore().FolderSecretsResolved(folder)
-	if err != nil {
-		return map[string]string{}
-	}
-	return out
-}
-
-// folderSecretsForUser is the one resolution body behind the broker: values
-// plus the scope each key resolved from ("user" | "folder"), which
-// secret_use_log records (spec 5/13 § Audit).
-func (d *DB) folderSecretsForUser(folder, userSub string) (map[string]string, map[string]store.SecretScope) {
-	out, scopes, err := d.secretStore().FolderSecretsResolvedForUser(folder, userSub)
-	if err == nil {
-		return out, scopes
-	}
-	// Fallback path: folder scope only, so the provenance is uniform.
-	out = d.folderSecrets(folder)
-	scopes = make(map[string]store.SecretScope, len(out))
-	for k := range out {
-		scopes[k] = store.ScopeFolder
-	}
-	return out, scopes
+	return out, nil
 }
 
 // SetSecret seals + upserts one folder/user secret (behind POST /v1/secrets).
@@ -211,14 +182,16 @@ func (d *DB) connectorSecrets(folder, callerSub string, required []string, force
 	if len(required) == 0 {
 		return map[string]string{}, map[string]store.SecretScope{}, nil
 	}
-	all, allScopes := d.folderSecretsForUser(folder, callerSub)
+	all, allScopes, err := d.secretStore().FolderSecretsResolvedForUser(folder, callerSub)
+	if err != nil {
+		return nil, nil, err
+	}
 	out := make(map[string]string, len(required))
 	for _, k := range required {
 		if v, ok := all[k]; ok {
 			out[k] = v
 		}
 	}
-	var err error
 	if d.surrogate != nil && callerSub != "" {
 		err = d.refreshOAuth(callerSub, required, out, force)
 	}

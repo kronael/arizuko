@@ -2,14 +2,79 @@ package routd
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/store"
 )
+
+var errUserSecrets = errors.New("user secret read failed")
+
+type failUserSecrets struct{ objstore.Store }
+
+func (s failUserSecrets) Query(ctx context.Context, q objstore.Query) ([]objstore.Item, error) {
+	if q.Entity == store.Secrets && strings.HasPrefix(q.Key.Value, "user"+store.KeySep) {
+		return nil, errUserSecrets
+	}
+	return s.Store.Query(ctx, q)
+}
+
+func TestUserSecretReadFailure(t *testing.T) {
+	db, loop, runner := newCaptureLoop(t)
+	s := seedSecretsStore(t, db, "secret-test-key")
+	if err := db.PutGroup(core.Group{Folder: "atlas"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PutSecretRow(store.ScopeFolder, "atlas", "API_KEY", "folder-key"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PutSecretRow(store.ScopeUser, "telegram:user/7", "API_KEY", "user-key"); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ user, want string }{{"telegram:user/7", "user-key"}, {"telegram:user/9", "folder-key"}} {
+		got, _, err := db.ConnectorSecrets("atlas", tc.user, []string{"API_KEY"})
+		if err != nil || got["API_KEY"] != tc.want {
+			t.Fatalf("control %s: %v, %v", tc.user, got, err)
+		}
+	}
+	db.obj = failUserSecrets{db.obj}
+	if got, _, err := db.ConnectorSecrets("atlas", "telegram:user/7", []string{"API_KEY"}); !errors.Is(err, errUserSecrets) || got != nil {
+		t.Errorf("connector: %v, %v", got, err)
+	}
+	if got, err := db.RefreshConnectorSecrets("atlas", "telegram:user/7", []string{"API_KEY"}); !errors.Is(err, errUserSecrets) || got != nil {
+		t.Errorf("refresh: %v, %v", got, err)
+	}
+	if got, err := db.ShellEnvSecrets("atlas", "telegram:user/7"); !errors.Is(err, errUserSecrets) || got != nil {
+		t.Errorf("shell: %v, %v", got, err)
+	}
+	if _, err := loop.dispatchRun(context.Background(), "atlas", "", "web:atlas", "turn", "telegram:user/7", "test", false, false, ""); !errors.Is(err, errUserSecrets) {
+		t.Errorf("dispatch: %v", err)
+	}
+	if runner.req.Folder != "" {
+		t.Errorf("runner started: %+v", runner.req)
+	}
+	srv := NewServer(db, nil, nil, nil, 0, "")
+	fns := srv.buildStoreFns(turnMCP{folder: "atlas", trigger: "telegram:user/7", turnID: "turn"})
+	if got, err := fns.ResolveConnectorSecrets("atlas", "tool", []string{"API_KEY"}); !errors.Is(err, errUserSecrets) || got != nil {
+		t.Errorf("MCP resolve: %v, %v", got, err)
+	}
+	if got, err := fns.RefreshConnectorSecrets("atlas", "tool", []string{"API_KEY"}); !errors.Is(err, errUserSecrets) || got != nil {
+		t.Errorf("MCP refresh: %v, %v", got, err)
+	}
+}
+
+func (d *DB) folderSecrets(folder string) map[string]string {
+	out, err := d.secretStore().FolderSecretsResolved(folder)
+	if err != nil {
+		return map[string]string{}
+	}
+	return out
+}
 
 // REST-face tests for the spec 5/16 secrets fold: POST /v1/secrets (create =
 // set/seal) and DELETE /v1/secrets/{key} now ride the shared secretsHandler via
