@@ -31,9 +31,11 @@ clutter the reader still has to parse.
 
 ## Layout and formatting
 
-One import per line; it keeps diffs clean. Keep code at 80 columns or under and
-prose at 100, with 120 the hard ceiling reserved for the rare line that genuinely
-hurts to wrap (a long URL, a table row).
+One import per line; it keeps diffs clean. Keep every line of code and Markdown
+at 80 columns or under. 100 is the hard ceiling: split a long string, a YAML
+expression or a shell command to fit it. Only a line that cannot break (a long
+URL, a table row) goes past 100. A PR body, review or comment is not a file:
+GitHub shows each newline as a line break, so write each paragraph as one line.
 
 Utility files are named `*_utils.*`. Never write under `/tmp` — use `./tmp` in
 the project root, with `./log` for debug and smoke logs and `./dist` or

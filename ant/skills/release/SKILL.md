@@ -73,7 +73,7 @@ user-invocable: true
    - Lead with notable user-facing features. First bullets name what
      the user can now do, in user vocabulary.
      Internal refactors and plumbing go after.
-   - One line per change. Drop commit SHAs and internal-only file
+   - One bullet per change. Drop commit SHAs and internal-only file
      paths from body bullets (migration numbers and `Spec: specs/X.md`
      pointers stay).
    - Collapse synonymous bullets across sections.

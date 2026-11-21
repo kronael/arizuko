@@ -40,6 +40,9 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   `codex` run logged in from Bash on claude, codex and pi turns. With a model
   gateway, the raw credentials still stay out of the guest.
 - A `title` on a message into an existing Discord thread renames the thread.
+- The agent keeps code and Markdown lines at 80 columns, with 100 as the hard
+  ceiling (`software/code.md`). A PR body or GitHub comment keeps one line per
+  paragraph, because GitHub shows each newline as a line break.
 
 ## [v0.75.19] — 2026-11-21
 
