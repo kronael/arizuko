@@ -910,10 +910,13 @@ func (s *server) tryRefreshViaAuthd(w http.ResponseWriter, r *http.Request) *htt
 	}
 	req.AddCookie(cookie)
 	resp, err := http.DefaultClient.Do(req)
-	if err != nil || resp.StatusCode != http.StatusOK {
+	if err != nil {
 		return nil
 	}
 	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
 	var result struct {
 		Token string `json:"token"`
 	}
