@@ -271,7 +271,7 @@ export async function* driveCli(
   const timer = setTimeout(() => {
     log(`process deadline reached, killing ${command}`);
     timedOut = true;
-    child.kill('SIGTERM');
+    child.kill('SIGKILL');
   }, Math.max(0, opts.deadline - Date.now()));
   const onAbort = () => child.kill('SIGTERM');
   opts.signal?.addEventListener('abort', onAbort, { once: true });

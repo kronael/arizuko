@@ -135,3 +135,34 @@ test('harness documents replace defaults and reject invalid fields', async () =>
     expect(() => parseHarness({ ARIZUKO_HARNESS: doc })).toThrow();
   }
 });
+
+/** A child that ignores SIGTERM still exits at the hard deadline. */
+test('driveCli: the deadline kills a child that ignores SIGTERM', async () => {
+  let pid = 0;
+  let ready = false;
+  let fallback = false;
+  const reducer = tailReducer();
+  reducer.push = (obj) => {
+    if (typeof obj.pid === 'number') {
+      pid = obj.pid;
+      ready = true;
+    }
+    return [];
+  };
+  const guard = setTimeout(() => {
+    fallback = true;
+    if (pid) process.kill(pid, 'SIGKILL');
+  }, 2000);
+  try {
+    const frames = await collect(driveCli(
+      'sh', ['-c', 'trap "" TERM; printf "{\\"pid\\":%s}\\n" "$$"; exec sleep 5'],
+      { cwd: '/tmp', env: { PATH: '/usr/bin:/bin' }, deadline: Date.now() + 500 },
+      reducer, () => {},
+    ));
+    expect(ready).toBe(true);
+    expect(fallback).toBe(false);
+    expect(frames).toEqual([{ kind: 'result', ok: true, timedOut: true }]);
+  } finally {
+    clearTimeout(guard);
+  }
+});
