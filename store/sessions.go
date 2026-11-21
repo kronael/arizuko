@@ -97,7 +97,9 @@ func (s *Store) SetSession(folder, topic, id string) error {
 	}
 	attrs := map[string]string{}
 	setAttr(attrs, attrSessID, id)
-	if _, err := s.upsertSession(context.Background(), key, attrs); err != nil {
+	if err := s.WriteEntities(context.Background(), nil, objstore.Write{
+		Op: objstore.Merge, Entity: Sessions, Key: key, Attrs: attrs,
+	}); err != nil {
 		return fmt.Errorf("record the session of %s#%s: %w", folder, topic, err)
 	}
 	return nil
@@ -264,24 +266,4 @@ func (s *Store) TopicsPerFolder() (map[string]int, error) {
 		out[folder]++
 	}
 	return out, nil
-}
-
-// upsertSession merges attrs into a topic's row, creating it when the topic
-// has none. Which shape lands is decided by the create's REFUSAL rather than
-// by a read: the item can appear between a read and a write.
-func (s *Store) upsertSession(ctx context.Context, key objstore.Key,
-	attrs map[string]string) (bool, error) {
-	created, err := s.TryWriteEntities(ctx, nil, objstore.Write{
-		Op: objstore.Put, Entity: Sessions, Key: key, Attrs: attrs,
-		Cond: objstore.Cond{Item: objstore.ItemAbsent},
-	})
-	if err != nil || created {
-		return created, err
-	}
-	if err := s.WriteEntities(ctx, nil, objstore.Write{
-		Op: objstore.Update, Entity: Sessions, Key: key, Attrs: attrs,
-	}); err != nil {
-		return false, err
-	}
-	return false, nil
 }
