@@ -3,12 +3,6 @@ package ipc
 // MCP connector: call a third-party MCP server over streamable HTTP and proxy
 // its tools through the broker. Per spec 5/13 § "Shape 2 — MCP HTTP connector".
 //
-// The transport is HTTP, never a subprocess. The stdio shape was removed
-// 2026-08-30: every command `template/connectors/github.toml` offered needed a
-// runtime absent from routd's image, and the connector spawns inside routd
-// (BUGS L132). An endpoint needs no runtime, so the credential is a request
-// HEADER the broker renders per call and never a process environment.
-//
 // Discovery is PER FOLDER, not per boot, because the credential is per folder:
 // routd's boot has no folder and therefore no token, and a remote MCP server
 // answers tools/list only to an authenticated caller. Each catalog entry

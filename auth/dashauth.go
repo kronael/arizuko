@@ -1,13 +1,5 @@
 package auth
 
-// dashauth.go is the ONE operator gate every per-daemon dashboard applies
-// (spec 6/28 §Auth). It was three copies before this file existed — the scheduler’s
-// requireOperator, onbod's requireOperator and the `**` shortcut inside dashd's
-// callerScope — and they had already drifted: the scheduler rendered a themed 403 page,
-// onbod rendered the bare string "forbidden". A dashboard gate that answers
-// differently per daemon is the same class of defect as a second containment
-// predicate (BUGS L101), so there is one decision here and one refusal page.
-//
 // This gate is the SECOND of the two layers 6/28 names. The first is proxyd's
 // transit proof (auth.ProxydTransit), which is what makes the X-User-* headers
 // trustworthy at all; a daemon MUST verify that before calling anything here.

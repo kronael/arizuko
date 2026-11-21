@@ -2030,21 +2030,6 @@ func buildMCPServer(routd RoutdFns, db StoreFns, folder string, isRoot bool, cal
 			return toolJSON(map[string]any{"injected": true, "id": mid})
 		})
 
-	// register_group + refresh_groups moved to the groups resreg seam (spec 5/16,
-	// the last agent-face fold): routd owns the shared handler and mounts them on
-	// this server via the ServeMCP postBuild seam. register_group is a FORWARDER
-	// (its group-row + route + git-init FS side-effects via s.registerGroup can't
-	// ride a resreg tx), so its auth + audit live in routd/groups_resource.go.
-
-	// add_route/set_routes/list_routes/delete_route moved to the routes resreg
-	// seam (spec 5/16); inspect_routing (inspect.go) still reads db.ListRoutes.
-
-	// list_acl / add_acl / remove_acl are no longer hand-rolled here. They ride
-	// resreg's two-face mechanism (spec 5/16): routd owns the shared handler +
-	// tx/audit and mounts them on this server via the ServeMCP postBuild seam,
-	// with the agent's Gate (scope-containment) + MatchingRules visibility
-	// injected. See routd/acl_resource.go.
-
 	registerRaw("invite_create",
 		"Issue an invite token for a path glob. A join grants admin on target_glob. A trailing slash permits a new folder below that path. The recipient accepts at /invite/<token>. Deliver the token now. invite_list returns only its ref. The issuer needs admin with the grant option over the access the invite grants. The issuer's authority is checked at creation and redemption.",
 		[]mcp.ToolOption{
@@ -2153,13 +2138,6 @@ func buildMCPServer(routd RoutdFns, db StoreFns, folder string, isRoot bool, cal
 			emitSys("invite_revoke", folder, callerSub, map[string]any{"ref": ref}, nil)
 			return toolJSON(map[string]any{"ok": true, "ref": ref})
 		})
-
-	// add_acl / remove_acl migrated to routd/acl_resource.go (see the comment at
-	// the former list_acl site above).
-
-	// issue_chat_link / issue_webhook / list_tokens / revoke_token migrated to
-	// routd/route_tokens_resource.go (spec 5/16, agent-MCP fold). Their mint gate
-	// cap + owner-scoped revoke ride the resreg postBuild seam now.
 
 	if db.MessagesBefore != nil {
 		inspectMessages := func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
