@@ -72,6 +72,9 @@ func (w *statusWriter) Write(b []byte) (int, error) {
 // unwrapped.
 func (w *statusWriter) Flush() {
 	if f, ok := w.ResponseWriter.(http.Flusher); ok {
+		if !w.wroteHeader {
+			w.WriteHeader(http.StatusOK)
+		}
 		f.Flush()
 	}
 }

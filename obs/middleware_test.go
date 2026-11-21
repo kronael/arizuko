@@ -7,6 +7,28 @@ import (
 	"testing"
 )
 
+func TestStatusWriterFlushCommitsStatus(t *testing.T) {
+	for _, status := range []int{0, http.StatusTeapot} {
+		rec := httptest.NewRecorder()
+		writer := &statusWriter{ResponseWriter: rec, status: http.StatusOK}
+		if status != 0 {
+			writer.WriteHeader(status)
+		}
+		writer.Flush()
+		writer.WriteHeader(http.StatusInternalServerError)
+		if writer.status != rec.Code {
+			t.Errorf("recorded status = %d, response status = %d", writer.status, rec.Code)
+		}
+	}
+	rec := httptest.NewRecorder()
+	writer := &statusWriter{ResponseWriter: struct{ http.ResponseWriter }{rec}, status: http.StatusOK}
+	writer.Flush()
+	writer.WriteHeader(http.StatusTeapot)
+	if writer.status != http.StatusTeapot || rec.Code != http.StatusTeapot {
+		t.Errorf("unsupported flush committed status: recorded=%d response=%d", writer.status, rec.Code)
+	}
+}
+
 func TestHTTPMiddleware_RecordsRequest(t *testing.T) {
 	t.Setenv("METRICS_ENABLED", "true")
 
