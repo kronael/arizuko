@@ -149,6 +149,20 @@ func TestImportDuplicateMessageCoordinates(t *testing.T) {
 	}
 }
 
+func TestImportRejectsUnknownDeliveryStatus(t *testing.T) {
+	st := routdMessages(t)
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(store.ArchiveMessageRow{
+		ID: "bad", ChatJID: "web:world", Timestamp: ts(t, "10:00"), Status: "pendng",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	n, _, refused, err := st.ImportMessagesJSONL(t.Context(), &buf, 500)
+	if err == nil || n != 0 || len(refused) != 0 {
+		t.Fatalf("imported = %d, refused = %v, error = %v", n, refused, err)
+	}
+}
+
 // routdMessages hands back routd's own tables, wrapped as the owner the archive
 // lane is a method on.
 func routdMessages(t *testing.T) *store.Store {

@@ -63,15 +63,22 @@ type PendingMessage struct {
 // delivered. An unknown status is refused rather than stored, so a typo cannot
 // park a row in a partition no sweep reads.
 func (s *Store) PutOutbound(ctx context.Context, m core.Message, status string) error {
-	switch status {
-	case core.MessageStatusSent, core.MessageStatusPending, core.MessageStatusFailed:
-	default:
-		return fmt.Errorf("outbound %s carries the delivery status %q, and the three a "+
-			"sweep reads are %q, %q and %q", m.ID, status, core.MessageStatusSent,
-			core.MessageStatusPending, core.MessageStatusFailed)
+	if err := validateDeliveryStatus(m.ID, status); err != nil {
+		return err
 	}
 	_, err := s.putMessage(ctx, m, status, messageOptions{})
 	return err
+}
+
+func validateDeliveryStatus(id, status string) error {
+	switch status {
+	case core.MessageStatusSent, core.MessageStatusPending, core.MessageStatusFailed:
+		return nil
+	default:
+		return fmt.Errorf("outbound %s carries the delivery status %q, and the three a "+
+			"sweep reads are %q, %q and %q", id, status, core.MessageStatusSent,
+			core.MessageStatusPending, core.MessageStatusFailed)
+	}
 }
 
 // PutOutboundFailure records the first failed attempt with its delivery state.

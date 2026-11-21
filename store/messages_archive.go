@@ -215,6 +215,11 @@ func (s *Store) ImportMessagesJSONL(ctx context.Context, r io.Reader, batchSize 
 		if derr != nil {
 			return imported, chatJIDs, refused, fmt.Errorf("decode message: %w", derr)
 		}
+		if m.Status != "" {
+			if err := validateDeliveryStatus(m.ID, m.Status); err != nil {
+				return imported, chatJIDs, refused, err
+			}
+		}
 		batch = append(batch, m)
 		chatJIDs[m.ChatJID] = true
 		if len(batch) < batchSize {
