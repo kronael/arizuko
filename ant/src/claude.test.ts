@@ -278,11 +278,10 @@ test('ClaudeTurn: rate limit events stay silent', () => {
 
 // --- model gateway --------------------------------------------------------
 
-// Claude Code scrubs credentials from its Bash tool's env when the SDK starts it:
-// a krons turn on v0.75.20 ran `claude -p` from Bash and got "Not logged in".
-test('claudeEnv: turns off the subprocess scrub and keeps the credentials', () => {
-  const out = claudeEnv({ CLAUDE_CODE_OAUTH_TOKEN: 'real', HOME: '/home/node' });
-  expect(out).toEqual({ CLAUDE_CODE_OAUTH_TOKEN: 'real', HOME: '/home/node', CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: '0' });
+// No gateway: the SDK receives the very same object, so today's env is untouched.
+test('claudeEnv: no gateway returns the same env object', () => {
+  const env = { ANTHROPIC_API_KEY: 'real', HOME: '/home/node' };
+  expect(claudeEnv(env)).toBe(env);
 });
 
 // Measured 2026-09-04: the SDK subprocess reads ANTHROPIC_BASE_URL and sends
