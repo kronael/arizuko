@@ -13,6 +13,34 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.75.20] — 2026-11-21
+
+> arizuko v0.75.20 — webhooks survive a burst, every shell is logged in
+>
+> gitd no longer loses GitHub webhooks when many arrive at once, and an agent can call `claude` and `codex` from its shell in every harness.
+>
+> • Webhooks — a burst of GitHub events no longer answers 502 and loses events.
+> • Logins — `claude` and `codex` work from the agent's shell on claude, codex and pi turns.
+> • Discord — a `title` on a message into an existing thread renames it; system notices are not stored as messages.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Fixed
+
+- gitd lost GitHub webhooks in a burst: every retained inbound message raced
+  one shared count row and gave up after 8 lost races. The count is gone;
+  `/health` counts the held rows.
+- discd stored Discord system notices, such as a thread rename, as messages. A
+  notice then became the default reply target and Discord refused the reply.
+- routd logs the store error behind a failed ingest.
+
+### Changed
+
+- Every harness shell inherits the turn's model credentials, so `claude` and
+  `codex` run logged in from Bash on claude, codex and pi turns. With a model
+  gateway, the raw credentials still stay out of the guest.
+- A `title` on a message into an existing Discord thread renames the thread.
+
 ## [v0.75.19] — 2026-11-21
 
 > arizuko v0.75.19 — the agent names its Discord threads
