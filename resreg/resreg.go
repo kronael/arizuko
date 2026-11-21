@@ -768,7 +768,7 @@ func decodeMCPArgs(req mcp.CallToolRequest, spec []MCPArg) Args {
 				a[s.Name] = v
 			}
 		default:
-			if v := req.GetString(s.Name, ""); v != "" {
+			if v, ok := req.GetArguments()[s.Name].(string); ok {
 				a[s.Name] = v
 			}
 		}
