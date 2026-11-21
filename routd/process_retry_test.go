@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"sync/atomic"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -15,35 +16,34 @@ import (
 func TestProcessRetryPolicy(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		q := newTurnControl(1)
-		calls := 0
+		var calls atomic.Int32
 		q.SetProcessMessagesFn(func(string) (bool, error) {
-			calls++
-			if calls == 3 {
+			if calls.Add(1) == 3 {
 				return true, nil
 			}
 			return false, &retry.Error{Failure: retry.Failure{Kind: "transient"}, Err: errors.New("unavailable")}
 		})
 		q.EnqueueMessageCheck("chat")
 		synctest.Wait()
-		if calls != 1 {
-			t.Fatalf("calls=%d", calls)
+		if calls.Load() != 1 {
+			t.Fatalf("calls=%d", calls.Load())
 		}
 		time.Sleep(30 * time.Second)
 		synctest.Wait()
-		if calls != 2 {
-			t.Fatalf("calls=%d", calls)
+		if calls.Load() != 2 {
+			t.Fatalf("calls=%d", calls.Load())
 		}
 		time.Sleep(60 * time.Second)
 		synctest.Wait()
-		if calls != 3 || q.getGroup("chat").processFailures != 0 {
-			t.Fatalf("calls=%d failures=%d", calls, q.getGroup("chat").processFailures)
+		if calls.Load() != 3 || q.getGroup("chat").processFailures != 0 {
+			t.Fatalf("calls=%d failures=%d", calls.Load(), q.getGroup("chat").processFailures)
 		}
 		q.EnqueueMessageCheck("chat")
 		synctest.Wait()
 		time.Sleep(30 * time.Second)
 		synctest.Wait()
-		if calls != 5 {
-			t.Fatalf("reset did not restore first delay: calls=%d", calls)
+		if calls.Load() != 5 {
+			t.Fatalf("reset did not restore first delay: calls=%d", calls.Load())
 		}
 		q.Shutdown()
 	})
@@ -112,22 +112,22 @@ func TestProcessRetryWrappedTransient(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
 			q := newTurnControl(1)
 			defer q.Shutdown()
-			calls := 0
+			var calls atomic.Int32
 			q.SetProcessMessagesFn(func(string) (bool, error) {
-				calls++
+				calls.Add(1)
 				return false, fmt.Errorf("%w: %w", ErrDependencyDown, cause)
 			})
 			q.EnqueueMessageCheck("chat")
 			synctest.Wait()
 			time.Sleep(29 * time.Second)
 			synctest.Wait()
-			if calls != 1 {
-				t.Fatalf("wrapped %v called %d times before due", cause, calls)
+			if calls.Load() != 1 {
+				t.Fatalf("wrapped %v called %d times before due", cause, calls.Load())
 			}
 			time.Sleep(time.Second)
 			synctest.Wait()
-			if calls != 2 {
-				t.Fatalf("wrapped %v called %d times at due", cause, calls)
+			if calls.Load() != 2 {
+				t.Fatalf("wrapped %v called %d times at due", cause, calls.Load())
 			}
 		})
 	}
