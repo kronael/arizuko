@@ -20,7 +20,7 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 > gitd no longer loses GitHub webhooks when many arrive at once, and an agent can call `claude` and `codex` from its shell in every harness.
 >
 > • Webhooks — a burst of GitHub events no longer answers 502 and loses events.
-> • Logins — `claude` and `codex` work from the agent's shell on claude, codex and pi turns.
+> • Logins — `claude` and `codex` work from the agent's shell on codex and pi turns; `codex` also on claude turns.
 > • Discord — a `title` on a message into an existing thread renames it; system notices are not stored as messages.
 >
 > Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
@@ -37,7 +37,9 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 ### Changed
 
 - Every harness shell inherits the turn's model credentials, so `claude` and
-  `codex` run logged in from Bash on claude, codex and pi turns. With a model
+  `codex` run logged in from Bash on codex and pi turns, and `codex` on claude
+  turns. Claude Code deletes its own token from its environment, so `claude`
+  in the shell of a claude turn is not logged in (BUGS `L914`). With a model
   gateway, the raw credentials still stay out of the guest.
 - A `title` on a message into an existing Discord thread renames the thread.
 - The agent keeps code and Markdown lines at 80 columns, with 100 as the hard

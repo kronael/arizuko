@@ -34,7 +34,7 @@
       <p>gitd no longer loses GitHub webhooks when many arrive at once, and an agent can call <code>claude</code> and <code>codex</code> from its shell in every harness.</p>
       <ul>
         <li><strong>Webhooks</strong> &mdash; a burst of GitHub events no longer answers 502 and loses events.</li>
-        <li><strong>Logins</strong> &mdash; <code>claude</code> and <code>codex</code> work from the agent's shell on claude, codex and pi turns. With a model gateway, the raw credentials still stay out of the guest.</li>
+        <li><strong>Logins</strong> &mdash; <code>claude</code> and <code>codex</code> work from the agent's shell on codex and pi turns, and <code>codex</code> on claude turns. With a model gateway, the raw credentials still stay out of the guest.</li>
         <li><strong>Discord</strong> &mdash; a <code>title</code> on a message into an existing thread renames it. System notices, such as a rename, are not stored as messages.</li>
       </ul>
       <p class="note">Full notes: <a href="https://github.com/kronael/arizuko/blob/main/CHANGELOG.md#v07520--2026-11-21">CHANGELOG &sect; v0.75.20</a>.</p>

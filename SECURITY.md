@@ -468,8 +468,10 @@ line. `mergeSecrets` in `runed/secrets.go` lays that map over the operator
 anchors that `runed` reads from its own environment. `arizuko generate` writes
 every key of `store.EnvProfileKeys` into `env/runed.env`, see `writeEnvFiles` in `compose/compose.go`. A key that is absent there reaches no guest.
 
-Claude, Codex and pi shell tools inherit the turn's model credentials, so nested
-`claude` and `codex` commands can use the same login. The mounted Codex
+Codex and pi shell tools inherit the turn's model credentials, so nested
+`claude` and `codex` commands can use the same login. Claude Code deletes
+`CLAUDE_CODE_OAUTH_TOKEN` from its own environment after it reads it, so the
+shell of a claude turn has no Claude login ([BUGS L914](../BUGS.md)). The mounted Codex
 `auth.json` also supplies its subscription login. Processes in the guest share
 one uid and can read sibling environments through `/proc/<pid>/environ`.
 With `MODEL_GATEWAY_URL` set, `spawnSecrets` withholds raw model credentials

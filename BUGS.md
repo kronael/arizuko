@@ -14,6 +14,23 @@
 > so counting one as open overstates the queue.
 
 
+## L914 — the shell of a claude turn has no Claude login (2026-11-21, open)
+
+The owner asked for `claude` and `codex` logged in from every turn's shell. Codex
+and pi turns have both since `eef4a2904`; a claude turn has only `codex`.
+**Measured:** krons, v0.75.20 build `rootfs-c9e3fa8987b1`, a claude turn ran
+`env | cut -d= -f1 | grep -E 'SCRUB|OAUTH|ANTHROPIC|CLAUDE_CODE_ENTRY|GITHUB'` and got
+`CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` and `CLAUDE_CODE_ENTRYPOINT` only, and
+`claude -p … --model haiku` answered `Not logged in`. runed holds the token and no
+gateway is set. The bundled CLI (SDK 0.3.278) has `delete process.env.CLAUDE_CODE_OAUTH_TOKEN`
+in two places after login, apart from the `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` list,
+so setting that variable to `0` changed nothing and was reverted.
+**Options:** (a) ant hands the shell the token under a second name and a guest
+`claude` wrapper maps it back; (b) a per-turn credentials file outside the group
+folder that nested `claude` reads; (c) leave it: nested review on a claude turn uses
+`codex`. **Default if nothing is decided:** (c).
+**Type:** design, no test — needs the owner's choice.
+
 ## L913 — a new topic on a pi folder starts without its parent's history (2026-11-21, open)
 
 `container.CopySession` (`container/runner.go:205-247`) copies a Claude transcript
@@ -520,6 +537,7 @@ The browser retry integration owns this fix after the current serial capacity wo
 - `L910` — the Google connector has no resolve or reopen tool; the `rest` schema cannot fix a body field; needs sign-off.
 - `L826` — one folder's crash closes the whole instance for an hour; per-folder breaker or a 30 s probe; needs sign-off.
 - `L913` — a new topic on a pi folder starts without its parent's history; fix waits on a live pi resume check.
+- `L914` — a claude turn's shell has no Claude login: Claude Code deletes its own token; owner choice of a, b or c.
 - `L816` — gitd loses GitHub webhooks while the store is unreachable; retention lives in that store; proposal, needs sign-off.
 - `L803` — morha repeats recovery reports and replies to an old GitHub comment; cause unmeasured.
 - `L804` — Codex topic forks do not inherit the parent's model context; observed messages remain available.
