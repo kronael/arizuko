@@ -37,14 +37,6 @@ type Backend struct {
 	Obj objstore.Store
 }
 
-// reader is one read's handle.
-type reader struct {
-	obj objstore.Store
-}
-
-// read is the reader for a whole Backend.
-func (b Backend) read() reader { return reader{obj: b.Obj} }
-
 // entityMeta is the item half of the reflection Register does, built only for
 // a resource that declared EntitySortKey.
 type entityMeta struct {
@@ -295,12 +287,12 @@ func (r *Resource) entityScopeQuery(scope string) objstore.Query {
 
 // entityScopeDeletes reads one scope's live items and renders the writes that
 // remove them.
-func (r *Resource) entityScopeDeletes(rd reader, scope string) ([]objstore.Write, error) {
-	if rd.obj == nil {
+func (r *Resource) entityScopeDeletes(rd Backend, scope string) ([]objstore.Write, error) {
+	if rd.Obj == nil {
 		return nil, fmt.Errorf("resreg: %s is entity-backed and the backend carries no "+
 			"object store", r.Name)
 	}
-	items, err := rd.obj.Query(context.Background(), r.entityScopeQuery(scope))
+	items, err := rd.Obj.Query(context.Background(), r.entityScopeQuery(scope))
 	if err != nil {
 		return nil, fmt.Errorf("%s: query scope %q: %w", r.Name, scope, err)
 	}
@@ -322,12 +314,12 @@ func (r *Resource) entityPartition() string { return r.DB }
 // scanEntities reads every item of the resource, in sort-key order. EmitRows
 // sorts by PK before emitting and Diff indexes by PK, so nothing downstream
 // depends on that order.
-func (r *Resource) scanEntities(rd reader) (any, error) {
-	if rd.obj == nil {
+func (r *Resource) scanEntities(rd Backend) (any, error) {
+	if rd.Obj == nil {
 		return nil, fmt.Errorf("resreg: %s is entity-backed and the backend carries no "+
 			"object store; the verb built a Backend for the column path only", r.Name)
 	}
-	items, err := rd.obj.Query(context.Background(), objstore.Query{
+	items, err := rd.Obj.Query(context.Background(), objstore.Query{
 		Entity:    r.Table,
 		Partition: r.entityPartition(),
 		Where:     r.RowFilter,
@@ -558,12 +550,12 @@ func (r *Resource) mintNumbers(rv reflect.Value) reflect.Value {
 // entityWipe reads the resource's live items and renders the writes that
 // remove them. Reading inside the replace's claim keeps a second replace's
 // rows out of this one's delete set (objstore.Replace).
-func (r *Resource) entityWipe(rd reader) ([]objstore.Write, error) {
-	if rd.obj == nil {
+func (r *Resource) entityWipe(rd Backend) ([]objstore.Write, error) {
+	if rd.Obj == nil {
 		return nil, fmt.Errorf("resreg: %s is entity-backed and the backend carries no "+
 			"object store", r.Name)
 	}
-	items, err := rd.obj.Query(context.Background(), objstore.Query{
+	items, err := rd.Obj.Query(context.Background(), objstore.Query{
 		Entity:    r.Table,
 		Partition: r.entityPartition(),
 		Where:     r.RowFilter,
@@ -582,7 +574,7 @@ func (r *Resource) entityWipe(rd reader) ([]objstore.Write, error) {
 // scopes' items for a scoped resource with rows, and every item otherwise. An
 // explicitly-present empty list is the operator declaring "no rows" and falls
 // to the total wipe.
-func (r *Resource) entityDeletes(rd reader, rows any, opts *ApplyOpts) ([]objstore.Write, error) {
+func (r *Resource) entityDeletes(rd Backend, rows any, opts *ApplyOpts) ([]objstore.Write, error) {
 	scopes := r.manifestScopes(rows)
 	if !r.HasScope() || len(scopes) == 0 {
 		return r.entityWipe(rd)
@@ -702,14 +694,13 @@ func applyEntities(ctx context.Context, be Backend, subsystem, wantChecksum stri
 	if err != nil {
 		return "", err
 	}
-	rd := be.read()
 	var current, applied string
 	_, err = objstore.Replace(ctx, be.Obj, store.OwnerScope(subsystem), "", claim,
 		func(ctx context.Context, rp *objstore.Replacer) error {
 			var err error
 			// Read under the claim, so the checksum is the state the writes below
 			// replace and not one a second replace moved.
-			if current, err = checksum(rd, subsystem); err != nil {
+			if current, err = Checksum(be, subsystem); err != nil {
 				return fmt.Errorf("checksum: %w", err)
 			}
 			// A takeover has no pre-image left to compare: the CAS would refuse
@@ -718,10 +709,10 @@ func applyEntities(ctx context.Context, be Backend, subsystem, wantChecksum stri
 				// Before any write, so Replace releases the claim.
 				return fmt.Errorf("%w: db=%s manifest=%s", ErrChecksumMismatch, current, wantChecksum)
 			}
-			if err := replaceRows(ctx, rp, rd, subsystem, manifestRows, puts, opts); err != nil {
+			if err := replaceRows(ctx, rp, be, subsystem, manifestRows, puts, opts); err != nil {
 				return err
 			}
-			if applied, err = checksum(rd, subsystem); err != nil {
+			if applied, err = Checksum(be, subsystem); err != nil {
 				return fmt.Errorf("checksum after write: %w", err)
 			}
 			if opts == nil {
@@ -772,7 +763,7 @@ func applyClaim(subsystem string, manifestRows map[string]any, opts *ApplyOpts) 
 // third folder's rows, and a folder purge that leaves rows behind hands the
 // next tenant of the path the last one's egress rules and web routes (BUGS
 // L253).
-func replaceRows(ctx context.Context, rp *objstore.Replacer, rd reader, subsystem string,
+func replaceRows(ctx context.Context, rp *objstore.Replacer, rd Backend, subsystem string,
 	manifestRows map[string]any, puts map[string][]objstore.Write, opts *ApplyOpts) error {
 	for _, r := range BySubsystem(subsystem) {
 		if r.RowType == nil || r.SkipApplyRebuild {

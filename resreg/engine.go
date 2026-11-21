@@ -210,10 +210,7 @@ func plainIdent(s string) bool {
 // ScanAll reads every row of the resource and returns a `[]RowType`. It is the
 // SINGLE row reader every verb goes through, and the branch is on the
 // DECLARATION (EntitySortKey), never on anything the storage says back.
-func (r *Resource) ScanAll(be Backend) (any, error) { return r.scanAll(be.read()) }
-
-// scanAll is ScanAll over the handle one read holds.
-func (r *Resource) scanAll(rd reader) (any, error) {
+func (r *Resource) ScanAll(rd Backend) (any, error) {
 	if r.meta == nil {
 		return nil, fmt.Errorf("resreg: %s has no schema (RowType unset)", r.Name)
 	}
@@ -452,7 +449,7 @@ func KnownFolders(be Backend, manifests ...map[string]any) (map[string]bool, err
 	if g == nil {
 		return nil, fmt.Errorf("resreg: %s resource is not registered", GroupsResource)
 	}
-	live, err := g.scanAll(be.read())
+	live, err := g.ScanAll(be)
 	if err != nil {
 		return nil, fmt.Errorf("read live %s: %w", GroupsResource, err)
 	}
@@ -550,13 +547,8 @@ func ManifestScopes(subsystem string, manifest map[string]any) []string {
 // Checksum computes the content hash of one subsystem's manifest-visible
 // projection: sha256 of the canonical EmitYAML bytes of Export. Recomputed
 // from live rows at read time: nothing for a writer to remember to bump.
-func Checksum(be Backend, subsystem string) (string, error) {
-	return checksum(be.read(), subsystem)
-}
-
-// checksum is Checksum over the handle one read holds.
-func checksum(rd reader, subsystem string) (string, error) {
-	m, err := exportRows(rd, subsystem)
+func Checksum(rd Backend, subsystem string) (string, error) {
+	m, err := Export(rd, subsystem)
 	if err != nil {
 		return "", err
 	}
@@ -590,7 +582,7 @@ func Apply(ctx context.Context, be Backend, subsystem string, wantChecksum strin
 	// the state the writes below are about to replace.
 	var counts map[string]any
 	if opts != nil {
-		c, err := applyCounts(be.read(), subsystem, manifestRows)
+		c, err := applyCounts(be, subsystem, manifestRows)
 		if err != nil {
 			return "", err
 		}
@@ -634,7 +626,7 @@ func mergeScopes(a, b []string) []string {
 // applyCounts diffs the manifest against the live rows for every mentioned,
 // rebuildable resource and returns per-resource {add,update,delete} counts
 // for the audit summary.
-func applyCounts(rd reader, subsystem string, manifestRows map[string]any) (map[string]any, error) {
+func applyCounts(rd Backend, subsystem string, manifestRows map[string]any) (map[string]any, error) {
 	counts := map[string]any{}
 	for _, r := range BySubsystem(subsystem) {
 		if r.RowType == nil || r.SkipApplyRebuild {
@@ -644,7 +636,7 @@ func applyCounts(rd reader, subsystem string, manifestRows map[string]any) (map[
 		if !mentioned {
 			continue
 		}
-		d, err := r.diff(rd, rows)
+		d, err := r.Diff(rd, rows)
 		if err != nil {
 			return nil, err
 		}
@@ -680,18 +672,13 @@ func applyEvent(opts *ApplyOpts, counts map[string]any, newChecksum string) audi
 // Export reads every registered resource of ONE subsystem and assembles a
 // manifest map keyed by Resource.Name. No checksum key: Export IS the
 // projection Checksum hashes.
-func Export(be Backend, subsystem string) (map[string]any, error) {
-	return exportRows(be.read(), subsystem)
-}
-
-// exportRows is Export over the handles one read holds.
-func exportRows(rd reader, subsystem string) (map[string]any, error) {
+func Export(rd Backend, subsystem string) (map[string]any, error) {
 	out := map[string]any{}
 	for _, r := range BySubsystem(subsystem) {
 		if r.RowType == nil {
 			continue
 		}
-		rows, err := r.scanAll(rd)
+		rows, err := r.ScanAll(rd)
 		if err != nil {
 			return nil, err
 		}
@@ -707,7 +694,7 @@ func GetResource(be Backend, name string) (map[string]any, error) {
 	if r == nil || r.RowType == nil {
 		return nil, fmt.Errorf("resreg: unknown or schema-less resource %q", name)
 	}
-	rows, err := r.scanAll(be.read())
+	rows, err := r.ScanAll(be)
 	if err != nil {
 		return nil, err
 	}
@@ -746,17 +733,12 @@ func (d ResourceDelta) Changed() bool {
 // rows, matched by PK string, payload equality ignoring server-stamped fields.
 // Scope-aware, matching scoped apply: for a scoped resource only live rows in
 // the folders the manifest mentions are candidates for Remove.
-func (r *Resource) Diff(be Backend, manifestRows any) (ResourceDelta, error) {
-	return r.diff(be.read(), manifestRows)
-}
-
-// diff is Diff over the handle one read holds.
-func (r *Resource) diff(rd reader, manifestRows any) (ResourceDelta, error) {
+func (r *Resource) Diff(rd Backend, manifestRows any) (ResourceDelta, error) {
 	d := ResourceDelta{Resource: r.Name, SkipApplyRebuild: r.SkipApplyRebuild}
 	if r.meta == nil {
 		return d, fmt.Errorf("resreg: %s has no schema (RowType unset)", r.Name)
 	}
-	live, err := r.scanAll(rd)
+	live, err := r.ScanAll(rd)
 	if err != nil {
 		return d, err
 	}
@@ -904,7 +886,6 @@ func (r *Resource) byPK(rv reflect.Value) map[string]reflect.Value {
 // Plan diffs a parsed manifest against the live rows for every resource in
 // subsystem the manifest mentions, in catalog order. Non-mutating.
 func Plan(be Backend, subsystem string, manifest map[string]any) ([]ResourceDelta, error) {
-	rd := be.read()
 	var out []ResourceDelta
 	for _, r := range BySubsystem(subsystem) {
 		if r.RowType == nil {
@@ -914,7 +895,7 @@ func Plan(be Backend, subsystem string, manifest map[string]any) ([]ResourceDelt
 		if !ok {
 			continue
 		}
-		d, err := r.diff(rd, rows)
+		d, err := r.Diff(be, rows)
 		if err != nil {
 			return nil, err
 		}
