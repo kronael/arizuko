@@ -3,6 +3,7 @@ package core
 import (
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"strconv"
 	"time"
@@ -45,6 +46,9 @@ func Timezone() string {
 // offending expression, and each caller adds the context it alone has.
 func NextRun(cronVal, tz string) (time.Time, error) {
 	if ms, err := strconv.ParseInt(cronVal, 10, 64); err == nil && ms > 0 {
+		if ms > math.MaxInt64/int64(time.Millisecond) {
+			return time.Time{}, fmt.Errorf("interval %q exceeds the maximum duration", cronVal)
+		}
 		return time.Now().Add(time.Duration(ms) * time.Millisecond), nil
 	}
 	if cronVal == "" {

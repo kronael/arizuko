@@ -48,6 +48,12 @@ func TestNextRunInterval(t *testing.T) {
 	}
 }
 
+func TestNextRunRejectsOverflowingInterval(t *testing.T) {
+	if _, err := NextRun("9223372036855", "UTC"); err == nil {
+		t.Fatal("overflowing interval accepted")
+	}
+}
+
 func TestNextRunEmptyIsNoSchedule(t *testing.T) {
 	if _, err := NextRun("", "UTC"); !errors.Is(err, ErrNoSchedule) {
 		t.Fatalf("empty cron: got %v, want ErrNoSchedule", err)
