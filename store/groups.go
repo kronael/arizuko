@@ -452,8 +452,6 @@ func (s *Store) GroupByFolderChecked(folder string) (core.Group, bool, error) {
 
 // setSetting rewrites one key of the settings document, leaving the rest
 // alone. A nil value writes JSON null (a clear); remove takes the key out. The
-// read and the write are two calls, so two operators editing one group in the
-// same instant collide: the last writer wins.
 func (s *Store) setSetting(folder, key string, value any, remove bool) error {
 	ctx := context.Background()
 	it, ok, err := s.groupItem(ctx, folder)
@@ -479,6 +477,7 @@ func (s *Store) setSetting(folder, key string, value any, remove bool) error {
 	err = s.WriteEntities(ctx, nil, objstore.Write{
 		Op: objstore.Update, Entity: Groups, Key: it.Key,
 		Attrs: map[string]string{attrGrpConfig: string(raw)},
+		Cond:  objstore.Cond{Where: []objstore.Cmp{attrIs(attrGrpConfig, it.Attrs[attrGrpConfig])}},
 	})
 	return err
 }
@@ -537,6 +536,7 @@ func (s *Store) SetGroupObserveWindow(folder string, msgs, chars int) error {
 	err = s.WriteEntities(ctx, nil, objstore.Write{
 		Op: objstore.Update, Entity: Groups, Key: it.Key,
 		Attrs: map[string]string{attrGrpConfig: string(raw)},
+		Cond:  objstore.Cond{Where: []objstore.Cmp{attrIs(attrGrpConfig, it.Attrs[attrGrpConfig])}},
 	})
 	return err
 }
@@ -586,7 +586,10 @@ func (s *Store) SetGroupSettings(folder string, settings map[string]json.RawMess
 			return nil, audit.Event{}, err
 		}
 		actor, sub, surface := s.auditIdentity()
-		return []objstore.Write{{Op: objstore.Update, Entity: Groups, Key: it.Key, Attrs: map[string]string{attrGrpConfig: string(raw)}}}, audit.Event{Category: audit.CategoryMutation, Action: "group.settings", Actor: actor, ActorSub: sub, Surface: surface, Resource: "groups/" + folder, Folder: folder, Outcome: audit.OutcomeOK}, nil
+		return []objstore.Write{{Op: objstore.Update, Entity: Groups, Key: it.Key,
+			Attrs: map[string]string{attrGrpConfig: string(raw)},
+			Cond:  objstore.Cond{Where: []objstore.Cmp{attrIs(attrGrpConfig, it.Attrs[attrGrpConfig])}},
+		}}, audit.Event{Category: audit.CategoryMutation, Action: "group.settings", Actor: actor, ActorSub: sub, Surface: surface, Resource: "groups/" + folder, Folder: folder, Outcome: audit.OutcomeOK}, nil
 	})
 }
 

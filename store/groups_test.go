@@ -12,6 +12,46 @@ import (
 	"github.com/kronael/arizuko/objstore"
 )
 
+type concurrentGroupEdit struct {
+	objstore.Store
+	base  *Store
+	fired bool
+}
+
+func (s *concurrentGroupEdit) Query(ctx context.Context, q objstore.Query) ([]objstore.Item, error) {
+	items, err := s.Store.Query(ctx, q)
+	if err == nil && q.Entity == Groups && !s.fired {
+		s.fired = true
+		if err := s.base.SetGroupOpen("world", false); err != nil {
+			return nil, err
+		}
+	}
+	return items, err
+}
+
+func TestPartialGroupSettingsRefuseConcurrentEdit(t *testing.T) {
+	for name, edit := range map[string]func(*Store) error{
+		"open":   func(s *Store) error { return s.SetGroupOpen("world", true) },
+		"window": func(s *Store) error { return s.SetGroupObserveWindow("world", 2, 100) },
+		"settings": func(s *Store) error {
+			return s.SetGroupSettings("world", map[string]json.RawMessage{"x": json.RawMessage(`1`)})
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			base := openMem(t)
+			putBareGroup(t, base, "world")
+			fault := &concurrentGroupEdit{Store: base.Obj(), base: base}
+			if err := edit(NewOver(fault)); err == nil || !fault.fired {
+				t.Fatalf("edit error = %v, concurrent edit = %v", err, fault.fired)
+			}
+			group, ok := base.GroupByFolder("world")
+			if !ok || group.Open {
+				t.Fatalf("concurrent visibility change lost: %+v", group)
+			}
+		})
+	}
+}
+
 // putBareGroup is a test helper: minimal PutGroup that lands a row with
 // the schema defaults applied (open=1, observe-window NULLs).
 func putBareGroup(t *testing.T, s *Store, folder string) {
