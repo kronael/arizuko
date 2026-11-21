@@ -126,17 +126,15 @@ func (s *Server) routesHandler(ctx context.Context, x resreg.Execution, contain 
 	switch x.Action {
 	case resreg.ActionList:
 		routes, err := s.db.Routes()
+		if err != nil {
+			return nil, resreg.Errorf(http.StatusInternalServerError, "store_error")
+		}
 		if x.Surface != audit.SurfaceREST {
-			// Agent: the whole table, annotated, so the agent can reason about
-			// cross-folder shadowing; the read error is swallowed.
 			return map[string]any{"routes": router.Describe(routes)}, nil
 		}
 		// Operator (REST): scoped to the caller's subtree. The leak guard keys
 		// on the EMPTY folder claim (root / service token), never on folder
 		// depth; shadowed_by is computed over the full table first.
-		if err != nil {
-			return nil, resreg.Errorf(http.StatusInternalServerError, "store_error")
-		}
 		views := router.Describe(routes)
 		out := make([]router.RouteView, 0, len(views))
 		for _, v := range views {
