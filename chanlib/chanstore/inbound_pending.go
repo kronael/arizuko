@@ -123,12 +123,9 @@ func (s *Store) ReadInboundFailure(ctx context.Context, id string) (*retry.Error
 }
 
 func (s *Store) Retain(ctx context.Context, id, payload, firstSeenAt string, decision retry.Decision, notice string) error {
-	if err := s.ensureHeldCount(ctx); err != nil {
-		return err
-	}
 	attrs, _ := retryAttrs(decision, notice)
 	attrs[attrPayload], attrs[attrFirstSeenAt] = payload, firstSeenAt
-	_, _, err := objstore.Increment(ctx, s.s, objstore.IndexEntity, heldCountKey, "count", 1, nil, []objstore.Write{{
+	_, err := s.s.GuardedBatch(ctx, nil, []objstore.Write{{
 		Op: objstore.Put, Entity: InboundPending, Key: pendingKey(id),
 		Attrs: attrs,
 		Cond:  objstore.Cond{Item: objstore.ItemAbsent},
@@ -193,27 +190,13 @@ func (s *Store) Reschedule(ctx context.Context, observed Held, decision retry.De
 }
 
 func (s *Store) Drop(ctx context.Context, observed Held) error {
-	if err := s.ensureHeldCount(ctx); err != nil {
-		return err
-	}
-	_, _, err := objstore.Increment(ctx, s.s, objstore.IndexEntity, heldCountKey, "count", -1, nil, []objstore.Write{{
+	_, err := s.s.GuardedBatch(ctx, nil, []objstore.Write{{
 		Op: objstore.Delete, Entity: InboundPending, Key: pendingKey(observed.ID), Cond: heldCond(observed),
 	}})
 	return err
 }
 
 func (s *Store) HeldCount(ctx context.Context) (int, error) {
-	it, ok, err := s.point(ctx, objstore.IndexEntity, heldCountKey)
-	if err != nil || !ok {
-		return 0, err
-	}
-	return strconv.Atoi(it.Attrs["count"])
-}
-
-var heldCountKey = objstore.Key{Partition: "inbound", Sort: "count"}
-
-func (s *Store) ensureHeldCount(ctx context.Context) error {
-	_, err := s.s.GuardedBatch(ctx, nil, []objstore.Write{{Op: objstore.Merge, Entity: objstore.IndexEntity,
-		Key: heldCountKey, Init: map[string]string{"count": "0"}}})
-	return err
+	rows, err := s.s.Query(ctx, objstore.Query{Entity: InboundPending, Partition: pendingPartition, Project: []string{attrAttempts}})
+	return len(rows), err
 }

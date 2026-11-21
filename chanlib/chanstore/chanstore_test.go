@@ -476,3 +476,26 @@ func TestCheckSnapshotNamesEveryRowItCannotRepresent(t *testing.T) {
 		}
 	}
 }
+
+func TestConcurrentRetains(t *testing.T) {
+	st := newStore(t)
+	const n = 64
+	start := make(chan struct{})
+	errs := make(chan error, n)
+	now := time.Now()
+	for i := range n {
+		go func() {
+			<-start
+			errs <- st.Retain(t.Context(), fmt.Sprint(i), "payload", ts(now), retry.Decision{NextAt: now}, "failure")
+		}()
+	}
+	close(start)
+	for range n {
+		if err := <-errs; err != nil {
+			t.Errorf("Retain: %v", err)
+		}
+	}
+	if count, err := st.HeldCount(t.Context()); err != nil || count != n {
+		t.Errorf("HeldCount = %d, %v; want %d", count, err, n)
+	}
+}

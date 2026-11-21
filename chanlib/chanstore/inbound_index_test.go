@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"testing"
 	"time"
 
@@ -75,7 +76,7 @@ func TestInboundMigrationResumesWithoutDoubleCharge(t *testing.T) {
 		}
 	}
 	c.rows = 0
-	if err := s.MigrateInbound(t.Context()); err != nil || c.rows != 3 {
+	if err := s.MigrateInbound(t.Context()); err != nil || c.rows != 2 {
 		t.Fatalf("rerun: %v rows=%d", err, c.rows)
 	}
 }
@@ -202,7 +203,7 @@ func (c *inboundCounter) Query(ctx context.Context, q objstore.Query) ([]objstor
 		return nil, err
 	}
 	c.rows += len(rows)
-	if q.Entity == chanstore.InboundPending {
+	if q.Entity == chanstore.InboundPending && (len(q.Project) == 0 || slices.Contains(q.Project, "payload")) {
 		c.payloads += len(rows)
 	}
 	return c.Store.Query(ctx, q)
@@ -218,7 +219,7 @@ func countedInbound(t *testing.T) (*chanstore.Store, *inboundCounter) {
 	c := &inboundCounter{Store: raw}
 	return chanstore.New(c), c
 }
-func TestInboundReadsOnlyDueRowsAndOneCount(t *testing.T) {
+func TestInboundReadsOnlyDueRowsAndProjectedCount(t *testing.T) {
 	s, c := countedInbound(t)
 	now := time.Now()
 	for i := range 40 {
@@ -235,9 +236,9 @@ func TestInboundReadsOnlyDueRowsAndOneCount(t *testing.T) {
 	if err != nil || len(due) != 1 || due[0].ID != "0" || c.rows != 2 || c.payloads != 1 {
 		t.Fatalf("due=%v err=%v rows=%d payloads=%d", due, err, c.rows, c.payloads)
 	}
-	c.rows = 0
-	if n, err := s.HeldCount(t.Context()); err != nil || n != 40 || c.rows != 1 {
-		t.Fatalf("count=%d err=%v rows=%d", n, err, c.rows)
+	c.rows, c.payloads = 0, 0
+	if n, err := s.HeldCount(t.Context()); err != nil || n != 40 || c.rows != 40 || c.payloads != 0 {
+		t.Fatalf("count=%d err=%v rows=%d payloads=%d", n, err, c.rows, c.payloads)
 	}
 	if err := s.Reschedule(t.Context(), due[0], retry.Decision{Failures: 1, NextAt: now.Add(time.Hour)}, "failure"); err != nil {
 		t.Fatal(err)
@@ -297,7 +298,7 @@ func TestInboundMigrationRunsOnce(t *testing.T) {
 		t.Fatalf("legacy deadline changed: %v %v", rows, err)
 	}
 	c.rows = 0
-	if err := s.MigrateInbound(t.Context()); err != nil || c.rows != 3 {
+	if err := s.MigrateInbound(t.Context()); err != nil || c.rows != 2 {
 		t.Fatalf("second migration: %v rows=%d", err, c.rows)
 	}
 }

@@ -25,21 +25,6 @@ func (s *Store) MigrateInbound(ctx context.Context) error {
 	if err := objstore.Reindex(ctx, s.s, "inbound-due-v1", []objstore.Query{{Entity: InboundPending, Partition: pendingPartition}}); err != nil {
 		return err
 	}
-	_, ok, err := s.point(ctx, objstore.IndexEntity, heldCountKey)
-	if err != nil {
-		return err
-	}
-	if !ok {
-		rows, err := s.s.Query(ctx, objstore.Query{Entity: InboundPending, Partition: pendingPartition, Project: []string{attrAttempts}})
-		if err != nil {
-			return err
-		}
-		_, err = s.s.GuardedBatch(ctx, nil, []objstore.Write{{Op: objstore.Put, Entity: objstore.IndexEntity, Key: heldCountKey,
-			Attrs: map[string]string{"count": strconv.Itoa(len(rows))}, Cond: objstore.Cond{Item: objstore.ItemAbsent}}})
-		if err != nil {
-			return err
-		}
-	}
 	marker := objstore.Key{Partition: "migrations", Sort: "inbound-retry-v1"}
 	if _, ok, err := s.point(ctx, objstore.IndexEntity, marker); err != nil || ok {
 		return err
