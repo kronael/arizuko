@@ -51,40 +51,6 @@ func reapBackups(groupDir string) {
 	}
 }
 
-type payload int
-
-const (
-	payVerbatim payload = iota
-	paySettings
-	payMigrations
-	payTasks
-)
-
-func classify(rel string) payload {
-	parts := strings.Split(rel, "/")
-	switch {
-	case parts[0] == "migrations" && len(parts) > 1:
-		return payMigrations
-	case rel == "tasks.toml":
-		return payTasks
-	case rel == settingsRel:
-		return paySettings
-	}
-	return payVerbatim
-}
-
-var refusedPayloads = map[payload]string{
-	payMigrations: "nothing runs a product's migrations/ — " +
-		"put the instructions in the product's CLAUDE.md or a skill, which the agent reads (container/README.md)",
-	payTasks: "nothing reads a product's tasks.toml — " +
-		"a scheduled task is a scheduled_tasks row, so create it with schedule_task, the dashboard " +
-		"or POST /v1/tasks, or have the product's CLAUDE.md tell the agent to (container/README.md)",
-}
-
-func refusePayload(product, rel string, kind payload) error {
-	return fmt.Errorf("%s: %s ships it, and %s", rel, product, refusedPayloads[kind])
-}
-
 func productFiles(dir string) ([]string, error) {
 	dir = filepath.Join(dir, "group")
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
@@ -129,12 +95,16 @@ func buildPlan(mix []Product) (*plan, error) {
 			return nil, fmt.Errorf("read product %s: %w", prod.Name, err)
 		}
 		for _, rel := range rels {
-			kind := classify(rel)
-			switch kind {
-			case paySettings:
+			switch {
+			case rel == settingsRel:
 				p.settings = append(p.settings, i)
-			case payMigrations, payTasks:
-				return nil, refusePayload(prod.Name, rel, kind)
+			case strings.HasPrefix(rel, "migrations/"):
+				return nil, fmt.Errorf("%s: %s ships it, and nothing runs a product's migrations/ — "+
+					"put the instructions in the product's CLAUDE.md or a skill, which the agent reads (container/README.md)", rel, prod.Name)
+			case rel == "tasks.toml":
+				return nil, fmt.Errorf("%s: %s ships it, and nothing reads a product's tasks.toml — "+
+					"a scheduled task is a scheduled_tasks row, so create it with schedule_task, the dashboard "+
+					"or POST /v1/tasks, or have the product's CLAUDE.md tell the agent to (container/README.md)", rel, prod.Name)
 			default:
 				if owner, taken := p.verbatim[rel]; taken {
 					p.overrides = append(p.overrides, fmt.Sprintf("%s overrides %s on group/%s", prod.Name, mix[owner].Name, rel))

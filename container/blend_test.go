@@ -309,16 +309,6 @@ func TestBlendRefusesProductTasks(t *testing.T) {
 	}
 }
 
-// TestRefusedPayloadsNameARoute: every refusal must tell the author where the
-// intent DOES work.
-func TestRefusedPayloadsNameARoute(t *testing.T) {
-	for kind, reason := range refusedPayloads {
-		if !strings.Contains(reason, "—") || !strings.Contains(reason, "container/README.md") {
-			t.Errorf("refusal for payload %v must name the working route and its documentation: %q", kind, reason)
-		}
-	}
-}
-
 // TestBlendSettingsRefusesMcpServers — the settings.json `mcpServers` key
 // reaches no consumer. arizuko is the only server on the agent's map after
 // BUGS J1/J14, and Claude Code has no top-level `mcpServers` setting either, so
@@ -396,26 +386,40 @@ func TestBlendIsIdempotent(t *testing.T) {
 	}
 }
 
-// TestClassifyCoversTheBlendTable pins each path to the rule it selects, so a
-// future edit that reroutes a payload fails here rather than in a live group.
-func TestClassifyCoversTheBlendTable(t *testing.T) {
-	want := map[string]payload{
-		"tasks.toml":            payTasks,
-		"migrations/001-x.md":   payMigrations,
-		".claude/settings.json": paySettings,
-		"PERSONA.md":            payVerbatim,
-		"SOUL.md":               payVerbatim,
-		"CLAUDE.md":             payVerbatim,
-		"facts/x.md":            payVerbatim,
-		"skills/foo/SKILL.md":   payVerbatim,
-		"Dockerfile.ant":        payVerbatim,
-		"BRANDING.md":           payVerbatim,
-		"settings.json":         payVerbatim,
-		"migrations":            payVerbatim,
-	}
-	for rel, k := range want {
-		if got := classify(rel); got != k {
-			t.Errorf("classify(%q) = %v, want %v", rel, got, k)
-		}
+func TestBlendPayloadPaths(t *testing.T) {
+	for _, rel := range []string{
+		"tasks.toml", "migrations/001-x.md", ".claude/settings.json",
+		"PERSONA.md", "SOUL.md", "CLAUDE.md", "facts/x.md",
+		"skills/foo/SKILL.md", "Dockerfile.ant", "BRANDING.md",
+		"settings.json", "migrations",
+	} {
+		t.Run(rel, func(t *testing.T) {
+			root := t.TempDir()
+			product := mkProduct(t, root, "a", map[string]string{})
+			body := "payload"
+			if rel == settingsRel {
+				body = `{"outputStyle":"telegram"}`
+			}
+			writeFile(t, filepath.Join(product.Dir, "group", filepath.FromSlash(rel)), body)
+			group := filepath.Join(root, "group")
+			_, _, err := BlendProducts(group, []Product{product}, nil)
+			if rel == "tasks.toml" || rel == "migrations/001-x.md" {
+				if err == nil || !strings.Contains(err.Error(), "—") || !strings.Contains(err.Error(), "container/README.md") {
+					t.Fatalf("refusal must name the working route and documentation: %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := read(t, group, filepath.FromSlash(rel))
+			if rel == settingsRel {
+				if !strings.Contains(got, `"outputStyle": "telegram"`) {
+					t.Errorf("merged settings = %q", got)
+				}
+			} else if got != body {
+				t.Errorf("payload = %q, want %q", got, body)
+			}
+		})
 	}
 }
