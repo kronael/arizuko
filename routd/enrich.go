@@ -25,9 +25,7 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
-// mediaConfig is routd's slice of the media/transcription env. Audio AND video
-// transcription fire under VoiceEnabled && WhisperURL != ""; the enrich path
-// does not read VideoEnabled.
+// mediaConfig is routd's slice of the media/transcription env.
 type mediaConfig struct {
 	Enabled      bool
 	MaxBytes     int64
@@ -176,10 +174,10 @@ func (l *Loop) enrichAttachments(ctx context.Context, msg *core.Message, folder 
 			displayName = fname
 		}
 		transcript := ""
-		if l.media.VoiceEnabled && l.media.WhisperURL != "" {
-			if strings.HasPrefix(att.Mime, "audio/") {
+		if l.media.WhisperURL != "" {
+			if l.media.VoiceEnabled && strings.HasPrefix(att.Mime, "audio/") {
 				transcript = whisperTranscribe(ctx, l.media.WhisperURL, l.media.WhisperModel, dest, att.Mime, langs)
-			} else if strings.HasPrefix(att.Mime, "video/") {
+			} else if l.media.VideoEnabled && strings.HasPrefix(att.Mime, "video/") {
 				if audioPath := extractVideoAudio(dest); audioPath != "" {
 					transcript = whisperTranscribe(ctx, l.media.WhisperURL, l.media.WhisperModel, audioPath, "audio/mpeg", langs)
 					_ = os.Remove(audioPath)
