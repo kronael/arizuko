@@ -143,6 +143,7 @@
         <tr><td class="name">chatJid</td><td class="type">string</td><td class="req req-y">yes</td><td>Target chat JID.</td></tr>
         <tr><td class="name">text</td><td class="type">string</td><td class="req req-y">yes</td><td>Reply body.</td></tr>
         <tr><td class="name">replyToId</td><td class="type">string</td><td class="req req-n">no</td><td>Platform message id to thread to; defaults to <code>db.GetLastReplyID(jid, "")</code>. Required on a GitHub chat: the <code>id</code> from the location header of the message you answer.</td></tr>
+        <tr><td class="name">title</td><td class="type">string</td><td class="req req-n">no</td><td>Name of the Discord thread this reply starts. A new thread without <code>title</code> is refused and nothing is posted; an existing thread keeps its name.</td></tr>
       </tbody>
     </table>
     <p class="returns"><strong>Returns:</strong> JSON <code>{"ok": true, "id": "&lt;platformId&gt;"}</code>; <code>routd</code> records the outbound row in <code>messages</code> with that id. Pass the id to <code>edit</code> to change the message in place.</p>
@@ -155,6 +156,7 @@
       <tbody>
         <tr><td class="name">chatJid</td><td class="type">string</td><td class="req req-y">yes</td><td>A platform chat JID or a full group folder. Platform chats use <code>authorizeJID</code>; group posts check <code>mcp:send</code> on that folder.</td></tr>
         <tr><td class="name">text</td><td class="type">string</td><td class="req req-y">yes</td><td>Message body.</td></tr>
+        <tr><td class="name">title</td><td class="type">string</td><td class="req req-n">no</td><td>Name of the Discord thread this message starts. A new thread without <code>title</code> is refused.</td></tr>
       </tbody>
     </table>
     <p class="returns"><strong>Returns:</strong> JSON <code>{"ok": true, "id": "&lt;messageId&gt;"}</code>. A platform send returns the platform message ID. A group post returns the stored inbound message ID.</p>
@@ -171,6 +173,7 @@
         <tr><td class="name">filename</td><td class="type">string</td><td class="req req-n">no</td><td>Display filename in chat.</td></tr>
         <tr><td class="name">caption</td><td class="type">string</td><td class="req req-n">no</td><td>Message text accompanying the file &mdash; this IS the message; do not output separate text.</td></tr>
               <tr><td class="name">replyToId</td><td class="type">string</td><td class="req req-n">no</td><td>Platform message id to thread the file to.</td></tr>
+        <tr><td class="name">title</td><td class="type">string</td><td class="req req-n">no</td><td>Name of the Discord thread this file starts. A new thread without <code>title</code> is refused.</td></tr>
       </tbody>
     </table>
     <p class="returns"><strong>Returns:</strong> JSON <code>{"ok": true, "id": "&lt;platformId&gt;"}</code>.</p>
@@ -184,6 +187,7 @@
         <tr><td class="name">chatJid</td><td class="type">string</td><td class="req req-y">yes</td><td>Target chat JID.</td></tr>
         <tr><td class="name">text</td><td class="type">string</td><td class="req req-y">yes</td><td>Text to synthesize; non-empty, &le; 5000 chars.</td></tr>
         <tr><td class="name">voice</td><td class="type">string</td><td class="req req-n">no</td><td>Voice name (e.g. <code>af_bella</code> for Kokoro). Omit to use PERSONA.md or instance default.</td></tr>
+        <tr><td class="name">title</td><td class="type">string</td><td class="req req-n">no</td><td>Name of the Discord thread this voice message starts. A new thread without <code>title</code> is refused.</td></tr>
       </tbody>
     </table>
     <p class="returns"><strong>Returns:</strong> JSON <code>{"ok": true, "id": "&lt;platformId&gt;"}</code>; on adapter unsupported, error text with platform hint.</p>
@@ -950,7 +954,7 @@ headers   = { Authorization = "Bearer {secret:CF_API_TOKEN}" }
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/reference/mcp.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-11-10">2026-11-10</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-15">2026-11-15</time>
       </div>
     </main>
 

@@ -13,6 +13,25 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.75.19] — 2026-11-21
+
+> arizuko v0.75.19 — the agent names its Discord threads
+>
+> A Discord thread the bot starts takes the title the agent chose, not the first words of the reply.
+>
+> • Discord threads — `reply`, `send`, `send_file` and `send_voice` take `title`; a new thread without one is refused, and the agent sends again with a title.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Changed
+
+- discd names a new thread from the explicit `title` of the delivery tool, with
+  🤖 in front and at most 100 characters. Without `title`, discd reuses an
+  existing thread at the root message or refuses with a permanent error and
+  posts nothing. A progress status never starts a thread.
+- The outbound row keeps `title` beside its thread placement, so a retry
+  starts the thread with the same title.
+
 ## [v0.75.18] — 2026-11-20
 
 > arizuko v0.75.18 — one key per GitHub and Gmail account
