@@ -8,6 +8,8 @@ package store_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -17,6 +19,38 @@ import (
 	"github.com/kronael/arizuko/routd"
 	"github.com/kronael/arizuko/store"
 )
+
+func TestImportDuplicateMessageCoordinates(t *testing.T) {
+	for _, batchSize := range []int{1, 2} {
+		t.Run(fmt.Sprint(batchSize), func(t *testing.T) {
+			st := routdMessages(t)
+			row := store.ArchiveMessageRow{
+				ID: "same", ChatJID: "web:world", Timestamp: ts(t, "10:00"),
+				Content: "first", RoutedTo: "world",
+			}
+			var buf bytes.Buffer
+			enc := json.NewEncoder(&buf)
+			for _, content := range []string{"first", "second", "third"} {
+				row.Content = content
+				if err := enc.Encode(row); err != nil {
+					t.Fatal(err)
+				}
+			}
+			n, _, refused, err := st.ImportMessagesJSONL(t.Context(), &buf, batchSize)
+			if err != nil || n != 1 || len(refused) != 0 {
+				t.Fatalf("imported = %d, refused = %v, error = %v", n, refused, err)
+			}
+			msg, ok := st.MessageByID(row.ChatJID, row.ID)
+			if !ok || msg.Content != "first" {
+				t.Fatalf("message = %+v, found = %v; want first row", msg, ok)
+			}
+			counts, err := st.FolderMessageCounts(t.Context(), []string{"world"})
+			if err != nil || counts["world"] != 1 {
+				t.Fatalf("folder counts = %v, error = %v; want one", counts, err)
+			}
+		})
+	}
+}
 
 // routdMessages hands back routd's own tables, wrapped as the owner the archive
 // lane is a method on.

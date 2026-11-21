@@ -271,7 +271,8 @@ func (s *Store) importMessageBatch(ctx context.Context, rows []ArchiveMessageRow
 			refused = append(refused, UnorderableMessage{ID: m.ID, Timestamp: m.Timestamp})
 			continue
 		}
-		if held[m.ChatJID][MsgStamp(core.TS(t), m.ID)] {
+		stamp := MsgStamp(core.TS(t), m.ID)
+		if held[m.ChatJID][stamp] {
 			continue
 		}
 		w, err := importedMessageWrites(m)
@@ -283,6 +284,7 @@ func (s *Store) importMessageBatch(ctx context.Context, rows []ArchiveMessageRow
 			w[i].Cond = objstore.Cond{}
 		}
 		writes = append(writes, w...)
+		held[m.ChatJID][stamp] = true
 		staged++
 		if m.RoutedTo != "" {
 			folders[m.RoutedTo]++
