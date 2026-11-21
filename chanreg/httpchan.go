@@ -9,8 +9,10 @@ import (
 	"log/slog"
 	"mime/multipart"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"github.com/kronael/arizuko/chanlib"
@@ -328,11 +330,11 @@ func (h *HTTPChannel) FetchHistory(ctx context.Context, jid string, before time.
 	if !h.entry.HasCap("fetch_history") {
 		return nil, fmt.Errorf("channel %s: fetch_history not supported", h.entry.Name)
 	}
-	u := fmt.Sprintf("%s/v1/history?jid=%s&limit=%d", h.entry.URL, jid, limit)
+	query := url.Values{"jid": {jid}, "limit": {strconv.Itoa(limit)}}
 	if !before.IsZero() {
-		u += "&before=" + before.UTC().Format(time.RFC3339)
+		query.Set("before", before.UTC().Format(time.RFC3339))
 	}
-	req, err := http.NewRequestWithContext(ctx, "GET", u, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", h.entry.URL+"/v1/history?"+query.Encode(), nil)
 	if err != nil {
 		return nil, err
 	}

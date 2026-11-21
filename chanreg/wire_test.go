@@ -8,6 +8,7 @@ import (
 	"mime"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -272,9 +273,9 @@ func TestPostRoundDoneTolerates404AndRejectsOtherFailures(t *testing.T) {
 }
 
 func TestFetchHistoryNeedsTheCapAndBuildsTheQuery(t *testing.T) {
-	var query string
+	var query url.Values
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		query = r.URL.RawQuery
+		query = r.URL.Query()
 		_, _ = io.WriteString(w, `[{"id":1}]`)
 	}))
 	t.Cleanup(srv.Close)
@@ -292,10 +293,10 @@ func TestFetchHistoryNeedsTheCapAndBuildsTheQuery(t *testing.T) {
 	if string(body) != `[{"id":1}]` {
 		t.Errorf("body = %q, want the adapter's payload verbatim", body)
 	}
-	if !strings.Contains(query, "jid=x:1") || !strings.Contains(query, "limit=50") {
+	if query.Get("jid") != "x:1" || query.Get("limit") != "50" {
 		t.Errorf("query = %q, want jid and limit", query)
 	}
-	if strings.Contains(query, "before=") {
+	if query.Has("before") {
 		t.Errorf("a zero `before` must be omitted, got %q", query)
 	}
 
@@ -303,7 +304,7 @@ func TestFetchHistoryNeedsTheCapAndBuildsTheQuery(t *testing.T) {
 	if _, err := h.FetchHistory(ctx, "x:1", before, 10); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(query, "before=2026-08-27T10:30:00Z") {
+	if query.Get("before") != "2026-08-27T10:30:00Z" {
 		t.Errorf("query = %q, want an RFC3339 UTC before", query)
 	}
 }
