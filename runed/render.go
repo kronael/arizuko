@@ -86,15 +86,6 @@ func renderTurn(
 	}, nil
 }
 
-// turnEnv is the agent's process environment.
-//
-// ant reads every one of these from process.env, so a key this map omits is
-// silently dead in the guest: settings.json's env block reaches the SDK
-// subprocess, not ant itself. Cost: sloth's fable override and every
-// RUNED_RUN_TIMEOUT bump were dead until 2026-06-09 (ARIZUKO_MODEL,
-// ARIZUKO_QUERY_TIMEOUT_MS), the first ARIZUKO_BACKEND died the same way, and
-// ARIZUKO_IS_ROOT read undefined on EVERY turn while it was written only into
-// settings.json (BUGS L60, spec 6/23).
 func turnEnv(cfg *core.Config, req runedv1.RunRequest, queryTimeout int64) map[string]string {
 	env := map[string]string{"TZ": cfg.Timezone}
 	if len(req.Harness) > 0 {

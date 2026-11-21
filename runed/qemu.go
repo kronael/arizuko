@@ -184,23 +184,6 @@ func guestMAC(cid uint32) string {
 	return fmt.Sprintf("52:54:00:%02x:%02x:%02x", byte(cid>>16), byte(cid>>8), byte(cid))
 }
 
-// virtiofsdArgs renders one share's argument list. Both shares take the same list:
-// the CLAMP is not a flag, it is the daemon's own uid (startVirtiofsd).
-//
-// Measured three ways on krons 2026-09-25, because the spec's `--uid-map` design
-// cannot run here (BUGS `L372`):
-//
-//   - root + `--uid-map`: refused. "uid_map can only be used by unprivileged user
-//     where sandbox mod is namespace".
-//   - unprivileged + `--sandbox namespace` + `--uid-map`: refused one step later.
-//     The namespace sandbox mounts a fresh /proc, and docker's own /proc carries
-//     locked masked paths, so the nested mount is EPERM whatever the map says.
-//   - unprivileged + `--sandbox=none`, no map: SERVES. And it is the control the
-//     map was for — a daemon running as the agent's uid cannot create a host file
-//     owned by anyone else, whatever uid the guest states.
-//
-// `--sandbox=none` is right for both shares because runed has already made the
-// namespaces; the rootfs share is read-only and exported by root.
 func virtiofsdArgs(sock, source string) []string {
 	return []string{
 		"--socket-path=" + sock,

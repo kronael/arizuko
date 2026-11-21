@@ -9,11 +9,6 @@ import (
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 )
 
-// The turn's boundaries, read by whatever substrate runs it. These are the
-// turn's contract with the Manager and the agent, not one substrate's: the run
-// ceiling against the idle timer, the code the agent uses
-// to say a retry cannot help, and the cap on the stderr the turn log keeps. They
-// lived in the Docker runtime until spec 6/41 step 4 deleted it.
 const (
 	// maxOutputSize caps the stderr a substrate keeps for the turn log.
 	maxOutputSize = 10 * 1024 * 1024 // 10MB

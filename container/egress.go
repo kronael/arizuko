@@ -1,17 +1,5 @@
 package container
 
-// egress.go is what every substrate needs to put one egress proxy in front of one
-// turn: the port, the translation from a resolved allowlist to the proxy's rules,
-// and the health wait that makes "the proxy answers before the agent's first
-// request" a fact rather than a hope.
-//
-// It STARTS nothing. The proxy's listen address is the substrate's own — a tap's
-// host side under the VM substrate — so the substrate starts the process and this
-// package only says what to pass it (spec 6/41 §"Egress by name, sealed below the
-// kernel"). The Docker half that ran `docker run` for a proxy container, carved a
-// /24 per folder and swept orphans went with the Docker substrate at step 4 of
-// 6/41's order.
-
 import (
 	"fmt"
 	"io"
