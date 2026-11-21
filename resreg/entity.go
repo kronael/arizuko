@@ -683,6 +683,21 @@ func applyEntities(ctx context.Context, be Backend, subsystem, wantChecksum stri
 		return "", fmt.Errorf("resreg: %s is entity-backed and the backend carries no object store",
 			subsystem)
 	}
+	puts := map[string][]objstore.Write{}
+	for _, r := range BySubsystem(subsystem) {
+		rows, mentioned := manifestRows[r.Name]
+		if !mentioned || r.RowType == nil || r.SkipApplyRebuild {
+			continue
+		}
+		if err := r.validateRows(ctx, rows); err != nil {
+			return "", err
+		}
+		writes, err := r.entityPuts(rows)
+		if err != nil {
+			return "", err
+		}
+		puts[r.Name] = writes
+	}
 	claim, err := applyClaim(subsystem, manifestRows, opts)
 	if err != nil {
 		return "", err
@@ -703,7 +718,7 @@ func applyEntities(ctx context.Context, be Backend, subsystem, wantChecksum stri
 				// Before any write, so Replace releases the claim.
 				return fmt.Errorf("%w: db=%s manifest=%s", ErrChecksumMismatch, current, wantChecksum)
 			}
-			if err := replaceRows(ctx, rp, rd, subsystem, manifestRows, opts); err != nil {
+			if err := replaceRows(ctx, rp, rd, subsystem, manifestRows, puts, opts); err != nil {
 				return err
 			}
 			if applied, err = checksum(rd, subsystem); err != nil {
@@ -758,7 +773,7 @@ func applyClaim(subsystem string, manifestRows map[string]any, opts *ApplyOpts) 
 // next tenant of the path the last one's egress rules and web routes (BUGS
 // L253).
 func replaceRows(ctx context.Context, rp *objstore.Replacer, rd reader, subsystem string,
-	manifestRows map[string]any, opts *ApplyOpts) error {
+	manifestRows map[string]any, puts map[string][]objstore.Write, opts *ApplyOpts) error {
 	for _, r := range BySubsystem(subsystem) {
 		if r.RowType == nil || r.SkipApplyRebuild {
 			continue
@@ -767,9 +782,6 @@ func replaceRows(ctx context.Context, rp *objstore.Replacer, rd reader, subsyste
 		if !mentioned {
 			continue // resource absent from manifest → untouched
 		}
-		if err := r.validateRows(ctx, rows); err != nil {
-			return err
-		}
 		wipe, err := r.entityDeletes(rd, rows, opts)
 		if err != nil {
 			return err
@@ -777,11 +789,7 @@ func replaceRows(ctx context.Context, rp *objstore.Replacer, rd reader, subsyste
 		if _, err := rp.Write(ctx, wipe...); err != nil {
 			return err
 		}
-		puts, err := r.entityPuts(rows)
-		if err != nil {
-			return err
-		}
-		if _, err := rp.Write(ctx, puts...); err != nil {
+		if _, err := rp.Write(ctx, puts[r.Name]...); err != nil {
 			return err
 		}
 	}
