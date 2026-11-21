@@ -408,6 +408,9 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 	id, err := s.ingestMessage(m, sub, r.Header.Get("X-Idempotency-Key"))
 	if err != nil {
 		e := err.(*ingressError)
+		if e.status >= 500 {
+			slog.Error("ingest failed", "chat_jid", m.ChatJID, "code", e.code, "err", e.message)
+		}
 		writeErr(w, e.status, e.code, e.message)
 		return
 	}
