@@ -27,6 +27,108 @@ type countingStore struct {
 	reads map[string]int
 }
 
+func TestWakeDrainsObservationBatches(t *testing.T) {
+	for _, observations := range []int{200, 400} {
+		t.Run(fmt.Sprint(observations), func(t *testing.T) {
+			db := memDBOrSkip(t)
+			if err := db.PutGroup(core.Group{Folder: "demo"}); err != nil {
+				t.Fatal(err)
+			}
+			doSetRoutes(t, db, []core.Route{{Match: "at=agent", Target: "demo"}, {Match: "platform=slack", Target: "demo?observe"}})
+			jid := "slack:T/C"
+			now := time.Now().UTC()
+			var last core.Message
+			for i := 0; i <= observations; i++ {
+				content := "observation"
+				if i == observations {
+					content = "@agent answer"
+				}
+				msg := core.Message{ID: fmt.Sprintf("m%03d", i), ChatJID: jid, Sender: "u", Content: content, Timestamp: now.Add(time.Duration(i) * time.Millisecond)}
+				last = msg
+				if err := db.PutMessage(msg); err != nil {
+					t.Fatal(err)
+				}
+			}
+			runner := &chanRunner{runs: make(chan string, 1)}
+			loop := NewLoop(db, runner, LoopConfig{})
+			defer loop.StopQueue()
+			loop.q.EnqueueMessageCheck(jid)
+			select {
+			case got := <-runner.runs:
+				if got != fmt.Sprintf("m%03d", observations) {
+					t.Errorf("run = %s", got)
+				}
+			case <-time.After(20 * time.Second):
+				t.Fatal("mention did not run")
+			}
+			awaitCond(t, "queue did not finish", func() bool {
+				loop.q.mu.Lock()
+				defer loop.q.mu.Unlock()
+				return !loop.q.getGroup(jid).active
+			})
+			if got := db.GetAgentCursor(jid); got != store.MessageCursor(last) {
+				t.Errorf("cursor = %q, want %q", got, store.MessageCursor(last))
+			}
+		})
+	}
+}
+
+func TestPartialBatchDoesNotContinue(t *testing.T) {
+	for _, mode := range []string{"busy", "steer"} {
+		t.Run(mode, func(t *testing.T) {
+			db := memDBOrSkip(t)
+			if err := db.PutGroup(core.Group{Folder: "demo"}); err != nil {
+				t.Fatal(err)
+			}
+			jid := "web:demo"
+			now := time.Now().UTC()
+			var first core.Message
+			for i := range pollBatch {
+				msg := core.Message{ID: fmt.Sprintf("m%03d", i), ChatJID: jid, Sender: "u", Content: "question", Timestamp: now.Add(time.Duration(i) * time.Millisecond)}
+				if i == 0 {
+					if mode == "steer" {
+						msg.Content = "/ping"
+					}
+					first = msg
+				} else {
+					msg.Topic = "other"
+				}
+				if err := db.PutMessage(msg); err != nil {
+					t.Fatal(err)
+				}
+			}
+			calls := 0
+			loop := NewLoop(db, runnerFn(func(context.Context, runedv1.RunRequest) (runedv1.RunOutcome, error) {
+				calls++
+				if calls == 1 {
+					return runedv1.RunOutcome{Outcome: runedv1.OutcomeSilent}, nil
+				}
+				return runedv1.RunOutcome{Busy: true}, nil
+			}), LoopConfig{})
+			defer loop.StopQueue()
+			loop.q.mu.Lock()
+			loop.q.getGroup(jid).active = true
+			loop.q.mu.Unlock()
+			if _, err := loop.processGroupMessages(jid); err != nil {
+				t.Fatal(err)
+			}
+			loop.q.mu.Lock()
+			again := loop.q.getGroup(jid).again
+			loop.q.mu.Unlock()
+			if again || db.GetAgentCursor(jid) != store.MessageCursor(first) {
+				t.Fatalf("continuation=%t cursor=%q", again, db.GetAgentCursor(jid))
+			}
+			want := 2
+			if mode == "steer" {
+				want = 0
+			}
+			if calls != want {
+				t.Fatalf("calls=%d want %d", calls, want)
+			}
+		})
+	}
+}
+
 func (c *countingStore) Query(ctx context.Context, q objstore.Query) ([]objstore.Item, error) {
 	c.mu.Lock()
 	c.reads[q.Entity]++

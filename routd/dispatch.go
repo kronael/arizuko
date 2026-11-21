@@ -39,10 +39,14 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 	return l.processChat(chatJID, false)
 }
 
-func (l *Loop) processChat(chatJID string, commandsOnly bool) (bool, error) {
+func (l *Loop) processChat(chatJID string, commandsOnly bool) (hadOutput bool, rerr error) {
 	unlock := sync.OnceFunc(lockTurn("\x00chat:" + chatJID))
 	defer unlock()
-	msgs, b, err := l.pendingBatch(chatJID, l.db.GetAgentCursor(chatJID), pollBatch)
+	cursor, err := l.db.store().AgentCursor(chatJID)
+	if err != nil {
+		return false, err
+	}
+	msgs, b, err := l.pendingBatch(chatJID, cursor, pollBatch)
 	if err != nil {
 		return false, err
 	}
@@ -50,6 +54,22 @@ func (l *Loop) processChat(chatJID string, commandsOnly bool) (bool, error) {
 		return false, nil
 	}
 	last := msgs[len(msgs)-1]
+	if !commandsOnly && len(msgs) == pollBatch {
+		end := store.MessageCursor(last)
+		defer func() {
+			if rerr != nil {
+				return
+			}
+			cursor, err := l.db.store().AgentCursor(chatJID)
+			if err != nil {
+				rerr = err
+				return
+			}
+			if cursor >= end {
+				l.q.EnqueueMessageCheck(chatJID)
+			}
+		}()
+	}
 
 	// Three questions, three rows. The busy key is the newest user row; the steer
 	// offer takes the oldest slash command; the folder comes from the newest row
