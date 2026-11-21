@@ -143,7 +143,7 @@
         <tr><td class="name">chatJid</td><td class="type">string</td><td class="req req-y">yes</td><td>Target chat JID.</td></tr>
         <tr><td class="name">text</td><td class="type">string</td><td class="req req-y">yes</td><td>Reply body.</td></tr>
         <tr><td class="name">replyToId</td><td class="type">string</td><td class="req req-n">no</td><td>Platform message id to thread to; defaults to <code>db.GetLastReplyID(jid, "")</code>. Required on a GitHub chat: the <code>id</code> from the location header of the message you answer.</td></tr>
-        <tr><td class="name">title</td><td class="type">string</td><td class="req req-n">no</td><td>Name of the Discord thread this reply starts. A new thread without <code>title</code> is refused and nothing is posted; an existing thread keeps its name.</td></tr>
+        <tr><td class="name">title</td><td class="type">string</td><td class="req req-n">no</td><td>Name of the Discord thread this reply starts. A new thread without <code>title</code> is refused and nothing is posted. On an existing thread, <code>title</code> renames it.</td></tr>
       </tbody>
     </table>
     <p class="returns"><strong>Returns:</strong> JSON <code>{"ok": true, "id": "&lt;platformId&gt;"}</code>; <code>routd</code> records the outbound row in <code>messages</code> with that id. Pass the id to <code>edit</code> to change the message in place.</p>
@@ -954,7 +954,7 @@ headers   = { Authorization = "Bearer {secret:CF_API_TOKEN}" }
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/reference/mcp.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-11-15">2026-11-15</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-21">2026-11-21</time>
       </div>
     </main>
 

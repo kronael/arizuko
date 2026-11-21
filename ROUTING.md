@@ -658,7 +658,8 @@ own Claude session, reply chain and message history.
    `reply`, `send`, `send_file` or `send_voice`; the adapter adds 🤖 and clamps
    it to 100 characters. Without `title`, discd reuses an existing thread at the
    root message id, or refuses with a permanent error that tells the agent to
-   pass `title`, and posts nothing. A progress status carries no title, so it
+   pass `title`, and posts nothing. A `title` on a message into an existing
+   thread renames that thread. A progress status carries no title, so it
    never starts a thread and a refusal drops it. The outbound row keeps `title`
    beside its thread placement, so a retry uses the same title.
    `send` stays top-level. The chat setting `thread_replies` toggles new-thread

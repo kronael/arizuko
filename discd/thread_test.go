@@ -159,6 +159,30 @@ func TestSendThreadTitle(t *testing.T) {
 	}
 }
 
+func TestSendTitleRenamesExistingThread(t *testing.T) {
+	for _, c := range []struct{ title, want string }{{"Server decommission", "🤖 Server decommission"}, {"", ""}} {
+		rec := &recorded{}
+		srv := newThreadDiscordServer(t, rec, http.StatusOK, `{"id":"th-1"}`)
+		defer mockAllDiscordEndpoints(srv.URL)()
+		b := &bot{session: newTestSession(t)}
+		if _, err := b.Send(chanlib.SendRequest{ChatJID: "discord:g1/ch-1", Content: "x", ThreadID: "th-1", Title: c.title}); err != nil {
+			t.Fatal(err)
+		}
+		var renames []string
+		for _, r := range rec.snapshot() {
+			if r.Method == http.MethodPatch && strings.HasSuffix(r.Path, "/channels/th-1") {
+				var edit struct{ Name string }
+				_ = json.Unmarshal([]byte(r.Body), &edit)
+				renames = append(renames, edit.Name)
+			}
+		}
+		if c.want == "" && len(renames) != 0 || c.want != "" && (len(renames) != 1 || renames[0] != c.want) {
+			t.Errorf("title %q: renames = %q, want %q", c.title, renames, c.want)
+		}
+		srv.Close()
+	}
+}
+
 func TestUntitledThreadDelivery(t *testing.T) {
 	for _, kind := range []string{"text", "file", "voice"} {
 		for _, existing := range []bool{false, true} {

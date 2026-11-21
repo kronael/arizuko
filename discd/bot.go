@@ -422,27 +422,36 @@ func (b *bot) Send(req chanlib.SendRequest) (string, error) {
 	return firstID, nil
 }
 
-func (b *bot) threadFrom(chID, rootID, title string) (string, error) {
+func threadName(title string) string {
 	title = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(title), "🤖"))
 	if title == "" {
+		return ""
+	}
+	name := []rune("🤖 " + title)
+	if len(name) > 100 {
+		name = name[:100]
+	}
+	return string(name)
+}
+
+func (b *bot) threadFrom(chID, rootID, title string) (string, error) {
+	name := threadName(title)
+	if name == "" {
 		thread, err := b.session.Channel(rootID)
 		if err == nil && thread != nil && thread.IsThread() && thread.ID == rootID {
 			return rootID, nil
 		}
 		return "", fmt.Errorf("%w: %w: pass title to start a Discord thread", chanlib.ErrNotDelivered, chanlib.ErrPermanent)
 	}
-	name := []rune("🤖 " + title)
-	if len(name) > 100 {
-		name = name[:100]
-	}
 	th, err := b.session.MessageThreadStartComplex(chID, rootID, &discordgo.ThreadStart{
-		Name:                string(name),
+		Name:                name,
 		AutoArchiveDuration: 1440,
 	})
 	if err != nil {
 		var rest *discordgo.RESTError
 		if errors.As(err, &rest) && rest.Message != nil &&
 			rest.Message.Code == discordgo.ErrCodeThreadAlreadyCreatedForThisMessage {
+			b.rename(rootID, name)
 			return rootID, nil
 		}
 		return "", err
@@ -450,8 +459,21 @@ func (b *bot) threadFrom(chID, rootID, title string) (string, error) {
 	return th.ID, nil
 }
 
+func (b *bot) rename(threadID, name string) {
+	if name == "" {
+		return
+	}
+	if ch, err := b.session.State.Channel(threadID); err == nil && ch.Name == name {
+		return
+	}
+	if _, err := b.session.ChannelEdit(threadID, &discordgo.ChannelEdit{Name: name}); err != nil {
+		slog.Warn("thread rename failed", "thread", threadID, "err", err)
+	}
+}
+
 func (b *bot) threadDestination(jid, threadID, threadRoot, title string) (string, error) {
 	if threadID != "" {
+		b.rename(threadID, threadName(title))
 		return threadID, nil
 	}
 	channel := chanID(jid)

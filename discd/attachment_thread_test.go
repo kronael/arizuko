@@ -53,11 +53,13 @@ func TestAttachmentHTTPMaterializesItsDeclaredThread(t *testing.T) {
 					t.Fatalf("upload status=%d body=%s", w.Code, w.Body.String())
 				}
 				destination := existing
-				wantCalls := 1
 				if existing == "" {
-					destination, wantCalls = "root-1", 2
+					destination = "root-1"
 					assertPath(t, rec, "POST", "/channels/ch-1/messages/root-1/threads")
+				} else {
+					assertPath(t, rec, "PATCH", "/channels/"+existing)
 				}
+				wantCalls := 2
 				assertPath(t, rec, "POST", "/channels/"+destination+"/messages")
 				if got := len(rec.snapshot()); got != wantCalls {
 					t.Fatalf("unexpected placeholder or nested thread: calls=%d want=%d", got, wantCalls)
