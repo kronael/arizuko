@@ -6,6 +6,13 @@ import (
 	"time"
 )
 
+func TestNextRunImpossibleCron(t *testing.T) {
+	_, err := NextRun("0 0 31 2 *", "UTC")
+	if err == nil || errors.Is(err, ErrNoSchedule) {
+		t.Fatalf("impossible cron error = %v, want invalid schedule", err)
+	}
+}
+
 func TestNextRunBasic(t *testing.T) {
 	next, err := NextRun("0 9 * * *", "UTC")
 	if err != nil {

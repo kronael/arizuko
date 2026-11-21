@@ -2,6 +2,7 @@ package core
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"strconv"
 	"time"
@@ -57,5 +58,9 @@ func NextRun(cronVal, tz string) (time.Time, error) {
 	if err != nil {
 		return time.Time{}, err
 	}
-	return sched.Next(time.Now().In(loc)), nil
+	next := sched.Next(time.Now().In(loc))
+	if next.IsZero() {
+		return time.Time{}, fmt.Errorf("cron %q has no next run", cronVal)
+	}
+	return next, nil
 }
