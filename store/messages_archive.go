@@ -232,15 +232,6 @@ func (s *Store) ImportMessagesJSONL(ctx context.Context, r io.Reader, batchSize 
 	return imported, chatJIDs, refused, berr
 }
 
-// importMessageBatch renders one batch and writes it, answering how many landed
-// and which rows it refused.
-//
-// IT READS WHAT IS ALREADY THERE FIRST, which is what makes the import
-// idempotent: a message write is create-if-absent and a batch is
-// all-or-nothing, so a re-run would otherwise fail on its first present row.
-// Nothing can appear between the read and the write, because a restore runs
-// with routd stopped; that is why the survivors keep no condition, where one
-// raced row would lose a batch of five hundred.
 func (s *Store) importMessageBatch(ctx context.Context, rows []ArchiveMessageRow) (
 	int, []UnorderableMessage, error) {
 	var refused []UnorderableMessage
@@ -262,8 +253,6 @@ func (s *Store) importMessageBatch(ctx context.Context, rows []ArchiveMessageRow
 	if err != nil {
 		return 0, refused, err
 	}
-	var writes []objstore.Write
-	folders := map[string]int{}
 	staged := 0
 	for _, m := range rendered {
 		t, err := ReadMessageInstant(m.Timestamp)
@@ -280,27 +269,20 @@ func (s *Store) importMessageBatch(ctx context.Context, rows []ArchiveMessageRow
 			refused = append(refused, UnorderableMessage{ID: m.ID, Timestamp: m.Timestamp})
 			continue
 		}
-		for i := range w {
-			w[i].Cond = objstore.Cond{}
+		var committed bool
+		if m.RoutedTo != "" {
+			committed, err = s.tryCountFolderMessageBy(ctx, m.RoutedTo, 1, w)
+		} else {
+			committed, err = s.TryWriteEntities(ctx, nil, w...)
 		}
-		writes = append(writes, w...)
+		if err != nil {
+			return staged, refused, fmt.Errorf("import message %s: %w", m.ID, err)
+		}
+		if !committed {
+			return staged, refused, fmt.Errorf("import message %s: %w", m.ID, ErrRefused)
+		}
 		held[m.ChatJID][stamp] = true
 		staged++
-		if m.RoutedTo != "" {
-			folders[m.RoutedTo]++
-		}
-	}
-	if staged == 0 {
-		return 0, refused, nil
-	}
-	if _, err := s.applyInChunks(ctx, "import messages", writes); err != nil {
-		return 0, refused, err
-	}
-
-	for folder, n := range folders {
-		if err := s.countFolderMessageBy(ctx, folder, n, nil); err != nil {
-			return staged, refused, err
-		}
 	}
 	return staged, refused, nil
 }

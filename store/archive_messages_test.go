@@ -9,16 +9,67 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/retry"
 	"github.com/kronael/arizuko/routd"
 	"github.com/kronael/arizuko/store"
 )
+
+type failArchiveFeed struct {
+	objstore.Store
+	stamp string
+	fired bool
+}
+
+func (s *failArchiveFeed) GuardedBatch(ctx context.Context, checks []objstore.Check, writes []objstore.Write) (bool, error) {
+	for _, w := range writes {
+		if !s.fired && w.Entity == store.MessageFolders && w.Key.Sort == s.stamp {
+			s.fired = true
+			return false, errors.New("injected feed failure")
+		}
+	}
+	return s.Store.GuardedBatch(ctx, checks, writes)
+}
+
+func TestImportMessagesRetryAfterFeedFailure(t *testing.T) {
+	base := routdMessages(t)
+	stamp := ts(t, "10:00")
+	fault := &failArchiveFeed{Store: base.Obj(), stamp: store.MsgStamp(stamp, "c")}
+	st := store.NewOver(fault)
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	for _, id := range []string{"a", "b", "c"} {
+		if err := enc.Encode(store.ArchiveMessageRow{
+			ID: id, ChatJID: "web:world", Timestamp: stamp, RoutedTo: "world", Content: id,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	data := buf.Bytes()
+	n, _, _, err := st.ImportMessagesJSONL(t.Context(), bytes.NewReader(data), 500)
+	if err == nil || !fault.fired || n != 2 {
+		t.Fatalf("first import = %d, error = %v, fault fired = %v; want 2 and an error", n, err, fault.fired)
+	}
+	n, _, _, err = st.ImportMessagesJSONL(t.Context(), bytes.NewReader(data), 500)
+	if err != nil || n != 1 {
+		t.Fatalf("retry = %d, error = %v; want 1", n, err)
+	}
+	rows, err := base.Obj().Query(t.Context(), objstore.Query{Entity: store.MessageFolders, Partition: "world"})
+	if err != nil || len(rows) != 3 || countMessages(t, base, "web:world") != 3 {
+		t.Fatalf("feed rows = %d, error = %v; want three messages and feed rows", len(rows), err)
+	}
+	counts, err := base.FolderMessageCounts(t.Context(), []string{"world"})
+	if err != nil || counts["world"] != 3 {
+		t.Fatalf("folder counts = %v, error = %v; want three", counts, err)
+	}
+}
 
 func TestImportDuplicateMessageCoordinates(t *testing.T) {
 	for _, batchSize := range []int{1, 2} {
