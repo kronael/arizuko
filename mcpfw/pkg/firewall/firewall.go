@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/mark3labs/mcp-go/mcp"
+
 	"github.com/kronael/arizuko/mcpfw/pkg/rule"
 )
 
@@ -98,19 +100,13 @@ func denied(id json.RawMessage, tool string) json.RawMessage {
 // is to hide, and hiding everything on a parse slip would look like an upstream
 // with no tools.
 func (f *Firewall) filterTools(reply json.RawMessage) (json.RawMessage, error) {
-	var env struct {
-		JSONRPC string          `json:"jsonrpc"`
-		ID      json.RawMessage `json:"id,omitempty"`
-		Result  struct {
-			Tools []json.RawMessage `json:"tools"`
-		} `json:"result"`
-	}
-	if err := json.Unmarshal(reply, &env); err == nil && env.Result.Tools != nil {
-		kept := make([]json.RawMessage, 0, len(env.Result.Tools))
-		for _, t := range env.Result.Tools {
-			var named struct {
-				Name string `json:"name"`
-			}
+	var env, result map[string]json.RawMessage
+	var tools []json.RawMessage
+	if json.Unmarshal(reply, &env) == nil && json.Unmarshal(env["result"], &result) == nil &&
+		json.Unmarshal(result["tools"], &tools) == nil && tools != nil {
+		kept := make([]json.RawMessage, 0, len(tools))
+		for _, t := range tools {
+			var named mcp.Tool
 			if err := json.Unmarshal(t, &named); err != nil {
 				continue
 			}
@@ -118,7 +114,15 @@ func (f *Firewall) filterTools(reply json.RawMessage) (json.RawMessage, error) {
 				kept = append(kept, t)
 			}
 		}
-		env.Result.Tools = kept
+		filtered, err := json.Marshal(kept)
+		if err != nil {
+			return nil, err
+		}
+		result["tools"] = filtered
+		env["result"], err = json.Marshal(result)
+		if err != nil {
+			return nil, err
+		}
 		return json.Marshal(env)
 	}
 	// Not a tools/list result this gate can read, so there is nothing to hide.
