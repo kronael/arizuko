@@ -22,13 +22,13 @@ func seedSettings(
 	elevated := req.Elevated
 	fp := filepath.Join(claudeDir, "settings.json")
 	var settings map[string]any
-	if data, err := os.ReadFile(fp); err == nil {
+	data, err := os.ReadFile(fp)
+	if err == nil {
 		if err := json.Unmarshal(data, &settings); err != nil {
-			// The merge below starts from an empty map, so a file that will not parse
-			// is REPLACED rather than merged and the operator's keys are gone.
-			slog.Warn("settings.json will not parse; it is rewritten from defaults, not merged",
-				"path", fp, "folder", folder, "err", err)
+			return fmt.Errorf("parse settings %s: %w", fp, err)
 		}
+	} else if !os.IsNotExist(err) {
+		return err
 	}
 	if settings == nil {
 		settings = map[string]any{}
@@ -106,7 +106,7 @@ func seedSettings(
 	}
 	settings["mcpServers"] = servers
 
-	data, _ := json.MarshalIndent(settings, "", "  ")
+	data, _ = json.MarshalIndent(settings, "", "  ")
 	tmp := fp + ".tmp"
 	if err := os.WriteFile(tmp, append(data, '\n'), 0o644); err != nil {
 		// settings.json carries the mcpServers socket; without it

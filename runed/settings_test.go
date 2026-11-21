@@ -1,7 +1,9 @@
 package runed
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -10,6 +12,38 @@ import (
 	"github.com/kronael/arizuko/core"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 )
+
+func TestSeedSettingsRejectsUnreadableSettings(t *testing.T) {
+	t.Run("malformed", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "settings.json")
+		original := []byte("{broken")
+		if err := os.WriteFile(path, original, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		err := seedSettings(dir, &core.Config{}, runedv1.RunRequest{}, 0)
+		var syntax *json.SyntaxError
+		if !errors.As(err, &syntax) {
+			t.Errorf("error = %v, want JSON syntax error", err)
+		}
+		got, err := os.ReadFile(path)
+		if err != nil || !bytes.Equal(got, original) {
+			t.Errorf("settings = %q, error = %v", got, err)
+		}
+	})
+	t.Run("directory", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "settings.json")
+		if err := os.Mkdir(path, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		err := seedSettings(dir, &core.Config{}, runedv1.RunRequest{}, 0)
+		var pathErr *os.PathError
+		if !errors.As(err, &pathErr) || pathErr.Op != "read" {
+			t.Errorf("error = %v, want read error", err)
+		}
+	})
+}
 
 // settingsFor renders one turn's settings.json into a temp .claude dir and
 // returns the decoded file. cfg carries a staged app dir so the per-spawn
