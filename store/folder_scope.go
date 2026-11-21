@@ -213,7 +213,11 @@ func (s *Store) purgeFolder(ctx context.Context, folder string) ([]string, int, 
 		return nil, 0, 0, nil
 	}
 	// Read FIRST, off `groups`, because the loop below deletes those rows.
-	owned := append([]string{folder}, s.subtreeFolders(ctx, folder)...)
+	children, err := s.subtreeFolders(ctx, folder)
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	owned := append([]string{folder}, children...)
 	removed, swept := 0, 0
 	for _, e := range entityScopePurge {
 		items, err := s.Obj().Query(ctx, objstore.Query{Entity: e.entity, Partition: OwnerRoutd})
@@ -297,14 +301,12 @@ func (s *Store) purgeFolderPartitions(ctx context.Context, folders []string) err
 	return nil
 }
 
-// subtreeFolders answers the folders under one path, read off `groups`. A read
-// that fails answers none rather than an error.
-func (s *Store) subtreeFolders(ctx context.Context, folder string) []string {
+func (s *Store) subtreeFolders(ctx context.Context, folder string) ([]string, error) {
 	items, err := s.Obj().Query(ctx, objstore.Query{
 		Entity: Groups, Partition: OwnerRoutd, Project: []string{},
 	})
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	var out []string
 	for _, it := range items {
@@ -312,5 +314,5 @@ func (s *Store) subtreeFolders(ctx context.Context, folder string) []string {
 			out = append(out, it.Key.Sort)
 		}
 	}
-	return out
+	return out, nil
 }

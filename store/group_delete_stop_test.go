@@ -9,7 +9,45 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/objstore"
 )
+
+type failGroupList struct {
+	objstore.Store
+	fired bool
+}
+
+func (s *failGroupList) Query(ctx context.Context, q objstore.Query) ([]objstore.Item, error) {
+	if q.Entity == Groups && !s.fired {
+		s.fired = true
+		return nil, errors.New("group list unavailable")
+	}
+	return s.Store.Query(ctx, q)
+}
+
+func TestDeleteGroupStopsBeforePurgeOnChildListError(t *testing.T) {
+	base := openMem(t)
+	for _, folder := range []string{"world", "world/child"} {
+		if err := base.PutGroupRow(core.Group{Folder: folder}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fault := &failGroupList{Store: base.Obj()}
+	s := NewOver(fault)
+	var stopped []string
+	removed, _, err := s.DeleteGroupStopping(t.Context(), "world", func(_ context.Context, folder string) error {
+		stopped = append(stopped, folder)
+		return nil
+	})
+	if err == nil || !fault.fired || removed != 0 || len(stopped) != 0 {
+		t.Fatalf("removed = %d, stopped = %v, error = %v", removed, stopped, err)
+	}
+	for _, folder := range []string{"world", "world/child"} {
+		if _, ok := base.GroupByFolder(folder); !ok {
+			t.Fatalf("group %s was deleted", folder)
+		}
+	}
+}
 
 // Deleting `eval` with a child `eval/child` -> stop is called once for each of
 // the two folders, and neither folder resolves any more at that moment, so
