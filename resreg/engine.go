@@ -66,7 +66,6 @@ type resourceMeta struct {
 	fields     []fieldMeta
 	pkFields   []fieldMeta
 	scopeField *fieldMeta // nil if ScopeSpec unset
-	columns    []string   // read expression list (with overrides applied)
 	stampedIdx []int      // struct-field indices Diff ignores (server-stamped)
 	// autoStampIdx is the subset of stampedIdx the writer may FILL with now();
 	// a field in AbsentStamps is not one of them (BUGS F49).
@@ -80,7 +79,6 @@ type fieldMeta struct {
 	idx       int    // struct field index
 	name      string // Go struct field name
 	col       string // attribute name (db: tag)
-	readExpr  string // read expression (col, or the override)
 	writeHook func(fieldVal any) (any, error)
 	// codec is the declared encoding of a field whose Go type is not text, nil
 	// for one that needs none (codec.go).
@@ -114,18 +112,14 @@ func (r *Resource) initMeta() {
 			continue
 		}
 		col, encoding, _ := strings.Cut(tag, ",")
-		fm := fieldMeta{idx: i, name: sf.Name, col: col, readExpr: col,
+		fm := fieldMeta{idx: i, name: sf.Name, col: col,
 			codec: codecFor(r.Name, sf.Name, encoding, sf.Type.Kind())}
 		if hook, ok := r.Hooks.ColumnOverride[sf.Name]; ok {
-			if hook.Read != "" {
-				fm.readExpr = hook.Read
-			}
 			if hook.Write != nil {
 				fm.writeHook = hook.Write
 			}
 		}
 		m.fields = append(m.fields, fm)
-		m.columns = append(m.columns, fm.readExpr)
 		dbToField[sf.Name] = len(m.fields) - 1
 	}
 	for _, pkName := range r.PKFields {
