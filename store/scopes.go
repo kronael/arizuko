@@ -172,12 +172,6 @@ func refusal(committed bool, err error, checks []objstore.Check, writes []objsto
 // attempt wrote nothing.
 func (s *Store) incrementEntity(ctx context.Context, entity string, key objstore.Key,
 	attr string, delta int, cond []objstore.Cmp, also []objstore.Write) (int, bool, error) {
-	return s.incrementEntityVia(ctx, entity, key, attr, delta, cond, also)
-}
-
-func (s *Store) incrementEntityVia(ctx context.Context, entity string,
-	key objstore.Key, attr string, delta int, cond []objstore.Cmp,
-	also []objstore.Write) (int, bool, error) {
 	counted := append([]objstore.Write{{Entity: entity, Key: key}}, also...)
 	return objstore.Increment(ctx, s.Obj(), entity, key, attr, delta, cond,
 		append(slices.Clone(also), scopeBumps(counted)...))

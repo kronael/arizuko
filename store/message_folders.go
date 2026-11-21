@@ -85,7 +85,7 @@ var errNoCounter = errors.New("the folder has no message counter")
 // is a fault. Dropping the bit made both read as success (BUGS L268).
 func (s *Store) addFolderCount(ctx context.Context, folder string, delta int,
 	also []objstore.Write) (bool, error) {
-	_, committed, err := s.incrementEntityVia(ctx, MessageFolderCounts,
+	_, committed, err := s.incrementEntity(ctx, MessageFolderCounts,
 		folderCountKey(folder), counterAttrN, delta, nil, also)
 	if err != nil {
 		if strings.Contains(err.Error(), "no such item") {
