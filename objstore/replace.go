@@ -150,6 +150,7 @@ func (r *Replacer) Write(ctx context.Context, writes ...Write) (bool, error) {
 		n := min(len(writes), IndexBatchSize)
 		committed, err := r.s.GuardedBatch(ctx, fence, writes[:n])
 		if err != nil {
+			r.wrote = true
 			return false, err
 		}
 		if !committed {
