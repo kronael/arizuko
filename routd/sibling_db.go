@@ -295,28 +295,18 @@ func (d *DB) RescheduleTask(id, nextRun string) error {
 
 // TaskRunLogs reads a task's run history, translated to ipc.TaskRunLog.
 func (d *DB) TaskRunLogs(taskID string, limit int) []ipc.TaskRunLog {
-	rows := d.store().TaskRunLogs(taskID, limit)
-	out := make([]ipc.TaskRunLog, len(rows))
-	for i, r := range rows {
-		out[i] = ipc.TaskRunLog{
-			ID: r.ID, TaskID: r.TaskID, RunAt: r.RunAt,
-			DurationMS: r.DurationMS, Status: r.Status,
-			Result: r.Result, Error: r.Error,
-		}
-	}
-	return out
+	return toTaskRunLogs(d.store().TaskRunLogs(taskID, limit))
 }
 
 // AllRunLogs returns recent task_run_logs rows across all tasks (GET /v1/tasks/runs).
 func (d *DB) AllRunLogs(limit int) []ipc.TaskRunLog {
-	rows := d.store().AllRunLogs(limit)
+	return toTaskRunLogs(d.store().AllRunLogs(limit))
+}
+
+func toTaskRunLogs(rows []store.TaskRunLog) []ipc.TaskRunLog {
 	out := make([]ipc.TaskRunLog, len(rows))
 	for i, r := range rows {
-		out[i] = ipc.TaskRunLog{
-			ID: r.ID, TaskID: r.TaskID, RunAt: r.RunAt,
-			DurationMS: r.DurationMS, Status: r.Status,
-			Result: r.Result, Error: r.Error,
-		}
+		out[i] = ipc.TaskRunLog(r)
 	}
 	return out
 }
