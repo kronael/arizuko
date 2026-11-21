@@ -67,11 +67,6 @@ func FormatMessages(msgs []core.Message, observed ...[]core.Message) string {
 		if name == "" {
 			name = m.Sender
 		}
-		// Reply pointer renders as a sibling header ABOVE the message.
-		// Self-closing when no excerpt is available; carries excerpt as
-		// body when the parent text is known. Reads naturally:
-		//   <reply-to id="3314" sender="bot" time="..."/>
-		//   <message id="3325" ...>body</message>
 		if m.ReplyToID != "" {
 			rSender := m.ReplyToSender
 			if rSender == "" {
@@ -140,10 +135,6 @@ func FormatMessages(msgs []core.Message, observed ...[]core.Message) string {
 			b.WriteString(escapeXml(m.Topic))
 			b.WriteString(`"`)
 		}
-		// Without this the agent reads its own past words as another user's —
-		// the read-side twin of BUGS L150. BotMsg, never FromMe: an imported
-		// archive's FromMe rows are the linked ACCOUNT's, i.e. the operator's
-		// (store/messages_archive.go).
 		if m.BotMsg {
 			b.WriteString(` bot="true"`)
 		}

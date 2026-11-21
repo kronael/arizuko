@@ -1,18 +1,5 @@
 package msgsearch
 
-// query.go is the query grammar: terms, "phrases" and `-` for negation.
-//
-// THE GRAMMAR IS THE WHOLE GRAMMAR. Terms are AND-ed, because a search for two
-// words means both words to everyone who has used one; a phrase matches its
-// terms adjacent and in order; a `-` in front of either excludes it. There is no
-// OR, no prefix wildcard and no proximity operator, and the tool description
-// says so — a description that promises an operator the engine does not run
-// hands the agent a silent empty result and it reports "no such message".
-//
-// A MALFORMED QUERY IS THE CALLER'S AND IT REACHES THE CALLER. An unclosed
-// phrase is an error, not an empty hit list: the agent reads an empty list as
-// fact and says the message does not exist.
-
 import (
 	"errors"
 	"fmt"
