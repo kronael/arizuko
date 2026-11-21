@@ -14,25 +14,6 @@
 > so counting one as open overstates the queue.
 
 
-## L912 — gitd loses GitHub webhooks in a burst: every retain races one shared count row (2026-11-21, open)
-
-`chanstore.Retain` and `Drop` (`chanlib/chanstore/inbound_pending.go:125-203`) wrap the
-pending-row write in `objstore.Increment` on one row, `state_index` `inbound/count`, so
-every concurrent webhook competes for one CAS. `objstore.Increment`
-(`objstore/protocol.go:55-94`) gives up after `maxCASAttempts` (8), and the webhook
-answers 502 with nothing kept. The count has one reader: `PendingInboundCount` for
-`/health` (`chanlib/inbound.go:110-118`).
-**Measured:** sloth journal 2026-11-20 08:00 to 2026-11-21 08:00 holds 111
-`increment state_index.count on inbound/count lost 8 races in a row`, 110 gitd
-`inbound custody unconfirmed`, and 1,115 proxyd `POST /github/app/sloth` with status
-502, in bursts up to 332 per hour (2,761 of 2,783 events are CI events). The eval sub
-matched 88 logged ids against `routd.messages`: 70 never arrived. GitHub does not
-redeliver by itself. Different from `L816` (store outage).
-**Fix:** delete the count row and its increments; `Retain` is a conditional Put and
-`Drop` a conditional Delete; `HeldCount` counts the pending partition when `/health`
-asks.
-**Type:** bug, test — concurrent retains must all succeed.
-
 ## ✅ FIXED 2026-11-15 bd3ddd79f068affc4b27fcf8df85950a81e5cddb 6a0a46feb0c5bb96102e72ebb720f422f0f01cc7 378cdc43efb50fae2c7166b8e2365873135d0532 L901 — routd asked the model gateway for the budget before every spawn, even for a handler that calls no model (2026-11-15)
 
 `routd/dispatch.go:553` called `l.budgetGate(...)` before every spawn. A gateway that
