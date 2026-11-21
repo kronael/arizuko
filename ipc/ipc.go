@@ -454,6 +454,11 @@ func rpcEncodeFailure(id any) []byte {
 }
 
 func serveConn(ctx context.Context, c net.Conn, srv *server.MCPServer, routd RoutdFns, db StoreFns, folder string) {
+	stop := context.AfterFunc(ctx, func() {
+		// Cancellation closes the connection; a close error cannot change shutdown.
+		_ = c.Close()
+	})
+	defer stop()
 	r := bufio.NewReader(c)
 	var writeMu sync.Mutex
 	writeJSON := func(id, v any) {
