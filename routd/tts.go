@@ -113,12 +113,22 @@ func (c ttsConfig) cacheOrSynthesize(text, voice, model string) (string, error) 
 	if err != nil {
 		return "", err
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, audio, 0o644); err != nil {
+	tmp, err := os.OpenFile(path+"."+randHex(16)+".tmp", os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if err != nil {
 		return "", fmt.Errorf("write tts cache: %w", err)
 	}
-	if err := os.Rename(tmp, path); err != nil {
-		_ = os.Remove(tmp)
+	defer func() {
+		// A successful rename removes this path; cleanup is best effort on failure.
+		_ = os.Remove(tmp.Name())
+	}()
+	_, err = tmp.Write(audio)
+	if closeErr := tmp.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		return "", fmt.Errorf("write tts cache: %w", err)
+	}
+	if err := os.Rename(tmp.Name(), path); err != nil {
 		return "", fmt.Errorf("rename tts cache: %w", err)
 	}
 	return path, nil
