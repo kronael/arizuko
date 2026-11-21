@@ -254,6 +254,20 @@ func TestTopics_GroupByTopic(t *testing.T) {
 	}
 }
 
+func TestTopicPreviewUsesOpeningMessage(t *testing.T) {
+	s := openMem(t)
+	for i, body := range []string{"Zebra question", "Alpha answer"} {
+		if err := s.PutMessage(core.Message{ID: body, ChatJID: "web:main", Topic: "t",
+			Content: body, Timestamp: time.Unix(int64(100+i), 0)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	topics, err := s.Topics("main")
+	if err != nil || len(topics) != 1 || topics[0].Preview != "Zebra question" {
+		t.Fatalf("topics = %+v, error = %v", topics, err)
+	}
+}
+
 func TestMessagesSinceTopic(t *testing.T) {
 	s := openMem(t)
 	defer s.Close()

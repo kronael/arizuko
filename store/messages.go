@@ -617,13 +617,10 @@ func (s *Store) Topics(folder string) ([]TopicSummary, error) {
 		}
 		t, seen := byTopic[topic]
 		if !seen {
-			t = &TopicSummary{ID: topic}
+			t = &TopicSummary{ID: topic, Preview: it.Attrs[attrMsgContent]}
 			byTopic[topic] = t
 		}
 		t.MessageCount++
-		if body := it.Attrs[attrMsgContent]; !seen || body < t.Preview {
-			t.Preview = body
-		}
 		if ts, _, ok := MsgCoord(it.Key.Sort); ok {
 			t.LastAt, _ = time.Parse(time.RFC3339Nano, ts)
 		}
