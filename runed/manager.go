@@ -288,13 +288,15 @@ func (m *Manager) spawn(ctx context.Context, req runedv1.RunRequest, runID, sess
 	if failed {
 		state = "error"
 	}
-	if err := m.db.EndSpawn(ctx, runID, state, res.Outcome, res.ExitCode); err != nil {
+	cleanupCtx, cancelCleanup := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancelCleanup()
+	if err := m.db.EndSpawn(cleanupCtx, runID, state, res.Outcome, res.ExitCode); err != nil {
 		// The row stays 'running' if this fails: a zombie that blocks the cap
 		// until an operator resets it.
 		slog.Error("runed: EndSpawn failed — spawn may become zombie", "run_id", runID, "err", err)
 	}
 	if logID != "" {
-		if err := m.db.CloseSession(ctx, folder, logID, res.Outcome, res.Error, res.MessageCount); err != nil {
+		if err := m.db.CloseSession(cleanupCtx, folder, logID, res.Outcome, res.Error, res.MessageCount); err != nil {
 			slog.Error("runed: CloseSession failed", "log_id", logID, "err", err)
 		}
 	}
