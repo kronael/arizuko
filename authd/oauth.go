@@ -388,11 +388,11 @@ func (o *oauth) snapshot(ctx context.Context, bareSub string) (scope []string, f
 func (o *oauth) logout(w http.ResponseWriter, r *http.Request) {
 	if c, err := r.Cookie("refresh_token"); err == nil && c.Value != "" {
 		if row, found := o.a.st.RefreshTokenBySecret(c.Value); found {
-			// The cookie is cleared regardless, so if the family survives only
-			// the log says so.
 			if _, err := o.a.st.RevokeFamily(row.Family); err != nil {
 				slog.Error("logout did not revoke the refresh-token family; the session may still refresh",
 					"family", row.Family, "err", err)
+				writeErr(w, http.StatusInternalServerError, "revoke_failed", "logout failed")
+				return
 			}
 		}
 	}
