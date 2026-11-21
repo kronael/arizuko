@@ -19,6 +19,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/kronael/arizuko/egress/match"
 )
 
 // Vars, not consts, so tests can point the probe at a local listener and cut
@@ -68,7 +70,7 @@ func EgressRules(allowlist []string, gatewayURL string) (names []string, allowAl
 		}
 		names = append(names, e)
 	}
-	if h := gatewayHost(gatewayURL); h != "" {
+	if h := gatewayHost(gatewayURL); h != "" && !match.Host(names, h) {
 		names = append(names, h)
 	}
 	return names, allowAll

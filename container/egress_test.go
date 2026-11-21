@@ -3,7 +3,30 @@ package container
 import (
 	"slices"
 	"testing"
+
+	"github.com/kronael/arizuko/egress/match"
 )
+
+func TestEgressRulesGatewayAlreadyCovered(t *testing.T) {
+	for _, tc := range []struct {
+		name, entry, gateway string
+	}{
+		{"exact", "litellm", "http://litellm:4000"},
+		{"case", "LITELLM", "http://litellm:4000"},
+		{"trailing dot", "litellm.", "http://litellm:4000"},
+		{"parent", "example.com", "http://gateway.example.com:4000"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			names, allowAll := EgressRules([]string{tc.entry}, tc.gateway)
+			if allowAll || !slices.Equal(names, []string{tc.entry}) {
+				t.Errorf("rules = %v, allowAll = %v", names, allowAll)
+			}
+			if err := match.ValidateLists(names, nil); err != nil {
+				t.Errorf("invalid proxy rules: %v", err)
+			}
+		})
+	}
+}
 
 // TestGatewayHostJoinsAllowlist pins the rule that a configured gateway is
 // reachable by construction. Without it the per-spawn proxy denies the gateway
