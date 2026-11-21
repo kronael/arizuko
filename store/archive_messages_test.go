@@ -28,6 +28,52 @@ type failArchiveFeed struct {
 	fired bool
 }
 
+type failObservation struct {
+	objstore.Store
+	fired bool
+}
+
+func (s *failObservation) GuardedBatch(ctx context.Context, checks []objstore.Check, writes []objstore.Write) (bool, error) {
+	for _, w := range writes {
+		if !s.fired && w.Entity == store.Messages && w.Op == objstore.Update {
+			s.fired = true
+			return false, errors.New("injected observation failure")
+		}
+	}
+	return s.Store.GuardedBatch(ctx, checks, writes)
+}
+
+func TestObserveMoveRetryIsAtomic(t *testing.T) {
+	base := routdMessages(t)
+	m, err := base.AppendMessage(core.Message{
+		ID: "move", ChatJID: "web:world", RoutedTo: "old", BotMsg: true,
+		Content: "body", Timestamp: time.Unix(100, 0),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fault := &failObservation{Store: base.Obj()}
+	st := store.NewOver(fault)
+	if err := st.MarkMessagesObserved(t.Context(), "new", []core.Message{m}); err == nil || !fault.fired {
+		t.Fatalf("fault fired = %v, error = %v", fault.fired, err)
+	}
+	for range 2 {
+		if err := st.MarkMessagesObserved(t.Context(), "new", []core.Message{m}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	counts, err := base.FolderMessageCounts(t.Context(), []string{"old", "new"})
+	if err != nil || counts["old"] != 0 || counts["new"] != 1 {
+		t.Fatalf("counts = %v, error = %v; want old 0 and new 1", counts, err)
+	}
+	for folder, want := range map[string]int{"old": 0, "new": 1} {
+		rows, err := base.Obj().Query(t.Context(), objstore.Query{Entity: store.MessageFolders, Partition: folder})
+		if err != nil || len(rows) != want {
+			t.Fatalf("%s feed = %d, error = %v; want %d", folder, len(rows), err, want)
+		}
+	}
+}
+
 func (s *failArchiveFeed) GuardedBatch(ctx context.Context, checks []objstore.Check, writes []objstore.Write) (bool, error) {
 	for _, w := range writes {
 		if !s.fired && w.Entity == store.MessageFolders && w.Key.Sort == s.stamp {

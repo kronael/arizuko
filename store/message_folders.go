@@ -22,6 +22,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/kronael/arizuko/core"
@@ -151,9 +152,6 @@ func (s *Store) MarkMessagesObserved(ctx context.Context, folder string,
 	if folder == "" {
 		return errors.New("messages cannot be observed into no folder")
 	}
-	var plain []objstore.Write
-	var fresh []objstore.Write
-	dropped := map[string]int{}
 	for _, m := range msgs {
 		msgKey, err := messageKeyOf(m)
 		if err != nil {
@@ -163,65 +161,70 @@ func (s *Store) MarkMessagesObserved(ctx context.Context, folder string,
 		if err != nil {
 			return err
 		}
-		stamp := objstore.Write{
-			Op: objstore.Update, Entity: Messages, Key: msgKey,
-			Attrs: map[string]string{attrMsgRoutedTo: folder, attrMsgObserved: flagSet},
-		}
-		if m.RoutedTo == folder {
-			plain = append(plain, stamp, objstore.Write{
-				Op: objstore.Update, Entity: MessageFolders, Key: feedKey,
-				Attrs: map[string]string{attrFeedObserved: flagSet},
-			})
-			continue
-		}
-		if m.RoutedTo != "" {
-			oldKey, err := folderFeedKey(m.RoutedTo, msgKey)
+		committed := false
+		for range 16 {
+			item, ok, err := s.itemAt(ctx, Messages, msgKey)
 			if err != nil {
 				return err
 			}
-			plain = append(plain, objstore.Write{
-				Op: objstore.Delete, Entity: MessageFolders, Key: oldKey,
-			})
-			dropped[m.RoutedTo]++
+			if !ok {
+				return fmt.Errorf("observe message %s: %w", m.ID, ErrRefused)
+			}
+			from := item.Attrs[attrMsgRoutedTo]
+			writes := []objstore.Write{{
+				Op: objstore.Update, Entity: Messages, Key: msgKey,
+				Attrs: map[string]string{attrMsgRoutedTo: folder, attrMsgObserved: flagSet},
+				Cond: objstore.Cond{Where: []objstore.Cmp{
+					attrIs(attrMsgRoutedTo, from),
+				}},
+			}}
+			if from == folder {
+				writes = append(writes, objstore.Write{Op: objstore.Update, Entity: MessageFolders,
+					Key: feedKey, Attrs: map[string]string{attrFeedObserved: flagSet}})
+				committed, err = s.TryWriteEntities(ctx, nil, writes...)
+			} else {
+				if from != "" {
+					oldKey, err := folderFeedKey(from, msgKey)
+					if err != nil {
+						return err
+					}
+					count, ok, err := s.itemAt(ctx, MessageFolderCounts, folderCountKey(from))
+					if err != nil {
+						return err
+					}
+					if !ok || count.Attrs[counterAttrN] == "" {
+						return fmt.Errorf("observe message %s: %s has no message count", m.ID, from)
+					}
+					n, err := strconv.Atoi(count.Attrs[counterAttrN])
+					if err != nil {
+						return fmt.Errorf("observe message %s: %w", m.ID, err)
+					}
+					writes = append(writes,
+						objstore.Write{Op: objstore.Delete, Entity: MessageFolders, Key: oldKey},
+						objstore.Write{Op: objstore.Update, Entity: MessageFolderCounts, Key: count.Key,
+							Attrs: map[string]string{counterAttrN: strconv.Itoa(n - 1)},
+							Cond: objstore.Cond{Where: []objstore.Cmp{
+								attrIs(counterAttrN, count.Attrs[counterAttrN]),
+							}}})
+				}
+				attrs := map[string]string{attrFeedChatJID: m.ChatJID, attrFeedObserved: flagSet}
+				setAttr(attrs, attrFeedSender, item.Attrs[attrMsgSender])
+				setAttr(attrs, attrFeedBot, item.Attrs[attrMsgBot])
+				writes = append(writes, objstore.Write{
+					Op: objstore.Put, Entity: MessageFolders, Key: feedKey, Attrs: attrs,
+				})
+				committed, err = s.tryCountFolderMessageBy(ctx, folder, 1, writes)
+			}
+			if err != nil {
+				return err
+			}
+			if committed {
+				break
+			}
 		}
-		attrs := map[string]string{attrFeedChatJID: m.ChatJID, attrFeedObserved: flagSet}
-		setAttr(attrs, attrFeedSender, m.Sender)
-		setFlag(attrs, attrFeedBot, m.BotMsg)
-		fresh = append(fresh, stamp, objstore.Write{
-			Op: objstore.Put, Entity: MessageFolders, Key: feedKey, Attrs: attrs,
-		})
-	}
-	if len(plain) > 0 {
-		if _, err := s.applyInChunks(ctx, "observe into "+folder, plain); err != nil {
-			return err
+		if !committed {
+			return fmt.Errorf("observe message %s: %w", m.ID, ErrRefused)
 		}
-	}
-	for from, n := range dropped {
-		if err := s.countFolderMessageBy(ctx, from, -n, nil); err != nil {
-			return err
-		}
-	}
-	for len(fresh) > 0 {
-		n := min(len(fresh), objstore.IndexBatchSize)
-		if n%2 == 1 {
-			n--
-		}
-		if err := s.countFolderMessageBy(ctx, folder, n/2, fresh[:n]); err != nil {
-			return err
-		}
-		fresh = fresh[n:]
-	}
-	return nil
-}
-
-func (s *Store) countFolderMessageBy(ctx context.Context, folder string,
-	delta int, writes []objstore.Write) error {
-	committed, err := s.tryCountFolderMessageBy(ctx, folder, delta, writes)
-	if err != nil {
-		return err
-	}
-	if !committed {
-		return fmt.Errorf("%w: counting %d messages for %s", ErrRefused, delta, folder)
 	}
 	return nil
 }
