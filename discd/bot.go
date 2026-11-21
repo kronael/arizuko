@@ -168,6 +168,9 @@ func (b *bot) onMessage(_ *discordgo.Session, m *discordgo.MessageCreate) {
 	if m == nil || m.Author == nil || m.Author.Bot {
 		return
 	}
+	if m.Type != discordgo.MessageTypeDefault && m.Type != discordgo.MessageTypeReply {
+		return
+	}
 	// User-mode: Discord echoes our own MESSAGE_CREATE over the gateway.
 	// Author.Bot is false for user accounts, so the line above doesn't catch
 	// it. Drop self-authored messages to avoid an infinite retrigger loop.

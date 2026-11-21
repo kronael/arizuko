@@ -98,6 +98,37 @@ func TestOnMessage_SkipsSelfAuthor(t *testing.T) {
 	}
 }
 
+// A thread rename arrived as an inbound row, became the default reply target,
+// and Discord refused the reply: 400 REPLIES_CANNOT_REPLY_TO_SYSTEM_MESSAGE.
+func TestOnMessage_SkipsSystemMessages(t *testing.T) {
+	var deliveries atomic.Int32
+	router := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/v1/messages") {
+			deliveries.Add(1)
+		}
+		w.Write([]byte(`{"ok":true}`))
+	}))
+	defer router.Close()
+
+	s := newTestSession(t)
+	addChannel(t, s, "ch-1", discordgo.ChannelTypeGuildText)
+	b := &bot{
+		session: s,
+		rc:      chanlib.NewRouterClient(router.URL),
+		cfg:     config{AssistantName: "sloth"},
+		files:   chanlib.NewURLCache(0, nil),
+	}
+	for id, typ := range map[string]discordgo.MessageType{"m0": discordgo.MessageTypeChannelNameChange, "m1": discordgo.MessageTypeReply} {
+		b.onMessage(s, &discordgo.MessageCreate{Message: &discordgo.Message{
+			ID: id, ChannelID: "ch-1", GuildID: "g1", Content: "Server Decomision",
+			Type: typ, Author: &discordgo.User{ID: "user-other", Username: "alice"}, Timestamp: time.Now(),
+		}})
+	}
+	if got := deliveries.Load(); got != 1 {
+		t.Errorf("delivered %d messages, want 1: the rename is dropped, the reply is kept", got)
+	}
+}
+
 // mockDiscordEndpoints overrides the package-level endpoint vars used by
 // Session.ChannelMessageSend / ChannelTyping so requests land on httptest.
 // Restores previous values via the returned cleanup.
