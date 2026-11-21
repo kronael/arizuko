@@ -65,10 +65,9 @@ func spawnSecrets(cfg *core.Config, override map[string]string) map[string]strin
 // SpawnHoldsModelCredential reports whether every spawn from this
 // configuration carries the operator model credential in the guest's env: no
 // gateway to withhold it (spawnSecrets) and an anchor set. runed logs it once
-// at start. The scrub in ant/src/guards.ts is not a boundary: every process in
-// the guest shares one uid, nothing sets hidepid, and /proc/<pid>/environ
-// is readable across siblings, so a shell reads the harness's env whatever the
-// harness strips from its child (BUGS L131).
+// at start. Agent shells inherit these credentials for nested model CLIs.
+// Every process in the guest shares one uid, and /proc/<pid>/environ is readable
+// across siblings. Only the model gateway withholds the raw credential.
 func SpawnHoldsModelCredential(cfg *core.Config) bool {
 	return cfg.ModelGatewayURL == "" && readSecrets() != nil
 }

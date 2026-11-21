@@ -2,7 +2,11 @@ import { describe, expect, test, beforeEach } from 'bun:test';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { createEditToolDefinition } from '@earendil-works/pi-coding-agent';
+import {
+  createBashToolDefinition,
+  createEditToolDefinition,
+} from '@earendil-works/pi-coding-agent';
+import { piEnv } from './pi.js';
 import { canonicalToolName, registerGateway, registerWith } from './pi-extension.js';
 import { STEER_SPOOL, appendLines, drainLines } from './spool.js';
 
@@ -195,10 +199,32 @@ describe('pi runs the same policy rows claude and codex do', () => {
     expect(fs.readFileSync(file, 'utf8')).toBe(`\ufeff${FRONT}fine\n`);
   });
 
-  test('bash input receives the shared scrub', async () => {
-    const input = { command: 'echo hello' };
-    await fakePi().onCall({ toolName: 'bash', toolCallId: 'tc', input });
-    expect(input.command).toContain('unset ');
+  /** Pi's extension and native Bash tool keep credentials for nested CLIs. */
+  test('pi shell inherits model credentials', async () => {
+    const env = piEnv({
+      ANTHROPIC_API_KEY: 'anthropic-test',
+      CLAUDE_CODE_OAUTH_TOKEN: 'claude-test',
+      CODEX_API_KEY: 'codex-test',
+    });
+    const saved = Object.fromEntries(Object.keys(env).map(key => [key, process.env[key]]));
+    Object.assign(process.env, env);
+    try {
+      const input = { command: 'printf "%s\\n" "$ANTHROPIC_API_KEY" '
+        + '"$CLAUDE_CODE_OAUTH_TOKEN" "$ANTHROPIC_OAUTH_TOKEN" '
+        + '"$CODEX_API_KEY" "$OPENAI_API_KEY"' };
+      expect(await fakePi().onCall({ toolName: 'bash', toolCallId: 'tc', input })).toBeUndefined();
+      const result = await createBashToolDefinition(SANDBOX_HOME).execute(
+        'tc', input, undefined, undefined, undefined as never,
+      );
+      expect(result.content).toEqual([{
+        type: 'text', text: 'anthropic-test\nclaude-test\nclaude-test\ncodex-test\ncodex-test\n',
+      }]);
+    } finally {
+      for (const [key, value] of Object.entries(saved)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
   });
 
   test('MCP names stay unchanged', () => {

@@ -1,11 +1,11 @@
 // policy.ts — the capability layer (spec 6/16). A POLICY is (ToolEvent) =>
 // Verdict with no harness in it; BINDINGS is the table saying where each one
-// goes and what it may answer. Three renderers read that table: claude.ts wraps
+// goes. Three renderers read that table: claude.ts wraps
 // rows as SDK callbacks, codex.ts writes them to hooks.json, pi-extension.ts
 // registers them in-process. The scanners live elsewhere (skillguard.ts owns
 // the pattern table, tool-log.ts the line format); this file owns the wiring.
 
-import { bashScrub, bashSkillRescan, ghWriteGate } from './guards.js';
+import { bashSkillRescan, ghWriteGate } from './guards.js';
 import { skillGuard } from './skillguard.js';
 import { toolLogPost, toolLogPre } from './tool-log.js';
 import { submitStatus } from './mcp.js';
@@ -34,24 +34,18 @@ export interface ToolEvent {
 
 export type PolicyEvent = 'PreToolUse' | 'PostToolUse' | 'PostToolUseFailure' | 'Stop';
 
-// Verdict is what a policy may answer. 'rewrite' is claude-only: codex's
-// PreToolUse decision is approve|block|allow and updatedInput lives on its
-// separate PermissionRequest event, so a rewrite there is silently ignored.
+// Verdict is what a policy may answer.
 export type Verdict =
   | { kind: 'allow' }
   | { kind: 'deny'; reason: string }
-  | { kind: 'inject'; context: string }
-  | { kind: 'rewrite'; input: Record<string, unknown> };
+  | { kind: 'inject'; context: string };
 
 export const ALLOW: Verdict = { kind: 'allow' };
 
-// `returns` is the contract a renderer checks: a harness that cannot honour one
-// of these refuses the row rather than emitting a gate that does nothing.
 export interface Binding {
   id: string;
   event: PolicyEvent;
   matcher?: string; // regex over the canonical tool name; absent = every tool
-  returns: Array<Verdict['kind']>;
   run(ev: ToolEvent): Promise<Verdict>;
 }
 
@@ -76,28 +70,23 @@ export function bindings(ctx: PolicyContext, send: typeof submitStatus = submitS
     return steering(ev);
   };
   return [
-    { id: 'reply-owed', event: 'Stop', returns: ['deny'], run: replyOwed(ctx.turnID) },
-    { id: 'reply-length', event: 'PreToolUse', matcher: 'mcp__arizuko__reply|mcp__arizuko__send', returns: ['deny'], run: (ev) => replyLength(ctx.home, ev) },
+    { id: 'reply-owed', event: 'Stop', run: replyOwed(ctx.turnID) },
+    { id: 'reply-length', event: 'PreToolUse', matcher: 'mcp__arizuko__reply|mcp__arizuko__send', run: (ev) => replyLength(ctx.home, ev) },
     // A skill the agent writes today runs in its NEXT session. Scans the file the
     // write would PRODUCE, not the fragment it carries (BUGS J9).
-    { id: 'skill-guard', event: 'PreToolUse', matcher: 'Write|Edit|MultiEdit', returns: ['deny'], run: async (ev) => skillGuard(ev) },
-    // Codex cannot render this rewrite. readSecrets ships every
-    // store.EnvProfileKeys value into the container on every backend, so this row
-    // being dropped leaves them readable from codex shells (BUGS L131).
-    { id: 'bash-scrub', event: 'PreToolUse', matcher: 'Bash', returns: ['rewrite'], run: async (ev) => bashScrub(ev) },
+    { id: 'skill-guard', event: 'PreToolUse', matcher: 'Write|Edit|MultiEdit', run: async (ev) => skillGuard(ev) },
     // Refuses the GitHub writes a folder must not make once it holds a shell
-    // credential. 'deny' rather than 'rewrite', so unlike bash-scrub above this
-    // row runs on codex and pi too.
-    { id: 'gh-write-gate', event: 'PreToolUse', matcher: 'Bash', returns: ['deny'], run: async (ev) => ghWriteGate(ev) },
-    { id: 'tool-log-pre', event: 'PreToolUse', returns: [], run: async (ev) => toolLogPre(ev) },
+    // credential.
+    { id: 'gh-write-gate', event: 'PreToolUse', matcher: 'Bash', run: async (ev) => ghWriteGate(ev) },
+    { id: 'tool-log-pre', event: 'PreToolUse', run: async (ev) => toolLogPre(ev) },
     // The catch-all. The write gate above covers claude's write TOOLS only: Bash
     // reaches the same files without them (BUGS J8), and codex writes with
     // `apply_patch`, so `Write|Edit|MultiEdit` never fires there. No matcher —
     // it rechecks the filesystem after every tool, mtime-gated.
-    { id: 'skill-rescan', event: 'PostToolUse', returns: [], run: async (ev) => rescan(ev) },
-    { id: 'tool-log-post', event: 'PostToolUse', returns: [], run: async (ev) => toolLogPost(ev) },
-    { id: 'completion', event: 'PostToolUse', returns: ['inject'], run: completion },
-    { id: 'completion-failure', event: 'PostToolUseFailure', returns: ['inject'], run: completion },
+    { id: 'skill-rescan', event: 'PostToolUse', run: async (ev) => rescan(ev) },
+    { id: 'tool-log-post', event: 'PostToolUse', run: async (ev) => toolLogPost(ev) },
+    { id: 'completion', event: 'PostToolUse', run: completion },
+    { id: 'completion-failure', event: 'PostToolUseFailure', run: completion },
   ];
 }
 
@@ -139,17 +128,6 @@ export function matches(b: Binding, toolName: string): boolean {
   return new RegExp(`^(${b.matcher})$`).test(toolName);
 }
 
-// runnableBy is the contract check. A row whose verdicts a harness cannot
-// honour is REFUSED loudly rather than rendered into a gate that does nothing.
-export function runnableBy(rows: Binding[], honours: Array<Verdict['kind']>, log: (m: string) => void): Binding[] {
-  return rows.filter((b) => {
-    const missing = b.returns.filter((k) => !honours.includes(k));
-    if (missing.length === 0) return true;
-    log(`policy ${b.id} not rendered: cannot honour ${missing.join(', ')}`);
-    return false;
-  });
-}
-
 // A policy that throws ALLOWS. pi would otherwise diverge — its docs make a
 // throwing `tool_call` handler block the tool, so an exception there would fail
 // closed while claude and codex fail open.
@@ -168,8 +146,7 @@ export async function runRow(b: Binding, ev: ToolEvent): Promise<Verdict> {
 //
 // Every matching row RUNS even when one denies: an early return would record a
 // refused call on claude and miss it on codex and pi, losing the most
-// interesting tool-log lines. A 'rewrite' cannot arrive — both callers filter
-// those rows out first.
+// interesting tool-log lines.
 export async function runRows(rows: Binding[], event: PolicyEvent, ev: ToolEvent): Promise<Verdict> {
   let deny: Verdict | undefined;
   const injected: string[] = [];

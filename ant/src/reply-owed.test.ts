@@ -32,7 +32,7 @@ test('reply owed allows a Stop while background tasks run', async () => {
 
 /** The Stop hook input's background_tasks reaches the policy through claudeHooks: tasks running -> no block, none -> block. */
 test('claudeHooks hands background_tasks from the Stop input to reply-owed', async () => {
-  const row = { id: 'reply-owed', event: 'Stop' as const, returns: ['deny' as const], run: replyOwed('t1', async () => ({ nudge: 'deliver' })) };
+  const row = { id: 'reply-owed', event: 'Stop' as const, run: replyOwed('t1', async () => ({ nudge: 'deliver' })) };
   const hook = claudeHooks([row]).Stop[0].hooks[0];
   const stop = { hook_event_name: 'Stop', session_id: 's', cwd: '/tmp', transcript_path: '/tmp/fixture', stop_hook_active: false };
   const ctx = { signal: new AbortController().signal };
@@ -47,14 +47,14 @@ test('reply owed uses the shared decision and fails open', async () => {
   expect(await policy(event)).toEqual({ kind: 'deny', reason: 'deliver' });
   expect(seen).toEqual(['t1']);
   expect(await replyOwed('t1', async () => ({ nudge: '' }))(event)).toEqual(ALLOW);
-  const row = { id: 'reply-owed', event: 'Stop' as const, returns: ['deny' as const], run: replyOwed('t1', async () => { throw new Error('closed'); }) };
+  const row = { id: 'reply-owed', event: 'Stop' as const, run: replyOwed('t1', async () => { throw new Error('closed'); }) };
   expect(await runRow(row, event)).toEqual(ALLOW);
   expect(bindings({ home: '/tmp', turnID: 't1' }).find(row => row.id === 'reply-owed')?.event).toBe('Stop');
 });
 
 /** Both harnesses consume the measured Stop block shape, with the reason intact. */
 test('Stop renders a block for Claude and Codex', async () => {
-  const row = { id: 'reply-owed', event: 'Stop' as const, returns: ['deny' as const], run: replyOwed('t1', async () => ({ nudge: 'deliver' })) };
+  const row = { id: 'reply-owed', event: 'Stop' as const, run: replyOwed('t1', async () => ({ nudge: 'deliver' })) };
   const hook = claudeHooks([row]).Stop[0].hooks[0];
   expect(await hook({ hook_event_name: 'Stop', session_id: 's', cwd: '/tmp', transcript_path: '/tmp/fixture', stop_hook_active: false }, undefined, { signal: new AbortController().signal }))
     .toEqual({ decision: 'block', reason: 'deliver' });

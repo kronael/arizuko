@@ -17,7 +17,7 @@ import {
   type ProviderFailure,
 } from './backend.js';
 import { renderSkillsIndex, scanSkills } from './skills-scan.js';
-import { Binding, PolicyEvent, Verdict, bindings, runnableBy } from './policy.js';
+import { Binding, PolicyEvent, Verdict, bindings } from './policy.js';
 import { DEADLINE_NOTE_LEAD_MS, DEADLINE_TEXT, POLICY_LOG_SPOOL, drainLines } from './spool.js';
 import fs from 'fs';
 import path from 'path';
@@ -57,6 +57,9 @@ export function codexArgs(turn: Pick<Turn, 'cwd' | 'model' | 'effort' | 'continu
     '--dangerously-bypass-hook-trust',
     '--json',
     '-c', `project_doc_fallback_filenames=${tomlValue(['CLAUDE.md'])}`,
+    // Nested model CLIs use the same credentials as this turn.
+    '-c', 'shell_environment_policy.inherit="all"',
+    '-c', 'shell_environment_policy.ignore_default_excludes=true',
   );
   if (turn.model) args.push('-m', turn.model);
   if (turn.effort) args.push('-c', `model_reasoning_effort=${tomlValue(turn.effort)}`);
@@ -422,20 +425,13 @@ export function verdictToCodexJson(verdict: Verdict, event: PolicyEvent): string
       return JSON.stringify({
         hookSpecificOutput: { hookEventName: event, additionalContext: verdict.context },
       });
-    case 'rewrite':
-      // Unreachable: codexRows drops any row that may rewrite.
-      return '{}';
     case 'allow':
       return '{}';
   }
 }
 
-// CODEX_HONOURS is what codex can actually DO with a verdict: refuse the call
-// and inject context after it. Not rewrite — that belongs to a different event.
-export const CODEX_HONOURS: Array<Verdict['kind']> = ['deny', 'inject'];
-
 export function codexRows(rows: Binding[]): Binding[] {
-  return runnableBy(rows.filter(row => row.event !== 'PostToolUseFailure'), CODEX_HONOURS, log);
+  return rows.filter(row => row.event !== 'PostToolUseFailure');
 }
 
 // codexHooksConfig renders the binding table into codex's hooks.json: ONE

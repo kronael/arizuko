@@ -7,11 +7,8 @@ import os from 'os';
 import fs from 'fs';
 import { createEditToolDefinition, createWriteToolDefinition } from '@earendil-works/pi-coding-agent';
 import path from 'path';
-import { PolicyContext, ToolEvent, Verdict, bindings, matches, runRow, runRows, runnableBy } from './policy.js';
+import { PolicyContext, ToolEvent, bindings, matches, runRow, runRows } from './policy.js';
 import { GATEWAY_KEY_ENV, modelGateway } from './gateway.js';
-
-// Pi renders denial, input rewrites, and result injection.
-const PI_HONOURS: Array<Verdict['kind']> = ['deny', 'inject', 'rewrite'];
 
 // The two pi events the table binds to, in pi's own shape (docs/extensions.md,
 // pi 1.4.0).
@@ -82,11 +79,11 @@ function toToolEvent(ev: PiToolCallEvent, event: ToolEvent['hook_event_name'], r
 // happens in the default export and nowhere else: skill-rescan RENAMES files
 // under <home>/.claude/skills.
 export function registerWith(pi: PiApi, ctx: PolicyContext): void {
-  const rows = runnableBy(bindings(ctx).filter((row) => {
+  const rows = bindings(ctx).filter((row) => {
     if (row.event !== 'Stop') return true;
     console.error(`[ant:pi] policy ${row.id} not rendered: delivery uses submission`);
     return false;
-  }), PI_HONOURS, (m) => console.error(`[ant:pi] ${m}`));
+  });
 
   const guard = rows.find((row) => row.id === 'skill-guard')!;
   const writeFile = async (file_path: string, content: string) => {
@@ -108,16 +105,13 @@ export function registerWith(pi: PiApi, ctx: PolicyContext): void {
   pi.on('tool_call', async (ev) => {
     const event = toToolEvent(ev, 'PreToolUse');
     let denial: string | undefined;
-    let rewrite: Record<string, unknown> | undefined;
     for (const row of rows) {
       if (row.event !== 'PreToolUse' || !matches(row, event.tool_name)) continue;
       if (row.id === 'skill-guard' && (ev.toolName === 'edit' || ev.toolName === 'write')) continue;
       const verdict = await runRow(row, event);
       if (verdict.kind === 'deny') denial ??= verdict.reason;
-      if (verdict.kind === 'rewrite') rewrite = verdict.input;
     }
     if (denial) return { block: true, reason: denial };
-    if (ev.toolName === 'bash' && rewrite && typeof rewrite.command === 'string') ev.input.command = rewrite.command;
     return undefined;
   });
 

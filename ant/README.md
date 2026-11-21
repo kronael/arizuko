@@ -342,6 +342,12 @@ Malformed harness JSON fails before a backend starts. Pi uses the same MCP bound
 Grep `submit_status failed`, `Query timeout: process deadline reached, aborting`, and `Close sentinel detected during query`.
 There is no obs.Setup or OTLP exporter in ant; runed captures per-turn logs and routd records lifecycle results.
 Model credentials remain readable inside a direct-mode guest ([BUGS L131](../BUGS.md)).
+Claude, Codex and pi shell tools inherit the turn's model credentials for nested
+`claude` and `codex` commands. Codex also reads its mounted `auth.json` login.
+Codex runs with `shell_environment_policy.inherit="all"` and
+`shell_environment_policy.ignore_default_excludes=true`. A configured model
+gateway withholds raw model keys at spawn; shells receive only the credentials
+the turn holds.
 Local docs checks do not exercise a paid model turn; harness and contract tests provide separate behavior coverage.
 
 Sources: [entry point](src/index.ts), [harness selection](src/backend.ts), [Claude](src/claude.ts),

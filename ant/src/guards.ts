@@ -1,4 +1,4 @@
-// guards.ts — the three guard POLICIES that REFUSE. The table saying where they
+// guards.ts — the guard POLICIES that REFUSE. The table saying where they
 // bind lives in policy.ts; the scanners are pure functions in skillguard.ts.
 // Telemetry and UX policies (tool-log, todo-status, steering, pre-compact) only
 // observe, so they stay out of this file.
@@ -8,44 +8,11 @@ import path from 'path';
 import { ALLOW, ToolEvent, Verdict } from './policy.js';
 import { blockingVerdict } from './skillguard.js';
 
-// SECRET_ENV_VARS are unset in front of every Bash command on claude.
-//
-// DEFENCE AGAINST AN ACCIDENTAL ECHO, NOT A BOUNDARY: one uid, no hidepid, and
-// /proc/<pid>/environ readable across siblings, so `cat /proc/1/environ` shows
-// the credential whatever the harness strips from its child. The boundary is
-// the gateway (spec 6/23, BUGS L131).
-//
-// The ANTHROPIC subset of store.EnvProfileKeys, deliberately: the /oracle skill
-// shells out to `codex` and probes OPENAI_API_KEY and CODEX_API_KEY, so
-// scrubbing those would break a shipped skill.
-// container/secret_scrub_test.go pins the partition.
-export const SECRET_ENV_VARS = [
-  'ANTHROPIC_API_KEY',
-  'CLAUDE_CODE_OAUTH_TOKEN',
-  'ANTHROPIC_OAUTH_TOKEN',
-];
-
-// bashScrub prefixes every Bash command with an unset of the model credentials.
-// The one policy returning 'rewrite', and rewrite is claude-only. codex strips
-// its own shell env; pi passes process.env verbatim and cannot rewrite a tool
-// input, so pi has no echo defence. Same boundary for all three: the gateway.
-export function bashScrub(ev: ToolEvent): Verdict {
-  const command = (ev.tool_input as { command?: string })?.command;
-  if (!command) return ALLOW;
-
-  const unsetPrefix = `unset ${SECRET_ENV_VARS.join(' ')} 2>/dev/null; `;
-  return {
-    kind: 'rewrite',
-    input: { ...ev.tool_input, command: unsetPrefix + command },
-  };
-}
-
 // GH_DENIED are the `gh` spellings the agent may not run once a folder holds a
 // GitHub shell credential (spec 5/13 §Shell credentials). Each entry is the
 // subcommand path plus, optionally, a flag that must also be present.
 //
-// Deny, not rewrite, so the row runs on all three harnesses — codex and pi can
-// both refuse a tool call, and only `rewrite` is claude-only.
+// All three harnesses can refuse a tool call.
 const GH_DENIED: Array<{ path: string[]; flag?: string; why: string }> = [
   { path: ['pr', 'review'], flag: '--approve', why: 'approving a pull request' },
   { path: ['pr', 'merge'], why: 'merging a pull request' },

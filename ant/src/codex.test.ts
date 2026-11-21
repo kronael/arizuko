@@ -184,6 +184,15 @@ test('tomlValue: strings, arrays and tables render as TOML, never JSON', () => {
   expect(tomlValue({ FOO: 'bar' })).toBe('{"FOO" = "bar"}');
 });
 
+/** Fresh and resumed Codex turns let shell tools inherit their credentials. */
+test('Codex shell inherits model credentials', () => {
+  for (const continuity of [undefined, 'thread-1']) {
+    const args = codexArgs({ cwd: '/home/node', env: {}, continuity });
+    expect(args).toContain('shell_environment_policy.inherit="all"');
+    expect(args).toContain('shell_environment_policy.ignore_default_excludes=true');
+  }
+});
+
 test('codexArgs: renders turn.tools into -c overrides so tools cross the MCP socket', () => {
   const args = codexArgs({
     cwd: '/home/node',

@@ -468,6 +468,13 @@ line. `mergeSecrets` in `runed/secrets.go` lays that map over the operator
 anchors that `runed` reads from its own environment. `arizuko generate` writes
 every key of `store.EnvProfileKeys` into `env/runed.env`, see `writeEnvFiles` in `compose/compose.go`. A key that is absent there reaches no guest.
 
+Claude, Codex and pi shell tools inherit the turn's model credentials, so nested
+`claude` and `codex` commands can use the same login. The mounted Codex
+`auth.json` also supplies its subscription login. Processes in the guest share
+one uid and can read sibling environments through `/proc/<pid>/environ`.
+With `MODEL_GATEWAY_URL` set, `spawnSecrets` withholds raw model credentials
+from both the operator and user sources. Shell inheritance adds no credentials.
+
 A `shell:env:<KEY>` grant adds one folder credential to door 1, see `ShellEnvSecrets`. A CLI that the agent drives from its shell has no tool
 call to broker. The match is exact. The `(*, **)` row of an operator does not
 confer the grant, and `shell:env:*` is the explicit row for all keys. The model

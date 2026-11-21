@@ -6,7 +6,11 @@ import { test, expect } from 'bun:test';
 import fs from 'fs';
 import path from 'path';
 import type { Frame, Turn } from './backend.js';
-import type { PostToolUseHookInput, PostToolUseFailureHookInput } from '@anthropic-ai/claude-agent-sdk';
+import type {
+  PostToolUseHookInput,
+  PostToolUseFailureHookInput,
+  PreToolUseHookInput,
+} from '@anthropic-ai/claude-agent-sdk';
 import {
   ClaudeTurn,
   claudeHooks,
@@ -23,13 +27,51 @@ import {
   transcriptPath,
   unpackContinuity,
 } from './claude.js';
-import { bindings } from './policy.js';
+import { bindings, matches } from './policy.js';
 import { NUDGE_TEXT, STEER_SPOOL, appendLines, drainLines } from './spool.js';
 
 const UUID = 'b6c2b287-0000-4000-8000-000000000000';
 const MSG_UUID = 'a1a1a1a1-0000-4000-8000-000000000000';
 const never = () => false;
 const always = () => true;
+
+/** A Claude Bash call keeps the turn's model credentials for nested CLIs. */
+test('Claude shell inherits model credentials', async () => {
+  const env = {
+    ANTHROPIC_API_KEY: 'anthropic-test',
+    CLAUDE_CODE_OAUTH_TOKEN: 'claude-test',
+    ANTHROPIC_OAUTH_TOKEN: 'oauth-test',
+    OPENAI_API_KEY: 'openai-test',
+    CODEX_API_KEY: 'codex-test',
+  };
+  const input = {
+    hook_event_name: 'PreToolUse', tool_name: 'Bash',
+    tool_input: {
+      command: `printf '%s\\n' ${Object.keys(env).map(key => `"$${key}"`).join(' ')}`,
+    },
+    tool_use_id: 'shell', session_id: '', cwd: process.cwd(),
+    transcript_path: '',
+  } satisfies PreToolUseHookInput;
+  const rows = bindings({ home: '/home/node', turnID: '' })
+    .filter(row => matches(row, 'Bash'));
+  for (const entry of claudeHooks(rows).PreToolUse) {
+    for (const hook of entry.hooks) {
+      const output = await hook(input, 'shell', { signal: new AbortController().signal });
+      if ('hookSpecificOutput' in output) {
+        const result = output.hookSpecificOutput;
+        if (result?.hookEventName === 'PreToolUse')
+          Object.assign(input.tool_input, result.updatedInput);
+      }
+    }
+  }
+  const shell = Bun.spawn(['/bin/bash', '-c', input.tool_input.command], {
+    env: claudeEnv(env), stdout: 'pipe', stderr: 'pipe',
+  });
+  expect(await new Response(shell.stdout).text()).toBe(
+    'anthropic-test\nclaude-test\noauth-test\nopenai-test\ncodex-test\n',
+  );
+  expect(await shell.exited).toBe(0);
+});
 
 // --- continuity token ---------------------------------------------------
 

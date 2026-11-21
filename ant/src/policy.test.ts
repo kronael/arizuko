@@ -2,7 +2,7 @@ import { describe, expect, test, beforeEach } from 'bun:test';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { bindings, matches, runRow, runRows, runnableBy } from './policy.js';
+import { bindings, matches, runRow, runRows } from './policy.js';
 import { codexHomeDir, codexHooksConfig, codexRows, verdictToCodexJson, writeCodexHooks } from './codex.js';
 import { STEER_SPOOL, appendLines, drainLines } from './spool.js';
 
@@ -12,31 +12,17 @@ const ctx = { home: '/home/node', turnID: 'turn-1' };
 // Pin it so a capability cannot be quietly unregistered (the BUGS J8 blind spot).
 describe('the binding table is the whole capability surface', () => {
   test('every row is named, placed and bounded', () => {
-    expect(bindings(ctx).map((b) => [b.id, b.event, b.matcher ?? '*', b.returns.join('|')])).toEqual([
-      ['reply-owed', 'Stop', '*', 'deny'],
-      ['reply-length', 'PreToolUse', 'mcp__arizuko__reply|mcp__arizuko__send', 'deny'],
-      ['skill-guard', 'PreToolUse', 'Write|Edit|MultiEdit', 'deny'],
-      ['bash-scrub', 'PreToolUse', 'Bash', 'rewrite'],
-      ['gh-write-gate', 'PreToolUse', 'Bash', 'deny'],
-      ['tool-log-pre', 'PreToolUse', '*', ''],
-      ['skill-rescan', 'PostToolUse', '*', ''],
-      ['tool-log-post', 'PostToolUse', '*', ''],
-      ['completion', 'PostToolUse', '*', 'inject'],
-      ['completion-failure', 'PostToolUseFailure', '*', 'inject'],
+    expect(bindings(ctx).map((b) => [b.id, b.event, b.matcher ?? '*'])).toEqual([
+      ['reply-owed', 'Stop', '*'],
+      ['reply-length', 'PreToolUse', 'mcp__arizuko__reply|mcp__arizuko__send'],
+      ['skill-guard', 'PreToolUse', 'Write|Edit|MultiEdit'],
+      ['gh-write-gate', 'PreToolUse', 'Bash'],
+      ['tool-log-pre', 'PreToolUse', '*'],
+      ['skill-rescan', 'PostToolUse', '*'],
+      ['tool-log-post', 'PostToolUse', '*'],
+      ['completion', 'PostToolUse', '*'],
+      ['completion-failure', 'PostToolUseFailure', '*'],
     ]);
-  });
-
-  test('a renderer that cannot honour a verdict refuses that row, loudly', () => {
-    const refused: string[] = [];
-    const kept = runnableBy(bindings(ctx), ['deny', 'inject'], (m) => refused.push(m));
-    expect(kept.map((b) => b.id)).not.toContain('bash-scrub');
-    expect(refused.join(' ')).toContain('bash-scrub');
-    // gh-write-gate sits on the same tool and answers 'deny', so unlike the row
-    // above it survives on codex and pi — the shell credential it guards reaches
-    // every harness, so a claude-only refusal would guard one of three.
-    expect(kept.map((b) => b.id)).toContain('gh-write-gate');
-    // Observers declare no verdicts, so every renderer keeps them.
-    expect(kept.map((b) => b.id)).toContain('tool-log-pre');
   });
 });
 
@@ -47,7 +33,7 @@ describe('matchers select on the canonical tool name', () => {
 
   test('the canonical name matches', () => {
     expect(matches(row('skill-guard'), 'Write')).toBe(true);
-    expect(matches(row('bash-scrub'), 'Bash')).toBe(true);
+    expect(matches(row('gh-write-gate'), 'Bash')).toBe(true);
   });
 
   test('a matcher excludes what it should', () => {
@@ -68,12 +54,11 @@ describe('matchers select on the canonical tool name', () => {
   });
 });
 
-// The point of `returns`: a harness that cannot honour a verdict must REFUSE
-// the row, never render a gate that silently does nothing.
-describe('the codex renderer refuses what codex cannot honour', () => {
-  test('the rewrite row is dropped, every other row survives', () => {
+describe('the codex renderer selects supported events', () => {
+  /** Codex retains denial and completion policies on its supported events. */
+  test('supported events survive', () => {
     const ids = codexRows(bindings(ctx)).map((b) => b.id);
-    expect(ids).not.toContain('bash-scrub');
+    expect(ids).not.toContain('completion-failure');
     expect(ids).toContain('skill-guard');
     expect(ids).toContain('completion');
   });
@@ -150,7 +135,7 @@ describe('the system layer is written before codex starts', () => {
 // handler BLOCK the tool.
 describe('a policy that throws allows, on every harness', () => {
   const boom = {
-    id: 'boom', event: 'PreToolUse', returns: ['deny'],
+    id: 'boom', event: 'PreToolUse',
     run: async () => { throw new Error('scanner exploded'); },
   } as never;
   const ev = { hook_event_name: 'PreToolUse', tool_name: 'Write', tool_input: {} } as never;
@@ -161,7 +146,7 @@ describe('a policy that throws allows, on every harness', () => {
 
   test('one throwing row does not stop the rows after it', async () => {
     const denier = {
-      id: 'denier', event: 'PreToolUse', returns: ['deny'],
+      id: 'denier', event: 'PreToolUse',
       run: async () => ({ kind: 'deny', reason: 'still enforced' }),
     } as never;
     const verdict = await runRows([boom, denier], 'PreToolUse', ev);
@@ -174,11 +159,11 @@ describe('a policy that throws allows, on every harness', () => {
   test('a deny still lets the observer rows after it run', async () => {
     const seen: string[] = [];
     const denier = {
-      id: 'denier', event: 'PreToolUse', returns: ['deny'],
+      id: 'denier', event: 'PreToolUse',
       run: async () => ({ kind: 'deny', reason: 'no' }),
     } as never;
     const observer = {
-      id: 'observer', event: 'PreToolUse', returns: [],
+      id: 'observer', event: 'PreToolUse',
       run: async () => { seen.push('ran'); return { kind: 'allow' }; },
     } as never;
     const verdict = await runRows([denier, observer], 'PreToolUse', ev);
@@ -204,9 +189,9 @@ describe('a verdict becomes codex wire JSON in exactly one place', () => {
     });
   });
 
-  test('allow and an unrenderable rewrite are both an empty object', () => {
+  /** An allowed tool call emits no Codex hook instructions. */
+  test('allow is an empty object', () => {
     expect(verdictToCodexJson({ kind: 'allow' }, 'PreToolUse')).toBe('{}');
-    expect(verdictToCodexJson({ kind: 'rewrite', input: { a: 1 } }, 'PreToolUse')).toBe('{}');
   });
 });
 

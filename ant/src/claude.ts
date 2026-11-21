@@ -279,7 +279,7 @@ export function createPreCompactHook(assistantName?: string): HookCallback {
 }
 
 // claudeHooks is the claude RENDERER (spec 6/16): it turns policy.ts's binding
-// table into the SDK's hooks object. claude honours all four verdicts, so no row
+// table into the SDK's hooks object. claude honours every verdict, so no row
 // is refused here.
 export function claudeHooks(rows: Binding[]): Record<PolicyEvent, Array<{ matcher?: string; hooks: HookCallback[] }>> {
   const forEvent = (event: PolicyEvent) =>
@@ -303,10 +303,6 @@ function asHookCallback(b: Binding): HookCallback {
             permissionDecision: 'deny',
             permissionDecisionReason: verdict.reason,
           },
-        };
-      case 'rewrite':
-        return {
-          hookSpecificOutput: { hookEventName: 'PreToolUse', updatedInput: verdict.input },
         };
       case 'inject':
         log(`policy ${b.id}: injecting context after a tool call`);
