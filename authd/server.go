@@ -221,7 +221,11 @@ func (a *Authd) Downscope(parent auth.Subject, requested []string, folder string
 	if folder == "" {
 		folder = parentFolder(parent)
 	}
-	if rem := time.Until(parent.Expires); rem > 0 && (ttl <= 0 || ttl > rem) {
+	rem := time.Until(parent.Expires)
+	if rem <= 0 {
+		return minted{}, auth.ErrExpiredToken
+	}
+	if ttl <= 0 || ttl > rem {
 		ttl = rem
 	}
 	return a.signMinted(auth.TokenClaims{
