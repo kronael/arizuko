@@ -302,10 +302,7 @@ func (s *Store) SyncProxydRoutes(routes []ProxydRoute) (written, kept int, err e
 			})
 			written++
 		}
-		if _, err := applyChunks(ctx, "sync proxyd routes", writes,
-			func(ctx context.Context, chunk []objstore.Write) (bool, error) {
-				return s.TryWriteEntities(ctx, nil, chunk...)
-			}); err != nil {
+		if _, err := s.applyInChunks(ctx, "sync proxyd routes", writes); err != nil {
 			return err
 		}
 		_, rec := audit.WriteFor(audit.Event{

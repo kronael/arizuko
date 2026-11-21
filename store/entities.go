@@ -266,20 +266,10 @@ func setAttr(attrs map[string]string, name, value string) {
 // leaves work a re-run finishes.
 func (s *Store) applyInChunks(ctx context.Context, what string,
 	writes []objstore.Write) (int, error) {
-	return applyChunks(ctx, what, writes, func(ctx context.Context, chunk []objstore.Write) (bool, error) {
-		return s.TryWriteEntities(ctx, nil, chunk...)
-	})
-}
-
-// applyChunks is the body of the sweep, taking the commit as a parameter. A
-// chunk is one action short of MaxBatchActions because the version marker's
-// Bump rides every commit (scopes.go).
-func applyChunks(ctx context.Context, what string, writes []objstore.Write,
-	commit func(context.Context, []objstore.Write) (bool, error)) (int, error) {
 	done := 0
 	for len(writes) > 0 {
 		n := min(len(writes), objstore.IndexBatchSize)
-		committed, err := commit(ctx, writes[:n])
+		committed, err := s.TryWriteEntities(ctx, nil, writes[:n]...)
 		if err != nil {
 			return done, fmt.Errorf("%s: %w", what, err)
 		}

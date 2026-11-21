@@ -252,10 +252,7 @@ func (s *Store) purgeFolder(ctx context.Context, folder string) ([]string, int, 
 		} else {
 			swept += len(writes)
 		}
-		if _, err := applyChunks(ctx, "purge "+e.entity+" of "+folder, writes,
-			func(ctx context.Context, chunk []objstore.Write) (bool, error) {
-				return s.TryWriteEntities(ctx, nil, chunk...)
-			}); err != nil {
+		if _, err := s.applyInChunks(ctx, "purge "+e.entity+" of "+folder, writes); err != nil {
 			return nil, 0, 0, err
 		}
 		if e.entity == Groups {
@@ -290,10 +287,7 @@ func (s *Store) purgeFolderPartitions(ctx context.Context, folders []string) err
 					Op: objstore.Delete, Entity: entity, Key: it.Key,
 				})
 			}
-			if _, err := applyChunks(ctx, "purge "+entity+" of "+owned, writes,
-				func(ctx context.Context, chunk []objstore.Write) (bool, error) {
-					return s.TryWriteEntities(ctx, nil, chunk...)
-				}); err != nil {
+			if _, err := s.applyInChunks(ctx, "purge "+entity+" of "+owned, writes); err != nil {
 				return err
 			}
 		}

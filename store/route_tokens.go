@@ -327,10 +327,7 @@ func (s *Store) RevokeRouteToken(jid, ownerFolder string) (bool, error) {
 		return false, nil
 	}
 
-	if _, err := applyChunks(ctx, "revoke "+jid, writes,
-		func(ctx context.Context, chunk []objstore.Write) (bool, error) {
-			return s.TryWriteEntities(ctx, nil, chunk...)
-		}); err != nil {
+	if _, err := s.applyInChunks(ctx, "revoke "+jid, writes); err != nil {
 		return false, err
 	}
 	actor, actorSub, surface := s.auditIdentity()
