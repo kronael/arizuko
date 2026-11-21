@@ -229,6 +229,9 @@ func (rr *routesResource) handle(ctx context.Context, x resreg.Execution) (any, 
 					"DELETE it and POST your own to take the path over", path, routes[idx].Owner)
 		}
 		merged := routes[idx]
+		if v, ok := x.Args["redirect_to"].(string); ok {
+			merged.RedirectTo = v
+		}
 		if v, ok := x.Args["backend"].(string); ok && v != "" {
 			merged.Backend = v
 		}
