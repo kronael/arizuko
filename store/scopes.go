@@ -1,23 +1,5 @@
 package store
 
-// scopes.go is the ONE site that moves the version marker resreg's consistent
-// reads compare (objstore.ReadConsistent). A writer that leaves the Bump out of
-// its batch is invisible to every export, which then reports itself consistent
-// over a state no writer saw (BUGS L264). The declaration is here rather than
-// in resreg because resreg imports store.
-//
-// No writer names a Bump: the helpers derive it from the entities a batch
-// touches, and scopes_test.go fails any driver write that goes round them.
-//
-// GuardedBatch's committed=false with a nil error is the NORMAL outcome of a
-// condition that did not hold, and `if _, err := …` reported success for a
-// write that never happened at fifty-four sites (BUGS L268). So WriteEntities
-// returns an ERROR and no verdict, a refusal is ErrRefused, and a caller whose
-// condition may legitimately refuse calls the Try door, where the name says
-// the false is expected. scopes_test.go holds the line: no door drops its
-// error, and a Try verdict goes to `_` only under a comment saying what a
-// refusal means there.
-
 import (
 	"context"
 	"errors"

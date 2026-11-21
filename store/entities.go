@@ -1,10 +1,5 @@
 package store
 
-// entities.go declares the entities this package serves and prepares a
-// database to hold them (spec 6/37 step 7). One declaration for every opener:
-// a copied loop drifted once and a database booted healthy while dropping
-// every audit row (BUGS F29). One read path per table, no fallback.
-
 import (
 	"context"
 	"fmt"

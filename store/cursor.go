@@ -1,24 +1,5 @@
 package store
 
-// cursor.go is the forward-only guarded transition, written once because two
-// entities carry a cursor and a cursor that moves the other way re-feeds
-// consumed messages.
-//
-// It is a guarded write and not a read-then-write (spec 6/40 §2): the engine
-// picks the winner and no caller holds a lock across a read. It is THREE
-// attempts because the predicate "behind OR absent OR no item" is a
-// disjunction and a Cond is a conjunction: (1) the item is there and behind,
-// the steady state; (2) the item has never carried a cursor, because
-// PutSession writes a session id and no cursor; (3) there is no item, because
-// buildAgentPrompt advances the cursor BEFORE PutSession creates the row.
-// Three refusals mean the cursor is already at or past the target, or a
-// writer created the item between attempts; the read tells them apart.
-//
-// cursor_test.go proves it never moves back by dropping the condition. The
-// interleave is FORCED with conformance.SlipAt rather than raced, because
-// three raced concurrency tests in this project stayed green against broken
-// code.
-
 import (
 	"context"
 	"fmt"

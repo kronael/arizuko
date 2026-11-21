@@ -450,8 +450,6 @@ func (s *Store) GroupByFolderChecked(folder string) (core.Group, bool, error) {
 	return g, true, err
 }
 
-// setSetting rewrites one key of the settings document, leaving the rest
-// alone. A nil value writes JSON null (a clear); remove takes the key out. The
 func (s *Store) setSetting(folder, key string, value any, remove bool) error {
 	ctx := context.Background()
 	it, ok, err := s.groupItem(ctx, folder)

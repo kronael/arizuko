@@ -1,15 +1,5 @@
 package store
 
-// coordinate.go holds every entity's coordinate builder in one place, and the
-// one writer that uses them raw.
-//
-// SeedItem is FOR TESTS. Every production write goes through the entity's own
-// method, which stamps its own instant, so a turn already two hours old or a
-// task run recorded yesterday is a state no live writer can reach. A test that
-// needs one builds it here. The coordinate still travels through the entity's
-// own key builder, so a seeded item lands exactly where a live write would put
-// it; only the attributes are unchecked.
-
 import (
 	"context"
 	"fmt"
