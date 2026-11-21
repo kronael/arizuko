@@ -26,6 +26,84 @@ type corpus struct {
 	fail  error
 }
 
+type bootMutation struct {
+	stale        store.IndexedMessage
+	mutate       func()
+	installFirst bool
+}
+
+func (c bootMutation) ChatJIDs(context.Context) ([]string, error) {
+	return []string{"first", "second"}, nil
+}
+
+func (c bootMutation) MessagesToIndex(_ context.Context, jid string) ([]store.IndexedMessage, error) {
+	if jid == "first" {
+		if c.installFirst {
+			return []store.IndexedMessage{c.stale}, nil
+		}
+		return nil, nil
+	}
+	c.mutate()
+	return []store.IndexedMessage{c.stale}, nil
+}
+
+func TestBootRemovalAfterInstall(t *testing.T) {
+	old := row("m", "first", "u", "", "oldbody", 0)
+	ix := New()
+	src := bootMutation{stale: old, installFirst: true, mutate: func() { ix.Remove(old.ChatJID, old.Sort) }}
+	if err := ix.Build(context.Background(), src); err != nil {
+		t.Fatal(err)
+	}
+	hits, err := ix.Search("oldbody", "", "", "", 10)
+	if err != nil || len(hits) != 0 || ix.live != 0 || ix.lengths != 0 {
+		t.Fatalf("hits = %d, live = %d, lengths = %d, err = %v", len(hits), ix.live, ix.lengths, err)
+	}
+}
+
+func TestBootPreservesLiveMutations(t *testing.T) {
+	old := row("m", "second", "u", "", "oldbody", 0)
+	updated := old
+	updated.Content = "newbody"
+	for _, tc := range []struct {
+		name   string
+		mutate func(*Index)
+		want   string
+	}{
+		{"update", func(ix *Index) { ix.Put(updated) }, "newbody"},
+		{"absent remove", func(ix *Index) { ix.Remove(old.ChatJID, old.Sort) }, ""},
+		{"put remove", func(ix *Index) { ix.Put(updated); ix.Remove(old.ChatJID, old.Sort) }, ""},
+		{"remove put", func(ix *Index) { ix.Remove(old.ChatJID, old.Sort); ix.Put(updated) }, "newbody"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ix := New()
+			src := bootMutation{stale: old, mutate: func() { tc.mutate(ix) }}
+			if err := ix.Build(context.Background(), src); err != nil {
+				t.Fatal(err)
+			}
+			for _, term := range []string{"oldbody", "newbody"} {
+				hits, err := ix.Search(term, "", "", "", 10)
+				if err != nil {
+					t.Fatal(err)
+				}
+				want := 0
+				if term == tc.want {
+					want = 1
+				}
+				if len(hits) != want {
+					t.Errorf("%s hits = %d, want %d", term, len(hits), want)
+				}
+			}
+			want := 0
+			if tc.want != "" {
+				want = 1
+			}
+			if ix.live != want || ix.lengths != int64(want) {
+				t.Errorf("live = %d, lengths = %d, want %d", ix.live, ix.lengths, want)
+			}
+		})
+	}
+}
+
 func (c *corpus) ChatJIDs(context.Context) ([]string, error) {
 	if c.fail != nil {
 		return nil, c.fail

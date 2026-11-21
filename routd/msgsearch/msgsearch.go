@@ -109,9 +109,10 @@ type Index struct {
 	// "no such message" about the chats the walk never reached.
 	failed error
 
-	docs []*doc
-	at   map[coord]int32
-	post map[string][]posting
+	docs    []*doc
+	at      map[coord]int32
+	post    map[string][]posting
+	touched map[coord]struct{}
 	// live and lengths are the corpus BM25 scores against: the document count
 	// and the sum of their lengths, kept as the documents move so no query
 	// walks the corpus to find them.
@@ -121,7 +122,7 @@ type Index struct {
 
 // New builds an empty index. It refuses every search until Build finishes.
 func New() *Index {
-	return &Index{at: map[coord]int32{}, post: map[string][]posting{}}
+	return &Index{at: map[coord]int32{}, post: map[string][]posting{}, touched: map[coord]struct{}{}}
 }
 
 // Source is the store an index is built from: the partition list, and one
@@ -142,6 +143,7 @@ func (ix *Index) Build(ctx context.Context, src Source) error {
 	err := ix.build(ctx, src)
 	ix.mu.Lock()
 	defer ix.mu.Unlock()
+	ix.touched = nil
 	if err != nil {
 		ix.failed = err
 		return err
@@ -163,7 +165,14 @@ func (ix *Index) build(ctx context.Context, src Source) error {
 		if err != nil {
 			return err
 		}
-		ix.Put(rows...)
+		for _, row := range rows {
+			d, tf := prepare(row)
+			ix.mu.Lock()
+			if _, ok := ix.touched[d.coord]; !ok {
+				ix.install(d, tf)
+			}
+			ix.mu.Unlock()
+		}
 	}
 	return nil
 }
@@ -191,6 +200,9 @@ func (ix *Index) Put(rows ...store.IndexedMessage) {
 	ix.mu.Lock()
 	defer ix.mu.Unlock()
 	for i, d := range ready {
+		if ix.touched != nil {
+			ix.touched[d.coord] = struct{}{}
+		}
 		ix.install(d, freqs[i])
 	}
 }
@@ -203,7 +215,11 @@ func (ix *Index) Remove(chatJID, sortKey string) {
 	}
 	ix.mu.Lock()
 	defer ix.mu.Unlock()
-	if id, ok := ix.at[coord{chat: chatJID, sort: sortKey}]; ok {
+	key := coord{chat: chatJID, sort: sortKey}
+	if ix.touched != nil {
+		ix.touched[key] = struct{}{}
+	}
+	if id, ok := ix.at[key]; ok {
 		ix.drop(id)
 	}
 }
