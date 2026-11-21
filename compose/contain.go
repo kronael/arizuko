@@ -77,15 +77,17 @@ func interpolatesPlatformSecret(body []byte) string {
 	text := string(body)
 	for _, k := range platformSecrets {
 		for _, form := range []string{"${" + k, "$" + k} {
-			i := strings.Index(text, form)
-			if i < 0 {
-				continue
-			}
-			// `$SECRETS_KEY_SUFFIX` is a different variable; only a terminator counts.
-			rest := text[i+len(form):]
-			if rest == "" || strings.IndexAny(rest[:1], "}:-?") == 0 ||
-				!isEnvNameByte(rest[0]) {
-				return k
+			rest := text
+			for {
+				i := strings.Index(rest, form)
+				if i < 0 {
+					break
+				}
+				rest = rest[i+len(form):]
+				if rest == "" || strings.IndexAny(rest[:1], "}:-?") == 0 ||
+					!isEnvNameByte(rest[0]) {
+					return k
+				}
 			}
 		}
 	}

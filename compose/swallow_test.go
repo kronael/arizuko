@@ -53,6 +53,9 @@ func TestSourcedFragmentCannotReadAPlatformSecret(t *testing.T) {
 		name, body string
 		refuse     bool
 	}{
+		{"bare secret after longer names", "services:\n  p:\n    environment:\n      A: $SECRETS_KEY_SUFFIX\n      B: $SECRETS_KEY2\n      C: $SECRETS_KEY\n", true},
+		{"braced secret after longer names", "services:\n  p:\n    environment:\n      A: '${AUTH_SECRET_SUFFIX}'\n      B: '${AUTH_SECRET:?required}'\n", true},
+		{"only longer names", "services:\n  p:\n    environment:\n      A: $SECRETS_KEY_SUFFIX\n      B: '${SECRETS_KEY2}'\n", false},
 		{"the master key", "services:\n  p:\n    environment:\n      X: '${SECRETS_KEY}'\n", true},
 		{"with a default", "services:\n  p:\n    environment:\n      X: '${AUTH_SECRET:-x}'\n", true},
 		{"with a required message", "services:\n  p:\n    environment:\n      X: '${MODEL_GATEWAY_KEY:?set it}'\n", true},
