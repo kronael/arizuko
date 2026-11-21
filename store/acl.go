@@ -239,38 +239,32 @@ func (s *Store) AddACLRow(row core.ACLRow, v objstore.Version) error {
 		return err
 	}
 	// A refusal is the grant already being there, and it records nothing.
-	writes, ev, err := func() ([]objstore.Write, audit.Event, error) {
+	actor, actorSub, surface := s.auditIdentity()
+	if s.auditSub == "" && row.GrantedBy != "" {
+		actor, actorSub = row.GrantedBy, row.GrantedBy
+	}
+	ev := audit.Event{
+		Category: audit.CategoryAuthZ,
+		Action:   "acl.add",
+		Actor:    actor,
+		ActorSub: actorSub,
+		Surface:  surface,
+		Resource: fmt.Sprintf("acl/%s/%s/%s", row.Principal, row.Action, row.Scope),
+		Folder:   row.Scope,
+		Outcome:  audit.OutcomeOK,
+		ParamsSummary: map[string]any{
+			"principal": row.Principal,
+			"action":    row.Action,
+			"scope":     row.Scope,
+			"effect":    row.Effect,
+			"predicate": row.Predicate,
 
-		actor, actorSub, surface := s.auditIdentity()
-		if s.auditSub == "" && row.GrantedBy != "" {
-			actor, actorSub = row.GrantedBy, row.GrantedBy
-		}
-		return []objstore.Write{w}, audit.Event{
-			Category: audit.CategoryAuthZ,
-			Action:   "acl.add",
-			Actor:    actor,
-			ActorSub: actorSub,
-			Surface:  surface,
-			Resource: fmt.Sprintf("acl/%s/%s/%s", row.Principal, row.Action, row.Scope),
-			Folder:   row.Scope,
-			Outcome:  audit.OutcomeOK,
-			ParamsSummary: map[string]any{
-				"principal": row.Principal,
-				"action":    row.Action,
-				"scope":     row.Scope,
-				"effect":    row.Effect,
-				"predicate": row.Predicate,
-
-				"granted_by": row.GrantedBy,
-			},
-		}, nil
-	}()
-	if err != nil {
-		return err
+			"granted_by": row.GrantedBy,
+		},
 	}
 	_, rec := audit.WriteFor(ev)
 	ws := &WriteSet{}
-	ws.Add(writes...)
+	ws.Add(w)
 	ws.Prove(v)
 	return s.Apply(context.Background(), ws, rec)
 }
@@ -283,32 +277,26 @@ func (s *Store) RemoveACLRow(row core.ACLRow, v objstore.Version) error {
 	if err != nil {
 		return err
 	}
-	writes, ev, err := func() ([]objstore.Write, audit.Event, error) {
-		w := objstore.Write{Op: objstore.Delete, Entity: ACL, Key: key}
-		actor, actorSub, surface := s.auditIdentity()
-		return []objstore.Write{w}, audit.Event{
-			Category: audit.CategoryAuthZ,
-			Action:   "acl.remove",
-			Actor:    actor,
-			ActorSub: actorSub,
-			Surface:  surface,
-			Resource: fmt.Sprintf("acl/%s/%s/%s", row.Principal, row.Action, row.Scope),
-			Folder:   row.Scope,
-			Outcome:  audit.OutcomeOK,
-			ParamsSummary: map[string]any{
-				"principal": row.Principal,
-				"action":    row.Action,
-				"scope":     row.Scope,
-				"effect":    row.Effect,
-			},
-		}, nil
-	}()
-	if err != nil {
-		return err
+	actor, actorSub, surface := s.auditIdentity()
+	ev := audit.Event{
+		Category: audit.CategoryAuthZ,
+		Action:   "acl.remove",
+		Actor:    actor,
+		ActorSub: actorSub,
+		Surface:  surface,
+		Resource: fmt.Sprintf("acl/%s/%s/%s", row.Principal, row.Action, row.Scope),
+		Folder:   row.Scope,
+		Outcome:  audit.OutcomeOK,
+		ParamsSummary: map[string]any{
+			"principal": row.Principal,
+			"action":    row.Action,
+			"scope":     row.Scope,
+			"effect":    row.Effect,
+		},
 	}
 	_, rec := audit.WriteFor(ev)
 	ws := &WriteSet{}
-	ws.Add(writes...)
+	ws.Add(objstore.Write{Op: objstore.Delete, Entity: ACL, Key: key})
 	ws.Prove(v)
 	return s.Apply(context.Background(), ws, rec)
 }
