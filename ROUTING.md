@@ -652,16 +652,15 @@ own Claude session, reply chain and message history.
    ids to `Message.Topic`. Examples are `MessageThreadID` on Telegram and the
    thread channel id on Discord. Outbound is symmetric. The `reply` of the
    agent lands in a thread off the message it answers. Discord starts a thread
-   if none exists, and Slack roots `thread_ts` on the trigger. Discord requires
-   an explicit `title` from `reply`, `send`, `send_file`, or `send_voice` to start
-   a thread. The adapter prefixes the title with 🤖 and clamps it to 100 characters.
-   An empty title reuses an existing thread at the root message id; otherwise
-   the adapter returns a permanent error asking the agent to pass `title`,
-   without posting. Progress carries no title and never starts a thread;
-   a permanent refusal drops that status delivery. Outbound rows persist
-   `title` beside their thread placement so retries use the same title.
-   The reply of the
+   if none exists, and Slack roots `thread_ts` on the trigger. The reply of the
    agent therefore seeds the topic that later in-thread messages inherit.
+   Discord names a new thread only from the explicit `title` argument of
+   `reply`, `send`, `send_file` or `send_voice`; the adapter adds 🤖 and clamps
+   it to 100 characters. Without `title`, discd reuses an existing thread at the
+   root message id, or refuses with a permanent error that tells the agent to
+   pass `title`, and posts nothing. A progress status carries no title, so it
+   never starts a thread and a refusal drops it. The outbound row keeps `title`
+   beside its thread placement, so a retry uses the same title.
    `send` stays top-level. The chat setting `thread_replies` toggles new-thread
    creation. It is on by default for group chats and off in direct messages.
    Existing-thread replies and progress stay in that thread.
