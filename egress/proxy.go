@@ -225,13 +225,16 @@ func (p *Proxy) handleConnect(w http.ResponseWriter, r *http.Request, src string
 		http.Error(w, "no hijack", http.StatusInternalServerError)
 		return
 	}
-	client, _, err := hj.Hijack()
+	client, buffered, err := hj.Hijack()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	defer func() { _ = client.Close() }()
 	if _, err := client.Write([]byte("HTTP/1.1 200 Connection Established\r\n\r\n")); err != nil {
+		return
+	}
+	if _, err := io.CopyN(upstream, buffered, int64(buffered.Reader.Buffered())); err != nil {
 		return
 	}
 	slog.Info("allow connect", "src", src, "host", host)

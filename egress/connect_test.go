@@ -94,6 +94,33 @@ func TestConnectTunnelsBytesBothWaysForAnAllowlistedHost(t *testing.T) {
 	}
 }
 
+func TestConnectForwardsPayloadSentWithHeaders(t *testing.T) {
+	echo := echoServer(t)
+	_, port, _ := net.SplitHostPort(echo.Addr().String())
+	proxy := serve(t, mustNew(t, []string{"localhost"}, nil, ""))
+	conn, err := net.Dial("tcp", proxy.Host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	if err := conn.SetDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	authority := "localhost:" + port
+	if _, err := fmt.Fprintf(conn, "CONNECT %s HTTP/1.1\r\nHost: %s\r\n\r\nping\n", authority, authority); err != nil {
+		t.Fatal(err)
+	}
+	reader := bufio.NewReader(conn)
+	resp, err := http.ReadResponse(reader, &http.Request{Method: http.MethodConnect})
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("response = %v, error = %v", resp, err)
+	}
+	got, err := reader.ReadString('\n')
+	if err != nil || got != "ping\n" {
+		t.Fatalf("payload = %q, error = %v", got, err)
+	}
+}
+
 // The allow half must not be the only thing that works. A CONNECT to a host
 // that is not on the list is the request this proxy exists to stop.
 func TestConnectRefusesAHostThatIsNotAllowlisted(t *testing.T) {
