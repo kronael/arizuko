@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -38,14 +39,10 @@ func condExpr(b *names, c objstore.Cond) (string, error) {
 	return strings.Join(parts, " AND "), nil
 }
 
-func setExpr(b *names, attrs, init map[string]string, remove []string) string {
+func setExpr(b *names, attrs map[string]string, remove []string) string {
 	var sets, removes []string
 	for k, v := range attrs {
 		sets = append(sets, b.name(k)+" = "+b.value(v))
-	}
-	for k, v := range init {
-		n := b.name(k)
-		sets = append(sets, n+" = if_not_exists("+n+", "+b.value(v)+")")
 	}
 	for _, k := range remove {
 		removes = append(removes, b.name(k))
@@ -94,7 +91,7 @@ func (s *Store) writeAction(w objstore.Write) (types.TransactWriteItem, error) {
 				cond = exists + " AND " + cond
 			}
 		}
-		expr := setExpr(b, w.Attrs, w.Init, w.Remove)
+		expr := setExpr(b, w.Attrs, w.Remove)
 		if expr == "" {
 			// An OPEN: the item's existence is the whole write (a chat with no
 			// real inbound, store/messages.go). There is no empty update here
@@ -141,32 +138,86 @@ func (s *Store) GuardedBatch(ctx context.Context, checks []objstore.Check,
 	if err := objstore.ValidateBatch(checks, writes); err != nil {
 		return false, err
 	}
+	for range 16 {
+		committed, retry, err := s.guardedBatch(ctx, checks, writes)
+		if !retry {
+			return committed, err
+		}
+	}
+	return false, fmt.Errorf("batch of %d writes: merge presence changed repeatedly", len(writes))
+}
+
+func (s *Store) guardedBatch(ctx context.Context, checks []objstore.Check,
+	writes []objstore.Write) (bool, bool, error) {
 	items := make([]types.TransactWriteItem, 0, len(checks)+len(writes))
+	internal := make(map[int]bool)
 	for _, c := range checks {
 		a, err := s.checkAction(c)
 		if err != nil {
-			return false, err
+			return false, false, err
 		}
 		items = append(items, a)
 	}
 	for _, w := range writes {
+		if w.Op == objstore.Merge && len(w.Init) > 0 {
+			found, err := s.Query(ctx, objstore.Query{Entity: w.Entity, Partition: w.Key.Partition,
+				Key: objstore.KeyPredicate{Op: objstore.ExactKey, Value: w.Key.Sort}})
+			if err != nil {
+				return false, false, err
+			}
+			internal[len(items)] = true
+			if len(found) > 0 {
+				w.Op, w.Init = objstore.Update, nil
+			} else {
+				attrs := maps.Clone(w.Init)
+				maps.Copy(attrs, w.Attrs)
+				w.Op, w.Attrs, w.Init, w.Remove = objstore.Put, attrs, nil, nil
+				w.Cond = objstore.Cond{Item: objstore.ItemAbsent}
+			}
+		}
 		a, err := s.writeAction(w)
 		if err != nil {
-			return false, err
+			return false, false, err
 		}
 		items = append(items, a)
 	}
 	_, err := s.api.TransactWriteItems(ctx, &dynamodb.TransactWriteItemsInput{TransactItems: items})
 	if err == nil {
-		return true, nil
+		return true, false, nil
+	}
+	if len(internal) > 0 {
+		var canceled *types.TransactionCanceledException
+		if errors.As(err, &canceled) && len(canceled.CancellationReasons) == len(items) {
+			retry, external := false, false
+			for i, reason := range canceled.CancellationReasons {
+				if reason.Code != nil && *reason.Code == "None" {
+					continue
+				}
+				if reason.Code == nil || *reason.Code != "ConditionalCheckFailed" {
+					return false, false, serverFault(fmt.Sprintf("batch of %d writes", len(writes)), err)
+				}
+				if internal[i] {
+					retry = true
+				} else {
+					external = true
+				}
+			}
+			if external {
+				return false, false, nil
+			}
+			if retry {
+				return false, true, nil
+			}
+		}
+		return false, false, serverFault(fmt.Sprintf("batch of %d writes", len(writes)), err)
 	}
 	if refused(err) {
-		return false, nil
+		return false, false, nil
 	}
 	// The operation's name rides the error because a batch that fails names
 	// nothing on its own; a caller reading a log line needs to know which
 	// write, and whether the server or the request is at fault (BUGS L293).
-	return false, serverFault(fmt.Sprintf("batch of %d writes", len(writes)), err)
+	return false, false, serverFault(fmt.Sprintf("batch of %d writes", len(writes)), err)
 }
 
 // refused reports whether the endpoint turned the batch down because a

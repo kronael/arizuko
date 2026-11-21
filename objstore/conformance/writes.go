@@ -507,6 +507,21 @@ func AMergeKeepsWhatTheWriterDidNotName(t *testing.T, newStore Factory) {
 		t.Errorf("value is %q, want the merged one: the two halves are ONE document "+
 			"expression", left["value"])
 	}
+	for _, attrs := range []map[string]string{nil, {"value": "updated"}} {
+		if !commit(t, s, ctx, objstore.Write{
+			Op: objstore.Merge, Entity: secrets, Key: fresh,
+			Attrs: attrs, Init: map[string]string{"created_at": "restated", "missing": "born"},
+		}) {
+			t.Fatal("merge onto existing item was refused")
+		}
+		got := one(t, s, secrets, fresh).Attrs
+		if _, ok := got["created_at"]; ok {
+			t.Fatalf("merge restored removed Init attribute: %v", got)
+		}
+		if _, ok := got["missing"]; ok {
+			t.Fatalf("merge added Init attribute to existing item: %v", got)
+		}
+	}
 }
 
 // AnOpenWithNothingToChangeCreatesTheItem is the write whose whole content is
