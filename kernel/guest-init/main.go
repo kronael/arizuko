@@ -213,8 +213,8 @@ func main() {
 		report(probe)
 		off()
 	}
-	probe["ctl_port"] = itoa(int(ctlPort))
-	probe["mcp_port"] = itoa(int(mcpPort))
+	probe["ctl_port"] = strconv.Itoa(int(ctlPort))
+	probe["mcp_port"] = strconv.Itoa(int(mcpPort))
 
 	fd, err := dialCtl(ctlPort)
 	if err != nil {
@@ -310,7 +310,7 @@ func mountBase(probe map[string]string) {
 		// because the share's daemon is unprivileged and cannot own a file for
 		// anyone else. A "root_write":"ok" here would be the hole this exists to
 		// close.
-		probe["guest_uid"] = itoa(syscall.Getuid())
+		probe["guest_uid"] = strconv.Itoa(syscall.Getuid())
 		if err := os.WriteFile("/turn/from-guest-root.txt", []byte("as-uid-0\n"), 0o644); err == nil {
 			probe["root_write"] = "ok — THE CLAMP IS OFF"
 		} else {
@@ -814,7 +814,7 @@ func writeInput(dir, batch string, seq int64) error {
 func startBridge(c *ctl, mcp uint32) error {
 	cmd := exec.Command(socatBin,
 		"UNIX-LISTEN:"+mcpSocket+",fork",
-		"VSOCK-CONNECT:"+itoa(hostCID)+":"+strconv.FormatUint(uint64(mcp), 10))
+		"VSOCK-CONNECT:"+strconv.Itoa(hostCID)+":"+strconv.FormatUint(uint64(mcp), 10))
 	cmd.Env = []string{}
 	cmd.SysProcAttr = inRoot()
 	stderr, err := cmd.StderrPipe()
@@ -986,18 +986,6 @@ func openConsole() {
 		return
 	}
 	console = fd
-}
-
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	var b []byte
-	for n > 0 {
-		b = append([]byte{byte('0' + n%10)}, b...)
-		n /= 10
-	}
-	return string(b)
 }
 
 // kmsg reports through the kernel log, which is the one sink proven to reach the
