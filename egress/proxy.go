@@ -316,8 +316,24 @@ func isHopByHop(h string) bool {
 }
 
 func splice(a, b net.Conn) {
-	done := make(chan struct{}, 2)
-	go func() { _, _ = io.Copy(a, b); done <- struct{}{} }()
-	go func() { _, _ = io.Copy(b, a); done <- struct{}{} }()
+	done := make(chan error, 2)
+	copyTo := func(dst, src net.Conn) {
+		_, err := io.Copy(dst, src)
+		if err == nil {
+			if conn, ok := dst.(interface{ CloseWrite() error }); ok {
+				err = conn.CloseWrite()
+			} else {
+				err = dst.Close()
+			}
+		}
+		done <- err
+	}
+	go copyTo(a, b)
+	go copyTo(b, a)
+	if err := <-done; err != nil {
+		// Close both sides to unblock the other copy.
+		_ = a.Close()
+		_ = b.Close()
+	}
 	<-done
 }

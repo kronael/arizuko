@@ -121,6 +121,41 @@ func TestConnectForwardsPayloadSentWithHeaders(t *testing.T) {
 	}
 }
 
+func TestConnectForwardsReplyAfterClientHalfClose(t *testing.T) {
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lis.Close()
+	go func() {
+		conn, err := lis.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		data, err := io.ReadAll(conn)
+		if err == nil {
+			_, _ = conn.Write(append([]byte("reply:"), data...))
+		}
+	}()
+	_, port, _ := net.SplitHostPort(lis.Addr().String())
+	proxy := serve(t, mustNew(t, []string{"localhost"}, nil, ""))
+	conn, resp := connectVia(t, proxy, "localhost:"+port)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("response = %s", resp.Status)
+	}
+	if _, err := conn.Write([]byte("ping")); err != nil {
+		t.Fatal(err)
+	}
+	if err := conn.(*net.TCPConn).CloseWrite(); err != nil {
+		t.Fatal(err)
+	}
+	got, err := io.ReadAll(conn)
+	if err != nil || string(got) != "reply:ping" {
+		t.Fatalf("reply = %q, error = %v", got, err)
+	}
+}
+
 // The allow half must not be the only thing that works. A CONNECT to a host
 // that is not on the list is the request this proxy exists to stop.
 func TestConnectRefusesAHostThatIsNotAllowlisted(t *testing.T) {
@@ -431,8 +466,6 @@ func TestHandleHTTPStripsHopByHopBothWays(t *testing.T) {
 
 // splice, on its own.
 
-// splice returns as soon as EITHER direction ends, so a tunnel whose origin
-// hangs up does not leak a goroutine pair per spawn.
 func TestSpliceReturnsWhenOneSideCloses(t *testing.T) {
 	a1, a2 := net.Pipe()
 	b1, b2 := net.Pipe()
@@ -455,6 +488,24 @@ func TestSpliceReturnsWhenOneSideCloses(t *testing.T) {
 		t.Fatal("splice did not return after one side closed; every tunnel would leak two goroutines")
 	}
 	_ = a2.Close()
+}
+
+func TestSpliceCopyErrorUnblocksOtherDirection(t *testing.T) {
+	a1, a2 := net.Pipe()
+	b1, b2 := net.Pipe()
+	defer a2.Close()
+	done := make(chan struct{})
+	go func() { splice(a1, b1); close(done) }()
+	if err := b2.Close(); err != nil {
+		t.Fatal(err)
+	}
+	// The closed peer can make this write fail.
+	_, _ = a2.Write([]byte("payload"))
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("splice did not stop after a copy error")
+	}
 }
 
 // resolveDest error paths.
