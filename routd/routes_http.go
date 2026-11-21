@@ -129,7 +129,7 @@ func (s *Server) handleRouteGet(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, "store_error", err.Error())
 		return
 	}
-	if !ownsFolder(folder, rt.Target) {
+	if !routeTargetOwned(folder, rt.Target) {
 		writeErr(w, 404, "not_found", "route not found")
 		return
 	}

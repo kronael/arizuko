@@ -406,3 +406,21 @@ func TestRESTRoutesRejectInvalidTargets(t *testing.T) {
 		t.Fatalf("routes = %+v, %v", rows, err)
 	}
 }
+
+func TestRESTRouteGetDecoratedTarget(t *testing.T) {
+	db, h := authSrv(t, fakeVerifier{sub: "user:u", scope: []string{"routes:read:own_group"}, folder: "alice"})
+	for i, target := range []string{"alice", "alice?observe", "alice#topic", "bob?observe"} {
+		id, err := db.AddRoute(core.Route{Seq: i + 1, Match: "room=" + strconv.Itoa(i), Target: target})
+		if err != nil {
+			t.Fatal(err)
+		}
+		r := doJSON(t, h, "GET", "/v1/routes/"+strconv.FormatInt(id, 10), "", nil)
+		want := http.StatusOK
+		if i == 3 {
+			want = http.StatusNotFound
+		}
+		if r.Code != want {
+			t.Errorf("target %q: status %d, want %d", target, r.Code, want)
+		}
+	}
+}
