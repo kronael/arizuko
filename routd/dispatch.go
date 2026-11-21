@@ -421,10 +421,6 @@ func (l *Loop) isolateElevated(groups [][]core.Message) [][]core.Message {
 	return out
 }
 
-func (l *Loop) runTurn(folder, topic, chatJID, turnID string, addressed bool, trigger, ambient []core.Message) (hadOutput, steered, busy bool, observedMark string, rerr error) {
-	return l.runBoundTurn(folder, topic, chatJID, turnID, addressed, trigger, ambient, nil, store.MessageCursor(trigger[len(trigger)-1]))
-}
-
 func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed bool, trigger, ambient []core.Message, saved *TurnContext, wakeCursor string) (hadOutput, steered, busy bool, observedMark string, rerr error) {
 	last := trigger[len(trigger)-1]
 

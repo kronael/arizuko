@@ -15,6 +15,10 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
+func (l *Loop) buildAgentPrompt(folder, topic string, trigger, ambient []core.Message) (string, string) {
+	return l.buildBoundPrompt(folder, topic, trigger, ambient, false)
+}
+
 // TestBuildAgentPrompt_PaneHints mirrors gateway TestBuildAgentPrompt_PaneHints:
 // a Slack-pane trigger gets <surface>slack-pane</surface> and, when the pane
 // records a context channel, <pane-context jid="..."/>. Non-slack / no-pane

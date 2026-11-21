@@ -15,18 +15,6 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// buildAgentPrompt assembles one turn's prompt: sysMsgs + autocalls + persona
-// + <observed> rule + envelope + the feed via router.FormatMessages. Each
-// (folder, topic) tracks its own observed watermark. The watermark is
-// RETURNED, never written here: the prompt is built before the container
-// spawns and every failure after that re-feeds the batch, so writing it at
-// render time read the ambient context once and lost it (BUGS L58). The
-// caller advances it on the same success path as the message cursor —
-// at-least-once, benign because the manual tells the agent not to act on observed rows.
-func (l *Loop) buildAgentPrompt(folder, topic string, trigger, ambient []core.Message) (string, string) {
-	return l.buildBoundPrompt(folder, topic, trigger, ambient, false)
-}
-
 func (l *Loop) buildBoundPrompt(folder, topic string, trigger, ambient []core.Message, saved bool) (string, string) {
 	sysMsgs := l.db.FlushSysMsgs(folder)
 	maxN, maxC := l.observeWindow(folder)

@@ -10,6 +10,10 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
+func (l *Loop) runTurn(folder, topic, chatJID, turnID string, addressed bool, trigger, ambient []core.Message) (hadOutput, steered, busy bool, observedMark string, rerr error) {
+	return l.runBoundTurn(folder, topic, chatJID, turnID, addressed, trigger, ambient, nil, store.MessageCursor(trigger[len(trigger)-1]))
+}
+
 func TestTurnControlSavesInputBeforeRun(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
