@@ -167,24 +167,6 @@ type autocallCtx struct {
 	Now       time.Time
 }
 
-type autocall struct {
-	name string
-	eval func(autocallCtx) string
-}
-
-var autocalls = []autocall{
-	{"now", func(c autocallCtx) string { return c.Now.UTC().Format(time.RFC3339) }},
-	{"instance", func(c autocallCtx) string { return c.Instance }},
-	{"folder", func(c autocallCtx) string { return c.Folder }},
-	{"session", func(c autocallCtx) string {
-		id := c.SessionID
-		if len(id) > 8 {
-			id = id[:8]
-		}
-		return id
-	}},
-}
-
 // autocallsBlock renders the <autocalls> block for (folder, topic).
 func (l *Loop) autocallsBlock(folder, topic string) string {
 	return renderAutocalls(autocallCtx{
@@ -198,14 +180,18 @@ func (l *Loop) autocallsBlock(folder, topic string) string {
 func renderAutocalls(ctx autocallCtx) string {
 	var b strings.Builder
 	b.WriteString("<autocalls>\n")
-	for _, a := range autocalls {
-		v := a.eval(ctx)
-		if v == "" {
+	for _, a := range []struct{ name, value string }{
+		{"now", ctx.Now.UTC().Format(time.RFC3339)},
+		{"instance", ctx.Instance},
+		{"folder", ctx.Folder},
+		{"session", ctx.SessionID[:min(len(ctx.SessionID), 8)]},
+	} {
+		if a.value == "" {
 			continue
 		}
 		b.WriteString(a.name)
 		b.WriteString(": ")
-		b.WriteString(v)
+		b.WriteString(a.value)
 		b.WriteByte('\n')
 	}
 	b.WriteString("</autocalls>\n")
