@@ -218,8 +218,9 @@ function assistantNameFromSettings(): string | undefined {
 // same object, so the SDK sees the env it sees today.
 export function claudeEnv(env: Record<string, string>): Record<string, string> {
   const gw = modelGateway(env);
-  if (!gw) return env;
-  const out: Record<string, string> = { ...env, ANTHROPIC_BASE_URL: gw.url };
+  const shellEnv = { ...env, CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: '0' };
+  if (!gw) return shellEnv;
+  const out: Record<string, string> = { ...shellEnv, ANTHROPIC_BASE_URL: gw.url };
   if (gw.key) out.ANTHROPIC_AUTH_TOKEN = gw.key;
   return out;
 }
