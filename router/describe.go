@@ -66,7 +66,7 @@ func Describe(routes []core.Route) []RouteView {
 		}
 		synth := synthMessage(r)
 		for j := range i {
-			if RouteMatches(routes[j], synth) && expandTarget(routes[j].Target, synth) != "" {
+			if RouteMatches(r, synth) && RouteMatches(routes[j], synth) && expandTarget(routes[j].Target, synth) != "" {
 				v.ShadowedBy = routes[j].ID
 				break
 			}
@@ -115,6 +115,9 @@ func synthMessage(r core.Route) core.Message {
 	}
 	msg.Sender = fillGlob(pred["sender"])
 	msg.Verb = fillGlob(pred["verb"])
+	if at := fillGlob(pred["at"]); at != "" {
+		msg.Content = "@" + at
+	}
 	return msg
 }
 

@@ -113,3 +113,14 @@ func TestDescribe_SpecificDoesNotShadowCatchall(t *testing.T) {
 		t.Fatalf("broad mention catch-all is live for other channels, not shadowed: %+v", v)
 	}
 }
+
+func TestDescribeDistinctAtPredicates(t *testing.T) {
+	routes := []core.Route{{ID: 1, Match: "platform=telegram at=", Target: "one"}, {ID: 2, Match: "platform=telegram at=alice", Target: "two"}}
+	msg := core.Message{ChatJID: "telegram:room", Content: "@alice hello"}
+	if got := ResolveRoute(msg, routes); got != "two" {
+		t.Fatalf("route=%q", got)
+	}
+	if got := Describe(routes)[1].ShadowedBy; got != 0 {
+		t.Fatalf("reachable route shadowed by %d", got)
+	}
+}
