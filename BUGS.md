@@ -14,6 +14,20 @@
 > so counting one as open overstates the queue.
 
 
+## L913 — a new topic on a pi folder starts without its parent's history (2026-11-21, open)
+
+`container.CopySession` (`container/runner.go:205-247`) copies a Claude transcript
+from `.claude/projects/-home-node/` and skips a Codex rollout on purpose; it never
+looks in `.pi/sessions/`, so a pi parent logs `CopySession: parent session file
+missing` and `inheritParentSession` clears the child's cursor.
+**Measured:** 6 such WARN lines in the sloth journal 2026-11-20 08:00 to
+2026-11-21 08:00, in sloth, sloth/morha and sloth/discord; the parents exist, for
+example `sloth/morha/.pi/sessions/2026-11-18T20-15-51-724Z_01a1f04d-….jsonl`.
+**Fix:** copy the pi file with the child id, once a real `pi --session <child>
+--session-dir` resume of such a copy is shown to work; else skip it with INFO as
+for Codex.
+**Type:** bug, test — needs a live pi resume check.
+
 ## ✅ FIXED 2026-11-15 bd3ddd79f068affc4b27fcf8df85950a81e5cddb 6a0a46feb0c5bb96102e72ebb720f422f0f01cc7 378cdc43efb50fae2c7166b8e2365873135d0532 L901 — routd asked the model gateway for the budget before every spawn, even for a handler that calls no model (2026-11-15)
 
 `routd/dispatch.go:553` called `l.budgetGate(...)` before every spawn. A gateway that
@@ -505,6 +519,7 @@ The browser retry integration owns this fix after the current serial capacity wo
 - `L904` — `GroupObserveWindow` reads a malformed settings document as "not set"; changing it crosses `routd/prompt.go`, the `ipc` deps field and six test files; fix asked.
 - `L910` — the Google connector has no resolve or reopen tool; the `rest` schema cannot fix a body field; needs sign-off.
 - `L826` — one folder's crash closes the whole instance for an hour; per-folder breaker or a 30 s probe; needs sign-off.
+- `L913` — a new topic on a pi folder starts without its parent's history; fix waits on a live pi resume check.
 - `L816` — gitd loses GitHub webhooks while the store is unreachable; retention lives in that store; proposal, needs sign-off.
 - `L803` — morha repeats recovery reports and replies to an old GitHub comment; cause unmeasured.
 - `L804` — Codex topic forks do not inherit the parent's model context; observed messages remain available.
