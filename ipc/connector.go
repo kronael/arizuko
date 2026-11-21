@@ -18,6 +18,7 @@ package ipc
 // secret values out of the result.
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -191,9 +192,6 @@ func RenderSecrets(tmpl, secrets map[string]string) map[string]string {
 	return out
 }
 
-// scrubCallResult re-marshals the result, replaces any non-empty resolved secret
-// value with "«redacted»", and decodes it back. Round-tripping through JSON is
-// what lets one exact-string pass cover every text field the upstream returns.
 func scrubCallResult(res *mcp.CallToolResult, secrets map[string]string) (*mcp.CallToolResult, error) {
 	if res == nil {
 		return nil, fmt.Errorf("connector: nil result")
@@ -205,12 +203,39 @@ func scrubCallResult(res *mcp.CallToolResult, secrets map[string]string) (*mcp.C
 	if err != nil {
 		return nil, fmt.Errorf("connector result marshal: %w", err)
 	}
-	cleaned := scrubSecrets(string(b), secrets)
+	var value any
+	decoder := json.NewDecoder(bytes.NewReader(b))
+	decoder.UseNumber()
+	if err := decoder.Decode(&value); err != nil {
+		return nil, fmt.Errorf("connector result decode: %w", err)
+	}
+	b, err = json.Marshal(scrubResultValue(value, secrets))
+	if err != nil {
+		return nil, fmt.Errorf("connector result marshal: %w", err)
+	}
 	var out mcp.CallToolResult
-	if err := json.Unmarshal([]byte(cleaned), &out); err != nil {
+	if err := json.Unmarshal(b, &out); err != nil {
 		return nil, fmt.Errorf("connector result parse: %w", err)
 	}
 	return &out, nil
+}
+
+func scrubResultValue(value any, secrets map[string]string) any {
+	switch v := value.(type) {
+	case string:
+		return scrubSecrets(v, secrets)
+	case []any:
+		for i := range v {
+			v[i] = scrubResultValue(v[i], secrets)
+		}
+	case map[string]any:
+		out := make(map[string]any, len(v))
+		for key, item := range v {
+			out[scrubSecrets(key, secrets)] = scrubResultValue(item, secrets)
+		}
+		return out
+	}
+	return value
 }
 
 func anySecretSet(secrets map[string]string) bool {
