@@ -25,6 +25,7 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
+	"unicode/utf8"
 	"unsafe"
 )
 
@@ -942,11 +943,33 @@ func stream(c *ctl, r io.Reader) <-chan struct{} {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		sc := bufio.NewScanner(r)
-		sc.Buffer(make([]byte, 64*1024), maxFrame)
-		for sc.Scan() {
-			if err := c.send(frame{Kind: kindLog, Line: sc.Text()}); err != nil {
-				logf("guest-init: log frame failed: %v", err)
+		reader := bufio.NewReader(r)
+		var carry []byte
+		for {
+			line, prefix, err := reader.ReadLine()
+			line = append(carry, line...)
+			carry = nil
+			if prefix {
+				for i := len(line) - 1; i >= 0 && i >= len(line)-utf8.UTFMax; i-- {
+					if utf8.RuneStart(line[i]) {
+						if !utf8.FullRune(line[i:]) {
+							carry = append(carry, line[i:]...)
+							line = line[:i]
+						}
+						break
+					}
+				}
+			}
+			if len(line) > 0 || (err == nil && !prefix) {
+				if sendErr := c.send(frame{Kind: kindLog, Line: string(line)}); sendErr != nil {
+					logf("guest-init: log frame failed: %v", sendErr)
+					return
+				}
+			}
+			if err != nil {
+				if err != io.EOF {
+					c.logf("guest-init: stderr read: %v", err)
+				}
 				return
 			}
 		}

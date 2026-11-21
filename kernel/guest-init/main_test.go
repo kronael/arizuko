@@ -12,6 +12,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"os/exec"
@@ -21,6 +22,29 @@ import (
 	"syscall"
 	"testing"
 )
+
+type failingReader struct{}
+
+func (failingReader) Read([]byte) (int, error) { return 0, errors.New("stderr failed") }
+
+func TestStreamLongLineAndReadError(t *testing.T) {
+	line := strings.Repeat("a", 4095) + "€" + strings.Repeat("b", maxFrame)
+	var wire bytes.Buffer
+	reader := io.MultiReader(strings.NewReader(line+"\nfinal error\n"), failingReader{})
+	<-stream(&ctl{w: &wire}, reader)
+	frames := decodeAll(t, bytes.NewReader(wire.Bytes()))
+	var content strings.Builder
+	for _, f := range frames {
+		if f.Kind != kindLog || len(f.Line) >= maxFrame {
+			t.Fatalf("invalid log frame: kind=%s length=%d", f.Kind, len(f.Line))
+		}
+		content.WriteString(f.Line)
+	}
+	want := line + "final error" + "guest-init: stderr read: stderr failed"
+	if content.String() != want {
+		t.Fatalf("stream content length = %d, want %d", content.Len(), len(want))
+	}
+}
 
 // The two ports come off the kernel command line, and a missing one is an error
 // rather than a default: the host allocates a pair per CID, so a guest that
