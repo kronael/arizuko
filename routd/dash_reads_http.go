@@ -25,7 +25,12 @@ type sessionCount struct {
 
 // handleSessionCounts serves GET /v1/sessions/counts, in folder order.
 func (s *Server) handleSessionCounts(w http.ResponseWriter, r *http.Request) {
-	if !s.authed(w, r, "sessions:read", "chats:read", "messages:read") {
+	_, folder, ok := s.authz(w, r, "sessions:read", "chats:read", "messages:read")
+	if !ok {
+		return
+	}
+	if folder != "" {
+		writeErr(w, 403, "forbidden", "aggregate requires unrestricted folder")
 		return
 	}
 	perFolder, err := s.db.TopicsPerFolder()
@@ -55,7 +60,12 @@ type dailyVolume struct {
 // human-message histogram. is_bot_message=0 is applied HERE, by the owner, so
 // the caller cannot widen it to include the agent's own output.
 func (s *Server) handleMessageVolume(w http.ResponseWriter, r *http.Request) {
-	if !s.authed(w, r, "messages:read", "chats:read") {
+	_, folder, ok := s.authz(w, r, "messages:read", "chats:read")
+	if !ok {
+		return
+	}
+	if folder != "" {
+		writeErr(w, 403, "forbidden", "aggregate requires unrestricted folder")
 		return
 	}
 	counts, err := s.db.DailyVolume(r.Context(), volumeDays)
@@ -92,7 +102,12 @@ type activityRow struct {
 // items to show 1,000 on krons). `limit` is clamped here; dashd applies its
 // own per-row folder visibility on top, so this is the outer bound.
 func (s *Server) handleActivity(w http.ResponseWriter, r *http.Request) {
-	if !s.authed(w, r, "messages:read", "chats:read") {
+	_, folder, ok := s.authz(w, r, "messages:read", "chats:read")
+	if !ok {
+		return
+	}
+	if folder != "" {
+		writeErr(w, 403, "forbidden", "aggregate requires unrestricted folder")
 		return
 	}
 	limit := 1000

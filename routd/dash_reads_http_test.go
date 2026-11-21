@@ -10,6 +10,39 @@ import (
 	"github.com/kronael/arizuko/core"
 )
 
+func TestDashReadsFolderClaims(t *testing.T) {
+	db := memDBOrSkip(t)
+	if err := db.PutSession("bob", "", "session"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.PutMessage(core.Message{ID: "m1", ChatJID: "web:bob", Sender: "bob", Content: "private", Timestamp: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"/v1/sessions/counts", "/v1/messages/volume", "/v1/messages/activity"} {
+		for _, tc := range []struct {
+			name   string
+			verify fakeVerifier
+			want   int
+		}{
+			{"scoped", fakeVerifier{sub: "alice", folder: "alice", scope: []string{"messages:read"}}, 403},
+			{"unrestricted", fakeVerifier{sub: "operator", scope: []string{"messages:read"}}, 200},
+			{"missing scope", fakeVerifier{sub: "operator", scope: []string{"audit:read"}}, 403},
+		} {
+			t.Run(path+"/"+tc.name, func(t *testing.T) {
+				srv := &Server{db: db, verify: tc.verify}
+				w := httptest.NewRecorder()
+				srv.Handler().ServeHTTP(w, httptest.NewRequest("GET", path, nil))
+				if w.Code != tc.want {
+					t.Fatalf("status = %d, want %d: %s", w.Code, tc.want, w.Body.String())
+				}
+				if tc.want == 200 && (w.Body.String() == "[]\n" || w.Body.String() == "[]") {
+					t.Fatalf("missing seeded result: %s", w.Body.String())
+				}
+			})
+		}
+	}
+}
+
 // TestDashReads_RefuseWithoutScope — these are aggregates over another folder's
 // data, so an unscoped caller must be refused. They are plain handlers rather
 // than resreg resources precisely so they do NOT become agent tools; that makes
