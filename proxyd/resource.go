@@ -24,16 +24,16 @@ type routesResource struct {
 	web    objstore.Snapshot[[]store.WebRoute]
 
 	manualMu        sync.RWMutex
-	manualRoutes    []Route
+	manualRoutes    []store.ProxydRoute
 	manualWebRoutes []store.WebRoute
 }
 
 type routeSnapshot struct {
-	routes  []Route
+	routes  []store.ProxydRoute
 	proxies map[string]*httputil.ReverseProxy
 }
 
-func newRoutesResource(st *store.Store, initial []Route) *routesResource {
+func newRoutesResource(st *store.Store, initial []store.ProxydRoute) *routesResource {
 	rr := &routesResource{st: st}
 	if st == nil {
 
@@ -42,19 +42,15 @@ func newRoutesResource(st *store.Store, initial []Route) *routesResource {
 	return rr
 }
 
-func (rr *routesResource) snapshot() ([]Route, map[string]*httputil.ReverseProxy, error) {
-	var routes []Route
+func (rr *routesResource) snapshot() ([]store.ProxydRoute, map[string]*httputil.ReverseProxy, error) {
+	var routes []store.ProxydRoute
 	if rr.st != nil {
 		state, err := rr.routes.Read(context.Background(), rr.st.Obj(), store.OwnerScope(store.OwnerRoutd), func(context.Context) (routeSnapshot, error) {
 			stored, err := rr.st.AllProxydRoutes()
 			if err != nil {
 				return routeSnapshot{}, err
 			}
-			rows := make([]Route, 0, len(stored))
-			for _, row := range stored {
-				rows = append(rows, fromStoreRoute(row))
-			}
-			return buildSnapshot(rows), nil
+			return buildSnapshot(stored), nil
 		})
 		if err != nil {
 
@@ -64,14 +60,14 @@ func (rr *routesResource) snapshot() ([]Route, map[string]*httputil.ReverseProxy
 		return state.routes, state.proxies, nil
 	} else {
 		rr.manualMu.RLock()
-		routes = append([]Route(nil), rr.manualRoutes...)
+		routes = append([]store.ProxydRoute(nil), rr.manualRoutes...)
 		rr.manualMu.RUnlock()
 	}
 	state := buildSnapshot(routes)
 	return state.routes, state.proxies, nil
 }
 
-func buildSnapshot(routes []Route) routeSnapshot {
+func buildSnapshot(routes []store.ProxydRoute) routeSnapshot {
 
 	procs := make(map[string]*httputil.ReverseProxy, len(routes))
 	for _, r := range routes {
@@ -104,31 +100,13 @@ func (rr *routesResource) installManualWeb(routes []store.WebRoute) {
 	rr.manualMu.Unlock()
 }
 
-func (rr *routesResource) installManual(routes []Route) {
+func (rr *routesResource) installManual(routes []store.ProxydRoute) {
 	rr.manualMu.Lock()
-	rr.manualRoutes = append([]Route(nil), routes...)
+	rr.manualRoutes = append([]store.ProxydRoute(nil), routes...)
 	rr.manualMu.Unlock()
 }
 
-func toStoreRoute(r Route) store.ProxydRoute {
-	return store.ProxydRoute{
-		Path: r.Path, Backend: r.Backend, Auth: r.Auth,
-		GatedBy: r.GatedBy, PreserveHeaders: r.PreserveHeaders,
-		StripPrefix: r.StripPrefix, RedirectTo: r.RedirectTo,
-		Owner: r.Owner,
-	}
-}
-
-func fromStoreRoute(r store.ProxydRoute) Route {
-	return Route{
-		Path: r.Path, Backend: r.Backend, Auth: r.Auth,
-		GatedBy: r.GatedBy, PreserveHeaders: r.PreserveHeaders,
-		StripPrefix: r.StripPrefix, RedirectTo: r.RedirectTo,
-		Owner: r.Owner,
-	}
-}
-
-func validateRoute(r Route, existing []Route, isUpdate bool) error {
+func validateRoute(r store.ProxydRoute, existing []store.ProxydRoute, isUpdate bool) error {
 	if !strings.HasPrefix(r.Path, "/") {
 		return resreg.Errorf(http.StatusBadRequest, "path %q must start with '/'", r.Path)
 	}
@@ -148,14 +126,14 @@ func validateRoute(r Route, existing []Route, isUpdate bool) error {
 	return nil
 }
 
-func argRoute(args resreg.Args) (Route, error) {
+func argRoute(args resreg.Args) (store.ProxydRoute, error) {
 	b, err := json.Marshal(args)
 	if err != nil {
-		return Route{}, resreg.Errorf(http.StatusBadRequest, "encode args: %v", err)
+		return store.ProxydRoute{}, resreg.Errorf(http.StatusBadRequest, "encode args: %v", err)
 	}
-	var r Route
+	var r store.ProxydRoute
 	if err := json.Unmarshal(b, &r); err != nil {
-		return Route{}, resreg.Errorf(http.StatusBadRequest, "decode route: %v", err)
+		return store.ProxydRoute{}, resreg.Errorf(http.StatusBadRequest, "decode route: %v", err)
 	}
 	return r, nil
 }
@@ -167,7 +145,7 @@ func (rr *routesResource) handle(ctx context.Context, x resreg.Execution) (any, 
 	}
 	switch x.Action {
 	case resreg.ActionList:
-		out := make([]Route, 0, len(routes))
+		out := make([]store.ProxydRoute, 0, len(routes))
 		out = append(out, routes...)
 
 		return out, nil
@@ -195,7 +173,7 @@ func (rr *routesResource) handle(ctx context.Context, x resreg.Execution) (any, 
 
 		r.Owner = store.RouteOwnerOperator
 
-		if err := rr.st.CreateProxydRouteInto(x.Writes, toStoreRoute(r),
+		if err := rr.st.CreateProxydRouteInto(x.Writes, r,
 			resreg.Errorf(http.StatusConflict,
 				"proxyd route %q is already taken", r.Path)); err != nil {
 			return nil, resreg.Errorf(http.StatusInternalServerError, "persist: %v", err)
@@ -256,7 +234,7 @@ func (rr *routesResource) handle(ctx context.Context, x resreg.Execution) (any, 
 		if err := validateRoute(merged, routes, true); err != nil {
 			return nil, err
 		}
-		if err := rr.st.UpdateProxydRouteInto(x.Writes, toStoreRoute(merged),
+		if err := rr.st.UpdateProxydRouteInto(x.Writes, merged,
 			resreg.Errorf(http.StatusNotFound, "route %q not found", path)); err != nil {
 			return nil, resreg.Errorf(http.StatusInternalServerError, "persist: %v", err)
 		}

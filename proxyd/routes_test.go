@@ -5,10 +5,12 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/kronael/arizuko/store"
 )
 
 func TestMatchRoute_LongestPrefix_Wins(t *testing.T) {
-	rs := []Route{
+	rs := []store.ProxydRoute{
 		{Path: "/api/", Backend: "http://api"},
 		{Path: "/api/special/", Backend: "http://api-special"},
 	}
@@ -23,14 +25,14 @@ func TestMatchRoute_LongestPrefix_Wins(t *testing.T) {
 }
 
 func TestMatchRoute_NoMatch_Returns_Nil(t *testing.T) {
-	rs := []Route{{Path: "/api/", Backend: "http://api"}}
+	rs := []store.ProxydRoute{{Path: "/api/", Backend: "http://api"}}
 	if got := MatchRoute(rs, "/other"); got != nil {
 		t.Errorf("got = %+v, want nil", got)
 	}
 }
 
 func TestMatchRoute_ExactPath(t *testing.T) {
-	rs := []Route{{Path: "/onboard", Backend: "http://onbod"}}
+	rs := []store.ProxydRoute{{Path: "/onboard", Backend: "http://onbod"}}
 	if got := MatchRoute(rs, "/onboard"); got == nil {
 		t.Error("exact-match /onboard should hit")
 	}
@@ -44,7 +46,7 @@ func TestMatchRoute_ExactPath(t *testing.T) {
 // behaviour are covered there end-to-end via server.route.
 
 func TestBuildRouteProxy_BadURL_ReturnsNil(t *testing.T) {
-	if rp := buildRouteProxy(Route{Path: "/x/", Backend: ":://bad"}); rp != nil {
+	if rp := buildRouteProxy(store.ProxydRoute{Path: "/x/", Backend: ":://bad"}); rp != nil {
 		t.Errorf("expected nil for invalid backend, got %v", rp)
 	}
 }
@@ -55,7 +57,7 @@ func TestBuildRouteProxy_Reaches_Backend(t *testing.T) {
 		w.WriteHeader(204)
 	}))
 	defer up.Close()
-	rp := buildRouteProxy(Route{Path: "/x/", Backend: up.URL})
+	rp := buildRouteProxy(store.ProxydRoute{Path: "/x/", Backend: up.URL})
 	req := httptest.NewRequest("GET", "/x/hi", nil)
 	w := httptest.NewRecorder()
 	rp.ServeHTTP(w, req)
@@ -88,7 +90,7 @@ func TestBuildRouteProxy_ForwardsHostPathAndHeaders(t *testing.T) {
 	defer up.Close()
 	backend := strings.TrimPrefix(up.URL, "http://")
 
-	rp := buildRouteProxy(Route{
+	rp := buildRouteProxy(store.ProxydRoute{
 		Path: "/dav/", Backend: up.URL, StripPrefix: true,
 		PreserveHeaders: []string{"X-User-Groups"},
 	})

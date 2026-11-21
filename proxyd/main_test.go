@@ -606,15 +606,15 @@ func testRouteServer(t *testing.T, st *store.Store, secret string) (*server, *ht
 	if err != nil {
 		t.Fatal(err)
 	}
-	chatRoute := Route{Path: "/chat/", Backend: up.URL, Auth: "public"}
-	panelRoute := Route{Path: "/panel/", Backend: up.URL, Auth: "user"}
-	slinkRoute := Route{Path: "/slink/", Backend: up.URL, Auth: "public"}
-	meRoute := Route{Path: "/me/", Backend: up.URL, Auth: "user"}
+	chatRoute := store.ProxydRoute{Path: "/chat/", Backend: up.URL, Auth: "public"}
+	panelRoute := store.ProxydRoute{Path: "/panel/", Backend: up.URL, Auth: "user"}
+	slinkRoute := store.ProxydRoute{Path: "/slink/", Backend: up.URL, Auth: "public"}
+	meRoute := store.ProxydRoute{Path: "/me/", Backend: up.URL, Auth: "user"}
 	s := &server{
 		cfg:     config{authSecret: secret},
 		stRoutd: st, // tests use single in-memory DB with all tables
 		files:   httputil.NewSingleHostReverseProxy(u),
-		rr:      newRoutesResource(nil, []Route{chatRoute, panelRoute, slinkRoute, meRoute}),
+		rr:      newRoutesResource(nil, []store.ProxydRoute{chatRoute, panelRoute, slinkRoute, meRoute}),
 	}
 	return s, up
 }
@@ -733,7 +733,7 @@ func TestProxydMeRouteWithJWTReachesWebd(t *testing.T) {
 // webd mounts /me/x/folders and /me/x/chats while /x/ is a separate core
 // route; longest-prefix must keep the portal's own /x under /me/.
 func TestMatchRouteMeBeatsSiblingPrefixes(t *testing.T) {
-	routes := []Route{
+	routes := []store.ProxydRoute{
 		{Path: "/me/", Backend: "http://webd:8080", Auth: "user"},
 		{Path: "/x/", Backend: "http://webd:8080", Auth: "user"},
 		{Path: "/mcp", Backend: "http://webd:8080", Auth: "user"},
@@ -1041,10 +1041,10 @@ func testDavServer(t *testing.T) (*server, *httputil.ReverseProxy, *httptest.Ser
 		w.WriteHeader(200)
 		w.Write([]byte("dav:" + r.URL.Path))
 	}))
-	rp := buildRouteProxy(Route{Path: "/dav/", Backend: up.URL, StripPrefix: true})
+	rp := buildRouteProxy(store.ProxydRoute{Path: "/dav/", Backend: up.URL, StripPrefix: true})
 	s := &server{
 		cfg: config{authSecret: "testsecret"},
-		rr:  newRoutesResource(nil, []Route{{Path: "/dav/", Backend: up.URL, Auth: "user", StripPrefix: true}}),
+		rr:  newRoutesResource(nil, []store.ProxydRoute{{Path: "/dav/", Backend: up.URL, Auth: "user", StripPrefix: true}}),
 	}
 	return s, rp, up
 }
@@ -1537,7 +1537,7 @@ func TestDavDestHeaderRoundTrip(t *testing.T) {
 // installRoute is a tiny helper for tests that wires one TOML route into
 // the server's route table. Test-only: uses the manual fallback path
 // (st nil); production reads from the DB per request (spec 5/8).
-func installRoute(s *server, r Route) {
+func installRoute(s *server, r store.ProxydRoute) {
 	if s.rr == nil {
 		s.rr = newRoutesResource(nil, nil)
 	}
@@ -1545,7 +1545,7 @@ func installRoute(s *server, r Route) {
 	if err != nil {
 		panic(err)
 	}
-	s.rr.installManual(append(append([]Route(nil), cur...), r))
+	s.rr.installManual(append(append([]store.ProxydRoute(nil), cur...), r))
 }
 
 func TestProxyd_TOMLRoute_HandlesSlackPrefix(t *testing.T) {
@@ -1558,7 +1558,7 @@ func TestProxyd_TOMLRoute_HandlesSlackPrefix(t *testing.T) {
 
 	s := testServer()
 	s.cfg.authSecret = "testsecret"
-	installRoute(s, Route{Path: "/slack/", Backend: up.URL, Auth: "public"})
+	installRoute(s, store.ProxydRoute{Path: "/slack/", Backend: up.URL, Auth: "public"})
 
 	req := httptest.NewRequest("POST", "/slack/events", strings.NewReader("body"))
 	w := httptest.NewRecorder()
@@ -1580,7 +1580,7 @@ func TestProxyd_TOMLRoute_PublicAuth_BypassesIdentityCheck(t *testing.T) {
 
 	s := testServer()
 	s.cfg.authSecret = "testsecret"
-	installRoute(s, Route{Path: "/slack/", Backend: up.URL, Auth: "public"})
+	installRoute(s, store.ProxydRoute{Path: "/slack/", Backend: up.URL, Auth: "public"})
 
 	// No credentials at all — auth=public means proxyd never asks.
 	req := httptest.NewRequest("POST", "/slack/events", nil)
@@ -1600,7 +1600,7 @@ func TestProxyd_TOMLRoute_UserAuth_RequiresIdentity(t *testing.T) {
 
 	s := testServer()
 	s.cfg.authSecret = "testsecret"
-	installRoute(s, Route{Path: "/dash/", Backend: up.URL, Auth: "user"})
+	installRoute(s, store.ProxydRoute{Path: "/dash/", Backend: up.URL, Auth: "user"})
 
 	req := httptest.NewRequest("GET", "/dash/status", nil)
 	w := httptest.NewRecorder()
@@ -1632,7 +1632,7 @@ func TestProxyd_TOMLRoute_PreservesHeaders(t *testing.T) {
 	upURL, _ := url.Parse(up.URL)
 
 	s := testServer()
-	installRoute(s, Route{
+	installRoute(s, store.ProxydRoute{
 		Path:            "/slack/",
 		Backend:         up.URL,
 		Auth:            "public",
@@ -1704,12 +1704,12 @@ func testDavFullServer(t *testing.T, st *store.Store, secret string) (*server, *
 		w.Write([]byte("dav:" + r.URL.Path))
 	}))
 	u, _ := url.Parse(up.URL)
-	davRoute := Route{Path: "/dav/", Backend: up.URL, Auth: "user", StripPrefix: true}
+	davRoute := store.ProxydRoute{Path: "/dav/", Backend: up.URL, Auth: "user", StripPrefix: true}
 	s := &server{
 		cfg:     config{authSecret: secret},
 		stRoutd: st, // tests use single in-memory DB
 		files:   httputil.NewSingleHostReverseProxy(u),
-		rr:      newRoutesResource(nil, []Route{davRoute}),
+		rr:      newRoutesResource(nil, []store.ProxydRoute{davRoute}),
 	}
 	return s, up
 }

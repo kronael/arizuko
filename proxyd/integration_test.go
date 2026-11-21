@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/auth"
+	"github.com/kronael/arizuko/store"
 	"github.com/kronael/arizuko/tests/testutils"
 )
 
@@ -36,12 +37,12 @@ func newIntegProxy(t *testing.T, secret string) (*server, *httptest.Server, *tes
 		t.Fatal(err)
 	}
 
-	panelRoute := Route{Path: "/panel/", Backend: up.URL, Auth: "user"}
+	panelRoute := store.ProxydRoute{Path: "/panel/", Backend: up.URL, Auth: "user"}
 	s := &server{
 		cfg:     config{authSecret: secret},
 		stRoutd: st,
 		files:   httputil.NewSingleHostReverseProxy(u),
-		rr:      newRoutesResource(nil, []Route{panelRoute}),
+		rr:      newRoutesResource(nil, []store.ProxydRoute{panelRoute}),
 	}
 	return s, up, inst
 }

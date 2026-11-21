@@ -122,14 +122,14 @@ func (s *server) untrustedEdgeOnce(peer string) {
 // read of `proxyd_routes`, or a concurrent mutation pairs one route's auth
 // policy with another's backend (BUGS P3). Slices/maps returned are never
 // mutated in place, so a caller can use them without holding a lock.
-func (s *server) routeSnapshot() ([]Route, map[string]*httputil.ReverseProxy, error) {
+func (s *server) routeSnapshot() ([]store.ProxydRoute, map[string]*httputil.ReverseProxy, error) {
 	if s.rr == nil {
 		return nil, nil, nil
 	}
 	return s.rr.snapshot()
 }
 
-func (s *server) routes() ([]Route, error) {
+func (s *server) routes() ([]store.ProxydRoute, error) {
 	r, _, err := s.routeSnapshot()
 	return r, err
 }
@@ -219,18 +219,14 @@ func newServer(cfg config, stRoutd *store.Store, ks *auth.KeySet, svc *auth.Toke
 // per request. There is no env var and no seeding, so there is no window in which
 // config stops applying — PROXYD_ROUTES_JSON was seed-once and cost krons seven
 // routes (BUGS L45). Dispatch takes a fresh snapshot per request.
-func loadInitialRoutes(st *store.Store) []Route {
+func loadInitialRoutes(st *store.Store) []store.ProxydRoute {
 	if st == nil {
 		return nil
 	}
-	stored, err := st.AllProxydRoutes()
+	routes, err := st.AllProxydRoutes()
 	if err != nil {
 		slog.Error("read proxyd_routes", "err", err)
 		os.Exit(1)
-	}
-	routes := make([]Route, 0, len(stored))
-	for _, r := range stored {
-		routes = append(routes, fromStoreRoute(r))
 	}
 	for _, r := range routes {
 		if r.RedirectTo != "" {
@@ -245,7 +241,7 @@ func loadInitialRoutes(st *store.Store) []Route {
 	return routes
 }
 
-func buildRouteProxy(r Route) *httputil.ReverseProxy {
+func buildRouteProxy(r store.ProxydRoute) *httputil.ReverseProxy {
 	u, err := url.Parse(r.Backend)
 	if err != nil {
 		slog.Error("invalid route backend", "path", r.Path, "backend", r.Backend, "err", err)
@@ -554,7 +550,7 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 // cached ReverseProxy. It takes the proxy map from the SAME snapshot rt was
 // matched in — never re-reads it — so route and backend cannot come from two
 // versions of the table (BUGS P3).
-func (s *server) dispatchRoute(rt *Route, proxies map[string]*httputil.ReverseProxy, w http.ResponseWriter, r *http.Request) {
+func (s *server) dispatchRoute(rt *store.ProxydRoute, proxies map[string]*httputil.ReverseProxy, w http.ResponseWriter, r *http.Request) {
 	if rt.RedirectTo != "" {
 		http.Redirect(w, r, rt.RedirectTo, http.StatusFound)
 		return

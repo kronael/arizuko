@@ -103,11 +103,11 @@ func (s *server) deleteRoute(ctx context.Context, path string) (bool, error) {
 	return s.stRoutd.DeleteProxydRoute(ctx, path)
 }
 
-func proxydRouteTable(routes []Route) string {
+func proxydRouteTable(routes []store.ProxydRoute) string {
 	if len(routes) == 0 {
 		return `<div class="banner-err">No routes. proxyd answers nothing.</div>`
 	}
-	sorted := make([]Route, len(routes))
+	sorted := make([]store.ProxydRoute, len(routes))
 	copy(sorted, routes)
 	sort.SliceStable(sorted, func(i, j int) bool {
 		return len(sorted[i].Path) > len(sorted[j].Path)

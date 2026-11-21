@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/auth"
+	"github.com/kronael/arizuko/store"
 )
 
 // `optional` is the route-token surface's gate (specs/6/22 step 1): it replaced
@@ -39,7 +40,7 @@ func optionalServer(t *testing.T, ks *auth.KeySet, svc *auth.TokenSource) (*serv
 		ks:    ks,
 		svc:   svc,
 		files: httputil.NewSingleHostReverseProxy(u),
-		rr:    newRoutesResource(nil, []Route{{Path: "/chat/", Backend: up.URL, Auth: "optional"}}),
+		rr:    newRoutesResource(nil, []store.ProxydRoute{{Path: "/chat/", Backend: up.URL, Auth: "optional"}}),
 	}
 	return s, up
 }
@@ -151,7 +152,7 @@ func TestOptionalAuth_SSEStreamsThrough(t *testing.T) {
 	s := &server{
 		cfg:   config{authSecret: "testsecret"},
 		files: httputil.NewSingleHostReverseProxy(u),
-		rr:    newRoutesResource(nil, []Route{{Path: "/chat/", Backend: up.URL, Auth: "optional"}}),
+		rr:    newRoutesResource(nil, []store.ProxydRoute{{Path: "/chat/", Backend: up.URL, Auth: "optional"}}),
 	}
 	front := httptest.NewServer(http.HandlerFunc(s.route))
 	defer front.Close()

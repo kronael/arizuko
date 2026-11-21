@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/auth"
+	"github.com/kronael/arizuko/store"
 )
 
 // transitProof is what the stub authd mints; the endpoint must answer with it
@@ -154,7 +155,7 @@ func TestForwardAuth_RefusesWithoutAuthSecret(t *testing.T) {
 // renderer (6/22 §"Why `optional` attaches the transit proof on both paths").
 func TestForwardAuth_OptionalRouteAdmitsAnonymously(t *testing.T) {
 	s, _ := forwardAuthSrv(t)
-	s.rr = newRoutesResource(nil, []Route{
+	s.rr = newRoutesResource(nil, []store.ProxydRoute{
 		{Path: "/chat/", Backend: "http://webd:8080", Auth: "optional"},
 		{Path: "/dash/", Backend: "http://dashd:8080", Auth: "user"},
 	})

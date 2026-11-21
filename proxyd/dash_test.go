@@ -41,7 +41,7 @@ func TestDashboardPathsAreBehindRequireAuth(t *testing.T) {
 // A core route must not be deletable from the dashboard: compose rewrites it on
 // the next generate, so the button would appear to work and then undo itself.
 func TestCoreRoutesAreNotDeletable(t *testing.T) {
-	got := proxydRouteTable([]Route{
+	got := proxydRouteTable([]store.ProxydRoute{
 		{Path: "/dash/", Backend: "http://dashd:8080", Auth: "user"},
 		{Path: "/mine/", Backend: "http://mine:8080", Auth: "user"},
 	})
@@ -56,7 +56,7 @@ func TestCoreRoutesAreNotDeletable(t *testing.T) {
 // The table is ordered by match precedence, not alphabetically: that ordering
 // is the only question it answers, and alphabetical hides which prefix wins.
 func TestRouteTableIsInMatchOrder(t *testing.T) {
-	got := proxydRouteTable([]Route{
+	got := proxydRouteTable([]store.ProxydRoute{
 		{Path: "/a/", Backend: "b"},
 		{Path: "/a/longer/", Backend: "b"},
 	})

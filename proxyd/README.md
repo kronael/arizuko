@@ -265,7 +265,7 @@ proxyd emits the two HTTP metrics that every daemon emits, at `GET /metrics` whe
 ## Files
 
 - `main.go` holds the config, the path routing, the auth gate, the identity stamping and the host derivation.
-- `routes.go` holds `Route` and its matcher.
+- `routes.go` matches `store.ProxydRoute` rows.
 - `resource.go` holds the `/v1/proxyd_routes` REST and MCP resource, with the store-backed route CRUD.
 - `dash.go` serves `/dash/proxyd/`: the route table and its create and delete forms.
 - `forward_auth.go` holds `decideForwardAuth`, the verdict for the subrequest.

@@ -112,7 +112,7 @@ func TestRoutesResource_EndToEnd(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("GET list = %d", w.Code)
 	}
-	var listResp []Route
+	var listResp []store.ProxydRoute
 	if err := json.Unmarshal(w.Body.Bytes(), &listResp); err != nil {
 		t.Fatal(err)
 	}
@@ -296,11 +296,7 @@ func TestRoutesResource_Durable(t *testing.T) {
 	if err != nil || len(stored) != 1 || stored[0].Path != "/api/" {
 		t.Fatalf("stored = %+v err=%v", stored, err)
 	}
-	fresh := make([]Route, 0, len(stored))
-	for _, r := range stored {
-		fresh = append(fresh, fromStoreRoute(r))
-	}
-	rr2 := newRoutesResource(st, fresh)
+	rr2 := newRoutesResource(st, stored)
 	if cur, _, err := rr2.snapshot(); err != nil || len(cur) != 1 || cur[0].Backend != "http://api:8080" {
 		t.Errorf("rehydrated = %+v", cur)
 	}
