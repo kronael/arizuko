@@ -253,3 +253,40 @@ func TestAttachmentLongExtension(t *testing.T) {
 		t.Fatalf("filename length = %d, want 200", len(name))
 	}
 }
+
+func TestAttachmentGeneratedNameStaysInMedia(t *testing.T) {
+	for _, filename := range []string{"", "exists.bin"} {
+		t.Run(filename, func(t *testing.T) {
+			db, loop, groups := enrichLoop(t, mediaConfig{Enabled: true, MaxBytes: 1024})
+			msg := core.Message{
+				ID: "../../victim", ChatJID: "web:demo", Sender: "u", Content: "file",
+				Timestamp: time.Now(),
+				Attachments: `[{"data":"b3ZlcndyaXR0ZW4=","filename":"` + filename +
+					`","mime":"application/octet-stream"}]`,
+			}
+			victim := filepath.Join(groups, "demo", "victim-0.bin")
+			if err := os.WriteFile(victim, []byte("original"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if filename != "" {
+				dir := filepath.Join(groups, "demo", "media", time.Now().Format("20060102"))
+				if err := os.MkdirAll(dir, 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(dir, filename), []byte("existing"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := db.PutMessage(msg); err != nil {
+				t.Fatal(err)
+			}
+			if err := loop.enrichAttachments(context.Background(), &msg, "demo", true); err != nil {
+				t.Fatal(err)
+			}
+			data, err := os.ReadFile(victim)
+			if err != nil || string(data) != "original" {
+				t.Fatalf("victim = %q, error = %v", data, err)
+			}
+		})
+	}
+}

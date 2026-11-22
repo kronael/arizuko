@@ -118,11 +118,11 @@ func (l *Loop) enrichAttachments(ctx context.Context, msg *core.Message, folder 
 		ext := extFromMime(att.Mime, att.Filename)
 		fname := sanitizeFilename(att.Filename)
 		if fname == "" {
-			fname = fmt.Sprintf("%s-%d%s", msg.ID, i, ext)
+			fname = sanitizeFilename(fmt.Sprintf("%s-%d%s", msg.ID, i, ext))
 		}
 		dest := filepath.Join(mediaDir, fname)
 		if _, err := os.Stat(dest); err == nil {
-			fname = fmt.Sprintf("%s-%d%s", msg.ID, i, ext)
+			fname = sanitizeFilename(fmt.Sprintf("%s-%d%s", msg.ID, i, ext))
 			dest = filepath.Join(mediaDir, fname)
 		}
 		var failure retry.Failure
