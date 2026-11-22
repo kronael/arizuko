@@ -76,10 +76,9 @@ type resourceMeta struct {
 }
 
 type fieldMeta struct {
-	idx       int    // struct field index
-	name      string // Go struct field name
-	col       string // attribute name (db: tag)
-	writeHook func(fieldVal any) (any, error)
+	idx  int    // struct field index
+	name string // Go struct field name
+	col  string // attribute name (db: tag)
 	// codec is the declared encoding of a field whose Go type is not text, nil
 	// for one that needs none (codec.go).
 	codec *codec
@@ -114,11 +113,6 @@ func (r *Resource) initMeta() {
 		col, encoding, _ := strings.Cut(tag, ",")
 		fm := fieldMeta{idx: i, name: sf.Name, col: col,
 			codec: codecFor(r.Name, sf.Name, encoding, sf.Type.Kind())}
-		if hook, ok := r.Hooks.ColumnOverride[sf.Name]; ok {
-			if hook.Write != nil {
-				fm.writeHook = hook.Write
-			}
-		}
 		m.fields = append(m.fields, fm)
 		dbToField[sf.Name] = len(m.fields) - 1
 	}
@@ -147,7 +141,7 @@ func (r *Resource) initMeta() {
 			panic(fmt.Sprintf("resreg: %s StampedFields %q not found or missing db: tag", r.Name, name))
 		}
 		m.stampedIdx = append(m.stampedIdx, m.fields[i].idx)
-		if m.fields[i].writeHook == nil && !absent[name] {
+		if !absent[name] {
 			m.autoStampIdx = append(m.autoStampIdx, m.fields[i].idx)
 		}
 	}
