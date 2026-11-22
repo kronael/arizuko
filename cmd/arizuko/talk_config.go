@@ -48,7 +48,6 @@ func parseTalkTOML(data []byte) (talkEntry, map[string]talkEntry, error) {
 	if err := toml.Unmarshal(data, &raw); err != nil {
 		return talkEntry{}, nil, err
 	}
-	var top talkEntry
 	named := map[string]talkEntry{}
 	for k, v := range raw {
 		if sect, ok := v.(map[string]any); ok {
@@ -57,32 +56,22 @@ func parseTalkTOML(data []byte) (talkEntry, map[string]talkEntry, error) {
 				return talkEntry{}, nil, err
 			}
 			named[k] = e
-			continue
-		}
-		s, ok := v.(string)
-		if !ok {
-			return talkEntry{}, nil, fmt.Errorf("key %q must be a string", k)
-		}
-		switch k {
-		case "url":
-			top.URL = s
-		case "token":
-			top.Token = s
-		case "group":
-			top.Group = s
-		default:
-			return talkEntry{}, nil, fmt.Errorf("unknown key %q (want url, token, group)", k)
+			delete(raw, k)
 		}
 	}
-	return top, named, nil
+	top, err := entryFromMap(raw, "")
+	return top, named, err
 }
 
 func entryFromMap(m map[string]any, where string) (talkEntry, error) {
 	var e talkEntry
+	if where != "" {
+		where += ": "
+	}
 	for k, v := range m {
 		s, ok := v.(string)
 		if !ok {
-			return e, fmt.Errorf("%s: key %q must be a string", where, k)
+			return e, fmt.Errorf("%skey %q must be a string", where, k)
 		}
 		switch k {
 		case "url":
@@ -92,7 +81,7 @@ func entryFromMap(m map[string]any, where string) (talkEntry, error) {
 		case "group":
 			e.Group = s
 		default:
-			return e, fmt.Errorf("%s: unknown key %q (want url, token, group)", where, k)
+			return e, fmt.Errorf("%sunknown key %q (want url, token, group)", where, k)
 		}
 	}
 	return e, nil
