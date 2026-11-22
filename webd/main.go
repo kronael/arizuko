@@ -23,8 +23,6 @@ type config struct {
 	listenURL      string
 	routerURL      string
 	proxydURL      string
-	storeDir       string
-	assistantName  string
 	authdURL       string // soak: dual-accept ES256 bearers alongside HMAC; unset → HMAC-only
 	rateHookPerMin int    // per-token req/min ceiling for hook: JIDs
 	rateWebPerMin  int    // per-token req/min ceiling for web: JIDs
@@ -32,7 +30,7 @@ type config struct {
 }
 
 func loadConfig() config {
-	coreCfg, err := core.LoadConfig()
+	_, err := core.LoadConfig()
 	if err != nil {
 		slog.Error("load config", "err", err)
 		os.Exit(1)
@@ -42,8 +40,6 @@ func loadConfig() config {
 		listenURL:      core.EnvOr("WEBD_URL", "http://webd:8080"),
 		routerURL:      core.EnvOr("ROUTER_URL", "http://routd:8080"),
 		proxydURL:      core.EnvOr("PROXYD_URL", "http://proxyd:8080"),
-		storeDir:       coreCfg.StoreDir,
-		assistantName:  core.EnvOr("ASSISTANT_NAME", "assistant"),
 		authdURL:       strings.TrimRight(os.Getenv("AUTHD_URL"), "/"),
 		rateHookPerMin: core.EnvInt("WEBHOOK_RATE_HOOK", 60),
 		rateWebPerMin:  core.EnvInt("WEBHOOK_RATE_WEB", 20),

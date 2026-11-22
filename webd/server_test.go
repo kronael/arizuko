@@ -101,7 +101,7 @@ func newTestServer(t *testing.T) (*server, *mockRouter, *store.Store) {
 	// routerURL mirrors production, where compose always pins ROUTER_URL. Left
 	// empty, every fixture server looks like one with routd unreachable, which
 	// makes "works without routd" untestable — the whole suite fails alike.
-	cfg := config{assistantName: "assistant", routerURL: mr.srv.URL}
+	cfg := config{routerURL: mr.srv.URL}
 	return newServer(cfg, st, newHub(), rc, nil, nil), mr, st
 }
 

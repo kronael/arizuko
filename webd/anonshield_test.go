@@ -72,7 +72,7 @@ func shieldServer(t *testing.T, limit int, ks *auth.KeySet) (*httptest.Server, s
 
 	rc := chanlib.NewRouterClient("http://127.0.0.1:1")
 	rc.SetToken("test-token")
-	s := newServer(config{assistantName: "assistant"}, st, newHub(), rc, ks, nil)
+	s := newServer(config{}, st, newHub(), rc, ks, nil)
 	s.anonDOS = newAnonShield(limit, time.Minute)
 	srv := httptest.NewServer(s.handler())
 	t.Cleanup(srv.Close)

@@ -34,7 +34,7 @@ func TestRouteToken_ResolvedInProcess(t *testing.T) {
 	// Port 1 is closed: every routd HTTP call from this server errors out.
 	rc := chanlib.NewRouterClient("http://127.0.0.1:1")
 	rc.SetToken("test-token")
-	s := newServer(config{assistantName: "assistant"}, st, newHub(), rc, nil, nil)
+	s := newServer(config{}, st, newHub(), rc, nil, nil)
 	srv := httptest.NewServer(s.handler())
 	defer srv.Close()
 

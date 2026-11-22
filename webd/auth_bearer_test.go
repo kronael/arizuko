@@ -18,7 +18,7 @@ import (
 
 func bearerServer(t *testing.T, ks *auth.KeySet) *server {
 	t.Helper()
-	cfg := config{assistantName: "assistant"}
+	cfg := config{}
 	return newServer(cfg, nil, newHub(), nil, ks, nil)
 }
 
