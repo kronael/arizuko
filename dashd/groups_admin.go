@@ -420,6 +420,8 @@ func (d *dash) handleGroupSettingsSave(w http.ResponseWriter, r *http.Request) {
 		disable := !enabledSet[name]
 		if err := d.setSkillDisabled(folder, name, disable); err != nil {
 			slog.Warn("group settings save: skill", "folder", folder, "skill", name, "err", err)
+			http.Error(w, "could not update skill "+name, http.StatusInternalServerError)
+			return
 		}
 	}
 
