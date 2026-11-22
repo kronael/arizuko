@@ -25,8 +25,6 @@ import (
 
 var skillNameRe = regexp.MustCompile(`^[a-z0-9-]+$`)
 
-// numOrBlank renders a settings value as a string, or "" when ≤0 (unset) so the
-// form shows an empty field rather than a 0 that would persist as a real override.
 func numOrBlank(n int) string {
 	if n <= 0 {
 		return ""
@@ -34,9 +32,6 @@ func numOrBlank(n int) string {
 	return strconv.Itoa(n)
 }
 
-// clearableNum parses an observe-window form field, returning -1 (the
-// SetGroupObserveWindow clear sentinel) for a blank, zero, or invalid value and
-// the positive value otherwise.
 func clearableNum(raw string) int {
 	n, err := strconv.Atoi(strings.TrimSpace(raw))
 	if err != nil || n <= 0 {
@@ -45,7 +40,6 @@ func clearableNum(raw string) int {
 	return n
 }
 
-// GET /dash/groups/new — folder + product form.
 func (d *dash) handleGroupNewForm(w http.ResponseWriter, r *http.Request) {
 	if _, ok := requireUser(w, r); !ok {
 		return
@@ -67,7 +61,6 @@ func (d *dash) handleGroupNewForm(w http.ResponseWriter, r *http.Request) {
 	pageClose(w, r)
 }
 
-// POST /dash/groups/new — actually create.
 func (d *dash) handleGroupCreate(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "bad form", http.StatusBadRequest)
@@ -86,8 +79,6 @@ func (d *dash) handleGroupCreate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "folder: invalid", http.StatusBadRequest)
 		return
 	}
-	// Admin scope = the target folder itself (creator must already hold
-	// admin on the prefix, e.g. `**` operator or admin on the parent).
 	sub, ok := d.requireAdmin(w, r, folder)
 	if !ok {
 		return
@@ -154,8 +145,6 @@ func (d *dash) handleGroupCreate(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/dash/groups/", http.StatusSeeOther)
 }
 
-// stockSkills returns the sorted list of skill names from ant/skills/ in appDir.
-// Returns nil when appDir is empty or the directory can't be read.
 func (d *dash) stockSkills(folder string) ([]string, error) {
 	selected, _, err := routd.OpenOver(d.routdStore().Obj()).SelectedPackages(folder)
 	if err != nil {
@@ -171,8 +160,6 @@ func (d *dash) stockSkills(folder string) ([]string, error) {
 	return names, err
 }
 
-// skillsDisabled returns the set of skill names that have a .disabled marker
-// under a group's .claude/skills/ dir.
 func (d *dash) skillsDisabled(folder string) map[string]bool {
 	base := filepath.Join(d.groupsDir, filepath.Clean(folder), ".claude", "skills")
 	entries, err := os.ReadDir(base)
@@ -192,7 +179,6 @@ func (d *dash) skillsDisabled(folder string) map[string]bool {
 	return out
 }
 
-// setSkillDisabled creates or removes the .disabled marker for one skill.
 func (d *dash) setSkillDisabled(folder, skill string, disable bool) error {
 	if !skillNameRe.MatchString(skill) {
 		return fmt.Errorf("invalid skill name: %s", skill)
@@ -241,7 +227,6 @@ func (d *dash) setSkillDisabled(folder, skill string, disable bool) error {
 	return err
 }
 
-// GET /dash/groups/{folder}/settings — show current state. POST persists.
 func (d *dash) handleGroupSettings(w http.ResponseWriter, r *http.Request) {
 	folder := groupFromPath(r, "/settings")
 	if folder == "" {
@@ -296,7 +281,6 @@ func (d *dash) handleGroupSettings(w http.ResponseWriter, r *http.Request) {
 
 	_, _ = fmt.Fprintf(w, `<form method="post" action="/dash/groups/%s/settings">`, folderPath(folder))
 	_, _ = fmt.Fprint(w, htmlFormRow("Agent", fmt.Sprintf(`<input name="agent" value="%s" placeholder="ant">`, esc(g.Agent))))
-	// The saved document prefills the fields; it is not validated here.
 	var saved struct{ Backend, Model, Effort string }
 	_ = json.Unmarshal(g.Harness, &saved)
 	defaultsChecked := ""
@@ -384,8 +368,6 @@ func (d *dash) handleGroupSettingsSave(w http.ResponseWriter, r *http.Request) {
 	if string(chars) == "-1" {
 		chars = []byte("null")
 	}
-	// One document from the non-blank fields replaces the stored one; the
-	// control removes the setting. A document needs its backend.
 	var harness json.RawMessage
 	if r.FormValue("harness_default") != "1" {
 		doc := map[string]string{}
@@ -405,7 +387,6 @@ func (d *dash) handleGroupSettingsSave(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	// Skills: checked values are enabled; unchecked skills (all stock minus checked) get .disabled.
 	enabledSet := make(map[string]bool)
 	for _, v := range r.Form["skill_enabled"] {
 		if skillNameRe.MatchString(v) {
@@ -430,11 +411,6 @@ func (d *dash) handleGroupSettingsSave(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/dash/groups/"+folderPath(folder)+"/settings", http.StatusSeeOther)
 }
 
-// DELETE /dash/groups/{folder} (or POST .../delete from the form).
-// Removes nothing. A purge deletes grants and edges that scope outside the
-// folder, and admin on one folder does not prove the right to remove those, so
-// the purge runs only from the host: `arizuko group rm` (BUGS L669, spec 6/52).
-// The folder admin keeps the gate, and the answer names the command.
 func (d *dash) handleGroupDelete(w http.ResponseWriter, r *http.Request) {
 	folder := groupFromPath(r, "/delete")
 	if folder == "" || !groupfolder.IsValidFolder(folder) {
@@ -452,12 +428,6 @@ func (d *dash) handleGroupDelete(w http.ResponseWriter, r *http.Request) {
 		"On the host, run `arizuko group -i %s rm %s`.", instance, folder), http.StatusConflict)
 }
 
-// getGroup reads one group from routd's /v1 face.
-//
-// The row decodes into core.Group — the same struct routd serves — so the page
-// cannot render a field the API lacks, and its `open` / observe-window
-// projections use the group defaults: a
-// group with no key is OPEN and an unset window is -1, never 0.
 func (d *dash) getGroup(ctx context.Context, folder string) (core.Group, error) {
 	body, status, err := d.bearerCall(ctx, d.routdURL, http.MethodGet,
 		"/v1/groups/"+url.PathEscape(folder), nil)

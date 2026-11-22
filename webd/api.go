@@ -12,12 +12,6 @@ import (
 	"github.com/kronael/arizuko/groupfolder"
 )
 
-// GET /api/groups
-// newTopicID mints the id an untitled web chat gets. FIVE sites needed this
-// string and each wrote its own: the panel page's opening topic, this send, the
-// MCP send, the route-token send and the /me new-chat. A second spelling would
-// not fail loudly — it would just put two turns in two topics that the operator
-// meant as one (BUGS L116).
 func newTopicID() string {
 	return "t" + uuid.NewString()
 }
@@ -31,8 +25,6 @@ func (s *server) handleAPIGroups(w http.ResponseWriter, r *http.Request) {
 	chanlib.WriteJSON(w, map[string]any{"data": groups, "has_more": false})
 }
 
-// GET /api/groups/<folder>/topics
-// groups/messages live in routd.db (stRoutd) — split ownership
 func (s *server) handleAPITopics(w http.ResponseWriter, r *http.Request) {
 	folder := folderParam(r)
 	topics, err := s.stRoutd.Topics(folder)
@@ -53,7 +45,6 @@ func (s *server) handleAPITopics(w http.ResponseWriter, r *http.Request) {
 	chanlib.WriteJSON(w, map[string]any{"data": out, "has_more": false})
 }
 
-// GET /api/groups/<folder>/messages?topic=<t>&before=<ts>&limit=50
 func (s *server) handleAPIMessages(w http.ResponseWriter, r *http.Request) {
 	folder := folderParam(r)
 	topic := r.URL.Query().Get("topic")
@@ -83,13 +74,10 @@ func (s *server) handleAPIMessages(w http.ResponseWriter, r *http.Request) {
 	chanlib.WriteJSON(w, map[string]any{"data": out, "has_more": len(msgs) == 50})
 }
 
-// POST /api/groups/<folder>/typing
 func (s *server) handleAPITyping(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusAccepted)
 }
 
-// POST /api/groups/<folder>/messages — authenticated operator message
-// injection from the /panel/<folder> chat page. JSON {content, topic}.
 func (s *server) handleAPIMessagesPost(w http.ResponseWriter, r *http.Request) {
 	folder := folderParam(r)
 	if _, ok := s.stRoutd.GroupByFolder(folder); !ok {

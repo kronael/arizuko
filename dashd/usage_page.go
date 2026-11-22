@@ -13,9 +13,6 @@ import (
 	"github.com/kronael/arizuko/core"
 )
 
-// handleUsage renders GET /dash/usage/ — the instance-wide usage cockpit:
-// aggregate message/token/cost totals, a per-group breakdown, and a 7-day
-// daily message-volume table. Operator-only.
 func (d *dash) handleUsage(w http.ResponseWriter, r *http.Request) {
 	if !d.requireOperator(w, r) {
 		return
@@ -36,9 +33,6 @@ func (d *dash) handleUsage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// The meter is asked about even with no folders to show: whether this
-	// instance HAS one is a property of the instance, not of its group tree, and
-	// an empty tree that reported "no meter" would blame the wrong thing.
 	summaries, metered, err := d.groupUsageBulk(r.Context(), folders)
 	if err != nil {
 		slog.Warn("usage page: bulk", "err", err)
@@ -85,43 +79,27 @@ func (d *dash) handleUsage(w http.ResponseWriter, r *http.Request) {
 	_, _ = fmt.Fprint(w, htmlTable(
 		[]string{"Group", "Msgs", "Tokens/7d", "$/7d", "Last active"}, groupRows))
 
-	// 7-day daily message volume (human messages only).
 	_, _ = fmt.Fprint(w, `<h2>7-day volume</h2>`)
 	_, _ = fmt.Fprint(w, d.usageVolumeTable(r.Context()))
 
 	pageClose(w, r)
 }
 
-// groupUsage holds aggregated usage stats for a single folder.
 type groupUsage struct {
 	Folder     string
-	Tokens7d   int    // tokens the gateway metered over the last 7 days
-	Cents7d    int    // what the gateway charged over the last 7 days, in cents
-	MsgCount   int    // all-time message count (routed_to = folder)
-	LastActive string // RFC3339 timestamp of the latest message, or ""
+	Tokens7d   int
+	Cents7d    int
+	MsgCount   int
+	LastActive string
 }
 
 type usageCost struct{ tokens, cents int }
 
-// groupUsageBulk returns one groupUsage per folder, joining the gateway's spend
-// (7d window, through routd) with routd.db's messages (all-time count + last
-// active). It also reports whether a meter exists at all — false on an instance
-// with no model gateway, where the spend figures are absent rather than zero.
-//
-// folders may be the caller's scoped subset (Groups page) or the full instance
-// list (Usage page); either way the message IN-list is batched so the query
-// stays valid regardless of folder count.
 func (d *dash) groupUsageBulk(ctx context.Context, folders []string) ([]groupUsage, bool, error) {
 	cutoff := core.TS(time.Now().Add(-7 * 24 * time.Hour))
 
 	costMap := map[string]usageCost{}
 
-	// Spend comes from routd's GET /v1/cost/summary in ONE call (spec 6/28
-	// read-path; 6/30 named this endpoint as the /v1 work this page needed).
-	// The message half below needs no chunking either: the count is an attribute
-	// on the folder rather than a GROUP BY over the message table, so every
-	// folder's count arrives in one read and only the last-active instant costs
-	// an item apiece (dashstore.MessageActivityByFolder).
 	summary, err := d.costSummary(ctx, cutoff)
 	if err != nil {
 		return nil, false, err
@@ -155,11 +133,7 @@ func (d *dash) groupUsageBulk(ctx context.Context, folders []string) ([]groupUsa
 	return out, summary.Metered, nil
 }
 
-// usageVolumeTable renders the 7-day daily human-message count from routd.db.
 func (d *dash) usageVolumeTable(ctx context.Context) string {
-	// routd owns `messages` and applies the is_bot_message filter itself, so
-	// this page cannot widen the histogram to include the agent's own output
-	// (6/28 read path, BUGS L142).
 	days, err := d.messageVolumeViaRoutd(ctx)
 	if err != nil {
 		slog.Warn("usage page: volume via routd", "err", err)
@@ -172,7 +146,6 @@ func (d *dash) usageVolumeTable(ctx context.Context) string {
 	return htmlTable([]string{"Date", "Messages"}, volRows)
 }
 
-// fmtTokens renders a token count as "123k" for >=1000, else the raw number.
 func fmtTokens(n int) string {
 	if n >= 1000 {
 		return fmt.Sprintf("%dk", n/1000)
@@ -180,13 +153,10 @@ func fmtTokens(n int) string {
 	return fmt.Sprintf("%d", n)
 }
 
-// fmtCents renders a cent count as a dollar amount ("$1.23").
 func fmtCents(cents int) string {
 	return fmt.Sprintf("$%.2f", float64(cents)/100)
 }
 
-// usageCount / usageTokens / usageCents render a per-group cell, showing "—"
-// when the value is zero.
 func usageCount(n int) string {
 	if n == 0 {
 		return "—"
@@ -208,9 +178,6 @@ func usageCents(cents int) string {
 	return fmtCents(cents)
 }
 
-// meteredCell renders a spend figure, or "no meter" when the instance names no
-// model gateway. An unmetered instance holds no spend at all, so showing 0 there
-// would report a measurement nobody took (spec 6/39).
 func meteredCell(metered bool, value string) string {
 	if !metered {
 		return "no meter"
@@ -218,8 +185,6 @@ func meteredCell(metered bool, value string) string {
 	return value
 }
 
-// lastActiveCell renders a folder's last-active timestamp as a relative <abbr>,
-// or "—" when the folder has never been active.
 func lastActiveCell(ts string) string {
 	if ts == "" {
 		return "—"
@@ -227,29 +192,17 @@ func lastActiveCell(ts string) string {
 	return abbrTS(ts)
 }
 
-// costSummaryRow is one folder's metered spend in routd's GET /v1/cost/summary
-// reply.
 type costSummaryRow struct {
 	Folder    string `json:"folder"`
 	Tokens    int    `json:"tokens"`
 	CostCents int    `json:"cost_cents"`
 }
 
-// costSummaryReply is routd's GET /v1/cost/summary reply. Metered false means
-// the instance names no model gateway and so has no spend meter at all — the
-// page says that rather than drawing a zero (spec 6/39).
 type costSummaryReply struct {
 	Metered bool             `json:"metered"`
 	Folders []costSummaryRow `json:"folders"`
 }
 
-// costSummary reads per-folder spend since cutoff from routd's /v1, which
-// proxies the model gateway — the one place every operator surface reaches the
-// meter, so the dashboard cannot show a number the REST face does not.
-//
-// dashd presents a service bearer, whose folder claim is empty, so routd
-// answers for every folder. The page's own visibility filter is applied by the
-// caller, unchanged.
 func (d *dash) costSummary(ctx context.Context, cutoff string) (costSummaryReply, error) {
 	var out costSummaryReply
 	body, status, err := d.bearerCall(ctx, d.routdURL, http.MethodGet,

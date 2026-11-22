@@ -1,9 +1,5 @@
 package main
 
-// Config for `arizuko talk` (spec 6/26 gap 1). Kept beside the command rather
-// than in core/ because nothing else reads it: it is a CLIENT's address book,
-// not instance config, and `talk` never opens an instance data dir.
-
 import (
 	"fmt"
 	"os"
@@ -14,9 +10,6 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
-// talkEntry is one chat: where to reach it, who we are, and optionally which
-// folder. Url + token are the whole credential — there is no instance name and
-// no DB path, which is what lets `talk` point at a remote host.
 type talkEntry struct {
 	URL   string
 	Token string
@@ -25,7 +18,6 @@ type talkEntry struct {
 
 func (e talkEntry) complete() bool { return e.URL != "" && e.Token != "" }
 
-// talkConfigPath is ~/.config/arizuko/talk.toml, XDG_CONFIG_HOME honored.
 func talkConfigPath() string {
 	if dir := os.Getenv("XDG_CONFIG_HOME"); dir != "" {
 		return filepath.Join(dir, "arizuko", "talk.toml")
@@ -37,12 +29,6 @@ func talkConfigPath() string {
 	return filepath.Join(home, ".config", "arizuko", "talk.toml")
 }
 
-// parseTalkTOML splits the file into the top-level entry (the one chat) and the
-// named sections (`[work]` → `@work`).
-//
-// Unknown top-level keys are an ERROR, not ignored: this file's whole content is
-// three keys, so a typo'd `tokne =` would otherwise read as "no token
-// configured" and send the operator to the wrong end of the problem.
 func parseTalkTOML(data []byte) (talkEntry, map[string]talkEntry, error) {
 	var raw map[string]any
 	if err := toml.Unmarshal(data, &raw); err != nil {
@@ -87,13 +73,6 @@ func entryFromMap(m map[string]any, where string) (talkEntry, error) {
 	return e, nil
 }
 
-// loadTalkConfig reads the config file. found=false means "no file", which is
-// not an error — the env layer or a flag can still supply a chat.
-//
-// The file holds a bearer, so a group- or world-readable one is REFUSED rather
-// than read, the same rule psql applies to .pgpass. A secret another local
-// account can read is not a secret, and silently using it teaches the operator
-// the wrong lesson about where credentials live.
 func loadTalkConfig(path string) (top talkEntry, named map[string]talkEntry, found bool, err error) {
 	fi, err := os.Stat(path)
 	if os.IsNotExist(err) {
@@ -117,12 +96,6 @@ func loadTalkConfig(path string) (top talkEntry, named map[string]talkEntry, fou
 	return top, named, true, nil
 }
 
-// resolveTalkEntry applies the precedence: flag > @name > top-level > env.
-//
-// A `@name` section is a COMPLETE chat, never a partial one inheriting the
-// top-level url — the same "no parent inheritance" rule the platform applies to
-// group-scoped files. Flags still override field by field, because a flag is an
-// explicit act by the operator rather than a silent fallback.
 func resolveTalkEntry(f talkFlags, top talkEntry, named map[string]talkEntry, cfgFound bool, getenv func(string) string, cfgPath string) (talkEntry, error) {
 	var e talkEntry
 	switch {
@@ -173,9 +146,6 @@ func sectionList(named map[string]talkEntry) string {
 	return strings.Join(out, " ")
 }
 
-// talkConfigHelp is the error body. It prints the file to write and the two
-// commands that produce its contents — an operator who ran `arizuko talk` with
-// nothing set up must not have to read a spec to get to a first turn.
 func talkConfigHelp(path string) string {
 	return fmt.Sprintf(`Write %s (mode 0600):
 

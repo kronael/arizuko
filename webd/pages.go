@@ -20,7 +20,6 @@ const htmlHead = `<!DOCTYPE html>
 </head>
 `
 
-// GET /
 func (s *server) handleGroupsPage(w http.ResponseWriter, r *http.Request) {
 	name := userName(r)
 	w.Header().Set("Content-Type", "text/html")
@@ -44,10 +43,6 @@ func (s *server) handleGroupsPage(w http.ResponseWriter, r *http.Request) {
 </body></html>`, htmlEscape(name))
 }
 
-// GET /panel/<folder> — operator-authenticated chat panel for a folder.
-// Token-less; sends via /api/groups/<folder>/messages POST (authenticated
-// via proxyd-signed user identity). Spec 5/W moved the public chat
-// surface to /chat/<token>/ and renamed this operator view to /panel.
 func (s *server) handleChatPage(w http.ResponseWriter, r *http.Request) {
 	folder := folderParam(r)
 	g, ok := s.stRoutd.GroupByFolder(folder)
@@ -111,9 +106,6 @@ function switchTopic(t) {
   htmx.ajax('GET', '/x/groups/' + encodeURIComponent(folder) + '/messages?topic=' + encodeURIComponent(t), {target:'#thread', swap:'innerHTML'});
 }
 function newTopic() {
-  // The stream has to move too. Clearing the thread and leaving sse-connect on
-  // the old topic showed an empty pane that then filled with the PREVIOUS
-  // topic's messages.
   var bytes = crypto.getRandomValues(new Uint8Array(16));
   streamTopic('t' + Array.from(bytes, b => b.toString(16).padStart(2, '0')).join(''));
   document.getElementById('thread').innerHTML = '';

@@ -18,29 +18,14 @@ import (
 	"time"
 )
 
-// splitAdminDash wires a dash on routd.db, the ONLY store dashd opens. The admin
-// ACL row the requireAdmin gate consults is seeded there, so a passing write also
-// proves the gate's read path reads routd.db. dashd no longer carries a
-// messages.db handle at all — the monolith is unreachable by construction, which
-// is why these tests assert on routd.db alone.
 func splitAdminDash(t *testing.T, adminSub string) (*dash, objstore.Store) {
 	t.Helper()
 	inst := testutils.NewRoutdInstance(t)
 	routd := inst.Store.Obj()
-	// dashd/main.go points the package-level audit sink at routd.db at startup;
-	// without the same wiring here the handlers that use audit.Emit (rather than
-	// an in-tx write) would silently drop their rows and a missing-audit
-	// regression would read as a pass.
 	audit.Init(routd, "test")
 	t.Cleanup(func() { audit.Init(nil, "") })
-	// Operator grant lives in routd.db only.
 	seedAdmin(t, routd, adminSub, "**")
-	// "team" is the folder these tests act on. It must exist: a mint checks the
-	// token's target against the groups it may deliver to, so a token cannot be
-	// minted for a folder that was never created.
 	seedFolder(t, routd, "team")
-	// routdURL: the pages read through routd's /v1 now (6/28), so the tests need
-	// something serving the rows they seed into routd.db.
 	groupsDir := filepath.Join(inst.Tmp, "groups")
 	if err := os.MkdirAll(groupsDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -179,8 +164,6 @@ func TestRouteTokenList_ReadsRoutdV1(t *testing.T) {
 			http.NotFound(w, r)
 			return
 		}
-		// The folder narrowing is the caller's, so assert it is sent: a page
-		// that dropped it would render another tenant's tokens.
 		if got := r.URL.Query().Get("folder"); got != "team" {
 			t.Errorf("folder param = %q, want team", got)
 		}
@@ -212,7 +195,7 @@ func TestRouteTokenList_ReadsRoutdV1(t *testing.T) {
 // would act on.
 func TestRouteTokenListSaysWhenRoutdIsUnreachable(t *testing.T) {
 	d, _ := splitAdminDash(t, "alice@x")
-	d.routdURL = "http://127.0.0.1:1" // refused
+	d.routdURL = "http://127.0.0.1:1"
 
 	mux := newMux(d)
 	w := httptest.NewRecorder()
@@ -403,7 +386,7 @@ func TestProfile_ReadsRoutdDB(t *testing.T) {
 // thing an operator would act on during an incident.
 func TestRouteListSaysWhenRoutdIsUnreachable(t *testing.T) {
 	d, _ := splitAdminDash(t, "alice@x")
-	d.routdURL = "http://127.0.0.1:1" // refused
+	d.routdURL = "http://127.0.0.1:1"
 
 	mux := newMux(d)
 	w := httptest.NewRecorder()
@@ -419,7 +402,7 @@ func TestRouteListSaysWhenRoutdIsUnreachable(t *testing.T) {
 // against for a DB error and must keep guarding against for an HTTP one.
 func TestGrantListSaysWhenRoutdIsUnreachable(t *testing.T) {
 	d, _ := splitAdminDash(t, "alice@x")
-	d.routdURL = "http://127.0.0.1:1" // refused
+	d.routdURL = "http://127.0.0.1:1"
 
 	mux := newMux(d)
 	w := httptest.NewRecorder()
@@ -435,15 +418,12 @@ func TestTaskDetailSeparatesNotFoundFromUnreachable(t *testing.T) {
 	d, _ := splitAdminDash(t, "alice@x")
 	mux := newMux(d)
 
-	// Reachable routd, absent task → 404.
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, adminReq("GET", "/dash/tasks/no-such-task", "", "alice@x"))
 	if w.Code != http.StatusNotFound {
 		t.Errorf("absent task = %d, want 404", w.Code)
 	}
 
-	// Unreachable routd → 503, not 404 and not 500: a dependency outage says
-	// "ask again", an internal error says "this is broken", and only one is true.
 	d.routdURL = "http://127.0.0.1:1"
 	w2 := httptest.NewRecorder()
 	mux.ServeHTTP(w2, adminReq("GET", "/dash/tasks/no-such-task", "", "alice@x"))

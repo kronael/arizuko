@@ -98,8 +98,6 @@ func composeSyncDocs(stores map[string]*store.Store, records []routd.InstalledPa
 
 const packageUsage = "arizuko package [-i instance] sync | add <source> | rm <name> [-g|--group folder] [-f|--force]"
 
-// cmdPackage installs what the installed_packages rows select. add and rm
-// change one selection first; sync changes none. Nothing else selects a package.
 func cmdPackage(args []string) {
 	fs := flag.NewFlagSet("package", flag.ContinueOnError)
 	force := fs.Bool("force", false, "replace an unmanaged destination")

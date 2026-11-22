@@ -17,16 +17,12 @@ type frame struct {
 	ID        string `json:"id"`
 	Content   string `json:"content"`
 	CreatedAt string `json:"created_at"`
-	Kind      string `json:"kind"` // "message" or "status"
+	Kind      string `json:"kind"`
 	TurnID    string `json:"turn_id"`
 }
 
-// verbStatus is the verb of a turn's progress row (routd/turn_status.go). The
-// row's verb, not its text, says it is progress: the text is the agent's.
 const verbStatus = "status"
 
-// frameKind is the one place a row becomes a frame kind. Replay
-// (messageFrames) and the live replace frame (handleEdit) both call it.
 func frameKind(m core.Message) string {
 	if m.Verb == verbStatus {
 		return "status"
@@ -148,7 +144,6 @@ func (s *server) activeProgressEvent(chatJID, topic, msg string) bool {
 	return false
 }
 
-// route_tokens + messages live in routd.db (stRoutd) — split ownership
 func (s *server) authorizeTurn(w http.ResponseWriter, r *http.Request) (folder, chatJID, turnID string) {
 	token := r.PathValue("token")
 	turnID = r.PathValue("id")
@@ -165,8 +160,6 @@ func (s *server) authorizeTurn(w http.ResponseWriter, r *http.Request) (folder, 
 	return folder, row.JID, turnID
 }
 
-// GET /slink/<token>/turn/<id>[?after=<msg_id>]
-// turn_results + messages live in routd.db (stRoutd) — split ownership
 func (s *server) handleTurnSnapshot(w http.ResponseWriter, r *http.Request) {
 	folder, chatJID, turnID := s.authorizeTurn(w, r)
 	if folder == "" {
@@ -204,7 +197,6 @@ func (s *server) handleTurnSnapshot(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// GET /slink/<token>/turn/<id>/status — status + counts only, no frame payloads.
 func (s *server) handleTurnStatus(w http.ResponseWriter, r *http.Request) {
 	folder, chatJID, turnID := s.authorizeTurn(w, r)
 	if folder == "" {
@@ -232,15 +224,11 @@ func (s *server) handleTurnStatus(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// GET /slink/<token>/turn/<id>/sse — streams frames for one turn, closes on round_done.
 func (s *server) handleTurnSSE(w http.ResponseWriter, r *http.Request) {
 	folder, chatJID, turnID := s.authorizeTurn(w, r)
 	if folder == "" {
 		return
 	}
-	// The hub is keyed by the chat JID verbatim (routd publishes round_done on
-	// tc.ChatJID), NOT the token's target folder — the two differ whenever the
-	// token was minted with a jid suffix.
 	topic := s.stRoutd.TopicByMessageID(turnID, chatJID)
 	if topic == "" {
 		http.Error(w, "turn topic missing", http.StatusInternalServerError)
@@ -314,13 +302,6 @@ func (s *server) handleTurnSSE(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// A read failure must not read as a finished round. GetTurnResult maps only
-	// sql.ErrNoRows to "pending"; a real error returns the zero TurnInfo, whose
-	// Status is "" — and "" != "pending", so the discarded error used to emit
-	// round_done with an empty status and close the stream, telling the browser
-	// the turn was over (BUGS L83). The sibling JSON handlers 500 on the same
-	// query; headers are already sent here, so the truth rides the status field
-	// the client already reads.
 	if terr != nil || info.Status != "pending" {
 		payload, _ := json.Marshal(map[string]any{
 			"turn_id": turnID,

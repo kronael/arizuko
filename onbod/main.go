@@ -66,17 +66,16 @@ func main() {
 		slog.Error("open onbod's store", "err", err)
 		os.Exit(1)
 	}
+	// The process is exiting.
 	defer obdb.Close() //nolint:errcheck
 	slog.Info("onbod owns its tables", "store", dynstore.URL())
 
-	// OpenOwner probes for the `acl` entity, so an owner that has never booted
-	// is loud instead of a cross-read against zero groups and zero acl with the
-	// boot still green (BUGS F52).
 	xdb, err := store.OpenOwner(store.OwnerRoutd)
 	if err != nil {
 		slog.Error("open routd's store", "err", err)
 		os.Exit(1)
 	}
+	// The process is exiting.
 	defer xdb.Close() //nolint:errcheck
 	slog.Info("onbod cross-reads routd's tables", "store", dynstore.URL())
 
@@ -109,9 +108,6 @@ func main() {
 		Handler: obs.HTTPMiddleware("onbod")(newOnbodMux(xdb, obdb, cfg, ks)),
 	}
 
-	// Register the signal handler BEFORE the listener accepts: a SIGTERM in
-	// between takes Go's default disposition and kills the process, so the
-	// Shutdown below never runs (BUGS L127).
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 
@@ -141,18 +137,6 @@ func main() {
 func newOnbodMux(xdb, obdb *store.Store, cfg config, ks *auth.KeySet) *http.ServeMux {
 	mux := http.NewServeMux()
 
-	// stripUnsigned keeps X-User-Sub only when the request PROVES it transited
-	// proxyd. The bearer is a transit proof ONLY: /onboard reads X-User-Sub as the
-	// OAuth'd end-user, so we must NOT stamp the bearer's own service:proxyd subject
-	// over it. An unproven X-User-Sub is stripped. No verifier (local dev) → pass
-	// through.
-	//
-	// What is left after the strip is a caller proxyd could not name, and every
-	// handler below answers 401 to one. proxyd owns the login bounce and the
-	// auth_return cookie authd resumes from (spec 5/31-identity-pairing); a second bounce here
-	// sends an already-signed-in caller back to a login that returns them just
-	// as anonymous, which is the loop that made onboarding unreachable on every
-	// instance (BUGS L99). Refusing keeps the failure where its cause is.
 	stripUnsigned := stripUnsignedGuard(ks)
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -602,17 +586,6 @@ func mayCreateFirstWorld(obdb *store.Store, userSub string) bool {
 	return n > 0
 }
 
-// latestRedemption returns the item store.consumeInvite wrote when this caller
-// redeemed a subgroup invite. It is the ONLY thing that can name a parent
-// folder: the request names none, so a caller cannot ask for a world
-// inside a subtree nobody invited them into (BUGS F50).
-//
-// It answers the caller's MOST RECENT unspent one, because a caller holding two
-// is answering the invite they just followed; each is spent on its own, so two
-// invites still yield two worlds.
-//
-// Fails closed like mayCreateFirstWorld: an unreadable partition is no
-// authority.
 func latestRedemption(obdb *store.Store, userSub string) (store.Redemption, bool) {
 	r, held, err := obdb.LatestRedemption(context.Background(), userSub)
 	if err != nil {
@@ -788,8 +761,6 @@ func writeWorld(db *store.Store, folder, username, userSub string, version objst
 		return err
 	}
 
-	// A groups row implies the member edge: without it the new world expands to
-	// nothing and comes up mute (BUGS L119).
 	rows := store.WorldGrantRows(userSub, folder)
 	grant, err := store.ACLGrantWrite(rows[0])
 	if err != nil {
@@ -834,14 +805,6 @@ func gateFromKey(key string, limit int) gate {
 	return gate{kind: kind, param: param, limitPerDay: limit}
 }
 
-// adminFolders lists every folder the sub may administer. Spec 5/18 step 6 is the
-// caller CHOOSING which of THEIR worlds a JID lands in, so the whole set is the
-// answer.
-//
-// Deliberately NOT `JOIN acl a ON a.scope = g.folder`: acl scopes are PATTERNS, so
-// string equality misses every subtree grant — an owner holding `acme/**` matched
-// no folder at all (BUGS W1). SQL cannot glob segments, so the rows are filtered
-// by the single evaluator rather than by a second matcher written here.
 func adminFolders(db *store.Store, userSub string) []string {
 	folders, err := db.GroupFolders(0)
 	if err != nil {
@@ -1031,11 +994,6 @@ func renderUsernamePicker(w http.ResponseWriter, currentUsername, csrf string) {
 	renderPage(w, "Create Workspace", template.HTML(body))
 }
 
-// renderWorldPicker is spec 5/18 step 6: the caller picks which of THEIR worlds
-// the proven JID lands in. It posts to handleAddRoute, which re-checks both halves
-// — the radio list is a convenience, never the authorization. The csrf field is
-// not optional: handleOnboardPost 403s any POST whose form value does not match
-// the cookie, which is how the create_world form shipped broken (BUGS F1).
 func renderWorldPicker(w http.ResponseWriter, jid string, folders []string, csrf string) {
 	esc := html.EscapeString
 	var opts strings.Builder
@@ -1180,10 +1138,6 @@ func handleDeleteRoute(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
-	// RouteByID, not a read that collapses "absent" into "unreadable": an
-	// operator told "route not found" about a rule that is still firing goes and
-	// creates a second one. An ambiguous id is a 409 naming both coordinates,
-	// because the delete below refuses it anyway (BUGS `L364`, `L366`).
 	route, ok, err := db.RouteByID(id)
 	if errors.Is(err, store.ErrRouteIDAmbiguous) {
 		http.Error(w, err.Error(), http.StatusConflict)

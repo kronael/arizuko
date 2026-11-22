@@ -1,19 +1,5 @@
 package main
 
-// Spec 5/8 "The full-instance archive": `arizuko dump` and `arizuko apply` of a
-// dump tar — a single tar CONTAINING the config manifest, not a bigger
-// manifest. routd.yaml/onbod.yaml are the documents `arizuko apply` takes as a
-// rows file; everything else here is new.
-//
-// The filesystem restore claims each folder's runed run slot before overwriting its
-// tree: apply POSTs /v1/holds to a LIVE runed and releases in a defer, so no agent
-// turn can start mid-extraction. Either the instance is up and the hold is taken,
-// or the operator passes --stopped. Never neither, so an unreachable runed is fatal.
-//
-// The config documents ride applyDocs, the same two-phase path used by sync.
-// Buffering is what makes the preflight and the rollback possible — a streamed
-// one-at-a-time apply would have committed routd before reading onbod.yaml.
-
 import (
 	"archive/tar"
 	"bytes"
@@ -38,10 +24,6 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Tar entry names — spec 5/8 §"Shape". The fixed write order is load-bearing: apply
-// processes the tar as one sequential pass and needs archive.yaml's format_version
-// checked before anything else, and routd.yaml's `groups` rows known before
-// groups.tar's folder-prefix matching runs.
 const (
 	archiveMetaEntry     = "archive.yaml"
 	archiveRoutdEntry    = "routd.yaml"
@@ -51,20 +33,11 @@ const (
 	archiveGroupsEntry   = "groups.tar"
 )
 
-// archiveSecretsDoc is routd.secrets.yaml's shape: secret + route-token/invite
-// VALUES (spec 5/8), kept separate from routd.yaml/onbod.yaml so a plain rows-file
-// reader is never handed one. It composes types from both store and resreg
-// because it is a cross-subsystem, archive-only document neither package owns.
 type archiveSecretsDoc struct {
 	Secrets     []store.ArchiveSecretRow     `yaml:"secrets,omitempty"`
 	RouteTokens []store.ArchiveRouteTokenRow `yaml:"route_tokens,omitempty"`
 	Invites     []store.ArchiveInviteRow     `yaml:"invites,omitempty"`
-	// Onboarding carries pending admissions. They cannot ride the config lane (that
-	// resource is SkipApplyRebuild — admissions are runtime state) and cannot be
-	// rederived on import (agent_cursor marks the route-missed message seen, so it is
-	// never re-offered). It used to carry the token_ref verifier too; onbod 0006
-	// dropped that column (BUGS F40).
-	Onboarding []store.ArchiveOnboardingRow `yaml:"onboarding,omitempty"`
+	Onboarding  []store.ArchiveOnboardingRow `yaml:"onboarding,omitempty"`
 }
 
 func cmdDump(args []string) {
@@ -110,12 +83,8 @@ func writeArchiveFile(file string, data []byte) error {
 	return err
 }
 
-// restoreDump restores a dump tar read from disk. It exits on failure.
 func restoreDump(ctx context.Context, stores map[string]*store.Store, dataDir string, data []byte, force, stopped bool) {
 	var err error
-	// Resolve the run-slot claim BEFORE opening the archive: a restore that
-	// cannot guard the filesystem step must not half-apply the config
-	// subsystems first (spec 5/8).
 	var hold holdFn
 	if stopped {
 		fmt.Fprintln(os.Stderr, "--stopped: skipping the run-slot hold; you asserted no agent is running")
@@ -138,18 +107,8 @@ func restoreDump(ctx context.Context, stores map[string]*store.Store, dataDir st
 	_, _ = fmt.Fprint(os.Stdout, report)
 }
 
-// holdFn claims folder's runed run slot for the duration of its filesystem
-// step and returns the release. A nil holdFn means the caller asserted the
-// instance is stopped (--stopped): no live agent exists to race, so no hold
-// is needed. It is never nil merely because runed was unreachable — that is
-// fatal at the call site above.
 type holdFn func(folder string) (release func(), err error)
 
-// runedHolder builds the holdFn that claims each folder's run slot in the LIVE runed
-// before its tree is overwritten (spec 5/8). RUNED_URL is the same var routd and
-// dashd already use, with the same in-network default. RUNED_TOKEN is the bearer
-// runed's authz wants — runs:run to claim, runs:kill to release; runed in open mode
-// needs none.
 func runedHolder(ctx context.Context, dataDir string) (holdFn, error) {
 	client, err := runedClient(dataDir)
 	if err != nil {
@@ -167,9 +126,6 @@ func runedHolder(ctx context.Context, dataDir string) (holdFn, error) {
 				"wait for it to finish or stop the instance", folder)
 		}
 		return func() {
-			// A defer cannot return an error, so surface a failed release
-			// loudly instead of dropping it. runed's RunTTL
-			// (RUNED_RUN_TIMEOUT) is the backstop that frees the folder.
 			if rerr := client.Kill(context.Background(), out.RunID); rerr != nil {
 				fmt.Fprintf(os.Stderr,
 					"WARNING: failed to release the hold on %q (run %s): %v\n"+
@@ -180,10 +136,6 @@ func runedHolder(ctx context.Context, dataDir string) (holdFn, error) {
 	}, nil
 }
 
-// buildArchive writes one tar stream to w — the same subsystem set + fixed
-// order documented on the entry-name consts above — and returns a
-// human-readable summary. Reused directly by tests (avoids exercising the
-// os.Exit paths in cmdDump).
 func buildArchive(ctx context.Context, stores map[string]*store.Store, dataDir string, quiesced bool, w io.Writer) (string, error) {
 	var report strings.Builder
 	tw := tar.NewWriter(w)
@@ -307,11 +259,6 @@ func writeTarEntry(tw *tar.Writer, name string, data []byte) error {
 	return nil
 }
 
-// tarGroups tars groups/<folder>/ for every folder, as ONE nested tar
-// written to w (spec 5/8 "Group filesystem trees": "groups.tar stays a
-// tar-inside-the-tar rather than flattened entries"). A folder with a
-// groups row but no on-disk dir yet (never provisioned) is skipped, not an
-// error. Returns the number of folders actually archived.
 func tarGroups(dataDir string, folders []string, w io.Writer) (int, error) {
 	resolver := &groupfolder.Resolver{GroupsDir: filepath.Join(dataDir, "groups")}
 	tw := tar.NewWriter(w)
@@ -341,9 +288,6 @@ func tarGroups(dataDir string, folders []string, w io.Writer) (int, error) {
 	return n, nil
 }
 
-// tarFolderTree walks root (a group's on-disk dir) and writes every entry
-// under name folder+"/"+relpath. Symlinks are skipped, never followed: their
-// targets would be arbitrary host files.
 func tarFolderTree(tw *tar.Writer, root, folder string) error {
 	return filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -370,7 +314,7 @@ func tarFolderTree(tw *tar.Writer, root, folder string) error {
 			})
 		}
 		if !d.Type().IsRegular() {
-			return nil // sockets/devices/etc: never archived
+			return nil
 		}
 		if err := tw.WriteHeader(&tar.Header{
 			Name: name, Typeflag: tar.TypeReg, Mode: int64(info.Mode().Perm()),
@@ -388,27 +332,14 @@ func tarFolderTree(tw *tar.Writer, root, folder string) error {
 	})
 }
 
-// applyArchive reads one tar stream and restores it in one sequential pass (entry
-// order = write order above). Returns a human-readable summary regardless of error:
-// config/messages steps proceed even when a later document errors, per spec 5/8
-// "each has its own recovery story". hold claims each folder's runed run slot around
-// its filesystem step; nil skips the claim.
 func applyArchive(ctx context.Context, stores map[string]*store.Store, dataDir string, r io.Reader, force bool, hold holdFn) (string, error) {
 	var report strings.Builder
 	tr := tar.NewReader(r)
 	var knownFolders []string
 	sawMeta := false
 
-	// The config documents are BUFFERED, not applied as they stream past. Two spec
-	// rules need the whole set in hand before the first tx opens: the missing-group
-	// preflight, and the cross-subsystem pre-image rollback, which must snapshot
-	// every subsystem it will touch. Config is bounded declarative config, so
-	// buffering costs nothing; the unbounded documents stay streamed.
 	var configDocs []parsedDoc
 	configApplied := false
-	// flushConfig commits the buffered config subsystems exactly once, before
-	// anything that depends on them (groups.tar's folder matching needs the
-	// groups rows) and at EOF.
 	flushConfig := func() error {
 		if configApplied {
 			return nil
@@ -435,8 +366,6 @@ func applyArchive(ctx context.Context, stores map[string]*store.Store, dataDir s
 		if err != nil {
 			return report.String(), fmt.Errorf("read tar: %w", err)
 		}
-		// Everything past the config documents depends on config having
-		// committed, so the first non-config entry closes the config phase.
 		switch hdr.Name {
 		case archiveMetaEntry, archiveRoutdEntry, archiveOnbodEntry:
 		default:
@@ -504,9 +433,6 @@ func applyArchive(ctx context.Context, stores map[string]*store.Store, dataDir s
 				return report.String(), fmt.Errorf("agent_cursor: %w", cerr)
 			}
 			fmt.Fprintf(&report, "messages: %d rows imported, %d chat cursors derived\n", imported, nc)
-			// Refused rows are named, never counted-and-forgotten: correcting
-			// one in the archive and re-running is the way back, and the
-			// re-run is a no-op on everything that already landed.
 			for _, u := range refused {
 				fmt.Fprintf(&report,
 					"messages: REFUSED %s — timestamp %q is not an RFC3339 instant, so it cannot be ordered against a cursor; fix it in the archive and re-run\n",
@@ -528,25 +454,15 @@ func applyArchive(ctx context.Context, stores map[string]*store.Store, dataDir s
 			}
 
 		default:
-			// Forward-compat: an entry this binary doesn't recognize. The
-			// format_version check above already gates the load-bearing
-			// case (a genuinely newer shape); an unknown-but-declared-old
-			// entry is not fatal.
 			io.Copy(io.Discard, tr) //nolint:errcheck // draining an ignored entry; nothing actionable
 		}
 	}
-	// A config-only archive never hits a non-config entry, so EOF is where its
-	// config phase commits.
 	if err := flushConfig(); err != nil {
 		return report.String(), err
 	}
 	return report.String(), nil
 }
 
-// applySecretsDoc always validates+imports secrets — their own per-row keyring check
-// is the correctness gate, and a secret has no revoke-by-delete lifecycle to revive.
-// The three documents that DO carry a credential verifier ride ONE gate: off by
-// default and, even with --force, refused unless the target table is already empty.
 func applySecretsDoc(ctx context.Context, stores map[string]*store.Store, doc archiveSecretsDoc, force bool, report *strings.Builder) error {
 	routdSt := stores[resreg.SubsystemRoutd]
 	onbodSt := stores[resreg.SubsystemOnbod]
@@ -575,10 +491,6 @@ func applySecretsDoc(ctx context.Context, stores map[string]*store.Store, doc ar
 	return nil
 }
 
-// restoreGated is the single implementation of the credential-revival gate spec 5/8
-// states once and three documents obey: skip unless --force, and even then refuse
-// unless the target table is proven empty. One helper rather than three copies — the
-// third copy is where the policy would have drifted.
 func restoreGated(report *strings.Builder, name string, n int, force bool,
 	count func() (int, error), importRows func() (int, error),
 ) error {
@@ -605,10 +517,6 @@ func restoreGated(report *strings.Builder, name string, n int, force bool,
 	return nil
 }
 
-// matchFolder returns the longest folder in knownFoldersLongestFirst that entryName
-// is rooted under. Folder names may themselves contain "/", so a plain first-segment
-// split is ambiguous — "acme/eng/PERSONA.md" could be folder "acme" or "acme/eng".
-// Matching against the manifest's OWN folder set resolves it exactly.
 func matchFolder(entryName string, knownFoldersLongestFirst []string) string {
 	name := strings.TrimSuffix(entryName, "/")
 	for _, f := range knownFoldersLongestFirst {
@@ -619,15 +527,6 @@ func matchFolder(entryName string, knownFoldersLongestFirst []string) string {
 	return ""
 }
 
-// extractGroups extracts groups.tar's per-folder trees in two passes over the same
-// in-memory tar bytes: the first decides per folder whether to extract or skip, the
-// second writes only the allowed folders. Two passes avoid extracting some of a
-// folder's files before discovering a later entry belongs to a folder that should
-// have been skipped.
-//
-// hold claims each to-be-written folder's run slot between the two passes and
-// releases every one on return. Holding the whole set for the whole write is
-// deliberate: pass 2 interleaves entries across folders.
 func extractGroups(dataDir string, knownFolders []string, tarBytes []byte, force bool, hold holdFn) (extracted, skipped int, err error) {
 	longestFirst := append([]string(nil), knownFolders...)
 	sort.Slice(longestFirst, func(i, j int) bool { return len(longestFirst[i]) > len(longestFirst[j]) })
@@ -675,7 +574,7 @@ func extractGroups(dataDir string, knownFolders []string, tarBytes []byte, force
 	if hold != nil {
 		for _, folder := range folderNames {
 			if !allowed[folder] {
-				continue // never written; nothing to guard
+				continue
 			}
 			release, herr := hold(folder)
 			if herr != nil {
@@ -758,11 +657,6 @@ func openRestoreGroup(groupsDir, folder string) (*os.Root, error) {
 	return root, nil
 }
 
-// extractTarEntry writes one groups.tar entry under groupDir, refusing any
-// path that would escape it (zip-slip defense) and any non-regular,
-// non-directory entry type (symlinks/hardlinks/devices never travel —
-// dump never wrote one, so a hostile or corrupted archive is the only
-// way one appears).
 func extractTarEntry(root *os.Root, folder string, hdr *tar.Header, r io.Reader) error {
 	rel := strings.TrimPrefix(strings.TrimSuffix(hdr.Name, "/"), folder)
 	rel = strings.TrimPrefix(rel, "/")
@@ -784,8 +678,6 @@ func extractTarEntry(root *os.Root, folder string, hdr *tar.Header, r io.Reader)
 		if err != nil {
 			return err
 		}
-		// Close, not deferred: this is the write end of a restore, and a deferred
-		// close drops the flush error, so a truncated file reads as a clean apply.
 		_, err = io.Copy(f, r)
 		if cerr := f.Close(); err == nil {
 			err = cerr
@@ -796,11 +688,6 @@ func extractTarEntry(root *os.Root, folder string, hdr *tar.Header, r io.Reader)
 	}
 }
 
-// setupMissingGroupDirs is the archive-apply slice of "Apply is a restore, so
-// filesystem prep follows the commit" (spec 5/8): a folder the config manifest names
-// but groups.tar does not cover still needs SOMETHING on disk, or docker exits 125.
-// container.SetupGroup is the ONLY provisioning code path, so this calls it with no
-// seed dir for exactly the folders left untouched above.
 func setupMissingGroupDirs(dataDir string, knownFolders []string) error {
 	if len(knownFolders) == 0 {
 		return nil

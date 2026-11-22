@@ -16,7 +16,6 @@ import (
 	"github.com/kronael/arizuko/dashd/dashstore"
 )
 
-// handleTaskDetail renders GET /dash/tasks/{id} — full task fields + last 20 run logs.
 func (d *dash) handleTaskDetail(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if id == "" {
@@ -26,23 +25,8 @@ func (d *dash) handleTaskDetail(w http.ResponseWriter, r *http.Request) {
 	if _, ok := requireUser(w, r); !ok {
 		return
 	}
-	// READ through routd's /v1 (spec 6/28 §"Read-path: /v1 only, no direct DB").
-	//
-	// This page authorizes AFTER reading, because the check needs the task's
-	// owner and the owner is only known once the row is fetched — an ordering it
-	// has always had, which a local DB read concealed. It is not a leak: a
-	// forbidden caller still never sees the task. What changes is that an
-	// unreachable routd fails before the refusal, so a cross-tenant request gets
-	// an error rather than a 403. Every migrated page has that same property.
-	//
-	// The WRITES below still go through the DB: they carry the operator onto the
-	// audit row via AsUser and dashd's service bearer does not, so moving them
-	// waits on 6/29's identity decision.
 	task, found, err := d.getTask(r.Context(), id)
 	if err != nil {
-		// routd unreachable is a DEPENDENCY outage, not an internal fault: 503
-		// says "ask again", 500 says "this is broken", and only one of those is
-		// true. It is also what a dashd with no backend has always answered.
 		slog.Warn("task detail: read", "id", id, "err", err)
 		http.Error(w, "backend unavailable", http.StatusServiceUnavailable)
 		return
@@ -55,8 +39,6 @@ func (d *dash) handleTaskDetail(w http.ResponseWriter, r *http.Request) {
 	if task.NextRun != nil {
 		nextRun = task.NextRun.UTC().Format(time.RFC3339)
 	}
-	// Gate on the task's owning folder: a non-operator must not read another
-	// tenant's task prompt / run history.
 	allowed, _ := d.callerScope(r)
 	if !visible(allowed, task.Owner) {
 		http.Error(w, "forbidden", http.StatusForbidden)
@@ -86,7 +68,6 @@ func (d *dash) handleTaskDetail(w http.ResponseWriter, r *http.Request) {
 
 	_, _ = fmt.Fprintf(w, `<h2>Prompt</h2><pre>%s</pre>`, esc(task.Prompt))
 
-	// Actions — POST forms (same-origin CSRF guard via requireAdmin).
 	_, _ = fmt.Fprint(w, `<h2>Actions</h2><div class="form-inline-group">`)
 	if task.Status == "active" {
 		_, _ = fmt.Fprintf(w,
@@ -129,7 +110,6 @@ func (d *dash) handleTaskDetail(w http.ResponseWriter, r *http.Request) {
 	pageClose(w, r)
 }
 
-// handleTaskAction handles POST /dash/tasks/{id}/pause|resume|cancel.
 func (d *dash) handleTaskAction(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	action := r.PathValue("action")
@@ -145,11 +125,6 @@ func (d *dash) handleTaskAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// pause: active→paused; resume: paused→active (next_run cleared, so the
-	// scheduler fills the next instant of the cron); cancel: active|paused→cancelled. A task not in the state a
-	// transition starts from moves nowhere and answers 409. The status the
-	// audit row records and the move that writes it come off the same case, so
-	// a fourth action cannot be half-added.
 	st := d.ds()
 	var newStatus string
 	var move func(audit.Event) error
@@ -194,7 +169,6 @@ func (d *dash) handleTaskAction(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/dash/tasks/"+id, http.StatusSeeOther)
 }
 
-// handleTaskCreate handles POST /dash/tasks/ — create a new scheduled task.
 func (d *dash) handleTaskCreate(w http.ResponseWriter, r *http.Request) {
 	if _, ok := d.requireAdmin(w, r, "**"); !ok {
 		return
@@ -215,7 +189,6 @@ func (d *dash) handleTaskCreate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "owner, chat_jid, prompt, cron required", http.StatusBadRequest)
 		return
 	}
-	// Refuse a cron that could never run; the scheduler fills next_run.
 	if _, err := core.NextRun(cronVal, core.Timezone()); err != nil {
 		http.Error(w, "invalid cron expression", http.StatusBadRequest)
 		return
@@ -255,7 +228,6 @@ func (d *dash) handleTaskCreate(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/dash/tasks/"+id, http.StatusSeeOther)
 }
 
-// truncate64 truncates s to ~60 chars for display, appending "…" if cut.
 func truncate64(s string) string {
 	const limit = 60
 	runes := []rune(s)
@@ -265,7 +237,6 @@ func truncate64(s string) string {
 	return string(runes[:limit]) + "…"
 }
 
-// taskRunLog is one row of routd's GET /v1/tasks/{id}/runs.
 type taskRunLog struct {
 	RunAt      string `json:"run_at"`
 	Status     string `json:"status"`
@@ -273,12 +244,6 @@ type taskRunLog struct {
 	Error      string `json:"error"`
 }
 
-// getTask reads one scheduled task from routd's /v1.
-//
-// found=false with a nil error is a genuine 404; an error means routd is
-// unreachable. The caller must not conflate them — "no such task" and "we could
-// not ask" look identical to an operator and only one of them means the task is
-// gone.
 func (d *dash) getTask(ctx context.Context, id string) (core.Task, bool, error) {
 	body, status, err := d.bearerCall(ctx, d.routdURL, http.MethodGet,
 		"/v1/tasks/"+url.PathEscape(id), nil)
@@ -298,7 +263,6 @@ func (d *dash) getTask(ctx context.Context, id string) (core.Task, bool, error) 
 	return t, true, nil
 }
 
-// taskRuns reads a task's run history from routd's /v1.
 func (d *dash) taskRuns(ctx context.Context, id string) ([]taskRunLog, error) {
 	body, status, err := d.bearerCall(ctx, d.routdURL, http.MethodGet,
 		"/v1/tasks/"+url.PathEscape(id)+"/runs", nil)

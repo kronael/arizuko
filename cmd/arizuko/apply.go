@@ -1,8 +1,5 @@
 package main
 
-// Spec 5/8: manifest inspection and the shared apply engine. Sync, a rows
-// file and a dump restore apply validated documents per owner subsystem.
-
 import (
 	"context"
 	"crypto/sha256"
@@ -18,16 +15,10 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
-// subsystemOrder is the fixed, deterministic order a dump writes subsystem
-// documents in and apply/plan report them in.
 func subsystemOrder() []string {
 	return []string{resreg.SubsystemRoutd, resreg.SubsystemOnbod}
 }
 
-// openSubsystemStores opens routd's and onbod's stores — the two owners the
-// config manifest spans. Strict: store.OpenOwner errors if the owning daemon
-// has never booted to make its tables (no silent divergent schema), matching
-// this CLI's existing "die loud" posture.
 func openSubsystemStores() map[string]*store.Store {
 	return map[string]*store.Store{
 		resreg.SubsystemRoutd: mustOpen(store.OwnerRoutd),
@@ -43,11 +34,6 @@ func closeStores(stores map[string]*store.Store) {
 	}
 }
 
-// parsedDoc is one manifest document after ParseYAML, kept so apply/plan can
-// make TWO passes: parse-and-validate every document, and only then open the
-// first transaction (spec 5/8 §"The missing-group rule": "refuses, before
-// writing anything"). A one-pass loop could not do it — it would already have
-// committed document 1 by the time it discovered document 2's bad reference.
 type parsedDoc struct {
 	subsystem string
 	checksum  string
@@ -56,10 +42,6 @@ type parsedDoc struct {
 	pruneScopes []string
 }
 
-// parseDocs splits and parses every document of a manifest file. Empty
-// documents (a trailing `---`) carry nothing and are dropped. Returns an
-// error rather than dying — `apply` of a dump composes the same helper and must
-// unwind its own tar reader, not os.Exit out of it.
 func parseDocs(file string, data []byte) ([]parsedDoc, error) {
 	docs, err := resreg.SplitDocuments(data)
 	if err != nil {
@@ -83,14 +65,6 @@ func parseDocs(file string, data []byte) ([]parsedDoc, error) {
 	return out, nil
 }
 
-// preflightFolders is the missing-group rule's CLI half: every folder-scoped
-// row across EVERY document must name a group that the document set declares
-// or the target DB already has. Returns the offending references; the caller
-// decides whether that is a refusal (apply) or a report (plan).
-//
-// `groups` lives in exactly one owner DB and the resource declaration says
-// which — identity is configured, never derived (root CLAUDE.md), so this
-// reads Resource.DB rather than assuming routd.
 func preflightFolders(stores map[string]*store.Store, docs []parsedDoc) []error {
 	g := resreg.Lookup(resreg.GroupsResource)
 	if g == nil {
@@ -117,12 +91,6 @@ func preflightFolders(stores map[string]*store.Store, docs []parsedDoc) []error 
 	return out
 }
 
-// committed records one subsystem whose transaction already went through, so a
-// LATER subsystem's failure can put it back (spec 5/8 §"Cross-subsystem apply").
-// pre is the subsystem's projection as it stood BEFORE the forward apply, produced
-// by the same renderer the CAS hash uses, so there is no second backup format.
-// postSum is the rollback's own CAS token: if anything else moved the config in
-// between, the rollback refuses instead of overwriting it.
 type committed struct {
 	subsystem string
 	pre       map[string]any
@@ -130,13 +98,6 @@ type committed struct {
 	scopes    []string
 }
 
-// applyRun is what one apply run carries beyond its documents: the two guards an
-// operator may lower, and the three fields that reach the audit row.
-//
-// It is a struct rather than more parameters because `force` and `takeOver` are
-// adjacent booleans that lower DIFFERENT guards — force ignores the checksum the
-// manifest was planned against, takeOver adopts a claim an interrupted apply left
-// — and a call site spelling them `false, false` says which is which to nobody.
 type applyRun struct {
 	force    bool
 	takeOver bool
@@ -145,28 +106,6 @@ type applyRun struct {
 	extra    map[string]any
 }
 
-// applyDocs applies every document, one transaction per subsystem, and puts every
-// already-committed subsystem back to its pre-apply projection if a later one
-// fails.
-//
-// The pre-images are captured for ALL subsystems up front, before the first
-// transaction opens: capturing lazily would still be valid but would make the
-// ordering a silent correctness dependency instead of an obvious one.
-//
-// A SUBSYSTEM AN INTERRUPTED APPLY STILL HOLDS HAS NO PRE-IMAGE, and that is not
-// a reason to refuse here. Its rows are part-written by definition, so a
-// consistent read over them would describe a state no writer ever saw and
-// resreg.ExportSnapshot says so rather than inventing one (BUGS L267). Refusing
-// the whole run on it would put the operator's error one call too early: the
-// apply itself knows whether this manifest may roll that scope forward, and
-// its answer names the work the claim is holding. So this records that there is
-// no pre-image, says it, and keeps the subsystem out of the rollback set — a
-// scope with nothing to go back to must never be silently "restored" to an empty
-// document.
-//
-// The rollback restores the manifest PROJECTION, not the database: a whole-DB swap
-// would discard messages that arrived and memory a turn wrote during the apply
-// window.
 func applyDocs(ctx context.Context, stores map[string]*store.Store, docs []parsedDoc,
 	run applyRun) ([]string, error) {
 	pre := map[string]map[string]any{}
@@ -214,10 +153,6 @@ func applyDocs(ctx context.Context, stores map[string]*store.Store, docs []parse
 	return report, nil
 }
 
-// rollback re-applies each committed subsystem's pre-image through the SAME
-// resreg.Apply codepath, newest first. PruneScopes carries the forward
-// manifest's own scopes so a folder the forward apply CREATED — one the
-// pre-image never mentions, and therefore would not prune — does not survive.
 func rollback(ctx context.Context, stores map[string]*store.Store, done []committed, actor string) error {
 	var errs []error
 	for i := len(done) - 1; i >= 0; i-- {
@@ -230,7 +165,6 @@ func rollback(ctx context.Context, stores map[string]*store.Store, done []commit
 	return errors.Join(errs...)
 }
 
-// groupFolders lists the folder of every groups row the documents carry.
 func groupFolders(docs []parsedDoc) []string {
 	var out []string
 	for _, d := range docs {
@@ -243,14 +177,6 @@ func groupFolders(docs []parsedDoc) []string {
 	return out
 }
 
-// mergeLive turns a rows file into documents the apply engine can take. The
-// engine rebuilds every resource a document mentions, so each mentioned
-// resource goes in as the live rows with the file's rows laid over them (the
-// file's row wins on its primary key). A row the file does not name stays, and
-// a resource the file does not mention is not in the document, so apply
-// deletes nothing the file leaves out. The checksum is the live one read here:
-// a rows file is not a state to compare against, so the checksum a dump put in
-// it is not used.
 func mergeLive(ctx context.Context, stores map[string]*store.Store, docs []parsedDoc) ([]parsedDoc, error) {
 	seen := map[string]bool{}
 	out := make([]parsedDoc, 0, len(docs))
@@ -278,8 +204,6 @@ func mergeLive(ctx context.Context, stores map[string]*store.Store, docs []parse
 	return out, nil
 }
 
-// applyRows writes the rows of one rows file (spec 5/8 §"Rows file"). The
-// returned report holds one line per subsystem.
 func applyRows(ctx context.Context, stores map[string]*store.Store, dataDir, file string, data []byte) ([]string, error) {
 	docs, err := parseDocs(file, data)
 	if err != nil {
@@ -300,16 +224,12 @@ func applyRows(ctx context.Context, stores map[string]*store.Store, dataDir, fil
 	return lines, setupMissingGroupDirs(dataDir, groupFolders(docs))
 }
 
-// isTar reports whether data is a tar stream: the "ustar" magic at byte 257,
-// which Go's tar writer sets in every format it writes.
 func isTar(data []byte) bool {
 	return len(data) >= 262 && string(data[257:262]) == "ustar"
 }
 
 const applyUsage = "arizuko apply [-i instance] <dump.tar|rows.yml> [--force|-f] [--stopped]"
 
-// cmdApply restores a dump tar, or writes the rows of a rows file. The file
-// itself says which: a tar is a dump, anything else is parsed as rows.
 func cmdApply(args []string) {
 	fs := flag.NewFlagSet("apply", flag.ContinueOnError)
 	var force, stopped bool
@@ -344,9 +264,6 @@ func cmdApply(args []string) {
 	}
 }
 
-// cmdPlan: non-mutating dry run of `apply` on a rows file (spec 5/8
-// §"Surface"). Parses + validates, prints the per-resource add/update delta per
-// subsystem document, never opens a write tx.
 func cmdPlan(args []string) {
 	args = need(args, 2, 2, "arizuko plan [-i instance] <rows.yml>")
 	instance := args[0]
@@ -362,9 +279,6 @@ func cmdPlan(args []string) {
 	if perr != nil {
 		die("Failed: %v", perr)
 	}
-	// plan never mutates, so it REPORTS the missing-group refusal apply would
-	// raise instead of exiting on it — the operator sees the delta and the
-	// blocker in one run.
 	for _, e := range preflightFolders(stores, docs) {
 		fmt.Printf("%v — apply would refuse\n", e)
 	}
@@ -382,22 +296,10 @@ func cmdPlan(args []string) {
 	}
 }
 
-// printPlan renders the plan delta in catalog order. SkipApplyRebuild resources
-// never mutate via apply, so they print as informational "set" rather than
-// actionable deltas.
-//
-// The informational line names no command. FIVE resources carry the flag and each
-// is managed by a different verb, so the line said "set via `arizuko secret set`"
-// for four resources that verb cannot touch (BUGS R1-5). A per-resource command
-// table here would be a second catalog beside resreg's.
 func printPlan(deltas []resreg.ResourceDelta) {
 	any := false
 	for _, d := range deltas {
 		if d.SkipApplyRebuild {
-			// The count is the LIVE one. These resources are minted imperatively, so
-			// what an operator wants from the line is how many exist — and adding the
-			// PK lists up cannot say that for route_tokens or invites, whose identity
-			// is a digest YAML never carries (BUGS L260).
 			if d.Live > 0 {
 				any = true
 				fmt.Printf("%s: %d set (not applied — managed imperatively, never via apply)\n", d.Resource, d.Live)
@@ -424,11 +326,6 @@ func printPlan(deltas []resreg.ResourceDelta) {
 	}
 }
 
-// cmdGet: emit a live-DB manifest fragment for one resource (spec 5/8
-// §"Round-trip honesty"). The fragment re-applies to a no-op — same
-// shape `apply` accepts. Secret rows emit metadata only (the engine's
-// SELECT omits the enc_value blob, which isn't in SecretsRow). Opens only
-// the resource's OWN owner subsystem — resreg.Resource.DB says which.
 func cmdGet(args []string) {
 	args = need(args, 2, 2, "arizuko get [-i instance] <resource>")
 	instance := args[0]

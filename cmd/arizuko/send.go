@@ -22,20 +22,6 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
-// cmdSend posts a message to a group's chat-token endpoint and (optionally)
-// waits for the agent's run to finish.
-//
-// arizuko send <instance> <folder> "<msg>"           fire and forget
-// arizuko send <instance> <folder> "<msg>" --wait    block on round_done
-// arizuko send <instance> <folder> "<msg>" --stream  alias for --wait
-// arizuko send <instance> <folder> --stdin           read body from stdin
-//
-// Two paths:
-//   - operator-direct (default): no chat token → POST to routd's ingest on
-//     web:<folder> with a bearer signed by authd's key, which the operator
-//     already reads (`token issue bearer`); routd enqueues the chat.
-//   - chat-token: --token|-t or ARIZUKO_CHAT_TOKEN set → POST to the public
-//     /chat/<token> endpoint via WEB_HOST (for tokens issued to non-operators).
 func cmdSend(args []string) {
 	fs := flag.NewFlagSet("send", flag.ContinueOnError)
 	var wait, stream, stdin bool
@@ -72,9 +58,6 @@ func cmdSend(args []string) {
 	if _, ok := st.GroupByFolder(folder); !ok {
 		die("Failed: group %q not found in instance %q", folder, instance)
 	}
-	// No chat token → operator-direct inject (root owns the DB). Raw tokens are
-	// never stored (only hash); the chat-token path is for non-operator callers
-	// who hold a token from `arizuko token issue chat` / issue_chat_link.
 	if chatToken == "" {
 		operatorInject(st, dataDir, folder, sender, msg, topic, wait || stream)
 		return
@@ -130,11 +113,6 @@ func cmdSend(args []string) {
 	os.Exit(streamRound(client, turnURL+"/sse"))
 }
 
-// operatorInject hands the message to routd's ingest, as an adapter does, as an
-// inbound on web:<folder>, the 1:1 web-chat JID routd maps to the group; routd
-// stores it and wakes the chat. When follow is set, polls BotRepliesSince and
-// prints the agent's reply until the run goes quiet (a direct inject carries no
-// round_done signal, so quiescence is the terminator).
 func operatorInject(st *store.Store, dataDir, folder, sender, msg, topic string, follow bool) {
 	jid := groupfolder.WebJID(folder)
 	since := time.Now()
@@ -163,7 +141,7 @@ func operatorInject(st *store.Store, dataDir, folder, sender, msg, topic string,
 		return
 	}
 	const (
-		idleStop  = 120 * time.Second // give up waiting for the first reply (cold container start)
+		idleStop  = 120 * time.Second
 		quietStop = 15 * time.Second
 		tick      = 1 * time.Second
 	)
@@ -171,7 +149,7 @@ func operatorInject(st *store.Store, dataDir, folder, sender, msg, topic string,
 	cursor := since
 	gotReply := false
 	var lastReply time.Time
-	lastPrinted := "" // dedup the out-/bot- pair: one agent reply is stored twice
+	lastPrinted := ""
 	for {
 		time.Sleep(tick)
 		replies, err := st.BotRepliesSince(jid, cursor, 0)
@@ -202,8 +180,6 @@ func operatorInject(st *store.Store, dataDir, folder, sender, msg, topic string,
 	}
 }
 
-// streamRound subscribes to /sse and prints message frames as they arrive.
-// Returns 0 on round_done success, 1 on failed status, 2 on transport error.
 func streamRound(client *http.Client, sseURL string) int {
 	streamClient := *client
 	streamClient.Timeout = 0
@@ -215,11 +191,6 @@ func streamRound(client *http.Client, sseURL string) int {
 	return readSSE(resp.Body)
 }
 
-// openSSE opens an event stream, or reports the transport exit code. Split from
-// readSSE for `arizuko talk`, which must SUBSCRIBE BEFORE IT SENDS: the /me
-// stream it reads replays nothing, so a reply landing between the send and the
-// subscribe is lost and the round never ends. `send --stream` reads a turn
-// stream that does replay, so it opens and reads in one step.
 func openSSE(client *http.Client, sseURL string, hdr map[string]string) (*http.Response, int) {
 	req, _ := http.NewRequest("GET", sseURL, nil)
 	req.Header.Set("Accept", "text/event-stream")
@@ -240,8 +211,6 @@ func openSSE(client *http.Client, sseURL string, hdr map[string]string) (*http.R
 	return resp, 0
 }
 
-// readSSE prints frames off an open event stream until round_done. The single
-// reader both `send --stream` and `talk` go through — one parser, one printer.
 func readSSE(body io.Reader) int {
 	scan := bufio.NewScanner(body)
 	scan.Buffer(make([]byte, 64*1024), 1<<20)
@@ -269,10 +238,6 @@ func handleSSEFrame(event, data string) int {
 	case "message", "status":
 		var f struct{ Content, Kind, Role string }
 		if json.Unmarshal([]byte(data), &f) == nil {
-			// webd's /mcp `send` echoes the caller's own message onto the same
-			// hub topic as role=user, so `talk` would quote the operator back at
-			// themselves. Turn-stream frames (webd/turn.go) carry no role field,
-			// so this skips nothing on the `send --stream` path.
 			if f.Role == "user" {
 				return -1
 			}
@@ -281,8 +246,6 @@ func handleSSEFrame(event, data string) int {
 	case "round_done":
 		var f struct{ Status, Error string }
 		if err := json.Unmarshal([]byte(data), &f); err != nil {
-			// The round is over either way; without the payload the parse failure
-			// IS the reason, and an empty one reads as a round that failed silently.
 			f.Error = "unreadable round_done payload: " + err.Error()
 		}
 		if f.Status == "success" {

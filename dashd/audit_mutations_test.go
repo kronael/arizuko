@@ -14,30 +14,15 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
-// Every dashboard mutation must persist an audit_log row naming the operator who
-// made it. These write through the real handler and read audit_log back, so
-// swapping any site to an audit-free writer (PutACLRow, RemoveACLRowBare,
-// PutRouteRow, a raw INSERT/DELETE) fails the case: the mutation still lands but
-// no row appears, and actorFor returns "".
-//
-// The bar is the operator, not merely a row. routd.db has carried audit_log
-// since routd migration 0016, so "routd.db has no audit_log" never justified
-// skipping it; recording the mutation as "system" would be just as wrong, since
-// the whole point is attributing an operator action to that operator.
-
-// auditActor returns the actor_sub of the newest audit_log row for action, or ""
-// when the mutation recorded nothing.
 func auditActor(t *testing.T, d *dash, action string) string {
 	t.Helper()
 	rows := auditRowsFor(t, d.routd, action)
 	if len(rows) == 0 {
 		return ""
 	}
-	return rows[0].ActorSub // newest first
+	return rows[0].ActorSub
 }
 
-// auditRowsFor reads back every recorded row carrying one action, newest first,
-// through the method every daemon answers GET /v1/audit with.
 func auditRowsFor(t *testing.T, h objstore.Store, action string) []audit.Row {
 	t.Helper()
 	rows, err := audit.Query(t.Context(), h, audit.Filter{Limit: audit.MaxLimit})

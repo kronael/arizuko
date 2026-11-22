@@ -11,7 +11,6 @@ import (
 	"github.com/kronael/arizuko/groupfolder"
 )
 
-// GET /x/groups
 func (s *server) handleXGroups(w http.ResponseWriter, r *http.Request) {
 	groups, err := s.groupList(userGroups(r))
 	if err != nil {
@@ -25,7 +24,6 @@ func (s *server) handleXGroups(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// GET /x/groups/<folder>/topics
 func (s *server) handleXTopics(w http.ResponseWriter, r *http.Request) {
 	folder := folderParam(r)
 	topics, err := s.stRoutd.Topics(folder)
@@ -50,7 +48,6 @@ func (s *server) handleXTopics(w http.ResponseWriter, r *http.Request) {
 	_, _ = fmt.Fprint(w, `<option value="">+ new conversation</option>`)
 }
 
-// GET /x/groups/<folder>/messages?topic=<t>&before=<ts>
 func (s *server) handleXMessages(w http.ResponseWriter, r *http.Request) {
 	folder := folderParam(r)
 	topic := r.URL.Query().Get("topic")
