@@ -1,8 +1,6 @@
 package resources
 
 import (
-	"context"
-	"fmt"
 	"reflect"
 
 	"github.com/kronael/arizuko/resreg"
@@ -105,18 +103,6 @@ func init() {
 		// (spec 5/8 §"FK posture"), so apply rebuilds acl wholesale.
 		StampedFields: []string{"GrantedAt"},
 		Hooks: resreg.Hooks{
-			ValidateRows: func(_ context.Context, rows any) error {
-				grants, ok := rows.([]ACLRow)
-				if !ok {
-					return fmt.Errorf("acl rows are %T, not %T", rows, []ACLRow{})
-				}
-				for _, row := range grants {
-					if err := store.ValidateACLAction(row.Action); err != nil {
-						return err
-					}
-				}
-				return nil
-			},
 			BeforeInsert: func(row any) error {
 				r := row.(*ACLRow)
 				if r.Effect == "" {
