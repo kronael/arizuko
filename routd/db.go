@@ -225,13 +225,33 @@ func (d *DB) PutMessage(m core.Message) error {
 }
 
 func (d *DB) PutOutboundFailure(m core.Message, failure retry.Failure) (retry.Decision, error) {
-	return d.store().PutOutboundFailure(context.Background(), m, failure)
+	decision, err := d.store().PutOutboundFailure(context.Background(), m, failure)
+	if err != nil {
+		return decision, err
+	}
+	return decision, d.indexOutbound(m)
 }
 
 // PutOutbound appends one outbound row and the delivery state it still owes.
 // `sent` writes no delivery item, which is what makes it the absence of one.
 func (d *DB) PutOutbound(m core.Message, status string) error {
-	return d.store().PutOutbound(context.Background(), m, status)
+	if err := d.store().PutOutbound(context.Background(), m, status); err != nil {
+		return err
+	}
+	return d.indexOutbound(m)
+}
+
+func (d *DB) indexOutbound(m core.Message) error {
+	stored, ok := d.store().MessageByID(m.ChatJID, m.ID)
+	if !ok {
+		return fmt.Errorf("read stored outbound %s in %s", m.ID, m.ChatJID)
+	}
+	row, err := store.IndexedFrom(stored)
+	if err != nil {
+		return err
+	}
+	d.search.Put(row)
+	return nil
 }
 
 // NewMessagesForChat returns one chat's rows after its watermark, oldest first.

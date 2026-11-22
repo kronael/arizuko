@@ -10,13 +10,48 @@ package routd
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/retry"
 	"github.com/kronael/arizuko/routd/msgsearch"
 )
+
+func TestOutboundMessagesAreSearchableAtStoredTimestamp(t *testing.T) {
+	for _, failure := range []bool{false, true} {
+		t.Run(fmt.Sprint(failure), func(t *testing.T) {
+			db := memDB(t)
+			searched(t, db, "outboundneedle", "", "", "", 10)
+			now := time.Now().UTC()
+			if err := db.PutMessage(core.Message{ID: "newer", ChatJID: "web:demo",
+				Content: "newer", Timestamp: now}); err != nil {
+				t.Fatal(err)
+			}
+			msg := core.Message{ID: "reply", ChatJID: "web:demo", Content: "outboundneedle",
+				Timestamp: now.Add(-time.Hour), BotMsg: true}
+			var err error
+			if failure {
+				_, err = db.PutOutboundFailure(msg, retry.Failure{Kind: "transient"})
+			} else {
+				err = db.PutOutbound(msg, core.MessageStatusSent)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			stored, ok := db.MessageByID(msg.ChatJID, msg.ID)
+			if !ok || !stored.Timestamp.After(msg.Timestamp) {
+				t.Fatalf("stored row = %+v, found = %t", stored, ok)
+			}
+			hits := searched(t, db, "outboundneedle", "", "", "", 10)
+			if len(hits) != 1 || !hits[0].Timestamp.Equal(stored.Timestamp) {
+				t.Fatalf("hits = %+v, stored timestamp = %v", hits, stored.Timestamp)
+			}
+		})
+	}
+}
 
 // searched is what a caller does with the warming refusal: retry until the boot
 // walk is through. Every body below goes through it, so none of them can pass by
