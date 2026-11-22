@@ -65,11 +65,11 @@ func (r *TypingRefresher) Set(jid string, on bool) {
 		return
 	}
 	stop := make(chan struct{})
+	r.wg.Add(1)
 	r.active[jid] = stop
 	r.mu.Unlock()
 
 	r.send(jid) // eager best-effort; loop retries on next tick if this fails
-	r.wg.Add(1)
 	go r.loop(jid, stop)
 }
 

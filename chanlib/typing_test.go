@@ -4,8 +4,36 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 )
+
+// Stop waits until an eager send in progress returns.
+func TestTypingStopWaitsForEagerSend(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		entered := make(chan struct{})
+		release := make(chan struct{})
+		setDone := make(chan struct{})
+		stopped := make(chan struct{})
+		r := NewTypingRefresher(time.Hour, time.Hour, func(string) bool {
+			close(entered)
+			<-release
+			return true
+		}, nil)
+		go func() { r.Set("chat", true); close(setDone) }()
+		<-entered
+		go func() { r.Stop(); close(stopped) }()
+		synctest.Wait()
+		select {
+		case <-stopped:
+			t.Error("Stop returned while eager send remained blocked")
+		default:
+		}
+		close(release)
+		<-setDone
+		<-stopped
+	})
+}
 
 func TestTypingRefresher_RefreshesUntilStopped(t *testing.T) {
 	var sends atomic.Int32
