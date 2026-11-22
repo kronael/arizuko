@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/kronael/arizuko/audit"
+	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/store"
@@ -28,5 +29,38 @@ func TestRouteListReadErrorBothSurfaces(t *testing.T) {
 		if err == nil {
 			t.Errorf("%s: route read failure was hidden", surface)
 		}
+	}
+}
+
+type routeGuardReadFailure struct {
+	objstore.Store
+	reads int
+}
+
+func (s *routeGuardReadFailure) Query(ctx context.Context, q objstore.Query) ([]objstore.Item, error) {
+	if q.Entity == store.Routes {
+		s.reads++
+		if s.reads == 2 {
+			return nil, errors.New("route guard read failed")
+		}
+	}
+	return s.Store.Query(ctx, q)
+}
+
+func TestRouteSetGuardReadError(t *testing.T) {
+	db := memDB(t)
+	if _, err := db.AddRoute(core.Route{Seq: 0, Match: "platform=telegram", Target: "alice"}); err != nil {
+		t.Fatal(err)
+	}
+	db.obj = &routeGuardReadFailure{Store: db.obj}
+	v := fakeVerifier{sub: "alice", folder: "alice", scope: []string{"routes:write"}}
+	h := NewServer(db, nil, nil, v, 0, "").Handler()
+	r := doJSON(t, h, "PUT", "/v1/routes", "", map[string]any{"routes": []core.Route{}})
+	if r.Code != 500 {
+		t.Errorf("status = %d, want 500: %s", r.Code, r.Body.String())
+	}
+	routes, err := db.Routes()
+	if err != nil || len(routes) != 1 {
+		t.Errorf("routes = %v, err = %v; want protected route", routes, err)
 	}
 }

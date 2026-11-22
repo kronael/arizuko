@@ -195,7 +195,10 @@ func (s *Server) routesHandler(ctx context.Context, x resreg.Execution, contain 
 		}
 		// Invariant 2: if the live table holds a seq-0 route at this folder, the
 		// replacement must keep one.
-		existing, _ := s.db.Routes()
+		existing, err := s.db.Routes()
+		if err != nil {
+			return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
+		}
 		hadDefault := false
 		for _, r := range existing {
 			if isSelfDefault(r, folder) {
