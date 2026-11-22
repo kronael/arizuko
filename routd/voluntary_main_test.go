@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -76,6 +77,7 @@ func runVoluntaryMainFixture(t *testing.T) (*DB, *recDeliverer, []string, string
 	defer cancel()
 	cmd := exec.CommandContext(ctx, bun, "--preload", preload, filepath.Join(source, "index.ts"))
 	cmd.Env = append(os.Environ(), "VOLUNTARY_FIXTURE_ROOT="+root, "VOLUNTARY_FIXTURE_SOURCE="+source, "VOLUNTARY_FIXTURE_MODE=submit-nudge")
+	cmd.Env = append(cmd.Env, "ARIZUKO_QUERY_TIMEOUT_MS="+strconv.FormatInt(core.RunTimeout().Milliseconds(), 10))
 	cmd.Stdin = strings.NewReader(`{"prompt":"first request","messageId":"first","groupFolder":"demo","chatJid":"tg:1"}`)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -182,6 +184,9 @@ func TestVoluntaryReplyQueuedInputKeepsAuthoritativeTurn(t *testing.T) {
 			"VOLUNTARY_FIXTURE_ROOT="+root, "VOLUNTARY_FIXTURE_SOURCE="+source,
 			"VOLUNTARY_FIXTURE_SOCKET="+filepath.Join(cfg.IpcDir, "demo/gated.sock"),
 			"VOLUNTARY_FIXTURE_MODE=lifecycle")
+		for name, value := range turn.Env {
+			cmd.Env = append(cmd.Env, name+"="+value)
+		}
 		cmd.Stdin = strings.NewReader(string(turn.Stdin))
 		output, err := cmd.CombinedOutput()
 		outputs = append(outputs, string(output))
