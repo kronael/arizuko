@@ -25,10 +25,7 @@ import (
 
 const routeTokenBodyMax = 1 << 20 // 1 MiB
 
-var (
-	errRouteTokenStore  = fmt.Errorf("route-token: store failed")
-	errRouteTokenRouter = fmt.Errorf("route-token: router unavailable")
-)
+var errRouteTokenRouter = fmt.Errorf("route-token: router unavailable")
 
 // anonSender derives a stable "anon:<hex>" from the client IP. Same address the
 // anon DoS shield keys on — one derivation (clientIP), two readers, so a
@@ -219,14 +216,7 @@ func (s *server) handleChatTokenPost(w http.ResponseWriter, r *http.Request) {
 	jid := row.JID
 	m, userPayload, err := s.injectRouteMessage(jid, folder, content, topic, sender, senderName, r.PathValue("token"), row.Context)
 	if err != nil {
-		switch err {
-		case errRouteTokenStore:
-			http.Error(w, "store failed", http.StatusInternalServerError)
-		case errRouteTokenRouter:
-			http.Error(w, "router unavailable", http.StatusBadGateway)
-		default:
-			http.Error(w, "internal error", http.StatusInternalServerError)
-		}
+		http.Error(w, "router unavailable", http.StatusBadGateway)
 		return
 	}
 
