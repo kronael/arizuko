@@ -301,10 +301,12 @@ func fetchMsgToInbound(
 	if len(env.To) > 0 {
 		toAddr = env.To[0].Addr()
 	}
-	content := renderEmailContent(fromName, fromAddr, env.Subject, env.Date.Format(time.RFC1123Z), toAddr, body, atts)
-	// Set the trust Verb from the same classifier the live poller uses
-	// (imap.go) so replayed history carries the trusted/untrusted signal
-	// instead of an empty Verb — the "no drift" guarantee this file claims.
+	auth := classifyRaw(bodyRaw, authCfg)
+	subject := env.Subject
+	if auth.State == "untrusted" && authCfg.SubjectPrefix {
+		subject = "[UNVERIFIED] " + subject
+	}
+	content := renderEmailContent(fromName, fromAddr, subject, env.Date.Format(time.RFC1123Z), toAddr, body, atts)
 	return chanlib.InboundMsg{
 		ID:          msgID,
 		ChatJID:     "email:thread/" + threadID,
@@ -312,7 +314,7 @@ func fetchMsgToInbound(
 		SenderName:  fromName,
 		Content:     content,
 		Timestamp:   env.Date.Unix(),
-		Verb:        VerbForState(classifyRaw(bodyRaw, authCfg).State),
+		Verb:        VerbForState(auth.State),
 		Attachments: atts,
 	}, true
 }

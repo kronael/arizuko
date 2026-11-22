@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -271,6 +272,31 @@ func TestHandleMsgReturnsDeliveryError(t *testing.T) {
 	}
 	if err := p.handleMsg(nil, msg, chanlib.NewRouterClient(srv.URL)); err == nil {
 		t.Fatal("delivery failure returned nil")
+	}
+}
+
+// Live delivery and history render the same untrusted message.
+func TestHandleMsgMatchesHistory(t *testing.T) {
+	var got chanlib.InboundMsg
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Error(err)
+		}
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer srv.Close()
+	cfg := AuthConfig{SubjectPrefix: true}
+	p := &poller{cfg: config{Auth: cfg}, st: newTestMailstore(t), reg: newAttRegistry()}
+	msg := &imapclient.FetchMessageBuffer{
+		UID:      1,
+		Envelope: &imap.Envelope{MessageID: "<same@example.com>", Subject: "hello"},
+	}
+	if err := p.handleMsg(nil, msg, chanlib.NewRouterClient(srv.URL)); err == nil {
+		t.Fatal("expected delivery error")
+	}
+	want, ok := fetchMsgToInbound(msg, strings.TrimPrefix(got.ChatJID, "email:thread/"), "", nil, 0, cfg)
+	if !ok || got.Content != want.Content || got.Verb != want.Verb {
+		t.Fatalf("live = %+v, history = %+v", got, want)
 	}
 }
 

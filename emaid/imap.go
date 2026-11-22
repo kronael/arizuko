@@ -351,13 +351,9 @@ func (p *poller) handleMsg(
 		msgID = fmt.Sprintf("uid-%d", msg.UID)
 	}
 
-	var fromAddr, fromName string
+	var fromAddr string
 	if len(env.From) > 0 {
 		fromAddr = env.From[0].Addr()
-		fromName = env.From[0].Name
-		if fromName == "" {
-			fromName = fromAddr
-		}
 	}
 
 	var threadID, rootMsgID string
@@ -384,8 +380,6 @@ func (p *poller) handleMsg(
 	}
 
 	bodyRaw := msg.FindBodySection(&imap.FetchItemBodySection{})
-	body := ""
-	var atts []chanlib.InboundAttachment
 	auth := classifyRaw(bodyRaw, p.cfg.Auth)
 	if auth.State == "untrusted" && p.cfg.Auth.StrictAuth {
 		slog.Warn("dropping mail: auth untrusted (strict)",
@@ -400,38 +394,9 @@ func (p *poller) handleMsg(
 		}
 		return nil
 	}
-	if bodyRaw != nil {
-		body, atts = extractContent(bodyRaw, msg.UID, p.cfg.ListenURL, p.reg, p.cfg.MaxAttachment)
-	}
-
-	subject := env.Subject
-	if auth.State == "untrusted" && p.cfg.Auth.SubjectPrefix {
-		subject = "[UNVERIFIED] " + subject
-	}
-	toAddr := ""
-	if len(env.To) > 0 {
-		toAddr = env.To[0].Addr()
-	}
-	ts := env.Date.Unix()
-	content := renderEmailContent(fromName, fromAddr, subject, env.Date.Format(time.RFC1123Z), toAddr, body, atts)
-
-	jid := "email:thread/" + threadID
-	verb := VerbForState(auth.State)
-
-	if err := rc.SendMessage(chanlib.InboundMsg{
-		ID:          msgID,
-		ChatJID:     jid,
-		Sender:      "email:address/" + fromAddr,
-		SenderName:  fromName,
-		Content:     content,
-		Timestamp:   ts,
-		Verb:        verb,
-		Attachments: atts,
-		// Email threads are 1:1 by default. Mailing-list inbound is a
-		// future extension that should set IsGroup=true here.
-		IsGroup: false,
-	}); err != nil {
-		return fmt.Errorf("deliver %s: %w", jid, err)
+	inbound, _ := fetchMsgToInbound(msg, threadID, p.cfg.ListenURL, p.reg, p.cfg.MaxAttachment, p.cfg.Auth)
+	if err := rc.SendMessage(inbound); err != nil {
+		return fmt.Errorf("deliver %s: %w", inbound.ChatJID, err)
 	}
 	p.lastInboundAt.Store(time.Now().Unix())
 

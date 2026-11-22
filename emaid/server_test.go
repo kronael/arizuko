@@ -321,6 +321,18 @@ func TestFetchMsgToInbound_TrustedVerb(t *testing.T) {
 	}
 }
 
+// Untrusted history uses the same subject prefix as live mail.
+func TestFetchMsgToInboundPrefixesUntrustedSubject(t *testing.T) {
+	msg := &imapclient.FetchMessageBuffer{
+		UID:      1,
+		Envelope: &imap.Envelope{MessageID: "<m@example.com>", Subject: "hello"},
+	}
+	im, ok := fetchMsgToInbound(msg, "tid", "", nil, 0, AuthConfig{SubjectPrefix: true})
+	if !ok || !strings.Contains(im.Content, "Subject: [UNVERIFIED] hello") {
+		t.Fatalf("history content = %q, want unverified subject", im.Content)
+	}
+}
+
 // TestFetchMsgToInbound_NoEnvelope verifies missing envelope → !ok (skip).
 func TestFetchMsgToInbound_NoEnvelope(t *testing.T) {
 	_, ok := fetchMsgToInbound(&imapclient.FetchMessageBuffer{UID: 1}, "tid", "", nil, 0, AuthConfig{})
