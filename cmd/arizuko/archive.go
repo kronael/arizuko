@@ -699,11 +699,13 @@ func extractGroups(dataDir string, knownFolders []string, tarBytes []byte, force
 		if !allowed[folder] {
 			continue
 		}
-		groupDir, rerr := resolver.GroupPath(folder)
+		root, rerr := openRestoreGroup(resolver.GroupsDir, folder)
 		if rerr != nil {
 			return extracted, skipped, rerr
 		}
-		if err := extractTarEntry(groupDir, folder, hdr, tr); err != nil {
+		err := extractTarEntry(root, folder, hdr, tr)
+		_ = root.Close()
+		if err != nil {
 			return extracted, skipped, fmt.Errorf("extract %s: %w", hdr.Name, err)
 		}
 		extractedSet[folder] = true
@@ -722,26 +724,51 @@ func dirEmptyOrMissing(dir string) (bool, error) {
 	return len(entries) == 0, nil
 }
 
+func openRestoreGroup(groupsDir, folder string) (*os.Root, error) {
+	if err := os.MkdirAll(groupsDir, 0o755); err != nil {
+		return nil, err
+	}
+	root, err := os.OpenRoot(groupsDir)
+	if err != nil {
+		return nil, err
+	}
+	for _, part := range strings.Split(folder, "/") {
+		if err := root.Mkdir(part, 0o755); err != nil && !os.IsExist(err) {
+			_ = root.Close()
+			return nil, err
+		}
+		info, err := root.Lstat(part)
+		if err != nil || !info.IsDir() {
+			_ = root.Close()
+			return nil, fmt.Errorf("invalid group directory %q", folder)
+		}
+		next, err := root.OpenRoot(part)
+		if err != nil {
+			_ = root.Close()
+			return nil, err
+		}
+		opened, err := next.Stat(".")
+		_ = root.Close()
+		if err != nil || !os.SameFile(info, opened) {
+			_ = next.Close()
+			return nil, fmt.Errorf("group directory changed %q", folder)
+		}
+		root = next
+	}
+	return root, nil
+}
+
 // extractTarEntry writes one groups.tar entry under groupDir, refusing any
 // path that would escape it (zip-slip defense) and any non-regular,
 // non-directory entry type (symlinks/hardlinks/devices never travel —
 // dump never wrote one, so a hostile or corrupted archive is the only
 // way one appears).
-func extractTarEntry(groupDir, folder string, hdr *tar.Header, r io.Reader) error {
+func extractTarEntry(root *os.Root, folder string, hdr *tar.Header, r io.Reader) error {
 	rel := strings.TrimPrefix(strings.TrimSuffix(hdr.Name, "/"), folder)
 	rel = strings.TrimPrefix(rel, "/")
 	if rel == "" {
 		rel = "."
 	}
-	if err := os.MkdirAll(groupDir, 0o755); err != nil {
-		return err
-	}
-	root, err := os.OpenRoot(groupDir)
-	if err != nil {
-		return err
-	}
-	// Closing the directory handle cannot affect completed writes.
-	defer root.Close() //nolint:errcheck
 	switch hdr.Typeflag {
 	case tar.TypeDir:
 		return root.MkdirAll(rel, 0o755)
