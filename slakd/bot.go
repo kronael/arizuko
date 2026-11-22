@@ -308,20 +308,13 @@ func (b *bot) watchdog(ctx context.Context) {
 			quiet = false
 			fails++
 			slog.Warn("slack inbound stale and auth.test failing", "stale_seconds", age, "consecutive", fails, "limit", limit)
-			if watchdogShouldExit(true, fails, limit) {
+			if fails >= limit {
 				slog.Error("slack auth.test dead past deadline; exiting for restart",
 					"stale_seconds", age, "consecutive_fails", fails, "limit", limit)
 				os.Exit(1)
 			}
 		}
 	}
-}
-
-// watchdogShouldExit is the restart-backstop decision, factored out so it can be
-// tested without a real os.Exit. Exit only when currently stale AND the stale
-// streak has reached the limit (a single recovered tick resets the streak).
-func watchdogShouldExit(stale bool, consecutiveFails, limit int) bool {
-	return stale && consecutiveFails >= limit
 }
 
 // healthProbe re-checks Slack reachability with the configured token so

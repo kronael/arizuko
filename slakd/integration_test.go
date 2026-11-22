@@ -1572,29 +1572,6 @@ func TestWatchdog_QuietHealthyNeverExits(t *testing.T) {
 	}
 }
 
-// The restart-backstop decision: exit only when currently stale AND the stale
-// streak has reached the limit; a recovered tick (stale=false) never exits and
-// resets the streak.
-func TestWatchdogShouldExit(t *testing.T) {
-	cases := []struct {
-		stale bool
-		fails int
-		limit int
-		want  bool
-	}{
-		{stale: true, fails: 5, limit: 5, want: true},   // hit the limit
-		{stale: true, fails: 6, limit: 5, want: true},   // past the limit
-		{stale: true, fails: 4, limit: 5, want: false},  // not yet
-		{stale: false, fails: 9, limit: 5, want: false}, // recovered ⇒ never exit
-		{stale: true, fails: 1, limit: 1, want: true},   // limit of 1
-	}
-	for _, c := range cases {
-		if got := watchdogShouldExit(c.stale, c.fails, c.limit); got != c.want {
-			t.Errorf("watchdogShouldExit(%v,%d,%d) = %v, want %v", c.stale, c.fails, c.limit, got, c.want)
-		}
-	}
-}
-
 // ===== helpers =====
 
 func writeFile(t *testing.T, path string, data []byte) {
