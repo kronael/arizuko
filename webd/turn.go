@@ -275,10 +275,21 @@ func (s *server) handleTurnSSE(w http.ResponseWriter, r *http.Request) {
 	if flusher != nil {
 		flusher.Flush()
 	}
-	for _, m := range msgs {
-		fr := messageFrames([]core.Message{m})[0]
-		data, _ := json.Marshal(fr)
-		if writeSSE(w, flusher, "id: "+fr.ID+"\nevent: "+fr.Kind+"\ndata: "+string(data)+"\n\n") != nil {
+	for {
+		for _, m := range msgs {
+			fr := messageFrames([]core.Message{m})[0]
+			data, _ := json.Marshal(fr)
+			if writeSSE(w, flusher, "id: "+fr.ID+"\nevent: "+fr.Kind+"\ndata: "+string(data)+"\n\n") != nil {
+				return
+			}
+		}
+		if len(msgs) < 200 {
+			break
+		}
+		after = msgs[len(msgs)-1].ID
+		msgs, err = s.stRoutd.TurnFrames(chatJID, turnID, after, 200)
+		if err != nil {
+			slog.Error("turn SSE: replay query failed", "turn_id", turnID, "after", after, "err", err)
 			return
 		}
 	}
