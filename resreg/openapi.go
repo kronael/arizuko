@@ -71,7 +71,7 @@ func OpenAPI(daemon, baseURL string, rs []*Resource) ([]byte, error) {
 			"responses": stdResponses(),
 		},
 	}
-	return marshalDeterministic(doc)
+	return json.MarshalIndent(doc, "", "  ")
 }
 
 // MountedResources returns the registry resources mux ACTUALLY serves, each
@@ -489,11 +489,6 @@ func schemaName(resource string) string {
 		parts[i] = strings.ToUpper(p[:1]) + p[1:]
 	}
 	return strings.Join(parts, "")
-}
-
-// marshalDeterministic JSON-encodes v with sorted object keys + 2-space indent.
-func marshalDeterministic(v any) ([]byte, error) {
-	return json.MarshalIndent(v, "", "  ")
 }
 
 // OpenAPIHandler returns an http.HandlerFunc serving the OpenAPI spec for

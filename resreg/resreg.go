@@ -634,14 +634,11 @@ func actionKey(resource string, action Action) string {
 // defaultGate is the operator authorization used when Resource.Gate is nil:
 // auth.Authorize over the resource's ACL rows.
 func (r Resource) defaultGate(x Execution, scope string, params map[string]string) error {
-	if auth.Authorize(r.Store, authCaller(x.Caller), actionKey(r.Name, x.Action), scope, params) {
+	caller := auth.Caller{Principal: x.Caller.Sub, Claims: x.Caller.Claims}
+	if auth.Authorize(r.Store, caller, actionKey(r.Name, x.Action), scope, params) {
 		return nil
 	}
 	return Errorf(http.StatusForbidden, "forbidden")
-}
-
-func authCaller(c Caller) auth.Caller {
-	return auth.Caller{Principal: c.Sub, Claims: c.Claims}
 }
 
 // auditRow renders the row that records a SUCCESSFUL mutation. It PRODUCES the

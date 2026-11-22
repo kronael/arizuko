@@ -266,7 +266,7 @@ func (r *Resource) entityScopeOf(m *resourceMeta, sortFields []fieldMeta) *entit
 // entityScopeQuery is the read that finds one scope's items.
 func (r *Resource) entityScopeQuery(scope string) objstore.Query {
 	e := r.meta.entity
-	q := objstore.Query{Entity: r.Table, Partition: r.entityPartition(), Where: r.RowFilter}
+	q := objstore.Query{Entity: r.Table, Partition: r.DB, Where: r.RowFilter}
 	switch {
 	case e.scope.attr != "" && scope == "":
 		// An empty string is an ABSENT attribute (itemFor), so the instance-wide
@@ -307,10 +307,6 @@ func (r *Resource) entityScopeDeletes(rd Backend, scope string) ([]objstore.Writ
 // never the storage.
 func (r *Resource) IsEntity() bool { return r.meta != nil && r.meta.entity != nil }
 
-// entityPartition is the partition every one of a resource's items lives in:
-// the owner subsystem (EntitySortKey).
-func (r *Resource) entityPartition() string { return r.DB }
-
 // scanEntities reads every item of the resource, in sort-key order. EmitRows
 // sorts by PK before emitting and Diff indexes by PK, so nothing downstream
 // depends on that order.
@@ -321,7 +317,7 @@ func (r *Resource) scanEntities(rd Backend) (any, error) {
 	}
 	items, err := rd.Obj.Query(context.Background(), objstore.Query{
 		Entity:    r.Table,
-		Partition: r.entityPartition(),
+		Partition: r.DB,
 		Where:     r.RowFilter,
 	})
 	if err != nil {
@@ -477,7 +473,7 @@ func (r *Resource) itemFor(v reflect.Value) (objstore.Write, error) {
 	return objstore.Write{
 		Op:     objstore.Put,
 		Entity: r.Table,
-		Key:    objstore.Key{Partition: r.entityPartition(), Sort: sort},
+		Key:    objstore.Key{Partition: r.DB, Sort: sort},
 		Attrs:  attrs,
 	}, nil
 }
@@ -557,7 +553,7 @@ func (r *Resource) entityWipe(rd Backend) ([]objstore.Write, error) {
 	}
 	items, err := rd.Obj.Query(context.Background(), objstore.Query{
 		Entity:    r.Table,
-		Partition: r.entityPartition(),
+		Partition: r.DB,
 		Where:     r.RowFilter,
 	})
 	if err != nil {
