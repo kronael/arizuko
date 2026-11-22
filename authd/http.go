@@ -254,6 +254,9 @@ func (s *server) handleTokens(w http.ResponseWriter, r *http.Request) {
 	}
 	switch {
 	case err == nil:
+	case errors.Is(err, auth.ErrExpiredToken):
+		writeErr(w, http.StatusUnauthorized, "unauthorized", "valid bearer required")
+		return
 	case errors.Is(err, auth.ErrScopeTooBroad) && issuer:
 		writeErr(w, http.StatusForbidden, "scope_exceeds_minter", "requested scope exceeds target grants")
 		return
