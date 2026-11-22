@@ -74,21 +74,6 @@ func (l *Loop) reconcileTeam(ctx context.Context, folder string, capCents int) e
 	return nil
 }
 
-// reconcileUser moves one person's row onto the operator's cap, the same way
-// reconcileTeam moves the folder's.
-//
-// It READS even when the operator's cap is zero, and that is the whole of BUGS
-// `L401`'s sibling `L402`: returning early on `capCents == 0` was right for someone
-// who never had a cap and wrong for someone whose cap was REMOVED. The gateway row
-// already existed, still carried the old `max_budget`, and nothing ever cleared it —
-// so taking a person's cap away left the gateway refusing them, with no cap anywhere
-// in arizuko to explain why. `reconcileTeam` has always pushed the zero
-// (`b.CapCents != capCents` is true for 0 too); only the user half returned first.
-//
-// The cost is one gateway read per turn for a caller who holds no cap, which is what
-// the early return bought. It is a local call on the compose network, the folder half
-// already pays it on every turn, and the alternative is a second piece of state
-// recording "this person once had a cap" — a worse trade than one read.
 func (l *Loop) reconcileUser(ctx context.Context, userSub string, capCents int) error {
 	if userSub == "" {
 		return nil

@@ -71,12 +71,6 @@ func (l *Loop) processChat(chatJID string, commandsOnly bool) (hadOutput bool, r
 		}()
 	}
 
-	// Three questions, three rows. The busy key is the newest user row; the steer
-	// offer takes the oldest slash command; the folder comes from the newest row
-	// that dispatches on its own (resolveBatch). Sharing one row made a `/root`
-	// followed by an @mention miss a mention-only route and drop the batch
-	// (BUGS L56, L336), and a newer review row that matched only ?observe took a
-	// pending mention with it (BUGS L551).
 	busyIdx := newestUserIdx(msgs)
 	if busyIdx < 0 {
 
