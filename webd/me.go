@@ -15,18 +15,6 @@ import (
 	"github.com/kronael/arizuko/groupfolder"
 )
 
-const meHead = `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>arizuko</title>
-<script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js"></script>
-<script src="https://unpkg.com/htmx-ext-sse@2.2.2/sse.js"></script>
-<link rel="stylesheet" href="/static/style.css">
-</head>
-`
-
 // meShell writes the three-pane shell open tags; caller writes main content then meShellClose.
 func meShellOpen(w http.ResponseWriter, r *http.Request) {
 	sub := userSub(r)
@@ -35,7 +23,7 @@ func meShellOpen(w http.ResponseWriter, r *http.Request) {
 		name = sub
 	}
 	w.Header().Set("Content-Type", "text/html")
-	_, _ = fmt.Fprint(w, meHead)
+	_, _ = fmt.Fprint(w, htmlHead)
 	_, _ = fmt.Fprintf(w, `<body class="me-shell">
 <header class="topbar">
   <a href="/me/" class="logo">&#x25A0; arizuko</a>
