@@ -1100,13 +1100,37 @@ func indexByteFrom(s string, c byte, start int) int {
 }
 
 func (d *dash) openGroupRoot(folder string) (*os.Root, error) {
-	base, err := os.OpenRoot(d.groupsDir)
+	root, err := os.OpenRoot(d.groupsDir)
 	if err != nil {
 		return nil, err
 	}
-	// The child root remains open independently.
-	defer base.Close() //nolint:errcheck
-	return base.OpenRoot(folder)
+	for _, part := range strings.Split(folder, string(filepath.Separator)) {
+		info, err := root.Lstat(part)
+		if err != nil || !info.IsDir() {
+			// Closing the directory handle cannot affect the refusal.
+			_ = root.Close()
+			if err != nil {
+				return nil, err
+			}
+			return nil, fmt.Errorf("invalid group directory %q: %w", folder, errEscape)
+		}
+		next, err := root.OpenRoot(part)
+		if err != nil {
+			// Closing the directory handle cannot affect the refusal.
+			_ = root.Close()
+			return nil, err
+		}
+		opened, err := next.Stat(".")
+		// The child root remains open independently.
+		_ = root.Close()
+		if err != nil || !os.SameFile(info, opened) {
+			// Closing the directory handle cannot affect the refusal.
+			_ = next.Close()
+			return nil, fmt.Errorf("group directory changed %q: %w", folder, errEscape)
+		}
+		root = next
+	}
+	return root, nil
 }
 
 func (d *dash) handleMemoryWrite(w http.ResponseWriter, r *http.Request) {
