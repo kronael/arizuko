@@ -62,6 +62,19 @@ func TestLoadConfigFromEnv(t *testing.T) {
 	}
 }
 
+func TestLoadConfigDataDirDoesNotDefineIdentity(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "my instance")
+	t.Setenv("DATA_DIR", dir)
+	t.Setenv("ASSISTANT_NAME", "configured")
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ProjectRoot != dir || cfg.Name != "configured" {
+		t.Fatalf("root=%q name=%q", cfg.ProjectRoot, cfg.Name)
+	}
+}
+
 func TestLoadConfigRejectsAgentLimitAlias(t *testing.T) {
 	t.Setenv("MAX_CONCURRENT_CONTAINERS", "1")
 	for _, value := range []string{"", "2"} {

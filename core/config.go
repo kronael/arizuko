@@ -286,14 +286,8 @@ func LoadConfig() (*Config, error) {
 	// egress isolation, in docker.go), not here — other daemons call
 	// LoadConfig too and must not fail when egress is on.
 
-	// ASSISTANT_NAME and data dir basename end up in container_name and
-	// YAML scalars unquoted — reject anything that would break them.
 	if strings.ContainsAny(c.Name, " \t\r\n:'\"\\/") {
 		return nil, fmt.Errorf("ASSISTANT_NAME %q contains whitespace or special characters", c.Name)
-	}
-	flavor := filepath.Base(c.ProjectRoot)
-	if strings.ContainsAny(flavor, " \t\r\n:'\"\\") {
-		return nil, fmt.Errorf("data dir basename %q contains whitespace or special characters", flavor)
 	}
 
 	return c, nil
