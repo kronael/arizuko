@@ -197,19 +197,43 @@ func (d *dash) setSkillDisabled(folder, skill string, disable bool) error {
 	if !skillNameRe.MatchString(skill) {
 		return fmt.Errorf("invalid skill name: %s", skill)
 	}
-	dir := filepath.Join(d.groupsDir, filepath.Clean(folder), ".claude", "skills", skill)
-	marker := filepath.Join(dir, ".disabled")
 	if disable {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
+		base, err := os.OpenRoot(d.groupsDir)
+		if err != nil {
 			return err
 		}
-		f, err := os.OpenFile(marker, os.O_CREATE|os.O_TRUNC, 0o644)
+		err = base.MkdirAll(folder, 0o755)
+		// Closing the directory handle cannot affect the completed operation.
+		_ = base.Close()
+		if err != nil {
+			return err
+		}
+	}
+	root, err := d.openGroupRoot(folder)
+	if os.IsNotExist(err) && !disable {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	// Closing the directory handle cannot affect the completed operation.
+	defer root.Close() //nolint:errcheck
+	dir := filepath.Join(".claude", "skills", skill)
+	marker := filepath.Join(dir, ".disabled")
+	if disable {
+		if err := root.MkdirAll(dir, 0o755); err != nil {
+			return err
+		}
+		f, err := root.OpenFile(marker, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+		if os.IsExist(err) {
+			return nil
+		}
 		if err != nil {
 			return err
 		}
 		return f.Close()
 	}
-	err := os.Remove(marker)
+	err = root.Remove(marker)
 	if os.IsNotExist(err) {
 		return nil
 	}
