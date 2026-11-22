@@ -450,24 +450,21 @@ func (s *Store) GroupByFolderChecked(folder string) (core.Group, bool, error) {
 	return g, true, err
 }
 
-func (s *Store) setSetting(folder, key string, value any, remove bool) error {
+// SetGroupOpen flips the visibility bit. The group must exist.
+func (s *Store) SetGroupOpen(folder string, open bool) error {
 	ctx := context.Background()
 	it, ok, err := s.groupItem(ctx, folder)
 	if err != nil {
 		return err
 	}
 	if !ok {
-		return fmt.Errorf("group %q has no row to set %s on", folder, key)
+		return fmt.Errorf("group %q has no row to set %s on", folder, cfgOpen)
 	}
 	cfg, err := decodeSettings(it)
 	if err != nil {
 		return err
 	}
-	if remove {
-		delete(cfg, key)
-	} else {
-		cfg[key] = value
-	}
+	cfg[cfgOpen] = btoi(open)
 	raw, err := json.Marshal(cfg)
 	if err != nil {
 		return fmt.Errorf("group %q settings: %w", folder, err)
@@ -478,11 +475,6 @@ func (s *Store) setSetting(folder, key string, value any, remove bool) error {
 		Cond:  objstore.Cond{Where: []objstore.Cmp{attrIs(attrGrpConfig, it.Attrs[attrGrpConfig])}},
 	})
 	return err
-}
-
-// SetGroupOpen flips the visibility bit. The group must exist.
-func (s *Store) SetGroupOpen(folder string, open bool) error {
-	return s.setSetting(folder, cfgOpen, btoi(open), false)
 }
 
 // GroupObserveWindow returns the per-group observe-window caps. (-1,-1) means
