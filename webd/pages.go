@@ -118,14 +118,17 @@ function newTopic() {
   streamTopic('t' + Array.from(bytes, b => b.toString(16).padStart(2, '0')).join(''));
   document.getElementById('thread').innerHTML = '';
 }
+var sending = false;
 async function sendMsg(e) {
   e.preventDefault();
+  if (sending) return;
   var input = document.getElementById('msg-input');
   var submitted = input.value;
   var content = submitted.trim();
   if (!content) return;
   var error = document.getElementById('send-error');
   error.textContent = '';
+  sending = true;
   try {
     var response = await fetch('/api/groups/' + encodeURIComponent(folder) + '/messages', {
       method: 'POST',
@@ -136,6 +139,8 @@ async function sendMsg(e) {
     if (input.value === submitted) input.value = '';
   } catch (err) {
     error.textContent = 'Message could not be sent. Try again.';
+  } finally {
+    sending = false;
   }
 }
 </script>

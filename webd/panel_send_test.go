@@ -21,7 +21,7 @@ func TestPanelSendKeepsUnsentText(t *testing.T) {
 	if end < 0 {
 		t.Fatal("sendMsg script missing")
 	}
-	script = script[start:start+end] + `
+	script = "var sending = false;\n" + script[start:start+end] + `
 const assert = require('assert');
 const input = {value:'first'};
 const error = {textContent:''};
@@ -35,10 +35,13 @@ let fetch = async () => ({ok:false});
  fetch = async () => { throw Error('offline') };
  await sendMsg({preventDefault(){}});
  assert.equal(input.value, 'first'); assert(error.textContent);
- let finish;
- fetch = () => new Promise(resolve => {finish=resolve});
+ let finish, requests = 0;
+ fetch = () => { requests++; return new Promise(resolve => {finish=resolve}); };
  const pending = sendMsg({preventDefault(){}});
+ const duplicate = sendMsg({preventDefault(){}});
+ assert.equal(requests, 1);
  input.value = 'second'; finish({ok:true}); await pending;
+ await duplicate;
  assert.equal(input.value, 'second');
  input.value = 'third'; fetch = async () => ({ok:true});
  await sendMsg({preventDefault(){}}); assert.equal(input.value, '');
