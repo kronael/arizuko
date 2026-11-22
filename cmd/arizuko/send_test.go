@@ -25,12 +25,21 @@ import (
 func TestOperatorInjectTopicWait(t *testing.T) {
 	if dir := os.Getenv("ARIZUKO_REFUSAL_CHILD"); dir != "" {
 		st := mustOpen("routd")
-		operatorInject(st, dir, "krons", "operator", "hello", "wanted", true)
+		operatorInject(st, dir, "krons", "operator", "hello", os.Getenv("ARIZUKO_TEST_TOPIC"), true)
 		return
 	}
 	if testing.Short() {
 		t.Skip("timed reply regression")
 	}
+	for _, topic := range []string{"", "wanted"} {
+		t.Run("topic="+topic, func(t *testing.T) {
+			t.Setenv("ARIZUKO_TEST_TOPIC", topic)
+			testOperatorInjectTopicWait(t, topic)
+		})
+	}
+}
+
+func testOperatorInjectTopicWait(t *testing.T, topic string) {
 	st := instanceStore(t)
 	key, err := auth.NewSigningKey("topic-test")
 	if err != nil {
@@ -78,7 +87,7 @@ func TestOperatorInjectTopicWait(t *testing.T) {
 	if wait := time.Until(start.Add(18 * time.Second)); wait > 0 {
 		time.Sleep(wait)
 	}
-	write("wanted", "wanted", "wanted reply")
+	write("wanted", topic, "wanted reply")
 	time.Sleep(3 * time.Second)
 	write("late-foreign", "other", "late foreign reply")
 	err = cmd.Wait()

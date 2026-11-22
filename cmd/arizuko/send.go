@@ -182,7 +182,7 @@ func operatorInject(st *store.Store, dataDir, folder, sender, msg, topic string,
 			if r.Timestamp.After(cursor) {
 				cursor = r.Timestamp
 			}
-			if topic != "" && r.Topic != topic {
+			if r.Topic != topic {
 				continue
 			}
 			if r.Content != "" && r.Content != lastPrinted {
