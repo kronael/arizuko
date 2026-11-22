@@ -1237,3 +1237,22 @@ func TestAwaitCancellationDuringGrace(t *testing.T) {
 		})
 	}
 }
+
+func TestCanceledControlStopIsBounded(t *testing.T) {
+	host, guest := net.Pipe()
+	defer host.Close()
+	defer guest.Close()
+	sess := newCtlSession(host, nil, nil)
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	q := &qemuRuntime{paths: qemuPaths{Grace: time.Millisecond}}
+	done := make(chan struct{})
+	go func() { _, _ = q.await(ctx, sess, make(chan error), make(chan error), Turn{}); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(100 * time.Millisecond):
+		host.Close()
+		<-done
+		t.Fatal("stop blocked beyond grace")
+	}
+}

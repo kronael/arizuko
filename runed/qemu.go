@@ -588,6 +588,8 @@ func (q *qemuRuntime) await(
 			return turnEnd{code: exitCodeOf(werr)}, nil
 		case <-ctx.Done():
 			slog.Info("turn deadline reached, stopping guest", "folder", t.Folder, "handle", t.Handle)
+			closeTimer := time.AfterFunc(q.paths.Grace, func() { _ = sess.conn.Close() })
+			defer closeTimer.Stop()
 			_ = sess.stop()
 			if code, ok, _ := lastWord(sess, served, q.paths.Grace); ok {
 				return turnEnd{code: code, timedOut: true, framed: true}, nil
