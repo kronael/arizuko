@@ -92,6 +92,7 @@ func (s *server) handleChatPage(w http.ResponseWriter, r *http.Request) {
               enterkeyhint="send" rows="1"
               onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendMsg(event)}"></textarea>
     <button type="submit">send</button>
+    <span id="send-error" role="alert"></span>
   </form>
 </footer>
 <script>
@@ -120,14 +121,22 @@ function newTopic() {
 async function sendMsg(e) {
   e.preventDefault();
   var input = document.getElementById('msg-input');
-  var content = input.value.trim();
+  var submitted = input.value;
+  var content = submitted.trim();
   if (!content) return;
-  input.value = '';
-  await fetch('/api/groups/' + encodeURIComponent(folder) + '/messages', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({content: content, topic: _topic})
-  });
+  var error = document.getElementById('send-error');
+  error.textContent = '';
+  try {
+    var response = await fetch('/api/groups/' + encodeURIComponent(folder) + '/messages', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({content: content, topic: _topic})
+    });
+    if (!response.ok) throw new Error('send failed');
+    if (input.value === submitted) input.value = '';
+  } catch (err) {
+    error.textContent = 'Message could not be sent. Try again.';
+  }
 }
 </script>
 </body></html>`,
