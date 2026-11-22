@@ -14,19 +14,6 @@
 > so counting one as open overstates the queue.
 
 
-## L915 — routd loses ingests in a burst on one chat: every message races the chat row (2026-11-22, open)
-
-`store.appendMessage` (`store/messages.go`) updates the chat row for every non-bot
-message under a CAS on its revision (`input_last`, `input_first`) and adds
-`activityWrite`; `objstore` retries 16 times and `putMessage` 16 more, then
-routd answers 500 `store_error`. CI events arrive in bursts on one chat.
-**Measured:** sloth journal, the 12 h to 2026-11-22 12:35: 880 `ingest failed`, of
-which 545 on `github:vumilan/morha` / `pr/532` with `index write changed during 16
-attempts` and 4 with `chat changed during every attempt`. Same class as `L912`.
-**Fix:** serialise appends per chat inside routd, the only writer of messages,
-so the CAS never races itself; keep the CAS for safety.
-**Type:** bug, test — concurrent appends to one chat must all succeed.
-
 ## L916 — a held deferred turn is logged as a failure every minute (2026-11-22, open)
 
 A deferred turn (`\0turn:<id>`) whose older model input is still pending returns
@@ -565,7 +552,6 @@ The browser retry integration owns this fix after the current serial capacity wo
 - `L826` — one folder's crash closes the whole instance for an hour; per-folder breaker or a 30 s probe; needs sign-off.
 - `L913` — a new topic on a pi folder starts without its parent's history; fix waits on a live pi resume check.
 - `L914` — a claude turn's shell has no Claude login: Claude Code deletes its own token; owner choice of a, b or c.
-- `L915` — routd loses ingests in a burst on one chat (545 in 12 h on sloth); fix in progress.
 - `L916` — a held deferred turn logs ERROR every minute though it runs later; fix in progress.
 - `L816` — gitd loses GitHub webhooks while the store is unreachable; retention lives in that store; proposal, needs sign-off.
 - `L803` — morha repeats recovery reports and replies to an old GitHub comment; cause unmeasured.
