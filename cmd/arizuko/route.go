@@ -71,7 +71,10 @@ func parseRouteAdd(args []string) (seq int, match, target string, err error) {
 }
 
 func runRouteList(s *store.Store, w io.Writer) error {
-	routes := s.AllRoutes()
+	routes, err := s.RouteTable()
+	if err != nil {
+		return err
+	}
 	if len(routes) == 0 {
 		_, _ = fmt.Fprintln(w, "no routes")
 		return nil

@@ -2,12 +2,25 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"strings"
 	"testing"
 
 	"github.com/kronael/arizuko/objstore"
+	"github.com/kronael/arizuko/objstore/dynstore/dyntest"
 	"github.com/kronael/arizuko/store"
 )
+
+func TestRouteListReportsReadFailure(t *testing.T) {
+	driver := dyntest.Store(t, store.Routes)
+	if err := driver.DropEntity(context.Background(), store.Routes); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := runRouteList(store.NewOver(driver), &out); err == nil || out.Len() != 0 {
+		t.Fatalf("error = %v, output = %q; want error and no output", err, out.String())
+	}
+}
 
 // TestRouteAddListRm exercises the full CLI round-trip: add → list (shows it) →
 // rm → list (gone), against an in-memory store.
