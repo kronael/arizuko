@@ -14,6 +14,42 @@
 > so counting one as open overstates the queue.
 
 
+## L917 — deep refine round 1: 25 findings that change a contract wait for sign-off (2026-11-22, open)
+
+Six read-only audits (one per area) and six fixers ran on v0.75.20; 101 findings
+shipped as commits on `main`. These were confirmed but not built, because each
+changes a documented contract, schema or cross-daemon flow:
+
+1. routd: a token-store read error falls back to JID grammar (`routd/tokens.go:18`); needs an error-bearing IPC lookup (`ipc/ipc.go:185`).
+2. routd: one batch with two route destinations runs under one folder (`routd/dispatch.go:191`); split by destination changes the batch policy (`routd/README.md:89`).
+3. routd: a transient route-table failure consumes accepted input; retrying changes the drop-on-failure policy.
+4. routd: a failed scheduler rearm disables a task until restart; live recovery needs a claim-owner decision.
+5. routd: `/new` loses the source thread and identity; keeping them changes its topic-session policy.
+6. store: OAuth archives omit credential fields (schema).
+7. store: task error wrappers swallow errors (exported return contracts).
+8. store: message archives omit hops and status (schema).
+9. store: projection keys omit chat identity (migration).
+10. store: `SiblingFolders` has test callers only (exported API).
+11. proxyd: private-file and DAV ACL denies need read/write actions and COPY/MOVE authorization (`proxyd/main.go:498`).
+12. proxyd: dashboard mutations bypass resource execution (`proxyd/dash.go:62`).
+13. proxyd: forward-auth refresh needs cookie propagation across the proxy (`proxyd/README.md:163`).
+14. auth: `JSSafe` is unused but exported (`auth/web.go:26`).
+15. ant/runed: the steer transport has no production reader (Turn and wire contract).
+16. ant: harness capability fields other than `manual` have no reader (`HarnessProfile`).
+17. webd: a documented endpoint answers `saved` without writing (`webd/me.go:453`, `webd/README.md:342`).
+18. whapd: pair completion swaps sockets directly (`whapd/src/bot.ts:161`); connection ownership.
+19. adapters: reaction ids omit the actor, so two users' reactions collide (persisted ids).
+20. chanlib: `ProxyFile` answers a capped download as success (`chanlib/chanlib.go:474`).
+21. whapd: registers once; recovery needs recurring cross-daemon calls.
+22. chanlib: dashboard capability rendering runs live mutation probes (`chanlib/dash.go:134`).
+23. emaid: thread lookups turn engine errors into misses (`emaid/emaistore/email_threads.go:36`).
+24. whapd: forwarding sends an id placeholder (`whapd/src/server.ts:476`).
+25. chanlib: the dedup store's `Close` is a no-op in an exported API (`chanlib/dedup.go:33`).
+
+**Measured:** the per-area reports and fixer logs of 2026-11-21/22 (job scratch);
+each fixer re-checked its finding against the code before keeping it here.
+**Type:** design, no test — owner decisions, one per line.
+
 ## L914 — the shell of a claude turn has no Claude login (2026-11-21, open)
 
 The owner asked for `claude` and `codex` logged in from every turn's shell. Codex
@@ -538,6 +574,7 @@ The browser retry integration owns this fix after the current serial capacity wo
 - `L826` — one folder's crash closes the whole instance for an hour; per-folder breaker or a 30 s probe; needs sign-off.
 - `L913` — a new topic on a pi folder starts without its parent's history; fix waits on a live pi resume check.
 - `L914` — a claude turn's shell has no Claude login: Claude Code deletes its own token; owner choice of a, b or c.
+- `L917` — 25 refine findings that change a contract or schema; one owner decision per line.
 - `L816` — gitd loses GitHub webhooks while the store is unreachable; retention lives in that store; proposal, needs sign-off.
 - `L803` — morha repeats recovery reports and replies to an old GitHub comment; cause unmeasured.
 - `L804` — Codex topic forks do not inherit the parent's model context; observed messages remain available.
