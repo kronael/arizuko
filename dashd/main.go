@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	_ "embed"
 	"encoding/json"
 	"errors"
@@ -1098,31 +1099,14 @@ func indexByteFrom(s string, c byte, start int) int {
 	return -1
 }
 
-func (d *dash) resolveMemoryFile(folder, rel string) (string, error) {
-	if !memoryPathAllowed(rel) {
-		return "", errors.New("path not allowed")
-	}
-	groupDir := filepath.Join(d.groupsDir, filepath.Clean(folder))
-	if !strings.HasPrefix(groupDir, d.groupsDir+string(filepath.Separator)) &&
-		groupDir != d.groupsDir {
-		return "", errEscape
-	}
-	real, err := filepath.EvalSymlinks(groupDir)
+func (d *dash) openGroupRoot(folder string) (*os.Root, error) {
+	base, err := os.OpenRoot(d.groupsDir)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	if real != d.groupsDir &&
-		!strings.HasPrefix(real, d.groupsDir+string(filepath.Separator)) {
-		return "", errEscape
-	}
-	target := filepath.Join(real, rel)
-	if st, err := os.Lstat(target); err == nil && st.Mode()&os.ModeSymlink != 0 {
-		return "", errEscape
-	}
-	if !strings.HasPrefix(target, real+string(filepath.Separator)) {
-		return "", errEscape
-	}
-	return target, nil
+	// The child root remains open independently.
+	defer base.Close() //nolint:errcheck
+	return base.OpenRoot(folder)
 }
 
 func (d *dash) handleMemoryWrite(w http.ResponseWriter, r *http.Request) {
@@ -1134,9 +1118,15 @@ func (d *dash) handleMemoryWrite(w http.ResponseWriter, r *http.Request) {
 	if _, ok := d.requireAdmin(w, r, folder); !ok {
 		return
 	}
-	target, err := d.resolveMemoryFile(folder, rel)
+	root, err := d.openGroupRoot(folder)
 	if err != nil {
 		slog.Warn("memory write: resolve", "folder", folder, "rel", rel, "err", err)
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	// Closing the directory handle cannot affect the completed operation.
+	defer root.Close() //nolint:errcheck
+	if st, err := root.Lstat(rel); err == nil && st.Mode()&os.ModeSymlink != 0 {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
@@ -1149,20 +1139,27 @@ func (d *dash) handleMemoryWrite(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "payload too large", http.StatusRequestEntityTooLarge)
 		return
 	}
-	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-		slog.Warn("memory write: mkdir", "path", target, "err", err)
+	if err := root.MkdirAll(filepath.Dir(rel), 0o755); err != nil {
 		http.Error(w, "mkdir", http.StatusInternalServerError)
 		return
 	}
-	tmp := target + ".tmp"
-	if err := os.WriteFile(tmp, body, 0o644); err != nil {
-		slog.Warn("memory write: tmp", "path", tmp, "err", err)
+	tmp := filepath.Join(filepath.Dir(rel), ".memory-"+rand.Text())
+	f, err := root.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if err != nil {
 		http.Error(w, "write", http.StatusInternalServerError)
 		return
 	}
-	if err := os.Rename(tmp, target); err != nil {
-		_ = os.Remove(tmp)
-		slog.Warn("memory write: rename", "path", target, "err", err)
+	_, writeErr := f.Write(body)
+	closeErr := f.Close()
+	if writeErr != nil || closeErr != nil {
+		// Cleanup is best-effort after a failed write.
+		_ = root.Remove(tmp)
+		http.Error(w, "write", http.StatusInternalServerError)
+		return
+	}
+	if err := root.Rename(tmp, rel); err != nil {
+		// Cleanup is best-effort after a failed rename.
+		_ = root.Remove(tmp)
 		http.Error(w, "rename", http.StatusInternalServerError)
 		return
 	}
@@ -1179,18 +1176,24 @@ func (d *dash) handleMemoryDelete(w http.ResponseWriter, r *http.Request) {
 	if _, ok := d.requireAdmin(w, r, folder); !ok {
 		return
 	}
-	target, err := d.resolveMemoryFile(folder, rel)
+	root, err := d.openGroupRoot(folder)
 	if err != nil {
 		slog.Warn("memory delete: resolve", "folder", folder, "rel", rel, "err", err)
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
-	if err := os.Remove(target); err != nil {
+	// Closing the directory handle cannot affect the completed operation.
+	defer root.Close() //nolint:errcheck
+	if st, err := root.Lstat(rel); err == nil && st.Mode()&os.ModeSymlink != 0 {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	if err := root.Remove(rel); err != nil {
 		if os.IsNotExist(err) {
 			http.Error(w, "not found", http.StatusNotFound)
 			return
 		}
-		slog.Warn("memory delete: remove", "path", target, "err", err)
+		slog.Warn("memory delete: remove", "path", rel, "err", err)
 		http.Error(w, "remove", http.StatusInternalServerError)
 		return
 	}
