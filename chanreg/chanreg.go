@@ -191,10 +191,16 @@ func (r *Registry) Deregister(name string) {
 	e, ok := r.entries[name]
 	if ok {
 		delete(r.byToken, e.Token)
-		if e.Principal != "" {
-			delete(r.byPrincipal, e.Principal)
-		}
 		delete(r.entries, name)
+		if e.Principal != "" && r.byPrincipal[e.Principal] == e {
+			delete(r.byPrincipal, e.Principal)
+			for _, other := range r.entries {
+				if other.Principal == e.Principal {
+					r.byPrincipal[e.Principal] = other
+					break
+				}
+			}
+		}
 	}
 	r.mu.Unlock()
 	if ok {
