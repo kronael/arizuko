@@ -892,46 +892,13 @@ func adminFolders(db *store.Store, userSub string) []string {
 func jidRoutes(routes []core.Route, jid string) []core.Route {
 	room := core.JidRoom(jid)
 	exact := "room=" + room
-	pattern := exact + " %"
 	var out []core.Route
 	for _, r := range routes {
-		if r.Match == exact || likeMatch(r.Match, pattern) {
+		if r.Match == exact || strings.HasPrefix(r.Match, exact+" ") {
 			out = append(out, r)
 		}
 	}
 	return out
-}
-
-func likeMatch(text, pattern string) bool {
-	t, p := []rune(text), []rune(pattern)
-	ti, pi, star, mark := 0, 0, -1, 0
-	for ti < len(t) {
-		switch {
-		case pi < len(p) && (p[pi] == '_' || foldASCII(p[pi]) == foldASCII(t[ti])):
-			ti++
-			pi++
-		case pi < len(p) && p[pi] == '%':
-			star, mark = pi, ti
-			pi++
-		case star >= 0:
-
-			mark++
-			ti, pi = mark, star+1
-		default:
-			return false
-		}
-	}
-	for pi < len(p) && p[pi] == '%' {
-		pi++
-	}
-	return pi == len(p)
-}
-
-func foldASCII(r rune) rune {
-	if r >= 'A' && r <= 'Z' {
-		return r + ('a' - 'A')
-	}
-	return r
 }
 
 func unroutedJID(db, obdb *store.Store, sub string) string {

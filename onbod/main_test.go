@@ -2106,3 +2106,11 @@ func TestLoadConfigWithoutOutboundCredentials(t *testing.T) {
 		t.Fatal("inbound verifier URL became optional")
 	}
 }
+
+func TestJIDRoutesMatchesLiteralRoom(t *testing.T) {
+	routes := []core.Route{{Match: "room=fooXbar verb=mention"}, {Match: "room=foo_bar verb=mention"}}
+	got := jidRoutes(routes, "web:foo_bar")
+	if len(got) != 1 || got[0].Match != routes[1].Match {
+		t.Fatalf("routes = %+v, want only %+v", got, routes[1])
+	}
+}
