@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/groupfolder"
 )
@@ -21,7 +22,7 @@ func newTopicID() string {
 }
 
 func (s *server) handleAPIGroups(w http.ResponseWriter, r *http.Request) {
-	groups := s.groupList()
+	groups := s.groupList(userGroups(r))
 	chanlib.WriteJSON(w, map[string]any{"data": groups, "has_more": false})
 }
 
@@ -121,11 +122,13 @@ type groupOut struct {
 	Folder string `json:"folder"`
 }
 
-func (s *server) groupList() []groupOut {
+func (s *server) groupList(grants []string) []groupOut {
 	groups := s.stRoutd.AllGroups()
 	out := make([]groupOut, 0, len(groups))
 	for _, g := range groups {
-		out = append(out, groupOut{Folder: g.Folder})
+		if auth.MatchGroups(grants, g.Folder) {
+			out = append(out, groupOut{Folder: g.Folder})
+		}
 	}
 	return out
 }

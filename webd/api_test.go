@@ -93,6 +93,7 @@ func TestAPIGroups_ListsAll(t *testing.T) {
 	seedGroup(t, st, "other", "Other")
 
 	req := httptest.NewRequest("GET", "/api/groups", nil)
+	req.Header.Set("X-User-Groups", `["main","other"]`)
 	w := httptest.NewRecorder()
 	s.handleAPIGroups(w, req)
 
@@ -285,5 +286,22 @@ func TestHandleHealth(t *testing.T) {
 	_ = json.Unmarshal(w.Body.Bytes(), &got)
 	if got["status"] != "ok" || got["name"] != "web" {
 		t.Errorf("health payload wrong: %+v", got)
+	}
+}
+
+func TestGroupListsRespectFolderGrants(t *testing.T) {
+	s, _, st := newTestServer(t)
+	seedGroup(t, st, "private", "Private")
+	seedGroup(t, st, "allowed", "Allowed")
+	for _, path := range []string{"/api/groups", "/x/groups"} {
+		req := httptest.NewRequest("GET", path, nil)
+		for k, v := range signUserHeaders(map[string]string{"X-User-Sub": "user:alice", "X-User-Groups": `["allowed"]`}) {
+			req.Header.Set(k, v)
+		}
+		w := httptest.NewRecorder()
+		s.handler().ServeHTTP(w, req)
+		if w.Code != 200 || strings.Contains(w.Body.String(), "private") || !strings.Contains(w.Body.String(), "allowed") {
+			t.Errorf("%s: status=%d body=%s", path, w.Code, w.Body.String())
+		}
 	}
 }

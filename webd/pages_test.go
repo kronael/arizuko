@@ -170,6 +170,7 @@ func TestXGroups_Partial(t *testing.T) {
 	seedGroup(t, st, "other", "Other")
 
 	req := httptest.NewRequest("GET", "/x/groups", nil)
+	req.Header.Set("X-User-Groups", `["main","other"]`)
 	w := httptest.NewRecorder()
 	s.handleXGroups(w, req)
 

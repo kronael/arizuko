@@ -13,7 +13,7 @@ import (
 
 // GET /x/groups
 func (s *server) handleXGroups(w http.ResponseWriter, r *http.Request) {
-	groups := s.groupList()
+	groups := s.groupList(userGroups(r))
 	w.Header().Set("Content-Type", "text/html")
 	for _, g := range groups {
 		_, _ = fmt.Fprintf(w, `<a class="card" href="/panel/%s"><strong>%s</strong></a>`,
