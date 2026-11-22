@@ -290,3 +290,32 @@ func TestAttachmentGeneratedNameStaysInMedia(t *testing.T) {
 		})
 	}
 }
+
+func TestAttachmentInlineLimit(t *testing.T) {
+	for _, size := range []int{4, 5} {
+		t.Run(string(rune('0'+size)), func(t *testing.T) {
+			db, loop, groups := enrichLoop(t, mediaConfig{Enabled: true, MaxBytes: 4})
+			payload := base64.StdEncoding.EncodeToString([]byte(strings.Repeat("x", size)))
+			msg := core.Message{
+				ID: "inline", ChatJID: "web:demo", Content: "file", Timestamp: time.Now(),
+				Attachments: `[{"data":"` + payload + `","filename":"inline.bin"}]`,
+			}
+			if err := db.PutMessage(msg); err != nil {
+				t.Fatal(err)
+			}
+			if err := loop.enrichAttachments(context.Background(), &msg, "demo", true); err != nil {
+				t.Fatal(err)
+			}
+			files, err := filepath.Glob(filepath.Join(groups, "demo", "media", "*", "inline.bin"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if size == 4 && (len(files) != 1 || strings.Contains(msg.Content, "unavailable=")) {
+				t.Fatalf("valid attachment: files=%v content=%q", files, msg.Content)
+			}
+			if size > 4 && (len(files) != 0 || !strings.Contains(msg.Content, "unavailable=")) {
+				t.Fatalf("oversized attachment: files=%v content=%q", files, msg.Content)
+			}
+		})
+	}
+}

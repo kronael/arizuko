@@ -130,7 +130,7 @@ func (l *Loop) enrichAttachments(ctx context.Context, msg *core.Message, folder 
 			failure.Kind = "permanent"
 		} else if att.URL == "" {
 			raw, err := base64.StdEncoding.DecodeString(att.Data)
-			if err != nil {
+			if err != nil || l.media.MaxBytes > 0 && int64(len(raw)) > l.media.MaxBytes {
 				failure.Kind = "permanent"
 			} else if err = os.WriteFile(dest, raw, 0o644); err != nil {
 				failure.Kind = "permanent"
