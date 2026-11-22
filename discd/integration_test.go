@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -19,6 +20,23 @@ import (
 	"github.com/kronael/arizuko/objstore/dynstore/dyntest"
 	"github.com/kronael/arizuko/tests/testutils"
 )
+
+// A refused upload reports that no message was delivered.
+func TestSendFileRefusalIsNotDelivered(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"message":"bad request"}`))
+	}))
+	defer srv.Close()
+	defer mockDiscordEndpoints(srv.URL)()
+	path := t.TempDir() + "/file.txt"
+	os_WriteFile(t, path, []byte("data"))
+	b := &bot{session: newTestSession(t)}
+	_, err := b.SendFile("discord:ch-1", path, "file.txt", "", "", "", "", "")
+	if !errors.Is(err, chanlib.ErrNotDelivered) {
+		t.Fatalf("error = %v, want ErrNotDelivered", err)
+	}
+}
 
 func TestMain(m *testing.M) { dyntest.Main(m) }
 

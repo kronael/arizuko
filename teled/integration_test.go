@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -32,6 +33,7 @@ type tgMock struct {
 	fileMethods []string
 	fileReplyTo []string // reply_to_message_id seen on each file-method call
 	fileThreads []string
+	fileError   int
 	actionHits  int32
 	sendCalls   atomic.Int32
 	// force an error on the next sendMessage call (for 400 fallback)
@@ -100,6 +102,10 @@ func newTGMock() *tgMock {
 			})
 		case "sendPhoto", "sendVideo", "sendAudio", "sendAnimation",
 			"sendDocument", "sendVoice":
+			if m.fileError != 0 {
+				writeTGErr(w, m.fileError, "refused")
+				return
+			}
 			m.mu.Lock()
 			m.fileMethods = append(m.fileMethods, method)
 			m.fileReplyTo = append(m.fileReplyTo, r.Form.Get("reply_to_message_id"))
@@ -137,6 +143,23 @@ func newTGMock() *tgMock {
 func (m *tgMock) close() {
 	m.srv.Close()
 	m.fileSrv.Close()
+}
+
+// A refused upload reports that no message was delivered.
+func TestSendFileRefusalIsNotDelivered(t *testing.T) {
+	m := newTGMock()
+	defer m.close()
+	m.fileError = 429
+	b := newTestBot(t, m, config{Name: "telegram"})
+	defer b.typing.Stop()
+	path := filepath.Join(t.TempDir(), "file.txt")
+	if err := os.WriteFile(path, []byte("data"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := b.SendFile("telegram:1/user/123", path, "file.txt", "", "", "", "", "")
+	if !errors.Is(err, chanlib.ErrNotDelivered) {
+		t.Fatalf("error = %v, want ErrNotDelivered", err)
+	}
 }
 
 func (m *tgMock) endpoint() string {

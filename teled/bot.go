@@ -558,8 +558,16 @@ func (b *bot) SendFile(jid, path, name, caption, replyTo, threadID, _, _ string)
 		d.ReplyToMessageID = reply
 		m = d
 	}
-	sent, err := b.api.Send(m)
+	resp, err := b.api.Request(m)
 	if err != nil {
+		var apiErr *tgbotapi.Error
+		if resp != nil && errors.As(err, &apiErr) && apiErr.Code == 0 {
+			apiErr.Code = resp.ErrorCode
+		}
+		return "", classifySendErr(err, "")
+	}
+	var sent tgbotapi.Message
+	if err := json.Unmarshal(resp.Result, &sent); err != nil {
 		return "", fmt.Errorf("telegram sendfile: %w", err)
 	}
 	return strconv.Itoa(sent.MessageID), nil

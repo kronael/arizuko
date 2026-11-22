@@ -542,7 +542,7 @@ func (b *bot) SendFile(jid, path, name, caption, _, threadID, threadRoot, title 
 		}},
 	})
 	if err != nil {
-		return "", fmt.Errorf("discord sendfile: %w", err)
+		return "", classifySendErr(err, "")
 	}
 	if msg != nil {
 		return msg.ID, nil
