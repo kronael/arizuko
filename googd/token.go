@@ -235,34 +235,6 @@ func (c *credential) account() string {
 	return c.user.EmailAddress
 }
 
-// serviceDisabled reads Google's structured error reason.
-func serviceDisabled(raw []byte) bool {
-	var body struct {
-		Error struct {
-			Errors []struct {
-				Reason string `json:"reason"`
-			} `json:"errors"`
-			Details []struct {
-				Reason string `json:"reason"`
-			} `json:"details"`
-		} `json:"error"`
-	}
-	if json.Unmarshal(raw, &body) != nil {
-		return false
-	}
-	for _, e := range body.Error.Errors {
-		if e.Reason == "SERVICE_DISABLED" {
-			return true
-		}
-	}
-	for _, e := range body.Error.Details {
-		if e.Reason == "SERVICE_DISABLED" {
-			return true
-		}
-	}
-	return false
-}
-
 // apiState records the result of an API probe independently of the key.
 type apiState struct{ state, reason string }
 
@@ -280,6 +252,16 @@ func responseState(status int, raw []byte) apiState {
 		} `json:"error"`
 	}
 	if json.Unmarshal(raw, &body) == nil {
+		for _, e := range body.Error.Errors {
+			if status == http.StatusForbidden && e.Reason == "SERVICE_DISABLED" {
+				state.state = "off"
+			}
+		}
+		for _, e := range body.Error.Details {
+			if status == http.StatusForbidden && e.Reason == "SERVICE_DISABLED" {
+				state.state = "off"
+			}
+		}
 		state.reason = body.Error.Message
 		reason := ""
 		if len(body.Error.Errors) > 0 {
@@ -293,9 +275,6 @@ func responseState(status int, raw []byte) apiState {
 		} else if reason != "" {
 			state.reason = reason
 		}
-	}
-	if status == http.StatusForbidden && serviceDisabled(raw) {
-		state.state = "off"
 	}
 	return state
 }

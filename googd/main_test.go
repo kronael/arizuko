@@ -458,17 +458,19 @@ func TestDriveProbeAcceptsOtherResponses(t *testing.T) {
 	}
 }
 
-func TestServiceDisabledReason(t *testing.T) {
+func TestResponseStateServiceDisabledReason(t *testing.T) {
 	for _, tc := range []struct {
 		body string
 		want bool
 	}{
 		{`{"error":{"errors":[{"reason":"SERVICE_DISABLED"}]}}`, true},
 		{`{"error":{"details":[{"reason":"SERVICE_DISABLED"}]}}`, true},
+		{`{"error":{"errors":[{"reason":"other"},{"reason":"SERVICE_DISABLED"}]}}`, true},
+		{`{"error":{"details":[{"reason":"other"},{"reason":"SERVICE_DISABLED"}]}}`, true},
 		{`{"error":{"errors":[{"reason":"forbidden"}]}}`, false},
 		{`SERVICE_DISABLED`, false},
 	} {
-		if got := serviceDisabled([]byte(tc.body)); got != tc.want {
+		if got := responseState(http.StatusForbidden, []byte(tc.body)).state == "off"; got != tc.want {
 			t.Errorf("%s: %v", tc.body, got)
 		}
 	}
