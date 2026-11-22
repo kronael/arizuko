@@ -255,6 +255,13 @@ func (s *server) handleTurnSSE(w http.ResponseWriter, r *http.Request) {
 	ch, unsub := s.hub.subscribe(chatJID, topic)
 	defer unsub()
 
+	info, terr := s.stRoutd.GetTurnResult(folder, turnID)
+	if terr != nil {
+		slog.Error("turn SSE: turn-result read failed", "folder", folder,
+			"turn_id", turnID, "err", terr)
+		info.Status = "error"
+	}
+
 	after := r.Header.Get("Last-Event-Id")
 	msgs, err := s.stRoutd.TurnFrames(chatJID, turnID, after, 200)
 	if err != nil {
@@ -303,12 +310,6 @@ func (s *server) handleTurnSSE(w http.ResponseWriter, r *http.Request) {
 	// the turn was over (BUGS L83). The sibling JSON handlers 500 on the same
 	// query; headers are already sent here, so the truth rides the status field
 	// the client already reads.
-	info, terr := s.stRoutd.GetTurnResult(folder, turnID)
-	if terr != nil {
-		slog.Error("turn SSE: turn-result read failed; ending the round as error, not as done",
-			"folder", folder, "turn_id", turnID, "err", terr)
-		info.Status = "error"
-	}
 	if terr != nil || info.Status != "pending" {
 		payload, _ := json.Marshal(map[string]any{
 			"turn_id": turnID,
