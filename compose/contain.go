@@ -99,13 +99,29 @@ func isEnvNameByte(c byte) bool {
 }
 
 func CheckSourcedFragment(name, file string, body []byte) error {
-	if k := interpolatesPlatformSecret(body); k != "" {
+	var node yaml.Node
+	if err := yaml.Unmarshal(body, &node); err != nil {
+		return fmt.Errorf("%s: %w — a fragment install cannot read is not one it can bound", file, err)
+	}
+	var secret func(*yaml.Node) string
+	secret = func(n *yaml.Node) string {
+		if n.Kind == yaml.ScalarNode {
+			return interpolatesPlatformSecret([]byte(n.Value))
+		}
+		for _, child := range n.Content {
+			if k := secret(child); k != "" {
+				return k
+			}
+		}
+		return ""
+	}
+	if k := secret(&node); k != "" {
 		return fmt.Errorf("%s: interpolates ${%s}, a secret that authorises the whole "+
 			"instance rather than one service; a package reads its own keys from its own "+
 			"env or it does not read them (BUGS L339)", file, k)
 	}
 	var f sourcedFragment
-	if err := yaml.Unmarshal(body, &f); err != nil {
+	if err := node.Decode(&f); err != nil {
 		return fmt.Errorf("%s: %w — a fragment install cannot read is not one it can bound", file, err)
 	}
 	reach := func(where, why string) error {

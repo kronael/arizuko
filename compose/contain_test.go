@@ -100,3 +100,10 @@ func TestNoServiceMountsAnOwnerStoreDir(t *testing.T) {
 		}
 	}
 }
+
+func TestSourcedFragmentRejectsEscapedSecret(t *testing.T) {
+	body := []byte("services:\n  pkg:\n    environment:\n      X: \"\\u0024{SECRETS_KEY}\"\n")
+	if err := CheckSourcedFragment("pkg", "compose.yml", body); err == nil {
+		t.Fatal("accepted escaped platform secret")
+	}
+}
