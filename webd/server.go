@@ -140,7 +140,10 @@ func (s *server) handler() http.Handler {
 	mux.HandleFunc("PATCH /me/settings", s.requireUser(s.handleMeSettingsPatch))
 	mux.HandleFunc("GET /me/x/folders", s.requireUser(s.handleMeXFolders))
 	mux.HandleFunc("GET /me/x/chats", s.requireUser(s.handleMeXChats))
-	mux.HandleFunc("GET /me/x/thread", s.requireUser(s.handleMeXThread))
+	mux.HandleFunc("GET /me/x/thread", func(w http.ResponseWriter, r *http.Request) {
+		r.SetPathValue("folder", r.URL.Query().Get("folder"))
+		s.requireFolder(s.handleMeXThread)(w, r)
+	})
 	// /me/chats/{folder...} and /me/folders/{folder...} use catch-all path values;
 	// sub-paths (send, sse) are handled by checking suffixes in meFolderTopic.
 	mux.HandleFunc("GET /me/chats/{folder...}", s.requireUser(s.handleMeThreadOrList))

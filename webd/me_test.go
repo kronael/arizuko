@@ -309,3 +309,20 @@ func TestMeFolderTopic(t *testing.T) {
 		}
 	}
 }
+
+func TestMeXThreadRequiresFolderGrant(t *testing.T) {
+	s, _, st := newTestServer(t)
+	seedGroup(t, st, "private", "Private")
+	if err := st.PutMessage(core.Message{ID: "private-m1", ChatJID: "web:private", Topic: "t", Content: "private text", Timestamp: time.Now().Add(-time.Minute)}); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest("GET", "/me/x/thread?folder=private&topic=t", nil)
+	for k, v := range signUserHeaders(map[string]string{"X-User-Sub": "user:outsider", "X-User-Groups": `["other"]`}) {
+		req.Header.Set(k, v)
+	}
+	w := httptest.NewRecorder()
+	s.handler().ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+	}
+}
