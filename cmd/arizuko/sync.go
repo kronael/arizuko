@@ -130,7 +130,11 @@ func cmdPackage(args []string) {
 		die("Failed: list packages: %v", err)
 	}
 	selections := map[string][]routd.InstalledPackage{routd.InstanceWide: nil}
-	for folder := range rdb.AllGroups() {
+	groupFolders, err := stores[resreg.SubsystemRoutd].GroupFolders(0)
+	if err != nil {
+		die("Failed: list groups: %v", err)
+	}
+	for _, folder := range groupFolders {
 		if folder == "." || !groupfolder.IsValidFolder(folder) {
 			die("Failed: invalid folder %q", folder)
 		}

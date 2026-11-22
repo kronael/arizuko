@@ -1,21 +1,83 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/kronael/arizuko/container"
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/objstore/dynstore"
+	"github.com/kronael/arizuko/objstore/dynstore/dyntest"
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/routd"
 	"github.com/kronael/arizuko/store"
 )
+
+func TestPackageSyncStopsOnGroupReadFailure(t *testing.T) {
+	_, db := seedPackageInstance(t, "fault", nil)
+	group := filepath.Join(t.TempDir(), "grp")
+	mustWrite(t, filepath.Join(group, "arizuko.yml"), "name: grp\nnetwork_rules:\n  - folder: main\n    target: grp.example\n")
+	packageRuns(t, "fault", "add", "-g", "main", group)
+	st := store.NewOver(db.Obj())
+	if ruleCount(t, st, "main", "grp.example") != 1 {
+		t.Fatal("missing installed rule")
+	}
+	target, err := url.Parse(dyntest.Config(t).Endpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proxy := httputil.NewSingleHostReverseProxy(target)
+	transport, err := dynstore.HTTPClient(dyntest.Config(t).CA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proxy.Transport = transport.GetTransport()
+	var fault, mutations atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		r.Body = io.NopCloser(bytes.NewReader(body))
+		var request struct{ TableName string }
+		_ = json.Unmarshal(body, &request)
+		op := r.Header.Get("X-Amz-Target")
+		if op == "DynamoDB_20120810.Query" && request.TableName == "routd.groups" && fault.CompareAndSwap(0, 1) {
+			w.Header().Set("Content-Type", "application/x-amz-json-1.0")
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"__type":"com.amazonaws.dynamodb.v20120810#ResourceNotFoundException","message":"injected group read failure"}`))
+			return
+		}
+		if fault.Load() != 0 && (strings.HasSuffix(op, ".TransactWriteItems") || strings.HasSuffix(op, ".PutItem") || strings.HasSuffix(op, ".DeleteItem") || strings.HasSuffix(op, ".UpdateItem")) {
+			mutations.Add(1)
+		}
+		proxy.ServeHTTP(w, r)
+	}))
+	defer server.Close()
+	t.Setenv(dynstore.EnvURL, server.URL)
+	output, err := packageChild(t, "fault", []string{"sync"})
+	if fault.Load() != 1 || err == nil || !strings.Contains(output, "group") || strings.Contains(output, "synced") || mutations.Load() != 0 {
+		t.Fatalf("fault=%d mutations=%d err=%v output=%s", fault.Load(), mutations.Load(), err, output)
+	}
+	if _, ok := selection(t, db)["main/grp"]; !ok || ruleCount(t, st, "main", "grp.example") != 1 {
+		t.Fatal("selection or rule changed")
+	}
+}
 
 // TestPackageChild is the child of packageRuns and packageRefuses: cmdPackage
 // ends a refusal with os.Exit, so a test that expects one runs it here.
