@@ -23,7 +23,11 @@ func newTopicID() string {
 }
 
 func (s *server) handleAPIGroups(w http.ResponseWriter, r *http.Request) {
-	groups := s.groupList(userGroups(r))
+	groups, err := s.groupList(userGroups(r))
+	if err != nil {
+		chanlib.WriteErr(w, http.StatusInternalServerError, "query failed")
+		return
+	}
 	chanlib.WriteJSON(w, map[string]any{"data": groups, "has_more": false})
 }
 
@@ -123,13 +127,16 @@ type groupOut struct {
 	Folder string `json:"folder"`
 }
 
-func (s *server) groupList(grants []string) []groupOut {
-	groups := s.stRoutd.AllGroups()
+func (s *server) groupList(grants []string) ([]groupOut, error) {
+	groups, err := s.stRoutd.GroupFolders(0)
+	if err != nil {
+		return nil, err
+	}
 	out := make([]groupOut, 0, len(groups))
-	for _, g := range groups {
-		if auth.MatchGroups(grants, g.Folder) {
-			out = append(out, groupOut{Folder: g.Folder})
+	for _, folder := range groups {
+		if auth.MatchGroups(grants, folder) {
+			out = append(out, groupOut{Folder: folder})
 		}
 	}
-	return out
+	return out, nil
 }
