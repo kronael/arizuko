@@ -42,9 +42,13 @@ func (u *HTTPUpstream) Call(raw json.RawMessage) (json.RawMessage, error) {
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("mcpfw: upstream status %d", resp.StatusCode)
 	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+	const maxResponse = 8 << 20
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponse+1))
 	if err != nil {
 		return nil, fmt.Errorf("mcpfw: read upstream: %w", err)
+	}
+	if len(body) > maxResponse {
+		return nil, fmt.Errorf("mcpfw: upstream response exceeds %d bytes", maxResponse)
 	}
 	return body, nil
 }
