@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 	"uuid"
@@ -129,10 +130,41 @@ func (w *writer) rotateIfNeeded() {
 	}
 	w.f = nil
 
-	stamp := strconv.FormatInt(time.Now().Unix(), 10)
-	rotated := w.path + "." + stamp
+	stamp := time.Now().UnixNano()
+	prefix := fmt.Sprintf("%s.%019d.", w.path, stamp)
+	paths, err := filepath.Glob(prefix + "*")
+	if err != nil {
+		slog.Warn("audit list rotations", "path", prefix, "err", err)
+		return
+	}
+	next := 0
+	for _, path := range paths {
+		index, err := strconv.Atoi(strings.TrimPrefix(path, prefix))
+		if err == nil && index >= next {
+			next = index + 1
+		}
+	}
+	var rotated string
+	for i := next; ; i++ {
+		rotated = fmt.Sprintf("%s%09d", prefix, i)
+		f, err := os.OpenFile(rotated, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o640)
+		if os.IsExist(err) {
+			continue
+		}
+		if err != nil {
+			slog.Warn("audit reserve rotation", "path", rotated, "err", err)
+			return
+		}
+		if err := f.Close(); err != nil {
+			slog.Warn("audit close rotation", "path", rotated, "err", err)
+		}
+		break
+	}
 	if err := os.Rename(w.path, rotated); err != nil {
 		slog.Warn("audit rotate rename", "path", w.path, "err", err)
+		if err := os.Remove(rotated); err != nil {
+			slog.Warn("audit remove reservation", "path", rotated, "err", err)
+		}
 		return
 	}
 	// Keep only 2 rotated files.
