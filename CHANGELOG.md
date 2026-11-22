@@ -13,6 +13,30 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.75.22] — 2026-11-22
+
+> arizuko v0.75.22 — long work checkpoints and continues
+>
+> A long turn no longer loses its work at the time limit: the agent posts where it stands, and the platform continues in the same session.
+>
+> • Checkpoint — at 20 minutes the agent posts a progress summary and ends the turn; a continuation resumes the same session behind waiting chats.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Changed
+
+- The run ceiling `RUNED_RUN_TIMEOUT` defaults to 40m. At half of it ant asks
+  the agent to post a short progress summary to the source chat and end the
+  turn; a turn that ignores the note stops at the ceiling. In both cases routd
+  queues one continuation in the same chat, topic and session, behind other
+  waiting work. After eight continuations with no new message from a person,
+  routd stops and says so in the chat.
+
+### Fixed
+
+- Round 2 of the refine pass: further fixes and deletions in routd, router,
+  store, objstore, ipc, resreg, chanreg, auth, authd, proxyd and mcpfw.
+
 ## [v0.75.21] — 2026-11-22
 
 > arizuko v0.75.21 — a full refine pass: 73 fixes, less code
