@@ -733,26 +733,30 @@ func dirEmptyOrMissing(dir string) (bool, error) {
 func extractTarEntry(groupDir, folder string, hdr *tar.Header, r io.Reader) error {
 	rel := strings.TrimPrefix(strings.TrimSuffix(hdr.Name, "/"), folder)
 	rel = strings.TrimPrefix(rel, "/")
-	target := groupDir
-	if rel != "" {
-		target = filepath.Join(groupDir, rel)
+	if rel == "" {
+		rel = "."
 	}
-	cleanRel, rerr := filepath.Rel(groupDir, target)
-	if rerr != nil || strings.HasPrefix(cleanRel, "..") || filepath.IsAbs(cleanRel) {
-		return fmt.Errorf("entry %q escapes its folder", hdr.Name)
+	if err := os.MkdirAll(groupDir, 0o755); err != nil {
+		return err
 	}
+	root, err := os.OpenRoot(groupDir)
+	if err != nil {
+		return err
+	}
+	// Closing the directory handle cannot affect completed writes.
+	defer root.Close() //nolint:errcheck
 	switch hdr.Typeflag {
 	case tar.TypeDir:
-		return os.MkdirAll(target, 0o755)
+		return root.MkdirAll(rel, 0o755)
 	case tar.TypeReg:
-		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		if err := root.MkdirAll(filepath.Dir(rel), 0o755); err != nil {
 			return err
 		}
 		mode := os.FileMode(hdr.Mode) & 0o777
 		if mode == 0 {
 			mode = 0o644
 		}
-		f, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
+		f, err := root.OpenFile(rel, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
 		if err != nil {
 			return err
 		}
