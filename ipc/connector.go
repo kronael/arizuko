@@ -148,7 +148,7 @@ func CallConnectorTool(
 	}
 	c, err := dial(ctx, spec, secrets)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s", scrubSecrets(err.Error(), secrets))
 	}
 	defer func() { _ = c.Close() }()
 	var req mcp.CallToolRequest
@@ -156,7 +156,8 @@ func CallConnectorTool(
 	req.Params.Arguments = args
 	res, err := c.CallTool(ctx, req)
 	if err != nil {
-		return nil, fmt.Errorf("connector %q tools/call: %w", spec.Name, err)
+		return nil, fmt.Errorf("connector %q tools/call: %s", spec.Name,
+			scrubSecrets(err.Error(), secrets))
 	}
 	return scrubCallResult(res, secrets)
 }
