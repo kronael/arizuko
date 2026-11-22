@@ -32,8 +32,6 @@ import (
 type entityScope struct {
 	entity   string
 	folderOf func(objstore.Item) (string, bool)
-	// seps are the characters that may follow the folder inside that value.
-	seps []string
 	// clear, when non-empty, names the attributes to take away INSTEAD of
 	// deleting the item: the item outlives the folder and only its binding
 	// goes.
@@ -45,89 +43,89 @@ type entityScope struct {
 // why this is a slice: `group_watchers` carries TWO folder coordinates.
 var entityScopePurge = []entityScope{
 	// The folder itself and its children.
-	{entity: Groups, seps: []string{"/"},
+	{entity: Groups,
 		folderOf: func(it objstore.Item) (string, bool) { return it.Key.Sort, true }},
-	{entity: ModelPauses, seps: []string{"/"},
+	{entity: ModelPauses,
 		folderOf: func(it objstore.Item) (string, bool) { return it.Key.Sort, true }},
 
 	// Confers.
-	{entity: ACL, seps: []string{"/"}, folderOf: func(it objstore.Item) (string, bool) {
+	{entity: ACL, folderOf: func(it objstore.Item) (string, bool) {
 		parts := strings.Split(it.Key.Sort, KeySep)
 		if len(parts) != 6 {
 			return "", false
 		}
 		return parts[2], true // scope
 	}},
-	{entity: ACLMembership, seps: []string{"/"}, folderOf: func(it objstore.Item) (string, bool) {
+	{entity: ACLMembership, folderOf: func(it objstore.Item) (string, bool) {
 		child, _, ok := strings.Cut(it.Key.Sort, KeySep)
 		if !ok {
 			return "", false
 		}
 		return strings.CutPrefix(child, "folder:")
 	}},
-	{entity: Secrets, seps: []string{"/"}, folderOf: func(it objstore.Item) (string, bool) {
+	{entity: Secrets, folderOf: func(it objstore.Item) (string, bool) {
 		parts := strings.Split(it.Key.Sort, KeySep)
 		if len(parts) != 3 || parts[0] != SecretScopeFolder {
 			return "", false
 		}
 		return parts[1], true // scope_id
 	}},
-	{entity: NetworkRules, seps: []string{"/"}, folderOf: func(it objstore.Item) (string, bool) {
+	{entity: NetworkRules, folderOf: func(it objstore.Item) (string, bool) {
 		folder, _, ok := strings.Cut(it.Key.Sort, KeySep)
 		return folder, ok
 	}},
 
 	// Routes in: the folder is the target URI's path.
-	{entity: Routes, seps: []string{"/"}, folderOf: func(it objstore.Item) (string, bool) {
+	{entity: Routes, folderOf: func(it objstore.Item) (string, bool) {
 		parts := strings.SplitN(it.Key.Sort, KeySep, 3)
 		if len(parts) != 3 {
 			return "", false
 		}
 		return core.ParseRouteTarget(parts[1]).Folder, true
 	}},
-	{entity: ScheduledTasks, seps: []string{"/"}, folderOf: attrScope(attrTaskOwner)},
-	{entity: PendingActions, seps: []string{"/"}, folderOf: attrScope(AttrPendGroupFolder)},
+	{entity: ScheduledTasks, folderOf: attrScope(attrTaskOwner)},
+	{entity: PendingActions, folderOf: attrScope(AttrPendGroupFolder)},
 
 	// Reaches the next tenant.
-	{entity: WebRoutes, seps: []string{"/"}, folderOf: attrScope(AttrWebFolder)},
-	{entity: RouteTokens, seps: []string{"/"}, folderOf: attrScope(attrTokOwnerFolder)},
-	{entity: GitHubSources, seps: []string{"/"}, folderOf: attrScope(attrGHOwnerFolder)},
-	{entity: GDriveFiles, seps: []string{"/"}, folderOf: attrScope(attrGDOwnerFolder)},
-	{entity: GDriveFiles, seps: []string{"/"}, folderOf: attrScope(attrGDTargetFolder)},
+	{entity: WebRoutes, folderOf: attrScope(AttrWebFolder)},
+	{entity: RouteTokens, folderOf: attrScope(attrTokOwnerFolder)},
+	{entity: GitHubSources, folderOf: attrScope(attrGHOwnerFolder)},
+	{entity: GDriveFiles, folderOf: attrScope(attrGDOwnerFolder)},
+	{entity: GDriveFiles, folderOf: attrScope(attrGDTargetFolder)},
 
 	// Owned assets.
-	{entity: InstalledPackages, seps: []string{"/"}, folderOf: func(it objstore.Item) (string, bool) {
+	{entity: InstalledPackages, folderOf: func(it objstore.Item) (string, bool) {
 		folder, _, ok := strings.Cut(it.Key.Sort, KeySep)
 		return folder, ok
 	}},
 
 	// The hot tier: each would be inherited by the next tenant of the path.
-	{entity: Sessions, seps: []string{"/"}, folderOf: func(it objstore.Item) (string, bool) {
+	{entity: Sessions, folderOf: func(it objstore.Item) (string, bool) {
 		folder, _, err := sessionCoord(it.Key.Sort)
 		return folder, err == nil
 	}},
-	{entity: ChatReplyState, seps: []string{"/"}, folderOf: attrScope(AttrReplyEngagedFolder)},
+	{entity: ChatReplyState, folderOf: attrScope(AttrReplyEngagedFolder)},
 	// The folder's message count. The FEED it counts is partitioned by the
 	// folder and goes through folderPartitionPurge.
-	{entity: MessageFolderCounts, seps: []string{"/"},
+	{entity: MessageFolderCounts,
 		folderOf: func(it objstore.Item) (string, bool) { return it.Key.Sort, true }},
-	{entity: SystemMessages, seps: []string{"/"}, folderOf: func(it objstore.Item) (string, bool) {
+	{entity: SystemMessages, folderOf: func(it objstore.Item) (string, bool) {
 		return SysMsgFolder(it.Key.Sort)
 	}},
 
 	// Watches: whichever end the deleted folder is.
-	{entity: GroupWatchers, seps: []string{"/"}, folderOf: func(it objstore.Item) (string, bool) {
+	{entity: GroupWatchers, folderOf: func(it objstore.Item) (string, bool) {
 		observer, _, err := watcherCoord(it.Key.Sort)
 		return observer, err == nil
 	}},
-	{entity: GroupWatchers, seps: []string{"/"}, folderOf: func(it objstore.Item) (string, bool) {
+	{entity: GroupWatchers, folderOf: func(it objstore.Item) (string, bool) {
 		_, source, err := watcherCoord(it.Key.Sort)
 		return source, err == nil
 	}},
 
 	// The chat outlives the folder (it carries its own dispatch cursor), so the
 	// binding goes and not the item.
-	{entity: Chats, seps: []string{"/"}, folderOf: attrScope(AttrChatStickyGroup),
+	{entity: Chats, folderOf: attrScope(AttrChatStickyGroup),
 		clear: []string{AttrChatStickyGroup, AttrChatStickyTopic}},
 }
 
@@ -230,11 +228,7 @@ func (s *Store) purgeFolder(ctx context.Context, folder string) ([]string, int, 
 			if !ok {
 				continue
 			}
-			inside := false
-			for _, sep := range e.seps {
-				inside = inside || groupfolder.ContainsSep(folder, v, sep)
-			}
-			if !inside {
+			if !groupfolder.Contains(folder, v) {
 				continue
 			}
 			if len(e.clear) > 0 {
