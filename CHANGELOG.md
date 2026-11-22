@@ -13,6 +13,44 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.75.21] — 2026-11-22
+
+> arizuko v0.75.21 — a full refine pass: 73 fixes, less code
+>
+> Six audits read every daemon and library; their confirmed findings shipped as fixes and deletions, and busy GitHub chats no longer lose messages.
+>
+> • Ingest — a burst of messages on one chat no longer fails with `store_error`.
+> • Access — a folder-scoped token can no longer read the instance-wide activity and session feeds.
+> • Errors — a failed secret read, logout revocation or upstream call now fails loudly instead of falling back.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Fixed
+
+- routd serialises appends per chat, so concurrent ingests on one chat no longer
+  exhaust the chat row's retries (BUGS `L915`).
+- A deferred turn that waits for older input no longer logs an error every
+  minute (BUGS `L916`).
+- The aggregate activity, session and volume reads refuse a folder-scoped
+  caller.
+- A connector's user-secret read error is returned, not replaced by the folder's
+  credential; logout answers an error when the refresh family is not revoked;
+  an expired parent token can no longer be downscoped.
+- `arizuko apply` validates every row before its first write, so an invalid
+  manifest no longer leaves its scope part-written.
+- Further fixes across routd, store, ipc, resreg, proxyd, authd, runed, ant,
+  dashd, webd, onbod, the CLI and the channel adapters: decoded connector results
+  redact secrets, MCP keeps empty strings and tool metadata, sockets close on
+  cancel, history queries are encoded, TTS writes use distinct files, and the
+  video-transcription switch controls video.
+
+### Changed
+
+- Dead code, test-only wrappers in production files, duplicate models and
+  narration comments are removed.
+- 25 findings that would change a contract or schema wait for sign-off
+  (BUGS `L917`).
+
 ## [v0.75.20] — 2026-11-21
 
 > arizuko v0.75.20 — webhooks survive a burst, every shell is logged in

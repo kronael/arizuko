@@ -30,6 +30,15 @@
 
       <p>What shipped, dated, terse. Reverse chronological. The chat broadcast for each release lives at the top of every block; the bullets below expand it for operators.</p>
 
+      <h2>arizuko v0.75.21 <span class="dim">&mdash; 22 November 2026</span></h2>
+      <p>Six audits read every daemon and library; their confirmed findings shipped as fixes and deletions, and busy GitHub chats no longer lose messages.</p>
+      <ul>
+        <li><strong>Ingest</strong> &mdash; a burst of messages on one chat no longer fails with <code>store_error</code>.</li>
+        <li><strong>Access</strong> &mdash; a folder-scoped token can no longer read the instance-wide activity and session feeds.</li>
+        <li><strong>Errors</strong> &mdash; a failed secret read, logout revocation or upstream call now fails loudly instead of falling back.</li>
+      </ul>
+      <p class="note">Full notes: <a href="https://github.com/kronael/arizuko/blob/main/CHANGELOG.md#v07521--2026-11-22">CHANGELOG &sect; v0.75.21</a>.</p>
+
       <h2>arizuko v0.75.20 <span class="dim">&mdash; 21 November 2026</span></h2>
       <p>gitd no longer loses GitHub webhooks when many arrive at once, and an agent can call <code>claude</code> and <code>codex</code> from its shell in every harness.</p>
       <ul>
