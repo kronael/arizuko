@@ -35,7 +35,7 @@ func (h *hub) status() []hubStatus {
 	defer h.mu.Unlock()
 	out := make([]hubStatus, 0, len(h.subs))
 	for k, chans := range h.subs {
-		out = append(out, hubStatus{Key: k, Subs: len(chans)})
+		out = append(out, hubStatus{Key: k.chatJID + "/" + k.topic, Subs: len(chans)})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Key < out[j].Key })
 	return out

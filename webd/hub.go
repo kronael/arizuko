@@ -19,13 +19,15 @@ const (
 // chat_jid) — never a folder derived from it. Both ends re-deriving the key
 // with string surgery is what hung suffixed and hook: chats three times
 // (BUGS L30); with the JID as the key there is no derivation to disagree on.
+type hubKey struct{ chatJID, topic string }
+
 type hub struct {
 	mu   sync.Mutex
-	subs map[string][]chan string
+	subs map[hubKey][]chan string
 }
 
 func newHub() *hub {
-	return &hub{subs: make(map[string][]chan string)}
+	return &hub{subs: make(map[hubKey][]chan string)}
 }
 
 func (h *hub) canSubscribe() bool {
@@ -36,7 +38,7 @@ func (h *hub) canSubscribe() bool {
 
 func (h *hub) subscribe(chatJID, topic string) (<-chan string, func()) {
 	ch := make(chan string, 16)
-	k := chatJID + "/" + topic
+	k := hubKey{chatJID, topic}
 	h.mu.Lock()
 	if len(h.subs[k]) >= maxSubsPerKey {
 		h.mu.Unlock()
@@ -64,7 +66,7 @@ func (h *hub) subscribe(chatJID, topic string) (<-chan string, func()) {
 }
 
 func (h *hub) publish(chatJID, topic, event, data string) {
-	k := chatJID + "/" + topic
+	k := hubKey{chatJID, topic}
 	msg := fmt.Sprintf("event: %s\ndata: %s\n\n", event, data)
 	h.mu.Lock()
 	defer h.mu.Unlock()

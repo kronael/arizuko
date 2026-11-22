@@ -44,7 +44,7 @@ func TestHub_UnsubCleansUp(t *testing.T) {
 	unsub()
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if _, ok := h.subs["main/t1"]; ok {
+	if _, ok := h.subs[hubKey{"main", "t1"}]; ok {
 		t.Error("subs map should drop empty bucket")
 	}
 }
@@ -372,5 +372,17 @@ func TestSlinkStream_Replay(t *testing.T) {
 	}
 	if !gotMissed1 || !gotMissed2 {
 		t.Errorf("missed replay: user=%v bot=%v", gotMissed1, gotMissed2)
+	}
+}
+
+func TestHubSeparatesChatAndTopicCoordinates(t *testing.T) {
+	h := newHub()
+	ch, cancel := h.subscribe("web:atlas", "private/t")
+	defer cancel()
+	h.publish("web:atlas/private", "t", "message", "private reply")
+	select {
+	case frame := <-ch:
+		t.Fatalf("received another chat's frame: %s", frame)
+	default:
 	}
 }
