@@ -614,3 +614,14 @@ func TestReapChecksBridgeCIDAndReadableIdentity(t *testing.T) {
 		t.Fatalf("signaled unreadable process: %v", p.sent)
 	}
 }
+
+func TestReapRetainsDependenciesWhenQemuSurvives(t *testing.T) {
+	rec, p := fullRecord(t)
+	p.immortal[rec.QemuPid] = true
+	if err := reapVM(rec, p, 0, time.Millisecond, nil, fakeNet{p}); err == nil {
+		t.Fatal("surviving QEMU accepted")
+	}
+	if len(p.sent) != 2 {
+		t.Fatalf("removed dependencies: %v", p.sent)
+	}
+}

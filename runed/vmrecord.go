@@ -335,7 +335,7 @@ func reapVM(rec *vmRecord, p procs, grace, poll time.Duration, tree *turnTree, n
 	// proxy or its share would leave it running with a route or a write path
 	// nobody is watching.
 	if err := endProcess(p, targets[0], grace, poll); err != nil {
-		failed = append(failed, err.Error())
+		return fmt.Errorf("vm %s not fully reaped, record kept: %w", rec.Handle, err)
 	}
 	// Then the rule set and the tap, then the host processes that served the
 	// guest, in the order spec 6/41 §"The turn" step 9 fixes.
