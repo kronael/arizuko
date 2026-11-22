@@ -44,7 +44,12 @@ func (s *Store) PutOAuthSecret(userSub, key, value, provider, refresh string, ex
 	}
 	setAttr(owned, attrSecProvider, provider)
 	owned[attrSecCreatedAt] = core.NowTS()
-	return s.putSecret(context.Background(), ScopeUser, userSub, key, owned)
+	w, err := secretUpsert(ScopeUser, userSub, key, owned)
+	if err != nil {
+		return err
+	}
+	w.Remove = missingAttrs(owned, attrSecExpiresAt, attrSecScopeList)
+	return s.WriteEntities(context.Background(), nil, w)
 }
 
 // UpdateOAuthSecret reseals value+refresh and updates expiry/scope for an

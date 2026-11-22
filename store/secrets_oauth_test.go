@@ -74,6 +74,29 @@ func TestUserOAuthSecrets_SkipsPAT(t *testing.T) {
 	}
 }
 
+func TestPutOAuthSecret_ReconnectClearsMetadata(t *testing.T) {
+	s := oauthStore(t)
+	if err := s.PutOAuthSecret("github:alice", "GITHUB_TOKEN", "old", "github", "refresh", time.Unix(100, 0), "repo"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PutOAuthSecret("github:alice", "GITHUB_TOKEN", "new", "github", "", time.Time{}, ""); err != nil {
+		t.Fatal(err)
+	}
+	at := secretItem(t, s, ScopeUser, "github:alice", "GITHUB_TOKEN")
+	for _, name := range []string{attrSecExpiresAt, attrSecScopeList} {
+		if value, ok := at.Attrs[name]; ok {
+			t.Errorf("reconnect retained %s=%q", name, value)
+		}
+	}
+	rows, err := s.UserOAuthSecrets("github:alice", []string{"GITHUB_TOKEN"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].Value != "new" || rows[0].Refresh != "" || !rows[0].ExpiresAt.IsZero() || rows[0].Scope != "" {
+		t.Fatalf("reconnected credential = %+v", rows)
+	}
+}
+
 func TestUpdateOAuthSecret_Reseals(t *testing.T) {
 	s := oauthStore(t)
 	if err := s.PutOAuthSecret("github:alice", "GITHUB_TOKEN", "v1", "github", "r1", time.Now().Add(30*time.Second), "repo"); err != nil {
