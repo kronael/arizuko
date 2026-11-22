@@ -115,7 +115,7 @@ func TestPartialBatchDoesNotContinue(t *testing.T) {
 			loop.q.mu.Lock()
 			again := loop.q.getGroup(jid).again
 			loop.q.mu.Unlock()
-			if again || db.GetAgentCursor(jid) != store.MessageCursor(first) {
+			if again != (mode == "steer") || db.GetAgentCursor(jid) != store.MessageCursor(first) {
 				t.Fatalf("continuation=%t cursor=%q", again, db.GetAgentCursor(jid))
 			}
 			want := 2
@@ -124,6 +124,43 @@ func TestPartialBatchDoesNotContinue(t *testing.T) {
 			}
 			if calls != want {
 				t.Fatalf("calls=%d want %d", calls, want)
+			}
+		})
+	}
+}
+
+func TestCommandWithPendingSuffixContinues(t *testing.T) {
+	for name, messages := range map[string][]string{
+		"command first": {"/ping", "answer me"},
+		"older prefix":  {"older question", "/ping", "answer me"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			db := memDBOrSkip(t)
+			if err := db.PutGroup(core.Group{Folder: "demo"}); err != nil {
+				t.Fatal(err)
+			}
+			jid := "web:demo"
+			now := time.Now()
+			for i, content := range messages {
+				msg := core.Message{ID: fmt.Sprint(i), ChatJID: jid, Sender: "u", Content: content,
+					Timestamp: now.Add(time.Duration(i) * time.Second)}
+				if err := db.PutMessage(msg); err != nil {
+					t.Fatal(err)
+				}
+			}
+			loop := NewLoop(db, nopRunner{}, LoopConfig{})
+			defer loop.StopQueue()
+			loop.q.mu.Lock()
+			loop.q.getGroup(jid).active = true
+			loop.q.mu.Unlock()
+			if _, err := loop.processGroupMessages(jid); err != nil {
+				t.Fatal(err)
+			}
+			loop.q.mu.Lock()
+			again := loop.q.getGroup(jid).again
+			loop.q.mu.Unlock()
+			if !again {
+				t.Fatal("command suffix was not queued")
 			}
 		})
 	}

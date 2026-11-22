@@ -103,6 +103,7 @@ func (l *Loop) processChat(chatJID string, commandsOnly bool) (hadOutput bool, r
 	steerConsumed := false
 	steerIdx := steerRowIdx(msgs)
 	steerMsg := msgs[steerIdx]
+	hasSteerSuffix := steerIdx+1 < len(msgs)
 	if commandsOnly && !l.canSteer(chatJID, steerMsg, folder, b.rows[steerIdx].AtName) {
 		return false, nil
 	}
@@ -142,6 +143,9 @@ func (l *Loop) processChat(chatJID string, commandsOnly bool) (hadOutput bool, r
 		// turn below (BUGS L104), and `last` stays at the steered row so the
 		// closing advance does not walk the cursor back over the command.
 		steerConsumed = true
+		if !commandsOnly && hasSteerSuffix {
+			l.q.EnqueueMessageCheck(chatJID)
+		}
 		msgs, last = msgs[:steerIdx], steerMsg
 	}
 	if commandsOnly && deferredSteer == nil && !steerConsumed {
@@ -236,6 +240,9 @@ func (l *Loop) processChat(chatJID string, commandsOnly bool) (hadOutput bool, r
 		}
 		if l.steer(chatJID, *deferredSteer, folder, b.rows[steerIdx].AtName) {
 			l.advance(chatJID, *deferredSteer)
+			if !commandsOnly && hasSteerSuffix {
+				l.q.EnqueueMessageCheck(chatJID)
+			}
 			return true, nil
 		}
 		return false, nil

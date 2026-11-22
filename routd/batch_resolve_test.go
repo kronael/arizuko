@@ -177,6 +177,7 @@ func TestBatchResolve_ABusyRefusalThenANewerCIRowStillRunsTheMention(t *testing.
 func TestBatchResolve_ACommandThenAMentionThenAReviewRowStillRoutesTheMention(t *testing.T) {
 	rr := &recRunner{}
 	db, loop := githubBatchLoop(t, rr)
+	loop.StopQueue()
 	now := time.Now().UTC()
 	putPRRow(t, db, "gh-c1", "github:user/alice", "message", "/ping", now)
 	putPRRow(t, db, "gh-rc1", "github:user/alice", "mention", "inline mention", now.Add(time.Millisecond))
