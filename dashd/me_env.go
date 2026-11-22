@@ -37,13 +37,6 @@ func sortedEnvProfileKeys() []string {
 	return out
 }
 
-// listUserEnvKeys returns the caller's env-profile keys that are currently set.
-// The fixed display-order key list bounds the answer, so a secret outside the
-// profile cannot reach this page.
-func (d *dash) listUserEnvKeys(sub string) ([]secretItem, error) {
-	return d.ds().UserEnvKeys(sub, envProfileKeyList)
-}
-
 // handleMeEnv serves GET /dash/me/env — HTML or JSON list of the caller's
 // env-profile keys. Values are never returned.
 func (d *dash) handleMeEnv(w http.ResponseWriter, r *http.Request) {
@@ -55,7 +48,7 @@ func (d *dash) handleMeEnv(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "secrets store unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	items, err := d.listUserEnvKeys(sub)
+	items, err := d.ds().UserEnvKeys(sub, envProfileKeyList)
 	if err != nil {
 		slog.Warn("me_env list", "sub", sub, "err", err)
 		http.Error(w, "query failed", http.StatusInternalServerError)

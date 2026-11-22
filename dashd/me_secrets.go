@@ -71,12 +71,6 @@ func (d *dash) userSecretWrite(w http.ResponseWriter, r *http.Request) (sub stri
 // surfaces are allowed to show.
 type secretItem = dashstore.SecretKey
 
-// listUserSecrets returns the caller's secret KEYS + created_at — never values
-// (the list surface mirrors GitHub SSH keys: names visible, secrets opaque).
-func (d *dash) listUserSecrets(sub string) ([]secretItem, error) {
-	return d.ds().UserSecretKeys(sub)
-}
-
 // handleMeSecrets serves the user's secret list: an HTML management page for a
 // browser (Accept: text/html) and JSON for API callers. Values are never
 // returned on either surface.
@@ -89,7 +83,7 @@ func (d *dash) handleMeSecrets(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "secrets store unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	items, err := d.listUserSecrets(sub)
+	items, err := d.ds().UserSecretKeys(sub)
 	if err != nil {
 		slog.Warn("me_secrets list", "sub", sub, "err", err)
 		http.Error(w, "query failed", http.StatusInternalServerError)
