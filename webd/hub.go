@@ -14,11 +14,6 @@ const (
 	sseWriteTimeout = 10 * time.Second
 )
 
-// hub is the SSE broker keyed by "chatJID/topic". The chat JID is passed
-// VERBATIM — the JID the caller already holds (token row, turn context, wire
-// chat_jid) — never a folder derived from it. Both ends re-deriving the key
-// with string surgery is what hung suffixed and hook: chats three times
-// (BUGS L30); with the JID as the key there is no derivation to disagree on.
 type hubKey struct{ chatJID, topic string }
 
 type hub struct {

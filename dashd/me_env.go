@@ -20,12 +20,6 @@ import (
 // (BUGS F22: POST already carried the pointer, PATCH/DELETE truncated it).
 const notEnvProfileKeySuffix = ": not an env-profile key — use /dash/me/secrets for capability keys"
 
-// envProfileKeyList is the page's display order, DERIVED from
-// store.EnvProfileKeys rather than restated. It was a second literal of the
-// same facts, and when `9e55216e` added ANTHROPIC_OAUTH_TOKEN to the map the
-// page silently stopped offering it — so a user on the pi backend had no
-// operator surface for the one credential that backend reads (BUGS L91).
-// Sorted, because a map has no order and a stable page needs one.
 var envProfileKeyList = sortedEnvProfileKeys()
 
 func sortedEnvProfileKeys() []string {

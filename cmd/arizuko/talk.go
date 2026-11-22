@@ -1,40 +1,5 @@
 package main
 
-// arizuko talk — a terminal conversation with the agent, spec 6/26 gap 1.
-//
-//	arizuko talk                    REPL against the one chat
-//	arizuko talk --prompt "what broke?" one turn: send, print the reply, exit
-//	arizuko talk --prompt                same, prompt read from stdin
-//	arizuko talk @work --prompt "…" a named chat instead of the default
-//	arizuko talk --thread bugfix    a different thread, same chat
-//
-// `talk` is an HTTP CLIENT and nothing else. It imports no `store`, opens no
-// sqlite file and takes no instance argument, which is what lets it point at a
-// remote host from a laptop. Contrast `arizuko send` (operator-direct: writes
-// the inbound straight into the DB) and `arizuko chat` (an interactive Claude
-// Code on the ROOT MCP socket — an operator tool, not a conversation with the
-// persona).
-//
-// Two surfaces, both on the PUBLIC proxyd URL:
-//
-//	POST <url>/mcp                            list_groups + send   (webd/mcp.go)
-//	GET  <url>/me/chats/<folder>/<topic>/sse  the round            (webd/me.go)
-//
-// Why proxyd and never webd directly: webd.identified requires BOTH an
-// X-User-Sub header and auth.ProxydTransit, so webd will not read a raw bearer
-// itself. proxyd.tryAuth verifies the ES256 bearer against authd's JWKs and
-// stamps the identity headers; a client reaching webd directly is anonymous.
-//
-// Why the /me SSE stream rather than the MCP get_history tool: it is the only
-// identity-gated read that carries round_done — the only one that says when the
-// turn is OVER. get_history would be a poll loop with no terminator.
-//
-// Which scopes the bearer needs: NONE. proxyd ignores the token's scope claim
-// here — groupsForSub re-reads the subject's `acl` rows and stamps those as
-// X-User-Groups, and webd's send/list_groups gate on auth.MatchGroups over that
-// header. `token issue bearer --scope` is required by the mint command, not by
-// this path; the grant on the --sub is what decides reach.
-
 import (
 	"bufio"
 	"context"

@@ -787,29 +787,6 @@ func membershipJIDs(db, obdb *store.Store, userSub string) []string {
 	return slices.Compact(chats)
 }
 
-// writeWorld writes the group + member edge + admin grant in ONE guarded batch,
-// then names the person. The groups write is create-if-absent and the only
-// guarded one in the batch, so a refusal detects a concurrent creator and fails
-// closed instead of granting admin on someone else's world.
-//
-// THE PERSON IS RECORDED AFTER THE FOLDER IS WON, and that is what the
-// transaction was protecting: a caller who loses the race must not be left
-// named. Landing it after the batch gives that directly — a lost race writes
-// nothing at all — where the transaction gave it by rolling both back.
-//
-// It is store.RecordPerson and not a rename: this IS the path that admits a
-// person, so it is the path that creates their profile. It used to rename a
-// profile nothing ever created, and every person admitted stayed nameless on
-// every operator surface (BUGS L269). It cannot ride in the batch because the
-// batch is all-or-nothing and this one write is create-or-rename.
-//
-// The batch runs through store.SeedMemberRole, which is objstore.AddEdge, so the
-// cycle walk compare-and-swaps routd's marker in the write it decided (BUGS
-// L256).
-//
-// It writes NO routes (spec 5/18 step 7): it used to route every JID the sub had
-// ever paired at the new folder, which is a blast radius, not an act. The redirect
-// lands on /onboard, whose step-6 branch routes the ONE unrouted JID at hand.
 func writeWorld(db *store.Store, folder, username, userSub string, version objstore.Version) error {
 	ctx := context.Background()
 	row, err := store.GroupCreateWrite(core.Group{
