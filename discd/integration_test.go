@@ -729,6 +729,25 @@ func TestOnReactionAdd_LikeAndDislike(t *testing.T) {
 	}
 }
 
+// A group DM reaction retains the multi-user classification.
+func TestOnReactionAddGroupDM(t *testing.T) {
+	mr := testutils.NewRouterStub()
+	defer mr.Close()
+	rc := chanlib.NewRouterClient(mr.Srv.URL)
+	rc.SetToken("tok")
+	sess := newTestSession(t)
+	addChannel(t, sess, "group", discordgo.ChannelTypeGroupDM)
+	b := &bot{session: sess, rc: rc}
+	b.onReactionAdd(sess, &discordgo.MessageReactionAdd{MessageReaction: &discordgo.MessageReaction{
+		UserID: "u1", MessageID: "m1", ChannelID: "group", Emoji: discordgo.Emoji{Name: "👍"},
+	}})
+	mr.Mu.Lock()
+	defer mr.Mu.Unlock()
+	if len(mr.Msgs) != 1 || !mr.Msgs[0].IsGroup {
+		t.Fatalf("reaction = %+v, want group", mr.Msgs)
+	}
+}
+
 // A reaction inside a thread lands on the parent channel's chat with the thread
 // as its topic, as a message does: the reacted message is stored there.
 func TestOnReactionAddInThreadUsesTheParentChat(t *testing.T) {

@@ -238,7 +238,7 @@ func (b *bot) onReactionAdd(_ *discordgo.Session, m *discordgo.MessageReactionAd
 	if emoji == "" {
 		return
 	}
-	jid, topic, _ := b.chatAndTopic(m.GuildID, m.ChannelID)
+	jid, topic, ch := b.chatAndTopic(m.GuildID, m.ChannelID)
 	verb := chanlib.ClassifyEmoji(emoji)
 	senderName := ""
 	if m.Member != nil && m.Member.User != nil {
@@ -255,7 +255,7 @@ func (b *bot) onReactionAdd(_ *discordgo.Session, m *discordgo.MessageReactionAd
 		Verb:       verb,
 		ReplyTo:    m.MessageID,
 		Reaction:   emoji,
-		IsGroup:    m.GuildID != "",
+		IsGroup:    isGroupChannel(ch),
 		ChatName:   b.channelName(m.ChannelID),
 	}); err != nil {
 		slog.Error("deliver reaction failed", "jid", jid, "err", err)
