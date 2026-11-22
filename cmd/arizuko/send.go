@@ -145,7 +145,7 @@ func operatorInject(st *store.Store, dataDir, folder, sender, msg, topic string,
 	if env["API_PORT"] == "" {
 		die("Failed: API_PORT not configured in %s/.env", dataDir)
 	}
-	token, _, err := mintBearer(filepath.Join(dataDir, "store"), folder, sender,
+	token, _, err := mintBearer(folder, sender,
 		[]string{"messages:write"}, time.Minute)
 	if err != nil {
 		die("Failed: mint bearer: %v", err)

@@ -26,7 +26,7 @@ func TestMintBearer(t *testing.T) {
 	}
 	seedAuthDB(t, storeDir, key)
 
-	tok, exp, err := mintBearer(storeDir, "eval", "user:cli", []string{"messages:write", "messages:read"}, time.Hour)
+	tok, exp, err := mintBearer("eval", "user:cli", []string{"messages:write", "messages:read"}, time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,10 +51,9 @@ func TestMintBearer(t *testing.T) {
 }
 
 func TestMintBearerNoActiveKey(t *testing.T) {
-	storeDir := t.TempDir()
 	dropAuthd(t)
 	openAuthStore(t)
-	if _, _, err := mintBearer(storeDir, "eval", "user:cli", []string{"messages:read"}, time.Hour); err == nil {
+	if _, _, err := mintBearer("eval", "user:cli", []string{"messages:read"}, time.Hour); err == nil {
 		t.Fatal("expected error with no active key")
 	}
 }
@@ -101,7 +100,7 @@ func TestTokenLandsInRoutdDB(t *testing.T) {
 	if err := s.PutGroupRow(core.Group{Folder: "main", AddedAt: time.Now()}); err != nil {
 		t.Fatalf("seed group: %v", err)
 	}
-	tokenIssue(s, "", []string{"chat", "main"})
+	tokenIssue(s, []string{"chat", "main"})
 
 	// The jid is an ATTRIBUTE — the coordinate is the digest — so the match reads
 	// it off the item rather than out of the key.

@@ -4,7 +4,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -25,7 +24,7 @@ import (
 func cmdToken(args []string) {
 	instance, sub := args[0], verb(args, "arizuko token [-i instance] <issue|list|revoke> ...")
 
-	dataDir := mustInstanceDir(instance)
+	mustInstanceDir(instance)
 	// route_tokens + groups live in routd.db post-split — messages.db is the
 	// frozen monolith routd never reads (same fix class as `arizuko network`,
 	// 2dfa5670).
@@ -34,7 +33,7 @@ func cmdToken(args []string) {
 
 	switch sub {
 	case "issue":
-		tokenIssue(st, dataDir, args[2:])
+		tokenIssue(st, args[2:])
 	case "list":
 		tokenList(st, args[2:])
 	case "revoke":
@@ -44,7 +43,7 @@ func cmdToken(args []string) {
 	}
 }
 
-func tokenIssue(st *store.Store, dataDir string, args []string) {
+func tokenIssue(st *store.Store, args []string) {
 	issueUsage := "arizuko token [-i instance] issue chat <folder> [<suffix>] [--context|-c TEXT]\n" +
 		"       arizuko token [-i instance] issue webhook <folder> <label> [<suffix>] [--context|-c TEXT]\n" +
 		"       arizuko token [-i instance] issue bearer <folder> --scope|-s s1,s2 [--ttl 1h] [--sub SUB]"
@@ -52,7 +51,7 @@ func tokenIssue(st *store.Store, dataDir string, args []string) {
 		usage(nil, issueUsage)
 	}
 	if args[0] == "bearer" {
-		tokenIssueBearer(st, dataDir, args[1:])
+		tokenIssueBearer(st, args[1:])
 		return
 	}
 	fs := flag.NewFlagSet("token issue", flag.ContinueOnError)
@@ -117,7 +116,7 @@ func tokenIssue(st *store.Store, dataDir string, args []string) {
 // endpoint: the operator holding the data dir already holds the trust root.
 // The minted claim shape matches authd's signMinted (typ=user, arz/folder),
 // so every backend verifies it against the same JWKS.
-func tokenIssueBearer(st *store.Store, dataDir string, args []string) {
+func tokenIssueBearer(st *store.Store, args []string) {
 	fs := flag.NewFlagSet("token issue bearer", flag.ContinueOnError)
 	var scope, sub string
 	fs.StringVar(&scope, "scope", "", "comma-separated scopes (required, e.g. messages:write,messages:read)")
@@ -136,7 +135,7 @@ func tokenIssueBearer(st *store.Store, dataDir string, args []string) {
 	if _, ok := st.GroupByFolder(folder); !ok {
 		die("Failed: group %q not found", folder)
 	}
-	tok, exp, err := mintBearer(filepath.Join(dataDir, "store"), folder, sub, strings.Split(scope, ","), *ttl)
+	tok, exp, err := mintBearer(folder, sub, strings.Split(scope, ","), *ttl)
 	if err != nil {
 		die("Failed: %v", err)
 	}
@@ -145,19 +144,7 @@ func tokenIssueBearer(st *store.Store, dataDir string, args []string) {
 		sub, folder, scope, exp.Format(time.RFC3339), tok)
 }
 
-// mintBearer loads authd's active signing key and signs a folder-scoped user
-// token. Split into a helper so tests can mint against a fixture store and
-// verify with the public half.
-//
-// The key is read through authstore, the package that owns the item shape, so
-// this answers on whichever store authd keeps its keys on. store.OwnerDriver is
-// the door: an instance served from an endpoint dials it and ignores storeDir.
-//
-// The door is store.OwnerDriver, never a hand-built path: this once opened a
-// flat pre-move path and left a stray 0-byte file, from a command that only
-// reads. `OwnerDBPath` is gone with the file layout it addressed — an owner is
-// a partition on the store server now, not a path.
-func mintBearer(storeDir, folder, sub string, scopes []string, ttl time.Duration) (string, time.Time, error) {
+func mintBearer(folder, sub string, scopes []string, ttl time.Duration) (string, time.Time, error) {
 	d, closeStore, err := store.OwnerDriver(store.OwnerAuthd)
 	if err != nil {
 		return "", time.Time{}, err
