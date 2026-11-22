@@ -159,7 +159,7 @@ func TestRouteTokenRevoke_Audited(t *testing.T) {
 	})
 	mux := newMux(d)
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, adminReq("POST", "/dash/tokens/team/"+encodeJID("web:team")+"/revoke", "", "alice@x"))
+	mux.ServeHTTP(w, adminReq("POST", "/dash/tokens/team/"+url.PathEscape("web:team")+"/revoke", "", "alice@x"))
 	if w.Code != http.StatusSeeOther {
 		t.Fatalf("POST revoke = %d body=%q", w.Code, w.Body.String())
 	}

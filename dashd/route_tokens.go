@@ -48,7 +48,7 @@ func (d *dash) handleTokensFolder(w http.ResponseWriter, r *http.Request) {
 		revoke := fmt.Sprintf(
 			`<form method="post" action="/dash/tokens/%s/%s/revoke">`+
 				`<button class="btn btn-danger btn-sm" type="submit">revoke</button></form>`,
-			folderPath(folder), esc(encodeJID(t.JID)))
+			folderPath(folder), esc(url.PathEscape(t.JID)))
 		iso := t.CreatedAt
 		tableRows = append(tableRows, []string{
 			fmt.Sprintf(`<code>%s</code>`, esc(t.JID)),
@@ -90,10 +90,6 @@ func (d *dash) handleTokensRevoke(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Redirect(w, r, "/dash/tokens/"+folderPath(folder)+"/", http.StatusSeeOther)
-}
-
-func encodeJID(jid string) string {
-	return url.PathEscape(jid)
 }
 
 func (d *dash) listRouteTokens(ctx context.Context, folder string) ([]resources.RouteTokensRow, error) {

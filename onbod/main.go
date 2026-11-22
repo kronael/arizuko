@@ -622,14 +622,6 @@ func latestRedemption(obdb *store.Store, userSub string) (store.Redemption, bool
 	return r, held
 }
 
-// spendRedemption consumes the redemption, making it single-use. The delete's
-// own refusal is the claim, not a report: two create_world posts that derived
-// the same redemption cannot both spend it, so one invite redemption is one
-// world.
-func spendRedemption(obdb *store.Store, userSub string, r store.Redemption) (bool, error) {
-	return obdb.SpendRedemption(context.Background(), userSub, r)
-}
-
 const createWorldAttempts = 8
 
 func issuerGranter(issuedBy string) (auth.Caller, bool) {
@@ -715,7 +707,7 @@ func handleCreateWorld(w http.ResponseWriter, r *http.Request, db, obdb *store.S
 	}
 
 	if invited {
-		spent, err := spendRedemption(obdb, userSub, redemption)
+		spent, err := obdb.SpendRedemption(context.Background(), userSub, redemption)
 		if err != nil {
 			slog.Error("create world: spend invite redemption", "user", userSub, "err", err)
 			http.Error(w, "create world failed", http.StatusInternalServerError)
@@ -851,7 +843,7 @@ func gateFromKey(key string, limit int) gate {
 // no folder at all (BUGS W1). SQL cannot glob segments, so the rows are filtered
 // by the single evaluator rather than by a second matcher written here.
 func adminFolders(db *store.Store, userSub string) []string {
-	folders, err := scanFolders(db)
+	folders, err := db.GroupFolders(0)
 	if err != nil {
 		slog.Error("adminFolders groups", "err", err)
 		return nil
@@ -891,10 +883,6 @@ func unroutedJID(db, obdb *store.Store, sub string) string {
 		}
 	}
 	return ""
-}
-
-func scanFolders(db *store.Store) ([]string, error) {
-	return db.GroupFolders(0)
 }
 
 func renderQueuePosition(w http.ResponseWriter, db *store.Store, gateStr, queuedAt string) {
