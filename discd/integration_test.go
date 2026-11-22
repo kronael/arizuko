@@ -779,11 +779,12 @@ func TestLoadConfig_Defaults(t *testing.T) {
 	t.Setenv("ROUTER_URL", "http://router:7000")
 	t.Setenv("CHANNEL_NAME", "")
 	t.Setenv("LISTEN_ADDR", "")
+	t.Setenv("LISTEN_URL", "")
 	cfg := loadConfig()
 	if cfg.Name != "discord" {
 		t.Errorf("name = %q", cfg.Name)
 	}
-	if cfg.ListenAddr != ":9002" {
+	if cfg.ListenAddr != ":8080" || cfg.ListenURL != "http://discord:8080" {
 		t.Errorf("addr = %q", cfg.ListenAddr)
 	}
 }

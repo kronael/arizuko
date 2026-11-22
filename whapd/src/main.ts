@@ -192,8 +192,8 @@ const pairSocketBuilder: SocketBuilder = async (phone) => {
 };
 const bot = new WhapdBot(pairSocketBuilder, () => authDirHasCreds(authDir));
 const routerURL = env('ROUTER_URL');
-const listenAddr = env('LISTEN_ADDR', ':9002');
-const listenURL = env('LISTEN_URL', 'http://whapd:9002');
+const listenAddr = env('LISTEN_ADDR', ':8080');
+const listenURL = env('LISTEN_URL', 'http://whapd:8080');
 const authdURL = process.env['AUTHD_URL'];
 const verifier: RoutdVerifier = buildVerifier();
 let bearer: () => Promise<string> = async () => '';

@@ -46,7 +46,7 @@ until scanned.
 
 - Binary: `whapd/dist/main.js` (built with `tsc`)
 - Image: `whapd/Dockerfile`
-- Listen: `$LISTEN_ADDR` (code default `:9002`; compose fragment sets `:8080`)
+- Listen: `$LISTEN_ADDR` (code default `:8080`)
 - Router registration: `whatsapp:` prefix.
 
 ## Dependencies
@@ -59,8 +59,8 @@ until scanned.
 | Variable             | Code default                    | Meaning                                                                             |
 | -------------------- | ------------------------------- | ----------------------------------------------------------------------------------- |
 | `ROUTER_URL`         | required                        | routd URL, normally `http://routd:8080`.                                            |
-| `LISTEN_ADDR`        | `:9002`                         | Code listener; compose sets `:8080`.                                                |
-| `LISTEN_URL`         | `http://whapd:9002`             | Advertised callback; compose sets `http://whapd:8080`.                              |
+| `LISTEN_ADDR`        | `:8080`                         | Code listener.                                                                      |
+| `LISTEN_URL`         | `http://whapd:8080`             | Advertised callback.                                                                |
 | `DATA_DIR`           | empty                           | Base for default auth and ledger directories.                                       |
 | `WHATSAPP_AUTH_DIR`  | `/srv/data/store/whatsapp-auth` | With DATA_DIR set, defaults to `DATA_DIR/store/whatsapp-auth`; pairing credentials. |
 | `WHAPD_STATE_DIR`    | `/srv/data/store/whapd`         | With DATA_DIR set, defaults to `DATA_DIR/store/whapd`; delivery ledgers.            |

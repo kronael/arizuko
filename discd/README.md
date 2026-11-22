@@ -63,8 +63,8 @@ Defaults below come from the Go code. Container fragments set `LISTEN_ADDR=:8080
 | `DISCORD_TOKEN`                              | required              | `Bot <token>` for a bot; a bare token selects user mode.                                         |
 | `ROUTER_URL`                                 | required              | routd base URL.                                                                                  |
 | `CHANNEL_NAME`                               | `discord`             | Registration name; prefix stays `discord:`.                                                      |
-| `LISTEN_ADDR`                                | `:9002`               | Code listener; compose uses `:8080`.                                                             |
-| `LISTEN_URL`                                 | `http://discord:9002` | Advertised address; compose uses `http://discd:8080`.                                            |
+| `LISTEN_ADDR`                                | `:8080`               | Code listener.                                                                                   |
+| `LISTEN_URL`                                 | `http://discord:8080` | Advertised address; compose uses `http://discd:8080`.                                            |
 | `ASSISTANT_NAME`                             | empty                 | Name substituted for bot mentions in inbound text.                                               |
 | `MEDIA_MAX_FILE_BYTES`                       | `20971520`            | Maximum proxied attachment size in bytes.                                                        |
 | `AUTHD_URL`                                  | required              | authd URL, normally `http://authd:8080`; JWKS and service-token exchange.                        |

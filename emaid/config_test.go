@@ -43,8 +43,8 @@ func TestLoadConfigDefaults(t *testing.T) {
 	if c.MaxAttachment != 20*1024*1024 {
 		t.Errorf("MaxAttachment = %d, want 20MiB", c.MaxAttachment)
 	}
-	if c.ListenAddr == "" || c.ListenURL == "" {
-		t.Errorf("an empty default would make the daemon unreachable: %+v", c)
+	if c.ListenAddr != ":8080" || c.ListenURL != "http://email:8080" {
+		t.Errorf("listener defaults = %q, %q", c.ListenAddr, c.ListenURL)
 	}
 	if c.IMAPHost != "set-EMAIL_IMAP_HOST" || c.Password != "set-EMAIL_PASSWORD" {
 		t.Errorf("required vars not carried through: %+v", c)

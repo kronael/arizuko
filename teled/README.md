@@ -65,8 +65,8 @@ Defaults below come from the Go code. Container fragments set `LISTEN_ADDR=:8080
 | `TELEGRAM_BOT_TOKEN`                         | required                    | Telegram bot credential; startup calls the Bot API.                                              |
 | `ROUTER_URL`                                 | required                    | routd base URL, normally `http://routd:8080`.                                                    |
 | `CHANNEL_NAME`                               | `telegram`                  | Registration name and offset-file suffix.                                                        |
-| `LISTEN_ADDR`                                | `:9001`                     | Code listener; compose uses `:8080`.                                                             |
-| `LISTEN_URL`                                 | `http://telegram:9001`      | Advertised address; compose uses `http://teled:8080`.                                            |
+| `LISTEN_ADDR`                                | `:8080`                     | Code listener.                                                                                   |
+| `LISTEN_URL`                                 | `http://telegram:8080`      | Advertised address; compose uses `http://teled:8080`.                                            |
 | `DATA_DIR`                                   | `/srv/app/home/store/teled` | Directory for the polling offset.                                                                |
 | `ASSISTANT_NAME`                             | empty                       | Mention detection and bot-name replacement.                                                      |
 | `MEDIA_MAX_FILE_BYTES`                       | `20971520`                  | Maximum proxied download size in bytes.                                                          |

@@ -76,8 +76,8 @@ Defaults below come from the Go code. Container fragments set `LISTEN_ADDR=:8080
 | `EMAIL_VERIFY_DKIM`                          | false               | Requests unimplemented independent DKIM verification; startup warns.                             |
 | `ROUTER_URL`                                 | required            | routd base URL.                                                                                  |
 | `CHANNEL_NAME`                               | `email`             | Registration name; prefix stays `email:`.                                                        |
-| `LISTEN_ADDR`                                | `:9003`             | Code listener; compose uses `:8080`.                                                             |
-| `LISTEN_URL`                                 | `http://email:9003` | Advertised address; compose uses `http://emaid:8080`.                                            |
+| `LISTEN_ADDR`                                | `:8080`             | Code listener.                                                                                   |
+| `LISTEN_URL`                                 | `http://email:8080` | Advertised address; compose uses `http://emaid:8080`.                                            |
 | `MEDIA_MAX_FILE_BYTES`                       | `20971520`          | Attachment size cap in bytes.                                                                    |
 | `AUTHD_URL`                                  | required            | authd URL, normally `http://authd:8080`; JWKS and service-token exchange.                        |
 | `AUTHD_SERVICE_KEY`                          | required            | Bootstrap secret exchanged for a service JWT.                                                    |

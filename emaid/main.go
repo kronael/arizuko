@@ -79,8 +79,8 @@ func loadConfig() config {
 		IMAPPort:      core.EnvOr("EMAIL_IMAP_PORT", "993"),
 		SMTPPort:      core.EnvOr("EMAIL_SMTP_PORT", "587"),
 		RouterURL:     chanlib.MustEnv("ROUTER_URL"),
-		ListenAddr:    core.EnvOr("LISTEN_ADDR", ":9003"),
-		ListenURL:     core.EnvOr("LISTEN_URL", "http://email:9003"),
+		ListenAddr:    core.EnvOr("LISTEN_ADDR", ":8080"),
+		ListenURL:     core.EnvOr("LISTEN_URL", "http://email:8080"),
 		MaxAttachment: chanlib.EnvBytes("MEDIA_MAX_FILE_BYTES", 20*1024*1024),
 		Auth:          LoadAuthConfig(os.Getenv),
 	}

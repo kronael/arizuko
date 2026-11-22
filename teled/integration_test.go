@@ -717,12 +717,13 @@ func TestLoadConfig_Defaults(t *testing.T) {
 	t.Setenv("ROUTER_URL", "http://router:7000")
 	t.Setenv("CHANNEL_NAME", "")
 	t.Setenv("LISTEN_ADDR", "")
+	t.Setenv("LISTEN_URL", "")
 	t.Setenv("DATA_DIR", "/tmp")
 	cfg := loadConfig()
 	if cfg.Name != "telegram" {
 		t.Errorf("name = %q", cfg.Name)
 	}
-	if cfg.ListenAddr != ":9001" {
+	if cfg.ListenAddr != ":8080" || cfg.ListenURL != "http://telegram:8080" {
 		t.Errorf("addr = %q", cfg.ListenAddr)
 	}
 	if cfg.StateFile == "" {
