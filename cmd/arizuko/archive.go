@@ -76,10 +76,7 @@ func cmdDump(args []string) {
 	}
 	instance, file := fs.Arg(0), fs.Arg(1)
 	dataDir := mustInstanceDir(instance)
-	stores, err := openSubsystemStores(dataDir)
-	if err != nil {
-		die("Failed: open store: %v", err)
-	}
+	stores := openSubsystemStores()
 	defer closeStores(stores)
 
 	var buf bytes.Buffer

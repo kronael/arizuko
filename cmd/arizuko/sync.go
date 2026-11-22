@@ -119,10 +119,7 @@ func cmdPackage(args []string) {
 	if err != nil {
 		die("Failed: load config: %v", err)
 	}
-	stores, err := openSubsystemStores(dataDir)
-	if err != nil {
-		die("Failed: open stores: %v", err)
-	}
+	stores := openSubsystemStores()
 	defer closeStores(stores)
 	rdb := routd.OpenOver(stores[resreg.SubsystemRoutd].Obj())
 	records, err := rdb.InstalledPackages()

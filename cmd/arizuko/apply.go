@@ -28,11 +28,11 @@ func subsystemOrder() []string {
 // config manifest spans. Strict: store.OpenOwner errors if the owning daemon
 // has never booted to make its tables (no silent divergent schema), matching
 // this CLI's existing "die loud" posture.
-func openSubsystemStores(dataDir string) (map[string]*store.Store, error) {
+func openSubsystemStores() map[string]*store.Store {
 	return map[string]*store.Store{
 		resreg.SubsystemRoutd: mustOpen(store.OwnerRoutd),
 		resreg.SubsystemOnbod: mustOpen(store.OwnerOnbod),
-	}, nil
+	}
 }
 
 func cliActor() string { return "cli:" + os.Getenv("USER") }
@@ -321,10 +321,7 @@ func cmdApply(args []string) {
 	}
 	instance, file := fs.Arg(0), fs.Arg(1)
 	dataDir := mustInstanceDir(instance)
-	stores, err := openSubsystemStores(dataDir)
-	if err != nil {
-		die("Failed: open store: %v", err)
-	}
+	stores := openSubsystemStores()
 	defer closeStores(stores)
 	data, err := os.ReadFile(file)
 	if err != nil {
@@ -354,11 +351,8 @@ func cmdPlan(args []string) {
 	args = need(args, 2, 2, "arizuko plan [-i instance] <rows.yml>")
 	instance := args[0]
 	file := args[1]
-	dataDir := mustInstanceDir(instance)
-	stores, err := openSubsystemStores(dataDir)
-	if err != nil {
-		die("Failed: open store: %v", err)
-	}
+	mustInstanceDir(instance)
+	stores := openSubsystemStores()
 	defer closeStores(stores)
 	data, err := os.ReadFile(file)
 	if err != nil {
@@ -443,11 +437,8 @@ func cmdGet(args []string) {
 	if r == nil {
 		die("Failed: unknown resource %q", resource)
 	}
-	dataDir := mustInstanceDir(instance)
-	stores, err := openSubsystemStores(dataDir)
-	if err != nil {
-		die("Failed: open store: %v", err)
-	}
+	mustInstanceDir(instance)
+	stores := openSubsystemStores()
 	defer closeStores(stores)
 	st, ok := stores[r.DB]
 	if !ok {
