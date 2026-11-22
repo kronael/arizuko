@@ -7,25 +7,25 @@ import { PairError, type WhapdBot } from './bot.js';
 import { DedupLedger, DeliveryUnresolvedError, deliverOnce } from './dedup.js';
 import { log } from './log.js';
 
-interface SendReq {
-  chat_jid: string;
-  content: string;
-  reply_to?: string;
-  // idempotency_key is routd's stable id for this delivery (the outbound
-  // message row). routd re-sends a row that stays `pending`, so the SAME key
-  // arrives more than once by design and the adapter must not post twice.
-  // Empty = no dedup (SendVia, local dev).
-  idempotency_key?: string;
+class BadRequest extends Error {}
+
+function stringField(
+  body: Record<string, unknown>,
+  key: string,
+  optional = false,
+) {
+  const value = body[key];
+  if (optional && value === undefined) return '';
+  if (typeof value !== 'string' || (!optional && !value))
+    throw new BadRequest(`${key} required`);
+  return value;
 }
 
-interface TypingReq {
-  chat_jid: string;
-  on: boolean;
-}
-
-interface KeyedReq {
-  chat_jid: string;
-  target_id: string;
+function booleanField(body: Record<string, unknown>, key: string) {
+  const value = body[key];
+  if (typeof value !== 'boolean')
+    throw new BadRequest(`${key} must be boolean`);
+  return value;
 }
 
 function mdToWa(text: string): string {
@@ -114,12 +114,23 @@ function unsupported(res: http.ServerResponse, tool: string, hint: string) {
   });
 }
 
-async function readBody<T = Record<string, unknown>>(
+function isObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+async function readBody(
   req: http.IncomingMessage,
-): Promise<T> {
+): Promise<Record<string, unknown>> {
   const chunks: Buffer[] = [];
   for await (const chunk of req) chunks.push(chunk as Buffer);
-  return JSON.parse(Buffer.concat(chunks).toString()) as T;
+  let value: unknown;
+  try {
+    value = JSON.parse(Buffer.concat(chunks).toString());
+  } catch {
+    throw new BadRequest('invalid JSON');
+  }
+  if (!isObject(value)) throw new BadRequest('object required');
+  return value;
 }
 
 // requireSock returns the live socket or writes 502 and returns null.
@@ -175,7 +186,20 @@ export function startServer(
   // which is why the container always has one.
   ledger: DedupLedger | null = null,
 ): http.Server {
-  const srv = http.createServer(async (req, res) => {
+  const srv = http.createServer((req, res) => {
+    handle(req, res).catch((e: unknown) => {
+      if (!res.headersSent)
+        json(res, e instanceof BadRequest ? 400 : 500, {
+          ok: false,
+          error: String(e),
+        });
+      else res.destroy();
+    });
+  });
+  async function handle(
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+  ): Promise<void> {
     // The operator dashboard (spec 6/31), before the routd gate: it is reached
     // by an operator's browser through proxyd, not by routd's service token.
     if (
@@ -253,7 +277,13 @@ export function startServer(
 
     switch (req.url) {
       case '/send': {
-        const body = await readBody<SendReq>(req);
+        const input = await readBody(req);
+        const body = {
+          chat_jid: stringField(input, 'chat_jid'),
+          content: stringField(input, 'content'),
+          reply_to: stringField(input, 'reply_to', true),
+          idempotency_key: stringField(input, 'idempotency_key', true),
+        };
         const waJid = toWaJid(body.chat_jid);
         const text = mdToWa(body.content);
         // requireSock runs BEFORE the dedup claim on purpose: a link that is
@@ -361,7 +391,11 @@ export function startServer(
       }
 
       case '/typing': {
-        const body = await readBody<TypingReq>(req);
+        const input = await readBody(req);
+        const body = {
+          chat_jid: stringField(input, 'chat_jid'),
+          on: booleanField(input, 'on'),
+        };
         const waJid = toWaJid(body.chat_jid);
         log('debug', 'typing', { jid: waJid, on: body.on });
         setTyping(waJid, body.on);
@@ -370,7 +404,12 @@ export function startServer(
       }
 
       case '/like': {
-        const body = await readBody<KeyedReq & { reaction?: string }>(req);
+        const input = await readBody(req);
+        const body = {
+          chat_jid: stringField(input, 'chat_jid'),
+          target_id: stringField(input, 'target_id'),
+          reaction: stringField(input, 'reaction', true),
+        };
         const s = requireSock(res, sock, isConnected);
         if (!s) return;
         const waJid = toWaJid(body.chat_jid);
@@ -386,7 +425,11 @@ export function startServer(
       }
 
       case '/delete': {
-        const body = await readBody<KeyedReq>(req);
+        const input = await readBody(req);
+        const body = {
+          chat_jid: stringField(input, 'chat_jid'),
+          target_id: stringField(input, 'target_id'),
+        };
         const s = requireSock(res, sock, isConnected);
         if (!s) return;
         const waJid = toWaJid(body.chat_jid);
@@ -399,11 +442,12 @@ export function startServer(
       }
 
       case '/edit': {
-        const body = await readBody<{
-          chat_jid: string;
-          target_id: string;
-          content: string;
-        }>(req);
+        const input = await readBody(req);
+        const body = {
+          chat_jid: stringField(input, 'chat_jid'),
+          target_id: stringField(input, 'target_id'),
+          content: stringField(input, 'content'),
+        };
         const s = requireSock(res, sock, isConnected);
         if (!s) return;
         const waJid = toWaJid(body.chat_jid);
@@ -420,11 +464,12 @@ export function startServer(
       // properly; we only have the id, so we synthesize an extendedTextMessage
       // tagged isForwarded.
       case '/forward': {
-        const body = await readBody<{
-          source_msg_id: string;
-          target_jid: string;
-          comment?: string;
-        }>(req);
+        const input = await readBody(req);
+        const body = {
+          source_msg_id: stringField(input, 'source_msg_id'),
+          target_jid: stringField(input, 'target_jid'),
+          comment: stringField(input, 'comment', true),
+        };
         const s = requireSock(res, sock, isConnected);
         if (!s) return;
         const target = toWaJid(body.target_jid);
@@ -444,8 +489,8 @@ export function startServer(
           json(res, 501, { ok: false, error: 'pair flow not wired' });
           return;
         }
-        const body = await readBody<{ phone?: string }>(req);
-        const phone = (body.phone ?? '').trim();
+        const body = await readBody(req);
+        const phone = stringField(body, 'phone', true).trim();
         if (!phone) {
           json(res, 400, { error: 'phone required' });
           return;
@@ -498,7 +543,7 @@ export function startServer(
       default:
         json(res, 404, { ok: false, error: 'not found' });
     }
-  });
+  }
 
   const [host, port] = parseAddr(addr);
   srv.listen(parseInt(port), host, () => {

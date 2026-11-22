@@ -74,6 +74,30 @@ function auth() {
   return { Authorization: `Bearer ${routdToken}` };
 }
 
+/** Invalid JSON and invalid fields return 400 without stopping the server. */
+it('rejects invalid JSON request bodies', async () => {
+  for (const [route, body] of [
+    ['/typing', '{'],
+    ['/typing', 'null'],
+    ['/typing', '[]'],
+    ['/typing', '{}'],
+    ['/typing', '{"chat_jid":123,"on":true}'],
+    ['/typing', '{"chat_jid":"x","on":"yes"}'],
+    ['/send', '{"chat_jid":"x"}'],
+    ['/like', '{"chat_jid":"x","target_id":4}'],
+    ['/delete', '{}'],
+    ['/edit', '{"chat_jid":"x","target_id":"y"}'],
+    ['/forward', '{"target_jid":"x"}'],
+  ]) {
+    const r = await fetch(`${BASE}${route}`, {
+      method: 'POST',
+      headers: auth(),
+      body,
+    });
+    expect(r.status).toBe(400);
+  }
+});
+
 describe('GET /health', () => {
   it('returns ok without auth when connected', async () => {
     connected = true;
