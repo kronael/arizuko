@@ -114,15 +114,11 @@ func (f *Firewall) filterTools(reply json.RawMessage) (json.RawMessage, error) {
 				kept = append(kept, t)
 			}
 		}
-		filtered, err := json.Marshal(kept)
-		if err != nil {
-			return nil, err
-		}
+		// The retained values came from valid JSON.
+		filtered, _ := json.Marshal(kept)
 		result["tools"] = filtered
-		env["result"], err = json.Marshal(result)
-		if err != nil {
-			return nil, err
-		}
+		// The result contains only valid JSON values.
+		env["result"], _ = json.Marshal(result)
 		return json.Marshal(env)
 	}
 	// Not a tools/list result this gate can read, so there is nothing to hide.
