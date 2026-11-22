@@ -88,34 +88,18 @@ func paneFrom(it objstore.Item) PaneSession {
 }
 
 // OpenPane records that a pane is open, and in which channel. opened_at is set
-// ON CREATION ONLY and the channel is refreshed on every call. Two writes: a
-// Put would erase the instant the pane opened and the context the user set, so
-// the create-if-absent goes first and its refusal selects the refresh.
+// ON CREATION ONLY and the channel is refreshed on every call.
 func (s *Store) OpenPane(teamID, userID, threadTS, channelID string) error {
 	key, err := paneKey(teamID, userID, threadTS)
 	if err != nil {
 		return err
 	}
-	ctx := context.Background()
-	opened, err := s.TryWriteEntities(ctx, nil, objstore.Write{
-		Op: objstore.Put, Entity: PaneSessions, Key: key,
-		Attrs: map[string]string{
-			attrPaneChannel:  channelID,
-			attrPaneOpenedAt: core.NowTS(),
-		},
-		Cond: objstore.Cond{Item: objstore.ItemAbsent},
-	})
-	if err != nil {
-		return fmt.Errorf("open the pane in %s: %w", channelID, err)
-	}
-	if opened {
-		return nil
-	}
-	if err := s.WriteEntities(ctx, nil, objstore.Write{
-		Op: objstore.Update, Entity: PaneSessions, Key: key,
+	if err := s.WriteEntities(context.Background(), nil, objstore.Write{
+		Op: objstore.Merge, Entity: PaneSessions, Key: key,
 		Attrs: map[string]string{attrPaneChannel: channelID},
+		Init:  map[string]string{attrPaneOpenedAt: core.NowTS()},
 	}); err != nil {
-		return fmt.Errorf("move the pane to %s: %w", channelID, err)
+		return fmt.Errorf("open the pane in %s: %w", channelID, err)
 	}
 	return nil
 }
