@@ -288,7 +288,9 @@ func (p *Proxy) handleHTTP(w http.ResponseWriter, r *http.Request, src string) {
 		}
 	}
 	w.WriteHeader(resp.StatusCode)
-	_, _ = io.Copy(w, resp.Body)
+	if _, err := io.Copy(w, resp.Body); err != nil {
+		panic(http.ErrAbortHandler)
+	}
 	slog.Info("allow http", "src", src, "host", host, "status", resp.StatusCode)
 }
 

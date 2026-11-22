@@ -259,3 +259,25 @@ func TestRedirectIsNotFollowed(t *testing.T) {
 		t.Errorf("status = %d, want 403 (the re-issued hop is denied)", resp.StatusCode)
 	}
 }
+
+func TestTruncatedUpstreamAbortsResponse(t *testing.T) {
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		conn, _, err := w.(http.Hijacker).Hijack()
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		_, _ = io.WriteString(conn, "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n")
+		_ = conn.Close()
+	}))
+	defer up.Close()
+	client := through(serve(t, mustNew(t, []string{"localhost"}, nil, "")))
+	resp, err := client.Get(asLocalhost(up.URL))
+	if err != nil {
+		return
+	}
+	defer resp.Body.Close()
+	if _, err := io.ReadAll(resp.Body); err == nil {
+		t.Fatal("truncated upstream appeared complete")
+	}
+}
