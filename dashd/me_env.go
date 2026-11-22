@@ -65,16 +65,8 @@ func (d *dash) handleMeEnv(w http.ResponseWriter, r *http.Request) {
 		d.renderEnvPage(w, r, items)
 		return
 	}
-	type envItem struct {
-		Key       string `json:"key"`
-		CreatedAt string `json:"created_at"`
-	}
-	out := make([]envItem, len(items))
-	for i, it := range items {
-		out[i] = envItem{Key: it.Key, CreatedAt: it.CreatedAt}
-	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{"env": out})
+	_ = json.NewEncoder(w).Encode(map[string]any{"env": items})
 }
 
 // renderEnvPage renders the model-API-key management page.
