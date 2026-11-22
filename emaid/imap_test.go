@@ -233,6 +233,22 @@ func TestFetchUnseen_RouterFailure_NotMarkedSeen(t *testing.T) {
 	}
 }
 
+// A failed delivery is returned to the caller.
+func TestHandleMsgReturnsDeliveryError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer srv.Close()
+	p := &poller{st: newTestMailstore(t), reg: newAttRegistry()}
+	msg := &imapclient.FetchMessageBuffer{
+		UID:      1,
+		Envelope: &imap.Envelope{MessageID: "<failure@example.com>"},
+	}
+	if err := p.handleMsg(nil, msg, chanlib.NewRouterClient(srv.URL)); err == nil {
+		t.Fatal("delivery failure returned nil")
+	}
+}
+
 // serveMsgIMAP is a minimal IMAP server with one unseen message (UID 1).
 // It signals storeCalled if the client issues a UID STORE command.
 func serveMsgIMAP(t *testing.T, conn net.Conn, storeCalled chan<- struct{}) {
@@ -277,6 +293,9 @@ func serveMsgIMAP(t *testing.T, conn net.Conn, storeCalled chan<- struct{}) {
 				flush("* SEARCH 1\r\n")
 				flush(tag + " OK SEARCH completed\r\n")
 			case "FETCH":
+				if !strings.Contains(strings.ToUpper(line), "BODY.PEEK[]") {
+					t.Errorf("fetch marks message seen: %s", line)
+				}
 				body := "hello"
 				env := `(NIL "Test" (("Alice" NIL "alice" "example.com")) NIL NIL ` +
 					`(("Bob" NIL "bob" "example.com")) NIL NIL NIL "<test@example.com>")`

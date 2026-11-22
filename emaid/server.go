@@ -138,7 +138,7 @@ func (s *server) fetchPart(uid imap.UID, section []int, maxBytes int64) ([]byte,
 
 	fetchOpts := &imap.FetchOptions{
 		BodySection: []*imap.FetchItemBodySection{
-			{Specifier: imap.PartSpecifierNone, Part: section},
+			{Specifier: imap.PartSpecifierNone, Part: section, Peek: true},
 		},
 	}
 	msgs, err := c.Fetch(imap.UIDSetNum(uid), fetchOpts).Collect()
@@ -234,7 +234,7 @@ func (s *server) FetchHistory(req chanlib.HistoryRequest) (chanlib.HistoryRespon
 
 	fetchOpts := &imap.FetchOptions{
 		Envelope:    true,
-		BodySection: []*imap.FetchItemBodySection{{}},
+		BodySection: []*imap.FetchItemBodySection{{Peek: true}},
 		UID:         true,
 	}
 	msgs, err := c.Fetch(imap.UIDSetNum(uids...), fetchOpts).Collect()

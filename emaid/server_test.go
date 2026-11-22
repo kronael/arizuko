@@ -200,6 +200,26 @@ func TestFetchHistory_ThreadNotFound(t *testing.T) {
 	}
 }
 
+// Reading history does not mark messages seen.
+func TestFetchHistoryPeeks(t *testing.T) {
+	serverConn, clientConn := net.Pipe()
+	go serveMsgIMAP(t, serverConn, make(chan struct{}, 1))
+	chanStore, st := newTestStorage(t)
+	if err := st.LinkMessageToThread("test@example.com", "tid", "alice@example.com", "test@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	s := &server{
+		cfg:       config{IMAPHost: "fake", IMAPPort: "993", Account: "user", Password: "pass"},
+		chanStore: chanStore, st: st, reg: newAttRegistry(),
+		dialTLS: func(_ string, opts *imapclient.Options) (*imapclient.Client, error) {
+			return imapclient.New(clientConn, opts), nil
+		},
+	}
+	if _, err := s.FetchHistory(chanlib.HistoryRequest{ChatJID: "email:thread/tid"}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // TestFetchMsgToInbound verifies the IMAP→InboundMsg shape conversion used
 // by FetchHistory matches the live poller's delivery format (no drift).
 func TestFetchMsgToInbound(t *testing.T) {
@@ -328,6 +348,9 @@ func serveAttachmentIMAP(t *testing.T, conn net.Conn, section []int, data []byte
 			sub := strings.ToUpper(strings.Fields(parts[2])[0])
 			switch sub {
 			case "FETCH":
+				if !strings.Contains(strings.ToUpper(line), "BODY.PEEK[") {
+					t.Errorf("attachment fetch marks message seen: %s", line)
+				}
 				// Build section string like "2" or "1.2"
 				sectionParts := make([]string, len(section))
 				for i, s := range section {

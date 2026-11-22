@@ -318,7 +318,7 @@ func (p *poller) fetchUnseen(c *imapclient.Client, rc *chanlib.RouterClient) err
 	uidSet := imap.UIDSetNum(uids...)
 	fetchOpts := &imap.FetchOptions{
 		Envelope:    true,
-		BodySection: []*imap.FetchItemBodySection{{}},
+		BodySection: []*imap.FetchItemBodySection{{Peek: true}},
 		UID:         true,
 	}
 	// Pass UIDSet to Fetch — the library detects UIDSet and issues UID FETCH.
@@ -430,8 +430,7 @@ func (p *poller) handleMsg(
 		// future extension that should set IsGroup=true here.
 		IsGroup: false,
 	}); err != nil {
-		slog.Error("deliver failed", "jid", jid, "err", err)
-		return nil
+		return fmt.Errorf("deliver %s: %w", jid, err)
 	}
 	p.lastInboundAt.Store(time.Now().Unix())
 
