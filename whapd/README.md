@@ -64,7 +64,6 @@ until scanned.
 | `DATA_DIR`           | empty                           | Base for default auth and ledger directories.                                       |
 | `WHATSAPP_AUTH_DIR`  | `/srv/data/store/whatsapp-auth` | With DATA_DIR set, defaults to `DATA_DIR/store/whatsapp-auth`; pairing credentials. |
 | `WHAPD_STATE_DIR`    | `/srv/data/store/whapd`         | With DATA_DIR set, defaults to `DATA_DIR/store/whapd`; delivery ledgers.            |
-| `ASSISTANT_NAME`     | empty                           | Own-echo display-name filter, lowercased.                                           |
 | `AUTHD_URL`          | unset                           | JWKS verification and service-token exchange; unset opens the development gate.     |
 | `AUTHD_SERVICE_NAME` | `whapd`                         | Base daemon principal for the exchange.                                             |
 | `AUTHD_SERVICE_KEY`  | required with authd             | Bootstrap secret.                                                                   |

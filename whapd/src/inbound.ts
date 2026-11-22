@@ -116,15 +116,6 @@ export function pressedID(msg: WAMessage): string {
   }
 }
 
-// True when a message's pushName matches the assistant's own name —
-// used as a loop guard for group chats where the bot's own echo can
-// otherwise round-trip back through the upsert handler.
-export function isOwnEcho(msg: WAMessage, assistantName: string): boolean {
-  if (!assistantName) return false;
-  const name = (msg.pushName || '').toLowerCase();
-  return name === assistantName.toLowerCase();
-}
-
 // True when this is a group JID (suffix @g.us). Broadcast lists and
 // 1:1 chats land on the false branch.
 export function isGroupJid(jid: string): boolean {

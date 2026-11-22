@@ -25,7 +25,6 @@ import {
   buildMessagePayload,
   buildReactionPayload,
   extractContent as extractContentPure,
-  isOwnEcho,
 } from './inbound.js';
 import type { RouterMessage } from './inbound.js';
 import { log } from './log.js';
@@ -40,7 +39,6 @@ function env(k: string, def?: string): string {
   }
   return v;
 }
-const assistantName = (process.env['ASSISTANT_NAME'] ?? '').toLowerCase();
 const dataDir = process.env['DATA_DIR'] ?? '';
 const authDir = env(
   'WHATSAPP_AUTH_DIR',
@@ -337,7 +335,6 @@ async function connect(): Promise<void> {
       const jid = msg.key.remoteJid;
       if (!jid || jid === 'status@broadcast') continue;
       if (msg.key.fromMe) continue;
-      if (isOwnEcho(msg, assistantName)) continue;
       const { extracted, mediaBuffer } = await extractWithMedia(msg);
       const payload = buildMessagePayload(msg, extracted, mediaBuffer, () =>
         Math.floor(Date.now() / 1000),

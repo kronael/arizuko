@@ -6,7 +6,6 @@ import {
   classifyEmoji,
   extractContent,
   isGroupJid,
-  isOwnEcho,
   type ReactionEvent,
 } from './inbound';
 
@@ -70,26 +69,6 @@ describe('isGroupJid', () => {
   });
   it('treats status@broadcast as non-group', () => {
     expect(isGroupJid('status@broadcast')).toBe(false);
-  });
-});
-
-// ---------- isOwnEcho ----------
-
-describe('isOwnEcho', () => {
-  it('matches case-insensitively', () => {
-    expect(isOwnEcho(wa({ pushName: 'Hermes' }), 'hermes')).toBe(true);
-    expect(isOwnEcho(wa({ pushName: 'HERMES' }), 'hermes')).toBe(true);
-  });
-  it('does not match other names', () => {
-    expect(isOwnEcho(wa({ pushName: 'Alice' }), 'hermes')).toBe(false);
-  });
-  it('returns false when assistantName is empty (no guard)', () => {
-    expect(isOwnEcho(wa({ pushName: 'Hermes' }), '')).toBe(false);
-  });
-  it('returns false when pushName missing', () => {
-    const msg = wa({});
-    (msg as any).pushName = undefined;
-    expect(isOwnEcho(msg, 'hermes')).toBe(false);
   });
 });
 
