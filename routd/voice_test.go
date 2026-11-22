@@ -16,6 +16,16 @@ import (
 	"github.com/kronael/arizuko/groupfolder"
 )
 
+func TestPersonaVoiceYAMLBlock(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "PERSONA.md")
+	if err := os.WriteFile(path, []byte("---\nvoice: |\n  af_bella\n---\nbody\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := readSoulVoice(path); got != "af_bella" {
+		t.Errorf("voice = %q, want af_bella", got)
+	}
+}
+
 // --- outbound: send_voice synthesizes via TTS then delivers ---
 
 // ttsStub stands in for ttsd's /v1/audio/speech: returns fixed Opus bytes and

@@ -12,7 +12,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
 
@@ -77,23 +76,8 @@ func (s *Server) resolveVoice(arg, folder string) string {
 	return s.tts.Voice
 }
 
-var soulFrontmatterRE = regexp.MustCompile(`(?s)^---\s*\n(.*?)\n---\s*\n`)
-var soulVoiceRE = regexp.MustCompile(`(?m)^voice:\s*([^\s#]+)\s*(?:#.*)?$`)
-
 func readSoulVoice(path string) string {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return ""
-	}
-	fm := soulFrontmatterRE.FindSubmatch(data)
-	if fm == nil {
-		return ""
-	}
-	m := soulVoiceRE.FindSubmatch(fm[1])
-	if m == nil {
-		return ""
-	}
-	return strings.Trim(string(m[1]), `"'`)
+	return strings.TrimSpace(readPersona(path).Voice)
 }
 
 func (c ttsConfig) cacheOrSynthesize(text, voice, model string) (string, error) {

@@ -113,6 +113,25 @@ func linkContextBlock(trigger []core.Message) string {
 
 var personaFrontmatterRE = regexp.MustCompile(`(?s)^---\s*\n(.*?)\n---\s*\n`)
 
+type personaMetadata struct {
+	Name    string `yaml:"name"`
+	Summary string `yaml:"summary"`
+	Voice   string `yaml:"voice"`
+}
+
+func readPersona(path string) personaMetadata {
+	var meta personaMetadata
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return meta
+	}
+	fm := personaFrontmatterRE.FindSubmatch(data)
+	if fm == nil || yaml.Unmarshal(fm[1], &meta) != nil {
+		return personaMetadata{}
+	}
+	return meta
+}
+
 // personaBlock renders <groupsDir>/<folder>/PERSONA.md's frontmatter
 // `summary`. Strict: a missing file, no frontmatter, or no `summary` returns
 // "" — no fallback to body text.
@@ -120,21 +139,7 @@ func (l *Loop) personaBlock(folder string) string {
 	if folder == "" || l.groupsDir == "" {
 		return ""
 	}
-	data, err := os.ReadFile(filepath.Join(l.groupsDir, folder, "PERSONA.md"))
-	if err != nil {
-		return ""
-	}
-	fm := personaFrontmatterRE.FindSubmatch(data)
-	if fm == nil {
-		return ""
-	}
-	var meta struct {
-		Name    string `yaml:"name"`
-		Summary string `yaml:"summary"`
-	}
-	if err := yaml.Unmarshal(fm[1], &meta); err != nil {
-		return ""
-	}
+	meta := readPersona(filepath.Join(l.groupsDir, folder, "PERSONA.md"))
 	if strings.TrimSpace(meta.Summary) == "" {
 		return ""
 	}
