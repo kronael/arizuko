@@ -2341,7 +2341,15 @@ func buildMCPServer(routd RoutdFns, db StoreFns, folder string, isRoot bool, cal
 		if routd.GroupsDir == "" {
 			return toolErr("get_work not configured")
 		}
-		data, err := os.ReadFile(filepath.Join(routd.GroupsDir, folder, "work.md"))
+		root, err := os.OpenRoot(filepath.Join(routd.GroupsDir, folder))
+		if err != nil {
+			if os.IsNotExist(err) {
+				return toolJSON(map[string]any{"content": "", "exists": false})
+			}
+			return toolErr(err.Error())
+		}
+		defer root.Close() //nolint:errcheck // read-only root
+		data, err := root.ReadFile("work.md")
 		if err != nil {
 			if os.IsNotExist(err) {
 				return toolJSON(map[string]any{"content": "", "exists": false})
@@ -2364,13 +2372,17 @@ func buildMCPServer(routd RoutdFns, db StoreFns, folder string, isRoot bool, cal
 		if err := os.MkdirAll(groupDir, 0o755); err != nil {
 			return toolErr(err.Error())
 		}
-		p := filepath.Join(groupDir, "work.md")
-		tmp := p + ".tmp"
-		if err := os.WriteFile(tmp, []byte(content), 0o644); err != nil {
+		root, err := os.OpenRoot(groupDir)
+		if err != nil {
 			return toolErr(err.Error())
 		}
-		if err := os.Rename(tmp, p); err != nil {
-			_ = os.Remove(tmp)
+		defer root.Close() //nolint:errcheck // root holds no buffered data
+		if err := root.WriteFile("work.md.tmp", []byte(content), 0o644); err != nil {
+			return toolErr(err.Error())
+		}
+		if err := root.Rename("work.md.tmp", "work.md"); err != nil {
+			// The rename error is the actionable failure.
+			_ = root.Remove("work.md.tmp")
 			return toolErr(err.Error())
 		}
 		slog.Info("set_work", "folder", folder, "bytes", len(content))
