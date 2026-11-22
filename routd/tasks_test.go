@@ -378,3 +378,51 @@ func TestTaskPatchResumeClearsNextRun(t *testing.T) {
 		t.Errorf("status %q next_run %v, want active with no next_run", got.Status, got.NextRun)
 	}
 }
+
+func TestTaskAuxFolderBoundary(t *testing.T) {
+	db, h := authSrv(t, fakeVerifier{sub: "user:a", folder: "alice", scope: []string{"tasks:read", "tasks:write"}})
+	for _, task := range []struct{ id, owner string }{{"own", "alice"}, {"child", "alice/team"}, {"other", "bob"}} {
+		seedTask(t, db, task.id, task.owner, "web:"+task.owner, task.id)
+	}
+	if err := store.NewOver(db.Obj()).SetTaskStatus("other", store.TaskStatusFiring); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		id   string
+		want int
+	}{{"own", 200}, {"child", 200}, {"other", 403}, {"missing", 404}} {
+		t.Run(tc.id, func(t *testing.T) {
+			if r := doGet(t, h, "/v1/tasks/"+tc.id+"/runs"); r.Code != tc.want {
+				t.Errorf("read: %d, want %d", r.Code, tc.want)
+			}
+			body := taskRunLogBody{TaskID: tc.id, Status: "ok"}
+			if r := doJSON(t, h, "POST", "/v1/tasks/runlog", "", body); r.Code != tc.want {
+				t.Errorf("runlog: %d, want %d", r.Code, tc.want)
+			}
+			if r := doJSON(t, h, "POST", "/v1/tasks/"+tc.id+"/reschedule", "", rescheduleBody{}); r.Code != tc.want {
+				t.Errorf("reschedule: %d, want %d", r.Code, tc.want)
+			}
+		})
+	}
+	if got := db.TaskRunLogs("other", 10); len(got) != 0 {
+		t.Errorf("denied runlog wrote %d rows", len(got))
+	}
+	if task, _ := db.GetTask("other"); task.Status != store.TaskStatusFiring || task.NextRun != nil {
+		t.Errorf("denied reschedule changed task: %+v", task)
+	}
+	if r := doGet(t, h, "/v1/tasks/runs"); r.Code != 403 {
+		t.Errorf("aggregate: %d, want 403", r.Code)
+	}
+	verifier := fakeVerifier{sub: "service:routd", scope: []string{"tasks:read", "tasks:write"}}
+	open := NewServer(db, nil, nil, verifier, 0, "").Handler()
+	if r := doGet(t, open, "/v1/tasks/runs"); r.Code != 200 {
+		t.Errorf("unrestricted aggregate: %d", r.Code)
+	}
+	body := taskRunLogBody{TaskID: "missing", Status: "ok"}
+	if r := doJSON(t, open, "POST", "/v1/tasks/runlog", "", body); r.Code != 200 {
+		t.Errorf("unrestricted missing runlog: %d", r.Code)
+	}
+	if r := doJSON(t, open, "POST", "/v1/tasks/missing/reschedule", "", rescheduleBody{}); r.Code != 200 {
+		t.Errorf("unrestricted missing reschedule: %d", r.Code)
+	}
+}

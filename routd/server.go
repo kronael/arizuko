@@ -687,7 +687,8 @@ type taskRunLogBody struct {
 // handleTaskRunLog appends one task_run_logs row — the write half of the scheduler
 // fire loop.
 func (s *Server) handleTaskRunLog(w http.ResponseWriter, r *http.Request) {
-	if !s.authed(w, r, "tasks:write") {
+	_, folder, ok := s.authz(w, r, "tasks:write")
+	if !ok {
 		return
 	}
 	var body taskRunLogBody
@@ -697,6 +698,9 @@ func (s *Server) handleTaskRunLog(w http.ResponseWriter, r *http.Request) {
 	}
 	if body.TaskID == "" || body.Status == "" {
 		writeErr(w, 400, "missing_field", "task_id and status required")
+		return
+	}
+	if !s.canAccessTask(w, folder, body.TaskID) {
 		return
 	}
 	if err := s.db.RecordTaskRun(store.TaskRunLog{
@@ -718,7 +722,8 @@ type rescheduleBody struct {
 // handleTaskReschedule re-arms a fired task. routd computes the next run from
 // the task's cron: recurring → active, one-shot → completed, bad cron → error.
 func (s *Server) handleTaskReschedule(w http.ResponseWriter, r *http.Request) {
-	if !s.authed(w, r, "tasks:write") {
+	_, folder, ok := s.authz(w, r, "tasks:write")
+	if !ok {
 		return
 	}
 	id := r.PathValue("id")
@@ -729,6 +734,9 @@ func (s *Server) handleTaskReschedule(w http.ResponseWriter, r *http.Request) {
 	var body rescheduleBody
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeErr(w, 400, "bad_request", err.Error())
+		return
+	}
+	if !s.canAccessTask(w, folder, id) {
 		return
 	}
 	if err := s.db.RescheduleTask(id, body.NextRun); err != nil {

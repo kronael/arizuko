@@ -70,7 +70,8 @@ func (s *Server) scopedRESTGate(x resreg.Execution, resource, label string) erro
 
 // handleTaskRunLogs serves GET /v1/tasks/{id}/runs?limit= (tasks:read).
 func (s *Server) handleTaskRunLogs(w http.ResponseWriter, r *http.Request) {
-	if !s.authed(w, r, "tasks:read") {
+	_, folder, ok := s.authz(w, r, "tasks:read")
+	if !ok || !s.canAccessTask(w, folder, r.PathValue("id")) {
 		return
 	}
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
@@ -81,10 +82,31 @@ func (s *Server) handleTaskRunLogs(w http.ResponseWriter, r *http.Request) {
 // handleAllRunLogs serves GET /v1/tasks/runs?limit= (tasks:read).
 // Cross-task recent run feed for the dashboard /runs page.
 func (s *Server) handleAllRunLogs(w http.ResponseWriter, r *http.Request) {
-	if !s.authed(w, r, "tasks:read") {
+	_, folder, ok := s.authz(w, r, "tasks:read")
+	if !ok {
+		return
+	}
+	if folder != "" {
+		writeErr(w, 403, "forbidden", "aggregate requires unrestricted folder")
 		return
 	}
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	logs := s.db.AllRunLogs(limit)
 	writeJSON(w, 200, map[string]any{"runs": logs})
+}
+
+func (s *Server) canAccessTask(w http.ResponseWriter, folder, id string) bool {
+	if folder == "" {
+		return true
+	}
+	task, ok := s.db.GetTask(id)
+	if !ok {
+		writeErr(w, 404, "not_found", "task not found")
+		return false
+	}
+	if !ownsFolder(folder, task.Owner) {
+		writeErr(w, 403, "forbidden", "task owner outside caller subtree")
+		return false
+	}
+	return true
 }
