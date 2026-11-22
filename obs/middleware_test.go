@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestStatusWriterFlushCommitsStatus(t *testing.T) {
@@ -71,5 +72,27 @@ func TestHTTPMiddleware_UnmatchedPath(t *testing.T) {
 	MetricsHandler().ServeHTTP(scrape, httptest.NewRequest("GET", "/metrics", nil))
 	if !strings.Contains(scrape.Body.String(), `path="unmatched"`) {
 		t.Error("unmatched path not bucketed into 'unmatched'")
+	}
+}
+
+type deadlineWriter struct {
+	http.ResponseWriter
+	deadline time.Time
+}
+
+func (w *deadlineWriter) SetWriteDeadline(deadline time.Time) error {
+	w.deadline = deadline
+	return nil
+}
+
+func TestStatusWriterUnwrapsDeadline(t *testing.T) {
+	underlying := &deadlineWriter{ResponseWriter: httptest.NewRecorder()}
+	writer := &statusWriter{ResponseWriter: underlying}
+	deadline := time.Now().Add(time.Second)
+	if err := http.NewResponseController(writer).SetWriteDeadline(deadline); err != nil {
+		t.Fatal(err)
+	}
+	if !underlying.deadline.Equal(deadline) {
+		t.Fatal("deadline did not reach underlying writer")
 	}
 }
