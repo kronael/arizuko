@@ -57,7 +57,7 @@ Approved release ► external activation / recovery ► acceptance
 ```
 
 Users can file GitHub issues or submit reports through the existing
-[issues skill](../../ant/skills/issues/SKILL.md). That skill writes a group-local
+[arizuko-issue skill](../../ant/skills/arizuko-issue/SKILL.md). That skill writes a group-local
 file, not a fleet-wide queue. The designated maintenance agent consolidates
 reports it is authorized to read, preserving source IDs and links. Calling an
 agent root does not grant access to other groups.
@@ -133,7 +133,7 @@ A feature commit, a workflow/product commit, and a runtime image are separate
 revisions. Candidate workflow commits can be replayed in private workspaces
 without changing the installed package.
 
-The existing [package contract](../5/28-packages.md) records source, revision,
+The existing [package contract](../../EXTENDING.md#installing-packages) records source, revision,
 owned identities, and hashes. The CLI's `fetchSource` shallow-clones HEAD;
 `reapplyPackage` refreshes file assets without replaying owned rows or skills.
 `applyPackageSkills` installs to the instance-wide layer. A recorded revision
