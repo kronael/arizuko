@@ -444,7 +444,11 @@ async function main() {
     log('info', 'shutting down');
     stopInbound();
     typing.stop();
-    await rc.deregister();
+    try {
+      await rc.deregister();
+    } catch (e) {
+      log('error', 'deregister failed', { err: String(e) });
+    }
     sock?.end(undefined);
     srv.close();
     process.exit(0);

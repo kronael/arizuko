@@ -10,6 +10,7 @@ interface Resp {
 export type Bearer = () => Promise<string>;
 
 export class RouterClient {
+  private registrationToken = '';
   constructor(
     private url: string,
     private bearer: Bearer,
@@ -32,10 +33,18 @@ export class RouterClient {
       },
     });
     if (!r.ok) throw new Error(`register: ${r.error}`);
+    if (typeof r.token !== 'string' || !r.token)
+      throw new Error('register: missing token');
+    this.registrationToken = r.token;
   }
 
   async deregister(): Promise<void> {
-    await this.post('/v1/channels/deregister', null).catch(() => {});
+    const r = await this.post(
+      '/v1/channels/deregister',
+      null,
+      this.registrationToken,
+    );
+    if (!r.ok) throw new Error(`deregister: ${r.error}`);
   }
 
   async sendMessage(msg: {
@@ -56,8 +65,12 @@ export class RouterClient {
     if (!r.ok) throw new Error(`deliver: ${r.error}`);
   }
 
-  private async post(path: string, body: unknown): Promise<Resp> {
-    const auth = await this.bearer();
+  private async post(
+    path: string,
+    body: unknown,
+    token?: string,
+  ): Promise<Resp> {
+    const auth = token ?? (await this.bearer());
     const r = await fetch(this.url + path, {
       method: 'POST',
       headers: {
