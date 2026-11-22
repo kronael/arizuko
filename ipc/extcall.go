@@ -177,6 +177,15 @@ func extAttempt(
 	if err != nil {
 		return 0, "", mcp.NewToolResultError("read response: " + err.Error())
 	}
+	if anySecretSet(secrets) && json.Valid(respBytes) {
+		var value any
+		decoder := json.NewDecoder(bytes.NewReader(respBytes))
+		decoder.UseNumber()
+		// Valid JSON decodes to values that JSON can encode.
+		_ = decoder.Decode(&value)
+		respBytes, _ = json.Marshal(scrubResultValue(value, secrets))
+		return resp.StatusCode, string(respBytes), nil
+	}
 	return resp.StatusCode, scrubSecrets(string(respBytes), secrets), nil
 }
 
