@@ -208,3 +208,38 @@ func TestInputOrderKeepsAdmissionAcrossRouteChange(t *testing.T) {
 		t.Fatalf("already admitted input became a blocker: %+v %v", oldest, err)
 	}
 }
+
+func TestDeferredInputOrderWaitsForPeriodicReplay(t *testing.T) {
+	logs := captureLogs(t)
+	db, setup, p, dl := pauseFixture(t)
+	pauseChatInFolder(t, db, "web:b", "a")
+	now := time.Now()
+	pauseInput(t, db, "web:b", "older", "v", "first", now)
+	pauseInput(t, db, "web:a", "held", "u", "second", now.Add(time.Second))
+	pauseInput(t, db, "web:a", "command", "u", "/new", now.Add(2*time.Second))
+	processPauseChat(t, setup, "web:a")
+	l := NewLoop(db, p, LoopConfig{Deliver: dl, MaxAgents: 1})
+	p.srv = NewServer(db, l, dl, nil, 0, "")
+	t.Cleanup(l.StopQueue)
+	for i := range 5 {
+		l.maybeRecoverTurns(now.Add(time.Duration(i) * turnsEvery))
+		for queueHasWorker(l.q) {
+			runtime.Gosched()
+		}
+	}
+	tc, ok := db.GetTurnContext("held")
+	if !ok || tc.State != store.TurnPendingRetry || len(p.runs) != 0 {
+		t.Fatalf("held turn: %+v runs=%d", tc, len(p.runs))
+	}
+	if strings.Contains(logs.String(), "level=ERROR") || strings.Contains(logs.String(), "Automatic retries stopped") {
+		t.Fatalf("held turn logged failure: %s", logs.String())
+	}
+	processPauseChat(t, l, "web:b")
+	l.maybeRecoverTurns(now.Add(5 * turnsEvery))
+	for queueHasWorker(l.q) {
+		runtime.Gosched()
+	}
+	if len(p.runs) != 2 || p.runs[0].TurnID != "older" || p.runs[1].TurnID != "held" {
+		t.Fatalf("runs = %+v", p.runs)
+	}
+}

@@ -14,20 +14,6 @@
 > so counting one as open overstates the queue.
 
 
-## L916 — a held deferred turn is logged as a failure every minute (2026-11-22, open)
-
-A deferred turn (`\0turn:<id>`) whose older model input is still pending returns
-`errModelInputOrder` from `replayTurn` (`routd/turn_control.go:493`); the queue
-(`turn_control.go:822-826`) logs `error processing messages for group` and, after
-the backoff, `Message processing failed. Automatic retries stopped.` The turn
-still runs later. The chat path holds the same case without an error
-(`routd/dispatch.go:272`).
-**Measured:** sloth, same 12 h: 529 such ERROR pairs; turn
-`gh-d5bce6272-e663-11f1-88e0-35cddcc2ba9f` logged from 10:56 and ran at 11:56.
-**Fix:** hold a deferred turn the way the chat path does, keeping whatever wakes
-it when the older input ends; no ERROR for a wait.
-**Type:** bug, test — a held deferred turn logs no ERROR and still runs.
-
 ## L914 — the shell of a claude turn has no Claude login (2026-11-21, open)
 
 The owner asked for `claude` and `codex` logged in from every turn's shell. Codex
@@ -552,7 +538,6 @@ The browser retry integration owns this fix after the current serial capacity wo
 - `L826` — one folder's crash closes the whole instance for an hour; per-folder breaker or a 30 s probe; needs sign-off.
 - `L913` — a new topic on a pi folder starts without its parent's history; fix waits on a live pi resume check.
 - `L914` — a claude turn's shell has no Claude login: Claude Code deletes its own token; owner choice of a, b or c.
-- `L916` — a held deferred turn logs ERROR every minute though it runs later; fix in progress.
 - `L816` — gitd loses GitHub webhooks while the store is unreachable; retention lives in that store; proposal, needs sign-off.
 - `L803` — morha repeats recovery reports and replies to an old GitHub comment; cause unmeasured.
 - `L804` — Codex topic forks do not inherit the parent's model context; observed messages remain available.

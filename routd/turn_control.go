@@ -492,6 +492,9 @@ func (l *Loop) replay(turnID string) (bool, error) {
 	last.Sender, last.ForwardedFrom = tc.Trigger, tc.ReturnTo
 	had, _, _, mark, err := l.runBoundTurn(tc.Folder, tc.Topic, tc.ChatJID,
 		tc.TurnID, tc.Addressed, trigger, ambient, &tc, tc.CapacityWakeCursor)
+	if errors.Is(err, errModelInputOrder) {
+		return false, nil
+	}
 	if err == nil && mark != "" {
 		l.advanceObserved(tc.Folder, []observedAdvance{{topic: tc.Topic, ts: mark}})
 	}
