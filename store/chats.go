@@ -113,8 +113,10 @@ func (s *Store) SetAgentCursor(jid, cursor string) error {
 	if err != nil {
 		return err
 	}
-	if _, err := s.upsertChat(context.Background(), key,
-		map[string]string{AttrChatAgentCursor: cursor}); err != nil {
+	if err := s.WriteEntities(context.Background(), nil, objstore.Write{
+		Op: objstore.Merge, Entity: Chats, Key: key,
+		Attrs: map[string]string{AttrChatAgentCursor: cursor},
+	}); err != nil {
 		return fmt.Errorf("set the agent cursor of %s: %w", jid, err)
 	}
 	return nil
@@ -208,7 +210,9 @@ func (s *Store) ClearChatErrored(jid string) error {
 	if err != nil {
 		return err
 	}
-	if _, err := s.upsertChatClearing(context.Background(), key, nil, attrChatErrored); err != nil {
+	if err := s.WriteEntities(context.Background(), nil, objstore.Write{
+		Op: objstore.Merge, Entity: Chats, Key: key, Remove: []string{attrChatErrored},
+	}); err != nil {
 		return fmt.Errorf("clear the errored flag of %s: %w", jid, err)
 	}
 	return nil
@@ -238,26 +242,14 @@ func (s *Store) SetChatIsGroup(jid string, isGroup bool) error {
 	if err != nil {
 		return err
 	}
-	ctx := context.Background()
+	write := objstore.Write{Op: objstore.Merge, Entity: Chats, Key: key}
 	if isGroup {
-		if _, err := s.upsertChat(ctx, key, map[string]string{attrChatIsGroup: flagSet}); err != nil {
-			return fmt.Errorf("record %s as a group chat: %w", jid, err)
-		}
-		return nil
+		write.Attrs = map[string]string{attrChatIsGroup: flagSet}
+	} else {
+		write.Remove = []string{attrChatIsGroup}
 	}
-
-	created, err := s.TryWriteEntities(ctx, nil, objstore.Write{
-		Op: objstore.Put, Entity: Chats, Key: key, Attrs: map[string]string{},
-		Cond: objstore.Cond{Item: objstore.ItemAbsent},
-	})
-	if err != nil {
-		return fmt.Errorf("record %s as a direct chat: %w", jid, err)
-	}
-	if created {
-		return nil
-	}
-	if err := s.clearChatAttrs(ctx, key, attrChatIsGroup); err != nil {
-		return fmt.Errorf("record %s as a direct chat: %w", jid, err)
+	if err := s.WriteEntities(context.Background(), nil, write); err != nil {
+		return fmt.Errorf("record %s's group chat flag: %w", jid, err)
 	}
 	return nil
 }
@@ -341,32 +333,13 @@ func (s *Store) setChatPin(jid, attr, value string) error {
 		}
 		return nil
 	}
-	if _, err := s.upsertChat(ctx, key, map[string]string{attr: value}); err != nil {
+	if err := s.WriteEntities(ctx, nil, objstore.Write{
+		Op: objstore.Merge, Entity: Chats, Key: key,
+		Attrs: map[string]string{attr: value},
+	}); err != nil {
 		return fmt.Errorf("pin %s=%q on %s: %w", attr, value, jid, err)
 	}
 	return nil
-}
-
-func (s *Store) upsertChat(ctx context.Context, key objstore.Key,
-	attrs map[string]string) (bool, error) {
-	return s.upsertChatClearing(ctx, key, attrs)
-}
-
-func (s *Store) upsertChatClearing(ctx context.Context, key objstore.Key,
-	attrs map[string]string, remove ...string) (bool, error) {
-	created, err := s.TryWriteEntities(ctx, nil, objstore.Write{
-		Op: objstore.Put, Entity: Chats, Key: key, Attrs: attrs,
-		Cond: objstore.Cond{Item: objstore.ItemAbsent},
-	})
-	if err != nil || created {
-		return created, err
-	}
-	if err := s.WriteEntities(ctx, nil, objstore.Write{
-		Op: objstore.Update, Entity: Chats, Key: key, Attrs: attrs, Remove: remove,
-	}); err != nil {
-		return false, err
-	}
-	return false, nil
 }
 
 func (s *Store) clearChatAttrs(ctx context.Context, key objstore.Key, attrs ...string) error {
