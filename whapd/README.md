@@ -135,7 +135,7 @@ The dashboard shows the pair-flow state as its own section (`src/dash.ts`).
 - `src/inbound.ts` — pure inbound-dispatch helpers (unit-testable, sink in main.ts)
 - `src/bot.ts` — pair-flow state machine
 - `src/client.ts` — router client (register/inject)
-- `src/dedup.ts` — outbound dedup ledger (file-per-key claim/settle/release)
+- `src/dedup.ts` — outbound dedup ledger (file-per-key claim/settle)
 - `src/reply.ts` — reply metadata extraction
 - `src/typing.ts` — typing refresh
 - `src/log.ts` — slog-style structured logging

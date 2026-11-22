@@ -71,33 +71,6 @@ describe('outbound dedup ledger', () => {
     expect(c.calls()).toBe(0);
   });
 
-  // release frees a key for routd's retry after a call that provably did not
-  // deliver.
-  it('lets a released key be retried', async () => {
-    const l = tmpLedger();
-    const boom = async () => {
-      throw new Error('nope');
-    };
-    await expect(deliverOnce(l, 'row-3', 'jid', boom)).rejects.toThrow('nope');
-    l.release('row-3');
-
-    const c = counter('wa-3');
-    expect(await deliverOnce(l, 'row-3', 'jid', c.post)).toBe('wa-3');
-    expect(c.calls()).toBe(1);
-  });
-
-  // release must never undo a DELIVERED message's record — that would let the
-  // next attempt post a second copy.
-  it('refuses to release a settled key', async () => {
-    const l = tmpLedger();
-    const c = counter('wa-4');
-    await deliverOnce(l, 'row-4', 'jid', c.post);
-    l.release('row-4');
-
-    expect(await deliverOnce(l, 'row-4', 'jid', c.post)).toBe('wa-4');
-    expect(c.calls()).toBe(1);
-  });
-
   // The ledger is the durability: a restart must not forget a delivered key.
   it('survives a restart', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'whapd-dedup-'));

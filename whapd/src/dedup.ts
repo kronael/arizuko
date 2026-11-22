@@ -119,23 +119,6 @@ export class DedupLedger {
     }
   }
 
-  // release drops a claim after a call that definitively did NOT deliver, so
-  // the key is free for routd's retry. Keeping it would refuse every later
-  // attempt.
-  release(key: string): void {
-    const file = keyFile(this.dir, key);
-    try {
-      if (this.read(file)?.state === 'sent') return;
-      fs.unlinkSync(file);
-    } catch (e) {
-      if ((e as NodeJS.ErrnoException).code === 'ENOENT') return;
-      log('error', 'releasing an undelivered dedup claim failed', {
-        idempotency_key: key,
-        err: String(e),
-      });
-    }
-  }
-
   private read(file: string): Record | null {
     try {
       return JSON.parse(fs.readFileSync(file, 'utf8')) as Record;
