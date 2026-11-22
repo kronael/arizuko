@@ -41,24 +41,6 @@ const (
 	stateSent     = "sent"
 )
 
-// dedupKey is the coordinate of one claim.
-//
-// THE PARTITION IS THE IDEMPOTENCY KEY, not a constant naming the adapter. A
-// partition is the coordinate a caller FILTERS on (6/37 rule 1) and no read here
-// filters: all three touch exactly one key, handed to them by routd. So no read
-// wants two claims co-located and nothing is paid for spreading them.
-//
-// What a constant partition would cost is growth. A settled claim is never
-// deleted and nothing sweeps this entity — measured 2026-09-07 on krons, 34 and
-// 76 rows in the two live teled databases, both entirely `sent` — so
-// `const Partition = "chanlib"` would pile an unbounded ledger into one
-// partition for no read's benefit. That is authd's mistake (6/37 step 3, "a
-// single constant partition … every read is a point read or a whole-partition
-// scan") without even authd's excuse, because this ledger has no bound.
-//
-// The sort key repeats the key because the item has no second coordinate: there
-// is exactly one item per idempotency key, and DynamoDB refuses an empty key
-// attribute, so a blank sort key is not a key on every engine.
 func dedupKey(key string) objstore.Key { return objstore.Key{Partition: key, Sort: key} }
 
 // ClaimState is what a claim on an idempotency key found.

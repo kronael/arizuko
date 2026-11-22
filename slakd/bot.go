@@ -1767,8 +1767,6 @@ func parseSlackTS(ts string) int64 {
 	return n
 }
 
-// ===== TTL cache =====
-
 type ttlEntry struct {
 	v   any
 	exp time.Time
