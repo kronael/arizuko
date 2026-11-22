@@ -240,11 +240,13 @@ func (m *Manager) spawn(ctx context.Context, req runedv1.RunRequest, runID, sess
 	// un-advanced.
 	started, err := m.db.StartSpawn(ctx, runID, sessionID)
 	if err != nil {
-		// The row stays 'queued' and holds the folder until runed restarts
-		// (ExpireOrphans); aborting is still right, since we cannot launch on
-		// a claim we could not take.
-		slog.Error("runed: StartSpawn failed — launch aborted, spawn may stay queued",
+		slog.Error("runed: StartSpawn failed — launch aborted",
 			"run_id", runID, "folder", folder, "kind", kind, "err", err)
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		if endErr := m.db.EndSpawn(cleanupCtx, runID, "error", runedv1.OutcomeError, 0); endErr != nil {
+			slog.Error("runed: EndSpawn failed — spawn may become zombie", "run_id", runID, "err", endErr)
+		}
 		return runedv1.RunOutcome{Busy: true}
 	}
 	if !started {

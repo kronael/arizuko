@@ -65,3 +65,15 @@ func TestCanceledCallerClosesRunAndSession(t *testing.T) {
 		t.Errorf("session not closed: %v", store.session)
 	}
 }
+
+func TestCanceledCallerBeforeStartReleasesClaim(t *testing.T) {
+	store := &cancelStore{spawn: map[string]string{"state": "queued", "folder": "demo", "kind": "probe"}, session: map[string]string{}}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	manager := NewManager(OpenOver(store), FakeRuntime{}, ManagerConfig{})
+	manager.RegisterExecutor("probe", FakeRuntime{})
+	out := manager.spawn(ctx, runedv1.RunRequest{Folder: "demo", Kind: "probe", Isolated: true}, "run", "session", "handle")
+	if !out.Busy || store.spawn["state"] == "queued" || store.cleanupDeadlines != 1 {
+		t.Fatalf("out=%+v spawn=%v deadlines=%d", out, store.spawn, store.cleanupDeadlines)
+	}
+}
