@@ -255,27 +255,24 @@ func (s *server) handleTurnSSE(w http.ResponseWriter, r *http.Request) {
 	ch, unsub := s.hub.subscribe(chatJID, topic)
 	defer unsub()
 
-	sseHeaders(w)
-	flusher, _ := w.(http.Flusher)
-	// A turn with nothing to replay would otherwise hold the headers back until
-	// its first live frame.
-	if flusher != nil {
-		flusher.Flush()
-	}
-
 	after := r.Header.Get("Last-Event-Id")
 	msgs, err := s.stRoutd.TurnFrames(chatJID, turnID, after, 200)
 	if err != nil {
-		slog.Error("turn SSE: replay query failed; the client resumes from a gap it cannot see",
-			"chat_jid", chatJID, "turn_id", turnID, "after", after, "err", err)
+		slog.Error("turn SSE: replay query failed", "chat_jid", chatJID, "turn_id", turnID, "after", after, "err", err)
+		http.Error(w, "query failed", http.StatusInternalServerError)
+		return
 	}
-	if err == nil {
-		for _, m := range msgs {
-			fr := messageFrames([]core.Message{m})[0]
-			data, _ := json.Marshal(fr)
-			if writeSSE(w, flusher, "id: "+fr.ID+"\nevent: "+fr.Kind+"\ndata: "+string(data)+"\n\n") != nil {
-				return
-			}
+
+	sseHeaders(w)
+	flusher, _ := w.(http.Flusher)
+	if flusher != nil {
+		flusher.Flush()
+	}
+	for _, m := range msgs {
+		fr := messageFrames([]core.Message{m})[0]
+		data, _ := json.Marshal(fr)
+		if writeSSE(w, flusher, "id: "+fr.ID+"\nevent: "+fr.Kind+"\ndata: "+string(data)+"\n\n") != nil {
+			return
 		}
 	}
 	active, err := s.stRoutd.ActiveProgress(chatJID, topic, turnID)

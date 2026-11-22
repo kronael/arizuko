@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -198,5 +200,33 @@ func TestTurnSSE_RoundDoneFilteredByTurnID(t *testing.T) {
 	}
 	if !closedOnRight {
 		t.Error("stream did not close on matching round_done (turnA)")
+	}
+}
+
+type replayFailStore struct{ objstore.Store }
+
+func (s replayFailStore) Query(ctx context.Context, q objstore.Query) ([]objstore.Item, error) {
+	if strings.HasPrefix(q.Partition, "message/reply/") {
+		return nil, errors.New("replay unavailable")
+	}
+	return s.Store.Query(ctx, q)
+}
+
+func TestTurnSSEReportsReplayFailure(t *testing.T) {
+	s, _, st := newTestServer(t)
+	seedGroup(t, st, "main", "Main")
+	token := seedChatToken(t, st, "main")
+	if err := st.PutMessage(core.Message{ID: "turn", ChatJID: "web:main", Content: "q", Timestamp: time.Now(), Topic: "tt", TurnID: "turn"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.RecordTurnResult("main", "turn", "", "success", "", store.TurnUsage{}); err != nil {
+		t.Fatal(err)
+	}
+	s.stRoutd = store.NewOver(replayFailStore{st.Obj()})
+	req := httptest.NewRequest("GET", "/chat/"+token+"/turn/sse", nil)
+	w := httptest.NewRecorder()
+	s.handler().ServeHTTP(w, req)
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
 	}
 }
