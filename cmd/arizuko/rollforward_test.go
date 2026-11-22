@@ -4,12 +4,11 @@ package main
 // its subsystem's claim, and the escape must be a command rather than an edit of
 // `resreg_scopes`.
 //
-// THE FAILURE IS REAL, not simulated. The wedging document declares two
-// `network_rules` rows at one coordinate, which the object path refuses when it
-// renders them — after `groups`, earlier in the catalog, has already written. So
-// routd ends part-applied with its claim held, exactly as an interrupted apply
-// leaves it. Nothing here stubs resreg.Apply and nothing writes the marker by
-// hand.
+// The wedge is a real objstore.Replace whose body commits one write and then
+// fails, which leaves routd part-written with its claim held. resreg's apply
+// renders every row before its first write, so an invalid manifest no longer
+// wedges a scope; an interruption after a write still does. Nothing writes the
+// marker by hand.
 
 import (
 	"context"
@@ -26,28 +25,22 @@ import (
 // subsystem's claim so a caller can prove the fixture reproduced the state.
 func wedgeRoutd(t *testing.T, stores map[string]*store.Store) string {
 	t.Helper()
-	routdSum, err := resreg.Checksum(resreg.On(stores[resreg.SubsystemRoutd].Obj()), resreg.SubsystemRoutd)
-	if err != nil {
-		t.Fatal(err)
+	rule := objstore.Write{
+		Op: objstore.Put, Entity: store.NetworkRules,
+		Key:   objstore.Key{Partition: store.OwnerRoutd, Sort: "corp/eng" + store.KeySep + "dup.example.com"},
+		Attrs: map[string]string{"created_at": "2026-11-22T00:00:00.000000000Z"},
 	}
-	docs := []parsedDoc{{
-		subsystem: resreg.SubsystemRoutd,
-		checksum:  routdSum,
-		manifest: map[string]any{
-			"groups": []resources.GroupsRow{
-				{Folder: "corp/eng", Product: "assistant"},
-				{Folder: "lost/work", Product: "assistant"},
-			},
-			// Two rows at one (folder, target): refused where the puts are
-			// rendered, and by then `groups` has committed.
-			"network_rules": []resources.NetworkRulesRow{
-				{Folder: "lost/work", Target: "dup.example.com"},
-				{Folder: "lost/work", Target: "dup.example.com"},
-			},
-		},
-	}}
-	if _, err := applyDocs(context.Background(), stores, docs, applyRun{actor: "test"}); err == nil {
-		t.Fatal("the wedging apply succeeded, so nothing here is part-applied")
+	interrupted := errors.New("interrupted after its first write")
+	_, err := objstore.Replace(context.Background(), stores[resreg.SubsystemRoutd].Obj(),
+		store.OwnerScope(resreg.SubsystemRoutd), "", objstore.Claim{Intent: "apply routd lost-work"},
+		func(ctx context.Context, rp *objstore.Replacer) error {
+			if _, err := rp.Write(ctx, rule); err != nil {
+				return err
+			}
+			return interrupted
+		})
+	if !errors.Is(err, interrupted) {
+		t.Fatalf("the wedging replace answered %v, want the interruption", err)
 	}
 	holder := scopeHolder(t, stores)
 	if holder == "" {
