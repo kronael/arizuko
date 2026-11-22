@@ -77,9 +77,6 @@ func trackedSkillDirs(dir string) (map[string]bool, error) {
 			tracked[name] = true
 		}
 	}
-	if len(tracked) == 0 {
-		return nil, nil
-	}
 	return tracked, nil
 }
 

@@ -181,3 +181,28 @@ func TestInstallPackageFailsOnAGitError(t *testing.T) {
 		t.Fatal("a git failure was read as no tracked skills")
 	}
 }
+
+func TestEmptyTrackedSkillsExcludeUntracked(t *testing.T) {
+	dir := t.TempDir()
+	if out, err := exec.Command("git", "init", "-q", dir).CombinedOutput(); err != nil {
+		t.Fatalf("git init: %s: %v", out, err)
+	}
+	skill := filepath.Join(dir, "skills", "local")
+	if err := os.MkdirAll(skill, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skill, "SKILL.md"), []byte("local"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tracked, err := trackedSkillDirs(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	skills, err := readSkills(dir, tracked)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(skills) != 0 {
+		t.Fatalf("untracked skills included: %v", skills)
+	}
+}
