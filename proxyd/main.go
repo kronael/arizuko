@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
@@ -241,8 +242,19 @@ func loadInitialRoutes(st *store.Store) []store.ProxydRoute {
 	return routes
 }
 
+func parseBackend(backend string) (*url.URL, error) {
+	u, err := url.Parse(backend)
+	if err != nil {
+		return nil, err
+	}
+	if (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" {
+		return nil, fmt.Errorf("backend must be an HTTP(S) URL with a host")
+	}
+	return u, nil
+}
+
 func buildRouteProxy(r store.ProxydRoute) *httputil.ReverseProxy {
-	u, err := url.Parse(r.Backend)
+	u, err := parseBackend(r.Backend)
 	if err != nil {
 		slog.Error("invalid route backend", "path", r.Path, "backend", r.Backend, "err", err)
 		return nil

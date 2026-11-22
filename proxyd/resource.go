@@ -113,6 +113,11 @@ func validateRoute(r store.ProxydRoute, existing []store.ProxydRoute, isUpdate b
 	if r.Backend == "" && r.RedirectTo == "" {
 		return resreg.Errorf(http.StatusBadRequest, "backend or redirect_to is required")
 	}
+	if r.RedirectTo == "" {
+		if _, err := parseBackend(r.Backend); err != nil {
+			return resreg.Errorf(http.StatusBadRequest, "invalid backend: %v", err)
+		}
+	}
 	if !validAuth[r.Auth] {
 		return resreg.Errorf(http.StatusBadRequest, "auth %q not in {public,optional,user,operator}", r.Auth)
 	}
