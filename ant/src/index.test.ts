@@ -43,6 +43,7 @@ interface Delivered {
   result?: string | null;
   models?: unknown;
   timedOut?: boolean;
+  checkpoint?: boolean;
   newSessionId?: string;
 }
 
@@ -59,6 +60,24 @@ function spy(): { deliveries: Delivered[]; deliver: (turnID: string, out: Delive
 }
 
 const INPUT = { prompt: 'p', groupFolder: 'g', chatJid: 'j' };
+
+/** Each harness saves its native session identity before it can be killed without terminal output. */
+test('runTurn saves native continuity before continuing the harness', async () => {
+  for (const name of ['claude', 'codex', 'pi']) {
+    const sent: SubmitStatusPayload[] = [];
+    const harness: Harness = {
+      ...scripted([]), name,
+      run: async function* () {
+        yield { kind: 'continuity', token: 'native-token', sessionId: `${name}-native` };
+        expect(sent).toContainEqual({ turn_id: 'turn', session_id: `${name}-native` });
+        throw new Error('process killed before terminal output');
+      },
+    };
+    await expect(runTurn(harness, 'p', undefined, INPUT, {}, 'turn', spy().deliver,
+      async payload => { sent.push(payload); return { remind: false }; }, Date.now() + 10000))
+      .rejects.toThrow('process killed before terminal output');
+  }
+});
 
 /** Every model status is a plain progress text: ant sends no opener kind. */
 test('runTurn sends each model status as turn_id and text only', async () => {
@@ -361,32 +380,35 @@ function lasting(ms: number): Harness {
   };
 }
 
-/**
- * A run still going five minutes before the process deadline puts the [deadline]
- * note on the steer spool, where the steering hook or the waiting poll reads it.
- */
-test('runTurn: five minutes before the deadline the steer spool gets the [deadline] note', async () => {
+/** At half the ceiling, the agent receives one checkpoint note and reports a checkpoint result. */
+test('runTurn: halfway through the ceiling the steer spool gets one checkpoint note', async () => {
   drainLines(STEER_SPOOL);
-  await runTurn(lasting(300), 'p', undefined, INPUT, {}, 't1', spy().deliver, statusSpy().send, Date.now() + 300_100);
+  const delivered = spy();
+  await runTurn(lasting(150), 'p', undefined, INPUT, {}, 't1', delivered.deliver, statusSpy().send, Date.now() + 200);
   const lines = drainLines(STEER_SPOOL);
   expect(lines).toHaveLength(1);
-  expect(lines[0]).toStartWith('[deadline] About five minutes are left in this run.');
+  expect(lines[0]).toBe(DEADLINE_TEXT);
+  expect(lines[0]).toStartWith('[checkpoint]');
+  expect(lines[0]).toContain('source chat');
+  expect(lines[0]).toContain('what is done and what remains');
+  expect(lines[0]).toContain('this same session');
   expect(lines[0]).toContain('end the turn');
   expect(lines[0]).toContain('TaskStop');
+  expect(delivered.deliveries[0].checkpoint).toBe(true);
 });
 
-/** A run that starts inside the last five minutes gets no note: the warning time has passed. */
-test('runTurn: a run that starts less than five minutes before the deadline queues no note', async () => {
+/** A normal completion before the checkpoint receives no note. */
+test('runTurn: completion before halfway queues no note', async () => {
   drainLines(STEER_SPOOL);
-  await runTurn(lasting(300), 'p', undefined, INPUT, {}, 't1', spy().deliver, statusSpy().send, Date.now() + 299_000);
+  await runTurn(lasting(10), 'p', undefined, INPUT, {}, 't1', spy().deliver, statusSpy().send, Date.now() + 1000);
   expect(drainLines(STEER_SPOOL)).toEqual([]);
 });
 
-/** Unlike a progress nudge, a note left in the spool starts the next round. */
-test('checkIpcMessage: a stranded [deadline] note becomes the next prompt', () => {
+/** A checkpoint note left in the spool cannot start another round in the same process. */
+test('checkIpcMessage: a stale checkpoint note is discarded', () => {
   drainLines(STEER_SPOOL);
   appendLines(STEER_SPOOL, [DEADLINE_TEXT]);
-  expect(checkIpcMessage()).toBe(DEADLINE_TEXT);
+  expect(checkIpcMessage()).toBeNull();
 });
 
 /** A submission nudge continues the same turn and latest token, before the next IPC turn. */

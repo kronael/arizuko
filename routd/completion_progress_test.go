@@ -49,7 +49,7 @@ func TestCompletionProgressRetryPreservesOutcome(t *testing.T) {
 						return runedv1.RunOutcome{}, err
 					}
 				}
-				if mode == "delivered" || mode == "social" {
+				if mode == "delivered" || mode == "social" || mode == "timeout" {
 					dl.deleteErr = transientFact(errors.New("transient delete failed"))
 				} else {
 					dl.editErr = transientFact(errors.New("transient edit failed"))
@@ -62,6 +62,14 @@ func TestCompletionProgressRetryPreservesOutcome(t *testing.T) {
 				}
 				rows := statusRows(t, db, req.ChatJID)
 				failed := mode != "delivered" && mode != "social"
+				if mode == "timeout" {
+					current, _ := db.GetTurnContext(req.TurnID)
+					if current.State != store.TurnRunning || len(rows) != 1 ||
+						rows[0].StatusPhase != "progress" || len(dl.edits) != 0 || len(dl.deletes) != 0 {
+						t.Fatalf("checkpoint closed before run return: turn=%+v rows=%+v", current, rows)
+					}
+					return runedv1.RunOutcome{RunID: "completion-run", Outcome: runedv1.OutcomeOK}, nil
+				}
 				if len(rows) != 1 || (failed && (rows[0].StatusPhase != "final" || len(dl.edits) != 1)) || (!failed && (rows[0].StatusPhase != "cleared" || len(dl.deletes) != 1)) {
 					t.Fatalf("completion operation lost: rows=%+v deletes=%+v edits=%+v", rows, dl.deletes, dl.edits)
 				}
@@ -78,11 +86,12 @@ func TestCompletionProgressRetryPreservesOutcome(t *testing.T) {
 			if _, err := srv.loop.processGroupMessages(progressJID); err != nil {
 				t.Fatal(err)
 			}
+			dl.deleteErr = nil
+			dl.editErr = nil
 			srv.loop.maybeRetryOutbound(time.Now().Add(time.Hour))
 			wantMark, wantStatus, wantFailure := renderTurnStatus(turnStatus{phase: "silent"}), "error", renderTurnStatus(turnStatus{phase: "silent"})
 			if mode == "timeout" {
-				wantFailure = renderTurnStatus(turnStatus{phase: "timeout"})
-				wantMark = wantFailure
+				wantMark, wantStatus, wantFailure = "✓ working", "checkpoint", ""
 			}
 			if mode == "delivered" || mode == "social" {
 				wantMark, wantStatus, wantFailure = "✓ working", "success", ""
@@ -92,7 +101,7 @@ func TestCompletionProgressRetryPreservesOutcome(t *testing.T) {
 				t.Fatalf("persisted completion=%+v failure=%q err=%v", result, db.TurnFailure("demo", "t1"), err)
 			}
 			rows := statusRows(t, db, progressJID)
-			failed := mode != "delivered" && mode != "social"
+			failed := mode == "continued silence"
 			if len(rows) != 1 || rows[0].Content != wantMark || (failed && (len(dl.edits) != 2 || len(dl.deletes) != 0)) || (!failed && len(dl.deletes) != 2) {
 				t.Fatalf("run return lost terminal outcome: want=%q rows=%+v deletes=%+v", wantMark, rows, dl.deletes)
 			}

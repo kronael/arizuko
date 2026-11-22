@@ -253,7 +253,7 @@ func TestTypingMaxTTLHasAFloor(t *testing.T) {
 // The default matches the RUNED_RUN_TIMEOUT default runed and routd use, so an
 // unset env leaves the three in agreement.
 func TestDefaultTypingMaxTTLTracksTheDefaultWall(t *testing.T) {
-	if want := typingMaxTTL(60 * time.Minute); DefaultTypingMaxTTL != want {
+	if want := typingMaxTTL(40 * time.Minute); DefaultTypingMaxTTL != want {
 		t.Errorf("DefaultTypingMaxTTL = %s, want %s", DefaultTypingMaxTTL, want)
 	}
 }

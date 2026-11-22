@@ -376,7 +376,7 @@ test('runCodexStream resumes the interrupted thread once with the deadline note'
   const { runCodexStream } = await import('./codex.js');
   const { DEADLINE_TEXT } = await import('./spool.js');
   const calls: import('./backend.js').Turn[] = [];
-  const deadline = Date.now() + 60_030;
+  const deadline = Date.now() + 60;
   const frames: Frame[] = [];
   for await (const frame of runCodexStream({ prompt: 'work', cwd: '/tmp', turnID: 't', env: {}, deadline }, async function* (turn) {
     calls.push(turn);
@@ -413,7 +413,7 @@ test('runCodexStream leaves completed turns alone', async () => {
 test('runCodexStream interrupts when the thread ID arrives after the warning', async () => {
   const { runCodexStream } = await import('./codex.js');
   let calls = 0;
-  for await (const _frame of runCodexStream({ prompt: 'work', cwd: '/tmp', turnID: 't', env: {}, deadline: Date.now() + 59_000 }, async function* (turn) {
+  for await (const _frame of runCodexStream({ prompt: 'work', cwd: '/tmp', turnID: 't', env: {}, checkpointAt: Date.now() - 1, deadline: Date.now() + 59_000 }, async function* (turn) {
     calls++;
     if (calls === 1) {
       await new Promise((resolve) => setTimeout(resolve, 10));
@@ -461,7 +461,7 @@ else
 fi
 `, { mode: 0o755 });
   const frames: Frame[] = [];
-  for await (const frame of codexHarness.run({ cwd: dir, prompt: 'work', systemPrompt: 'original system', turnID: 't', env: { PATH: `${dir}:/usr/bin:/bin`, CAPTURE: capture }, deadline: Date.now() + 60_200 })) frames.push(frame);
+  for await (const frame of codexHarness.run({ cwd: dir, prompt: 'work', systemPrompt: 'original system', turnID: 't', env: { PATH: `${dir}:/usr/bin:/bin`, CAPTURE: capture }, checkpointAt: Date.now() + 200, deadline: Date.now() + 60_200 })) frames.push(frame);
   const captured = fs.readFileSync(capture, 'utf8');
   expect(captured).toContain('resume\n');
   expect(captured).toContain('thread-123\n');

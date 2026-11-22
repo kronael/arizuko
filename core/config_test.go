@@ -157,8 +157,8 @@ func TestEnvHelpers(t *testing.T) {
 
 func TestRunTimeout(t *testing.T) {
 	t.Setenv("RUNED_RUN_TIMEOUT", "")
-	if got := RunTimeout(); got != time.Hour {
-		t.Errorf("default RunTimeout() = %s, want 1h", got)
+	if got := RunTimeout(); got != 40*time.Minute {
+		t.Errorf("default RunTimeout() = %s, want 40m", got)
 	}
 	t.Setenv("RUNED_RUN_TIMEOUT", "20m")
 	if got := RunTimeout(); got != 20*time.Minute {

@@ -38,6 +38,7 @@ export interface Turn {
   // every run in the guest: the chassis computes it once, each harness aborts
   // gracefully at it (timeoutFrame), never at its own start + the full timeout.
   deadline: number;
+  checkpointAt?: number;
 }
 
 export interface ProviderFailure {
@@ -268,11 +269,11 @@ export async function* driveCli(
   }
 
   let timedOut = false;
-  const timer = setTimeout(() => {
+  const timer = Number.isFinite(opts.deadline) ? setTimeout(() => {
     log(`process deadline reached, killing ${command}`);
     timedOut = true;
     child.kill('SIGKILL');
-  }, Math.max(0, opts.deadline - Date.now()));
+  }, Math.max(0, opts.deadline - Date.now())) : undefined;
   const onAbort = () => child.kill('SIGTERM');
   opts.signal?.addEventListener('abort', onAbort, { once: true });
   if (opts.signal?.aborted) onAbort();

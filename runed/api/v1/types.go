@@ -102,6 +102,7 @@ type RunOutcome struct {
 	Steered  bool   `json:"steered"`
 	Busy     bool   `json:"busy"`
 	Terminal bool   `json:"terminal,omitempty"`
+	TimedOut bool   `json:"timed_out,omitempty"`
 }
 
 // Outcome values (the contract routd keys on).

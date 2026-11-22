@@ -135,7 +135,8 @@ func (s *Server) recordTurnResultAttempt(turnID, attempt string, req apiv1.TurnR
 		return ipc.TurnAck{OK: true}, nil
 	}
 	var delivered bool
-	if req.Status == "success" {
+	continuing := s.loop != nil && (req.TimedOut || req.Checkpoint && req.Status == "success")
+	if req.Status == "success" && !continuing {
 		var err error
 		delivered, err = s.turnDelivered(tc)
 		if err != nil {
@@ -143,7 +144,7 @@ func (s *Server) recordTurnResultAttempt(turnID, attempt string, req apiv1.TurnR
 		}
 	}
 	end := endDone
-	if req.Status == "error" {
+	if req.Status == "error" && !continuing {
 		end = endFailed
 	}
 	var notice *turnStatus
@@ -157,7 +158,7 @@ func (s *Server) recordTurnResultAttempt(turnID, attempt string, req apiv1.TurnR
 		notice = &turnStatus{phase: "final", cause: "Budget reached for today"}
 		end = endFailed
 	}
-	if req.Status == "success" {
+	if req.Status == "success" && !continuing {
 		if req.TimedOut {
 			notice = &turnStatus{phase: "timeout"}
 			end = endFailed
@@ -186,6 +187,9 @@ func (s *Server) recordTurnResultAttempt(turnID, attempt string, req apiv1.TurnR
 		}
 	}
 	status, failure := req.Status, req.Error
+	if continuing {
+		status, failure = "checkpoint", ""
+	}
 	if notice != nil {
 		status, failure = "error", renderTurnStatus(*notice)
 	}
@@ -220,7 +224,9 @@ func (s *Server) recordTurnResultAttempt(turnID, attempt string, req apiv1.TurnR
 			}
 		}
 		logTurnUsage(rows)
-		finishTurnLocked(s.db, s.deliver, turnID, end)
+		if !continuing {
+			finishTurnLocked(s.db, s.deliver, turnID, end)
+		}
 		if s.loop != nil {
 			s.loop.publishRoundDone(tc.ChatJID, turnID)
 		}

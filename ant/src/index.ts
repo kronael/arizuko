@@ -10,7 +10,7 @@ import { fileURLToPath } from 'url';
 import { submitTurn, submitStatus, type ModelUsage, type TurnAck } from './mcp.js';
 import { injectMcpEnv } from './mcp-servers.js';
 import { Harness, HarnessConfigError, HarnessProfile, Turn, addUsage, parseHarness, selectHarness } from './backend.js';
-import { DEADLINE_NOTE_LEAD_MS, DEADLINE_TEXT, STEER_SPOOL, appendLines, drainSteering, nudgeProgress } from './spool.js';
+import { DEADLINE_TEXT, STEER_SPOOL, appendLines, drainSteering, nudgeProgress } from './spool.js';
 export { DEADLINE_TEXT } from './spool.js';
 
 interface ContainerInput {
@@ -34,6 +34,7 @@ interface ContainerOutput {
   models?: Record<string, ModelUsage>;
   // timedOut marks a result that is the graceful query-timeout summary.
   timedOut?: boolean;
+  checkpoint?: boolean;
   providerFailure?: import('./backend.js').ProviderFailure;
 }
 
@@ -43,10 +44,12 @@ const IPC_INPUT_CLOSE_SENTINEL = path.join(IPC_INPUT_DIR, '_close');
 const IPC_POLL_MS = 500;
 const MAX_STDIN_BYTES = 1024 * 1024;
 
-// runed hands the guest ARIZUKO_QUERY_TIMEOUT_MS under its own run ceiling. The
+// runed hands the guest ARIZUKO_QUERY_TIMEOUT_MS from its run ceiling. The
 // guest's clock starts with this process, so one deadline covers every harness
 // run in it, the nudge round and the next IPC turn included.
-const PROCESS_DEADLINE = Date.now() + (Number(process.env.ARIZUKO_QUERY_TIMEOUT_MS) || 15 * 60_000);
+const PROCESS_STARTED = Date.now();
+const PROCESS_DEADLINE = PROCESS_STARTED + (Number(process.env.ARIZUKO_QUERY_TIMEOUT_MS) || Infinity);
+let processCheckpointed = false;
 
 // buildSystemPrompt renders the text layers the chassis owns (system MD, the
 // resident manual, persona). undefined means "no rendered text"
@@ -116,6 +119,7 @@ async function deliverTurn(turnID: string, output: ContainerOutput) {
       harness: output.harness,
       models: output.models,
       timed_out: output.timedOut,
+      checkpoint: output.checkpoint,
       provider_failure: output.providerFailure,
     });
   } catch (err) {
@@ -127,12 +131,9 @@ function log(message: string): void {
   console.error(`[ant] ${message}`);
 }
 
-// DEADLINE_TEXT warns the agent that the process deadline is close. Unlike
-// NUDGE_TEXT it is not dropped between turns: it may start a round, so a
-// session that had stopped gets one last chance to post.
 function noteDeadline(): void {
   appendLines(STEER_SPOOL, [DEADLINE_TEXT]);
-  log('Warned agent of the process deadline');
+  log('Asked agent to checkpoint');
 }
 
 // STATUS_RE matches one <status>...</status> block. The agent emits these for
@@ -253,6 +254,7 @@ async function runAttempt(
   deliver: (turnID: string, output: ContainerOutput) => Promise<TurnAck | void> = deliverTurn,
   sendStatus: typeof submitStatus = submitStatus,
   deadline = PROCESS_DEADLINE,
+  checkpointAt = (PROCESS_STARTED + deadline) / 2,
 ): Promise<TurnResult> {
   const controller = new AbortController();
   const turn: Turn = {
@@ -267,6 +269,7 @@ async function runAttempt(
     env,
     signal: controller.signal,
     deadline,
+    checkpointAt,
   };
 
   let ipcPolling = true;
@@ -291,9 +294,6 @@ async function runAttempt(
   };
   setTimeout(pollIpcDuringQuery, IPC_POLL_MS);
 
-  const untilNote = deadline - DEADLINE_NOTE_LEAD_MS - Date.now();
-  const noteTimer = untilNote > 0 && harness.name !== 'codex' ? setTimeout(noteDeadline, untilNote) : undefined;
-
   const out: TurnResult = { closedDuringQuery: false, retryFresh: false };
   let frameCount = 0;
   let resultCount = 0;
@@ -306,6 +306,9 @@ async function runAttempt(
       if (frame.kind === 'continuity') {
         out.token = frame.token;
         if (!out.sessionId) log(`Session initialized: ${frame.sessionId}`);
+        if (out.sessionId !== frame.sessionId) {
+          if ((await sendStatus({ turn_id: turnID, session_id: frame.sessionId })).remind) nudgeProgress();
+        }
         out.sessionId = frame.sessionId;
       } else if (frame.kind === 'status') {
         if (env.ARIZUKO_PROGRESS === '1') await streamStatuses(turnID, frame.text, sendStatus);
@@ -364,7 +367,6 @@ async function runAttempt(
   } finally {
     ipcPolling = false;
     wakeup = null;
-    clearTimeout(noteTimer);
   }
 
   out.closedDuringQuery = closedDuringQuery;
@@ -391,6 +393,13 @@ export async function runTurn(
   sendStatus: typeof submitStatus = submitStatus,
   deadline = PROCESS_DEADLINE,
 ) {
+  const checkpointAt = ((deadline === PROCESS_DEADLINE ? PROCESS_STARTED : Date.now()) + deadline) / 2;
+  let checkpointed = deadline === PROCESS_DEADLINE && processCheckpointed;
+  const noteTimer = Number.isFinite(checkpointAt) && !checkpointed ? setTimeout(() => {
+    checkpointed = true;
+    if (deadline === PROCESS_DEADLINE) processCheckpointed = true;
+    if (harness.name !== 'codex') noteDeadline();
+  }, Math.max(0, checkpointAt - Date.now())) : undefined;
   let nudgeTimer: ReturnType<typeof setTimeout> | undefined;
   let active = true;
   try {
@@ -413,23 +422,24 @@ export async function runTurn(
     const models = { ...carried };
     for (const [model, usage] of Object.entries(output.models ?? {}))
       models[model] = addUsage(models[model], usage);
-    const ack = await deliver(id, { ...output, models: Object.keys(models).length > 0 ? models : undefined });
+    const ack = await deliver(id, { ...output, checkpoint: checkpointed, models: Object.keys(models).length > 0 ? models : undefined });
     if (ack?.nudge) carried = models;
     return ack;
   };
   try {
     while (true) {
-      const result = await runAttempt(harness, prompt, continuity, containerInput, env, turnID, deliverTurnTotal, sendStatus, deadline);
+      const result = await runAttempt(harness, prompt, continuity, containerInput, env, turnID, deliverTurnTotal, sendStatus, deadline, checkpointAt);
       continuity = result.token ?? continuity;
       sessionId = result.sessionId ?? sessionId;
       if (!result.nudge || result.failed || result.closedDuringQuery || result.retryFresh) {
-        return { ...result, token: continuity, sessionId };
+        return { ...result, token: continuity, sessionId, checkpoint: checkpointed };
       }
       prompt = result.nudge;
     }
   } finally {
     active = false;
     clearTimeout(nudgeTimer);
+    clearTimeout(noteTimer);
   }
 }
 
@@ -479,6 +489,8 @@ async function main(): Promise<void> {
   const seedTurnID = containerInput.messageId || `boot-${Date.now()}`;
   let turnIndex = 0;
   try {
+    if (!Number.isFinite(PROCESS_DEADLINE) || PROCESS_DEADLINE <= PROCESS_STARTED)
+      throw new HarnessConfigError('ARIZUKO_QUERY_TIMEOUT_MS must be a positive run ceiling');
     // Selected inside the delivering try: an unknown ARIZUKO_BACKEND fails this turn
     // loudly to the user, never a silent exit.
     const selection = parseHarness(env);
@@ -500,6 +512,7 @@ async function main(): Promise<void> {
       }
       if (r.token) continuity = r.token;
       if (r.sessionId) lastSessionId = r.sessionId;
+      if (r.checkpoint) break;
 
       // The turn delivered no answer. Exit non-zero so runed reports the run
       // as failed and routd's own failure path runs — the one that retries,

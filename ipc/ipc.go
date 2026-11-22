@@ -129,6 +129,7 @@ type TurnResult struct {
 	Error     string `json:"error,omitempty"`
 	// TimedOut reports harness time or turn-limit exhaustion.
 	TimedOut        bool                    `json:"timed_out,omitempty"`
+	Checkpoint      bool                    `json:"checkpoint,omitempty"`
 	ProviderFailure *routv1.ProviderFailure `json:"provider_failure,omitempty"`
 
 	// Harness names the occupant that ran the turn: claude, codex or pi.
@@ -624,10 +625,11 @@ func handleSubmitTurn(raw []byte, id any, routd RoutdFns, folder string, write f
 }
 
 type TurnStatus struct {
-	TurnID   string          `json:"turn_id"`
-	Text     string          `json:"text"`
-	Source   string          `json:"source"`
-	Snapshot json.RawMessage `json:"snapshot"`
+	TurnID    string          `json:"turn_id"`
+	SessionID string          `json:"session_id,omitempty"`
+	Text      string          `json:"text"`
+	Source    string          `json:"source"`
+	Snapshot  json.RawMessage `json:"snapshot"`
 }
 
 type TurnStatusAck struct {

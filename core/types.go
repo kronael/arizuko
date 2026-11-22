@@ -85,6 +85,8 @@ const DefaultProduct = "assistant"
 // here because two readers test it: routd's dispatch and the ambient-window SQL.
 const IsolatedSenderPrefix = "timed-isolated:"
 
+const CheckpointPrefix = "checkpoint:"
+
 // IsIsolatedSender reports whether a sender or trigger names an isolated run.
 func IsIsolatedSender(s string) bool { return strings.HasPrefix(s, IsolatedSenderPrefix) }
 

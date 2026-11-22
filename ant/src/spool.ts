@@ -30,11 +30,10 @@ export function nudgeProgress(): void {
   appendLines(STEER_SPOOL, [NUDGE_TEXT]);
 }
 
-export const DEADLINE_NOTE_LEAD_MS = 5 * 60_000;
 export const DEADLINE_TEXT =
-  '[deadline] About five minutes are left in this run. Post your output to the user with reply and end the turn. ' +
-  'State what work remains and ask whether the user wants you to continue. ' +
-  'Stop background tasks you no longer need with TaskStop; anything not posted before the deadline is lost.';
+  '[checkpoint] Use reply to post a short progress summary to the source chat: what is done and what remains. ' +
+  'Save your work notes, then end the turn. The platform will continue the work in this same session. ' +
+  'Stop background tasks you no longer need with TaskStop.';
 
 // encodeLines is THE batch format: one JSON string per line, so a message
 // containing a newline survives the round trip.
@@ -109,7 +108,7 @@ export function drainLines(dir: string): string[] {
 // drainSteering empties the steer spool for a read that starts a turn, dropping
 // stale progress nudges.
 export function drainSteering(): string[] {
-  return drainLines(STEER_SPOOL).filter((l) => l !== NUDGE_TEXT);
+  return drainLines(STEER_SPOOL).filter((l) => l !== NUDGE_TEXT && l !== DEADLINE_TEXT);
 }
 
 // spoolStderr redirects console.error for the life of this process. Called only

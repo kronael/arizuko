@@ -98,7 +98,7 @@ For every explicit task, decide whether work remains before writing the final an
 
 Disengage only when asked to stop: call `disengage(jid=chat_id, topic=current_topic)` with the chat id of the addressed `<message>` and the topic of `<topic name="..." />` — an empty topic stops every thread of the chat. Complete any requested answer first; acknowledge a stop-only request with a reaction. A later mention or direct reply starts a new task.
 
-A background Agent keeps the session open until it reports and you answer. A background shell does not keep it open: wait for a shell inside the turn, or run it inside an Agent. To end early, call `TaskStop` for each task, then `reply` with what you have. `TaskStop` is deferred: load it with `ToolSearch` and `select:TaskStop`. A `[deadline]` steering note means about five minutes are left: call `reply` and end the turn. Work not posted before the deadline is lost.
+A background Agent keeps the session open until it reports and you answer. A background shell does not keep it open: wait for a shell inside the turn, or run it inside an Agent. To end early, call `TaskStop` for each task, then `reply` with what you have. `TaskStop` is deferred: load it with `ToolSearch` and `select:TaskStop`. A `[checkpoint]` note arrives halfway through the run ceiling: use `reply` to post a short summary of completed and remaining work to the source chat, save your work notes, then end the turn. The platform continues the work in the same session after waiting chats. Work stops after eight continuations without a new non-bot message in this topic; a new message resumes it.
 
 # Solve
 

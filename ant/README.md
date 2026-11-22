@@ -158,48 +158,22 @@ every harness unchanged.
 
 ## The turn deadline
 
-A turn has one deadline. `RUNED_RUN_TIMEOUT` (default 60m) is the run
-ceiling (`runed/manager.go` `turnTTL`).
-runed hands the guest a query timeout 30 seconds under that ceiling,
-floored at 60 seconds, as `ARIZUKO_QUERY_TIMEOUT_MS`
-(`runed/render.go` `queryTimeoutMs`), so the harness aborts and reports
-before runed kills the guest. ant computes the deadline once, at start, and
-every harness run in the guest aborts at it, the reply-owed nudge round
-and the next IPC turn included. About five minutes before the deadline ant
-puts a `[deadline]` note on the steer spool. The agent reads it as
-`<user-steering>`, mid-turn through the steering hook and while it waits on
-a task through the prompt stream. The note tells the agent to `reply`, end the turn, and
-stop tasks it does not need with `TaskStop`. A run that starts inside
-the last five minutes gets no note. The log line reads:
+A turn has one ceiling: `RUNED_RUN_TIMEOUT`, default 40m.
+runed passes it unchanged as `ARIZUKO_QUERY_TIMEOUT_MS`.
+At half the ceiling, ant sends the checkpoint note from `src/spool.ts`.
+Claude and pi receive it through steering. Codex interrupts and resumes its
+thread with the same note. The agent uses `reply` to post completed and
+remaining work to the source chat, saves work notes, and ends the turn.
 
-```
-Query timeout: process deadline reached, aborting
-```
+routd queues a continuation behind waiting chats after the guest returns.
+A ceiling kill takes the same path. The continuation resumes the topic's
+session from its last summary and work notes. ant saves each native session
+ID through `submit_status` as soon as the harness supplies it, so a killed
+fresh turn retains its transcript identity. A checkpoint note cannot start
+another round in the same guest.
 
-The user loses the in-flight reply, and inbound messages that arrived
-during the timed-out turn are tagged `errored=1` in `messages`. The next
-inbound gets a fresh guest; the errored rows stay flagged and show as
-failed turns in the dashboard.
-
-Mitigations for skill authors and agents, with no platform change:
-
-- **Split into multiple turns.** Emit partial results and ask the user for
-  "continue" rather than packing a 20-minute job into one turn.
-- **Checkpoint progress.** Write intermediate state to `~/facts/` or
-  `~/tmp/` between subtasks, so a fresh guest resumes instead of restarting
-  from zero.
-- **Run fewer parallel subagents.** Every Task subagent shares the parent
-  turn's wall budget; 8 parallel critics is 8 times the chance that one
-  stalls the whole turn.
-- **Background long jobs.** Pass `run_in_background: true` to the Agent tool
-  for long work. The session stays open until the Agent reports and the
-  model answers, or until the deadline. `TaskStop` plus a `reply` ends it
-  early. A background shell does not hold the session: run it inside an
-  Agent.
-- **Stop agentic loops early.** Count the iterations and stop well before
-  the cap. A loop that ran 28 of 30 iterations and saved its output is
-  better than one that hit the deadline in iteration 30 and dropped
-  everything.
+After eight continuations without a new non-bot message in that topic,
+routd posts a stop notice. A new message resumes the work.
 
 ## Ending the agent loop
 
@@ -322,7 +296,7 @@ The fixed ant home is `/home/node`; changing HOME does not move its explicit pat
 ## Timers and failure diagnosis
 
 IPC input polling and Claude's task-wait steering polling each run every 500 ms.
-The deadline note is scheduled five minutes before the process deadline; a run already inside that window gets no note.
+The checkpoint note is scheduled at half the process ceiling, once across attempts of the turn.
 Status reminders use the `reminder_after_ms` value returned by routd, not a second fixed timer.
 A `_close` sentinel aborts the active query and stops further input waiting.
 The steering spool is the batch-file directory `/tmp/arizuko-steer`; policy logs use `/tmp/arizuko-policy`.

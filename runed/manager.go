@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -305,6 +306,7 @@ func (m *Manager) spawn(ctx context.Context, req runedv1.RunRequest, runID, sess
 	return runedv1.RunOutcome{
 		RunID: runID, Outcome: res.Outcome, Error: res.Error,
 		Terminal: res.Terminal,
+		TimedOut: errors.Is(runCtx.Err(), context.DeadlineExceeded),
 	}
 }
 

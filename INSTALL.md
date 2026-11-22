@@ -51,8 +51,11 @@ no old tree.
 Scheduled tasks use at most one of those slots. `arizuko generate` and the
 daemons refuse a `.env` that sets `MAX_CONCURRENT_CONTAINERS`.
 
-`RUNED_RUN_TIMEOUT` (default 60m) ends a run. A turn that runs out of time is
-not retried; its status says "Time limit reached." Another failed turn gets up to nine retries. The delay starts at 30 seconds,
+`RUNED_RUN_TIMEOUT` (default 40m) bounds each run. At half the ceiling, the
+agent receives a checkpoint note to post a progress summary and end the turn.
+routd continues the same session behind waiting chats, including after a ceiling kill.
+Eight continuations without a new non-bot message in the topic stop the work;
+a new message resumes it. Another failed turn gets up to nine retries. The delay starts at 30 seconds,
 doubles, and caps at one hour. The tenth failure stops. While a
 retry waits, no new agent starts on the instance; the retry is the probe. A
 `/stop` in the chat ends the folder's turn and posts "Turn stopped."

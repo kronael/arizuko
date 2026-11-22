@@ -81,7 +81,7 @@ A kill is the one revoke that runed has, because runed mints nothing. `Manager.K
 | `RUNED_GUEST_MEM`                                                                                  | `2G`                                    | Memory per guest; host preflight multiplies by concurrency cap.                                                   |
 | `LISTEN_ADDR`                                                                                      | `:8080`                                 | HTTP listener.                                                                                                    |
 | `AUTHD_URL`                                                                                        | unset                                   | JWKS source; unset opens local development API and dashboard gates.                                               |
-| `RUNED_RUN_TIMEOUT`                                                                                | `60m`                                   | Run ceiling; ant query timeout is 30 s shorter with a 60 s floor.                                                 |
+| `RUNED_RUN_TIMEOUT`                                                                                | `40m`                                   | Run ceiling; ant checkpoints at half this duration.                                                               |
 | `RUNED_SHUTDOWN_GRACE`                                                                             | run timeout                             | Drain time for active HTTP handlers.                                                                              |
 | `MAX_CONCURRENT_AGENTS`                                                                            | `5`                                     | Live guest limit and host memory preflight multiplier.                                                            |
 | `DATA_DIR`                                                                                         | working directory                       | Instance root; groups, ipc, web, store-path label, and VM default.                                                |
@@ -227,7 +227,7 @@ Core is required. Package selection is an input to the renderer, outside the
 - Admission uses store records; per-guest process and network state lives in VM records on disk. Every admission decision reads live spawn pointers under one mutex for check and claim. A map in memory would lie after a restart: a folder would stay wedged, or the cap would reset. At boot, `ExpireOrphans` ends every row that a dead runed left live, as `exited` with outcome `error` and never `killed` (`runstore/spawns.go`).
 - `StartSpawn` takes the claim with a condition on `state='queued'`. A `DELETE` that lands between the claim and the launch wins, and the run answers `busy`. A `killed` row makes the folder read free, so a launch without this guard would put two guests on one mount.
 - routd owns session lineage. It mints the id and sends it on the request. runed mints an id only for a request that carries none, which is an isolated task. `spawns.session_id` is an echo.
-- Readiness is spawn success. There is no `/readyz` probe, because a probe on the spawn path adds a failure mode. `Manager.spawn` arms the one deadline from `RUNED_RUN_TIMEOUT`. The substrate keeps no timer. ant sends the wrap-up warning five minutes before its query deadline.
+- Readiness is spawn success. There is no `/readyz` probe, because a probe on the spawn path adds a failure mode. `Manager.spawn` arms the one deadline from `RUNED_RUN_TIMEOUT`. The substrate keeps no timer. ant sends one checkpoint note at half the ceiling.
 
 ### The guest's turn, step by step
 
@@ -264,7 +264,7 @@ To reach the tools of folder B, an agent in folder A would need the CID of B. Or
 
 ### Deadline warning and stop
 
-A follow-up for a folder with a live guest is refused with `busy`; routd keeps the batch and feeds it again after the run ends. ant sends the deadline warning through its steering spool.
+A follow-up for a folder with a live guest is refused with `busy`; routd keeps the batch and feeds it again after the run ends. Checkpoint completion and ceiling expiry queue a continuation in routd after the guest returns. `RunOutcome.timed_out` identifies a ceiling expiry without changing the Runtime port.
 
 The run deadline sends `stop`. `guest-init` sends SIGTERM to the agent and powers off after 10 seconds. runed waits `RUNED_REAP_GRACE` for the `exit` frame. Then it sends SIGKILL to the QEMU pid and confirms that the process is gone, because a guest power-off does not prove that QEMU exited. `DELETE /v1/runs/{run_id}` reaps the same way, from the record on disk.
 

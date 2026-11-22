@@ -100,10 +100,8 @@ func TestHTTPRunThreadsFullTurn(t *testing.T) {
 		t.Errorf("caller_sub reached the guest: %s", turn.Stdin)
 	}
 
-	// The process environment: the model override, and the query timeout derived
-	// from the one deadline (60m default run ceiling − 30s, in ms).
-	if turn.Env["ARIZUKO_QUERY_TIMEOUT_MS"] != "3570000" {
-		t.Errorf("Env[ARIZUKO_QUERY_TIMEOUT_MS]=%q want 3570000", turn.Env["ARIZUKO_QUERY_TIMEOUT_MS"])
+	if turn.Env["ARIZUKO_QUERY_TIMEOUT_MS"] != "2400000" {
+		t.Errorf("Env[ARIZUKO_QUERY_TIMEOUT_MS]=%q want 2400000", turn.Env["ARIZUKO_QUERY_TIMEOUT_MS"])
 	}
 
 	// The grants: share downgraded to RO, both web surfaces mounted, and the
@@ -118,9 +116,8 @@ func TestHTTPRunThreadsFullTurn(t *testing.T) {
 		t.Errorf("Egress=%v want [api.acme.com github.com *]", turn.Egress)
 	}
 
-	// The deadline: the Manager's run ceiling (60m default), armed on ctx.
-	if ttl := time.Duration(rec.ttl.Load()); ttl <= 59*time.Minute || ttl > 60*time.Minute {
-		t.Errorf("ctx deadline left %s, want just under 60m", ttl)
+	if ttl := time.Duration(rec.ttl.Load()); ttl <= 39*time.Minute || ttl > 40*time.Minute {
+		t.Errorf("ctx deadline left %s, want just under 40m", ttl)
 	}
 }
 

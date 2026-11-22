@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/kronael/arizuko/core"
@@ -95,6 +96,7 @@ type TurnContext struct {
 	ReturnTo               string
 	State                  string
 	RunID                  string
+	SessionID              string
 	RunReturned            bool
 	RetryCount             int
 	// Addressed: a person put a question to the folder and is owed an answer.
@@ -136,6 +138,7 @@ func turnFrom(it objstore.Item) (TurnContext, error) {
 		ReturnTo:               it.Attrs[attrTurnReturnTo],
 		State:                  it.Attrs[attrTurnState],
 		RunID:                  it.Attrs[attrTurnRunID],
+		SessionID:              it.Attrs["session_id"],
 		RunReturned:            it.Attrs[attrTurnRunReturned] == flagSet,
 		Addressed:              it.Attrs[attrTurnAddressed] == flagSet,
 	}
@@ -180,7 +183,8 @@ func turnFrom(it objstore.Item) (TurnContext, error) {
 				return TurnContext{}, fmt.Errorf("turn %s: invalid capacity input", tc.TurnID)
 			}
 		}
-		if tc.InputKeys[len(tc.InputKeys)-1].Sort != tc.InputLast {
+		checkpoint := strings.HasPrefix(tc.TurnID, core.CheckpointPrefix) && tc.InputLast < tc.InputKeys[0].Sort
+		if tc.InputKeys[len(tc.InputKeys)-1].Sort != tc.InputLast && !checkpoint {
 			return TurnContext{}, fmt.Errorf("turn %s: invalid capacity input last", tc.TurnID)
 		}
 	}
@@ -428,6 +432,10 @@ func (s *Store) setTurnAttrs(turnID string, attrs map[string]string, remove ...s
 // turn: the message a threaded reply roots a new platform thread on.
 func (s *Store) SetTurnTriggerMsg(turnID, msgID string) error {
 	return s.setTurnAttrs(turnID, map[string]string{attrTurnTriggerMsg: msgID})
+}
+
+func (s *Store) SetTurnSessionID(turnID, sessionID string) error {
+	return s.setTurnAttrs(turnID, map[string]string{"session_id": sessionID})
 }
 
 // SetTurnState flips a turn's lifecycle state.

@@ -156,7 +156,7 @@ func TestRenderTurnGolden(t *testing.T) {
 		"TZ":                       "Europe/Prague",
 		"ARIZUKO_MODEL":            "opus",
 		"ARIZUKO_EFFORT":           "xhigh",
-		"ARIZUKO_QUERY_TIMEOUT_MS": "1170000",
+		"ARIZUKO_QUERY_TIMEOUT_MS": "1200000",
 		"ARIZUKO_BACKEND":          "claude",
 		"ARIZUKO_IS_ROOT":          "",
 		"ARIZUKO_GH_WRITE":         "1",
@@ -188,7 +188,7 @@ func TestRenderTurnGolden(t *testing.T) {
     "ARIZUKO_GROUP_NAME": "support",
     "ARIZUKO_GROUP_PARENT": "atlas",
     "ARIZUKO_IS_ROOT": "",
-    "ARIZUKO_QUERY_TIMEOUT_MS": "1170000",
+    "ARIZUKO_QUERY_TIMEOUT_MS": "1200000",
     "ARIZUKO_WORLD": "atlas",
     "CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD": "1",
     "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "0",
@@ -479,18 +479,17 @@ func TestTurnEnvEmissions(t *testing.T) {
 	}
 }
 
-// TestQueryTimeoutMs: the agent's query timeout is 30s below the ceiling,
-// floored at 60s, and 0 when there is no ceiling — so the agent aborts and
-// delivers a graceful summary before the substrate's hard kill.
+// The guest receives the run ceiling without a separate floor or grace timeout.
 func TestQueryTimeoutMs(t *testing.T) {
 	cases := []struct {
 		ttl  time.Duration
 		want int64
 	}{
-		{0, 0},                                 // no ceiling → unset, agent default
-		{20 * time.Minute, 19*60_000 + 30_000}, // 20m − 30s = 19m30s
-		{70 * time.Second, 60_000},             // 70s − 30s = 40s, floored to 60s
-		{30 * time.Second, 60_000},             // below the floor → 60s
+		{0, 0},
+		{40 * time.Minute, 40 * 60_000},
+		{20 * time.Minute, 20 * 60_000},
+		{70 * time.Second, 70_000},
+		{30 * time.Second, 30_000},
 	}
 	for _, c := range cases {
 		if got := queryTimeoutMs(c.ttl); got != c.want {

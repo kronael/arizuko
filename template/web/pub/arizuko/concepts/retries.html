@@ -105,19 +105,19 @@ Retry 1 is running.</code></pre>
 did not complete.&lt;/system-note&gt;</code></pre>
     <p>The note does not guess the cause. The rest stays the same: the same messages and attachments and the same conversation history, in a new guest.</p>
 
-    <h2>Five kinds of turn never retry</h2>
+    <h2>Four kinds of turn never retry</h2>
     <dl>
       <dt>Turns that replied</dt>
-      <dd>Any bot message, even a partial one, counts as done.</dd>
+      <dd>Any bot message, even a partial one, counts as done unless the turn checkpoints.</dd>
       <dt>Turns that the agent failed on purpose</dt>
       <dd>The agent reported its own failure through <code>submit_turn</code>.</dd>
       <dt>Turns that a person stopped</dt>
       <dd>An explicit <code>/stop</code> or an operator kill ends the turn. The status says <code>Turn stopped.</code></dd>
-      <dt>Turns that reached the time limit</dt>
-      <dd>A run that reaches <a href="../reference/env.html#RUNED_RUN_TIMEOUT"><code>RUNED_RUN_TIMEOUT</code></a> ends with the status <code>Time limit reached</code>. Another full attempt would cost the same time again.</dd>
       <dt>Runs that <code>runed</code> marks terminal</dt>
       <dd>Container exit 125, 126 or 127 and a substrate that cannot start are terminal. <code>runed</code> makes this decision and <code>routd</code> obeys it. A retry cannot repair these failures.</dd>
     </dl>
+
+    <p>At half of <a href="../reference/env.html#RUNED_RUN_TIMEOUT"><code>RUNED_RUN_TIMEOUT</code></a>, ant asks for a progress summary and an end to the turn. A checkpoint or ceiling stop queues a continuation behind waiting chats. The continuation resumes the same session. Eight continuations without a new non-bot message in the topic stop the work. A new message resumes it.</p>
 
     <h2>Agent capacity is instance-wide</h2>
     <p><a href="../reference/env.html#MAX_CONCURRENT_AGENTS"><code>MAX_CONCURRENT_AGENTS</code></a>, default 5, bounds the agents that run at once. Scheduled tasks hold at most one of those slots, so a free slot still serves a chat. One folder runs one turn at a time. If turns stop because of memory and not because of content, change <a href="../reference/env.html#RUNED_GUEST_MEM"><code>RUNED_GUEST_MEM</code></a>, not the retry count.</p>
@@ -130,7 +130,7 @@ did not complete.&lt;/system-note&gt;</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/concepts/retries.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-11-13">2026-11-13</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-14">2026-11-14</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

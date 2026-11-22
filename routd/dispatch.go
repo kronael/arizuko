@@ -576,8 +576,12 @@ func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed boo
 		return false, false, false, "", err
 	}
 
-	_ = l.db.SetTurnTriggerMsg(turnID, last.ID)
-	_ = l.db.SetLastReply(chatJID, topic, last.ID, folder)
+	triggerMsgID := last.ID
+	if saved != nil && strings.HasPrefix(turnID, core.CheckpointPrefix) {
+		triggerMsgID = saved.TriggerMsgID
+	}
+	_ = l.db.SetTurnTriggerMsg(turnID, triggerMsgID)
+	_ = l.db.SetLastReply(chatJID, topic, triggerMsgID, folder)
 
 	if l.srv != nil {
 		ipcDir, err := l.folders.IpcPath(folder)
@@ -599,7 +603,7 @@ func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed boo
 		container.WriteGroupsSnapshot(l.folders, folder, elevated, slices.Collect(maps.Values(l.db.AllGroups())))
 	}
 
-	if !core.IsIsolatedSender(last.Sender) {
+	if !core.IsIsolatedSender(last.Sender) && !strings.HasPrefix(turnID, core.CheckpointPrefix) {
 		if sid := l.db.SessionID(folder, topic); sid != "" && l.sessionIdleExpired(chatJID) {
 			slog.Info("session: resetting on idle expiry",
 				"folder", folder, "topic", topic, "jid", chatJID, "threshold", l.sessionIdle)
@@ -673,7 +677,7 @@ func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed boo
 			return false, false, false, "", err
 		}
 		current, _ := l.db.GetTurnContext(turnID)
-		if !errors.Is(derr, context.Canceled) {
+		if !errors.Is(derr, context.Canceled) && !errors.Is(derr, context.DeadlineExceeded) {
 			if _, err := l.q.interrupt(l, current); err != nil {
 				return false, false, false, "", err
 			}
@@ -685,8 +689,12 @@ func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed boo
 				}
 			}
 		}
-		if _, err := l.q.complete(l, current, out, derr, work); err != nil {
+		deferred, err := l.q.complete(l, current, out, derr, work)
+		if err != nil {
 			return false, false, false, "", err
+		}
+		if deferred {
+			return false, false, false, "", nil
 		}
 		if errors.Is(derr, context.Canceled) || errors.Is(derr, context.DeadlineExceeded) {
 			finishTurn(l.db, l.deliver, turnID, endFailed)
@@ -945,7 +953,11 @@ func (l *Loop) dispatchRun(ctx context.Context, folder, topic, chatJID, turnID, 
 
 	isolated := core.IsIsolatedSender(trigger)
 	sessionID := ""
-	if !isolated {
+	if isolated {
+		if tc, ok := l.db.GetTurnContext(turnID); ok {
+			sessionID = tc.SessionID
+		}
+	} else {
 		sessionID = l.db.SessionID(folder, topic)
 
 		if sessionID == "" {

@@ -552,12 +552,12 @@ export async function* runClaude(turn: Turn, run: QueryFn = query): AsyncGenerat
   // Set only when the abort came from the process deadline, so the aborted
   // for-await delivers a graceful summary instead of a code-1 silent exit.
   let timedOut = false;
-  const timer = setTimeout(() => {
+  const timer = Number.isFinite(turn.deadline) ? setTimeout(() => {
     log('Query timeout: process deadline reached, aborting');
     timedOut = true;
     abortController.abort();
     stream.end();
-  }, Math.max(0, turn.deadline - Date.now()));
+  }, Math.max(0, turn.deadline - Date.now())) : undefined;
   // The platform winding down (close sentinel) ends the prompt stream so the SDK
   // concludes gracefully.
   const onAbort = () => stream.end();

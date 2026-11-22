@@ -271,7 +271,8 @@ func (s *Store) appendMessage(ctx context.Context, m core.Message, status string
 		return m, false, err
 	}
 	nativeTopic := m.Topic
-	if m.Topic == "" {
+	checkpoint := m.BotMsg && m.Sender == SystemSender && strings.HasPrefix(m.ID, core.CheckpointPrefix)
+	if m.Topic == "" && !checkpoint {
 		m.Topic = chat.Attrs[AttrChatStickyTopic]
 	}
 	if !m.BotMsg {

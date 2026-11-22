@@ -18,7 +18,7 @@ import {
 } from './backend.js';
 import { renderSkillsIndex, scanSkills } from './skills-scan.js';
 import { Binding, PolicyEvent, Verdict, bindings } from './policy.js';
-import { DEADLINE_NOTE_LEAD_MS, DEADLINE_TEXT, POLICY_LOG_SPOOL, drainLines } from './spool.js';
+import { DEADLINE_TEXT, POLICY_LOG_SPOOL, drainLines } from './spool.js';
 import fs from 'fs';
 import path from 'path';
 import type { ModelUsage } from './mcp.js';
@@ -344,7 +344,10 @@ export async function* runCodexStream(turn: Turn, run: (turn: Turn, deadlineNote
       controller.abort();
     }
   };
-  const timer = setTimeout(() => { due = true; interrupt(); }, Math.max(0, turn.deadline - DEADLINE_NOTE_LEAD_MS - Date.now()));
+  const checkpointAt = turn.checkpointAt ?? (Date.now() + turn.deadline) / 2;
+  const timer = Number.isFinite(checkpointAt)
+    ? setTimeout(() => { due = true; interrupt(); }, Math.max(0, checkpointAt - Date.now()))
+    : undefined;
   try {
     for await (const frame of run({ ...turn, signal: controller.signal })) {
       if (frame.kind === 'continuity') {

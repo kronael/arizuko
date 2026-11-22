@@ -5,7 +5,9 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/kronael/arizuko/core"
@@ -154,6 +156,7 @@ func (s *Store) SavePendingTurn(ctx context.Context, tc TurnContext, priorCursor
 	setAttr(attrs, attrTurnTopic, tc.Topic)
 	setAttr(attrs, attrTurnTrigger, tc.Trigger)
 	setAttr(attrs, attrTurnTriggerMsg, tc.TriggerMsgID)
+	setAttr(attrs, "session_id", tc.SessionID)
 	setAttr(attrs, attrTurnReturnTo, tc.ReturnTo)
 	if tc.Addressed {
 		attrs[attrTurnAddressed] = flagSet
@@ -344,7 +347,17 @@ func (s *Store) RecordCapacityFailure(ctx context.Context, tc TurnContext, prior
 		}
 	}
 	if tc.InputKeys[len(tc.InputKeys)-1].Sort != tc.InputLast {
-		return false, fmt.Errorf("record capacity failure %s: invalid input last", tc.TurnID)
+		messages, err := s.DeferredMessages(ctx, tc.InputKeys)
+		if err != nil {
+			return false, err
+		}
+		if !strings.HasPrefix(tc.TurnID, core.CheckpointPrefix) ||
+			len(messages) != len(tc.InputKeys) || tc.InputLast > tc.InputKeys[0].Sort ||
+			slices.ContainsFunc(messages, func(message core.Message) bool {
+				return !message.BotMsg || message.Sender != SystemSender
+			}) {
+			return false, fmt.Errorf("record capacity failure %s: invalid input last", tc.TurnID)
+		}
 	}
 	attrs := map[string]string{attrTurnState: TurnWaitingCapacity, "capacity_failures": strconv.Itoa(decision.Failures)}
 	setAttr(attrs, "capacity_wake_cursor", wakeCursor)

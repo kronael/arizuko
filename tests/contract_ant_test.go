@@ -168,6 +168,7 @@ func TestSubmitTurnDecodeKeepsEveryField(t *testing.T) {
 		"status":           "success",
 		"error":            "",
 		"timed_out":        true,
+		"checkpoint":       true,
 		"provider_failure": map[string]any{"reason": "rate_limit", "reset_at": "2026-11-08T13:00:00Z"},
 		"harness":          "codex",
 		"models": map[string]any{
@@ -197,6 +198,9 @@ func TestSubmitTurnDecodeKeepsEveryField(t *testing.T) {
 	}
 	if !got.TimedOut {
 		t.Error("timed_out dropped in decode — a timeout summary reads as a normal completion")
+	}
+	if !got.Checkpoint {
+		t.Error("checkpoint dropped in decode")
 	}
 	if got.ProviderFailure == nil || got.ProviderFailure.Reason != "rate_limit" ||
 		got.ProviderFailure.ResetAt != "2026-11-08T13:00:00Z" {

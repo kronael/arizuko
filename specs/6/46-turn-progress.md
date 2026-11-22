@@ -383,6 +383,47 @@ capability with a no-op behind it is the drift `CapImplReport` exists to catch,
 only the reply or comment they posted (`specs/6/45-gdrive-comments-channel.md`
 §"Decision 3", `specs/6/27-git-channel.md`).
 
+## Checkpoint and continuation
+
+`RUNED_RUN_TIMEOUT` (`core.RunTimeout`) is the single run ceiling, with a
+40-minute default. At half that ceiling, ant sends one checkpoint note.
+`ant/src/spool.ts` owns its text. The note directs the agent to use `reply`
+to post a short summary of completed and remaining work to the source chat,
+then end the turn. The platform continues the work in the same session.
+An agent that ignores the note stops at the ceiling and also continues.
+
+After a checkpoint or ceiling stop, routd appends one continuation through
+the existing inbound message queue for the same folder, chat and topic.
+Pending chats run first. The continuation resumes the topic's session and
+directs the agent to continue from its last summary and work notes.
+A normal turn that finishes before the checkpoint keeps its usual behavior.
+
+After eight consecutive continuations without a new non-bot message in the
+topic, routd stops and posts one line explaining that a new message resumes
+the work. This is turn lifecycle plumbing, not a managed resource.
+
+`routd/checkpoint.go` creates a deterministic successor through `SavePendingTurn`
+and the existing deferred-turn path. The synthetic input is a bot row; replay
+renders it as the continuation instruction with the original caller's authority.
+Its saved input cursor does not consume newer user messages. The loop guard
+counts stored continuation inputs back to the newest non-bot message in the topic.
+It needs no new counter or storage schema.
+
+`ant/src/index.ts` reports native session IDs through `submit_status.session_id`
+before terminal output. `routd/mcp.go` persists them under the turn lock.
+Continuation replay skips idle expiry. `submit_turn.checkpoint` marks a
+cooperative completion; `RunOutcome.timed_out` and routd's deadline error
+identify a ceiling stop. `turnControl.complete` schedules continuation before
+failure classification, so checkpoint work does not open the failure circuit.
+Checkpoint parents remain live until the successor is saved, so recovery can
+finish scheduling after a restart or failed write. Folder cancellation and
+successor creation share a lock; a recorded stop prevents a stale completion
+from starting more work.
+
+Isolated scheduled work stores its native session ID on its turn context and
+copies it to its continuation. It never reads or replaces the chat's session.
+This per-turn `session_id` is the only added storage attribute.
+
 ## The nudge
 
 Use one reminder for a turn without a checklist. Trigger it after eight

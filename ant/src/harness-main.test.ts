@@ -6,6 +6,7 @@ import path from 'path';
 async function run(doc?: string, mode?: string, callbackFail = false) {
  const root = mkdtempSync(path.join(tmpdir(), 'harness-'));
  const env: Record<string, string> = { ...process.env as Record<string,string>, VOLUNTARY_FIXTURE_ROOT: root, VOLUNTARY_FIXTURE_SOURCE: import.meta.dir, ARIZUKO_BACKEND:'claude', ARIZUKO_MODEL:'default-model', ARIZUKO_EFFORT:'high' };
+ env.ARIZUKO_QUERY_TIMEOUT_MS = '2400000';
  if (mode) env.VERDICT_FIXTURE = mode;
  if (callbackFail) env.VERDICT_CALLBACK_FAIL = '1';
  if (doc !== undefined) env.ARIZUKO_HARNESS = doc; else delete env.ARIZUKO_HARNESS;

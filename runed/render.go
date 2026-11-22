@@ -151,15 +151,11 @@ func groupConfig(raw map[string]any) core.GroupConfig {
 	return gc
 }
 
-// queryTimeoutMs derives the agent's in-guest query timeout from the run
-// ceiling: 30s below it so the agent delivers a graceful summary BEFORE the
-// hard kill, floored at 60s. No ceiling means 0: the agent's own default.
 func queryTimeoutMs(ttl time.Duration) int64 {
 	if ttl <= 0 {
 		return 0
 	}
-	q := max(ttl-30*time.Second, 60*time.Second)
-	return q.Milliseconds()
+	return ttl.Milliseconds()
 }
 
 // preparePayload builds the stdin frame: the platform facts of this turn

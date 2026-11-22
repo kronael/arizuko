@@ -442,7 +442,7 @@ func (s *Server) checkTurn(tc TurnContext) (ipc.TurnCheck, error) {
 func (s *Server) mcpSubmitTurnAttempt(t ipc.TurnResult, attempt string) (ipc.TurnAck, error) {
 	req := apiv1.TurnResult{
 		TurnID: t.TurnID, SessionID: t.SessionID, Status: t.Status,
-		Error: t.Error, TimedOut: t.TimedOut, ProviderFailure: t.ProviderFailure,
+		Error: t.Error, TimedOut: t.TimedOut, Checkpoint: t.Checkpoint, ProviderFailure: t.ProviderFailure,
 		Harness: t.Harness, Models: t.Models,
 	}
 	return s.recordTurnResultAttempt(t.TurnID, attempt, req)
@@ -460,6 +460,17 @@ func (s *Server) submitStatus(status ipc.TurnStatus) (ipc.TurnStatusAck, error) 
 	}
 	if s.callbackClosed(tc) || !store.IsActiveTurnState(tc.State) {
 		return ipc.TurnStatusAck{}, nil
+	}
+	if status.SessionID != "" {
+		var err error
+		if core.IsIsolatedSender(tc.Trigger) {
+			err = s.db.store().SetTurnSessionID(tc.TurnID, status.SessionID)
+		} else {
+			err = s.db.PutSession(tc.Folder, tc.Topic, status.SessionID)
+		}
+		if err != nil {
+			return ipc.TurnStatusAck{}, err
+		}
 	}
 	value, _ := s.db.progress.LoadOrStore(status.TurnID, &turnProgress{sources: make(map[string][]progressItem), seen: make(map[string]bool), calls: make(map[string]bool)})
 	progress := value.(*turnProgress)

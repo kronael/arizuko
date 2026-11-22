@@ -34,12 +34,14 @@ export interface SubmitTurnPayload {
   // True when this turn's result is the graceful query-timeout summary, not a
   // normal completion. routd logs a WARN annotation; outcome stays OK.
   timed_out?: boolean;
+  checkpoint?: boolean;
   provider_failure?: ProviderFailure;
 }
 
 // SubmitStatusPayload updates the turn's progress line.
 export interface SubmitStatusPayload {
   turn_id: string;
+  session_id?: string;
   text?: string;
   source?: 'claude' | 'codex';
   snapshot?: import('./policy.js').ToolEvent;

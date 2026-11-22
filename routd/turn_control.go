@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -67,6 +68,8 @@ func (q *turnControl) savePending(l *Loop, tc TurnContext, input, ambient []core
 }
 
 func (q *turnControl) cancel(l *Loop, folder string) ([]string, error) {
+	unlock := lockTurn("\x00checkpoint:" + folder)
+	defer unlock()
 	var canceled []string
 	turns, err := l.db.RunningTurns()
 	if err != nil {
@@ -240,11 +243,38 @@ func (q *turnControl) complete(l *Loop, tc TurnContext, out runedv1.RunOutcome, 
 	if err != nil {
 		return false, err
 	}
+	ceiling := out.TimedOut || errors.Is(runErr, context.DeadlineExceeded)
+	provider := tc.AttemptID != "" && tc.ProviderFailureAttempt == tc.AttemptID
+	checkpoint := result.Status == "checkpoint" ||
+		ceiling && result.Status != "success" && result.Status != "refused" && result.Status != "budget"
+	if checkpoint && !provider {
+		if result.Status == "pending" || result.Status == "" {
+			sessionID := tc.SessionID
+			if !core.IsIsolatedSender(tc.Trigger) {
+				sessionID = l.db.SessionID(tc.Folder, tc.Topic)
+			}
+			if _, err := l.db.RecordTurnResult(tc.Folder, tc.TurnID, sessionID, "checkpoint", "", store.TurnUsage{}); err != nil {
+				return false, err
+			}
+		}
+		if work.probe != nil {
+			closed := store.TurnControlState{Phase: "closed", Episode: work.probe.Episode}
+			ok, err := l.db.store().WriteTurnControl(context.Background(), work.probe, closed)
+			if err != nil {
+				return false, err
+			}
+			if ok {
+				if err := l.db.store().ClearControlledModelPauses(context.Background(), closed); err != nil {
+					return false, err
+				}
+			}
+		}
+		return true, l.continueTurn(tc)
+	}
 	if tc.State == store.TurnDone && tc.RunReturned && result.Status == "pending" {
 		return false, nil
 	}
 	replied := l.db.TurnHasBotReply(returnTarget(tc, tc.ChatJID), tc.TurnID)
-	provider := tc.AttemptID != "" && tc.ProviderFailureAttempt == tc.AttemptID
 	providerOut := out
 	if provider {
 		providerOut.Outcome = runedv1.OutcomeError
@@ -490,6 +520,9 @@ func (l *Loop) replay(turnID string) (bool, error) {
 	}
 	last := &trigger[len(trigger)-1]
 	last.Sender, last.ForwardedFrom = tc.Trigger, tc.ReturnTo
+	if strings.HasPrefix(tc.TurnID, core.CheckpointPrefix) {
+		last.BotMsg = false
+	}
 	had, _, _, mark, err := l.runBoundTurn(tc.Folder, tc.Topic, tc.ChatJID,
 		tc.TurnID, tc.Addressed, trigger, ambient, &tc, tc.CapacityWakeCursor)
 	if errors.Is(err, errModelInputOrder) {
@@ -552,7 +585,19 @@ func (q *turnControl) recover(l *Loop, startup bool) error {
 			continue
 		}
 		ok, err := q.WithIdleFolder(tc.Folder, func() error {
-			var err error
+			result, err := l.db.store().GetTurnResult(tc.Folder, tc.TurnID)
+			if err != nil {
+				return err
+			}
+			if result.Status == "checkpoint" {
+				if err := l.stopModelProbe(tc); err != nil {
+					return err
+				}
+				if err := l.db.SetRunReturned(tc.TurnID); err != nil {
+					return err
+				}
+				return l.continueTurn(tc)
+			}
 			var expected []store.TurnControlState
 			if isProbe {
 				expected = append(expected, control)

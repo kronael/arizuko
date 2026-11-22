@@ -228,8 +228,8 @@ func TestManagerAppliesRunTTLDeadline(t *testing.T) {
 	})
 
 	out, _ := mgr.Run(context.Background(), runedv1.RunRequest{Packages: []string{"core"}, Folder: "demo", MessageBatch: "m"})
-	if out.Outcome != runedv1.OutcomeError {
-		t.Fatalf("outcome=%q want error (ctx deadline elapsed mid-run)", out.Outcome)
+	if out.Outcome != runedv1.OutcomeError || !out.TimedOut {
+		t.Fatalf("outcome=%+v, want error with timed_out (ctx deadline elapsed mid-run)", out)
 	}
 }
 

@@ -69,6 +69,7 @@ type TurnResult struct {
 	Models    map[string]ModelUsage `json:"models"`
 	// TimedOut reports harness time or turn-limit exhaustion.
 	TimedOut        bool             `json:"timed_out"`
+	Checkpoint      bool             `json:"checkpoint"`
 	ProviderFailure *ProviderFailure `json:"provider_failure,omitempty"`
 }
 
