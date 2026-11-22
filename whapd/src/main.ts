@@ -318,12 +318,14 @@ async function connect(): Promise<void> {
         Math.floor(Date.now() / 1000),
       );
       if (!payload) continue;
+      const held = inbound.retain(payload);
       try {
-        await rc.sendMessage(payload);
-        lastInboundAt = Math.floor(Date.now() / 1000);
+        if (held) await inbound.sweep(sendInbound);
+        else await inbound.deliver(payload, sendInbound);
       } catch (e) {
         log('error', 'deliver reaction failed', {
           jid: payload.chat_jid,
+          retained: held,
           err: String(e),
         });
       }

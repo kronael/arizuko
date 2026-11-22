@@ -16,7 +16,22 @@ if (process.env['WHAPD_FIXTURE']) {
     }),
   }));
   ev.on('newListener', (event) => {
-    if (event === 'messages.upsert')
+    if (
+      event === 'messages.reaction' &&
+      process.env['WHAPD_FIXTURE'] === 'reaction'
+    )
+      queueMicrotask(() =>
+        ev.emit('messages.reaction', [
+          {
+            key: { remoteJid: 'human@s.whatsapp.net', id: 'target-1' },
+            reaction: { text: '👍' },
+          },
+        ]),
+      );
+    if (
+      event === 'messages.upsert' &&
+      process.env['WHAPD_FIXTURE'] !== 'reaction'
+    )
       queueMicrotask(() =>
         ev.emit('messages.upsert', {
           messages: [

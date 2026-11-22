@@ -178,7 +178,7 @@ after 30 s; an empty ledger owns no timer. Accepted messages leave the ledger
 only after successful file removal. A stale acknowledgment cannot remove a
 replacement payload. Unreadable recovery data fails startup. Failed retention
 withholds the receipt and logs the failure.
-Reaction events do not use this inbound ledger.
+Reaction events use the same inbound ledger.
 
 Registration retries forever with a linear 2 s delay per failure capped at 30 s.
 The TypeScript client has no periodic registration heartbeat or explicit fetch timeout.
