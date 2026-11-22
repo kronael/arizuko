@@ -97,18 +97,15 @@ func NewHTTPChannel(e *Entry, bearer func(context.Context) (string, error)) *HTT
 	}
 }
 
-// authHeader sets Authorization from the bearer getter when it yields a token.
-// A getter error is logged and the request goes out unauthenticated → the
-// adapter returns 401, surfacing the auth failure rather than masking it.
-func (h *HTTPChannel) authHeader(ctx context.Context, req *http.Request) {
+func (h *HTTPChannel) authHeader(ctx context.Context, req *http.Request) error {
 	tok, err := h.bearer(ctx)
 	if err != nil {
-		slog.Error("channel egress: bearer token unavailable", "channel", h.entry.Name, "err", err)
-		return
+		return err
 	}
 	if tok != "" {
 		req.Header.Set("Authorization", "Bearer "+tok)
 	}
+	return nil
 }
 
 // SendOptionsCtx is Send carrying pickable answers (spec 5/19). It is the ONE
@@ -264,7 +261,9 @@ func (h *HTTPChannel) uploadMultipart(ctx context.Context, endpoint, jid, path, 
 		return nil, err
 	}
 	req.Header.Set("Content-Type", w.FormDataContentType())
-	h.authHeader(ctx, req)
+	if err := h.authHeader(ctx, req); err != nil {
+		return nil, err
+	}
 	return h.client.Do(req)
 }
 
@@ -338,7 +337,9 @@ func (h *HTTPChannel) FetchHistory(ctx context.Context, jid string, before time.
 	if err != nil {
 		return nil, err
 	}
-	h.authHeader(ctx, req)
+	if err := h.authHeader(ctx, req); err != nil {
+		return nil, err
+	}
 	resp, err := h.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("channel %s fetch_history: %w", h.entry.Name, err)
@@ -513,6 +514,8 @@ func (h *HTTPChannel) post(ctx context.Context, path string, body []byte) (*http
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	h.authHeader(ctx, req)
+	if err := h.authHeader(ctx, req); err != nil {
+		return nil, err
+	}
 	return h.client.Do(req)
 }

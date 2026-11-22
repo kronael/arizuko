@@ -108,13 +108,11 @@ func TestHTTPChannelSend(t *testing.T) {
 	}
 }
 
-// TestHTTPChannelDynamicBearer: the egress client presents the token its
-// bearer getter yields on each call (the service:routd token-source path), not
-// a fixed secret — and a getter error sends no Authorization header (the adapter
-// then 401s, surfacing the failure).
 func TestHTTPChannelDynamicBearer(t *testing.T) {
 	var gotAuth string
+	var requests int
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
 		gotAuth = r.Header.Get("Authorization")
 		json.NewEncoder(w).Encode(map[string]bool{"ok": true})
 	}))
@@ -138,13 +136,13 @@ func TestHTTPChannelDynamicBearer(t *testing.T) {
 	if gotAuth != "Bearer service-routd-jwt-2" {
 		t.Fatalf("rotated auth header = %q, want Bearer service-routd-jwt-2", gotAuth)
 	}
-	// Getter error → no Authorization header (adapter would 401).
-	ch = NewHTTPChannel(e, func(context.Context) (string, error) { return "", errors.New("authd down") })
-	if _, err := ch.SendOptionsCtx(context.Background(), "tg:1", "x", nil, "", "", "", "", ""); err != nil {
-		t.Fatalf("send with failing getter: %v", err)
+	bearerErr := errors.New("authd down")
+	ch = NewHTTPChannel(e, func(context.Context) (string, error) { return "", bearerErr })
+	if _, err := ch.SendOptionsCtx(context.Background(), "tg:1", "x", nil, "", "", "", "", ""); !errors.Is(err, bearerErr) {
+		t.Fatalf("send with failing getter: got %v, want %v", err, bearerErr)
 	}
-	if gotAuth != "" {
-		t.Fatalf("auth header on getter error = %q, want empty", gotAuth)
+	if requests != 2 {
+		t.Fatalf("adapter requests = %d, want 2", requests)
 	}
 }
 
