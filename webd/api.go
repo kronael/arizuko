@@ -2,9 +2,10 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/chanlib"
@@ -18,7 +19,7 @@ import (
 // not fail loudly — it would just put two turns in two topics that the operator
 // meant as one (BUGS L116).
 func newTopicID() string {
-	return fmt.Sprintf("t%d", time.Now().UnixMilli())
+	return "t" + uuid.NewString()
 }
 
 func (s *server) handleAPIGroups(w http.ResponseWriter, r *http.Request) {

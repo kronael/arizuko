@@ -57,11 +57,6 @@ func (s *server) handleChatPage(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html")
 	folderURL := url.PathEscape(folder)
-	// The opening topic is minted HERE, not in the script, so the stream URL in
-	// the markup and the `_topic` the send body carries are one value. An empty
-	// topic is not "the main thread": handleMeSend mints a fresh `t<ms>` for
-	// every empty-topic send and the history read filters on empty, so the
-	// default view listed nothing and each send opened a new topic (BUGS L116).
 	topic0 := newTopicID()
 	topicURL := url.PathEscape(topic0)
 	_, _ = fmt.Fprint(w, htmlHead)
@@ -118,7 +113,8 @@ function newTopic() {
   // The stream has to move too. Clearing the thread and leaving sse-connect on
   // the old topic showed an empty pane that then filled with the PREVIOUS
   // topic's messages.
-  streamTopic('t' + Date.now());
+  var bytes = crypto.getRandomValues(new Uint8Array(16));
+  streamTopic('t' + Array.from(bytes, b => b.toString(16).padStart(2, '0')).join(''));
   document.getElementById('thread').innerHTML = '';
 }
 async function sendMsg(e) {

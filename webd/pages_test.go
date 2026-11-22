@@ -261,12 +261,6 @@ func TestXMessages_InvalidBefore(t *testing.T) {
 	}
 }
 
-// The panel's live stream pointed at `/chat/stream?group=…&topic=`, which
-// refuses the page twice over: it wants a route token the panel does not carry,
-// and it 400s on an empty topic. The empty topic was the second half — it is not
-// "the main thread", because a send with no topic mints a fresh `t<ms>` and the
-// history read filters on empty, so the default view listed nothing and every
-// send opened a new topic (BUGS L116).
 func TestChatPageStreamsFromAnAuthenticatedTopicURL(t *testing.T) {
 	s, _, st := newTestServer(t)
 	seedGroup(t, st, "main", "MyGroup")

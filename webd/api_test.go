@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/kronael/arizuko/core"
@@ -304,4 +305,13 @@ func TestGroupListsRespectFolderGrants(t *testing.T) {
 			t.Errorf("%s: status=%d body=%s", path, w.Code, w.Body.String())
 		}
 	}
+}
+
+func TestNewTopicIDsAreUniqueAtSameTime(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		a, b := newTopicID(), newTopicID()
+		if a == b {
+			t.Fatalf("duplicate topic %q", a)
+		}
+	})
 }
