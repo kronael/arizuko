@@ -14,7 +14,10 @@ import (
 // folder's team when the gateway has none (every model call needs it). A non-nil
 // error is a gateway that did not answer: the caller must NOT spawn.
 func (l *Loop) reconcileCaps(ctx context.Context, folder, userSub string) error {
-	folderCap, userCap := l.caps(folder, userSub)
+	folderCap, userCap, err := l.caps(folder, userSub)
+	if err != nil {
+		return err
+	}
 	if l.gateway == nil {
 		// No meter: a cap that silently does nothing is worse than no cap, so
 		// name it here rather than on an invoice.
@@ -34,23 +37,21 @@ func (l *Loop) reconcileCaps(ctx context.Context, folder, userSub string) error 
 // caps reads the two ceilings the operator set. COST_CAPS_ENABLED off reports
 // both as uncapped, which clears them at the gateway too — or turning it off
 // would leave the gateway refusing turns arizuko does not cap.
-func (l *Loop) caps(folder, userSub string) (folderCap, userCap int) {
+func (l *Loop) caps(folder, userSub string) (folderCap, userCap int, err error) {
 	if !l.costCapsEnabled {
-		return 0, 0
+		return 0, 0, nil
 	}
-	folderCap, err := l.db.FolderCap(folder)
+	folderCap, err = l.db.FolderCap(folder)
 	if err != nil {
-		slog.Warn("budget: FolderCap failed", "folder", folder, "err", err)
-		folderCap = 0
+		return 0, 0, fmt.Errorf("read folder cap %s: %w", folder, err)
 	}
 	if userSub != "" {
 		userCap, err = l.db.UserCap(userSub)
 		if err != nil {
-			slog.Warn("budget: UserCap failed", "user_sub", userSub, "err", err)
-			userCap = 0
+			return 0, 0, fmt.Errorf("read user cap %s: %w", userSub, err)
 		}
 	}
-	return folderCap, userCap
+	return folderCap, userCap, nil
 }
 
 // reconcileTeam moves the folder's team onto the operator's cap.

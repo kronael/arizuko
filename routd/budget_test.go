@@ -2,12 +2,37 @@ package routd
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/store"
 )
+
+type capReadFailure struct{ objstore.Store }
+
+func (s capReadFailure) Query(ctx context.Context, q objstore.Query) ([]objstore.Item, error) {
+	if q.Entity == store.Groups {
+		return nil, errors.New("injected group read failure")
+	}
+	return s.Store.Query(ctx, q)
+}
+
+func TestReconcileCapsReadFailure(t *testing.T) {
+	db, loop, _, fake := gatewayLoop(t, "demo")
+	fake.setTeam("demo", 0, 500)
+	if err := db.SetFolderCap("demo", 500); err != nil {
+		t.Fatal(err)
+	}
+	db.obj = capReadFailure{db.obj}
+	err := loop.reconcileCaps(context.Background(), "demo", "")
+	cap, _ := fake.teamCap("demo")
+	if err == nil || cap != 500 {
+		t.Errorf("read failure: error=%v gateway cap=%d, want error and 500", err, cap)
+	}
+}
 
 // seedUser inserts a user_profiles row + per-user cap into routd's OWN routd.db
 // (migration 0011) by reusing the store writers — proving store.CreateUserProfile/
