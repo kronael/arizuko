@@ -244,8 +244,11 @@ func (s *Store) importMessageBatch(ctx context.Context, rows []ArchiveMessageRow
 	chats := map[string]bool{}
 	for _, m := range rows {
 		if _, err := importedMessageWrites(m); err != nil {
-			refused = append(refused, UnorderableMessage{ID: m.ID, Timestamp: m.Timestamp})
-			continue
+			if _, stampErr := ReadMessageInstant(m.Timestamp); stampErr != nil {
+				refused = append(refused, UnorderableMessage{ID: m.ID, Timestamp: m.Timestamp})
+				continue
+			}
+			return 0, refused, fmt.Errorf("import message %s: %w", m.ID, err)
 		}
 		rendered = append(rendered, m)
 		chats[m.ChatJID] = true
@@ -378,6 +381,20 @@ func importedMessageWrites(m ArchiveMessageRow) ([]objstore.Write, error) {
 				return nil, fmt.Errorf("unknown delivery work attribute %q", name)
 			}
 			setAttr(w.Attrs, name, value)
+		}
+		item := objstore.Item{Attrs: w.Attrs}
+		if m.Status == core.MessageStatusPending || w.Attrs["next_attempt_at"] != "" {
+			if _, err := deliveryDueAt(item); err != nil {
+				return nil, fmt.Errorf("delivery next_attempt_at: %w", err)
+			}
+		}
+		if _, err := deliveryExpiry(item); err != nil {
+			return nil, fmt.Errorf("delivery expires_at: %w", err)
+		}
+		if queued := w.Attrs["queued_at"]; queued != "" {
+			if _, err := time.Parse(time.RFC3339Nano, queued); err != nil {
+				return nil, fmt.Errorf("delivery queued_at: %w", err)
+			}
 		}
 		writes = append(writes, w)
 	}

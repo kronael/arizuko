@@ -163,6 +163,31 @@ func TestImportRejectsUnknownDeliveryStatus(t *testing.T) {
 	}
 }
 
+func TestImportRejectsMalformedDeliveryTimestamps(t *testing.T) {
+	for _, name := range []string{"next_attempt_at", "expires_at", "queued_at"} {
+		t.Run(name, func(t *testing.T) {
+			st := routdMessages(t)
+			var buf bytes.Buffer
+			for _, m := range []store.ArchiveMessageRow{
+				{ID: "healthy", ChatJID: "web:world", Timestamp: ts(t, "10:00"), Status: core.MessageStatusPending},
+				{ID: "bad", ChatJID: "web:world", Timestamp: ts(t, "10:01"), Status: core.MessageStatusPending,
+					Delivery: map[string]string{name: "garbage"}},
+			} {
+				if err := json.NewEncoder(&buf).Encode(m); err != nil {
+					t.Fatal(err)
+				}
+			}
+			n, _, refused, err := st.ImportMessagesJSONL(t.Context(), &buf, 500)
+			if err == nil || !strings.Contains(err.Error(), name) || n != 0 || len(refused) != 0 {
+				t.Fatalf("imported=%d refused=%v error=%v", n, refused, err)
+			}
+			if n := countMessages(t, st, "web:world"); n != 0 {
+				t.Fatalf("invalid batch persisted %d messages", n)
+			}
+		})
+	}
+}
+
 // routdMessages hands back routd's own tables, wrapped as the owner the archive
 // lane is a method on.
 func routdMessages(t *testing.T) *store.Store {
