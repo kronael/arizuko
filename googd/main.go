@@ -97,27 +97,31 @@ func reacquire(ctx context.Context, b *bot, rc capSetter, every time.Duration) {
 		case <-t.C:
 			if err := b.cred.verify(ctx); err != nil {
 				if registered {
-					setCaps(rc, capsFor(false))
-					registered = false
+					if setCaps(rc, capsFor(false)) == nil {
+						registered = false
+					}
 				}
 				slog.Warn("service account still unusable; send_text stays withdrawn", "err", err)
 				continue
 			}
 			if !registered {
-				slog.Info("service account verified; send_text is back on the registration",
-					"account", b.cred.account())
-				setCaps(rc, capsFor(true))
-				registered = true
+				if setCaps(rc, capsFor(true)) == nil {
+					slog.Info("service account verified; send_text is back on the registration",
+						"account", b.cred.account())
+					registered = true
+				}
 			}
 		}
 	}
 }
 
-func setCaps(rc capSetter, caps map[string]bool) {
+func setCaps(rc capSetter, caps map[string]bool) error {
 	if err := rc.SetCaps(caps); err != nil {
 		slog.Error("revising the registration failed; routd's view of googd's verbs is stale",
 			"caps", caps, "err", err)
+		return err
 	}
+	return nil
 }
 
 type bot struct {

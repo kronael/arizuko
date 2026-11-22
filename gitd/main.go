@@ -105,7 +105,8 @@ func verifyToken(ctx context.Context, b *bot, rc capSetter, every time.Duration)
 	slog.Error(noLoginConsequence("github "+endpoint+" failed")+
 		"; gitd runs ingress-only, send_text is withdrawn, and gitd's own comments are no longer dropped at ingest",
 		"err", err)
-	setCaps(rc, capsFor(b.cfg.AppID))
+	// setCaps already logs the registration failure
+	_ = setCaps(rc, capsFor(b.cfg.AppID))
 	if errors.Is(err, chanlib.ErrPermanent) {
 		return
 	}
@@ -126,9 +127,10 @@ func reverify(ctx context.Context, b *bot, rc capSetter, every time.Duration) {
 			err := b.start(ctx)
 			switch {
 			case err == nil:
-				slog.Info("github identity answered; send_text is back on the registration", "login", b.Login())
-				setCaps(rc, capsFor(b.cfg.Token+b.cfg.AppID))
-				return
+				if setCaps(rc, capsFor(b.cfg.Token+b.cfg.AppID)) == nil {
+					slog.Info("github identity answered; send_text is back on the registration", "login", b.Login())
+					return
+				}
 			case errors.Is(err, chanlib.ErrPermanent):
 				slog.Error("github refused the token; send_text stays withdrawn until gitd restarts with a new one",
 					"err", err)
@@ -140,11 +142,13 @@ func reverify(ctx context.Context, b *bot, rc capSetter, every time.Duration) {
 	}
 }
 
-func setCaps(rc capSetter, caps map[string]bool) {
+func setCaps(rc capSetter, caps map[string]bool) error {
 	if err := rc.SetCaps(caps); err != nil {
 		slog.Error("revising the registration failed; routd's view of gitd's verbs is stale",
 			"caps", caps, "err", err)
+		return err
 	}
+	return nil
 }
 
 type config struct {

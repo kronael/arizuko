@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -14,17 +16,47 @@ import (
 
 // capRecorder stands in for the routd registration.
 type capRecorder struct {
-	mu    sync.Mutex
-	calls int
-	caps  map[string]bool
+	mu     sync.Mutex
+	calls  int
+	caps   map[string]bool
+	fail   int
+	notify chan struct{}
 }
 
 func (c *capRecorder) SetCaps(caps map[string]bool) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.calls++
+	if c.notify != nil {
+		defer func() { c.notify <- struct{}{} }()
+	}
+	if c.fail > 0 {
+		c.fail--
+		return errors.New("registration unavailable")
+	}
 	c.caps = caps
 	return nil
+}
+
+// A failed registration update is retried after GitHub recovers.
+func TestReverifyRetriesRegistration(t *testing.T) {
+	gh, _, _ := fakeGitHub(t, http.StatusOK, `{}`)
+	b := newBot(config{Token: "ghp_test", APIBase: gh.URL})
+	rc := &capRecorder{fail: 1, notify: make(chan struct{}, 2)}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	go reverify(ctx, b, rc, time.Millisecond)
+	for range 2 {
+		select {
+		case <-rc.notify:
+		case <-time.After(time.Second):
+			calls, enabled := rc.read()
+			t.Fatalf("calls = %d, send_text = %v", calls, enabled)
+		}
+	}
+	if calls, enabled := rc.read(); calls != 2 || !enabled {
+		t.Fatalf("calls = %d, send_text = %v", calls, enabled)
+	}
 }
 
 func (c *capRecorder) read() (int, bool) {
