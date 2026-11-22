@@ -39,21 +39,6 @@ func (d *dash) handleTaskDetail(w http.ResponseWriter, r *http.Request) {
 	// audit row via AsUser and dashd's service bearer does not, so moving them
 	// waits on 6/29's identity decision.
 	task, found, err := d.getTask(r.Context(), id)
-	if err == nil && !found {
-		http.NotFound(w, r)
-		return
-	}
-	var owner, chatJID, prompt, status, createdAt string
-	var cronSpec, nextRun, contextMode string
-	if err == nil {
-		owner, chatJID, prompt = task.Owner, task.ChatJID, task.Prompt
-		status = task.Status
-		createdAt = task.Created.UTC().Format(time.RFC3339)
-		cronSpec, contextMode = task.Cron, task.ContextMode
-		if task.NextRun != nil {
-			nextRun = task.NextRun.UTC().Format(time.RFC3339)
-		}
-	}
 	if err != nil {
 		// routd unreachable is a DEPENDENCY outage, not an internal fault: 503
 		// says "ask again", 500 says "this is broken", and only one of those is
@@ -62,10 +47,18 @@ func (d *dash) handleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "backend unavailable", http.StatusServiceUnavailable)
 		return
 	}
+	if !found {
+		http.NotFound(w, r)
+		return
+	}
+	var nextRun string
+	if task.NextRun != nil {
+		nextRun = task.NextRun.UTC().Format(time.RFC3339)
+	}
 	// Gate on the task's owning folder: a non-operator must not read another
 	// tenant's task prompt / run history.
 	allowed, _ := d.callerScope(r)
-	if !visible(allowed, owner) {
+	if !visible(allowed, task.Owner) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
@@ -76,36 +69,36 @@ func (d *dash) handleTaskDetail(w http.ResponseWriter, r *http.Request) {
 	)
 
 	dot := "dot-ok"
-	if status != "active" {
+	if task.Status != "active" {
 		dot = "dot-warn"
 	}
 
 	_, _ = fmt.Fprintf(w, `<table>%s%s%s%s%s%s%s%s</table>`,
 		htmlDetail("ID", `<code>`+esc(id)+`</code>`),
-		htmlDetail("Group", esc(owner)),
-		htmlDetail("Chat JID", `<code>`+esc(chatJID)+`</code>`),
-		htmlDetail("Cron", `<code>`+esc(cronSpec)+`</code>`),
-		htmlDetail("Status", `<span class="dot `+dot+`"></span>`+esc(status)),
-		htmlDetail("Created", abbrTS(createdAt)),
+		htmlDetail("Group", esc(task.Owner)),
+		htmlDetail("Chat JID", `<code>`+esc(task.ChatJID)+`</code>`),
+		htmlDetail("Cron", `<code>`+esc(task.Cron)+`</code>`),
+		htmlDetail("Status", `<span class="dot `+dot+`"></span>`+esc(task.Status)),
+		htmlDetail("Created", abbrTS(task.Created.UTC().Format(time.RFC3339))),
 		htmlDetail("Next Run", abbrTS(nextRun)),
-		htmlDetail("Context Mode", esc(contextMode)),
+		htmlDetail("Context Mode", esc(task.ContextMode)),
 	)
 
-	_, _ = fmt.Fprintf(w, `<h2>Prompt</h2><pre>%s</pre>`, esc(prompt))
+	_, _ = fmt.Fprintf(w, `<h2>Prompt</h2><pre>%s</pre>`, esc(task.Prompt))
 
 	// Actions — POST forms (same-origin CSRF guard via requireAdmin).
 	_, _ = fmt.Fprint(w, `<h2>Actions</h2><div class="form-inline-group">`)
-	if status == "active" {
+	if task.Status == "active" {
 		_, _ = fmt.Fprintf(w,
 			`<form method="post" action="/dash/tasks/%s/pause">`+
 				`<button type="submit">pause</button></form>`, esc(id))
 	}
-	if status == "paused" {
+	if task.Status == "paused" {
 		_, _ = fmt.Fprintf(w,
 			`<form method="post" action="/dash/tasks/%s/resume">`+
 				`<button type="submit">resume</button></form>`, esc(id))
 	}
-	if status != "cancelled" {
+	if task.Status != "cancelled" {
 		_, _ = fmt.Fprintf(w,
 			`<form method="post" action="/dash/tasks/%s/cancel"`+
 				` onsubmit="return confirm('cancel task %s?')">`+
