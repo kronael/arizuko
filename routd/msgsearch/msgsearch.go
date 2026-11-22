@@ -224,15 +224,6 @@ func (ix *Index) Remove(chatJID, sortKey string) {
 	}
 }
 
-// size reports how many messages the index holds. It is unexported because no
-// caller outside this package asks: the measurement of the walk does
-// (parity_test.go), and a number nobody reads is surface.
-func (ix *Index) size() int {
-	ix.mu.RLock()
-	defer ix.mu.RUnlock()
-	return ix.live
-}
-
 // prepare renders one row as the document and term counts the index installs.
 func prepare(row store.IndexedMessage) (*doc, map[string]int32) {
 	toks := tokenize(row.Content)

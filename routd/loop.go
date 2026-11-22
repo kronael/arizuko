@@ -512,11 +512,6 @@ type resolution struct {
 	ok     bool
 }
 
-func (l *Loop) resolveGroup(chatJID string, last core.Message) (string, bool) {
-	r := l.resolve(chatJID, last)
-	return r.Folder, r.ok
-}
-
 func (l *Loop) resolve(chatJID string, last core.Message) resolution {
 	return l.resolveRows(chatJID, []core.Message{last})[0]
 }

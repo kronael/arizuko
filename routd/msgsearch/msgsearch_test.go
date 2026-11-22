@@ -18,6 +18,12 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
+func (ix *Index) size() int {
+	ix.mu.RLock()
+	defer ix.mu.RUnlock()
+	return ix.live
+}
+
 // corpus is a Source over rows a test wrote, so the boot walk is exercised by
 // the same door routd's store answers.
 type corpus struct {

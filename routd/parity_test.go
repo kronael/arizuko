@@ -12,6 +12,11 @@ import (
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 )
 
+func (l *Loop) resolveGroup(chatJID string, last core.Message) (string, bool) {
+	r := l.resolve(chatJID, last)
+	return r.Folder, r.ok
+}
+
 // turnRec is one dispatched run captured by recRunner.
 type turnRec struct {
 	turnID, folder, topic, batch, trigger string
