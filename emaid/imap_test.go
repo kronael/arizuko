@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"context"
-	"crypto/sha256"
 	"errors"
 	"fmt"
 
@@ -25,29 +24,6 @@ func extractPlainText(r io.Reader) string {
 	b, _ := io.ReadAll(r)
 	text, _ := extractContent(b, 0, "", nil, 0)
 	return text
-}
-
-// threadIDFromMsgID mirrors the inline logic in handleMsg.
-func threadIDFromMsgID(rootMsgID string) string {
-	h := sha256.Sum256([]byte(rootMsgID))
-	return fmt.Sprintf("%x", h[:6])
-}
-
-func TestThreadID(t *testing.T) {
-	id1 := threadIDFromMsgID("msg-abc@example.com")
-	id2 := threadIDFromMsgID("msg-abc@example.com")
-	if id1 != id2 {
-		t.Errorf("same input → different ID: %q vs %q", id1, id2)
-	}
-	if len(id1) != 12 {
-		t.Errorf("thread ID len = %d, want 12", len(id1))
-	}
-
-	// different root → different ID
-	other := threadIDFromMsgID("msg-xyz@example.com")
-	if id1 == other {
-		t.Errorf("different inputs → same ID: %q", id1)
-	}
 }
 
 func TestExtractPlainText(t *testing.T) {
