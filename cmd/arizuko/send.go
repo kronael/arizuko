@@ -170,6 +170,7 @@ func operatorInject(st *store.Store, dataDir, folder, sender, msg, topic string,
 	start := time.Now()
 	cursor := since
 	gotReply := false
+	var lastReply time.Time
 	lastPrinted := "" // dedup the out-/bot- pair: one agent reply is stored twice
 	for {
 		time.Sleep(tick)
@@ -178,17 +179,21 @@ func operatorInject(st *store.Store, dataDir, folder, sender, msg, topic string,
 			die("Failed: poll replies: %v", err)
 		}
 		for _, r := range replies {
+			if r.Timestamp.After(cursor) {
+				cursor = r.Timestamp
+			}
+			if topic != "" && r.Topic != topic {
+				continue
+			}
 			if r.Content != "" && r.Content != lastPrinted {
 				fmt.Println(r.Content)
 				lastPrinted = r.Content
 			}
-			if r.Timestamp.After(cursor) {
-				cursor = r.Timestamp
-			}
+			lastReply = r.Timestamp
 			gotReply = true
 		}
 		switch {
-		case gotReply && time.Since(cursor) > quietStop:
+		case gotReply && time.Since(lastReply) > quietStop:
 			return
 		case !gotReply && time.Since(start) > idleStop:
 			fmt.Fprintln(os.Stderr, "(no reply yet — agent may still be starting; re-run with --wait or check the chat)")
