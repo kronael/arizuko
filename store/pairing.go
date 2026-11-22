@@ -15,8 +15,6 @@ package store
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
@@ -81,11 +79,7 @@ func pairingMint(jid, ownerFolder string) (string, objstore.Write, error) {
 	if jid == "" {
 		return "", objstore.Write{}, fmt.Errorf("pairing: jid required")
 	}
-	var b [32]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		return "", objstore.Write{}, fmt.Errorf("pairing: generate token: %w", err)
-	}
-	raw := hex.EncodeToString(b[:])
+	raw := core.GenHexToken()
 	w, err := routeTokenPut(raw, RouteToken{JID: jid, OwnerFolder: ownerFolder}, RouteTokenKindPair)
 	if err != nil {
 		return "", objstore.Write{}, fmt.Errorf("pairing: mint token for %s: %w", jid, err)

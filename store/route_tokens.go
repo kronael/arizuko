@@ -19,7 +19,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"slices"
@@ -123,9 +122,8 @@ func routeTokensOfKind(ctx context.Context, q EntityQuerier, kind string) ([]obj
 // is returned to the caller exactly once; only the sha256 hash is persisted.
 func GenRouteToken() string {
 	var b [32]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		panic(fmt.Sprintf("crypto/rand failed: %v", err))
-	}
+	// rand.Read always fills b and returns a nil error.
+	_, _ = rand.Read(b[:])
 	return base64.RawURLEncoding.EncodeToString(b[:])
 }
 
@@ -460,11 +458,7 @@ func (s *Store) MintRouteTokenInto(ctx context.Context, ws *WriteSet, jid, owner
 	if err := CheckRouteTokenTarget(ctx, s.Obj(), jid, targetFolder); err != nil {
 		return "", err
 	}
-	var b [32]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		return "", fmt.Errorf("route token: generate token for %s: %w", jid, err)
-	}
-	raw := hex.EncodeToString(b[:])
+	raw := core.GenHexToken()
 	w, err := routeTokenPut(raw, RouteToken{
 		JID: jid, OwnerFolder: ownerFolder, TargetFolder: targetFolder, Context: linkContext,
 	}, RouteTokenKindRoute)

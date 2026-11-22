@@ -231,16 +231,13 @@ type SessionRecord struct {
 	MsgCount  int
 }
 
-func randBytes() []byte {
-	b := make([]byte, 32)
-	if _, err := rand.Read(b); err != nil {
-		panic(fmt.Sprintf("crypto/rand failed: %v", err))
-	}
-	return b
-}
-
 // GenHexToken returns a 256-bit hex-encoded random token.
-func GenHexToken() string { return hex.EncodeToString(randBytes()) }
+func GenHexToken() string {
+	var b [32]byte
+	// rand.Read always fills b and returns a nil error.
+	_, _ = rand.Read(b[:])
+	return hex.EncodeToString(b[:])
+}
 
 var instanceNameRE = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_-]{0,31}$`)
 
