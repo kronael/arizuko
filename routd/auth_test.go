@@ -73,3 +73,31 @@ func TestRESTRouteTokensRejectCrossFolder(t *testing.T) {
 		t.Fatalf("cross-folder route tokens = %d, want 403: %s", r.Code, r.Body.String())
 	}
 }
+
+func TestOutboundFolderBoundary(t *testing.T) {
+	db := memDB(t)
+	deliver := &recDeliverer{pid: "sent"}
+	for _, tc := range []struct {
+		folder string
+		jid    string
+		want   int
+	}{{"alice", "web:alice", 200}, {"alice", "web:alice/team", 200},
+		{"alice", "web:bob", 403}, {"", "web:bob", 200}} {
+		v := fakeVerifier{sub: "user:a", folder: tc.folder, scope: []string{"messages:write"}}
+		h := NewServer(db, nil, deliver, v, 0, "").Handler()
+		before := len(deliver.sends)
+		r := doJSON(t, h, "POST", "/v1/outbound", "", apiv1.OutboundRequest{JID: tc.jid, Text: "hello"})
+		if r.Code != tc.want {
+			t.Errorf("folder %q jid %q: status %d, want %d", tc.folder, tc.jid, r.Code, tc.want)
+		}
+		if tc.want == 403 {
+			if len(deliver.sends) != before {
+				t.Error("denied outbound delivered a message")
+			}
+			rows, err := db.MessagesBefore(tc.jid, "", 10)
+			if err != nil || len(rows) != 0 {
+				t.Errorf("denied outbound stored rows: %v, err: %v", rows, err)
+			}
+		}
+	}
+}

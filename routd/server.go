@@ -552,13 +552,17 @@ func (s *Server) ingestMessage(m apiv1.Message, sub, idemKey string) (string, er
 }
 
 func (s *Server) handleOutbound(w http.ResponseWriter, r *http.Request) {
-	sub, _, ok := s.authz(w, r, "messages:write")
+	sub, folder, ok := s.authz(w, r, "messages:write")
 	if !ok {
 		return
 	}
 	var req apiv1.OutboundRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, 400, "bad_request", err.Error())
+		return
+	}
+	if !s.ownsJID(folder, req.JID) {
+		denyCrossFolder(w, req.JID)
 		return
 	}
 	if s.deliver == nil {
