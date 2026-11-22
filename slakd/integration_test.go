@@ -5,10 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -23,6 +25,32 @@ import (
 )
 
 func TestMain(m *testing.M) { dyntest.Main(m) }
+
+// A directory sync reaches members beyond page twenty.
+func TestSyncUsersBeyondTwentyPages(t *testing.T) {
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		page, _ := strconv.Atoi(r.Form.Get("cursor"))
+		page++
+		calls++
+		next := ""
+		if page < 21 {
+			next = strconv.Itoa(page)
+		}
+		_, _ = fmt.Fprintf(w, `{"ok":true,"members":[{"id":"U%d","name":"member%d"}],`+
+			`"response_metadata":{"next_cursor":"%s"}}`, page, page, next)
+	}))
+	defer srv.Close()
+	b, err := newBotWithBase(config{}, srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.syncUsers()
+	if id, _ := b.matchUserID("member21"); id != "U21" || calls != 21 {
+		t.Fatalf("member = %q, requests = %d; want U21 and 21", id, calls)
+	}
+}
 
 // slackMock spins up an httptest server that mimics the Slack Web API
 // surface we use: auth.test, users.info, users.list, conversations.info,

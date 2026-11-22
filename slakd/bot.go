@@ -997,7 +997,7 @@ func (b *bot) syncUsers() {
 	}
 	b.userSyncAt = time.Now()
 	cursor := ""
-	for range 20 { // 20×200 members; larger workspaces resync next TTL
+	for {
 		form := url.Values{"limit": {"200"}}
 		if cursor != "" {
 			form.Set("cursor", cursor)
