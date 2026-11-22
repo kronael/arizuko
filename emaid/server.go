@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"log/slog"
 	"mime"
 	"net/http"
@@ -11,6 +13,7 @@ import (
 
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapclient"
+	"github.com/emersion/go-message"
 
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/chanlib/chanstore"
@@ -139,6 +142,7 @@ func (s *server) fetchPart(uid imap.UID, section []int, maxBytes int64) ([]byte,
 	fetchOpts := &imap.FetchOptions{
 		BodySection: []*imap.FetchItemBodySection{
 			{Specifier: imap.PartSpecifierNone, Part: section, Peek: true},
+			{Specifier: imap.PartSpecifierMIME, Part: section, Peek: true},
 		},
 	}
 	msgs, err := c.Fetch(imap.UIDSetNum(uid), fetchOpts).Collect()
@@ -153,10 +157,19 @@ func (s *server) fetchPart(uid imap.UID, section []int, maxBytes int64) ([]byte,
 	if data == nil {
 		return nil, fmt.Errorf("no body section %v for uid %d", section, uid)
 	}
-	if maxBytes > 0 && int64(len(data)) > maxBytes {
-		data = data[:maxBytes]
+	header := msgs[0].FindBodySection(&imap.FetchItemBodySection{Specifier: imap.PartSpecifierMIME, Part: section})
+	if header == nil {
+		return nil, fmt.Errorf("no MIME headers for section %v uid %d", section, uid)
 	}
-	return data, nil
+	entity, err := message.Read(io.MultiReader(bytes.NewReader(header), bytes.NewReader(data)))
+	if err != nil {
+		return nil, fmt.Errorf("decode section %v uid %d: %w", section, uid, err)
+	}
+	body := entity.Body
+	if maxBytes > 0 {
+		body = io.LimitReader(body, maxBytes)
+	}
+	return io.ReadAll(body)
 }
 
 // threadIDFromJID accepts both legacy `email:<thread>` and typed

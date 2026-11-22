@@ -114,7 +114,7 @@ func TestFileProxy(t *testing.T) {
 	reg.put("42-0", attMeta{Mime: "application/pdf", Filename: "doc.pdf", Part: []int{2}})
 
 	serverConn, clientConn := net.Pipe()
-	go serveAttachmentIMAP(t, serverConn, []int{2}, []byte("hello pdf"))
+	go serveAttachmentIMAP(t, serverConn, []int{2}, "Content-Type: application/pdf\r\n\r\n", []byte("hello pdf"))
 
 	chanStore, st := newTestStorage(t)
 	s := &server{
@@ -142,6 +142,27 @@ func TestFileProxy(t *testing.T) {
 	}
 	if w.Header().Get("Content-Disposition") != `attachment; filename="doc.pdf"` {
 		t.Errorf("disposition = %q", w.Header().Get("Content-Disposition"))
+	}
+}
+
+// Transfer decoding happens before the decoded attachment size cap.
+func TestFileProxyDecodesTransferEncoding(t *testing.T) {
+	reg := newAttRegistry()
+	reg.put("42-0", attMeta{Mime: "application/pdf", Filename: "doc.pdf", Part: []int{2}})
+	serverConn, clientConn := net.Pipe()
+	go serveAttachmentIMAP(t, serverConn, []int{2},
+		"Content-Type: application/pdf\r\nContent-Transfer-Encoding: base64\r\n\r\n", []byte("aGVsbG8gcGRm"))
+	s := &server{
+		cfg: config{IMAPHost: "fake", IMAPPort: "993", Account: "user", Password: "pass", MaxAttachment: 5},
+		reg: reg,
+		dialTLS: func(_ string, _ *imapclient.Options) (*imapclient.Client, error) {
+			return imapclient.New(clientConn, nil), nil
+		},
+	}
+	w := httptest.NewRecorder()
+	s.handleFile(w, httptest.NewRequest("GET", "/files/42/0", nil))
+	if w.Code != 200 || w.Body.String() != "hello" {
+		t.Fatalf("status = %d, body = %q; want decoded hello", w.Code, w.Body.String())
 	}
 }
 
@@ -309,7 +330,7 @@ func TestFetchMsgToInbound_NoEnvelope(t *testing.T) {
 }
 
 // serveAttachmentIMAP is a minimal IMAP server that serves a specific BODY section.
-func serveAttachmentIMAP(t *testing.T, conn net.Conn, section []int, data []byte) {
+func serveAttachmentIMAP(t *testing.T, conn net.Conn, section []int, header string, data []byte) {
 	t.Helper()
 	defer conn.Close()
 
@@ -357,8 +378,11 @@ func serveAttachmentIMAP(t *testing.T, conn net.Conn, section []int, data []byte
 					sectionParts[i] = fmt.Sprintf("%d", s)
 				}
 				sectionStr := strings.Join(sectionParts, ".")
-				resp := fmt.Sprintf("* 1 FETCH (UID 42 BODY[%s] {%d}\r\n%s)\r\n",
-					sectionStr, len(data), data)
+				resp := "* 1 FETCH (UID 42 "
+				if strings.Contains(strings.ToUpper(line), ".MIME]") {
+					resp += fmt.Sprintf("BODY[%s.MIME] {%d}\r\n%s ", sectionStr, len(header), header)
+				}
+				resp += fmt.Sprintf("BODY[%s] {%d}\r\n%s)\r\n", sectionStr, len(data), data)
 				flush(resp)
 				flush(tag + " OK FETCH completed\r\n")
 			default:
