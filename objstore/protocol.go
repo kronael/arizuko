@@ -58,6 +58,9 @@ func Increment(ctx context.Context, s Store, entity string, key Key, attr string
 			return 0, false, err
 		}
 		next := n + delta
+		if delta > 0 && next < n || delta < 0 && next > n {
+			return 0, false, fmt.Errorf("increment %s.%s: %d + %d overflows int", entity, attr, n, delta)
+		}
 		// The width the value was WRITTEN at is the width it is compared at.
 		text := strconv.Itoa(next)
 		if fixed {
