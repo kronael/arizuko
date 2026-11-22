@@ -39,16 +39,12 @@ func (d *dash) handleUsage(w http.ResponseWriter, r *http.Request) {
 	// The meter is asked about even with no folders to show: whether this
 	// instance HAS one is a property of the instance, not of its group tree, and
 	// an empty tree that reported "no meter" would blame the wrong thing.
-	var summaries []groupUsage
-	metered := false
-	if d.routdStore() != nil {
-		summaries, metered, err = d.groupUsageBulk(r.Context(), folders)
-		if err != nil {
-			slog.Warn("usage page: bulk", "err", err)
-			_, _ = fmt.Fprint(w, htmlBanner("err", "usage query error: "+err.Error()))
-			pageClose(w, r)
-			return
-		}
+	summaries, metered, err := d.groupUsageBulk(r.Context(), folders)
+	if err != nil {
+		slog.Warn("usage page: bulk", "err", err)
+		_, _ = fmt.Fprint(w, htmlBanner("err", "usage query error: "+err.Error()))
+		pageClose(w, r)
+		return
 	}
 
 	totalMsgs, totalTokens, totalCents := 0, 0, 0
