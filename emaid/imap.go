@@ -32,7 +32,6 @@ const maxRetryBackoff = 60 * time.Second
 type attMeta struct {
 	Mime     string
 	Filename string
-	Size     int64
 	Part     []int // IMAP BODY section path (1-indexed)
 }
 
@@ -532,13 +531,6 @@ func extractContent(
 			if fname == "" {
 				fname = fmt.Sprintf("attachment-%d", attIdx)
 			}
-			// Read body only to measure size -- data is NOT stored.
-			body := p.Body
-			if maxBytes > 0 {
-				body = io.LimitReader(body, maxBytes+1)
-			}
-			n, _ := io.Copy(io.Discard, body)
-			io.Copy(io.Discard, p.Body) //nolint:errcheck // the part is skipped; a read error here is unactionable
 			att := chanlib.InboundAttachment{
 				Mime:     ct,
 				Filename: fname,
@@ -551,7 +543,6 @@ func extractContent(
 				reg.put(key, attMeta{
 					Mime:     ct,
 					Filename: fname,
-					Size:     n,
 					Part:     []int{partCount},
 				})
 				att.URL = fmt.Sprintf("%s/files/%d/%d", listenURL, uid, attIdx)

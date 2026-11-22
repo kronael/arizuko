@@ -111,7 +111,7 @@ func TestAuthPassthrough(t *testing.T) {
 // TestFileProxy verifies that the file proxy re-fetches from IMAP on demand.
 func TestFileProxy(t *testing.T) {
 	reg := newAttRegistry()
-	reg.put("42-0", attMeta{Mime: "application/pdf", Filename: "doc.pdf", Size: 9, Part: []int{2}})
+	reg.put("42-0", attMeta{Mime: "application/pdf", Filename: "doc.pdf", Part: []int{2}})
 
 	serverConn, clientConn := net.Pipe()
 	go serveAttachmentIMAP(t, serverConn, []int{2}, []byte("hello pdf"))
@@ -168,7 +168,7 @@ func TestFileProxyBadPath(t *testing.T) {
 // TestFileProxyIMAPError verifies 502 when IMAP re-fetch fails.
 func TestFileProxyIMAPError(t *testing.T) {
 	reg := newAttRegistry()
-	reg.put("10-0", attMeta{Mime: "image/png", Filename: "img.png", Size: 5, Part: []int{1}})
+	reg.put("10-0", attMeta{Mime: "image/png", Filename: "img.png", Part: []int{1}})
 
 	chanStore, st := newTestStorage(t)
 	s := &server{
