@@ -1,26 +1,5 @@
 package objstore
 
-// replace.go is the versioned replace: make a scope's contents equal a
-// document, and version the result (spec 6/40 §3). Its one consumer is
-// resreg.Apply.
-//
-// It cannot be one GuardedBatch: the row set is unbounded and a replace issues
-// a delete AND an insert per row against MaxBatchActions. So the shape is
-// Query, a start-marker CAS, N guarded writes, a finish CAS, and the
-// intermediate state is real. There is NO pre-image and NO rollback: a replace
-// that dies half-way leaves the scope PART-WRITTEN with its marker held, and
-// recovery is to run the same work again (roll-forward).
-//
-// The claim is NOT released when a body fails after writing: a released
-// half-written scope reads as settled and correct, which is silent
-// corruption; a held one answers ErrScopeHeld and names `since`. A second
-// replace whose INTENT equals the held one's takes the claim over, which is
-// safe because a replace makes a scope EQUAL a document. Liveness is NOT
-// inferred from `since`: a slow replace on another host looks identical to a
-// dead one, so a claim with a different intent is the operator's call
-// (Claim.Take). A takeover skips the version check — no state the caller
-// planned against still exists — and says so through Replacer.TookOver.
-
 import (
 	"context"
 	"errors"

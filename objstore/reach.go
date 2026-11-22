@@ -1,19 +1,5 @@
 package objstore
 
-// reach.go is the reachability guard: a graph read decides a write, and the
-// write is guarded on the graph not having moved since the read (spec 6/40
-// §"Three is not enough").
-//
-// It is not a Check: a cycle test is a condition on a graph frontier, not an
-// item. Two concurrent inserts closing a cycle from opposite ends each walk a
-// graph without the other's edge and both commit (BUGS L256). The version
-// marker serialises them: both compare-and-swap it in the batch that writes
-// the edge, one wins, the loser walks again.
-//
-// LATENT, NOT LIVE: on every live instance no parent is itself a child
-// (specs/15/h). It stops being latent the moment a folder is made a member of
-// something.
-
 import (
 	"context"
 	"errors"

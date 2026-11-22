@@ -1,21 +1,5 @@
 package store
 
-// folder_scope.go is the scope predicate of the group delete: every place a row
-// CONFERS on a folder or ROUTES into it, declared once (spec 6/40 §3: a group
-// delete is `replace(subtree(folder), ∅)`).
-//
-// EVERY SCOPE IS AN ENTITY, and the completeness tests walk the whole schema
-// through FolderScopeClassified: an entity in neither list fails.
-//
-// AN ENTITY HAS NO FOREIGN KEY, so no verdict here may say "the groups row's
-// cascade removes it": three tables kept on that claim were deleted by NOTHING
-// once they stopped being SQL rows, while the completeness test still passed
-// (BUGS L253).
-//
-// The purge reads and then deletes, one write each, because an entity has no
-// predicate delete; a group delete is an operator action measured in ones per
-// week.
-
 import (
 	"context"
 	"strings"

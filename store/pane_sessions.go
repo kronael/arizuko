@@ -1,18 +1,5 @@
 package store
 
-// pane_sessions.go holds every read and write of `pane_sessions`: one item per
-// Slack assistant pane, opened when a user starts one and refreshed while it
-// stays open.
-//
-// The partition is a constant and the sort key the (team, user, thread)
-// triple, the only coordinate every write can name: routd's POST /v1/pane
-// hands over exactly those three fields. The two channel-addressed reads scan
-// the partition (81 items fleet-wide, all on marinade, 2026-09-07; no
-// drainage). A channel names MORE THAN ONE pane (one marinade channel covers
-// 31), so the channel read is a MAX and opened_at IS ORDERED: 8 of the 81 rows
-// carried a 29-byte instant against 30 (BUGS L97), and the import re-renders
-// them.
-
 import (
 	"context"
 	"fmt"

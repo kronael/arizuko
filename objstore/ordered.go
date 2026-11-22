@@ -1,12 +1,5 @@
 package objstore
 
-// ordered.go is the one modelling rule this package imposes, made enforceable:
-// an ordered comparison is a BYTE comparison, so a value that must order is
-// written fixed-width. Left to discipline the rule breaks — messages.timestamp
-// on krons carried two widths and byte order disagreed with time order at
-// 10,488 pairs (BUGS L97). So the owning package DECLARES the width once, by
-// registration like database/sql.Register, and every driver refuses another.
-
 import (
 	"fmt"
 	"sync"
