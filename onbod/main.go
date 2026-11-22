@@ -514,12 +514,12 @@ func handleDashboard(w http.ResponseWriter, r *http.Request, db, obdb *store.Sto
 		return
 	}
 
-	groupCount := len(userFolders(db, userSub))
-
-	if groupCount == 0 {
-
-		_, invited := latestRedemption(obdb, userSub)
-		if invited || mayCreateFirstWorld(obdb, userSub) {
+	if _, invited := latestRedemption(obdb, userSub); invited {
+		renderUsernamePicker(w, username, csrf)
+		return
+	}
+	if len(userFolders(db, userSub)) == 0 {
+		if mayCreateFirstWorld(obdb, userSub) {
 			renderUsernamePicker(w, username, csrf)
 			return
 		}

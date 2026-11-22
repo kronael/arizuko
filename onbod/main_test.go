@@ -2114,3 +2114,18 @@ func TestJIDRoutesMatchesLiteralRoom(t *testing.T) {
 		t.Fatalf("routes = %+v, want only %+v", got, routes[1])
 	}
 }
+
+func TestDashboardShowsPickerForExistingUserWithSubgroupInvite(t *testing.T) {
+	db := testDB(t)
+	seedProfile(t, db, "github:bob")
+	seedTenant(t, db, "bob", "github:bob")
+	seedTenant(t, db, "acme", "github:owner")
+	redeemInvite(t, db, createInvite(t, db, "acme/", "cli", 1), "github:bob")
+	req := httptest.NewRequest("GET", "/onboard", nil)
+	req.Header.Set("X-User-Sub", "github:bob")
+	w := httptest.NewRecorder()
+	handleOnboard(w, req, db, db, config{})
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "create_world") {
+		t.Fatalf("dashboard = %d %s, want username picker", w.Code, w.Body.String())
+	}
+}
