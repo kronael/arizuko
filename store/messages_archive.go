@@ -240,17 +240,18 @@ func (s *Store) ImportMessagesJSONL(ctx context.Context, r io.Reader, batchSize 
 func (s *Store) importMessageBatch(ctx context.Context, rows []ArchiveMessageRow) (
 	int, []UnorderableMessage, error) {
 	var refused []UnorderableMessage
-	rendered := make([]ArchiveMessageRow, 0, len(rows))
+	rendered := make([][]objstore.Write, 0, len(rows))
 	chats := map[string]bool{}
 	for _, m := range rows {
-		if _, err := importedMessageWrites(m); err != nil {
+		writes, err := importedMessageWrites(m)
+		if err != nil {
 			if _, stampErr := ReadMessageInstant(m.Timestamp); stampErr != nil {
 				refused = append(refused, UnorderableMessage{ID: m.ID, Timestamp: m.Timestamp})
 				continue
 			}
 			return 0, refused, fmt.Errorf("import message %s: %w", m.ID, err)
 		}
-		rendered = append(rendered, m)
+		rendered = append(rendered, writes)
 		chats[m.ChatJID] = true
 	}
 	if len(rendered) == 0 {
@@ -262,34 +263,24 @@ func (s *Store) importMessageBatch(ctx context.Context, rows []ArchiveMessageRow
 		return 0, refused, err
 	}
 	staged := 0
-	for _, m := range rendered {
-		t, err := ReadMessageInstant(m.Timestamp)
-		if err != nil {
-			refused = append(refused, UnorderableMessage{ID: m.ID, Timestamp: m.Timestamp})
-			continue
-		}
-		stamp := MsgStamp(core.TS(t), m.ID)
-		if held[m.ChatJID][stamp] {
-			continue
-		}
-		w, err := importedMessageWrites(m)
-		if err != nil {
-			refused = append(refused, UnorderableMessage{ID: m.ID, Timestamp: m.Timestamp})
+	for _, writes := range rendered {
+		key := writes[0].Key
+		if held[key.Partition][key.Sort] {
 			continue
 		}
 		var committed bool
-		if m.RoutedTo != "" {
-			committed, err = s.tryCountFolderMessageBy(ctx, m.RoutedTo, 1, w)
+		if folder := writes[0].Attrs[attrMsgRoutedTo]; folder != "" {
+			committed, err = s.tryCountFolderMessageBy(ctx, folder, 1, writes)
 		} else {
-			committed, err = s.TryWriteEntities(ctx, nil, w...)
+			committed, err = s.TryWriteEntities(ctx, nil, writes...)
 		}
 		if err != nil {
-			return staged, refused, fmt.Errorf("import message %s: %w", m.ID, err)
+			return staged, refused, fmt.Errorf("import message %s: %w", key.Sort, err)
 		}
 		if !committed {
-			return staged, refused, fmt.Errorf("import message %s: %w", m.ID, ErrRefused)
+			return staged, refused, fmt.Errorf("import message %s: %w", key.Sort, ErrRefused)
 		}
-		held[m.ChatJID][stamp] = true
+		held[key.Partition][key.Sort] = true
 		staged++
 	}
 	return staged, refused, nil
