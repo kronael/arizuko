@@ -1300,3 +1300,20 @@ func TestGenerateHasNoViteOrTimedDeployment(t *testing.T) {
 		t.Errorf("generated deployment still names vite or timed:\n...%s", out[max(0, m[0]-80):min(len(out), m[1]+80)])
 	}
 }
+
+func TestTraceEndpointReachesDaemon(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "env"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeEnvFile(dir, "runed", "runed", "", map[string]string{"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": "http://collector:4318"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(filepath.Join(dir, "env", "runed.env"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(got), "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://collector:4318") {
+		t.Fatalf("trace endpoint missing: %s", got)
+	}
+}
