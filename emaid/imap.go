@@ -16,6 +16,7 @@ import (
 
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapclient"
+	"github.com/emersion/go-message"
 	gomessage "github.com/emersion/go-message/mail"
 
 	"github.com/kronael/arizuko/auth/surrogate"
@@ -479,40 +480,28 @@ func classifyRaw(raw []byte, cfg AuthConfig) ClassifyResult {
 	return Classify(ar, from, cfg)
 }
 
-// extractContent walks the MIME tree. go-message's Reader flattens nested
-// multiparts into a linear stream of leaf parts, so the IMAP BODY section
-// number is the 1-indexed leaf position in that stream (works for simple
-// single-level multipart/mixed; nested multiparts yield best-effort paths).
-//
-// raw is the full MIME bytes; passing them (rather than an io.Reader)
-// keeps the fallback path correct — the previous implementation tried to
-// re-read from an io.Reader that had already been advanced by CreateReader
-// and returned a truncated tail instead of the whole body.
-//
-// maxBytes (>0) caps per-attachment reads via io.LimitReader to prevent
-// a remote sender from forcing unbounded IMAP bandwidth + CPU use just to
-// measure a multi-GB attachment.
 func extractContent(
 	raw []byte, uid imap.UID, listenURL string, reg *attRegistry, maxBytes int64,
 ) (string, []chanlib.InboundAttachment) {
-	mr, err := gomessage.CreateReader(bytes.NewReader(raw))
+	root, err := message.Read(bytes.NewReader(raw))
 	if err != nil {
 		// Fallback from the ORIGINAL bytes, not the consumed reader.
 		return string(raw), nil
 	}
 	var text string
 	var atts []chanlib.InboundAttachment
-	partCount := 0 // every leaf part (text + attachment) — IMAP BODY section.
-	attIdx := 0    // monotonic attachment index for the public URL key.
-	for {
-		p, err := mr.NextPart()
+	attIdx := 0
+	// Keep the parts read before a malformed MIME part.
+	_ = root.Walk(func(path []int, p *message.Entity, err error) error {
 		if err != nil {
-			break
+			return err
 		}
-		partCount++
-		switch h := p.Header.(type) {
-		case *gomessage.InlineHeader:
-			ct, _, _ := h.ContentType()
+		ct, _, _ := p.Header.ContentType()
+		if strings.HasPrefix(ct, "multipart/") {
+			return nil
+		}
+		disp, _, _ := p.Header.ContentDisposition()
+		if disp == "inline" || (disp != "attachment" && strings.HasPrefix(ct, "text/")) {
 			if ct == "text/plain" && text == "" {
 				body := p.Body
 				if maxBytes > 0 {
@@ -524,8 +513,8 @@ func extractContent(
 			} else {
 				io.Copy(io.Discard, p.Body) //nolint:errcheck // the part is skipped; a read error here is unactionable
 			}
-		case *gomessage.AttachmentHeader:
-			ct, _, _ := h.ContentType()
+		} else {
+			h := &gomessage.AttachmentHeader{Header: p.Header}
 			fname, _ := h.Filename()
 			if fname == "" {
 				fname = fmt.Sprintf("attachment-%d", attIdx)
@@ -536,19 +525,24 @@ func extractContent(
 			}
 			if reg != nil && listenURL != "" {
 				key := fmt.Sprintf("%d-%d", uid, attIdx)
-				// IMAP BODY section = absolute 1-indexed leaf position.
-				// The previous code used attIdx+1 here, which mismatched
-				// whenever a text part appeared before the attachment.
+				section := make([]int, len(path))
+				for i, n := range path {
+					section[i] = n + 1
+				}
+				if len(section) == 0 {
+					section = []int{1}
+				}
 				reg.put(key, attMeta{
 					Mime:     ct,
 					Filename: fname,
-					Part:     []int{partCount},
+					Part:     section,
 				})
 				att.URL = fmt.Sprintf("%s/files/%d/%d", listenURL, uid, attIdx)
 			}
 			atts = append(atts, att)
 			attIdx++
 		}
-	}
+		return nil
+	})
 	return text, atts
 }

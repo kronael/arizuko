@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -19,6 +20,30 @@ import (
 
 	"github.com/kronael/arizuko/chanlib"
 )
+
+// A nested multipart preserves the IMAP section path of its sibling.
+func TestExtractContentNestedAttachmentSection(t *testing.T) {
+	raw := "Content-Type: multipart/mixed; boundary=outer\r\n\r\n" +
+		"--outer\r\nContent-Type: multipart/mixed; boundary=inner\r\n\r\n" +
+		"--inner\r\nContent-Type: text/plain\r\n\r\nhello\r\n" +
+		"--inner\r\nContent-Type: application/pdf\r\n" +
+		"Content-Disposition: attachment; filename=inner.pdf\r\n\r\npdf\r\n--inner--\r\n" +
+		"--outer\r\nContent-Type: application/pdf\r\n" +
+		"Content-Disposition: attachment; filename=x.pdf\r\n\r\npdf\r\n--outer--\r\n"
+	reg := newAttRegistry()
+	_, atts := extractContent([]byte(raw), 42, "http://emaid", reg, 100)
+	if len(atts) != 2 {
+		t.Fatalf("attachments = %d, want 2", len(atts))
+	}
+	meta, ok := reg.get("42-0")
+	if !ok || !slices.Equal(meta.Part, []int{1, 2}) {
+		t.Fatalf("nested section = %v, want [1 2]", meta.Part)
+	}
+	meta, ok = reg.get("42-1")
+	if !ok || !slices.Equal(meta.Part, []int{2}) {
+		t.Fatalf("section = %v, want [2]", meta.Part)
+	}
+}
 
 func extractPlainText(r io.Reader) string {
 	b, _ := io.ReadAll(r)
