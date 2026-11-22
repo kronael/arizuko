@@ -1,7 +1,6 @@
 package routd
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -9,9 +8,7 @@ import (
 
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/core"
-	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/router"
-	"github.com/kronael/arizuko/store"
 )
 
 func (d *DB) QueueReleaseAnnouncements(changelogPath string) error {
@@ -41,21 +38,6 @@ func (d *DB) QueueReleaseAnnouncements(changelogPath string) error {
 		}
 		seen[key] = true
 		id := "release-" + version + "-" + key
-		items, err := d.Obj().Query(context.Background(), objstore.Query{Entity: store.Messages, Partition: jid, Where: []objstore.Cmp{{Attr: "verb", Op: objstore.Eq, Value: "release_announcement"}}, Project: []string{"verb"}})
-		if err != nil {
-			return err
-		}
-		exists := false
-		for _, item := range items {
-			_, storedID, ok := store.MsgCoord(item.Key.Sort)
-			if ok && storedID == id {
-				exists = true
-				break
-			}
-		}
-		if exists {
-			continue
-		}
 		msg := core.Message{ID: id, ChatJID: jid, Content: content, Timestamp: time.Now().UTC(), FromMe: true, BotMsg: true, RoutedTo: core.ParseRouteTarget(route.Target).Folder, Verb: "release_announcement"}
 		if err := d.PutOutbound(msg, core.MessageStatusPending); err != nil {
 			return err
