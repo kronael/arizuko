@@ -693,7 +693,7 @@ func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed boo
 		if err != nil {
 			return false, false, false, "", err
 		}
-		if deferred {
+		if deferred && errors.Is(derr, context.DeadlineExceeded) {
 			return false, false, false, "", nil
 		}
 		if errors.Is(derr, context.Canceled) || errors.Is(derr, context.DeadlineExceeded) {

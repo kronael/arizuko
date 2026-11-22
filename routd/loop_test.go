@@ -3,8 +3,11 @@ package routd
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"syscall"
 	"testing"
 	"time"
 
@@ -441,9 +444,8 @@ func TestRouteMissOnboardingFailureSurfaces(t *testing.T) {
 	}
 }
 
-// TestTransportFailureNoAdvance checks a transport failure leaves the
-// cursor un-advanced (re-fed next poll; spec 5/E-routd § Transport failure).
-func TestTransportFailureNoAdvance(t *testing.T) {
+// A refused connection preserves the original error and the saved retry input.
+func TestTransportFailurePreservesInput(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
 		t.Fatal(err)
@@ -460,18 +462,23 @@ func TestTransportFailureNoAdvance(t *testing.T) {
 		Content: "hi", Timestamp: time.Now().UTC(), Verb: "message"})
 
 	_, derr := loop.processGroupMessages("slack:T/C/U")
-	if derr == nil {
-		t.Fatal("expected transport error")
+	if !errors.Is(derr, syscall.ECONNREFUSED) {
+		t.Fatalf("transport error = %v, want connection refused", derr)
 	}
-	if db.GetAgentCursor("slack:T/C/U") != "" {
-		t.Fatal("cursor advanced on transport failure (want re-feed)")
+	tc, ok := db.GetTurnContext("y")
+	if !ok || tc.State != store.TurnPendingRetry || tc.RetryCount != 1 {
+		t.Fatalf("retry input was not saved: %+v", tc)
+	}
+	input, err := db.store().DeferredMessages(context.Background(), tc.InputKeys)
+	if err != nil || len(input) != 1 || input[0].ID != "y" {
+		t.Fatalf("saved transport input = %+v, %v", input, err)
 	}
 }
 
 type failingRunner struct{}
 
 func (failingRunner) Run(_ context.Context, _ runedv1.RunRequest) (runedv1.RunOutcome, error) {
-	return runedv1.RunOutcome{}, context.DeadlineExceeded
+	return runedv1.RunOutcome{}, &net.OpError{Op: "dial", Err: syscall.ECONNREFUSED}
 }
 
 // The startup sweep must not enqueue a chat whose own cursor is current.
