@@ -1,6 +1,8 @@
 package auth
 
 import (
+	"slices"
+
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/store"
 )
@@ -18,33 +20,12 @@ var memberVerbs = []string{
 	"repost", "like", "dislike", "edit", "delete", "disengage",
 }
 
-// skipApproval: the calls a world's agent makes without asking, one row per
-// tool, and why a person need not see the call. A write that every turn
-// mounts (invite_create, pin_message, reset_session) is NOT here: it waits.
-var skipApproval = []struct{ tool, why string }{
-	{"reply", "answers the chat the turn is in"},
-	{"send", "a message to a chat the folder's routes already reach"},
-	{"send_file", "send, with a file"},
-	{"send_voice", "send, as speech"},
-	{"post", "a post on an account the folder is routed to"},
-	{"forward", "passes a message to a chat the folder already reaches"},
-	{"quote", "a reply that quotes a message"},
-	{"repost", "a repost on an account the folder is routed to"},
-	{"like", "a reaction; it changes no content"},
-	{"dislike", "a reaction; it changes no content"},
-	{"edit", "the platforms let a bot edit only its own messages"},
-	{"delete", "removes a message inside the platform's own bounds"},
-	{"disengage", "stops the agent answering; it acts on nothing else"},
-	{"inspect_routing", "reads the folder's routes"},
-	{"inspect_tasks", "reads the folder's scheduled tasks"},
-	{"inspect_session", "reads the turn's own session"},
-	{"inspect_identity", "reads who is speaking"},
-	{"inspect_messages", "reads the chat's messages"},
-	{"find_messages", "searches the chat's messages"},
-	{"get_thread", "reads one thread"},
-	{"fetch_history", "reads the platform's history of the chat"},
-	{"get_work", "reads the folder's work notes"},
-	{"set_work", "writes the folder's own work notes, its memory checkpoint"},
+var skipApproval = []string{
+	"reply", "send", "send_file", "send_voice", "post", "forward", "quote",
+	"repost", "like", "dislike", "edit", "delete", "disengage",
+	"inspect_routing", "inspect_tasks", "inspect_session", "inspect_identity",
+	"inspect_messages", "find_messages", "get_thread", "fetch_history",
+	"get_work", "set_work",
 }
 
 // defaultRows is the default layer. Every row is on a role or a service, so
@@ -70,18 +51,14 @@ var defaultRows = func() []core.ACLRow {
 		}
 		rows = append(rows, row)
 	}
-	for _, e := range skipApproval {
+	for _, tool := range skipApproval {
 		rows = append(rows, core.ACLRow{Principal: store.RoleMember,
-			Action: HoldPrefix + e.tool, Scope: "**", Effect: store.EffectDeny})
+			Action: HoldPrefix + tool, Scope: "**", Effect: store.EffectDeny})
 	}
 	return rows
 }()
 
 // SkipApprovalTools returns the tools that skip approval by default.
 func SkipApprovalTools() []string {
-	names := make([]string, 0, len(skipApproval))
-	for _, entry := range skipApproval {
-		names = append(names, entry.tool)
-	}
-	return names
+	return slices.Clone(skipApproval)
 }
