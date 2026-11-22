@@ -3,7 +3,9 @@ package routd
 import (
 	"context"
 	"fmt"
+	"net"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -16,7 +18,7 @@ import (
 
 // Checkpoints and both ceiling paths create one bound successor behind pending work and preserve native sessions.
 func TestCheckpointContinuation(t *testing.T) {
-	for _, mode := range []string{"checkpoint", "guest_ceiling", "transport_ceiling", "busy", "normal"} {
+	for _, mode := range []string{"checkpoint", "checkpoint_transport", "guest_ceiling", "transport_ceiling", "busy", "normal"} {
 		for _, harness := range []string{"claude", "codex", "pi", "isolated"} {
 			t.Run(mode+"/"+harness, func(t *testing.T) {
 				db, err := OpenMem()
@@ -41,7 +43,7 @@ func TestCheckpointContinuation(t *testing.T) {
 				var requests []runedv1.RunRequest
 				deliver := &recDeliverer{}
 				native := harness + "-native-session"
-				runner := runnerFn(func(_ context.Context, req runedv1.RunRequest) (runedv1.RunOutcome, error) {
+				runner := &recoveryRunner{run: runnerFn(func(_ context.Context, req runedv1.RunRequest) (runedv1.RunOutcome, error) {
 					requests = append(requests, req)
 					if len(requests) > 1 {
 						if mode == "busy" && len(requests) == 2 {
@@ -75,12 +77,15 @@ func TestCheckpointContinuation(t *testing.T) {
 					}
 					srv.replyForTest(t, req.TurnID, jid, "summary")
 					for range 2 {
-						if _, err := srv.recordTurnResult(req.TurnID, apiv1.TurnResult{Status: "success", SessionID: native, Checkpoint: mode == "checkpoint" || mode == "busy"}); err != nil {
+						if _, err := srv.recordTurnResult(req.TurnID, apiv1.TurnResult{Status: "success", SessionID: native, Checkpoint: mode != "normal"}); err != nil {
 							t.Fatal(err)
 						}
 					}
+					if mode == "checkpoint_transport" {
+						return runedv1.RunOutcome{}, &net.OpError{Op: "read", Err: syscall.ECONNRESET}
+					}
 					return runedv1.RunOutcome{Outcome: runedv1.OutcomeOK}, nil
-				})
+				})}
 				loop := NewLoop(db, runner, LoopConfig{MaxAgents: 1, SessionIdle: time.Nanosecond, Deliver: deliver})
 				loop.StopQueue()
 				srv = NewServer(db, nil, deliver, nil, 0, "")

@@ -415,6 +415,8 @@ Continuation replay skips idle expiry. `submit_turn.checkpoint` marks a
 cooperative completion; `RunOutcome.timed_out` and routd's deadline error
 identify a ceiling stop. `turnControl.complete` schedules continuation before
 failure classification, so checkpoint work does not open the failure circuit.
+An accepted checkpoint also determines continuation when the run request loses
+its response.
 Checkpoint parents remain live until the successor is saved, so recovery can
 finish scheduling after a restart or failed write. Folder cancellation and
 successor creation share a lock; a recorded stop prevents a stale completion

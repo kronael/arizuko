@@ -677,7 +677,12 @@ func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed boo
 			return false, false, false, "", err
 		}
 		current, _ := l.db.GetTurnContext(turnID)
-		if !errors.Is(derr, context.Canceled) && !errors.Is(derr, context.DeadlineExceeded) {
+		result, err := l.db.store().GetTurnResult(folder, turnID)
+		if err != nil {
+			return false, false, false, "", err
+		}
+		checkpoint := result.Status == "checkpoint"
+		if !errors.Is(derr, context.Canceled) && !errors.Is(derr, context.DeadlineExceeded) && !checkpoint {
 			if _, err := l.q.interrupt(l, current); err != nil {
 				return false, false, false, "", err
 			}
@@ -693,7 +698,7 @@ func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed boo
 		if err != nil {
 			return false, false, false, "", err
 		}
-		if deferred && errors.Is(derr, context.DeadlineExceeded) {
+		if deferred && (checkpoint || errors.Is(derr, context.DeadlineExceeded)) {
 			return false, false, false, "", nil
 		}
 		if errors.Is(derr, context.Canceled) || errors.Is(derr, context.DeadlineExceeded) {
