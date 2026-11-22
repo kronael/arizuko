@@ -25,7 +25,6 @@ import (
 type DB struct {
 	obj            objstore.Store
 	progress       sync.Map
-	appends        sync.Map
 	verdicts       verdictWaiters
 	disabledGroups []string
 
@@ -211,11 +210,9 @@ func (d *DB) RemoveGroupWatcher(observer, source string) error {
 // (store.appendInstant), and an index on the caller's instant would answer
 // "no such message" about it.
 func (d *DB) PutMessage(m core.Message) error {
-	value, _ := d.appends.LoadOrStore(m.ChatJID, &sync.Mutex{})
-	lock := value.(*sync.Mutex)
-	lock.Lock()
+	unlock := lockTurn("\x00append:" + m.ChatJID)
 	stored, err := d.store().AppendMessage(m)
-	lock.Unlock()
+	unlock()
 	if err != nil {
 		return err
 	}
