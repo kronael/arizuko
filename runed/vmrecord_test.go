@@ -596,3 +596,21 @@ func TestReapKeepsMountedRootfs(t *testing.T) {
 		t.Fatalf("mounted turn directory disappeared: %v", err)
 	}
 }
+
+func TestReapChecksBridgeCIDAndReadableIdentity(t *testing.T) {
+	rec, p := fullRecord(t)
+	p.cmds[105] = "runed\x00--mcp-bridge\x0030\x00/socket\x00"
+	if err := endProcess(p, rec.reapTargets()[2], 0, time.Millisecond); err != nil {
+		t.Fatal(err)
+	}
+	if len(p.sent) != 0 {
+		t.Fatalf("signaled another bridge: %v", p.sent)
+	}
+	delete(p.cmds, 101)
+	if err := endProcess(p, rec.reapTargets()[0], 0, time.Millisecond); err == nil {
+		t.Fatal("unreadable identity accepted")
+	}
+	if len(p.sent) != 0 {
+		t.Fatalf("signaled unreadable process: %v", p.sent)
+	}
+}

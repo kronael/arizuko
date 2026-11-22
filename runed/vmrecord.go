@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -301,7 +302,7 @@ func (r *vmRecord) reapTargets() []reapTarget {
 		t = append(t, reapTarget{r.EgressPid, "egress", r.GuestIP})
 	}
 	if r.BridgePid > 0 {
-		t = append(t, reapTarget{r.BridgePid, "mcp-bridge", mcpBridgeFlag})
+		t = append(t, reapTarget{r.BridgePid, "mcp-bridge", "\x00" + mcpBridgeFlag + "\x00" + strconv.FormatUint(uint64(r.CID), 10) + "\x00"})
 	}
 	for _, pid := range r.VirtiofsdPids {
 		t = append(t, reapTarget{pid, "virtiofsd", r.TurnDir})
@@ -418,7 +419,11 @@ func endProcess(p procs, t reapTarget, grace, poll time.Duration) error {
 	}
 	// A live pid whose cmdline does not name this turn is not this turn's
 	// process. Leave it and say so: the alternative is killing a stranger.
-	if raw, err := p.cmdline(t.pid); err == nil && !cmdlineHas(raw, t.token) {
+	raw, err := p.cmdline(t.pid)
+	if err != nil {
+		return fmt.Errorf("%s pid %d: read cmdline: %w", t.what, t.pid, err)
+	}
+	if !cmdlineHas(raw, t.token) {
 		slog.Warn("vm teardown: recorded pid belongs to another process, not signalled",
 			"what", t.what, "pid", t.pid, "expected", t.token)
 		return nil
