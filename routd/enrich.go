@@ -420,7 +420,11 @@ func sanitizeFilename(name string) string {
 	s := b.String()
 	if len(s) > 200 {
 		ext := filepath.Ext(s)
-		s = s[:200-len(ext)] + ext
+		if len(ext) >= 200 {
+			s = s[:200]
+		} else {
+			s = s[:200-len(ext)] + ext
+		}
 	}
 	return s
 }

@@ -246,3 +246,10 @@ func TestLegacyAttachmentStartupDiscovery(t *testing.T) {
 		})
 	}
 }
+
+func TestAttachmentLongExtension(t *testing.T) {
+	name := sanitizeFilename("a." + strings.Repeat("z", 201))
+	if len(name) != 200 {
+		t.Fatalf("filename length = %d, want 200", len(name))
+	}
+}
