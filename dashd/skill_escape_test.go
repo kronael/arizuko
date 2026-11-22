@@ -6,6 +6,20 @@ import (
 	"testing"
 )
 
+func TestSkillDisabledRejectsDanglingMarker(t *testing.T) {
+	d := &dash{groupsDir: t.TempDir()}
+	marker := filepath.Join(d.groupsDir, "alice", ".claude", "skills", "voice", ".disabled")
+	if err := os.MkdirAll(filepath.Dir(marker), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("missing", marker); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.setSkillDisabled("alice", "voice", true); err == nil {
+		t.Fatal("dangling marker reported as disabled")
+	}
+}
+
 func TestSkillMarkerSymlinkDoesNotTruncate(t *testing.T) {
 	groups, outside := t.TempDir(), t.TempDir()
 	victim := filepath.Join(outside, "PERSONA.md")

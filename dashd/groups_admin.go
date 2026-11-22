@@ -226,7 +226,8 @@ func (d *dash) setSkillDisabled(folder, skill string, disable bool) error {
 		}
 		f, err := root.OpenFile(marker, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 		if os.IsExist(err) {
-			return nil
+			_, err = root.Stat(marker)
+			return err
 		}
 		if err != nil {
 			return err
