@@ -276,8 +276,8 @@ func TestFetchUnseen_RouterFailure_NotMarkedSeen(t *testing.T) {
 		},
 	}
 
-	if err := p.poll(context.Background(), rc); err != nil {
-		t.Fatalf("poll: %v", err)
+	if err := p.poll(context.Background(), rc); err == nil {
+		t.Fatal("poll hid the router failure")
 	}
 
 	select {

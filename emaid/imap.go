@@ -328,12 +328,13 @@ func (p *poller) fetchUnseen(c *imapclient.Client, rc *chanlib.RouterClient) err
 		return fmt.Errorf("fetch: %w", err)
 	}
 
+	var failures error
 	for _, msg := range msgs {
 		if err := p.handleMsg(c, msg, rc); err != nil {
-			slog.Error("handle msg failed", "err", err)
+			failures = errors.Join(failures, err)
 		}
 	}
-	return nil
+	return failures
 }
 
 func (p *poller) handleMsg(
