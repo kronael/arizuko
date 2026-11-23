@@ -62,3 +62,31 @@ func TestProgress_LineAndReplyShareOneThreadRoot(t *testing.T) {
 		t.Fatalf("line and reply do not share the trigger's thread: %+v", dl.sends)
 	}
 }
+
+// On a channel whose new thread needs a title, the untitled line cannot root
+// the thread: it goes to the chat and stays there, while the titled reply
+// still roots the thread on the trigger.
+func TestProgress_LineNeverRootsAThreadThatNeedsATitle(t *testing.T) {
+	dl := &recDeliverer{canThread: true, titledThreads: true}
+	db, srv := newProgressTurn(t, dl, "")
+	if err := db.SetChatIsGroup(progressJID, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetTurnTriggerMsg("t1", "root-1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := srv.mcpSubmitStatus("t1", "working"); err != nil {
+		t.Fatal(err)
+	}
+	srv.replyForTest(t, "t1", progressJID, "the answer")
+	if err := srv.mcpSubmitStatus("t1", "still working"); err != nil {
+		t.Fatal(err)
+	}
+	if len(dl.sends) != 2 || dl.sends[0].jid != progressJID || dl.sends[0].threadRoot != "" || dl.sends[0].threadID != "" ||
+		dl.sends[1].threadRoot != "root-1" {
+		t.Fatalf("the line rooted the thread or the reply left it: %+v", dl.sends)
+	}
+	if len(dl.edits) != 1 || dl.edits[0].jid != progressJID || dl.edits[0].threadID != "" {
+		t.Fatalf("the later line left the chat: %+v", dl.edits)
+	}
+}

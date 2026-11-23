@@ -31,16 +31,17 @@ type recDeliverer struct {
 	editErr error
 	// noEdit and noDelete make the channel not advertise `edit` or `delete`:
 	// a progress update is dropped, never sent as a fresh message.
-	noEdit    bool
-	noDelete  bool
-	deleteErr error
-	canThread bool
-	docs      []sentMsg
-	voices    []sentVoice
-	reacts    int
-	posts     int
-	dislikes  int
-	failSend  bool
+	noEdit        bool
+	noDelete      bool
+	deleteErr     error
+	canThread     bool
+	titledThreads bool
+	docs          []sentMsg
+	voices        []sentVoice
+	reacts        int
+	posts         int
+	dislikes      int
+	failSend      bool
 	// failIdem fails ONLY the send whose idempotency key (the message id)
 	// matches, so a test can put one dead row among healthy ones.
 	failIdem string
@@ -144,6 +145,9 @@ func (d *recDeliverer) HasCapability(_, capability string) bool {
 		return !d.noEdit
 	case "delete":
 		return !d.noDelete
+	}
+	if capability == "thread_title" {
+		return d.titledThreads
 	}
 	return d.canThread && (capability == "thread_root" || capability == "thread_id")
 }

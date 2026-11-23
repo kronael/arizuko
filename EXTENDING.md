@@ -429,6 +429,9 @@ the map except `typing`.
 - `thread_root` creates or reuses a thread rooted at a message before it sends
   text, files or voice. A refused thread destination returns an error. The
   adapter never sends the child at the parent instead.
+- `thread_title` says that a new thread needs a title. A turn status never
+  starts such a thread: when the thread does not exist yet, the status goes to
+  the chat.
 - With `edit` and `delete`, `routd` posts one progress message where the reply
   will go, in the existing thread when the turn has one, and deletes it at the
   end of the turn.

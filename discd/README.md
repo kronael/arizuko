@@ -99,7 +99,7 @@ Text sends split at 2000 characters. A thread send can create a thread from `thr
 
 ## Limits and verification
 
-Advertised verbs: text, file, voice, typing, history, edit, quote, delete, pin, reaction, buttons, thread root, and thread ID.
+Advertised verbs: text, file, voice, typing, history, edit, quote, delete, pin, reaction, buttons, thread root, thread ID, and thread title (a new thread needs a title).
 Forward, post, repost, and dislike return 501 hints. Bulk unpin returns a hint.
 User mode omits gateway intents. Platform permissions and live reconnection behavior need a real Discord account.
 Per-chat session partitioning remains a design question ([BUGS L86](../BUGS.md)).

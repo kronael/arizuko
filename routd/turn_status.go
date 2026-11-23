@@ -428,8 +428,16 @@ func renderTurnStatus(status turnStatus) string {
 	}
 }
 
+func placeStatus(db *DB, dl Deliverer, tc TurnContext, jid, topic string) (deliveryPlace, error) {
+	place, err := placeTurnDelivery(db, tc, jid, topic, true)
+	if err == nil && place.threadRoot != "" && dl != nil && dl.HasCapability(place.jid, "thread_title") {
+		place.threadRoot = ""
+	}
+	return place, err
+}
+
 func applyStatus(db *DB, dl Deliverer, tc TurnContext, jid string, status turnStatus) error {
-	place, err := placeTurnDelivery(db, tc, jid, "", true)
+	place, err := placeStatus(db, dl, tc, jid, "")
 	if err != nil {
 		return err
 	}
@@ -518,7 +526,7 @@ func executeStatus(db *DB, dl Deliverer, pending store.PendingMessage) error {
 	default:
 		place := deliveryPlace{jid: row.ChatJID, threadID: row.Topic}
 		if tc, ok := db.GetTurnContext(row.TurnID); ok {
-			place, err = placeTurnDelivery(db, tc, row.ChatJID, row.Topic, true)
+			place, err = placeStatus(db, dl, tc, row.ChatJID, row.Topic)
 		}
 		if err == nil {
 			key := row.StatusSendKey
