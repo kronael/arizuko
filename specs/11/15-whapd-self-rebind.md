@@ -176,21 +176,16 @@ try again."
   is rare and operator-initiated). Exceeding returns 429 "too many
   attempts". WhatsApp bans the number on excess link attempts; this
   guard prevents one operator from burning the account in a tantrum.
-- **Audit**: every `/v1/pair/start` writes a row to routd's `messages`
-  table via routd's existing HTTP audit endpoint. Fields:
-  - `id` = `core.MsgID("pair")`
-  - `chat_jid` = `"arizuko:admin/whapd"` (synthetic instance-level JID;
-    appears in dashd activity feed but doesn't route)
-  - `sender` = `"whapd:pair"`
-  - `verb` = `"admin.pair"`
-  - `content` = `"operator <sub> started pairing for <phone>"`
-  - `timestamp` = `time.Now().UTC().Format(time.RFC3339Nano)`
-  - `from_me` = `false` (this is a system audit event, not an outbound
-    chat message via the channel; consumers that filter `from_me=true`
-    to find sent messages won't see admin events)
-  - `bot_msg` = `false` (admin events are not bot replies either)
-    Joint decision with spec 11/16: stay in `messages` (existing schema,
-    no new table). Both specs adopt the same synthetic-JID convention.
+- **Audit**: every pair start that returns a code writes one `audit_log`
+  event from dashd (`dashd/channels.go` `auditPairStart`), never a
+  `messages` row. Fields:
+  - `category` = `channel`
+  - `action` = `"channel.pair.start"`
+  - `actor` and `actor_sub` = the operator's sub
+  - `surface` = `rest`
+  - `resource` = `"channels/whatsapp"`
+  - `outcome` = `ok`
+  - `params_summary` = `{"phone": "<phone>"}`
 
 ## Phone number storage
 
