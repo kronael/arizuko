@@ -67,15 +67,15 @@ func TestFeature_MemoryGroupState(t *testing.T) {
 		if err := s.SetGroupObserveWindow("ow", 10, 500); err != nil {
 			t.Fatal(err)
 		}
-		if m, c := s.GroupObserveWindow("ow"); m != 10 || c != 500 {
-			t.Fatalf("window = %d,%d want 10,500", m, c)
+		if m, c, err := s.GroupObserveWindow("ow"); err != nil || m != 10 || c != 500 {
+			t.Fatalf("window = %d,%d, %v; want 10,500", m, c, err)
 		}
 		// Partial update: set only chars — msgs should be preserved.
 		if err := s.SetGroupObserveWindow("ow", 0, 800); err != nil {
 			t.Fatal(err)
 		}
-		if _, c := s.GroupObserveWindow("ow"); c != 800 {
-			t.Fatalf("chars after partial update = %d, want 800", c)
+		if _, c, err := s.GroupObserveWindow("ow"); err != nil || c != 800 {
+			t.Fatalf("chars after partial update = %d, %v; want 800", c, err)
 		}
 	})
 

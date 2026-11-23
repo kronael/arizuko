@@ -16,8 +16,8 @@ func TestFeature_MCPTools(t *testing.T) {
 		if res.IsError {
 			t.Fatalf("set_observe_window: %+v", res.Content)
 		}
-		if m, c := h.S.GroupObserveWindow("world/sub"); m != 8 || c != 400 {
-			t.Fatalf("window = %d,%d want 8,400", m, c)
+		if m, c, err := h.S.GroupObserveWindow("world/sub"); err != nil || m != 8 || c != 400 {
+			t.Fatalf("window = %d,%d, %v; want 8,400", m, c, err)
 		}
 	})
 }

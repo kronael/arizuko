@@ -2,6 +2,7 @@ package routd
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -197,13 +198,16 @@ func renderAutocalls(ctx autocallCtx) string {
 func (l *Loop) observeWindow(folder string) (int, int) {
 	maxN := l.observeMessages
 	maxC := l.observeChars
-	if gn, gc := l.db.store().GroupObserveWindow(folder); gn >= 0 || gc >= 0 {
-		if gn >= 0 {
-			maxN = gn
-		}
-		if gc >= 0 {
-			maxC = gc
-		}
+	gn, gc, err := l.db.store().GroupObserveWindow(folder)
+	if err != nil {
+		slog.Error("observe window: the group's stored window is unreadable; using the instance defaults",
+			"folder", folder, "err", err)
+	}
+	if gn >= 0 {
+		maxN = gn
+	}
+	if gc >= 0 {
+		maxC = gc
 	}
 	routes, _ := l.db.Routes()
 	for _, r := range routes {

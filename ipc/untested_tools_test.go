@@ -1,6 +1,7 @@
 package ipc
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -417,7 +418,7 @@ func TestSetObserveWindowPreservesTheHalfThatWasNotSent(t *testing.T) {
 	var gotFolder string
 	var gotMsgs, gotChars int
 	sock := serveTools(t, RoutdFns{
-		GroupObserveWindow: func(string) (int, int) { return 10, 500 },
+		GroupObserveWindow: func(string) (int, int, error) { return 10, 500, nil },
 		SetGroupObserveWindow: func(f string, m, c int) error {
 			gotFolder, gotMsgs, gotChars = f, m, c
 			return nil
@@ -457,12 +458,31 @@ func TestSetObserveWindowPreservesTheHalfThatWasNotSent(t *testing.T) {
 func TestSetObserveWindowRefusesWithNeitherHalf(t *testing.T) {
 	called := false
 	sock := serveTools(t, RoutdFns{
-		GroupObserveWindow:    func(string) (int, int) { return 10, 500 },
+		GroupObserveWindow:    func(string) (int, int, error) { return 10, 500, nil },
 		SetGroupObserveWindow: func(string, int, int) error { called = true; return nil },
 	}, StoreFns{}, "acme")
 	mustFail(t, callRaw(t, sock, "set_observe_window", map[string]any{}), "set_observe_window with no args")
 	if called {
 		t.Error("a call with neither half still wrote the window")
+	}
+}
+
+// The absent half is filled from the stored window. When that read fails, the
+// tool has no value to keep, so it answers the error and writes nothing.
+func TestSetObserveWindowRefusesWhenTheStoredWindowIsUnreadable(t *testing.T) {
+	called := false
+	sock := serveTools(t, RoutdFns{
+		GroupObserveWindow: func(string) (int, int, error) {
+			return -1, -1, errors.New(`group "acme" invalid settings JSON`)
+		},
+		SetGroupObserveWindow: func(string, int, int) error { called = true; return nil },
+	}, StoreFns{}, "acme")
+	_, errText := callTool(t, sock, "set_observe_window", map[string]any{"messages": 40})
+	if !strings.Contains(errText, "invalid settings JSON") {
+		t.Errorf("error = %q, want the read failure", errText)
+	}
+	if called {
+		t.Error("a failed read of the stored window still wrote the window")
 	}
 }
 

@@ -63,8 +63,8 @@ func TestFeature_AgentDispatch(t *testing.T) {
 		if err := s.SetGroupObserveWindow("w", 5, 200); err != nil {
 			t.Fatal(err)
 		}
-		if m, c := s.GroupObserveWindow("w"); m != 5 || c != 200 {
-			t.Fatalf("window = %d,%d want 5,200", m, c)
+		if m, c, err := s.GroupObserveWindow("w"); err != nil || m != 5 || c != 200 {
+			t.Fatalf("window = %d,%d, %v; want 5,200", m, c, err)
 		}
 	})
 }

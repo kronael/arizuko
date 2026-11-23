@@ -95,16 +95,16 @@ func TestGroupObserveWindow_NULLBehavior(t *testing.T) {
 	}
 	defer s.Close()
 	putBareGroup(t, s, "main/a")
-	m, c := s.GroupObserveWindow("main/a")
-	if m != -1 || c != -1 {
-		t.Fatalf("NULL caps = (%d,%d), want (-1,-1)", m, c)
+	m, c, err := s.GroupObserveWindow("main/a")
+	if err != nil || m != -1 || c != -1 {
+		t.Fatalf("NULL caps = (%d,%d), %v; want (-1,-1)", m, c, err)
 	}
 	if err := s.SetGroupObserveWindow("main/a", 25, 8000); err != nil {
 		t.Fatal(err)
 	}
-	m, c = s.GroupObserveWindow("main/a")
-	if m != 25 || c != 8000 {
-		t.Fatalf("after set = (%d,%d), want (25,8000)", m, c)
+	m, c, err = s.GroupObserveWindow("main/a")
+	if err != nil || m != 25 || c != 8000 {
+		t.Fatalf("after set = (%d,%d), %v; want (25,8000)", m, c, err)
 	}
 }
 
@@ -122,17 +122,17 @@ func TestSetGroupObserveWindow_ClearViaNegOne(t *testing.T) {
 	if err := s.SetGroupObserveWindow("main/a", -1, 8000); err != nil {
 		t.Fatal(err)
 	}
-	m, c := s.GroupObserveWindow("main/a")
-	if m != -1 || c != 8000 {
-		t.Fatalf("partial clear = (%d,%d), want (-1,8000)", m, c)
+	m, c, err := s.GroupObserveWindow("main/a")
+	if err != nil || m != -1 || c != 8000 {
+		t.Fatalf("partial clear = (%d,%d), %v; want (-1,8000)", m, c, err)
 	}
 	// Clear both.
 	if err := s.SetGroupObserveWindow("main/a", -1, -1); err != nil {
 		t.Fatal(err)
 	}
-	m, c = s.GroupObserveWindow("main/a")
-	if m != -1 || c != -1 {
-		t.Fatalf("full clear = (%d,%d), want (-1,-1)", m, c)
+	m, c, err = s.GroupObserveWindow("main/a")
+	if err != nil || m != -1 || c != -1 {
+		t.Fatalf("full clear = (%d,%d), %v; want (-1,-1)", m, c, err)
 	}
 }
 
@@ -297,7 +297,10 @@ func TestGroupRowProjectsConfigDefaultsLikeTheAccessors(t *testing.T) {
 		t.Errorf("Open = %v; a group with no key is open", g.Open)
 	}
 	// An unset window is -1 (no cap), never 0 (a cap of nothing).
-	wantM, wantC := s.GroupObserveWindow("acme")
+	wantM, wantC, err := s.GroupObserveWindow("acme")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if g.ObserveWindowMessages != wantM || g.ObserveWindowChars != wantC {
 		t.Errorf("row window = (%d,%d), accessor = (%d,%d)",
 			g.ObserveWindowMessages, g.ObserveWindowChars, wantM, wantC)
@@ -503,6 +506,9 @@ func TestMalformedSettingsFailVisibly(t *testing.T) {
 
 	if _, err := s.SiblingFolders("main/a"); err == nil || !strings.Contains(err.Error(), "invalid settings JSON") {
 		t.Errorf("SiblingFolders over a malformed row: err = %v", err)
+	}
+	if m, c, err := s.GroupObserveWindow("main/b"); err == nil || !strings.Contains(err.Error(), "invalid settings JSON") {
+		t.Errorf("GroupObserveWindow over a malformed row = (%d,%d), err = %v", m, c, err)
 	}
 	for name, set := range map[string]func() error{
 		"SetGroupOpen":          func() error { return s.SetGroupOpen("main/b", true) },

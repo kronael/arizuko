@@ -191,18 +191,18 @@ func TestSetObserveWindow_MCP_PersistsAndPreservesOmitted(t *testing.T) {
 	if res.IsError {
 		t.Fatalf("set_observe_window: %+v", res.Content)
 	}
-	m, c := h.S.GroupObserveWindow("world/sub")
-	if m != 5 || c != 200 {
-		t.Errorf("after set: m=%d c=%d, want 5,200", m, c)
+	m, c, err := h.S.GroupObserveWindow("world/sub")
+	if err != nil || m != 5 || c != 200 {
+		t.Errorf("after set: m=%d c=%d, %v; want 5,200", m, c, err)
 	}
 
 	res = h.call(t, "set_observe_window", map[string]any{"chars": float64(400)})
 	if res.IsError {
 		t.Fatalf("set_observe_window chars-only: %+v", res.Content)
 	}
-	m, c = h.S.GroupObserveWindow("world/sub")
-	if m != 5 || c != 400 {
-		t.Errorf("after partial: m=%d c=%d, want 5,400", m, c)
+	m, c, err = h.S.GroupObserveWindow("world/sub")
+	if err != nil || m != 5 || c != 400 {
+		t.Errorf("after partial: m=%d c=%d, %v; want 5,400", m, c, err)
 	}
 }
 
@@ -299,14 +299,14 @@ func TestSetObserveWindow_MCP_CrossFolder_DescendantAllowed(t *testing.T) {
 	if res.IsError {
 		t.Fatalf("parent → descendant: %+v", res.Content)
 	}
-	m, c := h.S.GroupObserveWindow("world/parent/child")
-	if m != 7 || c != 300 {
-		t.Errorf("descendant window m=%d c=%d, want 7,300", m, c)
+	m, c, err := h.S.GroupObserveWindow("world/parent/child")
+	if err != nil || m != 7 || c != 300 {
+		t.Errorf("descendant window m=%d c=%d, %v; want 7,300", m, c, err)
 	}
 	// Caller's own window should be untouched (still -1, -1).
-	mSelf, cSelf := h.S.GroupObserveWindow("world/parent")
-	if mSelf != -1 || cSelf != -1 {
-		t.Errorf("caller's own window leaked: m=%d c=%d", mSelf, cSelf)
+	mSelf, cSelf, err := h.S.GroupObserveWindow("world/parent")
+	if err != nil || mSelf != -1 || cSelf != -1 {
+		t.Errorf("caller's own window leaked: m=%d c=%d, %v", mSelf, cSelf, err)
 	}
 }
 

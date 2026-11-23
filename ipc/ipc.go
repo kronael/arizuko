@@ -76,7 +76,7 @@ type RoutdFns struct {
 	// Per-group ambient controls (spec 5/F-topic-lineage).
 	SetGroupOpen          func(folder string, open bool) error
 	SetGroupObserveWindow func(folder string, msgs, chars int) error
-	GroupObserveWindow    func(folder string) (msgs, chars int)
+	GroupObserveWindow    func(folder string) (msgs, chars int, err error)
 	// observe_group cross-folder subscriptions (spec 5/F-topic-lineage).
 	AddGroupWatcher    func(observer, source string) error
 	RemoveGroupWatcher func(observer, source string) error
@@ -1885,7 +1885,10 @@ func buildMCPServer(routd RoutdFns, db StoreFns, folder string, isRoot bool, cal
 				return toolErr(err.Error())
 			}
 			// Absent args preserve the stored value; explicit -1 clears.
-			prevM, prevC := routd.GroupObserveWindow(target)
+			prevM, prevC, err := routd.GroupObserveWindow(target)
+			if err != nil {
+				return toolErr(err.Error())
+			}
 			if !mOK {
 				msgs = prevM
 			}

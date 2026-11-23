@@ -23,9 +23,6 @@ with such a case (`anteval/cmd/anteval/lifecycle.go`).
 
 - Owner decision: dashd saves the harness through the store as the operator, and
   this spec says it calls `/v1` (BUGS `L903`). The default is the store.
-- `GroupObserveWindow` reads a malformed stored settings document as not set
-  (BUGS `L904`); changing it crosses `routd/prompt.go`, the `ipc` deps field and
-  six test files.
 - Build the packaged agent image and run a case of each backend on one disposable
   instance with explicit egress, using the `harness` case field (LIVE;
   `Makefile`, `anteval/cases/anteval.toml`).
@@ -190,10 +187,10 @@ it. One request encoder stays; no hand-written splice and no second schema.
 Settings writes and import must preserve that same raw value, including when
 another setting changes. Remove the harness's route through `map[string]any`
 and whole-config canonicalization. Malformed stored settings produce a visible
-read failure, never the empty-default result of `store/groups.go:66`: `setSetting`,
-`SetGroupObserveWindow` and `SiblingFolders` return the decode error, and
-`GroupObserveWindow` still reads through `settingsOf` and reports "not set"
-(BUGS `L904`).
+read failure, never an empty-default result: `setSetting`,
+`SetGroupObserveWindow`, `SiblingFolders` and `GroupObserveWindow` return the
+decode error. The prompt logs it and uses the instance window;
+`set_observe_window` answers it and writes nothing.
 
 The instance keeps `ARIZUKO_BACKEND`, `ARIZUKO_DEFAULT_MODEL` and
 `ARIZUKO_DEFAULT_EFFORT`. Compose sends them to runed; `Config.AgentEnv` maps

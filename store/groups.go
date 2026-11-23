@@ -60,16 +60,6 @@ func groupKey(folder string) (objstore.Key, error) {
 	return objstore.Key{Partition: OwnerRoutd, Sort: folder}, nil
 }
 
-// settingsOf parses one item's settings document. An absent or unparseable one
-// is the EMPTY document; every reader has its own default for a missing key.
-func settingsOf(it objstore.Item) map[string]any {
-	out, err := decodeSettings(it)
-	if err != nil {
-		return map[string]any{}
-	}
-	return out
-}
-
 func decodeSettings(it objstore.Item) (map[string]any, error) {
 	out := map[string]any{}
 	if raw := it.Attrs[attrGrpConfig]; raw != "" {
@@ -479,21 +469,25 @@ func (s *Store) SetGroupOpen(folder string, open bool) error {
 
 // GroupObserveWindow returns the per-group observe-window caps. (-1,-1) means
 // "not set; fall back to env defaults". Per-route caps win over per-group,
-// per-group over env. Spec 5/F-topic-lineage.
-func (s *Store) GroupObserveWindow(folder string) (msgs, chars int) {
+// per-group over env. A store failure or a settings document that does not
+// parse is an error, never "not set". Spec 5/F-topic-lineage.
+func (s *Store) GroupObserveWindow(folder string) (msgs, chars int, err error) {
 	msgs, chars = -1, -1
 	it, ok, err := s.groupItem(context.Background(), folder)
 	if err != nil || !ok {
-		return msgs, chars
+		return msgs, chars, err
 	}
-	cfg := settingsOf(it)
+	cfg, err := decodeSettings(it)
+	if err != nil {
+		return msgs, chars, err
+	}
 	if n, set := settingNum(cfg, cfgObserveWinMsgs); set {
 		msgs = n
 	}
 	if n, set := settingNum(cfg, cfgObserveWinChar); set {
 		chars = n
 	}
-	return msgs, chars
+	return msgs, chars, nil
 }
 
 // SetGroupObserveWindow writes per-group caps; pass -1 to clear a field, which
