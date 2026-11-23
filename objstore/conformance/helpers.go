@@ -12,7 +12,7 @@ import (
 	"github.com/kronael/arizuko/objstore"
 )
 
-// claim is authd's ClaimRefreshToken as one write: set used_at, but only on an
+// claim is authd's ClaimAndRotateRefresh claim as one write: set used_at, but only on an
 // item that carries neither tombstone.
 //
 // Both conjuncts are load-bearing and each closes a different half of BUGS F36.

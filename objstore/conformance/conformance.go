@@ -86,7 +86,7 @@ const tokens = "refresh_tokens"
 // ONE partition for a prefix to cover it (spec 6/40 §1).
 const tenant = "acme"
 
-// OneClaimWinsAndTheLosersAreNotErrors is authd's ClaimRefreshToken: N callers
+// OneClaimWinsAndTheLosersAreNotErrors is authd's ClaimAndRotateRefresh: N callers
 // present the same refresh token at once and exactly one may rotate it. A
 // second winner forks the family, and reuse detection then never fires.
 //
@@ -459,7 +459,7 @@ func ProjectionLeavesUnprojectedAttributesInTheEngine(t *testing.T, newStore Fac
 	}
 }
 
-// ACheckGatesAWriteToAnotherItem is authd's ClaimRefreshToken, whose second
+// ACheckGatesAWriteToAnotherItem is authd's ClaimAndRotateRefresh, whose second
 // conjunct moved from a column to a Check when the family became its own item.
 //
 // A Check is a condition on an item the batch does NOT modify, and it is what
