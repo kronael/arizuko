@@ -46,6 +46,35 @@ func TestExtractContentNestedAttachmentSection(t *testing.T) {
 	}
 }
 
+// Strict rejection marks mail seen without reserving a reply recipient.
+func TestStrictRejectDoesNotRecordThread(t *testing.T) {
+	serverConn, clientConn := net.Pipe()
+	marked := make(chan struct{}, 1)
+	go serveMsgIMAP(t, serverConn, marked)
+	st := newTestMailstore(t)
+	p := &poller{
+		cfg: config{
+			IMAPHost: "fake", IMAPPort: "993", Account: "user", Password: "pass",
+			Auth: AuthConfig{StrictAuth: true, TrustedAuthserv: "mx.example.com"},
+		},
+		st: st, reg: newAttRegistry(),
+		dialTLS: func(_ string, opts *imapclient.Options) (*imapclient.Client, error) {
+			return imapclient.New(clientConn, opts), nil
+		},
+	}
+	if err := p.poll(t.Context(), nil); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-marked:
+	default:
+		t.Fatal("rejected message was not marked seen")
+	}
+	if thread, ok := st.ThreadForMessage("test@example.com"); ok {
+		t.Fatalf("rejected message reserved reply recipient: %+v", thread)
+	}
+}
+
 func extractPlainText(r io.Reader) string {
 	b, _ := io.ReadAll(r)
 	text, _ := extractContent(b, 0, "", nil, 0)

@@ -371,14 +371,6 @@ func (p *poller) handleMsg(
 		h := sha256.Sum256([]byte(rootMsgID))
 		threadID = fmt.Sprintf("%x", h[:6])
 	}
-	// Abort BEFORE delivery: a message delivered on a mapping that was never
-	// recorded reads as a broken conversation to the user (the next reply opens
-	// a second thread). Returning here leaves the UID unseen, so the next poll
-	// retries the whole message; the router dedups on msgID.
-	if err := p.st.LinkMessageToThread(msgID, threadID, fromAddr, rootMsgID); err != nil {
-		return fmt.Errorf("record thread mapping for %s: %w", msgID, err)
-	}
-
 	bodyRaw := msg.FindBodySection(&imap.FetchItemBodySection{})
 	auth := classifyRaw(bodyRaw, p.cfg.Auth)
 	if auth.State == "untrusted" && p.cfg.Auth.StrictAuth {
@@ -393,6 +385,9 @@ func (p *poller) handleMsg(
 			return fmt.Errorf("mark seen (drop) uid %d: %w", msg.UID, err)
 		}
 		return nil
+	}
+	if err := p.st.LinkMessageToThread(msgID, threadID, fromAddr, rootMsgID); err != nil {
+		return fmt.Errorf("record thread mapping for %s: %w", msgID, err)
 	}
 	inbound, _ := fetchMsgToInbound(msg, threadID, p.cfg.ListenURL, p.reg, p.cfg.MaxAttachment, p.cfg.Auth)
 	if err := rc.SendMessage(inbound); err != nil {
