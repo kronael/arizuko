@@ -557,7 +557,6 @@ The browser retry integration owns this fix after the current serial capacity wo
 - `L803` — morha repeats recovery reports and replies to an old GitHub comment; cause unmeasured.
 - `L804` — Codex topic forks do not inherit the parent's model context; observed messages remain available.
 - `L796` — a silent cron script costs a full agent turn (macrohype-monitor, 48 turns a week); owner chose a command task with no model call; where the command runs needs sign-off.
-- `L790` — the hold e2e tests fail under host load on a fixed 5 s wait (two tests seen).
 - `L721` — group handoffs bounced for an hour; verify bounded turns after deployment with group sends and progress guidance.
 - `L715` — A1/A2: trusted GitHub sender and source-owner binding; proposal, needs sign-off.
 - `L686` — decide whether to retire the four duplicated top-level creative skill names; proposal, needs sign-off.
@@ -818,25 +817,6 @@ reads those words now.
   widen. Adding the gateway without that buys nothing.
 **Blocked on another entry.**
 - `L189` — blocked on `L137`. Do not take it alone.
-**A spec whose status is a claim.**
-- **GITHUB-PRODUCT-SETUP** (MED, config) — `ant/examples/github/PRODUCT.md`
-  requires `GITHUB_APP_ID`, `GITHUB_PRIVATE_KEY`, and `GITHUB_WEBHOOK_SECRET`,
-  but `gitd.loadConfig` reads none of them. The setup claims gitd is unbuilt,
-  uses the unregistered `git:` JID scheme, and copies a connector to a directory
-  that `LoadConnectors` does not read. CONFIRMED at HEAD `09eef243` on
-  2026-10-09 by comparing the product with `gitd/main.go`,
-  `cmd/arizuko/github.go`, and `template/connectors/github.toml`.
-  No test — config. **Fix:** make the existing product declare the supported
-  token and describe source registration, `github:` routes, and `connectors.toml`.
-  Working-tree correction verified by product seed tests, web link tests, and
-  a before/after manifest check; commit blocked by read-only `.git`.
-- **BUILD-DAEMON-FAILURE-MASKED** (MED, ops) — `Makefile:22` runs daemon
-  submakes separated by semicolons. A later success hides an earlier failure.
-  Measured 2026-10-09: `make build` returned zero after dashd failed with a
-  read-only Go cache; the complete output is in
-  `/tmp/arizuko-github-baseline-build.log`. No test — ops.
-  **Proposal:** stop the build on the first failed submake. This is an adjacent
-  build-gate repair; scope approval is pending.
 
 ## L907 — the gitd App completion has never run on a credentialed disposable repository (2026-11-15, open — operator task)
 
@@ -1542,25 +1522,6 @@ posts nothing unless the script exits non-zero.
   group folder. Agents never set a command in either option.
 - **Status:** open — proposal, needs sign-off
 
-
-## L790 — the hold e2e test fails under host load (2026-11-08, open)
-
-MEASURED 2026-11-08 on fec94801c: `go test ./... -short` failed
-`TestHoldE2E_ChannelWithoutButtonsStillGetsAnAnswerablePrompt` with "the gate
-never noticed the approval" (`routd/hold_e2e_test.go:207`) while the host had
-3.2 GB free and three Codex workers ran; routd took 544.8 s. Alone it passes
-3/3 in 2.2 s. The test waits a fixed `time.After(5 * time.Second)` at
-`routd/hold_e2e_test.go:206`.
-
-MEASURED again 2026-11-09 at `a24ecf639` (full `go test -race -short ./...`,
-routd 994.3 s): `TestHoldE2E_RejectPressKeepsTheCallUnrun` failed with "the
-gate never noticed the rejection" at the same fixed 5 s wait
-(`routd/hold_e2e_test.go:163`). `-run TestHoldE2E -count=3` alone passes in
-6.4 s.
-
-- **Severity:** low — a test flake, no product effect measured
-- **Fix:** wait on the gate's own signal, or bound the wait by the test deadline
-- **Status:** open
 
 ## L715 — tenant GitHub ingress needs trusted sender and source-owner binding (2026-11-08, proposal — needs sign-off)
 
