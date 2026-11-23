@@ -497,23 +497,7 @@ func (b *bot) SendVoice(jid, audioPath, caption, threadID, threadRoot, title str
 	if err != nil {
 		return "", err
 	}
-	f, err := os.Open(audioPath)
-	if err != nil {
-		return "", fmt.Errorf("discord open voice: %w", err)
-	}
-	defer func() { _ = f.Close() }()
-	name := filepath.Base(audioPath)
-	msg, err := b.session.ChannelMessageSendComplex(chID, &discordgo.MessageSend{
-		Content: caption,
-		Files:   []*discordgo.File{{Name: name, ContentType: "audio/ogg", Reader: f}},
-	})
-	if err != nil {
-		return "", fmt.Errorf("discord sendvoice: %w", err)
-	}
-	if msg != nil {
-		return msg.ID, nil
-	}
-	return "", nil
+	return b.sendUpload(audioPath, filepath.Base(audioPath), chID, caption, "audio/ogg")
 }
 
 func (b *bot) SendFile(jid, path, name, caption, _, threadID, threadRoot, title string) (string, error) {
@@ -521,23 +505,23 @@ func (b *bot) SendFile(jid, path, name, caption, _, threadID, threadRoot, title 
 	if err != nil {
 		return "", err
 	}
+	if name == "" {
+		name = filepath.Base(path)
+	}
+	return b.sendUpload(path, name, chID, caption, discordMimeFor(name))
+}
+
+func (b *bot) sendUpload(path, name, chID, caption, contentType string) (string, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return "", fmt.Errorf("discord open file: %w", err)
 	}
 	defer func() { _ = f.Close() }()
-	if name == "" {
-		name = filepath.Base(path)
-	}
-	// Discord renders images, videos, and audio inline based on
-	// ContentType. Setting it explicitly here so the rich-media bubble
-	// fires even when the upstream filename has an ambiguous/missing
-	// extension (.bin, no ext, etc).
 	msg, err := b.session.ChannelMessageSendComplex(chID, &discordgo.MessageSend{
 		Content: caption,
 		Files: []*discordgo.File{{
 			Name:        name,
-			ContentType: discordMimeFor(name),
+			ContentType: contentType,
 			Reader:      f,
 		}},
 	})

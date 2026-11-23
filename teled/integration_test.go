@@ -18,6 +18,7 @@ import (
 	tgbotapi "github.com/matterbridge/telegram-bot-api/v6"
 
 	"github.com/kronael/arizuko/chanlib"
+	"github.com/kronael/arizuko/retry"
 	"github.com/kronael/arizuko/tests/testutils"
 )
 
@@ -159,6 +160,24 @@ func TestSendFileRefusalIsNotDelivered(t *testing.T) {
 	_, err := b.SendFile("telegram:1/user/123", path, "file.txt", "", "", "", "", "")
 	if !errors.Is(err, chanlib.ErrNotDelivered) {
 		t.Fatalf("error = %v, want ErrNotDelivered", err)
+	}
+}
+
+// A refused voice upload preserves rate-limit classification and releases its claim.
+func TestSendVoiceRateLimit(t *testing.T) {
+	m := newTGMock()
+	defer m.close()
+	m.fileError = 429
+	b := newTestBot(t, m, config{Name: "telegram"})
+	defer b.typing.Stop()
+	path := filepath.Join(t.TempDir(), "voice.ogg")
+	if err := os.WriteFile(path, []byte("OggS"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := b.SendVoice("telegram:1/user/123", path, "", "", "", "")
+	if failure := retry.FromError(err, time.Now()); failure.Kind != "transient" ||
+		!errors.Is(err, chanlib.ErrNotDelivered) {
+		t.Fatalf("failure = %+v, error = %v", failure, err)
 	}
 }
 

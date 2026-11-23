@@ -190,6 +190,14 @@ func TestUntitledThreadDelivery(t *testing.T) {
 				rec := &recorded{}
 				srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					rec.record(r.Method, r.URL.Path, "")
+					if kind == "voice" && r.Method == http.MethodPost {
+						if err := r.ParseMultipartForm(1 << 20); err != nil {
+							t.Error(err)
+						} else if files := r.MultipartForm.File["files[0]"]; len(files) != 1 ||
+							files[0].Header.Get("Content-Type") != "audio/ogg" {
+							t.Errorf("voice upload = %v, want audio/ogg", files)
+						}
+					}
 					w.Header().Set("Content-Type", "application/json")
 					if r.Method == http.MethodGet && r.URL.Path == "/channels/root-1" {
 						if existing {

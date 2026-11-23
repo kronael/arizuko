@@ -18,6 +18,7 @@ import (
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/chanlib/chanstore"
 	"github.com/kronael/arizuko/objstore/dynstore/dyntest"
+	"github.com/kronael/arizuko/retry"
 	"github.com/kronael/arizuko/tests/testutils"
 )
 
@@ -39,6 +40,24 @@ func TestSendFileRefusalIsNotDelivered(t *testing.T) {
 }
 
 func TestMain(m *testing.M) { dyntest.Main(m) }
+
+// A refused voice upload preserves rate-limit classification and releases its claim.
+func TestSendVoiceRateLimit(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(`{"message":"rate limited","retry_after":1,"global":false}`))
+	}))
+	defer srv.Close()
+	defer mockDiscordEndpoints(srv.URL)()
+	path := t.TempDir() + "/voice.ogg"
+	os_WriteFile(t, path, []byte("OggS"))
+	b := &bot{session: newTestSession(t)}
+	_, err := b.SendVoice("discord:ch-1", path, "", "", "", "")
+	if failure := retry.FromError(err, time.Now()); failure.Kind != "transient" ||
+		!errors.Is(err, chanlib.ErrNotDelivered) {
+		t.Fatalf("failure = %+v, error = %v", failure, err)
+	}
+}
 
 func TestPartialSendKeepsClaim(t *testing.T) {
 	var calls int32

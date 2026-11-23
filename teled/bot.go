@@ -562,6 +562,10 @@ func (b *bot) SendFile(jid, path, name, caption, replyTo, threadID, _, _ string)
 		d.ReplyToMessageID = reply
 		m = d
 	}
+	return b.sendUpload(m)
+}
+
+func (b *bot) sendUpload(m tgbotapi.Chattable) (string, error) {
 	resp, err := b.api.Request(m)
 	if err != nil {
 		var apiErr *tgbotapi.Error
@@ -597,11 +601,7 @@ func (b *bot) SendVoice(jid, audioPath, caption, threadID, _, _ string) (string,
 	v := tgbotapi.NewVoice(id, tgbotapi.FilePath(audioPath))
 	v.Caption = caption
 	v.MessageThreadID = threadMsgID(threadID)
-	sent, err := b.api.Send(v)
-	if err != nil {
-		return "", fmt.Errorf("telegram sendvoice: %w", err)
-	}
-	return strconv.Itoa(sent.MessageID), nil
+	return b.sendUpload(v)
 }
 
 func (b *bot) Typing(jid, _ string, on bool) { b.typing.Set(jid, on) }
