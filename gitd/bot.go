@@ -323,14 +323,14 @@ func (b *bot) Send(req chanlib.SendRequest) (string, error) {
 	}
 	token, err := b.replyToken(j)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("%w: %w", chanlib.ErrNotDelivered, err)
 	}
 	url := fmt.Sprintf("%s/repos/%s/%s/issues/%d/comments", b.cfg.APIBase, j.Owner, j.Repo, j.Number)
 	prefix := issueIDPrefix
 	if id, ok := reviewCommentID(req.ReplyTo); ok && j.Kind == "pr" {
 		root, err := b.threadRoot(j, id, token)
 		if err != nil {
-			return "", err
+			return "", fmt.Errorf("%w: %w", chanlib.ErrNotDelivered, err)
 		}
 		url = fmt.Sprintf("%s/repos/%s/%s/pulls/%d/comments/%d/replies",
 			b.cfg.APIBase, j.Owner, j.Repo, j.Number, root)

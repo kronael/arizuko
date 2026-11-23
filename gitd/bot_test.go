@@ -79,6 +79,41 @@ func TestUnknownCreateKeepsClaim(t *testing.T) {
 
 type testSources []store.GitHubSource
 
+type unavailableSources struct{ err error }
+
+func (s unavailableSources) ListGitHubSources(string) ([]store.GitHubSource, error) {
+	return nil, s.err
+}
+
+// Pre-send failures prove that GitHub did not receive a comment.
+func TestSendPreflightNotDelivered(t *testing.T) {
+	t.Run("source lookup", func(t *testing.T) {
+		cause := &retry.Error{Failure: retry.Failure{Kind: "transient"}, Err: errors.New("sources unavailable")}
+		b := newBot(config{Token: "test"})
+		b.sources = unavailableSources{err: cause}
+		_, err := b.Send(chanlib.SendRequest{ChatJID: "github:kronael/arizuko/pr/12", Content: "hi"})
+		if !errors.Is(err, chanlib.ErrNotDelivered) || !errors.Is(err, cause) {
+			t.Fatalf("error = %v; want not delivered with original cause", err)
+		}
+	})
+	t.Run("invalid thread response", func(t *testing.T) {
+		gh := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodGet {
+				t.Error("preflight failure reached POST")
+			}
+			_, _ = w.Write([]byte(`{`))
+		}))
+		defer gh.Close()
+		b := testBot(config{Token: "test", APIBase: gh.URL})
+		_, err := b.Send(chanlib.SendRequest{
+			ChatJID: "github:kronael/arizuko/pr/12", ReplyTo: "gh-rc123", Content: "hi",
+		})
+		if !errors.Is(err, chanlib.ErrNotDelivered) || !errors.Is(err, chanlib.ErrPermanent) {
+			t.Fatalf("error = %v; want permanent and not delivered", err)
+		}
+	})
+}
+
 func (s testSources) ListGitHubSources(string) ([]store.GitHubSource, error) { return s, nil }
 
 func testBot(cfg config) *bot {
