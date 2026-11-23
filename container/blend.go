@@ -154,7 +154,7 @@ func BlendProducts(groupDir string, mix []Product, managed []string) ([]Blended,
 		if err != nil {
 			return nil, nil, err
 		}
-		if _, err := writeIfDifferent(groupDir, rel, b, runDir); err != nil {
+		if err := writeIfDifferent(groupDir, rel, b, runDir); err != nil {
 			return nil, nil, err
 		}
 		out[i].Manifest[ManifestGroupFiles] = append(out[i].Manifest[ManifestGroupFiles], rel)
@@ -227,28 +227,27 @@ func blendSettings(groupDir string, mix []Product, p *plan, out []Blended, runDi
 	if err != nil {
 		return err
 	}
-	_, err = writeIfDifferent(groupDir, settingsRel, append(b, '\n'), runDir)
-	return err
+	return writeIfDifferent(groupDir, settingsRel, append(b, '\n'), runDir)
 }
 
-func writeIfDifferent(groupDir, rel string, b []byte, runDir string) (bool, error) {
+func writeIfDifferent(groupDir, rel string, b []byte, runDir string) error {
 	path := filepath.Join(groupDir, filepath.FromSlash(rel))
 	if cur, err := os.ReadFile(path); err == nil {
 		if bytes.Equal(cur, b) {
-			return false, nil
+			return nil
 		}
 		backup := filepath.Join(runDir, filepath.FromSlash(rel))
 		if err := os.MkdirAll(filepath.Dir(backup), 0o755); err != nil {
-			return false, err
+			return err
 		}
 		if err := os.WriteFile(backup, cur, 0o644); err != nil {
-			return false, err
+			return err
 		}
 	} else if !os.IsNotExist(err) {
-		return false, err
+		return err
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return false, err
+		return err
 	}
-	return true, os.WriteFile(path, b, 0o644)
+	return os.WriteFile(path, b, 0o644)
 }
