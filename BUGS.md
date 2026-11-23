@@ -753,12 +753,11 @@ reads those words now.
   persona or output style exists: intended, or pass `append`?
 - `L490` — only GitHub's surrogate OAuth client reaches routd and dashd; the
   other providers' keys in `.env` are dropped.
-- `L484`, `L485`, `L494`, `L496` — small fixes, each bounded in its
-  entry: the TS adapter's stale `/health` code, the RFC 3339 one-shot dashd
-  refuses, onbod's route writes on any allow row, extra mounts with no blocklist.
+- `L494`, `L496` — small fixes, each bounded in its entry: onbod's route
+  writes on any allow row, extra mounts with no blocklist.
 - `L488` — the standalone mcpfw image has no container build gate.
-- `L487`, `L489`, `L491`, `L501`, `L502` — doc and
-  comment drift against the code, each naming the sentence to change.
+- `L501` — `tests/lab/product-lab.sh` drives the removed `arizuko products`
+  subcommand: delete it or port it.
 **Found by the anteval-leak investigation (2026-10-21).**
 - `L72` — the disposable anteval lifecycle is built; a passing disposable run
   and the operator cleanup of krons leftovers remain.
@@ -2640,62 +2639,6 @@ a test that captures the `QueryInput`. Until then `6/37` and `6/42` carry
 
 - **Status:** fixed. `query.go` sets `ConsistentRead: true`; `dynstore/consistent_test.go` captures the request body. The driver names no index, so no GSI query exists to exclude.
 
-## L484 — whapd answers `/health` 503 when inbound is five minutes old, and chanlib answers 200 (2026-10-20, open)
-
-FOUND 2026-10-20 by the docs fold. `whapd/src/server.ts:210-222` sets `status = 'stale'; code = 503` once
-`last > 0 && staleSec > 5 * 60`. `chanlib/handler.go:604-607` states the rule
-the Go adapters follow: stale inbound is informational, `/health` stays 200
-with `status=stale`, and "a quiet workspace must not 503". `handleHealth`
-(`chanlib/handler.go:610-640`) does that. The comment at `whapd/src/server.ts:99`
-says the 5-minute threshold "matches the chanlib Go default"; the threshold
-matches and the verdict does not.
-
-`chanreg/health.go:38-49` (`healthPing`) reads the body and counts `stale` as
-alive, so routd never deregisters a quiet WhatsApp adapter. A reader of
-the status code (a `curl -f`, an external monitor) sees the same quiet adapter
-as down.
-
-**Fix:** answer 200 for `stale` in the server and keep 503 for
-`disconnected`. A Go producer and a TS consumer share one contract test that
-reads both sources (`CLAUDE.md` § Conventions); whapd has none. No test
-yet — this pass records only.
-
-- **Status:** open (record only).
-
-## L485 — routd accepts an RFC 3339 one-shot schedule and dashd refuses it (2026-10-20, open)
-
-FOUND 2026-10-20 by the docs fold. `routd/scheduled_tasks_resource.go:222-233`
-(`parseTaskSchedule`) reads the `cron` argument as an RFC 3339 timestamp
-first and, if it parses, stores a one-shot with an empty cron. dashd's create
-path (`dashd/tasks_admin.go:244`) calls `taskNextRun` (`:22`), which hands the
-value to `core.NextRun` (`core/cron.go:45`); that reads a millisecond count or
-a cron expression, so an RFC 3339 string fails and the handler answers 400
-"invalid cron expression" (`:246-248`). The same task is creatable by the agent
-and not by the operator on the page that lists it.
-
-**Fix:** one parser for both. dashd calls the function routd uses, which
-means moving `parseTaskSchedule` to `core` beside `NextRun`. No test yet —
-this pass records only.
-
-- **Status:** open (record only).
-
-## L487 — spec `11/15` and the CHANGELOG announce an `admin.pair` audit row, and the code writes a different one (2026-10-20, open)
-
-FOUND 2026-10-20 by the docs fold. `git grep -n 'admin\.pair'` finds only
-`CHANGELOG.md:3670` and `specs/11/15-whapd-self-rebind.md:185`. The spec says
-every `/v1/pair/start` writes a `messages` row (`sender=whapd:pair`,
-`verb=admin.pair`, `chat_jid=arizuko:admin/whapd`). `dashd/channels.go:217-228`
-(`auditPairStart`) writes an `audit_log` event instead, `Action:
-"channel.pair.start"`; its own comment (`:213-216`) says it replaced a
-synthetic `messages` insert nobody could read. The audit exists under another
-name and in another table, and a reader who greps the spec's verb finds
-nothing. `specs/11/15` is `status: shipped` and has not been changed to match.
-
-**Fix:** rewrite the spec's § Audit to `channel.pair.start` in `audit_log`.
-The CHANGELOG line is history and stays. No test — docs.
-
-- **Status:** open (record only).
-
 ## L488 — the standalone mcpfw image has no container build gate (2026-10-20, open)
 
 `mcpfw/Dockerfile` builds the root module's `./mcpfw/cmd/mcpfw` command.
@@ -2707,22 +2650,6 @@ command alone does not verify its Docker context, module download or runtime ima
   failures that an actual container build measures.
 - **Status:** toolchain pin fixed in `51c934515362efb8d16cd8276a67cb4d62d3667e`;
   container build coverage remains open. The current image build is unverified.
-
-## L489 — the comment above `channelAuth` says a channel name is pinned to an `(originIP, principal)` pair, and the IP is never compared (2026-10-20, open)
-
-FOUND 2026-10-20 by the docs fold. `routd/channels.go:41-43` says the origin pin
-"locks a name to its FIRST (originIP, principal) pair". `chanreg/chanreg.go:35`
-says the opposite: "OriginIP is RECORDED, never compared", because an
-adapter's address is its container IP and changes on every legitimate restart.
-The comparison at `chanreg/chanreg.go:137-141` tests the principal hash and
-`old.OriginIP != ""` only as a switch for whether to check. A reader of routd's
-comment believes a second container cannot take a name from a different
-address; it can, if it holds the same principal.
-
-**Fix:** state "locks a name to the first principal that registered it; the
-origin IP is recorded for the audit and never compared". No test — docs.
-
-- **Status:** open (record only).
 
 ## L490 — only the GitHub surrogate OAuth client reaches routd and dashd, so every other provider's `SURROGATE_<NAME>_CLIENT_*` in `.env` is dropped (2026-10-20, open)
 
@@ -2749,20 +2676,6 @@ owner's call.
   `.env` and a restart of compose generation; (b) move provider client
   credentials into the folder-secret store `dashd` already writes. **Default if
   nothing is decided:** only GitHub works from `.env`; the others stay inert.
-
-## L491 — `ant/examples/slack-team/PRODUCT.md` lists a skill `resolve` that no longer exists (2026-10-20, open)
-
-FOUND 2026-10-20 by the docs fold. `ant/examples/slack-team/PRODUCT.md:4`
-lists `"resolve"` among its skills. `ls ant/skills` has no `resolve`; every
-other name on that line (`diary`, `recall-memories`, `users`, `issues`, `web`,
-`dispatch`, `find`, `oracle`) has a directory. Migration `054` seeded
-`/resolve`; the shipped skill since is `dispatch`. The manifest's `skills` list
-is only printed (`cmd/arizuko/main.go:364-365`), so nothing fails and the
-product advertises a skill it does not ship.
-
-**Fix:** drop `"resolve"` from the line. No test — config.
-
-- **Status:** open (record only).
 
 ## L492 — dashd's WhatsApp re-pair page presents `service:dashd` and whapd admits only `service:routd`, so the page cannot pair (2026-10-20, open)
 
@@ -2933,52 +2846,21 @@ docs.
   as its only nudge; arizuko installs crons, the owner's tools nudge
   (`specs/4/28-memory-levels.md`).
 
-## L501 — eight code comments describe things that no longer exist (2026-10-20, open)
+## L501 — `tests/lab/product-lab.sh` drives a subcommand the CLI no longer has (2026-10-20, open)
 
-FOUND 2026-10-20 by the docs fold. Each was read at `62d7233a`.
+`tests/lab/product-lab.sh:47,65,73,80,88` run `"$BIN" products "$INST" apply
+main`, and its header (`:9-10`) says `arizuko create` and `products apply` are
+"filesystem + SQLite only" and need no docker. `cmd/arizuko` has no `products`
+subcommand (`grep -n 'products\b' cmd/arizuko/*.go` finds none outside tests;
+the verb is `arizuko package`), and the store is DynamoDB, so `create` needs an
+endpoint. `tests/README.md:96` lists the script as a manual experiment, not a
+gate. The script was not run. No test — docs.
 
-- `runed/manager.go:316`, `runed/hold.go:84`, `kernel/guest-init/main.go:685`
-  cite `dockerRuntime`; `runed/docker.go` is gone and no `dockerRuntime` type
-  exists. `runed.Runtime` has one production type, the VM one.
-- `onbod/main.go:835-838` ("messages.db in monolith, routd.db in the split …
-  INSERT OR IGNORE + RowsAffected") describes SQL; `writeWorld` is a guarded
-  batch (`:885`).
-- `groupfolder/folder.go:25-26` says `store/groups.go` "renders the same rule as
-  a statement", and `store/groups.go:8-9,513` say the containment is `substr`
-  and never `LIKE`. The read is `objstore.PrefixKey` (`:513-516`).
-- `auth/authorize.go:32` names `store.SeedMemberRoleTx`; the function is
-  `store.SeedMemberRole`.
-- `auth/authorize.go:650-655` says the agent socket authorizes the ext scope
-  "not the tool's `mcp:` name". `ipc/ipc.go:1197` authorizes the ext scope at
-  registration and `granted(...)` (`:1087-1097`) authorizes `mcp:<name>` at the
-  call, so a REST connector tool needs both grants.
-- `Makefile:186,192` call the `integration` target "red today — BUGS L349" and
-  cite `L349` for a 124 s kill; `L349` is fixed and pruned (`afac6bfa`).
-- `tests/lab/product-lab.sh:10` says `arizuko create` and `products apply` are
-  "filesystem + SQLite only"; the store is DynamoDB.
+**Fix:** delete the script and its `tests/README.md` row, or port it to
+`arizuko package` and state the DynamoDB endpoint it needs.
 
-**Fix:** one sentence each. No test — docs.
-
-- **Status:** open (record only).
-
-## L502 — `CLAUDE.md` and `specs/CLAUDE.md` say operator REST uses the default `auth.Authorize`, and 21 of 25 resource files set their own gate (2026-10-20, open)
-
-FOUND 2026-10-20 by the docs fold. `CLAUDE.md:102` and `specs/CLAUDE.md:29`:
-"Operator REST uses the default `auth.Authorize` (scope/ACL)". `resreg`
-applies `defaultGate` only when `Resource.Gate` is nil (`resreg/resreg.go:587-591`).
-`for f in $(git grep -l 'resreg.Mount(' -- '*.go'); do grep -c 'Gate =' $f; done`
-gives 21 of 25 files with an assignment: every `authd/*_resource.go`, every
-`onbod/*_resource.go`, `runed/audit_resource.go` and 13 of 15 routd files
-(for example `routd/acl_resource.go:48` `res.Gate = s.aclRESTGate`). Those gates
-check the bearer's scope and folder claim. The four files without one
-(`proxyd/resource.go`, `routd/groups_resource.go`, `routd/secrets_resource.go`,
-`webd/routes_mcp.go`) were not read. The rule that authz is injected per surface
-stands; the sentence about the default describes the exception.
-
-**Fix:** reword both lines to "REST resources inject a gate; the default is
-`auth.Authorize` where none is set". No test — docs.
-
-- **Status:** open (record only).
+- **Status:** open (record only). The other seven comments this entry listed
+  are corrected in `1ab1158b5`; the `onbod/main.go` one was already gone.
 
 ## ✅ FIXED 2026-10-21 L504 — the docs shell's top bar, sidebar and contents rail scroll away with the page (2026-10-21)
 
