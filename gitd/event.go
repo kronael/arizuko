@@ -69,12 +69,11 @@ type payload struct {
 	CheckSuite        *ciRun   `json:"check_suite"`
 	WorkflowRun       *ciRun   `json:"workflow_run"`
 	Issue             *struct {
-		Number      int       `json:"number"`
-		Title       string    `json:"title"`
-		Body        string    `json:"body"`
-		HTMLURL     string    `json:"html_url"`
-		User        *account  `json:"user"`
-		Assignees   []account `json:"assignees"`
+		Number      int      `json:"number"`
+		Title       string   `json:"title"`
+		Body        string   `json:"body"`
+		HTMLURL     string   `json:"html_url"`
+		User        *account `json:"user"`
 		PullRequest *struct {
 			URL string `json:"url"`
 		} `json:"pull_request"`
@@ -89,7 +88,6 @@ type payload struct {
 		User      *account `json:"user"`
 		Head      struct {
 			Ref string `json:"ref"`
-			SHA string `json:"sha"`
 		} `json:"head"`
 		Base struct {
 			Ref string `json:"ref"`
