@@ -13,6 +13,25 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.75.25] — 2026-11-23
+
+> arizuko v0.75.25 — an agent does what it is told and finishes
+>
+> An instruction that names an action is its approval, so "fix then merge" now ends merged.
+>
+> • Agent — an instruction that names an action approves it; the agent no longer asks again or adds its own gates.
+> • GitHub — replies are a few lines; no report file lands as a PR comment.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Fixed
+
+- The agent manual treats an instruction that names an action as its approval,
+  adds no gate the instruction did not set, never bypasses branch protection,
+  and builds a requested change instead of proposing it (L921).
+- On GitHub the agent replies in a few lines and sends a report file only when
+  asked (L922).
+
 ## [v0.75.24] — 2026-11-23
 
 > arizuko v0.75.24 — git works in the agent's shell again
