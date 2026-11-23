@@ -219,6 +219,26 @@ describe('POST /send', () => {
   });
 });
 
+/** Truncated file streams return 502 without an unhandled error or a send. */
+it('rejects truncated multipart uploads', async () => {
+  stub = makeStub();
+  connected = true;
+  for (const route of ['/send-file', '/send-voice']) {
+    const r = await fetch(`${BASE}${route}`, {
+      method: 'POST',
+      headers: {
+        ...auth(),
+        'Content-Type': 'multipart/form-data; boundary=broken',
+      },
+      body: '--broken\r\nContent-Disposition: form-data; name="file"; filename="x.ogg"\r\n\r\ntruncated',
+    });
+    expect(r.status).toBe(502);
+    expect((await r.json()).error).toContain('Unexpected end of form');
+  }
+  expect(stub.calls).toHaveLength(0);
+  expect((await fetch(`${BASE}/health`)).status).toBe(200);
+});
+
 describe('POST /send-file', () => {
   it('returns 502 when not connected', async () => {
     connected = false;

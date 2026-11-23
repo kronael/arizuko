@@ -60,6 +60,7 @@ function parseMultipart(req: http.IncomingMessage): Promise<{
     });
     bb.on('file', (_name, stream) => {
       stream.on('data', (d: Buffer) => chunks.push(d));
+      stream.on('error', reject);
     });
     bb.on('finish', () =>
       resolve({
