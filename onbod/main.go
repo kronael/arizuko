@@ -502,11 +502,11 @@ func handleDashboard(w http.ResponseWriter, r *http.Request, db, obdb *store.Sto
 		renderUsernamePicker(w, username, csrf)
 		return
 	}
+	if mayCreateFirstWorld(db, obdb, userSub) {
+		renderUsernamePicker(w, username, csrf)
+		return
+	}
 	if len(userFolders(db, userSub)) == 0 {
-		if mayCreateFirstWorld(obdb, userSub) {
-			renderUsernamePicker(w, username, csrf)
-			return
-		}
 		renderPage(w, "Invite Required",
 			template.HTML(`<p>You need an invite link to join. Ask an admin for one.</p>`))
 		return
@@ -573,7 +573,7 @@ func handleOnboardPost(w http.ResponseWriter, r *http.Request, db, obdb *store.S
 
 var usernameRe = regexp.MustCompile(`^[a-z][a-z0-9-]{2,29}$`)
 
-func mayCreateFirstWorld(obdb *store.Store, userSub string) bool {
+func mayCreateFirstWorld(db, obdb *store.Store, userSub string) bool {
 	gates, err := loadGates(obdb)
 	if err != nil || userSub == "" || len(gates) == 0 {
 		return false
@@ -583,7 +583,7 @@ func mayCreateFirstWorld(obdb *store.Store, userSub string) bool {
 		slog.Error("approved-admission lookup", "user", userSub, "err", err)
 		return false
 	}
-	return n > 0
+	return n > 0 && len(userFolders(db, userSub)) == 0
 }
 
 func latestRedemption(obdb *store.Store, userSub string) (store.Redemption, bool) {
@@ -623,7 +623,7 @@ func checkIssuer(db *store.Store, issuer string, rows []core.ACLRow) (objstore.V
 func handleCreateWorld(w http.ResponseWriter, r *http.Request, db, obdb *store.Store, cfg config, userSub string) {
 
 	redemption, invited := latestRedemption(obdb, userSub)
-	if !invited && !mayCreateFirstWorld(obdb, userSub) {
+	if !invited && !mayCreateFirstWorld(db, obdb, userSub) {
 		renderPage(w, "Invite Required",
 			template.HTML(`<p>You need an invite link to create a workspace.</p>`))
 		return

@@ -126,6 +126,24 @@ func TestApprovedStrangerWithGateCreatesTopLevelWorld(t *testing.T) {
 	}
 }
 
+// The approval admits a caller who holds no folder, once: a direct post that
+// skips the dashboard must not turn one approval into a second world.
+func TestApprovedCallerWhoHoldsAWorldIsRefusedASecond(t *testing.T) {
+	db := testDB(t)
+	seedStranger(t, db, "github:new", "approved")
+	seedGate(t, db, "github:*", 1)
+
+	if w := createWorld(t, db, "github:new", "worldone"); w.Code != http.StatusSeeOther {
+		t.Fatalf("first world: want 303, got %d: %s", w.Code, w.Body.String())
+	}
+	w := createWorld(t, db, "github:new", "worldtwo")
+
+	if w.Code == http.StatusSeeOther || folderExists(t, db, "worldtwo") {
+		t.Fatalf("a caller holding worldone created worldtwo: HTTP %d, folders %v",
+			w.Code, allFolders(t, db))
+	}
+}
+
 // Adversarial half 1: approved, but the operator configured no gate. This is
 // the default posture of every existing deployment — admitJID approved this
 // caller only because there was nothing to match against — so the write MUST
