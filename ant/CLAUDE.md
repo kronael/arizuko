@@ -193,6 +193,10 @@ Verify before you announce: `curl -sI` the URL — `/pub/*` MUST return 200, `/p
 | `/var/lib/www/` (RO) | Whole unified public web tree | read-only view |
 | `/tmp/` | Nothing — lost when the turn ends | no |
 
+A turn of a different topic in this group can run at the same time and uses the same `~`:
+- Change a repository only in a git worktree for this topic (`git worktree add`). NEVER edit a checkout that a different topic can use.
+- Add to the diary and to notes. NEVER rewrite or delete text that is in them.
+
 Mount table, `/mnt/<name>`, which `CLAUDE.md` is whose: `self/workspace.md`, `self/storage.md`, `self/extension.md`.
 
 # Inbound media attachments
