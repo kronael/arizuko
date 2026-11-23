@@ -21,6 +21,7 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 >
 > • Turns — a failed run pauses only its folder for 30 seconds, not every folder for an hour, and the pause cannot deadlock.
 > • Store — every query names a page and point reads use GetItem, so the store no longer loads whole partitions.
+> • Network — a guest started while three others ran could get no path to its proxy; each guest's firewall rules now sit in their own chain.
 > • pi — a failed model call is retried three times; a new topic keeps its parent's history.
 >
 > Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
@@ -32,6 +33,9 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   one named turn, which could deadlock (L826).
 - Every store query names a page of at most 1,000 items, and an exact-key read
   is a `GetItem`.
+- runed puts each tap's rules in a chain named after the tap and removes it by
+  name; iptables could not find an older guest's port-matched rules once three
+  guests ran, so a reused tap dropped its proxy traffic (`fetch failed`).
 - pi retries a failed model call 3 times; a pi topic fork copies the parent
   session (L913).
 - Delivery verbs refuse a `<status>` block (L760); a malformed observe window

@@ -35,6 +35,7 @@
       <ul>
         <li><strong>Turns</strong> &mdash; a failed run pauses only its folder for 30 seconds, not every folder for an hour, and the pause cannot deadlock.</li>
         <li><strong>Store</strong> &mdash; every query names a page and point reads use GetItem, so the store no longer loads whole partitions.</li>
+        <li><strong>Network</strong> &mdash; a guest started while three others ran could get no path to its proxy; each guest&rsquo;s firewall rules now sit in their own chain.</li>
         <li><strong>pi</strong> &mdash; a failed model call is retried three times; a new topic keeps its parent&rsquo;s history.</li>
       </ul>
       <p class="note">Full notes: <a href="https://github.com/kronael/arizuko/blob/main/CHANGELOG.md#v07526--2026-11-23">CHANGELOG &sect; v0.75.26</a>.</p>
