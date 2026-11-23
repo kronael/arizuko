@@ -91,6 +91,7 @@ type RouterClient struct {
 	regPrefixes []string
 	regCaps     map[string]bool
 	regMu       sync.Mutex
+	registerMu  sync.Mutex
 
 	// pending holds the retained inbound; nil until RetainInbound wires it.
 	pending *chanstore.Store
@@ -155,6 +156,12 @@ func (r *RouterClient) getToken() string {
 func (r *RouterClient) Token() string { return r.bearer() }
 
 func (r *RouterClient) Register(name, url string, prefixes []string, caps map[string]bool) (string, error) {
+	r.registerMu.Lock()
+	defer r.registerMu.Unlock()
+	return r.register(name, url, prefixes, caps)
+}
+
+func (r *RouterClient) register(name string, url string, prefixes []string, caps map[string]bool) (string, error) {
 	slog.Info("registering channel", "name", name, "url", url)
 	var resp struct {
 		OK    bool   `json:"ok"`
@@ -188,11 +195,13 @@ func (r *RouterClient) Register(name, url string, prefixes []string, caps map[st
 // honour. The saved registration is what the heartbeat refreshes from, so the
 // change survives every refresh.
 func (r *RouterClient) SetCaps(caps map[string]bool) error {
+	r.registerMu.Lock()
+	defer r.registerMu.Unlock()
 	name, url, prefixes, _ := r.savedRegistration()
 	if name == "" {
 		return fmt.Errorf("set caps: no saved registration (Register was never called)")
 	}
-	_, err := r.Register(name, url, prefixes, caps)
+	_, err := r.register(name, url, prefixes, caps)
 	return err
 }
 
@@ -207,12 +216,13 @@ func (r *RouterClient) savedRegistration() (name, url string, prefixes []string,
 var errNeverRegistered = errors.New("re-register: no saved params (Register was never called)")
 
 func (r *RouterClient) reregister() error {
+	r.registerMu.Lock()
+	defer r.registerMu.Unlock()
 	name, url, prefixes, caps := r.savedRegistration()
 	if name == "" {
 		return errNeverRegistered
 	}
-	slog.Warn("re-registering channel after 401", "name", name)
-	_, err := r.Register(name, url, prefixes, caps)
+	_, err := r.register(name, url, prefixes, caps)
 	return err
 }
 
@@ -237,12 +247,8 @@ func (r *RouterClient) heartbeat(ctx context.Context, every time.Duration) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			name, url, prefixes, caps := r.savedRegistration()
-			if name == "" {
-				continue
-			}
-			if _, err := r.Register(name, url, prefixes, caps); err != nil {
-				slog.Warn("channel heartbeat failed", "name", name, "err", err)
+			if err := r.reregister(); err != nil && !errors.Is(err, errNeverRegistered) {
+				slog.Warn("channel heartbeat failed", "err", err)
 			}
 		}
 	}

@@ -2,12 +2,77 @@ package chanlib
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 )
+
+type registrationTransport struct {
+	calls   atomic.Int32
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (t *registrationTransport) RoundTrip(*http.Request) (*http.Response, error) {
+	if t.calls.Add(1) == 2 {
+		close(t.entered)
+		<-t.release
+	}
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       io.NopCloser(strings.NewReader(`{"ok":true,"token":"registered"}`)),
+		Header:     make(http.Header),
+	}, nil
+}
+
+// Refresh and capability updates preserve the new capabilities in either order.
+func TestRegistrationKeepsNewCaps(t *testing.T) {
+	for _, setFirst := range []bool{false, true} {
+		t.Run(map[bool]string{false: "refresh first", true: "set caps first"}[setFirst], func(t *testing.T) {
+			transport := &registrationTransport{entered: make(chan struct{}), release: make(chan struct{})}
+			rc := NewRouterClient("http://router.test")
+			rc.client.Transport = transport
+			if _, err := rc.Register("test", "http://adapter", nil, map[string]bool{"send_text": false}); err != nil {
+				t.Fatal(err)
+			}
+			done := make(chan error, 2)
+			secondDone := make(chan struct{})
+			for i := range 2 {
+				go func() {
+					if (i == 0) == setFirst {
+						done <- rc.SetCaps(map[string]bool{"send_text": true})
+					} else {
+						done <- rc.reregister()
+					}
+					if i == 1 {
+						close(secondDone)
+					}
+				}()
+				if i == 0 {
+					<-transport.entered
+				}
+			}
+			select {
+			case <-secondDone:
+			case <-time.After(50 * time.Millisecond):
+			}
+			close(transport.release)
+			for range 2 {
+				if err := <-done; err != nil {
+					t.Fatal(err)
+				}
+			}
+			_, _, _, caps := rc.savedRegistration()
+			if !caps["send_text"] {
+				t.Fatal("registration restored stale capabilities")
+			}
+		})
+	}
+}
 
 // registerCounter is an httptest server that accepts registrations and counts
 // them, so a test can watch the heartbeat replay one.
