@@ -8,7 +8,7 @@ depends: [1-auth-standalone, 17-openapi-mcp]
 
 **Decided.** `runed` is the **execution plane** — the daemon that runs
 the agent container per turn. It owns the **container execution
-envelope**: per-folder serialization, the per-spawn container lifecycle
+envelope**: per-topic serialization, the per-spawn container lifecycle
 (spawn/steer/runTTL/teardown), and the run record in `runed.db`. It holds
 `docker.sock` and the crackbox egress attach; nothing else in the
 platform spawns a container.
@@ -27,7 +27,7 @@ runs, renders the prompt, hosts the socket; `runed` _runs_ the container.
 
 | Concern                                     | runed                                                                                    |
 | ------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| Per-folder serialization                    | **owns** (read from `spawns`, § Run state)                                               |
+| Per-topic serialization                     | **owns** (read from `spawns`, § Run state)                                               |
 | Per-spawn container lifecycle               | **owns** (`container/`, driven by `runed/docker.go`)                                     |
 | Per-spawn runtime state + run history       | **owns** (`runed.db`: `spawns`, `session_log`, `circuit_breaker`)                        |
 | Per-turn agent MCP unix socket + tool host  | **never** — `routd` (`ServeTurnMCP`, in-process); runed mounts the ipc dir               |
@@ -50,7 +50,8 @@ into every core daemon (`compose/compose.go`), so any daemon could open
 ## Run state — `runed.db` is the only source of truth
 
 `runed` keeps **no in-memory runtime state**. Every admission decision
-reads the DB, none is cached: exclusivity (`GetActiveSpawn`), the
+reads the DB, none is cached: exclusivity (`LiveSpawnsInFolder`: one live
+run per folder and topic, and a hold excludes every run of its folder), the
 concurrency cap (`ActiveCount` vs `MAX_CONCURRENT_AGENTS`, default
 5), and the circuit breaker (`GetFailures` over the `circuit_breaker`
 table, 3 consecutive failures opens it). Admission is one atomic claim
@@ -73,10 +74,11 @@ queues drift. `runed` is now a **pure claim-or-reject executor** — when
 the folder is busy or the cap is hit it returns `busy=true` on the pinned
 response and `routd` re-feeds the batch. `routd` does not advance the
 `agent_cursor` and does not count the reject toward the circuit breaker
-(busy ≠ error). A live folder also returns `busy=true`: a fresh follow-up
-waits until that run ends, then starts with its own turn context and MCP
+(busy ≠ error). A live run of the same topic also returns `busy=true`: a
+fresh follow-up waits until that run ends, then starts with its own turn context and MCP
 binding. The existing routd backoff bounds the retry. `/stop` uses the
-separate stop endpoint and does not wait for admission.
+separate stop endpoint and does not wait for admission: it kills every live
+run of the folder, or with `turn_id` only that turn's run.
 
 `busy=true` also covers a claim that was **admitted and then killed before
 it launched**: `DB.StartSpawn` reports whether its `state='queued'` guard
@@ -214,7 +216,7 @@ built, wired to authd, and never consumed:
   read `sub=service:runed` — one identity for every tenant.
 - Nothing verified a `jti`: zero references in `ipc/` or `routd/mcp.go`.
 
-**What credentials a turn instead**: the per-folder unix socket, gated by
+**What credentials a turn instead**: the per-turn unix socket, gated by
 `SO_PEERCRED` (`ipc/ipc.go:542` `peerCred`). That is an unforgeable
 capability reference — it cannot be copied out of the container and it
 dies with the turn. A bearer string handed to an agent that runs

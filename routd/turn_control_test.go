@@ -18,7 +18,7 @@ func setExecutionProcessor(q *turnControl, folderOf func(string) string, fn proc
 		if folderOf != nil && folderOf(jid) != "" {
 			folder = folderOf(jid)
 		}
-		if !q.reserve(jid, folder, false, jid) {
+		if !q.reserve(jid, folder, "", false, jid) {
 			return false, nil
 		}
 		return fn(jid)
@@ -42,7 +42,7 @@ func assertRecoveryDoesNotBlockQueue(t *testing.T) {
 	entered, release, finished := make(chan struct{}), make(chan struct{}), make(chan struct{})
 	unblock := sync.OnceFunc(func() { close(release) })
 	defer unblock()
-	go func() { _, _ = q.WithIdleFolder("a", func() error { close(entered); <-release; return nil }) }()
+	go func() { _, _ = q.WithIdleTopic("a", "", func() error { close(entered); <-release; return nil }) }()
 	<-entered
 	go func() { q.EnqueueMessageCheck("b"); close(finished) }()
 	select {
@@ -52,7 +52,7 @@ func assertRecoveryDoesNotBlockQueue(t *testing.T) {
 	}
 }
 
-func TestWithIdleFolderExcludesAdmission(t *testing.T) {
+func TestWithIdleTopicExcludesAdmission(t *testing.T) {
 	for _, failure := range []bool{false, true} {
 		t.Run(fmt.Sprintf("error=%t", failure), func(t *testing.T) {
 			assertRecoveryDoesNotBlockQueue(t)
@@ -66,7 +66,7 @@ func TestWithIdleFolderExcludesAdmission(t *testing.T) {
 				entered, recovered := make(chan struct{}), make(chan error, 1)
 				want := errors.New("recovery failed")
 				go func() {
-					_, err := q.WithIdleFolder("a", func() error {
+					_, err := q.WithIdleTopic("a", "", func() error {
 						close(entered)
 						<-release
 						if failure {
@@ -94,7 +94,7 @@ func TestWithIdleFolderExcludesAdmission(t *testing.T) {
 					t.Fatal("other folder did not start")
 				}
 				duplicate := make(chan bool, 1)
-				go func() { ok, _ := q.WithIdleFolder("a", func() error { return nil }); duplicate <- ok }()
+				go func() { ok, _ := q.WithIdleTopic("a", "", func() error { return nil }); duplicate <- ok }()
 				synctest.Wait()
 				select {
 				case ok := <-duplicate:
@@ -133,7 +133,7 @@ func TestWithIdleFolderExcludesAdmission(t *testing.T) {
 	}
 }
 
-func TestWithIdleFolderShutdown(t *testing.T) {
+func TestWithIdleTopicShutdown(t *testing.T) {
 	assertRecoveryDoesNotBlockQueue(t)
 	synctest.Test(t, func(t *testing.T) {
 		release := make(chan struct{})
@@ -144,7 +144,7 @@ func TestWithIdleFolderShutdown(t *testing.T) {
 		setExecutionProcessor(q, nil, func(jid string) (bool, error) { started <- jid; return true, nil })
 		entered, recovered := make(chan struct{}), make(chan struct{})
 		go func() {
-			_, _ = q.WithIdleFolder("a", func() error { close(entered); <-release; return nil })
+			_, _ = q.WithIdleTopic("a", "", func() error { close(entered); <-release; return nil })
 			close(recovered)
 		}()
 		<-entered

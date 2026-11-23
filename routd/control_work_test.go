@@ -105,14 +105,14 @@ func TestControlWorkRetriesBusyProbeAtDeadline(t *testing.T) {
 	archivedProbe(t, db)
 	now := time.Now()
 	l.q.now = func() time.Time { return now }
-	l.q.activeFolders["a"] = "busy"
+	l.q.activeTopics[topicKey{folder: "a"}] = "busy"
 	if err := l.q.recover(l, false); err != nil {
 		t.Fatal(err)
 	}
 	if work, err := db.store().DueWork(t.Context(), "control", now); err != nil || len(work) != 0 {
 		t.Fatalf("busy not deferred %v %v", work, err)
 	}
-	delete(l.q.activeFolders, "a")
+	delete(l.q.activeTopics, topicKey{folder: "a"})
 	if err := l.q.recover(l, false); err != nil {
 		t.Fatal(err)
 	}

@@ -22,7 +22,8 @@ func (l *Loop) oldestModelInput(folder string, first core.Message) (core.Message
 	}
 	var oldest core.Message
 	for _, tc := range turns {
-		if tc.Folder != folder || (tc.State != store.TurnPendingRetry && tc.State != store.TurnWaitingCapacity) {
+		if tc.Folder != folder || (tc.State != store.TurnPendingRetry && tc.State != store.TurnWaitingCapacity) ||
+			l.q.isTopicActive(folder, tc.Topic) {
 			continue
 		}
 		msgs, err := l.db.store().DeferredMessages(context.Background(), tc.InputKeys)
@@ -51,7 +52,7 @@ func (l *Loop) oldestModelInput(folder string, first core.Message) (core.Message
 				return tc.State == store.TurnRunning && !tc.RunReturned && tc.ChatJID == jid && tc.InputLast >= store.MessageCursor(msg)
 			})
 			if !msg.BotMsg && !admitted && batch.rows[i].ok && batch.rows[i].Folder == folder &&
-				(oldest.ID == "" || modelInputBefore(msg, oldest)) {
+				!l.q.isTopicActive(folder, msg.Topic) && (oldest.ID == "" || modelInputBefore(msg, oldest)) {
 				oldest = msg
 			}
 		}
@@ -107,6 +108,6 @@ func (l *Loop) stopModelProbe(tc TurnContext) error {
 	if !ok {
 		return fmt.Errorf("run recovery cannot stop the interrupted model probe")
 	}
-	_, err := stopper.StopFolder(ctx, tc.Folder)
+	_, err := stopper.StopFolder(ctx, tc.Folder, tc.TurnID)
 	return err
 }

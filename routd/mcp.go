@@ -755,7 +755,7 @@ func (s *Server) ServeTurnMCP(t turnMCP, ipcDir string) (func(), error) {
 	authorize := s.turnAuthorize(t)
 	callerID := turnIdentity(t.folder, t.elevated)
 	// routd binds the socket BEFORE runed spawns the container, and ServeMCP
-	// never mkdirs, so the per-folder ipc dir is created here.
+	// never mkdirs, so the turn's ipc dir is created here.
 	if err := os.MkdirAll(ipcDir, 0o755); err != nil {
 		return nil, err
 	}

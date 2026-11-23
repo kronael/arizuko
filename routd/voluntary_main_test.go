@@ -182,7 +182,7 @@ func TestVoluntaryReplyQueuedInputKeepsAuthoritativeTurn(t *testing.T) {
 		cmd := exec.CommandContext(ctx, bun, "--preload", preload, filepath.Join(source, "index.ts"))
 		cmd.Env = append(os.Environ(),
 			"VOLUNTARY_FIXTURE_ROOT="+root, "VOLUNTARY_FIXTURE_SOURCE="+source,
-			"VOLUNTARY_FIXTURE_SOCKET="+filepath.Join(cfg.IpcDir, "demo/gated.sock"),
+			"VOLUNTARY_FIXTURE_SOCKET="+groupfolder.IpcSocket(groupfolder.TurnIpcDir(filepath.Join(cfg.IpcDir, "demo"), frame.MessageID)),
 			"VOLUNTARY_FIXTURE_MODE=lifecycle")
 		for name, value := range turn.Env {
 			cmd.Env = append(cmd.Env, name+"="+value)

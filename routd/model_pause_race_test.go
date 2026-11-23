@@ -92,7 +92,7 @@ func TestModelPauseStaleCallbackAcrossRebind(t *testing.T) {
 				t.Fatal(err)
 			}
 			recorded := db.TurnResultRecorded("a", "held")
-			if _, err := p.StopFolder(t.Context(), "a"); err != nil {
+			if _, err := p.StopFolder(t.Context(), "a", ""); err != nil {
 				t.Fatal(err)
 			}
 			<-runDone

@@ -20,7 +20,7 @@ func TestStopFolder_OK(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	c := NewClient(srv.URL, "tok", 5*time.Second)
-	out, err := c.StopFolder(context.Background(), "atlas/main")
+	out, err := c.StopFolder(context.Background(), "atlas/main", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,7 +42,7 @@ func TestStopFolder_NonOK_APIError(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	c := NewClient(srv.URL, "tok", 5*time.Second)
-	_, err := c.StopFolder(context.Background(), "atlas/main")
+	_, err := c.StopFolder(context.Background(), "atlas/main", "")
 	ae, ok := err.(*APIError)
 	if !ok {
 		t.Fatalf("err = %T; want *APIError", err)

@@ -92,7 +92,7 @@ func buildMounts(
 		}
 		manual = append(append(manual, data...), '\n')
 	}
-	ipcDir, err := folders.IpcPath(folder)
+	ipcDir, err := turnIpcDir(folders, req)
 	if err != nil {
 		return nil, err
 	}
@@ -142,7 +142,6 @@ func buildMounts(
 
 	mkMountSource(filepath.Join(groupDir, ".claude"))
 
-	mkMountSource(groupfolder.IpcInputDir(ipcDir))
 	m = append(m, core.Mount{
 		Host:      ipcDir,
 		Container: ipcMount,
@@ -290,8 +289,22 @@ func mkSlot(dir string) {
 	}
 }
 
+// turnIpcDir is the host side of the guest's /run/ipc: the turn's own dir, where
+// routd binds this turn's MCP socket and this renderer writes the turn's files.
+func turnIpcDir(folders *groupfolder.Resolver, req runedv1.RunRequest) (string, error) {
+	ipcDir, err := folders.IpcPath(string(req.Folder))
+	if err != nil {
+		return "", err
+	}
+	return groupfolder.TurnIpcDir(ipcDir, req.TurnID), nil
+}
+
+// renderedIpcFiles are the files buildMounts writes into the turn's ipc dir;
+// endCodexStage deletes them with the staged credentials.
+var renderedIpcFiles = []string{"package-CLAUDE.md", "codex-config.toml", "codex-hooks.json"}
+
 // codexStagePrefix names the per-turn copies of the host codex credentials in
-// the folder's ipc dir. endCodexStage deletes them when the turn ends.
+// the turn's ipc dir. endCodexStage deletes them when the turn ends.
 const codexStagePrefix = "codex-cred-"
 
 // codexLoginFile is the one staged file the guest may write: codex and pi rotate
@@ -353,15 +366,18 @@ func stageCodexCreds(hostCodexDir, ipcDir string) []core.Mount {
 	return out
 }
 
-// endCodexStage closes one folder's turn on the borrowed login: it carries the
-// guest's refreshed auth.json back to the operator, then deletes the staged
-// copies. The same conditions as buildMounts gate the write-back; with them
-// unmet nothing was staged.
+// endCodexStage closes one turn on the borrowed login: it carries the guest's
+// refreshed auth.json back to the operator, then deletes the staged copies and
+// the rendered files. The same conditions as buildMounts gate the write-back;
+// with them unmet nothing was staged. routd removes the socket and the dir.
 func endCodexStage(cfg *core.Config, ipcDir string) {
 	if cfg.HostCodexDir != "" && cfg.ModelGatewayURL == "" {
 		writeBackCodexLogin(cfg.HostCodexDir, ipcDir)
 	}
 	removeCodexStage(ipcDir)
+	for _, name := range renderedIpcFiles {
+		_ = os.Remove(filepath.Join(ipcDir, name))
+	}
 }
 
 // writeBackCodexLogin replaces HOST_CODEX_DIR/auth.json with the staged copy when
@@ -459,7 +475,7 @@ func replaceFile(path string, data []byte, like os.FileInfo) error {
 	return os.Rename(tmp.Name(), path)
 }
 
-// removeCodexStage deletes the staged credential copies of one folder's turn.
+// removeCodexStage deletes the staged credential copies of one turn.
 func removeCodexStage(ipcDir string) {
 	for _, name := range container.CodexCredMounts {
 		_ = os.Remove(filepath.Join(ipcDir, codexStagePrefix+name))

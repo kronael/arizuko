@@ -113,7 +113,7 @@ func (r *recoveryRunner) Run(ctx context.Context, req runedv1.RunRequest) (runed
 	return r.recRunner.Run(ctx, req)
 }
 
-func (r *recoveryRunner) StopFolder(_ context.Context, folder string) (runedv1.StopRunResponse, error) {
+func (r *recoveryRunner) StopFolder(_ context.Context, folder, _ string) (runedv1.StopRunResponse, error) {
 	r.killed = folder
 	return runedv1.StopRunResponse{}, r.stopErr
 }

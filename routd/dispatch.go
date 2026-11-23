@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"maps"
 	"net"
+	"os"
 	"slices"
 	"strings"
 	"sync"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/kronael/arizuko/container"
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/objstore"
 	"github.com/kronael/arizuko/obs"
 	"github.com/kronael/arizuko/retry"
@@ -482,7 +484,7 @@ func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed boo
 	if saved != nil {
 		workKey = deferredWorkPrefix + turnID
 	}
-	if !l.q.reserve(workKey, folder, core.IsScheduledSender(last.Sender), turnID) {
+	if !l.q.reserve(workKey, folder, topic, core.IsScheduledSender(last.Sender), turnID) {
 		return false, false, true, "", nil
 	}
 	defer l.q.release(workKey)
@@ -589,14 +591,20 @@ func (l *Loop) runBoundTurn(folder, topic, chatJID, turnID string, addressed boo
 		if err != nil {
 			return false, false, false, "", fmt.Errorf("%w: resolve turn mcp path: %w", ErrDependencyDown, err)
 		}
+		turnDir := groupfolder.TurnIpcDir(ipcDir, turnID)
 		stop, err := l.srv.ServeTurnMCP(turnMCP{
 			folder: folder, topic: topic, chatJID: chatJID, turnID: turnID, trigger: last.Sender, elevated: elevated,
 			attempt: tc.AttemptID,
-		}, ipcDir)
+		}, turnDir)
 		if err != nil {
 			return false, false, false, "", fmt.Errorf("%w: serve turn mcp: %w", ErrDependencyDown, err)
 		}
-		defer stop()
+		defer func() {
+			stop()
+			// runed removed its files when the run returned; a dir it left
+			// non-empty stays for the operator
+			_ = os.Remove(turnDir)
+		}()
 	}
 
 	if l.folders != nil && l.folders.IpcDir != "" {

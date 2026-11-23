@@ -29,7 +29,7 @@ type Runner interface {
 // spawn-only test stubs need not implement it; a runner without it reports
 // no-active-container.
 type RunStopper interface {
-	StopFolder(ctx context.Context, folder string) (runedv1.StopRunResponse, error)
+	StopFolder(ctx context.Context, folder, turnID string) (runedv1.StopRunResponse, error)
 }
 
 type RunKiller interface {

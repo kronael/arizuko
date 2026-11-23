@@ -82,7 +82,7 @@ func (p *pauseProvider) Run(_ context.Context, req runedv1.RunRequest) (runedv1.
 	return out, p.runErr
 }
 
-func (p *pauseProvider) StopFolder(context.Context, string) (runedv1.StopRunResponse, error) {
+func (p *pauseProvider) StopFolder(context.Context, string, string) (runedv1.StopRunResponse, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.stops++
@@ -210,7 +210,7 @@ func (p *deadlinePauseProvider) Kill(ctx context.Context, _ string) error {
 		return errors.New("no deadline")
 	}
 }
-func (p *deadlinePauseProvider) StopFolder(ctx context.Context, _ string) (runedv1.StopRunResponse, error) {
+func (p *deadlinePauseProvider) StopFolder(ctx context.Context, _, _ string) (runedv1.StopRunResponse, error) {
 	select {
 	case <-ctx.Done():
 		return runedv1.StopRunResponse{}, ctx.Err()

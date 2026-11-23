@@ -250,7 +250,7 @@ func (q *qemuRuntime) spawn(ctx context.Context, t Turn) RunResult {
 		// Not fatal: the turn runs, its console just has nowhere to land.
 		slog.Warn("console log dir; this turn keeps no console log", "path", logsDir, "err", err)
 	}
-	ts := time.Now().Format("2006-01-02T15-04-05")
+	ts := time.Now().Format("2006-01-02T15-04-05") + "-" + strconv.FormatUint(uint64(rec.CID), 10)
 	console := filepath.Join(logsDir, "container-"+ts+".console.log")
 
 	// Step 2: the staging tree and the two shares.
@@ -317,7 +317,7 @@ func (q *qemuRuntime) spawn(ctx context.Context, t Turn) RunResult {
 
 	// Step 5: the MCP bridge, one child per turn, running as the agent's uid so
 	// routd's SO_PEERCRED check is the one it already runs.
-	bridge, err := q.startBridge(rec, mcpL)
+	bridge, err := q.startBridge(rec, turnSocket(t), mcpL)
 	_ = mcpL.Close() // the child holds it now
 	if err != nil {
 		return fail(err)
@@ -766,8 +766,7 @@ func waitForSocket(path string, within time.Duration, died <-chan error) error {
 // startBridge forks this turn's MCP bridge as the agent's uid, handing it the
 // already-bound listener on fd 3. The child needs no privilege of its own and
 // cannot choose another port.
-func (q *qemuRuntime) startBridge(rec *vmRecord, listener *os.File) (*exec.Cmd, error) {
-	socket := groupfolder.IpcSocket(mustIpcPath(q.folders, rec.Folder))
+func (q *qemuRuntime) startBridge(rec *vmRecord, socket string, listener *os.File) (*exec.Cmd, error) {
 	uid, _ := container.RunUID()
 	self, err := os.Executable()
 	if err != nil {
@@ -793,18 +792,20 @@ func (q *qemuRuntime) startBridge(rec *vmRecord, listener *os.File) (*exec.Cmd, 
 	return cmd, nil
 }
 
-// mustIpcPath resolves the folder's ipc dir. An unresolvable folder yields an
-// empty path, which the bridge reports when it cannot dial: routd binds that
-// socket before the spawn, so an empty one is routd's absence, not a guess to
-// paper over.
-func mustIpcPath(folders *groupfolder.Resolver, folder string) string {
-	dir, err := folders.IpcPath(folder)
-	if err != nil {
-		slog.Error("ipc dir unresolvable; the guest's tool calls will have nowhere to go",
-			"folder", folder, "err", err)
-		return ""
+// turnSocket is the MCP socket routd binds for this turn: the socket in the host
+// side of the guest's /run/ipc mount. A turn with no such mount yields an empty
+// path, which the bridge reports when it cannot dial: routd binds that socket
+// before the spawn, so an empty one is routd's absence, not a guess to paper
+// over.
+func turnSocket(t Turn) string {
+	for _, mt := range t.Mounts {
+		if mt.Container == ipcMount {
+			return groupfolder.IpcSocket(mt.Host)
+		}
 	}
-	return dir
+	slog.Error("turn has no ipc mount; the guest's tool calls will have nowhere to go",
+		"folder", t.Folder, "handle", t.Handle)
+	return ""
 }
 
 // Kill stops a live guest by handle (DELETE /v1/runs/{id}). Idempotent: a handle

@@ -185,7 +185,7 @@ func TestTurnControlProviderReplaySessionAndAddressed(t *testing.T) {
 func TestTurnControlRecoveryDoesNotStopOccupiedFolder(t *testing.T) {
 	db, l, p, _ := pauseFixture(t)
 	tc := providerRefusal(t, db, p)
-	ok, err := l.q.WithIdleFolder(tc.Folder, func() error {
+	ok, err := l.q.WithIdleTopic(tc.Folder, tc.Topic, func() error {
 		if err := l.q.recover(l, true); err != nil {
 			return err
 		}

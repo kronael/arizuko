@@ -250,7 +250,8 @@ func (l *Loop) cmdPing(chatJID, folder string) {
 		folder, sess, active, nGroups))
 }
 
-// cmdStop asks runed to map the folder to its live spawn and kill it.
+// cmdStop cancels the folder's turns and asks runed to kill every live spawn of
+// the folder.
 //
 // The answers name the TURN. A turn is a KVM guest now, and an operator who reads
 // "container" goes looking for one with `docker ps` (BUGS `L389`).
@@ -270,7 +271,7 @@ func (l *Loop) cmdStop(chatJID, folder string) {
 		l.ack(chatJID, "No active turn for this chat.")
 		return
 	}
-	res, err := stopper.StopFolder(context.Background(), folder)
+	res, err := stopper.StopFolder(context.Background(), folder, "")
 	if err != nil {
 		slog.Warn("cmdStop: runed stop failed", "jid", chatJID, "folder", folder, "err", err)
 		l.ack(chatJID, "No active turn for this chat.")

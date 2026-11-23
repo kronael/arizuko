@@ -120,6 +120,30 @@ func TestCopySession_CreatesProjDirOnDemand(t *testing.T) {
 	}
 }
 
+// BUGS L920: a parent topic can run while a child forks from it, so its
+// transcript can end in half a line. The copy keeps only whole lines.
+func TestCopySession_DropsAPartialLastLine(t *testing.T) {
+	dir := t.TempDir()
+	projDir := filepath.Join(dir, ".claude", "projects", "-home-node")
+	if err := os.MkdirAll(projDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	whole := `{"type":"user","sessionId":"p"}` + "\n"
+	if err := os.WriteFile(filepath.Join(projDir, "p.jsonl"), []byte(whole+`{"type":"assis`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := CopySession(dir, "p", "c"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(filepath.Join(projDir, "c.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := `{"type":"user","sessionId":"c"}` + "\n"; string(got) != want {
+		t.Fatalf("child transcript %q, want %q", got, want)
+	}
+}
+
 func TestCopySession_CodexRolloutSkipsFork(t *testing.T) {
 	dir := t.TempDir()
 	rolloutDir := filepath.Join(dir, ".codex", "sessions", "2026", "11", "09")

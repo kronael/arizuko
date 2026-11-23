@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sync"
 	"time"
 
@@ -19,8 +20,9 @@ import (
 
 const defaultMaxConcurrent = 5
 
-// Manager owns the execution plane's run lifecycle: per-folder serialization
-// (one live spawn per folder), the global concurrency cap and the Runtime envelope
+// Manager owns the execution plane's run lifecycle: per-topic serialization
+// (one live spawn per folder and topic; a hold takes the whole folder), the
+// global concurrency cap and the Runtime envelope
 // (spec 5/P-runed). Admission is a pure claim-or-reject decision off the DB; runed
 // keeps NO internal admission queue, and a caller that cannot be admitted
 // gets a retryable busy outcome and routd re-feeds it. The only in-memory
@@ -178,12 +180,14 @@ func (m *Manager) admit(ctx context.Context, req runedv1.RunRequest, kind string
 	folder := string(req.Folder)
 	m.mu.Lock()
 
-	active, err := m.db.LiveSpawnInFolder(ctx, folder)
+	active, err := m.db.LiveSpawnsInFolder(ctx, folder)
 	if err != nil {
 		m.mu.Unlock()
 		return claim{}, runedv1.RunOutcome{}, false, fmt.Errorf("check active spawn: %w", err)
 	}
-	if active != nil {
+	if slices.ContainsFunc(active, func(sp Spawn) bool {
+		return kind == KindHold || sp.Kind == KindHold || sp.Topic == req.Topic
+	}) {
 		m.mu.Unlock()
 		return claim{}, runedv1.RunOutcome{Busy: true}, false, nil
 	}
@@ -208,14 +212,14 @@ func (m *Manager) admit(ctx context.Context, req runedv1.RunRequest, kind string
 	c = claim{
 		runID:     "run_" + randHex(8),
 		sessionID: req.SessionID,
-		containerName: fmt.Sprintf("arizuko-%s-%s-%d",
-			m.instance, container.SanitizeFolder(folder), time.Now().UnixMilli()),
+		containerName: fmt.Sprintf("arizuko-%s-%s-%d-%s",
+			m.instance, container.SanitizeFolder(folder), time.Now().UnixMilli(), randHex(4)),
 	}
 	if c.sessionID == "" {
 		c.sessionID = core.NewSessionID()
 	}
 	if err := m.db.CreateSpawn(ctx, Spawn{
-		RunID: c.runID, Folder: folder, Topic: req.Topic, ContainerName: c.containerName,
+		RunID: c.runID, Folder: folder, Topic: req.Topic, TurnID: req.TurnID, ContainerName: c.containerName,
 		SessionID: c.sessionID, Kind: kind, State: "queued",
 	}); err != nil {
 		m.mu.Unlock()
@@ -338,7 +342,7 @@ func (m *Manager) execute(
 				Error: "model gateway configured but this run carries no virtual key; routd mints one per turn (spec 6/23)",
 			}
 		}
-		if ipcDir, err := m.folders.IpcPath(string(req.Folder)); err == nil {
+		if ipcDir, err := turnIpcDir(m.folders, req); err == nil {
 			defer endCodexStage(m.cfg, ipcDir)
 		}
 		var err error
@@ -398,27 +402,37 @@ func (m *Manager) Kill(ctx context.Context, runID string) error {
 	return nil
 }
 
-// StopFolder is the operator-kill path (routd's /stop): it resolves the
-// folder's live spawn and Kills it. killed=false with "" means the folder has
-// no live spawn.
-func (m *Manager) StopFolder(ctx context.Context, folder string) (runID string, killed bool, err error) {
-	runID, err = m.ActiveRunID(ctx, folder)
-	if err != nil || runID == "" {
+// StopFolder is the operator-kill path (routd's /stop): it Kills every live
+// spawn of the folder, or with a turnID only the spawn that turn started.
+// runID names the newest run it killed; killed=false with "" means none was
+// live.
+func (m *Manager) StopFolder(ctx context.Context, folder, turnID string) (runID string, killed bool, err error) {
+	active, err := m.db.LiveSpawnsInFolder(ctx, folder)
+	if err != nil {
 		return "", false, err
 	}
-	if err := m.Kill(ctx, runID); err != nil {
-		return "", false, err
+	for _, sp := range active {
+		if turnID != "" && sp.TurnID != turnID {
+			continue
+		}
+		if err := m.Kill(ctx, sp.RunID); err != nil {
+			return runID, killed, err
+		}
+		if !killed {
+			runID, killed = sp.RunID, true
+		}
 	}
-	return runID, true, nil
+	return runID, killed, nil
 }
 
-// ActiveRunID returns the run_id of a folder's live spawn, or "" when none.
+// ActiveRunID returns the run_id of a folder's newest live spawn, or "" when
+// none.
 func (m *Manager) ActiveRunID(ctx context.Context, folder string) (string, error) {
-	active, err := m.db.LiveSpawnInFolder(ctx, folder)
-	if err != nil || active == nil {
+	active, err := m.db.LiveSpawnsInFolder(ctx, folder)
+	if err != nil || len(active) == 0 {
 		return "", err
 	}
-	return active.RunID, nil
+	return active[0].RunID, nil
 }
 
 // ActiveCount returns the number of live spawns (test/observability).

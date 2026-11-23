@@ -32,6 +32,7 @@ const spawnPartition = "spawn"
 const (
 	attrFolder       = "folder"
 	attrTopic        = "topic"
+	attrTurnID       = "turn_id"
 	attrContainer    = "container_name"
 	attrSessionLogID = "session_log_id"
 	attrSessionID    = "session_id"
@@ -58,6 +59,7 @@ type Spawn struct {
 	RunID         string
 	Folder        string
 	Topic         string
+	TurnID        string
 	ContainerName string
 	SessionLogID  string
 	SessionID     string
@@ -68,11 +70,6 @@ type Spawn struct {
 	CreatedAt     string
 	StartedAt     string
 	EndedAt       string
-}
-
-// ActiveSpawn is a live spawn's identifying info for the steer path.
-type ActiveSpawn struct {
-	RunID string
 }
 
 // spawnKey is the coordinate of one spawn.
@@ -113,6 +110,7 @@ func (s *Store) CreateSpawn(ctx context.Context, sp Spawn) error {
 		attrCreatedAt: core.NowTS(),
 	}
 	set(attrs, attrTopic, sp.Topic)
+	set(attrs, attrTurnID, sp.TurnID)
 	set(attrs, attrSessionLogID, sp.SessionLogID)
 	set(attrs, attrSessionID, sp.SessionID)
 	committed, err := s.s.GuardedBatch(ctx, nil, []objstore.Write{{
@@ -268,28 +266,28 @@ func (s *Store) RecentSpawns(ctx context.Context, state, folder string, limit in
 	return out, nil
 }
 
-// LiveSpawnInFolder answers whether a folder's run slot is taken, and by which
-// run; nil means free. This read IS the liveness authority. The folder match
-// is EXACT, not a subtree: a parent holding a child's slot would serialize a
-// whole tenant onto one run.
-func (s *Store) LiveSpawnInFolder(ctx context.Context, folder string) (*ActiveSpawn, error) {
+// LiveSpawnsInFolder answers which runs hold a folder's run slots, newest
+// first; empty means free. This read IS the liveness authority. The folder
+// match is EXACT, not a subtree: a parent holding a child's slot would
+// serialize a whole tenant onto one run.
+func (s *Store) LiveSpawnsInFolder(ctx context.Context, folder string) ([]Spawn, error) {
 	items, err := objstore.IndexItems(ctx, s.s, "spawns/live", objstore.KeyPredicate{}, 0)
 	if err != nil {
-		return nil, fmt.Errorf("read %s's live run: %w", folder, err)
+		return nil, fmt.Errorf("read %s's live runs: %w", folder, err)
 	}
-	var newest *objstore.Item
-	for i := range items {
-		if value, exists := items[i].Attrs[attrFolder]; !exists || value != folder {
-			continue
-		}
-		if newest == nil || items[i].Attrs[attrCreatedAt] > newest.Attrs[attrCreatedAt] {
-			newest = &items[i]
+	var out []Spawn
+	for _, it := range items {
+		if value, exists := it.Attrs[attrFolder]; exists && value == folder {
+			out = append(out, spawnFrom(it))
 		}
 	}
-	if newest == nil {
-		return nil, nil
-	}
-	return &ActiveSpawn{RunID: newest.Key.Sort}, nil
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].CreatedAt != out[j].CreatedAt {
+			return out[i].CreatedAt > out[j].CreatedAt
+		}
+		return out[i].RunID > out[j].RunID
+	})
+	return out, nil
 }
 
 // LiveSpawnCount answers how many spawns of EVERY kind still hold a slot.
@@ -364,6 +362,7 @@ func spawnFrom(it objstore.Item) Spawn {
 		RunID:         it.Key.Sort,
 		Folder:        a[attrFolder],
 		Topic:         a[attrTopic],
+		TurnID:        a[attrTurnID],
 		ContainerName: a[attrContainer],
 		SessionLogID:  a[attrSessionLogID],
 		SessionID:     a[attrSessionID],

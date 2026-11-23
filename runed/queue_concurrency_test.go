@@ -306,10 +306,11 @@ func TestStaleSteerRegistrationIsUnreachable(t *testing.T) {
 // currently-live run — the exact lookup admit does.
 func steerFor(t *testing.T, mgr *Manager, folder string) bool {
 	t.Helper()
-	active, _ := mgr.db.LiveSpawnInFolder(t.Context(), folder)
-	if active == nil {
+	live, _ := mgr.db.LiveSpawnsInFolder(t.Context(), folder)
+	if len(live) == 0 {
 		return false
 	}
+	active := live[0]
 	mgr.mu.Lock()
 	defer mgr.mu.Unlock()
 	return mgr.steerFns[active.RunID] != nil

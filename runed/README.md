@@ -28,8 +28,9 @@ runed does these jobs:
 
 ## Entities runed owns
 
-A live folder returns `busy=true`; routd retains the batch for refeed after
-the active run ends, then dispatches it with its own turn identity.
+A live run of the same folder and topic, or a live hold of the folder, returns
+`busy=true`; routd retains the batch for refeed after the active run ends, then
+dispatches it with its own turn identity. Two topics of one folder run at once.
 
 The `runed` owner is separate from routd. It owns `spawns`, `session_log` and `audit_log`. These tables hold runtime state that has no home in routd. They are not configuration that a manifest addresses, so `/openapi.json` exposes only the read path of `audit`.
 
@@ -51,7 +52,7 @@ The binary is `runed/cmd/runed/main.go`. It listens on `LISTEN_ADDR`, default `:
 
 - `POST /v1/runs` starts a run [`service:routd` with `runs:run`].
 - `POST /v1/holds` claims the run slot of a folder and returns the handle at once [`runs:run`]. `DELETE /v1/runs/{run_id}` releases it.
-- `POST /v1/runs/stop` is the operator kill by folder [`runs:kill`].
+- `POST /v1/runs/stop` is the operator kill by folder: every live run of the folder, or with `turn_id` only that turn's run [`runs:kill`].
 - `GET /v1/runs/{run_id}` returns the status of a run. `DELETE /v1/runs/{run_id}` kills it [`runs:kill`].
 - `GET /v1/spawn_sessions` returns the `session_log` history, one row per agent spawn [`sessions:read`, bound to a folder]. The path is not `sessions`, because that wire identity belongs to the refresh-token families of authd.
 - `GET /v1/spawn_sessions/recent` returns the n newest `session_log` rows with all fields [`sessions:read`]. routd uses it as a federation read.
@@ -218,11 +219,11 @@ Core is required. Package selection is an input to the renderer, outside the
 
 `Manager.Run` (`manager.go`) answers in one of two ways and keeps no queue. A second queue inside runed would drift from the queue of routd, which already holds the batch.
 
-| Folder state                     | Answer                                     | routd then                                  |
-| -------------------------------- | ------------------------------------------ | ------------------------------------------- |
-| a live guest or spawn row        | `busy`                                     | re-feeds the batch later, no cursor advance |
-| cap `MAX_CONCURRENT_AGENTS` full | `busy`                                     | the same                                    |
-| idle, under the cap              | a `spawns` row in `queued`, then the guest | waits for the outcome                       |
+| Folder state                                  | Answer                                     | routd then                                  |
+| --------------------------------------------- | ------------------------------------------ | ------------------------------------------- |
+| a live spawn row of the same topic, or a hold | `busy`                                     | re-feeds the batch later, no cursor advance |
+| cap `MAX_CONCURRENT_AGENTS` full              | `busy`                                     | the same                                    |
+| topic idle, under the cap                     | a `spawns` row in `queued`, then the guest | waits for the outcome                       |
 
 - Admission uses store records; per-guest process and network state lives in VM records on disk. Every admission decision reads live spawn pointers under one mutex for check and claim. A map in memory would lie after a restart: a folder would stay wedged, or the cap would reset. At boot, `ExpireOrphans` ends every row that a dead runed left live, as `exited` with outcome `error` and never `killed` (`runstore/spawns.go`).
 - `StartSpawn` takes the claim with a condition on `state='queued'`. A `DELETE` that lands between the claim and the launch wins, and the run answers `busy`. A `killed` row makes the folder read free, so a launch without this guard would put two guests on one mount.
@@ -242,7 +243,7 @@ Core is required. Package selection is an input to the renderer, outside the
 7. Accept `ctl` only from the CID of this guest. Then send the `turn` frame, which holds the environment and the stdin payload.
 8. `guest-init` (`kernel/guest-init/main.go`) is PID 1 in the initrd. It sends `ready`, assembles the root, starts `socat UNIX-LISTEN:/run/ipc/gated.sock` toward `VSOCK-CONNECT:2:<mcp>`, and runs ant as uid 1000. The stderr of ant comes back as `log` frames, and the last frame of the guest is one `exit`.
 
-The kernel console goes to `groups/<folder>/logs/container-<ts>.console.log`, beside the turn log `container-<ts>.log`.
+The kernel console goes to `groups/<folder>/logs/container-<ts>-<cid>.console.log`, beside the turn log `container-<ts>-<cid>.log`. The CID keeps two turns of one folder that start in the same second apart.
 
 The turn log header carries `Peak guest memory: <n> MiB`, the peak resident set of the QEMU process of this turn (`Rusage.Maxrss`; the touched pages of the guest memory count). The line `guest exited` carries the same value as `peakGuestKiB`. It reads `unknown` (and logs 0) when QEMU did not exit within `RUNED_REAP_GRACE` after its SIGTERM. Use it to set `RUNED_GUEST_MEM`: `grep 'Peak guest memory' groups/*/logs/container-*.log`. The value is in the logs only; `Runtime` and `RunResult` do not carry it.
 
@@ -255,7 +256,7 @@ ant ──► /run/ipc/gated.sock ──► socat ──► │ vsock port <mcp>
                     MCP bridge: the agent's uid, accepts one CID
                                           │
                                           ▼
-                    routd: ipc/<folder>/gated.sock, SO_PEERCRED check
+                    routd: ipc/<folder>/t-<hash>/gated.sock, SO_PEERCRED check
 ```
 
 The host assigns the CID of the guest, and the vhost driver of the host drops every packet whose source is not that CID. A guest cannot claim the CID of another guest. The bridge accepts a connection only from the CID of its own turn, and it dials one path, the folder socket of that turn. The check in routd stays the `SO_PEERCRED` uid check that it runs on any socket peer.
@@ -264,7 +265,7 @@ To reach the tools of folder B, an agent in folder A would need the CID of B. Or
 
 ### Deadline warning and stop
 
-A follow-up for a folder with a live guest is refused with `busy`; routd keeps the batch and feeds it again after the run ends. Checkpoint completion and ceiling expiry queue a continuation in routd after the guest returns. `RunOutcome.timed_out` identifies a ceiling expiry without changing the Runtime port.
+A follow-up for a topic with a live guest is refused with `busy`; routd keeps the batch and feeds it again after the run ends. Checkpoint completion and ceiling expiry queue a continuation in routd after the guest returns. `RunOutcome.timed_out` identifies a ceiling expiry without changing the Runtime port.
 
 The run deadline sends `stop`. `guest-init` sends SIGTERM to the agent and powers off after 10 seconds. runed waits `RUNED_REAP_GRACE` for the `exit` frame. Then it sends SIGKILL to the QEMU pid and confirms that the process is gone, because a guest power-off does not prove that QEMU exited. `DELETE /v1/runs/{run_id}` reaps the same way, from the record on disk.
 

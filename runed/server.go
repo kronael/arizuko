@@ -183,7 +183,7 @@ func (s *Server) handleRunStop(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 404, "unknown_run", "no such run") // uniform with status/kill; don't leak other folders
 		return
 	}
-	runID, killed, err := s.mgr.StopFolder(r.Context(), req.Folder)
+	runID, killed, err := s.mgr.StopFolder(r.Context(), req.Folder, req.TurnID)
 	s.auditRunSlot(r.Context(), sub, actionRunKill, req.Folder, runID, killParams(killed), err)
 	if err != nil {
 		writeErr(w, 500, "kill_failed", err.Error())

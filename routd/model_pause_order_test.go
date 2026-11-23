@@ -209,6 +209,28 @@ func TestInputOrderKeepsAdmissionAcrossRouteChange(t *testing.T) {
 	}
 }
 
+// BUGS L920: an older input waiting for a topic that runs now cannot go first,
+// so it must not hold back a younger input of a different topic.
+func TestInputOrderSkipsARunningTopic(t *testing.T) {
+	db, l, _, _ := pauseFixture(t)
+	now := time.Now()
+	pauseChatInFolder(t, db, "web:a", "b")
+	if err := db.PutMessage(core.Message{ChatJID: "web:a", ID: "queued", Sender: "u", Content: "follow-up",
+		Topic: "pr-1", Timestamp: now, Verb: "message"}); err != nil {
+		t.Fatal(err)
+	}
+	later := core.Message{ID: "later", ChatJID: "web:b", Topic: "pr-2", Timestamp: now.Add(time.Second)}
+	if oldest, err := l.oldestModelInput("b", later); err != nil || oldest.ID != "queued" {
+		t.Fatalf("an idle topic's older input does not lead: %+v %v", oldest, err)
+	}
+	l.q.mu.Lock()
+	l.q.activeTopics[topicKey{folder: "b", topic: "pr-1"}] = "web:a"
+	l.q.mu.Unlock()
+	if oldest, err := l.oldestModelInput("b", later); err != nil || oldest.ID != "" {
+		t.Fatalf("a running topic's queued input blocks another topic: %+v %v", oldest, err)
+	}
+}
+
 func TestDeferredInputOrderWaitsForPeriodicReplay(t *testing.T) {
 	logs := captureLogs(t)
 	db, setup, p, dl := pauseFixture(t)

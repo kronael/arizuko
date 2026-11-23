@@ -107,7 +107,7 @@ func seedSettings(
 	settings["mcpServers"] = servers
 
 	data, _ = json.MarshalIndent(settings, "", "  ")
-	tmp := fp + ".tmp"
+	tmp := fp + ".tmp-" + randHex(4)
 	if err := os.WriteFile(tmp, append(data, '\n'), 0o644); err != nil {
 		// settings.json carries the mcpServers socket; without it
 		// the agent spawns with no reply/send tools and silently returns 0

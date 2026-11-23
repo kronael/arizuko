@@ -13,6 +13,16 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+### Changed
+
+- One folder runs one turn per topic, not one turn: two PR topics of a repo
+  folder run at once inside `MAX_CONCURRENT_AGENTS`. routd and runed both admit
+  by (folder, topic); a hold still takes the whole folder. Each turn binds its
+  MCP socket and stages its credentials in `ipc/<folder>/t-<hash>/`, and
+  `POST /v1/runs/stop` takes an optional `turn_id`. The agent manual tells a
+  topic to change a repository in its own git worktree and to append to the
+  diary and notes (L920).
+
 ## [v0.75.26] — 2026-11-23
 
 > arizuko v0.75.26 — one failure no longer stops the whole instance

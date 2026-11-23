@@ -28,7 +28,7 @@ func TestModelPauseRecoveryCannotReportAnUnstoppedGuestAsStopped(t *testing.T) {
 	}()
 	<-started
 	defer func() { close(release); <-done }()
-	if _, _, err := mgr.StopFolder(t.Context(), "a"); err == nil {
+	if _, _, err := mgr.StopFolder(t.Context(), "a", ""); err == nil {
 		t.Fatal("stop acknowledged an unstopped guest")
 	}
 	if n := mgr.ActiveCount(t.Context()); n != 1 {

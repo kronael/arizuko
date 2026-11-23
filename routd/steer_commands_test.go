@@ -133,7 +133,7 @@ type stopRunner struct {
 	resp   runedv1.StopRunResponse
 }
 
-func (r *stopRunner) StopFolder(_ context.Context, folder string) (runedv1.StopRunResponse, error) {
+func (r *stopRunner) StopFolder(_ context.Context, folder, _ string) (runedv1.StopRunResponse, error) {
 	r.folder = folder
 	return r.resp, nil
 }

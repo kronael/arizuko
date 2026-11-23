@@ -76,18 +76,19 @@ func (q *turnControl) cancel(l *Loop, folder string) ([]string, error) {
 		return canceled, err
 	}
 	q.mu.Lock()
-	activeID := ""
+	var activeIDs []string
 	for _, r := range q.reservations {
 		if r.folder == folder {
-			activeID = r.turnID
-			break
+			activeIDs = append(activeIDs, r.turnID)
 		}
 	}
 	q.mu.Unlock()
-	active, ok := l.db.GetTurnContext(activeID)
-	if ok && active.Folder == folder && active.State == store.TurnDone && !active.RunReturned &&
-		!slices.ContainsFunc(turns, func(tc TurnContext) bool { return tc.TurnID == activeID }) {
-		turns = append(turns, active)
+	for _, activeID := range activeIDs {
+		active, ok := l.db.GetTurnContext(activeID)
+		if ok && active.Folder == folder && active.State == store.TurnDone && !active.RunReturned &&
+			!slices.ContainsFunc(turns, func(tc TurnContext) bool { return tc.TurnID == activeID }) {
+			turns = append(turns, active)
+		}
 	}
 	for _, tc := range turns {
 		if tc.Folder != folder {
@@ -559,7 +560,7 @@ func (q *turnControl) recover(l *Loop, startup bool) error {
 			recovery.Phase = "open"
 			continue
 		}
-		ok, err := q.WithIdleFolder(tc.Folder, func() error {
+		ok, err := q.WithIdleTopic(tc.Folder, tc.Topic, func() error {
 			result, err := l.db.store().GetTurnResult(tc.Folder, tc.TurnID)
 			if err != nil {
 				return err
@@ -638,9 +639,14 @@ type groupState struct {
 
 type turnReservation struct {
 	folder string
+	topic  string
 	cron   bool
 	turnID string
 }
+
+type topicKey struct{ folder, topic string }
+
+func (r turnReservation) key() topicKey { return topicKey{folder: r.folder, topic: r.topic} }
 
 type processMessagesFn func(groupJid string) (bool, error)
 
@@ -651,7 +657,7 @@ type turnControl struct {
 	groups          map[string]*groupState
 	activeCount     int
 	activeCron      int
-	activeFolders   map[string]string
+	activeTopics    map[topicKey]string
 	reservations    map[string]turnReservation
 	pending         map[string]turnReservation
 	maxConcurrent   int
@@ -665,7 +671,7 @@ type turnControl struct {
 func newTurnControl(maxConcurrent int) *turnControl {
 	return &turnControl{
 		groups:        make(map[string]*groupState),
-		activeFolders: make(map[string]string),
+		activeTopics:  make(map[topicKey]string),
 		reservations:  make(map[string]turnReservation),
 		pending:       make(map[string]turnReservation),
 		maxConcurrent: maxConcurrent,
@@ -693,18 +699,19 @@ func (q *turnControl) SetParkedFn(fn parkedFn) {
 	q.parked = fn
 }
 
-// WithIdleFolder runs fn while admission to an idle folder is excluded.
-func (q *turnControl) WithIdleFolder(folder string, fn func() error) (bool, error) {
+// WithIdleTopic runs fn while admission to an idle (folder, topic) is excluded.
+func (q *turnControl) WithIdleTopic(folder, topic string, fn func() error) (bool, error) {
+	key := topicKey{folder: folder, topic: topic}
 	q.mu.Lock()
-	if _, busy := q.activeFolders[folder]; busy {
+	if _, busy := q.activeTopics[key]; busy {
 		q.mu.Unlock()
 		return false, nil
 	}
-	q.activeFolders[folder] = ""
+	q.activeTopics[key] = ""
 	q.mu.Unlock()
 	defer func() {
 		q.mu.Lock()
-		delete(q.activeFolders, folder)
+		delete(q.activeTopics, key)
 		if !q.shuttingDown {
 			q.drainWaitingLocked()
 		}
@@ -713,12 +720,19 @@ func (q *turnControl) WithIdleFolder(folder string, fn func() error) (bool, erro
 	return true, fn()
 }
 
+func (q *turnControl) isTopicActive(folder, topic string) bool {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	_, active := q.activeTopics[topicKey{folder: folder, topic: topic}]
+	return active
+}
+
 func (q *turnControl) activateLocked(jid string) {
 	q.getGroup(jid).active = true
 }
 
 func (q *turnControl) canReserve(r turnReservation) bool {
-	_, busy := q.activeFolders[r.folder]
+	_, busy := q.activeTopics[r.key()]
 	return !busy && q.activeCount < q.maxConcurrent && (!r.cron || q.activeCron == 0)
 }
 
@@ -728,12 +742,12 @@ func (q *turnControl) reserveLocked(jid string, r turnReservation) {
 	if r.cron {
 		q.activeCron++
 	}
-	q.activeFolders[r.folder] = jid
+	q.activeTopics[r.key()] = jid
 }
 
-func (q *turnControl) reserve(jid, folder string, cron bool, turnID string) bool {
+func (q *turnControl) reserve(jid, folder, topic string, cron bool, turnID string) bool {
 	q.mu.Lock()
-	r := turnReservation{folder: folder, cron: cron, turnID: turnID}
+	r := turnReservation{folder: folder, topic: topic, cron: cron, turnID: turnID}
 	prior, reserved := q.reservations[jid]
 	if reserved && prior != r {
 		q.releaseLocked(jid)
@@ -766,7 +780,7 @@ func (q *turnControl) releaseLocked(jid string) {
 		return
 	}
 	delete(q.reservations, jid)
-	delete(q.activeFolders, r.folder)
+	delete(q.activeTopics, r.key())
 	q.activeCount--
 	if r.cron {
 		q.activeCron--

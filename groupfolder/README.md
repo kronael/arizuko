@@ -5,7 +5,7 @@ Group-folder path resolution and validation.
 ## Purpose
 
 Translates a `folder` string into filesystem paths (`groups/<folder>`,
-`ipc/<folder>/gated.sock`, `groups/<folder>/media/<YYYYMMDD>`). Rejects
+`ipc/<folder>/t-<hash>/gated.sock`, `groups/<folder>/media/<YYYYMMDD>`). Rejects
 traversal attempts (`..`, absolute paths, symlink escapes). `IsTopLevel`
 reports whether a folder is a world (no `/`). It is a shape test, not a
 privilege check — capability comes from `acl` rows.
@@ -30,7 +30,8 @@ partition, so one prefix query covers a whole subtree (`objstore/README.md`
 - `(*Resolver).GroupPath(folder)`, `IpcPath(folder)`, `EnsureWithinBase(path)`
 - `IsTopLevel(folder string) bool`
 - `Contains(parent, child) bool`, `ContainsSep(parent, child, sep) bool`
-- `IpcInputDir(ipcDir)`, `IpcSocket(ipcDir)`, `GroupMediaDir(groupDir, day)`
+- `IpcSocket(ipcDir)`, `TurnIpcDir(ipcDir, turnID)` (one turn's socket and staged
+  credentials, so two turns of one folder never share them), `GroupMediaDir(groupDir, day)`
 
 ## Dependencies
 

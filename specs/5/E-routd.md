@@ -155,9 +155,19 @@ is a future spec.
 
 ### Consistency contract
 
-- **Serialized per folder.** At most one turn per folder. Fresh inbounds
-  wait until the active run ends, then use their own turn context and MCP
-  binding; duplicate enqueues for one chat collapse.
+- **Serialized per (folder, topic).** At most one turn per folder and
+  topic; two topics of one folder run at once inside the global
+  `MAX_CONCURRENT_AGENTS` cap and the one-cron-at-a-time rule
+  (`routd/turn_control.go` `canReserve`). Fresh inbounds of a busy topic wait
+  until its run ends, then use their own turn context and MCP binding;
+  duplicate enqueues for one chat collapse. The per-turn state is keyed by
+  the turn: the MCP socket and staged credentials live in
+  `ipc/<folder>/t-<hash>/` (`groupfolder.TurnIpcDir`), and runed refuses
+  only a second live run of the same topic (or any run beside a hold). The
+  model-input order check skips inputs of a topic that is running now. The
+  agent's home is shared by the topics: the agent manual tells each topic to
+  change a repository in its own git worktree and to append to the diary and
+  notes, never rewrite them (BUGS `L920`).
 - **Per-turn callback serialization.** routd serializes
   `/v1/turns/{turn_id}/*` append-and-deliver per `turn_id`. Each new
   `reply` chains `reply_to_id` to the prior reply's `platform_id`; while

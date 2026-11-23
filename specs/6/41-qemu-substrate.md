@@ -233,7 +233,8 @@ Two answers the port does not change:
 
 ## The turn
 
-routd binds the folder's `gated.sock` before the spawn, as today
+routd binds the turn's `gated.sock` (`ipc/<folder>/t-<hash>/`, the host
+side of the guest's `/run/ipc` mount) before the spawn, as today
 (`routd/mcp.go:578-591`). runed then:
 
 1. Allocates the VM's CID (`≥ 3`, unique among live VMs on the host) and two

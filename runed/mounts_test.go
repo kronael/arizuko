@@ -452,8 +452,16 @@ func TestBuildMountsCodexCredentials(t *testing.T) {
 	}
 
 	// The turn's end removes the copies; the operator's files stay.
-	ipcDir, _ := folders.IpcPath(string(req.Folder))
+	ipcDir, _ := turnIpcDir(folders, req)
+	if ipc := findMount(gatewayMounts, ipcMount); ipc == nil || ipc.Host != ipcDir {
+		t.Fatalf("ipc mount %+v, want the turn's own dir %s", ipc, ipcDir)
+	}
 	endCodexStage(cfg, ipcDir)
+	for _, n := range renderedIpcFiles {
+		if _, err := os.Stat(filepath.Join(ipcDir, n)); !os.IsNotExist(err) {
+			t.Errorf("rendered %s survives the turn (err=%v)", n, err)
+		}
+	}
 	for _, n := range container.CodexCredMounts {
 		if _, err := os.Stat(filepath.Join(ipcDir, codexStagePrefix+n)); !os.IsNotExist(err) {
 			t.Errorf("staged %s survives the turn (err=%v)", n, err)
@@ -544,7 +552,7 @@ func stagedLogin(t *testing.T) (cfg *core.Config, ipcDir, operator string) {
 		t.Fatal(err)
 	}
 	mustBuildMounts(t, cfg, folders, req, core.GroupConfig{}, groupDir)
-	ipcDir, _ = folders.IpcPath(string(req.Folder))
+	ipcDir, _ = turnIpcDir(folders, req)
 	return cfg, ipcDir, operator
 }
 

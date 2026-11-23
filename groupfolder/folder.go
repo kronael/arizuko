@@ -1,6 +1,8 @@
 package groupfolder
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"log/slog"
 	"path/filepath"
@@ -189,8 +191,16 @@ func ValidVhostName(h string) bool {
 }
 
 // IPC subdirectory conventions.
-func IpcInputDir(ipcDir string) string          { return filepath.Join(ipcDir, "input") }
-func IpcSocket(ipcDir string) string            { return filepath.Join(ipcDir, "gated.sock") }
+func IpcSocket(ipcDir string) string { return filepath.Join(ipcDir, "gated.sock") }
+
+// TurnIpcDir is one turn's own dir under its folder's ipc dir: it holds that
+// turn's MCP socket and staged credentials, so two turns of one folder never
+// share them. routd and runed both derive it from the turn id.
+func TurnIpcDir(ipcDir, turnID string) string {
+	sum := sha256.Sum256([]byte(turnID))
+	return filepath.Join(ipcDir, "t-"+hex.EncodeToString(sum[:6]))
+}
+
 func GroupMediaDir(groupDir, day string) string { return filepath.Join(groupDir, "media", day) }
 
 func resolve(base, folder string) (string, error) {

@@ -126,11 +126,12 @@ func (c *Client) Run(ctx context.Context, req RunRequest) (RunOutcome, error) {
 }
 
 // StopFolder posts to POST /v1/runs/stop — the operator-kill path (routd's
-// /stop). runed maps the folder to its live spawn and kills it, returning
-// whether something was killed. A transport failure surfaces as the bare error.
-func (c *Client) StopFolder(ctx context.Context, folder string) (StopRunResponse, error) {
+// /stop). runed kills the folder's live spawns, or with a turnID only that
+// turn's, returning whether something was killed. A transport failure
+// surfaces as the bare error.
+func (c *Client) StopFolder(ctx context.Context, folder, turnID string) (StopRunResponse, error) {
 	return call[StopRunResponse](ctx, c, http.MethodPost, "/v1/runs/stop",
-		StopRunRequest{Folder: folder}, false, "stop response")
+		StopRunRequest{Folder: folder, TurnID: turnID}, false, "stop response")
 }
 
 // Health GETs /health within 5 seconds and returns nil only on a 200. The

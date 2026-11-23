@@ -151,11 +151,12 @@ type HoldOutcome struct {
 }
 
 // StopRunRequest is the body of POST /v1/runs/stop: the operator-kill path
-// (routd's /stop command). runed maps the folder to its live spawn and kills
-// it. By folder, not run_id, because routd never persisted the run_id of a
-// folder's live spawn — the folder IS the operator's handle.
+// (routd's /stop command). runed kills every live spawn of the folder, or with
+// TurnID only the spawn of that turn. By folder and turn, not run_id, because
+// routd learns a run's run_id only when the run returns.
 type StopRunRequest struct {
 	Folder string `json:"folder"`
+	TurnID string `json:"turn_id,omitempty"`
 }
 
 // StopRunResponse reports whether a live spawn was found + killed. killed=false

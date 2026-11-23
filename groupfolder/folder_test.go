@@ -64,6 +64,18 @@ func TestResolverGroupPath(t *testing.T) {
 	}
 }
 
+// BUGS L920: two turns of one folder run at once, so each binds its MCP socket
+// in its own dir; one turn's dir is the same for routd and runed.
+func TestTurnIpcDirIsPerTurn(t *testing.T) {
+	a := TurnIpcDir("/ipc/repo", "turn-7")
+	if a != "/ipc/repo/t-c8196fb128b8" {
+		t.Fatalf("TurnIpcDir(turn-7) = %s", a)
+	}
+	if b := TurnIpcDir("/ipc/repo", "turn-9"); b == a || filepath.Dir(b) != "/ipc/repo" {
+		t.Fatalf("two turns share or escape the folder's ipc dir: %s %s", a, b)
+	}
+}
+
 func TestResolverIpcPath(t *testing.T) {
 	dir := t.TempDir()
 	r := &Resolver{GroupsDir: dir, IpcDir: filepath.Join(dir, "ipc")}

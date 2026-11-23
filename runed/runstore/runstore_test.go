@@ -177,13 +177,13 @@ func TestLivenessIsTheQueuedAndRunningRuns(t *testing.T) {
 		t.Fatalf("LiveAgentSpawnCount = (%d, %v), want 2 (the hold does not count)", n, err)
 	}
 	for _, folder := range []string{"c", "d", "e"} {
-		got, err := st.LiveSpawnInFolder(ctx, folder)
-		if err != nil || got != nil {
+		got, err := st.LiveSpawnsInFolder(ctx, folder)
+		if err != nil || len(got) != 0 {
 			t.Errorf("folder %s reads live as %+v (err=%v); its run is terminal", folder, got, err)
 		}
 	}
-	got, err := st.LiveSpawnInFolder(ctx, "b")
-	if err != nil || got == nil || got.RunID != "r" {
+	got, err := st.LiveSpawnsInFolder(ctx, "b")
+	if err != nil || len(got) != 1 || got[0].RunID != "r" {
 		t.Fatalf("folder b's live run = %+v (err=%v), want r", got, err)
 	}
 }
@@ -197,11 +197,11 @@ func TestALiveChildDoesNotHoldItsParentsSlot(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	got, err := st.LiveSpawnInFolder(t.Context(), "acme")
+	got, err := st.LiveSpawnsInFolder(t.Context(), "acme")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != nil {
+	if len(got) != 0 {
 		t.Fatalf("acme reads busy because acme/eng is running: %+v", got)
 	}
 }

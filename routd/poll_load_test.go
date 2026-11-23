@@ -473,7 +473,7 @@ func TestBreakerRefusedChatRunsWhenDue(t *testing.T) {
 		t.Fatalf("probe turn: %v %v", ok, err)
 	}
 	l.q.mu.Lock()
-	l.q.activeFolders["demo"] = "web:probe"
+	l.q.activeTopics[topicKey{folder: "demo"}] = "web:probe"
 	l.q.mu.Unlock()
 	if ok, err := db.store().WriteTurnControl(t.Context(), &open, probe); err != nil || !ok {
 		t.Fatalf("start a probe: %v %v", ok, err)
@@ -483,7 +483,7 @@ func TestBreakerRefusedChatRunsWhenDue(t *testing.T) {
 		t.Fatal("the tick woke the chat while another turn probes")
 	}
 	l.q.mu.Lock()
-	delete(l.q.activeFolders, "demo")
+	delete(l.q.activeTopics, topicKey{folder: "demo"})
 	l.q.mu.Unlock()
 	if err := db.SetTurnState(probe.ProbeTurnID, store.TurnDone); err != nil {
 		t.Fatal(err)

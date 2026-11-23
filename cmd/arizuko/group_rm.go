@@ -112,7 +112,7 @@ func runGroupRm(
 				"or stop the instance and pass -f/--force: %w", client.BaseURL, err)
 		}
 		stop = func(ctx context.Context, f string) error {
-			_, err := client.StopFolder(ctx, f)
+			_, err := client.StopFolder(ctx, f, "")
 			return err
 		}
 	}

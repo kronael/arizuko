@@ -111,7 +111,7 @@ func (l *Loop) continueTurn(tc TurnContext) error {
 	l.q.mu.Lock()
 	key := deferredWorkPrefix + id
 	if !l.q.getGroup(key).active && !slices.Contains(l.q.waitingGroups, key) {
-		l.q.pending[key] = turnReservation{folder: tc.Folder, cron: core.IsScheduledSender(tc.Trigger), turnID: id}
+		l.q.pending[key] = turnReservation{folder: tc.Folder, topic: tc.Topic, cron: core.IsScheduledSender(tc.Trigger), turnID: id}
 		l.q.waitingGroups = append(l.q.waitingGroups, key)
 	}
 	l.q.mu.Unlock()

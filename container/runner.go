@@ -239,6 +239,9 @@ func CopySession(groupDir, srcUUID, dstUUID string) (bool, error) {
 	if err := os.MkdirAll(projDir, 0o755); err != nil {
 		return false, fmt.Errorf("mkdir: %w", err)
 	}
+	// The parent topic may be running and appending a line right now; the copy
+	// ends at its last whole line.
+	data = data[:bytes.LastIndexByte(data, '\n')+1]
 	// Restamp the transcript to the child id. Every line carries
 	// "sessionId":"<src>"; a copy that still names the parent is a transcript
 	// two topics claim, and Claude Code appends the child's new turns to a file

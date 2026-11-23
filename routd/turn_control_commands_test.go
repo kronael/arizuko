@@ -166,7 +166,7 @@ type cancelObserver struct {
 	canceled bool
 }
 
-func (r *cancelObserver) StopFolder(_ context.Context, _ string) (runedv1.StopRunResponse, error) {
+func (r *cancelObserver) StopFolder(_ context.Context, _, _ string) (runedv1.StopRunResponse, error) {
 	tc, ok := r.db.GetTurnContext(r.turnID)
 	control, _, err := r.db.store().ReadTurnControl(context.Background())
 	r.canceled = ok && tc.State == store.TurnDone && tc.RunReturned && control.ProbeTurnID == ""
