@@ -56,6 +56,31 @@ func TestL553PrivateChatPerBot(t *testing.T) {
 	}
 }
 
+// A caption mention uses caption entities and reaches mention routes.
+func TestCaptionMention(t *testing.T) {
+	router := testutils.NewRouterStub()
+	defer router.Close()
+	b := &bot{
+		api: &tgbotapi.BotAPI{Self: tgbotapi.User{ID: 1, UserName: "TestBot"}},
+		cfg: config{AssistantName: "Agent"},
+	}
+	msg := &tgbotapi.Message{
+		MessageID: 7, Chat: &tgbotapi.Chat{ID: -100, Type: "supergroup"},
+		From:            &tgbotapi.User{ID: 5},
+		Photo:           []tgbotapi.PhotoSize{{FileID: "photo", Width: 1, Height: 1}},
+		Caption:         "😀 @TestBot examine this",
+		CaptionEntities: []tgbotapi.MessageEntity{{Type: "mention", Offset: 3, Length: 8}},
+	}
+	if !b.handle(msg, chanlib.NewRouterClient(router.Srv.URL)) {
+		t.Fatal("delivery failed")
+	}
+	router.Mu.Lock()
+	defer router.Mu.Unlock()
+	if len(router.Msgs) != 1 || router.Msgs[0].Verb != "mention" {
+		t.Fatalf("caption messages = %+v, want one mention", router.Msgs)
+	}
+}
+
 func TestParseChatID(t *testing.T) {
 	tests := []struct {
 		jid     string

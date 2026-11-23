@@ -348,10 +348,14 @@ func (b *bot) handle(msg *tgbotapi.Message, rc *chanlib.RouterClient) bool {
 	// with slakd/discd). Also rewrite @username to @AssistantName.
 	isGroup := msg.Chat.ID < 0
 	verb := ""
-	if b.api.Self.UserName != "" && msg.Entities != nil {
+	text, entities := msg.Text, msg.Entities
+	if text == "" {
+		text, entities = msg.Caption, msg.CaptionEntities
+	}
+	if b.api.Self.UserName != "" {
 		mention := "@" + b.api.Self.UserName
-		for _, e := range msg.Entities {
-			if e.Type == "mention" && strings.EqualFold(entity(msg.Text, e), mention) {
+		for _, e := range entities {
+			if e.Type == "mention" && strings.EqualFold(entity(text, e), mention) {
 				if isGroup {
 					verb = "mention"
 				}
