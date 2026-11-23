@@ -1,3 +1,5 @@
+import type { RouterMessage } from './inbound.js';
+
 interface Resp {
   ok: boolean;
   token?: string;
@@ -47,20 +49,9 @@ export class RouterClient {
     if (!r.ok) throw new Error(`deregister: ${r.error}`);
   }
 
-  async sendMessage(msg: {
-    id: string;
-    chat_jid: string;
-    sender: string;
-    sender_name: string;
-    content: string;
-    timestamp: number;
-    reply_to?: string;
-    reply_to_text?: string;
-    reply_to_sender?: string;
-    verb?: string;
-    reaction?: string;
-    is_group?: boolean;
-  }): Promise<void> {
+  async sendMessage(
+    msg: Omit<RouterMessage, 'is_group'> & { is_group?: boolean },
+  ): Promise<void> {
     const r = await this.post('/v1/messages', msg);
     if (!r.ok) throw new Error(`deliver: ${r.error}`);
   }
