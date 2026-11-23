@@ -136,11 +136,11 @@ func (b *bot) TeamID() string {
 
 var _ chanlib.BotHandler = (*bot)(nil)
 
-func newBot(cfg config) (*bot, error) {
+func newBot(cfg config) *bot {
 	return newBotWithBase(cfg, slackBase)
 }
 
-func newBotWithBase(cfg config, base string) (*bot, error) {
+func newBotWithBase(cfg config, base string) *bot {
 	b := &bot{
 		cfg:            cfg,
 		api:            base,
@@ -152,7 +152,7 @@ func newBotWithBase(cfg config, base string) (*bot, error) {
 		userIDs:        map[string]string{},
 	}
 	b.lastInboundAt.Store(time.Now().Unix())
-	return b, nil
+	return b
 }
 
 // useMark wires the shared acknowledgement mark (chanlib.AckMark) over the

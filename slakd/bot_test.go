@@ -28,11 +28,8 @@ func TestSendApplicationFailureClaim(t *testing.T) {
 				_, _ = w.Write([]byte(`{"ok":false,"error":"` + code + `"}`))
 			}))
 			defer server.Close()
-			b, err := newBotWithBase(config{Name: "slack", BotToken: "x"}, server.URL)
-			if err != nil {
-				t.Fatal(err)
-			}
-			_, err = b.Send(chanlib.SendRequest{ChatJID: "slack:T012/channel/C0HJK", Content: "hi"})
+			b := newBotWithBase(config{Name: "slack", BotToken: "x"}, server.URL)
+			_, err := b.Send(chanlib.SendRequest{ChatJID: "slack:T012/channel/C0HJK", Content: "hi"})
 			kind := "permanent"
 			if code == "internal_error" {
 				kind = "transient"
@@ -65,14 +62,11 @@ func (t *timeoutTransport) RoundTrip(*http.Request) (*http.Response, error) {
 }
 
 func TestPostFormTimeoutOneAttempt(t *testing.T) {
-	b, err := newBotWithBase(config{Name: "slack", BotToken: "x"}, "http://example.test")
-	if err != nil {
-		t.Fatal(err)
-	}
+	b := newBotWithBase(config{Name: "slack", BotToken: "x"}, "http://example.test")
 	transport := &timeoutTransport{}
 	b.http = &http.Client{Transport: transport}
 	var out map[string]any
-	err = b.postForm(context.Background(), "/chat.postMessage", url.Values{}, &out)
+	err := b.postForm(context.Background(), "/chat.postMessage", url.Values{}, &out)
 	if !errors.Is(err, context.DeadlineExceeded) || transport.calls != 1 {
 		t.Fatalf("err = %v, calls = %d", err, transport.calls)
 	}
@@ -404,10 +398,7 @@ func TestToMrkdwn(t *testing.T) {
 // tests drive matchUserID directly so no users.list sync fires.
 func mentionBot(t *testing.T) *bot {
 	t.Helper()
-	b, err := newBotWithBase(config{}, "")
-	if err != nil {
-		t.Fatal(err)
-	}
+	b := newBotWithBase(config{}, "")
 	b.learnUserID("alice", "U1")
 	b.learnUserID("U1", "U1")
 	b.learnUserID("ondra", "U2")
@@ -474,10 +465,7 @@ func TestPostFormDoesNotRetryACreateCallOn500(t *testing.T) {
 				w.WriteHeader(500)
 			}))
 			defer srv.Close()
-			b, err := newBotWithBase(config{Name: "slack", BotToken: "x"}, srv.URL)
-			if err != nil {
-				t.Fatal(err)
-			}
+			b := newBotWithBase(config{Name: "slack", BotToken: "x"}, srv.URL)
 			var out map[string]any
 			_ = b.postForm(context.Background(), c.path, url.Values{}, &out)
 			if n != c.wantN {
@@ -495,10 +483,7 @@ func TestPostFormOneAttemptOn429(t *testing.T) {
 		w.WriteHeader(429)
 	}))
 	defer srv.Close()
-	b, err := newBotWithBase(config{Name: "slack", BotToken: "x"}, srv.URL)
-	if err != nil {
-		t.Fatal(err)
-	}
+	b := newBotWithBase(config{Name: "slack", BotToken: "x"}, srv.URL)
 	var out map[string]any
 	_ = b.postForm(context.Background(), "/chat.postMessage", url.Values{}, &out)
 	if n != 1 {
@@ -512,12 +497,9 @@ func TestPostFormClassifies429AsNotDelivered(t *testing.T) {
 		w.WriteHeader(429)
 	}))
 	defer srv.Close()
-	b, err := newBotWithBase(config{Name: "slack", BotToken: "x"}, srv.URL)
-	if err != nil {
-		t.Fatal(err)
-	}
+	b := newBotWithBase(config{Name: "slack", BotToken: "x"}, srv.URL)
 	var out map[string]any
-	err = b.postForm(context.Background(), "/chat.postMessage", url.Values{}, &out)
+	err := b.postForm(context.Background(), "/chat.postMessage", url.Values{}, &out)
 	if !errors.Is(err, chanlib.ErrNotDelivered) {
 		t.Fatalf("postForm err = %v, want ErrNotDelivered", err)
 	}
@@ -536,11 +518,8 @@ func TestSendClassifiesAnOKFalseRefusal(t *testing.T) {
 				_, _ = w.Write([]byte(`{"ok":false,"error":"` + c.slackErr + `"}`))
 			}))
 			defer srv.Close()
-			b, err := newBotWithBase(config{Name: "slack", BotToken: "x"}, srv.URL)
-			if err != nil {
-				t.Fatal(err)
-			}
-			_, err = b.Send(chanlib.SendRequest{ChatJID: "slack:T012/channel/C0HJK", Content: "hi"})
+			b := newBotWithBase(config{Name: "slack", BotToken: "x"}, srv.URL)
+			_, err := b.Send(chanlib.SendRequest{ChatJID: "slack:T012/channel/C0HJK", Content: "hi"})
 			if !errors.Is(err, c.want) {
 				t.Fatalf("Send err = %v, want %v", err, c.want)
 			}

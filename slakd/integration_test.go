@@ -42,10 +42,7 @@ func TestSyncUsersBeyondTwentyPages(t *testing.T) {
 			`"response_metadata":{"next_cursor":"%s"}}`, page, page, next)
 	}))
 	defer srv.Close()
-	b, err := newBotWithBase(config{}, srv.URL)
-	if err != nil {
-		t.Fatal(err)
-	}
+	b := newBotWithBase(config{}, srv.URL)
 	b.syncUsers()
 	if id, _ := b.matchUserID("member21"); id != "U21" || calls != 21 {
 		t.Fatalf("member = %q, requests = %d; want U21 and 21", id, calls)
@@ -377,10 +374,7 @@ func setupBotOn(t *testing.T, mock *slackMock, st *chanstore.Store) (*bot, *rout
 		ListenURL:     "http://slakd:8080",
 		CacheTTL:      time.Minute,
 	}
-	b, err := newBotWithBase(cfg, mock.srv.URL+"/api")
-	if err != nil {
-		t.Fatal(err)
-	}
+	b := newBotWithBase(cfg, mock.srv.URL+"/api")
 	b.store = routdStore
 	rc := chanlib.NewRouterClient(rm.Srv.URL)
 	// Side calls to routd (/v1/pane, /v1/messages) present the adapter's
@@ -1587,10 +1581,7 @@ func TestSendMissingThreadNeverPostsAtParent(t *testing.T) {
 	mock.threadGone = true
 
 	cfg := config{Name: "slack", BotToken: "xoxb-test", CacheTTL: time.Minute}
-	b, err := newBotWithBase(cfg, mock.srv.URL+"/api")
-	if err != nil {
-		t.Fatal(err)
-	}
+	b := newBotWithBase(cfg, mock.srv.URL+"/api")
 	b.botUserID.Store("Ubot")
 	b.teamID.Store("T012")
 
@@ -1628,14 +1619,11 @@ func TestSendClientErrorsClassifyAsInvalidRequest(t *testing.T) {
 			mock.postError = code
 
 			cfg := config{Name: "slack", BotToken: "xoxb-test", CacheTTL: time.Minute}
-			b, err := newBotWithBase(cfg, mock.srv.URL+"/api")
-			if err != nil {
-				t.Fatal(err)
-			}
+			b := newBotWithBase(cfg, mock.srv.URL+"/api")
 			b.botUserID.Store("Ubot")
 			b.teamID.Store("T012")
 
-			_, err = b.Send(chanlib.SendRequest{
+			_, err := b.Send(chanlib.SendRequest{
 				ChatJID: "slack:T012/channel/CNORM",
 				Content: "hello",
 			})

@@ -31,10 +31,7 @@ func newTestServer(t *testing.T, secret string) (*server, *bot) {
 		ListenURL:     "http://slakd:8080",
 		CacheTTL:      time.Minute,
 	}
-	b, err := newBotWithBase(cfg, "http://slack.invalid/api")
-	if err != nil {
-		t.Fatal(err)
-	}
+	b := newBotWithBase(cfg, "http://slack.invalid/api")
 	s := newServer(cfg, b, nil, b.isConnected, b.LastInboundAt)
 	s.now = func() time.Time { return time.Unix(1_700_000_000, 0) }
 	b.files = s.files
