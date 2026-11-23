@@ -193,6 +193,7 @@ and fails when either side moves. The contract tests check both sources in one a
 | provider refusal | `routd/api/v1.ProviderFailure` | `src/backend.ts` | `tests/contract_ant_test.go` `TestProviderFailureFieldsMatchAcrossLanguages` |
 | per-turn usage record | `routd/api/v1.ModelUsage` | `src/mcp.ts` `ModelUsage` | `tests/contract_ant_test.go` `TestModelUsageFieldsMatchAcrossLanguages` |
 | `submit_status` snapshot and reminder | `ipc.TurnStatus`, `ipc.TurnStatusAck` | `src/mcp.ts` | `tests/contract_ant_test.go` `TestSubmitStatusPayloadFieldsMatchAcrossLanguages`, `TestTurnStatusAckFieldsMatchAcrossLanguages` |
+| `<status>` block grammar | `ipc.StatusBlock` (refused in a delivery text) | `src/index.ts` `STATUS_RE` (extracted from the turn's text) | `tests/contract_ant_test.go` `TestStatusBlockGrammarMatchesAcrossLanguages` |
 
 ## Folder layout (agent view)
 

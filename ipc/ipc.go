@@ -11,6 +11,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -1039,10 +1040,18 @@ func parseBefore(req mcp.CallToolRequest) (time.Time, error) {
 	return t, nil
 }
 
+// StatusBlock matches one block of the turn's progress grammar, the one ant
+// extracts from the turn's own text (ant/src/index.ts STATUS_RE).
+var StatusBlock = regexp.MustCompile(`(?s)<status>.*?</status>`)
+
 // refuseText checks the delivery arguments, without rewriting the agent's words.
 func refuseText(text string, allowEmpty bool) error {
 	if !allowEmpty && strings.TrimSpace(text) == "" {
 		return fmt.Errorf("delivery text is empty")
+	}
+	if StatusBlock.MatchString(text) {
+		return fmt.Errorf("delivery text contains a <status> block; " +
+			"print status in the turn's own text, and send only the message")
 	}
 	for _, literal := range []string{"$WEB_HOST", "/home/node/", "/var/lib/www/"} {
 		if strings.Contains(text, literal) {

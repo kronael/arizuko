@@ -74,6 +74,20 @@ func TestTurnStatusAckFieldsMatchAcrossLanguages(t *testing.T) {
 	}
 }
 
+// ant extracts <status> blocks from the turn's own text and ipc refuses the same
+// block in a delivery text. One grammar, written once per language: a block that
+// only one side matches is either progress that never shows or raw tags in a
+// chat.
+func TestStatusBlockGrammarMatchesAcrossLanguages(t *testing.T) {
+	const antGrammar = `const STATUS_RE = /<status>([\s\S]*?)<\/status>/g;`
+	const goGrammar = `(?s)<status>.*?</status>`
+	inAnt := strings.Contains(antSource(t, "index.ts"), antGrammar)
+	if !inAnt || ipc.StatusBlock.String() != goGrammar {
+		t.Fatalf("status grammar moved: ant has %q = %v; ipc.StatusBlock = %q, want %q",
+			antGrammar, inAnt, ipc.StatusBlock.String(), goGrammar)
+	}
+}
+
 // antSource reads one ant/src file, failing loudly rather than skipping — a
 // contract test that skips when it cannot find the other side is a test that
 // reports green on a deleted seam.
