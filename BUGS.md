@@ -14,7 +14,7 @@
 > so counting one as open overstates the queue.
 
 
-## L917 — deep refine round 1: 25 findings that change a contract wait for sign-off (2026-11-22, open)
+## L917 — deep refine rounds 1-2: 26 findings that change a contract wait for sign-off (2026-11-22, open)
 
 Six read-only audits (one per area) and six fixers ran on v0.75.20; 101 findings
 shipped as commits on `main`. These were confirmed but not built, because each
@@ -45,6 +45,7 @@ changes a documented contract, schema or cross-daemon flow:
 23. emaid: thread lookups turn engine errors into misses (`emaid/emaistore/email_threads.go:36`).
 24. whapd: forwarding sends an id placeholder (`whapd/src/server.ts:476`).
 25. chanlib: the dedup store's `Close` is a no-op in an exported API (`chanlib/dedup.go:33`).
+26. onbod (round 2): two concurrent `create_world` POSTs both pass `mayCreateFirstWorld` before either writes; bind the check to the write with `auth.ReadPolicy` + retry on `ErrScopeMoved`, as the invited path does. Route add/delete gating is `L494`.
 
 **Measured:** the per-area reports and fixer logs of 2026-11-21/22 (job scratch);
 each fixer re-checked its finding against the code before keeping it here.
