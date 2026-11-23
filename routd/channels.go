@@ -39,8 +39,9 @@ func (s *Server) mountChannels(mux *http.ServeMux) {
 // gate. It admits ANY seeded service principal, not one bound to req.Name:
 // the registration `name` is the CHANNEL_NAME while the token sub is the
 // daemon principal, and multi-account variants share one. The origin pin
-// locks a name to its FIRST (originIP, principal) pair; first-claim squatting
-// by a seeded principal is accepted.
+// locks a name to the first principal that registered it; the origin IP is
+// recorded for the audit and never compared. First-claim squatting by a
+// seeded principal is accepted.
 func (s *Server) channelAuth(next http.HandlerFunc) http.HandlerFunc {
 	if s.verify == nil {
 		return next // local dev: no JWKS to verify against
