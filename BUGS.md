@@ -789,8 +789,6 @@ reads those words now.
   sloth sessions).
 - `L529` — `set_group_open` writes an `open` flag that no production code
   reads; measure whether the ambient join is unwired.
-- `L531` — the F36 refresh-claim guard is tested on a twin production never
-  calls.
 **Found by the per-group machine spec (2026-10-23).**
 - `L537` — DECIDED: each group sizes its own guest with `mem`, `smp` and
   `timeout` keys in `container_config` (`specs/9/20-group-machine-size.md`);
@@ -3033,17 +3031,6 @@ Not measured whether the ambient join reads it by another path.
 
 - **Severity:** unknown until measured.
 - **Fix:** measure first.
-- **Status:** open.
-
-## L531 — the F36 refresh-claim guard is tested on a twin production never calls (2026-10-22, open)
-
-FOUND by the dead-code sweep at `90403e2d`: `authstore.ClaimRefreshToken` and
-its `familyLive` check have callers only in `authd/bugfix_test.go` and
-`authstore_test.go`. Production rotates through the batch at
-`authd/authstore/refresh_tokens.go:168`, which those tests do not drive.
-
-- **Severity:** medium — the guard's test proves nothing about production.
-- **Fix:** point the tests at the production rotation, then delete the twin.
 - **Status:** open.
 
 ## L535 — a background subagent's result arrives after the turn ends, and every tool call is refused (2026-10-23, open)
