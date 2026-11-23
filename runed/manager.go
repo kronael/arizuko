@@ -212,7 +212,7 @@ func (m *Manager) admit(ctx context.Context, req runedv1.RunRequest, kind string
 			m.instance, container.SanitizeFolder(folder), time.Now().UnixMilli()),
 	}
 	if c.sessionID == "" {
-		c.sessionID = newUUID()
+		c.sessionID = core.NewSessionID()
 	}
 	if err := m.db.CreateSpawn(ctx, Spawn{
 		RunID: c.runID, Folder: folder, Topic: req.Topic, ContainerName: c.containerName,
@@ -436,13 +436,4 @@ func randHex(n int) string {
 	b := make([]byte, n)
 	rand.Read(b)
 	return hex.EncodeToString(b)
-}
-
-// newUUID mints a RFC4122 v4 UUID (the harness session id; opaque to routd).
-func newUUID() string {
-	b := make([]byte, 16)
-	rand.Read(b)
-	b[6] = (b[6] & 0x0f) | 0x40
-	b[8] = (b[8] & 0x3f) | 0x80
-	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
 }
