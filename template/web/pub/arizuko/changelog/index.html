@@ -30,6 +30,15 @@
 
       <p>What shipped, dated, terse. Reverse chronological. The chat broadcast for each release lives at the top of every block; the bullets below expand it for operators.</p>
 
+      <h2>arizuko v0.75.26 <span class="dim">&mdash; 23 November 2026</span></h2>
+      <p>A failed turn now holds only its own folder, and the store reads one page at a time.</p>
+      <ul>
+        <li><strong>Turns</strong> &mdash; a failed run pauses only its folder for 30 seconds, not every folder for an hour, and the pause cannot deadlock.</li>
+        <li><strong>Store</strong> &mdash; every query names a page and point reads use GetItem, so the store no longer loads whole partitions.</li>
+        <li><strong>pi</strong> &mdash; a failed model call is retried three times; a new topic keeps its parent&rsquo;s history.</li>
+      </ul>
+      <p class="note">Full notes: <a href="https://github.com/kronael/arizuko/blob/main/CHANGELOG.md#v07526--2026-11-23">CHANGELOG &sect; v0.75.26</a>.</p>
+
       <h2>arizuko v0.75.25 <span class="dim">&mdash; 23 November 2026</span></h2>
       <p>An instruction that names an action is its approval, so &ldquo;fix then merge&rdquo; now ends merged.</p>
       <ul>

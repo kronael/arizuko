@@ -13,6 +13,31 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.75.26] — 2026-11-23
+
+> arizuko v0.75.26 — one failure no longer stops the whole instance
+>
+> A failed turn now holds only its own folder, and the store reads one page at a time.
+>
+> • Turns — a failed run pauses only its folder for 30 seconds, not every folder for an hour, and the pause cannot deadlock.
+> • Store — every query names a page and point reads use GetItem, so the store no longer loads whole partitions.
+> • pi — a failed model call is retried three times; a new topic keeps its parent's history.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Fixed
+
+- The turn breaker holds only the failed turn's folder; a provider refusal
+  still holds all; a first failure holds 30 s; the probe no longer waits for
+  one named turn, which could deadlock (L826).
+- Every store query names a page of at most 1,000 items, and an exact-key read
+  is a `GetItem`.
+- pi retries a failed model call 3 times; a pi topic fork copies the parent
+  session (L913).
+- Delivery verbs refuse a `<status>` block (L760); a malformed observe window
+  is an error (L904); dashd accepts an RFC 3339 one-shot (L485); whapd answers
+  200 when stale (L484); hold e2e tests read the gate's answer (L790).
+
 ## [v0.75.25] — 2026-11-23
 
 > arizuko v0.75.25 — an agent does what it is told and finishes
