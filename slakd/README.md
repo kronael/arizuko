@@ -74,24 +74,23 @@ Pane reads open the owner of routd (`store.OpenOwner(store.OwnerRoutd)`) for `pa
 
 ## Configuration
 
-| Variable                 | Code default                | Meaning                                                                                      |
-| ------------------------ | --------------------------- | -------------------------------------------------------------------------------------------- |
-| `SLACK_BOT_TOKEN`        | `required`                  | required (Bot User OAuth Token)                                                              |
-| `SLACK_SIGNING_SECRET`   | `required`                  | required (Slack App → Basic Information)                                                     |
-| `ROUTER_URL`             | `required`                  | required                                                                                     |
-| `AUTHD_URL`              | `required`                  | JWKS and service-token exchange; unset leaves the adapter auth open (local development)      |
-| `AUTHD_SERVICE_KEY`      | `required`                  | exchanged for service:slakd                                                                  |
-| `AUTHD_SERVICE_NAME`     | `CHANNEL_NAME`              | exchange principal, the DAEMON name and not CHANNEL_NAME; also names the /dash/ path         |
-| `LISTEN_ADDR`            | `:8080`                     | internal HTTP listener                                                                       |
-| `LISTEN_URL`             | `http://slakd:8080`         | URL the router uses to reach slakd                                                           |
-| `ASSISTANT_NAME`         | `empty`                     | shown in the pane title (<name> — chat); unset gives "chat"                                  |
-| `DATA_DIR`               | `/srv/app/home/store/slakd` | state dir of slakd; holds the record of watched messages (default /srv/app/home/store/slakd) |
-| `SLAKD_USERS_CACHE_TTL`  | `900`                       | users.info and conversations.info TTL, in seconds                                            |
-| `MEDIA_MAX_FILE_BYTES`   | `20971520`                  | cap of the file proxy                                                                        |
-| `CHANNEL_NAME`           | `slack`                     | registration name                                                                            |
-| `SLAKD_STALE_SECONDS`    | `300`                       | inbound silence past this makes the watchdog probe auth.test                                 |
-| `SLAKD_WATCHDOG_SECONDS` | `60`                        | watchdog re-check interval                                                                   |
-| `SLAKD_STALE_FAIL_LIMIT` | `5`                         | consecutive auth.test failures, while stale, before os.Exit(1) restarts the daemon           |
+| Variable                 | Code default        | Meaning                                                                                 |
+| ------------------------ | ------------------- | --------------------------------------------------------------------------------------- |
+| `SLACK_BOT_TOKEN`        | `required`          | required (Bot User OAuth Token)                                                         |
+| `SLACK_SIGNING_SECRET`   | `required`          | required (Slack App → Basic Information)                                                |
+| `ROUTER_URL`             | `required`          | required                                                                                |
+| `AUTHD_URL`              | `required`          | JWKS and service-token exchange; unset leaves the adapter auth open (local development) |
+| `AUTHD_SERVICE_KEY`      | `required`          | exchanged for service:slakd                                                             |
+| `AUTHD_SERVICE_NAME`     | `CHANNEL_NAME`      | exchange principal, the DAEMON name and not CHANNEL_NAME; also names the /dash/ path    |
+| `LISTEN_ADDR`            | `:8080`             | internal HTTP listener                                                                  |
+| `LISTEN_URL`             | `http://slakd:8080` | URL the router uses to reach slakd                                                      |
+| `ASSISTANT_NAME`         | `empty`             | shown in the pane title (<name> — chat); unset gives "chat"                             |
+| `SLAKD_USERS_CACHE_TTL`  | `900`               | users.info and conversations.info TTL, in seconds                                       |
+| `MEDIA_MAX_FILE_BYTES`   | `20971520`          | cap of the file proxy                                                                   |
+| `CHANNEL_NAME`           | `slack`             | registration name                                                                       |
+| `SLAKD_STALE_SECONDS`    | `300`               | inbound silence past this makes the watchdog probe auth.test                            |
+| `SLAKD_WATCHDOG_SECONDS` | `60`                | watchdog re-check interval                                                              |
+| `SLAKD_STALE_FAIL_LIMIT` | `5`                 | consecutive auth.test failures, while stale, before os.Exit(1) restarts the daemon      |
 
 `AUTHD_SERVICE_NAME` must be the daemon name (`slakd`) and not `CHANNEL_NAME` (`slack`). authd seeds and grants `service:<daemon>`, so a mismatch gives a 401 on every outbound call. Multi-account variants share the base principal.
 
@@ -164,7 +163,6 @@ slakd mounts no resreg resources, MCP socket, `/openapi.json`, or `/metrics`.
 The `slakd.*` entities are `outbound_dedup` for keyed send results, `inbound_pending` for retry payloads,
 `file_urls` for attachment URLs, and `ack_marks` for active reactions.
 The `routd.pane_sessions` rows hold pane context; writes go through routd's HTTP API.
-`DATA_DIR` is loaded into config but does not select a local adapter database or queue.
 User and conversation caches and the sent-message filter are process-local.
 
 | Shared variable                              | Default     | Meaning                                          |

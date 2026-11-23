@@ -80,7 +80,6 @@ type config struct {
 	ListenAddr    string
 	ListenURL     string
 	AssistantName string
-	DataDir       string
 	MediaMaxBytes int64
 	CacheTTL      time.Duration
 	// StaleSeconds: inbound silence beyond this marks the link dead (/health 503,
@@ -99,7 +98,6 @@ func loadConfig() config {
 		RouterURL:      chanlib.MustEnv("ROUTER_URL"),
 		ListenAddr:     core.EnvOr("LISTEN_ADDR", ":8080"),
 		ListenURL:      core.EnvOr("LISTEN_URL", "http://slakd:8080"),
-		DataDir:        core.EnvOr("DATA_DIR", "/srv/app/home/store/slakd"),
 		AssistantName:  core.EnvOr("ASSISTANT_NAME", ""),
 		MediaMaxBytes:  chanlib.EnvBytes("MEDIA_MAX_FILE_BYTES", 20*1024*1024),
 		CacheTTL:       time.Duration(core.EnvInt("SLAKD_USERS_CACHE_TTL", 900)) * time.Second,
