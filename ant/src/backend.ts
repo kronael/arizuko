@@ -243,6 +243,7 @@ export async function* driveCli(
   const child: ChildProcess = spawn(command, args, {
     env: opts.env,
     cwd: opts.cwd,
+    detached: true,
     stdio: [opts.stdin === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
   });
   let stderrTail = '';
@@ -268,13 +269,21 @@ export async function* driveCli(
     child.stdin?.end(opts.stdin);
   }
 
+  const signalGroup = (signal: NodeJS.Signals) => {
+    if (!child.pid) return;
+    try {
+      process.kill(-child.pid, signal);
+    } catch (err) {
+      if (!(err instanceof Error && 'code' in err && err.code === 'ESRCH')) throw err;
+    }
+  };
   let timedOut = false;
   const timer = Number.isFinite(opts.deadline) ? setTimeout(() => {
     log(`process deadline reached, killing ${command}`);
     timedOut = true;
-    child.kill('SIGKILL');
+    signalGroup('SIGKILL');
   }, Math.max(0, opts.deadline - Date.now())) : undefined;
-  const onAbort = () => child.kill('SIGTERM');
+  const onAbort = () => signalGroup('SIGTERM');
   opts.signal?.addEventListener('abort', onAbort, { once: true });
   if (opts.signal?.aborted) onAbort();
 
@@ -300,6 +309,6 @@ export async function* driveCli(
   } finally {
     clearTimeout(timer);
     opts.signal?.removeEventListener('abort', onAbort);
-    if (child.exitCode === null) child.kill('SIGKILL');
+    signalGroup('SIGKILL');
   }
 }

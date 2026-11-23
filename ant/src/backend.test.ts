@@ -166,3 +166,15 @@ test('driveCli: the deadline kills a child that ignores SIGTERM', async () => {
     clearTimeout(guard);
   }
 });
+
+/** A descendant holding stdout does not extend the hard deadline. */
+test('driveCli: deadline closes descendant-held pipes', async () => {
+  const start = Date.now();
+  const frames = await collect(driveCli(
+    'sh', ['-c', 'sleep 2 & wait'],
+    { cwd: '/tmp', env: { PATH: '/usr/bin:/bin' }, deadline: start + 100 },
+    tailReducer(), () => {},
+  ));
+  expect(frames).toEqual([{ kind: 'result', ok: true, timedOut: true }]);
+  expect(Date.now() - start).toBeLessThan(1000);
+});
