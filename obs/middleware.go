@@ -56,7 +56,7 @@ type statusWriter struct {
 func (w *statusWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
 func (w *statusWriter) WriteHeader(code int) {
-	if !w.wroteHeader {
+	if !w.wroteHeader && (code >= 200 || code == http.StatusSwitchingProtocols) {
 		w.status = code
 		w.wroteHeader = true
 	}

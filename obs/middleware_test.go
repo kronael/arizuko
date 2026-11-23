@@ -96,3 +96,32 @@ func TestStatusWriterUnwrapsDeadline(t *testing.T) {
 		t.Fatal("deadline did not reach underlying writer")
 	}
 }
+
+type headerWriter struct {
+	http.ResponseWriter
+	codes []int
+}
+
+func (w *headerWriter) WriteHeader(code int) { w.codes = append(w.codes, code) }
+
+func TestStatusWriterInformationalHeaders(t *testing.T) {
+	for _, info := range []int{http.StatusContinue, http.StatusEarlyHints} {
+		underlying := &headerWriter{ResponseWriter: httptest.NewRecorder()}
+		writer := &statusWriter{ResponseWriter: underlying, status: http.StatusOK}
+		writer.WriteHeader(info)
+		writer.WriteHeader(http.StatusCreated)
+		if len(underlying.codes) != 2 || underlying.codes[0] != info || underlying.codes[1] != http.StatusCreated {
+			t.Errorf("forwarded statuses = %v", underlying.codes)
+		}
+		if writer.status != http.StatusCreated {
+			t.Errorf("%d followed by 201 recorded %d", info, writer.status)
+		}
+	}
+	underlying := &headerWriter{ResponseWriter: httptest.NewRecorder()}
+	writer := &statusWriter{ResponseWriter: underlying, status: http.StatusOK}
+	writer.WriteHeader(http.StatusSwitchingProtocols)
+	writer.WriteHeader(http.StatusCreated)
+	if writer.status != http.StatusSwitchingProtocols {
+		t.Errorf("101 recorded %d", writer.status)
+	}
+}
