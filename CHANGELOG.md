@@ -13,6 +13,24 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.75.23] — 2026-11-23
+
+> arizuko v0.75.23 — the second refine pass completes
+>
+> The last three areas of the second refine pass ship: the runtime, the operator tools and web surfaces, and the channel adapters.
+>
+> • Runtime — a stopped turn kills its whole CLI process group, and a failed turn submission is reported instead of dropped.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Fixed
+
+- Round 2 of the refine pass in runed, container, ant, kernel, egress, compose,
+  obs, the CLI, dashd, webd, onbod, theme and the channel adapters: 47 fixes and
+  deletions. A stopped turn signals its CLI's whole process group; a failed
+  `submit_turn` is reported; an approved caller who already holds a world can no
+  longer create a second first world.
+
 ## [v0.75.22] — 2026-11-22
 
 > arizuko v0.75.22 — long work checkpoints and continues
