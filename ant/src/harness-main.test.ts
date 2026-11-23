@@ -57,3 +57,10 @@ test('callback failure preserves the original verdict', async () => {
   expect(result.output.match(/SUBMIT /g)).toHaveLength(1);
  }
 });
+
+/** A failed submission ends a successful harness run without submitting twice. */
+test('successful result with failed submission fails the process once', async () => {
+ const result = await run(undefined, undefined, true);
+ expect(result.code).toBe(1);
+ expect(result.output.match(/SUBMIT /g)).toHaveLength(1);
+});

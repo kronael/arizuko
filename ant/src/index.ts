@@ -110,21 +110,17 @@ async function readStdin(): Promise<string> {
 }
 
 async function deliverTurn(turnID: string, output: ContainerOutput) {
-  try {
-    return await submitTurn({
-      turn_id: turnID,
-      session_id: output.newSessionId,
-      status: output.status,
-      error: output.error,
-      harness: output.harness,
-      models: output.models,
-      timed_out: output.timedOut,
-      checkpoint: output.checkpoint,
-      provider_failure: output.providerFailure,
-    });
-  } catch (err) {
-    log(`submit_turn failed: ${err instanceof Error ? err.message : String(err)}`);
-  }
+  return submitTurn({
+    turn_id: turnID,
+    session_id: output.newSessionId,
+    status: output.status,
+    error: output.error,
+    harness: output.harness,
+    models: output.models,
+    timed_out: output.timedOut,
+    checkpoint: output.checkpoint,
+    provider_failure: output.providerFailure,
+  });
 }
 
 function log(message: string): void {
@@ -297,6 +293,7 @@ async function runAttempt(
   const out: TurnResult = { closedDuringQuery: false, retryFresh: false };
   let frameCount = 0;
   let resultCount = 0;
+  let delivering = false;
 
   try {
     for await (const frame of harness.run(turn)) {
@@ -327,6 +324,7 @@ async function runAttempt(
             out.failed = frame.retryFresh || frame.terminal === true ? 'terminal' : 'retryable';
             out.failedReason = frame.text;
           }
+          delivering = true;
           const ack = await deliver(turnID, {
             status: frame.ok ? 'success' : frame.refused === 'safety' ? 'refused' : frame.refused ?? 'error',
             newSessionId: out.sessionId,
@@ -340,6 +338,7 @@ async function runAttempt(
             timedOut: frame.timedOut,
             providerFailure: frame.providerFailure,
           });
+          delivering = false;
           if (ack?.nudge) out.nudge = ack.nudge;
         }
       }
@@ -351,6 +350,7 @@ async function runAttempt(
       log('Harness produced no result frame, delivering an error turn');
       out.failed = 'retryable';
       resultCount++;
+      delivering = true;
       await deliver(turnID, {
         status: 'error',
         newSessionId: out.sessionId,
@@ -359,7 +359,10 @@ async function runAttempt(
     }
 
   } catch (err) {
-    if (resultCount > 0) {
+    if (delivering) {
+      out.failed ??= 'retryable';
+      out.failedReason ??= err instanceof Error ? err.message : String(err);
+    } else if (resultCount > 0) {
       log(`Harness threw after result (ignored): ${err instanceof Error ? err.message : String(err)}`);
     } else {
       throw err;

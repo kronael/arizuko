@@ -682,3 +682,19 @@ esac`, async (_id, _out) => (++nudged === 1 ? { nudge: '[deliver] call reply' } 
     expect(r.result.failed).toBe('retryable');
   });
 });
+
+/** A failed delivery ends the turn even after an earlier result was delivered. */
+test('runTurn reports a failed delivery without retrying it', async () => {
+  for (const count of [1, 2]) {
+    let deliveries = 0;
+    const deliver = async () => {
+      if (++deliveries === count) throw new Error('submit failed');
+    };
+    const frames = Array.from({ length: count }, () => ({ kind: 'result', ok: true } satisfies Frame));
+    const result = await runTurn(scripted(frames),
+      'p', undefined, INPUT, {}, 'turn-1', deliver, statusSpy().send);
+    expect(result.failed).toBe('retryable');
+    expect(result.failedReason).toBe('submit failed');
+    expect(deliveries).toBe(count);
+  }
+});
