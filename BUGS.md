@@ -14,6 +14,33 @@
 > so counting one as open overstates the queue.
 
 
+## L930 — the breaker repeats what a turn's own retry already does for a failed run (2026-11-23, open — needs sign-off)
+
+After `L826` a failed run holds its own folder only, and that hold adds nothing
+the turn's retry does not give. `complete` (`routd/turn_control.go`) defers the
+failed turn with `next_attempt_at` (30 s, doubling to one hour, nine retries),
+and `runBoundTurn` (`routd/dispatch.go`, `errModelInputOrder`) keeps every newer
+turn of the folder behind that pending retry. So a folder with a failing agent
+launches once per delay with or without the breaker; the second folder to fail
+already runs on that path alone
+(`routd/turn_control_folder_test.go::TestBreakerStaysOnItsFolderWhenASecondFolderFails`).
+The breaker is still the mechanism of three things: the provider refusal that
+holds every folder and its `model_pauses` list and `clear`
+(`specs/6/60-model-credential-pause.md`), the restart recovery of a running
+turn (`interrupt`, `recover`), and the write that records a failed turn's final
+status (`FinishControlledTurn`, `RecordControlledStatus`).
+**Measured:** `TurnControlState`, `ControlBefore`/`ControlAfter`, `turnWork` and
+`errTurnBlocked` occur in 7 source files and 23 test files; `turn_control.go` is
+886 lines. No test — design.
+**Options:** (a) delete the breaker for run failures: `complete` stops writing
+`turn_control` unless the failure is a provider refusal, and the status write
+and the restart recovery lose their control guard; `specs/5/12-turn-retry.md`
+§"One breaker per instance" and `6/60` change; (b) also replace the provider
+hold with the reporting folder's `model_pauses` row as the gate, and delete the
+`turn_control` entity; (c) keep the folder hold.
+**Default if nothing is decided:** (c).
+**Type:** design, no test — design.
+
 ## L920 — one folder runs one turn, so every PR of a repo waits in one line (2026-11-23, open — needs sign-off)
 
 `routd/turn_control.go:745` `canReserve` refuses a turn while its folder holds
@@ -549,9 +576,9 @@ The browser retry integration owns this fix after the current serial capacity wo
 
 - `L903` — dashd writes a group's harness to the store; `6/53` says through `/v1`, `6/29` says the store; owner decision, default is the store.
 - `L910` — the Google connector has no resolve or reopen tool; the `rest` schema cannot fix a body field; needs sign-off.
-- `L826` — one folder's crash closes the whole instance for an hour; per-folder breaker or a 30 s probe; needs sign-off.
 - `L914` — a claude turn's shell has no Claude login: Claude Code deletes its own token; owner choice of a, b or c.
 - `L920` — one folder runs one turn, so a repo's PRs queue in one line; per-topic admission needs sign-off.
+- `L930` — the breaker repeats what a turn's own retry does for a failed run; delete it for run failures (a), the whole entity (b), or keep it (c); needs sign-off.
 - `L917` — 26 refine findings that change a contract or schema; one owner decision per line.
 - `L816` — gitd loses GitHub webhooks while the store is unreachable; retention lives in that store; proposal, needs sign-off.
 - `L803` — morha repeats recovery reports and replies to an old GitHub comment; cause unmeasured.
@@ -565,9 +592,7 @@ The browser retry integration owns this fix after the current serial capacity wo
 - `L675` — the guest's Python is under `/root` (700); fix at the next rootfs build.
 - `L674` — `compose down` fails on a deleted fragment despite `required: false`; proposal.
 - `L672` — a spend-limit failure: retry silently, one `#issues` notice to the operator; approved, queued after L670.
-- `L760` — an agent `reply` carrying a `<status>` block posts raw tags; manual fix ships in v0.75.4, verify on live codex turns.
 - `L761` — a mention-routed folder cannot read the chat it answers; fix 6832c16ce is in v0.75.4, verify the live report.
-- `L762` — the reply length lint does not run on codex turns; fix 9be919983 is in v0.75.4, verify on live codex turns.
 - `L763` — reproduce Nemo's intermittent approval failures and dead buttons before choosing a fix.
 - `L764` — decide how Telegram supergroup migration updates route identity; live route and schedule repair stays with the operator.
 - `L765` — choose whether cached property search results get a global warning or block; proposal, needs sign-off.
@@ -1081,22 +1106,6 @@ chat sweep.
   caps what a read returns, `objstore/query.go`); startup leaves status
   recovery to the first 30 s tick, behind the chat sweep.
 
-## L826 — one folder's crash closes the whole instance for an hour (2026-11-12, open — needs sign-off)
-
-MEASURED 2026-11-12 on krons: rhias/nemo's turns ended `Guest exited with code
-1` at 15:44, 18:50, 19:57 and 21:52, each after the agent replied. A failure
-that is not retried (`classifyTurn`: replied) opens the instance breaker with
-`next_probe_at = now + 1 h` (`complete`, `routd/turn_control.go`), so krons and
-every rhias group answered nothing for about an hour after each crash. Spec
-`specs/5/12-turn-retry.md` § "One breaker per instance" names the hour only
-for a probe that exhausts its retries. No test — design.
-
-- **Severity:** high — one group's agent bug silences every group.
-- **Status:** open — needs sign-off: the breaker is the spec's contract.
-- **Options:** (a) a failure that is not retried probes with the next turn
-  after `retryAt`'s first delay (30 s); (b) a breaker per folder, the provider
-  refusal staying instance-wide; (c) keep the hour.
-- **Default if nothing is decided:** (c).
 ## ✅ FIXED 2026-11-12 9bcbb4927 L828 — pi refuses the lent Codex login in a QEMU guest: the read-only file bind reads as `rw` (2026-11-12)
 
 MEASURED 2026-11-12 22:39 UTC on sloth (v0.75.10, `ARIZUKO_BACKEND=pi`,
@@ -1619,33 +1628,6 @@ The current tools use `send` for group handoffs. Each group send queues a turn;
 the description directs progress to `<status>` and `TodoWrite`. Live verification
 of bounded handoffs remains open.
 
-## L760 — an agent `reply` carrying a `<status>` block posts the raw tags to the chat (2026-11-08, open)
-
-MEASURED 2026-11-08 on sloth (codex `gpt-6.1-sol`): in thread `1569000827429847372`
-of `discord:837270552959516682/1504474527638224936`, root `sloth` posted the status
-correctly as message `1569075404684140708` ("⏳ You get answers in the original
-threads, …", 19:45:28), then the same line again as message `1569075413961940993`
-with the literal text `<status>You get answers … questions.</status>` (19:45:30;
-Discord API). The rollout shows the agent printed the status and then called
-`mcp__arizuko__reply({chatJid:"discord:837270552959516682/1504474527638224936",
-text:"<status>…</status>"})`. The owner asked "wtf is this".
-
-Cause: the `<status>` grammar is the turn's progress channel (`ant/README.md`
-§ Contracts with the Go side); nothing stops the same block from going out through
-`reply` or `send`, so a model that mixes them posts the tags verbatim.
-
-- **Severity:** medium — raw protocol text in the user's chat.
-- **Scope:** `ipc/ipc.go` `refuseText` (shared by `reply` and `send`).
-- **Fix:** refuse a `reply`/`send` text that contains a `<status>` block, with an
-  error that says status belongs in the turn's own text, not in a message.
-- **Test:** `reply` with a `<status>…</status>` text is refused and nothing is
-  delivered; a text that only mentions the word status still goes out.
-- **Status:** Source check found conflicting wording about private printed text
-  and closing a status with `reply`. The wording now separates printed progress
-  from the answer in `reply` and excludes status blocks from `reply` and `send`.
-  The Python reply linter runs through Claude settings only, outside the Codex
-  policy bindings. No test — docs.
-
 ## L761 — a mention-routed folder cannot read the chat it answers: history reads refuse with `jid not routed to your group` (2026-11-08, open)
 
 MEASURED 2026-11-08 on sloth: kronael mentioned sloth in thread `1567944066765824111`
@@ -1672,22 +1654,6 @@ parent and topic to the thread JID.
 - **Scope:** the read gate's predicate in `routd`/`ipc`; reuse the existing functions.
 - **Test:** a mention-routed folder's turn reads its own chat and thread (parent JID +
   topic, and the thread's own JID); a folder with no route to a chat is still refused.
-
-## L762 — the reply length lint does not run on codex turns (2026-11-08, open)
-
-MEASURED 2026-11-08 by source reading during L760: `ant/hooks/reply_lint.py` (the
-Response Style ceiling, 500 chars / 6 lines) is bound only in
-`ant/.claude/settings.json`, which claude reads. Codex renders its hooks from the
-policy table in `ant/src/policy.ts` (`codexHooksConfig`), and the table holds no
-reply-length row, so a codex `reply` or `send` is never checked.
-
-- **Severity:** medium — codex instances (sloth since 2026-11-08) post replies over
-  the ceiling the manual promises.
-- **Scope:** `ant/src/policy.ts` — bind the existing lint as one policy row so
-  every harness renders it; no second copy of the rule.
-- **Test:** the policy table carries the reply-length row and codex's rendered
-  hooks include it.
-- **Status:** implementation shared across claude, codex and pi; awaiting release.
 
 ## L763 — Nemo reports intermittent approval refusals and dead approval buttons (2026-11-08, open — unmeasured)
 
