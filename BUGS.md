@@ -582,7 +582,6 @@ The browser retry integration owns this fix after the current serial capacity wo
 - `L650` — an `extenddb` reached 10 GB and was OOM-killed; the host reset 8 times on 11-03; cause unmeasured.
 - `L647` — weekly memory rollups missing on alternate Mondays (W40, W42 in every active krons group); cause unmeasured, spawn rows gone.
 - `L639` — refuse a platformless JID in `send_file`, `send_voice` and `post` after the return swap; fix queued.
-- `L620` — reconcile run-stop service authorization with the stated contract.
 - `L540` — dashd's grant form and `POST /v1/acl` write rows without
   `auth.Delegate`: run it there, or let a folder admin grant any row inside
   its subtree?
@@ -2512,27 +2511,6 @@ that mapping. `post` does not use the mapping.
 - **Fix:** refuse a platformless JID after `placeTurnDelivery` for
   `send_file` and `send_voice`, and before delivery for `post`, without
   writing a pending row (the L572 test shape).
-
-## L620 — service run-stop authorization contradicts its stated contract (2026-10-27, open)
-
-A service-token exchange succeeded, but `POST /v1/runs/stop` returned 403
-`missing scope runs:kill`. Existing documentation and server tests describe
-that service as able to stop a run. Classify the actual token grants, endpoint
-policy and caller path before proposing a change; no authorization-policy
-change is approved by this entry.
-
-**Classified 2026-10-28 (HEAD `042aef8a`).** The caller is `service:routd`: its
-`/stop` command (`routd/steer.go` `cmdStop`) calls `runed` `POST /v1/runs/stop`
-with the token routd exchanges at authd. `authd/http.go` `serviceGrants` gives
-`service:routd` `runs:run`, `identity:read`, `invites:write`, `gates:write`; only
-`service:dashd` holds `runs:kill`. runed demands `runs:kill` on this route
-(`runed/server.go`, `runed/README.md`), so the 403 is the code working as
-written, and the `ack` then says "No active turn for this chat." for a stop that
-never ran. `tests/split_federation_test.go` and `tests/media_transfer_test.go`
-hand-mint a `service:routd` token with `runs:kill`, so they never meet authd's
-table. This is not a doc or test mismatch. Either authd grants `runs:kill` to
-`service:routd` (an authorization change) or `/stop` stops working by design.
-Left open for the owner's decision; no code changed.
 
 ## ✅ FIXED 2026-11-02 599f7f0ed L596 — scheduled prompts are routed to observation and never execute (2026-10-27)
 
