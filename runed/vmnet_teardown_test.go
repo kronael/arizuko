@@ -8,16 +8,19 @@ import (
 	"testing"
 )
 
+// The teardown deletes only the jumps that are there, then flushes and removes
+// the tap's chain; a tap that never had a chain gets no -X.
 func TestRulesDown(t *testing.T) {
 	rec := &vmRecord{Tap: "tap0", GuestIP: "10.0.0.1", HostIP: "10.0.0.2", ProxyPort: 8080}
-	rules := tapRules(rec)
+	jumps := tapJumps(rec)
 	for _, tc := range []struct {
 		name      string
 		installed []int
+		chain     bool
 	}{
-		{"absent", nil},
-		{"partial", []int{1, 4}},
-		{"installed", []int{0, 1, 2, 3, 4, 5}},
+		{"absent", nil, false},
+		{"partial", []int{1, 3}, true},
+		{"installed", []int{0, 1, 2, 3}, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
@@ -28,16 +31,20 @@ func TestRulesDown(t *testing.T) {
 printf '%s\n' "$*" >> "$FIREWALL_LOG"
 op=$1
 shift
-if [ "$op" = -C ]; then
-  grep -Fxq -- "$*" "$FIREWALL_STATE"
-fi
+case $op in
+  -C) grep -Fxq -- "$*" "$FIREWALL_STATE" ;;
+  -F) grep -Fxq -- "-N $1" "$FIREWALL_STATE" ;;
+esac
 `
 			if err := os.WriteFile(firewall, []byte(script), 0o755); err != nil {
 				t.Fatal(err)
 			}
 			var installed []string
 			for _, i := range tc.installed {
-				installed = append(installed, strings.Join(rules[i], " "))
+				installed = append(installed, strings.Join(jumps[i], " "))
+			}
+			if tc.chain {
+				installed = append(installed, "-N "+rec.Tap)
 			}
 			if err := os.WriteFile(state, []byte(strings.Join(installed, "\n")+"\n"), 0o600); err != nil {
 				t.Fatal(err)
@@ -51,14 +58,18 @@ fi
 				t.Fatal(err)
 			}
 			var want []string
-			for i, rule := range rules {
-				args := strings.Join(rule, " ")
+			for i, jump := range jumps {
+				args := strings.Join(jump, " ")
 				want = append(want, "-C "+args)
 				for _, index := range tc.installed {
 					if i == index {
 						want = append(want, "-D "+args)
 					}
 				}
+			}
+			want = append(want, "-F "+rec.Tap)
+			if tc.chain {
+				want = append(want, "-X "+rec.Tap)
 			}
 			got := strings.Split(strings.TrimSpace(string(data)), "\n")
 			if !reflect.DeepEqual(got, want) {

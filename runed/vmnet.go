@@ -71,8 +71,8 @@ func tapName(instance string, idx int) string {
 	return fmt.Sprintf("arz-%s-t%02x", hex.EncodeToString(h[:2]), idx&0xff)
 }
 
-// tapRules renders the guest's whole rule set, in the order the chain must read
-// it: the one accept above the drops.
+// tapRules renders the body of the tap's own chain, in the order it reads: one
+// accept each way above the drop.
 //
 // Static by design. The guest's only route is the host side of its tap, and the
 // only thing it may reach there is the proxy, so a name never reaches netfilter
@@ -83,34 +83,50 @@ func tapName(instance string, idx int) string {
 func tapRules(rec *vmRecord) [][]string {
 	port := strconv.Itoa(rec.ProxyPort)
 	return [][]string{
-		{"INPUT", "-i", rec.Tap, "-s", rec.GuestIP, "-d", rec.HostIP,
+		{"-i", rec.Tap, "-s", rec.GuestIP, "-d", rec.HostIP,
 			"-p", "tcp", "--dport", port, "-j", "ACCEPT"},
-		{"OUTPUT", "-o", rec.Tap, "-s", rec.HostIP, "-d", rec.GuestIP,
+		{"-o", rec.Tap, "-s", rec.HostIP, "-d", rec.GuestIP,
 			"-p", "tcp", "--sport", port, "-j", "ACCEPT"},
-		{"INPUT", "-i", rec.Tap, "-j", "DROP"},
-		{"OUTPUT", "-o", rec.Tap, "-j", "DROP"},
-		{"FORWARD", "-i", rec.Tap, "-j", "DROP"},
-		{"FORWARD", "-o", rec.Tap, "-j", "DROP"},
+		{"-j", "DROP"},
 	}
 }
 
-// rulesUp inserts the rule set. Inserted in reverse so the rendered order is the
-// order the chain reads: -I prepends, so the last insert sits on top.
+// tapJumps sends every packet into, out of and through the tap to its chain,
+// which is named after the tap.
+//
+// The rules sit in their own chain because a rule with a tcp match cannot be
+// found again by its spec: with three guests up, iptables-nft 1.8.10 answers
+// `-C` and `-D` for an older guest's accept with "Bad rule", while a rule
+// without a match is still found. Deleted by spec, that accept outlived its
+// guest; the next guest on the tap found it, kept it, and put its own drop above
+// it — a guest with no path to its proxy (BUGS L931). A chain is flushed and
+// removed by name, and a jump carries no match.
+func tapJumps(rec *vmRecord) [][]string {
+	return [][]string{
+		{"INPUT", "-i", rec.Tap, "-j", rec.Tap},
+		{"OUTPUT", "-o", rec.Tap, "-j", rec.Tap},
+		{"FORWARD", "-i", rec.Tap, "-j", rec.Tap},
+		{"FORWARD", "-o", rec.Tap, "-j", rec.Tap},
+	}
+}
+
+// rulesUp writes the chain, then the jumps to it, so no packet meets a partial
+// chain. What a crashed turn left on this tap is removed first, so the set
+// written here is the only one.
 //
 // A failure here fails the turn. A tap that is up with a partial rule set is a
 // guest with a route it was never granted, which is the exact inversion of the
 // property the proxy exists for.
 func (q *qemuRuntime) rulesUp(rec *vmRecord) error {
-	rules := tapRules(rec)
-	for i := len(rules) - 1; i >= 0; i-- {
-		r := rules[i]
-		// Insert if absent. A duplicate rule is sticky: the teardown deletes one
-		// instance of it, so the second would outlive the guest it was written
-		// for and apply to whatever takes the tap name next.
-		if exec.Command(q.paths.Firewall, append([]string{"-C", r[0]}, r[1:]...)...).Run() == nil {
-			continue
-		}
-		args := append([]string{"-I", r[0], "1"}, r[1:]...)
+	q.rulesDown(rec)
+	cmds := [][]string{{"-N", rec.Tap}}
+	for _, r := range tapRules(rec) {
+		cmds = append(cmds, append([]string{"-A", rec.Tap}, r...))
+	}
+	for _, j := range tapJumps(rec) {
+		cmds = append(cmds, append([]string{"-I", j[0], "1"}, j[1:]...))
+	}
+	for _, args := range cmds {
 		if out, err := exec.Command(q.paths.Firewall, args...).CombinedOutput(); err != nil {
 			return fmt.Errorf("%s %s: %w (%s)", q.paths.Firewall,
 				strings.Join(args, " "), err, strings.TrimSpace(string(out)))
@@ -119,21 +135,29 @@ func (q *qemuRuntime) rulesUp(rec *vmRecord) error {
 	return nil
 }
 
-// rulesDown deletes exactly what rulesUp inserted, re-rendered from the record
-// so a disk scan after a crash removes the same six rules.
+// rulesDown removes what rulesUp wrote, re-rendered from the record so a disk
+// scan after a crash removes the same jumps and chain.
 func (q *qemuRuntime) rulesDown(rec *vmRecord) {
 	if rec.Tap == "" || rec.GuestIP == "" {
 		return
 	}
-	for _, r := range tapRules(rec) {
-		if exec.Command(q.paths.Firewall, append([]string{"-C", r[0]}, r[1:]...)...).Run() != nil {
+	for _, j := range tapJumps(rec) {
+		if exec.Command(q.paths.Firewall, append([]string{"-C", j[0]}, j[1:]...)...).Run() != nil {
 			continue
 		}
-		args := append([]string{"-D", r[0]}, r[1:]...)
+		args := append([]string{"-D", j[0]}, j[1:]...)
 		if out, err := exec.Command(q.paths.Firewall, args...).CombinedOutput(); err != nil {
 			slog.Warn("tap rule delete", "rule", strings.Join(args, " "),
 				"err", err, "out", strings.TrimSpace(string(out)))
 		}
+	}
+	// A chain that cannot be flushed was never written.
+	if exec.Command(q.paths.Firewall, "-F", rec.Tap).Run() != nil {
+		return
+	}
+	if out, err := exec.Command(q.paths.Firewall, "-X", rec.Tap).CombinedOutput(); err != nil {
+		slog.Warn("tap chain delete", "chain", rec.Tap,
+			"err", err, "out", strings.TrimSpace(string(out)))
 	}
 }
 

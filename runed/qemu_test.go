@@ -267,12 +267,9 @@ func TestTapRulesAreProxyOnly(t *testing.T) {
 	rec := &vmRecord{Tap: "arz-ab12-t01", GuestIP: "10.97.0.5", HostIP: "10.97.0.6", ProxyPort: 3128}
 	got := tapRules(rec)
 	want := [][]string{
-		{"INPUT", "-i", "arz-ab12-t01", "-s", "10.97.0.5", "-d", "10.97.0.6", "-p", "tcp", "--dport", "3128", "-j", "ACCEPT"},
-		{"OUTPUT", "-o", "arz-ab12-t01", "-s", "10.97.0.6", "-d", "10.97.0.5", "-p", "tcp", "--sport", "3128", "-j", "ACCEPT"},
-		{"INPUT", "-i", "arz-ab12-t01", "-j", "DROP"},
-		{"OUTPUT", "-o", "arz-ab12-t01", "-j", "DROP"},
-		{"FORWARD", "-i", "arz-ab12-t01", "-j", "DROP"},
-		{"FORWARD", "-o", "arz-ab12-t01", "-j", "DROP"},
+		{"-i", "arz-ab12-t01", "-s", "10.97.0.5", "-d", "10.97.0.6", "-p", "tcp", "--dport", "3128", "-j", "ACCEPT"},
+		{"-o", "arz-ab12-t01", "-s", "10.97.0.6", "-d", "10.97.0.5", "-p", "tcp", "--sport", "3128", "-j", "ACCEPT"},
+		{"-j", "DROP"},
 	}
 	if len(got) != len(want) {
 		t.Fatalf("rule count %d, want %d: %v", len(got), len(want), got)
@@ -289,6 +286,16 @@ func TestTapRulesAreProxyOnly(t *testing.T) {
 		if !slices.Contains(r, "DROP") {
 			t.Errorf("every rule after the two accepts must DROP: %v", r)
 		}
+	}
+	// Every path a packet of the tap takes reaches that chain, and nothing else.
+	wantJumps := [][]string{
+		{"INPUT", "-i", "arz-ab12-t01", "-j", "arz-ab12-t01"},
+		{"OUTPUT", "-o", "arz-ab12-t01", "-j", "arz-ab12-t01"},
+		{"FORWARD", "-i", "arz-ab12-t01", "-j", "arz-ab12-t01"},
+		{"FORWARD", "-o", "arz-ab12-t01", "-j", "arz-ab12-t01"},
+	}
+	if jumps := tapJumps(rec); !slices.EqualFunc(jumps, wantJumps, slices.Equal) {
+		t.Errorf("jumps\ngot:  %v\nwant: %v", jumps, wantJumps)
 	}
 }
 

@@ -772,8 +772,12 @@ a guest, a tap or a pid. Six files hold it, one concern each.
   out of the configured subnet: a guest has no neighbour on its own link and
   both addresses are fixed before it boots, so there is no shared bridge and no
   address discovery. `tapRules` renders the whole set statically, one accept to
-  `HostIP:ProxyPort` above the drops, because the proxy is the one matcher for
-  names and addresses alike (§"Egress by name, sealed below the kernel").
+  `HostIP:ProxyPort` above the drop, because the proxy is the one matcher for
+  names and addresses alike (§"Egress by name, sealed below the kernel"). The
+  set is a chain named after the tap, reached by `tapJumps` from INPUT, OUTPUT
+  and FORWARD, and the teardown flushes and removes it by name: iptables-nft
+  cannot find a rule with a tcp match by its spec once three guests are up
+  (`L931`).
   `egressArgs` reads `container.EgressRules`, the same translation the Docker
   substrate's proxy gets, so the two substrates cannot disagree about what a
   folder may reach.
