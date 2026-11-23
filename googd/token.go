@@ -149,8 +149,10 @@ func (c *credential) verify(ctx context.Context) error {
 	c.state, c.err = state, err
 	c.driveAPI, c.sheetsAPI = drive, sheets
 	if err == nil {
-		c.user = user
-		if user.EmailAddress == "" {
+		if user.EmailAddress != "" {
+			c.user = user
+		}
+		if c.user.EmailAddress == "" {
 			c.missingAccount.Do(func() {
 				slog.Warn("Drive account email unavailable; mention detection disabled")
 			})

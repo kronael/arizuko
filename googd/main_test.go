@@ -339,6 +339,27 @@ func TestCredential_GoodKeyKeepsRegistration(t *testing.T) {
 	}
 }
 
+// A transient identity probe preserves mention detection and updates API status.
+func TestCredentialTransientProbeKeepsAccount(t *testing.T) {
+	g := newFakeGoogle(t)
+	b, err := prepareBot(t.Context(), g.config(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	account := b.cred.account()
+	g.aboutStatus.Store(http.StatusInternalServerError)
+	g.sheetsStatus.Store(http.StatusForbidden)
+	if err := b.cred.verify(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if got := b.cred.account(); got != account || got == "" {
+		t.Fatalf("account = %q, want %q", got, account)
+	}
+	if b.cred.sheetsAPI.state != "off" {
+		t.Fatalf("Sheets status = %+v, want off", b.cred.sheetsAPI)
+	}
+}
+
 func TestCredential_MissingAccountRetries(t *testing.T) {
 	g := newFakeGoogle(t)
 	g.aboutStatus.Store(http.StatusInternalServerError)
