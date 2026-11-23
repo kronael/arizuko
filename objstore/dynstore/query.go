@@ -110,9 +110,54 @@ func inSubtree(k objstore.KeyPredicate, sort string) bool {
 // asks for fewer.
 const pageItems = 1000
 
+// projection names the key beside the attributes a read asks for, because the
+// key is how an item comes back addressed. No list is the whole item.
+func projection(b *names, project []string) *string {
+	if len(project) == 0 {
+		return nil
+	}
+	proj := make([]string, 0, len(project)+2)
+	proj = append(proj, b.name(partAttr), b.name(sortAttr))
+	for _, p := range project {
+		proj = append(proj, b.name(p))
+	}
+	return aws.String(strings.Join(proj, ", "))
+}
+
+// getItem reads the one item an exact key selects. It is its own operation
+// because a server may serve it better than a Query for the same key: ExtendDB
+// compares a Query's sort key under a collation its primary-key index lacks.
+func (s *Store) getItem(ctx context.Context, q objstore.Query) ([]objstore.Item, error) {
+	b := newNames()
+	in := &dynamodb.GetItemInput{
+		TableName:            s.table(q.Entity),
+		Key:                  keyOf(objstore.Key{Partition: q.Partition, Sort: q.Key.Value}),
+		ConsistentRead:       aws.Bool(true),
+		ProjectionExpression: projection(b, q.Project),
+	}
+	if len(b.n) > 0 {
+		in.ExpressionAttributeNames = b.n
+	}
+	res, err := s.api.GetItem(ctx, in)
+	if err != nil {
+		return nil, serverFault(fmt.Sprintf("get %s", q.Entity), err)
+	}
+	if len(res.Item) == 0 {
+		return nil, nil
+	}
+	it, err := readItem(res.Item)
+	if err != nil {
+		return nil, err
+	}
+	return []objstore.Item{it}, nil
+}
+
 func (s *Store) Query(ctx context.Context, q objstore.Query) ([]objstore.Item, error) {
 	if err := objstore.ValidateQuery(q); err != nil {
 		return nil, err
+	}
+	if q.Key.Op == objstore.ExactKey && len(q.Where) == 0 {
+		return s.getItem(ctx, q)
 	}
 	b := newNames()
 	in := &dynamodb.QueryInput{
@@ -131,14 +176,7 @@ func (s *Store) Query(ctx context.Context, q objstore.Query) ([]objstore.Item, e
 	if filter != "" {
 		in.FilterExpression = aws.String(filter)
 	}
-	if len(q.Project) > 0 {
-		proj := make([]string, 0, len(q.Project)+2)
-		proj = append(proj, b.name(partAttr), b.name(sortAttr))
-		for _, p := range q.Project {
-			proj = append(proj, b.name(p))
-		}
-		in.ProjectionExpression = aws.String(strings.Join(proj, ", "))
-	}
+	in.ProjectionExpression = projection(b, q.Project)
 	in.ExpressionAttributeNames = b.n
 	in.ExpressionAttributeValues = b.v
 

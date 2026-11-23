@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"net/http/httputil"
 	"net/url"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -146,5 +147,67 @@ func TestEveryRequestNamesAPage(t *testing.T) {
 				t.Fatalf("the requests asked for %v items, want %v", asked, tc.pages)
 			}
 		})
+	}
+}
+
+// A read of one item by its whole key is DynamoDB's GetItem, not a Query. On
+// ExtendDB the two reach PostgreSQL as different statements: the same message
+// in a 232,330-row chat on sloth took 1.5 ms as GetItem and 87 ms as Query,
+// which compares under a collation the primary-key index does not have (BUGS
+// L922, L921).
+func TestExactKeyReadIsAGetItem(t *testing.T) {
+	const entity = "rows"
+	cfg := dyntest.Config(t)
+	upstream, err := url.Parse(cfg.Endpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	var targets []string
+	proxy := httputil.NewSingleHostReverseProxy(upstream)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, operation, _ := strings.Cut(r.Header.Get("X-Amz-Target"), ".")
+		mu.Lock()
+		targets = append(targets, operation)
+		mu.Unlock()
+		proxy.ServeHTTP(w, r)
+	}))
+	defer srv.Close()
+	cfg.Endpoint, cfg.Prefix = srv.URL, dynstore.TestPrefix()
+	s, err := dynstore.Dial(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if err := s.CreateEntity(ctx, entity); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.DropEntity(ctx, entity) }()
+	key := objstore.Key{Partition: "chat", Sort: "m1"}
+	put := objstore.Write{Op: objstore.Put, Entity: entity, Key: key,
+		Attrs: map[string]string{"verb": "message", "content": "hello"}}
+	if _, err := s.GuardedBatch(ctx, nil, []objstore.Write{put}); err != nil {
+		t.Fatal(err)
+	}
+	exact := func(sort string) objstore.Query {
+		return objstore.Query{Entity: entity, Partition: "chat",
+			Key: objstore.KeyPredicate{Op: objstore.ExactKey, Value: sort}, Project: []string{"verb"}}
+	}
+
+	targets = nil
+	got, err := s.Query(ctx, exact("m1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []objstore.Item{{Key: key, Attrs: map[string]string{"verb": "message"}}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("the read returned %v, want %v", got, want)
+	}
+	missing, err := s.Query(ctx, exact("m2"))
+	if err != nil || len(missing) != 0 {
+		t.Fatalf("a read of an absent key returned %v, %v", missing, err)
+	}
+	if !slices.Equal(targets, []string{"GetItem", "GetItem"}) {
+		t.Fatalf("two exact-key reads sent %v, want two GetItem", targets)
 	}
 }
