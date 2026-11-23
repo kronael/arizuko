@@ -281,3 +281,33 @@ func TestTruncatedUpstreamAbortsResponse(t *testing.T) {
 		t.Fatal("truncated upstream appeared complete")
 	}
 }
+
+func TestConnectionNamedHeadersAreNotForwarded(t *testing.T) {
+	received := make(chan http.Header, 1)
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		received <- r.Header.Clone()
+		w.Header().Set("Connection", "X-Response-Hop")
+		w.Header().Set("X-Response-Hop", "private")
+		w.Header().Set("X-End-To-End", "visible")
+	}))
+	defer up.Close()
+	req, err := http.NewRequest(http.MethodGet, asLocalhost(up.URL), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Connection", "X-Request-Hop")
+	req.Header.Set("X-Request-Hop", "private")
+	req.Header.Set("X-End-To-End", "visible")
+	resp, err := through(serve(t, mustNew(t, []string{"localhost"}, nil, ""))).Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	headers := <-received
+	if headers.Get("X-Request-Hop") != "" || resp.Header.Get("X-Response-Hop") != "" {
+		t.Errorf("hop headers forwarded: request=%v response=%v", headers, resp.Header)
+	}
+	if headers.Get("X-End-To-End") != "visible" || resp.Header.Get("X-End-To-End") != "visible" {
+		t.Error("end-to-end headers dropped")
+	}
+}

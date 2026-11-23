@@ -265,28 +265,14 @@ func (p *Proxy) handleHTTP(w http.ResponseWriter, r *http.Request, src string) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	for k, vv := range r.Header {
-		if isHopByHop(k) {
-			continue
-		}
-		for _, v := range vv {
-			out.Header.Add(k, v)
-		}
-	}
+	copyHeaders(out.Header, r.Header)
 	resp, err := p.httpClient().Do(out)
 	if err != nil {
 		writeDialError(w, src, host, err)
 		return
 	}
 	defer func() { _ = resp.Body.Close() }()
-	for k, vv := range resp.Header {
-		if isHopByHop(k) {
-			continue
-		}
-		for _, v := range vv {
-			w.Header().Add(k, v)
-		}
-	}
+	copyHeaders(w.Header(), resp.Header)
 	w.WriteHeader(resp.StatusCode)
 	if _, err := io.Copy(w, resp.Body); err != nil {
 		panic(http.ErrAbortHandler)
@@ -308,10 +294,27 @@ func writeDialError(w http.ResponseWriter, src, host string, err error) {
 	http.Error(w, "upstream unreachable: "+err.Error(), http.StatusBadGateway)
 }
 
+func copyHeaders(dst, src http.Header) {
+	blocked := map[string]bool{}
+	for _, value := range src.Values("Connection") {
+		for _, token := range strings.Split(value, ",") {
+			blocked[strings.ToLower(strings.TrimSpace(token))] = true
+		}
+	}
+	for key, values := range src {
+		if isHopByHop(key) || blocked[strings.ToLower(key)] {
+			continue
+		}
+		for _, value := range values {
+			dst.Add(key, value)
+		}
+	}
+}
+
 func isHopByHop(h string) bool {
 	switch strings.ToLower(h) {
 	case "connection", "keep-alive", "proxy-authenticate", "proxy-authorization",
-		"proxy-connection", "te", "trailers", "transfer-encoding", "upgrade":
+		"proxy-connection", "te", "trailer", "transfer-encoding", "upgrade":
 		return true
 	}
 	return false

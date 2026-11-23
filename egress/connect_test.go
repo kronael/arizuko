@@ -400,7 +400,7 @@ func TestHealthAnswersAPeerThatIsNotThePinnedClient(t *testing.T) {
 func TestIsHopByHopCoversTheRFCSetCaseInsensitively(t *testing.T) {
 	for _, h := range []string{
 		"Connection", "connection", "KEEP-ALIVE", "Proxy-Authenticate",
-		"Proxy-Authorization", "Proxy-Connection", "TE", "Trailers",
+		"Proxy-Authorization", "Proxy-Connection", "TE", "Trailer",
 		"Transfer-Encoding", "Upgrade",
 	} {
 		if !isHopByHop(h) {
