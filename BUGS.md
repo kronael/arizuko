@@ -14,6 +14,21 @@
 > so counting one as open overstates the queue.
 
 
+## L918 — a Discord turn status cannot start the thread it belongs in (2026-11-23, open)
+
+`routd/turn_status.go` `applyStatus` places the status with
+`placeTurnDelivery(..., reply=true)`. On a channel message with no thread yet,
+the place carries `threadRoot` = the trigger and no title, and
+`discd` `threadFrom` refuses an untitled new thread as permanent (the rule that
+makes the agent name every thread). So the first status of every turn in a
+plain Discord channel never shows; the agent's titled reply still creates the
+thread, and later statuses in it work.
+
+**Measured:** sloth journal since 2026-11-21: 3 × `status operation queued`
+with `permanent: pass title to start a Discord thread` (e.g. turn
+1574483336720810065, 2026-11-23 17:55:08); krons 0 (no Discord channel turns).
+**Type:** bug. Fix in routd's status placement, not in discd's title rule.
+
 ## L917 — deep refine rounds 1-2: 26 findings that change a contract wait for sign-off (2026-11-22, open)
 
 Six read-only audits (one per area) and six fixers ran on v0.75.20; 101 findings
@@ -575,7 +590,8 @@ The browser retry integration owns this fix after the current serial capacity wo
 - `L826` — one folder's crash closes the whole instance for an hour; per-folder breaker or a 30 s probe; needs sign-off.
 - `L913` — a new topic on a pi folder starts without its parent's history; fix waits on a live pi resume check.
 - `L914` — a claude turn's shell has no Claude login: Claude Code deletes its own token; owner choice of a, b or c.
-- `L917` — 25 refine findings that change a contract or schema; one owner decision per line.
+- `L918` — a Discord turn's first status cannot start its thread (no title); routd placement fix, in progress.
+- `L917` — 26 refine findings that change a contract or schema; one owner decision per line.
 - `L816` — gitd loses GitHub webhooks while the store is unreachable; retention lives in that store; proposal, needs sign-off.
 - `L803` — morha repeats recovery reports and replies to an old GitHub comment; cause unmeasured.
 - `L804` — Codex topic forks do not inherit the parent's model context; observed messages remain available.
