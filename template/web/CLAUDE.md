@@ -371,7 +371,6 @@ Discipline:
 2. Add a row to the product grid in `pub/products/index.html` and the entry
    in `nav.json`, then run `make docs-nav`
 3. Add a link to the landing page `go deeper` section if it's a flagship product
-4. Create `specs/7/product-<name>.md` (if not already there)
 
 A product with no tree in `packages/` is a shape. A shape gets a section
 in `pub/products/shapes.html`, never a page pair, and the grid row links that
