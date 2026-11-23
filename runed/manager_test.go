@@ -210,8 +210,8 @@ func TestRunTTLBecomesTheCtxDeadline(t *testing.T) {
 // TestManagerAppliesRunTTLDeadline: spec 5/8 "wedge protection... uniform
 // across kinds" — Manager.spawn arms the RunTTL kill-deadline by wrapping
 // ctx with context.WithTimeout at the shared dispatch site, not inside any
-// one executor. This exercises a minimal Runtime double that (like
-// dockerRuntime's armCancel) does nothing but honor ctx.Done(), proving the
+// one executor. This exercises a minimal Runtime double that does nothing
+// but honor ctx.Done(), proving the
 // deadline actually reaches the executor through Manager — not just that
 // Turn.RunTTL carries the raw value (TestRunTTLThreadedToRuntime).
 func TestManagerAppliesRunTTLDeadline(t *testing.T) {
@@ -254,9 +254,9 @@ func TestTerminalOnWire(t *testing.T) {
 	}
 }
 
-// ctxWatchingRuntime blocks until ctx.Done(), mirroring dockerRuntime's
-// armCancel contract (kill/abort on ctx death) without any docker/container
-// machinery — used to prove Manager wires the RunTTL deadline onto ctx.
+// ctxWatchingRuntime blocks until ctx.Done(), the contract every Runtime
+// keeps (end the run on ctx death), with no guest behind it — used to prove
+// Manager wires the RunTTL deadline onto ctx.
 type ctxWatchingRuntime struct{}
 
 func (ctxWatchingRuntime) Run(ctx context.Context, _ Turn) RunResult {

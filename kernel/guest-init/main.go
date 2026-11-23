@@ -696,7 +696,7 @@ type turn struct {
 	pid atomic.Int32
 	// wake signals the agent. It is a field because it is the one step of the
 	// steer path that needs a live process, and the ack contract is what a test
-	// must be able to drive (runed's dockerRuntime keeps `kill` the same way).
+	// must be able to drive.
 	wake func(syscall.Signal) error
 	// steers names each batch file. The guest's own counter, never the frame's
 	// id: the id is what the ack must carry, and a name taken off the wire is a

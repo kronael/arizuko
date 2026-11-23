@@ -5,9 +5,8 @@ package store
 //
 // The partition is OwnerRoutd because resreg's entity path writes these items
 // too (resreg.SubsystemRoutd IS store.OwnerRoutd). The folder is the
-// coordinate, so a subtree is one begins_with; the containment is `substr` and
-// never `LIKE`, because `_` and `%` are LIKE wildcards and sqlite folds ASCII
-// case on top (BUGS L122, L252).
+// coordinate, so a subtree is one begins_with (`objstore.PrefixKey` with the
+// separator): an exact, case-sensitive prefix with no wildcard characters.
 //
 // Two JSON documents live in attributes: `container_config` is
 // core.Group.Config (the spawn shape), and `config` is the operator SETTINGS
@@ -586,8 +585,7 @@ func (s *Store) SiblingFolders(folder string) ([]string, error) {
 		return nil, nil
 	}
 	// begins_with on the coordinate with "/" as the subtree separator: it
-	// matches `parent` and everything under `parent/`, nothing else. That
-	// exactness is why the SQL half is substr and never LIKE (BUGS L252).
+	// matches `parent` and everything under `parent/`, nothing else.
 	items, err := s.Obj().Query(context.Background(), objstore.Query{
 		Entity: Groups, Partition: OwnerRoutd,
 		Key: objstore.KeyPredicate{Op: objstore.PrefixKey, Value: parent, Sep: "/"},

@@ -11,7 +11,7 @@ import (
 // are bound. auth/authorize_axes_test.go covers the evaluator's own rules.
 
 // axesDB seeds a folder with what a real one has at birth: the role:member floor
-// (store.SeedMemberRoleTx's edge), and nothing above it.
+// (store.SeedMemberRole's edge), and nothing above it.
 func axesDB(t *testing.T, folder string) *DB {
 	t.Helper()
 	db, err := OpenMem()

@@ -22,9 +22,10 @@ import (
 // treating "" as "everything" here is how a missing folder becomes root.
 func Contains(parent, child string) bool { return ContainsSep(parent, child, "/") }
 
-// ContainsSep is Contains with the separator named, and it is the Go half of
-// the one containment predicate, and store/groups.go renders the same rule as a
-// statement, and every read that answers it in memory answers it here.
+// ContainsSep is Contains with the separator named, and it is the in-memory
+// half of the one containment predicate: store/groups.go asks the store the
+// same rule as an `objstore.PrefixKey` read with the separator, and every read
+// that answers it in memory answers it here.
 //
 // The separator is a parameter because a folder opens its children with "/" and
 // its topics with "#", and `routes.target` carries both — so a subtree read over

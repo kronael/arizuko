@@ -31,7 +31,7 @@ type Caller struct {
 }
 
 // FolderPrincipal is the acl principal a folder holds its grants as. One spelling:
-// store.SeedMemberRoleTx seeds `folder:<f>` into role:member, routd.turnPrincipal
+// store.SeedMemberRole seeds `folder:<f>` into role:member, routd.turnPrincipal
 // reads it back, and Caller.Route expands through it.
 func FolderPrincipal(folder string) string { return "folder:" + folder }
 
@@ -622,8 +622,9 @@ const ShellEnvPrefix = store.ShellEnvPrefix
 
 // ExtScopePrefix opens the namespace an external connector's tools authorize
 // on. `routd.LoadExtProviders` carries each tool's `scope` from its TOML
-// (`ext:cloudflare:dns:read`) and the agent socket authorizes THAT string, not
-// the tool's `mcp:` name — so an action in this namespace has to be grantable
+// (`ext:cloudflare:dns:read`) and the agent socket authorizes THAT string
+// when it registers the tool, then the tool's `mcp:` name at each call, so an
+// ext tool needs both grants. An action in this namespace has to be grantable
 // or the only rows that reach an ext tool are a blanket `*` and an operator
 // elevation, both of which confer everything (BUGS L230).
 const ExtScopePrefix = "ext:"

@@ -81,7 +81,7 @@ func (h *holdRuntime) Run(ctx context.Context, t Turn) RunResult {
 }
 
 // Kill releases the hold: Run returns and Manager.spawn ends the spawn row.
-// Idempotent, matching dockerRuntime.Kill.
+// Idempotent.
 func (h *holdRuntime) Kill(handle string) error {
 	h.slot(handle).close()
 	return nil

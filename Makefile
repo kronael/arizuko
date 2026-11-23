@@ -198,13 +198,12 @@ test:
 # real HTTP between daemons). Excluded from `make test` due to setup cost.
 #
 # CI does NOT run this. It runs lint, test and test-e2e
-# (.github/workflows/ci.yml). This target is red today — BUGS L349 — and
-# wiring a red gate breaks every build, so it is fix first, wire second.
+# (.github/workflows/ci.yml); wiring this target in is a cost call.
 integration:
 	# 600s, not 120s: tests/ holds the container-turn cases and their own
 	# turnTimeout is 4 minutes, so a 120s package budget killed the binary
 	# before any test could report — the F37 signature above, a bare
-	# `FAIL <pkg> 124s` with no `--- FAIL:` line (BUGS L349).
+	# `FAIL <pkg> 124s` with no `--- FAIL:` line.
 	go test ./tests/... -count=1 -timeout 600s
 	go test ./objstore/dynstore/... -count=1 -timeout 300s
 	go test ./tests/dynamo/... -count=1 -timeout 300s
