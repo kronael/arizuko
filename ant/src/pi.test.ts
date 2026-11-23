@@ -3,8 +3,16 @@
 // is constructed from pi-ai's published types.
 
 import { test, expect, spyOn } from 'bun:test';
-import { PiTurn, piArgs, piEnv, piMcpConfig, codexAuth } from './pi.js';
+import { PiTurn, piArgs, piEnv, piMcpConfig, codexAuth, PI_SETTINGS } from './pi.js';
 import type { Frame } from './backend.js';
+
+// A model call that fails is retried three times with a doubling delay before
+// the turn fails. With two retries one 30 s network fault failed a sloth turn
+// (2026-11-23, three `fetch failed` in 28 s).
+test('pi retries a failed model call three times before the turn fails', () => {
+  expect(PI_SETTINGS.retry).toMatchObject({ enabled: true, maxRetries: 3, baseDelayMs: 2000 });
+  expect(PI_SETTINGS.retry.maxAgentDelayMs).toBeGreaterThanOrEqual(8000);
+});
 
 // Recorded verbatim (trimmed to the load-bearing fields): the codex-serve
 // endpoint answering 404 — stopReason "error" with an errorMessage.

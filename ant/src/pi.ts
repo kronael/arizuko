@@ -284,6 +284,15 @@ export function refreshedCodexLogin(source: string, written: Record<string, unkn
   return JSON.stringify(data, null, 2);
 }
 
+// PI_SETTINGS is pi's settings.json for a turn. pi retries a failed model call
+// itself: three times, after 2 s, 4 s and 8 s. A model call that fails four
+// times in a row fails the turn, and routd's turn retry takes over. Every
+// harness retries at least three times: claude and codex keep their own
+// defaults (10; 4 per request and 5 per stream), which ant does not lower.
+export const PI_SETTINGS = { retry: {
+  enabled: true, maxRetries: 3, baseDelayMs: 2000, maxAgentDelayMs: 10000, provider: { maxRetries: 0 },
+} };
+
 async function* runPi(turn: Turn): AsyncGenerator<Frame> {
   const scan = scanSkills(`${turn.cwd}/.claude/skills`);
   for (const x of scan.excluded) log(`skill excluded by load-time guard: ${x}`);
@@ -314,9 +323,7 @@ async function* runPi(turn: Turn): AsyncGenerator<Frame> {
     }
     fs.writeFileSync(promptFile, turn.prompt, { mode: 0o600 });
     fs.writeFileSync(path.join(dir, 'mcp.json'), JSON.stringify(piMcpConfig(turn.tools ?? {})), { mode: 0o600 });
-    fs.writeFileSync(path.join(dir, 'settings.json'), JSON.stringify({ retry: {
-      enabled: true, maxRetries: 2, baseDelayMs: 2000, maxAgentDelayMs: 10000, provider: { maxRetries: 0 },
-    } }), { mode: 0o600 });
+    fs.writeFileSync(path.join(dir, 'settings.json'), JSON.stringify(PI_SETTINGS), { mode: 0o600 });
     yield* driveCli(
       'pi',
       piArgs(turn, promptFile, scan.clean.map((s) => s.dir)),

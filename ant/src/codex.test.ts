@@ -240,6 +240,15 @@ test('codexArgs: the hook-trust bypass is present, or every policy is silently o
   expect(codexArgs({ cwd: '/home/node', env: {} })).toContain('--dangerously-bypass-hook-trust');
 });
 
+// codex retries a failed model call itself: 4 times per request and 5 per
+// stream by default. ant passes no override, with a gateway or without, so no
+// turn gets fewer than the three retries every harness makes.
+test('codexArgs: nothing lowers codex own model call retries', () => {
+  for (const env of [{}, { MODEL_GATEWAY_URL: 'http://gw:4000', MODEL_GATEWAY_KEY: 'virtual-key' }]) {
+    expect(codexArgs({ cwd: '/home/node', env }).filter((arg) => arg.includes('max_retries'))).toEqual([]);
+  }
+});
+
 test('codexArgs: model passes through verbatim only when set', () => {
   expect(codexArgs({ cwd: '/home/node', env: {}, model: 'gpt-5.5' })).toContain('gpt-5.5');
   expect(codexArgs({ cwd: '/home/node', env: {} })).not.toContain('-m');

@@ -284,6 +284,15 @@ test('claudeEnv: no gateway returns the same env object', () => {
   expect(claudeEnv(env)).toBe(env);
 });
 
+// Claude Code retries a failed model call itself, 10 times by default, and
+// CLAUDE_CODE_MAX_RETRIES is the one knob that lowers it. ant never sets it,
+// so no turn gets fewer than the three retries every harness makes.
+test('claudeEnv: nothing lowers Claude Code own model call retries', () => {
+  for (const env of [{ HOME: '/home/node' }, { MODEL_GATEWAY_URL: 'http://gw:4000', MODEL_GATEWAY_KEY: 'virtual-key' }]) {
+    expect(claudeEnv(env).CLAUDE_CODE_MAX_RETRIES).toBeUndefined();
+  }
+});
+
 // Measured 2026-09-04: the SDK subprocess reads ANTHROPIC_BASE_URL and sends
 // ANTHROPIC_AUTH_TOKEN as `Authorization: Bearer <token>`. The rest of env
 // survives — HOME, the socket paths, everything the turn already carried.
