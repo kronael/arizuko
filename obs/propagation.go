@@ -31,11 +31,7 @@ func HashTurnID(instance, turnID string) trace.TraceID {
 func WithTurn(ctx context.Context, instance, turnID string) context.Context {
 	traceID := HashTurnID(instance, turnID)
 	var spanID trace.SpanID
-	if _, err := rand.Read(spanID[:]); err != nil {
-		// A zero SpanID makes the SpanContext invalid and silently suppresses
-		// propagation; on the (rare) rand failure derive a stable non-zero one.
-		copy(spanID[:], traceID[8:])
-	}
+	rand.Read(spanID[:])
 	sc := trace.NewSpanContext(trace.SpanContextConfig{
 		TraceID:    traceID,
 		SpanID:     spanID,
