@@ -13,6 +13,25 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.75.24] — 2026-11-23
+
+> arizuko v0.75.24 — git works in the agent's shell again
+>
+> The agent's shell had no HOME in the VM guest, so git ignored its GitHub login.
+>
+> • Agent shell — `git fetch` and `git push` use the granted GitHub token again.
+> • Discord — a turn's first status shows in the chat instead of failing to start an untitled thread.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Fixed
+
+- The agent image declares `HOME=/home/node`. The VM guest gets no runtime
+  HOME, so git never read `~/.gitconfig` and its `gh` credential helper (L919).
+- A turn status never starts a new thread on a channel whose threads need a
+  title (`thread_title` capability, declared by `discd`); it goes to the chat
+  (L918).
+
 ## [v0.75.23] — 2026-11-23
 
 > arizuko v0.75.23 — the second refine pass completes
