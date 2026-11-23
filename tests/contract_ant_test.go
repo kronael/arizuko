@@ -280,3 +280,24 @@ func TestModelUsageFieldsMatchAcrossLanguages(t *testing.T) {
 		t.Fatalf("ModelUsage declarations disagree: TS %v Go %v", ant, got)
 	}
 }
+
+// The KVM guest starts the agent from the image ENV set only; docker derived
+// HOME from `USER` at run time, so an undeclared HOME leaves git without
+// ~/.gitconfig (BUGS L919).
+func TestAntDockerfileDeclaresHomeOfFinalUser(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join("..", "ant", "Dockerfile"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	user := ""
+	for _, m := range regexp.MustCompile(`(?m)^USER\s+(\S+)`).FindAllStringSubmatch(string(b), -1) {
+		user = m[1]
+	}
+	if user == "" {
+		t.Fatal("ant/Dockerfile has no USER")
+	}
+	want := "ENV HOME=/home/" + user
+	if !regexp.MustCompile(`(?m)^` + regexp.QuoteMeta(want) + `\s*$`).Match(b) {
+		t.Fatalf("ant/Dockerfile must declare %q beside USER %s", want, user)
+	}
+}

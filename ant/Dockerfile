@@ -203,6 +203,8 @@ RUN chown -R node:node /home/node /run/ipc /mnt \
     && chmod 755 /home/node \
     && chmod -R u=rwX,go=rX /usr/local/cargo /usr/local/rustup
 
+# The VM guest gets no runtime HOME; docker derived it from USER.
+ENV HOME=/home/node
 USER node
 WORKDIR /home/node
 
