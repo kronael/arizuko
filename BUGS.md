@@ -14,6 +14,23 @@
 > so counting one as open overstates the queue.
 
 
+## L920 — one folder runs one turn, so every PR of a repo waits in one line (2026-11-23, open — needs sign-off)
+
+`routd/turn_control.go:745` `canReserve` refuses a turn while its folder holds
+one (`activeFolders[folder]`). sloth/morha serves every vumilan/morha PR as a
+topic of the one folder, so `MAX_CONCURRENT_AGENTS=2` never reaches it: PR
+requests queue one behind the other.
+
+**Measured:** 2026-11-22 14:00, four PR requests started 14:01, 15:00, 15:20,
+16:21 (#540 waited 140 min); #539 review comments waited 80 min; 2026-11-23
+19:09-19:33, #552, #548, #545 and #533 had no turn while #553 held the folder
+from 19:17. Eval report 2026-11-23 (job scratch).
+**Proposal:** admit a second turn in a busy folder when its topic differs and
+the slot limit allows it. Two turns then share the folder home: the clone,
+`~/diary`, notes. Needs a rule for that shared state (a worktree per topic for
+the repo; append-only diary) before it is safe.
+**Type:** design — owner sign-off.
+
 ## L917 — deep refine rounds 1-2: 26 findings that change a contract wait for sign-off (2026-11-22, open)
 
 Six read-only audits (one per area) and six fixers ran on v0.75.20; 101 findings
@@ -575,6 +592,7 @@ The browser retry integration owns this fix after the current serial capacity wo
 - `L826` — one folder's crash closes the whole instance for an hour; per-folder breaker or a 30 s probe; needs sign-off.
 - `L913` — a new topic on a pi folder starts without its parent's history; fix waits on a live pi resume check.
 - `L914` — a claude turn's shell has no Claude login: Claude Code deletes its own token; owner choice of a, b or c.
+- `L920` — one folder runs one turn, so a repo's PRs queue in one line; per-topic admission needs sign-off.
 - `L917` — 26 refine findings that change a contract or schema; one owner decision per line.
 - `L816` — gitd loses GitHub webhooks while the store is unreachable; retention lives in that store; proposal, needs sign-off.
 - `L803` — morha repeats recovery reports and replies to an old GitHub comment; cause unmeasured.
