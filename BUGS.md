@@ -175,29 +175,6 @@ names the operator and `/v1` needs no new bearer rule; (b) send the write throug
 **Default if nothing is decided:** the write stays on the store.
 **Type:** design, no test — design.
 
-## L904 — `GroupObserveWindow` reads a malformed stored settings document as "not set" (2026-11-15, open — owner asked for the fix)
-
-`store/groups.go:65-71` `settingsOf` maps a `decodeSettings` error to `map[string]any{}`,
-with the comment "An absent or unparseable one is the EMPTY document".
-`0787043a3` made `setSetting`, `SetGroupObserveWindow` and `SiblingFolders` return the
-decode error. `GroupObserveWindow` (`store/groups.go:494`) still reads through
-`settingsOf` and reports (-1,-1), "not set", for a malformed row.
-`specs/6/53-per-group-harness.md` § "Ant owns selection and validation" requires: "Malformed
-stored settings produce a visible read failure, never the empty-default result of
-`store/groups.go:66`."
-**Fan-out:** `GroupObserveWindow(folder string) (msgs, chars int)` has no error to
-return, so propagating one changes its signature and every caller: `routd/prompt.go:221`
-(the prompt's observe window), the `ipc` deps field `GroupObserveWindow`
-(`ipc/ipc.go:79`, used at `ipc/ipc.go:1873`, wired at `routd/mcp.go:159`), and six test
-files (`store/groups_test.go`, `ipc/untested_tools_test.go`, `routd/harness_carry_test.go`,
-`routd/groups_detail_test.go`, `routd/parity_extra_test.go`, and four files under `tests/`).
-**Measured:** `grep -rn "GroupObserveWindow" --include=*.go .` in `wharness` at
-`cc1cf9b95568c7317137f77b9e8f4fac42fb3ad4` lists those sites; `sed -n 494,508p
-store/groups.go` shows the `settingsOf` call.
-**Fix:** `GroupObserveWindow` returns `(msgs, chars int, err error)` through
-`decodeSettings`; `routd/prompt.go` logs the error and falls back to the env defaults,
-the `ipc` tool answers it; then `settingsOf` is deleted.
-
 ## ✅ FIXED 2026-11-15 83b759360bba05b321ce45a9460a5fc15672a88a L905 — googd reads `SHEETS_API_URL` but compose did not pass it (2026-11-15)
 
 `googd/main.go:294` reads `core.EnvOr("SHEETS_API_URL", "https://sheets.googleapis.com")`
@@ -570,10 +547,7 @@ The browser retry integration owns this fix after the current serial capacity wo
 
 ## What needs you
 
-- `L896` — the CLI README still says to use `/new` before a backend change; docs fix, record only.
-- `L895` — the new-product checklist names a removed spec path; docs fix, record only.
 - `L903` — dashd writes a group's harness to the store; `6/53` says through `/v1`, `6/29` says the store; owner decision, default is the store.
-- `L904` — `GroupObserveWindow` reads a malformed settings document as "not set"; changing it crosses `routd/prompt.go`, the `ipc` deps field and six test files; fix asked.
 - `L910` — the Google connector has no resolve or reopen tool; the `rest` schema cannot fix a body field; needs sign-off.
 - `L826` — one folder's crash closes the whole instance for an hour; per-folder breaker or a 30 s probe; needs sign-off.
 - `L914` — a claude turn's shell has no Claude login: Claude Code deletes its own token; owner choice of a, b or c.
@@ -878,30 +852,6 @@ GitHub App installed on it and the operator's App credentials.
   stay unproven
 - **Type:** ops — no test — ops
 - **Status:** open — operator task
-
-## L896 — the CLI README says to use /new before a backend change, which ant makes unnecessary (2026-11-15, open)
-
-`cmd/arizuko/README.md:37-38` tells the operator to "End active runs and use `/new`
-before changing a backend". ant already handles a session the new backend cannot
-resume: codex reports "no rollout found for thread id" (`ant/src/codex.ts:115-116,209-210`),
-the result is `retryFresh`, and the caller retries the turn with no session
-(`ant/src/index.ts:486-489`). Tests: `ant/src/codex.test.ts:290`, `ant/src/index.test.ts:72`.
-No test — docs.
-
-**Fix:** drop "and use `/new`" from that sentence.
-
-- **Status:** open (record only).
-
-## L895 — the new-product checklist names a spec path that no longer exists (2026-11-15, open)
-
-`template/web/CLAUDE.md:374` step 4 of "Adding a new product" says to create
-`specs/7/product-<name>.md`. `specs/7/` holds no `product-*` file, and the product
-specs were deleted on purpose (`specs/17/index.md:60-70`), so an agent following
-the checklist writes a file the project removed. No test — docs.
-
-**Fix:** delete step 4 and renumber the list.
-
-- **Status:** open (record only).
 
 ## ✅ FIXED 2026-11-15 dd6bc82e3403b6a1bac59bf1fd51514c7fa6967d L882 — Discord typing follows the newest message in the channel, not the turn's thread (2026-11-15)
 
