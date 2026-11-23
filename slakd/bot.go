@@ -1544,7 +1544,7 @@ func (b *bot) Edit(req chanlib.EditRequest) error {
 	form := url.Values{}
 	form.Set("channel", parts.ID)
 	form.Set("ts", req.TargetID)
-	form.Set("text", req.Content)
+	form.Set("text", toMrkdwn(req.Content, b.resolveMention))
 	var resp struct {
 		OK    bool   `json:"ok"`
 		Error string `json:"error"`

@@ -831,14 +831,16 @@ func TestOutbound_Edit(t *testing.T) {
 	defer mock.Close()
 	b, _ := setupBot(t, mock)
 	if err := b.Edit(chanlib.EditRequest{
-		ChatJID: "slack:T012/channel/C0HJK", TargetID: "1700000222.000100", Content: "edited",
+		ChatJID: "slack:T012/channel/C0HJK", TargetID: "1700000222.000100",
+		Content:  "**bold** [link](https://example.com)",
 		ThreadID: "1700000111.000100",
 	}); err != nil {
 		t.Fatal(err)
 	}
 	mock.mu.Lock()
 	defer mock.mu.Unlock()
-	if len(mock.updated) != 1 || mock.updated[0]["text"] != "edited" || mock.updated[0]["channel"] != "C0HJK" {
+	if len(mock.updated) != 1 || mock.updated[0]["text"] != "*bold* <https://example.com|link>" ||
+		mock.updated[0]["channel"] != "C0HJK" {
 		t.Errorf("updated = %+v", mock.updated)
 	}
 }
