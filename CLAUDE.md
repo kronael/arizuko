@@ -99,8 +99,8 @@ them on each request.
   middleware layers every daemon applies identically. The authz gate is
   INJECTED per surface — `resreg` carries no auth policy of its own — and
   binds `(action, required-scopes, target-resolver)` at route/tool
-  registration. Operator REST uses the default `auth.Authorize` (scope/ACL);
-  the agent MCP socket (routd) injects
+  registration. REST resources inject a gate; the default is `auth.Authorize`
+  (scope/ACL) where none is set. The agent MCP socket (routd) injects
   `db.AuthorizeTurn(sender, turn-folder, target, "mcp:"+tool, params)` —
   the granted-row path, where the row's scope glob IS the containment and
   the turn's folder confers in full while the attested sender adds only
