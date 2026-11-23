@@ -68,3 +68,20 @@ func NextRun(cronVal, tz string) (time.Time, error) {
 	}
 	return next, nil
 }
+
+// ParseTaskSchedule reads the schedule a person or an agent types for a new
+// task. An RFC 3339 time is a one-shot: it answers that instant and an empty
+// cron. Anything else must be a value NextRun accepts and is answered as the
+// cron to store, with no instant: the scheduler fills next_run from it.
+func ParseTaskSchedule(cronExpr string) (*time.Time, string, error) {
+	if cronExpr == "" {
+		return nil, "", nil
+	}
+	if t, err := time.Parse(time.RFC3339, cronExpr); err == nil {
+		return &t, "", nil
+	}
+	if _, err := NextRun(cronExpr, Timezone()); err != nil {
+		return nil, "", fmt.Errorf("invalid cron %q: %v", cronExpr, err)
+	}
+	return nil, cronExpr, nil
+}

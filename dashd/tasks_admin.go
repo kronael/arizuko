@@ -189,7 +189,8 @@ func (d *dash) handleTaskCreate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "owner, chat_jid, prompt, cron required", http.StatusBadRequest)
 		return
 	}
-	if _, err := core.NextRun(cronVal, core.Timezone()); err != nil {
+	nextRun, cronStore, err := core.ParseTaskSchedule(cronVal)
+	if err != nil {
 		http.Error(w, "invalid cron expression", http.StatusBadRequest)
 		return
 	}
@@ -207,7 +208,8 @@ func (d *dash) handleTaskCreate(w http.ResponseWriter, r *http.Request) {
 		Owner:   owner,
 		ChatJID: chatJID,
 		Prompt:  prompt,
-		Cron:    cronVal,
+		Cron:    cronStore,
+		NextRun: nextRun,
 	}, audit.Event{
 		Category: audit.CategoryMutation,
 		Action:   "task.create",

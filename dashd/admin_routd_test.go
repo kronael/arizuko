@@ -227,6 +227,28 @@ func TestTaskCreate_TargetsRoutdDB(t *testing.T) {
 	}
 }
 
+// routd's `tasks` tool reads an RFC 3339 time as a one-shot: next_run is that
+// instant and the cron is empty. The form reads the same value the same way, so
+// a task the agent can create is one the operator can create too.
+func TestTaskCreate_AcceptsAnRFC3339OneShot(t *testing.T) {
+	d, routd := splitAdminDash(t, "alice@x")
+	at := time.Date(2031, 1, 2, 9, 0, 0, 0, time.UTC)
+	form := url.Values{
+		"owner": {"team"}, "chat_jid": {"web:team"},
+		"prompt": {"do the thing"}, "cron": {at.Format(time.RFC3339)},
+	}.Encode()
+	w := httptest.NewRecorder()
+	newMux(d).ServeHTTP(w, adminReq("POST", "/dash/tasks/", form, "alice@x"))
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("POST tasks = %d body=%q", w.Code, w.Body.String())
+	}
+	if n := countTasks(t, routd, func(task core.Task) bool {
+		return task.Cron == "" && task.NextRun != nil && task.NextRun.Equal(at)
+	}); n != 1 {
+		t.Errorf("one-shot tasks at %v with no cron = %d, want 1", at, n)
+	}
+}
+
 // TestTaskCreate_RejectsBadCron: a cron that could never run is refused at the
 // form, and nothing is stored.
 func TestTaskCreate_RejectsBadCron(t *testing.T) {

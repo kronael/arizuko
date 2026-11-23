@@ -90,7 +90,7 @@ func (s *Server) scheduledTasksHandler(ctx context.Context, x resreg.Execution, 
 		if argString(x.Args, "cron") == "" {
 			return nil, resreg.Errorf(http.StatusBadRequest, "cron required: a cron expression, an interval in ms, or an RFC3339 time")
 		}
-		nextRun, cronStore, err := parseTaskSchedule(argString(x.Args, "cron"))
+		nextRun, cronStore, err := core.ParseTaskSchedule(argString(x.Args, "cron"))
 		if err != nil {
 			return nil, resreg.Errorf(http.StatusBadRequest, "%v", err)
 		}
@@ -210,17 +210,4 @@ func (s *Server) scheduledTasksPostBuild(folder, callerSub string, authorize aut
 	res := s.scheduledTasksResource(contain, callerID.IsRoot)
 	res.Gate = agentAllowGate
 	return mountAgentResource(res, callerSub, folder, visible)
-}
-
-func parseTaskSchedule(cronExpr string) (*time.Time, string, error) {
-	if cronExpr == "" {
-		return nil, "", nil
-	}
-	if t, err := time.Parse(time.RFC3339, cronExpr); err == nil {
-		return &t, "", nil
-	}
-	if _, err := core.NextRun(cronExpr, core.Timezone()); err != nil {
-		return nil, "", fmt.Errorf("invalid cron %q: %v", cronExpr, err)
-	}
-	return nil, cronExpr, nil
 }

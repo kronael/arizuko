@@ -110,10 +110,12 @@ type NewTask struct {
 	ChatJID string
 	Prompt  string
 	Cron    string
+	NextRun *time.Time
 }
 
-// CreateTask writes the task and its audit row in one batch. The task carries
-// no next_run: the scheduler fills it from the cron.
+// CreateTask writes the task and its audit row in one batch. A cron task
+// carries no next_run: the scheduler fills it from the cron. A one-shot
+// carries its instant and no cron.
 func (s *Store) CreateTask(ctx context.Context, t NewTask, ev audit.Event) error {
 	task := core.Task{
 		ID:      t.ID,
@@ -121,6 +123,7 @@ func (s *Store) CreateTask(ctx context.Context, t NewTask, ev audit.Event) error
 		ChatJID: t.ChatJID,
 		Prompt:  t.Prompt,
 		Cron:    t.Cron,
+		NextRun: t.NextRun,
 		Status:  core.TaskActive,
 		Created: time.Now(),
 	}
