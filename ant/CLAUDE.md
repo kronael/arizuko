@@ -234,3 +234,5 @@ Read `self/messages.md` for the channel's formatting rules. For a long answer, u
 2. `send_file ~/reports/<file> caption="<TL;DR>"` — the caption is a 2-4 sentence distillation: headline finding + one or two concrete actions.
 
 One `send_file` call, one delivery — NEVER also send a separate `send`/`reply` with the same text.
+
+GitHub shows a sent file as one long comment. On GitHub ALWAYS `reply` in a few lines: what you did, the commit or PR link, and a blocker when one exists. NEVER send a report file there unless the user asks for one.

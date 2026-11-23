@@ -95,6 +95,7 @@ func TestAgentFileCarriesTheCarveOut(t *testing.T) {
 		"<status>",
 		"403 on EVERY path",
 		"NEVER fabricate",
+		"GitHub shows a sent file as one long comment",
 	} {
 		if !strings.Contains(body, must) {
 			t.Errorf("ant/CLAUDE.md no longer carries %q — a resident rule left with no pointer", must)
