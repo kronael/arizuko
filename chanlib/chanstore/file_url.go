@@ -35,16 +35,6 @@ const (
 	attrURLCreatedAt = "created_at"
 )
 
-// fileURLKey is the coordinate of one mapping.
-//
-// THE PARTITION IS THE ID, for `outbound_dedup`'s reason rather than
-// `inbound_pending`'s: both reads below address exactly one id handed to them by
-// an HTTP path, neither filters, and no read wants two mappings co-located. A
-// constant partition would pile an unswept ledger into one partition for no
-// read's benefit.
-//
-// The sort key repeats the id because the item has no second coordinate, and
-// DynamoDB refuses an empty key attribute.
 func fileURLKey(id string) objstore.Key { return objstore.Key{Partition: id, Sort: id} }
 
 // RecordFileURL stores the platform URL an id stands for.

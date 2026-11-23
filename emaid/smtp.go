@@ -15,14 +15,8 @@ func sanitizeHeader(s string) string {
 	return s
 }
 
-// smtpSender is the send primitive swapped out in tests. Signature mirrors
-// smtp.SendMail: addr, auth, from, to[], msg. Production callers get the
-// full STARTTLS + AUTH + MAIL/RCPT/DATA dance; tests record args.
 var smtpSender = defaultSMTPSender
 
-// defaultSMTPSender drives net/smtp's client explicitly so we can require
-// STARTTLS before auth. smtp.SendMail does this too but this adapter
-// historically kept the state machine visible, so we preserve it.
 func defaultSMTPSender(addr string, a smtp.Auth, from string, to []string, msg []byte) error {
 	c, err := smtp.Dial(addr)
 	if err != nil {
