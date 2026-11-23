@@ -604,12 +604,10 @@ func TestInbound_ReactionDislike(t *testing.T) {
 	if len(msgs) != 1 {
 		t.Fatalf("got %d", len(msgs))
 	}
-	// Note: ClassifyEmoji uses Unicode codepoint; "thumbsdown" (name only) is
-	// unknown → default to "like". Reaction name preserved per spec.
 	if msgs[0].Reaction != "thumbsdown" {
 		t.Errorf("Reaction = %q", msgs[0].Reaction)
 	}
-	if msgs[0].Verb != "like" && msgs[0].Verb != "dislike" {
+	if msgs[0].Verb != "dislike" {
 		t.Errorf("Verb = %q", msgs[0].Verb)
 	}
 	if msgs[0].ReplyTo != "1700000222.000100" {

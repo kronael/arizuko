@@ -11,13 +11,23 @@ func ClassifyEmoji(emoji string) string {
 }
 
 var negativeEmoji = map[string]bool{
-	"👎": true,
-	"💩": true,
-	"😡": true,
-	"🤬": true,
-	"💔": true,
-	"🤮": true,
-	"😢": true,
+	"thumbsdown":                 true,
+	"-1":                         true,
+	"poop":                       true,
+	"shit":                       true,
+	"hankey":                     true,
+	"rage":                       true,
+	"face_with_symbols_on_mouth": true,
+	"broken_heart":               true,
+	"face_vomiting":              true,
+	"cry":                        true,
+	"👎":                          true,
+	"💩":                          true,
+	"😡":                          true,
+	"🤬":                          true,
+	"💔":                          true,
+	"🤮":                          true,
+	"😢":                          true,
 }
 
 // VerdictEmoji reads a reaction as an approval verdict, or "" when it is an
