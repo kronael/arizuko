@@ -791,8 +791,6 @@ reads those words now.
   reads; measure whether the ambient join is unwired.
 - `L531` — the F36 refresh-claim guard is tested on a twin production never
   calls.
-- `L532` — no code writes the `task.delete` audit row that `audit/PLAN.md`
-  lists.
 **Found by the per-group machine spec (2026-10-23).**
 - `L537` — DECIDED: each group sizes its own guest with `mem`, `smp` and
   `timeout` keys in `container_config` (`specs/9/20-group-machine-size.md`);
@@ -1552,6 +1550,13 @@ produced each one is in `.diary/`, dated; this list is the index, not the argume
   through a production reader (`SessionsByFamily`, `RecentSessions`, `SpawnByRunID`,
   `ClaimDelivery`, `audit.Query`); the `counts` checks beside them are vacuous-pass
   guards. A sweep that counts those lines as dead is counting the fixtures.
+- **`L532` — a deleted task does leave an audit row; `task.delete` is a name nothing
+  uses.** Filed as "no code writes the `task.delete` audit row". The one delete path is
+  the `scheduled_tasks` resource's `cancel` action (`routd/scheduled_tasks_resource.go`,
+  `DeleteTaskInto`), and resreg writes its audit event `scheduled_tasks:cancel` in the
+  same batch (`resreg/resreg.go` `buildEvent`, `actionKey`). dashd's cancel writes
+  `task.update` with `status: cancelled` (`dashd/tasks_admin.go`). `audit/PLAN.md`
+  already lists `task.delete` as emitted by no code.
 - **`L147` — `web:` JIDs exist only to satisfy a storage column.** The principle:
   the channel attests, the router resolves, the ACL authorizes. Records a design
   fault, not a work item.
@@ -3039,15 +3044,6 @@ its `familyLive` check have callers only in `authd/bugfix_test.go` and
 
 - **Severity:** medium — the guard's test proves nothing about production.
 - **Fix:** point the tests at the production rotation, then delete the twin.
-- **Status:** open.
-
-## L532 — no code writes the `task.delete` audit row (2026-10-22, open)
-
-FOUND by the dead-code sweep at `90403e2d`: `audit/PLAN.md:252` lists
-`task.delete`; `git grep` finds no production writer.
-
-- **Severity:** low — a deleted task leaves no audit trail.
-- **Fix:** write the row in the task delete path.
 - **Status:** open.
 
 ## L535 — a background subagent's result arrives after the turn ends, and every tool call is refused (2026-10-23, open)
