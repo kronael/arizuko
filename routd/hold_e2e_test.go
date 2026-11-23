@@ -116,13 +116,8 @@ func TestHoldE2E_ButtonPressReleasesTheBlockedCall(t *testing.T) {
 		t.Fatalf("the button's data %q was not consumed as a command", press)
 	}
 
-	select {
-	case h := <-held:
-		if h {
-			t.Fatal("the approved call must run inline, not stay held")
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("the gate never noticed the approval")
+	if <-held {
+		t.Fatal("the approved call must run inline, not stay held")
 	}
 
 	rows, err := db.ListPendingActions("atlas", "")
@@ -156,13 +151,8 @@ func TestHoldE2E_RejectPressKeepsTheCallUnrun(t *testing.T) {
 		t.Fatalf("the reject button's data %q was not consumed", press)
 	}
 
-	select {
-	case h := <-held:
-		if !h {
-			t.Fatal("a rejected call must never run")
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("the gate never noticed the rejection")
+	if !<-held {
+		t.Fatal("a rejected call must never run")
 	}
 	rows, _ := db.ListPendingActions("atlas", "")
 	if rows[0].Status != PendingRejected || rows[0].ReviewedBy != "u" {
@@ -198,13 +188,8 @@ func TestHoldE2E_ChannelWithoutButtonsStillGetsAnAnswerablePrompt(t *testing.T) 
 	}, "atlas", false) {
 		t.Fatal("the typed command was not consumed")
 	}
-	select {
-	case h := <-held:
-		if h {
-			t.Fatal("the approved call must run inline")
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("the gate never noticed the approval")
+	if <-held {
+		t.Fatal("the approved call must run inline")
 	}
 }
 
