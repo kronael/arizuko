@@ -148,7 +148,8 @@ func (q *turnControl) admit(l *Loop, tc TurnContext, admission *store.TurnAdmiss
 		admission.ControlBefore = &before
 	}
 	work := turnWork{}
-	if exists && before.Phase != "closed" {
+	held := exists && before.Phase != "closed" && (before.Folder == "" || before.Folder == tc.Folder)
+	if held {
 		if before.Phase != "open" || q.now().Before(before.NextProbeAt) {
 			return work, false, errTurnBlocked
 		}
@@ -163,18 +164,13 @@ func (q *turnControl) admit(l *Loop, tc TurnContext, admission *store.TurnAdmiss
 		if ok && owner.State == store.TurnRunning {
 			return work, false, errTurnBlocked
 		}
-		if ok && (owner.State == store.TurnPendingRetry || owner.State == store.TurnWaitingCapacity) && l.db.GroupExists(owner.Folder) {
-			if owner.TurnID != tc.TurnID {
-				return work, false, errTurnBlocked
-			}
-		} else {
-			oldest, err := q.oldest(l, tc)
-			if err != nil {
-				return work, false, err
-			}
-			if oldest != tc.TurnID {
-				return work, false, errTurnBlocked
-			}
+		// Under a breaker that holds every folder, the folder of a due probe
+		// owner probes first. The folder's own input order, checked before
+		// admission, picks the turn.
+		ownerIsDue := ok && (owner.State == store.TurnPendingRetry || owner.State == store.TurnWaitingCapacity) &&
+			l.db.GroupExists(owner.Folder) && !q.now().Before(owner.NextAttemptAt)
+		if before.Folder == "" && ownerIsDue && owner.Folder != tc.Folder {
+			return work, false, errTurnBlocked
 		}
 		after := before
 		after.Phase, after.ProbeTurnID, after.ProbeAttemptID = "probe", tc.TurnID, admission.AttemptID
@@ -193,35 +189,6 @@ func (q *turnControl) admit(l *Loop, tc TurnContext, admission *store.TurnAdmiss
 	ok, err := l.db.store().OpenTurnContext(tc.TurnID, tc.Folder, tc.Topic, tc.ChatJID,
 		tc.Trigger, tc.ReturnTo, admission)
 	return work, ok, err
-}
-
-func (q *turnControl) oldest(l *Loop, candidate TurnContext) (string, error) {
-	ctx := context.Background()
-	turns, err := l.db.store().DeferredTurns(ctx, q.now())
-	if err != nil {
-		return "", err
-	}
-	var oldest core.Message
-	turnID := candidate.TurnID
-	for _, tc := range turns {
-		msgs, err := l.db.store().DeferredMessages(ctx, tc.InputKeys)
-		if err != nil {
-			return "", err
-		}
-		if len(msgs) == 0 || !l.db.GroupExists(tc.Folder) {
-			continue
-		}
-		q.mu.Lock()
-		_, active := q.activeFolders[tc.Folder]
-		q.mu.Unlock()
-		if active && tc.TurnID != candidate.TurnID {
-			continue
-		}
-		if oldest.ID == "" || modelInputBefore(msgs[0], oldest) {
-			oldest, turnID = msgs[0], tc.TurnID
-		}
-	}
-	return turnID, nil
 }
 
 func classifyTurn(out runedv1.RunOutcome, err error, result store.TurnInfo, replied bool) turnDecision {
@@ -318,9 +285,17 @@ func (q *turnControl) complete(l *Loop, tc TurnContext, out runedv1.RunOutcome, 
 		if decision.trip {
 			next := before
 			next.Episode = randHex(16)
-			if !exists || before.Phase == "closed" || owned {
+			opens := !exists || before.Phase == "closed"
+			if opens {
+				next.Folder = tc.Folder
+			}
+			if opens || owned {
 				next.Phase, next.ProbeTurnID, next.ProbeAttemptID = "open", "", ""
 				next.NextProbeAt = maxTime(resetAt, q.now().Add(time.Hour))
+				if opens && !decision.retry {
+					first := retry.Next(0, retry.Failure{Kind: "transient"}, q.now(), time.Time{})
+					next.NextProbeAt = maxTime(resetAt, first.NextAt)
+				}
 				if shouldRetry {
 					next.NextProbeAt = tc.NextAttemptAt
 					if !work.successor {
@@ -405,7 +380,7 @@ func (q *turnControl) refuse(l *Loop, tc TurnContext, reason string, reset time.
 			prior = &before
 		}
 		after := before
-		after.Episode = randHex(16)
+		after.Episode, after.Folder = randHex(16), ""
 		current.FailureCause = "Model unavailable"
 		current.NextAttemptAt = failure.RetryAt
 		current.ProviderFailureKind = failure.Kind
@@ -455,7 +430,7 @@ func (q *turnControl) interrupt(l *Loop, tc TurnContext, expected ...store.TurnC
 		prior = &before
 	}
 	if !exists || before.Phase == "closed" {
-		after = store.TurnControlState{NextProbeAt: q.now().Add(time.Hour),
+		after = store.TurnControlState{Folder: tc.Folder, NextProbeAt: q.now().Add(time.Hour),
 			ProbeTurnID: tc.TurnID, ProbeAttemptID: tc.AttemptID}
 	}
 	after.Phase, after.Episode = "probe", randHex(16)

@@ -597,39 +597,6 @@ func TestHeldModelInputMarksTheChatRefused(t *testing.T) {
 	}
 }
 
-// Choosing the probe of a due breaker reads no chat: it read every chat's
-// pending batch, 155 on krons, per admission (BUGS L824).
-func TestProbeChoiceReadsNoChat(t *testing.T) {
-	base, err := OpenMem()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer base.Close()
-	counter := &partitionStore{Store: base.obj, chats: map[string]int{}}
-	db := OpenOver(counter)
-	_ = db.PutGroup(core.Group{Folder: "demo"})
-	for i := range 5 {
-		if err := db.PutMessage(core.Message{ID: fmt.Sprintf("o%d", i), ChatJID: fmt.Sprintf("web:other%d", i),
-			Sender: "u", Content: "q", Timestamp: time.Now().UTC()}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	l := NewLoop(db, nopRunner{}, LoopConfig{})
-	l.StopQueue()
-	counter.mu.Lock()
-	clear(counter.chats)
-	counter.mu.Unlock()
-	got, err := l.q.oldest(l, TurnContext{TurnID: "a", ChatJID: "web:demo", Folder: "demo"})
-	if err != nil || got != "a" {
-		t.Fatalf("probe = %q, %v; want the candidate", got, err)
-	}
-	counter.mu.Lock()
-	defer counter.mu.Unlock()
-	if len(counter.chats) != 0 {
-		t.Fatalf("choosing the probe read chats %v", counter.chats)
-	}
-}
-
 // scanStore counts the rows each read examines: a filter runs after the key
 // selects, so a filtered read costs every row of its key range.
 type scanStore struct {

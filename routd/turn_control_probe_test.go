@@ -27,6 +27,13 @@ func TestTurnControlProbeFence(t *testing.T) {
 			if control.Phase != "open" || control.ProbeTurnID != tc.TurnID || !control.NextProbeAt.Equal(tc.NextAttemptAt) {
 				t.Fatalf("failure owner: %+v", control)
 			}
+			// The fence below is the one a breaker that holds every folder keeps;
+			// turn_control_folder_test.go covers the breaker of one folder.
+			held := control
+			control.Folder = ""
+			if ok, err := db.store().WriteTurnControl(context.Background(), &held, control); err != nil || !ok {
+				t.Fatalf("hold every folder: %v %v", ok, err)
+			}
 			if err := db.PutGroup(core.Group{Folder: "other"}); err != nil {
 				t.Fatal(err)
 			}

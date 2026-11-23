@@ -79,9 +79,9 @@ Retry 1 is running.</code></pre>
     <p>The cause comes from a short fixed list: server storage is full, model unavailable, time limit reached, agent could not start, agent stopped unexpectedly, agent setup needs attention, or agent could not complete the request. No error text, path or stderr reaches the chat. <code>routd</code> also marks the chat as errored, so an operator can find it on the dashboard.</p>
     <p>A channel that cannot edit and delete gets the first post and the final post only. Email is such a channel. If a retry succeeds there, the final post says <code>The request completed.</code> GitHub and Google Drive edit and delete their own comments, so they show one status comment, like a chat.</p>
 
-    <h2 id="breaker">One failure stops new launches on the whole instance</h2>
-    <p>A failed execution opens one breaker for the whole instance. A crash, a launch fault, a time limit, a network failure between <code>routd</code> and <code>runed</code> and a provider refusal all open it. While it is open, no new agent starts. Runs that already started can finish, but their success does not close the breaker.</p>
-    <p>The next retry of the failed turn is the probe. A probe that runs without a failure closes the breaker. A probe that fails applies the next gap of the schedule. When the probe turn has used all its retries, the breaker stays open for one hour. Then the oldest waiting turn probes next.</p>
+    <h2 id="breaker">One failure stops new launches in its folder</h2>
+    <p>A failed execution opens the breaker of the instance. A crash, a launch fault, a time limit, a network failure between <code>routd</code> and <code>runed</code> and a provider refusal all open it. A failed run holds the folder that it ran in: no new agent starts in that folder, and every other folder runs. A second folder that fails waits for the retry of its own turn. A provider refusal holds every folder, because the folders share the credential. Runs that already started can finish, but their success does not close the breaker.</p>
+    <p>The next retry of the failed turn is the probe. A failure that never retries has no retry to probe with: the first one holds for 30 seconds, and the next turn of the folder is the probe. A probe that runs without a failure closes the breaker. A probe that fails applies the next gap of the schedule. When the probe turn has used all its retries, the breaker stays open for one hour. Then the next turn of the folder probes.</p>
     <p>The breaker is the singleton <code>turn_control</code> row, so it survives a restart. Startup reads it before <code>routd</code> admits work. An operator stop never opens it. No operator command writes it: only a probe closes it.</p>
 
     <h2 id="provider-pause">A provider refusal uses the same breaker</h2>
@@ -130,7 +130,7 @@ did not complete.&lt;/system-note&gt;</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/concepts/retries.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-11-14">2026-11-14</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-22">2026-11-22</time>
       </div>
     </main>
     <aside class="docs-toc" aria-label="On this page"></aside>

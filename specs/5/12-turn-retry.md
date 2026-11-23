@@ -83,13 +83,24 @@ It does not guess the cause.
 
 **One breaker per instance.** A failed execution — crash, launch fault,
 timeout, transport outage or provider refusal — opens the `turn_control`
-singleton (`phase` closed/open/probe, `episode`, `next_probe_at`,
-`probe_turn_id`, `probe_attempt_id`). While it is open no new agent launches;
-runs already admitted may finish, and their success cannot close it. The
-failed turn's next retry is the one probe. A probe that runs without a
-failure closes the breaker; another failure applies the next delay. When the
-probing turn exhausts its budget, the breaker stays open for one hour; then
-the oldest due retry probes, or with none the first turn admitted. A chat the
+singleton (`phase` closed/open/probe, `episode`, `folder`, `next_probe_at`,
+`probe_turn_id`, `probe_attempt_id`). `folder` is its scope. A failed run holds
+the folder it ran in: that folder launches no new agent and every other folder
+runs. A second folder that fails meanwhile waits on its own turn's retry, and
+its older input keeps its newer turns back. A provider refusal holds every
+folder (`folder` empty): the folders share the credential.
+Runs already admitted may finish, and their success cannot close it. The
+failed turn's next retry is the one probe. A failure that is never retried — the
+agent replied and then exited, a time limit, a terminal fault — has no retry:
+the first one holds for the first retry delay, and the folder's next turn
+probes. A probe that runs without a failure closes the breaker; another failure
+applies the next delay. When the probing turn exhausts its budget, the breaker
+stays open for one hour. No admission waits for one named turn: once the breaker
+is due, the next turn its folder admits is the probe, and the folder's input
+order picks that turn. Under a breaker that holds every folder, the folder of
+the probe owner goes first while that turn is due. A probe owner that is not
+due, or that waits behind older input of its folder, therefore holds nobody
+(BUGS `L826`). A chat the
 breaker refuses is woken by the 30 s recovery tick once the breaker admits
 again. Startup reads the breaker before admitting work. A provider refusal also sets the turn's due time no earlier
 than the provider's reset time and records the reporting folder's
