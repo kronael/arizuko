@@ -783,11 +783,6 @@ func (t *turn) signalAgent(sig syscall.Signal) error {
 	return syscall.Kill(pid, sig)
 }
 
-// writeInput drops one {type:"message",text} file into the agent's input dir via
-// temp+rename, so the agent's drainIpcInput never reads a partial file. Byte for
-// byte the Docker substrate's writeIPCInput (runed/docker.go): the same payload,
-// the same .json suffix the agent filters on, and a temp name that does not
-// match it.
 func writeInput(dir, batch string, seq int64) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err

@@ -1,24 +1,5 @@
-// agents.ts declares the subagent types the shipped skills dispatch to. The
-// skills were vendored from the host toolkit; the definitions beside them were
-// not, so every `subagent_type` in ant/skills named a type the container did
-// not have and the SDK answered "Agent type 'sonnet' not found". The dispatch
-// then ran at the parent's model and effort instead of the cheaper one the
-// skill promised (BUGS L77).
-//
-// Two shapes, and the difference is deliberate:
-//
-//   - A TIER agent is nothing but a model and an effort. Its whole purpose is
-//     the pin: effort is INHERITED when it is not set, so `model: "haiku"`
-//     alone still runs at the parent's effort, which is what the skills warn
-//     about.
-//   - A ROLE agent's instructions are its skill, which already ships in
-//     ant/skills. It names that skill rather than restating it — a copy here
-//     would be a second declaration of the same text and the two would drift.
-
 import type { AgentDefinition } from '@anthropic-ai/claude-agent-sdk';
 
-// tier declares a model/effort pin. The model strings are the ones the host
-// definitions use, unchanged.
 function tier(model: string, effort: AgentDefinition['effort'], description: string): AgentDefinition {
   return {
     description,
@@ -28,7 +9,6 @@ function tier(model: string, effort: AgentDefinition['effort'], description: str
   };
 }
 
-// role binds an agent type to the skill that holds its instructions.
 function role(skill: string, description: string, tools?: string[]): AgentDefinition {
   return {
     description,

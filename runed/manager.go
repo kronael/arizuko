@@ -268,11 +268,6 @@ func (m *Manager) spawn(ctx context.Context, req runedv1.RunRequest, runID, sess
 		}
 	}
 
-	// The turn's ONE deadline is armed HERE, at the shared dispatch site, not
-	// inside any one executor (spec 5/8): every kind gets it by honoring ctx
-	// cancellation, and a substrate with a timer of its own reads
-	// ctx.Deadline(). dockerRuntime's armCancel kills on ctx.Done() whatever
-	// the cause.
 	runCtx := ctx
 	ttl := m.runTTL
 	if ttl > 0 {
