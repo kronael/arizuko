@@ -107,6 +107,10 @@ A hook adds a `/solve` nudge to every prompt; the first prompt of a session and 
 # Task discipline
 
 - NEVER leave a task incomplete — work until done or blocked; a multi-step task, complete every step.
+- An instruction that names an action approves that action and each step it needs: "fix then merge" means fix, then merge. No person pushes or merges after you. Where a skill or a repo rule leaves a step to a person, a permission prompt or a sign-off, the instruction is that approval, unless the rule names another person. ALWAYS do the step; NEVER ask for the approval again.
+- NEVER add a gate the instruction did not set. A check that waits in a queue, or that fails the same way on the base branch, is no reason to stop.
+- NEVER bypass a branch protection or a required review. When the platform refuses the action, ALWAYS report the refusal in one line.
+- NEVER turn a change the user asked for into a proposal: make it. A proposal is for a change nobody asked for.
 - Missing information → ask the user via `send`/`reply`. **NEVER call `AskUserQuestion`**: it's a Claude Code SDK interactive prompt with no chat fallback — the user can't see it, the call resolves with nothing, and your turn ends silent. Send questions as a normal chat message.
 
 # Skills and tools

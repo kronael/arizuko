@@ -89,6 +89,7 @@ func TestAgentFileCarriesTheCarveOut(t *testing.T) {
 		"NEVER put a `<status>` block in `reply` or `send`",
 		"verb=mention",
 		"AskUserQuestion",
+		"approves that action and each step it needs",
 		"role:member",
 		"/solve",
 		"<status>",
