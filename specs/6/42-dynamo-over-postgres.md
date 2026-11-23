@@ -268,7 +268,10 @@ NULL, sk_s TEXT, item_data JSONB NOT NULL` with no column collation, so the
   `crates/engine/src/read_helpers.rs:96-102` adds every raw item's size to
   `response_bytes` and checks `> 1_048_576` BEFORE the filter runs on it, and
   sets `LastEvaluatedKey` to "the last _processed_ item's key". That is the
-  service's rule, and the one a pushed-down `WHERE` would break.
+  service's rule, and the one a pushed-down `WHERE` would break. The rows are
+  already in memory when it counts: the statement carries `LIMIT <Limit>+1`,
+  and `LIMIT 1000001` for a request with no `Limit`, so `dynstore` names a page
+  on every request (`BUGS.md` L920).
 - **Conditions are exact, absence included.**
   `crates/storage-postgres/src/data/transactions.rs` fetches each item `FOR
 UPDATE` inside one PostgreSQL transaction (`tx_helpers.rs:57-84`), decides a
@@ -792,11 +795,16 @@ a)` concurrently, a thousand times: the answer must be one commit and one
    write to land with no error reaching the caller. Only PostgreSQL-backed ExtendDB
    raises `40P01`, so the run that answers this is against that server, and it is
    not recorded.
-6. **The planner and `COLLATE "C"`.** ExtendDB's key columns carry no
-   collation and its comparisons do (§3); `EXPLAIN` on a `begins_with` query
-   over the largest krons partition (10,688 messages) says whether the
-   primary-key index serves it or the partition is scanned. Either answer is
-   correct; only one is fast, and the fix is a column collation upstream.
+6. **The planner and `COLLATE "C"`.** ANSWERED 2026-11-23: the partition is
+   scanned. ExtendDB's key columns carry no collation and its comparisons do
+   (§3), and the databases on hel1 have the collation `en_US.UTF-8`, so the
+   primary-key index serves `pk = $1` only. `EXPLAIN (ANALYZE, BUFFERS)` of one
+   exact-key read in sloth's largest chat (232,330 of 314,417 messages) is a
+   parallel sequential scan of 38,098 buffers in 91.9 ms; the same statement
+   without `COLLATE "C"` is an index condition on both columns. The remedy on
+   the deployment is one index per large table,
+   `(pk, (sk_s COLLATE "C"))`; the fix is a column collation upstream
+   (`BUGS.md` L921).
 7. **The real service.** Pointing the suite at Amazon DynamoDB is one
    `BaseEndpoint`; the shapes arizuko chose — one constant partition for
    `audit_log` (163,750 rows) and for `authd` — would meet "a maximum capacity

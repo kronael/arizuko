@@ -103,6 +103,13 @@ func inSubtree(k objstore.KeyPredicate, sort string) bool {
 	return sort == k.Value || strings.HasPrefix(sort, k.Value+k.Sep)
 }
 
+// pageItems is the most items one request lets the server read. A server reads
+// what the request permits before it cuts the answer to 1 MB, and ExtendDB
+// loads the rest of the partition for a request that names no limit. A filter
+// drops items after the server has counted them, so only an unfiltered read
+// asks for fewer.
+const pageItems = 1000
+
 func (s *Store) Query(ctx context.Context, q objstore.Query) ([]objstore.Item, error) {
 	if err := objstore.ValidateQuery(q); err != nil {
 		return nil, err
@@ -132,14 +139,16 @@ func (s *Store) Query(ctx context.Context, q objstore.Query) ([]objstore.Item, e
 		}
 		in.ProjectionExpression = aws.String(strings.Join(proj, ", "))
 	}
-	if q.Limit > 0 && filter == "" {
-		in.Limit = aws.Int32(int32(q.Limit))
-	}
 	in.ExpressionAttributeNames = b.n
 	in.ExpressionAttributeValues = b.v
 
 	var out []objstore.Item
 	for {
+		page := pageItems
+		if q.Limit > 0 && filter == "" {
+			page = min(page, q.Limit-len(out))
+		}
+		in.Limit = aws.Int32(int32(page))
 		res, err := s.api.Query(ctx, in)
 		if err != nil {
 			return nil, serverFault(fmt.Sprintf("query %s", q.Entity), err)
