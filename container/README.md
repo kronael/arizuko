@@ -39,7 +39,10 @@ proxy process.
   same path for every folder; deriving it per folder would read identity off
   a path. The write goes to a temp file, then a rename. A missing parent file
   is a WARN and answers false, and routd then clears the child's observed
-  cursor (`ROUTING.md` § Topic Routing). A parent Codex rollout without a
+  cursor (`ROUTING.md` § Topic Routing). A pi parent is
+  `<groupDir>/.pi/sessions/<timestamp>_<src>.jsonl`: the copy is
+  `<timestamp>_<dst>.jsonl` with the `id` in its first line restamped, which
+  is where pi resolves `--session <id>`. A parent Codex rollout without a
   Claude file logs an INFO skip; its model context does not transfer.
 - `SeedCodexMountTargets(codexDir)` — pre-create the files codex overmounts
 - `InstallPackage(dataDir, source, build) (ProductManifest, []string, error)`

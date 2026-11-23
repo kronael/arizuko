@@ -30,6 +30,12 @@ knobs, and had no way to be correct for fork-of-fork.
 identically across folders. Deriving it per folder would be the same
 identity-from-path mistake CLAUDE.md bans.
 
+**A pi parent forks the same way.** pi stores a session as
+`<groupDir>/.pi/sessions/<timestamp>_<uuid>.jsonl` and resolves
+`--session <uuid>` by the `id` in the file's first line. The copy is
+`<timestamp>_<child_uuid>.jsonl` with that one `id` restamped. A Codex
+parent is not copied: its model context does not transfer.
+
 **cp is rename-after-write** (`container/runner.go:1132` `CopySession`) —
 a crash mid-copy must not leave a partial child session. **A missing
 parent file is a WARN, not an error**: the child starts fresh with no

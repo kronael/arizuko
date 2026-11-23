@@ -145,3 +145,73 @@ func TestCopySession_CodexRolloutSkipsFork(t *testing.T) {
 		t.Errorf("want Codex INFO without warning, got %s", got)
 	}
 }
+
+// pi keeps a session at .pi/sessions/<timestamp>_<id>.jsonl and resolves
+// `--session <id>` by the id in the file's first line. A fork of a pi parent
+// is that file under the child id, with only the header restamped, so the
+// child's first turn resumes the parent's history.
+func TestCopySession_PiSessionCopiedUnderChildID(t *testing.T) {
+	dir := t.TempDir()
+	sessions := filepath.Join(dir, ".pi", "sessions")
+	if err := os.MkdirAll(sessions, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	const src = "01a1f04d-2baa-730e-a44a-51b102c383f3"
+	const dst = "dcac785c-1e7b-4fa2-83aa-69dc72ecdb2f"
+	header := `{"type":"session","version":3,"id":"` + src + `","timestamp":"2026-11-18T20:15:51.724Z","cwd":"/home/node"}`
+	entries := `{"type":"model_change","id":"26567967","parentId":null,"provider":"openai-codex","modelId":"m"}` + "\n" +
+		`{"type":"custom","id":"` + src + `","parentId":"26567967"}` + "\n"
+	parent := filepath.Join(sessions, "2026-11-18T20-15-51-724Z_"+src+".jsonl")
+	if err := os.WriteFile(parent, []byte(header+"\n"+entries), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	copied, err := CopySession(dir, src, dst)
+	if err != nil || !copied {
+		t.Fatalf("CopySession = %v, %v; want true, nil", copied, err)
+	}
+	children, err := filepath.Glob(filepath.Join(sessions, "*_"+dst+".jsonl"))
+	if err != nil || len(children) != 1 {
+		t.Fatalf("child sessions = %v, %v; want one file", children, err)
+	}
+	got, err := os.ReadFile(children[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := strings.Replace(header, src, dst, 1) + "\n" + entries
+	if string(got) != want {
+		t.Errorf("child session\nwant: %q\n got: %q", want, got)
+	}
+	kept, err := os.ReadFile(parent)
+	if err != nil || string(kept) != header+"\n"+entries {
+		t.Errorf("parent session changed: %q, %v", kept, err)
+	}
+	leftovers, err := filepath.Glob(filepath.Join(sessions, "*.tmp"))
+	if err != nil || len(leftovers) != 0 {
+		t.Errorf("tmp files lingered: %v, %v", leftovers, err)
+	}
+}
+
+// A pi file whose header does not carry the parent id cannot be restamped:
+// the copy would resolve under no id. That is an error, never a silent copy,
+// because routd keeps the child's observed cursor only for a usable copy.
+func TestCopySession_PiHeaderWithoutParentIDIsRefused(t *testing.T) {
+	dir := t.TempDir()
+	sessions := filepath.Join(dir, ".pi", "sessions")
+	if err := os.MkdirAll(sessions, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := `{"type":"session","version":3,"id":"another-id"}` + "\n"
+	if err := os.WriteFile(filepath.Join(sessions, "2026-11-18T20-15-51-724Z_parent-uuid.jsonl"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	copied, err := CopySession(dir, "parent-uuid", "child-uuid")
+	if err == nil || copied {
+		t.Errorf("CopySession = %v, %v; want false and an error", copied, err)
+	}
+	children, globErr := filepath.Glob(filepath.Join(sessions, "*_child-uuid.jsonl*"))
+	if globErr != nil || len(children) != 0 {
+		t.Errorf("child session written: %v, %v", children, globErr)
+	}
+}

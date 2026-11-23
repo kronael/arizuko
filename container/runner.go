@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -200,6 +201,9 @@ func WriteGatewayCaps(groupDir string, cfg *core.Config) {
 // Slug is fixed (`-home-node`) because every container mounts groupDir
 // at $HOME=/home/node — Claude Code slugifies that path identically
 // across folders. Pure file op: rename-after-write for atomicity.
+// A pi parent is `.pi/sessions/<timestamp>_<src>.jsonl`; its copy keeps the
+// timestamp, takes the dst uuid in the name and in the header line, which is
+// where pi resolves `--session <id>`.
 // A missing source returns false with WARN, or INFO for a Codex rollout.
 // Codex parent context is not copied. Used by spec 5/F-topic-lineage fork path.
 func CopySession(groupDir, srcUUID, dstUUID string) (bool, error) {
@@ -209,6 +213,14 @@ func CopySession(groupDir, srcUUID, dstUUID string) (bool, error) {
 	data, err := os.ReadFile(src)
 	if err != nil {
 		if os.IsNotExist(err) {
+			piSessions, err := filepath.Glob(filepath.Join(groupDir,
+				".pi", "sessions", "*_"+srcUUID+".jsonl"))
+			if err != nil {
+				return false, fmt.Errorf("find pi session: %w", err)
+			}
+			if len(piSessions) > 0 {
+				return copyPiSession(piSessions[0], srcUUID, dstUUID)
+			}
 			rollouts, err := filepath.Glob(filepath.Join(groupDir,
 				".codex", "sessions", "*", "*", "*", "rollout-*-"+srcUUID+".jsonl"))
 			if err != nil {
@@ -235,6 +247,25 @@ func CopySession(groupDir, srcUUID, dstUUID string) (bool, error) {
 	data = bytes.ReplaceAll(data,
 		[]byte(`"sessionId":"`+srcUUID+`"`),
 		[]byte(`"sessionId":"`+dstUUID+`"`))
+	return writeSessionCopy(dst, data)
+}
+
+func copyPiSession(src, srcUUID, dstUUID string) (bool, error) {
+	data, err := os.ReadFile(src)
+	if err != nil {
+		return false, fmt.Errorf("read pi session: %w", err)
+	}
+	header, entries, _ := bytes.Cut(data, []byte("\n"))
+	srcID := []byte(`"id":"` + srcUUID + `"`)
+	if !bytes.Contains(header, srcID) {
+		return false, fmt.Errorf("pi session %s: header does not name %s", src, srcUUID)
+	}
+	header = bytes.Replace(header, srcID, []byte(`"id":"`+dstUUID+`"`), 1)
+	dst := strings.TrimSuffix(src, srcUUID+".jsonl") + dstUUID + ".jsonl"
+	return writeSessionCopy(dst, slices.Concat(header, []byte("\n"), entries))
+}
+
+func writeSessionCopy(dst string, data []byte) (bool, error) {
 	tmp := dst + ".tmp"
 	if err := os.WriteFile(tmp, data, 0o644); err != nil {
 		return false, fmt.Errorf("write tmp: %w", err)
