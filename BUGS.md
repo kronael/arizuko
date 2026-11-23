@@ -14,6 +14,23 @@
 > so counting one as open overstates the queue.
 
 
+## L919 — the agent's shell has no HOME, so git ignores its credential helper (2026-11-23, open)
+
+The VM guest gets only the env runed sends: the turn's keys plus the image
+`ENV` set that `make rootfs` captures in `.image-env.json`. Docker derived
+`HOME=/home/node` from `USER node`; that value is runtime, not image `ENV`, so
+the VM path lost it. With `HOME` empty, `git` never reads `~/.gitconfig`, whose
+`credential.helper = !/usr/bin/gh auth git-credential` supplies the granted
+`GITHUB_TOKEN`. `gh` still works because it reads the token from the env.
+
+**Measured:** sloth/discord probe turn 2026-11-23 18:1x: `echo HOME=$HOME` →
+`HOME=`; `gh auth status` → logged in as sloth-goth (GITHUB_TOKEN); `git
+ls-remote https://github.com/vumilan/morha.git` → `could not read Username`;
+`gh auth git-credential get` → `username=x-acc…`. `.image-env.json` of
+rootfs-145ebd6e4784 holds no `HOME`. Same token from the host: `ls-remote` OK.
+Effect: sloth could not fetch or push morha (17:55 `Authentication failed`).
+**Type:** bug. Fix: `ENV HOME=/home/node` in `ant/Dockerfile`, beside `USER node`.
+
 ## L918 — a Discord turn status cannot start the thread it belongs in (2026-11-23, open)
 
 `routd/turn_status.go` `applyStatus` places the status with
@@ -590,6 +607,7 @@ The browser retry integration owns this fix after the current serial capacity wo
 - `L826` — one folder's crash closes the whole instance for an hour; per-folder breaker or a 30 s probe; needs sign-off.
 - `L913` — a new topic on a pi folder starts without its parent's history; fix waits on a live pi resume check.
 - `L914` — a claude turn's shell has no Claude login: Claude Code deletes its own token; owner choice of a, b or c.
+- `L919` — the agent shell has no HOME, so git never uses the GitHub token; Dockerfile fix in progress.
 - `L918` — a Discord turn's first status cannot start its thread (no title); routd placement fix, in progress.
 - `L917` — 26 refine findings that change a contract or schema; one owner decision per line.
 - `L816` — gitd loses GitHub webhooks while the store is unreachable; retention lives in that store; proposal, needs sign-off.
