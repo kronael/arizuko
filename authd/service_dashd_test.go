@@ -20,6 +20,16 @@ func TestEveryServiceGrantIsNonEmpty(t *testing.T) {
 	}
 }
 
+// routd's `/stop` command calls runed's POST /v1/runs/stop with the token routd
+// exchanges here, and runed demands runs:kill on that route. Without the scope
+// the stop is a 403 and the chat is told "No active turn for this chat." for a
+// turn that keeps running.
+func TestServiceRoutdMayStopARun(t *testing.T) {
+	if g := serviceGrants["service:routd"]; !slices.Contains(g, "runs:kill") {
+		t.Errorf("service:routd grant %v lacks runs:kill — /stop cannot stop a run", g)
+	}
+}
+
 // dashd's grant is pinned two ways, and the second is the stronger:
 //
 //   - By NAME, so a scope that is silently dropped fails here rather than as a
