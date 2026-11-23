@@ -97,10 +97,8 @@ recorded and the sweep retries freely.
 `GET /health` returns 503 while waiting for QR scan or when the Baileys
 socket is disconnected. Operators check the container log for the QR
 ascii art. whapd serves its own `/health`, and a channel quiet past 5 min
-answers 503 `stale`. That is stricter than chanlib's Go adapters, where
-`stale` is 200. routd's health loop reads the status word and still counts a
-`stale` whapd as alive; anything that reads only the HTTP code sees a
-failure.
+answers 200 `stale`, as chanlib's Go adapters do: a quiet chat is not a dead
+link.
 
 ## Staying registered
 

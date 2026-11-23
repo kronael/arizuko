@@ -118,11 +118,13 @@ describe('GET /health', () => {
     connected = true;
   });
 
-  it('returns 503 stale when inbound has not flowed within the threshold', async () => {
+  // A quiet chat is not a dead link: chanlib's Go adapters answer 200 `stale`,
+  // and a reader of the status code alone must see the same verdict here.
+  it('returns 200 stale when inbound has not flowed within the threshold', async () => {
     connected = true;
     lastInboundAt = Math.floor(Date.now() / 1000) - 10 * 60;
     const r = await fetch(`${BASE}/health`);
-    expect(r.status).toBe(503);
+    expect(r.status).toBe(200);
     const b = await r.json();
     expect(b.status).toBe('stale');
     expect(typeof b.stale_seconds).toBe('number');

@@ -242,7 +242,6 @@ export function startServer(
         code = 503;
       } else if (last > 0 && staleSec > STALE_THRESHOLD_SECONDS) {
         status = 'stale';
-        code = 503;
       }
       const body: Record<string, unknown> = {
         status,
