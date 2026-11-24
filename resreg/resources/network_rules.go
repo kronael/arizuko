@@ -40,7 +40,8 @@ var NetworkRulesMCPDoc = map[resreg.Action]string{
 		"Use when an agent needs to reach a host the default-deny proxy blocks (e.g. a vendor API). " +
 		"`host` is a bare domain (no scheme/port), e.g. 'example.com', or a `*.example.com` subdomain glob. " +
 		"`folder` is the target folder — your own folder (the default when omitted) or any folder in your subtree, " +
-		"e.g. network_allow(folder='atlas/search', host='krons.fiu.wtf'). A rule at a parent folder cascades to all children.",
+		"e.g. network_allow(folder='atlas/search', host='krons.fiu.wtf'). A rule at a parent folder cascades to all children. " +
+		"The rule applies from the folder's next turn; a running turn keeps the allowlist it started with.",
 	resreg.Action("deny"): "Remove an egress allowlist rule: close access to `host` for `folder`. " +
 		"`folder` defaults to your own folder and may be any folder in your subtree. " +
 		"Only drops a rule set on `folder` itself; a host inherited from an ancestor must be removed at that ancestor.",

@@ -41,8 +41,9 @@ OPTION) delegated `mcp:network_allow` etc. to your folder or a folder
 covering it. If you have it: `network_allow(folder, host)` — e.g.
 `network_allow("atlas/search", "krons.fiu.wtf")` — opens egress for
 yourself or any folder your grant scope covers; a rule cascades to all
-children under the target. Elevated `/root` reaches any host (`*`) and
-can grant any folder.
+children under the target. A new rule applies from the folder's next
+turn: the running turn's proxy keeps the list it started with. Elevated
+`/root` reaches any host (`*`) and can grant any folder.
 
 ## Escalating
 
