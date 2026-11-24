@@ -47,7 +47,7 @@ func TestDigestPostFailedApplyKeepsState(t *testing.T) {
 		}
 	}
 	cmd := exec.Command("python3", digestPost, run, "--apply")
-	cmd.Env = append(os.Environ(), "HOME="+home, "PATH="+bin+":"+os.Getenv("PATH"))
+	cmd.Env = append(os.Environ(), "HOME="+home, "PATH="+bin+":"+os.Getenv("PATH"), "PYTHONDONTWRITEBYTECODE=1")
 	out, err := cmd.CombinedOutput()
 	if err == nil || !strings.Contains(string(out), "Failed: edit intro 111") {
 		t.Fatalf("want exit 1 naming the failed edit, got err=%v out=%s", err, out)
