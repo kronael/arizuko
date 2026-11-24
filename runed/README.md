@@ -245,7 +245,7 @@ Core is required. Package selection is an input to the renderer, outside the
 
 The kernel console goes to `groups/<folder>/logs/container-<ts>-<cid>.console.log`, beside the turn log `container-<ts>-<cid>.log`. The CID keeps two turns of one folder that start in the same second apart.
 
-The turn log header carries `Peak guest memory: <n> MiB`, the peak resident set of the QEMU process of this turn (`Rusage.Maxrss`; the touched pages of the guest memory count). The line `guest exited` carries the same value as `peakGuestKiB`. It reads `unknown` (and logs 0) when QEMU did not exit within `RUNED_REAP_GRACE` after its SIGTERM. Use it to set `RUNED_GUEST_MEM`: `grep 'Peak guest memory' groups/*/logs/container-*.log`. The value is in the logs only; `Runtime` and `RunResult` do not carry it.
+The turn log header carries `Peak guest memory: <n> MiB`, the peak resident set of the QEMU process of this turn (`Rusage.Maxrss`; the touched pages of the guest memory count). The line `guest exited` carries the same value as `peakGuestKiB`. The value counts each guest page one time. Each `virtiofsd` maps the same guest memfd, so its RSS shows those pages again: the sum of the RSS of QEMU and the two daemons is up to three times the cost of the turn. To read the host cost of a live turn, add the `Pss` values of the three processes from `/proc/<pid>/smaps_rollup`. Measured on sloth 2026-11-24: summed RSS 2.9 GB, summed PSS 1.84 GB, QEMU RSS 1.7 GB. It reads `unknown` (and logs 0) when QEMU did not exit within `RUNED_REAP_GRACE` after its SIGTERM. Use it to set `RUNED_GUEST_MEM`: `grep 'Peak guest memory' groups/*/logs/container-*.log`. The value is in the logs only; `Runtime` and `RunResult` do not carry it.
 
 ### The peer credential
 
