@@ -13,6 +13,30 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.75.28] — 2026-11-24
+
+> arizuko v0.75.28 — a turn gives back the memory it no longer uses
+>
+> The guest drops its page cache every 30 seconds, so the host gets that memory back during a long turn.
+>
+> • Memory — the guest drops its page cache during a turn and logs its memory at exit.
+> • Tasks — schedule_task names the folder that owns the task.
+> • Digest — a failed post keeps the digest state, so no update is lost.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Changed
+
+- guest-init writes `vm/drop_caches` every 30 s during a turn and logs
+  MemTotal, MemFree, Cached, Shmem, AnonPages and SReclaimable at turn exit.
+- `peakGuestKiB` is documented as counting each guest page once.
+
+### Fixed
+
+- `schedule_task` answers with the owner folder (L932); `network_allow` says a
+  rule applies from the next turn (L933); a failed digest `post_blocks` apply
+  keeps the state (L934).
+
 ## [v0.75.27] — 2026-11-24
 
 > arizuko v0.75.27 — two pull requests of one repo run at once
