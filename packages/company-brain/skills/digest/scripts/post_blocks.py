@@ -6,7 +6,8 @@ usage: post_blocks.py <run-dir> [--dry-run | --apply | --preview <chat-jid>] [--
 and leaves the state file untouched.
 Plan: slot with stored id -> edit; slot without id -> reuse an orphaned
 stored id (edit) before send; ids still left over -> delete. Writes
-state: slots, last_end, threads, posted_run. Default is --dry-run.
+state: slots, last_end, threads, posted_run, only when every op
+landed. Default is --dry-run.
 Refuses --apply when state.posted_run == RUN_ID or the run dir name
 unless --redo.
 """
@@ -196,12 +197,13 @@ def main():
         subprocess.run(
             ["mcpc", session, "close"], capture_output=True, check=False
         )
-    write_state(run, state_path, env, new_slots)
-    print(f"applied; state written {state_path}")
     if failures:
         for failure in failures:
             print(failure)
+        print(f"state {state_path} untouched")
         sys.exit(1)
+    write_state(run, state_path, env, new_slots)
+    print(f"applied; state written {state_path}")
 
 
 if __name__ == "__main__":
