@@ -1013,7 +1013,10 @@ the allowlist — the shape `L136` names.
 Sample `docker stats` on krons over seven days for the ant container's peak RSS.
 `-m 4G` is a placeholder and the pair must satisfy
 `guest_mem × MAX_CONCURRENT_AGENTS ≤ MemTotal` (§"The host budget"), so this
-measurement decides two settings, not one.
+measurement decides two settings, not one. Each turn log carries the guest's
+`/proc/meminfo` at turn exit (the `guest-init: meminfo` line, `runed/README.md`
+step 8), which splits what the guest holds into page cache (`Cached`), tmpfs
+(`Shmem`) and process memory (`AnonPages`); `RUNED_GUEST_MEM` is set from it.
 
 ## Ties
 

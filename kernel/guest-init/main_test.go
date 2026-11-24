@@ -365,7 +365,12 @@ func TestTheExitFrameCarriesTheAgentsOwnCode(t *testing.T) {
 		// error follows them and precedes the exit frame — it is the one line that
 		// names WHY a turn had no reply, and it used to reach the console only
 		// (BUGS `L375`).
-		want := []string{"first", "second", "guest-init: agent wait: exit status 3", "exit"}
+		want := []string{"first", "second", "guest-init: agent wait: exit status 3", "meminfo", "exit"}
+		for i, line := range got {
+			if strings.HasPrefix(line, "guest-init: meminfo kB MemTotal=") {
+				got[i] = "meminfo"
+			}
+		}
 		if !reflect.DeepEqual(got, want) {
 			t.Errorf("the wire held %v, want %v", got, want)
 		}
@@ -387,6 +392,28 @@ func TestTheExitFrameCarriesTheAgentsOwnCode(t *testing.T) {
 			t.Errorf("a fork that ran out of processes reported %d, want %d", got, initExit)
 		}
 	})
+}
+
+// The exit line carries the six fields RUNED_GUEST_MEM is sized from, in a fixed
+// order and in kB, and a field the kernel did not print stays visible as empty.
+func TestMeminfoLineCarriesTheSizingFields(t *testing.T) {
+	const meminfo = `MemTotal:        2030092 kB
+MemFree:         1501220 kB
+MemAvailable:    1702040 kB
+Buffers:               0 kB
+Cached:           310404 kB
+AnonPages:        120016 kB
+Shmem:            204800 kB
+SReclaimable:      21004 kB
+SUnreclaim:        12000 kB
+`
+	want := "kB MemTotal=2030092 MemFree=1501220 Cached=310404 Shmem=204800 AnonPages=120016 SReclaimable=21004"
+	if got := meminfoLine([]byte(meminfo)); got != want {
+		t.Errorf("meminfoLine\ngot:  %s\nwant: %s", got, want)
+	}
+	if got := meminfoLine([]byte("MemTotal: 1 kB\n")); got != "kB MemTotal=1 MemFree= Cached= Shmem= AnonPages= SReclaimable=" {
+		t.Errorf("a missing field must stay visible: %s", got)
+	}
 }
 
 // The agent's process, as rendered. It runs inside the assembled root as the

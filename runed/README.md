@@ -241,7 +241,7 @@ Core is required. Package selection is an input to the renderer, outside the
 5. Fork the MCP bridge as the uid of the agent. The bridge holds the `mcp` listener.
 6. Start QEMU as an ACPI microvm with the kernel and initrd from `make kernel`. Give it two `vhost-user-fs` devices, one `vhost-vsock` device with the CID, one `virtio-net` device on the tap, and `-no-reboot`.
 7. Accept `ctl` only from the CID of this guest. Then send the `turn` frame, which holds the environment and the stdin payload.
-8. `guest-init` (`kernel/guest-init/main.go`) is PID 1 in the initrd. It sends `ready`, assembles the root, starts `socat UNIX-LISTEN:/run/ipc/gated.sock` toward `VSOCK-CONNECT:2:<mcp>`, and runs ant as uid 1000. The stderr of ant comes back as `log` frames, and the last frame of the guest is one `exit`.
+8. `guest-init` (`kernel/guest-init/main.go`) is PID 1 in the initrd. It sends `ready`, assembles the root, starts `socat UNIX-LISTEN:/run/ipc/gated.sock` toward `VSOCK-CONNECT:2:<mcp>`, and runs ant as uid 1000. The stderr of ant comes back as `log` frames, and the last frame of the guest is one `exit`. Before the `exit` frame, `guest-init` sends one `log` line `guest-init: meminfo kB MemTotal=<n> MemFree=<n> Cached=<n> Shmem=<n> AnonPages=<n> SReclaimable=<n>` from `/proc/meminfo`, so the turn log records what the guest still holds after ant exits: `Shmem` is the tmpfs content and shared memory, `Cached` the page cache, which includes `Shmem`. `AnonPages` excludes ant, because ant has exited.
 
 The kernel console goes to `groups/<folder>/logs/container-<ts>-<cid>.console.log`, beside the turn log `container-<ts>-<cid>.log`. The CID keeps two turns of one folder that start in the same second apart.
 

@@ -917,7 +917,33 @@ func run(t *turn, cmd *exec.Cmd) {
 		// reply (BUGS `L375`).
 		t.c.logf("guest-init: agent wait: %v", err)
 	}
+	b, err := os.ReadFile("/proc/meminfo")
+	if err != nil {
+		t.c.logf("guest-init: meminfo: %v", err)
+	} else {
+		t.c.logf("guest-init: meminfo %s", meminfoLine(b))
+	}
 	t.c.report(exitCode(cmd.ProcessState))
+}
+
+// meminfoKeys are the /proc/meminfo fields the exit line carries: what the guest
+// still holds when the agent is gone, which is what RUNED_GUEST_MEM is sized from.
+var meminfoKeys = []string{"MemTotal", "MemFree", "Cached", "Shmem", "AnonPages", "SReclaimable"}
+
+// meminfoLine renders meminfoKeys as `Key=<kB>` pairs, in meminfoKeys order.
+func meminfoLine(meminfo []byte) string {
+	values := map[string]string{}
+	for line := range strings.Lines(string(meminfo)) {
+		k, v, ok := strings.Cut(line, ":")
+		if ok {
+			values[k] = strings.TrimSuffix(strings.TrimSpace(v), " kB")
+		}
+	}
+	pairs := make([]string, 0, len(meminfoKeys))
+	for _, k := range meminfoKeys {
+		pairs = append(pairs, k+"="+values[k])
+	}
+	return "kB " + strings.Join(pairs, " ")
 }
 
 var errInvalidHandler = errors.New("invalid handler")
