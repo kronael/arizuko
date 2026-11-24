@@ -21,6 +21,8 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"testing/synctest"
+	"time"
 )
 
 type failingReader struct{}
@@ -390,6 +392,58 @@ func TestTheExitFrameCarriesTheAgentsOwnCode(t *testing.T) {
 	t.Run("an agent that could not start for a passing reason", func(t *testing.T) {
 		if got := startExit(&os.PathError{Op: "fork/exec", Path: "/usr/local/bin/ant", Err: syscall.EAGAIN}); got != initExit {
 			t.Errorf("a fork that ran out of processes reported %d, want %d", got, initExit)
+		}
+	})
+}
+
+// The page cache is dropped on every interval and not before the first one, and a
+// write the kernel refuses ends the loop instead of retrying it forever.
+func TestDropCachesLoopWritesOnEveryInterval(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "drop_caches")
+	synctest.Test(t, func(t *testing.T) {
+		if err := os.WriteFile(path, nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		done := make(chan struct{})
+		go func() {
+			dropCachesLoop(path, 30*time.Second)
+			close(done)
+		}()
+		read := func() string {
+			b, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return string(b)
+		}
+		time.Sleep(29 * time.Second)
+		synctest.Wait()
+		if got := read(); got != "" {
+			t.Fatalf("written before the first interval: %q", got)
+		}
+		time.Sleep(time.Second)
+		synctest.Wait()
+		if got := read(); got != "1" {
+			t.Fatalf("after one interval the file holds %q, want \"1\"", got)
+		}
+		if err := os.WriteFile(path, nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(30 * time.Second)
+		synctest.Wait()
+		if got := read(); got != "1" {
+			t.Fatalf("after the second interval the file holds %q, want \"1\"", got)
+		}
+		if err := os.Remove(path); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Mkdir(path, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		select {
+		case <-done:
+		case <-time.After(time.Hour):
+			t.Fatal("a refused write must end the loop")
 		}
 	})
 }

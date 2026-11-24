@@ -655,8 +655,10 @@ any of them. Measured on hel1v5 (the krons host) 2026-09-23.
   are). When the guest frees a page, the guest kernel reports it and QEMU
   discards it from the memfd, so the host stops charging it to runed's cgroup.
   Without the device, a page that the guest touched stays charged until QEMU
-  exits. Only freed pages return (JS garbage collection, deleted tmpfs files):
-  the guest page cache stays resident, and virtiofsd runs `--cache=always`.
+  exits. Only freed pages return (JS garbage collection, deleted tmpfs files).
+  Page cache is not freed in a guest without memory pressure, so `guest-init`
+  writes `1` to `/proc/sys/vm/drop_caches` every 30 s during the turn and the
+  balloon returns the clean cache it frees; tmpfs, dirty and mapped pages stay.
   The pinned kernel needs `CONFIG_VIRTIO_BALLOON=y` and `CONFIG_PAGE_REPORTING=y`.
   Both come from Firecracker's base config; `kernel/arizuko.fragment` names
   neither, so a base-config bump can remove them without a failed build. The

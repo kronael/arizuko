@@ -163,6 +163,11 @@ const (
 	// shortening the agent's window to make the frame arrive would trade a
 	// user's answer for a tidier status.
 	stopGrace = 10 * time.Second
+	// dropCachesEvery is how often the guest drops its clean page cache, so the
+	// free-page-reporting balloon hands those pages back to the host during the
+	// turn. A 2G guest is never under memory pressure, so without the drop every
+	// file the turn read stays resident in the host memfd until QEMU exits.
+	dropCachesEvery = 30 * time.Second
 )
 
 // The exit codes guest-init reports as its own.
@@ -268,6 +273,7 @@ func main() {
 	if err := startBridge(c, mcpPort); err != nil {
 		c.fail("guest-init: %v", err)
 	}
+	go dropCachesLoop("/proc/sys/vm/drop_caches", dropCachesEvery)
 	run(t, agentCmd(turnFrame.Env, turnFrame.Stdin))
 	// The exit frame is the turn's only result, so the guest waits for the host to
 	// have it before the VM is destroyed (BUGS `L375`).
@@ -924,6 +930,21 @@ func run(t *turn, cmd *exec.Cmd) {
 		t.c.logf("guest-init: meminfo %s", meminfoLine(b))
 	}
 	t.c.report(exitCode(cmd.ProcessState))
+}
+
+// dropCachesLoop writes 1 to drop_caches every interval for the rest of the turn:
+// the kernel frees clean, unmapped page cache, and tmpfs, dirty and mapped pages
+// stay. A failed write ends the loop, because a guest that refuses one refuses
+// them all.
+func dropCachesLoop(path string, every time.Duration) {
+	tick := time.NewTicker(every)
+	defer tick.Stop()
+	for range tick.C {
+		if err := os.WriteFile(path, []byte("1"), 0o200); err != nil {
+			logf("guest-init: drop_caches: %v", err)
+			return
+		}
+	}
 }
 
 // meminfoKeys are the /proc/meminfo fields the exit line carries: what the guest
