@@ -171,6 +171,41 @@ func TestScheduledTasksMCP_ScheduleDedup(t *testing.T) {
 	}
 }
 
+// TestScheduledTasksMCP_ScheduleNamesTheOwner (L932): a task scheduled into a
+// JID routed to a child folder is owned by the child, and the caller's
+// list_tasks does not show it, so the answer must name the owner — on a new
+// task and on a dedup hit alike.
+func TestScheduledTasksMCP_ScheduleNamesTheOwner(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	const parent, child = "world", "world/child"
+	for _, folder := range []string{parent, child} {
+		if err := db.PutGroup(core.Group{Folder: folder}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	doSetRoutes(t, db, []core.Route{{Match: "platform=slack", Target: child}})
+	grantMCPTools(t, db, parent, taskToolNames...)
+	sock := serveTasksMCP(t, db, parent, "folder:"+parent)
+
+	args := map[string]any{"targetJid": "slack:team/channel/c1", "prompt": "daily", "cron": "0 9 * * *"}
+	for _, pass := range []string{"new", "dedup"} {
+		res, e := callToolOverSock(t, sock, "schedule_task", args)
+		if e != "" {
+			t.Fatalf("%s schedule_task errored: %s", pass, e)
+		}
+		if res["owner"] != child {
+			t.Fatalf("%s: owner = %v, want %q (answer %v)", pass, res["owner"], child, res)
+		}
+	}
+	if got := len(db.Tasks(parent, false)); got != 0 {
+		t.Fatalf("caller folder holds %d tasks, want 0", got)
+	}
+}
+
 // TestScheduledTasksMCP_ListOwnFolderOnly: a non-root folder's list_tasks returns
 // only its own tasks, never another folder's — the ownership filter.
 func TestScheduledTasksMCP_ListOwnFolderOnly(t *testing.T) {

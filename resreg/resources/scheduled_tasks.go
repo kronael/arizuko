@@ -61,7 +61,7 @@ var ScheduledTasksMCPNames = map[resreg.Action]string{
 // ScheduledTasksMCPDoc is the single owner of the task tools' agent-facing
 // one-liners. Copy verbatim — the agent wire contract.
 var ScheduledTasksMCPDoc = map[resreg.Action]string{
-	resreg.Action("schedule"): "Create a scheduled prompt that fires against a target chat. Use when the user asks for reminders, recurring checks, or deferred work. `cron` accepts a 5-field cron expression, an integer millisecond interval, or an RFC3339 timestamp for a one-shot. Not for immediate execution (`send`/inject_message).",
+	resreg.Action("schedule"): "Create a scheduled prompt that fires against a target chat. Use when the user asks for reminders, recurring checks, or deferred work. `cron` accepts a 5-field cron expression, an integer millisecond interval, or an RFC3339 timestamp for a one-shot. Answers `taskId` and `owner`: the target chat's folder holds the task, and its list_tasks shows it. Not for immediate execution (`send`/inject_message).",
 	resreg.Action("pause"):    "Mark a scheduled task paused so it stops firing but is preserved. Use when suspending a task temporarily. Not for permanent removal (cancel_task).",
 	resreg.Action("resume"):   "Re-activate a paused task so it resumes firing on its schedule. Use to undo pause_task. No effect on already-active or cancelled tasks.",
 	resreg.Action("patch"):    "Set the next run of a scheduled task to an RFC3339 time. Use to move a task earlier or later; a job may call it in its own turn to say when it runs next. A cron task resumes its cron after that run. Not for changing the cron (cancel_task, then schedule_task).",

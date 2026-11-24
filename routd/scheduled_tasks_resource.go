@@ -99,7 +99,7 @@ func (s *Server) scheduledTasksHandler(ctx context.Context, x resreg.Execution, 
 		if cronStore != "" {
 			for _, t := range s.db.Tasks(targetFolder, false) {
 				if t.Status == core.TaskActive && t.Cron == cronStore && t.Prompt == prompt {
-					return map[string]any{"taskId": t.ID}, nil
+					return map[string]any{"taskId": t.ID, "owner": targetFolder}, nil
 				}
 			}
 		}
@@ -111,7 +111,7 @@ func (s *Server) scheduledTasksHandler(ctx context.Context, x resreg.Execution, 
 		}, resreg.Errorf(http.StatusConflict, "scheduled task %q already exists", taskID)); err != nil {
 			return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
 		}
-		return map[string]any{"taskId": taskID}, nil
+		return map[string]any{"taskId": taskID, "owner": targetFolder}, nil
 
 	case tasksActionPause, tasksActionResume, tasksActionCancel:
 		taskID := argString(x.Args, "taskId")
