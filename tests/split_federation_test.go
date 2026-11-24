@@ -24,6 +24,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -244,13 +245,26 @@ func bootFederation(t *testing.T, cfgMods ...func(*routd.LoopConfig)) *federatio
 	return bootFederationWith(t, fedOpts{loop: cfgMods})
 }
 
+// socketTempDir is a temp dir short enough to hold a turn's MCP socket. A unix
+// socket path is at most 108 bytes, and t.TempDir embeds the test name: a long
+// subtest name plus <folder>/t-<hash>/gated.sock exceeds it and bind fails.
+func socketTempDir(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "fed-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	return dir
+}
+
 // bootFederationWith is bootFederation with the agent side chosen by the caller:
 // the FakeRuntime for the split-contract tests, runed's real docker Runtime for
 // the container turns in e2e_turn_test.go.
 func bootFederationWith(t *testing.T, o fedOpts) *federation {
 	t.Helper()
 	f := &federation{
-		ipcDir:      t.TempDir(),
+		ipcDir:      socketTempDir(t),
 		ranFolders:  map[string]string{},
 		ranSessions: map[string]string{},
 		ranSecrets:  map[string]map[string]string{},
@@ -423,13 +437,18 @@ func (f *federation) dispatchedSecrets(folder string) map[string]string {
 }
 
 // agentReply is the fake agent's reply tool: one JSON-RPC tools/call over the
-// per-turn MCP socket routd serves under the folder's ipc dir. routd binds the
-// socket before it calls runed and removes it when the run returns, so it is
-// live for the whole FakeRuntime call.
+// per-turn MCP socket routd serves in the turn's own ipc dir, the host side of
+// the guest's /run/ipc mount. routd binds the socket before it calls runed and
+// removes it when the run returns, so it is live for the whole FakeRuntime call.
 func (f *federation) agentReply(turn runed.Turn, frame turnFrame, text string) error {
-	ipcDir, err := (&groupfolder.Resolver{IpcDir: f.ipcDir}).IpcPath(turn.Folder)
-	if err != nil {
-		return err
+	var ipcDir string
+	for _, mount := range turn.Mounts {
+		if mount.Container == "/run/ipc" {
+			ipcDir = mount.Host
+		}
+	}
+	if ipcDir == "" {
+		return fmt.Errorf("turn %s has no /run/ipc mount", turn.Handle)
 	}
 	conn, err := net.Dial("unix", groupfolder.IpcSocket(ipcDir))
 	if err != nil {
