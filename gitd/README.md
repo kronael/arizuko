@@ -138,7 +138,8 @@ discussion, commit comment, project status update, commit message, CI output),
 a review request or assignment to the bot login, a reply to a bot comment, or a
 human comment or review on a PR or issue the bot authored.
 Assignment, review requests and past reviews do not turn later PR activity into
-turns.
+turns. What the agent does on a PR assignment or review request is the
+`pr-assigned` skill (`ant/skills/pr-assigned/SKILL.md`).
 
 | Event                                                                                            | Default result |
 | ------------------------------------------------------------------------------------------------ | -------------- |

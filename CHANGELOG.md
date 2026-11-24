@@ -13,6 +13,12 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+### Added
+
+- The `pr-assigned` skill gives the agent one routine for a GitHub pull request
+  that is assigned to it: adversarial review, refine, fix, verify, release,
+  merge, one reply. A review request asks for the review only.
+
 ### Changed
 
 - One folder runs one turn per topic, not one turn: two PR topics of a repo
