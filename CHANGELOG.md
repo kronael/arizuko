@@ -13,6 +13,17 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.75.27] — 2026-11-24
+
+> arizuko v0.75.27 — two pull requests of one repo run at once
+>
+> A folder now runs one turn per topic, so a second pull request no longer waits for the first.
+>
+> • Turns — two topics of one folder run at the same time, inside the agent limit.
+> • GitHub — a pull request assigned to the agent gets review, refine, fix, verify, release and merge in one routine.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
 ### Added
 
 - The `pr-assigned` skill gives the agent one routine for a GitHub pull request
