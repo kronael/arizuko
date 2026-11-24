@@ -14,43 +14,6 @@
 > so counting one as open overstates the queue.
 
 
-## L932 — `schedule_task` into a chat routed to a child folder answers without the owner, so the caller cannot find the task (2026-11-24, open)
-
-`routd/scheduled_tasks_resource.go:72-114` resolves `targetFolder` from the
-target JID's route and stores the task with `Owner: targetFolder`, then answers
-`{"taskId": …}` only (lines 102 and 114). `list_tasks` returns the caller's own
-folder (`store/tasks.go:420`, `ListTasksChecked`), so a parent that schedules
-into a chat routed to a child sees a success and then no task. Live on sloth:
-`task-1793819242755-e5de5ab5` is owned by `sloth/discord`, scheduled from
-`sloth`, reported as not persisted.
-**Measured:** `routd/scheduled_tasks_resource_test.go::TestScheduledTasksMCP_ScheduleNamesTheOwner`
-fails on c5dd3a07b: `owner = <nil>, want "world/child" (answer map[taskId:…])`.
-**Fix:** answer `{"taskId", "owner"}` on the new-task and the dedup path.
-
-## L933 — the egress tool text and skill do not say a new grant applies from the next turn (2026-11-24, open)
-
-runed takes the folder's allowlist from the run request once and starts the
-turn's proxy with a static `--allow` list (`runed/vmnet.go:255-274`,
-`runed/qemu.go:291`). A `network_allow` made during a turn therefore changes
-nothing for that turn. The tool text (`resreg/resources/network_rules.go:39-43`)
-and `ant/skills/self/egress.md` do not say so; on trading an agent granted
-`tradingmind.net` (2026-11-08) and reported the host still denied in the same turn.
-**Fix:** one sentence in each: the rule applies from the folder's next turn.
-No test — docs.
-
-## L934 — `post_blocks.py --apply` writes state when an edit or delete failed (2026-11-24, open)
-
-`packages/company-brain/skills/digest/scripts/post_blocks.py:194-204` calls
-`write_state` before it checks `failures`, so a failed `--apply` advances
-`last_end` and `posted_run`: the next window starts after a digest that never
-landed, and a second `--apply` is refused without `--redo`. The skill says a
-failed post stops (`skills/digest/SKILL.md` § post); the installed copy on sloth
-is the same file.
-**Measured:** `tests/digest_post_test.go::TestDigestPostFailedApplyKeepsState`
-fails on c5dd3a07b: the state file is rewritten with `last_end` 2026-11-07 and
-`posted_run` `run` after `Failed: edit intro 111`.
-**Fix:** print the failures and exit 1 before `write_state`.
-
 ## L930 — the breaker repeats what a turn's own retry already does for a failed run (2026-11-23, open — needs sign-off)
 
 After `L826` a failed run holds its own folder only, and that hold adds nothing
@@ -615,9 +578,6 @@ The browser retry integration owns this fix after the current serial capacity wo
 - `L910` — the Google connector has no resolve or reopen tool; the `rest` schema cannot fix a body field; needs sign-off.
 - `L914` — a claude turn's shell has no Claude login: Claude Code deletes its own token; owner choice of a, b or c.
 - `L920` — one folder runs one turn, so a repo's PRs queue in one line; per-topic admission needs sign-off.
-- `L932` — `schedule_task` into a child-routed chat answers without the owner folder; fix in flight.
-- `L933` — the egress tool text and skill omit that a grant applies from the next turn; fix in flight.
-- `L934` — `post_blocks.py --apply` advances state after a failed edit; fix in flight.
 - `L930` — the breaker repeats what a turn's own retry does for a failed run; delete it for run failures (a), the whole entity (b), or keep it (c); needs sign-off.
 - `L917` — 26 refine findings that change a contract or schema; one owner decision per line.
 - `L816` — gitd loses GitHub webhooks while the store is unreachable; retention lives in that store; proposal, needs sign-off.
