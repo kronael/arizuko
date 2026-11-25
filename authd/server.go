@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"sync"
 	"time"
 
 	"github.com/kronael/arizuko/auth"
@@ -20,9 +19,9 @@ import (
 
 var errReuse = errors.New("refresh token reuse detected")
 
-// Authd is the sole signer. It holds the active ES256 key in memory plus every
-// key still inside its serving window, and persists keys/refresh state through
-// authstore.
+// Authd is the sole signer. It holds no key: each mint, each verification and
+// each JWKS answer reads the signing keys from authstore, so a rotation or a
+// retirement another process wrote applies to the next request.
 type Authd struct {
 	// st is every question authd asks its store. obj is the same store one
 	// level down, because audit.Init and audit.Query take the driver.
@@ -35,18 +34,15 @@ type Authd struct {
 	// grants, when wired, re-snapshots the bare sub's scope ceiling on every
 	// refresh (spec 5/1); nil reuses the stored refresh-row scope.
 	grants GrantsFetcher
-
-	mu      sync.RWMutex
-	active  *auth.SigningKey      // current signing key
-	serving []authstore.StoredKey // all keys whose verify window is open (active + recently retired)
 }
 
 func newAuthd(obj objstore.Store, accessTTL, refreshTTL, maxAccessTTL time.Duration) (*Authd, error) {
 	a := &Authd{st: authstore.New(obj), obj: obj, accessTTL: accessTTL, refreshTTL: refreshTTL, maxAccessTTL: maxAccessTTL}
-	if err := a.reload(); err != nil {
+	active, _, err := a.readKeys()
+	if err != nil {
 		return nil, err
 	}
-	if a.active == nil {
+	if active == nil {
 		if err := a.Rotate(); err != nil {
 			return nil, err
 		}
@@ -54,29 +50,28 @@ func newAuthd(obj objstore.Store, accessTTL, refreshTTL, maxAccessTTL time.Durat
 	return a, nil
 }
 
-// reload pulls keys from the DB and rebuilds the in-memory active + serving set
-// using the time-based window (active OR now < retired_at + maxAccessTTL).
-func (a *Authd) reload() error {
-	keys, err := a.st.SigningKeysWithMaterial()
+// readKeys reads the signing keys from the store and answers the active key,
+// nil when the slot is empty, and every key that serves now: the active key and
+// each retired key with now < retired_at + maxAccessTTL.
+func (a *Authd) readKeys() (*auth.SigningKey, []authstore.StoredKey, error) {
+	stored, err := a.st.SigningKeysWithMaterial()
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	a.active = nil
-	a.serving = a.serving[:0]
-	cutoff := time.Now()
-	for _, kr := range keys {
+	var active *auth.SigningKey
+	var serving []authstore.StoredKey
+	now := time.Now()
+	for _, kr := range stored {
 		if kr.Active {
-			a.active = kr.Key
-			a.serving = append(a.serving, kr)
+			active = kr.Key
+			serving = append(serving, kr)
 			continue
 		}
-		if kr.RetiredAt != nil && cutoff.Before(kr.RetiredAt.Add(a.maxAccessTTL)) {
-			a.serving = append(a.serving, kr)
+		if kr.RetiredAt != nil && now.Before(kr.RetiredAt.Add(a.maxAccessTTL)) {
+			serving = append(serving, kr)
 		}
 	}
-	return nil
+	return active, serving, nil
 }
 
 // Rotate generates a new active key, retiring the old one as of now (it keeps
@@ -88,10 +83,7 @@ func (a *Authd) Rotate() error {
 	if err != nil {
 		return err
 	}
-	if err := a.st.RotateActiveKey(k, time.Now()); err != nil {
-		return err
-	}
-	return a.reload()
+	return a.st.RotateActiveKey(k, time.Now())
 }
 
 // genKid returns the kid scheme "<created-unix>-<8 hex rand>": sortable by
@@ -103,48 +95,48 @@ func genKid(created time.Time) string {
 	return fmt.Sprintf("%d-%s", created.Unix(), hex.EncodeToString(b))
 }
 
-// PublicKeys returns the public halves of all serving keys, keyed by kid — the
-// in-process KeySet backing /v1/keys and local verification.
-func (a *Authd) PublicKeys() map[string]*ecdsa.PublicKey {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
+// PublicKeys returns the public halves of all serving keys, keyed by kid.
+func (a *Authd) PublicKeys() (map[string]*ecdsa.PublicKey, error) {
+	_, serving, err := a.readKeys()
+	if err != nil {
+		return nil, err
+	}
 	out := map[string]*ecdsa.PublicKey{}
-	for _, kr := range a.serving {
+	for _, kr := range serving {
 		out[kr.Key.Kid] = &kr.Key.Priv.PublicKey
 	}
-	return out
-}
-
-// retiredKeys returns the retirement time per still-serving retired kid. The
-// active key is absent (no iat cap). Backs the local KeySet's retired-key
-// forgery check.
-func (a *Authd) retiredKeys() map[string]time.Time {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
-	out := map[string]time.Time{}
-	for _, kr := range a.serving {
-		if kr.RetiredAt != nil {
-			out[kr.Key.Kid] = *kr.RetiredAt
-		}
-	}
-	return out
+	return out, nil
 }
 
 // LocalKeySet is the in-process verifier authd uses on itself: public keys plus
 // per-kid retirement, so a token minted with a stolen retired key (iat past
-// retired_at) is rejected even inside the key's serving window.
-func (a *Authd) LocalKeySet() *auth.KeySet {
-	return auth.NewKeySetWithRetirement(a.PublicKeys(), a.retiredKeys())
+// retired_at) is rejected even inside the key's serving window. The active key
+// carries no retirement and so no iat cap.
+func (a *Authd) LocalKeySet() (*auth.KeySet, error) {
+	_, serving, err := a.readKeys()
+	if err != nil {
+		return nil, err
+	}
+	pub := map[string]*ecdsa.PublicKey{}
+	retired := map[string]time.Time{}
+	for _, kr := range serving {
+		pub[kr.Key.Kid] = &kr.Key.Priv.PublicKey
+		if kr.RetiredAt != nil {
+			retired[kr.Key.Kid] = *kr.RetiredAt
+		}
+	}
+	return auth.NewKeySetWithRetirement(pub, retired), nil
 }
 
 func (a *Authd) activeKey() (*auth.SigningKey, error) {
-	a.mu.RLock()
-	k := a.active
-	a.mu.RUnlock()
-	if k == nil {
+	active, _, err := a.readKeys()
+	if err != nil {
+		return nil, err
+	}
+	if active == nil {
 		return nil, auth.ErrNoSigningKey
 	}
-	return k, nil
+	return active, nil
 }
 
 // MintForSubject signs an authoritative access token for sub, scope bounded by

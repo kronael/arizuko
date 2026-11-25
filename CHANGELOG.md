@@ -25,6 +25,11 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   confines the scope before the search, so `limit` counts hits the caller can
   read: a filter after the search could answer an empty list while the
   caller's own matches lay below `limit` foreign ones.
+- authd reads its signing keys from the store for each mint, each
+  verification and each `/v1/keys` answer, and holds no key in memory. A
+  rotation that another process wrote applies to the next token, and a retired
+  key stops serving when its window ends: both waited for a restart before.
+  `/v1/keys` answers 503 while the store does not answer.
 
 ### Removed
 

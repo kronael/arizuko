@@ -23,7 +23,13 @@ const sessionsShown = 50
 
 // handleDash renders the signing keys and who is signed in.
 func (s *server) handleDash(w http.ResponseWriter, r *http.Request) {
-	if !auth.RequireOperator(w, r, s.dashKeys, "authd") {
+	ks, err := s.dashKeySet()
+	if err != nil {
+		slog.Error("dash: signing keys for the gate", "err", err)
+		http.Error(w, "store unreachable", http.StatusServiceUnavailable)
+		return
+	}
+	if !auth.RequireOperator(w, r, ks, "authd") {
 		return
 	}
 	now := time.Now()
@@ -55,7 +61,13 @@ func (s *server) handleDash(w http.ResponseWriter, r *http.Request) {
 // same origin, because this is a cookie-authenticated mutation that signs a
 // person out.
 func (s *server) handleDashRevoke(w http.ResponseWriter, r *http.Request) {
-	if !auth.RequireWrite(w, r, s.dashKeys, "authd") {
+	ks, err := s.dashKeySet()
+	if err != nil {
+		slog.Error("dash: signing keys for the gate", "err", err)
+		http.Error(w, "store unreachable", http.StatusServiceUnavailable)
+		return
+	}
+	if !auth.RequireWrite(w, r, ks, "authd") {
 		return
 	}
 	family := strings.TrimSpace(r.FormValue("family_id"))

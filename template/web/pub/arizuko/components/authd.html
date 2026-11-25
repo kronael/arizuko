@@ -56,7 +56,7 @@
     <h2>authd is the only daemon that signs tokens</h2>
     <p>authd checks who you are through GitHub, Google or Discord. It returns a signed token that proves your identity. Every other daemon trusts that token.</p>
 
-    <p>authd is the auth plane: the only signer of platform tokens and the only JWKS publisher. It holds the active ES256 signing key, on the P-256 curve, in memory. It creates every access and refresh token and acts as the OAuth provider. Backends never sign. They fetch the public JWKS of authd and verify tokens locally with the <code>auth/</code> library. authd owns the <code>authd.*</code> tables in the store.</p>
+    <p>authd is the auth plane: the only signer of platform tokens and the only JWKS publisher. It reads the active ES256 signing key, on the P-256 curve, from its store for each token and keeps no copy of it. It creates every access and refresh token and acts as the OAuth provider. Backends never sign. They fetch the public JWKS of authd and verify tokens locally with the <code>auth/</code> library. authd owns the <code>authd.*</code> tables in the store.</p>
 
     <p>Keep one line straight: <strong>authd authenticates, and <a href="routd.html">routd</a> authorizes.</strong> authd answers &ldquo;who are you, and what is the most you could be allowed&rdquo;. It does <em>not</em> decide whether one action on one folder is permitted. That gate lives in routd, the owner of the ACL.</p>
 
@@ -158,7 +158,7 @@ export AUTH_BASE_URL=https://example.com
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/components/authd.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-11-07">2026-11-07</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-08">2026-11-08</time>
       </div>
     </main>
 

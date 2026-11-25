@@ -16,8 +16,10 @@ The signer owns key rotation and refresh-family revocation.
 
 ## Responsibilities
 
-- Hold the active ES256 (P-256) signing key in memory plus every key
-  still inside its serving window; persist them to its own store
+- Keep the ES256 (P-256) signing keys in its own store and read them for
+  each mint, each verification and each JWKS answer: the active key plus
+  every key still inside its serving window. authd holds no key in memory,
+  so a rotation that another process writes applies to the next request
 - Mint access tokens: `MintForSubject` (scope ⊆ target's grants snapshot),
   `Downscope` (subset of parent), issuer-mint for a different sub
 - Rotate keys. Exactly one active key is enforced by the `signing_key_slot`
@@ -283,7 +285,7 @@ The other daemons fetch JWKS or exchange their service key. proxyd forwards brow
 There is no scheduled key rotation or refresh-token cleanup goroutine. Expiry checks happen on requests and key load.
 The grants HTTP client has a 10 s timeout; the Dex discovery/token client has a 15 s timeout.
 Shutdown allows 5 s. A grants 5xx fails login or refresh rather than treating the person as ungranted.
-A store setup or initial signer failure exits. A running signer keeps its key in memory; store-dependent operations can still fail.
+A store setup or initial signer failure exits. A running signer reads its key from the store for each token, so a mint fails while the store does not answer, and `/v1/keys` answers 503.
 Cached verifier keys can serve existing tokens during an authd outage, within token and key validity.
 Grep `open authd's store`, `prepare storage`, `init signer`, `mint service token`,
 `oauth /auth/* not mounted`, and `refresh-token family NOT revoked`.

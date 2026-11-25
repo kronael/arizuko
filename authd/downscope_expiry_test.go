@@ -15,6 +15,7 @@ func TestDownscopeExpiredParent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	ks := keySet(t, a)
 	synctest.Test(t, func(t *testing.T) {
 		token, err := k.Sign(auth.TokenClaims{
 			Sub: "user:alice", Typ: "user", Scope: []string{"tasks:read"},
@@ -23,7 +24,7 @@ func TestDownscopeExpiredParent(t *testing.T) {
 			t.Fatal(err)
 		}
 		time.Sleep(2 * time.Second)
-		parent, err := auth.VerifyToken(token, a.LocalKeySet())
+		parent, err := auth.VerifyToken(token, ks)
 		if err != nil {
 			t.Fatal(err)
 		}

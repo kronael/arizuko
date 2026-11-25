@@ -157,7 +157,7 @@ func TestDexCallbackMintsTheNativeProviderPrincipal(t *testing.T) {
 	if out.Code != http.StatusOK {
 		t.Fatalf("callback status %d: %s", out.Code, out.Body.String())
 	}
-	sub, err := auth.VerifyToken(jsonField(t, out.Body.Bytes(), "token"), a.LocalKeySet())
+	sub, err := auth.VerifyToken(jsonField(t, out.Body.Bytes(), "token"), keySet(t, a))
 	if err != nil {
 		t.Fatalf("Dex-mapped session must verify as an authd token: %v", err)
 	}

@@ -6,7 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/resreg/resources"
 )
 
@@ -63,7 +62,7 @@ func TestSessionTableEscapes(t *testing.T) {
 
 // The dashboard and its control are gated to operators when a keyset is armed.
 func TestAuthdDashboardGate(t *testing.T) {
-	s := &server{dashKeys: &auth.KeySet{}}
+	s := &server{gateDash: true, a: newTestAuthd(t, testDB(t))}
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "http://k.example/dash/authd/", nil)
 	r.Header.Set("X-User-Groups", `["acme"]`)

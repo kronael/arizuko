@@ -51,9 +51,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	// authd verifies its OWN tokens, so the dashboard gate uses its local
-	// keyset.
-	srv := &server{a: a, serviceSecrets: loadServiceSecrets(), dashKeys: a.LocalKeySet()}
+	// authd verifies its OWN tokens, so the dashboard gate uses its own keys.
+	srv := &server{a: a, serviceSecrets: loadServiceSecrets(), gateDash: true}
+	serving, err := a.PublicKeys()
+	if err != nil {
+		slog.Error("read signing keys", "err", err)
+		os.Exit(1)
+	}
 
 	// The grants fetcher serves BOTH the daemon (refresh re-snapshot) and the
 	// server (login snapshot + issuer-mint ceiling).
@@ -76,7 +80,7 @@ func main() {
 		Outcome:  audit.OutcomeOK,
 		ParamsSummary: map[string]any{
 			"store":        dynstore.URL(),
-			"serving_keys": len(a.PublicKeys()),
+			"serving_keys": len(serving),
 			"service_subs": len(srv.serviceSecrets),
 		},
 	})
@@ -91,7 +95,7 @@ func main() {
 		slog.Info("self-minted service:authd")
 	}
 
-	slog.Info("authd started", "store", dynstore.URL(), "addr", listenAddr, "serving_keys", len(a.PublicKeys()))
+	slog.Info("authd started", "store", dynstore.URL(), "addr", listenAddr, "serving_keys", len(serving))
 
 	// A nil cfg leaves /auth/* unmounted: human login 404s while health stays
 	// green, so the load failure is logged loud here.

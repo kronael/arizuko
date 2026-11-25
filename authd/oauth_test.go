@@ -45,7 +45,7 @@ func TestOAuthDispatchMintsES256AndCreatesUser(t *testing.T) {
 	}
 	// The JSON response carries an ES256 access token that verifies.
 	tok := jsonField(t, rec.Body.Bytes(), "token")
-	sub, err := auth.VerifyToken(tok, a.LocalKeySet())
+	sub, err := auth.VerifyToken(tok, keySet(t, a))
 	if err != nil {
 		t.Fatalf("OAuth-minted access token must verify: %v", err)
 	}
@@ -76,7 +76,7 @@ func TestOAuthRefreshSubMatchesLogin(t *testing.T) {
 	rec := httptest.NewRecorder()
 	o.dispatch(rec, req, "google", "g-123", "Alice", auth.StateIntent{})
 
-	loginSub, err := auth.VerifyToken(jsonField(t, rec.Body.Bytes(), "token"), a.LocalKeySet())
+	loginSub, err := auth.VerifyToken(jsonField(t, rec.Body.Bytes(), "token"), keySet(t, a))
 	if err != nil {
 		t.Fatalf("login token must verify: %v", err)
 	}
@@ -84,7 +84,7 @@ func TestOAuthRefreshSubMatchesLogin(t *testing.T) {
 	if err != nil {
 		t.Fatalf("refresh failed: %v", err)
 	}
-	refreshSub, err := auth.VerifyToken(access, a.LocalKeySet())
+	refreshSub, err := auth.VerifyToken(access, keySet(t, a))
 	if err != nil {
 		t.Fatalf("refreshed token must verify: %v", err)
 	}
@@ -175,7 +175,7 @@ func TestOAuthSessionSnapshotsGrants(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("dispatch status %d", rec.Code)
 	}
-	sub, err := auth.VerifyToken(jsonField(t, rec.Body.Bytes(), "token"), a.LocalKeySet())
+	sub, err := auth.VerifyToken(jsonField(t, rec.Body.Bytes(), "token"), keySet(t, a))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -290,7 +290,7 @@ func TestOAuthLinkIntentCarriesBareSub(t *testing.T) {
 	if !userExists(t, db, "google:g-1") {
 		t.Fatal("canonical account google:g-1 must survive the link")
 	}
-	sub, err := auth.VerifyToken(jsonField(t, linkDone.Body.Bytes(), "token"), a.LocalKeySet())
+	sub, err := auth.VerifyToken(jsonField(t, linkDone.Body.Bytes(), "token"), keySet(t, a))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -323,7 +323,7 @@ func TestOAuthAliasLoginResolvesToCanonicalSub(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("alias login status %d: %s", rec.Code, rec.Body.String())
 	}
-	sub, err := auth.VerifyToken(jsonField(t, rec.Body.Bytes(), "token"), a.LocalKeySet())
+	sub, err := auth.VerifyToken(jsonField(t, rec.Body.Bytes(), "token"), keySet(t, a))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -354,7 +354,7 @@ func TestOAuthCanonicalLoginUnaffectedByResolution(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	o.dispatch(rec, jsonReq(), "google", "g-1", "Alice", auth.StateIntent{})
-	sub, err := auth.VerifyToken(jsonField(t, rec.Body.Bytes(), "token"), a.LocalKeySet())
+	sub, err := auth.VerifyToken(jsonField(t, rec.Body.Bytes(), "token"), keySet(t, a))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -385,7 +385,7 @@ func TestOAuthUnlinkedSubDoesNotResolveToAnotherAccount(t *testing.T) {
 	// Mallory: same provider, different provider_sub, linked to nobody.
 	rec := httptest.NewRecorder()
 	o.dispatch(rec, jsonReq(), "google", "g-666", "Mallory", auth.StateIntent{})
-	sub, err := auth.VerifyToken(jsonField(t, rec.Body.Bytes(), "token"), a.LocalKeySet())
+	sub, err := auth.VerifyToken(jsonField(t, rec.Body.Bytes(), "token"), keySet(t, a))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -398,7 +398,7 @@ func TestOAuthUnlinkedSubDoesNotResolveToAnotherAccount(t *testing.T) {
 	// A *different provider* with an identical provider_sub is likewise separate.
 	rec2 := httptest.NewRecorder()
 	o.dispatch(rec2, jsonReq(), "github", "g-1", "Trudy", auth.StateIntent{})
-	sub2, err := auth.VerifyToken(jsonField(t, rec2.Body.Bytes(), "token"), a.LocalKeySet())
+	sub2, err := auth.VerifyToken(jsonField(t, rec2.Body.Bytes(), "token"), keySet(t, a))
 	if err != nil {
 		t.Fatal(err)
 	}

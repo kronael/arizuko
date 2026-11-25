@@ -62,7 +62,7 @@ func TestRefreshUsesFullOAuthPrincipal(t *testing.T) {
 	if g.queried != oauthSub {
 		t.Fatalf("refresh must query grants with the full canonical principal %q, got %q", oauthSub, g.queried)
 	}
-	sub, err := auth.VerifyToken(access, a.LocalKeySet())
+	sub, err := auth.VerifyToken(access, keySet(t, a))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -231,9 +231,6 @@ func TestRotateConcurrentSingleActiveKey(t *testing.T) {
 				"left its key material behind (%d keys total)", k.Kid, len(keys))
 		}
 	}
-	if err := a.reload(); err != nil {
-		t.Fatal(err)
-	}
 	if _, err := a.activeKey(); err != nil {
 		t.Fatalf("authd must still have an active signer: %v", err)
 	}
@@ -267,9 +264,6 @@ func TestSecondKeyCannotBecomeASecondSigner(t *testing.T) {
 	if _, ok := entityItem(t, db, authstore.SigningKeys, k.Kid); !ok {
 		t.Fatal("the planted key is not in the store; the assertions below prove nothing")
 	}
-	if err := a.reload(); err != nil {
-		t.Fatal(err)
-	}
 	if kid := activeKid(t, db); kid != booted.Kid {
 		t.Fatalf("the slot names %q, want the boot key %q", kid, booted.Kid)
 	}
@@ -279,7 +273,7 @@ func TestSecondKeyCannotBecomeASecondSigner(t *testing.T) {
 	}
 	// It does not verify either: a key that holds no slot and carries no
 	// retirement is outside the serving window, so it is not even a verifier.
-	if _, serving := a.PublicKeys()[k.Kid]; serving {
+	if _, serving := publicKeys(t, a)[k.Kid]; serving {
 		t.Fatal("a planted key entered the serving set")
 	}
 }
@@ -303,18 +297,15 @@ func TestRetiredKeyForgeryRejectedThroughAuthd(t *testing.T) {
 	mergeAttrs(t, db, authstore.SigningKeys, stolen.Kid, map[string]string{
 		"retired_at": time.Now().Add(-5 * time.Second).Format(time.RFC3339),
 	})
-	if err := a.reload(); err != nil {
-		t.Fatal(err)
-	}
-	if len(a.PublicKeys()) != 2 {
-		t.Fatalf("expected old+new keys serving, got %d", len(a.PublicKeys()))
+	if len(publicKeys(t, a)) != 2 {
+		t.Fatalf("expected old+new keys serving, got %d", len(publicKeys(t, a)))
 	}
 	// Thief mints a FRESH token with the retired key (iat = now > retired_at).
 	forged, err := stolen.Sign(auth.TokenClaims{Sub: "user:evil", Typ: "user", Scope: []string{"tasks:write"}}, time.Minute)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := auth.VerifyToken(forged, a.LocalKeySet()); err == nil {
+	if _, err := auth.VerifyToken(forged, keySet(t, a)); err == nil {
 		t.Fatal("token forged with a retired key (iat past retirement) must be rejected")
 	}
 }

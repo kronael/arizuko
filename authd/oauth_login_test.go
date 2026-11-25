@@ -128,7 +128,7 @@ func TestGoogleCallbackAppliesAllowedEmails(t *testing.T) {
 				if rec.Code != http.StatusOK {
 					t.Fatalf("status %d want 200: %s", rec.Code, rec.Body.String())
 				}
-				sub, err := auth.VerifyToken(jsonField(t, rec.Body.Bytes(), "token"), a.LocalKeySet())
+				sub, err := auth.VerifyToken(jsonField(t, rec.Body.Bytes(), "token"), keySet(t, a))
 				if err != nil || sub.Sub != "user:google:g-42" {
 					t.Fatalf("token sub %v err %v want user:google:g-42", sub, err)
 				}
@@ -195,7 +195,7 @@ func TestGitHubCallbackAppliesAllowedOrg(t *testing.T) {
 				if rec.Code != http.StatusOK {
 					t.Fatalf("status %d want 200: %s", rec.Code, rec.Body.String())
 				}
-				sub, err := auth.VerifyToken(jsonField(t, rec.Body.Bytes(), "token"), a.LocalKeySet())
+				sub, err := auth.VerifyToken(jsonField(t, rec.Body.Bytes(), "token"), keySet(t, a))
 				if err != nil || sub.Sub != "user:github:octo" {
 					t.Fatalf("token sub %v err %v want user:github:octo", sub, err)
 				}

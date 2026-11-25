@@ -90,10 +90,29 @@ type server struct {
 	serviceSecrets map[string]string // bootstrap key -> service principal (sub)
 	grants         GrantsFetcher     // nil when GRANTS_URL is unset
 	secureCookies  bool              // mark refresh cookies Secure (https deployment)
-	// dashKeys gates GET /dash/authd/ (spec 6/28): the dashboard trusts the
-	// proxyd-verified end-user identity, not a bearer. nil: local dev, gate
+	// gateDash gates GET /dash/authd/ (spec 6/28): the dashboard trusts the
+	// proxyd-verified end-user identity, not a bearer. false: local dev, gate
 	// open.
-	dashKeys *auth.KeySet
+	gateDash bool
+}
+
+// dashKeySet answers the keys the dashboard gate verifies with, read from the
+// store, or nil when the gate is open.
+func (s *server) dashKeySet() (*auth.KeySet, error) {
+	if !s.gateDash {
+		return nil, nil
+	}
+	return s.a.LocalKeySet()
+}
+
+// verifyHTTP verifies r's bearer against the keys the store holds now.
+func (a *Authd) verifyHTTP(r *http.Request) (auth.Subject, error) {
+	ks, err := a.LocalKeySet()
+	if err != nil {
+		slog.Error("read signing keys to verify a bearer", "err", err)
+		return auth.Subject{}, err
+	}
+	return auth.VerifyHTTP(r, ks)
 }
 
 // mux builds authd's COMPLETE served surface, /openapi.json included: one
@@ -138,7 +157,17 @@ func (s *server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *server) handleKeys(w http.ResponseWriter, _ *http.Request) {
-	body, err := auth.PublicJWKS(s.servingKeys()...)
+	_, serving, err := s.a.readKeys()
+	if err != nil {
+		slog.Error("read signing keys for the JWKS", "err", err)
+		http.Error(w, "store unreachable", http.StatusServiceUnavailable)
+		return
+	}
+	keys := make([]*auth.SigningKey, 0, len(serving))
+	for _, kr := range serving {
+		keys = append(keys, kr.Key)
+	}
+	body, err := auth.PublicJWKS(keys...)
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
@@ -146,16 +175,6 @@ func (s *server) handleKeys(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "public, max-age=3600")
 	_, _ = w.Write(body)
-}
-
-func (s *server) servingKeys() []*auth.SigningKey {
-	s.a.mu.RLock()
-	defer s.a.mu.RUnlock()
-	out := make([]*auth.SigningKey, 0, len(s.a.serving))
-	for _, kr := range s.a.serving {
-		out = append(out, kr.Key)
-	}
-	return out
 }
 
 // handleServiceToken exchanges a daemon's bootstrap secret for a short service
@@ -215,7 +234,7 @@ func (s *server) matchServiceSecret(daemon, secret string) (string, bool) {
 // requested typ + whether the verified caller holds tokens:mint (spec 5/1
 // § POST /v1/tokens).
 func (s *server) handleTokens(w http.ResponseWriter, r *http.Request) {
-	caller, err := auth.VerifyHTTP(r, s.a.LocalKeySet())
+	caller, err := s.a.verifyHTTP(r)
 	if err != nil {
 		writeErr(w, http.StatusUnauthorized, "unauthorized", "valid bearer required")
 		return
@@ -403,7 +422,7 @@ func refreshFromRequest(w http.ResponseWriter, r *http.Request) (raw string, bro
 // has linked. An unclaimed sub returns {"identity":null,"subs":[]} with 200,
 // not 404, so the tool renders that shape.
 func (s *server) handleIdentity(w http.ResponseWriter, r *http.Request) {
-	caller, err := auth.VerifyHTTP(r, s.a.LocalKeySet())
+	caller, err := s.a.verifyHTTP(r)
 	if err != nil {
 		writeErr(w, http.StatusUnauthorized, "unauthorized", "valid bearer required")
 		return

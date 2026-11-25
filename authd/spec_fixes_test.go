@@ -61,7 +61,7 @@ func TestMintModesStampTyp(t *testing.T) {
 	}
 
 	parent := callerToken(t, a, "user:1", []string{"tasks:read", "tasks:write"}, "atlas/main")
-	psub, err := auth.VerifyToken(parent, a.LocalKeySet())
+	psub, err := auth.VerifyToken(parent, keySet(t, a))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +116,7 @@ func TestRefreshRowStoresBareSubMintAddsPrefix(t *testing.T) {
 
 	// The minted access token carries the user:-prefixed sub.
 	access := jsonField(t, rec.Body.Bytes(), "token")
-	sub, err := auth.VerifyToken(access, a.LocalKeySet())
+	sub, err := auth.VerifyToken(access, keySet(t, a))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -139,7 +139,7 @@ func TestRefreshRowStoresBareSubMintAddsPrefix(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sub2, err := auth.VerifyToken(access2, a.LocalKeySet())
+	sub2, err := auth.VerifyToken(access2, keySet(t, a))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +167,7 @@ func TestHTTPGrantsFetcherWiredAndUnwired(t *testing.T) {
 	var gotSub string
 	gs := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		bearerTok := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-		sub, err := auth.VerifyToken(bearerTok, a.LocalKeySet())
+		sub, err := auth.VerifyToken(bearerTok, keySet(t, a))
 		if err != nil || sub.Sub != "service:authd" || !auth.HasScope(sub.Scope, "grants", "read") {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
@@ -200,7 +200,7 @@ func TestHTTPGrantsFetcherWiredAndUnwired(t *testing.T) {
 	if gotSub != "google:g-http" {
 		t.Fatalf("grants lookup used sub %q want bare google:g-http", gotSub)
 	}
-	sub, err := auth.VerifyToken(jsonField(t, rec.Body.Bytes(), "token"), a.LocalKeySet())
+	sub, err := auth.VerifyToken(jsonField(t, rec.Body.Bytes(), "token"), keySet(t, a))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -213,7 +213,7 @@ func TestHTTPGrantsFetcherWiredAndUnwired(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rs, err := auth.VerifyToken(refreshSub, a.LocalKeySet())
+	rs, err := auth.VerifyToken(refreshSub, keySet(t, a))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -268,7 +268,7 @@ func TestRefreshFromCookieOnly(t *testing.T) {
 		t.Fatal("cookie-channel refresh must rotate the cookie via Set-Cookie")
 	}
 	// The minted access verifies.
-	if _, err := auth.VerifyToken(out["token"].(string), a.LocalKeySet()); err != nil {
+	if _, err := auth.VerifyToken(out["token"].(string), keySet(t, a)); err != nil {
 		t.Fatalf("access from cookie refresh invalid: %v", err)
 	}
 }
@@ -315,7 +315,7 @@ func TestRefreshReSnapshotsGrants(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sub, err := auth.VerifyToken(access, a.LocalKeySet())
+	sub, err := auth.VerifyToken(access, keySet(t, a))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -337,7 +337,7 @@ func TestRefreshReusesStoredScopeWhenUnwired(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sub, _ := auth.VerifyToken(access, a.LocalKeySet())
+	sub, _ := auth.VerifyToken(access, keySet(t, a))
 	if !auth.HasScope(sub.Scope, "tasks", "write") {
 		t.Fatalf("unwired refresh must reuse stored scope, got %v", sub.Scope)
 	}

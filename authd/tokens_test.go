@@ -61,7 +61,7 @@ func TestTokensDownscopeRoundTrip(t *testing.T) {
 	defer ts.Close()
 
 	parent := callerToken(t, a, "user:1", []string{"tasks:read", "tasks:write"}, "atlas/main")
-	parentSub, _ := auth.VerifyToken(parent, a.LocalKeySet())
+	parentSub, _ := auth.VerifyToken(parent, keySet(t, a))
 
 	resp, out := postTokens(t, ts.URL, parent, map[string]any{
 		"typ": "downscoped", "scope": []string{"tasks:read"},
@@ -74,7 +74,7 @@ func TestTokensDownscopeRoundTrip(t *testing.T) {
 	if tok == "" || out["jti"] == "" {
 		t.Fatalf("response missing token/jti: %v", out)
 	}
-	sub, err := auth.VerifyToken(tok, a.LocalKeySet())
+	sub, err := auth.VerifyToken(tok, keySet(t, a))
 	if err != nil {
 		t.Fatalf("downscoped token invalid: %v", err)
 	}
@@ -204,7 +204,7 @@ func TestTokensIssuerMintWithinTargetGrants(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("issuer mint status %d: %v", resp.StatusCode, out)
 	}
-	sub, err := auth.VerifyToken(out["token"].(string), a.LocalKeySet())
+	sub, err := auth.VerifyToken(out["token"].(string), keySet(t, a))
 	if err != nil {
 		t.Fatalf("minted token invalid: %v", err)
 	}
@@ -278,7 +278,7 @@ func TestTokensDownscopeForcesCallerSubNoImpersonation(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("downscope status %d: %v", resp.StatusCode, out)
 	}
-	sub, err := auth.VerifyToken(out["token"].(string), a.LocalKeySet())
+	sub, err := auth.VerifyToken(out["token"].(string), keySet(t, a))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -320,7 +320,7 @@ func TestTokensIssuerMintTTLCappedAtMaxAccessTTL(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("issuer mint status %d: %v", resp.StatusCode, out)
 	}
-	sub, err := auth.VerifyToken(out["token"].(string), a.LocalKeySet())
+	sub, err := auth.VerifyToken(out["token"].(string), keySet(t, a))
 	if err != nil {
 		t.Fatalf("minted token invalid: %v", err)
 	}
@@ -358,7 +358,7 @@ func TestTokensIssuerMintShortTTLHonoured(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("issuer mint status %d: %v", resp.StatusCode, out)
 	}
-	sub, err := auth.VerifyToken(out["token"].(string), a.LocalKeySet())
+	sub, err := auth.VerifyToken(out["token"].(string), keySet(t, a))
 	if err != nil {
 		t.Fatal(err)
 	}

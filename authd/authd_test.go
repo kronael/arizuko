@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/ecdsa"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -43,14 +44,32 @@ func newTestAuthd(t *testing.T, db *dynstore.Store) *Authd {
 	return a
 }
 
+func keySet(t *testing.T, a *Authd) *auth.KeySet {
+	t.Helper()
+	ks, err := a.LocalKeySet()
+	if err != nil {
+		t.Fatalf("LocalKeySet: %v", err)
+	}
+	return ks
+}
+
+func publicKeys(t *testing.T, a *Authd) map[string]*ecdsa.PublicKey {
+	t.Helper()
+	keys, err := a.PublicKeys()
+	if err != nil {
+		t.Fatalf("PublicKeys: %v", err)
+	}
+	return keys
+}
+
 func TestBootGeneratesActiveKey(t *testing.T) {
 	db := testDB(t)
 	a := newTestAuthd(t, db)
 	if k, err := a.activeKey(); err != nil || k == nil {
 		t.Fatalf("expected an active key, got %v %v", k, err)
 	}
-	if len(a.PublicKeys()) != 1 {
-		t.Fatalf("expected 1 serving key, got %d", len(a.PublicKeys()))
+	if len(publicKeys(t, a)) != 1 {
+		t.Fatalf("expected 1 serving key, got %d", len(publicKeys(t, a)))
 	}
 }
 
@@ -61,7 +80,7 @@ func TestMintVerifyThroughAuthd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ks := auth.NewKeySet(a.PublicKeys())
+	ks := auth.NewKeySet(publicKeys(t, a))
 	sub, err := auth.VerifyToken(tok, ks)
 	if err != nil {
 		t.Fatalf("verify: %v", err)
@@ -80,11 +99,11 @@ func TestRotationKeepsOldKeyServingWithinWindow(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Both the old (recently retired) and new (active) keys must be serving.
-	if len(a.PublicKeys()) != 2 {
-		t.Fatalf("expected 2 serving keys after rotation, got %d", len(a.PublicKeys()))
+	if len(publicKeys(t, a)) != 2 {
+		t.Fatalf("expected 2 serving keys after rotation, got %d", len(publicKeys(t, a)))
 	}
 	// A token signed by the now-retired key still verifies.
-	ks := auth.NewKeySet(a.PublicKeys())
+	ks := auth.NewKeySet(publicKeys(t, a))
 	if _, err := auth.VerifyToken(oldTok, ks); err != nil {
 		t.Fatalf("old token should still verify within window: %v", err)
 	}
@@ -102,11 +121,40 @@ func TestRetiredKeyDropsAfterWindow(t *testing.T) {
 		t.Fatal(err)
 	}
 	time.Sleep(5 * time.Millisecond)
-	if err := a.reload(); err != nil {
+	if len(publicKeys(t, a)) != 1 {
+		t.Fatalf("expected only the active key serving, got %d", len(publicKeys(t, a)))
+	}
+}
+
+// authd holds no key. A second authd over the same store rotates, which is
+// what `arizuko token rotate` is to a running daemon, and the first signs its
+// next token with the new key and serves it, with no restart between.
+func TestARotationByAnotherProcessAppliesToTheNextMint(t *testing.T) {
+	db := testDB(t)
+	running := newTestAuthd(t, db)
+	before, err := running.activeKey()
+	if err != nil {
 		t.Fatal(err)
 	}
-	if len(a.PublicKeys()) != 1 {
-		t.Fatalf("expected only the active key serving, got %d", len(a.PublicKeys()))
+	if err := newTestAuthd(t, db).Rotate(); err != nil {
+		t.Fatal(err)
+	}
+	after, err := running.activeKey()
+	if err != nil || after.Kid == before.Kid || after.Kid != activeKid(t, db) {
+		t.Fatalf("the running authd signs with %v (%v) after another process rotated from %s",
+			after, err, before.Kid)
+	}
+	tok, err := running.MintForSubject("user:1", "user", nil, []string{"a:read"}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, ts := newServer(t, running)
+	if err := fetchVerify(t, ts.URL, tok); err != nil {
+		t.Fatalf("the JWKS of the running authd does not verify its own new token: %v", err)
+	}
+	if len(publicKeys(t, running)) != 2 {
+		t.Fatalf("expected the retired and the new key serving, got %d",
+			len(publicKeys(t, running)))
 	}
 }
 
@@ -128,10 +176,10 @@ func TestEmptySlotRestartRevokesTokens(t *testing.T) {
 	if k, _ := b.activeKey(); k == nil || k.Kid == oldKey.Kid {
 		t.Fatalf("restart with an empty slot kept signer %v, want a new key", k)
 	}
-	if len(b.PublicKeys()) != 1 {
-		t.Fatalf("expected 1 serving key after restart, got %d", len(b.PublicKeys()))
+	if len(publicKeys(t, b)) != 1 {
+		t.Fatalf("expected 1 serving key after restart, got %d", len(publicKeys(t, b)))
 	}
-	if _, err := auth.VerifyToken(oldTok, auth.NewKeySet(b.PublicKeys())); err == nil {
+	if _, err := auth.VerifyToken(oldTok, auth.NewKeySet(publicKeys(t, b))); err == nil {
 		t.Fatal("token signed by the removed signer must not verify")
 	}
 }
@@ -163,7 +211,7 @@ func TestRefreshRotation(t *testing.T) {
 	if r1 == r0 {
 		t.Fatal("refresh token must rotate")
 	}
-	ks := auth.NewKeySet(a.PublicKeys())
+	ks := auth.NewKeySet(publicKeys(t, a))
 	sub, err := auth.VerifyToken(access, ks)
 	if err != nil {
 		t.Fatalf("minted access invalid: %v", err)
@@ -259,7 +307,7 @@ func TestServiceTokenEndpoint(t *testing.T) {
 	if resp.StatusCode != 200 {
 		t.Fatalf("status %d", resp.StatusCode)
 	}
-	ks := auth.NewKeySet(a.PublicKeys())
+	ks := auth.NewKeySet(publicKeys(t, a))
 	sub, err := auth.VerifyToken(out.Token, ks)
 	if err != nil {
 		t.Fatalf("service token invalid: %v", err)
@@ -399,7 +447,7 @@ func TestRefreshEndpointRotates(t *testing.T) {
 	if out.ExpiresAt == "" {
 		t.Fatal("refresh response must carry expires_at (spec 5/1 shape)")
 	}
-	ks := auth.NewKeySet(a.PublicKeys())
+	ks := auth.NewKeySet(publicKeys(t, a))
 	if _, err := auth.VerifyToken(out.Token, ks); err != nil {
 		t.Fatalf("access from refresh endpoint invalid: %v", err)
 	}

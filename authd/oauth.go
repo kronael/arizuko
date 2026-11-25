@@ -405,7 +405,7 @@ func (o *oauth) logout(w http.ResponseWriter, r *http.Request) {
 
 // me returns the caller's own verified identity (bearer access JWT).
 func (o *oauth) me(w http.ResponseWriter, r *http.Request) {
-	sub, err := auth.VerifyHTTP(r, o.a.LocalKeySet())
+	sub, err := o.a.verifyHTTP(r)
 	if err != nil {
 		writeErr(w, http.StatusUnauthorized, "unauthorized", "valid bearer required")
 		return
@@ -422,7 +422,7 @@ func (o *oauth) me(w http.ResponseWriter, r *http.Request) {
 // consumer lands in auth_users, which stores the sub without the "user:"
 // prefix. The raw claim forked the account and double-prefixed the next mint.
 func (o *oauth) bearerSub(r *http.Request) string {
-	if sub, err := auth.VerifyHTTP(r, o.a.LocalKeySet()); err == nil {
+	if sub, err := o.a.verifyHTTP(r); err == nil {
 		return bareSub(sub.Sub)
 	}
 	return ""

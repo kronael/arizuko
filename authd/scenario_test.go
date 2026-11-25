@@ -175,9 +175,6 @@ func TestHTTPRetiredKeyFallsOutOfWindow(t *testing.T) {
 		t.Fatal(err)
 	}
 	time.Sleep(5 * time.Millisecond)
-	if err := a.reload(); err != nil { // drops the out-of-window key from `serving`
-		t.Fatal(err)
-	}
 	if err := fetchVerify(t, ts.URL, oldTok); err == nil {
 		t.Fatal("a token whose key fell out of the serving window must not verify on a cold verifier")
 	}
@@ -282,7 +279,7 @@ func TestRefreshNarrowsOnShrunkGrants(t *testing.T) {
 	if err != nil {
 		t.Fatalf("refresh: %v", err)
 	}
-	sub, err := auth.VerifyToken(access, a.LocalKeySet())
+	sub, err := auth.VerifyToken(access, keySet(t, a))
 	if err != nil {
 		t.Fatalf("refreshed access invalid: %v", err)
 	}
@@ -308,7 +305,7 @@ func TestHTTPServiceTokenBoundToDeclaredGrants(t *testing.T) {
 		t.Fatalf("service-token status %d", resp.StatusCode)
 	}
 	access, _ := out["token"].(string)
-	ks := auth.NewKeySet(a.PublicKeys())
+	ks := auth.NewKeySet(publicKeys(t, a))
 	sub, err := auth.VerifyToken(access, ks)
 	if err != nil {
 		t.Fatalf("service token invalid: %v", err)
@@ -341,7 +338,7 @@ func TestMintForSubjectDropsScopeBeyondGrants(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ks := auth.NewKeySet(a.PublicKeys())
+	ks := auth.NewKeySet(publicKeys(t, a))
 	sub, _ := auth.VerifyToken(tok, ks)
 	if !auth.HasScope(sub.Scope, "tasks", "read") {
 		t.Fatalf("granted tasks:read must survive, got %v", sub.Scope)

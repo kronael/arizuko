@@ -37,11 +37,11 @@ func (s *server) mountAudit(m *http.ServeMux) {
 	resreg.RegisterREST(m, s.auditResource(), s.auditCaller)
 }
 
-// auditCaller verifies the bearer against authd's own in-process key set; no
-// JWKS fetch, because authd holds the private keys. The scope rides in Claims
-// so the Gate can answer 403; a builder can only fail 401.
+// auditCaller verifies the bearer against authd's own keys; no JWKS fetch,
+// because authd reads the keys from its store. The scope rides in Claims so the
+// Gate can answer 403; a builder can only fail 401.
 func (s *server) auditCaller(r *http.Request) (resreg.Caller, error) {
-	caller, err := auth.VerifyHTTP(r, s.a.LocalKeySet())
+	caller, err := s.a.verifyHTTP(r)
 	if err != nil {
 		return resreg.Caller{}, err
 	}
