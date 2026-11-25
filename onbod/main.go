@@ -94,6 +94,7 @@ func main() {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	go audit.PruneLoop(ctx, obdb.Obj())
 	var ks *auth.KeySet
 	if authdURL := strings.TrimRight(os.Getenv("AUTHD_URL"), "/"); authdURL != "" {
 		var kerr error

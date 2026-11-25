@@ -111,6 +111,10 @@ func main() {
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 
+	pruneCtx, stopPrune := context.WithCancel(context.Background())
+	defer stopPrune()
+	go audit.PruneLoop(pruneCtx, d)
+
 	go func() {
 		if err := httpd.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			slog.Error("http server", "err", err)

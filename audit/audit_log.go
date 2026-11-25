@@ -1,7 +1,8 @@
 package audit
 
 // audit_log.go holds every read and write of `audit_log`: one item per event a
-// daemon records, appended and never touched again.
+// daemon records, appended and never changed. prune.go deletes an event when it
+// is older than Retention.
 //
 // THE PARTITION IS A CONSTANT. Every read is a page of history — newest first,
 // a cursor, a limit — and the SORT KEY is the instant, so all three are one
@@ -10,7 +11,7 @@ package audit
 // applies them. A folder is not the partition because the operator's page
 // names no folder; time is not either, because a walk over time buckets that
 // stops on its own bound reports "no older rows" when it merely gave up. The
-// cost is one collection per database that grows without bound (6/40
+// cost is one collection per database that holds Retention of events (6/40
 // §"Central and per-owner become the same design").
 
 import (

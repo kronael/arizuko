@@ -56,7 +56,7 @@
       <tr><td><code>onbod</code></td><td><code>store/entities.go</code></td><td>onboarding, gates, invites</td></tr>
     </table>
 
-    <p><code>audit_log</code> is in all four. One declaration lives in <code>audit</code>, every owner creates it, and each serves its own read-only at <code>GET /v1/audit</code>; <code>/dash/audit/</code> merges those four answers rather than reading anybody's tables.</p>
+    <p><code>audit_log</code> is in all four. One declaration lives in <code>audit</code>, every owner creates it, and each serves its own read-only at <code>GET /v1/audit</code>; <code>/dash/audit/</code> merges those four answers rather than reading anybody's tables. Each owner deletes an audit row when it is 90 days old. <code>audit_log</code> is the only table that expires: messages and every other log stay.</p>
 
     <p>Beside the four, each channel adapter keeps four small tables under its own name, declared in <a href="https://github.com/kronael/arizuko/blob/main/chanlib/chanstore/chanstore.go"><code>chanlib/chanstore</code></a>: <code>outbound_dedup</code>, one item per delivery routd asked it to make; <code>inbound_pending</code>, one per inbound routd has not yet accepted; <code>file_urls</code>, one per attachment behind its <code>/files/&lt;id&gt;</code> proxy; <code>ack_marks</code>, one per chat under the acknowledgement reaction an adapter with no typing indicator puts on a turn&rsquo;s first message, so a restarted adapter can still take it off. <code>emaid</code> adds two of its own, declared in <code>emaid/emaistore</code>: <code>email_threads</code>, one per conversation, holding the reply address and the Message-ID every reply threads under; <code>email_msg_ids</code>, one per Message-ID seen, naming its thread, which is how an inbound <code>In-Reply-To</code> finds its conversation. Both take the id itself as the partition, because every read is a point read and the index grows with every mail.</p>
 
@@ -166,7 +166,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/reference/schema.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-11-23">2026-11-23</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-25">2026-11-25</time>
       </div>
     </main>
 

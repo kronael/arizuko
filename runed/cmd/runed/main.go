@@ -110,6 +110,7 @@ func main() {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	go audit.PruneLoop(ctx, db.Obj())
 
 	// Verifier: offline-verify callers (routd / operator / agent) against
 	// authd's JWKs. runed holds no signing key (spec 5/P-runed § Auth).

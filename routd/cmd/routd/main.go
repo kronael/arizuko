@@ -107,6 +107,7 @@ func main() {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	go audit.PruneLoop(ctx, db.Obj())
 
 	// Verifier: offline-verify bearer tokens against authd's JWKs. routd
 	// holds no signing key (spec 5/E-routd § Auth). Unset AUTHD_URL → no

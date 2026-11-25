@@ -8,9 +8,9 @@ optional JSONL sink that ships those events off the box.
 Two things live here because they are two SINKS for one vocabulary, not two
 records:
 
-- **`audit_log`** — the canonical entity. One item per event, appended and
-  never touched again. Four daemons own one each (routd, authd, onbod, runed)
-  and every one serves it at `GET /v1/audit` through resreg.
+- **`audit_log`** — the canonical entity. One item per event, appended, never
+  changed and deleted after 90 days. Four daemons own one each (routd, authd,
+  onbod, runed) and every one serves it at `GET /v1/audit` through resreg.
 - **`Audit`** — an optional JSONL file pair (`audit-system.jl`,
   `audit-web.jl`) with rotation and a webhook, off unless `AUDIT_ENABLED=true`.
   It is a stream for an external collector, not the record. If the two
@@ -104,10 +104,26 @@ Folder containment and the actor substring have no operator on the objstore
 interface, so `page` applies them itself over `scanChunk`-sized reads. That is
 not a regression: both reads already scanned.
 
+## An event is kept for 90 days
+
+`audit_log` is the one entity the platform expires. Messages and every other
+log are kept without limit.
+
+- `Retention` is 90 days (`prune.go`).
+- Each owner daemon (routd, authd, onbod, runed) starts `PruneLoop` on its own
+  store in `main`. The loop prunes at start and then once a day. webd, proxyd
+  and dashd record into routd's log and start no loop.
+- `Prune` reads the oldest events below the bound, 100 at a time, and deletes
+  each page in one batch. The sort key is the instant, so the read is one
+  range and touches no newer row.
+- A failed prune is logged and the next day's run starts again from the oldest
+  event. No row is changed: an event is whole or absent.
+
 ## What it does not do
 
-- **No retention, no purge, no delete.** Append-only by design; `MaxLimit`
-  (200) is what stops one request draining the whole history.
+- **No edit of a recorded event.** A row is appended and then only deleted by
+  the prune; `MaxLimit` (200) is what stops one request draining the whole
+  history.
 - **No statement of its own.** The entity is a name the driver resolves, and
   the daemon that opens the store hands this package the handle.
 - **No dependency on `chanlib`.** `envOr`/`envInt` are re-implemented here

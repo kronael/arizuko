@@ -30,6 +30,9 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   rotation that another process wrote applies to the next token, and a retired
   key stops serving when its window ends: both waited for a restart before.
   `/v1/keys` answers 503 while the store does not answer.
+- `audit_log` keeps 90 days. routd, authd, onbod and runed each delete the
+  older events of their own log at start and then once a day. It is the one
+  table that expires; messages and every other log stay without limit.
 
 ### Removed
 
