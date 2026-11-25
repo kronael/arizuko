@@ -64,6 +64,21 @@ func TestPolicyDefaultsAndIsolation(t *testing.T) {
 	}
 }
 
+// An operator who also holds a narrower local row without the grant option
+// still delegates inside that row's scope.
+func TestOperatorDelegatesInsideOwnLocalScope(t *testing.T) {
+	t.Skip("L937: checkAuthority reads only the local layer once a local row meets the grant")
+	s := openMem(t)
+	if err := s.AddMembership("user:operator", store.RoleOperator, "test"); err != nil {
+		t.Fatal(err)
+	}
+	addRow(t, s, "user:operator", "admin", "rhias/**", store.EffectAllow)
+	row := core.ACLRow{Principal: "user:other", Action: "mcp:send", Scope: "rhias/nemo", Effect: store.EffectAllow}
+	if err := authDelegateForTest(s, "user:operator", []core.ACLRow{row}); err != nil {
+		t.Fatalf("operator with a local admin row cannot delegate inside it: %v", err)
+	}
+}
+
 func TestLocalHoldOverridesDefaultSkips(t *testing.T) {
 	s := openMem(t)
 	c := auth.Caller{Principal: "folder:w"}
