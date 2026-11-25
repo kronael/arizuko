@@ -777,8 +777,7 @@ func (s *Store) ClearErrored(ctx context.Context, chatJID string) (int64, error)
 
 // DeleteErroredMessages drops a chat's errored rows and the index entries that
 // point at them, so the next inbound starts the chat from a clean batch. It
-// answers the positions it deleted, because a caller holding an index DERIVED
-// from these rows has no other way to learn they are gone (routd/msgsearch).
+// answers the positions it deleted.
 func (s *Store) DeleteErroredMessages(ctx context.Context, chatJID string) ([]string, error) {
 	items, err := s.erroredItems(ctx, chatJID)
 	if err != nil {

@@ -358,8 +358,6 @@ func TestMarkMessagesErrored_AndDelete(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DeleteErroredMessages: %v", err)
 	}
-	// The positions it answers with are what a derived index is told to drop, so
-	// a delete that reported none would leave the search index holding them.
 	if len(gone) != 2 {
 		t.Errorf("deleted positions = %d, want the 2 rows it dropped", len(gone))
 	}
