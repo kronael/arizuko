@@ -115,6 +115,9 @@ func runedHolder(ctx context.Context, dataDir string) (holdFn, error) {
 		return nil, err
 	}
 	base := client.BaseURL
+	if err := client.Health(ctx); err != nil {
+		return nil, fmt.Errorf("runed at %s: %w", base, err)
+	}
 
 	return func(folder string) (func(), error) {
 		out, herr := client.Hold(ctx, folder, "arizuko apply: filesystem restore")

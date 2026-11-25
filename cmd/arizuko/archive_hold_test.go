@@ -247,27 +247,22 @@ func TestRunedHolder_EndToEnd(t *testing.T) {
 
 // TestRunedHolder_UnreachableRunedFails: an unreachable runed must surface as
 // an error the caller turns into a hard stop, never a silent unguarded
-// restore. restoreDump dies on this; here we assert the holdFn produces it.
+// restore. restoreDump dies on this before applying the archive.
 func TestRunedHolder_UnreachableRunedFails(t *testing.T) {
 	// A listener we close immediately: a routable address that refuses.
 	dead := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 	deadURL := dead.URL
 	dead.Close()
 
-	dataDir, stores := openInstance(t)
-	closeStores(stores)
+	dataDir := t.TempDir()
 	writeEnvFile(t, dataDir, "RUNED_URL="+deadURL+"\n")
 
 	hold, err := runedHolder(context.Background(), dataDir)
-	if err != nil {
-		t.Fatalf("runedHolder: %v", err)
-	}
-	release, err := hold("atlas")
 	if err == nil {
-		t.Fatal("hold against an unreachable runed returned no error — the restore would proceed unguarded")
+		t.Fatal("runedHolder must reject an unreachable runed before restore writes")
 	}
-	if release != nil {
-		t.Error("a failed hold returned a release func")
+	if hold != nil {
+		t.Error("a failed preflight returned a hold function")
 	}
 	if !strings.Contains(err.Error(), deadURL) {
 		t.Errorf("error %q does not name the runed URL that failed", err)
