@@ -14,6 +14,27 @@
 > so counting one as open overstates the queue.
 
 
+## L938 — a failure notice for a GitHub turn on the repository chat is never posted (2026-11-25, open)
+
+A turn whose chat is the repository JID (`github:vumilan/morha`) ends with a
+final notice (`Agent could not produce a reply. Automatic retries stopped.`).
+`applyStatus` (`routd/turn_status.go`) sends it to that JID, and gitd refuses
+it: `github:vumilan/morha has no comment thread; reply on a pr/<n> or
+issue/<n> jid`. The refusal is permanent, so the row keeps no platform id and
+the person on the pull request sees nothing.
+**Measured:** the sloth store since 2026-11-10 holds 62 final status rows on
+GitHub, all on addressed turns. The 52 on `github:vumilan/morha` have no
+platform id; the 10 on a `pr/<n>` JID each have one.
+`journalctl -u arizuko_sloth` for 2026-11-22 to 2026-11-24 shows
+`status operation queued` with that gitd error 31 times, all on
+`github:vumilan/morha`. Three more refusals in that window are Discord
+(`pass title to start a Discord thread`, chat
+`discord:837270552959516682/837270552959516687`).
+**Not measured:** which trigger gives a turn the repository JID with no pull
+request (an assignment or review-request event is the candidate), and where
+its notice belongs.
+**Type:** correctness — no test yet; the fix needs the trigger shape first.
+
 ## L937 — an operator who also holds a local row loses the delegation root inside that row's scope (2026-11-25, open — needs sign-off)
 
 `checkAuthority` (`auth/grant.go`) reads the default rows only when no local
@@ -622,6 +643,7 @@ The browser retry integration owns this fix after the current serial capacity wo
 
 ## What needs you
 
+- `L938` — a failure notice for a GitHub turn on the repository chat is refused by gitd, 52 rows on sloth; the trigger shape is unmeasured.
 - `L937` — an operator with a narrower local row cannot delegate inside it; change `checkAuthority` (a) or document the rule (b); needs sign-off.
 - `L936` — a Codex turn that ant starts has no `update_plan` tool; the argument that removes it is unmeasured; probe in the entry.
 - `L903` — dashd writes a group's harness to the store; `6/53` says through `/v1`, `6/29` says the store; owner decision, default is the store.

@@ -12,17 +12,17 @@ A supported chat shows one message where the answer will go.
 
 This spec is `partial`. The shared producer, bounded rendering, checklist reminder,
 message lifecycle, browser deletion and active replay have code and tests.
-Image and krons acceptance remain unmeasured.
-The skill and manual rules are present. Their presence does not prove adoption.
+The one temporary message works on krons and sloth with `<status>` text.
+No checklist has reached a chat: the agents had no checklist tool
+(§"Measured on krons and sloth").
 D1 and D2 define rendering; D3 is declined.
 
 ## Remaining
 
-- Build the agent image containing the progress skill and native hooks (`Makefile`, `ant/Dockerfile`).
-- Measure addressed Claude and Codex turns on krons through Telegram, Discord and web, including platform IDs, coalescing, deletion and reconnect; check GitHub and silent tasks separately (`anteval/cases/anteval.toml`).
-- Measure checklist adoption on the declared closed-parent-turn sample, including reminder delivery and explained omissions: write the sampler, then run it (`ant/skills/progress/SKILL.md`).
-- Test the built-in page script in a browser: the `delete` listener and the `progress` reconcile in `webd/route_token.go` have Go frame tests only.
-- Probe whether Drive's `replies.update` changes a reply's `content` (§"Unverified"; LIVE).
+- Release an agent image that holds the Claude task-tool opt-in (`sessionEnv`, `ant/src/claude.ts`), then run `tests/lab/checklist_adoption.py` on the turns after the deploy and read the store for checklist status rows. Adoption acceptance fails on the turns measured so far.
+- Give a Codex turn that ant starts the `update_plan` tool, and measure the hook event name of a plan update (BUGS `L936`; `ant/src/codex.ts`, `routd/progress_reducer.go`).
+- Post the failure notice of a GitHub turn on the repository chat (BUGS `L938`; `routd/turn_status.go`).
+- Probe whether Drive's `replies.update` changes a reply's `content` (§"Unverified"). The owner must first enable the Drive API in the Cloud project of the service-account key.
 
 ## Problem
 
@@ -175,21 +175,23 @@ The following state is checked against `b869bd16a5ee985a07d377b1e680666bfbf1c427
 The skill and manual rows describe this spec amendment.
 The receiver gate is checked at `dda72103a266faaff0a2ae19a1b192907bf164b3`.
 
-| Contract                                                              | State        | Evidence or remaining work                                                                                                                                                                                                                      |
-| --------------------------------------------------------------------- | ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Presence, persisted ID, equal-text suppression, edit and End deletion | built        | `routd/turn_status.go`                                                                                                                                                                                                                          |
-| Shared acknowledgement mark                                           | built        | `chanlib/mark.go`, `gitd/main.go`                                                                                                                                                                                                               |
-| Web edit/delete server and widget SDK callback                        | built        | `webd/channel.go`, `webd/assets/arizuko-client.js`                                                                                                                                                                                              |
-| Built-in browser deletion and active reconnect replay                 | built        | `webd/progress_test.go`, `store/turns_containment_test.go`                                                                                                                                                                                      |
-| One parent-scoped producer across Claude and Codex                    | built        | `routd/progress_reducer_test.go` merges raw snapshots through submit_status                                                                                                                                                                     |
-| Bounded rendering, list clearing, coalescing, retry state             | built        | `routd/progress_coalesce_test.go`                                                                                                                                                                                                               |
-| Addressed publication gate at receiver                                | built        | `routd/mcp.go` checks addressed, closure, mute and capabilities                                                                                                                                                                                 |
-| One reminder at eight calls or 180 seconds                            | built        | `routd/progress_reminder_test.go`, `ant/src/claude.test.ts`                                                                                                                                                                                     |
-| Progress skill, manual sentence and solve routing                     | present      | adoption requires measurement                                                                                                                                                                                                                   |
-| D3 Typing port change                                                 | declined     | no port change                                                                                                                                                                                                                                  |
-| GitHub and Drive edit/delete                                          | built        | `gitd/bot.go`, `googd/main.go`, `routd/turn_status_test.go`                                                                                                                                                                                     |
-| pi checklist                                                          | unavailable  | pi is selectable (`selectHarness`, `ant/src/backend.ts`) and has no native checklist tool: `registerWith` binds the table with an empty turn id, so its `completion` row sends no snapshot and no reminder; pi shows `<status>` fallback blocks |
-| Cross-harness acceptance and krons adoption                           | not measured | §"Acceptance"                                                                                                                                                                                                                                   |
+| Contract                                                              | State       | Evidence or remaining work                                                                                                                                                                                                                      |
+| --------------------------------------------------------------------- | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Presence, persisted ID, equal-text suppression, edit and End deletion | built       | `routd/turn_status.go`                                                                                                                                                                                                                          |
+| Shared acknowledgement mark                                           | built       | `chanlib/mark.go`, `gitd/main.go`                                                                                                                                                                                                               |
+| Web edit/delete server and widget SDK callback                        | built       | `webd/channel.go`, `webd/assets/arizuko-client.js`                                                                                                                                                                                              |
+| Built-in browser deletion and active reconnect replay                 | built       | `webd/progress_test.go`, `store/turns_containment_test.go`; in Chrome, `webd/browser_test.go` (build tag `browser`)                                                                                                                             |
+| One parent-scoped producer across Claude and Codex                    | built       | `routd/progress_reducer_test.go` merges raw snapshots through submit_status                                                                                                                                                                     |
+| Bounded rendering, list clearing, coalescing, retry state             | built       | `routd/progress_coalesce_test.go`                                                                                                                                                                                                               |
+| Addressed publication gate at receiver                                | built       | `routd/mcp.go` checks addressed, closure, mute and capabilities                                                                                                                                                                                 |
+| One reminder at eight calls or 180 seconds                            | built       | `routd/progress_reminder_test.go`, `ant/src/claude.test.ts`                                                                                                                                                                                     |
+| Progress skill, manual sentence and solve routing                     | present     | in the live image and in each instance's core package; loaded in 23 Claude turns after 2026-11-11, with no checklist tool to use                                                                                                                |
+| Claude checklist tools in the session                                 | built       | `sessionEnv` sets `CLAUDE_CODE_ENABLE_TODO_TOOLS`; `ant/src/claude.test.ts` reads the tools the installed CLI announces; not in an image yet                                                                                                    |
+| Codex `update_plan` in a turn that ant starts                         | absent      | BUGS `L936`: 0 of 135 stored sessions list the tool                                                                                                                                                                                             |
+| D3 Typing port change                                                 | declined    | no port change                                                                                                                                                                                                                                  |
+| GitHub and Drive edit/delete                                          | built       | `gitd/bot.go`, `googd/main.go`, `routd/turn_status_test.go`                                                                                                                                                                                     |
+| pi checklist                                                          | unavailable | pi is selectable (`selectHarness`, `ant/src/backend.ts`) and has no native checklist tool: `registerWith` binds the table with an empty turn id, so its `completion` row sends no snapshot and no reminder; pi shows `<status>` fallback blocks |
+| Cross-harness acceptance and krons adoption                           | failed      | §"Measured on krons and sloth": 0 of 39 long Claude turns and 0 of 5 long Codex turns made a checklist                                                                                                                                          |
 
 ## The declaration
 
@@ -611,8 +613,8 @@ A lint result does not satisfy these requirements.
 Retain the lifecycle checks in `routd/progress_test.go`, `routd/typing_test.go`
 and `routd/fixes_test.go`. Retain the mark checks in `chanlib/mark_test.go`,
 `gitd/typing_test.go` and `slakd/integration_test.go`.
-Check the web server in `webd/edit_test.go` and the built-in browser with a
-browser test. The Go producer and TypeScript reader share a contract test for
+Check the web server in `webd/edit_test.go` and the built-in browser in
+`webd/browser_test.go`. The Go producer and TypeScript reader share a contract test for
 `ARIZUKO_PROGRESS` and `submit_status`. Do not add a second wire format.
 
 On krons, measure addressed longer turns on Telegram, Discord and web.
@@ -633,7 +635,65 @@ unexplained omissions fail adoption acceptance. Do not claim fleet-wide adoption
 
 `specs/CLAUDE.md` defines shipping completion. Build and lint must pass,
 and the packaged skill changes require an agent image build before release.
-No live acceptance or image build is claimed by this spec amendment.
+
+## Measured on krons and sloth
+
+Read on 2026-11-25 at v0.75.28 from the store, the unit journals and the
+stored transcripts. No turn was started for the measurement.
+
+**The image.** The live root file system `rootfs-2de9fa2d6b19` holds
+`ant/skills/progress/SKILL.md`, `ant/CLAUDE.md`, `ant/skills/solve/SKILL.md`,
+`ant/src` and `ant/hooks` byte for byte as at
+`0df2b45a6d85ef3cb7424610651747d86c96d652`. The installed core package of each
+instance (`packages/core/skills/progress/SKILL.md`) holds the same skill file,
+and the turns load it from `/home/node/.claude/skills/progress`.
+
+**The one message.** Status rows of the turns started since 2026-11-10:
+
+| Instance | Turns | Addressed | Status rows | Chats                                   |
+| -------- | ----- | --------- | ----------- | --------------------------------------- |
+| krons    | 362   | 135       | 80          | Telegram 79, web 1                      |
+| sloth    | 751   | 385       | 258         | Discord 100, GitHub 152, web 5, other 1 |
+
+- No turn has two status rows in one chat.
+- 251 rows are `<status>` text that the turn end deleted: the row has phase
+  `cleared` and its platform id is removed. No row of an ended turn is left
+  in phase `progress`.
+- The longest status text is 148 bytes. The most edited row has revision 19.
+- No row holds a checklist.
+- 52 final notices on the GitHub repository chat were refused by gitd
+  (BUGS `L938`); the 10 on a pull-request chat were posted.
+- The store keeps the final state of a row, so it does not show the
+  five-second interval between edits. `routd/progress_coalesce_test.go`
+  covers that. Reconnect is covered by `webd/browser_test.go`.
+
+**Adoption.** `tests/lab/checklist_adoption.py` at
+`a5ea66cfb` counts a long turn as 20 parent tool calls and 120 seconds. It
+drops child transcripts, copied turns and open turns.
+
+| Instance | Window                   | Harness | Turns | Long | With a checklist | Reminded | Progress skill used |
+| -------- | ------------------------ | ------- | ----- | ---- | ---------------- | -------- | ------------------- |
+| krons    | 2026-10-20 to 2026-11-10 | Claude  | 881   | 44   | 0                | 0        | 0                   |
+| krons    | 2026-11-11 to 2026-11-25 | Claude  | 307   | 17   | 0                | 17       | 10                  |
+| krons    | 2026-11-11 to 2026-11-25 | Codex   | 30    | 5    | 0                | 5        | 5                   |
+| sloth    | 2026-10-20 to 2026-11-10 | Claude  | 976   | 78   | 0                | 0        | 2                   |
+| sloth    | 2026-10-20 to 2026-11-10 | Codex   | 139   | 14   | 0                | 0        | 3                   |
+| sloth    | 2026-11-11 to 2026-11-25 | Claude  | 251   | 22   | 0                | 22       | 13                  |
+| sloth    | 2026-11-11 to 2026-11-25 | pi      | 471   | 83   | 0                | 0        | 0                   |
+
+The reminder reaches every long Claude and Codex turn, and the agents load
+the skill. No turn makes a checklist, because the tool is missing:
+
+- Claude Code 2.1.331 announces 22 tools for `claude-opus-5-5` and
+  `claude-fable-5-2`, and none of `TaskCreate`, `TaskUpdate`, `TaskList`,
+  `TaskGet` or `TodoWrite`. With `CLAUDE_CODE_ENABLE_TODO_TOOLS=1` it
+  announces the four task tools. `sessionEnv` now sets that key; the fix
+  reaches an instance with the next agent image.
+- A Codex session that ant starts lists no `update_plan` (BUGS `L936`).
+- pi has no checklist tool and gets no reminder, as §"Build state" says.
+
+The adoption rule of §"Acceptance" therefore fails for Claude and Codex until
+a new image is live and the sample is taken again.
 
 ## Unverified
 
@@ -644,4 +704,4 @@ No live acceptance or image build is claimed by this spec amendment.
 googd's `Edit` and `Delete` are tested against an HTTP fake
 (`googd` `TestEditReply`, `TestDeleteReply`). The live probe has not run: it
 waits on the Drive API being enabled in the Cloud project of the
-service-account key.
+service-account key, which only the owner can do. No instance runs googd.
