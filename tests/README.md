@@ -102,6 +102,7 @@ on that default (BUGS `L398`). A package that reaches the timeout prints a gorou
 | `tests/testutils/`                         | shared helpers in `testutils.go`; no tests                                                                                                                                | —                                                      |
 | `tests/dashd-playwright/`                  | every `/dash/` page in a browser                                                                                                                                          | Node and `npx playwright install --with-deps chromium` |
 | `tests/lab/product-lab.sh`                 | a manual experiment on products; not a gate                                                                                                                               | —                                                      |
+| `tests/lab/checklist_adoption.py`          | a manual measurement, not a gate: native checklist use in the closed parent turns of stored Claude, Codex and pi transcripts; `test_checklist_adoption.py` checks it      | Python 3.11; read access to an instance's `groups/`    |
 
 ## A new test goes next to the boundary it crosses
 
