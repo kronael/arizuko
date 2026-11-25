@@ -607,66 +607,89 @@ backup belongs to the operator and is separate from the instance: the catalog,
 the data database, the TLS files and the configuration, with the catalog's
 `encryption_key` setting (`INSTALL.md` §"A tar or a dump restores an instance").
 
-## 8. Ranked search without SQLite
+## 8. Message search is a bounded scan of the store
 
-`find_messages` (MCP, `ipc/ipc.go:2145`) and `GET /v1/messages/find`
-(`routd/server.go:294`) are the two callers; no dashboard page reads it. The
-verb is `FindMessages(query, scope, sender, since, limit)` with a snippet and
-a BM25 rank (`routd/msgsearch`), tokenised on Unicode letters and digits with
-diacritics dropped, and the ACL filter stays the caller's job.
+`find_messages` (MCP, `ipc/ipc.go`) and `GET /v1/messages/find`
+(`routd/reads_http.go`) are the two callers; no dashboard page reads it. Each
+parses its surface and confines the scope to the caller. Both then call one
+handler, `routd.DB.FindMessages(ctx, FindRequest) (FindResponse, error)`. The
+two types are declared once, in `routd/api/v1`.
 
-**The index is an in-memory BM25 index inside routd, rebuilt from the store at
-boot and fed by the writes routd already makes.** No SQL, no file, no
-second engine: the messages entity is the store of record and the index is
-derived from it. Sizing from `6/37`: 23,777 messages on krons, 8.4 MB of table
-pages and 2.4 MB of FTS5 index, so the index is tens of megabytes.
+**A search reads the store, newest first, and holds nothing between two
+calls.** No daemon keeps an index, a cache or a copy of a message (`CLAUDE.md`
+§"Minimality and orthogonality (non-negotiable)", "No caches"). There is no
+boot walk and no write-side feed, so the next answer holds a message that
+another process wrote and does not hold one that another process deleted.
 
-- **Boot.** routd walks `chats` (the partition list, 136 items on krons) and
-  `Query`s each partition with `Project` on `content`, `sender`, `routed_to`
-  and the two flags — about 25 pages of 1 MB. Until the walk finishes,
-  `find_messages` answers "index warming" as a refusal the caller can show,
-  never an empty hit list.
-- **Live.** routd feeds the four writes that touch an indexed attribute:
-  the append, guarded media completion (`enrichAttachments`),
-  the observe stamp (`MarkMessagesObserved`) and the
-  breaker's prune (`DeleteErroredMessages`). Each applies in-process after its
-  own batch commits, so the record is written first and the index second. NOT
-  the per-chat poll: `processGroupMessages` advances `chats.agent_cursor` past
-  the rows it consumes, so a message ingested and dispatched between two ticks
-  — which is every adapter ingest and every bot reply — never appears in a
-  `pollOnce` result, and an index fed from there would be missing most of the
-  corpus.
-- **What it does not see.** An append, update or delete made by another
-  process (`arizuko send`, an archive import, `DeleteGroup` from dashd or the
-  CLI) is invisible until the next boot. A
-  stale hit does not leak: the caller re-resolves every hit's chat to a folder
-  before returning it (`ipc/ipc.go:2178-2186`), and a purged chat has no
-  route. This is the discipline `6/37` §"The index tails, it is never told"
-  asked of a separate daemon, kept inside the owner's process.
-- **Tokeniser and ranking are hand-written, about three hundred lines.**
-  Unicode letters and digits, lower-cased, diacritics removed by NFD
-  decomposition and dropping the combining marks — `unicode61
-remove_diacritics` in Go; BM25 with FTS5's constants; the snippet is the
-  first window of 32 tokens around a hit with `«»` marks, which is what the
-  callers render today. The query grammar is terms, `"phrases"` and `-` in front
-  of either.
-  `bleve` (Apache-2.0, `github.com/blevesearch/bleve/v2`, "tf-idf / bm25
-  scoring models", "Search result match highlighting") is the fallback if the
-  grammar ever has to match FTS5's, at the cost of a large dependency for one
-  verb.
+```text
+find_messages / GET /v1/messages/find
+        │ scope confined to the caller, before the search
+        ▼
+routd.DB.FindMessages ──► msgsearch.Search(pages, query, sender, since, limit)
+        │                          ▲ rows, newest first
+        ▼                          │
+scope holds ':'   ──► store.ScanChat      messages[chat], `< cursor`, descending, 1,000 rows
+scope is a folder ──► store.ScanFolders   message_folders[folder] for each folder of the
+                                          subtree, merged newest first; then messages[chat]
+                                          between the newest and the oldest pointer of a page
+```
 
-**Why not the alternatives.** PostgreSQL full-text search (`ts_rank_cd`,
-`ts_headline`, `websearch_to_tsquery`;
-https://www.postgresql.org/docs/17/textsearch-controls.html) would put SQL
-back into one daemon against a database beside the server's — a second reader
-of the message and a second schema to migrate, for a ranking the reference
-itself calls "only examples". A separate daemon tailing the store over `Query`
-sees inserts only, so it is no more exact than the in-process index and costs
-a daemon. An external engine is a fourth service for one verb. **Reopen
-trigger:** the index's rebuild time or RSS exceeds what §12 measures, or a
-second consumer needs a change feed — ExtendDB serves `DynamoDBStreams`
-(§3), so an exact tailing index outside routd is then a Streams consumer, not
-a new mechanism.
+- **Chat scope.** One `Query` for each page of the chat's partition: `LtKey`
+  on the position of the last row read, `Descending`, `Limit` 1,000, `Project`
+  on `content`, `sender`, `routed_to` and the two flags.
+- **Folder scope.** The folders of the subtree are the keys of
+  `message_folder_counts` under the scope: one `Query`. The scan reads each
+  folder's `message_folders` partition as it reads a chat and merges the
+  pointers newest first. One ranged read for each chat gives the messages
+  behind a page of pointers. A chat whose messages go to more than one folder
+  costs the rows between two pointers, and those rows count against the budget.
+- **An empty scope is the caller's folder** on both surfaces. A caller with no
+  folder (an operator token, a root turn) searches every folder. A message
+  with no `routed_to` is in no folder feed, so only a chat scope finds it.
+- **The scope is confined before the search**, so `limit` counts hits the
+  caller can read. The MCP surface refuses a chat that the caller's folder does
+  not route (`JIDRoutedToFolder`, as `inspect_messages` does) and a folder
+  outside the caller's subtree. The REST surface does the same with `ownsJID`
+  and `ownsFolder`.
+- **The budget is 20,000 rows for one call.** The search stops at the first of
+  four events: `limit` hits, the `since` bound, the end of the scope, the
+  budget. The answer says how far it read:
+
+  | field         | meaning                                                               |
+  | ------------- | --------------------------------------------------------------------- |
+  | `messages`    | the hits, newest first, each with its snippet                         |
+  | `count`       | the number of hits                                                    |
+  | `searched_to` | the instant of the oldest message the search read                     |
+  | `complete`    | `true`: the search read the whole scope down to `since`; else `false` |
+
+  A caller continues an incomplete search with `before` = `searched_to`.
+  `before` is exclusive, and a search stops only between two instants, so the
+  continuation reads each message one time.
+
+- **The order is newest first. There is no rank.** A rank needs the document
+  frequency of each term over the whole corpus, and that is the index.
+- **The tokeniser, the grammar and the snippet are hand-written**
+  (`routd/msgsearch/tokens.go`, `query.go`) and run on each row the scan reads.
+  A term is a run of Unicode letters and digits, lower-cased, with the
+  diacritics removed by NFD decomposition. The grammar is terms, `"phrases"`
+  and `-` in front of either. The snippet is a window of 32 tokens around the
+  first hit, with `«»` marks.
+
+**Measured** (sloth, 2026-11-25, read-only): 320,798 messages in 450 chats. An
+in-memory index of them held 473 MB of heap and 815 MB of Go memory, grew about
+370 MB each month and took 56 s of boot work, for 316 calls in six months. One
+page of 1,000 rows costs 0.14 s of store time, so the budget is about 3 s. 449
+of the 450 chats hold 5,917 messages or fewer, and a search reads each of them
+whole in less than 1 s. One chat holds 237,767 messages and takes twelve calls.
+
+**Why not the alternatives.** A term index in the store is 8.0 M postings on
+sloth, 25 for each message: 6.9 GB at the measured 860 B for each row against
+345 MB of messages, and 25 more writes on each append. A `contains` filter
+widens the value the port carries and still reads every row. PostgreSQL
+full-text search puts SQL back into one daemon against a database beside the
+server's. **Reopen trigger:** a caller needs a rank, or the scans load the
+store more than the appends do. ExtendDB serves `DynamoDBStreams` (§3), so an
+index is then a Streams consumer that keeps its postings in its own store.
 
 This supersedes one sentence of `6/37` §"How `messages` leaves" — "Its index
 stays FTS5 on a SQLite deployment" — because there is no SQLite deployment.
@@ -699,9 +722,11 @@ stays FTS5 on a SQLite deployment" — because there is no SQLite deployment.
   the same position), `anteval --smoke` green on the new store, fourteen green
   days. `TestNoServiceMountsAnOwnerStoreDir` (`compose/contain_test.go`) asserts that
   no generated line mounts `store/routd`, `store/onbod` or `store/runed`.
-- `find_messages` on krons: for twenty recorded queries, the top-ten hit set
-  from the in-memory index equals FTS5's for exact-term queries, and the
-  overlap for the rest is in the changelog.
+- `find_messages` keeps no state: a search finds a message that a second handle
+  on the store wrote, with no step between the write and the search
+  (`routd/find_messages_test.go`). A search that stops at the budget answers
+  `complete: false`, and its continuation with `before` = `searched_to` returns
+  each remaining hit one time (`routd/msgsearch/search_test.go`).
 
 ## 10. Ordering, and the rule
 
@@ -776,15 +801,10 @@ UPDATE` is two statements per action; the InfoQ report of 300 ms p90 is
 3. **The classes §0 could not reach.** ANSWERED: the SQL driver is deleted
    (`objstore/sqlstore` and `db_utils` do not exist), so `store` and `onbod` run on
    the DynamoDB driver only and there is no SQL run to make.
-4. **The index.** ANSWERED (2026-09-13, `routd/msgsearch/parity_test.go`):
-   over a seeded corpus of 24,296 messages in 136 chats the walk takes 283 ms
-   and the index holds 18.8 MB of heap, against the reopen trigger's one
-   second and hundred megabytes; one search on the most common term of that
-   corpus is 11.7 ms. The top ten is FTS5's top ten, exactly, for twelve
-   queries spanning the frequency range — ten single terms and two pairs.
-   Over the endpoint, a walk of 7 chats holding 40 messages plus one search is
-   16.5 ms (`tests/dynamo/search_test.go`), which is the per-partition round
-   trip krons' 136 chats multiply.
+4. **The search.** ANSWERED (2026-11-25, §8): there is no index. On sloth an
+   in-memory index held 473 MB of heap for 320,798 messages, against a reopen
+   trigger of one hundred megabytes, so the search is a bounded scan. One page
+   of 1,000 rows is 0.14 s of store time.
 5. **Deadlock under ExtendDB.** Two batches locking items `(a, b)` and `(b,
 a)` concurrently, a thousand times: the answer must be one commit and one
    refusal-then-commit on retry, never an error reaching the caller and never
@@ -820,7 +840,7 @@ a)` concurrently, a thousand times: the answer must be one commit and one
 
 ## 13. Built and remaining
 
-The DynamoDB driver, object-store protocols, BM25 message index and owner-file
+The DynamoDB driver, object-store protocols, message search (§8) and owner-file
 deletions are in code. `objstore/dynstore/dynstore_test.go` runs the shared
 conformance suite. `cmd/arizuko/store_test.go` covers enrollment, policy
 readback, snapshot copying and enrolled policy enforcement on PostgreSQL-backed
@@ -855,9 +875,8 @@ is the 25th conformance body. `compose/contain_test.go`
 
 All remaining items are LIVE:
 
-- The twenty-query search comparison on krons and the fourteen-day deployment soak
-  with `anteval --smoke` evidence (`routd/README.md`, `CHANGELOG.md`;
-  `routd/msgsearch/parity_test.go` seeds twelve queries).
+- The fourteen-day deployment soak with `anteval --smoke` evidence
+  (`routd/README.md`, `CHANGELOG.md`).
 - §12 item 1: `make test` wall time with the server.
 - §12 items 2 and 6: `TransactWriteItems` p50 and p99, and `EXPLAIN` on `begins_with`
   over the 10,688-message partition.
