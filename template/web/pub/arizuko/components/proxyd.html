@@ -58,7 +58,7 @@
 
     <p>proxyd is the reverse proxy with auth at the public edge. It receives every inbound HTTP request, decides whether the caller is authenticated, and forwards the request to a backend daemon with a signed identity header.</p>
 
-    <p>proxyd matches routes by the longest path prefix over <code>proxyd_routes</code>, the only source of routes. <code>arizuko generate</code> writes the routes of the release into it, and operators change it at runtime through <code>/v1/proxyd_routes</code>. proxyd reads a new snapshot for each request. No environment variable holds routes, so a shipped route never stops applying without a sign.</p>
+    <p>proxyd matches routes by the longest path prefix over <code>proxyd_routes</code>, the only source of routes. <code>arizuko generate</code> writes the routes of the release into it, and operators change it at runtime through <code>/v1/proxyd_routes</code>. proxyd reads the table from the store for each request and keeps no copy of it. No environment variable holds routes, so a shipped route never stops applying without a sign.</p>
 
     <h2>proxyd is the one trust boundary</h2>
     <p>Backends such as <a href="../components/dashd.html">dashd</a>, <a href="../components/webd.html">webd</a> and <a href="../components/onbod.html">onbod</a> listen on <code>:8080</code> inside their containers and trust what they receive. Without proxyd, nothing checks a JWT, nothing proves that the caller is who the headers say, and nothing limits the rate of <a href="../components/tokens.html">route-token</a> posts.</p>
@@ -85,7 +85,7 @@
 │                  │                    redirect, deny, auth or local files
 │                  │   /priv/*          requireAuth, MatchSlot, local files
 └────────┬─────────┘
-         ▼ one snapshot of proxyd_routes per request
+         ▼ one read of proxyd_routes per request
 ┌──────────────────┐   /dav/*           requireAuth, davAllow, davd
 │ MatchRoute       ├──►"/x/" prefix, "/x" exact, longest wins
 │                  │   redirect_to      302
@@ -175,7 +175,7 @@ export AUTHD_SERVICE_KEY=$(openssl rand -hex 32)
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/components/proxyd.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-11-07">2026-11-07</time>
+        &middot; updated <time class="docs-updated" datetime="2026-11-11">2026-11-11</time>
       </div>
     </main>
 
