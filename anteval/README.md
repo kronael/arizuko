@@ -24,7 +24,9 @@ make build
 make validate                     # load+validate the case catalog (no target)
 ```
 
-Run on the instance host with `arizuko`, Docker, systemd and KVM available.
+Run on the instance host with `arizuko`, Docker, systemd and KVM available,
+as root or through `sudo`. Under `sudo` the runner hands `SUDO_UID` to the CLI,
+so git reads a `HOST_APP_DIR` checkout that the invoking user owns.
 The private configuration file supplies existing instance keys:
 `DYNAMODB_URL`, `STORE_CA`, `AWS_REGION`, `EXTENDDB_PASSWORD`, `HOST_APP_DIR`,
 `RUNED_KERNEL_DIR`, `RUNED_ROOTFS_DIR`, `RUNED_GUEST_MEM`, `RUNED_VSOCK_CID_BASE`,
@@ -50,7 +52,8 @@ The runner generates `anteval-<unix-ms>` or uses the fresh name supplied by
 refused before creation. `--product` selects a product for the eval group.
 Before creation, the runner checks the KVM devices, kernel and rootfs artifacts,
 and locally cached daemon, web and gateway images. The gateway image names come
-from the litellm Compose fragment under `HOST_APP_DIR`.
+from the litellm Compose fragment under `HOST_APP_DIR`. A run that installs no
+gateway checks no gateway image.
 The runner checks the declared CID, vsock ports, tap subnet and proxy bind
 against host inventory. These checks are point-in-time; another process can
 occupy a resource after the checks.
