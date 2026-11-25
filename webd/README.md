@@ -291,7 +291,7 @@ Known limits: live/replayed frame IDs ([BUGS L440](../BUGS.md)), initial status 
 and anonymous client identity behind an unconfigured edge ([BUGS L40](../BUGS.md)).
 The web MCP door offers `list_groups`, `send`, and `get_history`; route-token MCP confines these to its bound chat.
 Operator `proxyd_routes.*` tools forward to proxyd; no cold-tier resource is owned here.
-Tests cover handlers and frame behavior with stubs; local documentation checks do not verify a live browser or edge SSE buffering.
+Tests cover handlers and frame behavior with stubs. `browser_test.go` (build tag `browser`) runs the chat page in Chrome: one progress line per turn, replaced on an edit, removed on `delete`, and equal to the active snapshot after a reconnect or a reload. No test covers edge SSE buffering.
 
 Sources: [boot and env](main.go), [mux and auth](server.go), [hub](hub.go), [turn streams](turn.go),
 [MCP route forwarding](routes_mcp.go), [store reach](../store/owner_reach.go).

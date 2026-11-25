@@ -62,6 +62,14 @@ No make target runs the TypeScript suites. Run them in their directory:
 `kernel/guest-init` is its own Go module. The root `./...` does not include
 it, so run `cd kernel/guest-init && go test ./...`.
 
+The chat page's own script runs in a real browser under the build tag
+`browser`. The test starts webd in the test process and drives Chrome through
+the `agent-browser` command, which must be on the `PATH`:
+
+```bash
+go test -tags browser ./webd -count=1 -run TestBrowserProgress
+```
+
 ## Two packages run longer than the Go default timeout
 
 Go stops a test package after 10 minutes by default. On 2026-10-07, routd ran
