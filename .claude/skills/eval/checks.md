@@ -586,7 +586,9 @@ sq routd.audit_log "select attrs->'action'->>'S', count(*) from e
 ```
 
 A `channel.deregister` count that tracks `channel.register` is an adapter
-flapping, not an adapter working.
+flapping, not an adapter working. An adapter that works writes one
+`channel.register` for each start: its three-minute heartbeat registers again
+and writes no row unless the registration changed.
 
 
 ## Output pattern

@@ -30,6 +30,11 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   rotation that another process wrote applies to the next token, and a retired
   key stops serving when its window ends: both waited for a restart before.
   `/v1/keys` answers 503 while the store does not answer.
+- routd records `channel.register` in `audit_log` when a registration is new or
+  changes the URL, the prefixes, the capabilities, the principal or the
+  address. An adapter's three-minute heartbeat registers the same values and
+  writes no event: on sloth that heartbeat was 359,291 of the 414,506 events of
+  routd's log, 2,415 each day.
 - `audit_log` keeps 90 days. routd, authd, onbod and runed each delete the
   older events of their own log at start and then once a day. It is the one
   table that expires; messages and every other log stay without limit.

@@ -192,7 +192,7 @@ network:
   egress.block           egress proxy: outbound TCP refused (not built)
 
 channel:
-  channel.register       chanreg.Register row inserted
+  channel.register       chanreg.Register row inserted or changed; a heartbeat that changes nothing writes no event
   channel.deregister     chanreg.Register row removed
   channel.bot_join       inbound: bot acknowledged invite to a chat
   route_token.mint       store.InsertRouteToken

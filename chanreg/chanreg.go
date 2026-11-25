@@ -7,9 +7,11 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"fmt"
+	"maps"
 	"net"
 	"net/url"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -132,7 +134,8 @@ func (r *Registry) RegisterWithOrigin(name, rawURL string, prefixes []string, ca
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if old, ok := r.entries[name]; ok {
+	old, ok := r.entries[name]
+	if ok {
 		// Only enforce the pin when both sides supplied identifiers. Tests that
 		// call Register(...) skip the check; production callers always supply a
 		// non-empty presentedSecret via the HTTP handler.
@@ -169,6 +172,9 @@ func (r *Registry) RegisterWithOrigin(name, rawURL string, prefixes []string, ca
 		r.byPrincipal[presentedSecret] = e
 	}
 
+	if isSameRegistration(old, e) {
+		return token, nil
+	}
 	audit.Emit(context.Background(), audit.Event{
 		Category: audit.CategoryChannel,
 		Action:   "channel.register",
@@ -184,6 +190,20 @@ func (r *Registry) RegisterWithOrigin(name, rawURL string, prefixes []string, ca
 	})
 
 	return token, nil
+}
+
+// isSameRegistration reports whether e registers what old already holds. An
+// adapter registers again every three minutes as its heartbeat, and that
+// heartbeat is not an event: only a registration that changes the URL, the
+// prefixes, the capabilities, the principal or the address is recorded in
+// audit_log. The session token and RegisteredAt change on every call.
+func isSameRegistration(old, e *Entry) bool {
+	return old != nil &&
+		old.URL == e.URL &&
+		old.OriginIP == e.OriginIP &&
+		old.Principal == e.Principal &&
+		slices.Equal(old.JIDPrefixes, e.JIDPrefixes) &&
+		maps.Equal(old.Capabilities, e.Capabilities)
 }
 
 func (r *Registry) Deregister(name string) {
