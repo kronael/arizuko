@@ -189,7 +189,6 @@ Grep `session invalidated`, `router registration failed, retrying`, `inbound swe
 `retaining an inbound message failed`, and `the inbound ledger is unreadable`.
 Application logs use the local JSON logger; Baileys logs through pino at warn level.
 The health probe does not verify ledger readability or routd delivery.
-Stale health differs from Go adapters ([BUGS L484](../BUGS.md)).
 The dashboard pairing proxy presents a caller whapd refuses ([BUGS L492](../BUGS.md)).
 A live invalidated pairing needs the operator's phone ([BUGS L63 and L42](../BUGS.md)).
 
